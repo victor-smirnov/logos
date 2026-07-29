@@ -2461,49 +2461,66 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 }
 
 // ── emit_aggregate — group-by + aggregate (mirror walk_aggregate) ─────────────
-// `having_ref`/`has_having` — the post-aggregation filter over the group rows
-// (predicate over the group `key` + aggregate output names). With any of
-// having / order / distinct / limit the group COLUMNS are materialized into
-// parallel Vecs (key + one per aggregate) and the projection runs as a separate
-// output phase (having filters at materialization; order sorts a group-row
-// permutation — stable insertion sort, O(n²) MVP; distinct dedups projected
-// values; limit caps via the output-loop condition). Without modifiers the
-// original single-pass push shape is emitted unchanged.
+// ONE emitter for BOTH aggregate inputs. A bare scan is the DEGENERATE join
+// chain — `ch.n == 0` — not a second shape: `collect_chain` linearizes the
+// input, every per-step loop below (strategy trace, build phase, nest open,
+// nest close) then runs zero times, and what is left standing is exactly the
+// single-pass group fold over the base loop.
 //
-// A JOIN-CHAIN input (the aggregate-over-joined-stream shape) routes to
-// `emit_aggregate_join` — a single-pass fold over the joined rows with the
-// same group-column output phase.
+// The emitted shape, in order:
+//   • one BUILD PHASE per join step (the Part-2 strategy cascade, unchanged);
+//   • the joined-row NEST — no `limit` on the match loops, grouping needs
+//     every row;
+//   • the inner FOLD — find/insert the row's group by a linear `__g_key` scan
+//     (the MVP dedup), bump `__g_cnt`, fold each accumulator column
+//     incrementally (count/sum/min/max direct; avg = f64 sum + count, divided
+//     at finalization; a UDA threads its own `A` through `<name>_step`);
+//   • the FINALIZE pass — `__ga_*` (accumulator type `A`) → `__gf_*` (the
+//     finalized column type `R`), with `having` gating the group row;
+//   • the group-row OUTPUT phase — order / project / distinct / limit.
+//
+// ⚠ The two emitters this replaces were NOT equivalent, so the merge had to
+// pick: the scan shape accumulated an i64 `sum` through `el_add(…)?` (overflow
+// ⇒ `Err`, pinned by `query_agg_sum_overflow_e2e`) while the join shape used a
+// plain `+` that traps on the same input. The CHECKED add is what survives, so
+// an aggregate over a joined stream now reports an overflowing sum instead of
+// dying on it.
+//
+// ⚠ Also gone with the scan shape: its no-modifier fast path pushed the
+// projection straight from the group loop and skipped the group columns. The
+// merged shape always materializes `__gf_*` and always runs the output phase.
+// Same rows in the same order (group columns are in first-occurrence order and
+// the identity permutation preserves it) — more emitted lines, one fewer pass
+// over the source (the scan shape rescanned every row once PER GROUP).
 fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
                   fn_name: str, params_text: str, prm: &MacroParams,
                   result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
-    // Decompose the input: a bare scan keeps the classic two-pass shape below;
-    // a join chain (≥ 1 step) takes the joined-stream fold.
+    // The input as a linearized chain: base + `ch.n` steps. `ch.n == 0` IS the
+    // bare scan — the degenerate chain, not a special case.
     let mut ch: JChain = jchain_new();
     collect_chain(scan_e, &mut ch);
-    if ch.n > 0i64 {
-        return emit_aggregate_join(&ch, key_ref, aggs, where_ref, has_where,
-                                   having_ref, has_having, sel, mods,
-                                   fn_name, params_text, prm, result_ty0, has_result_ty, prelude, h);
-    }
-    let a_name: str = ch.base_src;
-    let a_ty: str   = ch.base_ty;
-    let x_var: str  = ch.base_var;
-
     let acount: i64 = aggs.len();
 
+    // Types: every bound source's row schema + scalar params + key/outputs.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, a_ty);
-    stamp_rel_source(&mut ty, prm, a_name, x_var);
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
+    let mut si: i64 = 0i64;
+    while si < ch.n {
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        // Scalar-element traversal var: name → element value type (bare refs).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
+        si = si + 1i64;
+    }
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
-
-    // Group KEY: infer its EL type from the row env (i64/str/bool; f64 has no
-    // Eq/Hash — named diagnostic) and stamp `key` with it for the having/
-    // order/select scope. `key_ty` also types __k / __seen / __g_key below.
+    // Group KEY: infer + stamp — f64 is rejected by name (no Eq/Hash).
+    // `key_ty` types __k / __g_key / __gf_key / the group binds below.
     let key_e: SExpr = key_ref.any().view::<SExpr>();
     if !reject_tuple(key_e, "wql!: `group by`") { return false; }
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
@@ -2530,70 +2547,93 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
     compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
 
-    let proj_e: SExpr = sel.any().view::<SExpr>();
-    if !check_calls(proj_e, &ty, "wql!: `select`") { return false; }
+    // Validate clause calls (select / where / on preds; the key is validated above).
+    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if has_where {
+        if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
+        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
+    }
+    let mut ci0: i64 = 0i64;
+    while ci0 < ch.n {
+        if ch.onw[ci0] != 0i64 {
+            if !reject_tuple(sexpr_of_word(ch.onw[ci0]), "wql!: `on`") { return false; }
+            if !check_calls(sexpr_of_word(ch.onw[ci0]), &ty, "wql!: `on`") { return false; }
+        }
+        ci0 = ci0 + 1i64;
+    }
 
-    let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
-
+    // Clause bodies (`key_opt` is already simplified above).
+    let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
         result_ty = el_class_repr(infer_ty(proj_opt, &ty));
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
-    // Tuple projection over the group row (`select (key, n, mean)` — group key +
-    // aggregate outputs in ONE result row): element type = the tuple type text.
+    // Tuple projection over the group row (join-aggregate shape).
     let mut tuple_tt: String = String::new();
     let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
     if tres < 0i32 { return false; }
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
-
     let mut key_body: String = String::new();
-    emit_sexpr(&mut key_body, key_opt, &ty, x_var);
+    emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     let mut where_body: String = String::new();
     if has_where {
-        let where_sexpr: SExpr = where_ref.any().view::<SExpr>();
-        if !reject_tuple(where_sexpr, "wql!: `where`") { return false; }
-        if !check_calls(where_sexpr, &ty, "wql!: `where`") { return false; }
-        let where_opt: SExpr = simplify_sexpr(where_sexpr, h).any().view::<SExpr>();
-        emit_sexpr(&mut where_body, where_opt, &ty, x_var);
+        let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
+        emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
     }
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, x_var);
-    // The HAVING predicate + the `order by` key range over the group `key` +
-    // aggregate OUTPUT names (typed above), not the row var.
+    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut having_body: String = String::new();
     if has_having {
         let hav_e: SExpr = having_ref.any().view::<SExpr>();
         if !reject_tuple(hav_e, "wql!: `having`") { return false; }
         if !check_calls(hav_e, &ty, "wql!: `having`") { return false; }
         let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
-        emit_sexpr(&mut having_body, hav_opt, &ty, x_var);
+        emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
     }
     let mut okey_body: String = String::new();
     let mut okey_ty: str = "i64";
     if mods.has_sort {
-        let okey_e: SExpr = mods.sort_key.any().view::<SExpr>();
-        if !reject_tuple(okey_e, "wql!: `order by`") { return false; }
-        if !check_calls(okey_e, &ty, "wql!: `order by`") { return false; }
-        let okey_opt: SExpr = simplify_sexpr(okey_e, h).any().view::<SExpr>();
+        if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
+        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
+        let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
-        emit_sexpr(&mut okey_body, okey_opt, &ty, x_var);
+        emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
     }
     let lim_cond: String = limit_cond_text(&mods);
-    // Any modifier ⇒ materialize the group columns + separate output phase.
-    let mods_any: bool = has_having || mods.has_sort || mods.distinct || mods.has_limit;
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    if !compute_agg_bodies(&aggs, acount, &ty, x_var, h, &uda, &mut agg_body) { return false; }
+    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda, &mut agg_body) { return false; }
 
+    // Per-step strategy analysis (the same Part-2 cascade as the join shape).
+    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_strat:  [i32; 8]  = [0i32; 8];
+    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut st_hasres: [bool; 8] = [false; 8];
+    let mut st_equi:   [bool; 8] = [false; 8];
+    let mut st_stream: [bool; 8] = [false; 8];
+    if !analyze_chain(&ch, &ty, ch.base_var, h, prm,
+                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
+                      &mut st_stream) { return false; }
+
+    // Body + strategy trace + build phases + accumulator columns.
+    //
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     // ⚠ `em` is a BODY BUFFER, not a chunk: it holds `{ … }` and is never
-    // committed (see emit_join_chain for the full note). The group-by body's
-    // shape is a runtime value — one accumulator per aggregate, one column Vec
-    // per aggregate under any modifier — so it stays text; the signature does
-    // not.
+    // committed (see emit_join_chain for the full note). This emitter has BOTH
+    // runtime-shaped dimensions at once — a nest whose depth is `ch.n` and a
+    // column set sized by the aggregate count — which is exactly why the body
+    // is the only part that stays text.
     let mut em: Emitter = Emitter::new();
     let mut rty: String = String::new();
     rty.push_str("Result<Vec<");
@@ -2606,279 +2646,350 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     em.push_text("> = Vec::<");
     em.push_text(result_ty);
     em.push_text(">::new();\n");
-    if mods_any {
-        // Materialized group columns: `key` + one Vec per aggregate output
-        // (typed by the finalized column type — UDA outputs carry R's lattice
-        // type, builtins the f64/i64 split).
-        em.push_text("    let mut __g_key: Vec<");
-        em.push_text(key_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(key_ty);
-        em.push_text(">::new();\n");
-        let mut gd: i64 = 0i64;
-        while gd < acount {
-            let a: RAgg = aggs.agg_at(gd);
-            em.push_text("    let mut __g_");
-            em.push_text(a.out);
-            em.push_text(": Vec<");
-            em.push_text(act[gd]);
-            em.push_text("> = Vec::<");
-            em.push_text(act[gd]);
-            em.push_text(">::new();\n");
-            gd = gd + 1i64;
-        }
+    let mut ci: i64 = 0i64;
+    while ci < ch.n {
+        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
+                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
+        ci = ci + 1i64;
     }
-    em.push_text("    let mut __seen: Vec<");
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                         string_as_str(&st_build[bpi]), st_stream[bpi]);
+        bpi = bpi + 1i64;
+    }
+    em.push_text("    let mut __g_key: Vec<");
     em.push_text(key_ty);
     em.push_text("> = Vec::<");
     em.push_text(key_ty);
     em.push_text(">::new();\n");
-    em.push_text("    let mut __i: i64 = 0i64;\n");
-    em.push_text("    while __i < (");
-    em.push_text(a_name);
+    em.push_text("    let mut __g_cnt: Vec<i64> = Vec::<i64>::new();\n");
+    // The group's REPRESENTATIVE base row — the index of the row that created
+    // the group. It re-binds the base row var wherever the group columns are
+    // bound, so `having` / `order by` / `select` may name it (`select (e.key,
+    // n)`), not only `key` and the aggregate outputs.
+    //
+    // ⚠ This USED to work in exactly one shape: the scan emitter's no-modifier
+    // fast path projected inside the row loop, where the row var was still in
+    // scope, and adding `order by` to the same query broke it with an
+    // `undefined variable` on GENERATED code. Carrying the index makes the rule
+    // the same in every shape instead of deleting the capability.
+    em.push_text("    let mut __g_row: Vec<i64> = Vec::<i64>::new();\n");
+    let mut gd: i64 = 0i64;
+    while gd < acount {
+        let a: RAgg = aggs.agg_at(gd);
+        em.push_text("    let mut __ga_");
+        em.push_text(a.out);
+        if uda[gd] {
+            // UDA accumulator column: the user's A type, threaded verbatim
+            // (a struct accumulator must be Copy — Vec.get/set fold cells).
+            em.push_text(": Vec<");
+            em.push_text(uda_acc[gd]);
+            em.push_text("> = Vec::<");
+            em.push_text(uda_acc[gd]);
+            em.push_text(">::new();\n");
+        }
+        else if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
+        else                { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
+        gd = gd + 1i64;
+    }
+
+    // The joined-stream nest (NO limit on the match loops — grouping needs
+    // every row; `limit` caps the group-row OUTPUT phase below).
+    let mut lvl: i64 = 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __i0: i64 = 0i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("while __i0 < (");
+    em.push_text(ch.base_src);
     em.push_text(").len() {\n");
-    em.push_text("        let ");
-    em.push_text(x_var);
+    lvl = lvl + 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("let ");
+    em.push_text(ch.base_var);
     em.push_text(": &");
-    em.push_text(a_ty);
+    em.push_text(ch.base_ty);
     em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__i];\n");
+    em.push_text(ch.base_src);
+    em.push_text(")[__i0];\n");
+    let mut opens: [i64; 8] = [0i64; 8];
+    let mut oi: i64 = 0i64;
+    while oi < ch.n {
+        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
+                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
+                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
+                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
+                                   "", st_stream[oi]);
+        lvl = lvl + opens[oi];
+        oi = oi + 1i64;
+    }
+
+    // Inner body: the single-pass group fold.
     if has_where {
-        em.push_text("        if (");
+        push_ind(&mut em, lvl);
+        em.push_text("if (");
         em.push_text(string_as_str(&where_body));
         em.push_text(") {\n");
+        lvl = lvl + 1i64;
     }
-    em.push_text("        let __k: ");
+    push_ind(&mut em, lvl);
+    em.push_text("let __k: ");
     em.push_text(key_ty);
     em.push_text(" = (");
     em.push_text(string_as_str(&key_body));
     em.push_text(");\n");
-    em.push_text("        let mut __f: bool = false;\n");
-    em.push_text("        let mut __s: i64 = 0i64;\n");
-    em.push_text("        while __s < __seen.len() { if __seen.get(__s) == __k { __f = true; } __s = __s + 1i64; }\n");
-    em.push_text("        if (!__f) {\n");
-    em.push_text("            __seen.push(__k);\n");
-    let mut c0: i64 = 0i64;
-    while c0 < acount {
-        let a: RAgg = aggs.agg_at(c0);
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __gi: i64 = -1i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("let mut __s: i64 = 0i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }\n");
+    push_ind(&mut em, lvl);
+    em.push_text("if __gi < 0i64 {\n");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__g_key.push(__k);\n");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__g_cnt.push(0i64);\n");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__g_row.push(__i0);\n");
+    let mut sd: i64 = 0i64;
+    while sd < acount {
+        let a: RAgg = aggs.agg_at(sd);
         let fnid: i32 = agg_of_name(a.fn_name);
-        em.push_text("            let mut __agg_");
+        push_ind(&mut em, lvl + 1i64);
+        em.push_text("__ga_");
         em.push_text(a.out);
-        if uda[c0] {
-            // UDA accumulator: the user's A type, seeded by <name>_init().
-            em.push_text(": ");
-            em.push_text(uda_acc[c0]);
-            em.push_text(" = ");
+        if uda[sd] {
+            // UDA group creation: seed with <name>_init().
+            em.push_text(".push(");
             em.push_text(a.fn_name);
-            em.push_text("_init();\n");
-        } else if agg_flt[c0] {
-            // f64 accumulator: min/max seed with ±f64::MAX (finite extremes).
-            if fnid == AGG_MIN() {
-                em.push_text(": f64 = 1.7976931348623157e308f64;\n");
-            } else if fnid == AGG_MAX() {
-                em.push_text(": f64 = -1.7976931348623157e308f64;\n");
-            } else {
-                em.push_text(": f64 = 0.0f64;\n");
-            }
+            em.push_text("_init());\n");
+        } else if agg_flt[sd] {
+            if fnid == AGG_MIN()      { em.push_text(".push(1.7976931348623157e308f64);\n"); }
+            else if fnid == AGG_MAX() { em.push_text(".push(-1.7976931348623157e308f64);\n"); }
+            else                      { em.push_text(".push(0.0f64);\n"); }
         } else if fnid == AGG_MIN() {
-            em.push_text(": i64 = 9223372036854775807i64;\n");
+            em.push_text(".push(9223372036854775807i64);\n");
         } else if fnid == AGG_MAX() {
-            em.push_text(": i64 = -9223372036854775808i64;\n");
+            em.push_text(".push(-9223372036854775808i64);\n");
         } else {
-            em.push_text(": i64 = 0i64;\n");
+            em.push_text(".push(0i64);\n");
         }
-        c0 = c0 + 1i64;
+        sd = sd + 1i64;
     }
-    em.push_text("            let mut __cnt: i64 = 0i64;\n");
-    em.push_text("            let mut __j: i64 = 0i64;\n");
-    em.push_text("            while __j < (");
-    em.push_text(a_name);
-    em.push_text(").len() {\n");
-    em.push_text("                let ");
-    em.push_text(x_var);
-    em.push_text(": &");
-    em.push_text(a_ty);
-    em.push_text(" = &(");
-    em.push_text(a_name);
-    em.push_text(")[__j];\n");
-    if has_where {
-        em.push_text("                if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-    }
-    em.push_text("                if ((");
-    em.push_text(string_as_str(&key_body));
-    em.push_text(") == __k) {\n");
-    em.push_text("                    __cnt = __cnt + 1i64;\n");
-    let mut c1: i64 = 0i64;
-    while c1 < acount {
-        let a: RAgg = aggs.agg_at(c1);
-        let aname2: str = a.out;
-        let fnid2: i32 = agg_of_name(a.fn_name);
-        if uda[c1] {
-            // UDA fold: acc = <name>_step(acc, <arg>).
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = ");
+    push_ind(&mut em, lvl + 1i64);
+    em.push_text("__gi = __g_key.len() - 1i64;\n");
+    push_ind(&mut em, lvl);
+    em.push_text("}\n");
+    push_ind(&mut em, lvl);
+    em.push_text("__g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);\n");
+    let mut fd: i64 = 0i64;
+    while fd < acount {
+        let a: RAgg = aggs.agg_at(fd);
+        let aname: str = a.out;
+        let fnid: i32 = agg_of_name(a.fn_name);
+        if uda[fd] {
+            // UDA fold: cell = <name>_step(cell, <arg>).
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, ");
             em.push_text(a.fn_name);
-            em.push_text("_step(__agg_");
-            em.push_text(aname2);
-            em.push_text(", (");
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("));\n");
-        } else if fnid2 == AGG_COUNT() {
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __agg_");
-            em.push_text(aname2);
-            em.push_text(" + 1i64;\n");
-        } else if fnid2 == AGG_SUM() && !agg_flt[c1] {
+            em.push_text("_step(__ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi), (");
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text(")));\n");
+        } else if fnid == AGG_COUNT() {
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) + 1i64);\n");
+        } else if fnid == AGG_SUM() && !agg_flt[fd] {
             // i64 `sum` ACCUMULATOR is error-returning: a running-total overflow
             // becomes Err(ElError) via el_add(…)?, never a trap — the sibling of
             // EL scalar arithmetic (the arg is already checked) and of the
             // dynamic/incremental sum accumulators.
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = el_add(__agg_");
-            em.push_text(aname2);
-            em.push_text(", (");
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("))?;\n");
-        } else if fnid2 == AGG_SUM() || fnid2 == AGG_AVG() {
-            em.push_text("                    __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __agg_");
-            em.push_text(aname2);
-            // avg over an INT arg folds into an f64 accumulator: explicit cast
-            // (Logos has no implicit int→float).
-            if agg_cast[c1] { em.push_text(" + ((");  } else { em.push_text(" + ("); }
-            em.push_text(string_as_str(&agg_body[c1]));
-            if agg_cast[c1] { em.push_text(") as f64);\n"); } else { em.push_text(");\n"); }
-        } else if fnid2 == AGG_MIN() {
-            if agg_flt[c1] { em.push_text("                    { let __v: f64 = ("); }
-            else           { em.push_text("                    { let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("); if __v < __agg_");
-            em.push_text(aname2);
-            em.push_text(" { __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __v; } }\n");
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, el_add(__ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi), (");
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text("))?);\n");
+        } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
+            push_ind(&mut em, lvl);
+            em.push_text("__ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __ga_");
+            em.push_text(aname);
+            if agg_cast[fd] { em.push_text(".get(__gi) + ((");  } else { em.push_text(".get(__gi) + ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            if agg_cast[fd] { em.push_text(") as f64));\n"); } else { em.push_text("));\n"); }
+        } else if fnid == AGG_MIN() {
+            push_ind(&mut em, lvl);
+            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
+            else           { em.push_text("{ let __v: i64 = ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text("); if __v < __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) { __ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __v); } }\n");
         } else {
-            if agg_flt[c1] { em.push_text("                    { let __v: f64 = ("); }
-            else           { em.push_text("                    { let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[c1]));
-            em.push_text("); if __v > __agg_");
-            em.push_text(aname2);
-            em.push_text(" { __agg_");
-            em.push_text(aname2);
-            em.push_text(" = __v; } }\n");
+            push_ind(&mut em, lvl);
+            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
+            else           { em.push_text("{ let __v: i64 = ("); }
+            em.push_text(string_as_str(&agg_body[fd]));
+            em.push_text("); if __v > __ga_");
+            em.push_text(aname);
+            em.push_text(".get(__gi) { __ga_");
+            em.push_text(aname);
+            em.push_text(".set(__gi, __v); } }\n");
         }
-        c1 = c1 + 1i64;
+        fd = fd + 1i64;
     }
-    em.push_text("                }\n");
-    if has_where { em.push_text("                }\n"); }
-    em.push_text("                __j = __j + 1i64;\n");
-    em.push_text("            }\n");
-    em.push_text("            let key: ");
+    if has_where {
+        lvl = lvl - 1i64;
+        push_ind(&mut em, lvl);
+        em.push_text("}\n");
+    }
+
+    // Close the nest + the base loop.
+    let mut ki2: i64 = ch.n - 1i64;
+    while ki2 >= 0i64 {
+        let closed: i64 = emit_step_close(&mut em, lvl, ki2 + 1i64, st_strat[ki2],
+                                          ch.anti[ki2], st_hasres[ki2]);
+        lvl = lvl - closed;
+        ki2 = ki2 - 1i64;
+    }
+    push_ind(&mut em, lvl);
+    em.push_text("__i0 = __i0 + 1i64;\n");
+    lvl = lvl - 1i64;
+    push_ind(&mut em, lvl);
+    em.push_text("}\n");
+
+    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns
+    // (typed by the finalized column type — a UDA column narrows from the
+    // accumulator's A to R's lattice type here, via <name>_fin when declared).
+    em.push_text("    let mut __gf_key: Vec<");
     em.push_text(key_ty);
-    em.push_text(" = __k;\n");
-    let mut c2: i64 = 0i64;
-    while c2 < acount {
-        let a: RAgg = aggs.agg_at(c2);
-        let aname3: str = a.out;
-        let fnid3: i32 = agg_of_name(a.fn_name);
-        em.push_text("            let ");
-        em.push_text(aname3);
+    em.push_text("> = Vec::<");
+    em.push_text(key_ty);
+    em.push_text(">::new();\n");
+    em.push_text("    let mut __gf_row: Vec<i64> = Vec::<i64>::new();\n");
+    let mut fg: i64 = 0i64;
+    while fg < acount {
+        let a: RAgg = aggs.agg_at(fg);
+        em.push_text("    let mut __gf_");
+        em.push_text(a.out);
+        em.push_text(": Vec<");
+        em.push_text(act[fg]);
+        em.push_text("> = Vec::<");
+        em.push_text(act[fg]);
+        em.push_text(">::new();\n");
+        fg = fg + 1i64;
+    }
+    em.push_text("    let mut __r0: i64 = 0i64;\n");
+    em.push_text("    while __r0 < __g_key.len() {\n");
+    push_row_rebind(&mut em, "        ", ch.base_var, ch.base_ty, ch.base_src,
+                    "__g_row.get(__r0)");
+    em.push_text("        let key: ");
+    em.push_text(key_ty);
+    em.push_text(" = __g_key.get(__r0);\n");
+    let mut fz: i64 = 0i64;
+    while fz < acount {
+        let a: RAgg = aggs.agg_at(fz);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        em.push_text("        let ");
+        em.push_text(a.out);
         em.push_text(": ");
-        em.push_text(act[c2]);
+        em.push_text(act[fz]);
         em.push_text(" = ");
-        if uda[c2] {
-            // UDA finalize: <name>_fin(acc) (or the bare acc without _fin).
+        if uda[fz] {
             let mut acc_txt: String = String::new();
-            acc_txt.push_str("__agg_");
-            acc_txt.push_str(aname3);
+            acc_txt.push_str("__ga_");
+            acc_txt.push_str(a.out);
+            acc_txt.push_str(".get(__r0)");
             emit_uda_finalize(&mut em, a.fn_name, string_as_str(&acc_txt),
-                              uda_fin[c2], uda_fin_cast(act[c2], uda_ret[c2]));
+                              uda_fin[fz], uda_fin_cast(act[fz], uda_ret[fz]));
             em.push_text(";\n");
-        } else if fnid3 == AGG_AVG() {
-            // avg is ALWAYS f64: an f64 accumulator divided by the (cast) count
-            // — the exact mean, no integer truncation.
-            em.push_text("(if __cnt > 0i64 { __agg_");
-            em.push_text(aname3);
-            em.push_text(" / (__cnt as f64) } else { 0.0f64 });\n");
+        } else if fnid == AGG_AVG() {
+            em.push_text("(if __g_cnt.get(__r0) > 0i64 { __ga_");
+            em.push_text(a.out);
+            em.push_text(".get(__r0) / (__g_cnt.get(__r0) as f64) } else { 0.0f64 });\n");
         } else {
-            em.push_text("__agg_");
-            em.push_text(aname3);
-            em.push_text(";\n");
+            em.push_text("__ga_");
+            em.push_text(a.out);
+            em.push_text(".get(__r0);\n");
         }
-        c2 = c2 + 1i64;
+        fz = fz + 1i64;
     }
-    if mods_any {
-        // HAVING gates the group row at materialization; the projection runs in
-        // the separate output phase below.
-        if has_having {
-            em.push_text("            if (");
-            em.push_text(string_as_str(&having_body));
-            em.push_text(") {\n");
-        }
-        em.push_text("            __g_key.push(key);\n");
-        let mut gp: i64 = 0i64;
-        while gp < acount {
-            let a: RAgg = aggs.agg_at(gp);
-            em.push_text("            __g_");
-            em.push_text(a.out);
-            em.push_text(".push(");
-            em.push_text(a.out);
-            em.push_text(");\n");
-            gp = gp + 1i64;
-        }
-        if has_having { em.push_text("            }\n"); }
-    } else {
-        em.push_text("            __out.push(");
-        em.push_text(string_as_str(&proj_body));
+    let mut find2: str = "        ";
+    if has_having {
+        em.push_text("        if (");
+        em.push_text(string_as_str(&having_body));
+        em.push_text(") {\n");
+        find2 = "            ";
+    }
+    em.push_text(find2);
+    em.push_text("__gf_key.push(key);\n");
+    em.push_text(find2);
+    em.push_text("__gf_row.push(__g_row.get(__r0));\n");
+    let mut fp: i64 = 0i64;
+    while fp < acount {
+        let a: RAgg = aggs.agg_at(fp);
+        em.push_text(find2);
+        em.push_text("__gf_");
+        em.push_text(a.out);
+        em.push_text(".push(");
+        em.push_text(a.out);
         em.push_text(");\n");
+        fp = fp + 1i64;
     }
-    em.push_text("        }\n");
-    if has_where { em.push_text("        }\n"); }
-    em.push_text("        __i = __i + 1i64;\n");
+    if has_having { em.push_text("        }\n"); }
+    em.push_text("        __r0 = __r0 + 1i64;\n");
     em.push_text("    }\n");
-    if mods_any {
-        // Output phase: order the group-row permutation (or keep discovery
-        // order), then re-bind the group columns per row and project.
-        em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
-        if mods.has_sort {
-            em.push_text("    let mut __ks: Vec<");
-            em.push_text(okey_ty);
-            em.push_text("> = Vec::<");
-            em.push_text(okey_ty);
-            em.push_text(">::new();\n");
-        }
-        em.push_text("    let mut __r: i64 = 0i64;\n");
-        em.push_text("    while __r < __g_key.len() {\n");
-        if mods.has_sort {
-            emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__g_", key_ty);
-            em.push_text("        __ix0.push(__r);\n");
-            em.push_text("        __ks.push(");
-            em.push_text(string_as_str(&okey_body));
-            em.push_text(");\n");
-        } else {
-            em.push_text("        __ix0.push(__r);\n");
-        }
-        em.push_text("        __r = __r + 1i64;\n");
-        em.push_text("    }\n");
-        if mods.has_sort {
-            emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
-        }
-        em.push_text("    let mut __o: i64 = 0i64;\n");
-        em.push_text("    while __o < __ix0.len()");
-        em.push_text(string_as_str(&lim_cond));
-        em.push_text(" {\n");
-        emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__g_", key_ty);
-        emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
-        em.push_text("        __o = __o + 1i64;\n");
-        em.push_text("    }\n");
+
+    // Group-row OUTPUT phase: order → project → distinct → limit.
+    em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
+    if mods.has_sort {
+        em.push_text("    let mut __ks: Vec<");
+        em.push_text(okey_ty);
+        em.push_text("> = Vec::<");
+        em.push_text(okey_ty);
+        em.push_text(">::new();\n");
     }
+    em.push_text("    let mut __r: i64 = 0i64;\n");
+    em.push_text("    while __r < __gf_key.len() {\n");
+    if mods.has_sort {
+        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, key_ty,
+                         ch.base_var, ch.base_ty, ch.base_src);
+        em.push_text("        __ix0.push(__r);\n");
+        em.push_text("        __ks.push(");
+        em.push_text(string_as_str(&okey_body));
+        em.push_text(");\n");
+    } else {
+        em.push_text("        __ix0.push(__r);\n");
+    }
+    em.push_text("        __r = __r + 1i64;\n");
+    em.push_text("    }\n");
+    if mods.has_sort {
+        emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
+    }
+    em.push_text("    let mut __o: i64 = 0i64;\n");
+    em.push_text("    while __o < __ix0.len()");
+    em.push_text(string_as_str(&lim_cond));
+    em.push_text(" {\n");
+    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, key_ty,
+                     ch.base_var, ch.base_ty, ch.base_src);
+    emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
+    em.push_text("        __o = __o + 1i64;\n");
+    em.push_text("    }\n");
     em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
     emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
@@ -2886,20 +2997,41 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     return true;
 }
 
-// Emit the group-column re-binds for one materialized group row (`key` + each
-// aggregate output as a local of its declared name, read from the parallel
-// Vecs at index expression `idx`). `pfx` is the column-Vec name prefix —
-// "__g_" for the classic two-pass shape, "__gf_" for the joined-stream fold's
-// finalized columns.
+// Bind the base row var to a group's REPRESENTATIVE row: `let <var>: &<ty> =
+// &(<src>)[<idx expr>];`. Emitted wherever the group columns are bound, so a
+// clause over a group row may name the row var as well as `key`.
+fn push_row_rebind(em: &mut Emitter, indent: str, base_var: str, base_ty: str,
+                   base_src: str, idx: str) {
+    em.push_text(indent);
+    em.push_text("let ");
+    em.push_text(base_var);
+    em.push_text(": &");
+    em.push_text(base_ty);
+    em.push_text(" = &(");
+    em.push_text(base_src);
+    em.push_text(")[");
+    em.push_text(idx);
+    em.push_text("];\n");
+}
+
+// Emit the group-column re-binds for one FINALIZED group row (the
+// representative base row + `key` + each aggregate output as a local of its
+// declared name, read from the parallel `__gf_*` Vecs at index expression
+// `idx`). Used twice by the output phase: once to evaluate the `order by` key,
+// once to project.
 fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
-                    aggs: &RAggArr, acount: i64, act: &[str; 8], pfx: str,
-                    key_ty: str) {
+                    aggs: &RAggArr, acount: i64, act: &[str; 8],
+                    key_ty: str, base_var: str, base_ty: str, base_src: str) {
+    let mut ridx: String = String::new();
+    ridx.push_str("__gf_row.get(");
+    ridx.push_str(idx);
+    ridx.push_str(")");
+    push_row_rebind(em, indent, base_var, base_ty, base_src, string_as_str(&ridx));
     em.push_text(indent);
     em.push_text("let key: ");
     em.push_text(key_ty);
     em.push_text(" = ");
-    em.push_text(pfx);
-    em.push_text("key.get(");
+    em.push_text("__gf_key.get(");
     em.push_text(idx);
     em.push_text(");\n");
     let mut gi: i64 = 0i64;
@@ -2911,7 +3043,7 @@ fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
         em.push_text(": ");
         em.push_text(act[gi]);
         em.push_text(" = ");
-        em.push_text(pfx);
+        em.push_text("__gf_");
         em.push_text(a.out);
         em.push_text(".get(");
         em.push_text(idx);
@@ -2920,7 +3052,7 @@ fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
     }
 }
 
-// ── Shared aggregate-spec computation (classic + joined-stream paths) ────────
+// ── Aggregate-spec computation ───────────────────────────────────────────────
 // Per-aggregate OUTPUT value-type + accumulator width:
 //   • count → INT (always an i64 row count);
 //   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
@@ -3188,483 +3320,6 @@ fn emit_uda_finalize(em: &mut Emitter, name: str, acc_txt: str,
         em.push_text(")");
         em.push_text(cast);
     }
-}
-
-// ── emit_aggregate_join — group-by + aggregate over a JOINED stream ──────────
-// The join steps reuse the chain machinery (strategy cascade + build phases +
-// nest open/close); the inner body is a SINGLE-PASS group fold: find/insert
-// the row's group (linear __g_key scan — the MVP dedup), bump the fold count,
-// fold each aggregate accumulator incrementally (count/sum/min/max direct;
-// avg = f64 sum + count, divided at finalization). A finalize pass computes
-// the output columns (+ HAVING filter), then the group-row OUTPUT phase —
-// order / distinct / limit / project — runs exactly like the classic shape's
-// materialized-columns phase.
-fn emit_aggregate_join(ch: &JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
-                       where_ref: WRef<SExpr>, has_where: bool,
-                       having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
-                       mods: QMods,
-                       fn_name: str, params_text: str, prm: &MacroParams,
-                       result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
-    let acount: i64 = aggs.len();
-
-    // Types: every bound source's row schema + scalar params + key/outputs.
-    let mut ty: ElTypes = el_types_new();
-    let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
-    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
-    let mut si: i64 = 0i64;
-    while si < ch.n {
-        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
-        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
-        // Scalar-element traversal var: name → element value type (bare refs).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
-        si = si + 1i64;
-    }
-    apply_scalar_params(&mut ty, prm);
-    stamp_udfs_from_module(&view, &mut ty);
-    // Group KEY: infer + stamp (mirror of the classic shape; f64 keys get the
-    // same named diagnostic). `key_ty` types __k / __g_key / group binds below.
-    let key_e: SExpr = key_ref.any().view::<SExpr>();
-    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
-    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
-    let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
-    let key_ety: i32 = infer_ty(key_opt, &ty);
-    if key_ety == EL_TY_FLT() {
-        error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
-        return false;
-    }
-    let key_ty: str = el_class_repr(key_ety);
-    ty.set_ty("key", key_ety);
-    let mut agg_flt:  [bool; 8] = [false; 8];
-    let mut agg_cast: [bool; 8] = [false; 8];
-    compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
-    // UDA resolution (naming-convention triple) + finalized column types.
-    let mut uda:     [bool; 8] = [false; 8];
-    let mut uda_fin: [bool; 8] = [false; 8];
-    let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut aret:    [i32; 8]  = [0i32; 8];
-    if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
-                     &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &mut ty);
-    let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
-
-    // Validate clause calls (select / where / on preds; the key is validated above).
-    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
-    if has_where {
-        if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
-        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
-    }
-    let mut ci0: i64 = 0i64;
-    while ci0 < ch.n {
-        if ch.onw[ci0] != 0i64 {
-            if !reject_tuple(sexpr_of_word(ch.onw[ci0]), "wql!: `on`") { return false; }
-            if !check_calls(sexpr_of_word(ch.onw[ci0]), &ty, "wql!: `on`") { return false; }
-        }
-        ci0 = ci0 + 1i64;
-    }
-
-    // Clause bodies (`key_opt` is already simplified above).
-    let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
-    let mut result_ty: str = result_ty0;
-    if !has_result_ty {
-        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
-        // Owned-String projection (String-returning call at the select root).
-        if returns_string(proj_opt, &ty) { result_ty = "String"; }
-    }
-    // Tuple projection over the group row (join-aggregate shape).
-    let mut tuple_tt: String = String::new();
-    let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
-    if tres < 0i32 { return false; }
-    if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
-    let mut key_body: String = String::new();
-    emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
-    let mut where_body: String = String::new();
-    if has_where {
-        let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
-        emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
-    }
-    let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
-    let mut having_body: String = String::new();
-    if has_having {
-        let hav_e: SExpr = having_ref.any().view::<SExpr>();
-        if !reject_tuple(hav_e, "wql!: `having`") { return false; }
-        if !check_calls(hav_e, &ty, "wql!: `having`") { return false; }
-        let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
-        emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
-    }
-    let mut okey_body: String = String::new();
-    let mut okey_ty: str = "i64";
-    if mods.has_sort {
-        if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
-        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
-        let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
-        emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
-    }
-    let lim_cond: String = limit_cond_text(&mods);
-
-    let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda, &mut agg_body) { return false; }
-
-    // Per-step strategy analysis (the same Part-2 cascade as the join shape).
-    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_strat:  [i32; 8]  = [0i32; 8];
-    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut st_hasres: [bool; 8] = [false; 8];
-    let mut st_equi:   [bool; 8] = [false; 8];
-    let mut st_stream: [bool; 8] = [false; 8];
-    if !analyze_chain(ch, &ty, ch.base_var, h, prm,
-                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
-                      &mut st_stream) { return false; }
-
-    // Body + strategy trace + build phases + accumulator columns.
-    //
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
-    // ⚠ `em` is a BODY BUFFER, not a chunk: it holds `{ … }` and is never
-    // committed (see emit_join_chain for the full note). This emitter has BOTH
-    // runtime-shaped dimensions at once — a nest whose depth is `ch.n` and a
-    // column set sized by the aggregate count — which is exactly why the body
-    // is the only part that stays text.
-    let mut em: Emitter = Emitter::new();
-    let mut rty: String = String::new();
-    rty.push_str("Result<Vec<");
-    rty.push_str(result_ty);
-    rty.push_str(">, ElError>");
-    em.push_text("{\n");
-    em.push_text(prelude);
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(result_ty);
-    em.push_text(">::new();\n");
-    let mut ci: i64 = 0i64;
-    while ci < ch.n {
-        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
-        ci = ci + 1i64;
-    }
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]), st_stream[bpi]);
-        bpi = bpi + 1i64;
-    }
-    em.push_text("    let mut __g_key: Vec<");
-    em.push_text(key_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(key_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __g_cnt: Vec<i64> = Vec::<i64>::new();\n");
-    let mut gd: i64 = 0i64;
-    while gd < acount {
-        let a: RAgg = aggs.agg_at(gd);
-        em.push_text("    let mut __ga_");
-        em.push_text(a.out);
-        if uda[gd] {
-            // UDA accumulator column: the user's A type, threaded verbatim
-            // (a struct accumulator must be Copy — Vec.get/set fold cells).
-            em.push_text(": Vec<");
-            em.push_text(uda_acc[gd]);
-            em.push_text("> = Vec::<");
-            em.push_text(uda_acc[gd]);
-            em.push_text(">::new();\n");
-        }
-        else if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
-        else                { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
-        gd = gd + 1i64;
-    }
-
-    // The joined-stream nest (NO limit on the match loops — grouping needs
-    // every row; `limit` caps the group-row OUTPUT phase below).
-    let mut lvl: i64 = 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __i0: i64 = 0i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("while __i0 < (");
-    em.push_text(ch.base_src);
-    em.push_text(").len() {\n");
-    lvl = lvl + 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("let ");
-    em.push_text(ch.base_var);
-    em.push_text(": &");
-    em.push_text(ch.base_ty);
-    em.push_text(" = &(");
-    em.push_text(ch.base_src);
-    em.push_text(")[__i0];\n");
-    let mut opens: [i64; 8] = [0i64; 8];
-    let mut oi: i64 = 0i64;
-    while oi < ch.n {
-        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
-                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
-                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   "", st_stream[oi]);
-        lvl = lvl + opens[oi];
-        oi = oi + 1i64;
-    }
-
-    // Inner body: the single-pass group fold.
-    if has_where {
-        push_ind(&mut em, lvl);
-        em.push_text("if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-        lvl = lvl + 1i64;
-    }
-    push_ind(&mut em, lvl);
-    em.push_text("let __k: ");
-    em.push_text(key_ty);
-    em.push_text(" = (");
-    em.push_text(string_as_str(&key_body));
-    em.push_text(");\n");
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __gi: i64 = -1i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __s: i64 = 0i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }\n");
-    push_ind(&mut em, lvl);
-    em.push_text("if __gi < 0i64 {\n");
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__g_key.push(__k);\n");
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__g_cnt.push(0i64);\n");
-    let mut sd: i64 = 0i64;
-    while sd < acount {
-        let a: RAgg = aggs.agg_at(sd);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        push_ind(&mut em, lvl + 1i64);
-        em.push_text("__ga_");
-        em.push_text(a.out);
-        if uda[sd] {
-            // UDA group creation: seed with <name>_init().
-            em.push_text(".push(");
-            em.push_text(a.fn_name);
-            em.push_text("_init());\n");
-        } else if agg_flt[sd] {
-            if fnid == AGG_MIN()      { em.push_text(".push(1.7976931348623157e308f64);\n"); }
-            else if fnid == AGG_MAX() { em.push_text(".push(-1.7976931348623157e308f64);\n"); }
-            else                      { em.push_text(".push(0.0f64);\n"); }
-        } else if fnid == AGG_MIN() {
-            em.push_text(".push(9223372036854775807i64);\n");
-        } else if fnid == AGG_MAX() {
-            em.push_text(".push(-9223372036854775808i64);\n");
-        } else {
-            em.push_text(".push(0i64);\n");
-        }
-        sd = sd + 1i64;
-    }
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__gi = __g_key.len() - 1i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("}\n");
-    push_ind(&mut em, lvl);
-    em.push_text("__g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);\n");
-    let mut fd: i64 = 0i64;
-    while fd < acount {
-        let a: RAgg = aggs.agg_at(fd);
-        let aname: str = a.out;
-        let fnid: i32 = agg_of_name(a.fn_name);
-        if uda[fd] {
-            // UDA fold: cell = <name>_step(cell, <arg>).
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, ");
-            em.push_text(a.fn_name);
-            em.push_text("_step(__ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi), (");
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text(")));\n");
-        } else if fnid == AGG_COUNT() {
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) + 1i64);\n");
-        } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __ga_");
-            em.push_text(aname);
-            if agg_cast[fd] { em.push_text(".get(__gi) + ((");  } else { em.push_text(".get(__gi) + ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            if agg_cast[fd] { em.push_text(") as f64));\n"); } else { em.push_text("));\n"); }
-        } else if fnid == AGG_MIN() {
-            push_ind(&mut em, lvl);
-            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
-            else           { em.push_text("{ let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text("); if __v < __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) { __ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __v); } }\n");
-        } else {
-            push_ind(&mut em, lvl);
-            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
-            else           { em.push_text("{ let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text("); if __v > __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) { __ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __v); } }\n");
-        }
-        fd = fd + 1i64;
-    }
-    if has_where {
-        lvl = lvl - 1i64;
-        push_ind(&mut em, lvl);
-        em.push_text("}\n");
-    }
-
-    // Close the nest + the base loop.
-    let mut ki2: i64 = ch.n - 1i64;
-    while ki2 >= 0i64 {
-        let closed: i64 = emit_step_close(&mut em, lvl, ki2 + 1i64, st_strat[ki2],
-                                          ch.anti[ki2], st_hasres[ki2]);
-        lvl = lvl - closed;
-        ki2 = ki2 - 1i64;
-    }
-    push_ind(&mut em, lvl);
-    em.push_text("__i0 = __i0 + 1i64;\n");
-    lvl = lvl - 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("}\n");
-
-    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns
-    // (typed by the finalized column type — a UDA column narrows from the
-    // accumulator's A to R's lattice type here, via <name>_fin when declared).
-    em.push_text("    let mut __gf_key: Vec<");
-    em.push_text(key_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(key_ty);
-    em.push_text(">::new();\n");
-    let mut fg: i64 = 0i64;
-    while fg < acount {
-        let a: RAgg = aggs.agg_at(fg);
-        em.push_text("    let mut __gf_");
-        em.push_text(a.out);
-        em.push_text(": Vec<");
-        em.push_text(act[fg]);
-        em.push_text("> = Vec::<");
-        em.push_text(act[fg]);
-        em.push_text(">::new();\n");
-        fg = fg + 1i64;
-    }
-    em.push_text("    let mut __r0: i64 = 0i64;\n");
-    em.push_text("    while __r0 < __g_key.len() {\n");
-    em.push_text("        let key: ");
-    em.push_text(key_ty);
-    em.push_text(" = __g_key.get(__r0);\n");
-    let mut fz: i64 = 0i64;
-    while fz < acount {
-        let a: RAgg = aggs.agg_at(fz);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        em.push_text("        let ");
-        em.push_text(a.out);
-        em.push_text(": ");
-        em.push_text(act[fz]);
-        em.push_text(" = ");
-        if uda[fz] {
-            let mut acc_txt: String = String::new();
-            acc_txt.push_str("__ga_");
-            acc_txt.push_str(a.out);
-            acc_txt.push_str(".get(__r0)");
-            emit_uda_finalize(&mut em, a.fn_name, string_as_str(&acc_txt),
-                              uda_fin[fz], uda_fin_cast(act[fz], uda_ret[fz]));
-            em.push_text(";\n");
-        } else if fnid == AGG_AVG() {
-            em.push_text("(if __g_cnt.get(__r0) > 0i64 { __ga_");
-            em.push_text(a.out);
-            em.push_text(".get(__r0) / (__g_cnt.get(__r0) as f64) } else { 0.0f64 });\n");
-        } else {
-            em.push_text("__ga_");
-            em.push_text(a.out);
-            em.push_text(".get(__r0);\n");
-        }
-        fz = fz + 1i64;
-    }
-    let mut find2: str = "        ";
-    if has_having {
-        em.push_text("        if (");
-        em.push_text(string_as_str(&having_body));
-        em.push_text(") {\n");
-        find2 = "            ";
-    }
-    em.push_text(find2);
-    em.push_text("__gf_key.push(key);\n");
-    let mut fp: i64 = 0i64;
-    while fp < acount {
-        let a: RAgg = aggs.agg_at(fp);
-        em.push_text(find2);
-        em.push_text("__gf_");
-        em.push_text(a.out);
-        em.push_text(".push(");
-        em.push_text(a.out);
-        em.push_text(");\n");
-        fp = fp + 1i64;
-    }
-    if has_having { em.push_text("        }\n"); }
-    em.push_text("        __r0 = __r0 + 1i64;\n");
-    em.push_text("    }\n");
-
-    // Group-row OUTPUT phase: order → project → distinct → limit.
-    em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
-    if mods.has_sort {
-        em.push_text("    let mut __ks: Vec<");
-        em.push_text(okey_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(okey_ty);
-        em.push_text(">::new();\n");
-    }
-    em.push_text("    let mut __r: i64 = 0i64;\n");
-    em.push_text("    while __r < __gf_key.len() {\n");
-    if mods.has_sort {
-        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, "__gf_", key_ty);
-        em.push_text("        __ix0.push(__r);\n");
-        em.push_text("        __ks.push(");
-        em.push_text(string_as_str(&okey_body));
-        em.push_text(");\n");
-    } else {
-        em.push_text("        __ix0.push(__r);\n");
-    }
-    em.push_text("        __r = __r + 1i64;\n");
-    em.push_text("    }\n");
-    if mods.has_sort {
-        emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
-    }
-    em.push_text("    let mut __o: i64 = 0i64;\n");
-    em.push_text("    while __o < __ix0.len()");
-    em.push_text(string_as_str(&lim_cond));
-    em.push_text(" {\n");
-    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, "__gf_", key_ty);
-    emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
-    em.push_text("        __o = __o + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return Result::Ok(__out);\n");
-    em.push_text("}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  em.buf.as_str(), prm);
-    return true;
 }
 
 // ══════════════════════════════════════════════════════════════════════════

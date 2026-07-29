@@ -117,12 +117,63 @@ emitter refuses outright to pair a streamed source with a rescanning strategy.
 the plan: a hash bucket over a streamed step must hold the ROWS, because the
 index it used to hold pointed into a slice that no longer exists.
 
-## 5. Two aggregate emitters — OPEN
+## 5. Two aggregate emitters — CLOSED (this pass)
 
-`emit_aggregate` (scan) and `emit_aggregate_join` (join chain) are ~720 lines
-each and share 176 lines verbatim. The duplication is real but the two are not
-a mechanical copy; splitting the shared middle out is a refactor with its own
-risk budget, listed here so it is not rediscovered.
+`emit_aggregate` (scan) and `emit_aggregate_join` (join chain) were ~720 lines
+each and shared 176 verbatim. They are now ONE `emit_aggregate`, and the merge
+is not "hoist the shared middle": **the scan is the DEGENERATE chain.** The
+emitter runs `collect_chain` on its input, and everything per-step — the
+strategy trace, the build phase, the nest open, the nest close — is a loop over
+`ch.n` that for a bare scan runs zero times. What is left standing is the
+single-pass group fold, and that is the whole emitter. There is no scan branch
+to keep in sync, because there is no scan branch.
+
+⚠ The two were NOT equivalent, and a merge has to notice that rather than pick
+a survivor at random. Three real divergences, the last two from one fast path:
+
+* i64 `sum` accumulated through `el_add(…)?` in the scan shape (overflow ⇒
+  `Err(ElError)`, pinned by `query_agg_sum_overflow_e2e`) and through a plain
+  `+` in the join shape — which traps on the same input. The CHECKED add is
+  what survives, so an aggregate over a joined stream now reports an
+  overflowing sum instead of dying on it. This is a bug the duplication was
+  hiding: the fix landed in one copy and the other never heard about it — the
+  same shape as the `i56`/`u56` divergence in #6, and the reason this list
+  exists.
+* The scan shape had a no-modifier fast path that pushed the projection
+  straight out of the group loop and never built the group columns. Gone: the
+  merged shape always materializes the `__gf_*` columns and always runs the
+  output phase. Same rows in the same order (columns are in group
+  first-occurrence order; the identity permutation preserves it), more emitted
+  lines, and one FEWER pass over the source — the scan shape rescanned every
+  row once per group, the fold is a single pass with a linear group probe.
+* …and that fast path leaked SCOPE, which is how the second divergence was
+  found: because it projected inside the row loop, `select (e.key, n)` — the
+  row var, not `key` — compiled there and NOWHERE else. Adding `order by` to
+  the very same query moved the projection to the output phase and it died with
+  `undefined variable 'e'` on GENERATED code. `deem_pushdown_all_shapes` was
+  written against the one shape that allowed it.
+
+  Resolved by making the capability real instead of deleting it: the fold now
+  carries `__g_row` / `__gf_row`, the index of the row that CREATED each group,
+  and re-binds the base row var (`let e: &Emp = &(es)[__gf_row.get(…)];`)
+  wherever the group columns are bound. So the row var is nameable from
+  `having`, `order by` and `select` alike, in the scan shape and the join shape,
+  and it means what it always meant where it worked — the group's first row.
+  ⚠ Only the BASE row var: a join STEP's var still has no representative,
+  because the nest is what binds it.
+
+`emit_group_binds` lost its `pfx` parameter along with the second prefix and
+gained the row re-bind. Measured: −345 lines in `rexpr_walk.logos`, −162
+`push_text` calls (1125 → 963). `wql_group_rowvar_e2e` pins the row var in
+`having` / `order by` / `select` at both chain lengths.
+
+What did NOT close, and it is the same wall the rest of the body conversion
+hit: a quote fragment cannot declare a binding whose NAME the emitter computes.
+`let_stmt` has ten alternatives and every one takes a literal `IDENT`, so
+`let #nm: i64 = 7i64;` inside `quote_item!` is `syntax error near 'let'`. This
+emitter writes `let __ga_<agg>`, `let __gf_<agg>` and `let <row var>: &<row
+ty>` on every query, so it cannot become fragments until `KW_LET` gets the
+`NAME_VAR` alternative that `fn` / `param` / `struct` already have.
 
 ## 6. The type-classification table, written FOUR times — CLOSED (this pass)
 

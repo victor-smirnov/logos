@@ -1,5 +1,5 @@
-// WQL UDA over a JOINED stream — the join-fold aggregate path
-// (emit_aggregate_join): the per-group accumulator column is a Vec of the
+// WQL UDA over a JOINED stream — the aggregate emitter with `ch.n > 0`:
+// the per-group accumulator column is a Vec of the
 // UDA's accumulator type, seeded with `<name>_init()` at group creation,
 // folded cell-wise with `<name>_step(acc, arg)` per joined row, and narrowed
 // to the result column by `<name>_fin` in the finalize pass — alongside a

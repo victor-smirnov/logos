@@ -1,10 +1,10 @@
 // WQL UDA with a STRUCT accumulator — A (the accumulator type) is whatever
 // `<name>_init` returns and is threaded VERBATIM through the generated fold
 // ({count, sum} here); only R (the `_fin` result) must map into the EL
-// lattice. Exercises BOTH aggregate paths:
-//   • classic single-source (imean over xs)  — scalar `let mut __agg_*: Acc`;
-//   • joined-stream fold (imean over a join) — `Vec<Acc>` accumulator column
-//     (the acc struct is Copy — the fold reads/writes cells by value).
+// lattice. Exercises the aggregate emitter at BOTH chain lengths — `ch.n == 0`
+// (imean over xs) and `ch.n == 1` (imean over a join) — which since the merge
+// run the SAME `Vec<Acc>` accumulator-column fold, so the acc struct must be
+// Copy in either case (the fold reads/writes cells by value).
 package test;
 
 use logos.std.wql.wql;

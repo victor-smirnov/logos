@@ -172,7 +172,7 @@ relational IR nodes proper.
 *The conversion is DONE.* `rexpr_walk.logos` has no `begin_chunk` caller and no
 `Emitter::commit`: all nine emitters — `emit_find`, `emit_simple`,
 `emit_none_find`, `emit_identity`, `emit_head_row`, `emit_empty`,
-`emit_join_chain`, `emit_aggregate`, `emit_aggregate_join`, `emit_rel_fns` —
+`emit_join_chain`, `emit_aggregate`, `emit_rel_fns` —
 emit `quote_item!`s through one shared shell, and `emit_fn_head` is gone. The
 line the conversion settled on is that the BODY stays text and everything else
 is structure. That is not a compromise: a generated body's shape is a runtime

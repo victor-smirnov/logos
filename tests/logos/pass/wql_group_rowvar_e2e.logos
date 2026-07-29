@@ -1,0 +1,76 @@
+// Group-by clauses may name the BASE ROW VAR, not only `key` and the aggregate
+// output names. The aggregate emitter carries `__g_row`/`__gf_row` — the index
+// of the row that CREATED each group — and re-binds the row var wherever the
+// group columns are bound, so a group row has a REPRESENTATIVE row: its first.
+//
+// ⚠ Before the two aggregate emitters were merged, exactly one of the three
+// positions below compiled: the scan emitter's no-modifier fast path projected
+// inside the row loop, where the row var happened to still be in scope. Adding
+// `order by` to that same query moved the projection into the output phase and
+// it failed with `undefined variable` on GENERATED code — and over a join it
+// never worked at all. This pins all three positions at both chain lengths.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Sale { pub dept: i64, pub amount: i64 }
+struct Dept { pub id: i64 }
+
+// `ch.n == 0` (a bare scan): the row var in `having`, in `order by` and in the
+// `select` projection at once.
+pub deem scan_rowvar(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate n = count()
+      having s.dept >= 2
+      select s.dept * 10 + n order by s.dept desc : i64 }
+
+// `ch.n == 1` (a join chain): the same three positions over the BASE row var.
+// A step's var has no representative — the nest is what binds it — so this is
+// deliberately the base var only.
+pub deem join_rowvar(sales: &[Sale], ds: &[Dept]) { from sales s
+      join ds d on s.dept == d.id
+      group by s.dept
+      aggregate n = count()
+      having s.dept >= 2
+      select s.dept * 10 + n order by s.dept desc : i64 }
+
+// The representative row is the group's FIRST row, so a NON-key column read
+// through it is that row's value — here `amount` of the first row of each dept.
+pub deem first_amount(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate n = count()
+      select (key, s.amount, n) }
+
+fn main() -> i32 {
+    let sales: [Sale; 6] = [
+        Sale { dept: 1i64, amount: 10i64 },
+        Sale { dept: 3i64, amount: 5i64  },
+        Sale { dept: 1i64, amount: 20i64 },
+        Sale { dept: 2i64, amount: 7i64  },
+        Sale { dept: 3i64, amount: 9i64  },
+        Sale { dept: 2i64, amount: 15i64 },
+    ];
+
+    // Groups (discovery order): 1(n=2), 3(n=2), 2(n=2).
+    // having s.dept >= 2 keeps 3 and 2; order by s.dept desc → 3, 2.
+    let a: Vec<i64> = scan_rowvar(&sales[..]).unwrap();
+    if a.len() != 2i64 { return 1i32; }
+    if a.get(0i64) != 32i64 { return 2i32; }   // dept 3, n 2
+    if a.get(1i64) != 22i64 { return 3i32; }   // dept 2, n 2
+
+    // The join keeps depts 1 and 3 (no Dept row for 2); having drops 1 → just 3.
+    let ds: [Dept; 2] = [ Dept { id: 1i64 }, Dept { id: 3i64 } ];
+    let b: Vec<i64> = join_rowvar(&sales[..], &ds[..]).unwrap();
+    if b.len() != 1i64 { return 4i32; }
+    if b.get(0i64) != 32i64 { return 5i32; }
+
+    // First row per dept: 1 → 10, 3 → 5, 2 → 7 (discovery order).
+    let c: Vec<(i64, i64, i64)> = first_amount(&sales[..]).unwrap();
+    if c.len() != 3i64 { return 6i32; }
+    if c.get(0i64).0 != 1i64 || c.get(0i64).1 != 10i64 || c.get(0i64).2 != 2i64 { return 7i32; }
+    if c.get(1i64).0 != 3i64 || c.get(1i64).1 != 5i64  || c.get(1i64).2 != 2i64 { return 8i32; }
+    if c.get(2i64).0 != 2i64 || c.get(2i64).1 != 7i64  || c.get(2i64).2 != 2i64 { return 9i32; }
+
+    return 0i32;
+}
