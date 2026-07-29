@@ -558,28 +558,29 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     }
     let result_elem: str = string_as_str(&elem_ty);
 
-    let mut em: Emitter = Emitter::new();
-    let mut __uses: String = String::new();
-    prm.native_use_text(&mut __uses);
-    begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // Both collapses are a return type plus a one-line constant body, and the
+    // two differ ONLY in those two strings — so the branch chooses the type
+    // and the body, and the item is emitted once.
+    let mut rty: String = String::new();
+    let mut bt: String  = String::new();
     if first {
         // Single-row mode: constant None (no scan loop).
-        em.push_text(") -> Result<Option<");
-        em.push_text(result_elem);
-        em.push_text(">, ElError> {\n");
-        em.push_text("    return Result::Ok(Option::None);\n");
+        rty.push_str("Result<Option<");
+        rty.push_str(result_elem);
+        rty.push_str(">, ElError>");
+        bt.push_str("{\n    return Result::Ok(Option::None);\n}\n");
     } else {
-        em.push_text(") -> Result<Vec<");
-        em.push_text(result_elem);
-        em.push_text(">, ElError> {\n");
+        rty.push_str("Result<Vec<");
+        rty.push_str(result_elem);
+        rty.push_str(">, ElError>");
         // The const-false filter proved emptiness: return the empty Vec directly.
-        em.push_text("    return Result::Ok(Vec::<");
-        em.push_text(result_elem);
-        em.push_text(">::new());\n");
+        bt.push_str("{\n    return Result::Ok(Vec::<");
+        bt.push_str(result_elem);
+        bt.push_str(">::new());\n}\n");
     }
-    em.push_text("}\n");
-    em.commit();
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  bt.as_str(), prm);
     return true;
 }
 
