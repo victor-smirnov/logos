@@ -885,6 +885,29 @@ foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse
     )
 endforeach()
 
+# Import-set gate: a synth module's USES must be a SET. Three independent
+# sources feed it (the quote's own imports, the handler module's imports baked
+# into the blob, the user module's imports merged after) and none sees the
+# others, so the intersection used to land twice and sema_collect warned once
+# per duplicate per emitted item — on code the user cannot edit. Deem emits one
+# quote per generated fn, so the noise scales with the query count (819 warnings
+# per full build before the dedup sweep, 6 after — and those 6 are real
+# duplicates in hand-written source).
+#
+# ⚠ The --gen-dir corpus cannot gate this: the dump renderer prints each package
+# once, so the dumps look identical either way. Only stderr shows it.
+add_test(
+    NAME logos_09_no_dup_use_in_synth
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/no_dup_use_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_first_fold_e2e.logos
+)
+set_tests_properties(logos_09_no_dup_use_in_synth PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

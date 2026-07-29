@@ -1837,54 +1837,69 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     synth_uses_off = static_cast<uint32_t>(
                         synth_uses_av.to_offset(WritAccess::base(doc)).value());
                 }
-                // Walk user's USE entries; for each, build the dotted
-                // package name and dedup-append a fresh USE node into
-                // the synth USES array. NAME-only form (build_import_scope
-                // is happy with that).
-                for (uint64_t i = 0; i < un; ++i) {
-                    AnyVal eav = user_uses.get(i);
-                    if (!eav.is_pointer()) continue;
-                    auto unode = as_tinymap(eav, user_holder);
+                // The FULL dotted package a USE node names.
+                //
+                // ⚠ A `use` has TWO spellings in the AST and they are not
+                // interchangeable. One the PARSER produces — head in NAME, the
+                // rest in PATH_PARTS, so `use logos.mem.string;` is NAME
+                // "logos" + PATH_PARTS ["mem","string"]. One THIS code produces
+                // below — the whole dotted string in NAME, no PATH_PARTS. Both
+                // land in the same synth USES array (a quote carries its own
+                // imports, parsed; this pass appends the user's, synthesized),
+                // so anything comparing them must read both fields. The dedup
+                // below used to read NAME alone: every parsed import compared
+                // as "logos", never matched, and got appended a second time —
+                // one spurious `duplicate 'use …;' in module` warning per
+                // import per emitted item, on code the user did not write.
+                auto dotted_of = [](AnyVal eav, logos::writ::MemHolder* holder) -> std::string {
+                    if (!eav.is_pointer()) return std::string();
+                    auto node = as_tinymap(eav, holder);
                     std::string dotted;
-                    if (unode.has_key(la::NAME.code)) {
-                        AnyVal nm_av = unode.get(la::NAME.code);
+                    if (node.has_key(la::NAME.code)) {
+                        AnyVal nm_av = node.get(la::NAME.code);
                         if (!nm_av.is_null() && nm_av.is_pointer()) {
                             dotted = std::string(logos::writ::StringView(
-                                nm_av, user_holder).view());
+                                nm_av, holder).view());
                         }
                     }
-                    if (unode.has_key(la::mod::PATH_PARTS.code)) {
-                        AnyVal pp_av = unode.get(la::mod::PATH_PARTS.code);
+                    if (node.has_key(la::mod::PATH_PARTS.code)) {
+                        AnyVal pp_av = node.get(la::mod::PATH_PARTS.code);
                         if (!pp_av.is_null() && pp_av.is_pointer()) {
-                            auto parts = as_array(pp_av, user_holder);
+                            auto parts = as_array(pp_av, holder);
                             for (uint64_t pi = 0; pi < parts.size(); ++pi) {
                                 AnyVal pav = parts.get(pi);
                                 if (!pav.is_pointer()) continue;
-                                auto part = as_tinymap(pav, user_holder);
+                                auto part = as_tinymap(pav, holder);
                                 if (!part.has_key(la::NAME.code)) continue;
                                 AnyVal nv = part.get(la::NAME.code);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 if (!dotted.empty()) dotted += '.';
                                 dotted += std::string(logos::writ::StringView(
-                                    nv, user_holder).view());
+                                    nv, holder).view());
                             }
                         }
                     }
+                    return dotted;
+                };
+                // Walk user's USE entries; for each, build the dotted
+                // package name and dedup-append a fresh USE node into
+                // the synth USES array. NAME-only form (build_import_scope
+                // is happy with that).
+                for (uint64_t i = 0; i < un; ++i) {
+                    std::string dotted = dotted_of(user_uses.get(i), user_holder);
                     if (dotted.empty()) continue;
                     // Dedup: skip if already present in synth USES (synth
                     // already has handler's imports + own self-use baked in).
+                    // ⚠ Read the synth node with the SYNTH doc's holder — it
+                    // used to be read with the USER's, which is a different
+                    // arena; the NAME string it then rendered was read out of
+                    // the right one only by accident of the next line.
                     bool already = false;
                     auto synth_uses_ptr = ArrayView(arena_offset_t(synth_uses_off), doc.holder());
                     for (uint64_t si = 0; si < synth_uses_ptr.size(); ++si) {
-                        AnyVal sav = synth_uses_ptr.get(si);
-                        if (!sav.is_pointer()) continue;
-                        auto snode = as_tinymap(sav, user_holder);
-                        if (!snode.has_key(la::NAME.code)) continue;
-                        AnyVal sn_av = snode.get(la::NAME.code);
-                        if (sn_av.is_null() || !sn_av.is_pointer()) continue;
-                        std::string s_existing(logos::writ::StringView(
-                            sn_av, doc.holder()).view());
-                        if (s_existing == dotted) { already = true; break; }
+                        if (dotted_of(synth_uses_ptr.get(si), doc.holder()) == dotted) {
+                            already = true; break;
+                        }
                     }
                     if (already) continue;
                     // Allocate name string + USE TOM.
@@ -1909,6 +1924,97 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     (void)sa.push_back(
                         AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(utom_off))
                         );
+                }
+            }
+        }
+    }
+
+    // Final USES dedup — the synth module's import list is assembled from
+    // THREE independent sources and none of them can see the others: the
+    // quote's own `use` decls, the enclosing handler module's imports baked
+    // into the blob at lowering time, and the originating user module's
+    // imports merged above. An emitter that names `logos.mem.string` in its
+    // quote has no way to know the handler already imports it, and should not
+    // have to: an import list is a SET.
+    //
+    // ⚠ Without this the module carries the intersection twice and
+    // sema_collect warns once per duplicate per emitted item — a warning
+    // written for hand-written copy-paste, fired at generated code the user
+    // cannot edit. Deem's move to quotes took that from 103 to 819 per full
+    // build, which is how a diagnostic channel becomes noise.
+    //
+    // ⚠ AND THE DUMP HID IT: `render_module_source_for_dump` prints each
+    // package once, so `--gen-dir` / `--dump-metaprog` output looked clean
+    // while sema saw the duplicates. Read the ARRAY, not the render.
+    {
+        AnyVal duav = root_ptr().get(la::USES.code);
+        if (!duav.is_null() && duav.is_pointer()) {
+            uint32_t duoff = static_cast<uint32_t>(
+                duav.to_offset(WritAccess::base(doc)).value());
+            // A use's dotted package: NAME plus PATH_PARTS. Both spellings
+            // occur here — the parser emits head-in-NAME + rest-in-PATH_PARTS,
+            // the merge above emits the whole dotted string in NAME — so a
+            // comparison that reads NAME alone sees "logos" for every parsed
+            // import and matches nothing.
+            auto dotted_at = [&](AnyVal eav) -> std::string {
+                if (!eav.is_pointer()) return std::string();
+                auto node = as_tinymap(eav, doc.holder());
+                std::string d;
+                if (node.has_key(la::NAME.code)) {
+                    AnyVal nm = node.get(la::NAME.code);
+                    if (!nm.is_null() && nm.is_pointer())
+                        d = std::string(
+                            logos::writ::StringView(nm, doc.holder()).view());
+                }
+                if (node.has_key(la::mod::PATH_PARTS.code)) {
+                    AnyVal pp = node.get(la::mod::PATH_PARTS.code);
+                    if (!pp.is_null() && pp.is_pointer()) {
+                        auto parts = as_array(pp, doc.holder());
+                        for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                            AnyVal pav = parts.get(pi);
+                            if (!pav.is_pointer()) continue;
+                            auto part = as_tinymap(pav, doc.holder());
+                            if (!part.has_key(la::NAME.code)) continue;
+                            AnyVal nv = part.get(la::NAME.code);
+                            if (nv.is_null() || !nv.is_pointer()) continue;
+                            if (!d.empty()) d += '.';
+                            d += std::string(
+                                logos::writ::StringView(nv, doc.holder()).view());
+                        }
+                    }
+                }
+                return d;
+            };
+            uint64_t dn = ArrayView(arena_offset_t(duoff), doc.holder()).size();
+            std::vector<uint32_t> keep;
+            std::set<std::string> seen_pkgs;
+            bool any_dup = false;
+            for (uint64_t i = 0; i < dn; ++i) {
+                AnyVal e = ArrayView(arena_offset_t(duoff), doc.holder()).get(i);
+                if (e.is_null() || !e.is_pointer()) continue;
+                uint32_t eoff = static_cast<uint32_t>(
+                    e.to_offset(WritAccess::base(doc)).value());
+                std::string d = dotted_at(e);
+                // An entry with no readable package (alias/wildcard forms that
+                // carry their meaning elsewhere) is kept verbatim — dedup only
+                // what it can NAME.
+                if (!d.empty()) {
+                    if (!seen_pkgs.insert(d).second) { any_dup = true; continue; }
+                }
+                keep.push_back(eoff);
+            }
+            if (any_dup) {
+                auto na_e = doc.make_array(std::max<uint64_t>(1, keep.size()));
+                if (na_e) {
+                    uint32_t na_off = static_cast<uint32_t>(na_e->offset().value());
+                    for (uint32_t so : keep) {
+                        (void)ArrayView(arena_offset_t(na_off), doc.holder()).push_back(
+                            AnyVal::from_offset(WritAccess::base(doc),
+                                                arena_offset_t(so)));
+                    }
+                    (void)root_ptr().put(la::USES.code,
+                        AnyVal::from_offset(WritAccess::base(doc),
+                                            arena_offset_t(na_off)));
                 }
             }
         }
