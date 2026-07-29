@@ -143,9 +143,20 @@ pub fn parse_wstatic(s: str) -> ExprBlob {
 /// emitter keeps assembling the body as text, which is what it is good at, and
 /// the ITEM around it becomes a real quote instead of raw push_text.
 ///
-/// ⚠ The fragment carries its own braces, so splice it AS the block, not inside
-/// one: `fn f() #(body)`, not `fn f() { #(body) }` — the latter nests a second
-/// scope and any `let` inside it stops being visible to what follows.
+/// A BLOCK-rooted fragment (this, or `quote_block!`) has TWO splice positions
+/// and they mean different things — the semicolon is the discriminator:
+///   • `fn f() -> R #(body)`  — a BODY slot: the fragment IS the block.
+///   • `#(body);` / `#body;`  — a STATEMENT slot: the fragment's statements are
+///     INLINED into the enclosing block, so a run can export the bindings the
+///     statements after it read. This is what makes a body a SEQUENCE of
+///     runtime-many runs (a rel prelude, then one build phase per join step)
+///     rather than something that can only ever be wrapped.
+///   • `{ #(body); }`         — the scope, spelled. Inline is the primitive and
+///     the scope is the wrapper; that way round composes, the other does not.
+///
+/// ⚠ Do NOT write `fn f() { #(body) }` expecting the body: with no semicolon
+/// that is a tail expression, so the fragment nests a second scope and any
+/// `let` inside it stops being visible to what follows.
 pub fn parse_block(s: str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 4u32) } };
 }

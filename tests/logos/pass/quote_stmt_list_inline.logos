@@ -1,0 +1,92 @@
+// A statement LIST composes flat: `#frag;` contributes its statements to the
+// block it sits in, it does not open a scope (ADR 0024 S5).
+//
+// This is the second thing that held the wql! emitters on push_text. An emitted
+// body is a SEQUENCE of runtime-many statement RUNS — a rel prelude, then one
+// build phase per join step, then the walker — and each run declares bindings
+// the runs AFTER it read. A run that opened its own scope could not export
+// them, so a body could be wrapped but never appended to, and the append is
+// what a sequence is.
+//
+// ⚠ Scoping is not lost, it is spelled: `{ #frag; }` still nests, because the
+// braces are then the template's own block. Inline is the primitive and the
+// scope is the wrapper — that way round composes, the other does not.
+//
+// A non-BLOCK fragment is untouched: `#e;` where `e` is an expression fragment
+// stays an expression statement.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.string;
+
+fn gen(nruns: i64) -> QuoteItemBlob {
+    // A run built by `parse_block` — the shape a caller hands in as text
+    // (the wql! rel prelude arrives exactly like this).
+    let pre: ExprBlob = parse_block("{ let __q: i64 = 5i64; }");
+
+    // RUNTIME-many runs, each declaring a name the LATER runs read. Held in a
+    // Vec<ExprBlob> and spliced by `#( … )*`, which is flat by construction —
+    // so the only question is whether each element flattens too.
+    let mut frags: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut names: Vec<String> = vec_new::<String>();
+    let mut k: i64 = 0i64;
+    while k < nruns {
+        // ⚠ `Ident::new` BORROWS, so the String must outlive the quote that
+        // packs it — hence the `names` vec rather than a local per turn.
+        let mut s: String = String::new();
+        s.push_str("__r");
+        s.push_i64(k);
+        names.push(s);
+        let nk: Ident = Ident::new(names.borrow(k).as_str());
+        // Two statements per run, and the second reads the first — a run is a
+        // RUN, not a statement.
+        frags.push(quote_block! {
+            let #nk: i64 = 1i64;
+            acc = acc + #nk;
+        });
+        k = k + 1i64;
+    }
+
+    // An expression fragment at statement position stays an expression
+    // statement — only a BLOCK-rooted fragment is a statement list, and the
+    // inline must not misfire on anything else.
+    let e: ExprBlob = parse_expr("hundred()");
+
+    let body: ExprBlob = quote_block! {
+        let mut acc: i64 = 0i64;
+        #pre;
+        #( #frags; )*
+        acc = acc + #e;
+        // The explicit wrapper still nests: `__hidden` must not escape.
+        { let __hidden: i64 = 999i64; acc = acc + __hidden; }
+        return acc + __q + __r0;
+    };
+    return quote_item! { pub fn probe() -> i64 #(body) };
+}
+
+// The SAME rule inside a `quote_item!` template. Both quote flavours must mean
+// the same thing: an emitter that moved a body from `quote_block!` into a
+// `quote_item!` template would otherwise silently gain a scope, and the failure
+// surfaces far away as "undefined variable" inside generated source.
+fn gen_item() -> QuoteItemBlob {
+    let pre: ExprBlob = parse_block("{ let __w: i64 = 7i64; }");
+    return quote_item! {
+        pub fn probe_item() -> i64 {
+            #(pre);
+            return __w;
+        }
+    };
+}
+
+fn hundred() -> i64 { return 100i64; }
+
+metacall gen(3);
+metacall gen_item();
+
+fn main() -> i32 {
+    // 3 runs × 1 + 100 + 999 + __q(5) + __r0(1) = 3 + 100 + 999 + 5 + 1 = 1108.
+    if probe() != 1108i64 { return 1i32; }
+    if probe_item() != 7i64 { return 2i32; }
+    return 0i32;
+}

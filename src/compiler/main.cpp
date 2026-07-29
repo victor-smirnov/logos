@@ -1424,6 +1424,127 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return new_arr_off;
     };
 
+    // Statement-list INLINE splice — the quote_item! twin of the rule in
+    // logos_quote_expr_subst. `#(frag);` at statement position is an EXPR_STMT
+    // whose VALUE is a blob placeholder; when the blob is BLOCK-rooted its
+    // statements belong to THIS array, not to a nested block, so a run can
+    // export the bindings the runs after it read.
+    //
+    // ⚠ This exists so the two quote flavours MEAN THE SAME THING. Without it
+    // an emitter that moved a body from `quote_block!` into a `quote_item!`
+    // template would silently gain a scope, and the failure surfaces far away
+    // as "undefined variable" inside generated source.
+    //
+    // Returns a NEW array offset when anything was inlined, 0 otherwise. The
+    // blob's statements are copied RAW (they were already substituted when the
+    // fragment was built), matching try_blob_splice, which the caller skips
+    // recursion for on the same grounds.
+    auto try_inline_stmt_blobs = [&](uint32_t arr_off) -> uint32_t {
+        if (blobs_count == 0) return 0;
+        // `el` qualifies → returns the blob index, else -1.
+        auto stmt_blob_idx = [&](uint32_t eoff) -> int64_t {
+            auto etom = logos::writ::TinyMapView(arena_offset_t(eoff), doc.holder());
+            int32_t cd = 0;
+            if (etom.has_key(la::CODE.code)) {
+                AnyVal cav = etom.get(la::CODE.code);
+                if (!cav.is_null() && !cav.is_pointer()) cd = cav.as_value<int32_t>();
+            }
+            if (cd != la::EXPR_STMT.code) return -1;
+            if (!etom.has_key(la::VALUE.code)) return -1;
+            AnyVal vav = etom.get(la::VALUE.code);
+            if (vav.is_null() || !vav.is_pointer()) return -1;
+            uint32_t voff = static_cast<uint32_t>(
+                vav.to_offset(WritAccess::base(doc)).value());
+            auto vtom = logos::writ::TinyMapView(arena_offset_t(voff), doc.holder());
+            if (!vtom.has_key(la::NAME_VAR.code)) return -1;
+            AnyVal nv = vtom.get(la::NAME_VAR.code);
+            if (!nv.is_value()) return -1;
+            int32_t enc = nv.as_value<int32_t>();
+            if (enc >= 0) return -1;
+            uint64_t bidx = static_cast<uint64_t>(-enc - 1);
+            if (bidx >= blobs_count) return -1;
+            return static_cast<int64_t>(bidx);
+        };
+        auto arr0 = logos::writ::ArrayView(arena_offset_t(arr_off), doc.holder());
+        uint64_t n_src = arr0.size();
+        std::vector<std::pair<AnyVal, int64_t>> els;   // (elem, blob idx or -1)
+        bool any = false;
+        for (uint64_t i = 0; i < n_src; ++i) {
+            AnyVal e = arr0.get(i);
+            if (!e.is_pointer()) { els.push_back({e, -1}); continue; }
+            uint32_t eoff = static_cast<uint32_t>(
+                e.to_offset(WritAccess::base(doc)).value());
+            int64_t bi = stmt_blob_idx(eoff);
+            els.push_back({e, bi});
+            if (bi >= 0) any = true;
+        }
+        if (!any) return 0;
+        auto new_arr_e = doc.make_array(std::max<uint64_t>(4, n_src));
+        if (!new_arr_e) { subst_failed = true; return 0; }
+        uint32_t new_arr_off = static_cast<uint32_t>(new_arr_e->offset().value());
+        for (auto& [el, bi] : els) {
+            auto na = [&]() {
+                return ArrayView(arena_offset_t(new_arr_off), doc.holder());
+            };
+            if (bi < 0) { (void)na().push_back(el); continue; }
+            const auto& be = blob_entries[bi];
+            if (be.size == 0) {
+                std::fprintf(stderr,
+                    "logos_emit_item_blob_subst: blob[%lld] empty\n",
+                    (long long)bi);
+                subst_failed = true; return 0;
+            }
+            auto inner_e = logos::writ::from_bytes_copy(
+                blob->blobs_blob + be.offset, be.size);
+            if (!inner_e) {
+                std::fprintf(stderr,
+                    "logos_emit_item_blob_subst: blob[%lld] from_bytes_copy failed\n",
+                    (long long)bi);
+                subst_failed = true; return 0;
+            }
+            auto inner_doc = std::move(inner_e).get();
+            const uint8_t* ib = WritAccess::base(inner_doc);
+            uint32_t inner_root = static_cast<uint32_t>(
+                WritAccess::root_offset(inner_doc).value());
+            auto rt = logos::writ::TinyMapView(
+                arena_offset_t(inner_root), inner_doc.holder());
+            int32_t rcd = 0;
+            if (rt.has_key(la::CODE.code)) {
+                AnyVal cav = rt.get(la::CODE.code);
+                if (!cav.is_null() && !cav.is_pointer()) rcd = cav.as_value<int32_t>();
+            }
+            if (rcd != la::BLOCK.code) {
+                // Not a statement list — leave the placeholder for the
+                // ordinary blob path, which splices the root in place.
+                (void)na().push_back(el);
+                continue;
+            }
+            if (!rt.has_key(la::ITEMS.code)) continue;   // `{}` — nothing
+            AnyVal iav = rt.get(la::ITEMS.code);
+            if (iav.is_null() || !iav.is_pointer()) continue;
+            uint32_t items_off = static_cast<uint32_t>(iav.to_offset(ib).value());
+            auto items = logos::writ::ArrayView(
+                arena_offset_t(items_off), inner_doc.holder());
+            uint64_t n_items = items.size();
+            for (uint64_t j = 0; j < n_items; ++j) {
+                AnyVal se = items.get(j);
+                if (se.is_null() || !se.is_pointer()) continue;
+                uint32_t so = static_cast<uint32_t>(se.to_offset(ib).value());
+                auto cp_e = copy_object_into(ib + so, ib, doc);
+                if (!cp_e) {
+                    std::fprintf(stderr,
+                        "logos_emit_item_blob_subst: stmt-list copy failed\n");
+                    subst_failed = true; return 0;
+                }
+                uint32_t co = static_cast<uint32_t>(
+                    reinterpret_cast<uint8_t*>(cp_e.get()) - WritAccess::base(doc));
+                (void)na().push_back(
+                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(co)));
+            }
+        }
+        return new_arr_off;
+    };
+
     // `pub(#v)` visibility antiquote: a VIS sub-node carrying an int-encoded
     // Ident placeholder. Resolved from the CHILD LOOP of subst_walk (the only
     // place that knows the parent item) — works at any depth (top-level items,
@@ -1613,6 +1734,18 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     (void)t.put(cref.key,
                         AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(expanded)));
                     arr_off = expanded;
+                }
+            }
+            // …then flatten any `#(frag);` whose fragment is a statement LIST.
+            // After the repeat expansion, so a `#( #(f); )*` fold flattens too.
+            {
+                uint32_t inlined = try_inline_stmt_blobs(arr_off);
+                if (subst_failed) return;
+                if (inlined != 0) {
+                    auto t = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
+                    (void)t.put(cref.key,
+                        AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(inlined)));
+                    arr_off = inlined;
                 }
             }
             uint8_t* dbase2 = WritAccess::base(doc);
@@ -2855,6 +2988,114 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // REPEAT_GROUP TOMs with sep=0 (`*`) or sep=1 (`,*`) expand into N
     // substituted bodies spliced inline as siblings; sep=2 (`&&*`) collapses
     // to a single BinOp tree (handled by copy_expr).
+    // Statement-list INLINE splice (ADR 0024 S5).
+    //
+    // `#frag;` at statement position parses as EXPR_STMT{VALUE: VAR_REF#frag}.
+    // When the blob behind the placeholder is BLOCK-rooted — what `quote_block!`
+    // and `parse_block` produce — its statements belong to the array being
+    // copied, NOT to a nested block: an emitter composes a body out of
+    // runtime-many statement RUNS, and a run that opens its own scope cannot
+    // export the bindings the run after it reads (`let __rel_X` in a prelude,
+    // `let mut __hm{k}` in a join build phase).
+    //
+    // ⚠ Scoping is not lost, it is spelled: `{ #frag; }` still nests, because
+    // the braces are then the template's own BLOCK. The inline is the primitive
+    // and the scope is the wrapper, which is the way round that composes.
+    //
+    // A non-BLOCK blob (an expression fragment) is untouched — it stays an
+    // expression statement. Returns 1 = inlined, 0 = not applicable (caller
+    // copies the element normally), -1 = hard error.
+    //
+    // ⚠ `copy_node_raw` never pushes to `inner_blob_docs`, so the reference to
+    // the doc we just deserialised stays valid across the whole item loop; a
+    // copier that DID push would have to re-resolve it every turn.
+    auto try_inline_stmt_block =
+        [&](uint32_t el_off, const std::function<bool(uint32_t)>& push) -> int {
+        auto code_of_node = [&](uint32_t off) -> int32_t {
+            auto t = logos::writ::TinyMapView(arena_offset_t(off), src_doc.holder());
+            if (!t.has_key(la::CODE.code)) return 0;
+            AnyVal cav = t.get(la::CODE.code);
+            if (cav.is_null() || cav.is_pointer()) return 0;
+            return cav.as_value<int32_t>();
+        };
+        if (code_of_node(el_off) != la::EXPR_STMT.code) return 0;
+        auto el_tom = logos::writ::TinyMapView(arena_offset_t(el_off), src_doc.holder());
+        if (!el_tom.has_key(la::VALUE.code)) return 0;
+        AnyVal vav = el_tom.get(la::VALUE.code);
+        if (vav.is_null() || !vav.is_pointer()) return 0;
+        uint32_t v_off = static_cast<uint32_t>(vav.to_offset(src_base).value());
+        if (code_of_node(v_off) != la::VAR_REF.code) return 0;
+        auto v_tom = logos::writ::TinyMapView(arena_offset_t(v_off), src_doc.holder());
+        if (!v_tom.has_key(la::NAME_VAR.code)) return 0;
+        AnyVal iv = v_tom.get(la::NAME_VAR.code);
+        if (iv.is_null() || iv.is_pointer()) return 0;
+        int32_t idx = iv.as_value<int32_t>();
+        if (idx < 0 || static_cast<uint64_t>(idx) >= idents_count) return 0;
+        SpanView sp = get_span(idx);
+        const uint8_t* blob_data = nullptr;
+        if (sp.kind == 1) {
+            blob_data = reinterpret_cast<const uint8_t*>(sp.slots);
+        } else if (sp.kind == 2) {
+            uint64_t i = (sp.count == 1) ? 0
+                : (cursor_i >= 0 ? static_cast<uint64_t>(cursor_i) : 0);
+            if (i >= sp.count) {
+                std::fprintf(stderr,
+                    "logos_quote_expr_subst: stmt-list splice — cursor i=%llu "
+                    "out of range (count=%llu)\n",
+                    (unsigned long long)i, (unsigned long long)sp.count);
+                return -1;
+            }
+            blob_data = reinterpret_cast<const uint8_t* const*>(sp.slots)[i];
+        } else {
+            return 0;   // an Ident placeholder — not a fragment at all
+        }
+        if (!blob_data) {
+            std::fprintf(stderr,
+                "logos_quote_expr_subst: stmt-list splice — null ptr\n");
+            return -1;
+        }
+        uint64_t blob_size = 0;
+        std::memcpy(&blob_size, blob_data - 8, 8);
+        auto inner_e = logos::writ::from_bytes_copy(blob_data, blob_size);
+        if (!inner_e) {
+            std::fprintf(stderr,
+                "logos_quote_expr_subst: stmt-list splice — from_bytes_copy failed\n");
+            return -1;
+        }
+        inner_blob_docs.push_back(std::move(inner_e).get());
+        auto& inner_doc = inner_blob_docs.back();
+        auto* ih = inner_doc.holder();
+        uint32_t inner_root = static_cast<uint32_t>(
+            WritAccess::root_offset(inner_doc).value());
+        auto rt = logos::writ::TinyMapView(arena_offset_t(inner_root), ih);
+        int32_t rcd = 0;
+        if (rt.has_key(la::CODE.code)) {
+            AnyVal cav = rt.get(la::CODE.code);
+            if (!cav.is_null() && !cav.is_pointer()) rcd = cav.as_value<int32_t>();
+        }
+        if (rcd != la::BLOCK.code) {
+            // Not a statement list — hand it back to the ordinary blob path,
+            // which splices the root expression in place of the placeholder.
+            inner_blob_docs.pop_back();
+            return 0;
+        }
+        if (!rt.has_key(la::ITEMS.code)) return 1;   // `{}` — splice nothing
+        AnyVal iav = rt.get(la::ITEMS.code);
+        if (iav.is_null() || !iav.is_pointer()) return 1;
+        uint32_t items_off = static_cast<uint32_t>(iav.to_offset(ih->base()).value());
+        auto items = logos::writ::ArrayView(arena_offset_t(items_off), ih);
+        uint64_t n_items = items.size();
+        for (uint64_t j = 0; j < n_items; ++j) {
+            AnyVal e = items.get(j);
+            if (e.is_null() || !e.is_pointer()) continue;
+            uint32_t so = static_cast<uint32_t>(e.to_offset(ih->base()).value());
+            uint32_t no = copy_node_raw(ih, so);
+            if (no == 0) return -1;
+            if (!push(no)) return -1;
+        }
+        return 1;
+    };
+
     copy_array = [&](uint32_t src_off) -> uint32_t {
         auto src_arr = logos::writ::ArrayView(arena_offset_t(src_off), src_doc.holder());
         uint64_t n_src = src_arr.size();
@@ -2864,6 +3105,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             dst_e->offset().value());
         auto dst_arr = [&]() {
             return logos::writ::ArrayView(arena_offset_t(dst_off), dst_doc.holder());
+        };
+        std::function<bool(uint32_t)> push_off = [&](uint32_t o) -> bool {
+            (void)dst_arr().push_back(
+                AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(o)));
+            return true;
         };
         for (uint64_t i = 0; i < n_src; ++i) {
             AnyVal el = src_arr.get(i);
@@ -2904,6 +3150,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 int64_t saved = cursor_i;
                 for (uint64_t j = 0; j < n; ++j) {
                     cursor_i = static_cast<int64_t>(j);
+                    // `#( #frags; )*` over a Vec<ExprBlob> of statement lists:
+                    // each turn contributes its RUN of statements, flat.
+                    int inl = try_inline_stmt_block(body_off, push_off);
+                    if (inl < 0) { cursor_i = saved; return 0; }
+                    if (inl == 1) continue;
                     uint32_t copy_off = copy_expr(body_off);
                     if (copy_off == 0) {
                         cursor_i = saved;
@@ -2914,6 +3165,9 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 }
                 cursor_i = saved;
             } else {
+                int inl = try_inline_stmt_block(el_off, push_off);
+                if (inl < 0) return 0;
+                if (inl == 1) continue;
                 uint32_t copy_off = copy_expr(el_off);
                 if (copy_off == 0) return 0;
                 (void)dst_arr().push_back(
