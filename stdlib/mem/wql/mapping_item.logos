@@ -68,33 +68,60 @@ pub fn __mapping_item(name: str, params: str, pubs: str, natspec: str, rules: st
     // canonical rel-list text, which Query::compile_with_mapping parses with
     // the SAME generated parser and fuses into a dynamically-compiled query;
     // `<M>__src() -> str` names the source param the fusion renames.
+    // ── the two artifacts are a QUOTE (ADR 0024 S5) ───────────────────────
+    // Both items are the same shape — `pub fn <M>__<what>() -> str { return
+    // <literal>; }` — and the only runtime content is the NAME and the
+    // literal's CONTENT. So the items are structure and each body is one
+    // spliced expression.
+    //
+    // ⚠ A STRING LITERAL IS THE ONE THING THAT STAYS TEXT, and not for want of
+    // a quote: there is no reifier that turns runtime BYTES into a LIT_STR
+    // node (logos_parse_as rules are type_param_list / type_ref / expr /
+    // wstatic / block / param_list — six, none of them "a literal from these
+    // bytes"). Escaping is intrinsic to the literal FORM, so the escape loop
+    // builds the literal's source and `parse_expr` reifies it ONCE, the way
+    // rexpr_walk reifies a computed integer literal. The loop writes into a
+    // String rather than into an Emitter, so nothing here is a chunk.
+    //
+    // ⚠ The escape set is `"`/`\`/newline — the three bytes that would end or
+    // re-open the literal. `prm0.names[0]` needs none (it is an identifier the
+    // grammar already accepted), so it is wrapped, not escaped.
     {
-        let view: OView = oview_module_ast();
-        let mut em: Emitter = Emitter::new();
-        em.emit_target_pkg(&view);
-        em.push_text("pub fn ");
-        em.push_text(name);
-        em.push_text("__rules() -> str {\n    return \"");
+        let mut rlit: String = String::new();
+        rlit.push_u8(34u8);
         let n2: i64 = rules.len();
         let mut i2: i64 = 0i64;
         while i2 < n2 {
             let c: u8 = str_byte_at(rules, i2);
-            if c == 34u8 { em.push_text("\\\""); }
-            else if c == 92u8 { em.push_text("\\\\"); }
-            else if c == 10u8 { em.push_text("\\n"); }
-            else {
-                let one: str = unsafe { str_from_raw(((rules.as_ptr() as i64) + i2) as *const u8, 1i64) };
-                em.push_text(one);
-            }
+            if c == 34u8 { rlit.push_str("\\\""); }
+            else if c == 92u8 { rlit.push_str("\\\\"); }
+            else if c == 10u8 { rlit.push_str("\\n"); }
+            else { rlit.push_u8(c); }
             i2 = i2 + 1i64;
         }
-        em.push_text("\";\n}\n");
-        em.push_text("pub fn ");
-        em.push_text(name);
-        em.push_text("__src() -> str {\n    return \"");
-        em.push_text(prm0.names[0]);
-        em.push_text("\";\n}\n");
-        em.commit();
+        rlit.push_u8(34u8);
+
+        let mut slit: String = String::new();
+        slit.push_u8(34u8);
+        slit.push_str(prm0.names[0]);
+        slit.push_u8(34u8);
+
+        let mut rname: String = String::new();
+        rname.push_str(name);
+        rname.push_str("__rules");
+        let mut sname: String = String::new();
+        sname.push_str(name);
+        sname.push_str("__src");
+
+        let rid: Ident    = Ident::new(rname.as_str());
+        let sid: Ident    = Ident::new(sname.as_str());
+        let rl: ExprBlob  = parse_expr(rlit.as_str());
+        let sl: ExprBlob  = parse_expr(slit.as_str());
+        let q: QuoteItemBlob = quote_item! {
+            pub fn #rid() -> str { return #(rl); }
+            pub fn #sid() -> str { return #(sl); }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
     }
     return out;
 }
