@@ -212,18 +212,27 @@ sequence and a nest is not flat. `parse_as` already carried the intended answer
 in its own comment (let an emitter BUILD fragments as strings and splice them
 hygienically) but had no rule for the one thing an emitter's body is. The
 grammar's `block` rule existed and was simply never exported; it is now rule 4,
-reachable as `parse_block`. ⚠ It splices at a STATEMENT position — the quote
-grammar has no antiquote alternative where a fn's BODY goes — so the fragment
-lands as a nested block statement, costing one scope. Removing that needs a new
-alternative in the fn rule plus substituter support for a block-typed slot.
+reachable as `parse_block`. ⚠ CLOSED, and the paragraph that stood here said
+otherwise: a `parse_block` fragment first spliced at a STATEMENT position, so a
+fn's body landed as a nested block statement and cost one scope, and removing
+that was written up as needing a new fn-rule alternative plus a block-typed
+substituter slot. `c53675fc` added exactly that — `fn_body <- HASH LPAREN expr
+RPAREN`, one rule shared by all four fn alternatives — so `#(body)` occupies the
+body slot itself. Emitted fns are FLAT, and `logos_09_flat_emitted_body_*`
+(tests/logos/flat_body_gate.sh) now holds that: a dump whose fn head is followed
+by a bare `{` fails. ⚠ The extra scope was never merely cosmetic — putting it
+back fails the stdlib build on `canon_split_fast` with "use of moved variable
+`__out`", because a block changes what move analysis sees. But that is an
+ACCIDENT of one query moving one local, which is why the property needs a gate
+and not a memory of it.
 
 The rest of the route is now proven too. `param_list` gained an antiquote
 alternative — on the LIST, not on the dozens of fn rules — so parameters splice;
 `type_ref` already handled the return type. Together those answer the mechanism
 question this arc had left open: an `Emitter` does not need to learn to take a
 `QuoteItemBlob`, because the quote route replaces the text CHUNK outright — uses
-included. What remains is the conversion itself, emitter by emitter, with L4 as
-the oracle.
+included. (Written before the conversion; it is DONE — see the head of this
+section.)
 
 ⚠ IMPORTS WERE THE BLOCKER, and for two rounds the record said otherwise. A
 converted emitter whose signature named a factory-generated handle (`Hs…` in

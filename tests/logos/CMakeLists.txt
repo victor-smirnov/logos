@@ -908,6 +908,33 @@ set_tests_properties(logos_09_no_dup_use_in_synth PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# Emitted-body SHAPE gate (ADR 0024 S5): a Deem-emitted fn's body is FLAT.
+# `#(body)` fills the fn's own body slot (`fn_body`), so nothing survives of the
+# earlier route where a `parse_block` fragment spliced at a STATEMENT position
+# and wrapped every generated body in one extra scope.
+#
+# ⚠ That regression is SILENT in every other gate: an extra scope compiles,
+# runs, reparses, and keeps its DWARF, so build/L4/--gen-dir round-trip are all
+# unchanged and only a human reading generated code ever pays. Until this gate
+# the property was held by an author eyeballing dumps once per conversion.
+# One fixture per emitter family: the three thin collapses + find (first_fold),
+# the loop nest (join), the group-by nest (aggregate), the multi-item private
+# rel/SCC helpers (stratified), and a signature naming a factory handle
+# (ctr_family_streams).
+foreach(FLATBODY_CASE wql_first_fold_e2e wql_join_e2e wql_aggregate_e2e wql_datalog_stratified_e2e deem_ctr_family_streams)
+    add_test(
+        NAME logos_09_flat_emitted_body_${FLATBODY_CASE}
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/flat_body_gate.sh
+                $<TARGET_FILE:logosc>
+                ${CMAKE_CURRENT_SOURCE_DIR}/pass/${FLATBODY_CASE}.logos
+    )
+    set_tests_properties(logos_09_flat_emitted_body_${FLATBODY_CASE} PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;pass;suite_semantic_core"
+        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+    )
+endforeach()
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.
