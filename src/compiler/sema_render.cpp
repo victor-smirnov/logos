@@ -858,13 +858,19 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
             AnyVal m = node.get(la::IS_MUT.code);
             if (!m.is_null() && m.is_value() && m.as_value<uint8_t>() != 0) s += "mut ";
         }
-        s += std::string(str_of(node.get(la::NAME.code)));
+        if (node.has_key(la::NAME)) s += std::string(str_of(node.get(la::NAME.code)));
+        else if (node.has_key(la::NAME_VAR)) s += "<antiquot>";
         if (node.has_key(la::TYPE)) {
             s += ": ";
             s += render_type_src(map_of(node.get(la::TYPE.code)));
         }
-        s += " = ";
-        s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        // `let mut x: T;` — the declare-without-initializer form. Printing
+        // ` = ` with nothing after it would render as source that does not
+        // parse, and this dump is the oracle for what the emitters produced.
+        if (node.has_key(la::VALUE)) {
+            s += " = ";
+            s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        }
         s += ";";
         return s;
     }

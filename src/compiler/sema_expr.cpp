@@ -18320,9 +18320,13 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         // Slots that denote a FIELD or a TYPE NAME take an Ident and nothing
         // else: splicing a fragment there leaves a name-shaped hole with a
         // tree in it.
+        // LET joins them: `let #n: T = e;` names a BINDING, and a binding name
+        // is an Ident or it is nothing — a fragment there would leave the
+        // declared name shaped like a tree.
         bool ident_only = (cd == la::FIELD_READ.code
                            || cd == la::FIELD_INIT.code
-                           || cd == la::STRUCT_LIT.code);
+                           || cd == la::STRUCT_LIT.code
+                           || cd == la::LET.code);
         if (!register_name_var(off, ident_only)) return false;
 
         for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {

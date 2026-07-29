@@ -1,0 +1,81 @@
+// A quote fragment may DECLARE a binding whose name the emitter computes
+// (ADR 0024 S5).
+//
+// This is what stopped the wql! emitters from becoming quotes. Every level of a
+// join nest opens with `let __pk{s}` / `let mut __m{s}` / `let mut __j{s}` — a
+// name built from a loop counter — and `let_stmt` took a literal IDENT in all
+// ten of its alternatives, so the very first statement of every fragment was
+// unwritable. `#(expr)` reaches expressions, `#(ty)` reaches types, `#(body)`
+// reaches bodies; the BINDING NAME was the one hole with no antiquote.
+//
+// ⚠ The antiquote sits AFTER `let` / before `=`, never at the head of a
+// statement, so it cannot hijack the `#( … )*` statement repeat — the hazard
+// recorded in c53675fc, which is why `block` itself may not carry one.
+//
+// Covered here: `let #n = e`, `let #n: T = e`, `let mut #n: T = e`,
+// `let mut #n: T;` (declare, assign later), and the write side `#n = e;`.
+// Plus the composition the emitters actually need: a nest of RUNTIME depth
+// where EVERY level declares its own computed name and the level below reads it.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+// ⚠ `Ident::new` BORROWS — the backing String must outlive the quote that
+// packs it, so the name is built in the same scope as the `quote_block!` that
+// reads it and never returned from a helper.
+fn gen(depth: i64) -> QuoteItemBlob {
+    // ── the five let/assign shapes ───────────────────────────────────────
+    let a: Ident = Ident::new("__a");   // let #n = e;
+    let b: Ident = Ident::new("__b");   // let #n: T = e;
+    let c: Ident = Ident::new("__c");   // let mut #n: T = e;
+    let d: Ident = Ident::new("__d");   // let mut #n: T;  then  #n = e;
+    let shapes: ExprBlob = quote_block! {
+        let #a = 1i64;
+        let #b: i64 = 2i64;
+        let mut #c: i64 = 3i64;
+        let mut #d: i64;
+        #d = #a + #b + #c;
+        #c = #c + #d;
+        acc = acc + #c;
+    };
+
+    // ── the nest: level k declares `__v{k}` and the level BELOW reads it ──
+    // Built inside-out, so the innermost fragment is complete first and each
+    // turn wraps it — the recursion that replaced the emitters' level counter.
+    let mut cur: ExprBlob = quote_block! { acc = acc + 100i64; };
+    let mut k: i64 = 0i64;
+    while k < depth {
+        let mut nm: String = String::new();
+        nm.push_str("__v");
+        nm.push_i64(k);
+        let vk: Ident = Ident::new(nm.as_str());
+        // `#(cur)` sits at the `while` BODY slot; `#vk` is declared in the
+        // wrapper and read by the body under it, which is what makes this a
+        // real nest rather than a flat sequence.
+        cur = quote_block! {
+            let #vk: i64 = acc;
+            while #vk == acc #(cur)
+        };
+        k = k + 1i64;
+    }
+
+    let body: ExprBlob = quote_block! {
+        let mut acc: i64 = 0i64;
+        #shapes;
+        #cur;
+        return acc;
+    };
+    return quote_item! { pub fn probe() -> i64 #(body) };
+}
+
+metacall gen(3);
+
+fn main() -> i32 {
+    // shapes: a=1 b=2 c=3 d=6 c=9 acc=9.
+    // nest: three levels, each `while __v{k} == acc { … }` runs once because
+    // the innermost body changes `acc` (9 → 109), so every guard fails on the
+    // second turn. acc = 109.
+    if probe() != 109i64 { return 1i32; }
+    return 0i32;
+}

@@ -2674,6 +2674,30 @@
              => { CODE: LET_DESTRUCT, NAMES: $3, TYPE: $6, VALUE: $8 }
               / KW_LET LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
              => { CODE: LET_DESTRUCT, NAMES: $3, VALUE: $6 }
+              // `let #n: T = e;` — BINDING-NAME antiquot (NAME_VAR), valid only
+              // inside quote_*! bodies (the generic subst walk rewrites
+              // NAME_VAR(idx) → NAME before sema ever sees the node; outside a
+              // quote the name never resolves and sema reports it).
+              // ⚠ The antiquot sits AFTER `let`, never at the head of a
+              // statement, so it cannot hijack the `#( … )*` statement repeat
+              // (the hazard recorded in c53675fc, which is why `block` itself
+              // may not carry one). HASH is disjoint from IDENT / KW_MUT /
+              // KW_REF / LPAREN, so ordering against the alts below is free.
+              // Without this an emitter cannot build a fragment that declares a
+              // binding whose NAME it computes (`__j0`, `__m1`, …) — the single
+              // thing that kept the wql! emitters on push_text.
+              / KW_LET KW_MUT HASH IDENT COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET, IS_MUT: true, NAME_VAR: $4, TYPE: $6, VALUE: $8 }
+              / KW_LET KW_MUT HASH IDENT COLON type_ref SEMI
+             => { CODE: LET, IS_MUT: true, NAME_VAR: $4, TYPE: $6 }
+              / KW_LET KW_MUT HASH IDENT ASSIGN expr SEMI
+             => { CODE: LET, IS_MUT: true, NAME_VAR: $4, VALUE: $6 }
+              / KW_LET HASH IDENT COLON type_ref ASSIGN expr SEMI
+             => { CODE: LET, NAME_VAR: $3, TYPE: $5, VALUE: $7 }
+              / KW_LET HASH IDENT COLON type_ref SEMI
+             => { CODE: LET, NAME_VAR: $3, TYPE: $5 }
+              / KW_LET HASH IDENT ASSIGN expr SEMI
+             => { CODE: LET, NAME_VAR: $3, VALUE: $5 }
               // P4-pm-14: `let ref y = x;` — `ref`-binding sugar for
               // `let y = &x;`. Sema detects IS_REF and wraps the lowered
               // RHS in an addr-of.
@@ -2716,7 +2740,16 @@
     return_stmt <- KW_RETURN expr? (SEMI / COMMA)
                 => { CODE: RETURN, VALUE: $2 }
 
-    assign_stmt <- IDENT ASSIGN expr SEMI
+    // `#n = e;` — assignment to an ANTIQUOTED name, the write side of
+    // `let #n`. Without it a computed binding can be declared but never
+    // updated: `#n` alone parses as an `atom`, so the write falls through to
+    // `place_assign_stmt`, and PLACE_ASSIGN over a bare VAR_REF is exactly the
+    // shape sema rejects ("left side is not an assignable place"). Ordered
+    // first — HASH is disjoint from IDENT, and `stmt` reaches assign_stmt
+    // before place_assign_stmt.
+    assign_stmt <- HASH IDENT ASSIGN expr SEMI
+                => { CODE: ASSIGN, NAME_VAR: $2, VALUE: $4 }
+                 / IDENT ASSIGN expr SEMI
                 => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
 
     // G163-2: general place write. The specialized write productions above
