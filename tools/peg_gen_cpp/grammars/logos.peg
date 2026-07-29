@@ -354,6 +354,7 @@
 %tokens {
     // Keywords (longest-match first within same length)
     KW_CONTINUE = "continue"
+    KW_QUOTE_BLOCK = "quote_block"
     KW_QUOTE_ITEM = "quote_item"
     KW_QUOTE_EXPR = "quote_expr"
     KW_QUOTE_TY   = "quote_ty"
@@ -1587,7 +1588,7 @@
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
                 / pub_vis KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
-                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref fn_body
+                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
                 / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
@@ -1595,7 +1596,7 @@
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
                 / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
-                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? fn_body
+                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
                 / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
@@ -1621,7 +1622,7 @@
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
-            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref fn_body
+            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block_body
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
             / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
@@ -1629,7 +1630,7 @@
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? fn_body
+            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block_body
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
             / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
@@ -2208,18 +2209,23 @@
                 => { CODE: TYPE_REF, NAME: $1 }
 
     // ── Block ────────────────────────────────────────────────────
-    // `#(body)` where a BLOCK goes — the fn-body slot. Same one-edit shape as
-    // `param_list`: put the antiquote on the CONSTRUCT, not on the dozens of
-    // rules that use it, so a fn, a loop and an `if` all gain it. The `HASH`
-    // lead is disjoint from `LBRACE`, so ordinary code is untouched.
+    // `#(body)` WHEREVER A BLOCK GOES — fn, while, loop, for, if, else, unsafe,
+    // let-else. Same one-edit shape as `param_list`: the antiquote sits on the
+    // CONSTRUCT, not on the dozens of rules that use it. The `HASH` lead is
+    // disjoint from `LBRACE`, so ordinary code is untouched.
     //
     // ⚠ Without this an emitter had to splice its body INSIDE the braces
     // (`fn f() -> R { #(body) }`), which nests a second scope — and a `return`
     // of a moved local from inside that scope is rejected as a use-after-move.
     // The nested block was not merely inelegant; it changed what the emitted
     // code MEANS to the checker.
-    // `#(body)` where a FN BODY goes. Deliberately NOT on `block` itself, and
-    // both reasons were found the hard way:
+    //
+    // ⚠ The fn slot alone did not reach an emitter's real shape: an emitter's
+    // body IS control flow, so a quote that can fill a fn body but not a LOOP
+    // body still falls back to text the moment the generated code branches.
+    //
+    // Deliberately NOT on `block` itself, and both reasons were found the hard
+    // way:
     //   • `block` is also a STATEMENT alternative (`BLOCK_STMT`), so putting the
     //     antiquote there hijacks every statement beginning with `#(` — Canon's
     //     quotes broke far from the edit, as a return-type mismatch inside a
@@ -2227,17 +2233,24 @@
     //   • `#( … )*` / `#( … ),*` / `#( … )&&*` are REPEAT groups sharing this
     //     prefix exactly, so wherever the two are both reachable the antiquote
     //     swallows the repeat's head — `derive_eq`'s `)&&*` stopped parsing.
-    // Scoped to the fn-body position, neither can happen: a repeat is not a
-    // body, and a statement never reaches this rule.
-    fn_body <- HASH LPAREN expr RPAREN
-            => { CODE: VAR_REF, NAME_VAR: $3 }
-             / block
+    // Scoped to a BODY position, neither can happen: a repeat is not a body,
+    // and a statement never reaches this rule.
+    //
+    // ⚠ ONE rule for every body position, not one per position. The hazard is
+    // reachability, not identity: `block_body` is only ever reached where a
+    // BLOCK is grammatically required (fn / while / loop / for / if / else /
+    // unsafe / let-else), and no such position is also a statement position or
+    // a repeat-group position. Six byte-identical rules would buy nothing —
+    // what must stay true is that `block` itself keeps no antiquote alternative.
+    block_body <- HASH LPAREN expr RPAREN
+               => { CODE: VAR_REF, NAME_VAR: $3 }
+                / block
 
     block <- LBRACE stmt* RBRACE
           => { CODE: BLOCK, ITEMS: $... }
 
     // ── Unsafe block ─────────────────────────────────────────────
-    unsafe_block <- KW_UNSAFE block
+    unsafe_block <- KW_UNSAFE block_body
                  => { CODE: UNSAFE_BLOCK, BODY: $2 }
 
     // ── Nested fn (`fn inner(...) { ... }` at stmt position) ─────
@@ -2285,26 +2298,26 @@
     // Factor the shared prefix `KW_FOR IDENT KW_IN expr` so we don't reparse
     // the iterator expression on each alternative's failure.  The tail rule
     // dispatches on the operator that follows (DOTDOT / DOTDOTEQ / block).
-    for_stmt <- KW_FOR IDENT KW_IN expr_ns DOTDOTEQ expr_ns block
+    for_stmt <- KW_FOR IDENT KW_IN expr_ns DOTDOTEQ expr_ns block_body
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: true }
-              / KW_FOR IDENT KW_IN expr_ns DOTDOT   expr_ns block
+              / KW_FOR IDENT KW_IN expr_ns DOTDOT   expr_ns block_body
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
-              / KW_FOR IDENT KW_IN expr_ns             block
+              / KW_FOR IDENT KW_IN expr_ns             block_body
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
               // Rust parity: `for PATTERN in iter` — a destructuring loop
               // variable (`for (a, b) in v`). Ordered AFTER the bare-IDENT form
               // so simple loops keep the NAME fast-path; a non-ident pattern
               // (tuple/struct/…) falls through to here. PAT-keyed → sema binds
               // the pattern against each element.
-              / KW_FOR pattern KW_IN expr_ns           block
+              / KW_FOR pattern KW_IN expr_ns           block_body
              => { CODE: FOR_EACH, PAT: $2, ITER: $4, BODY: $5 }
 
-    loop_stmt     <- KW_LOOP block
+    loop_stmt     <- KW_LOOP block_body
                   => { CODE: LOOP, BODY: $2 }
 
-    loop_expr     <- LIFETIME COLON KW_LOOP block
+    loop_expr     <- LIFETIME COLON KW_LOOP block_body
                   => { CODE: LABELED_LOOP, LABEL: $1, BODY: $4 }
-                   / KW_LOOP block
+                   / KW_LOOP block_body
                   => { CODE: LOOP, BODY: $2 }
 
     // Labeled loop: 'label: for/while/loop { }
@@ -2654,7 +2667,7 @@
     // arr[idx] = expr;
 
     // let Pat = expr else { block };
-    let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block SEMI
+    let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block_body SEMI
                   => { CODE: LET_ELSE, PAT: $2, VALUE: $4, BODY: $6 }
 
     let_stmt <- KW_LET LPAREN pat_binding_list RPAREN COLON type_ref ASSIGN expr SEMI
@@ -2691,13 +2704,13 @@
     // §6.4: while-let chain (multi-seg, MUST start with let, ≥ 2 segs)
     // — ordered FIRST so it isn't shadowed by the legacy single-let
     // alt. Same `if_let_chain` parser as the if-form.
-    while_stmt <- KW_WHILE if_let_chain block
+    while_stmt <- KW_WHILE if_let_chain block_body
                => { CODE: WHILE, ITEMS: $2, BODY: $3 }
-             / KW_WHILE KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block
+             / KW_WHILE KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block_body
                => { CODE: WHILE, PAT: $3, VALUE: $5, GUARD: $7, BODY: $8 }
-             / KW_WHILE KW_LET pattern ASSIGN expr_ns block
+             / KW_WHILE KW_LET pattern ASSIGN expr_ns block_body
                => { CODE: WHILE, PAT: $3, VALUE: $5, BODY: $6 }
-             / KW_WHILE expr_ns block
+             / KW_WHILE expr_ns block_body
                => { CODE: WHILE, COND: $2, BODY: $3 }
 
     return_stmt <- KW_RETURN expr? (SEMI / COMMA)
@@ -2764,28 +2777,28 @@
     // and bare-cond if alts. The inner `if_let_chain` returns a
     // wrapper map { ITEMS: [seg1, seg2, ...] }; sema reads
     // `node.ITEMS.ITEMS` to get the seg array.
-    if_expr <- KW_IF if_let_chain block KW_ELSE (if_expr / block)
+    if_expr <- KW_IF if_let_chain block_body KW_ELSE (if_expr / block_body)
             => { CODE: IF_LET_CHAIN, ITEMS: $2, THEN: $3, ELSE: $5 }
-             / KW_IF if_let_chain block
+             / KW_IF if_let_chain block_body
             => { CODE: IF_LET_CHAIN, ITEMS: $2, THEN: $3 }
-             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block KW_ELSE (if_expr / block)
+             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block_body KW_ELSE (if_expr / block_body)
             => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8, ELSE: $10 }
-             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block
+             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block_body
             => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8 }
-             / KW_IF KW_LET pattern ASSIGN expr_ns block KW_ELSE (if_expr / block)
+             / KW_IF KW_LET pattern ASSIGN expr_ns block_body KW_ELSE (if_expr / block_body)
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6, ELSE: $8 }
-             / KW_IF KW_LET pattern ASSIGN expr_ns block
+             / KW_IF KW_LET pattern ASSIGN expr_ns block_body
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6 }
-             / KW_IF expr_ns block KW_ELSE (if_expr / block)
+             / KW_IF expr_ns block_body KW_ELSE (if_expr / block_body)
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
-             / KW_IF expr_ns block
+             / KW_IF expr_ns block_body
             => { CODE: IF, COND: $2, THEN: $3 }
 
     // §6.4: chain MUST start with a let-seg (so legacy single-let
     // and bare-cond if forms aren't shadowed) and MUST have ≥ 2
     // segs joined by `&&`. Lookahead on LBRACE keeps the chain
     // from swallowing tokens past the if-block opening.
-    if_let_chain <- let_chain_let AND let_chain_seg (AND let_chain_seg)* &(LBRACE)
+    if_let_chain <- let_chain_let AND let_chain_seg (AND let_chain_seg)* &(LBRACE / HASH)
                  => { ITEMS: $... }
     let_chain_let <- KW_LET pattern ASSIGN cmp_expr_ns
                   => { CODE: LET_CHAIN_LET, PAT: $2, VALUE: $4 }
@@ -2960,6 +2973,7 @@
                                         => { CODE: SIZEOF_PACK, OP: $1, NAME: $4 }
                      / quote_item_expr
                      / quote_expr_expr
+                     / quote_block_expr
                      / quote_ty_expr
                      // Function-style macros in OPERAND position (`if
                      // cfg!(unix) && … {}`, `while m!(x) {}`). Mirrors
@@ -3152,6 +3166,7 @@
                                      => { CODE: SIZEOF_PACK, OP: $1, NAME: $4 }
                   / quote_item_expr
                   / quote_expr_expr
+                  / quote_block_expr
                   / quote_ty_expr
 
                   // Function-style macros: `name!(...)` / `name![...]` /
@@ -3467,6 +3482,24 @@
     // ExprBlob value. Splices via metacall, like ExprBlob returns.
     quote_expr_expr <- KW_QUOTE_EXPR BANG LBRACE expr RBRACE
                    => { CODE: QUOTE_EXPR, VALUE: $4 }
+
+    // ── quote_block! { stmt* } — a PREBUILT STATEMENT LIST (ADR 0024 S5) ──
+    // The statement-level twin of `quote_expr!`: same lowering (QUOTE_EXPR),
+    // same ExprBlob result, but the root node is a BLOCK. This is what lets an
+    // emitter build a body STRUCTURALLY and then NEST it: the fragment splices
+    // at any `block_body` position, so
+    //     let inner = quote_block! { acc = acc + 1i64; };
+    //     let outer = quote_block! { let mut i: i64 = 0i64; while i < n #(inner) };
+    // composes a nest whose DEPTH is a runtime value out of complete fragments,
+    // with no source text anywhere. `#( … )*` cannot express this — a repeat
+    // yields a flat SEQUENCE — and `parse_block` cannot either, because it
+    // reifies TEXT and so re-admits the string assembly it was meant to retire.
+    //
+    // ⚠ The braces are the BLOCK, not macro delimiters: `quote_block! { … }`
+    // captures exactly one `block`, and the fragment therefore carries its own
+    // braces — splice it AS the body (`while c #(inner)`), never inside one.
+    quote_block_expr <- KW_QUOTE_BLOCK BANG block
+                    => { CODE: QUOTE_EXPR, VALUE: $3 }
 
     // ── quote_ty! { type } — typed Type literal (Slice 1 of quote_ty epic) ──
     // MVP: body is a single type expression; sema resolves it to a TypeRef

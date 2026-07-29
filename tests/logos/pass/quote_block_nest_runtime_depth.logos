@@ -1,0 +1,51 @@
+// A loop nest of RUNTIME depth, composed from PREBUILT fragments (ADR 0024 S5).
+//
+// This is the shape that kept emitters on `push_text`. A join chain of N steps
+// is a loop nest N deep, N known only while the emitter runs. `#( … )*` does not
+// reach it — a repeat yields a FLAT sequence and a nest is not flat — and
+// `parse_block` does not either, because it reifies TEXT and so re-admits the
+// string assembly it was supposed to retire.
+//
+// `quote_block!` holds a statement list as a first-class value, so the nest is
+// built by RECURSION: start from the innermost complete fragment and wrap it,
+// once per level. That is also why the emitters' open/close PAIRS have to go —
+// a fragment is always a whole construct, so "write `{`" can never be one.
+//
+// ⚠ There is not one String in this file, and not one call to `parse_block`.
+// The nested part is never source text at any point.
+package test;
+
+use logos.std.compiler.metaprog;
+
+fn gen(depth: i64) -> QuoteItemBlob {
+    // The innermost statement list — complete on its own.
+    let mut cur: ExprBlob = quote_block! { acc = acc + scale; };
+    let mut i: i64 = 0i64;
+    while i < depth {
+        // Each turn wraps what has been built so far. `cur` is read into the
+        // template's splice slot before the assignment rebinds it.
+        cur = quote_block! { for k in 0i64..2i64 #(cur) };
+        i = i + 1i64;
+    }
+    // The nest sits in an `if` BODY, with ordinary statements before and after
+    // it in the same block — the antiquote is at a body slot, never at a
+    // statement slot.
+    let body: ExprBlob = quote_block! {
+        let mut acc: i64 = 0i64;
+        if scale != 0i64 #(cur)
+        return acc;
+    };
+    return quote_item! {
+        pub fn nested(scale: i64) -> i64 #(body)
+    };
+}
+
+metacall gen(3);
+
+fn main() -> i32 {
+    // Three levels, two iterations each.
+    if nested(1i64) != 8i64 { return 1i32; }
+    if nested(2i64) != 16i64 { return 2i32; }
+    if nested(0i64) != 0i64 { return 3i32; }
+    return 0i32;
+}

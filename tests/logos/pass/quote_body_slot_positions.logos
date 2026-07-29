@@ -1,0 +1,57 @@
+// `#(body)` reaches EVERY body position, not just a fn's (ADR 0024 S5).
+//
+// The fn-body slot alone is not enough to convert an emitter. An emitter's body
+// IS control flow — the whole point of `emit_step_open`/`emit_step_close` is a
+// loop nest — so a quote that can fill a fn body but not a loop body still has
+// to fall back to text the moment the generated code branches.
+//
+// One rule, `block_body`, now stands wherever a BLOCK is grammatically
+// required: fn, while, loop, for, if, else, unsafe, let-else. It must NOT be on
+// `block` itself — `block` is also a STATEMENT alternative, so an antiquote
+// there hijacks every statement starting with `#(`, and `#( … )*` / `),*` /
+// `)&&*` repeat groups share that prefix exactly.
+//
+// Each slot below is filled by a fragment built with `quote_block!` — no source
+// text is assembled anywhere in this file. `break` inside the `loop` fragment is
+// the load-bearing detail: it proves the fragment lands AS the loop body rather
+// than inside an extra scope nested in it.
+package test;
+
+use logos.std.compiler.metaprog;
+
+enum Opt { Some(i64), None }
+
+fn gen() -> QuoteItemBlob {
+    let w:  ExprBlob = quote_block! { acc = acc + 1i64; n = n - 1i64; };
+    let l:  ExprBlob = quote_block! { acc = acc + 2i64; break; };
+    let f:  ExprBlob = quote_block! { acc = acc + 4i64; };
+    let t:  ExprBlob = quote_block! { acc = acc + 8i64; };
+    let e:  ExprBlob = quote_block! { acc = acc + 16i64; };
+    let u:  ExprBlob = quote_block! { acc = acc + 32i64; };
+    let le: ExprBlob = quote_block! { return -1i64; };
+    return quote_item! {
+        pub fn slots(n0: i64, o: Opt) -> i64 {
+            let mut n: i64 = n0;
+            let mut acc: i64 = 0i64;
+            while n > 0i64 #(w)
+            loop #(l)
+            for i in 0i64..3i64 #(f)
+            if acc > 0i64 #(t) else #(e)
+            unsafe #(u)
+            let Opt::Some(v) = o else #(le);
+            return acc + v;
+        }
+    };
+}
+
+metacall gen();
+
+fn main() -> i32 {
+    // n=3: while +3, loop +2, for +12, then-branch +8, unsafe +32 = 57, +100.
+    if slots(3i64, Opt::Some(100i64)) != 157i64 { return 1i32; }
+    // n=0: while contributes nothing, so 0+2+12 = 14 > 0 still takes `then`.
+    if slots(0i64, Opt::Some(1i64)) != 55i64 { return 2i32; }
+    // The let-else arm diverges out of the generated fn.
+    if slots(3i64, Opt::None) != -1i64 { return 3i32; }
+    return 0i32;
+}

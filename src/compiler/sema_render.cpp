@@ -1093,6 +1093,23 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
         return s;
     }
 
+    case la::LET_ELSE: {
+        // `let PAT = expr else { … };` — PAT / VALUE / BODY (the diverging
+        // else-block). Absent here, a --gen-dir dump printed the whole
+        // statement as `/* unsupported AST code 141 */`, which reads as
+        // "the emitter dropped it" rather than "the renderer cannot say it".
+        std::string s = "let ";
+        s += render_pat_src(map_of(node.get(la::PAT.code)));
+        s += " = ";
+        s += render_expr_src(map_of(node.get(la::VALUE.code)));
+        s += " else ";
+        auto els = map_of(node.get(la::BODY.code));
+        if (code_of(els) == la::BLOCK) s += render_block_src(els);
+        else                           s += render_stmt_src(els);
+        s += ";";
+        return s;
+    }
+
     case la::BLOCK_STMT: {
         // bare scoping block `{ stmts… }` at statement position (BODY = block).
         if (node.has_key(la::BODY)) {

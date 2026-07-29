@@ -17775,6 +17775,14 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 //   `logos_quote_expr_subst(template, idents, n)` which substitutes
 //   NAME_VAR(idx) → NAME(ident.name), re-roots to the inner expr, and
 //   returns a freshly-malloc'd WritStatic-shaped ExprBlob ptr.
+//   `#(expr)` is the same placeholder with an EXPRESSION pointee instead of a
+//   name: lowered here and bound to a fresh local, so everything below sees a
+//   named placeholder. That is the form every `block_body` slot produces.
+//
+// Also the lowering for `quote_block! { stmt* }` (ADR 0024 S5) — same node,
+// same ExprBlob, but the root is a BLOCK. A statement list held as a value is
+// what lets an emitter build an inner fragment and NEST it in an outer quote,
+// which is the one thing `#( … )*` cannot do: a repeat is flat, a nest is not.
 // QUOTE_TY — `quote_ty! { type }`. Slice 1 of the quote_ty epic.
 // MVP without antiquotation: parse the inner type expression, resolve
 // to a TypeRef, and emit the same Type{kind,name,size} struct literal
@@ -18113,6 +18121,17 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // Per-group cursor count (validated for consistency within a group).
     std::vector<uint64_t> repeat_stack_count;
 
+    // `#(expr)` full-form antiquots: the inner expression is lowered here, at
+    // walk time, and bound to a fresh local emitted at the head of the block
+    // this function returns. Everything downstream then sees an ordinary named
+    // placeholder, so the span-building loop needs no second flavour.
+    struct AntiquotLet {
+        std::string   name;
+        TypeRef       type;
+        lir::LExprPtr value;
+    };
+    std::vector<AntiquotLet> antiquot_lets;
+
     // Register a NAME_VAR placeholder living in `holder_off`'s TOM under the
     // NAME_VAR key. `ident_only` rejects ExprBlob (used for FIELD_INIT field
     // names — only Idents make sense there).
@@ -18121,14 +18140,41 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         if (!tom.has_key(la::NAME_VAR.code)) return true;
         AnyVal nv = tom.get(la::NAME_VAR.code);
         if (nv.is_null() || !nv.is_pointer()) {
-            error("quote_expr!: NAME_VAR is not a string");
+            // Already an int index — this node was visited twice, which
+            // walk_visited is there to prevent.
+            error("quote_expr!: NAME_VAR is neither a name nor an expression");
             return false;
         }
-        std::string vname(writ::StringView(nv, doc.holder()).view());
-        TypeRef vt = lookup(vname);
-        if (!vt) {
-            error("quote_expr!: `#" + vname + "` — variable not in scope");
-            return false;
+        std::string vname;
+        TypeRef vt;
+        if (logos::writ::TypeTag::read_before(nv.resolve()).type_code()
+                == logos::writ::type_hash::TinyObjectMap) {
+            // `#(expr)` — the pointee is the antiquoted EXPRESSION, not a name.
+            // This is the only form the body slots produce (`block_body` builds
+            // `{CODE: VAR_REF, NAME_VAR: <expr>}`), so without it a quote could
+            // splice a fragment into a type or an argument but never into a
+            // loop body. Parity with quote_item!, which has had it since 5a.
+            //
+            // ⚠ The node lives in the COPY, not in the parsed source: str_of /
+            // map_of / arr_of all read through `holder_`, so lowering a dst node
+            // against the source holder walks a foreign arena. Swap for the
+            // duration — the same move lower_writ_blob makes for a fragment.
+            writ::TinyMapView inner(nv, doc.holder());
+            auto* saved_holder = holder_;
+            holder_ = doc.holder();
+            auto lowered = lower_expr(inner);
+            holder_ = saved_holder;
+            if (!lowered) return false;
+            vt = expr_type(lowered);
+            vname = "__qea_" + std::to_string(tmp_var_count_++);
+            antiquot_lets.push_back({vname, vt, std::move(lowered)});
+        } else {
+            vname.assign(writ::StringView(nv, doc.holder()).view());
+            vt = lookup(vname);
+            if (!vt) {
+                error("quote_expr!: `#" + vname + "` — variable not in scope");
+                return false;
+            }
         }
         bool is_cursor = (repeat_depth > 0);
         bool is_expr_blob = false;
@@ -18189,27 +18235,57 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     // would re-register its placeholder and trip on the already-rewritten
     // int NAME_VAR. Dedup by node offset (the item path's visited_src twin).
     std::unordered_set<uint32_t> walk_visited;
-    std::function<bool(uint32_t)> walk = [&](uint32_t tom_off) -> bool {
-        if (!walk_visited.insert(tom_off).second) return true;
-        auto tom = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
+    // Walk by the CHILD's TypeTag, not by the parent's AST CODE.
+    //
+    // ⚠ The predecessor was a hand-written CODE dispatch — a closed list of
+    // node shapes, each naming the keys to descend. Every AST form absent from
+    // that list silently dropped its antiquotes: an `#(x)` under a `for … in`,
+    // an `if let` chain or a `let … else` simply never registered, and the
+    // template travelled to the shim still carrying a string NAME_VAR the
+    // runtime then rejected. The list was the defect, not its entries —
+    // `quote_block!` admits whole statement families and would have to extend
+    // it forever.
+    //
+    // The tag settles what the closed list was guessing at: a key holds a
+    // STRING (a CALLEE / RECEIVER ident — reading one as a TOM walks the string
+    // bytes, the qe_b1 crash), an ARRAY (call args, block stmts, match arms —
+    // possibly behind a `{ITEMS:…}` wrapper TOM, which this simply recurses
+    // through), or a node. Only a node is descended, so both hazards the closed
+    // list encoded by hand now hold by construction. This mirrors
+    // lower_quote_item's walk_src, which has been generic all along.
+    std::function<bool(uint32_t)> walk = [&](uint32_t off) -> bool {
+        if (!walk_visited.insert(off).second) return true;
+        uint64_t tc = logos::writ::TypeTag::read_before(
+            WritAccess::base(doc) + off).type_code();
+
+        if (tc == logos::writ::type_hash::WritString) return true;
+        if (tc == logos::writ::type_hash::Array) {
+            uint64_t n = writ::ArrayView(arena_offset_t(off), doc.holder()).size();
+            for (uint64_t i = 0; i < n; ++i) {
+                // Refresh the view each iteration: register_name_var's put()
+                // can grow the arena and stale a held base / ArrayView.
+                AnyVal el = writ::ArrayView(arena_offset_t(off), doc.holder()).get(i);
+                if (el.is_null() || !el.is_pointer()) continue;
+                if (!walk(static_cast<uint32_t>(
+                        el.to_offset(WritAccess::base(doc)).value())))
+                    return false;
+            }
+            return true;
+        }
+
+        // TOM (tagged, or an untagged AST node).
         int32_t cd = 0;
-        if (tom.has_key(la::CODE.code)) {
-            AnyVal cav = tom.get(la::CODE.code);
-            if (!cav.is_null() && !cav.is_pointer())
-                cd = cav.as_value<int32_t>();
+        {
+            auto tom = writ::TinyMapView(arena_offset_t(off), doc.holder());
+            if (tom.has_key(la::CODE.code)) {
+                AnyVal cav = tom.get(la::CODE.code);
+                if (!cav.is_null() && !cav.is_pointer())
+                    cd = cav.as_value<int32_t>();
+            }
         }
 
-        auto recurse_key = [&](uint8_t key) -> bool {
-            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
-            if (!t.has_key(key)) return true;
-            AnyVal av = t.get(key);
-            if (av.is_null() || !av.is_pointer()) return true;
-            return walk(static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value()));
-        };
-
-        if (cd == la::VAR_REF.code) {
-            return register_name_var(tom_off, /*ident_only=*/false);
-        }
+        // REPEAT_GROUP is the cursor scope: only VALUE is a child, and every
+        // `#x` beneath it must be a cursor rather than a scalar.
         if (cd == la::REPEAT_GROUP.code) {
             // sep validation deferred to the shim — `&&*` works in any expr
             // position; `*` / `,*` only inside a list-bearing parent (e.g.
@@ -18221,7 +18297,14 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             }
             ++repeat_depth;
             repeat_stack_count.push_back(0);
-            bool ok = recurse_key(la::VALUE.code);
+            bool ok = true;
+            auto t = writ::TinyMapView(arena_offset_t(off), doc.holder());
+            if (t.has_key(la::VALUE.code)) {
+                AnyVal av = t.get(la::VALUE.code);
+                if (!av.is_null() && av.is_pointer())
+                    ok = walk(static_cast<uint32_t>(
+                        av.to_offset(WritAccess::base(doc)).value()));
+            }
             if (ok && repeat_stack_count.back() == 0) {
                 error("quote_expr!: `#(...)*` body has no cursor `#x` of "
                       "type [Ident; N]");
@@ -18231,206 +18314,29 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             --repeat_depth;
             return ok;
         }
-        if (cd == la::BINOP.code) {
-            if (!recurse_key(la::LHS.code)) return false;
-            return recurse_key(la::RHS.code);
-        }
-        if (cd == la::PAREN_EXPR.code || cd == la::UNARY.code
-            || cd == la::CAST.code || cd == la::DEREF.code) {
-            return recurse_key(la::VALUE.code);
-        }
-        if (cd == la::INDEX_READ.code || cd == la::PLACE_ASSIGN.code) {
-            if (!recurse_key(la::RECEIVER.code)) return false;
-            return recurse_key(la::VALUE.code);
-        }
-        if (cd == la::FIELD_READ.code) {
-            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
-            return recurse_key(la::RECEIVER.code);
-        }
-        if (cd == la::CALL.code || cd == la::METHOD_CALL.code
-            || cd == la::STATIC_CALL.code || cd == la::GENERIC_CALL.code) {
-            // CALL has either CALLEE (an IDENT string — `foo(args)`) or
-            // NAME_VAR (antiquot — `#foo(args)`). Neither is a child
-            // expression: CALLEE is a leaf-string keyed by name; NAME_VAR
-            // gets registered via register_name_var. The pre-2026-05-14
-            // code recursed into CALLEE as if it were a TOM offset — when
-            // CALLEE pointed into an ArenaString that happened to look
-            // like a small offset (e.g. 462), `walk` crashed in
-            // TinyObjectMap::get on the string bytes.
-            //
-            // METHOD_CALL RECEIVER is a real sub-expression; STATIC_CALL /
-            // GENERIC_CALL RECEIVER is an IDENT leaf-string (same hazard as
-            // CALLEE — never recurse it).
-            if (cd == la::CALL.code) {
-                if (!register_name_var(tom_off, /*ident_only=*/false))
-                    return false;
-            } else if (cd == la::METHOD_CALL.code) {
-                if (!recurse_key(la::RECEIVER.code)) return false;
-            }
-            // ARGS shape follows the grammar alternative (the sema lowerers'
-            // args_array discipline): plain CALL alts spread a bare array
-            // (`ARGS: $...`) — EXCEPT the qualified alt (QUAL_PARTS) and the
-            // antiquot alts (NAME_VAR), which carry a call_arg_list
-            // `{ITEMS:[...]}` wrapper; METHOD_CALL wraps exactly when the
-            // turbofish alt matched (TYPE_PARAMS); STATIC_CALL /
-            // GENERIC_CALL always wrap. Reading a wrapper TOM as an
-            // ArrayView walks garbage offsets — the qe_b1 crash.
-            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
-            if (t.has_key(la::ARGS.code)) {
-                AnyVal av = t.get(la::ARGS.code);
-                if (av.is_pointer()) {
-                    bool wrapped =
-                        (cd == la::STATIC_CALL.code || cd == la::GENERIC_CALL.code)
-                        || (cd == la::CALL.code
-                            && (t.has_key(la::QUAL_PARTS.code)
-                                || t.has_key(la::NAME_VAR.code)
-                                // post-substitution antiquot CALL: NAME_VAR
-                                // became NAME (plain CALLs never carry NAME)
-                                || t.has_key(la::NAME.code)))
-                        || (cd == la::METHOD_CALL.code && t.has_key(la::TYPE_PARAMS.code));
-                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
-                    if (wrapped) {
-                        auto m = writ::TinyMapView(arena_offset_t(arr_off), doc.holder());
-                        if (!m.has_key(la::ITEMS.code)) return true;
-                        AnyVal iav = m.get(la::ITEMS.code);
-                        if (!iav.is_pointer()) return true;
-                        arr_off = static_cast<uint32_t>(iav.to_offset(WritAccess::base(doc)).value());
-                    }
-                    uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
-                    // Refresh base+arr each iter: walk() can grow the arena via
-                    // register_name_var->put(), staling `b` and `arr`.
-                    for (uint64_t i = 0; i < n; ++i) {
-                        auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
-                        AnyVal el = arr2.get(i);
-                        if (!el.is_pointer()) continue;
-                        if (!walk(static_cast<uint32_t>(
-                                el.to_offset(WritAccess::base(doc)).value()))) {
-                            return false;
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-        if (cd == la::STRUCT_LIT.code) {
-            // Optional NAME_VAR antiquot for struct type name (e.g. `#Foo {…}`).
-            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
-            // Iterate ITEMS array; each element is FIELD_INIT, FIELD_SHORTHAND,
-            // or REPEAT_GROUP (cursor-expanded field-init list).
-            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
-            if (!t.has_key(la::ITEMS.code)) return true;
-            AnyVal av = t.get(la::ITEMS.code);
-            if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
-            uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
-            for (uint64_t i = 0; i < n; ++i) {
-                auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
-                AnyVal el = arr2.get(i);
-                if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
-                    return false;
-            }
-            return true;
-        }
-        if (cd == la::FIELD_INIT.code) {
-            // NAME_VAR (Ident-only antiquot for field name) + VALUE expr.
-            if (!register_name_var(tom_off, /*ident_only=*/true)) return false;
-            return recurse_key(la::VALUE.code);
-        }
-        if (cd == la::FIELD_SHORTHAND.code) {
-            return true;
-        }
-        // Bare scoping / unsafe blocks wrap their BLOCK under BODY —
-        // unwrap so antiquotes inside `{ ... }` / `unsafe { ... }` at stmt
-        // position register.
-        if (cd == la::BLOCK_STMT.code || cd == la::UNSAFE_BLOCK.code) {
-            return recurse_key(la::BODY.code);
-        }
-        // MATCH: the scrutinee (VALUE) and every arm's GUARD/BODY/EXPR carry
-        // antiquotes; arm patterns (LHS) are pattern space, not exprs.
-        if (cd == la::MATCH.code) {
-            if (!recurse_key(la::VALUE.code)) return false;
-            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
-            if (!t.has_key(la::ITEMS.code)) return true;
-            AnyVal av = t.get(la::ITEMS.code);
-            if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
-            uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
-            for (uint64_t i = 0; i < n; ++i) {
-                auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
-                AnyVal el = arr2.get(i);
-                if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
-                    return false;
-            }
-            return true;
-        }
-        if (cd == la::MATCH_ARM.code) {
-            if (!recurse_key(la::GUARD.code)) return false;
-            if (!recurse_key(la::BODY.code)) return false;
-            return recurse_key(la::EXPR.code);
-        }
-        // Slice 1.6: ARR_LIT / TUPLE_LIT / BLOCK — iterate ITEMS so
-        // REPEAT_GROUP and ExprBlob antiquots inside `[...]`, `(...)`,
-        // and `{ stmts; tail }` get registered.
-        if (cd == la::ARR_LIT.code || cd == la::TUPLE_LIT.code
-            || cd == la::BLOCK.code) {
-            auto t = writ::TinyMapView(arena_offset_t(tom_off), doc.holder());
-            if (!t.has_key(la::ITEMS.code)) return true;
-            AnyVal av = t.get(la::ITEMS.code);
-            if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(WritAccess::base(doc)).value());
-            uint64_t n = writ::ArrayView(arena_offset_t(arr_off), doc.holder()).size();
-            for (uint64_t i = 0; i < n; ++i) {
-                auto arr2 = writ::ArrayView(arena_offset_t(arr_off), doc.holder());
-                AnyVal el = arr2.get(i);
-                if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset(WritAccess::base(doc)).value())))
-                    return false;
-            }
-            return true;
-        }
-        // Stmt-shaped containers inside a BLOCK body — recurse into the
-        // payload expression where `#name` / `#(expr)*` may live.
-        if (cd == la::LET.code || cd == la::LET_DESTRUCT.code
-            || cd == la::EXPR_STMT.code || cd == la::TAIL_EXPR.code
-            || cd == la::RETURN.code
-            // the write family: the payload rides VALUE; ASSIGN's NAME and
-            // COMPOUND_ASSIGN's RECEIVER are IDENT leaf-strings (never
-            // recurse — the CALLEE-string hazard)
-            || cd == la::ASSIGN.code || cd == la::COMPOUND_ASSIGN.code) {
-            return recurse_key(la::VALUE.code);
-        }
-        // IF (both expression and statement form): COND / THEN / ELSE
-        // are all carriers for antiquots.
-        if (cd == la::IF.code) {
-            if (!recurse_key(la::COND.code)) return false;
-            if (!recurse_key(la::THEN.code)) return false;
-            if (!recurse_key(la::ELSE.code)) return false;
-            return true;
-        }
-        // WHILE / FOR / LOOP bodies + conditions.
-        if (cd == la::WHILE.code) {
-            if (!recurse_key(la::COND.code)) return false;
-            return recurse_key(la::BODY.code);
-        }
-        if (cd == la::FOR.code) {
-            if (!recurse_key(la::ITER.code)) return false;
-            if (!recurse_key(la::LHS.code)) return false;
-            if (!recurse_key(la::RHS.code)) return false;
-            return recurse_key(la::BODY.code);
-        }
-        if (cd == la::LOOP.code) {
-            return recurse_key(la::BODY.code);
-        }
-        // ASSIGN / COMPOUND_ASSIGN — LHS + RHS.
-        if (cd == la::ASSIGN.code || cd == la::COMPOUND_ASSIGN.code) {
-            if (!recurse_key(la::LHS.code)) return false;
-            return recurse_key(la::RHS.code);
-        }
-        // DEREF — single value child.
-        if (cd == la::DEREF.code) {
-            return recurse_key(la::VALUE.code);
+
+        // A NAME_VAR here is an antiquot whatever the node is — VAR_REF, an
+        // antiquoted CALL callee, a `#(body)` filling a `block_body` slot.
+        // Slots that denote a FIELD or a TYPE NAME take an Ident and nothing
+        // else: splicing a fragment there leaves a name-shaped hole with a
+        // tree in it.
+        bool ident_only = (cd == la::FIELD_READ.code
+                           || cd == la::FIELD_INIT.code
+                           || cd == la::STRUCT_LIT.code);
+        if (!register_name_var(off, ident_only)) return false;
+
+        for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k) {
+            auto t = writ::TinyMapView(arena_offset_t(off), doc.holder());
+            if (!t.has_key(k)) continue;
+            // NAME_VAR's pointee is placeholder CONTENT, not a child node —
+            // register_name_var has already consumed it (and rewritten the
+            // slot to an int index).
+            if (k == la::NAME_VAR.code) continue;
+            AnyVal av = t.get(k);
+            if (av.is_null() || !av.is_pointer()) continue;
+            if (!walk(static_cast<uint32_t>(
+                    av.to_offset(WritAccess::base(doc)).value())))
+                return false;
         }
         return true;
     };
@@ -18526,6 +18432,18 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         lir::SLet s;
         s.name = tname; s.type = hs_t; s.is_mut = false;
         s.value = std::move(template_lit);
+        blk.push_back(make_stmt_emit(node_line_, std::move(s)));
+    }
+
+    // `#(expr)` producers, bound before any span reads them. One let per
+    // OCCURRENCE, evaluated in template order — so `#(build_body(i))` runs
+    // exactly once for the slot it fills, and its value outlives the shim call
+    // that reads through it.
+    for (auto& al : antiquot_lets) {
+        define(al.name, al.type);
+        lir::SLet s;
+        s.name = al.name; s.type = al.type; s.is_mut = false;
+        s.value = std::move(al.value);
         blk.push_back(make_stmt_emit(node_line_, std::move(s)));
     }
 
