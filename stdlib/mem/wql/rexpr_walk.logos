@@ -585,20 +585,24 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 
 // (a·false, FIND mode) — a const-false `find` predicate: constant None with the
 // borrow-returning signature (`Option<&Row>`), no scan loop.
-fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str, tps: str,
-                  h: &Writ) -> bool {
+fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
+                  prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    // find/first fast paths scan plain slices only — no engine params here.
-    begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text, tps);
-    em.push_text(") -> Result<Option<&");
-    em.push_text(sc.row_ty);
-    em.push_text(">, ElError> {\n");
-    em.push_text("    return Result::Ok(Option::None);\n");
-    em.push_text("}\n");
-    em.commit();
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // The body is a CONSTANT here, but it still travels as text: `parse_block`
+    // is the one seam a fn-body antiquote accepts, and a shape that happens to
+    // be constant today does not deserve a second route.
+    let mut rty: String = String::new();
+    rty.push_str("Result<Option<&");
+    rty.push_str(sc.row_ty);
+    rty.push_str(">, ElError>");
+    // ⚠ The chunk route passed NO natspec uses here ("find/first fast paths
+    // scan plain slices only"), but the source is not the only thing a
+    // signature names: `params_text` is VERBATIM, so any param type defined in
+    // a factory package needs that package imported. `prm` supplies exactly
+    // the list the chunk route builds for every other emitter.
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  "{\n    return Result::Ok(Option::None);\n}\n", prm);
     return true;
 }
 
@@ -681,7 +685,7 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                 let scan_e: RExpr = p.input_expr();
                 if empty {
                     if sel_mode == SELM_FIND() {
-                        return emit_none_find(scan_e, fn_name, params_text, prm.tparams, h);
+                        return emit_none_find(scan_e, fn_name, params_text, prm, h);
                     }
                     return emit_empty(scan_e, p.sel, fn_name, params_text, prm, result_ty,
                                       has_result_ty, sel_mode == SELM_FIRST(), h);
