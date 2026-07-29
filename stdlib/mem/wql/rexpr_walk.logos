@@ -4267,15 +4267,17 @@ fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
 // rel index) — the helper-fn dependency-slice parameters; the walker's prelude
 // builds the matching call-argument list from the SAME masks (plan_walker::
 // push_call_args), so signature and call site cannot drift.
-fn push_dep_params(em: &mut Emitter, prm: &MacroParams, mask: i64) {
+// It appends to the PARAM-LIST text, not to an item buffer: the rel fns are
+// quotes now, and their parameter list is one string the shell parses.
+fn push_dep_params(out: &mut String, prm: &MacroParams, mask: i64) {
     let mut j: i64 = 0i64;
     while j < prm.rel_n {
         if (mask & (1i64 << j)) != 0i64 {
-            em.push_text(", ");
-            em.push_text(prm.rel_srcs[j]);
-            em.push_text(": &[");
-            em.push_text(prm.rel_rowty[j]);
-            em.push_text("]");
+            out.push_str(", ");
+            out.push_str(prm.rel_srcs[j]);
+            out.push_str(": &[");
+            out.push_str(prm.rel_rowty[j]);
+            out.push_str("]");
         }
         j = j + 1i64;
     }
@@ -4317,21 +4319,31 @@ fn emit_rel_body(em: &mut Emitter, body_any: WAny, ri: i64,
 // out Vec + shadow HashSet (O(1) dedup membership, see emit_rel_push; the raw
 // pointer rides alongside because HashSet's mutators take `*mut self`), then
 // every body's loop nest, dedup-pushing into the shared pair.
-fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
+fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
                        params_text: str, prm: &MacroParams, scc: &RelScc,
                        h: &Writ) -> bool {
     let row_ty: str = prm.rel_rowty[ri];
-    em.push_text("fn __wql_");
-    em.push_text(vis_strip(fn_name));
-    em.push_text("_rel_");
-    em.push_text(prm.rel_names[ri]);
-    em.push_text(prm.tparams);
-    em.push_text("(");
-    em.push_text(params_text);
-    push_dep_params(em, prm, scc.dep_mask[ri]);
-    em.push_text(") -> Result<Vec<");
-    em.push_text(row_ty);
-    em.push_text(">, ElError> {\n");
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // ⚠ The leading `-` is the PRIVATE marker `vis_is_priv` reads: a rel helper
+    // is not part of the resource's surface, and the shell decides `fn` vs
+    // `pub fn` from the name it is handed. Writing `"fn "` by hand is what that
+    // marker exists to replace.
+    let mut hn: String = String::new();
+    hn.push_str("-__wql_");
+    hn.push_str(vis_strip(fn_name));
+    hn.push_str("_rel_");
+    hn.push_str(prm.rel_names[ri]);
+    // The dependency slices are PARAMS, so they join the param-list text.
+    let mut ps: String = String::new();
+    ps.push_str(params_text);
+    push_dep_params(&mut ps, prm, scc.dep_mask[ri]);
+    let mut rty: String = String::new();
+    rty.push_str("Result<Vec<");
+    rty.push_str(row_ty);
+    rty.push_str(">, ElError>");
+    // ⚠ `em` is a BODY BUFFER, not a chunk (see emit_join_chain).
+    let mut em: Emitter = Emitter::new();
+    em.push_text("{\n");
     em.push_text("    let mut __out: Vec<");
     em.push_text(row_ty);
     em.push_text("> = Vec::<");
@@ -4349,11 +4361,13 @@ fn emit_rel_fn_oneshot(em: &mut Emitter, rel: RQRel, ri: i64, fn_name: str,
     let nb: i64 = bodies.len();
     let mut b: i64 = 0i64;
     while b < nb {
-        if !emit_rel_body(em, bodies.body_any(b), ri, prm, h) { return false; }
+        if !emit_rel_body(&mut em, bodies.body_any(b), ri, prm, h) { return false; }
         b = b + 1i64;
     }
     em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
+    emit_fn_quote(hn.as_str(), ps.as_str(), prm.tparams, rty.as_str(),
+                  em.buf.as_str(), prm);
     return true;
 }
 
@@ -4479,7 +4493,7 @@ fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
 // Body emitters are reused UNCHANGED: `__out`/`__rsp` are lexically rebound
 // per member block, source slices per round/variant — the emission is
 // parameterized by NAMES only.
-fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
+fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                params_text: str, prm: &MacroParams, scc: &RelScc,
                h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
@@ -4494,25 +4508,34 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
         }
         r = r + 1i64;
     }
-    // ── Signature ──
-    em.push_text("fn __wql_");
-    em.push_text(vis_strip(fn_name));
-    em.push_text("_scc");
-    push_nk(em, "", c);
-    em.push_text(prm.tparams);
-    em.push_text("(");
-    em.push_text(params_text);
-    push_dep_params(em, prm, mask);
+    // ── Signature (structure) ── the item is a QUOTE (ADR 0024 S5).
+    // ⚠ Leading `-` = the PRIVATE marker `vis_is_priv` reads; the shell writes
+    // `fn` vs `pub fn` from it. The member TOTAL out-params are PARAMS, so they
+    // join the param-list text next to the dependency slices — one string, one
+    // `parse_params`, instead of the fn's punctuation being interleaved with
+    // the driver's state.
+    let mut hn: String = String::new();
+    hn.push_str("-__wql_");
+    hn.push_str(vis_strip(fn_name));
+    hn.push_str("_scc");
+    hn.push_i64(c);
+    let mut ps: String = String::new();
+    ps.push_str(params_text);
+    push_dep_params(&mut ps, prm, mask);
     let mut m0: i64 = 0i64;
     while m0 < nm {
-        em.push_text(", __tot_");
-        em.push_text(prm.rel_names[mem[m0]]);
-        em.push_text(": &mut Vec<");
-        em.push_text(prm.rel_rowty[mem[m0]]);
-        em.push_text(">");
+        ps.push_str(", __tot_");
+        ps.push_str(prm.rel_names[mem[m0]]);
+        ps.push_str(": &mut Vec<");
+        ps.push_str(prm.rel_rowty[mem[m0]]);
+        ps.push_str(">");
         m0 = m0 + 1i64;
     }
-    em.push_text(") -> Result<(), ElError> {\n");
+    // ⚠ `em` is a BODY BUFFER, not a chunk (see emit_join_chain). The semi-naïve
+    // driver's shape is a runtime value twice over: one state block per SCC
+    // member, and one delta VARIANT per in-SCC source occurrence per body.
+    let mut em: Emitter = Emitter::new();
+    em.push_text("{\n");
     // ── Per-member state ──
     // Plain (set-semantics) member: a shadow HashSet + current/next delta Vecs.
     // AGGREGATE member (recursive min/max): a best-per-key MAP + its raw pointer
@@ -4576,13 +4599,13 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
             b0 = b0 + 1i64;
         }
         if nseed > 0i64 {
-            if prm.rel_is_agg[ri] { emit_member_block_open_agg(em, prm, ri); }
-            else                  { emit_member_block_open(em, prm, ri); }
+            if prm.rel_is_agg[ri] { emit_member_block_open_agg(&mut em, prm, ri); }
+            else                  { emit_member_block_open(&mut em, prm, ri); }
             let mut b1: i64 = 0i64;
             while b1 < nb {
                 let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
                 if oc1.n == 0i64 {
-                    if !emit_rel_body(em, bodies.body_any(b1), ri, prm, h) { return false; }
+                    if !emit_rel_body(&mut em, bodies.body_any(b1), ri, prm, h) { return false; }
                 }
                 b1 = b1 + 1i64;
             }
@@ -4701,8 +4724,8 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
             b2 = b2 + 1i64;
         }
         if nrec > 0i64 {
-            if prm.rel_is_agg[ri6] { emit_member_block_open_agg(em, prm, ri6); }
-            else                   { emit_member_block_open(em, prm, ri6); }
+            if prm.rel_is_agg[ri6] { emit_member_block_open_agg(&mut em, prm, ri6); }
+            else                   { emit_member_block_open(&mut em, prm, ri6); }
             let mut b3: i64 = 0i64;
             while b3 < nb6 {
                 let body_any: WAny = bodies6.body_any(b3);
@@ -4717,7 +4740,7 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
                             set_occ_src(body_any, &oc, w, nm_w, h);
                             w = w + 1i64;
                         }
-                        if !emit_rel_body(em, body_any, ri6, prm, h) { return false; }
+                        if !emit_rel_body(&mut em, body_any, ri6, prm, h) { return false; }
                         v = v + 1i64;
                     }
                     // Restore the canonical (total) source names.
@@ -4763,6 +4786,8 @@ fn emit_scc_fn(em: &mut Emitter, rels: RQRelArr, c: i64, fn_name: str,
     }
     em.push_text("    return Result::Ok(());\n");
     em.push_text("}\n");
+    emit_fn_quote(hn.as_str(), ps.as_str(), prm.tparams, "Result<(), ElError>",
+                  em.buf.as_str(), prm);
     return true;
 }
 
@@ -4810,16 +4835,20 @@ fn emit_member_block_open_agg(em: &mut Emitter, prm: &MacroParams, ri: i64) {
 // prefixes the helper names so multiple wql! resources per module coexist.
 pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                     prm: &MacroParams, scc: &RelScc, h: &Writ) -> bool {
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    let mut __uses: String = String::new();
-    prm.native_use_text(&mut __uses);
-    begin_chunk(&mut em, &view, string_as_str(&__uses));
+    // ── the items are QUOTES (ADR 0024 S5) ────────────────────────────────
+    // ⚠ THE ONE MULTI-ITEM EMITTER. The chunk held every rel fn at once; a
+    // `quote_item!` cannot, because there is no `parse_as` rule for an ITEM
+    // LIST — `parse_block` reifies statements, and a fn is not a statement.
+    // So this emits SEVERAL quotes, one per fn, rather than growing the shell
+    // to take a list it would have to re-split anyway. Nothing depended on the
+    // items sharing a chunk: they are siblings in one package, each complete,
+    // and the topo order they are emitted in was already documented as
+    // cosmetic (top-level fns do not need declaration order).
     let mut p: i64 = 0i64;
     while p < scc.nscc {
         let c: i64 = scc.order[p];
         if scc.rec[c] {
-            if !emit_scc_fn(&mut em, rels, c, fn_name, params_text, prm, scc, h) { return false; }
+            if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, h) { return false; }
         } else {
             let mut i: i64 = 0i64;
             while i < prm.rel_n {
@@ -4827,7 +4856,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // emitted helper fn — their prelude calls the stdlib walk.
                 // (Registry idx 0..nr-1 is parse-aligned; natives sit after.)
                 if scc.comp[i] == c && !prm.rel_native[i] {
-                    if !emit_rel_fn_oneshot(&mut em, rels.rel_at(i), i, fn_name,
+                    if !emit_rel_fn_oneshot(rels.rel_at(i), i, fn_name,
                                             params_text, prm, scc, h) { return false; }
                 }
                 i = i + 1i64;
@@ -4835,6 +4864,5 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
         }
         p = p + 1i64;
     }
-    em.commit();
     return true;
 }
