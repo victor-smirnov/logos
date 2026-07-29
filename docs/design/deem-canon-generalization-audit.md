@@ -167,13 +167,19 @@ gained the row re-bind. Measured: −345 lines in `rexpr_walk.logos`, −162
 `push_text` calls (1125 → 963). `wql_group_rowvar_e2e` pins the row var in
 `having` / `order by` / `select` at both chain lengths.
 
-What did NOT close, and it is the same wall the rest of the body conversion
-hit: a quote fragment cannot declare a binding whose NAME the emitter computes.
-`let_stmt` has ten alternatives and every one takes a literal `IDENT`, so
-`let #nm: i64 = 7i64;` inside `quote_item!` is `syntax error near 'let'`. This
-emitter writes `let __ga_<agg>`, `let __gf_<agg>` and `let <row var>: &<row
-ty>` on every query, so it cannot become fragments until `KW_LET` gets the
-`NAME_VAR` alternative that `fn` / `param` / `struct` already have.
+What did NOT close at the time, and it was the same wall the rest of the body
+conversion hit: a quote fragment could not declare a binding whose NAME the
+emitter computes. `let_stmt` had ten alternatives and every one took a literal
+`IDENT`, so `let #nm: i64 = 7i64;` inside `quote_item!` was `syntax error near
+'let'`. This emitter writes `let __ga_<agg>`, `let __gf_<agg>` and `let <row
+var>: &<row ty>` on every query, so it could not become fragments at all.
+
+⚠ CLOSED SINCE. `KW_LET` (and `assign_stmt`) gained the `NAME_VAR` alternative
+that `fn` / `param` / `struct` already had (`5e9488f3`), a statement LIST learned
+to compose flat (`bdd9476c`), and the emitters' own open/close PAIRS became
+wrapping fragments (`dbe92778`). `rexpr_walk.logos` now has **zero** `push_text`:
+963 → 841 → 0. See ADR 0024 §S5 for the three primitives and why the "the body
+must stay text" reasoning was wrong.
 
 ## 6. The type-classification table, written FOUR times — CLOSED (this pass)
 

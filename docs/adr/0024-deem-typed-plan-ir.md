@@ -169,21 +169,58 @@ relational IR nodes proper.
 `push_text` gives way to quotes, which also settles the standing debt that
 `push_text` is a workaround rather than the intended codegen surface.
 
-*The conversion is DONE.* `rexpr_walk.logos` has no `begin_chunk` caller and no
-`Emitter::commit`: all nine emitters — `emit_find`, `emit_simple`,
+*The conversion is DONE, BODIES INCLUDED.* `rexpr_walk.logos` has no
+`begin_chunk` caller, no `Emitter::commit`, and — since `dbe92778` — **no
+`push_text` at all**: all nine emitters (`emit_find`, `emit_simple`,
 `emit_none_find`, `emit_identity`, `emit_head_row`, `emit_empty`,
-`emit_join_chain`, `emit_aggregate`, `emit_rel_fns` —
-emit `quote_item!`s through one shared shell, and `emit_fn_head` is gone. The
-line the conversion settled on is that the BODY stays text and everything else
-is structure. That is not a compromise: a generated body's shape is a runtime
-value (a join nest of `ch.n` levels, one accumulator per aggregate, one
-semi-naïve variant per in-SCC source occurrence), and a repeat produces a flat
-sequence. Everything that is NOT the body — visibility, name, generics,
-parameters, return type, imports — has a fixed shape and became structure.
-Return types were the biggest single win: `") -> Result<Vec<"` … `">, ElError>
+`emit_join_chain`, `emit_aggregate`, `emit_rel_fns`) build BOTH the item and its
+body as quotes through one shared shell, and `emit_fn_head` is gone. The only
+text left is the SCALAR clauses — `emit_sexpr` renders a `where` / `select` /
+`on` / group-key body in codegen.logos and `parse_expr` reifies it at the leaf.
+Return types were the first single win: `") -> Result<Vec<"` … `">, ElError>
 {\n"` used to be spelled once per branch with the body's opening brace welded
 on, so a two-armed emitter carried two copies of the fn's syntax; the arms now
 differ in the return TYPE alone.
+
+⚠ THE PARAGRAPH THAT STOOD HERE SAID THE BODY MUST STAY TEXT, and gave the
+reason: a generated body's shape is a runtime value (a join nest of `ch.n`
+levels, one accumulator per aggregate, one semi-naïve variant per in-SCC source
+occurrence) and a repeat produces a flat sequence. The premise was right and the
+conclusion was wrong. What a runtime-shaped body actually needs is three
+primitives, all of which now exist:
+
+  * `#(body)` **wherever a block goes** — while / loop / for / if / else /
+    unsafe / let-else, not only a fn body (`f8f715e9`). A nest of runtime DEPTH
+    is then built by RECURSION: start from the innermost complete fragment and
+    wrap it once per level.
+  * **`let #n` / `#n = e`** — a binding whose NAME the emitter computes
+    (`5e9488f3`). This was the hard blocker: every level of a join nest opens
+    with `let __pk{s}` / `let mut __m{s}` / `let mut __j{s}`, so the conversion
+    died at the first statement of every fragment.
+  * **a statement LIST that composes flat** — `#frag;` inlines its statements,
+    `{ #frag; }` still scopes them (`bdd9476c`). A body is a SEQUENCE of
+    runtime-many statement RUNS (a rel prelude, one build phase per join step,
+    the walker), each declaring bindings the runs after it read; without the
+    inline a body could be wrapped but never appended to.
+
+⚠ AND THE REAL OBSTACLE WAS THE EMITTERS' OWN SHAPE, not the grammar. Bodies
+were written by open/close PAIRS — `emit_step_open` wrote `{`, `emit_step_close`
+the matching `}`, separated by the whole inner body and a LEVEL COUNTER threaded
+between them. A quote fragment is a whole construct, so a fragment that is only
+an opening brace cannot exist. Every pair became "take a complete inner
+fragment, return the wrapped one" (`step_wrap`, `member_block_frag`), the level
+counter became that fold's recursion, and indentation bookkeeping
+(`push_ind`/`ind_string`) lost its subject — a fragment has no column.
+
+⚠ Equivalence was checked against the ARTIFACT, not argued: `--gen-dir` over all
+155 compiling `wql_`/`deem_`/`query_` pass tests, before and after each step.
+Exit codes identical test-for-test; the only surviving line differences are
+`x.next()` → `(x).next()` and a streamed limit break losing a vacuous `true &&`.
+
+⚠ REMOVED with the text: `emit_strategy_comment` and the `// join strategy: …`
+trace. It never reached generated code — the body went through `parse_block`,
+which drops comments — so no dump has ever contained it. A trace that survives
+needs a channel, not a text push.
 
 ⚠ Two things the shell had to absorb. VISIBILITY is decided in one place — the
 `-` prefix on a fn name (`vis_is_priv`, params.logos) that had no producer until
