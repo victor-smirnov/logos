@@ -2382,6 +2382,12 @@
                 => { CODE: PAT_TUPLE, NAMES: $2 }
                / IDENT
                 => { CODE: PAT_WILD, NAME: $1 }
+               // `let (#a, #b) = …` — a DESTRUCTURED binding whose names the
+               // emitter computes. Same discipline as the `let #n` antiquot:
+               // inside parens, never at a statement head, and HASH is disjoint
+               // from IDENT / DOTDOT / LPAREN so the ordering is free.
+               / HASH IDENT
+                => { CODE: PAT_WILD, NAME_VAR: $2 }
 
     pat_binding_list <- pat_binding (COMMA pat_binding)*
                      => { ITEMS: $... }
@@ -2424,6 +2430,14 @@
               => { CODE: PAT_FIELD, NAME: $2, IS_REF: true }
                / IDENT
               => { CODE: PAT_FIELD, NAME: $1 }
+               // `S { #a }` / `S { ref #a }` / `S { ref mut #a }` — a STRUCT
+               // pattern field bound under a computed name.
+               / KW_REF KW_MUT HASH IDENT
+              => { CODE: PAT_FIELD, NAME_VAR: $4, IS_REF: true, IS_MUT: true }
+               / KW_REF HASH IDENT
+              => { CODE: PAT_FIELD, NAME_VAR: $3, IS_REF: true }
+               / HASH IDENT
+              => { CODE: PAT_FIELD, NAME_VAR: $2 }
 
     pat_field_list <- pat_field (COMMA pat_field)* COMMA?
                    => { ITEMS: $... }
@@ -2663,6 +2677,16 @@
         => { CODE: PAT_TUPLE, ITEMS: $... }
         / IDENT
         => { CODE: PAT_WILD, NAME: $1 }
+        // `Some(#x)` / `#x` — a PATTERN binding whose name the emitter computes.
+        // Reached by `let … else`, by every `match` arm and by variant payloads,
+        // so one alternative covers all three.
+        //
+        // ⚠ Disjoint from the repeat group as well: a repeat is `HASH LPAREN`,
+        // this is `HASH IDENT`. That is the same reason `let #n` is safe and
+        // `block` is not — the hazard was never the sigil, it is whether the
+        // position can also begin a STATEMENT or a REPEAT.
+        / HASH IDENT
+        => { CODE: PAT_WILD, NAME_VAR: $2 }
 
     // arr[idx] = expr;
 

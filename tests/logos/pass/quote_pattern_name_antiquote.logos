@@ -1,0 +1,64 @@
+// A PATTERN may bind under a name the emitter computes.
+//
+// `let #n = …` landed with the emitter conversion, because a computed binding
+// name was the single thing keeping the wql! emitters on push_text. It covered
+// only the simple forms. This covers the rest, which an emitter reaches as soon
+// as it wants to destructure a row, match a variant, or read a struct field:
+//
+//   let (#a, #b) = tuple;        a DESTRUCTURED binding
+//   match v { Option::Some(#x) => … }   a PATTERN binding (also let … else)
+//   let Pt { #fx, y: #py } = p;  a STRUCT-pattern FIELD name, and a computed
+//                                binding under a literal field
+//
+// ⚠ WHY THIS IS SAFE, and it is the same reason each time. The hazard recorded
+// against putting an antiquote on `block` was never the sigil: it was that the
+// position can also begin a STATEMENT (so `#(` swallows any statement) or a
+// REPEAT GROUP (`#( … )*`, `),*`, `)&&*` share the prefix). A pattern position
+// is neither. And `HASH IDENT` is disjoint from `HASH LPAREN`, so a repeat and a
+// name antiquote cannot be confused even where both are reachable.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+pub struct Pt { pub x: i64, pub y: i64 }
+
+fn gen() -> QuoteItemBlob {
+    // Every bound name below is chosen HERE, at metaprog time — none of them is
+    // written literally in the quote.
+    let a: Ident  = Ident::new("lo");
+    let b: Ident  = Ident::new("hi");
+    let x: Ident  = Ident::new("got");
+    // ⚠ In a struct pattern the SHORTHAND names the FIELD, not the binding —
+    // `Pt { #fx }` reads "the field called x", and binds it to `x`. To choose
+    // the BINDING name you write the field literally and antiquote the pattern:
+    // `y: #py`. Both are exercised, because an emitter may compute either.
+    let fx: Ident = Ident::new("x");
+    let py: Ident = Ident::new("ay");
+    return quote_item! {
+        pub fn made() -> i64 {
+            // destructuring, computed names
+            let t: (i64, i64) = (3i64, 4i64);
+            let (#a, #b) = t;
+            // pattern binding in a match arm, computed name
+            let o: Option<i64> = Option::Some(5i64);
+            let m: i64 = match o {
+                Option::Some(#x) => { #x }
+                Option::None => { 0i64 }
+            };
+            // struct-pattern field, computed names
+            let p: Pt = Pt { x: 6i64, y: 7i64 };
+            let Pt { #fx, y: #py } = p;
+            return #a + #b + m + x + #py;
+        }
+    };
+}
+
+metacall gen();
+
+fn main() -> i32 {
+    // 3 + 4 + 5 + 6 + 7
+    if made() != 25i64 { return 1i32; }
+    return 0i32;
+}
