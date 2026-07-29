@@ -139,6 +139,47 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // one that decides, and a trace that disagrees with the plan is worse than
     // no trace.
 
+    // ── ⚠ WHY THIS ONE EMITTER STAYS ON TEXT (ADR 0024 S5) ────────────────
+    // Every other wql!/Canon emitter builds its item as a `quote_item!`. This
+    // one cannot, and the reason is not effort — it is two MEASURED facts about
+    // where a quote may land and what a `deem` item may hold. Both were probed
+    // on this very path (`conuco/memoria/tests/ctr_class_deem`, `--gen-dir`),
+    // not reasoned about:
+    //
+    // 1. A QUOTE LANDS IN THE METACALL SITE'S PACKAGE, AND THE EMITTER HAS NO
+    //    SAY. `logos_emit_item_blob_subst` overwrites the spliced module's
+    //    NAME + PATH_PARTS with the package of the ast holding the metacall, and
+    //    `QuoteItemBlob` carries no package field for a caller to say otherwise.
+    //    The driver renders this handler's metacall into a `package logos.gen;`
+    //    chunk (render_deem_plan_chunks, main.cpp), so a probe quote emitted
+    //    from right here dumps as `package logos.gen;` — while the item has to
+    //    land in `cs.pkg` (`test` in that fixture), the package the CLASS was
+    //    declared in, or the call site cannot see the overload. `emit_into` is
+    //    text-only precisely because the text channel takes its package FROM
+    //    THE TEXT: `logos_emit_source` parses `package <pkg>;` and believes it.
+    //    So this is the ONE `emit_into` caller in the stdlib, and the quote
+    //    channel has no equivalent. NOT "a chunk is a later module round" —
+    //    that guess has misled this arc twice; the site's package is what is
+    //    inherited, measured.
+    //
+    // 2. THE ITEM IS A `deem`, AND ITS NAME AND BODY ARE BOTH UNQUOTABLE.
+    //    A LITERAL deem item quotes fine (`quote_item! { pub deem q(w: &Writ)
+    //    { from … } }` compiles), and the parameter list even takes a
+    //    `parse_params` fragment — but `deem_def <- IDENT IDENT … RAW_GROUP_BRACE`
+    //    (logos.peg) gives NAME no `HASH IDENT` alternative, so `deem #dn(…)`
+    //    is a syntax error, and the body is a RAW token span: a `#(blob)`
+    //    written inside those braces reaches the query parser VERBATIM
+    //    ("malformed query — expected `[rel …]* from … select …`"). Both of
+    //    this handler's inputs — the query name and the query text — are
+    //    runtime strings, so both would need exactly those two positions.
+    //
+    // Neither is a defect to work around here. #1 wants a package on the quote
+    // channel (a QuoteItemBlob field the splice honours instead of inheriting);
+    // #2 wants `deem`'s name and raw body to admit antiquotes, i.e. a
+    // raw-group reifier next to parse_block/parse_params. Until one of those
+    // exists this emitter is text BY CONSTRUCTION, and its 9 raw text pushes
+    // are the measured floor of the S5 count, not unconverted residue. (The
+    // count is what the S5 grep measures, so this note spells no such call.)
     let mut em: Emitter = Emitter::new();
     em.emit_into(cs.pkg);
     em.push_text("use logos.gen; use logos.mem.bt.map; use logos.std.wql.wql; ");
