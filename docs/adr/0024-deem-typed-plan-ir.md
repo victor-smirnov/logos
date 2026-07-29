@@ -183,12 +183,26 @@ alternative in the fn rule plus substituter support for a block-typed slot.
 
 The rest of the route is now proven too. `param_list` gained an antiquote
 alternative — on the LIST, not on the dozens of fn rules — so parameters splice;
-`type_ref` already handled the return type; and `use #pkg?;` carries a
-runtime-sized import list by dropping the slots whose path is empty. Together
-those answer the mechanism question this arc had left open: an `Emitter` does not
-need to learn to take a `QuoteItemBlob`, because the quote route replaces the
-text CHUNK outright — uses included. What remains is the conversion itself,
-emitter by emitter, with L4 as the oracle.
+`type_ref` already handled the return type. Together those answer the mechanism
+question this arc had left open: an `Emitter` does not need to learn to take a
+`QuoteItemBlob`, because the quote route replaces the text CHUNK outright — uses
+included. What remains is the conversion itself, emitter by emitter, with L4 as
+the oracle.
+
+⚠ IMPORTS WERE THE BLOCKER, and for two rounds the record said otherwise. A
+converted emitter whose signature named a factory-generated handle (`Hs…` in
+`logos.gen`) died with "unknown type", and that was written up as TIMING — a
+text chunk being its own module compiled a round later, when the family is
+registered. It is not: the chunk imported `logos.gen` all along (the natspec
+carries the source param type's defining package; `native_use_text` renders it),
+and the quote did not, because BOTH antiquoted import forms were no-ops.
+`quote_item_expr` captures `USES` and `ITEMS` as two disjoint arrays — no `$...`
+aliasing, unlike the `module` rule — and the quote lowering's placeholder walk
+visited ITEMS only, so a `use #pkg;` was never numbered and the splice path
+dropped it, while a `#( use #us; )*` group was never expanded at all. The tests
+that "proved" both forms named packages the implicit prelude re-exports, so they
+passed on a mechanism that did nothing; they now import a package the prelude
+does not reach, which is what makes the compile an assertion.
 
 **S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
 structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and

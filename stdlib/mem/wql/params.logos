@@ -281,58 +281,42 @@ impl MacroParams {
             }
             i = i + 1i64;
         }
-        return "";
-    }
-
-    pub fn native_use_text(self: &MacroParams, out: &mut String) {
-        // The `@` annotation carries a COMMA-separated module list
-        // (materializer's module + the source param type's defining package).
-        // Dedup is PER MODULE, not per list — the same module may appear in
-        // different lists across params ("modA" vs "modA,pkgB"), and a
-        // duplicate use-decl in the generated chunk is a warning.
-        let mut emitted: Vec<str> = Vec::<str>::new();
-        let mut i: i64 = 0i64;
-        while i < self.rel_n {
-            if self.rel_native[i] && self.rel_mod[i].len() > 0i64 {
-                let m: str = self.rel_mod[i];
-                let ml: i64 = m.len();
-                let mut a: i64 = 0i64;
-                while a < ml {
-                    let mut b: i64 = a;
-                    while b < ml && str_byte_at(m, b) != 44u8 { b = b + 1i64; }
-                    if b > a {
-                        let one: str = unsafe {
-                            str_from_raw(((m.as_ptr() as i64) + a) as *const u8,
-                                         b - a)
-                        };
-                        let mut seen: bool = false;
-                        let mut j: i64 = 0i64;
-                        while j < emitted.len() {
-                            if str_eq(emitted.get(j), one) { seen = true; break; }
-                            j = j + 1i64;
-                        }
-                        if !seen {
-                            emitted.push(one);
-                            out.push_str("use ");
-                            out.push_str(one);
-                            out.push_str("; ");
-                        }
-                    }
-                    a = b + 1i64;
-                }
-            }
-            i = i + 1i64;
-        }
         // A streaming or drained source calls `next()`, which is a TRAIT
-        // method: without the trait in scope the chunk cannot resolve it, and
-        // the failure surfaces as the item type escaping as a bare type var —
-        // a diagnostic that names neither the trait nor the missing import.
+        // method: without the trait in scope the generated fn cannot resolve
+        // it, and the failure surfaces as the item type escaping as a bare
+        // type var — a diagnostic that names neither the trait nor the missing
+        // import. It is the LAST entry of the same list, not a second list.
         let mut it: i64 = 0i64;
         while it < self.rel_n {
             if self.rel_iter[it] {
-                out.push_str("use logos.lang.iter; ");
+                let iter_mod: str = "logos.lang.iter";
+                let mut dup2: bool = false;
+                let mut j2: i64 = 0i64;
+                while j2 < emitted.len() {
+                    if str_eq(emitted.get(j2), iter_mod) { dup2 = true; break; }
+                    j2 = j2 + 1i64;
+                }
+                if !dup2 && seen == k { return iter_mod; }
                 it = self.rel_n;
             } else { it = it + 1i64; }
+        }
+        return "";
+    }
+
+    /// The SAME list `native_use_at` indexes, rendered as chunk source text.
+    /// ⚠ Derived, not re-walked. The two used to be independent walks and had
+    /// already drifted — the text one imported the iterator trait and the
+    /// indexed one did not, so a converted emitter's generated fn lost an
+    /// import the text chunk had.
+    pub fn native_use_text(self: &MacroParams, out: &mut String) {
+        let mut k: i64 = 0i64;
+        loop {
+            let one: str = self.native_use_at(k);
+            if one.len() == 0i64 { break; }
+            out.push_str("use ");
+            out.push_str(one);
+            out.push_str("; ");
+            k = k + 1i64;
         }
     }
 

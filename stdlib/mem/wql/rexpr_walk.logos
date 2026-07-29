@@ -248,7 +248,7 @@ fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
             use logos.mem.collections.hashmap; use logos.mem.collections.set;
             use logos.mem.collections.btree; use logos.lang.result;
-            use logos.std.wql.el;
+            use logos.std.wql.el; use logos.lang.writ.container;
             #( use #uses; )*
             fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -258,7 +258,7 @@ fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
             use logos.mem.collections.hashmap; use logos.mem.collections.set;
             use logos.mem.collections.btree; use logos.lang.result;
-            use logos.std.wql.el;
+            use logos.std.wql.el; use logos.lang.writ.container;
             #( use #uses; )*
             pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -879,28 +879,32 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     }
     let lim_cond: String = limit_cond_text(&mods);
 
-    // ⚠ NOT a quote yet, and the reason is TIMING, not syntax. A text CHUNK is
-    // its own module, compiled in a LATER round — by which point a
-    // factory-generated handle type (`Hs…` in `logos.gen`) is registered and
-    // resolves without any import at all. A SPLICED item is checked in the
-    // current round, where that type does not exist yet, and no `use` fixes it:
-    // an emitted `use` resolves names but cannot LOAD a module. `emit_find`
-    // converts cleanly only because `find` over a rel is refused, so its
-    // sources are always slice params and its signature never names a family.
+    // The item is a QUOTE through the shared shell (ADR 0024 S5). `Emitter`
+    // survives here as what it has always been at this site — a body buffer;
+    // only the body is text, because only the body's SHAPE is a runtime value.
+    //
+    // ⚠ WHAT BLOCKED THIS was recorded as TIMING — "a factory-generated handle
+    // (`Hs…` in `logos.gen`) is registered a round after a spliced item is
+    // checked". It was not. The chunk route imported `logos.gen` all along (the
+    // natspec carries the source type's defining package, and `native_use_text`
+    // renders it); the quote route did not, because the runtime-sized import
+    // list `#( use #us; )*` was a NO-OP — the quote's USES array was never
+    // numbered by the lowering, so every antiquoted import was dropped at
+    // splice time. Once imports actually travel, the signature resolves in the
+    // round it is checked and no round has to move.
     let mut em: Emitter = Emitter::new();
-    let mut __uses: String = String::new();
-    prm.native_use_text(&mut __uses);
-    begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
+    let mut rty: String = String::new();
     if first {
-        em.push_text(") -> Result<Option<");
-        em.push_text(result_elem);
-        em.push_text(">, ElError> {\n");
+        rty.push_str("Result<Option<");
+        rty.push_str(result_elem);
+        rty.push_str(">, ElError>");
+        em.push_text("{\n");
         em.push_text(prelude);
     } else {
-        em.push_text(") -> Result<Vec<");
-        em.push_text(result_elem);
-        em.push_text(">, ElError> {\n");
+        rty.push_str("Result<Vec<");
+        rty.push_str(result_elem);
+        rty.push_str(">, ElError>");
+        em.push_text("{\n");
         em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_elem);
@@ -1076,7 +1080,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         em.push_text("    return Result::Ok(__out);\n");
     }
     em.push_text("}\n");
-    em.commit();
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  string_as_str(&em.buf), prm);
     return true;
 }
 

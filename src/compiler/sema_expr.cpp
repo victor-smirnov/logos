@@ -17218,6 +17218,24 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             if (walk_failed) return error_expr();
         }
     }
+    // ⚠ USES is a SEPARATE array on a quote (`quote_item_expr` captures
+    // `USES: $4, ITEMS: $5` — no `$...` aliasing, unlike the `module` rule),
+    // so a `#pkg` inside a use-decl is reachable ONLY from here. Walking items
+    // alone left every antiquoted import — `use #pkg;`, `use #pkg?;` and the
+    // repeat `#( use #us; )*` — without a placeholder index, and the splice
+    // path then dropped it as unresolvable: the import silently vanished, and
+    // the tests that "proved" those forms passed because the packages they
+    // named were reachable through the implicit prelude anyway.
+    // ORDER: items first, then uses — the dst walk below repeats it exactly,
+    // and the placeholder index IS that order.
+    if (!src_uses.is_null()) {
+        for (uint64_t i = 0; i < src_uses.size(); ++i) {
+            AnyVal u_av = src_uses.get(i);
+            if (u_av.is_null() || !u_av.is_pointer()) continue;
+            walk_src(u_av);
+            if (walk_failed) return error_expr();
+        }
+    }
 
     // DST doc is GrowableSingleChunk (one contiguous segment): the assembly below
     // addresses it by `base(doc) + off` (re-deriving base each time = realloc-safe).
@@ -17240,22 +17258,25 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     }
     uint32_t items_off = items_arr_e->offset().value();
 
-    if (!src_items.is_null()) {
-        // Mirror walk_src on the dst arena: every NAME_VAR-bearing TOM
-        // whose pointee is string-or-TOM gets its slot rewritten to
-        // int(next_idx++). DFS order matches walk_src so indices line up
-        // with the producers we collected above.
-        size_t next_idx = 0;
-        size_t ident_idx = 0;
-        size_t blob_idx = 0;
-        size_t cursor_idx = 0;
-        int qi_repeat_depth_dst = 0;
-        // Walk by RESOLVED POINTER (mirror of walk_src): the dst doc is also never-move
-        // MultiChunk, so base+offset is invalid across chunks. put(NAME_VAR) is an
-        // in-place fixed-cap tinymap write (no alloc, no move), so `tom` and the
-        // snapshotted child pointers stay valid across it.
-        std::set<const void*> visited_dst;
-        std::function<void(AnyVal)> walk_dst = [&](AnyVal tom_av) {
+    // Mirror walk_src on the dst arena: every NAME_VAR-bearing TOM
+    // whose pointee is string-or-TOM gets its slot rewritten to
+    // int(next_idx++). DFS order matches walk_src so indices line up
+    // with the producers we collected above.
+    // ⚠ Function-scope, not scoped to the items copy: the USES copy further
+    // down runs the SAME walk, continuing the same index sequence.
+    size_t next_idx = 0;
+    size_t ident_idx = 0;
+    size_t blob_idx = 0;
+    size_t cursor_idx = 0;
+    int qi_repeat_depth_dst = 0;
+    // Walk by RESOLVED POINTER (mirror of walk_src): the dst doc is also never-move
+    // MultiChunk, so base+offset is invalid across chunks. put(NAME_VAR) is an
+    // in-place fixed-cap tinymap write (no alloc, no move), so `tom` and the
+    // snapshotted child pointers stay valid across it.
+    std::set<const void*> visited_dst;
+    std::function<void(AnyVal)> walk_dst;
+    {
+        walk_dst = [&](AnyVal tom_av) {
             auto tom = writ::as_tinymap(tom_av, doc.holder());
             if (!tom || !visited_dst.insert(tom.ptr()).second) return;
             int32_t cd = 0;
@@ -17340,6 +17361,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 for (AnyVal ep : elem_avs) walk_dst(ep);
             }
         };
+    }
+    if (!src_items.is_null()) {
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
             if (it_av.is_null()) continue;
@@ -17356,12 +17379,6 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             walk_dst(dst_av);
             (void)writ::ArrayView(arena_offset_t(items_off), doc.holder())
                 .push_back(AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(dst_off)));
-        }
-        if (next_idx != placeholders.size()) {
-            error("quote_item!: placeholder walk mismatch (src="
-                  + std::to_string(placeholders.size())
-                  + ", dst=" + std::to_string(next_idx) + ")");
-            return error_expr();
         }
     }
 
@@ -17419,8 +17436,12 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         }
     }
 
-    // Merge the quote body's own `use` decls (deep-copied verbatim — they carry
-    // NAME + PATH_PARTS, which build_import_scope resolves like any module USE).
+    // Merge the quote body's own `use` decls (deep-copied — a literal one
+    // carries NAME + PATH_PARTS, which build_import_scope resolves like any
+    // module USE). An ANTIQUOTED one (`use #pkg;`, `use #pkg?;`, or a
+    // `#( use #us; )*` repeat) carries a NAME_VAR, so the copy goes through the
+    // SAME dst walk the items took: without an index written here the splice
+    // path has no placeholder to resolve and drops the import.
     if (!src_uses.is_null()) {
         for (uint64_t i = 0; i < src_uses.size(); ++i) {
             AnyVal u_av = src_uses.get(i);
@@ -17433,9 +17454,17 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             }
             uint32_t dst_off = static_cast<uint32_t>(
                 reinterpret_cast<uint8_t*>(cp_e.get()) - WritAccess::base(doc));
+            AnyVal dst_av; dst_av.set_ref(cp_e.get());
+            walk_dst(dst_av);
             (void)ArrayView(arena_offset_t(uses_off), doc.holder()).push_back(
                 AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(dst_off)));
         }
+    }
+    if (next_idx != placeholders.size()) {
+        error("quote_item!: placeholder walk mismatch (src="
+              + std::to_string(placeholders.size())
+              + ", dst=" + std::to_string(next_idx) + ")");
+        return error_expr();
     }
 
     // NAME = "main".

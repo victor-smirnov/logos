@@ -8,23 +8,25 @@
 //
 // The quote route already answers that. `use #pkg?;` drops the whole import when
 // the substituted path is EMPTY, so a fixed set of optional slots expresses a
-// runtime-sized import list without a blob variant per present/absent
-// combination — and the emitters' list is bounded (at most one module per rel,
-// and a query binds at most 8).
+// runtime-sized import list without a blob-variant per present/absent
+// combination.
 //
-// ⚠ Nothing in stdlib used this form, so it was machinery no test covered. It
-// is exercised BOTH ways here on purpose: an absent import must not merely be
-// harmless, it must actually be dropped — a `use` of the empty path would be a
-// resolution error, so a passing compile is the assertion.
+// ⚠ THE ASSERTION IS THE COMPILE, and it only asserts if the PRESENT package is
+// otherwise UNREACHABLE. The first version imported `logos.mem.collections.vec`
+// — reachable through the implicit prelude — so it passed while the mechanism
+// was a no-op: the quote's USES were never numbered by the lowering and the
+// splice path dropped the placeholder outright. `logos.lang.writ.container` is
+// neither imported by this module nor re-exported by the prelude, so an import
+// that fails to land fails the compile.
 package test;
 
 use logos.std.compiler.metaprog;
 use logos.mem.string;
 use logos.lang.str;
 
-fn gen(want_vec: bool) -> QuoteItemBlob {
+fn gen(want_writ: bool) -> QuoteItemBlob {
     // The PRESENT case: a real module path, chosen at metaprog time.
-    let a: Ident = if want_vec { Ident::new("logos.mem.collections.vec") }
+    let a: Ident = if want_writ { Ident::new("logos.lang.writ.container") }
                    else { Ident::new("") };
     // The ABSENT case: an empty path, so this import must vanish entirely.
     let b: Ident = Ident::new("");
@@ -32,9 +34,8 @@ fn gen(want_vec: bool) -> QuoteItemBlob {
         use #a?;
         use #b?;
         pub fn made() -> i64 {
-            let mut v: Vec<i64> = vec_new::<i64>();
-            v.push(41i64);
-            return v.get(0i64) + 1i64;
+            let _w: Writ = writ_new(1024i64);
+            return 42i64;
         }
     };
 }

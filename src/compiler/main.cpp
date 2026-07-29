@@ -1671,6 +1671,21 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         if (!uav.is_null() && uav.is_pointer()) {
             uint32_t uarr_off = static_cast<uint32_t>(
                 uav.to_offset(WritAccess::base(doc)).value());
+            // `#( use #us; )*` — a RUNTIME-SIZED import list. USES is the
+            // module root's own array, so it is not reached by the child walk
+            // that expands repeats inside items; expand it here, or the group
+            // survives as a CODE-less node that build_import_scope skips and
+            // the whole list vanishes without a diagnostic.
+            if (cursors_count > 0) {
+                uint32_t expanded = try_expand_array_repeats(uarr_off);
+                if (subst_failed) { blob_seen.erase(key); return 0; }
+                if (expanded != 0) {
+                    (void)root_ptr().put(la::USES.code,
+                        AnyVal::from_offset(WritAccess::base(doc),
+                                            arena_offset_t(expanded)));
+                    uarr_off = expanded;
+                }
+            }
             uint64_t un0 = ArrayView(arena_offset_t(uarr_off), doc.holder()).size();
             std::vector<uint32_t> survivors;
             bool dropped = false;
@@ -1683,15 +1698,21 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 if (etom.has_key(la::NAME_VAR.code)) {
                     AnyVal nvav = etom.get(la::NAME_VAR.code);
                     if (!nvav.is_value()) {
-                        // DEAD duplicate: lower_quote_item deep-copies the
-                        // quote's USES verbatim (string NAME_VAR, never
-                        // indexed), while the SAME use node is aliased into
-                        // ITEMS by the `$...` collector and gets the real
-                        // placeholder index there. The ITEMS-resident copy is
-                        // the one substituted + resolved; this one can never
-                        // be substituted at runtime — drop it.
-                        dropped = true;
-                        continue;
+                        // An UNINDEXED placeholder: `lower_quote_item` failed
+                        // to number this node, so nothing can substitute it.
+                        // ⚠ This used to DROP the node on the theory that the
+                        // same use was aliased into ITEMS and indexed there —
+                        // it is not (`quote_item_expr` captures USES and ITEMS
+                        // as two disjoint arrays, no `$...`), so the theory
+                        // silently deleted every antiquoted import. Fail loudly
+                        // instead: a missing import surfaces as an unresolved
+                        // name in generated code, which names neither.
+                        std::fprintf(stderr,
+                            "logos_emit_item_blob_subst: `use #pkg;` with no "
+                            "placeholder index (quote lowering did not number "
+                            "the module's USES)\n");
+                        blob_seen.erase(key);
+                        return 0;
                     }
                     int32_t nidx = nvav.as_value<int32_t>();
                     bool optional = etom.has_key(la::IS_OPTIONAL.code);

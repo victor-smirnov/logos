@@ -12,30 +12,32 @@
 // go on `any_use_decl`; putting it on `item` parses the `#` and then fails on
 // the `use` inside, which is what the first attempt did.
 //
-// ⚠ The assertion is the COMPILE. The emitted fn calls `vec_new` and `Vec`, so
-// if the repeated import did not land the chunk would not resolve them. Nothing
-// needs to be checked at runtime for the import to have been proven.
+// ⚠ THE ASSERTION IS THE COMPILE, and it only asserts if the imported package
+// is otherwise UNREACHABLE. The first version of this test imported
+// `logos.mem.collections.vec` and `logos.lang.option` — both reachable through
+// the implicit prelude — so it passed while the mechanism was a complete no-op:
+// the repeat group was copied into the synth module's USES verbatim, never
+// numbered by the quote lowering, and dropped at splice time. Every package
+// named here must therefore be one the entry module does NOT import and the
+// prelude does NOT re-export; `Writ` and `Ident` are exactly that.
 package test;
 
 use logos.std.compiler.metaprog;
-use logos.mem.collections.vec;
 
 fn gen() -> QuoteItemBlob {
     let mut us: Vec<Ident> = vec_new::<Ident>();
+    us.push(Ident::new("logos.lang.writ.container"));
     us.push(Ident::new("logos.mem.collections.vec"));
-    us.push(Ident::new("logos.lang.option"));
     return quote_item! {
         #( use #us; )*
         pub fn made() -> i64 {
+            // Both imports are load-bearing: `Writ`/`writ_new` from the first
+            // (NOT in the prelude — a quote with no imports fails to resolve
+            // it), `Vec`/`vec_new` from the second.
+            let _w: Writ = writ_new(1024i64);
             let mut v: Vec<i64> = vec_new::<i64>();
             v.push(41i64);
-            // Both imports are load-bearing: `Vec`/`vec_new` from the first,
-            // `Option` from the second.
-            let o: Option<i64> = Option::Some(v.get(0i64));
-            match o {
-                Option::Some(x) => { return x + 1i64; }
-                Option::None => { return 0i64; }
-            }
+            return v.get(0i64) + 1i64;
         }
     };
 }
