@@ -30,7 +30,7 @@
 // RAgg + the WRef edges). No plain Logos structs for algebra nodes.
 package logos.std.wql.rexpr_walk;
 
-use logos.std.compiler.metaprog;  // Emitter, error, OView, oview_module_ast
+use logos.std.compiler.metaprog;  // quote_item!/quote_block!, Ident, ExprBlob, parse_*, error, OView
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
@@ -538,111 +538,6 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     };
 }
 
-// The `&& __out.len() < (N)` loop-condition suffix enforcing `limit` on every
-// output-producing loop ("" when no limit). N is the literal or the param name.
-// ⚠ TRANSITIONAL — the text twin of `limit_expr`, alive only for the join and
-// aggregate emitters that have not been converted yet.
-fn limit_cond_text(mods: &QMods) -> String {
-    let mut s: String = String::new();
-    if mods.has_limit {
-        s.push_str(" && __out.len() < (");
-        if mods.limit_is_param {
-            s.push_str(mods.limit_param);
-        } else {
-            s.push_i64(mods.limit_n);
-            s.push_str("i64");
-        }
-        s.push_str(")");
-    }
-    return s;
-}
-
-// Emit one guarded output push at `indent`: plain `__out.push(v)` without
-// `distinct`, else bind the projected value and push only when not already in
-// `__out` (linear scan — O(n²) MVP dedup; `==` covers i64/f64/str natively).
-fn emit_push_guarded(em: &mut Emitter, indent: str, val_ty: str, body: str, distinct: bool) {
-    if !distinct {
-        em.push_text(indent);
-        em.push_text("__out.push(");
-        em.push_text(body);
-        em.push_text(");\n");
-        return;
-    }
-    em.push_text(indent);
-    em.push_text("let __pv: ");
-    em.push_text(val_ty);
-    em.push_text(" = (");
-    em.push_text(body);
-    em.push_text(");\n");
-    em.push_text(indent);
-    em.push_text("let mut __dup: bool = false;\n");
-    em.push_text(indent);
-    em.push_text("let mut __d: i64 = 0i64;\n");
-    em.push_text(indent);
-    em.push_text("while __d < __out.len() { if __out.get(__d) == __pv { __dup = true; } __d = __d + 1i64; }\n");
-    em.push_text(indent);
-    em.push_text("if !__dup { __out.push(__pv); }\n");
-}
-
-// Emit the stable in-place insertion sort over the parallel (key, index) vecs
-// `__ks` + `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a
-// simple/aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP
-// codegen (strict compare keeps equal keys in source order = stable); `desc`
-// flips the comparison. str keys compare with the native `<`/`>` (sema lowers
-// str relationals to byte-lexicographic `str_cmp`).
-fn push_ixn(em: &mut Emitter, k: i64) {
-    let mut s: String = String::new();
-    s.push_str("__ix");
-    s.push_i64(k);
-    em.push_text(string_as_str(&s));
-}
-fn emit_sort_perm(em: &mut Emitter, key_ty: str, desc: bool, nidx: i64) {
-    em.push_text("    let mut __a: i64 = 1i64;\n");
-    em.push_text("    while __a < __ks.len() {\n");
-    em.push_text("        let __kv: ");
-    em.push_text(key_ty);
-    em.push_text(" = __ks.get(__a);\n");
-    let mut k0: i64 = 0i64;
-    while k0 < nidx {
-        em.push_text("        let __iv");
-        { let mut s: String = String::new(); s.push_i64(k0); em.push_text(string_as_str(&s)); }
-        em.push_text(": i64 = ");
-        push_ixn(em, k0);
-        em.push_text(".get(__a);\n");
-        k0 = k0 + 1i64;
-    }
-    em.push_text("        let mut __b: i64 = __a;\n");
-    if desc {
-        em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) < __kv {\n");
-    } else {
-        em.push_text("        while __b > 0i64 && __ks.get(__b - 1i64) > __kv {\n");
-    }
-    em.push_text("            __ks.set(__b, __ks.get(__b - 1i64));\n");
-    let mut k1: i64 = 0i64;
-    while k1 < nidx {
-        em.push_text("            ");
-        push_ixn(em, k1);
-        em.push_text(".set(__b, ");
-        push_ixn(em, k1);
-        em.push_text(".get(__b - 1i64));\n");
-        k1 = k1 + 1i64;
-    }
-    em.push_text("            __b = __b - 1i64;\n");
-    em.push_text("        }\n");
-    em.push_text("        __ks.set(__b, __kv);\n");
-    let mut k2: i64 = 0i64;
-    while k2 < nidx {
-        em.push_text("        ");
-        push_ixn(em, k2);
-        em.push_text(".set(__b, __iv");
-        { let mut s: String = String::new(); s.push_i64(k2); em.push_text(string_as_str(&s)); }
-        em.push_text(");\n");
-        k2 = k2 + 1i64;
-    }
-    em.push_text("        __a = __a + 1i64;\n");
-    em.push_text("    }\n");
-}
-
 // ══════════════════════════════════════════════════════════════════════════
 // Phase-3 THIN emitters — the two peephole collapses `simplify_rexpr` signals.
 // ══════════════════════════════════════════════════════════════════════════
@@ -784,7 +679,7 @@ fn emit_identity(scan_e: RExpr,
     // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
     // The return type is where this peephole's whole content lives: `&[Row]`
     // rather than `Vec<Row>` is the collapse. It is now ONE type string handed
-    // to the shell, not four `push_text` fragments whose `[`/`]` had to match.
+    // to the shell, not four raw text pushes whose `[`/`]` had to match.
     let mut rty: String = String::new();
     rty.push_str("Result<&[");
     rty.push_str(row_ty);
@@ -1311,27 +1206,6 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 // drains the iterator and the buckets hold the ROWS themselves, in arrival
 // order — the same replay order, one structure instead of two.
 
-// ── Small emission helpers ───────────────────────────────────────────────────
-// Push `prefix` + decimal `k` — the generated-name spelling (`__pk3`, `__hm2`).
-fn push_nk(em: &mut Emitter, prefix: str, k: i64) {
-    let mut s: String = String::new();
-    s.push_str(prefix);
-    s.push_i64(k);
-    em.push_text(string_as_str(&s));
-}
-// Push `lvl` four-space indent units.
-fn push_ind(em: &mut Emitter, lvl: i64) {
-    let mut i: i64 = 0i64;
-    while i < lvl { em.push_text("    "); i = i + 1i64; }
-}
-// An indent STRING of `lvl` units (for helpers that take an indent str).
-fn ind_string(lvl: i64) -> String {
-    let mut s: String = String::new();
-    let mut i: i64 = 0i64;
-    while i < lvl { s.push_str("    "); i = i + 1i64; }
-    return s;
-}
-
 // ── JChain — the linearized join chain (base + steps) ────────────────────────
 // `edge[i]` — TRAVERSAL step (slice D): `src[i]` is the full field-path source
 // EXPRESSION (`d.emps`, walker-stamped) rather than a slice-param name; the
@@ -1552,38 +1426,6 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
     return true;
 }
 
-// The `// join strategy: …` trace line (visible via LOGOS_TRACE_EMIT).
-fn emit_strategy_comment(em: &mut Emitter, s: i64, strat: i32, anti: bool,
-                         has_equi: bool, has_resid: bool, ktn: str, edge: bool) {
-    em.push_text("    // join strategy: step ");
-    { let mut t: String = String::new(); t.push_i64(s); em.push_text(string_as_str(&t)); }
-    em.push_text(" = ");
-    if edge {
-        em.push_text("traversal (nested loop over the field path)");
-        if anti { em.push_text(", anti"); }
-        em.push_text("\n");
-        return;
-    }
-    if strat == JS_HASH() {
-        em.push_text("hash join (");
-        em.push_text(ktn);
-        em.push_text(" key)");
-    } else if strat == JS_TREE() {
-        em.push_text("tree join (");
-        em.push_text(ktn);
-        em.push_text(" key, Ord-only tier)");
-    } else if has_equi {
-        em.push_text("nested loop (");
-        em.push_text(ktn);
-        em.push_text(" key: PartialEq only — NaN kills Hash and total Ord)");
-    } else {
-        em.push_text("nested loop (no equi-term)");
-    }
-    if has_resid { em.push_text(" + residual"); }
-    if anti { em.push_text(", anti"); }
-    em.push_text("\n");
-}
-
 // ── Build phase (once per hash/tree step, before the loop nest) ──────────────
 // Index the step's source by the NEW-side key: HashMap<K, Vec<Payload>> — or
 // HashSet<K> for anti-without-residual (pure absence test) — or BTreeMap<K,
@@ -1605,221 +1447,181 @@ fn emit_strategy_comment(em: &mut Emitter, s: i64, strat: i32, anti: bool,
 //
 // Both keep arrival order within a bucket, so probe hits replay in source order
 // exactly as the nested-loop baseline does.
-fn push_payload_ty(em: &mut Emitter, streams: bool, ty: str) {
-    if streams { em.push_text(ty); } else { em.push_text("i64"); }
+fn payload_ty_frag(streams: bool, ty: str) -> ExprBlob {
+    if streams { return parse_type(ty); }
+    return parse_type("i64");
 }
 
-fn emit_build_phase(em: &mut Emitter, s: i64, strat: i32, anti: bool, has_resid: bool,
-                    ktn: str, src: str, ty: str, var: str, build_key: str, streams: bool) {
-    if strat == JS_LOOP() { return; }
+fn build_phase_frag(s: i64, strat: i32, anti: bool, has_resid: bool,
+                    ktn: str, src: str, ty: str, var: str, build_key: str,
+                    streams: bool) -> ExprBlob {
+    if strat == JS_LOOP() { return quote_block! { }; }
     let set_form: bool = strat == JS_HASH() && anti && !has_resid;
+
+    // ⚠ Every generated name is a String LOCAL of this frame: `Ident::new`
+    // borrows, so the storage has to outlive the quote that packs it.
+    let s_hs: String = nk_str("__hs", s);   let n_hs: Ident = Ident::new(string_as_str(&s_hs));
+    let s_sp: String = nk_str("__sp", s);   let n_sp: Ident = Ident::new(string_as_str(&s_sp));
+    let s_hm: String = nk_str("__hm", s);   let n_hm: Ident = Ident::new(string_as_str(&s_hm));
+    let s_mp: String = nk_str("__mp", s);   let n_mp: Ident = Ident::new(string_as_str(&s_mp));
+    let s_bt: String = nk_str("__bt", s);   let n_bt: Ident = Ident::new(string_as_str(&s_bt));
+    let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
+    let s_bo: String = nk_str("__bo", s);   let n_bo: Ident = Ident::new(string_as_str(&s_bo));
+    let s_br: String = nk_str("__br", s);   let n_br: Ident = Ident::new(string_as_str(&s_br));
+    let s_b:  String = nk_str("__b",  s);   let n_b:  Ident = Ident::new(string_as_str(&s_b));
+    let s_k:  String = nk_str("__k",  s);   let n_k:  Ident = Ident::new(string_as_str(&s_k));
+    let s_vp: String = nk_str("__vp", s);   let n_vp: Ident = Ident::new(string_as_str(&s_vp));
+    let s_nv: String = nk_str("__nv", s);   let n_nv: Ident = Ident::new(string_as_str(&s_nv));
+
+    let kt:    ExprBlob = parse_type(ktn);
+    let rowt:  ExprBlob = parse_type(ty);
+    let src_f: ExprBlob = parse_expr(src);
+    let key_f: ExprBlob = parse_expr(build_key);
+    let vnm:   Ident    = Ident::new(var);
+
     // Container + ONE raw pointer to it, taken at the declaration (the
     // std_hashmap_full idiom): all build/probe access goes through the pointer,
     // so the `&mut` borrow is taken exactly once — bc-clean across the fn.
+    let mut decl: ExprBlob = quote_block! { };
     if set_form {
-        em.push_text("    let mut ");
-        push_nk(em, "__hs", s);
-        em.push_text(": HashSet<");
-        em.push_text(ktn);
-        em.push_text("> = hashset_new::<");
-        em.push_text(ktn);
-        em.push_text(">();\n");
-        em.push_text("    let ");
-        push_nk(em, "__sp", s);
-        em.push_text(": *mut HashSet<");
-        em.push_text(ktn);
-        em.push_text("> = &mut ");
-        push_nk(em, "__hs", s);
-        em.push_text(";\n");
+        decl = quote_block! {
+            let mut #n_hs: HashSet<#(kt)> = hashset_new::<#(kt)>();
+            let #n_sp: *mut HashSet<#(kt)> = &mut #n_hs;
+        };
     } else if strat == JS_HASH() {
-        em.push_text("    let mut ");
-        push_nk(em, "__hm", s);
-        em.push_text(": HashMap<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">> = hashmap_new::<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">>();\n");
-        em.push_text("    let ");
-        push_nk(em, "__mp", s);
-        em.push_text(": *mut HashMap<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">> = &mut ");
-        push_nk(em, "__hm", s);
-        em.push_text(";\n");
+        let p1: ExprBlob = payload_ty_frag(streams, ty);
+        let p2: ExprBlob = payload_ty_frag(streams, ty);
+        let p3: ExprBlob = payload_ty_frag(streams, ty);
+        decl = quote_block! {
+            let mut #n_hm: HashMap<#(kt), Vec<#(p1)>> = hashmap_new::<#(kt), Vec<#(p2)>>();
+            let #n_mp: *mut HashMap<#(kt), Vec<#(p3)>> = &mut #n_hm;
+        };
     } else {
-        em.push_text("    let mut ");
-        push_nk(em, "__bt", s);
-        em.push_text(": BTreeMap<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">> = btreemap_new::<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">>();\n");
-        em.push_text("    let ");
-        push_nk(em, "__tp", s);
-        em.push_text(": *mut BTreeMap<");
-        em.push_text(ktn);
-        em.push_text(", Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">> = &mut ");
-        push_nk(em, "__bt", s);
-        em.push_text(";\n");
+        let p1: ExprBlob = payload_ty_frag(streams, ty);
+        let p2: ExprBlob = payload_ty_frag(streams, ty);
+        let p3: ExprBlob = payload_ty_frag(streams, ty);
+        decl = quote_block! {
+            let mut #n_bt: BTreeMap<#(kt), Vec<#(p1)>> = btreemap_new::<#(kt), Vec<#(p2)>>();
+            let #n_tp: *mut BTreeMap<#(kt), Vec<#(p3)>> = &mut #n_bt;
+        };
     }
-    em.push_text("    {\n");
+
+    // The per-row INSERT — the payload is the row index, or the row itself
+    // when the source streams.
+    let mut ins: ExprBlob = quote_block! { };
+    if set_form {
+        ins = quote_block! { unsafe { let _nb: bool = #n_sp.insert(#n_k); } };
+    } else if strat == JS_HASH() {
+        let p1: ExprBlob = payload_ty_frag(streams, ty);
+        let p2: ExprBlob = payload_ty_frag(streams, ty);
+        if streams {
+            ins = quote_block! {
+                unsafe {
+                    let #n_vp: *mut Vec<#(p1)> = #n_mp.get_or_insert(#n_k, Vec::<#(p2)>::new());
+                    (&mut *#n_vp).push(#n_br);
+                }
+            };
+        } else {
+            ins = quote_block! {
+                unsafe {
+                    let #n_vp: *mut Vec<#(p1)> = #n_mp.get_or_insert(#n_k, Vec::<#(p2)>::new());
+                    (&mut *#n_vp).push(#n_b);
+                }
+            };
+        }
+    } else {
+        let p1: ExprBlob = payload_ty_frag(streams, ty);
+        let p2: ExprBlob = payload_ty_frag(streams, ty);
+        let p3: ExprBlob = payload_ty_frag(streams, ty);
+        let p4: ExprBlob = payload_ty_frag(streams, ty);
+        if streams {
+            ins = quote_block! {
+                unsafe {
+                    let #n_vp: *mut Vec<#(p1)> = #n_tp.get_mut(&#n_k);
+                    if #n_vp == (0i64 as *mut Vec<#(p2)>) {
+                        let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
+                        #n_nv.push(#n_br);
+                        #n_tp.insert(#n_k, #n_nv);
+                    } else {
+                        (&mut *#n_vp).push(#n_br);
+                    }
+                }
+            };
+        } else {
+            ins = quote_block! {
+                unsafe {
+                    let #n_vp: *mut Vec<#(p1)> = #n_tp.get_mut(&#n_k);
+                    if #n_vp == (0i64 as *mut Vec<#(p2)>) {
+                        let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
+                        #n_nv.push(#n_b);
+                        #n_tp.insert(#n_k, #n_nv);
+                    } else {
+                        (&mut *#n_vp).push(#n_b);
+                    }
+                }
+            };
+        }
+    }
+
+    let body: ExprBlob = quote_block! {
+        let #n_k: #(kt) = (#(key_f));
+        #(ins);
+    };
     if streams {
         // ONE pass over the iterator, and the only one. The row type is
         // ANNOTATED for the same reason the scan loop annotates it: `next()`'s
         // result type is the trait's parameter, and an associated-type source
         // spelling leaves it unselected.
-        em.push_text("        loop {\n            let ");
-        push_nk(em, "__bo", s);
-        em.push_text(": Option<");
-        em.push_text(ty);
-        em.push_text("> = ");
-        em.push_text(src);
-        em.push_text(".next();\n            if ");
-        push_nk(em, "__bo", s);
-        em.push_text(".is_none() { break; }\n            let ");
-        push_nk(em, "__br", s);
-        em.push_text(": ");
-        em.push_text(ty);
-        em.push_text(" = ");
-        push_nk(em, "__bo", s);
-        em.push_text(".unwrap();\n            let ");
-        em.push_text(var);
-        em.push_text(": &");
-        em.push_text(ty);
-        em.push_text(" = &");
-        push_nk(em, "__br", s);
-        em.push_text(";\n");
-    } else {
-        em.push_text("        let mut ");
-        push_nk(em, "__b", s);
-        em.push_text(": i64 = 0i64;\n        while ");
-        push_nk(em, "__b", s);
-        em.push_text(" < (");
-        em.push_text(src);
-        em.push_text(").len() {\n            let ");
-        em.push_text(var);
-        em.push_text(": &");
-        em.push_text(ty);
-        em.push_text(" = &(");
-        em.push_text(src);
-        em.push_text(")[");
-        push_nk(em, "__b", s);
-        em.push_text("];\n");
+        return quote_block! {
+            #(decl);
+            {
+                loop {
+                    let #n_bo: Option<#(rowt)> = (#(src_f)).next();
+                    if #n_bo.is_none() { break; }
+                    let #n_br: #(rowt) = #n_bo.unwrap();
+                    let #vnm: &#(rowt) = &#n_br;
+                    #(body);
+                }
+            }
+        };
     }
-    em.push_text("            let ");
-    push_nk(em, "__k", s);
-    em.push_text(": ");
-    em.push_text(ktn);
-    em.push_text(" = (");
-    em.push_text(build_key);
-    em.push_text(");\n");
-    if set_form {
-        em.push_text("            unsafe { let _nb: bool = ");
-        push_nk(em, "__sp", s);
-        em.push_text(".insert(");
-        push_nk(em, "__k", s);
-        em.push_text("); }\n");
-    } else if strat == JS_HASH() {
-        em.push_text("            unsafe {\n                let ");
-        push_nk(em, "__vp", s);
-        em.push_text(": *mut Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text("> = ");
-        push_nk(em, "__mp", s);
-        em.push_text(".get_or_insert(");
-        push_nk(em, "__k", s);
-        em.push_text(", Vec::<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">::new());\n                (&mut *");
-        push_nk(em, "__vp", s);
-        em.push_text(").push(");
-        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
-        em.push_text(");\n            }\n");
-    } else {
-        em.push_text("            unsafe {\n                let ");
-        push_nk(em, "__vp", s);
-        em.push_text(": *mut Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text("> = ");
-        push_nk(em, "__tp", s);
-        em.push_text(".get_mut(&");
-        push_nk(em, "__k", s);
-        em.push_text(");\n                if ");
-        push_nk(em, "__vp", s);
-        em.push_text(" == (0i64 as *mut Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">) {\n                    let mut ");
-        push_nk(em, "__nv", s);
-        em.push_text(": Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text("> = Vec::<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">::new();\n                    ");
-        push_nk(em, "__nv", s);
-        em.push_text(".push(");
-        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
-        em.push_text(");\n                    ");
-        push_nk(em, "__tp", s);
-        em.push_text(".insert(");
-        push_nk(em, "__k", s);
-        em.push_text(", ");
-        push_nk(em, "__nv", s);
-        em.push_text(");\n                } else {\n                    (&mut *");
-        push_nk(em, "__vp", s);
-        em.push_text(").push(");
-        if streams { push_nk(em, "__br", s); } else { push_nk(em, "__b", s); }
-        em.push_text(");\n                }\n            }\n");
-    }
-    if !streams {
-        em.push_text("            ");
-        push_nk(em, "__b", s);
-        em.push_text(" = ");
-        push_nk(em, "__b", s);
-        em.push_text(" + 1i64;\n");
-    }
-    em.push_text("        }\n    }\n");
+    return quote_block! {
+        #(decl);
+        {
+            let mut #n_b: i64 = 0i64;
+            while #n_b < (#(src_f)).len() {
+                let #vnm: &#(rowt) = &(#(src_f))[#n_b];
+                #(body);
+                #n_b = #n_b + 1i64;
+            }
+        }
+    };
 }
 
-// Emit the probe-side bucket LOOKUP through the once-taken container pointer.
+// The probe-side bucket LOOKUP through the once-taken container pointer.
 // TREE probes via `get_mut` (the *mut-receiver accessor) cast to *const — one
 // pointer serves build + probe, keeping the borrow single.
-fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str,
-                      streams: bool, ty: str) {
-    push_ind(em, lvl);
+fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
+    let s_bp: String = nk_str("__bp", s);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
+    let s_mp: String = nk_str("__mp", s);   let n_mp: Ident = Ident::new(string_as_str(&s_mp));
+    let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
+    let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     if strat == JS_HASH() {
-        em.push_text("unsafe { ");
-        push_nk(em, "__bp", s);
-        em.push_text(" = ");
-        push_nk(em, "__mp", s);
-        em.push_text(".get(&");
-        push_nk(em, "__pk", s);
-        em.push_text("); }\n");
-    } else {
-        em.push_text("unsafe { ");
-        push_nk(em, "__bp", s);
-        em.push_text(" = ");
-        push_nk(em, "__tp", s);
-        em.push_text(".get_mut(&");
-        push_nk(em, "__pk", s);
-        em.push_text(") as *const Vec<");
-        push_payload_ty(em, streams, ty);
-        em.push_text(">; }\n");
+        return quote_block! { unsafe { #n_bp = #n_mp.get(&#n_pk); } };
     }
+    let p1: ExprBlob = payload_ty_frag(streams, ty);
+    return quote_block! { unsafe { #n_bp = #n_tp.get_mut(&#n_pk) as *const Vec<#(p1)>; } };
 }
 
-// ── One step of the nest: OPEN (emit loops/guards; return levels opened) ─────
+// ── One step of the nest: WRAP the inner body ────────────────────────────────
+// ⚠ This is the open/close PAIR collapsed into one function, and that is the
+// whole reason the bodies could not be quotes before. `emit_step_open` wrote
+// `{` and `emit_step_close` wrote the matching `}`, separated by the entire
+// inner body and by a LEVEL COUNTER threaded between them. A quote fragment is
+// a whole construct, so a fragment that is only an opening brace cannot exist —
+// the pair has to become "take a complete inner fragment, return the wrapped
+// one", and the counter becomes the recursion depth of this call chain.
+//
 // `byval` — bind the row var BY VALUE (`let s: str = (src)[j];`) instead of by
 // reference: scalar-element traversal steps (the Copy lattice — a `&str` local
 // would not compose with the EL clauses, which reference the element bare).
@@ -1828,82 +1630,66 @@ fn emit_bucket_lookup(em: &mut Emitter, lvl: i64, s: i64, strat: i32, ktn: str,
 // holds the ROWS, so a hit binds out of the bucket instead of indexing `src`.
 // It never combines with JS_LOOP: a rescan of a spent iterator is exactly the
 // shape `analyze_chain` refuses to emit.
-fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
-                  has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
-                  probe_key: str, residual: str, pred: str, lim: str,
-                  streams: bool) -> i64 {
+fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
+             has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
+             probe_key: str, residual: str, pred: str,
+             lim: ExprBlob, has_lim: bool, streams: bool) -> ExprBlob {
+    let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
+    let s_m:  String = nk_str("__m",  s);   let n_m:  Ident = Ident::new(string_as_str(&s_m));
+    let s_j:  String = nk_str("__j",  s);   let n_j:  Ident = Ident::new(string_as_str(&s_j));
+    let s_bp: String = nk_str("__bp", s);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
+    let s_bv: String = nk_str("__bv", s);   let n_bv: Ident = Ident::new(string_as_str(&s_bv));
+    let s_p:  String = nk_str("__p",  s);   let n_p:  Ident = Ident::new(string_as_str(&s_p));
+    let s_ri: String = nk_str("__ri", s);   let n_ri: Ident = Ident::new(string_as_str(&s_ri));
+    let s_sp: String = nk_str("__sp", s);   let n_sp: Ident = Ident::new(string_as_str(&s_sp));
+    let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
+
+    let kt:    ExprBlob = parse_type(ktn);
+    let rowt:  ExprBlob = parse_type(ty);
+    let src_f: ExprBlob = parse_expr(src);
+    let vnm:   Ident    = Ident::new(var);
+
     // The probe key (hash/tree tiers) — over the ALREADY-BOUND vars/params.
+    let mut pk_decl: ExprBlob = quote_block! { };
     if strat != JS_LOOP() {
-        push_ind(em, lvl);
-        em.push_text("let ");
-        push_nk(em, "__pk", s);
-        em.push_text(": ");
-        em.push_text(ktn);
-        em.push_text(" = (");
-        em.push_text(probe_key);
-        em.push_text(");\n");
+        let pk_f: ExprBlob = parse_expr(probe_key);
+        pk_decl = quote_block! { let #n_pk: #(kt) = (#(pk_f)); };
     }
+
     if anti {
-        // ANTI: compute the matched flag flat at `lvl`, then guard the nest
-        // with `if (!__m{s})` — ONE level opened; the step's var binds only
-        // inside its own probe/scan.
-        push_ind(em, lvl);
-        em.push_text("let mut ");
-        push_nk(em, "__m", s);
-        em.push_text(": bool = false;\n");
+        // ANTI: compute the matched flag flat, then guard the inner body with
+        // `if (!__m{s})` — the step's var binds only inside its own probe/scan.
+        let mut matched: ExprBlob = quote_block! { };
         if strat == JS_LOOP() {
-            push_ind(em, lvl);
-            em.push_text("{\n");
-            push_ind(em, lvl + 1i64);
-            em.push_text("let mut ");
-            push_nk(em, "__j", s);
-            em.push_text(": i64 = 0i64;\n");
-            push_ind(em, lvl + 1i64);
-            em.push_text("while ");
-            push_nk(em, "__j", s);
-            em.push_text(" < (");
-            em.push_text(src);
-            em.push_text(").len() {\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("let ");
-            em.push_text(var);
-            em.push_text(": ");
-            if !byval { em.push_text("&"); }
-            em.push_text(ty);
-            em.push_text(" = ");
-            if !byval { em.push_text("&"); }
-            em.push_text("(");
-            em.push_text(src);
-            em.push_text(")[");
-            push_nk(em, "__j", s);
-            em.push_text("];\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("if (");
-            em.push_text(pred);
-            em.push_text(") { ");
-            push_nk(em, "__m", s);
-            em.push_text(" = true; }\n");
-            push_ind(em, lvl + 2i64);
-            push_nk(em, "__j", s);
-            em.push_text(" = ");
-            push_nk(em, "__j", s);
-            em.push_text(" + 1i64;\n");
-            push_ind(em, lvl + 1i64);
-            em.push_text("}\n");
-            push_ind(em, lvl);
-            em.push_text("}\n");
+            let pred_f: ExprBlob = parse_expr(pred);
+            if byval {
+                matched = quote_block! {
+                    {
+                        let mut #n_j: i64 = 0i64;
+                        while #n_j < (#(src_f)).len() {
+                            let #vnm: #(rowt) = (#(src_f))[#n_j];
+                            if (#(pred_f)) { #n_m = true; }
+                            #n_j = #n_j + 1i64;
+                        }
+                    }
+                };
+            } else {
+                matched = quote_block! {
+                    {
+                        let mut #n_j: i64 = 0i64;
+                        while #n_j < (#(src_f)).len() {
+                            let #vnm: &#(rowt) = &(#(src_f))[#n_j];
+                            if (#(pred_f)) { #n_m = true; }
+                            #n_j = #n_j + 1i64;
+                        }
+                    }
+                };
+            }
         } else if !has_resid {
             // Pure absence test: HashSet contains / BTreeMap keyed lookup
             // (through the once-taken container pointer).
-            push_ind(em, lvl);
             if strat == JS_HASH() {
-                em.push_text("unsafe { ");
-                push_nk(em, "__m", s);
-                em.push_text(" = ");
-                push_nk(em, "__sp", s);
-                em.push_text(".contains(&");
-                push_nk(em, "__pk", s);
-                em.push_text("); }\n");
+                matched = quote_block! { unsafe { #n_m = #n_sp.contains(&#n_pk); } };
             } else {
                 // The null sentinel must be typed by the BUCKET, and the
                 // bucket's payload is the ROW when the source streams — the
@@ -1911,248 +1697,111 @@ fn emit_step_open(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
                 // today (the tree tier needs an Ord-only key, which no scalar
                 // is), so a wrong type here fails only under `join_force_tree`
                 // — which is exactly what that toggle exists to catch.
-                em.push_text("unsafe { ");
-                push_nk(em, "__m", s);
-                em.push_text(" = ");
-                push_nk(em, "__tp", s);
-                em.push_text(".get_mut(&");
-                push_nk(em, "__pk", s);
-                em.push_text(") != (0i64 as *mut Vec<");
-                push_payload_ty(em, streams, ty);
-                em.push_text(">); }\n");
+                let p1: ExprBlob = payload_ty_frag(streams, ty);
+                matched = quote_block! {
+                    unsafe { #n_m = #n_tp.get_mut(&#n_pk) != (0i64 as *mut Vec<#(p1)>); }
+                };
             }
         } else {
             // Bucket scan: matched ⇔ SOME bucket row passes the residual
             // (absent bucket or all-fail ⇒ the anti row survives).
-            push_ind(em, lvl);
-            em.push_text("{\n");
-            push_ind(em, lvl + 1i64);
-            em.push_text("let mut ");
-            push_nk(em, "__bp", s);
-            em.push_text(": *const Vec<");
-            push_payload_ty(em, streams, ty);
-            em.push_text("> = 0i64 as *const Vec<");
-            push_payload_ty(em, streams, ty);
-            em.push_text(">;\n");
-            emit_bucket_lookup(em, lvl + 1i64, s, strat, ktn, streams, ty);
-            push_ind(em, lvl + 1i64);
-            em.push_text("if ");
-            push_nk(em, "__bp", s);
-            em.push_text(" != (0i64 as *const Vec<");
-            push_payload_ty(em, streams, ty);
-            em.push_text(">) {\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("let ");
-            push_nk(em, "__bv", s);
-            em.push_text(": &Vec<");
-            push_payload_ty(em, streams, ty);
-            em.push_text("> = unsafe { &*");
-            push_nk(em, "__bp", s);
-            em.push_text(" };\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("let mut ");
-            push_nk(em, "__p", s);
-            em.push_text(": i64 = 0i64;\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("while ");
-            push_nk(em, "__p", s);
-            em.push_text(" < ");
-            push_nk(em, "__bv", s);
-            em.push_text(".len() {\n");
-            push_ind(em, lvl + 3i64);
-            em.push_text("let ");
-            em.push_text(var);
-            em.push_text(": &");
-            em.push_text(ty);
+            let resid_f: ExprBlob = parse_expr(residual);
+            let lookup: ExprBlob = bucket_lookup_frag(s, strat, streams, ty);
+            let p1: ExprBlob = payload_ty_frag(streams, ty);
+            let p2: ExprBlob = payload_ty_frag(streams, ty);
+            let p3: ExprBlob = payload_ty_frag(streams, ty);
+            let p4: ExprBlob = payload_ty_frag(streams, ty);
+            let mut bind: ExprBlob = quote_block! {
+                let #vnm: &#(rowt) = &(#(src_f))[#n_bv.get(#n_p)];
+            };
             if streams {
-                em.push_text(" = ");
-                push_nk(em, "__bv", s);
-                em.push_text(".borrow(");
-                push_nk(em, "__p", s);
-                em.push_text(");\n");
-            } else {
-                em.push_text(" = &(");
-                em.push_text(src);
-                em.push_text(")[");
-                push_nk(em, "__bv", s);
-                em.push_text(".get(");
-                push_nk(em, "__p", s);
-                em.push_text(")];\n");
+                bind = quote_block! { let #vnm: &#(rowt) = #n_bv.borrow(#n_p); };
             }
-            push_ind(em, lvl + 3i64);
-            em.push_text("if (");
-            em.push_text(residual);
-            em.push_text(") { ");
-            push_nk(em, "__m", s);
-            em.push_text(" = true; }\n");
-            push_ind(em, lvl + 3i64);
-            push_nk(em, "__p", s);
-            em.push_text(" = ");
-            push_nk(em, "__p", s);
-            em.push_text(" + 1i64;\n");
-            push_ind(em, lvl + 2i64);
-            em.push_text("}\n");
-            push_ind(em, lvl + 1i64);
-            em.push_text("}\n");
-            push_ind(em, lvl);
-            em.push_text("}\n");
+            matched = quote_block! {
+                {
+                    let mut #n_bp: *const Vec<#(p1)> = 0i64 as *const Vec<#(p2)>;
+                    #(lookup);
+                    if #n_bp != (0i64 as *const Vec<#(p3)>) {
+                        let #n_bv: &Vec<#(p4)> = unsafe { &*#n_bp };
+                        let mut #n_p: i64 = 0i64;
+                        while #n_p < #n_bv.len() {
+                            #(bind);
+                            if (#(resid_f)) { #n_m = true; }
+                            #n_p = #n_p + 1i64;
+                        }
+                    }
+                }
+            };
         }
-        push_ind(em, lvl);
-        em.push_text("if (!");
-        push_nk(em, "__m", s);
-        em.push_text(") {\n");
-        return 1i64;
+        return quote_block! {
+            #(pk_decl);
+            let mut #n_m: bool = false;
+            #(matched);
+            if (!#n_m) #(inner)
+        };
     }
+
     // NON-ANTI.
     if strat == JS_LOOP() {
-        push_ind(em, lvl);
-        em.push_text("let mut ");
-        push_nk(em, "__j", s);
-        em.push_text(": i64 = 0i64;\n");
-        push_ind(em, lvl);
-        em.push_text("while ");
-        push_nk(em, "__j", s);
-        em.push_text(" < (");
-        em.push_text(src);
-        em.push_text(").len()");
-        em.push_text(lim);
-        em.push_text(" {\n");
-        push_ind(em, lvl + 1i64);
-        em.push_text("let ");
-        em.push_text(var);
-        em.push_text(": ");
-        if !byval { em.push_text("&"); }
-        em.push_text(ty);
-        em.push_text(" = ");
-        if !byval { em.push_text("&"); }
-        em.push_text("(");
-        em.push_text(src);
-        em.push_text(")[");
-        push_nk(em, "__j", s);
-        em.push_text("];\n");
-        push_ind(em, lvl + 1i64);
-        em.push_text("if (");
-        em.push_text(pred);
-        em.push_text(") {\n");
-        return 2i64;
+        let pred_f: ExprBlob = parse_expr(pred);
+        let mut cond: ExprBlob = quote_expr! { #n_j < (#(src_f)).len() };
+        if has_lim { cond = quote_expr! { #n_j < (#(src_f)).len() && __out.len() < (#(lim)) }; }
+        if byval {
+            return quote_block! {
+                let mut #n_j: i64 = 0i64;
+                while #(cond) {
+                    let #vnm: #(rowt) = (#(src_f))[#n_j];
+                    if (#(pred_f)) #(inner)
+                    #n_j = #n_j + 1i64;
+                }
+            };
+        }
+        return quote_block! {
+            let mut #n_j: i64 = 0i64;
+            while #(cond) {
+                let #vnm: &#(rowt) = &(#(src_f))[#n_j];
+                if (#(pred_f)) #(inner)
+                #n_j = #n_j + 1i64;
+            }
+        };
     }
-    // HASH / TREE probe: bucket lookup → row loop → (residual guard).
-    push_ind(em, lvl);
-    em.push_text("let mut ");
-    push_nk(em, "__bp", s);
-    em.push_text(": *const Vec<");
-    push_payload_ty(em, streams, ty);
-    em.push_text("> = 0i64 as *const Vec<");
-    push_payload_ty(em, streams, ty);
-    em.push_text(">;\n");
-    emit_bucket_lookup(em, lvl, s, strat, ktn, streams, ty);
-    push_ind(em, lvl);
-    em.push_text("if ");
-    push_nk(em, "__bp", s);
-    em.push_text(" != (0i64 as *const Vec<");
-    push_payload_ty(em, streams, ty);
-    em.push_text(">) {\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("let ");
-    push_nk(em, "__bv", s);
-    em.push_text(": &Vec<");
-    push_payload_ty(em, streams, ty);
-    em.push_text("> = unsafe { &*");
-    push_nk(em, "__bp", s);
-    em.push_text(" };\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("let mut ");
-    push_nk(em, "__p", s);
-    em.push_text(": i64 = 0i64;\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("while ");
-    push_nk(em, "__p", s);
-    em.push_text(" < ");
-    push_nk(em, "__bv", s);
-    em.push_text(".len()");
-    em.push_text(lim);
-    em.push_text(" {\n");
-    if streams {
-        // The bucket holds the rows themselves — there is no index and no
-        // source left to index into.
-        push_ind(em, lvl + 2i64);
-        em.push_text("let ");
-        em.push_text(var);
-        em.push_text(": &");
-        em.push_text(ty);
-        em.push_text(" = ");
-        push_nk(em, "__bv", s);
-        em.push_text(".borrow(");
-        push_nk(em, "__p", s);
-        em.push_text(");\n");
-    } else {
-    push_ind(em, lvl + 2i64);
-    em.push_text("let ");
-    push_nk(em, "__ri", s);
-    em.push_text(": i64 = ");
-    push_nk(em, "__bv", s);
-    em.push_text(".get(");
-    push_nk(em, "__p", s);
-    em.push_text(");\n");
-    push_ind(em, lvl + 2i64);
-    em.push_text("let ");
-    em.push_text(var);
-    em.push_text(": &");
-    em.push_text(ty);
-    em.push_text(" = &(");
-    em.push_text(src);
-    em.push_text(")[");
-    push_nk(em, "__ri", s);
-    em.push_text("];\n");
-    }
-    if has_resid {
-        push_ind(em, lvl + 2i64);
-        em.push_text("if (");
-        em.push_text(residual);
-        em.push_text(") {\n");
-        return 3i64;
-    }
-    return 2i64;
-}
 
-// ── One step of the nest: CLOSE (mirror the open; bump loop indices) ─────────
-// `lvl` = the innermost CONTENT level the open left us at; returns the levels
-// closed (== the matching open's return).
-fn emit_step_close(em: &mut Emitter, lvl: i64, s: i64, strat: i32, anti: bool,
-                   has_resid: bool) -> i64 {
-    if anti {
-        push_ind(em, lvl - 1i64);
-        em.push_text("}\n");
-        return 1i64;
-    }
-    if strat == JS_LOOP() {
-        push_ind(em, lvl - 1i64);
-        em.push_text("}\n");
-        push_ind(em, lvl - 1i64);
-        push_nk(em, "__j", s);
-        em.push_text(" = ");
-        push_nk(em, "__j", s);
-        em.push_text(" + 1i64;\n");
-        push_ind(em, lvl - 2i64);
-        em.push_text("}\n");
-        return 2i64;
-    }
-    let mut l: i64 = lvl;
+    // HASH / TREE probe: bucket lookup → row loop → (residual guard).
+    let lookup: ExprBlob = bucket_lookup_frag(s, strat, streams, ty);
+    let p1: ExprBlob = payload_ty_frag(streams, ty);
+    let p2: ExprBlob = payload_ty_frag(streams, ty);
+    let p3: ExprBlob = payload_ty_frag(streams, ty);
+    let p4: ExprBlob = payload_ty_frag(streams, ty);
+    let mut guarded: ExprBlob = inner;
     if has_resid {
-        l = l - 1i64;
-        push_ind(em, l);
-        em.push_text("}\n");
+        let resid_f: ExprBlob = parse_expr(residual);
+        guarded = quote_block! { if (#(resid_f)) #(guarded) };
     }
-    push_ind(em, l);
-    push_nk(em, "__p", s);
-    em.push_text(" = ");
-    push_nk(em, "__p", s);
-    em.push_text(" + 1i64;\n");
-    push_ind(em, l - 1i64);
-    em.push_text("}\n");
-    push_ind(em, l - 2i64);
-    em.push_text("}\n");
-    return lvl - (l - 2i64);
+    // The bucket holds the rows themselves when the source streams — there is
+    // no index and no source left to index into.
+    let mut bind: ExprBlob = quote_block! {
+        let #n_ri: i64 = #n_bv.get(#n_p);
+        let #vnm: &#(rowt) = &(#(src_f))[#n_ri];
+    };
+    if streams {
+        bind = quote_block! { let #vnm: &#(rowt) = #n_bv.borrow(#n_p); };
+    }
+    let mut pcond: ExprBlob = quote_expr! { #n_p < #n_bv.len() };
+    if has_lim { pcond = quote_expr! { #n_p < #n_bv.len() && __out.len() < (#(lim)) }; }
+    return quote_block! {
+        #(pk_decl);
+        let mut #n_bp: *const Vec<#(p1)> = 0i64 as *const Vec<#(p2)>;
+        #(lookup);
+        if #n_bp != (0i64 as *const Vec<#(p3)>) {
+            let #n_bv: &Vec<#(p4)> = unsafe { &*#n_bp };
+            let mut #n_p: i64 = 0i64;
+            while #(pcond) {
+                #(bind);
+                #(guarded);
+                #n_p = #n_p + 1i64;
+            }
+        }
+    };
 }
 
 // ── emit_join_chain — the RECURSIVE-over-the-join-tree emitter ───────────────
@@ -2239,12 +1888,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         key_ty = el_class_repr(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     }
-    let lim_cond: String = limit_cond_text(&mods);
     let has_sort: bool = mods.has_sort;
-    // Sort mode: the match loops run in FULL (the cap applies to the OUTPUT
-    // loop); otherwise the limit rides every output-driving loop condition.
-    let mut lim_use: str = "";
-    if !has_sort { lim_use = string_as_str(&lim_cond); }
 
     // 4. Per-step strategy analysis (Part 2).
     let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -2297,249 +1941,220 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         bi = bi + 1i64;
     }
 
-    // 6. Body + strategy trace + build phases.
+    // 6. Body: the whole thing is a QUOTE now (ADR 0024 S5).
     //
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
-    // ⚠ `em` is a BODY BUFFER from here on, NOT a chunk: it holds `{ … }` and
-    // nothing else, and it is never committed. The loop-nest helpers below
-    // (`emit_step_open`, `emit_build_phase`, …) keep taking `&mut Emitter`
-    // because `Emitter` is the text accumulator they were written against;
-    // what changed is who consumes the text. A `commit()` on this buffer would
-    // emit a package-less, use-less fragment — the shell owns the item now.
+    // ⚠ The nest is built INSIDE-OUT. `emit_step_open`/`emit_step_close` were
+    // a PAIR — one wrote `{`, the other the matching `}`, with the entire inner
+    // body and a level counter between them — and a quote fragment is a whole
+    // construct, so an opening brace can never be one. `step_wrap` takes the
+    // complete inner fragment and returns the wrapped one; the level counter is
+    // now the recursion depth of that fold, and the indentation bookkeeping
+    // (`push_ind`, `ind_string`) has no subject left.
     //
-    // The BODY is the one thing that must stay text: a join chain's loop nest
-    // has a DEPTH that is a runtime value (`ch.n` steps), and no fixed template
-    // and no `#( … )*` repeat expresses a nest — a repeat is flat.
-    let mut em: Emitter = Emitter::new();
+    // ⚠ The `// join strategy: …` trace line is GONE. It never reached
+    // generated code: the body went through `parse_block`, which drops
+    // comments, so no --gen-dir dump has ever contained it, and
+    // `LOGOS_TRACE_EMIT` traces the emit_source channel this file stopped using
+    // when the item became a quote. Keeping it would have meant keeping a raw
+    // text push whose output nothing can observe.
+    let has_lim_use: bool = mods.has_limit && !has_sort;
+    let mut lim_f: ExprBlob = parse_expr("0i64");
+    if mods.has_limit { lim_f = limit_expr(&mods); }
+
+    let proj_f: ExprBlob = parse_expr(string_as_str(&proj_body));
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
+    let base_vnm: Ident = Ident::new(ch.base_var);
+
     let mut rty: String = String::new();
-    em.push_text("{\n");
     if first {
         rty.push_str("Result<Option<");
         rty.push_str(result_ty);
         rty.push_str(">, ElError>");
-        em.push_text(prelude);
     } else {
         rty.push_str("Result<Vec<");
         rty.push_str(result_ty);
         rty.push_str(">, ElError>");
-        em.push_text(prelude);
-        em.push_text("    let mut __out: Vec<");
-        em.push_text(result_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(result_ty);
-        em.push_text(">::new();\n");
-    }
-    let mut ci: i64 = 0i64;
-    while ci < ch.n {
-        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
-        ci = ci + 1i64;
-    }
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]), st_stream[bpi]);
-        bpi = bpi + 1i64;
-    }
-    if has_sort {
-        // Phase 1 collects matched bound-row index tuples + sort keys.
-        let mut dk: i64 = 0i64;
-        while dk < nb {
-            em.push_text("    let mut ");
-            push_nk(&mut em, "__ix", dk);
-            em.push_text(": Vec<i64> = Vec::<i64>::new();\n");
-            dk = dk + 1i64;
-        }
-        em.push_text("    let mut __ks: Vec<");
-        em.push_text(key_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(key_ty);
-        em.push_text(">::new();\n");
     }
 
-    // 7. The loop nest: base scan + one level per step.
-    let mut lvl: i64 = 1i64;
-    // The DRIVING side may stream: it is the outermost loop of a left-deep
-    // nest, so it is read once by construction — which is the fact the plan
-    // records (`AccessPlan.once`). The steps are not, and say so; whether a
-    // step's source is built once or rescanned per bound row is the join
-    // strategy's business, and that decision still lives in this emitter.
-    let base_streams: bool = prm.rel_src_streams(ch.base_src);
-    if base_streams {
-        push_ind(&mut em, lvl);
-        em.push_text("loop {\n");
-        lvl = lvl + 1i64;
-        if mods.has_limit {
-            push_ind(&mut em, lvl);
-            em.push_text("if !(true");
-            em.push_text(lim_use);
-            em.push_text(") { break; }\n");
-        }
-        push_ind(&mut em, lvl);
-        em.push_text("let __opt0: Option<");
-        em.push_text(ch.base_ty);
-        em.push_text("> = ");
-        em.push_text(ch.base_src);
-        em.push_text(".next();\n");
-        push_ind(&mut em, lvl);
-        em.push_text("if __opt0.is_none() { break; }\n");
-        push_ind(&mut em, lvl);
-        em.push_text("let __row0: ");
-        em.push_text(ch.base_ty);
-        em.push_text(" = __opt0.unwrap();\n");
-        push_ind(&mut em, lvl);
-        em.push_text("let ");
-        em.push_text(ch.base_var);
-        em.push_text(": &");
-        em.push_text(ch.base_ty);
-        em.push_text(" = &__row0;\n");
-    } else {
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __i0: i64 = 0i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("while __i0 < (");
-    em.push_text(ch.base_src);
-    em.push_text(").len()");
-    em.push_text(lim_use);
-    em.push_text(" {\n");
-    lvl = lvl + 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("let ");
-    em.push_text(ch.base_var);
-    em.push_text(": &");
-    em.push_text(ch.base_ty);
-    em.push_text(" = &(");
-    em.push_text(ch.base_src);
-    em.push_text(")[__i0];\n");
-    }
-    let mut opens: [i64; 8] = [0i64; 8];
-    let mut oi: i64 = 0i64;
-    while oi < ch.n {
-        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
-                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
-                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   lim_use, st_stream[oi]);
-        lvl = lvl + opens[oi];
-        oi = oi + 1i64;
-    }
-
-    // 8. The SHARED inner body.
-    if has_where {
-        push_ind(&mut em, lvl);
-        em.push_text("if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-        lvl = lvl + 1i64;
-    }
+    // 7. The SHARED inner body — sort collection / `first` early return /
+    // guarded distinct-limit push — then the `where` guard around it.
+    let mut inner: ExprBlob = quote_block! { };
     if has_sort {
+        let mut coll: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut pk: i64 = 0i64;
         while pk < nb {
-            push_ind(&mut em, lvl);
-            push_nk(&mut em, "__ix", pk);
-            em.push_text(".push(");
-            em.push_text(string_as_str(&bnd_idx[pk]));
-            em.push_text(");\n");
+            let sx: String = nk_str("__ix", pk);
+            let nx: Ident = Ident::new(string_as_str(&sx));
+            let ix_f: ExprBlob = parse_expr(string_as_str(&bnd_idx[pk]));
+            coll.push(quote_block! { #nx.push(#(ix_f)); });
             pk = pk + 1i64;
         }
-        push_ind(&mut em, lvl);
-        em.push_text("__ks.push(");
-        em.push_text(string_as_str(&key_body));
-        em.push_text(");\n");
+        let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
+        inner = quote_block! {
+            #( #coll; )*
+            __ks.push(#(key_f));
+        };
     } else if first {
-        push_ind(&mut em, lvl);
-        em.push_text("return Result::Ok(Option::Some(");
-        em.push_text(string_as_str(&proj_body));
-        em.push_text("));\n");
+        inner = quote_block! { return Result::Ok(Option::Some(#(proj_f))); };
     } else {
-        let inds: String = ind_string(lvl);
-        emit_push_guarded(&mut em, string_as_str(&inds), result_ty,
-                          string_as_str(&proj_body), mods.distinct);
+        inner = push_guarded_frag(result_ty, proj_f, mods.distinct);
     }
     if has_where {
-        lvl = lvl - 1i64;
-        push_ind(&mut em, lvl);
-        em.push_text("}\n");
+        let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
+        inner = quote_block! { if (#(where_f)) #(inner) };
     }
 
-    // 9. Close the nest (reverse order), bump the base index, close the base.
+    // 8. Wrap one step at a time, innermost step LAST-bound first.
     let mut ki: i64 = ch.n - 1i64;
     while ki >= 0i64 {
-        let closed: i64 = emit_step_close(&mut em, lvl, ki + 1i64, st_strat[ki],
-                                          ch.anti[ki], st_hasres[ki]);
-        lvl = lvl - closed;
+        inner = step_wrap(inner, ki + 1i64, st_strat[ki], ch.anti[ki],
+                          st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
+                          ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
+                          string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
+                          lim_f, has_lim_use, st_stream[ki]);
         ki = ki - 1i64;
     }
-    // A streamed base has no index to advance — `next()` already did.
-    if !base_streams {
-        push_ind(&mut em, lvl);
-        em.push_text("__i0 = __i0 + 1i64;\n");
-    }
-    lvl = lvl - 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("}\n");
 
-    // 10. Sort output phase: order the index tuples, re-bind, project.
+    // 9. The base loop. The DRIVING side may stream: it is the outermost loop
+    // of a left-deep nest, so it is read once by construction — which is the
+    // fact the plan records (`AccessPlan.once`). The steps are not, and say so;
+    // whether a step's source is built once or rescanned per bound row is the
+    // join strategy's business, and that decision still lives in this emitter.
+    let base_streams: bool = prm.rel_src_streams(ch.base_src);
+    let mut nest: ExprBlob = quote_block! { };
+    if base_streams {
+        let mut brk: ExprBlob = quote_block! { };
+        if has_lim_use { brk = quote_block! { if !(__out.len() < (#(lim_f))) { break; } }; }
+        nest = quote_block! {
+            loop {
+                #(brk);
+                let __opt0: Option<#(base_ty_f)> = (#(base_src_f)).next();
+                if __opt0.is_none() { break; }
+                let __row0: #(base_ty_f) = __opt0.unwrap();
+                let #base_vnm: &#(base_ty_f) = &__row0;
+                #(inner);
+            }
+        };
+    } else {
+        let mut bcond: ExprBlob = quote_expr! { __i0 < (#(base_src_f)).len() };
+        if has_lim_use {
+            bcond = quote_expr! { __i0 < (#(base_src_f)).len() && __out.len() < (#(lim_f)) };
+        }
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            while #(bcond) {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                #(inner);
+                __i0 = __i0 + 1i64;
+            }
+        };
+    }
+
+    // 10. Build phases (one per hash/tree step) + the sort scaffolding.
+    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
+        bpi = bpi + 1i64;
+    }
+    let mut sortdecl: ExprBlob = quote_block! { };
+    let mut sortout:  ExprBlob = quote_block! { };
     if has_sort {
-        emit_sort_perm(&mut em, key_ty, mods.sort_desc, nb);
+        // Phase 1 collects matched bound-row index tuples + sort keys.
+        let mut ixd: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut dk: i64 = 0i64;
+        while dk < nb {
+            let sx: String = nk_str("__ix", dk);
+            let nx: Ident = Ident::new(string_as_str(&sx));
+            ixd.push(quote_block! { let mut #nx: Vec<i64> = Vec::<i64>::new(); });
+            dk = dk + 1i64;
+        }
+        let keyt_f: ExprBlob = parse_type(key_ty);
+        sortdecl = quote_block! {
+            #( #ixd; )*
+            let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+        };
+        // Phase 2/3: order the index tuples, re-bind every bound source, project.
+        let sortp: ExprBlob = sort_perm_frag(key_ty, mods.sort_desc, nb);
         if first {
-            em.push_text("    if __ix0.len() > 0i64 {\n");
+            let mut rb: Vec<ExprBlob> = vec_new::<ExprBlob>();
             let mut rk: i64 = 0i64;
             while rk < nb {
-                em.push_text("        let ");
-                em.push_text(bnd_var[rk]);
-                em.push_text(": ");
-                if !bnd_byval[rk] { em.push_text("&"); }
-                em.push_text(bnd_ty[rk]);
-                em.push_text(" = ");
-                if !bnd_byval[rk] { em.push_text("&"); }
-                em.push_text("(");
-                em.push_text(bnd_src[rk]);
-                em.push_text(")[");
-                push_nk(&mut em, "__ix", rk);
-                em.push_text(".get(0i64)];\n");
+                let sx: String = nk_str("__ix", rk);
+                let nx: Ident = Ident::new(string_as_str(&sx));
+                let bs: ExprBlob = parse_expr(bnd_src[rk]);
+                let bt: ExprBlob = parse_type(bnd_ty[rk]);
+                let bv: Ident = Ident::new(bnd_var[rk]);
+                if bnd_byval[rk] {
+                    rb.push(quote_block! { let #bv: #(bt) = (#(bs))[#nx.get(0i64)]; });
+                } else {
+                    rb.push(quote_block! { let #bv: &#(bt) = &(#(bs))[#nx.get(0i64)]; });
+                }
                 rk = rk + 1i64;
             }
-            em.push_text("        return Result::Ok(Option::Some(");
-            em.push_text(string_as_str(&proj_body));
-            em.push_text("));\n");
-            em.push_text("    }\n");
+            sortout = quote_block! {
+                #(sortp);
+                if __ix0.len() > 0i64 {
+                    #( #rb; )*
+                    return Result::Ok(Option::Some(#(proj_f)));
+                }
+            };
         } else {
-            em.push_text("    let mut __o: i64 = 0i64;\n");
-            em.push_text("    while __o < __ix0.len()");
-            em.push_text(string_as_str(&lim_cond));
-            em.push_text(" {\n");
+            let mut rb: Vec<ExprBlob> = vec_new::<ExprBlob>();
             let mut rk2: i64 = 0i64;
             while rk2 < nb {
-                em.push_text("        let ");
-                em.push_text(bnd_var[rk2]);
-                em.push_text(": ");
-                if !bnd_byval[rk2] { em.push_text("&"); }
-                em.push_text(bnd_ty[rk2]);
-                em.push_text(" = ");
-                if !bnd_byval[rk2] { em.push_text("&"); }
-                em.push_text("(");
-                em.push_text(bnd_src[rk2]);
-                em.push_text(")[");
-                push_nk(&mut em, "__ix", rk2);
-                em.push_text(".get(__o)];\n");
+                let sx: String = nk_str("__ix", rk2);
+                let nx: Ident = Ident::new(string_as_str(&sx));
+                let bs: ExprBlob = parse_expr(bnd_src[rk2]);
+                let bt: ExprBlob = parse_type(bnd_ty[rk2]);
+                let bv: Ident = Ident::new(bnd_var[rk2]);
+                if bnd_byval[rk2] {
+                    rb.push(quote_block! { let #bv: #(bt) = (#(bs))[#nx.get(__o)]; });
+                } else {
+                    rb.push(quote_block! { let #bv: &#(bt) = &(#(bs))[#nx.get(__o)]; });
+                }
                 rk2 = rk2 + 1i64;
             }
-            emit_push_guarded(&mut em, "        ", result_ty,
-                              string_as_str(&proj_body), mods.distinct);
-            em.push_text("        __o = __o + 1i64;\n");
-            em.push_text("    }\n");
+            let push_f: ExprBlob = push_guarded_frag(result_ty, proj_f, mods.distinct);
+            let mut ocond: ExprBlob = quote_expr! { __o < __ix0.len() };
+            if mods.has_limit {
+                ocond = quote_expr! { __o < __ix0.len() && __out.len() < (#(lim_f)) };
+            }
+            sortout = quote_block! {
+                #(sortp);
+                let mut __o: i64 = 0i64;
+                while #(ocond) {
+                    #( #rb; )*
+                    #(push_f);
+                    __o = __o + 1i64;
+                }
+            };
         }
     }
+
+    let pre_f: ExprBlob = prelude_frag(prelude);
+    let elem_f: ExprBlob = parse_type(result_ty);
+    let mut head_f: ExprBlob = quote_block! {
+        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+    };
+    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out); };
     if first {
-        em.push_text("    return Result::Ok(Option::None);\n");
-    } else {
-        em.push_text("    return Result::Ok(__out);\n");
+        head_f = quote_block! { };
+        tail_f = quote_block! { return Result::Ok(Option::None); };
     }
-    em.push_text("}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  em.buf.as_str(), prm);
+    let body_f: ExprBlob = quote_block! {
+        #(pre_f);
+        #(head_f);
+        #( #bps; )*
+        #(sortdecl);
+        #(nest);
+        #(sortout);
+        #(tail_f);
+    };
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
     return true;
 }
 
@@ -2684,7 +2299,6 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
         emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
     }
-    let lim_cond: String = limit_cond_text(&mods);
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
@@ -2709,430 +2323,349 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                       &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
                       &mut st_stream) { return false; }
 
-    // Body + strategy trace + build phases + accumulator columns.
-    //
-    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
-    // ⚠ `em` is a BODY BUFFER, not a chunk: it holds `{ … }` and is never
-    // committed (see emit_join_chain for the full note). This emitter has BOTH
-    // runtime-shaped dimensions at once — a nest whose depth is `ch.n` and a
-    // column set sized by the aggregate count — which is exactly why the body
-    // is the only part that stays text.
-    let mut em: Emitter = Emitter::new();
+    // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
+    // This emitter carries BOTH runtime-shaped dimensions at once — a nest
+    // whose depth is `ch.n` and a column set sized by the aggregate count. The
+    // nest is built INSIDE-OUT by `step_wrap` (the open/close pair is gone with
+    // the level counter it threaded) and every column list rides a
+    // Vec<ExprBlob> cursor that splices flat.
+    let pre_f:      ExprBlob = prelude_frag(prelude);
+    let elem_f:     ExprBlob = parse_type(result_ty);
+    let keyt_f:     ExprBlob = parse_type(key_ty);
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_vnm:   Ident    = Ident::new(ch.base_var);
+    let proj_f:     ExprBlob = parse_expr(string_as_str(&proj_body));
+
     let mut rty: String = String::new();
     rty.push_str("Result<Vec<");
     rty.push_str(result_ty);
     rty.push_str(">, ElError>");
-    em.push_text("{\n");
-    em.push_text(prelude);
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(result_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(result_ty);
-    em.push_text(">::new();\n");
-    let mut ci: i64 = 0i64;
-    while ci < ch.n {
-        emit_strategy_comment(&mut em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
-        ci = ci + 1i64;
-    }
+
+    // ⚠ The `// join strategy: …` trace line is GONE — see emit_join_chain.
+    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
-        emit_build_phase(&mut em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]), st_stream[bpi]);
+        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
         bpi = bpi + 1i64;
     }
-    em.push_text("    let mut __g_key: Vec<");
-    em.push_text(key_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(key_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __g_cnt: Vec<i64> = Vec::<i64>::new();\n");
-    // The group's REPRESENTATIVE base row — the index of the row that created
-    // the group. It re-binds the base row var wherever the group columns are
-    // bound, so `having` / `order by` / `select` may name it (`select (e.key,
-    // n)`), not only `key` and the aggregate outputs.
+
+    // Accumulator columns: one Vec per aggregate, plus the group key, the row
+    // count, and the group's REPRESENTATIVE base row.
     //
-    // ⚠ This USED to work in exactly one shape: the scan emitter's no-modifier
-    // fast path projected inside the row loop, where the row var was still in
-    // scope, and adding `order by` to the same query broke it with an
-    // `undefined variable` on GENERATED code. Carrying the index makes the rule
-    // the same in every shape instead of deleting the capability.
-    em.push_text("    let mut __g_row: Vec<i64> = Vec::<i64>::new();\n");
+    // ⚠ `__g_row` USED to be unnecessary in exactly one shape: the scan
+    // emitter's no-modifier fast path projected inside the row loop, where the
+    // row var was still in scope, and adding `order by` to the same query broke
+    // it with an `undefined variable` on GENERATED code. Carrying the index
+    // makes the rule the same in every shape instead of deleting the capability.
+    let mut acols: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut folds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut fcols: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut freads: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut fpush: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gd: i64 = 0i64;
     while gd < acount {
         let a: RAgg = aggs.agg_at(gd);
-        em.push_text("    let mut __ga_");
-        em.push_text(a.out);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        let s_ga: String = ga_name(a.out);
+        let s_gf: String = gf_name(a.out);
+        let n_ga: Ident = Ident::new(string_as_str(&s_ga));
+        let n_gf: Ident = Ident::new(string_as_str(&s_gf));
+        let n_out: Ident = Ident::new(a.out);
+        let act_f: ExprBlob = parse_type(act[gd]);
+        let arg_f: ExprBlob = parse_expr(string_as_str(&agg_body[gd]));
+
+        // — the accumulator column's declaration —
         if uda[gd] {
             // UDA accumulator column: the user's A type, threaded verbatim
             // (a struct accumulator must be Copy — Vec.get/set fold cells).
-            em.push_text(": Vec<");
-            em.push_text(uda_acc[gd]);
-            em.push_text("> = Vec::<");
-            em.push_text(uda_acc[gd]);
-            em.push_text(">::new();\n");
-        }
-        else if agg_flt[gd] { em.push_text(": Vec<f64> = Vec::<f64>::new();\n"); }
-        else                { em.push_text(": Vec<i64> = Vec::<i64>::new();\n"); }
-        gd = gd + 1i64;
-    }
-
-    // The joined-stream nest (NO limit on the match loops — grouping needs
-    // every row; `limit` caps the group-row OUTPUT phase below).
-    let mut lvl: i64 = 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __i0: i64 = 0i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("while __i0 < (");
-    em.push_text(ch.base_src);
-    em.push_text(").len() {\n");
-    lvl = lvl + 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("let ");
-    em.push_text(ch.base_var);
-    em.push_text(": &");
-    em.push_text(ch.base_ty);
-    em.push_text(" = &(");
-    em.push_text(ch.base_src);
-    em.push_text(")[__i0];\n");
-    let mut opens: [i64; 8] = [0i64; 8];
-    let mut oi: i64 = 0i64;
-    while oi < ch.n {
-        opens[oi] = emit_step_open(&mut em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
-                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
-                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   "", st_stream[oi]);
-        lvl = lvl + opens[oi];
-        oi = oi + 1i64;
-    }
-
-    // Inner body: the single-pass group fold.
-    if has_where {
-        push_ind(&mut em, lvl);
-        em.push_text("if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-        lvl = lvl + 1i64;
-    }
-    push_ind(&mut em, lvl);
-    em.push_text("let __k: ");
-    em.push_text(key_ty);
-    em.push_text(" = (");
-    em.push_text(string_as_str(&key_body));
-    em.push_text(");\n");
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __gi: i64 = -1i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("let mut __s: i64 = 0i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }\n");
-    push_ind(&mut em, lvl);
-    em.push_text("if __gi < 0i64 {\n");
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__g_key.push(__k);\n");
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__g_cnt.push(0i64);\n");
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__g_row.push(__i0);\n");
-    let mut sd: i64 = 0i64;
-    while sd < acount {
-        let a: RAgg = aggs.agg_at(sd);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        push_ind(&mut em, lvl + 1i64);
-        em.push_text("__ga_");
-        em.push_text(a.out);
-        if uda[sd] {
-            // UDA group creation: seed with <name>_init().
-            em.push_text(".push(");
-            em.push_text(a.fn_name);
-            em.push_text("_init());\n");
-        } else if agg_flt[sd] {
-            if fnid == AGG_MIN()      { em.push_text(".push(1.7976931348623157e308f64);\n"); }
-            else if fnid == AGG_MAX() { em.push_text(".push(-1.7976931348623157e308f64);\n"); }
-            else                      { em.push_text(".push(0.0f64);\n"); }
-        } else if fnid == AGG_MIN() {
-            em.push_text(".push(9223372036854775807i64);\n");
-        } else if fnid == AGG_MAX() {
-            em.push_text(".push(-9223372036854775808i64);\n");
+            let uacc: ExprBlob = parse_type(uda_acc[gd]);
+            let uacc2: ExprBlob = parse_type(uda_acc[gd]);
+            acols.push(quote_block! { let mut #n_ga: Vec<#(uacc)> = Vec::<#(uacc2)>::new(); });
+        } else if agg_flt[gd] {
+            acols.push(quote_block! { let mut #n_ga: Vec<f64> = Vec::<f64>::new(); });
         } else {
-            em.push_text(".push(0i64);\n");
+            acols.push(quote_block! { let mut #n_ga: Vec<i64> = Vec::<i64>::new(); });
         }
-        sd = sd + 1i64;
-    }
-    push_ind(&mut em, lvl + 1i64);
-    em.push_text("__gi = __g_key.len() - 1i64;\n");
-    push_ind(&mut em, lvl);
-    em.push_text("}\n");
-    push_ind(&mut em, lvl);
-    em.push_text("__g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);\n");
-    let mut fd: i64 = 0i64;
-    while fd < acount {
-        let a: RAgg = aggs.agg_at(fd);
-        let aname: str = a.out;
-        let fnid: i32 = agg_of_name(a.fn_name);
-        if uda[fd] {
-            // UDA fold: cell = <name>_step(cell, <arg>).
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, ");
-            em.push_text(a.fn_name);
-            em.push_text("_step(__ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi), (");
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text(")));\n");
+
+        // — the group-creation SEED —
+        if uda[gd] {
+            let s_init: String = suffixed(a.fn_name, "_init");
+            let n_init: Ident = Ident::new(string_as_str(&s_init));
+            seeds.push(quote_block! { #n_ga.push(#n_init()); });
+        } else if agg_flt[gd] {
+            if fnid == AGG_MIN() {
+                seeds.push(quote_block! { #n_ga.push(1.7976931348623157e308f64); });
+            } else if fnid == AGG_MAX() {
+                seeds.push(quote_block! { #n_ga.push(-1.7976931348623157e308f64); });
+            } else {
+                seeds.push(quote_block! { #n_ga.push(0.0f64); });
+            }
+        } else if fnid == AGG_MIN() {
+            seeds.push(quote_block! { #n_ga.push(9223372036854775807i64); });
+        } else if fnid == AGG_MAX() {
+            seeds.push(quote_block! { #n_ga.push(-9223372036854775808i64); });
+        } else {
+            seeds.push(quote_block! { #n_ga.push(0i64); });
+        }
+
+        // — the per-row FOLD step —
+        if uda[gd] {
+            let s_step: String = suffixed(a.fn_name, "_step");
+            let n_step: Ident = Ident::new(string_as_str(&s_step));
+            folds.push(quote_block! {
+                #n_ga.set(__gi, #n_step(#n_ga.get(__gi), (#(arg_f))));
+            });
         } else if fnid == AGG_COUNT() {
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) + 1i64);\n");
-        } else if fnid == AGG_SUM() && !agg_flt[fd] {
+            folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + 1i64); });
+        } else if fnid == AGG_SUM() && !agg_flt[gd] {
             // i64 `sum` ACCUMULATOR is error-returning: a running-total overflow
             // becomes Err(ElError) via el_add(…)?, never a trap — the sibling of
             // EL scalar arithmetic (the arg is already checked) and of the
             // dynamic/incremental sum accumulators.
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, el_add(__ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi), (");
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text("))?);\n");
+            folds.push(quote_block! { #n_ga.set(__gi, el_add(#n_ga.get(__gi), (#(arg_f)))?); });
         } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
-            push_ind(&mut em, lvl);
-            em.push_text("__ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __ga_");
-            em.push_text(aname);
-            if agg_cast[fd] { em.push_text(".get(__gi) + ((");  } else { em.push_text(".get(__gi) + ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            if agg_cast[fd] { em.push_text(") as f64));\n"); } else { em.push_text("));\n"); }
+            if agg_cast[gd] {
+                folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + ((#(arg_f)) as f64)); });
+            } else {
+                folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + (#(arg_f))); });
+            }
         } else if fnid == AGG_MIN() {
-            push_ind(&mut em, lvl);
-            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
-            else           { em.push_text("{ let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text("); if __v < __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) { __ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __v); } }\n");
+            if agg_flt[gd] {
+                folds.push(quote_block! {
+                    { let __v: f64 = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                });
+            } else {
+                folds.push(quote_block! {
+                    { let __v: i64 = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                });
+            }
         } else {
-            push_ind(&mut em, lvl);
-            if agg_flt[fd] { em.push_text("{ let __v: f64 = ("); }
-            else           { em.push_text("{ let __v: i64 = ("); }
-            em.push_text(string_as_str(&agg_body[fd]));
-            em.push_text("); if __v > __ga_");
-            em.push_text(aname);
-            em.push_text(".get(__gi) { __ga_");
-            em.push_text(aname);
-            em.push_text(".set(__gi, __v); } }\n");
+            if agg_flt[gd] {
+                folds.push(quote_block! {
+                    { let __v: f64 = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                });
+            } else {
+                folds.push(quote_block! {
+                    { let __v: i64 = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                });
+            }
         }
-        fd = fd + 1i64;
-    }
-    if has_where {
-        lvl = lvl - 1i64;
-        push_ind(&mut em, lvl);
-        em.push_text("}\n");
+
+        // — the FINALIZED column (typed by the finalized column type; a UDA
+        //   column narrows from A to R's lattice type here, via <name>_fin) —
+        let act_f2: ExprBlob = parse_type(act[gd]);
+        fcols.push(quote_block! { let mut #n_gf: Vec<#(act_f)> = Vec::<#(act_f2)>::new(); });
+        if uda[gd] {
+            let acc_read: ExprBlob = quote_expr! { #n_ga.get(__r0) };
+            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gd],
+                                                  uda_fin_cast(act[gd], uda_ret[gd]));
+            let act_f3: ExprBlob = parse_type(act[gd]);
+            freads.push(quote_block! { let #n_out: #(act_f3) = #(fin); });
+        } else if fnid == AGG_AVG() {
+            let act_f3: ExprBlob = parse_type(act[gd]);
+            freads.push(quote_block! {
+                let #n_out: #(act_f3) =
+                    (if __g_cnt.get(__r0) > 0i64 { #n_ga.get(__r0) / (__g_cnt.get(__r0) as f64) }
+                     else { 0.0f64 });
+            });
+        } else {
+            let act_f3: ExprBlob = parse_type(act[gd]);
+            freads.push(quote_block! { let #n_out: #(act_f3) = #n_ga.get(__r0); });
+        }
+        fpush.push(quote_block! { #n_gf.push(#n_out); });
+        gd = gd + 1i64;
     }
 
-    // Close the nest + the base loop.
+    // The inner FOLD — find/insert the row's group by a linear `__g_key` scan
+    // (the MVP dedup), bump `__g_cnt`, fold each accumulator column.
+    let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
+    let mut inner: ExprBlob = quote_block! {
+        let __k: #(keyt_f) = (#(key_f));
+        let mut __gi: i64 = -1i64;
+        let mut __s: i64 = 0i64;
+        while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        if __gi < 0i64 {
+            __g_key.push(__k);
+            __g_cnt.push(0i64);
+            __g_row.push(__i0);
+            #( #seeds; )*
+            __gi = __g_key.len() - 1i64;
+        }
+        __g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);
+        #( #folds; )*
+    };
+    if has_where {
+        let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
+        inner = quote_block! { if (#(where_f)) #(inner) };
+    }
+
+    // The joined-stream nest (NO limit on the match loops — grouping needs
+    // every row; `limit` caps the group-row OUTPUT phase below).
+    let no_lim: ExprBlob = parse_expr("0i64");
     let mut ki2: i64 = ch.n - 1i64;
     while ki2 >= 0i64 {
-        let closed: i64 = emit_step_close(&mut em, lvl, ki2 + 1i64, st_strat[ki2],
-                                          ch.anti[ki2], st_hasres[ki2]);
-        lvl = lvl - closed;
+        inner = step_wrap(inner, ki2 + 1i64, st_strat[ki2], ch.anti[ki2],
+                          st_hasres[ki2], st_ktn[ki2], ch.src[ki2], ch.ty[ki2],
+                          ch.var[ki2], ch.byval[ki2], string_as_str(&st_probe[ki2]),
+                          string_as_str(&st_resid[ki2]), string_as_str(&st_pred[ki2]),
+                          no_lim, false, st_stream[ki2]);
         ki2 = ki2 - 1i64;
     }
-    push_ind(&mut em, lvl);
-    em.push_text("__i0 = __i0 + 1i64;\n");
-    lvl = lvl - 1i64;
-    push_ind(&mut em, lvl);
-    em.push_text("}\n");
-
-    // Finalize the group columns (+ HAVING filter) into __gf_* FINAL columns
-    // (typed by the finalized column type — a UDA column narrows from the
-    // accumulator's A to R's lattice type here, via <name>_fin when declared).
-    em.push_text("    let mut __gf_key: Vec<");
-    em.push_text(key_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(key_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __gf_row: Vec<i64> = Vec::<i64>::new();\n");
-    let mut fg: i64 = 0i64;
-    while fg < acount {
-        let a: RAgg = aggs.agg_at(fg);
-        em.push_text("    let mut __gf_");
-        em.push_text(a.out);
-        em.push_text(": Vec<");
-        em.push_text(act[fg]);
-        em.push_text("> = Vec::<");
-        em.push_text(act[fg]);
-        em.push_text(">::new();\n");
-        fg = fg + 1i64;
-    }
-    em.push_text("    let mut __r0: i64 = 0i64;\n");
-    em.push_text("    while __r0 < __g_key.len() {\n");
-    push_row_rebind(&mut em, "        ", ch.base_var, ch.base_ty, ch.base_src,
-                    "__g_row.get(__r0)");
-    em.push_text("        let key: ");
-    em.push_text(key_ty);
-    em.push_text(" = __g_key.get(__r0);\n");
-    let mut fz: i64 = 0i64;
-    while fz < acount {
-        let a: RAgg = aggs.agg_at(fz);
-        let fnid: i32 = agg_of_name(a.fn_name);
-        em.push_text("        let ");
-        em.push_text(a.out);
-        em.push_text(": ");
-        em.push_text(act[fz]);
-        em.push_text(" = ");
-        if uda[fz] {
-            let mut acc_txt: String = String::new();
-            acc_txt.push_str("__ga_");
-            acc_txt.push_str(a.out);
-            acc_txt.push_str(".get(__r0)");
-            emit_uda_finalize(&mut em, a.fn_name, string_as_str(&acc_txt),
-                              uda_fin[fz], uda_fin_cast(act[fz], uda_ret[fz]));
-            em.push_text(";\n");
-        } else if fnid == AGG_AVG() {
-            em.push_text("(if __g_cnt.get(__r0) > 0i64 { __ga_");
-            em.push_text(a.out);
-            em.push_text(".get(__r0) / (__g_cnt.get(__r0) as f64) } else { 0.0f64 });\n");
-        } else {
-            em.push_text("__ga_");
-            em.push_text(a.out);
-            em.push_text(".get(__r0);\n");
+    let nest: ExprBlob = quote_block! {
+        let mut __i0: i64 = 0i64;
+        while __i0 < (#(base_src_f)).len() {
+            let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+            #(inner);
+            __i0 = __i0 + 1i64;
         }
-        fz = fz + 1i64;
-    }
-    let mut find2: str = "        ";
+    };
+
+    // FINALIZE pass — `__ga_*` (accumulator type A) → `__gf_*` (the finalized
+    // column type R), with `having` gating the group row.
+    let rep_idx: ExprBlob = quote_expr! { __g_row.get(__r0) };
+    let rebind: ExprBlob = row_rebind_frag(ch.base_var, ch.base_ty, ch.base_src, rep_idx);
+    let mut keep: ExprBlob = quote_block! {
+        __gf_key.push(key);
+        __gf_row.push(__g_row.get(__r0));
+        #( #fpush; )*
+    };
     if has_having {
-        em.push_text("        if (");
-        em.push_text(string_as_str(&having_body));
-        em.push_text(") {\n");
-        find2 = "            ";
+        let hav_f: ExprBlob = parse_expr(string_as_str(&having_body));
+        keep = quote_block! { if (#(hav_f)) #(keep) };
     }
-    em.push_text(find2);
-    em.push_text("__gf_key.push(key);\n");
-    em.push_text(find2);
-    em.push_text("__gf_row.push(__g_row.get(__r0));\n");
-    let mut fp: i64 = 0i64;
-    while fp < acount {
-        let a: RAgg = aggs.agg_at(fp);
-        em.push_text(find2);
-        em.push_text("__gf_");
-        em.push_text(a.out);
-        em.push_text(".push(");
-        em.push_text(a.out);
-        em.push_text(");\n");
-        fp = fp + 1i64;
-    }
-    if has_having { em.push_text("        }\n"); }
-    em.push_text("        __r0 = __r0 + 1i64;\n");
-    em.push_text("    }\n");
+    let finalize: ExprBlob = quote_block! {
+        let mut __gf_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+        let mut __gf_row: Vec<i64> = Vec::<i64>::new();
+        #( #fcols; )*
+        let mut __r0: i64 = 0i64;
+        while __r0 < __g_key.len() {
+            #(rebind);
+            let key: #(keyt_f) = __g_key.get(__r0);
+            #( #freads; )*
+            #(keep);
+            __r0 = __r0 + 1i64;
+        }
+    };
 
     // Group-row OUTPUT phase: order → project → distinct → limit.
-    em.push_text("    let mut __ix0: Vec<i64> = Vec::<i64>::new();\n");
+    let mut collect: ExprBlob = quote_block! { __ix0.push(__r); };
+    let mut ksdecl: ExprBlob = quote_block! { };
+    let mut sortp:  ExprBlob = quote_block! { };
     if mods.has_sort {
-        em.push_text("    let mut __ks: Vec<");
-        em.push_text(okey_ty);
-        em.push_text("> = Vec::<");
-        em.push_text(okey_ty);
-        em.push_text(">::new();\n");
+        let okeyt_f: ExprBlob = parse_type(okey_ty);
+        let okey_f:  ExprBlob = parse_expr(string_as_str(&okey_body));
+        let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &act,
+                                                 key_ty, ch.base_var, ch.base_ty, ch.base_src);
+        ksdecl = quote_block! { let mut __ks: Vec<#(okeyt_f)> = Vec::<#(okeyt_f)>::new(); };
+        collect = quote_block! {
+            #(binds_r);
+            __ix0.push(__r);
+            __ks.push(#(okey_f));
+        };
+        sortp = sort_perm_frag(okey_ty, mods.sort_desc, 1i64);
     }
-    em.push_text("    let mut __r: i64 = 0i64;\n");
-    em.push_text("    while __r < __gf_key.len() {\n");
-    if mods.has_sort {
-        emit_group_binds(&mut em, "        ", "__r", &aggs, acount, &act, key_ty,
-                         ch.base_var, ch.base_ty, ch.base_src);
-        em.push_text("        __ix0.push(__r);\n");
-        em.push_text("        __ks.push(");
-        em.push_text(string_as_str(&okey_body));
-        em.push_text(");\n");
-    } else {
-        em.push_text("        __ix0.push(__r);\n");
+    let binds_o: ExprBlob = group_binds_frag(quote_expr! { __ix0.get(__o) }, &aggs, acount, &act,
+                                             key_ty, ch.base_var, ch.base_ty, ch.base_src);
+    let push_f: ExprBlob = push_guarded_frag(result_ty, proj_f, mods.distinct);
+    let mut ocond: ExprBlob = quote_expr! { __o < __ix0.len() };
+    if mods.has_limit {
+        let lim_f: ExprBlob = limit_expr(&mods);
+        ocond = quote_expr! { __o < __ix0.len() && __out.len() < (#(lim_f)) };
     }
-    em.push_text("        __r = __r + 1i64;\n");
-    em.push_text("    }\n");
-    if mods.has_sort {
-        emit_sort_perm(&mut em, okey_ty, mods.sort_desc, 1i64);
-    }
-    em.push_text("    let mut __o: i64 = 0i64;\n");
-    em.push_text("    while __o < __ix0.len()");
-    em.push_text(string_as_str(&lim_cond));
-    em.push_text(" {\n");
-    emit_group_binds(&mut em, "        ", "__ix0.get(__o)", &aggs, acount, &act, key_ty,
-                     ch.base_var, ch.base_ty, ch.base_src);
-    emit_push_guarded(&mut em, "        ", result_ty, string_as_str(&proj_body), mods.distinct);
-    em.push_text("        __o = __o + 1i64;\n");
-    em.push_text("    }\n");
-    em.push_text("    return Result::Ok(__out);\n");
-    em.push_text("}\n");
-    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
-                  em.buf.as_str(), prm);
+    let output: ExprBlob = quote_block! {
+        let mut __ix0: Vec<i64> = Vec::<i64>::new();
+        #(ksdecl);
+        let mut __r: i64 = 0i64;
+        while __r < __gf_key.len() {
+            #(collect);
+            __r = __r + 1i64;
+        }
+        #(sortp);
+        let mut __o: i64 = 0i64;
+        while #(ocond) {
+            #(binds_o);
+            #(push_f);
+            __o = __o + 1i64;
+        }
+    };
+
+    let body_f: ExprBlob = quote_block! {
+        #(pre_f);
+        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        #( #bps; )*
+        let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+        let mut __g_cnt: Vec<i64> = Vec::<i64>::new();
+        let mut __g_row: Vec<i64> = Vec::<i64>::new();
+        #( #acols; )*
+        #(nest);
+        #(finalize);
+        #(output);
+        return Result::Ok(__out);
+    };
+    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
     return true;
+}
+
+// `__ga_<out>` / `__gf_<out>` / `<name><suffix>` — the generated-name spellings.
+// ⚠ Each returns the STRING: `Ident::new` borrows, so the caller keeps it.
+fn ga_name(out: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("__ga_");
+    s.push_str(out);
+    return s;
+}
+fn gf_name(out: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("__gf_");
+    s.push_str(out);
+    return s;
+}
+fn suffixed(name: str, suffix: str) -> String {
+    let mut s: String = String::new();
+    s.push_str(name);
+    s.push_str(suffix);
+    return s;
 }
 
 // Bind the base row var to a group's REPRESENTATIVE row: `let <var>: &<ty> =
 // &(<src>)[<idx expr>];`. Emitted wherever the group columns are bound, so a
 // clause over a group row may name the row var as well as `key`.
-fn push_row_rebind(em: &mut Emitter, indent: str, base_var: str, base_ty: str,
-                   base_src: str, idx: str) {
-    em.push_text(indent);
-    em.push_text("let ");
-    em.push_text(base_var);
-    em.push_text(": &");
-    em.push_text(base_ty);
-    em.push_text(" = &(");
-    em.push_text(base_src);
-    em.push_text(")[");
-    em.push_text(idx);
-    em.push_text("];\n");
+fn row_rebind_frag(base_var: str, base_ty: str, base_src: str, idx: ExprBlob) -> ExprBlob {
+    let bv: Ident    = Ident::new(base_var);
+    let bt: ExprBlob = parse_type(base_ty);
+    let bs: ExprBlob = parse_expr(base_src);
+    return quote_block! { let #bv: &#(bt) = &(#(bs))[#(idx)]; };
 }
 
-// Emit the group-column re-binds for one FINALIZED group row (the
-// representative base row + `key` + each aggregate output as a local of its
-// declared name, read from the parallel `__gf_*` Vecs at index expression
-// `idx`). Used twice by the output phase: once to evaluate the `order by` key,
-// once to project.
-fn emit_group_binds(em: &mut Emitter, indent: str, idx: str,
-                    aggs: &RAggArr, acount: i64, act: &[str; 8],
-                    key_ty: str, base_var: str, base_ty: str, base_src: str) {
-    let mut ridx: String = String::new();
-    ridx.push_str("__gf_row.get(");
-    ridx.push_str(idx);
-    ridx.push_str(")");
-    push_row_rebind(em, indent, base_var, base_ty, base_src, string_as_str(&ridx));
-    em.push_text(indent);
-    em.push_text("let key: ");
-    em.push_text(key_ty);
-    em.push_text(" = ");
-    em.push_text("__gf_key.get(");
-    em.push_text(idx);
-    em.push_text(");\n");
+// The group-column re-binds for one FINALIZED group row (the representative
+// base row + `key` + each aggregate output as a local of its declared name,
+// read from the parallel `__gf_*` Vecs at index expression `idx`). Used twice
+// by the output phase: once to evaluate the `order by` key, once to project.
+fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
+                    key_ty: str, base_var: str, base_ty: str, base_src: str) -> ExprBlob {
+    let ridx: ExprBlob = quote_expr! { __gf_row.get(#(idx)) };
+    let rebind: ExprBlob = row_rebind_frag(base_var, base_ty, base_src, ridx);
+    let keyt_f: ExprBlob = parse_type(key_ty);
+    let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gi: i64 = 0i64;
     while gi < acount {
         let a: RAgg = aggs.agg_at(gi);
-        em.push_text(indent);
-        em.push_text("let ");
-        em.push_text(a.out);
-        em.push_text(": ");
-        em.push_text(act[gi]);
-        em.push_text(" = ");
-        em.push_text("__gf_");
-        em.push_text(a.out);
-        em.push_text(".get(");
-        em.push_text(idx);
-        em.push_text(");\n");
+        let s_gf: String = gf_name(a.out);
+        let n_gf: Ident = Ident::new(string_as_str(&s_gf));
+        let n_out: Ident = Ident::new(a.out);
+        let act_f: ExprBlob = parse_type(act[gi]);
+        binds.push(quote_block! { let #n_out: #(act_f) = #n_gf.get(#(idx)); });
         gi = gi + 1i64;
     }
+    return quote_block! {
+        #(rebind);
+        let key: #(keyt_f) = __gf_key.get(#(idx));
+        #( #binds; )*
+    };
 }
 
 // ── Aggregate-spec computation ───────────────────────────────────────────────
@@ -3375,34 +2908,35 @@ fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
     }
 }
 
-// The finalize-expression CAST suffix for a UDA output: R narrower than the
-// i64 lattice baseline widens `as i64`; an f32 R widens `as f64`; everything
-// else emits bare. Empty string = no cast.
+// The finalize-expression CAST TARGET for a UDA output: R narrower than the
+// i64 lattice baseline widens to `i64`; an f32 R widens to `f64`; everything
+// else needs none. Empty string = no cast.
+// ⚠ This used to return the SUFFIX text (`" as i64)"`, closing a paren its
+// caller had opened) — a half-expression that only made sense inside a
+// particular concatenation. A fragment builder takes the TYPE and shapes the
+// cast itself.
 fn uda_fin_cast(col_ty: str, ret_ty: str) -> str {
-    if str_eq(col_ty, "i64") && !str_eq(ret_ty, "i64") { return " as i64)"; }
-    if str_eq(col_ty, "f64") && str_eq(ret_ty, "f32")  { return " as f64)"; }
+    if str_eq(col_ty, "i64") && !str_eq(ret_ty, "i64") { return "i64"; }
+    if str_eq(col_ty, "f64") && str_eq(ret_ty, "f32")  { return "f64"; }
     return "";
 }
 
-// Emit the finalize EXPRESSION for UDA spec `i` reading accumulator text
-// `acc_txt` (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the
-// triple declares a finalizer, the bare accumulator otherwise — wrapped in the
+// The finalize EXPRESSION for a UDA spec, over the accumulator fragment `acc`
+// (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the triple
+// declares a finalizer, the bare accumulator otherwise — wrapped in the
 // widening cast when R is narrower than its lattice column type.
-fn emit_uda_finalize(em: &mut Emitter, name: str, acc_txt: str,
-                     has_fin: bool, cast: str) {
-    if cast.len() > 0i64 { em.push_text("(("); }
+fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> ExprBlob {
+    let mut e: ExprBlob = acc;
     if has_fin {
-        em.push_text(name);
-        em.push_text("_fin(");
-        em.push_text(acc_txt);
-        em.push_text(")");
-    } else {
-        em.push_text(acc_txt);
+        let s_fin: String = suffixed(name, "_fin");
+        let n_fin: Ident = Ident::new(string_as_str(&s_fin));
+        e = quote_expr! { #n_fin(#(e)) };
     }
-    if cast.len() > 0i64 {
-        em.push_text(")");
-        em.push_text(cast);
+    if cast_ty.len() > 0i64 {
+        let ct: ExprBlob = parse_type(cast_ty);
+        e = quote_expr! { ((#(e)) as #(ct)) };
     }
+    return e;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -3589,15 +3123,12 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // driver lexically rebinds them per member block onto that member's
 // next-delta Vec + shadow set (which is total ∪ next-delta — exactly the
 // "new w.r.t. the total" probe semi-naïve needs).
-fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
-    push_ind(em, lvl);
-    em.push_text("let __rv: ");
-    em.push_text(row_ty);
-    em.push_text(" = (");
-    em.push_text(proj);
-    em.push_text(");\n");
-    push_ind(em, lvl);
-    em.push_text("if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }\n");
+fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
+    let rt: ExprBlob = parse_type(row_ty);
+    return quote_block! {
+        let __rv: #(rt) = (#(proj));
+        if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }
+    };
 }
 
 // The SEMILATTICE-ABSORB push (recursive min/max aggregation — the generalization
@@ -3609,36 +3140,28 @@ fn emit_rel_push(em: &mut Emitter, lvl: i64, row_ty: str, proj: str) {
 // (the distinct-key roster the post-loop materializes the argmin/argmax total
 // from); an improved key overwrites the best. Every improvement pushes the row
 // into `__out` (the round's improvement delta) — semi-naïve re-derivation.
-fn emit_rel_push_agg(em: &mut Emitter, lvl: i64, ri: i64, prm: &MacroParams,
-                     key_body: str, val_body: str) {
+fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
+                     key: ExprBlob, val: ExprBlob) -> ExprBlob {
     let rn:  str = prm.rel_names[ri];
     let off: i64 = prm.rel_coff[ri];
-    let kty: str = prm.relc_ty[off];
-    let vty: str = prm.relc_ty[off + 1i64];
-    let cmp: str = if prm.rel_agg_dir[ri] == AGG_MAX() { " > " } else { " < " };
-    push_ind(em, lvl);
-    em.push_text("let __ak: "); em.push_text(kty); em.push_text(" = (");
-    em.push_text(key_body); em.push_text(");\n");
-    push_ind(em, lvl);
-    em.push_text("let __av: "); em.push_text(vty); em.push_text(" = (");
-    em.push_text(val_body); em.push_text(");\n");
-    push_ind(em, lvl);
-    em.push_text("unsafe {\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("let __cp: *const "); em.push_text(vty);
-    em.push_text(" = (__bp_"); em.push_text(rn); em.push_text(").get(&__ak);\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("let mut __imp: bool = false;\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("if __cp == (0i64 as *const "); em.push_text(vty);
-    em.push_text(") { __imp = true; __keys_"); em.push_text(rn); em.push_text(".push(__ak); }\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("else { if __av"); em.push_text(cmp); em.push_text("*__cp { __imp = true; } }\n");
-    push_ind(em, lvl + 1i64);
-    em.push_text("if __imp { (__bp_"); em.push_text(rn);
-    em.push_text(").insert(__ak, __av); __out.push((__ak, __av)); }\n");
-    push_ind(em, lvl);
-    em.push_text("}\n");
+    let kty: ExprBlob = parse_type(prm.relc_ty[off]);
+    let vty: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+    let vty2: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+    let s_bp: String = suffixed("__bp_", rn);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
+    let s_ks: String = suffixed("__keys_", rn); let n_ks: Ident = Ident::new(string_as_str(&s_ks));
+    let mut cmp: ExprBlob = quote_expr! { __av < *__cp };
+    if prm.rel_agg_dir[ri] == AGG_MAX() { cmp = quote_expr! { __av > *__cp }; }
+    return quote_block! {
+        let __ak: #(kty) = (#(key));
+        let __av: #(vty) = (#(val));
+        unsafe {
+            let __cp: *const #(vty2) = (#n_bp).get(&__ak);
+            let mut __imp: bool = false;
+            if __cp == (0i64 as *const #(vty2)) { __imp = true; #n_ks.push(__ak); }
+            else { if #(cmp) { __imp = true; } }
+            if __imp { (#n_bp).insert(__ak, __av); __out.push((__ak, __av)); }
+        }
+    };
 }
 
 // Emit the (key, arg) split of an aggregate MEMBER's body select tuple into the
@@ -3667,8 +3190,8 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
 }
 
 // One SIMPLE rel body: scan + optional where + dedup-push projection.
-fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
-                        prm: &MacroParams, h: &Writ) -> bool {
+fn rel_body_simple_frag(s: RQSimple, ri: i64,
+                        prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, s.row_ty);
@@ -3704,39 +3227,33 @@ fn emit_rel_body_simple(em: &mut Emitter, s: RQSimple, ri: i64,
         emit_sexpr(&mut pred_body, pe_opt, &ty, s.var_name);
     }
 
-    em.push_text("    {\n");
-    em.push_text("        let mut __i: i64 = 0i64;\n");
-    em.push_text("        while __i < (");
-    em.push_text(s.src_name);
-    em.push_text(").len() {\n");
-    em.push_text("            let ");
-    em.push_text(s.var_name);
-    em.push_text(": &");
-    em.push_text(s.row_ty);
-    em.push_text(" = &(");
-    em.push_text(s.src_name);
-    em.push_text(")[__i];\n");
-    let mut lvl: i64 = 3i64;
-    if s.has_where {
-        push_ind(em, lvl);
-        em.push_text("if (");
-        em.push_text(string_as_str(&pred_body));
-        em.push_text(") {\n");
-        lvl = lvl + 1i64;
-    }
+    // The body is a FRAGMENT: the caller collects one per rel body and splices
+    // the run into its fn. ⚠ The braces stay — a rel body owns a SCOPE, so its
+    // `__i` cannot collide with a sibling body's.
+    let mut push_f: ExprBlob = quote_block! { };
     if is_agg {
-        emit_rel_push_agg(em, lvl, ri, prm, string_as_str(&key_body), string_as_str(&val_body));
+        push_f = rel_push_agg_frag(ri, prm, parse_expr(string_as_str(&key_body)),
+                                            parse_expr(string_as_str(&val_body)));
     } else {
-        emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+        push_f = rel_push_frag(prm.rel_rowty[ri], parse_expr(string_as_str(&proj_body)));
     }
     if s.has_where {
-        lvl = lvl - 1i64;
-        push_ind(em, lvl);
-        em.push_text("}\n");
+        let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
+        push_f = quote_block! { if (#(pred_f)) #(push_f) };
     }
-    em.push_text("            __i = __i + 1i64;\n");
-    em.push_text("        }\n");
-    em.push_text("    }\n");
+    let src_f: ExprBlob = parse_expr(s.src_name);
+    let row_f: ExprBlob = parse_type(s.row_ty);
+    let vnm:   Ident    = Ident::new(s.var_name);
+    *out = quote_block! {
+        {
+            let mut __i: i64 = 0i64;
+            while __i < (#(src_f)).len() {
+                let #vnm: &#(row_f) = &(#(src_f))[__i];
+                #(push_f);
+                __i = __i + 1i64;
+            }
+        }
+    };
     return true;
 }
 
@@ -3771,8 +3288,8 @@ fn jchain_from_aggr(g: RQAggr, ch: &mut JChain) {
 
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
-fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
-                      prm: &MacroParams, h: &Writ) -> bool {
+fn rel_body_join_frag(j: RQJoin, ri: i64,
+                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let mut ch: JChain = jchain_new();
     jchain_from_plan(j, &mut ch);
     let se: SExpr = j.select_expr();
@@ -3786,8 +3303,8 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
                     error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)");
                     return false;
                 }
-                return emit_chain_body(em, &ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
-                                       j.has_where, j.where_expr(), h);
+                return chain_body_frag(&ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
+                                       j.has_where, j.where_expr(), out, h);
             }
             _ => {
                 error("wql!: a recursive-aggregate rel body must project a `(key, aggout)` tuple (slice-1)");
@@ -3795,16 +3312,16 @@ fn emit_rel_body_join(em: &mut Emitter, j: RQJoin, ri: i64,
             }
         }
     }
-    return emit_chain_body(em, &ch, ri, prm, se, se, se,
-                           j.has_where, j.where_expr(), h);
+    return chain_body_frag(&ch, ri, prm, se, se, se,
+                           j.has_where, j.where_expr(), out, h);
 }
 
 // One RECURSIVE-AGGREGATE rel body: same chain nest as a join body, but the inner
 // push is the semilattice absorb over `(group-key, aggregate-arg)` into the
 // best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
 // only — the emitted operands are the group KEY and the aggregate's ARG expr.
-fn emit_rel_body_agg(em: &mut Emitter, g: RQAggr, ri: i64,
-                     prm: &MacroParams, h: &Writ) -> bool {
+fn rel_body_agg_frag(g: RQAggr, ri: i64,
+                     prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     if !g.has_steps() {
         error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
         return false;
@@ -3820,17 +3337,17 @@ fn emit_rel_body_agg(em: &mut Emitter, g: RQAggr, ri: i64,
     let key_e: SExpr = g.key_expr();
     let val_e: SExpr = a0.arg_expr();
     let we: SExpr = if g.has_where { g.where_expr() } else { key_e };
-    return emit_chain_body(em, &ch, ri, prm, key_e, key_e, val_e,
-                           g.has_where, we, h);
+    return chain_body_frag(&ch, ri, prm, key_e, key_e, val_e,
+                           g.has_where, we, out, h);
 }
 
 // The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
 // non-aggregate member `proj_e` is the select projection (dedup-push); for an
 // aggregate member (`prm.rel_is_agg[ri]`) `key_e`/`val_e` are the group key + the
 // aggregate argument (semilattice absorb). `where_e` is valid only if `has_where`.
-fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
+fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
                    proj_e: SExpr, key_e: SExpr, val_e: SExpr,
-                   has_where: bool, where_e: SExpr, h: &Writ) -> bool {
+                   has_where: bool, where_e: SExpr, out: &mut ExprBlob, h: &Writ) -> bool {
     let is_agg: bool = prm.rel_is_agg[ri];
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
@@ -3922,78 +3439,58 @@ fn emit_chain_body(em: &mut Emitter, ch: &JChain, ri: i64, prm: &MacroParams,
                       &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
                       &mut st_stream) { return false; }
 
-    // The body block: builds + nest + shared inner dedup-push.
-    em.push_text("    {\n");
-    let mut ci: i64 = 0i64;
-    while ci < ch.n {
-        emit_strategy_comment(em, ci + 1i64, st_strat[ci], ch.anti[ci],
-                              st_equi[ci], st_hasres[ci], st_ktn[ci], ch.edge[ci]);
-        ci = ci + 1i64;
-    }
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        emit_build_phase(em, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                         st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                         string_as_str(&st_build[bpi]), st_stream[bpi]);
-        bpi = bpi + 1i64;
-    }
-    let mut lvl: i64 = 2i64;
-    push_ind(em, lvl);
-    em.push_text("let mut __i0: i64 = 0i64;\n");
-    push_ind(em, lvl);
-    em.push_text("while __i0 < (");
-    em.push_text(ch.base_src);
-    em.push_text(").len() {\n");
-    lvl = lvl + 1i64;
-    push_ind(em, lvl);
-    em.push_text("let ");
-    em.push_text(ch.base_var);
-    em.push_text(": &");
-    em.push_text(ch.base_ty);
-    em.push_text(" = &(");
-    em.push_text(ch.base_src);
-    em.push_text(")[__i0];\n");
-    let mut opens: [i64; 8] = [0i64; 8];
-    let mut oi: i64 = 0i64;
-    while oi < ch.n {
-        opens[oi] = emit_step_open(em, lvl, oi + 1i64, st_strat[oi], ch.anti[oi],
-                                   st_hasres[oi], st_ktn[oi], ch.src[oi], ch.ty[oi],
-                                   ch.var[oi], ch.byval[oi], string_as_str(&st_probe[oi]),
-                                   string_as_str(&st_resid[oi]), string_as_str(&st_pred[oi]),
-                                   "", st_stream[oi]);
-        lvl = lvl + opens[oi];
-        oi = oi + 1i64;
-    }
-    if has_where {
-        push_ind(em, lvl);
-        em.push_text("if (");
-        em.push_text(string_as_str(&where_body));
-        em.push_text(") {\n");
-        lvl = lvl + 1i64;
-    }
+    // The body block: builds + nest + shared inner push. A FRAGMENT — the
+    // caller collects one per rel body and splices the run into its fn.
+    //
+    // ⚠ The nest is built INSIDE-OUT by `step_wrap`; the open/close pair and
+    // the level counter it threaded are gone (see emit_join_chain). The braces
+    // stay because a rel body owns a SCOPE — its `__i0` must not collide with
+    // a sibling body's.
+    //
+    // ⚠ The `// join strategy: …` trace line is GONE — see emit_join_chain.
+    let mut push_f: ExprBlob = quote_block! { };
     if is_agg {
-        emit_rel_push_agg(em, lvl, ri, prm, string_as_str(&key_body), string_as_str(&val_body));
+        push_f = rel_push_agg_frag(ri, prm, parse_expr(string_as_str(&key_body)),
+                                            parse_expr(string_as_str(&val_body)));
     } else {
-        emit_rel_push(em, lvl, prm.rel_rowty[ri], string_as_str(&proj_body));
+        push_f = rel_push_frag(prm.rel_rowty[ri], parse_expr(string_as_str(&proj_body)));
     }
     if has_where {
-        lvl = lvl - 1i64;
-        push_ind(em, lvl);
-        em.push_text("}\n");
+        let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
+        push_f = quote_block! { if (#(where_f)) #(push_f) };
     }
+    let no_lim: ExprBlob = parse_expr("0i64");
     let mut ki: i64 = ch.n - 1i64;
     while ki >= 0i64 {
-        let closed: i64 = emit_step_close(em, lvl, ki + 1i64, st_strat[ki],
-                                          ch.anti[ki], st_hasres[ki]);
-        lvl = lvl - closed;
+        push_f = step_wrap(push_f, ki + 1i64, st_strat[ki], ch.anti[ki],
+                           st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
+                           ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
+                           string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
+                           no_lim, false, st_stream[ki]);
         ki = ki - 1i64;
     }
-    push_ind(em, lvl);
-    em.push_text("__i0 = __i0 + 1i64;\n");
-    lvl = lvl - 1i64;
-    push_ind(em, lvl);
-    em.push_text("}\n");
-    em.push_text("    }\n");
+    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
+        bpi = bpi + 1i64;
+    }
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_vnm:   Ident    = Ident::new(ch.base_var);
+    *out = quote_block! {
+        {
+            #( #bps; )*
+            let mut __i0: i64 = 0i64;
+            while __i0 < (#(base_src_f)).len() {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                #(push_f);
+                __i0 = __i0 + 1i64;
+            }
+        }
+    };
     return true;
 }
 
@@ -4020,22 +3517,22 @@ fn push_dep_params(out: &mut String, prm: &MacroParams, mask: i64) {
 // Emit one rel body (fat-wrapped per shape — the emitters read edge methods
 // and the SCC driver rewrites src_name fields, both of which want the
 // allocator-carrying view). Shared by the one-shot path and the SCC driver.
-fn emit_rel_body(em: &mut Emitter, body_any: WAny, ri: i64,
-                 prm: &MacroParams, h: &Writ) -> bool {
+fn rel_body_frag(body_any: WAny, ri: i64,
+                 prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let q: RQuery = body_any.view::<RQuery>();
     match q {
         RQuery::Simple(_) => {
-            return emit_rel_body_simple(em, rq_fat_simple(body_any, h), ri, prm, h);
+            return rel_body_simple_frag(rq_fat_simple(body_any, h), ri, prm, out, h);
         }
         RQuery::Join(_) => {
-            return emit_rel_body_join(em, rq_fat_join(body_any, h), ri, prm, h);
+            return rel_body_join_frag(rq_fat_join(body_any, h), ri, prm, out, h);
         }
         RQuery::Aggr(_) => {
             // Only reachable for a FINALIZED recursive-aggregate member (the
             // walker's stratification check sets rel_is_agg); any other aggregate
             // body was rejected there.
             if prm.rel_is_agg[ri] {
-                return emit_rel_body_agg(em, rq_fat_aggr(body_any, h), ri, prm, h);
+                return rel_body_agg_frag(rq_fat_aggr(body_any, h), ri, prm, out, h);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
@@ -4075,33 +3572,30 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     rty.push_str("Result<Vec<");
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
-    // ⚠ `em` is a BODY BUFFER, not a chunk (see emit_join_chain).
-    let mut em: Emitter = Emitter::new();
-    em.push_text("{\n");
-    em.push_text("    let mut __out: Vec<");
-    em.push_text(row_ty);
-    em.push_text("> = Vec::<");
-    em.push_text(row_ty);
-    em.push_text(">::new();\n");
-    em.push_text("    let mut __rs: HashSet<");
-    em.push_text(row_ty);
-    em.push_text("> = hashset_new::<");
-    em.push_text(row_ty);
-    em.push_text(">();\n");
-    em.push_text("    let __rsp: *mut HashSet<");
-    em.push_text(row_ty);
-    em.push_text("> = &mut __rs;\n");
+    // ── the BODY is a QUOTE too (ADR 0024 S5) ─────────────────────────────
+    let rt: ExprBlob  = parse_type(row_ty);
+    let rt2: ExprBlob = parse_type(row_ty);
+    let rt3: ExprBlob = parse_type(row_ty);
+    let rt4: ExprBlob = parse_type(row_ty);
+    let rt5: ExprBlob = parse_type(row_ty);
     let bodies: RQBodyArr = rel.bodies_arr();
-    let nb: i64 = bodies.len();
+    let nbod: i64 = bodies.len();
+    let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut b: i64 = 0i64;
-    while b < nb {
-        if !emit_rel_body(&mut em, bodies.body_any(b), ri, prm, h) { return false; }
+    while b < nbod {
+        let mut f: ExprBlob = quote_block! { };
+        if !rel_body_frag(bodies.body_any(b), ri, prm, &mut f, h) { return false; }
+        runs.push(f);
         b = b + 1i64;
     }
-    em.push_text("    return Result::Ok(__out);\n");
-    em.push_text("}\n");
-    emit_fn_quote(hn.as_str(), ps.as_str(), prm.tparams, rty.as_str(),
-                  em.buf.as_str(), prm);
+    let body_f: ExprBlob = quote_block! {
+        let mut __out: Vec<#(rt)> = Vec::<#(rt2)>::new();
+        let mut __rs: HashSet<#(rt3)> = hashset_new::<#(rt4)>();
+        let __rsp: *mut HashSet<#(rt5)> = &mut __rs;
+        #( #runs; )*
+        return Result::Ok(__out);
+    };
+    emit_fn_quote_blob(hn.as_str(), ps.as_str(), prm.tparams, rty.as_str(), body_f, prm);
     return true;
 }
 
@@ -4265,138 +3759,132 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         ps.push_str(">");
         m0 = m0 + 1i64;
     }
-    // ⚠ `em` is a BODY BUFFER, not a chunk (see emit_join_chain). The semi-naïve
-    // driver's shape is a runtime value twice over: one state block per SCC
-    // member, and one delta VARIANT per in-SCC source occurrence per body.
-    let mut em: Emitter = Emitter::new();
-    em.push_text("{\n");
+    // ── the BODY is a QUOTE too (ADR 0024 S5) ─────────────────────────────
+    // The semi-naïve driver's shape is a runtime value TWICE over: one state
+    // block per SCC member, and one delta VARIANT per in-SCC source occurrence
+    // per body. Both are Vec<ExprBlob> runs that splice flat.
+    //
     // ── Per-member state ──
     // Plain (set-semantics) member: a shadow HashSet + current/next delta Vecs.
     // AGGREGATE member (recursive min/max): a best-per-key MAP + its raw pointer
     // (the map mutators take `*mut self`), a distinct-KEY roster (the post-loop
     // argmin/argmax materialization of the total), the improvement deltas, and a
     // round counter (the runtime convergence guard — termination is sacred).
+    let mut state: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m1: i64 = 0i64;
     while m1 < nm {
         let rn: str = prm.rel_names[mem[m1]];
-        let rt: str = prm.rel_rowty[mem[m1]];
+        let rt: ExprBlob  = parse_type(prm.rel_rowty[mem[m1]]);
+        let rt2: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let rt3: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let rt4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let s_dl: String = suffixed("__dl_", rn);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_nd: String = suffixed("__nd_", rn);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         if prm.rel_is_agg[mem[m1]] {
             let off: i64 = prm.rel_coff[mem[m1]];
-            let kty: str = prm.relc_ty[off];
-            let vty: str = prm.relc_ty[off + 1i64];
-            em.push_text("    let mut __best_"); em.push_text(rn);
-            em.push_text(": HashMap<"); em.push_text(kty); em.push_text(", "); em.push_text(vty);
-            em.push_text("> = hashmap_new::<"); em.push_text(kty); em.push_text(", "); em.push_text(vty); em.push_text(">();\n");
-            em.push_text("    let __bp_"); em.push_text(rn);
-            em.push_text(": *mut HashMap<"); em.push_text(kty); em.push_text(", "); em.push_text(vty);
-            em.push_text("> = &mut __best_"); em.push_text(rn); em.push_text(";\n");
-            em.push_text("    let mut __keys_"); em.push_text(rn);
-            em.push_text(": Vec<"); em.push_text(kty); em.push_text("> = Vec::<"); em.push_text(kty); em.push_text(">::new();\n");
-            em.push_text("    let mut __rounds_"); em.push_text(rn); em.push_text(": i64 = 0i64;\n");
+            let kty:  ExprBlob = parse_type(prm.relc_ty[off]);
+            let kty2: ExprBlob = parse_type(prm.relc_ty[off]);
+            let kty3: ExprBlob = parse_type(prm.relc_ty[off]);
+            let kty4: ExprBlob = parse_type(prm.relc_ty[off]);
+            let kty5: ExprBlob = parse_type(prm.relc_ty[off]);
+            let kty6: ExprBlob = parse_type(prm.relc_ty[off]);
+            let vty:  ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+            let vty2: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+            let vty3: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+            let vty4: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+            let s_be: String = suffixed("__best_", rn);   let n_be: Ident = Ident::new(string_as_str(&s_be));
+            let s_bp: String = suffixed("__bp_", rn);     let n_bp: Ident = Ident::new(string_as_str(&s_bp));
+            let s_ks: String = suffixed("__keys_", rn);   let n_ks: Ident = Ident::new(string_as_str(&s_ks));
+            let s_ro: String = suffixed("__rounds_", rn); let n_ro: Ident = Ident::new(string_as_str(&s_ro));
+            state.push(quote_block! {
+                let mut #n_be: HashMap<#(kty), #(vty)> = hashmap_new::<#(kty2), #(vty2)>();
+                let #n_bp: *mut HashMap<#(kty3), #(vty3)> = &mut #n_be;
+                let mut #n_ks: Vec<#(kty4)> = Vec::<#(kty5)>::new();
+                let mut #n_ro: i64 = 0i64;
+                let mut #n_dl: Vec<#(rt)> = Vec::<#(rt2)>::new();
+                let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
+            });
         } else {
-            em.push_text("    let mut __rs_");
-            em.push_text(rn);
-            em.push_text(": HashSet<");
-            em.push_text(rt);
-            em.push_text("> = hashset_new::<");
-            em.push_text(rt);
-            em.push_text(">();\n");
+            let rt5: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+            let rt6: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+            let s_rs: String = suffixed("__rs_", rn);  let n_rs: Ident = Ident::new(string_as_str(&s_rs));
+            state.push(quote_block! {
+                let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
+                let mut #n_dl: Vec<#(rt)> = Vec::<#(rt2)>::new();
+                let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
+            });
         }
-        em.push_text("    let mut __dl_");
-        em.push_text(rn);
-        em.push_text(": Vec<");
-        em.push_text(rt);
-        em.push_text("> = Vec::<");
-        em.push_text(rt);
-        em.push_text(">::new();\n");
-        em.push_text("    let mut __nd_");
-        em.push_text(rn);
-        em.push_text(": Vec<");
-        em.push_text(rt);
-        em.push_text("> = Vec::<");
-        em.push_text(rt);
-        em.push_text(">::new();\n");
         m1 = m1 + 1i64;
     }
+
     // ── Seeds: bodies with no in-SCC source, once, into __nd ──
+    let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m2: i64 = 0i64;
     while m2 < nm {
         let ri: i64 = mem[m2];
         let bodies: RQBodyArr = rels.rel_at(ri).bodies_arr();
         let nb: i64 = bodies.len();
-        // Any seed bodies at all? (skip the member block when none)
-        let mut nseed: i64 = 0i64;
-        let mut b0: i64 = 0i64;
-        while b0 < nb {
-            let oc0: OccList = body_scc_occs(bodies.body_any(b0), prm, scc, c, h);
-            if oc0.n == 0i64 { nseed = nseed + 1i64; }
-            b0 = b0 + 1i64;
-        }
-        if nseed > 0i64 {
-            if prm.rel_is_agg[ri] { emit_member_block_open_agg(&mut em, prm, ri); }
-            else                  { emit_member_block_open(&mut em, prm, ri); }
-            let mut b1: i64 = 0i64;
-            while b1 < nb {
-                let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
-                if oc1.n == 0i64 {
-                    if !emit_rel_body(&mut em, bodies.body_any(b1), ri, prm, h) { return false; }
-                }
-                b1 = b1 + 1i64;
+        let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut b1: i64 = 0i64;
+        while b1 < nb {
+            let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
+            if oc1.n == 0i64 {
+                let mut f: ExprBlob = quote_block! { };
+                if !rel_body_frag(bodies.body_any(b1), ri, prm, &mut f, h) { return false; }
+                runs.push(f);
             }
-            em.push_text("    }\n");
+            b1 = b1 + 1i64;
         }
+        if runs.len() > 0i64 { seeds.push(member_block_frag(runs, prm, ri)); }
         m2 = m2 + 1i64;
     }
+
     // ── The fixpoint loop ──
-    em.push_text("    loop {\n");
     // PROMOTE: dl ← nd, nd ← fresh, total ∪= dl (rows already in the set).
+    let mut promote: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m3: i64 = 0i64;
     while m3 < nm {
         let rn3: str = prm.rel_names[mem[m3]];
-        let rt3: str = prm.rel_rowty[mem[m3]];
-        em.push_text("        __dl_");
-        em.push_text(rn3);
-        em.push_text(" = __nd_");
-        em.push_text(rn3);
-        em.push_text(";\n");
-        em.push_text("        __nd_");
-        em.push_text(rn3);
-        em.push_text(" = Vec::<");
-        em.push_text(rt3);
-        em.push_text(">::new();\n");
+        let rt3:  ExprBlob = parse_type(prm.rel_rowty[mem[m3]]);
+        let rt3b: ExprBlob = parse_type(prm.rel_rowty[mem[m3]]);
+        let s_dl: String = suffixed("__dl_", rn3);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_nd: String = suffixed("__nd_", rn3);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        let s_tt: String = suffixed("__tot_", rn3); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
         // Plain member: total ∪= dl (the shadow set already holds the rows). An
         // AGGREGATE member's total is the argmin/argmax MAP — materialized ONCE
         // after the fixpoint (the per-round best is the map, not an append-union),
-        // so its promote is just the delta swap above.
-        if !prm.rel_is_agg[mem[m3]] {
-            em.push_text("        {\n");
-            em.push_text("            let __ps: &[");
-            em.push_text(rt3);
-            em.push_text("] = __dl_");
-            em.push_text(rn3);
-            em.push_text(".as_slice();\n");
-            em.push_text("            let mut __pk: i64 = 0i64;\n");
-            em.push_text("            while __pk < __ps.len() {\n");
-            em.push_text("                __tot_");
-            em.push_text(rn3);
-            em.push_text(".push(__ps[__pk]);\n");
-            em.push_text("                __pk = __pk + 1i64;\n");
-            em.push_text("            }\n");
-            em.push_text("        }\n");
+        // so its promote is just the delta swap.
+        if prm.rel_is_agg[mem[m3]] {
+            promote.push(quote_block! {
+                #n_dl = #n_nd;
+                #n_nd = Vec::<#(rt3)>::new();
+            });
+        } else {
+            promote.push(quote_block! {
+                #n_dl = #n_nd;
+                #n_nd = Vec::<#(rt3)>::new();
+                {
+                    let __ps: &[#(rt3b)] = #n_dl.as_slice();
+                    let mut __pk: i64 = 0i64;
+                    while __pk < __ps.len() {
+                        #n_tt.push(__ps[__pk]);
+                        __pk = __pk + 1i64;
+                    }
+                }
+            });
         }
         m3 = m3 + 1i64;
     }
     // EXIT: all deltas empty ⇒ least fixpoint.
-    em.push_text("        if ");
+    let mut exitc: ExprBlob = parse_expr("true");
     let mut m4: i64 = 0i64;
     while m4 < nm {
-        if m4 > 0i64 { em.push_text(" && "); }
-        em.push_text("__dl_");
-        em.push_text(prm.rel_names[mem[m4]]);
-        em.push_text(".len() == 0i64");
+        let s_dl: String = suffixed("__dl_", prm.rel_names[mem[m4]]);
+        let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        if m4 == 0i64 { exitc = quote_expr! { #n_dl.len() == 0i64 }; }
+        else          { exitc = quote_expr! { #(exitc) && #n_dl.len() == 0i64 }; }
         m4 = m4 + 1i64;
     }
-    em.push_text(" { break; }\n");
     // CONVERGENCE GUARD (aggregate members): a monotone min/max fixpoint over a
     // finite reachable key set converges in ≤ |keys|−1 improvement waves (each
     // wave extends the frontier by one hop; a shortest/widest path is simple).
@@ -4405,159 +3893,173 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     // forever — capped generously (never false-fires on a valid graph; the
     // execution ABORTS with a diagnostic rather than hanging — termination is
     // sacred, design §5).
+    let mut guard: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut mg: i64 = 0i64;
     while mg < nm {
         if prm.rel_is_agg[mem[mg]] {
             let rng: str = prm.rel_names[mem[mg]];
-            em.push_text("        __rounds_"); em.push_text(rng);
-            em.push_text(" = __rounds_"); em.push_text(rng); em.push_text(" + 1i64;\n");
-            em.push_text("        if __rounds_"); em.push_text(rng);
-            em.push_text(" > (__best_"); em.push_text(rng);
-            em.push_text(".len() as i64) * 4i64 + 16i64 { logos.lang.panic::panic(\"wql!: recursive aggregate '");
-            em.push_text(rng);
-            em.push_text("' did not converge — a negative-weight cycle (min) or positive-weight cycle (max) has no least fixpoint\"); }\n");
+            let s_ro: String = suffixed("__rounds_", rng); let n_ro: Ident = Ident::new(string_as_str(&s_ro));
+            let s_be: String = suffixed("__best_", rng);   let n_be: Ident = Ident::new(string_as_str(&s_be));
+            // ⚠ The message names the rel, so it is a RUNTIME string literal —
+            // `##m` reifies an Ident as one. Assembling `"…'" + rn + "'…"` as
+            // text would have to escape its own quoting.
+            let mut ms: String = String::new();
+            ms.push_str("wql!: recursive aggregate '");
+            ms.push_str(rng);
+            ms.push_str("' did not converge — a negative-weight cycle (min) or positive-weight cycle (max) has no least fixpoint");
+            let msg: Ident = Ident::new(string_as_str(&ms));
+            guard.push(quote_block! {
+                #n_ro = #n_ro + 1i64;
+                if #n_ro > (#n_be.len() as i64) * 4i64 + 16i64 { logos.lang.panic::panic(##msg); }
+            });
         }
         mg = mg + 1i64;
     }
     // BIND the round's slices. A plain member binds BOTH total + delta; an
     // AGGREGATE member's recursive body reads only the improvement DELTA (the
     // total is materialized post-loop), so bind the delta only.
+    let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m5: i64 = 0i64;
     while m5 < nm {
         let rn5: str = prm.rel_names[mem[m5]];
-        let rt5: str = prm.rel_rowty[mem[m5]];
-        if !prm.rel_is_agg[mem[m5]] {
-            em.push_text("        let ");
-            em.push_text(prm.rel_srcs[mem[m5]]);
-            em.push_text(": &[");
-            em.push_text(rt5);
-            em.push_text("] = __tot_");
-            em.push_text(rn5);
-            em.push_text(".as_slice();\n");
+        let rt5:  ExprBlob = parse_type(prm.rel_rowty[mem[m5]]);
+        let rt5b: ExprBlob = parse_type(prm.rel_rowty[mem[m5]]);
+        let s_dl: String = suffixed("__dl_", rn5);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_tt: String = suffixed("__tot_", rn5); let n_tt: Ident = Ident::new(string_as_str(&s_tt));
+        let n_ds: Ident = Ident::new(prm.rel_dsrcs[mem[m5]]);
+        if prm.rel_is_agg[mem[m5]] {
+            binds.push(quote_block! { let #n_ds: &[#(rt5)] = #n_dl.as_slice(); });
+        } else {
+            let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m5]]);
+            binds.push(quote_block! {
+                let #n_ss: &[#(rt5)] = #n_tt.as_slice();
+                let #n_ds: &[#(rt5b)] = #n_dl.as_slice();
+            });
         }
-        em.push_text("        let ");
-        em.push_text(prm.rel_dsrcs[mem[m5]]);
-        em.push_text(": &[");
-        em.push_text(rt5);
-        em.push_text("] = __dl_");
-        em.push_text(rn5);
-        em.push_text(".as_slice();\n");
         m5 = m5 + 1i64;
     }
     // VARIANTS: every recursive body × its in-SCC occurrences.
+    let mut variants: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m6: i64 = 0i64;
     while m6 < nm {
         let ri6: i64 = mem[m6];
         let bodies6: RQBodyArr = rels.rel_at(ri6).bodies_arr();
         let nb6: i64 = bodies6.len();
-        let mut nrec: i64 = 0i64;
-        let mut b2: i64 = 0i64;
-        while b2 < nb6 {
-            let oc2: OccList = body_scc_occs(bodies6.body_any(b2), prm, scc, c, h);
-            if oc2.n > 0i64 { nrec = nrec + 1i64; }
-            b2 = b2 + 1i64;
-        }
-        if nrec > 0i64 {
-            if prm.rel_is_agg[ri6] { emit_member_block_open_agg(&mut em, prm, ri6); }
-            else                   { emit_member_block_open(&mut em, prm, ri6); }
-            let mut b3: i64 = 0i64;
-            while b3 < nb6 {
-                let body_any: WAny = bodies6.body_any(b3);
-                let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
-                if oc.n > 0i64 {
-                    let mut v: i64 = 0i64;
-                    while v < oc.n {
-                        let mut w: i64 = 0i64;
-                        while w < oc.n {
-                            let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
-                                            else      { prm.rel_srcs[oc.rel[w]] };
-                            set_occ_src(body_any, &oc, w, nm_w, h);
-                            w = w + 1i64;
-                        }
-                        if !emit_rel_body(&mut em, body_any, ri6, prm, h) { return false; }
-                        v = v + 1i64;
+        let mut runs6: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut b3: i64 = 0i64;
+        while b3 < nb6 {
+            let body_any: WAny = bodies6.body_any(b3);
+            let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
+            if oc.n > 0i64 {
+                let mut v: i64 = 0i64;
+                while v < oc.n {
+                    let mut w: i64 = 0i64;
+                    while w < oc.n {
+                        let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
+                                        else      { prm.rel_srcs[oc.rel[w]] };
+                        set_occ_src(body_any, &oc, w, nm_w, h);
+                        w = w + 1i64;
                     }
-                    // Restore the canonical (total) source names.
-                    let mut w2: i64 = 0i64;
-                    while w2 < oc.n {
-                        set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
-                        w2 = w2 + 1i64;
-                    }
+                    let mut f6: ExprBlob = quote_block! { };
+                    if !rel_body_frag(body_any, ri6, prm, &mut f6, h) { return false; }
+                    runs6.push(f6);
+                    v = v + 1i64;
                 }
-                b3 = b3 + 1i64;
+                // Restore the canonical (total) source names.
+                let mut w2: i64 = 0i64;
+                while w2 < oc.n {
+                    set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
+                    w2 = w2 + 1i64;
+                }
             }
-            em.push_text("    }\n");
+            b3 = b3 + 1i64;
         }
+        if runs6.len() > 0i64 { variants.push(member_block_frag(runs6, prm, ri6)); }
         m6 = m6 + 1i64;
     }
-    em.push_text("    }\n");
     // ── Materialize each AGGREGATE member's total = argmin/argmax per key ──
     // The fixpoint left the best value per key in the map; walk the distinct-key
     // roster and emit one `(key, best)` row into the caller's total Vec (the
     // entry/later strata scan its `as_slice()`, unchanged contract).
+    let mut matz: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut mt: i64 = 0i64;
     while mt < nm {
         if prm.rel_is_agg[mem[mt]] {
             let rnt: str = prm.rel_names[mem[mt]];
             let offt: i64 = prm.rel_coff[mem[mt]];
-            let ktyt: str = prm.relc_ty[offt];
-            let vtyt: str = prm.relc_ty[offt + 1i64];
-            em.push_text("    {\n");
-            em.push_text("        let mut __mk: i64 = 0i64;\n");
-            em.push_text("        while __mk < __keys_"); em.push_text(rnt); em.push_text(".len() {\n");
-            em.push_text("            let __kk: "); em.push_text(ktyt);
-            em.push_text(" = __keys_"); em.push_text(rnt); em.push_text("[__mk];\n");
-            em.push_text("            unsafe {\n");
-            em.push_text("                let __vp: *const "); em.push_text(vtyt);
-            em.push_text(" = (__bp_"); em.push_text(rnt); em.push_text(").get(&__kk);\n");
-            em.push_text("                __tot_"); em.push_text(rnt); em.push_text(".push((__kk, *__vp));\n");
-            em.push_text("            }\n");
-            em.push_text("            __mk = __mk + 1i64;\n");
-            em.push_text("        }\n");
-            em.push_text("    }\n");
+            let ktyt: ExprBlob = parse_type(prm.relc_ty[offt]);
+            let vtyt: ExprBlob = parse_type(prm.relc_ty[offt + 1i64]);
+            let s_ks: String = suffixed("__keys_", rnt); let n_ks: Ident = Ident::new(string_as_str(&s_ks));
+            let s_bp: String = suffixed("__bp_", rnt);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
+            let s_tt: String = suffixed("__tot_", rnt);  let n_tt: Ident = Ident::new(string_as_str(&s_tt));
+            matz.push(quote_block! {
+                {
+                    let mut __mk: i64 = 0i64;
+                    while __mk < #n_ks.len() {
+                        let __kk: #(ktyt) = #n_ks[__mk];
+                        unsafe {
+                            let __vp: *const #(vtyt) = (#n_bp).get(&__kk);
+                            #n_tt.push((__kk, *__vp));
+                        }
+                        __mk = __mk + 1i64;
+                    }
+                }
+            });
         }
         mt = mt + 1i64;
     }
-    em.push_text("    return Result::Ok(());\n");
-    em.push_text("}\n");
-    emit_fn_quote(hn.as_str(), ps.as_str(), prm.tparams, "Result<(), ElError>",
-                  em.buf.as_str(), prm);
+
+    let body_f: ExprBlob = quote_block! {
+        #( #state; )*
+        #( #seeds; )*
+        loop {
+            #( #promote; )*
+            if #(exitc) { break; }
+            #( #guard; )*
+            #( #binds; )*
+            #( #variants; )*
+        }
+        #( #matz; )*
+        return Result::Ok(());
+    };
+    emit_fn_quote_blob(hn.as_str(), ps.as_str(), prm.tparams, "Result<(), ElError>",
+                       body_f, prm);
     return true;
 }
 
-// Open a member's push-target block: lexically rebind the body emitters'
-// fixed `__out`/`__rsp` names onto THIS member's next-delta Vec + shadow set
+// A member's push-target BLOCK: lexically rebind the body emitters' fixed
+// `__out`/`__rsp` names onto THIS member's next-delta Vec + shadow set
 // (sibling blocks scope-isolate the rebinding per member).
-fn emit_member_block_open(em: &mut Emitter, prm: &MacroParams, ri: i64) {
+//
+// An AGGREGATE member binds `__out` only — the semilattice absorb pushes
+// improved rows there, and the best-map pointer `__bp_<rel>` + distinct-key
+// roster `__keys_<rel>` are named per rel in the fn's state, so
+// `rel_push_agg_frag` references them directly with no shadow-set rebind.
+//
+// ⚠ This was `emit_member_block_open`, which wrote `{` and left the caller to
+// write the matching `}`. A fragment is a whole construct, so the block TAKES
+// its contents.
+fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlob {
     let rn: str = prm.rel_names[ri];
-    let rt: str = prm.rel_rowty[ri];
-    em.push_text("    {\n");
-    em.push_text("    let __out: &mut Vec<");
-    em.push_text(rt);
-    em.push_text("> = &mut __nd_");
-    em.push_text(rn);
-    em.push_text(";\n");
-    em.push_text("    let __rsp: *mut HashSet<");
-    em.push_text(rt);
-    em.push_text("> = &mut __rs_");
-    em.push_text(rn);
-    em.push_text(";\n");
-}
-
-// Open an AGGREGATE member's push-target block: bind `__out` onto this member's
-// improvement-delta Vec (the semilattice absorb pushes improved rows there). The
-// best-map pointer `__bp_<rel>` + distinct-key roster `__keys_<rel>` are named
-// per rel in the fn's state, so the absorb (emit_rel_push_agg) references them
-// directly — no shadow-set rebind.
-fn emit_member_block_open_agg(em: &mut Emitter, prm: &MacroParams, ri: i64) {
-    let rn: str = prm.rel_names[ri];
-    let rt: str = prm.rel_rowty[ri];
-    em.push_text("    {\n");
-    em.push_text("    let __out: &mut Vec<");
-    em.push_text(rt);
-    em.push_text("> = &mut __nd_");
-    em.push_text(rn);
-    em.push_text(";\n");
+    let rt:  ExprBlob = parse_type(prm.rel_rowty[ri]);
+    let rt2: ExprBlob = parse_type(prm.rel_rowty[ri]);
+    let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+    if prm.rel_is_agg[ri] {
+        return quote_block! {
+            {
+                let __out: &mut Vec<#(rt)> = &mut #n_nd;
+                #( #runs; )*
+            }
+        };
+    }
+    let s_rs: String = suffixed("__rs_", rn); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
+    return quote_block! {
+        {
+            let __out: &mut Vec<#(rt)> = &mut #n_nd;
+            let __rsp: *mut HashSet<#(rt2)> = &mut #n_rs;
+            #( #runs; )*
+        }
+    };
 }
 
 // ── The rel-tier emission entry ──────────────────────────────────────────────

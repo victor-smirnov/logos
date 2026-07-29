@@ -2948,10 +2948,22 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 if (i >= sp.count) return 0;
                 uint32_t name_off = str_for_ident(sp.at(i));
                 if (name_off == 0) return 0;
-                // FIELD_READ stores its name in the FIELD key; everywhere else
-                // (VAR_REF, FIELD_INIT, …) it lives in NAME.
-                uint8_t out_key = (cd == la::FIELD_READ.code)
-                    ? la::FIELD.code : la::NAME.code;
+                // Where the substituted text LANDS depends on the node, and the
+                // slot is not NAME on every one of them:
+                //   • FIELD_READ  → FIELD    (`x.#f`)
+                //   • LIT_STR     → VALUE    (`##name` — an ident AS a string
+                //                             literal; with NAME it produced an
+                //                             EMPTY string and nothing said so)
+                //   • STATIC_CALL → RECEIVER (`#T::method(args)` — NAME already
+                //                             holds the literal method name)
+                //   • everything else (VAR_REF, FIELD_INIT, LET, …) → NAME.
+                // ⚠ Kept in step with the item shim's identical table in
+                // logos_emit_item_blob_subst; the two quote flavours must land
+                // the same ident in the same slot.
+                uint8_t out_key = la::NAME.code;
+                if (cd == la::FIELD_READ.code)        out_key = la::FIELD.code;
+                else if (cd == la::LIT_STR.code)      out_key = la::VALUE.code;
+                else if (cd == la::STATIC_CALL.code)  out_key = la::RECEIVER.code;
                 (void)dst_tom().put(out_key,
                     AnyVal::from_offset(WritAccess::base(dst_doc), arena_offset_t(name_off)));
                 continue;

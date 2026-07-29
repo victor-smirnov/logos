@@ -1,0 +1,55 @@
+// `quote_expr!` / `quote_block!` resolve an antiquote by WHAT IT IS, not by
+// which AST node it happens to sit on.
+//
+// Two slots were silently wrong, and both failed the same way — no diagnostic,
+// just a quote that came out empty or blank:
+//
+//   • `#(ty)` in a TYPE position parses as TYPE_REF{NAME_VAR}, not VAR_REF, and
+//     the ExprBlob splice was gated on the node's CODE being VAR_REF. The
+//     fragment fell through to the Ident path, which read the blob pointer as
+//     an IdentPod and produced an EMPTY blob. It is now gated on the SPAN KIND.
+//
+//   • `##name` — an Ident reified AS a string literal — lands in LIT_STR's
+//     VALUE slot, but the shim put every non-FIELD_READ ident into NAME. The
+//     literal came out as `""`, which compiles and runs and is simply wrong.
+//     (`quote_item!` had the full table all along; the two flavours must agree.)
+//
+// Both are exercised through `quote_block!`, since that is where an emitter
+// builds a body.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.lang.str;
+
+fn gen() -> QuoteItemBlob {
+    // A fragment in a TYPE slot: bare, behind `&`, and as a generic argument.
+    let t1: ExprBlob = parse_type("i64");
+    let t2: ExprBlob = parse_type("i64");
+    let t3: ExprBlob = parse_type("i64");
+    let t4: ExprBlob = parse_type("i64");
+    // A fragment reified as a string LITERAL.
+    let lit: Ident = Ident::new("abcde");
+    let body: ExprBlob = quote_block! {
+        let n: #(t1) = 7i64;
+        let r: &#(t2) = &n;
+        let mut v: Vec<#(t3)> = Vec::<#(t4)>::new();
+        v.push(*r);
+        let s: str = ##lit;
+        return v.get(0i64) + (s.len());
+    };
+    return quote_item! {
+        use logos.mem.collections.vec;
+        use logos.lang.str;
+        pub fn probe() -> i64 #(body)
+    };
+}
+
+metacall gen();
+
+fn main() -> i32 {
+    // 7 + len("abcde") = 12. A blank `##lit` would give 7 — which is exactly
+    // how quietly this used to be wrong.
+    if probe() != 12i64 { return 1i32; }
+    return 0i32;
+}

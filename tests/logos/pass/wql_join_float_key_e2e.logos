@@ -1,7 +1,6 @@
 // WQL — f64 JOIN KEY e2e: the capability cascade demotes an f64 equi-key to
 // the NESTED-LOOP tier (f64 is PartialEq-only: NaN breaks the Hash key
-// contract AND total Ord), emitting `==` on the key inside a plain loop —
-// trace line `// join strategy: step 1 = nested loop (f64 key: …)`.
+// contract AND total Ord), emitting `==` on the key inside a plain loop.
 // The float-keyed query must produce the SAME results as the equivalent
 // int-keyed hash-tier query over mirrored data.
 package test;

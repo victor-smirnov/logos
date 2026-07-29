@@ -1,9 +1,8 @@
 // WQL — JOIN + ANTI-JOIN chain e2e. The anti step is PER-STEP (`anti join c z
 // on …`): the joined (e, d) rows survive only when NO c-row matches the anti
 // predicate. With a pure equi anti-pred (`d.id == b.dept`) the strategy tier
-// is the HashSet ABSENCE test (anti + no residual — see the
-// `// join strategy:` trace line); the anti var binds only inside its own
-// probe, so downstream clauses see just (e, d).
+// is the HashSet ABSENCE test (anti + no residual); the anti var binds only
+// inside its own probe, so downstream clauses see just (e, d).
 package test;
 
 use logos.std.wql.wql;

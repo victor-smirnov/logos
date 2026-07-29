@@ -1,7 +1,6 @@
 // WQL — join-strategy RESIDUAL e2e: `on x.k == y.k && x.w > y.w` splits at
 // metacall time into the EQUI-TERM `x.k == y.k` (drives the i64 hash probe)
 // and the RESIDUAL `x.w > y.w` (a non-== term — checked per bucket hit).
-// Trace line: `// join strategy: step 1 = hash join (i64 key) + residual`.
 // Also covers the ANTI + residual tier (bucket scan, absent-or-all-fail).
 package test;
 

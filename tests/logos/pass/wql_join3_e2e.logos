@@ -3,9 +3,11 @@
 // algebra (RJoin(RJoin(scan,scan),scan)); each step's equi-term `k == k`
 // selects the hash tier (i64 has Hash+Eq): the emitter builds a
 // HashMap<i64, Vec<i64>> row-index bucket over each joined source ONCE and
-// probes per bound row — visible as `// join strategy: step N = hash join`
-// under LOGOS_TRACE_EMIT=1. Results (values AND order) must equal the
-// nested-loop baseline: buckets hold row indices in scan order.
+// probes per bound row. (The emitter used to write a `// join strategy:`
+// trace comment here; it never reached generated code — the body went through
+// `parse_block`, which drops comments — and it is gone with the text body.)
+// Results (values AND order) must equal the nested-loop baseline: buckets hold
+// row indices in scan order.
 package test;
 
 use logos.std.wql.wql;
