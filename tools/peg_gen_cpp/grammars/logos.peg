@@ -1587,7 +1587,7 @@
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
                 / pub_vis KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
-                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref fn_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
                 / pub_vis KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
@@ -1595,7 +1595,7 @@
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
                 / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
-                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? fn_body
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
                 / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
                => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
@@ -1621,7 +1621,7 @@
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, IS_UNSAFE: 1, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
-            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+            / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref fn_body
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
             / KW_FN HASH IDENT type_param_list? LPAREN param_list? RPAREN block
            => { CODE: FN, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
@@ -1629,7 +1629,7 @@
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
             / KW_UNSAFE KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN where_clause? block
            => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+            / KW_FN IDENT  type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? fn_body
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
             / KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
            => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
@@ -2208,6 +2208,31 @@
                 => { CODE: TYPE_REF, NAME: $1 }
 
     // ── Block ────────────────────────────────────────────────────
+    // `#(body)` where a BLOCK goes — the fn-body slot. Same one-edit shape as
+    // `param_list`: put the antiquote on the CONSTRUCT, not on the dozens of
+    // rules that use it, so a fn, a loop and an `if` all gain it. The `HASH`
+    // lead is disjoint from `LBRACE`, so ordinary code is untouched.
+    //
+    // ⚠ Without this an emitter had to splice its body INSIDE the braces
+    // (`fn f() -> R { #(body) }`), which nests a second scope — and a `return`
+    // of a moved local from inside that scope is rejected as a use-after-move.
+    // The nested block was not merely inelegant; it changed what the emitted
+    // code MEANS to the checker.
+    // `#(body)` where a FN BODY goes. Deliberately NOT on `block` itself, and
+    // both reasons were found the hard way:
+    //   • `block` is also a STATEMENT alternative (`BLOCK_STMT`), so putting the
+    //     antiquote there hijacks every statement beginning with `#(` — Canon's
+    //     quotes broke far from the edit, as a return-type mismatch inside a
+    //     generated leaf;
+    //   • `#( … )*` / `#( … ),*` / `#( … )&&*` are REPEAT groups sharing this
+    //     prefix exactly, so wherever the two are both reachable the antiquote
+    //     swallows the repeat's head — `derive_eq`'s `)&&*` stopped parsing.
+    // Scoped to the fn-body position, neither can happen: a repeat is not a
+    // body, and a statement never reaches this rule.
+    fn_body <- HASH LPAREN expr RPAREN
+            => { CODE: VAR_REF, NAME_VAR: $3 }
+             / block
+
     block <- LBRACE stmt* RBRACE
           => { CODE: BLOCK, ITEMS: $... }
 
