@@ -392,6 +392,122 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return s;
     }
 
+    // ── Enum-variant literal / associated-const path ─────────────────────
+    // `Option::None`, `Color::Red`, `u64::MAX`, `Option::None::<i64>`,
+    // `pkg.path.Enum::Variant`, plus the payload forms `E::V(a, b)`,
+    // `E::V::<T>(a)` and the struct shape `E::V { x: e }`.
+    //
+    // ⚠ AN UNRENDERED ENUM_LIT IS NOT A COSMETIC DUMP DEFECT. Under `-g` the
+    // `--gen-dir` dump is REPARSED and the reparse REPLACES the synth doc, so
+    // the rendered text is the code that gets compiled. A missing case
+    // degrades to a `/* … */` comment, and a comment inside an argument list
+    // is a WELL-FORMED parse of the wrong arity — `Result::Ok(Option::None)`
+    // comes back as `Result::Ok()`. The round-trip's shape gate is a
+    // top-level item census, which cannot see an arity change inside a body,
+    // so the only symptom is a sema error against generated source. Every
+    // quote-routed emitter returning a unit variant hits this.
+    case la::ENUM_LIT:
+    case la::ENUM_LIT_DATA: {
+        std::string s = node.has_key(la::NAME)
+            ? std::string(str_of(node.get(la::NAME.code)))
+            : std::string("<antiquot>");
+        // `pkg.path.Type::member`: NAME is the FIRST package segment and
+        // QUAL_PARTS the rest — the last segment is the type. Rendering the
+        // whole path keeps the dump resolvable the way lower_enum_lit reads it.
+        if (node.has_key(la::QUAL_PARTS)) {
+            auto parts = arr_of(node.get(la::QUAL_PARTS.code));
+            for (uint64_t i = 0; i < parts.size(); ++i) {
+                s += ".";
+                s += std::string(str_of(map_of(parts.get(i)).get(la::NAME.code)));
+            }
+        }
+        // FIELD is the member. Guarded rather than assumed, as PAT_VARIANT_DATA
+        // guards it: an antiquot-substituted node need not carry the slot.
+        if (node.has_key(la::FIELD)) {
+            s += "::";
+            s += std::string(str_of(node.get(la::FIELD.code)));
+        }
+        // ⚠ The turbofish follows the MEMBER here (`Option::None::<i64>`),
+        // whereas STATIC_CALL puts it before (`Buffer::<u64>::new()`). Same
+        // slot, different position — the grammar alternatives differ.
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (!tplist.is_null() && tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() > 0) {
+                    s += "::<";
+                    for (uint64_t i = 0; i < items.size(); ++i) {
+                        if (i) s += ", ";
+                        s += render_type_src(map_of(items.get(i)));
+                    }
+                    s += ">";
+                }
+            }
+        }
+        if (c == la::ENUM_LIT) return s;   // unit variant / assoc const: no payload
+        bool struct_shape =
+            node.has_key(la::variant::IS_STRUCT_SHAPE) &&
+            node.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+        if (struct_shape) {
+            // `E::V { x: e, y }` — ITEMS are FIELD_INIT / FIELD_SHORTHAND,
+            // the same shapes STRUCT_LIT carries.
+            s += " { ";
+            bool first_f = true;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (!first_f) s += ", ";
+                    first_f = false;
+                    auto fi = map_of(items.get(i));
+                    int32_t fc = code_of(fi);
+                    if (fc == la::FIELD_INIT) {
+                        s += std::string(str_of(fi.get(la::NAME.code)));
+                        s += ": ";
+                        s += render_expr_src(map_of(fi.get(la::VALUE.code)));
+                    } else if (fc == la::FIELD_SHORTHAND) {
+                        s += std::string(str_of(fi.get(la::NAME.code)));
+                    } else {
+                        s += "/* unknown field shape */";
+                    }
+                }
+            }
+            s += " }";
+            return s;
+        }
+        s += "(";
+        if (node.has_key(la::ARGS)) {
+            // Dual shape, as on STATIC_CALL/METHOD_CALL: the turbofish form
+            // routes through `enum_lit_args` and arrives as a TOM-with-ITEMS,
+            // the bare form as a flat ObjectArray from `$...`.
+            auto args_av = node.get(la::ARGS.code);
+            if (args_av.is_pointer()) {
+                auto args_tom = map_of(args_av);
+                bool tom_form = !args_tom.is_null() && args_tom.has_key(la::ITEMS);
+                auto items = tom_form
+                    ? arr_of(args_tom.get(la::ITEMS.code))
+                    : arr_of(args_av);
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    s += render_expr_src(map_of(items.get(i)));
+                }
+            }
+        }
+        s += ")";
+        return s;
+    }
+
+    // `e?` — the postfix try operator. VALUE is the operand (grammar's `$0`
+    // in the postfix chain). Parenthesised for the same reason BINOP/UNARY
+    // children are: cheap, and the reparse cannot mis-bind it.
+    //
+    // ⚠ Same failure mode as the enum-literal case above, one step worse: a
+    // dropped `?` leaves a bare `;` where a statement was, or a comment where
+    // a call argument was, and BOTH reparse. Every Deem emitter that binds a
+    // mapping rel writes `let r = f(x)?;`.
+    case la::TRY_EXPR: {
+        return "(" + render_expr_src(map_of(node.get(la::VALUE.code))) + ")?";
+    }
+
     case la::IF: {
         std::string s = "if ";
         if (node.has_key(la::COND)) {
@@ -767,7 +883,23 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
     }
 
     case la::EXPR_STMT: {
-        std::string s = render_expr_src(map_of(node.get(la::VALUE.code)));
+        auto v = map_of(node.get(la::VALUE.code));
+        std::string s = render_expr_src(v);
+        // ⚠ A BLOCK-SHAPED expression statement takes NO trailing semicolon.
+        // Unlike Rust, this grammar has no `block_expr ';'` statement form:
+        // `{ … };`, `if c { … };`, `match x { … };`, `unsafe { … };` and the
+        // loop forms are all syntax errors, so an unconditional `;` renders a
+        // dump that does not reparse. Reached whenever an emitter puts a bare
+        // scope at statement position (the Canon factory does, one per column).
+        if (!v.is_null()) {
+            switch (code_of(v)) {
+            case la::BLOCK: case la::UNSAFE_BLOCK: case la::IF: case la::MATCH:
+            case la::WHILE: case la::LOOP: case la::LABELED_LOOP:
+            case la::FOR: case la::FOR_EACH:
+                return s;
+            default: break;
+            }
+        }
         s += ";";
         return s;
     }

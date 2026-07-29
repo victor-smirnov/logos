@@ -204,6 +204,20 @@ that "proved" both forms named packages the implicit prelude re-exports, so they
 passed on a mechanism that did nothing; they now import a package the prelude
 does not reach, which is what makes the compile an assertion.
 
+⚠ AND THE READING INSTRUMENT WAS BLIND IN EXACTLY THE PLACES EMITTERS WRITE.
+`--gen-dir` is the only way to read what an emitter produced, and under `-g` the
+dump is REPARSED and the reparse REPLACES the synth doc — so the AST→source
+renderer is not a display, it is a compilation stage. Three expression shapes had
+no case in it: a unit enum variant / associated const (`ENUM_LIT`, i.e.
+`Option::None`), the try operator (`TRY_EXPR`, `f(x)?`), and a bare block at
+statement position (rendered `{ … };`, which this grammar rejects — Rust's
+`block_expr ';'` statement form does not exist here). The first two degraded to a
+`/* … */` comment, and a comment inside an argument list REPARSES: `Result::Ok(
+Option::None)` came back as `Result::Ok()`. The round-trip's shape gate is a
+top-level item census, so an arity change inside a body is invisible to it. The
+existing `--gen-dir` corpus was all hand-written quotes, which happen to contain
+none of the three; the gate now carries emitter output as well.
+
 **S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
 structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and
 becomes declared per source. `can_seek` as one boolean is already known wrong:

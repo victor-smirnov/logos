@@ -861,7 +861,17 @@ set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
 # dump reparses cleanly (no fidelity fallback), and DWARF references it —
 # the debugger lists generated code. One representative per corpus axis:
 # vis/trait/impl/struct (vis_antiquote) and dyn/opt uses (opt_use).
-foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl quote_item_dyn_typearg)
+#
+# ⚠ The corpus was all HAND-WRITTEN quotes, which is why three renderer holes
+# survived in it: hand-written test quotes happen not to contain a unit enum
+# variant, a `?`, or a bare block at statement position. Deem's emitters write
+# all three on every query, so the last three cases are EMITTER output —
+# `wql_tuple_first_e2e` returns `Option::None` (ENUM_LIT), the mapping binder in
+# `query_mapping_runtime_e2e` writes `f(x)?` (TRY_EXPR), and
+# `quote_item_exprblob_cursor` splices a bare `{ … }` scope (EXPR_STMT). Each
+# rendered to text that PARSED and meant something else, which the round-trip's
+# top-level item census cannot see.
+foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl quote_item_dyn_typearg wql_tuple_first_e2e query_mapping_runtime_e2e quote_item_exprblob_cursor)
     add_test(
         NAME logos_09_gendir_${GENDIR_CASE}
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_gendir_test.sh
