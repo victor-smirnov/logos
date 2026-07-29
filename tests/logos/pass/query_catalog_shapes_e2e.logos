@@ -1,0 +1,72 @@
+// query_catalog_shapes_e2e — `schema_catalog!` over DOCUMENT SHAPES the rest of
+// the corpus never produces.
+//
+// The handler composes a `@{…}` Writ document whose shape is a runtime value —
+// N entries, each with M fields — and since ADR 0024 S5 that document is reified
+// whole (`parse_wstatic`) and spliced into a QUOTED item, instead of being
+// pushed as source text into a chunk. A survey of every `--gen-dir` dump the 49
+// catalog-using tests produce says two shapes never occur in any of them:
+//   * an EMPTY field array — no schema in the corpus has zero fields, so
+//     `"fields": []` is a document the reifier has never been handed;
+//   * more than TWO entries in one catalog — the largest corpus catalog has 2,
+//     so the entry separator has never run more than once.
+// Both are ordinary uses of the macro, and both are exactly where an off-by-one
+// in a separator or a bracket hides: a stray comma yields a document that is
+// still plausible, and a `SchemaCatalog` that answers *something* for every
+// probe. So this asks the PUBLIC API about a five-entry catalog containing an
+// empty schema, and pins the answers.
+//
+// Field classes are deliberately spread across the entries (i64 / str / f64 /
+// edge) so the per-field branch runs in every flavour with a neighbour on both
+// sides — the position where a separator bug shows.
+package test;
+
+use logos.std.wql.catalog_macro;   // schema_catalog! — the handler
+use logos.std.wql.ir;              // WRef<S> — the edge field type
+use logos.mem.deem;                // SchemaCatalog — the public surface
+use logos.lang.str;
+
+// Zero fields: legal, and the one shape that makes `"fields"` an EMPTY array.
+pub schema Nil : code(0x0A02_0000_0000_0001) { }
+pub schema One : code(0x0A02_0000_0000_0002) { a: i64 = 0, }
+pub schema Two : code(0x0A02_0000_0000_0003) { b: str = 0, }
+pub schema Tri : code(0x0A02_0000_0000_0004) { c: f64 = 7, }
+// An edge is the one field that carries a THIRD key (`"target"`), so it is the
+// field most sensitive to the separator — put it last, after four neighbours.
+pub schema Fou : code(0x0A02_0000_0000_0005) { d: WRef<One> = 9, }
+
+resource cat = schema_catalog!{ Nil, One, Two, Tri, Fou };
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // Every entry survived, in both edge positions of the array and in between.
+    if c.schema_code("Nil") != 0x0A02_0000_0000_0001u64 { return 1i32; }
+    if c.schema_code("One") != 0x0A02_0000_0000_0002u64 { return 2i32; }
+    if c.schema_code("Two") != 0x0A02_0000_0000_0003u64 { return 3i32; }
+    if c.schema_code("Tri") != 0x0A02_0000_0000_0004u64 { return 4i32; }
+    if c.schema_code("Fou") != 0x0A02_0000_0000_0005u64 { return 5i32; }
+    // A name that is NOT in the catalog still reads as absent — a document that
+    // ran the entries together could answer for a name it never held.
+    if c.schema_code("Nope") != 0u64 { return 6i32; }
+
+    // Explicit keys, not positions: `= 7` and `= 9` are declared, so a document
+    // that lost the key would report the positional 0 and still look sane.
+    if c.field_key("One", "a") != 0i64 { return 7i32; }
+    if c.field_key("Tri", "c") != 7i64 { return 8i32; }
+    if c.field_key("Fou", "d") != 9i64 { return 9i32; }
+
+    // The empty schema has NO fields — not one field, and not another entry's.
+    if c.field_key("Nil", "a") != -1i64 { return 10i32; }
+    if c.field_key("Nil", "d") != -1i64 { return 11i32; }
+
+    // Each class reported per entry.
+    if !str_eq(c.field_ty("One", "a"), "i64")  { return 12i32; }
+    if !str_eq(c.field_ty("Two", "b"), "str")  { return 13i32; }
+    if !str_eq(c.field_ty("Tri", "c"), "f64")  { return 14i32; }
+    if !str_eq(c.field_ty("Fou", "d"), "edge") { return 15i32; }
+
+    // A field does not leak across entries: `a` belongs to One alone.
+    if c.field_key("Two", "a") != -1i64 { return 16i32; }
+    return 0i32;
+}

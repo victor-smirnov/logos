@@ -157,7 +157,12 @@ fn scan_names(s: str) -> NameList {
 // ── Blob emission — one "schema" entry per requested schema ────────────────
 // Emits `{ "kind": "schema", "name": "…", "code": N, "fields": […] }` into the
 // @-literal body. Returns false when a diagnostic was raised.
-fn emit_schema_entry(em: &mut Emitter, view: &OView, nm: str) -> bool {
+//
+// ⚠ It writes into a `String`, NOT into an Emitter: what is being composed here
+// is the WRIT DOCUMENT, which is reified whole (`parse_wstatic`) and spliced
+// into a quoted item — so no part of this file is a source chunk. See the
+// handler below for why the document itself cannot be quoted.
+fn emit_schema_entry(buf: &mut String, view: &OView, nm: str) -> bool {
     let decl: WAny = find_decl_by_name(view, nm);
     if decl.is_null() {
         let mut m: String = String::new();
@@ -195,11 +200,11 @@ fn emit_schema_entry(em: &mut Emitter, view: &OView, nm: str) -> bool {
         return false;
     }
 
-    em.push_text("{\"kind\": \"schema\", \"name\": \"");
-    em.push_text(nm);
-    em.push_text("\", \"code\": ");
-    em.push_num(code.v);
-    em.push_text(", \"fields\": [");
+    buf.push_str("{\"kind\": \"schema\", \"name\": \"");
+    buf.push_str(nm);
+    buf.push_str("\", \"code\": ");
+    buf.push_u64(code.v);
+    buf.push_str(", \"fields\": [");
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;
     while i < nf {
@@ -213,23 +218,23 @@ fn emit_schema_entry(em: &mut Emitter, view: &OView, nm: str) -> bool {
             if kl.ok { key = kl.v; }
         }
         let ft: FieldTy = classify_field_type(view, fld);
-        if i > (0 as u64) { em.push_text(", "); }
-        em.push_text("{\"name\": \"");
-        em.push_text(fname);
-        em.push_text("\", \"key\": ");
-        em.push_num(key);
-        em.push_text(", \"ty\": \"");
-        em.push_text(ft.ty);
-        em.push_text("\"");
+        if i > (0 as u64) { buf.push_str(", "); }
+        buf.push_str("{\"name\": \"");
+        buf.push_str(fname);
+        buf.push_str("\", \"key\": ");
+        buf.push_u64(key);
+        buf.push_str(", \"ty\": \"");
+        buf.push_str(ft.ty);
+        buf.push_str("\"");
         if str_eq(ft.ty, "edge") {
-            em.push_text(", \"target\": \"");
-            em.push_text(ft.target);
-            em.push_text("\"");
+            buf.push_str(", \"target\": \"");
+            buf.push_str(ft.target);
+            buf.push_str("\"");
         }
-        em.push_text("}");
+        buf.push_str("}");
         i = i + (1 as u64);
     }
-    em.push_text("]}");
+    buf.push_str("]}");
     return true;
 }
 
@@ -264,20 +269,52 @@ pub fn schema_catalog(name: str, s: str) -> ItemList {
     }
 
     let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    // A chunk is a SEPARATE AST — it carries its own use-decls.
-    em.push_text("use logos.mem.deem; use logos.lang.writ.wstatic; ");
-    em.push_text("pub fn ");
-    em.push_text(name);
-    em.push_text("() -> SchemaCatalog { return SchemaCatalog::from_static(@{\"v\": 1, \"entries\": [");
+
+    // ── the DOCUMENT, then the ITEM AROUND IT (ADR 0024 S5) ────────────────
+    // The blob's SHAPE is a runtime value — N entries, each with M fields, and
+    // an extra `"target"` on the edge ones — so it cannot ride a static `@{…}`
+    // quote template. `emit_cfg_doc_multimap` (Canon's container_item) hit the
+    // same wall first and set the shape this follows: compose the document
+    // SOURCE, reify it ONCE with `parse_wstatic`, and splice the LIT_WSTATIC
+    // into a quoted item.
+    //
+    // ⚠ WHY NOT A REPEAT INSIDE THE `@{…}`, since that is the obvious idea and
+    // it does not work — both halves were probed, not assumed:
+    //   * `@{"entries": [ #( #ns ),* ]}` in a quote → `syntax error near '['`.
+    //   * even a scalar `@{"entries": #nm}` → `syntax error near ':'`.
+    // A quoted `@{…}` admits exactly ONE antiquote position, the `<type:#(t)>`
+    // TYPE slot container_item's fixed-shape cfg consts use; a VALUE inside the
+    // document has no antiquote at all. So the document is data that travels as
+    // its own source, the way mapping_item's string literal does — and the item
+    // around it (name, return type, body, the `from_static` call) is structure.
+    //
+    // ⚠ A `use` inside the quote is NOT the chunk's old self-contained use-list
+    // reappearing: `SchemaCatalog` and `WritStatic` are named by the emitted
+    // body, and a quote's own imports are how a quote says that.
+    let mut doc: String = String::new();
+    doc.push_str("@{\"v\": 1, \"entries\": [");
     let mut i: i64 = 0i64;
     while i < req.n {
-        if i > 0i64 { em.push_text(", "); }
-        if !emit_schema_entry(&mut em, &view, req.names[i]) { return out; }
+        if i > 0i64 { doc.push_str(", "); }
+        if !emit_schema_entry(&mut doc, &view, req.names[i]) { return out; }
         i = i + 1i64;
     }
-    em.push_text("]}); }\n");
-    em.commit();
+    doc.push_str("]}");
+
+    let blob: ExprBlob = parse_wstatic(doc.as_str());
+    if blob.ptr == (0 as *const u8) {
+        // A null blob would otherwise splice as NOTHING and the item would
+        // simply not appear — the silent-empty anti-diagnostic. Composed from
+        // reflected identifiers, so this means a seam regression, not user error.
+        error("schema_catalog!: the reflected catalog document did not parse (reflection seam regression?)");
+        return out;
+    }
+    let nm: Ident = Ident::new(name);
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.deem;
+        use logos.lang.writ.wstatic;
+        pub fn #nm() -> SchemaCatalog { return SchemaCatalog::from_static(#(blob)); }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
     return out;
 }
