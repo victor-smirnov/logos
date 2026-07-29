@@ -641,23 +641,25 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, tps: str,
 // accessor-collapse peephole). The return TYPE narrows from `Vec<T>` to `&[T]`
 // (a genuinely thinner form; there is no per-row materialization).
 fn emit_identity(scan_e: RExpr,
-                 fn_name: str, params_text: str, tps: str, h: &Writ) -> bool {
+                 fn_name: str, params_text: str, prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
 
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text, tps);
-    em.push_text(") -> Result<&[");
-    em.push_text(row_ty);
-    em.push_text("], ElError> {\n");
-    em.push_text("    return Result::Ok(");
-    em.push_text(src_name);
-    em.push_text(");\n");
-    em.push_text("}\n");
-    em.commit();
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // The return type is where this peephole's whole content lives: `&[Row]`
+    // rather than `Vec<Row>` is the collapse. It is now ONE type string handed
+    // to the shell, not four `push_text` fragments whose `[`/`]` had to match.
+    let mut rty: String = String::new();
+    rty.push_str("Result<&[");
+    rty.push_str(row_ty);
+    rty.push_str("], ElError>");
+    let mut bt: String = String::new();
+    bt.push_str("{\n    return Result::Ok(");
+    bt.push_str(src_name);
+    bt.push_str(");\n}\n");
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  bt.as_str(), prm);
     return true;
 }
 
@@ -693,7 +695,7 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                 if sel_mode != SELM_ALL() {
                     return emit_head_row(scan_e, fn_name, params_text, prm.tparams, h);
                 }
-                return emit_identity(scan_e, fn_name, params_text, prm.tparams, h);
+                return emit_identity(scan_e, fn_name, params_text, prm, h);
             }
             _ => { }
         }
