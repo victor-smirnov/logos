@@ -266,17 +266,13 @@ fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
     }
 }
 
-fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str, tps: str) {
-    if vis_is_priv(fn_name) {
-        em.push_text("fn ");
-    } else {
-        em.push_text("pub fn ");
-    }
-    em.push_text(vis_strip(fn_name));
-    em.push_text(tps);
-    em.push_text("(");
-    em.push_text(params_text);
-}
+// (`emit_fn_head` lived here — the hand-written `"fn "`/`"pub fn "` + name +
+// generics + `"("` prefix every emitter used to open its item with. It has no
+// callers: `emit_fn_quote` above is the only thing in this file that writes a
+// fn's HEAD, and it writes it as structure. Reintroducing a text head would
+// reintroduce the class of failure this arc removed — a missing `>` or a stray
+// space surfacing as a syntax error inside generated source, at a position no
+// reader can use.)
 
 fn is_comp_root(e: SExpr) -> bool {
     match e {

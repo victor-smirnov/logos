@@ -169,6 +169,42 @@ relational IR nodes proper.
 `push_text` gives way to quotes, which also settles the standing debt that
 `push_text` is a workaround rather than the intended codegen surface.
 
+*The conversion is DONE.* `rexpr_walk.logos` has no `begin_chunk` caller and no
+`Emitter::commit`: all nine emitters — `emit_find`, `emit_simple`,
+`emit_none_find`, `emit_identity`, `emit_head_row`, `emit_empty`,
+`emit_join_chain`, `emit_aggregate`, `emit_aggregate_join`, `emit_rel_fns` —
+emit `quote_item!`s through one shared shell, and `emit_fn_head` is gone. The
+line the conversion settled on is that the BODY stays text and everything else
+is structure. That is not a compromise: a generated body's shape is a runtime
+value (a join nest of `ch.n` levels, one accumulator per aggregate, one
+semi-naïve variant per in-SCC source occurrence), and a repeat produces a flat
+sequence. Everything that is NOT the body — visibility, name, generics,
+parameters, return type, imports — has a fixed shape and became structure.
+Return types were the biggest single win: `") -> Result<Vec<"` … `">, ElError>
+{\n"` used to be spelled once per branch with the body's opening brace welded
+on, so a two-armed emitter carried two copies of the fn's syntax; the arms now
+differ in the return TYPE alone.
+
+⚠ Two things the shell had to absorb. VISIBILITY is decided in one place — the
+`-` prefix on a fn name (`vis_is_priv`, params.logos) that had no producer until
+the rel helpers started building names with it instead of writing `"fn "`. And
+the MULTI-ITEM case (`emit_rel_fns`: a helper fn per rel plus a driver per
+recursive SCC) emits SEVERAL quotes rather than one, because no `parse_as` rule
+reifies an ITEM LIST — `parse_block` reifies statements and a fn is not a
+statement. Growing the shell to take a list would have meant handing it text to
+re-split, which is the concatenation being removed.
+
+⚠ AND AN IMPORT LIST IS A SET, which nothing enforced. A synth module's USES is
+fed by three sources that cannot see each other (the quote's own imports, the
+handler module's baked into the blob at lowering, the user module's merged
+after), so the intersection landed twice and `sema_collect` warned once per
+duplicate per emitted item — 103 warnings per full build before this arc, 819
+after, on code the user cannot edit. `logos_emit_item_blob_subst` now sweeps its
+USES once, at the end: 819 → 6, and the 6 are real duplicates in hand-written
+source. ⚠ The dump renderer prints each package once, so `--gen-dir` showed
+nothing wrong either way — the third time in this arc that the reading
+instrument was blind exactly where emitters write.
+
 *Enabling step landed:* the obstacle was never syntax. A generated fn's body can
 be a loop nest whose DEPTH is a runtime value (a join chain of N steps), which no
 fixed template expresses and `#( … )*` cannot either — a repeat produces a flat

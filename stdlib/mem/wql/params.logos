@@ -41,9 +41,12 @@ unsafe fn mp_str_range(src: str, start: i64, len: i64) -> str {
 // rel — `rel r(…)` without `pub` in a `mapping` item). The marker travels
 // inside the fn_name thread through the walk/emit pipeline; every site that
 // EMBEDS the name into emitted text strips it via `vis_strip`, and
-// `emit_fn_head` (rexpr_walk) additionally chooses `fn` over `pub fn` when
-// `vis_is_priv`. `-` cannot begin a Logos identifier, so the marker is
-// unambiguous.
+// `emit_fn_quote` (rexpr_walk) — the shared fn SHELL every Deem emitter goes
+// through — chooses the `fn` or the `pub fn` quote from `vis_is_priv`. `-`
+// cannot begin a Logos identifier, so the marker is unambiguous. Deem's rel
+// helpers BUILD a name with that prefix rather than writing `"fn "`: since
+// ADR 0024 S5 the visibility of a generated item is decided in exactly one
+// place.
 pub fn vis_is_priv(fn_name: str) -> bool {
     return fn_name.len() > 0i64 && str_byte_at(fn_name, 0i64) == 45u8;
 }
