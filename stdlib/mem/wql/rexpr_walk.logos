@@ -2218,21 +2218,31 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         bi = bi + 1i64;
     }
 
-    // 6. Head + strategy trace + build phases.
+    // 6. Body + strategy trace + build phases.
+    //
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    // ⚠ `em` is a BODY BUFFER from here on, NOT a chunk: it holds `{ … }` and
+    // nothing else, and it is never committed. The loop-nest helpers below
+    // (`emit_step_open`, `emit_build_phase`, …) keep taking `&mut Emitter`
+    // because `Emitter` is the text accumulator they were written against;
+    // what changed is who consumes the text. A `commit()` on this buffer would
+    // emit a package-less, use-less fragment — the shell owns the item now.
+    //
+    // The BODY is the one thing that must stay text: a join chain's loop nest
+    // has a DEPTH that is a runtime value (`ch.n` steps), and no fixed template
+    // and no `#( … )*` repeat expresses a nest — a repeat is flat.
     let mut em: Emitter = Emitter::new();
-    let mut __uses: String = String::new();
-    prm.native_use_text(&mut __uses);
-    begin_chunk(&mut em, &view, string_as_str(&__uses));
-    emit_fn_head(&mut em, fn_name, params_text, prm.tparams);
+    let mut rty: String = String::new();
+    em.push_text("{\n");
     if first {
-        em.push_text(") -> Result<Option<");
-        em.push_text(result_ty);
-        em.push_text(">, ElError> {\n");
+        rty.push_str("Result<Option<");
+        rty.push_str(result_ty);
+        rty.push_str(">, ElError>");
         em.push_text(prelude);
     } else {
-        em.push_text(") -> Result<Vec<");
-        em.push_text(result_ty);
-        em.push_text(">, ElError> {\n");
+        rty.push_str("Result<Vec<");
+        rty.push_str(result_ty);
+        rty.push_str(">, ElError>");
         em.push_text(prelude);
         em.push_text("    let mut __out: Vec<");
         em.push_text(result_ty);
@@ -2449,7 +2459,8 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         em.push_text("    return Result::Ok(__out);\n");
     }
     em.push_text("}\n");
-    em.commit();
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  em.buf.as_str(), prm);
     return true;
 }
 
