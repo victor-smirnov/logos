@@ -612,26 +612,26 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
 // answer, so BORROW it: `Option<&Row>` = Some(&src[0]) when non-empty, None
 // otherwise — zero loop, zero copy (the emit_identity precedent, narrowed to
 // one row).
-fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str, tps: str,
-                 h: &Writ) -> bool {
+fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
+                 prm: &MacroParams, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
-    let view: OView = oview_module_ast();
-    let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, "");
-    emit_fn_head(&mut em, fn_name, params_text, tps);
-    em.push_text(") -> Result<Option<&");
-    em.push_text(row_ty);
-    em.push_text(">, ElError> {\n");
-    em.push_text("    if (");
-    em.push_text(src_name);
-    em.push_text(").len() > 0i64 { return Result::Ok(Option::Some(&(");
-    em.push_text(src_name);
-    em.push_text(")[0i64])); }\n");
-    em.push_text("    return Result::Ok(Option::None);\n");
-    em.push_text("}\n");
-    em.commit();
+    // ── the item is a QUOTE (ADR 0024 S5) ─────────────────────────────────
+    let mut rty: String = String::new();
+    rty.push_str("Result<Option<&");
+    rty.push_str(row_ty);
+    rty.push_str(">, ElError>");
+    let mut bt: String = String::new();
+    bt.push_str("{\n    if (");
+    bt.push_str(src_name);
+    bt.push_str(").len() > 0i64 { return Result::Ok(Option::Some(&(");
+    bt.push_str(src_name);
+    bt.push_str(")[0i64])); }\n");
+    bt.push_str("    return Result::Ok(Option::None);\n");
+    bt.push_str("}\n");
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  bt.as_str(), prm);
     return true;
 }
 
@@ -693,7 +693,7 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                                       has_result_ty, sel_mode == SELM_FIRST(), h);
                 }
                 if sel_mode != SELM_ALL() {
-                    return emit_head_row(scan_e, fn_name, params_text, prm.tparams, h);
+                    return emit_head_row(scan_e, fn_name, params_text, prm, h);
                 }
                 return emit_identity(scan_e, fn_name, params_text, prm, h);
             }
