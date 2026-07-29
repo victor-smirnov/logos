@@ -210,6 +210,62 @@ fn check_limit_param(mods: &QMods, prm: &MacroParams) -> bool {
 // `tps` is the item's type-param list, also verbatim (`<V: Bound>`, "" for a
 // concrete query): a generic `deem` puts it on EVERY head it emits, and the
 // calls between those fns infer their args from the source param.
+// ── the generated fn, as a QUOTE (ADR 0024 S5) ────────────────────────────
+//
+// Every emitter produces the same ITEM shape — visibility, name, generics,
+// parameters, return type, body — and differs only in the body, whose shape is
+// a runtime value. So the shell is written ONCE, here, and an emitter hands it
+// four fragments plus the body text it built.
+//
+// ⚠ TWO variants, not a `pub(#v)` antiquote: a private fn has no visibility
+// node at all, so there is nothing for an antiquote to substitute into. Deem
+// already carries the marker — a leading `-` on the fn name.
+//
+// ⚠ The RETURN TYPE arrives as ONE fragment, not as a template with holes.
+// `Result<Option<X>, ElError>` and `Result<Vec<X>, ElError>` are two strings an
+// emitter already knows how to build; parsing the whole thing keeps this to one
+// quote shape instead of one per result flavour.
+fn emit_fn_quote(fn_name: str, params_text: str, tps: str, ret_ty: str,
+                 body_text: str, prm: &MacroParams) {
+    // The imports a native source's materializer needs are a RUNTIME list —
+    // one module per source the query binds — carried by a repeat rather than
+    // by a row of slots sized for the worst case.
+    let mut uses: Vec<Ident> = vec_new::<Ident>();
+    let mut uk: i64 = 0i64;
+    loop {
+        let um: str = prm.native_use_at(uk);
+        if um.len() == 0i64 { break; }
+        uses.push(Ident::new(um));
+        uk = uk + 1i64;
+    }
+    let nm: Ident      = Ident::new(vis_strip(fn_name));
+    let ps: ExprBlob   = parse_params(params_text);
+    let tp: ExprBlob   = parse_type_params(tps);
+    let rt: ExprBlob   = parse_type(ret_ty);
+    let body: ExprBlob = parse_block(body_text);
+    if vis_is_priv(fn_name) {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+            use logos.mem.collections.hashmap; use logos.mem.collections.set;
+            use logos.mem.collections.btree; use logos.lang.result;
+            use logos.std.wql.el;
+            #( use #uses; )*
+            fn #nm #(tp) (#(ps)) -> #(rt) #(body)
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    } else {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+            use logos.mem.collections.hashmap; use logos.mem.collections.set;
+            use logos.mem.collections.btree; use logos.lang.result;
+            use logos.std.wql.el;
+            #( use #uses; )*
+            pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    }
+}
+
 fn emit_fn_head(em: &mut Emitter, fn_name: str, params_text: str, tps: str) {
     if vis_is_priv(fn_name) {
         em.push_text("fn ");
@@ -823,6 +879,14 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     }
     let lim_cond: String = limit_cond_text(&mods);
 
+    // ⚠ NOT a quote yet, and the reason is TIMING, not syntax. A text CHUNK is
+    // its own module, compiled in a LATER round — by which point a
+    // factory-generated handle type (`Hs…` in `logos.gen`) is registered and
+    // resolves without any import at all. A SPLICED item is checked in the
+    // current round, where that type does not exist yet, and no `use` fixes it:
+    // an emitted `use` resolves names but cannot LOAD a module. `emit_find`
+    // converts cleanly only because `find` over a rel is refused, so its
+    // sources are always slice params and its signature never names a family.
     let mut em: Emitter = Emitter::new();
     let mut __uses: String = String::new();
     prm.native_use_text(&mut __uses);
@@ -1085,42 +1149,12 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
     // by a row of slots sized for the worst case.
-    let mut uses: Vec<Ident> = vec_new::<Ident>();
-    let mut uk: i64 = 0i64;
-    loop {
-        let um: str = prm.native_use_at(uk);
-        if um.len() == 0i64 { break; }
-        uses.push(Ident::new(um));
-        uk = uk + 1i64;
-    }
-    let nm: Ident   = Ident::new(vis_strip(fn_name));
-    let ps: ExprBlob = parse_params(params_text);
-    let tps: ExprBlob = parse_type_params(prm.tparams);
-    let rt: ExprBlob = parse_type(row_ty);
-    let body: ExprBlob = parse_block(bt.as_str());
-    // ⚠ Two variants, not a `pub(#v)` antiquote: a PRIVATE fn has no visibility
-    // node at all, and the marker Deem carries (`-` on the name) says which.
-    if vis_is_priv(fn_name) {
-        let q: QuoteItemBlob = quote_item! {
-            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
-            use logos.mem.collections.hashmap; use logos.mem.collections.set;
-            use logos.mem.collections.btree; use logos.lang.result;
-            use logos.std.wql.el;
-            #( use #uses; )*
-            fn #nm #(tps) (#(ps)) -> Result<Option<&#(rt)>, ElError> { #(body) }
-        };
-        unsafe { logos_emit_item_blob_subst(&q); }
-    } else {
-        let q: QuoteItemBlob = quote_item! {
-            use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
-            use logos.mem.collections.hashmap; use logos.mem.collections.set;
-            use logos.mem.collections.btree; use logos.lang.result;
-            use logos.std.wql.el;
-            #( use #uses; )*
-            pub fn #nm #(tps) (#(ps)) -> Result<Option<&#(rt)>, ElError> { #(body) }
-        };
-        unsafe { logos_emit_item_blob_subst(&q); }
-    }
+    let mut rty: String = String::new();
+    rty.push_str("Result<Option<&");
+    rty.push_str(row_ty);
+    rty.push_str(">, ElError>");
+    emit_fn_quote(fn_name, params_text, prm.tparams, rty.as_str(),
+                  bt.as_str(), prm);
     return true;
 }
 
