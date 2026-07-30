@@ -22,7 +22,8 @@
 // consistent with slice params). The root is emitted as a VIRTUAL ROOT EDGE
 // (parent == 0), Writ-walker convention. tag = 0: native objects carry none.
 //
-// v1 FIELD CLASSES (anything else is a NAMED compile error via emitted text):
+// v1 FIELD CLASSES (anything else resolves to a walker nobody emitted — see the
+// module-visibility note below):
 //   i64 / bool / str    → leaf row (kind = the type name; bool → vi 0/1)
 //   Vec<i64> / Vec<str> → one leaf row per element (idx = position)
 //   S (another #[derive_graph_source] struct)
@@ -38,6 +39,14 @@
 // The hook cannot see other modules, so a field typed by a non-annotated (or
 // foreign) struct emits a call to __gs_walk_<S> that fails resolution with an
 // ordinary unknown-fn error naming the missing derive — honest, if terse.
+//
+// All three items travel on the QUOTE channel (ADR 0024 S5), not as an emitted
+// source chunk. Two consequences a reader should expect:
+//   • the items are spliced into the USER'S module rather than standing as their
+//     own `package …;` unit, so they see the user's imports IN ADDITION to the
+//     five this file names. Strictly more resolves than before, never less.
+//   • `--gen-dir` dumps them through the AST→source renderer, which normalizes
+//     parens and indentation. The statement sequence is unchanged.
 
 package logos.std.compiler.metaprog;
 
@@ -63,123 +72,162 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
     if nm_sv.len == (0 as u64) { return; }
     let nm: str = gs_sv(nm_sv);
 
-    let mut em: Emitter = Emitter::new();
-    em.emit_target_pkg(&view);
-    em.push_text("use logos.mem.collections.vec; use logos.lang.str; use logos.lang.num.float; ");
-    // GraphSource (the trait) + the row alias live with the Writ walker.
-    em.push_text("use logos.std.wql.writ_graph; use logos.lang.writ.container; ");
+    // The two generated fn NAMES. `Ident::new` BORROWS, so the Strings behind
+    // them are locals of THIS frame — the frame that builds the quote.
+    let mut walk_s: String = String::new();
+    walk_s.push_str("__gs_walk_");
+    walk_s.push_str(nm);
+    let mut edge_s: String = String::new();
+    edge_s.push_str("__gs_edges_");
+    edge_s.push_str(nm);
 
-    // ── the walker ──
-    em.push_text("pub fn __gs_walk_");
-    em.push_text(nm);
-    em.push_text("(v: &");
-    em.push_text(nm);
-    em.push_text(", parent: i64, key: str, idx: i64, out: &mut Vec<WritEdgeRow>) {\n");
-    em.push_text("    let id: i64 = (v as *const ");
-    em.push_text(nm);
-    em.push_text(") as i64;\n");
-    em.push_text("    out.push((parent, key, idx, id, \"struct\", 0i64, 0i64, \"\"));\n");
+    let tnm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+    let wnm: Ident = Ident::new(walk_s.as_str());
+    let enm: Ident = Ident::new(edge_s.as_str());
 
+    // ── the walker's PER-FIELD statements, as fragments ───────────────────
+    // The traversal BRANCHES on the field's type class, so this is not one
+    // repeat body with holes — it is one fragment per field, chosen by the
+    // class, spliced flat by `#( #flds; )*`. Each field's kind string, the
+    // pointee type and the `vi`/`vs` column it fills are LITERAL in the branch
+    // that owns them; the only runtime content is the field NAME (as a binding
+    // via `#f` and as its own label via `##f`) and, for a Vec, the element type.
+    let mut flds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let nf: u64 = view.ast_struct_field_count(item);
     let mut i: u64 = 0 as u64;
     while i < nf {
         let fld: WAny = view.ast_struct_field(item, i);
-        let fname: str = gs_sv(view.ast_field_name(fld));
+        let fsv: SView = view.ast_field_name(fld);
+        let f: Ident = Ident { ptr: fsv.ptr, len: fsv.len };
         let tname: SView = view.ast_field_type_name(fld);
         if gs_is(tname, "i64") {
-            em.push_text("    out.push((id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, (&v.");
-            em.push_text(fname);
-            em.push_text(" as *const i64) as i64, \"i64\", 0i64, v.");
-            em.push_text(fname);
-            em.push_text(", \"\"));\n");
+            flds.push(quote_block! {
+                out.push((id, ##f, -1i64, (&v.#f as *const i64) as i64, "i64", 0i64, v.#f, ""));
+            });
         } else if gs_is(tname, "bool") {
-            em.push_text("    out.push((id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, (&v.");
-            em.push_text(fname);
-            em.push_text(" as *const bool) as i64, \"bool\", 0i64, if v.");
-            em.push_text(fname);
-            em.push_text(" { 1i64 } else { 0i64 }, \"\"));\n");
+            flds.push(quote_block! {
+                out.push((id, ##f, -1i64, (&v.#f as *const bool) as i64, "bool", 0i64,
+                          if v.#f { 1i64 } else { 0i64 }, ""));
+            });
         } else if gs_is(tname, "str") {
-            em.push_text("    out.push((id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, (&v.");
-            em.push_text(fname);
-            em.push_text(" as *const str) as i64, \"str\", 0i64, 0i64, v.");
-            em.push_text(fname);
-            em.push_text("));\n");
+            flds.push(quote_block! {
+                out.push((id, ##f, -1i64, (&v.#f as *const str) as i64, "str", 0i64, 0i64, v.#f));
+            });
         } else if gs_is(tname, "f64") {
             // vi = IEEE-754 bits (kind "f64"), same contract as the Writ
             // walker: exact, Hash/Eq-sound; consume via f64_from_bits.
-            em.push_text("    out.push((id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, (&v.");
-            em.push_text(fname);
-            em.push_text(" as *const f64) as i64, \"f64\", 0i64, f64_to_bits(v.");
-            em.push_text(fname);
-            em.push_text(") as i64, \"\"));\n");
+            flds.push(quote_block! {
+                out.push((id, ##f, -1i64, (&v.#f as *const f64) as i64, "f64", 0i64,
+                          f64_to_bits(v.#f) as i64, ""));
+            });
         } else if gs_is(tname, "Vec") {
             let at: SView = view.ast_field_type_arg0_name(fld);
-            let scalar: bool = gs_is(at, "i64") || gs_is(at, "str");
+            let a: Ident = Ident { ptr: at.ptr, len: at.len };
+            // The ELEMENT statement — a leaf row for a scalar element, a
+            // recursive walker call for a struct element. `__s[__k]` is the
+            // element place in every case, so only the row (or the callee)
+            // differs, and each of the three is spelled whole.
+            let mut elem: ExprBlob = quote_block! { };
+            if gs_is(at, "i64") {
+                elem = quote_block! {
+                    out.push((__vid, "", __k, (&__s[__k] as *const i64) as i64, "i64", 0i64,
+                              __s[__k], ""));
+                };
+            } else if gs_is(at, "str") {
+                elem = quote_block! {
+                    out.push((__vid, "", __k, (&__s[__k] as *const str) as i64, "str", 0i64,
+                              0i64, __s[__k]));
+                };
+            } else {
+                let mut ws: String = String::new();
+                ws.push_str("__gs_walk_");
+                ws.push_str(gs_sv(at));
+                let wel: Ident = Ident::new(ws.as_str());
+                elem = quote_block! { #wel(&__s[__k], __vid, "", __k, out); };
+            }
             // Writ-walker shape: the Vec field is a NODE (kind "arr") and its
             // elements hang off it with idx >= 0 — the two-level layout the
             // gpath steps navigate (`.field` then `[*]`).
-            em.push_text("    { let __vid: i64 = (&v.");
-            em.push_text(fname);
-            em.push_text(" as *const Vec<");
-            em.push_text(gs_sv(at));
-            em.push_text(">) as i64;\n");
-            em.push_text("      out.push((id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, __vid, \"arr\", 0i64, 0i64, \"\"));\n");
-            em.push_text("      let __s = v.");
-            em.push_text(fname);
-            em.push_text(".as_slice(); let mut __k: i64 = 0i64;\n");
-            em.push_text("      while __k < __s.len() {\n");
-            if scalar {
-                em.push_text("        out.push((__vid, \"\", __k, (&__s[__k] as *const ");
-                em.push_text(gs_sv(at));
-                em.push_text(") as i64, \"");
-                em.push_text(gs_sv(at));
-                em.push_text("\", 0i64, ");
-                if gs_is(at, "i64") { em.push_text("__s[__k], \"\""); }
-                else                { em.push_text("0i64, __s[__k]"); }
-                em.push_text("));\n");
-            } else {
-                em.push_text("        __gs_walk_");
-                em.push_text(gs_sv(at));
-                em.push_text("(&__s[__k], __vid, \"\", __k, out);\n");
-            }
-            em.push_text("        __k = __k + 1i64;\n      } }\n");
+            //
+            // ⚠ The braces are LOAD-BEARING. A field fragment splices at a
+            // STATEMENT slot, which INLINES it, so two Vec fields in one struct
+            // would redeclare `__vid`/`__s`/`__k` in the same scope. The
+            // block-statement is the scope, spelled — the same discipline as
+            // `{ #frag; }` at any other inlining slot.
+            flds.push(quote_block! {
+                {
+                    let __vid: i64 = (&v.#f as *const Vec<#a>) as i64;
+                    out.push((id, ##f, -1i64, __vid, "arr", 0i64, 0i64, ""));
+                    let __s = v.#f.as_slice();
+                    let mut __k: i64 = 0i64;
+                    while __k < __s.len() {
+                        #(elem);
+                        __k = __k + 1i64;
+                    }
+                }
+            });
         } else {
             // Another annotated struct — recurse through its generated walker.
-            em.push_text("    __gs_walk_");
-            em.push_text(gs_sv(tname));
-            em.push_text("(&v.");
-            em.push_text(fname);
-            em.push_text(", id, \"");
-            em.push_text(fname);
-            em.push_text("\", -1i64, out);\n");
+            // A field typed by a NON-annotated struct lands here too: the call
+            // names a fn nobody emitted, and the unknown-fn error names the
+            // missing derive.
+            let mut ns: String = String::new();
+            ns.push_str("__gs_walk_");
+            ns.push_str(gs_sv(tname));
+            let wsub: Ident = Ident::new(ns.as_str());
+            flds.push(quote_block! { #wsub(&v.#f, id, ##f, -1i64, out); });
         }
         i = i + (1 as u64);
     }
-    em.push_text("}\n");
 
-    // ── the materializer + the source-trait registration ──
-    em.push_text("pub fn __gs_edges_");
-    em.push_text(nm);
-    em.push_text("(root: &");
-    em.push_text(nm);
-    em.push_text(") -> Vec<WritEdgeRow> {\n    let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();\n    __gs_walk_");
-    em.push_text(nm);
-    em.push_text("(root, 0i64, \"\", -1i64, &mut out);\n    return out;\n}\n");
-    em.push_text("impl GraphSource for ");
-    em.push_text(nm);
-    em.push_text(" { rel edge = __gs_edges_");
-    em.push_text(nm);
-    em.push_text("; }\n");
-    em.commit();
+    // The field statements as ONE statement-list fragment.
+    //
+    // ⚠ THE REPEAT LIVES HERE, in a `quote_block!`, and not directly in the
+    // `quote_item!` below — because the two splice a BLOB CURSOR differently and
+    // only one of them inlines. `logos_quote_expr_subst` inlines a BLOCK-rooted
+    // cursor fragment into the surrounding statement list (this is what lets
+    // rexpr_walk's sort declare `__iv0` in one repeat and read it in the next);
+    // `logos_emit_item_blob_subst` inlines only a SCALAR blob placeholder —
+    // `try_inline_stmt_blobs` skips a cursor encoding, so `try_cursor_blob_splice`
+    // drops the fragment's BLOCK root into the slot and every field statement
+    // comes out wrapped in its own scope. Harmless here (each field's statements
+    // are self-contained) but not the emitted shape, and not a semantics to build
+    // on. Nesting the repeat one level down means the cursor is expanded by the
+    // shim that inlines it, and what reaches the item is a single scalar
+    // BLOCK-rooted blob — which `#(fbody);` does inline. Result: the flat
+    // statement list the text channel wrote.
+    let fbody: ExprBlob = quote_block! { #( #flds; )* };
+
+    // ── all THREE items are one QUOTE (ADR 0024 S5) ───────────────────────
+    // A derive's output is a SET of items, and a quote body holds a set — so
+    // the walker, the materializer and the trait registration travel together
+    // instead of as one concatenated chunk. The registration is an impl, and an
+    // impl's members are items too: `rel edge = #enm;` is the REL_BIND
+    // antiquote, which puts the materializer's computed name in a structured
+    // slot rather than between two hand-written spaces.
+    //
+    // ⚠ The walker fn has NO return type, deliberately: `#(body)` is only
+    // grammatical after `-> T` (the `block_body` slot rides the ARROW alts), but
+    // nothing here needs it — the body is a LITERAL block whose only runtime
+    // content is the per-field repeat. Writing `-> ()` to reach `block_body`
+    // would change the emitted signature for the sake of machinery it does not
+    // use.
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec; use logos.lang.str; use logos.lang.num.float;
+        // GraphSource (the trait) + the row alias live with the Writ walker.
+        use logos.std.wql.writ_graph; use logos.lang.writ.container;
+        pub fn #wnm(v: &#tnm, parent: i64, key: str, idx: i64, out: &mut Vec<WritEdgeRow>) {
+            let id: i64 = (v as *const #tnm) as i64;
+            out.push((parent, key, idx, id, "struct", 0i64, 0i64, ""));
+            #(fbody);
+        }
+        pub fn #enm(root: &#tnm) -> Vec<WritEdgeRow> {
+            let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
+            #wnm(root, 0i64, "", -1i64, &mut out);
+            return out;
+        }
+        impl GraphSource for #tnm { rel edge = #enm; }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
     return;
 }

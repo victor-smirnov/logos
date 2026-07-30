@@ -1,0 +1,165 @@
+// derive_graph_source_field_classes_e2e — the #[derive_graph_source] field
+// classes the corpus never reached. wql_native_graph_e2e exercises str / i64 /
+// f64 / Vec<i64> / nested-struct; this pins the remaining three plus the one
+// STRUCTURAL hazard a per-field emitter has:
+//
+//   • bool          → kind "bool", vi 1/0 (the `if v.f { 1i64 } else { 0i64 }`
+//                     leaf — the only field class whose vi is a CONDITIONAL);
+//   • Vec<str>      → "arr" node + one "str" element row per position, vs = the
+//                     element (the vs-column twin of the Vec<i64> vi case);
+//   • Vec<S>        → "arr" node + per element the S walker's own rows, so a
+//                     kid's struct row hangs off the ARRAY node and carries the
+//                     element's index;
+//   • THREE Vec fields in ONE struct — each Vec case declares __vid / __s / __k,
+//     so if those bindings ever share a scope the emitted walker does not
+//     compile at all. Nothing in the corpus had two.
+//
+// Reads the materializer rows directly (the derive's own vocabulary) and then
+// re-reads two of them through deem!, so the kind strings are pinned on both
+// the row side and the query side.
+package test;
+use logos.std.compiler.metaprog;
+use logos.std.wql.wql;
+use logos.std.wql.writ_graph;
+use logos.lang.writ.container;
+use logos.mem.collections.vec;
+use logos.lang.str;
+use logos.mem.deem;
+
+#[derive_graph_source]
+pub struct Leaf { pub id: i64 }
+
+#[derive_graph_source]
+pub struct Bag {
+    pub on: bool,
+    pub off: bool,
+    pub tags: Vec<str>,
+    pub nums: Vec<i64>,
+    pub kids: Vec<Leaf>,
+}
+
+pub deem bag_nums(g: &Bag) {
+    from g .nums [*] n select n.vi
+}
+
+pub deem bag_flags(g: &Bag) {
+    from g ** p {bool} select p.vi
+}
+
+// Rows whose `kind` column is `k`.
+fn n_kind(rows: &Vec<WritEdgeRow>, k: str) -> i64 {
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: WritEdgeRow = rows.get(i);
+        if str_eq(r.4, k) { c = c + 1i64; }
+        i = i + 1i64;
+    }
+    return c;
+}
+
+// `vi` of the first row keyed `key` (the leaf fields are uniquely keyed).
+fn vi_of(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: WritEdgeRow = rows.get(i);
+        if str_eq(r.1, key) { return r.6; }
+        i = i + 1i64;
+    }
+    return -999i64;
+}
+
+// The node id of the "arr" row keyed `key` — a Vec field's own node.
+fn arr_id(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: WritEdgeRow = rows.get(i);
+        if str_eq(r.4, "arr") && str_eq(r.1, key) { return r.3; }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+// `vs` of the row of kind `k` at position `idx` under parent `par`.
+fn vs_at(rows: &Vec<WritEdgeRow>, par: i64, k: str, idx: i64) -> str {
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: WritEdgeRow = rows.get(i);
+        if r.0 == par && r.2 == idx && str_eq(r.4, k) { return r.7; }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+fn main() -> i32 {
+    let mut tags: Vec<str> = vec_new::<str>();
+    tags.push("alpha");
+    tags.push("beta");
+    let mut nums: Vec<i64> = vec_new::<i64>();
+    nums.push(7i64);
+    nums.push(8i64);
+    let mut kids: Vec<Leaf> = vec_new::<Leaf>();
+    kids.push(Leaf { id: 11i64 });
+    kids.push(Leaf { id: 22i64 });
+    let b: Bag = Bag { on: true, off: false, tags: tags, nums: nums, kids: kids };
+
+    let rows: Vec<WritEdgeRow> = __gs_edges_Bag(&b);
+
+    // ── bool: kind "bool", vi is the conditional 1/0 ──
+    if n_kind(&rows, "bool") != 2i64 { return 1i32; }
+    if vi_of(&rows, "on") != 1i64 { return 2i32; }
+    if vi_of(&rows, "off") != 0i64 { return 3i32; }
+
+    // ── three Vec fields, three DISTINCT "arr" nodes ──
+    if n_kind(&rows, "arr") != 3i64 { return 4i32; }
+    let ta: i64 = arr_id(&rows, "tags");
+    let na: i64 = arr_id(&rows, "nums");
+    let ka: i64 = arr_id(&rows, "kids");
+    if ta == 0i64 || na == 0i64 || ka == 0i64 { return 5i32; }
+    if ta == na || na == ka || ta == ka { return 6i32; }
+
+    // ── Vec<str>: element rows carry the string in vs, keyed by position ──
+    if n_kind(&rows, "str") != 2i64 { return 7i32; }
+    if !str_eq(vs_at(&rows, ta, "str", 0i64), "alpha") { return 8i32; }
+    if !str_eq(vs_at(&rows, ta, "str", 1i64), "beta") { return 9i32; }
+
+    // ── Vec<Leaf>: one "struct" row per element under the ARRAY node, plus
+    //    the Bag root itself; each kid's i64 leaf hangs off the kid's row.
+    if n_kind(&rows, "struct") != 3i64 { return 10i32; }
+    let mut kid_rows: i64 = 0i64;
+    let mut kid_ids: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let r: WritEdgeRow = rows.get(i);
+        if r.0 == ka && str_eq(r.4, "struct") {
+            kid_rows = kid_rows + 1i64;
+            // The kid's own i64 field, parented on the kid's node id.
+            let mut j: i64 = 0i64;
+            while j < rows.len() {
+                let q: WritEdgeRow = rows.get(j);
+                if q.0 == r.3 && str_eq(q.1, "id") { kid_ids = kid_ids + q.6; }
+                j = j + 1i64;
+            }
+        }
+        i = i + 1i64;
+    }
+    if kid_rows != 2i64 { return 11i32; }
+    if kid_ids != 33i64 { return 12i32; }
+
+    // ── Vec<i64> elements: 2 from nums, 2 from the kids' `id` ──
+    if n_kind(&rows, "i64") != 4i64 { return 13i32; }
+
+    // ── the same rows through deem!, so the kind strings are pinned on the
+    //    query side too ──
+    let qn: Vec<i64> = match bag_nums(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if qn.len() != 2i64 { return 15i32; }
+    if qn.get(0i64) + qn.get(1i64) != 15i64 { return 16i32; }
+
+    let qf: Vec<i64> = match bag_flags(&b)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 17i32; } };
+    if qf.len() != 2i64 { return 18i32; }
+    if qf.get(0i64) + qf.get(1i64) != 1i64 { return 19i32; }
+
+    return 0i32;
+}
