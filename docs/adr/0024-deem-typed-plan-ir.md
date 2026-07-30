@@ -180,9 +180,43 @@ walk below it is shaped. ⚠ `size` needed no grammar rule of its own — it is
 RENDERER to stop printing the constant `"rel "`: under `-g` a dump is REPARSED,
 so a lead the renderer cannot say comes back as a duplicate rel binding. That is
 the fifth time in this arc the reading instrument was blind exactly where
-emitters write. *Remaining:* a plan that CONSUMES the number — join order, where
-a runtime fact changes the answer in multiples — and with it the reusable
-prepared object that pays for measuring.
+emitters write. **S4h** — EITHER SIDE MAY DRIVE, and the number has its consumer.
+The join's first pair is emitted TWICE and a discriminant computed once, in the
+prelude's scope, from the sizes S4g asked for (`(rs).len() > (ls).len()`, or the
+declared reporter's binding where a source has one) picks the nest that indexes
+the SMALLER side. Four things differ between driving from `a` and from `b`, and
+only the first is a swap of names: the outermost loop's source; WHICH HALF of the
+equi-term is the build key (`equi_term_sides` splits the term by the step's NEW
+row var, so exchanging the vars exchanges build and probe); therefore the
+STRATEGY, a decision of its own that the reverse direction may not even have
+(recorded as its own trace line, made by the one copy of the rule in `join_sel`);
+and the PREDICATE, which is stored on the step but constrains the PAIR, so it
+moves to whichever source is now the step. The nest became a function of the
+chain (`chain_nest_frag`), so a second order is a second CHAIN
+(`chain_swap_head`) and not a second emitter — and the transposition is of the
+FIRST TWO sources for a reason that holds at any chain length: both vars are
+bound by position 1 either way, so no later predicate becomes unevaluable, none
+has to merge with another (a step carries one `on`), and no later strategy
+changes. ⚠ THE LICENCE IS A TOTAL SORT. A join's row order IS the nest's, so the
+same multiset in b-major order is a semantic change — the failure that returns
+different rows without crashing. The sort's comparator now falls back to the
+row-index TUPLE, lexicographic in QUERY source order, so the sorted sequence is
+the same whichever nest collected it; and the tiebreak is a no-op for every
+collection whose tuples already ascend (a scan, an aggregate's groups, a join in
+query order), which is why it changed no existing expectation. Hence the plan
+REFUSES without `order by` — there is no sequence to restore to — and refuses an
+ANTI step (not symmetric: the base rows with no match are a different question
+from the step rows with no match), a TRAVERSAL step (its source is a field path
+of an outer row, so it cannot be an outermost loop at all), a step the planner
+never decided (a rel body's own chain, re-emitted per fixpoint variant), a
+reverse direction with no indexable equi-key, and a side whose size cannot be had
+without draining it. Every refusal is a trace line rather than a silence, and the
+aggregate shape is left fixed on purpose: its output order is its groups'
+FIRST-OCCURRENCE order, which the sort does not restore. *Remaining:* the
+prepared object itself — the discriminant is re-evaluated per call today, which
+is right for a function but is not yet a plan an application holds and re-applies
+— and join order beyond the first pair, which needs more than two nests and
+therefore a cost comparison rather than a comparison of two.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

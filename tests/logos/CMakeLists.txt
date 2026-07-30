@@ -965,6 +965,25 @@ set_tests_properties(logos_09_plan_size_asked PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# JOIN-ORDER gate (ADR 0024 S4): the emitted fn carries BOTH join orders and one
+# run-time discriminant, the plan reports the decision AND both refusals, and the
+# sort that makes the two orders interchangeable is total.
+#
+# ⚠ The fixture asserts the ROWS, which is what says the reorder is sound — but a
+# compiler that quietly emitted ONE nest returns the same rows and passes it. Only
+# the artifact and the decision channel can say a second order exists at all.
+add_test(
+    NAME logos_09_join_order_either_side
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/join_order_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_order_dyn_e2e.logos
+)
+set_tests_properties(logos_09_join_order_either_side PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

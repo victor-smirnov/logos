@@ -1,0 +1,191 @@
+// WQL — EITHER SIDE MAY DRIVE THE JOIN (ADR 0024 S4): the emitted fn carries
+// BOTH join orders and picks one at run time from the sizes, and the rows it
+// returns — and the ORDER it returns them in — must not depend on which branch
+// ran.
+//
+// ⚠ WHY THE ORACLE IS THE EXACT SEQUENCE AND NOT THE COUNT ALONE. A reorder
+// cannot lose rows (both nests enumerate the same predicate over the same two
+// sources), so a count-only assertion would pass on the failure this actually
+// risks: the same multiset in b-major order instead of a-major. Every query here
+// has DUPLICATE KEYS ON BOTH SIDES, so a-major and b-major differ row by row,
+// and the expectation is the full sequence.
+//
+// ⚠ AND THE ORACLE IS A PLAIN NESTED LOOP, with no sort in it. The `order by`
+// keys are non-decreasing (ascending queries) / non-increasing (the `desc` one)
+// along the base array on purpose, so the sorted sequence IS the query-order
+// enumeration and the oracle cannot inherit a bug from the sort it is checking.
+//
+// The two datasets straddle the discriminant: `small_ls` × `big_rs` makes the
+// step's source the larger one (the transposed nest runs), `big_ls` × `small_rs`
+// makes it the smaller one (the query's own nest runs). Same oracle either way.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct L { pub k: i64, pub v: i64 }
+struct R { pub k: i64, pub w: i64 }
+
+// The admitted shape: two classic sources, an equi-key usable in BOTH
+// directions, and an `order by` — so the plan may offer a second order.
+pub deem by_key(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select l.v * 100 + r.w order by l.k }
+
+pub deem by_key_desc(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select l.v * 100 + r.w order by l.k desc }
+
+pub deem first_key(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select first l.v * 100 + r.w order by l.k }
+
+pub deem lim_key(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select l.v * 100 + r.w order by l.k limit 3 }
+
+// REFUSED — no `order by`: the row order of a join IS the nest's, so there is no
+// sequence to restore and the plan keeps the query's order.
+pub deem no_order(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select l.v * 100 + r.w }
+
+// REFUSED — an anti join is not symmetric.
+pub deem anti_ord(ls: &[L], rs: &[R]) {
+    from ls l
+    anti join rs r on l.k == r.k
+    select l.v order by l.k }
+
+// The ORACLE: the join in QUERY order, base-major, no sort.
+fn oracle(ls: &[L], rs: &[R], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < ls.len() {
+        let mut j: i64 = 0i64;
+        while j < rs.len() {
+            if ls[i].k == rs[j].k { out.push(ls[i].v * 100i64 + rs[j].w); }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // 2 base rows, 8 step rows — the step's source is the LARGER, so the plan's
+    // discriminant takes the TRANSPOSED nest. Every key is 1 on the left and
+    // duplicated on the right, so every sort key ties and the tuple tiebreak
+    // alone decides the sequence: a b-major nest would return 101, 201, 102, …
+    let small_ls: [L; 2] = [ L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 } ];
+    let big_rs: [R; 8] = [
+        R { k: 1i64, w: 1i64 }, R { k: 1i64, w: 2i64 },
+        R { k: 1i64, w: 3i64 }, R { k: 2i64, w: 4i64 },
+        R { k: 1i64, w: 5i64 }, R { k: 2i64, w: 6i64 },
+        R { k: 1i64, w: 7i64 }, R { k: 1i64, w: 8i64 },
+    ];
+    // 6 base rows, 3 step rows — the query's own nest runs. Keys ascend along
+    // the base array (1,1,2,2,3,3) and duplicate on both sides.
+    let big_ls: [L; 6] = [
+        L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 },
+        L { k: 2i64, v: 3i64 }, L { k: 2i64, v: 4i64 },
+        L { k: 3i64, v: 5i64 }, L { k: 3i64, v: 6i64 },
+    ];
+    let small_rs: [R; 3] = [
+        R { k: 2i64, w: 1i64 }, R { k: 1i64, w: 2i64 }, R { k: 2i64, w: 3i64 },
+    ];
+
+    // ── the TRANSPOSED nest: 2 × 6 matching pairs, all keys tied ────────────
+    let mut w1: Vec<i64> = Vec::new();
+    oracle(&small_ls[..], &big_rs[..], &mut w1);
+    let g1: Vec<i64> = by_key(&small_ls[..], &big_rs[..]).unwrap();
+    if g1.len() != 12i64      { return 1i32; }
+    if !same(&g1, &w1)        { return 2i32; }
+    // The first pair of the sequence pins the MAJOR order outright: 101 then 102
+    // is base-major, 101 then 201 would be step-major.
+    if g1.get(0i64) != 101i64 { return 3i32; }
+    if g1.get(1i64) != 102i64 { return 4i32; }
+
+    // ── the query's own nest, same oracle ──────────────────────────────────
+    let mut w2: Vec<i64> = Vec::new();
+    oracle(&big_ls[..], &small_rs[..], &mut w2);
+    let g2: Vec<i64> = by_key(&big_ls[..], &small_rs[..]).unwrap();
+    if g2.len() != 6i64 { return 5i32; }
+    if !same(&g2, &w2)  { return 6i32; }
+
+    // ── `desc`: the key groups reverse, ties keep query order ──────────────
+    // Base keys non-increasing (3,3,2,2,1,1) so the descending sort is the
+    // identity on the enumeration — the oracle stays a plain nested loop.
+    let desc_ls: [L; 6] = [
+        L { k: 3i64, v: 5i64 }, L { k: 3i64, v: 6i64 },
+        L { k: 2i64, v: 3i64 }, L { k: 2i64, v: 4i64 },
+        L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 },
+    ];
+    let mut w3: Vec<i64> = Vec::new();
+    oracle(&desc_ls[..], &big_rs[..], &mut w3);
+    let g3: Vec<i64> = by_key_desc(&desc_ls[..], &big_rs[..]).unwrap();
+    if g3.len() != w3.len() { return 7i32; }
+    if !same(&g3, &w3)      { return 8i32; }
+    // And with the sizes the other way round.
+    let mut w4: Vec<i64> = Vec::new();
+    oracle(&desc_ls[..], &small_rs[..], &mut w4);
+    let g4: Vec<i64> = by_key_desc(&desc_ls[..], &small_rs[..]).unwrap();
+    if !same(&g4, &w4) { return 9i32; }
+
+    // ── `first` — the head of the sorted sequence, from either nest ────────
+    let f1: Option<i64> = first_key(&small_ls[..], &big_rs[..]).unwrap();
+    match f1 {
+        Option::Some(v) => { if v != w1.get(0i64) { return 10i32; } }
+        Option::None    => { return 11i32; }
+    }
+    let f2: Option<i64> = first_key(&big_ls[..], &small_rs[..]).unwrap();
+    match f2 {
+        Option::Some(v) => { if v != w2.get(0i64) { return 12i32; } }
+        Option::None    => { return 13i32; }
+    }
+
+    // ── `limit` — the first three of the sorted sequence, from either nest ──
+    let t1: Vec<i64> = lim_key(&small_ls[..], &big_rs[..]).unwrap();
+    if t1.len() != 3i64 { return 14i32; }
+    let mut q: i64 = 0i64;
+    while q < 3i64 {
+        if t1.get(q) != w1.get(q) { return 15i32; }
+        q = q + 1i64;
+    }
+    let t2: Vec<i64> = lim_key(&big_ls[..], &small_rs[..]).unwrap();
+    if t2.len() != 3i64 { return 16i32; }
+    let mut q2: i64 = 0i64;
+    while q2 < 3i64 {
+        if t2.get(q2) != w2.get(q2) { return 17i32; }
+        q2 = q2 + 1i64;
+    }
+
+    // ── the REFUSED shapes still answer, in the query's own order ──────────
+    let n1: Vec<i64> = no_order(&small_ls[..], &big_rs[..]).unwrap();
+    if !same(&n1, &w1) { return 18i32; }
+
+    // anti: the left rows with no right-hand match. Only k==3 has none.
+    let a1: Vec<i64> = anti_ord(&big_ls[..], &small_rs[..]).unwrap();
+    if a1.len() != 2i64     { return 19i32; }
+    if a1.get(0i64) != 5i64 { return 20i32; }
+    if a1.get(1i64) != 6i64 { return 21i32; }
+
+    // Empty step source: no pairs, both nests.
+    let none_rs: [R; 0] = [];
+    let e1: Vec<i64> = by_key(&small_ls[..], &none_rs[..]).unwrap();
+    if e1.len() != 0i64 { return 22i32; }
+    return 0i32;
+}

@@ -41,6 +41,7 @@ use logos.std.wql.params;     // MacroParams — the parsed deem!(…) param lis
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
 use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step — THE join-step decision
+use logos.std.wql.join_order; // JoinOrder / decide_join_order — WHICH SIDE DRIVES
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
@@ -472,12 +473,54 @@ fn push_guarded_frag(val_ty: str, body: ExprBlob, distinct: bool) -> ExprBlob {
     };
 }
 
-// The stable in-place insertion sort over the parallel (key, index) vecs
-// `__ks` + `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a
-// simple/aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP
-// codegen (strict compare keeps equal keys in source order = stable); `desc`
-// flips the comparison. str keys compare with the native `<`/`>` (sema lowers
-// str relationals to byte-lexicographic `str_cmp`).
+// The row-INDEX TUPLE as a TIEBREAK — lexicographic, in QUERY source order.
+//
+// True when the tuple sitting at `__b - 1` is lexicographically GREATER, from
+// component `k` on, than the tuple saved in `__iv*` — i.e. the two are out of
+// query order and the shift must continue. Ascending in BOTH sort directions:
+// `desc` reverses the KEY comparison, and reversing the tiebreak with it would
+// make a descending sort's ties come out backwards from an ascending one's,
+// which is not what a stable sort did.
+//
+// ⚠ WHY A TOTAL ORDER IS REQUIRED AND NOT MERELY TIDIER. Equal keys used to keep
+// COLLECTION order (a stable sort, and collection order is base-major then
+// step-order = lexicographic in the index tuple). That made the emitted row
+// sequence a fact about WHICH NEST produced it, so a join order the plan chose
+// at run time would have changed the answer. With the tuple as the tiebreak the
+// order is total in (key, tuple) and the sorted sequence is the same whichever
+// nest collected it — which is the whole licence for `join_order` to offer a
+// second order at all.
+//
+// ⚠ AND IT IS A NO-OP EVERYWHERE ELSE, by construction rather than by luck: for
+// every collection whose tuples ARE ascending (a simple scan, an aggregate's
+// group column, a join nest in query order) the tiebreak is false at every
+// comparison, so it decides nothing and the permutation is the one the stable
+// sort already produced.
+fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
+    let sx: String = nk_str("__ix", k);
+    let sv: String = nk_str("__iv", k);
+    let ix: Ident = Ident::new(string_as_str(&sx));
+    let iv: Ident = Ident::new(string_as_str(&sv));
+    if k + 1i64 >= nidx {
+        return quote_expr! { #ix.get(__b - 1i64) > #iv };
+    }
+    let rest: ExprBlob = ix_lex_gt_frag(k + 1i64, nidx);
+    return quote_expr! {
+        #ix.get(__b - 1i64) > #iv
+            || (#ix.get(__b - 1i64) == #iv && (#(rest)))
+    };
+}
+
+// The in-place insertion sort over the parallel (key, index) vecs `__ks` +
+// `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a simple/
+// aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP codegen;
+// `desc` flips the KEY comparison. str keys compare with the native `<`/`>`
+// (sema lowers str relationals to byte-lexicographic `str_cmp`).
+//
+// The comparison is TOTAL: equal keys are ordered by the row-index tuple in
+// query source order (`ix_lex_gt_frag`), so the result does not depend on the
+// order the tuples were collected in — see that function for why the plan needs
+// that and why it changes no existing permutation.
 //
 // The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
 // cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
@@ -498,6 +541,7 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
         k = k + 1i64;
     }
     let kt: ExprBlob = parse_type(key_ty);
+    let tie: ExprBlob = ix_lex_gt_frag(0i64, nidx);
     if desc {
         return quote_block! {
             let mut __a: i64 = 1i64;
@@ -505,7 +549,8 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
                 let __kv: #(kt) = __ks.get(__a);
                 #( #saves; )*
                 let mut __b: i64 = __a;
-                while __b > 0i64 && __ks.get(__b - 1i64) < __kv {
+                while __b > 0i64 && (__ks.get(__b - 1i64) < __kv
+                                     || (__ks.get(__b - 1i64) == __kv && (#(tie)))) {
                     __ks.set(__b, __ks.get(__b - 1i64));
                     #( #shifts; )*
                     __b = __b - 1i64;
@@ -522,7 +567,8 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
             let __kv: #(kt) = __ks.get(__a);
             #( #saves; )*
             let mut __b: i64 = __a;
-            while __b > 0i64 && __ks.get(__b - 1i64) > __kv {
+            while __b > 0i64 && (__ks.get(__b - 1i64) > __kv
+                                 || (__ks.get(__b - 1i64) == __kv && (#(tie)))) {
                 __ks.set(__b, __ks.get(__b - 1i64));
                 #( #shifts; )*
                 __b = __b - 1i64;
@@ -1794,6 +1840,221 @@ fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
     };
 }
 
+// ── The chain, TRANSPOSED — the base and the first step exchanged ────────────
+// The nest below is built from a JChain and from nothing else, so a second join
+// ORDER is a second chain rather than a second emitter. What actually differs
+// between driving from `a` and driving from `b` is FOUR things, and only the
+// first is a swap of names:
+//
+//   1. the SOURCE of the outermost loop (`base_*`) and of the step;
+//   2. WHICH HALF of the equi-term is the build key: `equi_term_sides` splits
+//      the term by the step's NEW row var, so exchanging the vars exchanges
+//      build and probe — the index is built over the other side;
+//   3. therefore the STRATEGY itself is a different decision (the reverse
+//      direction may have no usable equi-key at all), which is why `alt_*`
+//      arrives from the planner instead of being re-derived here;
+//   4. the PREDICATE moves. `on` is stored on the step, but it constrains the
+//      PAIR: after the transposition it attaches to the source that is now the
+//      step, and the base — whichever source that is — carries none.
+//
+// Everything AFTER position 1 is untouched, and that is a property of this
+// particular permutation: both transposed vars are bound by position 1 either
+// way, so no later predicate becomes unevaluable, no later predicate has to
+// merge with another (a step carries one `on`), and no later strategy changes.
+fn chain_swap_head(ch: &JChain, jo: &JoinOrder) -> JChain {
+    let mut o: JChain = jchain_new();
+    o.base_src = ch.src[0];
+    o.base_ty  = ch.ty[0];
+    o.base_var = ch.var[0];
+    o.n = ch.n;
+    o.src[0]  = ch.base_src;
+    o.ty[0]   = ch.base_ty;
+    o.var[0]  = ch.base_var;
+    o.anti[0] = false;
+    o.onw[0]  = ch.onw[0];
+    o.jstrat[0] = jo.alt_strat;
+    o.jkey[0]   = jo.alt_key;
+    o.jsel[0]   = jo.alt_sel;
+    o.jwhy[0]   = jo.alt_why;
+    let mut i: i64 = 1i64;
+    while i < ch.n {
+        o.src[i]    = ch.src[i];
+        o.ty[i]     = ch.ty[i];
+        o.var[i]    = ch.var[i];
+        o.anti[i]   = ch.anti[i];
+        o.onw[i]    = ch.onw[i];
+        o.edge[i]   = ch.edge[i];
+        o.byval[i]  = ch.byval[i];
+        o.jstrat[i] = ch.jstrat[i];
+        o.jkey[i]   = ch.jkey[i];
+        o.jsel[i]   = ch.jsel[i];
+        o.jwhy[i]   = ch.jwhy[i];
+        i = i + 1i64;
+    }
+    return o;
+}
+
+// Which `__ix` slot does the source bound to `v` own? The QUERY position, not
+// the nest position: the sort phase's index tuples are read back by a rebind
+// list in query order, and the tiebreak that makes the sorted sequence
+// order-independent is lexicographic in that same order. A tuple must therefore
+// mean the same thing whichever nest pushed it.
+fn qslot_of(qvars: &[str; 9], nq: i64, v: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < nq {
+        if str_eq(qvars[i], v) { return i; }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+// ── ONE ORDER's build phases + loop nest ─────────────────────────────────────
+// The whole order-dependent half of a join body: per-step analysis (the plan's
+// decisions, READ off the chain), the shared inner body, the nest built
+// inside-out, and one build phase per indexed step. Called once per emitted
+// order — the caller composes the result(s) with the order-INDEPENDENT parts
+// (prelude, output vec, sort declarations, sort/output phase, return).
+//
+// It is a function because a second join order is a second nest, and two nests
+// spelled twice would be two chances to diverge in exactly the place where
+// divergence is silent (a mis-collected tuple is a wrong row, not a crash).
+fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
+                   has_sort: bool, first: bool, distinct: bool,
+                   has_where: bool, where_body: str, key_body: str,
+                   proj_f: ExprBlob, result_ty: str,
+                   lim_f: ExprBlob, has_lim_use: bool,
+                   qvars: &[str; 9], nq: i64,
+                   bps: &mut Vec<ExprBlob>, out: &mut ExprBlob) -> bool {
+    // Per-step strategy analysis (Part 2) — chosen by the plan, read here.
+    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new()];
+    let mut st_strat:  [i32; 8]  = [0i32; 8];
+    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut st_hasres: [bool; 8] = [false; 8];
+    let mut st_equi:   [bool; 8] = [false; 8];
+    let mut st_stream: [bool; 8] = [false; 8];
+    if !analyze_chain(ch, ty, ch.base_var, h, prm,
+                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
+                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
+                      &mut st_stream) { return false; }
+
+    // The bound sources of THIS order: the generated row-index expression each
+    // one contributes to the sort's tuple, and the query slot it belongs in.
+    let mut bidx: [String; 9] = [String::new(), String::new(), String::new(), String::new(),
+                                 String::new(), String::new(), String::new(), String::new(),
+                                 String::new()];
+    let mut bslot: [i64; 9] = [0i64; 9];
+    bidx[0].push_str("__i0");
+    bslot[0] = qslot_of(qvars, nq, ch.base_var);
+    let mut nb: i64 = 1i64;
+    let mut bi: i64 = 0i64;
+    while bi < ch.n {
+        if !ch.anti[bi] {
+            if st_strat[bi] == JS_LOOP() { bidx[nb].push_str("__j"); }
+            else                         { bidx[nb].push_str("__ri"); }
+            bidx[nb].push_i64(bi + 1i64);
+            bslot[nb] = qslot_of(qvars, nq, ch.var[bi]);
+            nb = nb + 1i64;
+        }
+        bi = bi + 1i64;
+    }
+
+    // The SHARED inner body — sort collection / `first` early return / guarded
+    // distinct-limit push — then the `where` guard around it.
+    let mut inner: ExprBlob = quote_block! { };
+    if has_sort {
+        let mut coll: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut pk: i64 = 0i64;
+        while pk < nb {
+            let sx: String = nk_str("__ix", bslot[pk]);
+            let nx: Ident = Ident::new(string_as_str(&sx));
+            let ix_f: ExprBlob = parse_expr(string_as_str(&bidx[pk]));
+            coll.push(quote_block! { #nx.push(#(ix_f)); });
+            pk = pk + 1i64;
+        }
+        let key_f: ExprBlob = parse_expr(key_body);
+        inner = quote_block! {
+            #( #coll; )*
+            __ks.push(#(key_f));
+        };
+    } else if first {
+        inner = quote_block! { return Result::Ok(Option::Some(#(proj_f))); };
+    } else {
+        inner = push_guarded_frag(result_ty, proj_f, distinct);
+    }
+    if has_where {
+        let where_f: ExprBlob = parse_expr(where_body);
+        inner = quote_block! { if (#(where_f)) #(inner) };
+    }
+
+    // Wrap one step at a time, innermost step LAST-bound first.
+    let mut ki: i64 = ch.n - 1i64;
+    while ki >= 0i64 {
+        inner = step_wrap(inner, ki + 1i64, st_strat[ki], ch.anti[ki],
+                          st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
+                          ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
+                          string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
+                          lim_f, has_lim_use, st_stream[ki]);
+        ki = ki - 1i64;
+    }
+
+    // The base loop. The DRIVING side may stream: it is the outermost loop of a
+    // left-deep nest, so it is read once by construction — which is the fact the
+    // plan records (`AccessPlan.once`). The steps are not, and say so; whether a
+    // step's source is built once or rescanned per bound row is the join
+    // strategy's business, decided on the plan before this fragment exists.
+    let base_streams: bool = prm.rel_src_streams(ch.base_src);
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
+    let base_vnm: Ident = Ident::new(ch.base_var);
+    let mut nest: ExprBlob = quote_block! { };
+    if base_streams {
+        let mut brk: ExprBlob = quote_block! { };
+        if has_lim_use { brk = quote_block! { if !(__out.len() < (#(lim_f))) { break; } }; }
+        nest = quote_block! {
+            loop {
+                #(brk);
+                let __opt0: Option<#(base_ty_f)> = (#(base_src_f)).next();
+                if __opt0.is_none() { break; }
+                let __row0: #(base_ty_f) = __opt0.unwrap();
+                let #base_vnm: &#(base_ty_f) = &__row0;
+                #(inner);
+            }
+        };
+    } else {
+        let mut bcond: ExprBlob = quote_expr! { __i0 < (#(base_src_f)).len() };
+        if has_lim_use {
+            bcond = quote_expr! { __i0 < (#(base_src_f)).len() && __out.len() < (#(lim_f)) };
+        }
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            while #(bcond) {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                #(inner);
+                __i0 = __i0 + 1i64;
+            }
+        };
+    }
+
+    // Build phases — one per hash/tree step, spliced by the caller BEFORE the
+    // nest (at body level for one order, inside the branch for two).
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
+        bpi = bpi + 1i64;
+    }
+    *out = nest;
+    return true;
+}
+
 // ── emit_join_chain — the RECURSIVE-over-the-join-tree emitter ───────────────
 // `body` is the RJoin/RAnti root of a left-deep chain. Emits nested per-source
 // loops binding the row vars LEFT-TO-RIGHT (per-step strategy from the Part-2
@@ -1802,6 +2063,14 @@ fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
 // matched BOUND-row index tuples (one Vec per bound source) + keys are
 // materialized and insertion-sorted before the projection loop — all existing
 // modifiers compose over joined rows unchanged.
+//
+// EITHER SIDE MAY DRIVE (ADR 0024 S4). The nest is a function of the chain
+// (`chain_nest_frag`), so a second join order is a second chain
+// (`chain_swap_head`) and not a second emitter. When the plan
+// (`logos.std.wql.join_order`) admits both, BOTH nests are emitted and a
+// discriminant computed once in the prelude's scope — the sizes the plan asked
+// for — picks the one that indexes the SMALLER side. When it does not, only the
+// query's own order is emitted and the refusal carries its ground.
 fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
@@ -1880,41 +2149,26 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     }
     let has_sort: bool = mods.has_sort;
 
-    // 4. Per-step strategy analysis (Part 2).
-    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_strat:  [i32; 8]  = [0i32; 8];
-    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut st_hasres: [bool; 8] = [false; 8];
-    let mut st_equi:   [bool; 8] = [false; 8];
-    let mut st_stream: [bool; 8] = [false; 8];
-    if !analyze_chain(&ch, &ty, ch.base_var, h, prm,
-                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
-                      &mut st_stream) { return false; }
-
-    // 5. Bound sources (base + non-anti steps): rebind targets for the sort /
-    // output phases; idx = the generated row-index expression per source. A
-    // traversal step's rebind source is its FIELD-PATH expression — its base
-    // var rebinds at an EARLIER slot (chain order), so `&(d.emps)[ix]` is
-    // well-scoped in the output phase; byval steps rebind by value.
+    // 4. Bound sources (base + non-anti steps) in QUERY order: the rebind
+    // targets for the sort / output phases, and the slot each one's row index
+    // occupies in a collected tuple. A traversal step's rebind source is its
+    // FIELD-PATH expression — its base var rebinds at an EARLIER slot (chain
+    // order), so `&(d.emps)[ix]` is well-scoped in the output phase; byval steps
+    // rebind by value.
+    //
+    // ⚠ QUERY order, not nest order, and that distinction is what lets a second
+    // nest exist: the output phase reads the tuples back through this list, so a
+    // tuple's k-th component must mean the same source however it was collected
+    // (`chain_nest_frag` maps its own bound sources onto these slots by var
+    // name). The per-source row-index EXPRESSION is the one thing that is a
+    // property of the nest, and it moved there with it.
     let mut bnd_src: [str; 9] = ["", "", "", "", "", "", "", "", ""];
     let mut bnd_ty:  [str; 9] = ["", "", "", "", "", "", "", "", ""];
     let mut bnd_var: [str; 9] = ["", "", "", "", "", "", "", "", ""];
     let mut bnd_byval: [bool; 9] = [false; 9];
-    let mut bnd_idx: [String; 9] = [String::new(), String::new(), String::new(), String::new(),
-                                    String::new(), String::new(), String::new(), String::new(),
-                                    String::new()];
     bnd_src[0] = ch.base_src;
     bnd_ty[0]  = ch.base_ty;
     bnd_var[0] = ch.base_var;
-    bnd_idx[0].push_str("__i0");
     let mut nb: i64 = 1i64;
     let mut bi: i64 = 0i64;
     while bi < ch.n {
@@ -1923,9 +2177,6 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             bnd_ty[nb]  = ch.ty[bi];
             bnd_var[nb] = ch.var[bi];
             bnd_byval[nb] = ch.byval[bi];
-            if st_strat[bi] == JS_LOOP() { bnd_idx[nb].push_str("__j"); }
-            else                         { bnd_idx[nb].push_str("__ri"); }
-            bnd_idx[nb].push_i64(bi + 1i64);
             nb = nb + 1i64;
         }
         bi = bi + 1i64;
@@ -1952,9 +2203,6 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     if mods.has_limit { lim_f = limit_expr(&mods); }
 
     let proj_f: ExprBlob = parse_expr(string_as_str(&proj_body));
-    let base_src_f: ExprBlob = parse_expr(ch.base_src);
-    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
-    let base_vnm: Ident = Ident::new(ch.base_var);
 
     let mut rty: String = String::new();
     if first {
@@ -1967,89 +2215,54 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         rty.push_str(">, ElError>");
     }
 
-    // 7. The SHARED inner body — sort collection / `first` early return /
-    // guarded distinct-limit push — then the `where` guard around it.
-    let mut inner: ExprBlob = quote_block! { };
-    if has_sort {
-        let mut coll: Vec<ExprBlob> = vec_new::<ExprBlob>();
-        let mut pk: i64 = 0i64;
-        while pk < nb {
-            let sx: String = nk_str("__ix", pk);
-            let nx: Ident = Ident::new(string_as_str(&sx));
-            let ix_f: ExprBlob = parse_expr(string_as_str(&bnd_idx[pk]));
-            coll.push(quote_block! { #nx.push(#(ix_f)); });
-            pk = pk + 1i64;
-        }
-        let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
-        inner = quote_block! {
-            #( #coll; )*
-            __ks.push(#(key_f));
-        };
-    } else if first {
-        inner = quote_block! { return Result::Ok(Option::Some(#(proj_f))); };
+    // 7. THE JOIN ORDER — one nest, or two and a discriminant.
+    //
+    // The plan is asked FIRST, because what it answers is how many nests the body
+    // has. When it admits a second order, the transposed chain is built as a
+    // second nest and the two sit under a run-time test of the sizes the plan
+    // asked for; both fill the same `__out` / `__ix*` / `__ks` bindings, declared
+    // outside them, so nothing downstream of the nest knows which one ran.
+    //
+    // ⚠ The build phases stay at BODY level in the one-nest case. A join body was
+    // flat before this and must stay flat: an extra scope is not cosmetic here
+    // (ADR 0024 S5 records a stdlib build failing on "use of moved variable
+    // `__out`" from exactly one), so the two-nest form is the only one that
+    // introduces a block, and there it is the branch itself.
+    let mut disc: String = String::new();
+    let jo: JoinOrder = decide_join_order(ch.n, ch.base_src, ch.base_var,
+                                          ch.src[0], ch.var[0],
+                                          WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[0] as *const u8)),
+                                          ch.edge[0], ch.anti[0], ch.jstrat[0],
+                                          has_sort, &ty, prm, h, &mut disc);
+    let mut top_bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut nest_all: ExprBlob = quote_block! { };
+    if jo.dynamic {
+        let mut bps_a: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut nest_a: ExprBlob = quote_block! { };
+        if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
+                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            proj_f, result_ty, lim_f, has_lim_use,
+                            &bnd_var, nb, &mut bps_a, &mut nest_a) { return false; }
+        let chb: JChain = chain_swap_head(&ch, &jo);
+        let mut bps_b: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut nest_b: ExprBlob = quote_block! { };
+        if !chain_nest_frag(&chb, &ty, prm, h, has_sort, first, mods.distinct,
+                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            proj_f, result_ty, lim_f, has_lim_use,
+                            &bnd_var, nb, &mut bps_b, &mut nest_b) { return false; }
+        let br_b: ExprBlob = quote_block! { #( #bps_b; )* #(nest_b); };
+        let br_a: ExprBlob = quote_block! { #( #bps_a; )* #(nest_a); };
+        let disc_f: ExprBlob = parse_expr(string_as_str(&disc));
+        nest_all = quote_block! { if (#(disc_f)) #(br_b) else #(br_a) };
     } else {
-        inner = push_guarded_frag(result_ty, proj_f, mods.distinct);
-    }
-    if has_where {
-        let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
-        inner = quote_block! { if (#(where_f)) #(inner) };
-    }
-
-    // 8. Wrap one step at a time, innermost step LAST-bound first.
-    let mut ki: i64 = ch.n - 1i64;
-    while ki >= 0i64 {
-        inner = step_wrap(inner, ki + 1i64, st_strat[ki], ch.anti[ki],
-                          st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
-                          ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
-                          string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
-                          lim_f, has_lim_use, st_stream[ki]);
-        ki = ki - 1i64;
+        if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
+                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            proj_f, result_ty, lim_f, has_lim_use,
+                            &bnd_var, nb, &mut top_bps, &mut nest_all) { return false; }
     }
 
-    // 9. The base loop. The DRIVING side may stream: it is the outermost loop
-    // of a left-deep nest, so it is read once by construction — which is the
-    // fact the plan records (`AccessPlan.once`). The steps are not, and say so;
-    // whether a step's source is built once or rescanned per bound row is the
-    // join strategy's business, and that decision still lives in this emitter.
-    let base_streams: bool = prm.rel_src_streams(ch.base_src);
-    let mut nest: ExprBlob = quote_block! { };
-    if base_streams {
-        let mut brk: ExprBlob = quote_block! { };
-        if has_lim_use { brk = quote_block! { if !(__out.len() < (#(lim_f))) { break; } }; }
-        nest = quote_block! {
-            loop {
-                #(brk);
-                let __opt0: Option<#(base_ty_f)> = (#(base_src_f)).next();
-                if __opt0.is_none() { break; }
-                let __row0: #(base_ty_f) = __opt0.unwrap();
-                let #base_vnm: &#(base_ty_f) = &__row0;
-                #(inner);
-            }
-        };
-    } else {
-        let mut bcond: ExprBlob = quote_expr! { __i0 < (#(base_src_f)).len() };
-        if has_lim_use {
-            bcond = quote_expr! { __i0 < (#(base_src_f)).len() && __out.len() < (#(lim_f)) };
-        }
-        nest = quote_block! {
-            let mut __i0: i64 = 0i64;
-            while #(bcond) {
-                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
-                #(inner);
-                __i0 = __i0 + 1i64;
-            }
-        };
-    }
-
-    // 10. Build phases (one per hash/tree step) + the sort scaffolding.
-    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
-        bpi = bpi + 1i64;
-    }
+    // 8. The sort scaffolding — order-INDEPENDENT: the tuple slots are query
+    // positions, and the comparison over them is total.
     let mut sortdecl: ExprBlob = quote_block! { };
     let mut sortout:  ExprBlob = quote_block! { };
     if has_sort {
@@ -2138,9 +2351,9 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
         #(head_f);
-        #( #bps; )*
+        #( #top_bps; )*
         #(sortdecl);
-        #(nest);
+        #(nest_all);
         #(sortout);
         #(tail_f);
     };

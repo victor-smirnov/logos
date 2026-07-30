@@ -1,0 +1,165 @@
+// logos.std.wql.join_order — WHICH SIDE DRIVES THE JOIN (ADR 0024 S4).
+//
+// A left-deep join has a BASE — the outermost loop, read once, scanned whole —
+// and STEPS, each indexed or rescanned per bound row. Until this module existed
+// the base was whatever the query wrote first, and that is the one join decision
+// where a STATIC answer cannot be right: which side is cheaper to index depends
+// on how many rows each side holds, and no compile-time fact says. That is the
+// difference between this axis and the ACCESS axis, where a runtime decision is
+// nearly always the same answer (a narrowing over an ordered source is never
+// meaningfully worse than a scan — one descent against zero, never more rows).
+//
+// So the answer is not a better compile-time guess. It is TWO orders in the
+// emitted code and a DISCRIMINANT the plan owns: the sizes the plan asked for
+// (S4g) are compared once, in the prelude's own scope, and the branch taken
+// indexes the SMALLER side and walks the larger. That is the first piece of the
+// PreparedStatement shape — a plan built where the data is, over code compiled
+// where it is not.
+//
+// ⚠ WHAT REORDERING IS NOT ALLOWED TO DO IS CHANGE THE ANSWER, and for a join
+// the answer includes the ORDER of the rows. Deem's default row order IS the
+// nest's: `from a x join b y` yields a-major, and every e2e expectation in the
+// tree reads that way. Driving from `b` yields the same multiset in b-major
+// order — the same rows, a different sequence, which is a semantic change and
+// exactly the failure mode that does not crash. So the reorder is offered only
+// where the query names an order of its own AND the emitted sort is TOTAL:
+// `order by` collects the matched row-index tuples and sorts them, and with the
+// tuple itself as the tiebreak (in QUERY source order — `sort_perm_frag`) the
+// sorted sequence is the same whichever nest produced it. Without `order by`
+// there is nothing to restore the sequence to, and the plan says so instead of
+// reordering anyway.
+//
+// The other refusals are semantic, not conservative: an ANTI join is not
+// symmetric (rows of `a` with no matching `b` is a different question from rows
+// of `b` with no matching `a`), and a TRAVERSAL step's source is a field path of
+// an outer row, so it cannot be an outermost loop at all — there is nothing to
+// bind its base to.
+package logos.std.wql.join_order;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.writ.container;    // Writ
+use logos.lang.writ.anyval;       // WAny
+use logos.std.wql.ir;             // SExpr / WRef
+use logos.std.wql.el;             // ElTypes
+use logos.std.wql.codegen;        // plan_trace / string_as_str — the ONE decision channel
+use logos.std.wql.params;         // MacroParams — the rel registry (sizes, streaming)
+use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name / StepSel
+
+// ── The decision ──────────────────────────────────────────────────────────
+// `dynamic` — the emitted code carries BOTH orders and picks at run time;
+// otherwise the query's own order is the only one emitted (no code growth for a
+// query that cannot use a second one). `why` is the ground either way, because
+// "the plan left this order alone" is the answer a person reading a slow join
+// needs and it is the one a decision recorded only on success cannot give.
+//
+// `alt_*` is the transposed order's decision for the step it moves, made HERE
+// and stamped onto the reordered chain rather than re-derived by the emitter:
+// the moved step binds a different row var, so its equi-key and therefore its
+// strategy are a different question from the one the planner already answered,
+// and both answers come out of the one copy of the rule (`join_sel`).
+pub struct JoinOrder {
+    pub dynamic:   bool,
+    pub why:       str,
+    pub alt_strat: i32,
+    pub alt_key:   i32,
+    pub alt_sel:   i64,
+    pub alt_why:   str,
+}
+
+fn jo_fixed(why: str) -> JoinOrder {
+    return JoinOrder { dynamic: false, why: why, alt_strat: JS_NONE(),
+                       alt_key: 0i32, alt_sel: -1i64, alt_why: "" };
+}
+
+/// A source's SIZE, as an expression evaluable where the prelude ended.
+///
+/// Two spellings, and the order matters. A source that DECLARED a size operation
+/// has already been asked (`AccessPlan.size_at`, S4g) — the number is a prelude
+/// binding, obtained once beside the source's own, and using it is what makes
+/// that phase's fact load-bearing instead of merely recorded. Anything else is
+/// asked the way the nest's own loop condition asks: `.len()` on an indexable
+/// source. A STREAMED source has neither — a length costs draining the iterator,
+/// which is the one thing streaming exists to avoid — so it has no size here and
+/// the comparison cannot be made.
+fn size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
+    if prm.rel_src_streams(src) { return false; }
+    let ri: i64 = prm.rel_find_src(src);
+    if ri >= 0i64 {
+        if prm.rel_size_at[ri].len() > 0i64 {
+            out.push_str("(");
+            out.push_str(prm.rel_size_at[ri]);
+            out.push_str(" as i64)");
+            return true;
+        }
+    }
+    out.push_str("(");
+    out.push_str(src);
+    out.push_str(").len()");
+    return true;
+}
+
+/// Decide whether the FIRST join of a chain may be driven from either side.
+///
+/// The candidate transposition is always the first two sources, and that is not
+/// a restriction of convenience: swapping positions 0 and 1 leaves every LATER
+/// step's bound set exactly as it was (both vars are bound by position 1 either
+/// way), so no later predicate moves and no later strategy changes. Any other
+/// permutation can force two predicates onto one position, and a step carries
+/// one `on`.
+///
+/// Returns the decision; `disc` receives the run-time discriminant — true means
+/// "take the transposed order", i.e. the step's source is the LARGER one and the
+/// base is the one worth indexing.
+pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
+                         s0_src: str, s0_var: str, s0_on: WRef<SExpr>,
+                         s0_edge: bool, s0_anti: bool, s0_strat: i32,
+                         has_sort: bool, t: &ElTypes, prm: &MacroParams,
+                         h: &Writ, disc: &mut String) -> JoinOrder {
+    let mut jo: JoinOrder = jo_fixed("");
+    if nsteps < 1i64 {
+        return jo_fixed("no join step — there is no second side to drive from");
+    }
+    if s0_edge {
+        jo = jo_fixed("a traversal step's source is a field path of an outer row, so it cannot be an outermost loop — there is nothing to bind its base to");
+    } else if s0_anti {
+        jo = jo_fixed("an anti join is not symmetric: the rows of the base with no match are a different question from the rows of the step with no match");
+    } else if !has_sort {
+        jo = jo_fixed("the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order");
+    } else if s0_strat == JS_NONE() {
+        jo = jo_fixed("no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for");
+    } else {
+        // The REVERSE direction's own decision: the moved step binds the base's
+        // row var, so its equi-key is selected against a different new-side.
+        let alt: StepSel = decide_join_step(s0_on, base_var, t, h);
+        if !js_reads_once(alt.strat) {
+            jo = jo_fixed("the reverse direction has no equi-key that can be indexed, so driving the other side would rescan a source the query order reads once");
+        } else {
+            let mut szb: String = String::new();
+            let mut szs: String = String::new();
+            if !size_expr_of(prm, base_src, &mut szb) || !size_expr_of(prm, s0_src, &mut szs) {
+                jo = jo_fixed("a side reports no size and cannot be measured without draining it, so the two sides cannot be compared at run time");
+            } else {
+                disc.push_str(string_as_str(&szs));
+                disc.push_str(" > ");
+                disc.push_str(string_as_str(&szb));
+                jo = JoinOrder { dynamic: true,
+                                 why: "either side may drive: the plan indexes the SMALLER side and walks the larger, compared at run time from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence",
+                                 alt_strat: alt.strat, alt_key: alt.key_ty,
+                                 alt_sel: alt.sel, alt_why: alt.why };
+            }
+        }
+    }
+    // Recorded at the moment of deciding, like every other plan decision: a
+    // returned "fixed" has already lost the antecedent that fixed it.
+    plan_trace(base_var, if jo.dynamic { "drive either side" } else { "drive fixed" },
+               s0_var, jo.why);
+    if jo.dynamic {
+        let mut ab: String = String::new();
+        ab.push_str(js_name(jo.alt_strat));
+        ab.push_str(" when driven from ");
+        ab.push_str(s0_var);
+        plan_trace(base_var, string_as_str(&ab), "", jo.alt_why);
+    }
+    return jo;
+}
