@@ -9,9 +9,11 @@
 #   • the DECISION, on the one decision channel (`LOGOS_TRACE_PLAN`), for the
 #     admitted shape AND for both refusals — a plan that only spoke when it acted
 #     would leave "no line" meaning both "did not consider it" and "refused";
-#   • BOTH NESTS in the emitted source, one walking each side, under ONE run-time
+#   • BOTH NESTS in the emitted source, one walking each side, under ONE
 #     discriminant per query — read out of the dump rather than argued from the
-#     emitter;
+#     emitter. Since ADR 0024 S4i that discriminant is a FIELD OF THE PREPARED
+#     PLAN and the size comparison that fills it lives in the query's `prepare`,
+#     so both halves are asserted where they now are;
 #   • the sort's TUPLE TIEBREAK, because that is what makes the two nests
 #     interchangeable. Without it equal keys keep COLLECTION order, which is a
 #     fact about which nest ran, and the reorder would silently reorder rows.
@@ -66,18 +68,36 @@ if [ "${#DUMPS[@]}" -lt 1 ]; then
     exit 1
 fi
 
-# One discriminant per DYNAMIC query (4 of them in the fixture), and it is a
-# comparison of the two sources' sizes.
-n_disc=$(grep -Fc 'if (((rs).len() > (ls).len()))' "${DUMPS[@]}" | awk -F: '{s+=$2} END{print s+0}')
+# ⚠ `grep -Fc` over MANY files exits 1 when the total is zero, and under
+# `set -euo pipefail` that killed this script with no message at all — a gate
+# that "returned 1" while saying nothing about which assertion failed. Every
+# count below is therefore `|| true`-guarded and reported.
+count() { grep -Fc "$1" "${DUMPS[@]}" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}' || true; }
+
+# One discriminant per DYNAMIC query (4 of them in the fixture) — and since
+# ADR 0024 S4i it is a field of the PREPARED PLAN, not a comparison in the
+# query's body: the sizes are compared once, in `prepare`.
+n_disc=$(count 'if (__pl.swap)')
 if [ "$n_disc" -ne 4 ]; then
-    echo "FAIL: $n_disc size discriminants in the emitted fns (want 4, one per dynamic query)"
-    grep -n 'len() > ' "${DUMPS[@]}" || true
+    echo "FAIL: $n_disc plan discriminants in the emitted fns (want 4, one per dynamic query)"
+    grep -n 'if (__pl' "${DUMPS[@]}" || true
+    fail=1
+fi
+# …and the comparison itself is in `prepare`, over the two sources' sizes.
+n_cmp=$(count 'swap: ((__n1 > __n0))')
+if [ "$n_cmp" -ne 4 ]; then
+    echo "FAIL: $n_cmp prepared size comparisons (want 4, one prepare fn per dynamic query)"
+    grep -n '__n1 > __n0' "${DUMPS[@]}" || true
+    fail=1
+fi
+if ! grep -Fq 'let __n1: i64 = (rs).len();' "${DUMPS[@]}"; then
+    echo "FAIL: the prepare fn does not measure the step side"
     fail=1
 fi
 
 # BOTH orders are present: one nest's outermost loop walks `ls`, the other's `rs`.
-n_ls=$(grep -Fc 'while (__i0 < (ls).len())' "${DUMPS[@]}" | awk -F: '{s+=$2} END{print s+0}')
-n_rs=$(grep -Fc 'while (__i0 < (rs).len())' "${DUMPS[@]}" | awk -F: '{s+=$2} END{print s+0}')
+n_ls=$(count 'while (__i0 < (ls).len())')
+n_rs=$(count 'while (__i0 < (rs).len())')
 if [ "$n_ls" -lt 4 ] || [ "$n_rs" -lt 4 ]; then
     echo "FAIL: base loops over ls=$n_ls rs=$n_rs (want >= 4 each: both nests, per dynamic query)"
     fail=1

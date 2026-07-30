@@ -1,0 +1,142 @@
+// logos.std.wql.prepared — THE PLAN AS A RUNTIME VALUE (ADR 0024 S4i).
+//
+// A query compiles when nothing is known about the data, so what a compile-time
+// plan can optimize is bounded; by the time the data exists, the code is fixed
+// and the plan cannot be influenced. S4h answered that with two nests and a
+// run-time discriminant — but a discriminant re-evaluated on every call is a
+// property of the FUNCTION, not an object an application holds. What it should
+// be is JDBC's PreparedStatement: the plan is DECIDED once, against
+// representative data, and then APPLIED many times.
+//
+// So each query emits FOUR items instead of one:
+//
+//   struct <Name>Plan       the decision, plus THE FACTS IT RESTED ON
+//   <q>_prepare(sources)    measures, decides once, returns the plan
+//   <q>_run(plan, sources)  applies a plan to data — the query's real body
+//   <q>(sources)            prepare-then-run, so nothing existing changes
+//
+// ⚠ THE DATA IS NOT PART OF THE PLAN, which is exactly why a plan can be
+// reused: `_run` takes the sources as arguments and the plan holds no reference
+// to anything it measured. That also makes "reusable on data of the same
+// distribution" a CLAIM BY THE CALLER — and an unchecked claim yields a
+// silently pessimal plan. Hence the facts: the plan carries the numbers the
+// choice rested on, so re-preparing is a COMPARISON (`agrees`) rather than a
+// guess, and a plan can say how close to flipping it is (`margin`). That is
+// EXPLAIN addressed to the program rather than to a human — the human's half is
+// `why`, the ground recorded at the moment of deciding.
+//
+// ⚠ ONE PLAN TYPE PER QUERY, not one shared `Plan`. A plan is a decision about a
+// specific query's specific sources, so applying one to another query is a type
+// error rather than a silently pessimal run — the type system carries the
+// association and nothing has to check it.
+//
+// ⚠ PER-ROW COST IS UNCHANGED. The decision is a field of the plan, read once
+// where the size comparison used to be read once; the loop nest below it is
+// still the specialised one the compiler emitted.
+//
+// ⚠ WHAT THE PLAN MAY REST ON is only what `prepare` can measure BEFORE the
+// query runs: the parameters, and the sizes sources DECLARE (S4g). A derived
+// rel's row count is not such a fact — obtaining it means materializing the
+// rel, which is the query's own work — so a join whose sides can only be
+// measured that way keeps ONE nest and says so. A prepared plan that had to run
+// the query to be prepared would not be a plan.
+package logos.std.wql.prepared;
+
+use logos.lang.str;      // str_byte_at
+use logos.mem.string;    // String
+
+// ── What the emitter carries into the shell ────────────────────────────────
+// `on` — emit the prepared surface at all. FALSE for the generated helpers a
+// query is made of (a rel's per-relation fn, an SCC's semi-naïve driver): those
+// are internals of one query's body, not queries an application holds.
+//
+// `dynamic` — the plan holds a RUN-TIME discriminant. Where it does not, the
+// surface is still emitted and still uniform: the plan reports that it rests on
+// nothing measurable, `agrees` is then unconditionally true, and a caller need
+// not know which queries have a choice to write code that re-checks them all.
+//
+// `base_sz` / `step_sz` are the two size EXPRESSIONS, evaluable in `prepare`'s
+// scope after `measure`; the comparison over them is made in ONE place (the
+// emitted `prepare`) so the plan and the branch cannot disagree about it.
+pub struct Prepared {
+    pub on:      bool,
+    pub dynamic: bool,
+    pub base_sz: str,
+    pub step_sz: str,
+    pub measure: str,
+    pub why:     str,
+}
+
+pub fn prep_off() -> Prepared {
+    return Prepared { on: false, dynamic: false, base_sz: "", step_sz: "",
+                      measure: "", why: "" };
+}
+
+/// A prepared surface with no run-time decision in it — the plan is whatever
+/// the compiler already fixed, and `why` says what fixed it.
+pub fn prep_fixed(why: str) -> Prepared {
+    return Prepared { on: true, dynamic: false, base_sz: "", step_sz: "",
+                      measure: "", why: why };
+}
+
+pub fn prep_dyn(base_sz: str, step_sz: str, measure: str, why: str) -> Prepared {
+    return Prepared { on: true, dynamic: true, base_sz: base_sz, step_sz: step_sz,
+                      measure: measure, why: why };
+}
+
+/// The plan TYPE's name: the query's name in CamelCase, plus `Plan`.
+///
+/// A type is what the caller writes down (`let p: ByKeyPlan = …`), so it gets a
+/// type's spelling rather than the fn's. The transform is the only place the two
+/// names are related, so nothing else has to know the convention.
+pub fn prep_type_name(fn_name: str, out: &mut String) {
+    let mut up: bool = true;
+    let mut i: i64 = 0i64;
+    while i < fn_name.len() {
+        let c: u8 = str_byte_at(fn_name, i);
+        if c == 95u8 {
+            // `_` is a word boundary in the fn's spelling and nothing in the
+            // type's.
+            up = true;
+        } else {
+            if up && c >= 97u8 && c <= 122u8 {
+                out.push_u8(c - 32u8);
+            } else {
+                out.push_u8(c);
+            }
+            up = false;
+        }
+        i = i + 1i64;
+    }
+    out.push_str("Plan");
+}
+
+/// `<fn_name><suffix>`, with the visibility marker (a leading `-`, params.logos)
+/// kept in FRONT — the derived fns are as public as the query is, and the shell
+/// consumes the marker where it writes the head.
+pub fn prep_derived_name(fn_name: str, suffix: str, out: &mut String) {
+    out.push_str(fn_name);
+    out.push_str(suffix);
+}
+
+/// A Logos string LITERAL for `s`. The grounds a plan records are written in
+/// this file's own prose and travel into GENERATED SOURCE, where an unescaped
+/// quote or backslash would be a syntax error at a position no reader can use.
+pub fn push_str_lit(out: &mut String, s: str) {
+    out.push_str("\"");
+    let mut i: i64 = 0i64;
+    while i < s.len() {
+        let c: u8 = str_byte_at(s, i);
+        if c == 34u8 || c == 92u8 {
+            out.push_u8(92u8);
+            out.push_u8(c);
+        } else if c == 10u8 {
+            out.push_u8(92u8);
+            out.push_u8(110u8);
+        } else {
+            out.push_u8(c);
+        }
+        i = i + 1i64;
+    }
+    out.push_str("\"");
+}

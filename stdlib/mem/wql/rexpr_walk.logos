@@ -42,6 +42,7 @@ use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
 use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step — THE join-step decision
 use logos.std.wql.join_order; // JoinOrder / decide_join_order — WHICH SIDE DRIVES
+use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
@@ -278,6 +279,216 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // would reintroduce the class of failure this arc removed — a missing `>` or a stray
 // space surfacing as a syntax error inside generated source, at a position no
 // reader can use.)
+
+// ── THE PREPARED SURFACE (ADR 0024 S4i) ──────────────────────────────────────
+// The plan type and its methods. Non-generic ON PURPOSE even when the query is:
+// a plan holds the DECISION and the numbers it rested on, never a row and never
+// a source, so nothing in it is parameterized by the query's element types —
+// which is also what lets `_run` take it beside sources it knows nothing about.
+//
+// `agrees` is EXPLAIN addressed to the program. It asks the question a caller
+// actually has ("is the plan I am holding still the right one for this data?")
+// and it answers from THIS plan's decision against the OTHER's facts, so the
+// rule lives in exactly one place — the emitted `prepare` — and the check cannot
+// drift from the choice. A plan with no run-time decision agrees with everything,
+// because there was nothing about the data for it to be wrong about.
+//
+// `margin` is what the facts are FOR beyond the answer: the distance to the flip.
+// A plan decided on 1000-vs-999 is right and fragile; one decided on 10-vs-10000
+// is right and robust, and only the numbers say which.
+fn emit_prepared_type(tyn: str, is_priv: bool) {
+    let nm: Ident = Ident::new(tyn);
+    if is_priv {
+        let q: QuoteItemBlob = quote_item! {
+            struct #nm {
+                pub dyn_order: bool,
+                pub swap:      bool,
+                pub base_n:    i64,
+                pub step_n:    i64,
+                pub why:       str,
+            }
+            impl #nm {
+                pub fn agrees(&self, fresh: &#nm) -> bool {
+                    if !self.dyn_order { return true; }
+                    return self.swap == (fresh.step_n > fresh.base_n);
+                }
+                pub fn margin(&self) -> i64 {
+                    if !self.dyn_order { return 0i64; }
+                    if self.step_n > self.base_n { return self.step_n - self.base_n; }
+                    return self.base_n - self.step_n;
+                }
+                pub fn explain(&self) -> str { return self.why; }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    } else {
+        let q: QuoteItemBlob = quote_item! {
+            pub struct #nm {
+                pub dyn_order: bool,
+                pub swap:      bool,
+                pub base_n:    i64,
+                pub step_n:    i64,
+                pub why:       str,
+            }
+            impl #nm {
+                pub fn agrees(&self, fresh: &#nm) -> bool {
+                    if !self.dyn_order { return true; }
+                    return self.swap == (fresh.step_n > fresh.base_n);
+                }
+                pub fn margin(&self) -> i64 {
+                    if !self.dyn_order { return 0i64; }
+                    if self.step_n > self.base_n { return self.step_n - self.base_n; }
+                    return self.base_n - self.step_n;
+                }
+                pub fn explain(&self) -> str { return self.why; }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    }
+}
+
+/// A query's four items: the plan type, `prepare`, `run`, and the direct fn as
+/// prepare-then-run. `body` — the query's real body — goes into `run` and
+/// nowhere else, so per-row code is emitted exactly once and the direct fn is
+/// two statements.
+///
+/// ⚠ THE DIRECT FN'S BEHAVIOUR IS UNCHANGED, and it is worth being precise about
+/// why: it prepares over the very sources it is about to run against, so the
+/// decision is taken from the same numbers the inline comparison used to read.
+/// What changes is that the decision became an OBJECT a caller may hoist.
+///
+/// ⚠ `prepare` MAY NOT MATERIALIZE ANYTHING. Its whole body is the declared size
+/// reporters (`measure`, one call per side that has one) and the comparison — no
+/// prelude, no rel fixpoint, no source drained. Anything else and re-preparing to
+/// check a plan would cost as much as running the query, and `agrees` would be
+/// advice nobody can afford to take.
+///
+/// ⚠ The two SMALL bodies here are built as text and reified with `parse_block`,
+/// the same route `prelude_frag` takes — not a text push. A quote cannot spell
+/// them: both are a STRUCT LITERAL whose type name is a runtime value, and
+/// `struct_lit` has no `HASH IDENT` alternative (the `deem_def`-name blocker, ADR
+/// 0024 S5). The per-row body, which is the part that matters, is a quote
+/// throughout and passes through here untouched.
+fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
+                     body: ExprBlob, prm: &MacroParams, prep: Prepared) {
+    let bare: str = vis_strip(fn_name);
+    let is_priv: bool = vis_is_priv(fn_name);
+    let mut tyb: String = String::new();
+    prep_type_name(bare, &mut tyb);
+    let tyn: str = string_as_str(&tyb);
+    emit_prepared_type(tyn, is_priv);
+
+    // The derived fns keep the query's own visibility marker where they are
+    // EMITTED and drop it where they are CALLED: the marker is a directive to
+    // the item emitter, not part of the identifier.
+    let mut prepnm: String = String::new();
+    let mut runnm:  String = String::new();
+    let mut prepc:  String = String::new();
+    let mut runc:   String = String::new();
+    prep_derived_name(fn_name, "_prepare", &mut prepnm);
+    prep_derived_name(fn_name, "_run", &mut runnm);
+    prep_derived_name(bare, "_prepare", &mut prepc);
+    prep_derived_name(bare, "_run", &mut runc);
+
+    // ── prepare ────────────────────────────────────────────────────────────
+    let mut pb: String = String::new();
+    pb.push_str("{\n");
+    if prep.dynamic {
+        pb.push_str(prep.measure);
+        pb.push_str("    let __n0: i64 = ");
+        pb.push_str(prep.base_sz);
+        pb.push_str(";\n    let __n1: i64 = ");
+        pb.push_str(prep.step_sz);
+        pb.push_str(";\n    return ");
+        pb.push_str(tyn);
+        pb.push_str(" { dyn_order: true, swap: (__n1 > __n0), base_n: __n0, step_n: __n1, why: ");
+        push_str_lit(&mut pb, prep.why);
+        pb.push_str(" };\n");
+    } else {
+        // No fact was measured, so none is reported: -1 is "not asked", which a
+        // caller can tell apart from an empty source.
+        pb.push_str("    return ");
+        pb.push_str(tyn);
+        pb.push_str(" { dyn_order: false, swap: false, base_n: -1i64, step_n: -1i64, why: ");
+        push_str_lit(&mut pb, prep.why);
+        pb.push_str(" };\n");
+    }
+    pb.push_str("}\n");
+    emit_fn_quote_blob(string_as_str(&prepnm), params_text, tps, tyn,
+                       parse_block(string_as_str(&pb)), prm);
+
+    // ── run: the query's body, with the plan in front of the sources ───────
+    let mut rps: String = String::new();
+    rps.push_str("__pl: &");
+    rps.push_str(tyn);
+    if params_text.len() > 0i64 {
+        rps.push_str(", ");
+        rps.push_str(params_text);
+    }
+    emit_fn_quote_blob(string_as_str(&runnm), string_as_str(&rps), tps, ret_ty, body, prm);
+
+    // ── the direct fn: prepare, then run ───────────────────────────────────
+    // The plan is a NAMED local rather than `&<prepare>(…)`: a plan is a value
+    // with a lifetime, and taking a reference to a temporary is the shape that
+    // reads as an accident.
+    let mut db: String = String::new();
+    db.push_str("{\n    let __pl: ");
+    db.push_str(tyn);
+    db.push_str(" = ");
+    db.push_str(string_as_str(&prepc));
+    db.push_str("(");
+    push_param_args(&mut db, prm);
+    db.push_str(");\n    return ");
+    db.push_str(string_as_str(&runc));
+    db.push_str("(&__pl");
+    if prm.n > 0i64 {
+        db.push_str(", ");
+        push_param_args(&mut db, prm);
+    }
+    db.push_str(");\n}\n");
+    emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
+                       parse_block(string_as_str(&db)), prm);
+
+    // The one decision channel, like every other plan decision.
+    plan_trace(bare, "prepared plan", tyn, prep.why);
+}
+
+/// The query's parameter NAMES as a call argument list (no parens) — the direct
+/// fn forwarding to `prepare`/`run`. The generated head's parameters are the
+/// `deem!(…)` paren list verbatim and `MacroParams` is that list parsed, so the
+/// two orders are the same by construction.
+fn push_param_args(out: &mut String, prm: &MacroParams) {
+    let mut a: i64 = 0i64;
+    while a < prm.n {
+        if a > 0i64 { out.push_str(", "); }
+        out.push_str(prm.names[a]);
+        a = a + 1i64;
+    }
+}
+
+/// The ground a SINGLE-SOURCE plan records. Stated once because it is the same
+/// argument for a scan and for a find, and because it is the argument this whole
+/// slice rests on: the ACCESS axis is where a run-time decision is nearly always
+/// the same answer (a narrowing over an ordered source costs one descent against
+/// zero and never returns more rows; `upto` walks from the start and merely
+/// stops), so a plan built around it would be a mechanism with no consumer.
+/// JOIN ORDER is the axis where the data changes the answer.
+fn SCAN_PLAN_WHY() -> str {
+    return "one source, no join: the access path is decided where the query compiles, and on that axis a measurement does not change the answer — a narrowing is never meaningfully worse than a scan";
+}
+
+/// The ONE item-emitting entry every query emitter goes through: either the
+/// single direct fn (a generated HELPER — a rel's own fn, an SCC driver: an
+/// internal of one query's body, not a query an application holds) or the
+/// prepared surface of four.
+fn emit_query_fn(fn_name: str, params_text: str, tps: str, ret_ty: str,
+                 body: ExprBlob, prm: &MacroParams, prep: Prepared) {
+    if !prep.on {
+        emit_fn_quote_blob(fn_name, params_text, tps, ret_ty, body, prm);
+        return;
+    }
+    emit_prepared_fns(fn_name, params_text, tps, ret_ty, body, prm, prep);
+}
 
 fn is_comp_root(e: SExpr) -> bool {
     match e {
@@ -650,7 +861,8 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
         let et: ExprBlob = parse_type(result_elem);
         quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
     };
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
+                  prep_fixed("the filter is constantly false, so the plan IS the empty answer — no fact about the data can change it"));
     return true;
 }
 
@@ -671,8 +883,9 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // signature names: `params_text` is VERBATIM, so any param type defined in
     // a factory package needs that package imported. `prm` supplies exactly
     // the list the chunk route builds for every other emitter.
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(),
-                       quote_block! { return Result::Ok(Option::None); }, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
+                  quote_block! { return Result::Ok(Option::None); }, prm,
+                  prep_fixed("the predicate is constantly false, so the plan IS `None` — no fact about the data can change it"));
     return true;
 }
 
@@ -700,7 +913,8 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
         if (#(s1)).len() > 0i64 { return Result::Ok(Option::Some(&(#(s2))[0i64])); }
         return Result::Ok(Option::None);
     };
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
+                  prep_fixed("the answer is the head row of one source: one access, no order and no join, so there is nothing for a measurement to decide"));
     return true;
 }
 
@@ -724,8 +938,9 @@ fn emit_identity(scan_e: RExpr,
     rty.push_str(row_ty);
     rty.push_str("], ElError>");
     let s1: ExprBlob = parse_expr(src_name);
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(),
-                       quote_block! { return Result::Ok(#(s1)); }, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
+                  quote_block! { return Result::Ok(#(s1)); }, prm,
+                  prep_fixed("the answer IS the source, borrowed unchanged — there is no plan to decide"));
     return true;
 }
 
@@ -1108,7 +1323,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         #(scan_f);
         #(tail_f);
     };
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+                  prep_fixed(SCAN_PLAN_WHY()));
     return true;
 }
 
@@ -1176,7 +1392,8 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str("Result<Option<&");
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+                  prep_fixed(SCAN_PLAN_WHY()));
     return true;
 }
 
@@ -2219,21 +2436,38 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     //
     // The plan is asked FIRST, because what it answers is how many nests the body
     // has. When it admits a second order, the transposed chain is built as a
-    // second nest and the two sit under a run-time test of the sizes the plan
-    // asked for; both fill the same `__out` / `__ix*` / `__ks` bindings, declared
-    // outside them, so nothing downstream of the nest knows which one ran.
+    // second nest and the two sit under a test of the PLAN's own field; both fill
+    // the same `__out` / `__ix*` / `__ks` bindings, declared outside them, so
+    // nothing downstream of the nest knows which one ran.
+    //
+    // ⚠ THE DISCRIMINANT IS NO LONGER AN EXPRESSION IN THIS BODY (ADR 0024 S4i).
+    // It is `__pl.swap` — a field of the prepared plan the `_run` fn was handed —
+    // so the sizes are compared ONCE, in `prepare`, and not on every call. The
+    // per-row shape is untouched either way: one branch outside every loop.
     //
     // ⚠ The build phases stay at BODY level in the one-nest case. A join body was
     // flat before this and must stay flat: an extra scope is not cosmetic here
     // (ADR 0024 S5 records a stdlib build failing on "use of moved variable
     // `__out`" from exactly one), so the two-nest form is the only one that
     // introduces a block, and there it is the branch itself.
-    let mut disc: String = String::new();
+    let mut bszb: String = String::new();
+    let mut sszb: String = String::new();
+    let mut bat: i64 = -1i64;
+    let mut sat: i64 = -1i64;
     let jo: JoinOrder = decide_join_order(ch.n, ch.base_src, ch.base_var,
                                           ch.src[0], ch.var[0],
                                           WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[0] as *const u8)),
                                           ch.edge[0], ch.anti[0], ch.jstrat[0],
-                                          has_sort, &ty, prm, h, &mut disc);
+                                          has_sort, &ty, prm, h,
+                                          &mut bszb, &mut sszb, &mut bat, &mut sat);
+    // The measurement `prepare` needs: the declared reporters the two size
+    // expressions call, and ONLY those — a plan does not measure what it will not
+    // compare.
+    let mut meas: String = String::new();
+    if jo.dynamic {
+        if bat >= 0i64 { size_binding_text(&mut meas, prm, bat); }
+        if sat >= 0i64 && sat != bat { size_binding_text(&mut meas, prm, sat); }
+    }
     let mut top_bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nest_all: ExprBlob = quote_block! { };
     if jo.dynamic {
@@ -2252,7 +2486,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                             &bnd_var, nb, &mut bps_b, &mut nest_b) { return false; }
         let br_b: ExprBlob = quote_block! { #( #bps_b; )* #(nest_b); };
         let br_a: ExprBlob = quote_block! { #( #bps_a; )* #(nest_a); };
-        let disc_f: ExprBlob = parse_expr(string_as_str(&disc));
+        let disc_f: ExprBlob = parse_expr("__pl.swap");
         nest_all = quote_block! { if (#(disc_f)) #(br_b) else #(br_a) };
     } else {
         if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
@@ -2357,7 +2591,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         #(sortout);
         #(tail_f);
     };
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
+    let mut prp: Prepared = prep_fixed(jo.why);
+    if jo.dynamic {
+        prp = prep_dyn(string_as_str(&bszb), string_as_str(&sszb),
+                       string_as_str(&meas), jo.why);
+    }
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);
     return true;
 }
 
@@ -2809,7 +3048,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         #(output);
         return Result::Ok(__out);
     };
-    emit_fn_quote_blob(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm);
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+                  prep_fixed("an aggregate's output order is its groups' FIRST-OCCURRENCE order, which no sort restores, so the plan holds the query's own nest and there is nothing for a measurement to choose between"));
     return true;
 }
 

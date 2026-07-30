@@ -984,6 +984,26 @@ set_tests_properties(logos_09_join_order_either_side PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# PREPARED-PLAN gate (ADR 0024 S4i): the plan is a runtime VALUE — a type, a
+# `prepare` that decides once, a `run` that applies it, and the direct fn as
+# prepare-then-run.
+#
+# ⚠ Three properties the fixture cannot see: that the surface exists for queries
+# with NO run-time choice too (uniformity is what makes it usable), that `prepare`
+# contains no loop (a prepare that ran the query would make re-checking a plan cost
+# as much as the query), and that the per-row body is emitted ONCE.
+add_test(
+    NAME logos_09_prepared_plan_surface
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/prepared_plan_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_prepared_plan_e2e.logos
+)
+set_tests_properties(logos_09_prepared_plan_surface PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

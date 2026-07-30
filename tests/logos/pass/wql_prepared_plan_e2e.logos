@@ -1,0 +1,252 @@
+// WQL — THE PLAN IS A RUNTIME VALUE (ADR 0024 S4i): a query emits a plan TYPE, a
+// `prepare` that measures and decides once, and a `run` that applies a plan to
+// data. The direct fn becomes prepare-then-run, so nothing existing moves.
+//
+// ⚠ WHAT MAKES THIS A TEST OF THE PLAN AND NOT OF THE JOIN. Two data sets whose
+// better driving side DIFFERS, one prepared plan each — and then BOTH plans are
+// run against the SAME data. If the plan is really the decision, the nest that
+// executes is the one the PLAN chose, not the one the data would have chosen;
+// and the rows must be identical either way, because a join order is not allowed
+// to change the answer.
+//
+// ⚠ AND THE OBSERVABLE IS AN ORDER, NOT A COUNT, for a reason that is a property
+// of a hash join: each side's key is computed exactly once per row of that side
+// in BOTH nests, so the two nests do the same amount of work and a count-only
+// assertion passes on either. What differs is WHEN: the nest that INDEXES a side
+// computes every one of that side's keys before it touches the other side. So the
+// first tick names the side that was built — the smaller one — and therefore the
+// other side is the one that drove. The counts are asserted too, precisely to pin
+// that they are equal and cannot be the discriminator.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct L { pub k: i64, pub v: i64 }
+struct R { pub k: i64, pub w: i64 }
+
+// The PULL LOG. `FIRST` is 1 when an `ls` key was computed first, 2 when an `rs`
+// key was; `NL`/`NR` count the key computations per side.
+static mut FIRST: i64 = 0i64;
+static mut NL:    i64 = 0i64;
+static mut NR:    i64 = 0i64;
+
+fn tl(x: i64) -> i64 {
+    unsafe {
+        if FIRST == 0i64 { FIRST = 1i64; }
+        NL = NL + 1i64;
+    }
+    return x;
+}
+
+fn tr(x: i64) -> i64 {
+    unsafe {
+        if FIRST == 0i64 { FIRST = 2i64; }
+        NR = NR + 1i64;
+    }
+    return x;
+}
+
+fn reset() {
+    unsafe {
+        FIRST = 0i64;
+        NL = 0i64;
+        NR = 0i64;
+    }
+}
+
+// The admitted shape: two classic sources, an equi-key usable in BOTH directions,
+// and an `order by` — so the plan may offer a second order. The identity ticks
+// ride ON the equi-key's two halves, which is the only place a per-side, per-row
+// observation can sit without changing what the query means.
+pub deem by_key(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on tl(l.k) == tr(r.k)
+    select l.v * 100 + r.w order by l.k }
+
+// REFUSED (no `order by`) — the plan surface still exists and reports that it
+// rests on nothing measured, which is what makes the surface uniform.
+pub deem no_order(ls: &[L], rs: &[R]) {
+    from ls l
+    join rs r on l.k == r.k
+    select l.v * 100 + r.w }
+
+// A single-source scan: a prepared plan with no run-time decision in it.
+pub deem evens(ls: &[L]) {
+    from ls l where l.k % 2 == 0 select l.v }
+
+// The ORACLE: the join in QUERY order, base-major, no sort. The `order by` keys
+// ascend along the base array in every fixture below, so the sorted sequence IS
+// this enumeration.
+fn oracle(ls: &[L], rs: &[R], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < ls.len() {
+        let mut j: i64 = 0i64;
+        while j < rs.len() {
+            if ls[i].k == rs[j].k { out.push(ls[i].v * 100i64 + rs[j].w); }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // Every key is 1 on the left and duplicated on the right, so every sort key
+    // ties and the sequence is decided by the tuple tiebreak alone — a b-major
+    // nest would return 101, 201, 102, … instead of 101, 102, ….
+    let small_ls: [L; 2] = [ L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 } ];
+    let big_rs: [R; 8] = [
+        R { k: 1i64, w: 1i64 }, R { k: 1i64, w: 2i64 },
+        R { k: 1i64, w: 3i64 }, R { k: 2i64, w: 4i64 },
+        R { k: 1i64, w: 5i64 }, R { k: 2i64, w: 6i64 },
+        R { k: 1i64, w: 7i64 }, R { k: 1i64, w: 8i64 },
+    ];
+    // The other distribution: the LEFT side is the larger one here.
+    let big_ls: [L; 6] = [
+        L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 },
+        L { k: 2i64, v: 3i64 }, L { k: 2i64, v: 4i64 },
+        L { k: 3i64, v: 5i64 }, L { k: 3i64, v: 6i64 },
+    ];
+    let small_rs: [R; 3] = [
+        R { k: 2i64, w: 1i64 }, R { k: 1i64, w: 2i64 }, R { k: 2i64, w: 3i64 },
+    ];
+
+    // ── ONE PREPARED PLAN PER DISTRIBUTION ────────────────────────────────
+    // Preparing measures and decides; it does not run the query, so no tick
+    // fires.
+    reset();
+    let p_ab: ByKeyPlan = by_key_prepare(&small_ls[..], &big_rs[..]);
+    let p_ba: ByKeyPlan = by_key_prepare(&big_ls[..], &small_rs[..]);
+    unsafe { if FIRST != 0i64 || NL != 0i64 || NR != 0i64 { return 1i32; } }
+
+    // The FACTS the two plans rest on, and the opposite decisions they entail.
+    if !p_ab.dyn_order        { return 2i32; }
+    if !p_ab.swap             { return 3i32; }   // rs larger ⇒ index ls
+    if p_ab.base_n != 2i64    { return 4i32; }
+    if p_ab.step_n != 8i64    { return 5i32; }
+    if p_ab.margin() != 6i64  { return 6i32; }
+    if !p_ba.dyn_order        { return 7i32; }
+    if p_ba.swap              { return 8i32; }   // ls larger ⇒ index rs
+    if p_ba.base_n != 6i64    { return 9i32; }
+    if p_ba.step_n != 3i64    { return 10i32; }
+    if p_ba.margin() != 3i64  { return 11i32; }
+    if p_ab.explain().len() == 0i64 { return 12i32; }
+
+    // ── (a) THE ROWS ARE THE PLAN-INDEPENDENT PART ────────────────────────
+    // Same data, both plans. The chosen nest differs; the sequence may not.
+    let mut w1: Vec<i64> = Vec::new();
+    oracle(&small_ls[..], &big_rs[..], &mut w1);
+
+    reset();
+    let g_right: Vec<i64> = by_key_run(&p_ab, &small_ls[..], &big_rs[..]).unwrap();
+    let f_right: i64 = unsafe { FIRST };
+    let nl_right: i64 = unsafe { NL };
+    let nr_right: i64 = unsafe { NR };
+
+    reset();
+    let g_wrong: Vec<i64> = by_key_run(&p_ba, &small_ls[..], &big_rs[..]).unwrap();
+    let f_wrong: i64 = unsafe { FIRST };
+    let nl_wrong: i64 = unsafe { NL };
+    let nr_wrong: i64 = unsafe { NR };
+
+    if g_right.len() != 12i64      { return 13i32; }
+    if !same(&g_right, &w1)        { return 14i32; }
+    if !same(&g_wrong, &w1)        { return 15i32; }
+    // The first pair pins the MAJOR order outright: 101 then 102 is base-major.
+    if g_right.get(0i64) != 101i64 { return 16i32; }
+    if g_right.get(1i64) != 102i64 { return 17i32; }
+
+    // ── (b) THE PULL LOG SHOWS THE CHOSEN SIDE DROVE ──────────────────────
+    // `swap` indexes `ls`, so `ls` keys are computed first and `rs` drives;
+    // `!swap` indexes `rs`. The two plans disagree on the SAME data, which is
+    // only possible because the decision travelled in the plan.
+    if f_right != 1i64 { return 18i32; }
+    if f_wrong != 2i64 { return 19i32; }
+
+    // ⚠ AND THE COUNTS ARE THE SAME BOTH WAYS. This is the assertion that says
+    // why the log had to record an order: each side is walked once whichever nest
+    // ran, so no count distinguishes them.
+    if nl_right != 2i64 { return 20i32; }
+    if nr_right != 8i64 { return 21i32; }
+    if nl_wrong != nl_right { return 22i32; }
+    if nr_wrong != nr_right { return 23i32; }
+
+    // The mirror case: the other data set, both plans, one answer.
+    let mut w2: Vec<i64> = Vec::new();
+    oracle(&big_ls[..], &small_rs[..], &mut w2);
+    reset();
+    let h_right: Vec<i64> = by_key_run(&p_ba, &big_ls[..], &small_rs[..]).unwrap();
+    if unsafe { FIRST } != 2i64 { return 24i32; }
+    reset();
+    let h_wrong: Vec<i64> = by_key_run(&p_ab, &big_ls[..], &small_rs[..]).unwrap();
+    if unsafe { FIRST } != 1i64 { return 25i32; }
+    if h_right.len() != 6i64 { return 26i32; }
+    if !same(&h_right, &w2)  { return 27i32; }
+    if !same(&h_wrong, &w2)  { return 28i32; }
+
+    // ── `agrees` — EXPLAIN ADDRESSED TO THE PROGRAM ───────────────────────
+    // Re-preparing is cheap (two reporter calls, no query), so a held plan can
+    // be CHECKED rather than hoped about.
+    let fresh_ab: ByKeyPlan = by_key_prepare(&small_ls[..], &big_rs[..]);
+    let fresh_ba: ByKeyPlan = by_key_prepare(&big_ls[..], &small_rs[..]);
+    if !p_ab.agrees(&fresh_ab) { return 29i32; }
+    if p_ab.agrees(&fresh_ba)  { return 30i32; }
+    if !p_ba.agrees(&fresh_ba) { return 31i32; }
+    if p_ba.agrees(&fresh_ab)  { return 32i32; }
+    // A plan may drift in its facts and still be the right plan: more rows on
+    // both sides, same side smaller.
+    let bigger_rs: [R; 9] = [
+        R { k: 1i64, w: 1i64 }, R { k: 1i64, w: 2i64 }, R { k: 1i64, w: 3i64 },
+        R { k: 2i64, w: 4i64 }, R { k: 1i64, w: 5i64 }, R { k: 2i64, w: 6i64 },
+        R { k: 1i64, w: 7i64 }, R { k: 1i64, w: 8i64 }, R { k: 1i64, w: 9i64 },
+    ];
+    let drifted: ByKeyPlan = by_key_prepare(&small_ls[..], &bigger_rs[..]);
+    if drifted.step_n == p_ab.step_n { return 33i32; }
+    if !p_ab.agrees(&drifted)        { return 34i32; }
+
+    // ── THE DIRECT FN IS UNCHANGED — prepare-then-run ─────────────────────
+    reset();
+    let d1: Vec<i64> = by_key(&small_ls[..], &big_rs[..]).unwrap();
+    if !same(&d1, &w1) { return 35i32; }
+    if unsafe { FIRST } != 1i64 { return 36i32; }   // it prepared over its own data
+    reset();
+    let d2: Vec<i64> = by_key(&big_ls[..], &small_rs[..]).unwrap();
+    if !same(&d2, &w2) { return 37i32; }
+    if unsafe { FIRST } != 2i64 { return 38i32; }
+
+    // ── A PLAN WITH NO RUN-TIME DECISION IS STILL A PLAN ──────────────────
+    // Uniform surface: the refused join and the plain scan both prepare, both
+    // report `dyn_order == false`, and both agree with everything — a caller can
+    // re-check every query it holds without knowing which ones had a choice.
+    let np: NoOrderPlan = no_order_prepare(&small_ls[..], &big_rs[..]);
+    if np.dyn_order            { return 39i32; }
+    if np.base_n != -1i64      { return 40i32; }
+    if np.margin() != 0i64     { return 41i32; }
+    if np.explain().len() == 0i64 { return 42i32; }
+    let np2: NoOrderPlan = no_order_prepare(&big_ls[..], &small_rs[..]);
+    if !np.agrees(&np2)        { return 43i32; }
+    let nr_rows: Vec<i64> = no_order_run(&np, &small_ls[..], &big_rs[..]).unwrap();
+    if !same(&nr_rows, &w1)    { return 44i32; }
+
+    let ep: EvensPlan = evens_prepare(&big_ls[..]);
+    if ep.dyn_order { return 45i32; }
+    let ev: Vec<i64> = evens_run(&ep, &big_ls[..]).unwrap();
+    if ev.len() != 2i64     { return 46i32; }
+    if ev.get(0i64) != 3i64 { return 47i32; }
+    if ev.get(1i64) != 4i64 { return 48i32; }
+    let ev2: Vec<i64> = evens(&big_ls[..]).unwrap();
+    if !same(&ev, &ev2) { return 49i32; }
+
+    return 0i32;
+}

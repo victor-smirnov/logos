@@ -11,10 +11,17 @@
 //
 // So the answer is not a better compile-time guess. It is TWO orders in the
 // emitted code and a DISCRIMINANT the plan owns: the sizes the plan asked for
-// (S4g) are compared once, in the prelude's own scope, and the branch taken
-// indexes the SMALLER side and walks the larger. That is the first piece of the
-// PreparedStatement shape — a plan built where the data is, over code compiled
-// where it is not.
+// (S4g) are compared once and the branch taken indexes the SMALLER side and
+// walks the larger.
+//
+// ⚠ THAT COMPARISON IS NOT MADE HERE AND NOT IN THE QUERY'S BODY. It is made in
+// the query's PREPARE fn and recorded on the plan object (ADR 0024 S4i,
+// `logos.std.wql.prepared`) — decided once, applied many times, which is what
+// makes it a plan rather than a per-call test. What this module hands over is
+// therefore the two size EXPRESSIONS plus the ground, and the consequence is a
+// tightening: a size that only exists after the query's own prelude has run
+// (a materialized rel's `.len()`) is no longer usable, because a plan prepared
+// over the input data cannot have it.
 //
 // ⚠ WHAT REORDERING IS NOT ALLOWED TO DO IS CHANGE THE ANSWER, and for a join
 // the answer includes the ORDER of the rows. Deem's default row order IS the
@@ -72,26 +79,34 @@ fn jo_fixed(why: str) -> JoinOrder {
                        alt_key: 0i32, alt_sel: -1i64, alt_why: "" };
 }
 
-/// A source's SIZE, as an expression evaluable where the prelude ended.
+/// A source's SIZE, as an expression evaluable in the PREPARE fn — that is,
+/// before the query's own prelude has run (ADR 0024 S4i).
 ///
 /// Two spellings, and the order matters. A source that DECLARED a size operation
-/// has already been asked (`AccessPlan.size_at`, S4g) — the number is a prelude
-/// binding, obtained once beside the source's own, and using it is what makes
-/// that phase's fact load-bearing instead of merely recorded. Anything else is
-/// asked the way the nest's own loop condition asks: `.len()` on an indexable
-/// source. A STREAMED source has neither — a length costs draining the iterator,
-/// which is the one thing streaming exists to avoid — so it has no size here and
-/// the comparison cannot be made.
-fn size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
+/// has already been asked (`AccessPlan.size_at`, S4g) — the number is one
+/// reporter call on the source PARAMETER, which `prepare` can make for itself;
+/// `at` receives the rel index so the caller can emit that one binding and
+/// nothing else. Anything else is asked the way the nest's own loop condition
+/// asks: `.len()` on an indexable source.
+///
+/// ⚠ AND THAT SECOND SPELLING IS ONLY AVAILABLE ON A PARAMETER. A rel's slice
+/// (`__rel_x_sl`) is a local of the generated fn, produced by materializing the
+/// relation — so its length is not a fact about the input data but a result of
+/// the query's own work, and a plan prepared before that work has no number to
+/// compare. Such a side reports no size here, exactly like a STREAMED source
+/// (whose length costs draining the iterator, the one thing streaming exists to
+/// avoid).
+fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> bool {
+    *at = -1i64;
     if prm.rel_src_streams(src) { return false; }
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 {
-        if prm.rel_size_at[ri].len() > 0i64 {
-            out.push_str("(");
-            out.push_str(prm.rel_size_at[ri]);
-            out.push_str(" as i64)");
-            return true;
-        }
+        if prm.rel_size_at[ri].len() == 0i64 { return false; }
+        *at = ri;
+        out.push_str("(");
+        out.push_str(prm.rel_size_at[ri]);
+        out.push_str(" as i64)");
+        return true;
     }
     out.push_str("(");
     out.push_str(src);
@@ -108,14 +123,19 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
 /// permutation can force two predicates onto one position, and a step carries
 /// one `on`.
 ///
-/// Returns the decision; `disc` receives the run-time discriminant — true means
-/// "take the transposed order", i.e. the step's source is the LARGER one and the
-/// base is the one worth indexing.
+/// Returns the decision. `bsz`/`ssz` receive the two side SIZES as expressions
+/// and `bat`/`sat` the rel whose declared reporter each one calls (-1 for a
+/// parameter's own `.len()`), so the PREPARE fn can bind exactly the reporters
+/// its comparison reads. The comparison itself is NOT built here: it is made in
+/// one place, the emitted `prepare`, which is also where its result is recorded
+/// on the plan — the branch then reads the plan's field and cannot disagree with
+/// the number the plan reports (ADR 0024 S4i).
 pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
                          s0_src: str, s0_var: str, s0_on: WRef<SExpr>,
                          s0_edge: bool, s0_anti: bool, s0_strat: i32,
                          has_sort: bool, t: &ElTypes, prm: &MacroParams,
-                         h: &Writ, disc: &mut String) -> JoinOrder {
+                         h: &Writ, bsz: &mut String, ssz: &mut String,
+                         bat: &mut i64, sat: &mut i64) -> JoinOrder {
     let mut jo: JoinOrder = jo_fixed("");
     if nsteps < 1i64 {
         return jo_fixed("no join step — there is no second side to drive from");
@@ -135,16 +155,21 @@ pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
         if !js_reads_once(alt.strat) {
             jo = jo_fixed("the reverse direction has no equi-key that can be indexed, so driving the other side would rescan a source the query order reads once");
         } else {
-            let mut szb: String = String::new();
-            let mut szs: String = String::new();
-            if !size_expr_of(prm, base_src, &mut szb) || !size_expr_of(prm, s0_src, &mut szs) {
-                jo = jo_fixed("a side reports no size and cannot be measured without draining it, so the two sides cannot be compared at run time");
+            // ⚠ BOTH sides are asked, even though the first failure decides:
+            // `size_expr_of` writes into the caller's buffers, so short-circuiting
+            // would leave one half-filled and the ground would then depend on the
+            // order of the operands.
+            let okb: bool = size_expr_of(prm, base_src, bsz, bat);
+            let oks: bool = size_expr_of(prm, s0_src, ssz, sat);
+            if !okb || !oks {
+                bsz.clear();
+                ssz.clear();
+                *bat = -1i64;
+                *sat = -1i64;
+                jo = jo_fixed("a side's size cannot be had before the query runs — it is streamed, or it is a rel this query materializes — so a plan prepared over the input data has no two numbers to compare");
             } else {
-                disc.push_str(string_as_str(&szs));
-                disc.push_str(" > ");
-                disc.push_str(string_as_str(&szb));
                 jo = JoinOrder { dynamic: true,
-                                 why: "either side may drive: the plan indexes the SMALLER side and walks the larger, compared at run time from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence",
+                                 why: "either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence",
                                  alt_strat: alt.strat, alt_key: alt.key_ty,
                                  alt_sel: alt.sel, alt_why: alt.why };
             }

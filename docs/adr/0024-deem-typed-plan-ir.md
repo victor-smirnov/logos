@@ -212,11 +212,59 @@ never decided (a rel body's own chain, re-emitted per fixpoint variant), a
 reverse direction with no indexable equi-key, and a side whose size cannot be had
 without draining it. Every refusal is a trace line rather than a silence, and the
 aggregate shape is left fixed on purpose: its output order is its groups'
-FIRST-OCCURRENCE order, which the sort does not restore. *Remaining:* the
-prepared object itself — the discriminant is re-evaluated per call today, which
-is right for a function but is not yet a plan an application holds and re-applies
-— and join order beyond the first pair, which needs more than two nests and
-therefore a cost comparison rather than a comparison of two.
+FIRST-OCCURRENCE order, which the sort does not restore. **S4i** — THE PLAN IS A
+RUNTIME VALUE, chosen once and reusable: JDBC's PreparedStatement, and the answer
+to the framing this whole sub-arc rests on. A query compiles when nothing is known
+about the data, so what a static plan can optimize is bounded; by the time the
+data exists the code is fixed. S4h answered with two nests and a run-time test —
+but a test re-evaluated on every call is a property of the FUNCTION, not an object
+an application holds. So each query now emits FOUR items
+(`logos.std.wql.prepared`): a plan TYPE, `<q>_prepare(sources)` which measures and
+decides, `<q>_run(plan, sources)` which is the query's real body, and `<q>`, which
+becomes prepare-then-run so nothing existing changes behaviour. The per-row shape
+is untouched: `if (__pl.swap)` reads a field once where the size comparison used to
+be read once, and the loops below it are the same specialised ones.
+⚠ THE FACTS ARE THE POINT, NOT THE BIT. "Reusable on data of the same
+distribution" is a CLAIM BY THE CALLER, and an unchecked claim yields a silently
+pessimal plan — so the plan carries the two sizes it measured, not just the
+decision they produced. `agrees(&fresh)` then makes re-checking a COMPARISON
+rather than a guess (this plan's decision against a fresh measurement's facts),
+`margin()` says how close to flipping it is (1000-vs-999 is right and fragile;
+10-vs-10000 is right and robust, and only the numbers distinguish them), and
+`explain()` returns the ground. That is EXPLAIN addressed to the program rather
+than to a human. ⚠ AND `prepare` MAY NOT RUN THE QUERY, which is the property the
+gate exists for: its whole body is the declared size reporters plus the
+comparison — no prelude, no rel fixpoint, nothing drained — because a re-check
+that cost as much as the query would be advice nobody can take. That tightened
+S4h in one place: a size obtainable only by MATERIALIZING a rel is no longer
+usable, since a plan prepared over the input data cannot have it — a derived
+relation's row count is a result of the query's own work, not a fact about its
+input. ⚠ THE SURFACE IS UNIFORM, including for queries with nothing to decide (a
+scan, a find, an aggregate, a join without `order by`): they prepare too, report
+`dyn_order == false`, and agree with everything, so a caller can re-check every
+plan it holds without knowing which ones had a choice. The generated HELPERS a
+query is made of (a rel's own fn, an SCC's semi-naïve driver) get no surface —
+they are internals of one body, not queries an application holds. ⚠ THE
+OBSERVABLE IS AN ORDER, NOT A COUNT, and the fixture had to be built around that:
+in a hash join each side's key is computed exactly once per row of that side in
+BOTH nests, so the two orders do the same amount of work and no count
+distinguishes them. What differs is WHEN — the indexed side's keys are all
+computed before the other side is touched — so the fixture ticks each half of the
+equi-key through an identity UDF and reads the FIRST tick, then asserts the counts
+are EQUAL precisely to pin that they could not have been the discriminator. Two
+data sets whose better side differs, one prepared plan each, both plans run against
+the same data: same rows, different driving side. ⚠ MEASURED COST OF THE TIGHTENING,
+recorded rather than glossed: two corpus queries (`wql_writ_graph_e2e`,
+`wql_gpath_e2e` — joins over a Writ-graph rel with `order by`) had a second nest
+under S4h and now keep one, because their sides are only measurable after
+materialization. Rows are unchanged and the refusal is a trace line; the REMEDY is
+the mechanism this plane already has — those sources declare no `size` operation,
+and declaring one (S4g) restores the choice without a special case. *Remaining:*
+that declaration; join order beyond the first pair, which needs more than two nests
+and therefore a cost comparison rather than a comparison of two; and the plan holds
+only the join-order discriminant, because access is the axis where a run-time
+decision is nearly always the same answer — a plan field for it would be a
+mechanism with no consumer.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

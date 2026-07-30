@@ -2524,23 +2524,13 @@ fn pw_flag(flags: str, c: u8) -> bool {
 /// the walk below it is shaped. Emitted only when the source declared a reporter;
 /// otherwise nothing is emitted and the plan's trace says the size is unknown.
 ///
-/// ⚠ ANNOTATED from the DECLARED return type, inferred only when none travelled.
-/// The reporter of a factory-generated family lands in the same round its query
-/// lowers, and an inferred `let` then carries an unresolved type var out of the
-/// prelude — the reason `rel_itty` exists, holding here for the same reason.
+/// ⚠ ONE COPY, in params.logos (`size_binding_text`), because the PREPARE fn
+/// (ADR 0024 S4i) needs the same statement in a body of its own: a prepared
+/// plan measures before the query's prelude exists, and two spellings of the
+/// same reporter call is how a plan comes to compare numbers obtained
+/// differently.
 fn emit_size_binding(prelude: &mut String, prm: &MacroParams, r: i64) {
-    if prm.rel_size_fn[r].len() == 0i64 { return; }
-    prelude.push_str("    let ");
-    prelude.push_str(prm.rel_size_at[r]);
-    if prm.rel_size_ty[r].len() > 0i64 {
-        prelude.push_str(": ");
-        prelude.push_str(prm.rel_size_ty[r]);
-    }
-    prelude.push_str(" = ");
-    prelude.push_str(prm.rel_size_fn[r]);
-    prelude.push_str("(");
-    prelude.push_str(prm.rel_marg[r]);
-    prelude.push_str(");\n");
+    size_binding_text(prelude, prm, r);
 }
 
 fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,

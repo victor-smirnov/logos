@@ -444,6 +444,35 @@ impl MacroParams {
     }
 }
 
+/// `let <size_at>: <size_ty> = <size_fn>(<marg>);` — the rel's SIZE, obtained
+/// ONCE (ADR 0024 S4g). Nothing when the source declared no reporter.
+///
+/// ⚠ ONE COPY, because the statement is now needed in TWO bodies: the query's
+/// own prelude (plan_walker) and the PREPARE fn's measurement (rexpr_walk,
+/// S4i) — and a prepared plan that spelled the reporter call differently from
+/// the query would compare a number to one obtained another way. It lives here
+/// for the same reason `RelScc` does: params.logos is the module both sides
+/// already share.
+///
+/// ⚠ ANNOTATED from the DECLARED return type, inferred only when none
+/// travelled: the reporter of a factory-generated family lands in the same
+/// round its query lowers, and an inferred `let` then carries an unresolved
+/// type var out of the prelude.
+pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
+    if prm.rel_size_fn[r].len() == 0i64 { return; }
+    out.push_str("    let ");
+    out.push_str(prm.rel_size_at[r]);
+    if prm.rel_size_ty[r].len() > 0i64 {
+        out.push_str(": ");
+        out.push_str(prm.rel_size_ty[r]);
+    }
+    out.push_str(" = ");
+    out.push_str(prm.rel_size_fn[r]);
+    out.push_str("(");
+    out.push_str(prm.rel_marg[r]);
+    out.push_str(");\n");
+}
+
 // ── RelScc — the rel dependency CONDENSATION (slice C — recursive rels) ──────
 // Computed by the program walker (plan_walker::compute_rel_scc) from the
 // RelDeps edge list; consumed by BOTH the walker (stratification validation +
