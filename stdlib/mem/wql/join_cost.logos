@@ -205,6 +205,17 @@ pub fn JC_NOFACT() -> i64 { return -2i64; }
 /// candidate is a PERMUTATION of the same `nfl` sources, so "candidate `c` reads a
 /// fact that is missing" and "one of the first `nfl` facts is missing" are the same
 /// statement, and the check does not need a candidate to be meaningful.
+///
+/// ⚠ AND BECAUSE IT DOES NOT, IT IS ASKED ONCE PER DECISION, NOT ONCE PER CANDIDATE.
+/// `jc_order_pick` and `jc_margin` walk the whole table; running an `nfl`-long scan
+/// that cannot change between iterations inside that walk is a loop-invariant
+/// computation left in the loop, and it was measured as one: `ncand + 1` scans per
+/// `prepare` instead of 1, +209 Ir on a `JCTable{ncand: 4, nfl: 3}` decision (+29.4%
+/// of it), which is worst exactly for the point-get-in-a-loop shape where `prepare`
+/// is the whole cost. So the two table walkers ask it themselves and then price
+/// through `jc_cost_at`, and `jc_order_cost` — the one entry a CALLER reaches, with
+/// a single candidate and no walk — keeps asking it per call, where it is not
+/// invariant of anything.
 pub fn jc_have_facts(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> bool {
     let mut j: i64 = 0i64;
     while j < t.nfl {
@@ -255,9 +266,31 @@ pub fn jc_size_at(k: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
 /// an index outside the carried set has no cost on ANY facts. Only then is "the
 /// facts are not held" (-2) reachable, which is the answer a DEFERRED plan gives —
 /// its candidates are real, its sizes are not.
+///
+/// ⚠ AND IT COSTS +2 Ir PER CALL FOR THE HOIST, DECLARED. This entry is now guards
+/// plus one call to `jc_cost_at` rather than guards plus the loop; measured on 800k
+/// `cost_of` calls, 171,618,489 → 173,218,292 total Ir, i.e. +2.0 per call, against
+/// −352 per `prepare()` on the decision path that the hoist buys (a `JCTable{ncand:
+/// 4, nfl: 3}` plan, `order_pick` + `margin`). Static: 120 insns → 29 + 95. The
+/// alternative — keeping the loop here AND in `jc_cost_at` — is the model in two
+/// copies, which is the one thing this module exists to prevent, so the trade is
+/// taken and written down rather than left for the next measurement to find.
 pub fn jc_order_cost(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if ix < 0i64 || ix >= t.ncand { return -1i64; }
     if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
+    return jc_cost_at(t, ix, n0, n1, n2, n3);
+}
+
+/// THE ARITHMETIC, with both refusals already discharged by the caller. Its
+/// PRECONDITION is `0 <= ix < t.ncand` and `jc_have_facts(t, …)` — not a convention
+/// but a memory-safety obligation: `t.slot[ix * JC_MAX_FL + j]` is unguarded here.
+///
+/// ⚠ IT IS PRIVATE, AND THAT IS THE WHOLE OF ITS SAFETY ARGUMENT. Three callers, all
+/// in this file, all inside `0..t.ncand` loops or behind the range test above. A
+/// `pub` unchecked cost would be a second entry point whose contract lives in prose,
+/// which is how "the facts are not held" became "the cheapest candidate" the first
+/// time (see `jc_cap`).
+fn jc_cost_at(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     let b: i64 = ix * JC_MAX_FL();
     let mut c: i64 = 0i64;
     let mut r: i64 = 1i64;
@@ -293,10 +326,10 @@ pub fn jc_order_pick(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if t.ncand < 2i64 { return 0i64; }
     if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
     let mut best: i64 = 0i64;
-    let mut bc: i64 = jc_order_cost(t, 0i64, n0, n1, n2, n3);
+    let mut bc: i64 = jc_cost_at(t, 0i64, n0, n1, n2, n3);
     let mut i: i64 = 1i64;
     while i < t.ncand {
-        let c: i64 = jc_order_cost(t, i, n0, n1, n2, n3);
+        let c: i64 = jc_cost_at(t, i, n0, n1, n2, n3);
         if c < bc { bc = c; best = i; }
         i = i + 1i64;
     }
@@ -317,12 +350,26 @@ pub fn jc_order_pick(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
 pub fn jc_margin(t: &JCTable, win: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if t.ncand < 2i64 { return 0i64; }
     if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
-    let w: i64 = jc_order_cost(t, win, n0, n1, n2, n3);
+    // ⚠ THE RANGE TEST STAYS, HOISTED WITH THE FACT TEST RATHER THAN DROPPED. `win`
+    // is the only index here that does NOT come from this function's own loop — it
+    // is the plan's `order_ix`, a field a caller may write — so -1 for "there is no
+    // such candidate" is exactly what `jc_order_cost` answered before, and
+    // `jc_cost_at` would have indexed `slot` out of bounds instead.
+    //
+    // ⚠ AND WHAT THE FUNCTION THEN COMPOSES FROM THAT -1 IS UNCHANGED, deliberately:
+    // `up - (-1)` is not a distance to any flip, it is what an out-of-range `win`
+    // has always produced here. This slice moved WHERE the guards run and measured
+    // that; it did not re-answer a question no measurement asked. Stated so the next
+    // reader knows the junk is inherited, not introduced — the honest answer is the
+    // module's own "there is no such candidate", and changing to it is a decision
+    // about the surface, not about the hoist.
+    let mut w: i64 = -1i64;
+    if win >= 0i64 && win < t.ncand { w = jc_cost_at(t, win, n0, n1, n2, n3); }
     let mut up: i64 = -1i64;
     let mut i: i64 = 0i64;
     while i < t.ncand {
         if i != win {
-            let c: i64 = jc_order_cost(t, i, n0, n1, n2, n3);
+            let c: i64 = jc_cost_at(t, i, n0, n1, n2, n3);
             if up < 0i64 || c < up { up = c; }
         }
         i = i + 1i64;
