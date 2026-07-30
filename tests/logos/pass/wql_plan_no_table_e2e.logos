@@ -40,6 +40,7 @@ package test;
 
 use logos.std.wql.wql;
 use logos.std.wql.join_cost;   // the cost function itself — both sides of the pin
+use logos.std.wql.why;         // AX_* / WG_* — the census codes, both sides of the pin
 use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.str;            // str_contains — the recorded ground is asserted
@@ -93,22 +94,24 @@ fn main() -> i32 {
     // antecedent is "something was considered", and the remedy is not a remedy
     // because nothing is wrong: a query with one source has no order to choose.
     //
-    // ⚠ AND IT NAMES WHICH ABSENCE (ADR 0024 S4n). "Nothing was considered" used to be
-    // appended to every table-less plan without consulting the search, so it was also
-    // said by plans whose derivation had proved eight legal orders and declined to
-    // carry them. `evens` is the OTHER case — one source, no order axis, nothing
-    // enumerated — and it now says so in those words, with `proved()` reporting 0
-    // beside `considered()`. The pair is what a program reads;
-    // `wql_join_order_multi_e2e::q5` pins the contrasting case in the same vocabulary.
+    // ⚠ AND IT NAMES WHICH ABSENCE — AS A VALUE (ADR 0024 S4o). "Nothing was
+    // considered" was appended to every table-less plan without consulting the search,
+    // so it was also said by plans whose derivation had proved eight legal orders. The
+    // sentence that replaced it, "the order axis was never entered", was keyed on
+    // `nperm == 0` and was therefore said by 59 of 259 plans whose axis HAD been
+    // entered and had refused them. Both were sentences asserting a state from a
+    // count. `axis()` IS the state, and `why::AX_NONE()` is the value `evens` reports
+    // — pinned here against the function that defines it, in one run.
     if !str_contains(p.explain(), "no candidate table") { return 15i32; }
-    if !str_contains(p.explain(), "the order axis was never entered") { return 16i32; }
+    if p.axis() != AX_NONE() { return 16i32; }
     if !str_contains(p.explain(), "the access path is decided where the query compiles") { return 17i32; }
     if p.proved() != 0i64 { return 18i32; }
     if p.proved() != p.considered() { return 19i32; }
-    // And the number that makes "never entered" a fact rather than an inference:
-    // nothing was enumerated. A plan whose axis WAS entered and admitted nothing
-    // would report the same `proved()` and a non-zero `enumerated()`.
+    // And the counts are exactly the ones a REFUSED axis also reports, which is why
+    // they were never the answer: `wql_plan_census_e2e` puts this plan beside an anti
+    // join whose three counts are identical and whose `axis()` is not.
     if p.enumerated() != 0i64 { return 29i32; }
+    if p.ground() != WG_SCAN() { return 32i32; }
 
     // ── 3. THE SURFACE ────────────────────────────────────────────────────
     if p.dyn_order    { return 20i32; }

@@ -126,6 +126,7 @@ package logos.std.wql.prepared;
 
 use logos.lang.str;      // str_byte_at
 use logos.mem.string;    // String
+use logos.std.wql.why;   // Why — the justification as a RECORD, and its one renderer
 
 // ── What the emitter carries into the shell ────────────────────────────────
 // `on` — emit the prepared surface at all. FALSE for the generated helpers a
@@ -166,62 +167,62 @@ use logos.mem.string;    // String
 //
 // `ncand` — how many orders, hence how many nests the body carries.
 //
-// ── THE ORDER SEARCH'S CENSUS (ADR 0024 S4n) ─────────────────────────────────
-// `nperm` / `nadm` — the permutations the derivation ENUMERATED and the ones it
-// PROVED ADMISSIBLE. They are compile-time numbers and they stay compile-time
-// numbers: `proved()` is emitted as a constant-returning method, so a plan pays no
-// field and no store for carrying its own census.
+// ── THE GROUND IS A RECORD, NOT A SENTENCE (ADR 0024 S4o) ────────────────────
+// `w` — the JUSTIFICATION, as `logos.std.wql.why::Why`: which antecedent failed and
+// the operands it failed on, including the search census (`nperm`/`nadm`/`ncand`/
+// `nnest`). It replaces the `why: str` this struct carried and the `nperm`/`nadm`
+// pair beside it.
 //
-// ⚠ THEY EXIST BECAUSE `considered() == 0` MEANT TWO DIFFERENT THINGS. A plan with
-// no candidate table reports 0 whether the axis was never entered (one source, no
-// join, nothing to permute) or entered and proved EIGHT legal orders that the
-// artifact bound then declined to carry — measured on `wql_join_order_multi_e2e::q5`,
-// whose trace says "24 permutations … 8 admissible, 1 carried" while its plan said
-// "nothing was considered". A count that means two things is not a fact, and the
-// second reading is precisely the one `JC_MAX_CAND` exists to make visible.
+// ⚠ THE PAIR WAS A SECOND COPY OF THE CENSUS AND IT DRIFTED WITHIN ONE ROUND.
+// `nperm == 0` was read as "the order axis was never entered" — true of a scan, and
+// equally true of a chain `decide_join_orders` entered and refused before the
+// derivation ran, which is 59 of the corpus's 259 plans. The census is not a count,
+// it is a STATE (`why::why_axis`), and a state derived from the ground code cannot
+// contradict the ground.
 //
-// ⚠ ZERO IS THE DEFAULT AND IT IS THE HONEST ONE. Every `prep_*` constructor sets
-// both to 0 — "no permutation was enumerated" — which is exactly true of every
-// surface that returns before `decide_join_orders` runs (a scan, a head row, a
-// constantly-false filter, an aggregate). The ONE caller that entered the axis
-// overwrites them from the `JoinOrder` it holds, through `prep_set_search`.
+// ⚠ AND THERE IS NO `prep_set_search` ANY MORE. The census arrived through a second
+// entry point precisely because it lived beside the decision instead of in it; a
+// record carries it wherever the record goes, and the one site that entered the axis
+// no longer has to remember to write it down.
 pub struct Prepared {
     pub on:       bool,
     pub dynamic:  bool,
     pub deferred: bool,
     pub nfl:      i64,
     pub ncand:    i64,
-    pub nperm:    i64,
-    pub nadm:     i64,
     pub sz0:      str,
     pub sz1:      str,
     pub sz2:      str,
     pub sz3:      str,
     pub measure:  str,
     pub tbl:      str,
-    pub why:      str,
+    pub w:        Why,
 }
 
 pub fn prep_off() -> Prepared {
     return Prepared { on: false, dynamic: false, deferred: false, nfl: 0i64, ncand: 0i64,
-                      nperm: 0i64, nadm: 0i64,
-                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: "" };
+                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "",
+                      w: why_new() };
 }
 
 /// A prepared surface with no run-time decision in it — the plan is whatever
-/// the compiler already fixed, and `why` says what fixed it.
-pub fn prep_fixed(why: str) -> Prepared {
+/// the compiler already fixed, and `w` records what fixed it.
+pub fn prep_fixed(w: Why) -> Prepared {
     return Prepared { on: true, dynamic: false, deferred: false, nfl: 0i64, ncand: 1i64,
-                      nperm: 0i64, nadm: 0i64,
-                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: why };
+                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", w: w };
+}
+
+/// The same, for a ground whose whole content is its CODE — a scan, a head row, an
+/// aggregate: no operand, nothing composed, and now nothing written down twice.
+pub fn prep_ground(g: i32) -> Prepared {
+    return prep_fixed(why_of(g));
 }
 
 pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
-                measure: str, tbl: str, why: str) -> Prepared {
+                measure: str, tbl: str, w: Why) -> Prepared {
     return Prepared { on: true, dynamic: true, deferred: false, nfl: nfl, ncand: ncand,
-                      nperm: 0i64, nadm: 0i64,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
-                      measure: measure, tbl: tbl, why: why };
+                      measure: measure, tbl: tbl, w: w };
 }
 
 /// The DEFERRED half (ADR 0024 S4j): `prepare` measures nothing and decides
@@ -231,26 +232,10 @@ pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
 /// the deferral affordable. The TABLE is still carried: `run` needs it to price the
 /// candidates, and it is the only account `explain()` can give of what will be.
 pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
-                     tbl: str, why: str) -> Prepared {
+                     tbl: str, w: Why) -> Prepared {
     return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
-                      nperm: 0i64, nadm: 0i64,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
-                      measure: "", tbl: tbl, why: why };
-}
-
-/// RECORD THE ORDER SEARCH'S CENSUS on a plan the search produced. Called from the
-/// one site that holds a `JoinOrder` — every other `prep_*` result keeps the 0/0
-/// default, which is the true statement "no permutation was enumerated".
-///
-/// ⚠ IT IS A SEPARATE CALL RATHER THAN TWO MORE CONSTRUCTOR PARAMETERS because the
-/// census is orthogonal to WHICH half decided: `prep_fixed`, `prep_dyn` and
-/// `prep_deferred` are all reachable from a search that ran, and all three are also
-/// reachable from surfaces that never entered the axis. Threading the pair through
-/// three signatures would have put the same two numbers in three places and left the
-/// default to each of them.
-pub fn prep_set_search(p: &mut Prepared, nperm: i64, nadm: i64) {
-    p.nperm = nperm;
-    p.nadm  = nadm;
+                      measure: "", tbl: tbl, w: w };
 }
 
 // ── WHAT A DEFERRED PLAN DOES NOT HOLD (ADR 0024 S4m) ────────────────────────
@@ -268,9 +253,11 @@ pub fn prep_set_search(p: &mut Prepared, nperm: i64, nadm: i64) {
 /// equality against that function — so the sentence and the artifact cannot drift
 /// apart without a fixture going red. Prose that merely says "do not rely on this"
 /// is what a caller ignores; a value they can compare is not.
-pub fn defer_not_held() -> str {
-    return "per-call means the PREPARED surface holds none of the answer: `order_ix` is -1 (no order is named — `run` names one, per call, from `order_pick` on the lengths it reads there), `swap` is false for want of an order rather than for want of a transposition, `cost_of` and `margin` return `join_cost::JC_NOFACT()` (-2, `the facts this answer needs are not on this plan` — distinct from -1, `there is no such candidate`), `agrees` is vacuously true because nothing here can go stale, and `settled()` is false, which is the one member whose whole job is to say so";
-}
+///
+/// ⚠ IT LIVES IN `logos.std.wql.why` NOW, with the rest of the justification
+/// vocabulary. The renderer needs it and the renderer is below this module in the
+/// dependency order (`Prepared` carries a `Why`), so keeping the sentence here would
+/// have meant a cycle or a second copy. This is the pointer; there is no second copy.
 
 /// The plan TYPE's name: the query's name in CamelCase, plus `Plan`.
 ///

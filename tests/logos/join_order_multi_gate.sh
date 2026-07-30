@@ -91,12 +91,40 @@ fi
 # ground that had just said eight orders were proved legal. This is the one case
 # `JC_MAX_CAND` exists to make visible, so the bound's disclosure is asserted on the
 # artifact and not only on the channel.
-if ! grep -q '8 of 24 permutations were proved admissible and NONE of them is carried' "$TMPD/err"; then
+if ! grep -q '`enumerated()` 24, `proved()` 8, `considered()` 0' "$TMPD/err"; then
     echo "FAIL: the over-bound plan's own ground does not report what the search proved"
+    fail=1
+fi
+if ! grep -q 'NO CANDIDATE TABLE IS CARRIED, and NOT because nothing was proved' "$TMPD/err"; then
+    echo "FAIL: the over-bound plan does not distinguish 'proved none' from 'carried none'"
     fail=1
 fi
 if grep -q 'nothing was considered' "$TMPD/err"; then
     echo "FAIL: a plan whose axis was entered claims nothing was considered"
+    fail=1
+fi
+# ⚠ AND THE SUCCESSOR SENTENCE MUST NOT APPEAR HERE EITHER. 'the order axis was never
+# entered' replaced 'nothing was considered' and was asserted on 59 of 259 plans whose
+# axis HAD been entered and had refused them. No emitter composes a census sentence
+# now; `why::why_render` selects one from `why_axis`, which is a partition.
+if grep -q 'the order axis was never entered' "$TMPD/err"; then
+    echo "FAIL: a plan whose axis was entered claims the axis was never entered"
+    fail=1
+fi
+# ⚠ AND THE STATE IS ON THE OBJECT, NOT ONLY IN THE PROSE. `axis()` == 2
+# (`why::AX_SEARCHED`) and `ground()` == 20 (`why::WG_MAX_CAND`) — which is what lets
+# a PROGRAM tell "the derivation ran and the artifact bound declined it" from "there
+# was no join". `wql_plan_census_e2e` pins both numbers against the named functions.
+n_ax2=$(grep -A1 -h 'pub fn axis(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 2i32;' || true)
+if [ "$n_ax2" -lt 1 ]; then
+    echo "FAIL: the over-bound plan does not report axis() == AX_SEARCHED"
+    grep -En -A1 'fn axis' "${DUMPS[@]}" || true
+    fail=1
+fi
+n_g20=$(grep -A1 -h 'pub fn ground(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 20i32;' || true)
+if [ "$n_g20" -ne 1 ]; then
+    echo "FAIL: $n_g20 plans record ground() == WG_MAX_CAND (want 1 — q5)"
+    grep -En -A1 'fn ground' "${DUMPS[@]}" || true
     fail=1
 fi
 # `proved()` is the same fact where a PROGRAM reads it — a compile-time constant on

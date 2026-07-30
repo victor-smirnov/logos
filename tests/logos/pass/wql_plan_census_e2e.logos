@@ -1,0 +1,216 @@
+// WQL — THE CENSUS IS A STATE, AND A PROGRAM CAN READ IT (ADR 0024 S4o).
+//
+// Three consecutive rounds of the join-order axis shipped green and were then found
+// to carry a FALSE justification, always the same way: a ground was a SENTENCE
+// composed at the moment of deciding, the mechanism moved, the sentence stayed. The
+// last of them was measured on the wql/deem corpus and is what this fixture exists
+// for:
+//
+//   59 of 259 plans said "the order axis was never entered" one clause after their
+//   own ground had said an anti join, a traversal or the absence of `order by` had
+//   REFUSED them. The suffix was keyed on `nperm == 0`, which is true of a query
+//   with no join AND of a chain the axis entered and refused before enumerating
+//   anything. A count that means two things is not a fact.
+//
+// So the plan carries the justification as VALUES, and the three states are three
+// numbers a program can compare:
+//
+//   `axis()`     0 no order axis at all · 1 entered and refused BEFORE enumeration ·
+//                2 the derivation ran. Derived from the ground code, so it cannot
+//                contradict the ground.
+//   `ground()`   WHICH ANTECEDENT FAILED (`why::WG_*`).
+//   `operand()`  the value it failed on, where the antecedent has one that is not a
+//                count (the `order by` key's type, the source that could not be
+//                measured).
+//   `refused(c)` how many permutations each `why::RJ_*` constraint turned down —
+//                the conjunction the conclusion rests on, not its first term.
+//
+// ⚠ EVERY CONSTANT IS PINNED AGAINST THE FUNCTION THAT DEFINES IT, IN ONE RUN. The
+// emitter splices literals into the plan's methods; this fixture compares them to
+// `why::AX_*` / `why::WG_*` themselves, so the emitted number and the named code
+// cannot drift apart without a test going red. That is the same discipline
+// `wql_plan_no_table_e2e` applies to `jc_none_*`, and it is the reason the gates may
+// assert the record with plain integers.
+//
+// ⚠ THE DECISIVE PAIR IS `anti_sorted` VS `scan`. Both carry no candidate table,
+// both report `enumerated()` 0, `proved()` 0, `considered()` 0 — every count they
+// have is identical. `axis()` is the only thing that tells them apart, and before it
+// existed the compiler said the same false sentence about both.
+//
+// The other half of the property — that `explain()` and the `[plan]` trace are ONE
+// TEXT from ONE renderer — is asserted by `prepared_plan_gate.sh`, which is the only
+// side that can read both channels.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.why;         // the vocabulary itself — both sides of every pin
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;            // str_contains — the rendered prose is asserted too
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub k: i64, pub m: i64 }
+struct W { pub k: i64 }
+
+// ── STATE 0: NO ORDER AXIS AT ALL ────────────────────────────────────────────
+// One source. There is no join whose order a plan could choose, so nothing is
+// permuted and `decide_join_orders` is never reached.
+pub deem scan(as_: &[A]) {
+    from as_ a where a.v > 0 select a.k }
+
+// ── STATE 1: THE AXIS WAS ENTERED AND REFUSED BEFORE ENUMERATION ─────────────
+// An anti join on the FIRST step, with an `order by` so that the refusal is the
+// anti's asymmetry and nothing else: `order by` is present, the key is `i64` and
+// therefore order-faithful, so C1 holds and the antecedent that fails is the one
+// this plan names. The derivation never runs — the counts are the same three zeros
+// `scan` reports.
+pub deem anti_sorted(as_: &[A], ws: &[W]) {
+    from as_ a
+    anti join ws w on a.k == w.k
+    select a.v order by a.k }
+
+// ── STATE 1, A DIFFERENT ANTECEDENT: no sequence is named ────────────────────
+// A classic join with no `order by`. Same state, different ground — which is what
+// makes `ground()` worth reading beside `axis()`.
+pub deem unsorted(as_: &[A], bs: &[B]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select a.v * 100 + b.m }
+
+// ── STATE 2: THE DERIVATION RAN ──────────────────────────────────────────────
+// Two floatable sources, `order by` on an i64 key: two permutations, both
+// admissible, both carried.
+pub deem sorted(as_: &[A], bs: &[B]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select a.v * 100 + b.m order by a.k }
+
+fn main() -> i32 {
+    let as_: [A; 3] = [ A { k: 1i64, v: 10i64 }, A { k: 2i64, v: 20i64 },
+                        A { k: 3i64, v: 30i64 } ];
+    let bs: [B; 2] = [ B { k: 1i64, m: 7i64 }, B { k: 3i64, m: 9i64 } ];
+    let ws: [W; 1] = [ W { k: 2i64 } ];
+
+    let ps: ScanPlan       = scan_prepare(&as_[..]);
+    let pa: AntiSortedPlan = anti_sorted_prepare(&as_[..], &ws[..]);
+    let pu: UnsortedPlan   = unsorted_prepare(&as_[..], &bs[..]);
+    let pj: SortedPlan     = sorted_prepare(&as_[..], &bs[..]);
+
+    // ── 1. THE THREE STATES, AS THREE DISTINCT VALUES ─────────────────────
+    if ps.axis() != AX_NONE()     { return 1i32; }
+    if pa.axis() != AX_REFUSED()  { return 2i32; }
+    if pu.axis() != AX_REFUSED()  { return 3i32; }
+    if pj.axis() != AX_SEARCHED() { return 4i32; }
+
+    // …and they are three DIFFERENT values. A partition that collapsed would be the
+    // defect back, and comparing to named codes alone would not catch two codes
+    // defined equal.
+    if ps.axis() == pa.axis()     { return 5i32; }
+    if pa.axis() == pj.axis()     { return 6i32; }
+    if ps.axis() == pj.axis()     { return 7i32; }
+
+    // ── 2. THE DECISIVE PAIR: EVERY COUNT IS EQUAL, THE STATE IS NOT ──────
+    // This is the measurement the whole slice rests on. `scan` and `anti_sorted`
+    // are indistinguishable by any number the plan carried before `axis()`, and one
+    // of them HAS an order axis that refused it.
+    if ps.enumerated() != 0i64 { return 10i32; }
+    if pa.enumerated() != 0i64 { return 11i32; }
+    if ps.proved()     != 0i64 { return 12i32; }
+    if pa.proved()     != 0i64 { return 13i32; }
+    if ps.considered() != 0i64 { return 14i32; }
+    if pa.considered() != 0i64 { return 15i32; }
+    if ps.enumerated() != pa.enumerated() { return 16i32; }
+    if ps.proved()     != pa.proved()     { return 17i32; }
+    if ps.considered() != pa.considered() { return 18i32; }
+    if ps.axis()       == pa.axis()       { return 19i32; }
+
+    // ── 3. THE GROUND NAMES WHICH ANTECEDENT FAILED ───────────────────────
+    if ps.ground() != WG_SCAN()       { return 20i32; }
+    if pa.ground() != WG_ANTI_FIRST() { return 21i32; }
+    if pu.ground() != WG_NO_SORT()    { return 22i32; }
+    if pj.ground() != WG_ADMITTED()   { return 23i32; }
+    // Two plans in the SAME state with DIFFERENT grounds — the state is not the
+    // whole justification and the ground is not the state.
+    if pa.axis() != pu.axis()       { return 24i32; }
+    if pa.ground() == pu.ground()   { return 25i32; }
+    // The state is a FUNCTION of the ground, in one direction, for every plan here.
+    if why_axis_of(ps.ground()) != ps.axis() { return 26i32; }
+    if why_axis_of(pa.ground()) != pa.axis() { return 27i32; }
+    if why_axis_of(pu.ground()) != pu.axis() { return 28i32; }
+    if why_axis_of(pj.ground()) != pj.axis() { return 29i32; }
+
+    // ── 4. THE SEARCHED PLAN'S CENSUS IS A TRIPLE THAT AGREES WITH ITSELF ─
+    if pj.enumerated() != 2i64 { return 30i32; }
+    if pj.proved()     != 2i64 { return 31i32; }
+    if pj.considered() != 2i64 { return 32i32; }
+    // Nothing was refused, so every refusal count is 0 — and asking outside the code
+    // space is "never asked for" (-1), not "no refusals".
+    let mut rc: i32 = 0i32;
+    while rc < 8i32 {
+        if pj.refused(rc) != 0i64 { return 33i32; }
+        rc = rc + 1i32;
+    }
+    if pj.refused(8i32) != -1i64 { return 34i32; }
+    if pj.refused(-1i32) != -1i64 { return 35i32; }
+
+    // ── 5. THE OPERAND ────────────────────────────────────────────────────
+    // None of these grounds has a non-count operand: an anti join's asymmetry is a
+    // property of the step, not of a value. Empty is the answer, and it is an answer
+    // rather than a hole — `wql_join_order_key_fidelity_e2e` holds the case where a
+    // key type IS the operand.
+    if ps.operand().len() != 0i64 { return 40i32; }
+    if pa.operand().len() != 0i64 { return 41i32; }
+    if pj.operand().len() != 0i64 { return 42i32; }
+
+    // ── 6. THE PROSE IS RENDERED FROM THE RECORD, AND SAYS THE SAME THING ─
+    // A human reads `explain()`; the point of the record is that the sentence cannot
+    // contradict the numbers, because it is selected by them.
+    if !str_contains(ps.explain(), "ORDER AXIS NOT ENTERED") { return 50i32; }
+    if str_contains(ps.explain(), "REFUSED BEFORE ENUMERATION") { return 51i32; }
+    if !str_contains(pa.explain(), "ORDER AXIS ENTERED AND REFUSED BEFORE ENUMERATION") { return 52i32; }
+    if str_contains(pa.explain(), "NOT ENTERED") { return 53i32; }
+    if !str_contains(pa.explain(), "an anti join is not symmetric") { return 54i32; }
+    if !str_contains(pj.explain(), "ORDER AXIS SEARCHED") { return 55i32; }
+
+    // ⚠ AND THE REMEDY IS DERIVED FROM THE ANTECEDENT THAT FAILED, not written for
+    // the query in front of the author. `unsorted` is refused for want of a named
+    // sequence, so its remedy is to name one; `anti_sorted` is refused by an
+    // asymmetry the query ASKED for, so its remedy says there is no repair on this
+    // axis and names what a different query would look like. A previous round shipped
+    // a remedy advising a declaration on a source that has nowhere to declare it —
+    // the whole reason the repair now comes from the same code as the refusal.
+    if !str_contains(pu.explain(), "add an `order by`") { return 56i32; }
+    if !str_contains(pa.explain(), "there is no repair on this axis") { return 57i32; }
+    if str_contains(pa.explain(), "add an `order by`") { return 58i32; }
+    // The remedy of a state-0 plan is silence: its own ground already says there is
+    // nothing for a measurement to decide, so advice would be advice to write a
+    // different query.
+    if str_contains(ps.explain(), "THE REMEDY") { return 59i32; }
+
+    // ── 7. AND THE ROWS ARE THE ROWS ──────────────────────────────────────
+    // Every claim above is about a justification; none of it is worth anything if
+    // the plan it justifies answers differently from the query.
+    let r1: Vec<i64> = scan_run(&ps, &as_[..]).unwrap();
+    let r1d: Vec<i64> = scan(&as_[..]).unwrap();
+    if r1.len() != 3i64 { return 60i32; }
+    if r1.len() != r1d.len() { return 61i32; }
+
+    let r2: Vec<i64> = anti_sorted_run(&pa, &as_[..], &ws[..]).unwrap();
+    if r2.len() != 2i64 { return 62i32; }
+    if r2.get(0i64) != 10i64 { return 63i32; }
+    if r2.get(1i64) != 30i64 { return 64i32; }
+
+    let r3: Vec<i64> = unsorted_run(&pu, &as_[..], &bs[..]).unwrap();
+    if r3.len() != 2i64 { return 65i32; }
+
+    let r4: Vec<i64> = sorted_run(&pj, &as_[..], &bs[..]).unwrap();
+    let r4d: Vec<i64> = sorted(&as_[..], &bs[..]).unwrap();
+    if r4.len() != 2i64 { return 66i32; }
+    if r4.get(0i64) != 1007i64 { return 67i32; }
+    if r4.get(1i64) != 3009i64 { return 68i32; }
+    if r4d.len() != r4.len() { return 69i32; }
+    if r4d.get(0i64) != r4.get(0i64) { return 70i32; }
+    if r4d.get(1i64) != r4.get(1i64) { return 71i32; }
+
+    return 0i32;
+}

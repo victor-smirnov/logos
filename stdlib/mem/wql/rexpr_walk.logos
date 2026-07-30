@@ -44,6 +44,7 @@ use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step 
 use logos.std.wql.join_order; // JoinOrder / decide_join_orders / JCh — WHICH ORDER DRIVES
 use logos.std.wql.join_cost;  // JCTable / jc_* — THE cost function, one copy
 use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
+use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
 use logos.std.wql.reflect;    // stamp_types_from_schema
@@ -384,26 +385,34 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // ⚠ THIS IS PER CALL, NOT PER ROW. The per-row body never touched `tbl`; what was
 // paid was one plan construction per invocation — which is exactly what hurts a
 // point-get query called in an application loop.
-fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: i64) {
+fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
     let nm: Ident = Ident::new(tyn);
     // The census is a COMPILE-TIME number, so it is emitted as a constant-returning
     // method and not as a field: a plan pays nothing per call to carry it, which is
     // the same rule `has_tbl` follows for the table itself.
-    let mut nab: String = String::new();
-    nab.push_i64(nadm);
-    nab.push_str("i64");
-    let na: ExprBlob = parse_expr(string_as_str(&nab));
-    let mut npb: String = String::new();
-    npb.push_i64(nperm);
-    npb.push_str("i64");
-    let np: ExprBlob = parse_expr(string_as_str(&npb));
+    let na: ExprBlob = i64_lit(w.nadm);
+    let np: ExprBlob = i64_lit(w.nperm);
+    // ── THE JUSTIFICATION, AS VALUES A PROGRAM READS (ADR 0024 S4o) ─────────
+    // `axis()` / `ground()` / `operand()` / `refused(code)` are what stop a reader
+    // having to PARSE `explain()` to learn what the decision rested on — and what
+    // stop the census being one number that meant three things. Every one of them is
+    // a compile-time constant emitted as a method body, so the plan gains no field,
+    // `prepare` gains no store, and a query with no choice pays nothing for the
+    // apparatus of justifying a choice (the finding `156ead4e` closed).
+    let ax: ExprBlob = i32_lit(why_axis(w));
+    let gr: ExprBlob = i32_lit(w.ground);
+    let mut opb: String = String::new();
+    push_str_lit(&mut opb, why_operand(w));
+    let op: ExprBlob = parse_expr(string_as_str(&opb));
+    let rf: ExprBlob = refused_body(w);
     if !has_tbl {
-        emit_prepared_type_no_tbl(tyn, is_priv, np, na);
+        emit_prepared_type_no_tbl(tyn, is_priv, np, na, ax, gr, op, rf);
         return;
     }
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
             use logos.std.wql.join_cost;
+            use logos.std.wql.why;
             struct #nm {
                 pub dyn_order:   bool,
                 pub defer_order: bool,
@@ -439,6 +448,18 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: 
                 // compile-time constants: a plan pays no field and no store.
                 pub fn enumerated(&self) -> i64 { return #(np); }
                 pub fn proved(&self) -> i64 { return #(na); }
+                // ⚠ THE CENSUS'S FIRST NUMBER, AND THE ONE A COUNT COULD NOT BE.
+                // 0 the axis was never entered, 1 entered and refused BEFORE
+                // enumeration, 2 searched. `enumerated()` is 0 in the first TWO,
+                // which is exactly why "the order axis was never entered" was
+                // asserted for 59 of 259 plans whose own ground said an anti join or
+                // a traversal had refused them. `ground()` names the antecedent
+                // (`why::WG_*`), `operand()` the value it failed on, `refused(code)`
+                // how many permutations each `why::RJ_*` constraint turned down.
+                pub fn axis(&self) -> i32 { return #(ax); }
+                pub fn ground(&self) -> i32 { return #(gr); }
+                pub fn operand(&self) -> str { return #(op); }
+                pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
@@ -464,6 +485,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: 
     } else {
         let q: QuoteItemBlob = quote_item! {
             use logos.std.wql.join_cost;
+            use logos.std.wql.why;
             pub struct #nm {
                 pub dyn_order:   bool,
                 pub defer_order: bool,
@@ -499,6 +521,18 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: 
                 // compile-time constants: a plan pays no field and no store.
                 pub fn enumerated(&self) -> i64 { return #(np); }
                 pub fn proved(&self) -> i64 { return #(na); }
+                // ⚠ THE CENSUS'S FIRST NUMBER, AND THE ONE A COUNT COULD NOT BE.
+                // 0 the axis was never entered, 1 entered and refused BEFORE
+                // enumeration, 2 searched. `enumerated()` is 0 in the first TWO,
+                // which is exactly why "the order axis was never entered" was
+                // asserted for 59 of 259 plans whose own ground said an anti join or
+                // a traversal had refused them. `ground()` names the antecedent
+                // (`why::WG_*`), `operand()` the value it failed on, `refused(code)`
+                // how many permutations each `why::RJ_*` constraint turned down.
+                pub fn axis(&self) -> i32 { return #(ax); }
+                pub fn ground(&self) -> i32 { return #(gr); }
+                pub fn operand(&self) -> str { return #(op); }
+                pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
@@ -540,11 +574,13 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: 
 /// are the plan's answer, not its scaffolding. `agrees` and `settled` are then
 /// unconditional — the constant-folded form of the general bodies, which for
 /// `dyn_order == false` / `defer_order == false` return exactly these.
-fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob) {
+fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob,
+                             ax: ExprBlob, gr: ExprBlob, op: ExprBlob, rf: ExprBlob) {
     let nm: Ident = Ident::new(tyn);
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
             use logos.std.wql.join_cost;
+            use logos.std.wql.why;
             struct #nm {
                 pub dyn_order:   bool,
                 pub defer_order: bool,
@@ -564,6 +600,10 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn considered(&self) -> i64 { return jc_none_ncand(); }
                 pub fn enumerated(&self) -> i64 { return #(np); }
                 pub fn proved(&self) -> i64 { return #(na); }
+                pub fn axis(&self) -> i32 { return #(ax); }
+                pub fn ground(&self) -> i32 { return #(gr); }
+                pub fn operand(&self) -> str { return #(op); }
+                pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
@@ -574,6 +614,7 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
     } else {
         let q: QuoteItemBlob = quote_item! {
             use logos.std.wql.join_cost;
+            use logos.std.wql.why;
             pub struct #nm {
                 pub dyn_order:   bool,
                 pub defer_order: bool,
@@ -593,6 +634,10 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn considered(&self) -> i64 { return jc_none_ncand(); }
                 pub fn enumerated(&self) -> i64 { return #(np); }
                 pub fn proved(&self) -> i64 { return #(na); }
+                pub fn axis(&self) -> i32 { return #(ax); }
+                pub fn ground(&self) -> i32 { return #(gr); }
+                pub fn operand(&self) -> str { return #(op); }
+                pub fn refused(&self, code: i32) -> i64 { #(rf) }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
@@ -668,69 +713,52 @@ fn push_size_bindings(out: &mut String, pfx: str, prep: &Prepared) {
     push_size_bindings_4(out, pfx, prep.nfl, prep.sz0, prep.sz1, prep.sz2, prep.sz3);
 }
 
-/// The size expressions as `A vs B vs …` — the account a deferred plan's `explain()`
-/// gives of what it will compare, since its fact fields are all -1.
-fn push_size_list(out: &mut String, prep: &Prepared) {
-    let mut k: i64 = 0i64;
-    while k < prep.nfl {
-        if k > 0i64 { out.push_str(" vs "); }
-        if k == 0i64      { out.push_str(prep.sz0); }
-        else if k == 1i64 { out.push_str(prep.sz1); }
-        else if k == 2i64 { out.push_str(prep.sz2); }
-        else              { out.push_str(prep.sz3); }
-        k = k + 1i64;
-    }
+// ── THE JUSTIFICATION'S CONSTANTS, AS EXPRESSIONS THE QUOTE SPLICES ──────────
+// `push_no_table_why` and `push_size_list` stood here. Both composed prose the plan
+// would carry, and both were APPENDED to the emitter's own copy of a ground the
+// decision had already composed — which is how `q5`'s plan came to say "nothing was
+// considered" one string away from a trace reporting eight proved orders, and how 59
+// of 259 plans came to assert that an axis which had refused them was never entered.
+// The sentences are in `why::why_render` now, selected by `why::why_axis`, and there
+// is one copy of them for both channels.
+
+/// An `i64` / `i32` literal as an expression blob. The census and the ground are
+/// COMPILE-TIME numbers and they are emitted as constant-returning method bodies, so
+/// a plan carries its own justification without a field and without a store.
+fn i64_lit(v: i64) -> ExprBlob {
+    let mut b: String = String::new();
+    b.push_i64(v);
+    b.push_str("i64");
+    return parse_expr(string_as_str(&b));
 }
 
-/// WHY A PLAN CARRIES NO CANDIDATE TABLE — the three answers the census actually
-/// distinguishes, and never one sentence for all of them.
+fn i32_lit(v: i32) -> ExprBlob {
+    let mut b: String = String::new();
+    b.push_i64(v as i64);
+    b.push_str("i32");
+    return parse_expr(string_as_str(&b));
+}
+
+/// THE BODY OF `refused(code)`: one call to `why::rj_at` with this query's census
+/// spliced in as eight literals.
 ///
-/// ⚠ THE MIDDLE CASE IS THE ONE THE ARTIFACT BOUND EXISTS FOR. `JC_MAX_CAND` declines
-/// a reorder WHOLE rather than carrying "the first four", precisely so that dropping
-/// admissible orders is visible; a plan that then reports "nothing was considered" is
-/// the bound's own disclosure being deleted by the object that was supposed to carry
-/// it. So the count is stated, with the enumeration it came out of, and `proved()`
-/// puts the same number where a program can reach it.
-///
-/// ⚠ AND THE THIRD CASE IS NOT THE FIRST. One admissible order out of six is a
-/// derivation that ran and refused five — the ground for that is already in `why`,
-/// composed from the refusal census — while zero permutations is a query with no
-/// order axis at all. Collapsing them would re-create the defect one level down.
-///
-/// ⚠ WHICH IS ALSO WHY THE CENSUS IS A TRIPLE. `proved() == 0` alone cannot separate
-/// "no permutation was enumerated" from "every permutation was refused"; `enumerated()`
-/// can, and it is the same first number the `order search` trace line prints. The
-/// fourth branch here is not known to be reachable in the corpus — `derive_orders`
-/// admits the identity permutation in every shape measured — and it is written
-/// anyway, because default-DENY is the rule this file follows and an unreachable
-/// branch that would produce a FALSE sentence is still a `why` a reader could be
-/// shown.
-fn push_no_table_why(out: &mut String, prep: &Prepared) {
-    if prep.nperm == 0i64 {
-        out.push_str(" [no candidate table: the order axis was never entered — no permutation was enumerated, so `proved()` is 0 as well as `considered()`, `cost_of` prices nothing and the plan carries no `tbl`]");
-        return;
+/// ⚠ IT IS A CALL AND NOT A BRANCH CHAIN because a quote has no antiquote slot where
+/// a fn's BODY goes (ADR 0024 S5, still open), so what can be spliced is an
+/// EXPRESSION. That constraint pushed the selection rule into stdlib, where it is one
+/// copy for every query — which is where it belonged anyway, and is the same argument
+/// `join_cost` rests on.
+fn refused_body(w: &Why) -> ExprBlob {
+    let mut b: String = String::new();
+    b.push_str("rj_at(code");
+    let mut k: i64 = 0i64;
+    while k < RJ_N() {
+        b.push_str(", ");
+        b.push_i64(w.rjn[k]);
+        b.push_str("i64");
+        k = k + 1i64;
     }
-    if prep.nadm == 0i64 {
-        out.push_str(" [no candidate table: the order axis WAS entered and admitted nothing — ");
-        out.push_i64(prep.nperm);
-        out.push_str(" permutations were enumerated and every one was refused, on the ground above, so `enumerated()` reports ");
-        out.push_i64(prep.nperm);
-        out.push_str(" while `proved()` and `considered()` both report 0 — which is why the census is a TRIPLE and not a pair]");
-        return;
-    }
-    out.push_str(" [no candidate table, and NOT because nothing was proved: ");
-    out.push_i64(prep.nadm);
-    out.push_str(" of ");
-    out.push_i64(prep.nperm);
-    if prep.nadm >= 2i64 {
-        out.push_str(" permutations were proved admissible and NONE of them is carried, on the ground above — `proved()` reports ");
-        out.push_i64(prep.nadm);
-        out.push_str(" where `considered()` reports 0, which is how a reader tells this apart from an axis that was never entered]");
-    } else {
-        out.push_str(" permutations survived the derivation, which is not a set to choose between — `proved()` reports ");
-        out.push_i64(prep.nadm);
-        out.push_str(", `considered()` reports 0 because a lone survivor is the query's own order and needs no table, and `cost_of` prices nothing]");
-    }
+    b.push_str(")");
+    return parse_expr(string_as_str(&b));
 }
 
 /// A query's four items: the plan type, `prepare`, `run`, and the direct fn as
@@ -767,7 +795,7 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // fill it, `prep_fixed` and `prep_off` leave it empty — so the field's presence
     // on the type and its presence in the struct literal cannot disagree.
     let has_tbl: bool = prep.tbl.len() > 0i64;
-    emit_prepared_type(tyn, is_priv, has_tbl, prep.nperm, prep.nadm);
+    emit_prepared_type(tyn, is_priv, has_tbl, &prep.w);
 
     // The derived fns keep the query's own visibility marker where they are
     // EMITTED and drop it where they are CALLED: the marker is a directive to
@@ -795,7 +823,16 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // same thing. Declared HERE because the trace call is below the emissions and
     // the buffer must outlive both — Phase 1 of this slice lost a composed ground to
     // exactly that (a `String` local to the deciding fn, printed from freed memory).
+    // ⚠ ONE RENDER, TWO DESTINATIONS, ONE FUNCTION. `why_render` is the same call
+    // `join_order::jo_report` makes over the same record, so the string literal this
+    // plan carries and the `[plan]` line a reader sees are the SAME TEXT. Before this
+    // they were two texts from two composers, and they disagreed (`q5`).
+    //
+    // ⚠ AND ITS LIFETIME IS ONE STATEMENT. The buffer is declared here because
+    // `push_str_lit` reads it below and because nothing else does: the record holds
+    // no composed `str`, so no ground has to survive the decision any more.
     let mut whyb: String = String::new();
+    why_render(&prep.w, &mut whyb);
     let mut pb: String = String::new();
     pb.push_str("{\n");
     if prep.dynamic {
@@ -807,7 +844,6 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str("    return ");
         pb.push_str(tyn);
         pb.push_str(" { dyn_order: true, defer_order: false, swap: (__ix == 1i64), order_ix: __ix, base_n: __n0, step_n: __n1, n2: __n2, n3: __n3, tbl: __tb, why: ");
-        whyb.push_str(prep.why);
         push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
     } else {
@@ -844,35 +880,19 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
             pb.push_str(prep.tbl);
         }
         pb.push_str(", why: ");
-        // ⚠ THE DEFERRED GROUND NAMES THE EXPRESSIONS, because for a deferred plan
-        // every fact field is -1: the numbers do not exist until `run`, so the
-        // recorded text is the only account `explain()` can give of WHAT will be
-        // compared and where it comes from. The prepared case needs no such
-        // appendix — its numbers are on the object.
-        whyb.push_str(prep.why);
-        if prep.deferred {
-            whyb.push_str(" [in `run`: ");
-            push_size_list(&mut whyb, &prep);
-            whyb.push_str("]");
-        } else {
-            // ⚠ THE ABSENCE IS RECORDED, not left silent. A plan with no candidate
-            // set carries no table, and `explain()` — and the trace line, from this
-            // same buffer — is where a caller finds that out. Otherwise
-            // `considered() == 0` and `cost_of(ix) == -1` would read as a table that
-            // answered nothing rather than as the absence of one.
-            //
-            // ⚠ AND WHAT THE ABSENCE MEANS IS DERIVED FROM THE CENSUS, not asserted.
-            // "Nothing was considered" was appended to EVERY table-less plan — 207 of
-            // 226 prepared plans in the corpus — without consulting the search that
-            // had just run. On `wql_join_order_multi_e2e::q5` that put the sentence
-            // next to its own contradiction in one string: the ground says eight
-            // orders were proved legal and declined whole, the suffix says nothing was
-            // considered. The count is the same either way, so the count alone can
-            // never have been the answer; `proved()` is the number a program reads,
-            // and this is the sentence a person reads, and both come from `nperm` /
-            // `nadm`.
-            push_no_table_why(&mut whyb, &prep);
-        }
+        // ⚠ NOTHING IS APPENDED TO THE RENDERED GROUND HERE — not the deferred
+        // size list, not the table's absence. Both used to be this emitter's own
+        // additions to its own copy, which is precisely why the plan and the
+        // `[plan] … -> drive …` line disagreed on 66 of 81 join-order decisions.
+        // `why_render` produces the whole justification and both channels print it.
+        //
+        // ⚠ AND THE ABSENCE OF A TABLE IS NOT ASSERTED FROM A COUNT ANY MORE. That suffix was
+        // this emitter's own sentence about a search this emitter did not run, keyed
+        // on a count — and it asserted "the order axis was never entered" for every
+        // table-less plan, including 59 whose ground said the axis had refused them
+        // and one (`q5`) whose ground said eight orders were proved legal. The census
+        // clause is inside `why_render`, selected by `why_axis`, so the state and the
+        // ground come out of one record and cannot contradict each other.
         push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
     }
@@ -931,16 +951,14 @@ fn push_param_args(out: &mut String, prm: &MacroParams) {
     }
 }
 
-/// The ground a SINGLE-SOURCE plan records. Stated once because it is the same
-/// argument for a scan and for a find, and because it is the argument this whole
-/// slice rests on: the ACCESS axis is where a run-time decision is nearly always
-/// the same answer (a narrowing over an ordered source costs one descent against
-/// zero and never returns more rows; `upto` walks from the start and merely
-/// stops), so a plan built around it would be a mechanism with no consumer.
-/// JOIN ORDER is the axis where the data changes the answer.
-fn SCAN_PLAN_WHY() -> str {
-    return "one source, no join: the access path is decided where the query compiles, and on that axis a measurement does not change the answer — a narrowing is never meaningfully worse than a scan";
-}
+// THE GROUND A SINGLE-SOURCE PLAN RECORDS is `why::WG_SCAN`, and its sentence lives
+// with the rest of the vocabulary (`why::wg_words`). Stated once because it is the
+// same argument for a scan and for a find, and because it is the argument this whole
+// slice rests on: the ACCESS axis is where a run-time decision is nearly always the
+// same answer (a narrowing over an ordered source costs one descent against zero and
+// never returns more rows; `upto` walks from the start and merely stops), so a plan
+// built around it would be a mechanism with no consumer. JOIN ORDER is the axis where
+// the data changes the answer.
 
 /// The ONE item-emitting entry every query emitter goes through: either the
 /// single direct fn (a generated HELPER — a rel's own fn, an SCC driver: an
@@ -1345,7 +1363,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
         quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
-                  prep_fixed("the filter is constantly false, so the plan IS the empty answer — no fact about the data can change it"));
+                  prep_ground(WG_FALSE_FILTER()));
     return true;
 }
 
@@ -1368,7 +1386,7 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // the list the chunk route builds for every other emitter.
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
                   quote_block! { return Result::Ok(Option::None); }, prm,
-                  prep_fixed("the predicate is constantly false, so the plan IS `None` — no fact about the data can change it"));
+                  prep_ground(WG_FALSE_PRED()));
     return true;
 }
 
@@ -1397,7 +1415,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
         return Result::Ok(Option::None);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
-                  prep_fixed("the answer is the head row of one source: one access, no order and no join, so there is nothing for a measurement to decide"));
+                  prep_ground(WG_HEAD()));
     return true;
 }
 
@@ -1423,7 +1441,7 @@ fn emit_identity(scan_e: RExpr,
     let s1: ExprBlob = parse_expr(src_name);
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
                   quote_block! { return Result::Ok(#(s1)); }, prm,
-                  prep_fixed("the answer IS the source, borrowed unchanged — there is no plan to decide"));
+                  prep_ground(WG_IDENTITY()));
     return true;
 }
 
@@ -1807,7 +1825,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         #(tail_f);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_fixed(SCAN_PLAN_WHY()));
+                  prep_ground(WG_SCAN()));
     return true;
 }
 
@@ -1876,7 +1894,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_fixed(SCAN_PLAN_WHY()));
+                  prep_ground(WG_SCAN()));
     return true;
 }
 
@@ -3090,12 +3108,14 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
     let mut ats: [i64; 4] = [-1i64; 4];
     let jc: JCh = jch_of(&ch);
-    // ⚠ `jo_whyb` is declared HERE, not inside the decision: the verdict's ground
-    // is emitted as a string literal in the prepared plan (`prp.why` below), so the
-    // one composed ground needs a buffer that lives until `emit_query_fn` has run.
-    let mut jo_whyb: String = String::new();
+    // ⚠ NO GROUND BUFFER TRAVELS WITH THIS CALL ANY MORE (ADR 0024 S4o). It used to
+    // take one, declared here rather than inside the decision, because the verdict's
+    // ground was composed text and the plan's string literal is written far below —
+    // a `str` view that had to outlive two frames, which is exactly the shape one
+    // round shipped a use-after-free in. The decision returns a `Why`; the text is
+    // composed once, at the emission site, from the record.
     let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_tn, &ty, prm, h,
-                                           &mut szs, &mut ats, &mut jo_whyb);
+                                           &mut szs, &mut ats);
 
     // The measurement `prepare` needs: the declared reporters the size expressions
     // call, and ONLY those — a plan does not measure what it will not compare. The
@@ -3284,25 +3304,27 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         #(sortout);
         #(tail_f);
     };
-    let mut prp: Prepared = prep_fixed(jo.why);
+    // ⚠ THE CENSUS TRAVELS WITH THE PLAN, NOT ONLY WITH THE TRACE, and it travels ON
+    // THE RECORD rather than through a second call. This is the one site where the
+    // order axis was ENTERED, so it is the one site that can tell "nothing to permute"
+    // from "24 permuted, 8 legal, none carried" — and the plan object is the only
+    // artifact of the two that survives the compile. `prep_set_search` existed to
+    // write those two numbers here, after the fact, on every path; a record carries
+    // them wherever it goes and there is nothing left to remember.
+    let mut prp: Prepared = prep_fixed(jo.w);
     if jo.dynamic {
         if jo.deferred {
             prp = prep_deferred(jo.nfl, jo.ncand,
                                 string_as_str(&szs[0]), string_as_str(&szs[1]),
                                 string_as_str(&szs[2]), string_as_str(&szs[3]),
-                                string_as_str(&tblb), jo.why);
+                                string_as_str(&tblb), jo.w);
         } else {
             prp = prep_dyn(jo.nfl, jo.ncand,
                            string_as_str(&szs[0]), string_as_str(&szs[1]),
                            string_as_str(&szs[2]), string_as_str(&szs[3]),
-                           string_as_str(&meas), string_as_str(&tblb), jo.why);
+                           string_as_str(&meas), string_as_str(&tblb), jo.w);
         }
     }
-    // ⚠ THE CENSUS TRAVELS WITH THE PLAN, NOT ONLY WITH THE TRACE. This is the one
-    // site where the order axis was ENTERED, so it is the one site that can tell
-    // "nothing to permute" from "24 permuted, 8 legal, none carried" — and the plan
-    // object is the only artifact of the two that survives the compile.
-    prep_set_search(&mut prp, jo.nperm, jo.nadm);
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);
     return true;
 }
@@ -3768,7 +3790,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return Result::Ok(__out);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_fixed("an aggregate's output order is its groups' FIRST-OCCURRENCE order, which no sort restores, so the plan holds the query's own nest and there is nothing for a measurement to choose between"));
+                  prep_ground(WG_AGG()));
     return true;
 }
 

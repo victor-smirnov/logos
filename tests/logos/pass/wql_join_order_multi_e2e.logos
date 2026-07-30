@@ -29,6 +29,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.option;
 use logos.lang.str;            // str_contains — the recorded census is asserted
+use logos.std.wql.why;         // AX_* / WG_* — the census codes, pinned against the emitted constants
 
 struct A { pub k: i64, pub v: i64 }
 struct B { pub k: i64, pub m: i64 }
@@ -343,8 +344,16 @@ fn main() -> i32 {
     // question. `enumerated()` is what separates "the axis was never entered" from
     // "entered and admitted nothing", which `proved() == 0` alone cannot.
     if p5.enumerated() != 24i64 { return 100i32; }
-    if !str_contains(p5.explain(), "8 of 24 permutations were proved admissible and NONE of them is carried") { return 96i32; }
+    if !str_contains(p5.explain(), "NO CANDIDATE TABLE IS CARRIED, and NOT because nothing was proved") { return 96i32; }
     if str_contains(p5.explain(), "nothing was considered") { return 97i32; }
+    // ⚠ AND NOT THE SENTENCE THAT REPLACED THAT ONE EITHER (ADR 0024 S4o). "The order
+    // axis was never entered" was keyed on `nperm == 0` and was therefore asserted by
+    // 59 of 259 plans whose axis HAD been entered and had refused them. `axis()` is
+    // the state now, `ground()` the antecedent, and both are pinned against the
+    // functions that define them in `wql_plan_census_e2e`.
+    if str_contains(p5.explain(), "the order axis was never entered") { return 102i32; }
+    if p5.axis() != AX_SEARCHED() { return 103i32; }
+    if p5.ground() != WG_MAX_CAND() { return 104i32; }
 
     // THE CONTRAST, in the same run: q3's axis was entered too, and it CARRIED what
     // it proved. Without this line "proved() == considered()" would be untested and
@@ -353,6 +362,12 @@ fn main() -> i32 {
     if p3c.proved() != 4i64 { return 98i32; }
     if p3c.considered() != 4i64 { return 99i32; }
     if p3c.enumerated() != 6i64 { return 101i32; }
+    // Both plans SEARCHED — same state, different grounds. That is the pairing that
+    // stops `axis()` becoming a proxy for "carries a table": `q5` carries none.
+    if p3c.axis() != AX_SEARCHED() { return 105i32; }
+    if p3c.ground() != WG_ADMITTED() { return 106i32; }
+    if p3c.axis() != p5.axis() { return 107i32; }
+    if p3c.ground() == p5.ground() { return 108i32; }
 
     return 0i32;
 }

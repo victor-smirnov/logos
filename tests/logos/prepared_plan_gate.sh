@@ -111,18 +111,39 @@ if ! grep -Eq 'jc_order_pick\(\(&__tb\), __n0,' "${DUMPS[@]}"; then
     echo "FAIL: the prepared decision does not go through join_cost::jc_order_pick"
     fail=1
 fi
-# ⚠ AND THE ABSENCE IS DATA. Both table-less plans record it in the ground they
-# carry, so `considered() == 0` reads as "there was no table" and not as "a table
-# that answered nothing".
-# ⚠ AND WHICH ABSENCE (ADR 0024 S4n). The old rule pinned the substring 'nothing was
-# considered', which the emitter appended to EVERY table-less plan without asking the
-# search that had just run — so the rule also passed on a plan whose derivation proved
-# eight legal orders and declined to carry them. Both queries here have NO order axis
-# at all, so the accurate sentence is the "never entered" one, and the gate now pins
-# THAT — same count, same two plans, one more thing asserted about each.
-n_abs=$(count 'no candidate table: the order axis was never entered')
-if [ "$n_abs" -ne 2 ]; then
-    echo "FAIL: $n_abs plans record having no candidate table (want 2 — no_order and evens)"
+# ⚠ AND THE ABSENCE IS DATA — LITERALLY, NOW (ADR 0024 S4o). This rule used to grep
+# a SENTENCE ('nothing was considered', then 'the order axis was never entered'), and
+# each of those sentences was in turn found to be asserted where it was false: the
+# first on every table-less plan including one that had proved eight orders, the
+# second on 59 of 259 plans whose own ground said an anti join or a traversal had
+# refused the axis. A gate that greps prose is an instance of the defect it is
+# supposed to catch, so it asserts the RECORD: `axis()` is the state, emitted as a
+# compile-time constant. `why::AX_NONE()` is 0 — and `wql_plan_census_e2e` pins that
+# number against the function, in one run, so this literal cannot drift from it.
+#
+# ⚠ STRICTLY STRONGER, AND THE OLD COMMENT WAS WRONG. It said "both queries here
+# have NO order axis at all". They do not: `evens` is one source (`AX_NONE`), and
+# `no_order` is a JOIN whose axis was entered and refused for want of an `order by`
+# (`AX_REFUSED`). The count was 2 either way, which is exactly how a sentence keyed
+# on that count could assert "never entered" about a refusal for two rounds. Two
+# table-less plans, one in EACH state, and neither number may absorb the other.
+n_none=$(grep -A1 -h 'pub fn axis(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 0i32;' || true)
+if [ "$n_none" -ne 1 ]; then
+    echo "FAIL: $n_none plans report axis() == AX_NONE (want 1 — evens, one source, no join)"
+    grep -En -A1 'fn axis' "${DUMPS[@]}" || true
+    fail=1
+fi
+n_ref=$(grep -A1 -h 'pub fn axis(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 1i32;' || true)
+if [ "$n_ref" -ne 1 ]; then
+    echo "FAIL: $n_ref plans report axis() == AX_REFUSED (want 1 — no_order, a join with no \`order by\`)"
+    grep -En -A1 'fn axis' "${DUMPS[@]}" || true
+    fail=1
+fi
+# …and the ground names WHICH antecedent refused it: `why::WG_NO_SORT()` is 13.
+n_g13=$(grep -A1 -h 'pub fn ground(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 13i32;' || true)
+if [ "$n_g13" -ne 1 ]; then
+    echo "FAIL: $n_g13 plans record ground() == WG_NO_SORT (want 1 — no_order)"
+    grep -En -A1 'fn ground' "${DUMPS[@]}" || true
     fail=1
 fi
 # The census is on the OBJECT as a compile-time constant, not only in the prose: a
@@ -149,6 +170,16 @@ fi
 n_old=$(count 'no candidate table: nothing was considered')
 if [ "$n_old" -ne 0 ]; then
     echo "FAIL: $n_old plans carry the undifferentiated 'nothing was considered' suffix"
+    fail=1
+fi
+# ⚠ AND THE SUFFIX THAT REPLACED IT IS GONE TOO. 'the order axis was never entered'
+# was appended whenever `nperm == 0`, which is ALSO true of every chain the axis
+# entered and refused before enumerating — measured at 59 of 259 plans. No emitter
+# composes a census sentence any more; `why::why_render` selects one from `why_axis`,
+# so the state and the ground come out of one record.
+n_old2=$(count 'no candidate table: the order axis was never entered')
+if [ "$n_old2" -ne 0 ]; then
+    echo "FAIL: $n_old2 plans carry the count-keyed 'axis was never entered' suffix"
     fail=1
 fi
 # ⚠ A FIXED PLAN NAMES ORDER 0 AND MEANS IT (ADR 0024 S4m). The deferred half now
@@ -224,10 +255,44 @@ if ! grep -q 'the access path is decided where the query compiles' "$TMPD/err"; 
     echo "FAIL: a plan with no run-time decision carries no ground for having none"
     fail=1
 fi
-# The trace and `explain()` are composed from ONE buffer, so the channel says what
-# the object says — including about the table it does not carry.
-if ! grep -q 'no candidate table: the order axis was never entered' "$TMPD/err"; then
-    echo "FAIL: the trace does not report that a candidate-less plan carries no table"
+# The trace and `explain()` come from ONE RENDERER over ONE RECORD, so the channel
+# says what the object says — including about the table it does not carry, and
+# including WHICH of the three census states it is in.
+if ! grep -q 'ORDER AXIS NOT ENTERED (`axis()` 0)' "$TMPD/err"; then
+    echo "FAIL: the trace does not report that a candidate-less plan never entered the axis"
+    fail=1
+fi
+# ⚠ AND THE TWO CHANNELS ARE COMPARED, NOT EYEBALLED. Every `[plan] <q> -> prepared
+# plan on <T> (...)` payload must be EXACTLY the `why:` literal of `<T>`'s own plan
+# struct. Before the record, the emitter appended a census suffix to its own copy of
+# a ground the decision had composed, and the join-order verdict line then said
+# something else again — 66 of 81 verdict lines disagreed with the plan the same
+# decision produced.
+n_cmp=0
+while IFS= read -r line; do
+    ty=$(printf '%s' "$line" | sed -n 's/^\[plan\] [^ ]* -> prepared plan on \([A-Za-z0-9_]*\) .*/\1/p')
+    [ -n "$ty" ] || continue
+    payload=$(printf '%s' "$line" | sed -n 's/^\[plan\].*   (\(.*\))$/\1/p')
+    lit=$(grep -h -o "return ${ty} {[^\"]*why: \"[^\"]*\"" "${DUMPS[@]}" 2>/dev/null \
+          | sed -n 's/.*why: "\(.*\)"$/\1/p' | head -1)
+    if [ -z "$lit" ]; then
+        echo "FAIL: no plan literal found for ${ty} — the trace names a plan the artifact does not"
+        fail=1
+        continue
+    fi
+    n_cmp=$((n_cmp + 1))
+    if [ "$payload" != "$lit" ]; then
+        echo "FAIL: ${ty}'s trace line and its explain() differ"
+        echo "  trace: $payload"
+        echo "  plan : $lit"
+        fail=1
+    fi
+done < <(grep '^\[plan\] [a-z_0-9]* -> prepared plan on ' "$TMPD/err" || true)
+# ⚠ A LOOP THAT COMPARED NOTHING IS NOT A GATE. This fixture emits three prepared
+# surfaces; a regex that stopped matching would turn "no mismatch" into "no
+# comparison" and the rule would pass forever.
+if [ "$n_cmp" -ne 3 ]; then
+    echo "FAIL: compared $n_cmp trace lines against plan literals (want 3 — by_key, no_order, evens)"
     fail=1
 fi
 

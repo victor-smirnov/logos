@@ -1,0 +1,797 @@
+// logos.std.wql.why — THE JUSTIFICATION AS A VALUE (ADR 0024 S4o).
+//
+// Three rounds of this axis shipped green and were then found to carry a false
+// justification, and every time the class was the same: THE JUSTIFICATION DRIFTED
+// FROM THE MECHANISM. A ground was a SENTENCE, composed at the moment of deciding
+// by one of ten producers; the mechanism it described then moved and the sentence
+// stayed. Measured at the round before this one, on the wql/deem corpus:
+//
+//   • 59 of 259 plans appended "the order axis was never entered" to a ground that,
+//     one clause earlier IN THE SAME STRING, said an anti join / a traversal / the
+//     absence of `order by` had refused them. The suffix was keyed on `nperm == 0`,
+//     which is true both of a query with no join and of a chain the axis entered and
+//     refused BEFORE the derivation ran. A count that means two things is not a fact
+//     — the same defect the round before had just fixed one level up.
+//
+//   • `wql_join_order_multi_e2e::q5`'s trace said "24 permutations … 8 admissible,
+//     1 carried as nests" while its plan said `considered()` 0 and "nothing was
+//     considered". Both numbers were true of DIFFERENT things (nests emitted vs
+//     candidates carried in a table) and nothing named the difference.
+//
+// Patching the strings again would buy one more round. So the ground stops being a
+// string:
+//
+//   THE DECISION RECORDS A `Why` — WHICH ANTECEDENT FAILED, AND THE OPERANDS IT
+//   FAILED ON. PROSE IS RENDERED FROM THAT RECORD, AT THE EDGE, BY ONE FUNCTION.
+//
+// A sentence cannot outlive the mechanism it describes if there is no sentence: the
+// only text in this compiler that describes a join-order decision is produced by
+// `why_render` from a record the decision itself filled, and both destinations —
+// `plan_trace` and the plan's `explain()` — call it. They cannot disagree because
+// there is one of them.
+//
+// ── THE THREE STATES A COUNT COULD NOT DISTINGUISH ───────────────────────────
+// `why_axis` is the census's FIRST number and the one this module exists for:
+//
+//   AX_NONE      there is no order axis at all — this query has no join to reorder.
+//   AX_REFUSED   the axis was ENTERED and refused BEFORE enumeration. `ground()`
+//                names which antecedent failed; `enumerated()` is 0 for the same
+//                reason it is 0 above, which is exactly why the count could never
+//                have separated the two.
+//   AX_SEARCHED  the derivation ran: `enumerated()` permutations walked,
+//                `proved()` admissible, `considered()` carried as candidates.
+//
+// ⚠ AND IT IS DERIVED FROM `ground`, NOT STORED BESIDE IT. A state field set next to
+// a code is a second place to be wrong; `why_axis_of` is a partition of the code
+// space, so a new ground lands in a state by the number it is given and cannot land
+// in two.
+//
+// ── WHAT THE PLAN PAYS FOR THIS ──────────────────────────────────────────────
+// NOTHING. The record is a COMPILE-TIME value: it lives in the metaprogram, it is
+// rendered once where the plan literal is written, and what reaches the artifact is
+// the same `why: str` field that was there before plus four CONSTANT-RETURNING
+// METHODS (`axis`, `ground`, `operand`, `refused`). A plan struct gains no field and
+// a `prepare` gains no store — the rule `has_tbl` and `proved()` already follow, and
+// the reason it matters is `156ead4e`: a query with no choice must not pay for the
+// apparatus of justifying a choice.
+//
+// ── AND THE LIFETIME PROBLEM GOES AWAY WITH THE SENTENCES ────────────────────
+// A composed ground used to be a `str` VIEW INTO A CALLER'S BUFFER, held from the
+// decision until the artifact was written, because `push_str_lit` needs it alive at
+// emission — one round shipped a use-after-free doing exactly that, and the buffer
+// had to be hoisted two frames up and documented as untouchable. A record holds no
+// composed text: every `str` in it is either a literal from a table in this file or
+// a name the Writ/`MacroParams` owns for the whole compile. Composition happens at
+// the edge, into the buffer that is about to be escaped, and lives one statement.
+package logos.std.wql.why;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.wql.join_cost;   // JC_MAX_FL / JC_MAX_CAND / jc_model_words — the bounds a remedy names
+
+// ── THE CENSUS STATES ────────────────────────────────────────────────────────
+pub fn AX_NONE() -> i32     { return 0i32; }
+pub fn AX_REFUSED() -> i32  { return 1i32; }
+pub fn AX_SEARCHED() -> i32 { return 2i32; }
+
+// ── THE GROUNDS: WHICH ANTECEDENT FAILED ─────────────────────────────────────
+// The number RANGE is the state (see `why_axis_of`), so the codes are grouped and
+// the gaps are deliberate: 0–9 no axis, 10–19 refused before enumeration, 20+ the
+// derivation ran.
+//
+// ⚠ `WG_UNSET` IS A DEFECT, NOT A GROUND. It is what an unfilled record holds, and
+// every renderer names it as one rather than falling through to a neighbour's
+// sentence — the default-DENY rule the rest of this axis already follows.
+pub fn WG_UNSET() -> i32        { return 0i32; }
+pub fn WG_SCAN() -> i32         { return 1i32; }
+pub fn WG_HEAD() -> i32         { return 2i32; }
+pub fn WG_IDENTITY() -> i32     { return 3i32; }
+pub fn WG_FALSE_FILTER() -> i32 { return 4i32; }
+pub fn WG_FALSE_PRED() -> i32   { return 5i32; }
+pub fn WG_AGG() -> i32          { return 6i32; }
+
+pub fn WG_NO_STEP() -> i32      { return 10i32; }
+pub fn WG_EDGE_FIRST() -> i32   { return 11i32; }
+pub fn WG_ANTI_FIRST() -> i32   { return 12i32; }
+pub fn WG_NO_SORT() -> i32      { return 13i32; }
+pub fn WG_KEY_ORDER() -> i32    { return 14i32; }
+pub fn WG_UNDECIDED() -> i32    { return 15i32; }
+pub fn WG_ONE_FLOAT() -> i32    { return 16i32; }
+pub fn WG_MAX_FL() -> i32       { return 17i32; }
+pub fn WG_NO_SIZE() -> i32      { return 18i32; }
+pub fn WG_CROSS() -> i32        { return 19i32; }
+
+pub fn WG_MAX_CAND() -> i32     { return 20i32; }
+pub fn WG_REFUSED() -> i32      { return 21i32; }
+pub fn WG_ADMITTED() -> i32     { return 22i32; }
+pub fn WG_DEFERRED() -> i32     { return 23i32; }
+
+/// THE STATE IS A PARTITION OF THE CODE SPACE. A ground belongs to exactly one
+/// census state by the number it was given, so "which state is this plan in" has one
+/// answer and no field can contradict it.
+pub fn why_axis_of(g: i32) -> i32 {
+    if g >= 20i32 { return AX_SEARCHED(); }
+    if g >= 10i32 { return AX_REFUSED(); }
+    return AX_NONE();
+}
+
+// ── WHY POINT (1) COULD OR COULD NOT MEASURE A SIDE ──────────────────────────
+// The per-side size classification, moved here from `join_order` with the rest of
+// the vocabulary: the codes are OPERANDS of `WG_DEFERRED` and `WG_NO_SIZE`, so they
+// belong beside the record that carries them. `join_order::prep_size_reason` is
+// still the one rule that ASSIGNS them — it needs the rel registry — and this file
+// is the one place that says what each one MEANS and what repairs it.
+pub fn SZ_OK() -> i32      { return 0i32; }
+pub fn SZ_STREAMS() -> i32 { return 1i32; }
+pub fn SZ_DERIVED() -> i32 { return 2i32; }
+pub fn SZ_LOCAL() -> i32   { return 3i32; }
+
+// ── THE REFUSAL GROUNDS OF THE DERIVATION ────────────────────────────────────
+// A code per constraint, so the census the trace prints and the ground the plan
+// records come from one table. `RJ_NONE` is admitted.
+pub fn RJ_NONE() -> i32     { return 0i32; }
+pub fn RJ_PINDEP() -> i32   { return 1i32; }
+pub fn RJ_PREDBASE() -> i32 { return 2i32; }
+pub fn RJ_PREDDUP() -> i32  { return 3i32; }
+pub fn RJ_RESCAN() -> i32   { return 4i32; }
+pub fn RJ_DEDUP() -> i32    { return 5i32; }
+pub fn RJ_SHAPE() -> i32    { return 6i32; }
+pub fn RJ_PREDPIN() -> i32  { return 7i32; }
+pub fn RJ_N() -> i64        { return 8i64; }
+
+// ── THE RECORD ───────────────────────────────────────────────────────────────
+/// WHAT THE DECISION CONCLUDED AND WHAT IT CONCLUDED IT FROM — the minimal set of
+/// facts entailing the verdict, in the form the decision itself held them.
+///
+/// ⚠ EVERY FIELD IS A VALUE THE DECISION USED, never a copy recomputed for display.
+/// A second computation is a second place to drift, which is the disease and not the
+/// cure: `sfirst` is the dedup the deferral itself performed, `ssz` is the very
+/// expression the emitted `run` will read, `rjn` is the census the enumeration
+/// counted. Nothing here is derivable-and-derived twice.
+///
+/// `ground`  WHICH ANTECEDENT FAILED (`WG_*`). The whole verdict in one number.
+/// `nfl`     floatable sources — the operand of `WG_MAX_FL` and the width of the
+///           per-side arrays below.
+/// `nperm`   permutations ENUMERATED. 0 in both `AX_NONE` and `AX_REFUSED`, which
+///           is why it is not the state.
+/// `nadm`    permutations PROVED ADMISSIBLE — the operand of `WG_MAX_CAND`.
+/// `ncand`   candidates CARRIED IN THE TABLE; this is `considered()` exactly, and it
+///           is 0 whenever the plan carries no table.
+/// `nnest`   loop nests EMITTED. ⚠ NOT THE SAME NUMBER AS `ncand`, and conflating
+///           them is how the trace came to say "1 carried as nests" beside a plan
+///           reporting `considered()` 0: a chain whose reorder was declined whole
+///           still emits ONE nest — the query's own order — while carrying NO
+///           candidate table. Both numbers are facts; neither is the other.
+/// `rjn`     refusals per `RJ_*` code. The conclusion "no other order is admissible"
+///           is entailed by the CONJUNCTION of these, so the record keeps all of
+///           them and the renderer states all of them, in CODE order.
+/// `key`     `WG_KEY_ORDER`'s operand: the `order by` key's LOGOS TYPE NAME, the
+///           exact string `el_order_faithful` was asked about.
+/// `keywhy`  the failed condition `el` answered with, carried rather than re-asked.
+/// `nsd`     described sides — `nfl` on the deferred path, 0 elsewhere.
+/// `scode`   per side, the `SZ_*` classification the deferral was DECIDED on.
+/// `ssrc`    per side, the source text — the operand a remedy is addressed to.
+/// `srep`    per side, how many positions that same source occupies. "This source
+///           supplies three of the four numbers" is a fact about the query.
+/// `sfirst`  is this side the FIRST position of its source? The dedup, performed
+///           once, by the decision, so no consumer repeats it.
+/// `ssz`     per side, the size EXPRESSION that will be read. For a deferred plan
+///           the fact fields are all -1, so this text is the only account of WHAT
+///           will be compared.
+pub struct Why {
+    pub ground: i32,
+    pub nfl:    i64,
+    pub nperm:  i64,
+    pub nadm:   i64,
+    pub ncand:  i64,
+    pub nnest:  i64,
+    pub rjn:    [i64; 8],
+    pub key:    str,
+    pub keywhy: str,
+    pub nsd:    i64,
+    pub scode:  [i32; 4],
+    pub ssrc:   [str; 4],
+    pub srep:   [i64; 4],
+    pub sfirst: [bool; 4],
+    pub ssz:    [str; 4],
+}
+
+/// An UNSET record — `WG_UNSET`, which every renderer names as a defect. One nest is
+/// the floor because a query that emitted none would have no body.
+pub fn why_new() -> Why {
+    return Why { ground: WG_UNSET(), nfl: 0i64, nperm: 0i64, nadm: 0i64,
+                 ncand: 0i64, nnest: 1i64, rjn: [0i64; 8],
+                 key: "", keywhy: "", nsd: 0i64,
+                 scode: [0i32; 4], ssrc: ["", "", "", ""], srep: [0i64; 4],
+                 sfirst: [false; 4], ssz: ["", "", "", ""] };
+}
+
+/// The record of a decision with ONE operand — the code — which is every ground
+/// whose antecedent mentions nothing the query can vary.
+pub fn why_of(g: i32) -> Why {
+    let mut w: Why = why_new();
+    w.ground = g;
+    return w;
+}
+
+/// `WG_KEY_ORDER`: the operands are the key's TYPE NAME and the condition `el` says
+/// its emitted comparison fails. Both are carried, not re-asked — the plan's
+/// `operand()` answers the first, and a reader who disagrees with the verdict can
+/// check it against the type they wrote.
+pub fn why_key(tn: str, why: str) -> Why {
+    let mut w: Why = why_of(WG_KEY_ORDER());
+    w.key = tn;
+    w.keywhy = why;
+    return w;
+}
+
+pub fn why_axis(w: &Why) -> i32 { return why_axis_of(w.ground); }
+
+/// THE OPERAND A PROGRAM CAN READ — one `str`, because one is what a plan can carry
+/// as a constant and because every ground has at most one operand that is not a
+/// number. The key's type name where a key failed; the FIRST source that lost its
+/// measurement where a size did; empty where the ground's operands are all counts
+/// (which `enumerated`/`proved`/`considered`/`refused` already answer).
+pub fn why_operand(w: &Why) -> str {
+    if w.ground == WG_KEY_ORDER() { return w.key; }
+    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+        let mut i: i64 = 0i64;
+        while i < w.nsd {
+            if w.scode[i] != SZ_OK() { return w.ssrc[i]; }
+            i = i + 1i64;
+        }
+    }
+    return "";
+}
+
+/// How many DISTINCT refusal grounds the census holds. `RJ_NONE` is admission and is
+/// never counted.
+pub fn why_rj_distinct(w: &Why) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut k: i64 = 1i64;
+    while k < RJ_N() {
+        if w.rjn[k] > 0i64 { n = n + 1i64; }
+        k = k + 1i64;
+    }
+    return n;
+}
+
+// ── THE VOCABULARY ───────────────────────────────────────────────────────────
+/// The ground's own sentence, WITHOUT its operands — the renderer splices those in.
+/// Every one of these was a literal at a decision site before this module; they are
+/// literals here because the antecedent each of them names is a literal too, and
+/// that is the rule: a `why` may be a constant only where what it asserts cannot
+/// vary with the query.
+pub fn wg_words(g: i32) -> str {
+    if g == WG_SCAN() {
+        return "one source, no join: the access path is decided where the query compiles, and on that axis a measurement does not change the answer — a narrowing is never meaningfully worse than a scan";
+    }
+    if g == WG_HEAD() {
+        return "the answer is the head row of one source: one access, no order and no join, so there is nothing for a measurement to decide";
+    }
+    if g == WG_IDENTITY() {
+        return "the answer IS the source, borrowed unchanged — there is no plan to decide";
+    }
+    if g == WG_FALSE_FILTER() {
+        return "the filter is constantly false, so the plan IS the empty answer — no fact about the data can change it";
+    }
+    if g == WG_FALSE_PRED() {
+        return "the predicate is constantly false, so the plan IS `None` — no fact about the data can change it";
+    }
+    if g == WG_AGG() {
+        return "an aggregate's output order is its groups' FIRST-OCCURRENCE order, which no sort restores, so the plan holds the query's own nest and there is nothing for a measurement to choose between";
+    }
+    if g == WG_NO_STEP() {
+        return "no join step — there is no second side to drive from";
+    }
+    if g == WG_EDGE_FIRST() {
+        return "a traversal step's source is a field path of an outer row, so it cannot be an outermost loop — there is nothing to bind its base to";
+    }
+    if g == WG_ANTI_FIRST() {
+        return "an anti join is not symmetric: the rows of the base with no match are a different question from the rows of the step with no match";
+    }
+    if g == WG_NO_SORT() {
+        return "the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order";
+    }
+    if g == WG_UNDECIDED() {
+        return "no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for";
+    }
+    if g == WG_ONE_FLOAT() {
+        return "only one source is free to move — every other step is pinned (an anti join or a traversal), so there is no second order to compare";
+    }
+    if g == WG_MAX_FL() {
+        return "more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space";
+    }
+    if g == WG_CROSS() {
+        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place — the derivation refuses the chain before enumerating anything, because C5 is a bijection requirement and a missing predicate breaks it whatever the order";
+    }
+    if g == WG_NO_SIZE() {
+        return "a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses";
+    }
+    if g == WG_MAX_CAND() {
+        return "more admissible orders than an artifact carries nests (four): the reorder is declined whole rather than searched over a set chosen by enumeration order, so the query's own order is emitted";
+    }
+    // ⚠ DEFAULT-DENY. `WG_KEY_ORDER`, `WG_REFUSED`, `WG_ADMITTED` and `WG_DEFERRED`
+    // have operands and are composed by the renderer, so reaching this line with one
+    // of them is a bug in `why_render` and not a missing sentence; anything else is a
+    // code nobody has named. Neither gets to borrow a neighbour's ground.
+    return "this decision recorded a ground code with no sentence in `why::wg_words` — a defect in this compiler's justification vocabulary, not a property of the query";
+}
+
+/// THE REPAIR THE FAILED ANTECEDENT ADMITS. Derived from the code that recorded the
+/// refusal, so the advice cannot name a repair the refusal's own ground contradicts.
+///
+/// ⚠ EMPTY IS AN ANSWER AND SO IS "THERE IS NONE". The `AX_NONE` grounds return ""
+/// because their own sentence already says there is nothing for a measurement to
+/// decide — a remedy clause there would be advice to change the query into a
+/// different query. Where a repair genuinely does not exist (an anti join's
+/// asymmetry), the sentence SAYS so rather than being omitted: silence reads as an
+/// oversight, and a reader then goes looking for the surface that was not named.
+pub fn wg_remedy(g: i32) -> str {
+    if g == WG_NO_STEP() {
+        return "there is nothing to repair: a single source has no second side, and the order axis is a decision ABOUT a join";
+    }
+    if g == WG_EDGE_FIRST() {
+        return "a traversal cannot lead: the remedy is a query whose first step is a classic join, with the traversal deeper in the chain where its base is already bound";
+    }
+    if g == WG_ANTI_FIRST() {
+        return "there is no repair on this axis — an anti join's asymmetry is what the query ASKED for, and transposing it would answer a different question. Moving the anti join off the first step (a classic join first) leaves a pair the axis can reason about";
+    }
+    if g == WG_NO_SORT() {
+        return "add an `order by`: a named sequence is what makes two nests the same answer, and without one there is no sequence for a second nest to restore";
+    }
+    if g == WG_KEY_ORDER() {
+        return "";
+    }
+    if g == WG_UNDECIDED() {
+        return "there is nothing to declare: the chain belongs to a rel body emitted per fixpoint variant, and a strategy the planner never decided is not a fact a source can supply";
+    }
+    if g == WG_ONE_FLOAT() {
+        return "unpin a step: every source but one is an anti join or a traversal, and a second FLOATABLE source is what a second order would permute";
+    }
+    if g == WG_MAX_FL() {
+        return "fewer floatable sources in one chain — the bound is `join_cost::JC_MAX_FL()`, and it is the width of the plan's fact table, not a search budget that could be raised on its own";
+    }
+    if g == WG_NO_SIZE() {
+        return "this axis offers no repair for a streamed side: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
+    }
+    if g == WG_CROSS() {
+        return "give the step an `on`: a cross product has no join predicate to place, and an order is a choice about WHERE each predicate is evaluated";
+    }
+    if g == WG_MAX_CAND() {
+        return "a shorter chain, or one more pinned step — the bound is `join_cost::JC_MAX_CAND()`, the nests one artifact carries for one join body, so carrying more orders is a decision about the ARTIFACT (one order per object file) and not about this query";
+    }
+    if g == WG_REFUSED() {
+        return "whichever of the refusals above your query can lose — every one of them had to hold for the query's own order to be the only one left, so removing any one leaves an order the derivation would admit; not the first one listed";
+    }
+    return "";
+}
+
+/// Why point (1) has no number for this side — the failed antecedent, in the
+/// vocabulary of the thing that failed.
+pub fn sz_no_prepare_words(r: i32) -> str {
+    if r == SZ_DERIVED() {
+        return "is a source whose rows this query materializes and which declares no `size`: the binding is a local of the generated fn, so before the query's own prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
+    }
+    if r == SZ_LOCAL() {
+        return "is a `rel` BLOCK OF THIS QUERY: its rows are produced by the query's own fixpoint into a local of the generated fn, so before the prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
+    }
+    if r == SZ_STREAMS() {
+        return "STREAMS: an iterator has no length, and counting means draining it — the query's own work traded for a plan fact, which this axis refuses at both points";
+    }
+    // Default-DENY, stated: a code nobody has named yet does not get to borrow one of
+    // the grounds above.
+    return "has no size at point (1) for a reason this module has not named — the classification reached a code with no ground, which is a defect in `join_order::prep_size_reason` and not a property of the query";
+}
+
+/// THE REPAIR A FAILED SIDE ADMITS — one per code, because the codes were split
+/// precisely where the repair differs.
+///
+/// ⚠ "THERE IS NONE, AND HERE IS WHAT THE SOURCE WOULD HAVE TO BECOME" IS AN ANSWER.
+/// What is not an answer is naming a declaration surface the reader's source does not
+/// have; that is the defect this function exists to make impossible, since the same
+/// code that decided the refusal decides the advice.
+pub fn sz_remedy_words(r: i32) -> str {
+    if r == SZ_DERIVED() {
+        return "declaring a size is ACTIONABLE for it: it already declares its rows through an `impl` (`rel <name> = <fn>;`), and a `size <name> = <fn>;` line beside that one is read by the same natspec, lands as a reporter call in `prepare`, and moves the whole decision back to point (1)";
+    }
+    if r == SZ_LOCAL() {
+        return "there is NOTHING TO DECLARE A SIZE ON: a `rel` block is part of this query, not a source it was given, and the registry carries no size field for one (`plan_walker::reg_native` is the only writer of `rel_size_fn` and it reads a natspec). The decision returns to point (1) only if the relation stops being the query's — materialized by the caller and passed in as a source that declares a `size`";
+    }
+    if r == SZ_STREAMS() {
+        return "this axis offers no repair: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
+    }
+    return "no repair is derivable, because the classification reached a code this module has not named — a defect in `join_order::prep_size_reason` and not a property of the query";
+}
+
+/// What the side IS, for the account of the read that `run` actually makes.
+///
+/// ⚠ DEFAULT-DENY HERE TOO. This used to fall through to `SZ_OK`'s sentence, so an
+/// unnamed code would have been described as "an input the caller passed in" — the
+/// one answer that makes the deferral look unnecessary.
+pub fn sz_run_words(r: i32) -> str {
+    if r == SZ_DERIVED() || r == SZ_LOCAL() {
+        return "a relation the prelude materialized for the query's own reasons";
+    }
+    if r == SZ_STREAMS() {
+        return "a streamed source, which has no length here either — this side cannot be reached";
+    }
+    if r == SZ_OK() {
+        return "an input the caller passed in, which `prepare` COULD have measured";
+    }
+    return "a side whose classification reached a code this module has not named — a defect in `join_order::prep_size_reason`";
+}
+
+/// The constraint a refused permutation failed. `nfl` selects the PAIR wording where
+/// the chain is a pair: with two sources "C6" and "C7" name a general constraint
+/// whose instance a reader can state much more directly, and the sentence a pair
+/// query recorded before the axis generalized is the one it still records.
+pub fn rj_words(r: i32, nfl: i64) -> str {
+    if r == RJ_PINDEP() {
+        return "C4: a pinned step (an anti join or a traversal) would stand before a row var its `on` or its field-path source reads — the dependency is not bound yet at that depth";
+    }
+    if r == RJ_PREDBASE() {
+        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — nothing has bound its other side at that position";
+    }
+    if r == RJ_PREDDUP() {
+        return "C5: two join predicates land on the same position and a step carries one `on` — this order would need a conjunction, which nothing here builds";
+    }
+    // ⚠ A SEPARATE GROUND, not a variant of the one above, because the antecedent
+    // that failed is a different one: nothing collided here — the predicate's
+    // last-bound var simply belongs to a step whose `on` is not a floating
+    // predicate's to take. Naming the collision instead would send a reader looking
+    // for a second predicate that does not exist.
+    if r == RJ_PREDPIN() {
+        return "C5: a join predicate's last-bound var belongs to a PINNED step (an anti join or a traversal), whose `on` is its own — nothing here re-attaches a floating predicate to one, so the predicate has no evaluable position in this order";
+    }
+    if r == RJ_RESCAN() {
+        if nfl == 2i64 {
+            return "the reverse direction has no equi-key that can be indexed, so driving the other side would rescan a source the query order reads once";
+        }
+        return "C6: this order has no indexable equi-key for a source the query's order reads exactly once, so it would rescan what the plan may already have left as a consumed iterator";
+    }
+    if r == RJ_DEDUP() {
+        if nfl == 2i64 {
+            return "both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen";
+        }
+        return "C7: this order's (size, role) sequence is the one an earlier candidate already has, so it costs the same for every possible data and no measurement could ever select it";
+    }
+    if r == RJ_SHAPE() {
+        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place";
+    }
+    return "admitted";
+}
+
+/// THE k-TH REFUSAL COUNT. Eight positional arguments rather than an array, because
+/// the caller is GENERATED CODE: a plan's `refused(code)` is one call to this
+/// function with its own census spliced in as eight literals, which costs the plan no
+/// field and no store and puts the selection rule in stdlib in one copy.
+///
+/// ⚠ IT IS THE SAME ARRANGEMENT `join_cost::jc_size_at` USES, and for the same
+/// reason: an array constructed per call would be a stack write per call for a fact
+/// that is constant, on a method a caller reaches only when they are already reading
+/// a justification.
+pub fn rj_at(k: i32, n0: i64, n1: i64, n2: i64, n3: i64,
+             n4: i64, n5: i64, n6: i64, n7: i64) -> i64 {
+    if k == 0i32 { return n0; }
+    if k == 1i32 { return n1; }
+    if k == 2i32 { return n2; }
+    if k == 3i32 { return n3; }
+    if k == 4i32 { return n4; }
+    if k == 5i32 { return n5; }
+    if k == 6i32 { return n6; }
+    if k == 7i32 { return n7; }
+    // Outside the code space: not "no refusals", which is a real answer for a code
+    // that exists. -1 is this compiler's spelling of "this was never asked for".
+    return -1i64;
+}
+
+/// WHAT A DEFERRED PLAN DOES NOT HOLD, in one copy, for every ground a deferred
+/// decision records.
+///
+/// ⚠ IT IS ONE FUNCTION BECAUSE IT WENT WRONG AS TWO SENTENCES. S4j disclosed
+/// `agrees` and `margin`; S4k then added `order_ix` and `cost_of` to the surface and
+/// did not come back, so a caller was told exactly which members to distrust and the
+/// list was short by the two that had just been added. A list that must be extended
+/// whenever the surface grows has to live at ONE address.
+///
+/// ⚠ AND IT NAMES THE ANSWERS, NOT JUST THE MEMBERS. `join_cost::JC_NOFACT()` is what
+/// `cost_of` and `margin` return here, and `wql_deferred_plan_e2e` asserts the
+/// equality against that function — so the sentence and the artifact cannot drift
+/// apart without a fixture going red.
+pub fn defer_not_held() -> str {
+    return "per-call means the PREPARED surface holds none of the answer: `order_ix` is -1 (no order is named — `run` names one, per call, from `order_pick` on the lengths it reads there), `swap` is false for want of an order rather than for want of a transposition, `cost_of` and `margin` return `join_cost::JC_NOFACT()` (-2, `the facts this answer needs are not on this plan` — distinct from -1, `there is no such candidate`), `agrees` is vacuously true because nothing here can go stale, and `settled()` is false, which is the one member whose whole job is to say so";
+}
+
+// ── THE ONE RENDERER ─────────────────────────────────────────────────────────
+// Everything below composes text, and NOTHING ELSE IN THIS COMPILER DOES, for a
+// join-order decision. `join_order::jo_report` renders a record onto `plan_trace`
+// and `rexpr_walk::emit_prepared_fns` renders the SAME record into the plan's `why`
+// literal, so the trace and `explain()` cannot say different things — which they did
+// (`q5`: "24 enumerated, 8 admissible, 1 carried" on one channel, "nothing was
+// considered" on the other).
+
+/// One source, named, with the number of positions it occupies where that is more
+/// than one. A self-join binds the same source at two or three positions and
+/// repeating its ground once per position is noise a reader has to diff.
+fn push_src(out: &mut String, w: &Why, k: i64) {
+    out.push_str("`");
+    out.push_str(w.ssrc[k]);
+    out.push_str("`");
+    if w.srep[k] > 1i64 {
+        out.push_str(" (");
+        out.push_i64(w.srep[k]);
+        out.push_str(" positions)");
+    }
+}
+
+/// THE SEARCH SUMMARY, in the exact shape the `order search` trace line has always
+/// had. It is a function because the census clause of `explain()` quotes it too:
+/// one text, so the two channels report one set of numbers.
+///
+/// ⚠ FOUR NUMBERS, NOT THREE. `nnest` is last and it is NOT `ncand`: a chain whose
+/// reorder was declined whole carries 0 candidates and still emits 1 nest.
+pub fn why_push_search(w: &Why, out: &mut String) {
+    out.push_i64(w.nperm);
+    out.push_str(" permutations of ");
+    out.push_i64(w.nfl);
+    out.push_str(" floatable sources enumerated, ");
+    out.push_i64(w.nadm);
+    out.push_str(" admissible, ");
+    out.push_i64(w.nnest);
+    out.push_str(" carried as nests");
+}
+
+/// THE REFUSAL CENSUS: every ground, with its count, in CODE order.
+///
+/// ⚠ CODE ORDER, NOT ENUMERATION ORDER, and not "the first". `all_ports` in
+/// `wql_gpath_e2e` refuses 5 permutations — 2 by C5, 3 by C7 — and the plan used to
+/// carry the C5 sentence alone because C5 happened to fire on the first challenger.
+/// The conclusion "the query's own order is the only one left" is entailed by the
+/// CONJUNCTION: remove either ground and an order survives.
+fn push_rj_census(w: &Why, out: &mut String) {
+    let mut n: i64 = 0i64;
+    let mut k: i64 = 1i64;
+    while k < RJ_N() {
+        if w.rjn[k] > 0i64 {
+            if n > 0i64 { out.push_str("; "); }
+            out.push_i64(w.rjn[k]);
+            out.push_str("x [");
+            out.push_str(rj_words(k as i32, w.nfl));
+            out.push_str("]");
+            n = n + 1i64;
+        }
+        k = k + 1i64;
+    }
+}
+
+/// THE GROUND — the antecedent that failed, with the operands it failed on spliced
+/// in where it has any.
+fn push_ground(w: &Why, out: &mut String) {
+    if w.ground == WG_KEY_ORDER() {
+        out.push_str("`order by` names a sequence, but C1's licence is that the EMITTED comparison REALIZES that sequence, not that a key exists — and being total is one of that licence's conditions rather than the whole of it. This key (`");
+        out.push_str(w.key);
+        out.push_str("`) fails it: ");
+        out.push_str(w.keywhy);
+        out.push_str(". The row-index tiebreak that makes every nest yield the same sequence rests on that comparison, so with this key the answer would stay a fact about WHICH NEST collected the tuples — this chain keeps the query's own order");
+        return;
+    }
+    if w.ground == WG_REFUSED() {
+        if why_rj_distinct(w) > 1i64 {
+            out.push_str("no other order is admissible, and that conclusion rests on ALL of the refusals rather than on the first one: ");
+            out.push_i64(w.nperm - w.nadm);
+            out.push_str(" of ");
+            out.push_i64(w.nperm);
+            out.push_str(" permutations were refused, on ");
+            out.push_i64(why_rj_distinct(w));
+            out.push_str(" distinct grounds — ");
+            push_rj_census(w, out);
+            return;
+        }
+        // ONE distinct ground: it is recorded verbatim, because there is nothing to
+        // choose between and the pair case's own sentences are reached exactly as
+        // before.
+        let mut k: i64 = 1i64;
+        while k < RJ_N() {
+            if w.rjn[k] > 0i64 { out.push_str(rj_words(k as i32, w.nfl)); return; }
+            k = k + 1i64;
+        }
+        out.push_str("no other order is admissible, and the derivation recorded no ground for any refusal — a defect in `join_order::derive_orders`, not a property of the query");
+        return;
+    }
+    if w.ground == WG_ADMITTED() {
+        if w.ncand == 2i64 {
+            out.push_str("either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence");
+        } else {
+            out.push_str("more than two orders are admissible: every one of them is emitted as its own nest and `join_cost` prices them all in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes every nest yield the same sequence, and `cost_of(ix)` reports what each one would have cost");
+        }
+        return;
+    }
+    if w.ground == WG_DEFERRED() {
+        push_defer_ground(w, out);
+        return;
+    }
+    out.push_str(wg_words(w.ground));
+}
+
+/// The ground a DEFERRED admission records, COMPOSED FROM THE PER-SIDE CODES the
+/// deferral was decided on.
+///
+/// ⚠ WHAT THE OLD CONSTANT GOT WRONG, precisely: it said both sizes were lengths of
+/// relations this query materializes anyway, and "not on any fact `prepare` can
+/// hold". For `via_rel(ls, rs)` one of the two is `(rs).len()` on a slice PARAMETER —
+/// a fact `prepare` holds happily. A reader was told no number was obtainable when
+/// one of two was.
+fn push_defer_ground(w: &Why, out: &mut String) {
+    if w.ncand == 2i64 {
+        out.push_str("either side may drive");
+    } else {
+        out.push_str("one of ");
+        out.push_i64(w.ncand);
+        out.push_str(" orders drives");
+    }
+    out.push_str(", and not on a fact `prepare` can hold, because ");
+    let mut nno: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < w.nsd {
+        if w.scode[i] != SZ_OK() && w.sfirst[i] {
+            if nno > 0i64 { out.push_str("; "); }
+            push_src(out, w, i);
+            out.push_str(" ");
+            out.push_str(sz_no_prepare_words(w.scode[i]));
+            nno = nno + 1i64;
+        }
+        i = i + 1i64;
+    }
+    // ⚠ AND IF NO SIDE FAILED, SAY SO RATHER THAN EMITTING A SENTENCE WITH A HOLE.
+    // `WG_DEFERRED` is recorded only where at least one side was refused at point (1),
+    // so this is unreachable — and an unreachable branch that would produce broken
+    // prose is still a ground a reader could be shown.
+    if nno == 0i64 {
+        out.push_str("the deferral was taken with every side measurable at point (1), which contradicts the condition that sets it — this is a defect in `join_order::decide_over_set`, not a property of the query");
+    }
+    // The sides point (1) COULD have measured. Naming them is the whole correction:
+    // their presence is why "no fact was obtainable" was false, and their movement to
+    // point (2) has a ground of its own.
+    let mut nok: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < w.nsd {
+        if w.scode[j] == SZ_OK() && w.sfirst[j] {
+            if nok > 0i64 { out.push_str(", "); }
+            else { out.push_str(". `prepare` COULD have measured "); }
+            push_src(out, w, j);
+            nok = nok + 1i64;
+        }
+        j = j + 1i64;
+    }
+    if nok > 0i64 {
+        if nok == 1i64 { out.push_str(" — that side is read in `run` all the same"); }
+        else           { out.push_str(" — those sides are read in `run` all the same"); }
+        out.push_str(", because a cost may not mix a fact from point (1) with one from point (2): every size in one comparison comes from the one point at which every one of them is free, and one unmeasurable side is enough to choose which point that is");
+    }
+    out.push_str(". So the order is decided inside `run` — once per call, above the nest, from lengths that are one field read where they stand. ");
+    out.push_str(defer_not_held());
+}
+
+/// THE CENSUS CLAUSE — the three states, as the numbers that distinguish them and as
+/// the sentence a person reads. THIS is what replaces the suffix keyed on
+/// `nperm == 0` that asserted "the order axis was never entered" for 59 of 259 plans
+/// whose own ground, one clause earlier, said which antecedent of the axis had
+/// refused them: the clause is selected by `why_axis`, so a refusal cannot be
+/// described as an absence.
+fn push_census(w: &Why, out: &mut String) {
+    let ax: i32 = why_axis(w);
+    if ax == AX_NONE() {
+        out.push_str(" [ORDER AXIS NOT ENTERED (`axis()` 0): this query has no join whose order a plan could choose, so nothing was permuted — `enumerated()` 0, `proved()` 0, `considered()` 0, and the plan carries no candidate table for `cost_of` to price]");
+        return;
+    }
+    if ax == AX_REFUSED() {
+        out.push_str(" [ORDER AXIS ENTERED AND REFUSED BEFORE ENUMERATION (`axis()` 1, `ground()` ");
+        out.push_i64(w.ground as i64);
+        out.push_str("): the antecedent above failed, so the derivation never ran and `enumerated()` is 0 — the SAME 0 a query with no join reports, which is why this is `axis()` 1 and not a count. `proved()` 0, `considered()` 0, no candidate table]");
+        return;
+    }
+    out.push_str(" [ORDER AXIS SEARCHED (`axis()` 2): ");
+    why_push_search(w, out);
+    out.push_str(" — `enumerated()` ");
+    out.push_i64(w.nperm);
+    out.push_str(", `proved()` ");
+    out.push_i64(w.nadm);
+    out.push_str(", `considered()` ");
+    out.push_i64(w.ncand);
+    if w.ncand == 0i64 {
+        out.push_str(". NO CANDIDATE TABLE IS CARRIED, and NOT because nothing was proved — `proved()` and `considered()` differ here, which is exactly the reading a single count could not give");
+    }
+    out.push_str("]");
+}
+
+/// THE REMEDY CLAUSE, derived from the failed antecedent and its operands.
+///
+/// ⚠ ONE CLAUSE PER FAILING CLASS, NOT ONE PER QUERY, on the deferred path.
+/// `db_i64_leaves` defers on two `rel` blocks and `iter_step` on a declared source; a
+/// query that mixed the two would have had a single sentence covering both, which is
+/// how one remedy came to be printed for sources that cannot take it. Class order is
+/// CODE order, the same rule the refusal census follows.
+fn push_remedy(w: &Why, out: &mut String) {
+    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+        let mut nw: i64 = 0i64;
+        let mut code: i64 = 1i64;
+        while code < 4i64 {
+            let mut n: i64 = 0i64;
+            let mut i: i64 = 0i64;
+            while i < w.nsd {
+                if (w.scode[i] as i64) == code && w.sfirst[i] {
+                    if n > 0i64 { out.push_str(", "); }
+                    else if nw > 0i64 { out.push_str("; "); }
+                    else { out.push_str(". THE REMEDY, derived from what each refused side IS: "); }
+                    push_src(out, w, i);
+                    n = n + 1i64;
+                }
+                i = i + 1i64;
+            }
+            if n > 0i64 {
+                out.push_str(" — ");
+                out.push_str(sz_remedy_words(code as i32));
+                nw = nw + 1i64;
+            }
+            code = code + 1i64;
+        }
+        if nw > 0i64 { return; }
+    }
+    if w.ground == WG_KEY_ORDER() {
+        // The repair is inside `el`'s own answer — it names the key types whose
+        // emitted comparison realizes an order — and quoting it twice would be the
+        // second copy this module exists to prevent.
+        return;
+    }
+    let r: str = wg_remedy(w.ground);
+    if r.len() == 0i64 { return; }
+    out.push_str(". THE REMEDY, derived from the antecedent that failed: ");
+    out.push_str(r);
+}
+
+/// THE ONE RENDERER. Ground, then census, then remedy — the DL-reasoner shape: the
+/// facts and the rule that entail the conclusion, then which antecedent failed, then
+/// what would have to change for it to hold.
+///
+/// ⚠ ITS OUTPUT IS ESCAPED INTO GENERATED SOURCE by `prepared::push_str_lit`, so the
+/// caller's buffer must live until that call — one statement, in the frame that
+/// escapes it. That is the whole of the lifetime discipline now: there is no composed
+/// `str` on the record and nothing to keep alive across the decision.
+pub fn why_render(w: &Why, out: &mut String) {
+    push_ground(w, out);
+    push_census(w, out);
+    push_remedy(w, out);
+    // ⚠ THE DEFERRED APPENDIX IS PART OF THE RENDER, not something a consumer adds.
+    // The emitter used to append it to the plan's copy alone, so the plan and the
+    // `[plan] … -> drive either side in \`run\`` line differed by exactly this clause:
+    // measured, 66 of 81 join-order verdict lines said something other than the
+    // `explain()` of the plan the same decision produced. A clause a caller may add
+    // is a clause one caller will forget.
+    if w.ground == WG_DEFERRED() {
+        out.push_str(" [in `run`: ");
+        why_push_sizes(w, out);
+        out.push_str("]");
+    }
+}
+
+/// The DEFERRED appendix: WHAT will be compared, and where each number comes from.
+/// Kept out of `why_render` because it is the account of the read `run` makes rather
+/// than the ground of the decision, and because `jo_report` prints it on its own
+/// channel (`sizes deferred to run`) where a reader looks for it.
+///
+/// ⚠ THE ANNOTATIONS COME FROM THE RECORD, not from a second classification.
+/// "each is the length of a binding the prelude already made" was false for a side
+/// that is a PARAMETER — the prelude made nothing of it, and `prepare` could have
+/// measured it.
+pub fn why_push_sizes(w: &Why, out: &mut String) {
+    let mut i: i64 = 0i64;
+    while i < w.nsd {
+        if i > 0i64 { out.push_str(" vs "); }
+        out.push_str(w.ssz[i]);
+        out.push_str(" [");
+        out.push_str(sz_run_words(w.scode[i]));
+        out.push_str("]");
+        i = i + 1i64;
+    }
+}
