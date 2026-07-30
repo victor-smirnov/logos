@@ -149,11 +149,22 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
             // elements hang off it with idx >= 0 — the two-level layout the
             // gpath steps navigate (`.field` then `[*]`).
             //
-            // ⚠ The braces are LOAD-BEARING. A field fragment splices at a
-            // STATEMENT slot, which INLINES it, so two Vec fields in one struct
-            // would redeclare `__vid`/`__s`/`__k` in the same scope. The
-            // block-statement is the scope, spelled — the same discipline as
-            // `{ #frag; }` at any other inlining slot.
+            // ⚠ The braces are FIDELITY, not correctness — and the difference
+            // matters, because an earlier note here claimed the opposite and a
+            // reader would build on it. A field fragment splices at a STATEMENT
+            // slot, which INLINES it, so without this block two Vec fields in
+            // one struct do land `__vid`/`__s`/`__k` in the same scope. That is
+            // NOT an error: Logos shadows like Rust, so the second `let __vid`
+            // shadows the first and every statement after it reads the newest
+            // binding — MEASURED, by deleting these braces, rebuilding and
+            // running the three-Vec case, which compiles and passes. So the
+            // braces buy two things and neither is compilability: the emitted
+            // shape stays byte-identical to what the text channel wrote (the
+            // arc's equivalence property), and each field's slice borrow of
+            // `v.#f` ends with the field instead of living to the end of the fn.
+            // ⚠ A COROLLARY FOR TEST DESIGN: a scope collision here is
+            // SILENTLY equivalent, so no test can pin it — do not read the
+            // three-Vec case as a gate on scoping.
             flds.push(quote_block! {
                 {
                     let __vid: i64 = (&v.#f as *const Vec<#a>) as i64;
