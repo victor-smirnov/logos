@@ -1414,6 +1414,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // The STREAM binding names (`__rel_<r>`), same discipline again.
     let mut nat_ssrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
+    // The SIZE binding names (`__sz_<r>`) — where a measured size lands in the
+    // generated fn (ADR 0024 S4). Built in ONE place, so the plan's record and
+    // the emitted prelude cannot name it differently.
+    let mut nat_szat_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new()];
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1499,11 +1504,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // generic graph-edge relation AFTER the parse-side rels (registry
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
-        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
+        access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
@@ -1538,11 +1544,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
-        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs) { return false; }
+        if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
+        access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
@@ -1723,8 +1730,9 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // the caller's frame Strings).
 fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
               mat: str, marg: str, marg2: str, module: str, iter: bool,
-              ity: str,
-              srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String) -> i64 {
+              ity: str, szfn: str, szty: str,
+              srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String,
+              szatb: &mut String) -> i64 {
     srcb.push_str("__rel_");
     srcb.push_str(disp);
     srcb.push_str("_sl");
@@ -1735,12 +1743,20 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
     // not a slice and generated code that says otherwise misleads its reader.
     ssrcb.push_str("__rel_");
     ssrcb.push_str(disp);
+    // The SIZE binding — a number, not rows, so it shares neither name.
+    if szfn.len() > 0i64 {
+        szatb.push_str("__sz_");
+        szatb.push_str(disp);
+    }
     let idx: i64 = prm.rel_add(disp, string_as_str(srcb), string_as_str(dsrcb), rowty);
     if idx >= 0i64 {
         prm.rel_native[idx] = true;
         prm.rel_iter[idx]   = iter;
         prm.rel_itty[idx]   = ity;
         prm.rel_ssrc[idx]   = string_as_str(ssrcb);
+        prm.rel_size_fn[idx] = szfn;
+        prm.rel_size_ty[idx] = szty;
+        prm.rel_size_at[idx] = string_as_str(szatb);
         prm.rel_mat[idx] = mat;
         prm.rel_marg[idx] = marg;
         prm.rel_marg2[idx] = marg2;
@@ -2292,7 +2308,8 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
                         srcb: &mut [String; 8], dsrcb: &mut [String; 8],
-                        rowtyb: &mut [String; 8], ssrcb: &mut [String; 8]) -> bool {
+                        rowtyb: &mut [String; 8], ssrcb: &mut [String; 8],
+                        szatb: &mut [String; 8]) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
@@ -2430,13 +2447,32 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             }
             if i < n && str_byte_at(natspec, i) == 125u8 { i = i + 1i64; }    // '}'
         }
+        // `$<fn>[%<ret-ty>]` — the source's declared SIZE operation (ADR 0024
+        // S4). Absent for a source that reports no size, which stays perfectly
+        // usable: the plan records that it could not ask.
+        let mut szfn: str = "";
+        let mut szty: str = "";
+        if i < n && str_byte_at(natspec, i) == 36u8 {                          // '$'
+            i = i + 1i64;
+            let z0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 37u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '%'|';'
+            szfn = pw_slice(natspec, z0, i);
+            if i < n && str_byte_at(natspec, i) == 37u8 {                      // '%'
+                i = i + 1i64;
+                let zt: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; } // ';'
+                szty = pw_slice(natspec, zt, i);
+            }
+        }
         i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
         let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
-                                  mat_iter, mat_ity, &mut srcb[k], &mut dsrcb[k],
-                                  &mut ssrcb[k]);
+                                  mat_iter, mat_ity, szfn, szty,
+                                  &mut srcb[k], &mut dsrcb[k],
+                                  &mut ssrcb[k], &mut szatb[k]);
         if idx < 0i64 {
             error("wql!: too many rels (max 8, native source params included)");
             return false;
@@ -2481,9 +2517,38 @@ fn pw_flag(flags: str, c: u8) -> bool {
 // NATIVE rel (ADR 0016 M1a): the materialization is the writ_graph helper —
 //   let __rel_<p>: Vec<WritEdgeRow> = writ_graph_edges(<p>);
 // (no `?` — the native walk has no EL fault path).
+/// The rel's SIZE, obtained ONCE (ADR 0024 S4).
+///
+/// `let __sz_<r>: <ty> = <reporter>(<source>);` — a statement of the PRELUDE, so
+/// it runs before the first row is read and cannot become a per-row cost however
+/// the walk below it is shaped. Emitted only when the source declared a reporter;
+/// otherwise nothing is emitted and the plan's trace says the size is unknown.
+///
+/// ⚠ ANNOTATED from the DECLARED return type, inferred only when none travelled.
+/// The reporter of a factory-generated family lands in the same round its query
+/// lowers, and an inferred `let` then carries an unresolved type var out of the
+/// prelude — the reason `rel_itty` exists, holding here for the same reason.
+fn emit_size_binding(prelude: &mut String, prm: &MacroParams, r: i64) {
+    if prm.rel_size_fn[r].len() == 0i64 { return; }
+    prelude.push_str("    let ");
+    prelude.push_str(prm.rel_size_at[r]);
+    if prm.rel_size_ty[r].len() > 0i64 {
+        prelude.push_str(": ");
+        prelude.push_str(prm.rel_size_ty[r]);
+    }
+    prelude.push_str(" = ");
+    prelude.push_str(prm.rel_size_fn[r]);
+    prelude.push_str("(");
+    prelude.push_str(prm.rel_marg[r]);
+    prelude.push_str(");\n");
+}
+
 fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                         scc: &RelScc, r: i64) {
     if prm.rel_native[r] {
+        // Before the source's own binding: a size is a fact ABOUT the relation,
+        // and reading it after landing a cursor would tie it to a walk.
+        emit_size_binding(prelude, prm, r);
         // STREAMED (ADR 0024 S4): the producer's iterator is bound directly,
         // and nothing is collected. The type is INFERRED — the iterator's type
         // is the source's business, and naming it here would put a second copy

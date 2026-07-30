@@ -945,6 +945,26 @@ foreach(FLATBODY_CASE wql_first_fold_e2e wql_join_e2e wql_aggregate_e2e wql_data
     )
 endforeach()
 
+# Plan SIZE gate (ADR 0024 S4): a source's size is a fact the plan ASKS FOR, and
+# both answers are recorded — the number's provenance when the source declares a
+# reporter, the absence when it does not.
+#
+# ⚠ Nothing consumes the number yet, by design: this phase supplies the fact. So
+# the fixture would keep passing with the whole size plane deleted, and the only
+# thing that can hold the property is the plan's own account of what it asked —
+# stderr under LOGOS_TRACE_PLAN=1, which appears in no artifact.
+add_test(
+    NAME logos_09_plan_size_asked
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plan_size_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_source_size.logos
+)
+set_tests_properties(logos_09_plan_size_asked PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

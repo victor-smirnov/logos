@@ -344,7 +344,7 @@
     MAPPING_DEF_DONE            = 265   // a CONSUMED mapping item (its thunk ran; per-rel fns emitted). Distinct from FN_MACRO_CALL_ITEM_DONE so a consumer compiling against the ARCHIVE can still recognize the node and register the mapping (name/params/rels/bodies all survive the flip — only CODE changes) for cross-module fusion.
     REL_SIG                     = 262   // ADR 0016 §6: a `rel` member of a TRAIT — `rel edge(parent: i64, …);`. REL_KW = contextual lead ident (must be "rel"); NAME = rel name; PARAMS = typed column list (PARAM array). Declares the relational vocabulary a source-trait carries.
     REL_OP                      = 270   // ADR 0024 S6: an `op` member of an IMPL — `op entry.key eq = __ctr_at_Hs…, exact;`. REL_KW = lead ident (must be "op"); TYPE_NAME = the rel; FIELD = the column; OP = the comparison class this op answers (eq/ge/le/gt/lt, a captured IDENT); NAME = the implementing fn — NAME because the antiquote substituter writes a resolved `#ident` there by convention, so anything else in that slot is clobbered; RET_TYPE = the optional exactness flag (reuses the RET_TYPE slot — a rel op has no return type). Declares ONE access operation of a source, so a planner matches a demand against what the source SAYS instead of against names it knows by convention.
-    REL_BIND                    = 263   // ADR 0016 §6: a `rel` member of an IMPL — `rel edge = writ_graph_edges;`. REL_KW = lead ident; NAME = rel name; VALUE = the materializer fn ident (fn(&T) -> Vec<RowTuple>). Binds one trait rel to its native materializer for the impl'd type.
+    REL_BIND                    = 263  // ADR 0016 §6 / ADR 0024 S4: a lead-ident member of an IMPL with the shape `<lead> <name> = <fn>;`. REL_KW = the lead ident, which is DATA and tells the members apart: `rel edge = writ_graph_edges;` binds one trait rel to its native materializer, `size entry = btree_len;` names the fn reporting how many rows the relation holds (asked once, at run time). NAME = rel name; VALUE = the fn ident. ⚠ The AST→source renderer must print REL_KW, not the constant "rel" — under `-g` the dump is reparsed.
     DEEM_DEF                    = 264   // ADR 0016: `pub? deem q<V: Bound>?(g: &Writ, …) { <query> }` — a deem QUERY as a language item (the item form of `resource q = deem!(…){…}`; same handler, same seam). DEEM_KW = contextual lead ident (must be "deem" — a keyword would break `use logos.std.deem`); NAME; TYPE_PARAMS = optional type-param list (re-emitted verbatim onto the generated fn heads — one query per container FAMILY); PARAMS = real param list; RAW_TEXT = the query body (balanced braces); IS_PUB/VIS as usual.
     CONTAINER_DEF_DONE          = 267   // ADR 0020 wave-0: a CONSUMED container item. Same convention as MAPPING_DEF_DONE — only CODE flips (driver); NAME/TYPE_PARAMS/TYPE/FIELDS survive so a consumer compiling against the ARCHIVE re-registers the declaration (cross-module Canon reasoning).
     CONTAINER_OP                = 269   // BTFL 8b: one entry of a container `ops { … }` block. NAME = verb ident (`seek`, `insert`, `scan`, …; the CLOSED vocabulary is validated by Canon, not the grammar); VALUE = optional arg head ident (`max` in `seek(max(key))`, `count` in `select(count)`, `val` in `scan(val)`); OP_ARG (FIELD slot) = optional inner ident of a parenthesized measure ref (`key` in `max(key)`).
@@ -1377,6 +1377,12 @@
             / IDENT IDENT_ANY DOT IDENT_ANY IDENT ASSIGN IDENT_ANY IDENT_ANY? SEMI
            => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, OP: $5, NAME: $7, RET_TYPE: $8 }
 
+    // `<lead> <name> = <fn>;` — an impl member whose lead ident is DATA:
+    //   rel  entry = btree_rows;   (ADR 0016 §6) the relation's materializer
+    //   size entry = btree_len;    (ADR 0024 S4) how many rows it holds
+    // ONE rule, because the shape is one shape; which member it is, is read from
+    // REL_KW at collect time. A `size` lead needs no rule of its own and gets
+    // none — what it needed was for the RENDERER to stop printing "rel".
     rel_bind <- IDENT IDENT_ANY ASSIGN HASH IDENT SEMI
              => { CODE: REL_BIND, REL_KW: $1, NAME: $2, NAME_VAR: $5 }
               / IDENT IDENT ASSIGN IDENT SEMI

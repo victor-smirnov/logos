@@ -271,9 +271,20 @@ pub fn btree_upto<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, hi: K) -> Vec<(K, 
     return out;
 }
 
+/// How many rows the relation holds (ADR 0024 S4). A `mem` collection carries
+/// its length, so reporting a size costs nothing — and the plan asks once.
+///
+/// ⚠ The DECLARATION a human writes and the one a factory generates are the same
+/// object: this is `size entry = <fn>;` exactly as Canon's generated family
+/// writes it, and that identity is the test that the plane is not Memoria-shaped.
+pub fn btree_len<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>) -> i64 {
+    return m.len();
+}
+
 impl<K: Ord + Copy, V: Copy> OrderedMapSource<K, V> for BTreeMap<K, V> {
     rel entry = btree_rows;
     op entry.key eq = btree_at    exact;
     op entry.key ge = btree_from  exact;
     op entry.key le = btree_upto  exact;
+    size entry = btree_len;
 }

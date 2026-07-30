@@ -141,6 +141,20 @@ pub struct MacroParams {
     // the column, the comparison it answers, what implements it, and whether
     // its rows are EXACTLY the matches of that comparison (a `ge` operation is
     // exact for `>=` and a superset when it answers `>`).
+    // ── the source's declared SIZE operation (ADR 0024 S4) ───────────────
+    // `rel_size_fn` = the fn reporting how many rows the relation holds ("" =
+    // the source reports none, and the plan says so); `rel_size_ty` = its
+    // return type, so the emitted binding is ANNOTATED for the same reason the
+    // producer's is; `rel_size_at` = the binding the measured number lands in.
+    //
+    // ⚠ A SIZE IS NOT A CARDINALITY CLASS. `AccessPlan.card` stays an ordinal —
+    // it is what orders two access choices at expansion time, when there is no
+    // container to count. A measured number REFINES that ordinal at run time and
+    // replaces nothing: the ordinal is what a static comparison consumes, the
+    // number is what a plan built against real data will.
+    pub rel_size_fn: [str; 8],
+    pub rel_size_ty: [str; 8],
+    pub rel_size_at: [str; 8],
     pub op_off:   [i64; 8],
     pub op_cnt:   [i64; 8],
     pub opc_col:  [str; 32],
@@ -198,6 +212,9 @@ pub fn macro_params_new() -> MacroParams {
         rel_marg:    [""; 8],
         rel_marg2:   [""; 8],
         rel_mod:     [""; 8],
+        rel_size_fn: [""; 8],
+        rel_size_ty: [""; 8],
+        rel_size_at: [""; 8],
         op_off:   [0i64; 8],
         op_cnt:   [0i64; 8],
         opc_col:  [""; 32],

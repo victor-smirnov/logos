@@ -162,8 +162,27 @@ source once (hash, tree) streams it. The equi-key selection rule has one copy,
 used by the planner to CHOOSE the key term and by the emitter to compose text
 from the term the plan chose. A streamed step's hash index holds the ROWS
 rather than row indices — there is no slice left to index — which also removes
-the second structure the drained path built. *Remaining:* cost on the
-relational IR nodes proper.
+the second structure the drained path built. **S4g** — a source's SIZE is a fact
+the plan ASKS FOR. `card` stays an ORDINAL, because expansion time has no
+container to count; what a compile-time plan can hold about a run-time number is
+the asking, so `AccessPlan` records the reporter, the binding the answer lands
+in, and — when the source declares none — that it could not ask. The two facts
+have different consumers and neither replaces the other: `card` orders candidate
+accesses in `plan_narrow_rel`, which must choose where no data exists; the
+measured number is for a decision made where the data is. DECLARED like every
+other capability on this plane (`size <rel> = <fn>;`, one per relation): a
+container publishes `measure count`, a `mem` collection has `len`, and a
+hand-written source may have neither — deriving a size from a source's shape
+would exclude the third, which must stay usable. Asked ONCE, in the prelude
+beside the source's own binding, so it cannot become a per-row cost however the
+walk below it is shaped. ⚠ `size` needed no grammar rule of its own — it is
+`rel_bind`'s shape and REL_KW tells them apart — but it did need the AST→source
+RENDERER to stop printing the constant `"rel "`: under `-g` a dump is REPARSED,
+so a lead the renderer cannot say comes back as a duplicate rel binding. That is
+the fifth time in this arc the reading instrument was blind exactly where
+emitters write. *Remaining:* a plan that CONSUMES the number — join order, where
+a runtime fact changes the answer in multiples — and with it the reusable
+prepared object that pays for measuring.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

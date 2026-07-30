@@ -1951,8 +1951,17 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
     }
 
     case la::REL_BIND: {
-        // `rel name = materializer;` (impl member, ADR 0016 §6).
-        std::string s = "rel ";
+        // `<lead> name = fn;` (impl member) — `rel <r> = <materializer>;`
+        // (ADR 0016 §6) or `size <r> = <reporter>;` (ADR 0024 S4).
+        //
+        // ⚠ The LEAD IS DATA and this used to print the constant "rel ". Under
+        // `-g` the dump is REPARSED and replaces the synth doc, so a rendered
+        // `size` member came back as a second rel binding for the same rel —
+        // the fourth time in this arc that the reading instrument was blind
+        // exactly where emitters write.
+        std::string lead(str_of(node.get(la::REL_KW.code)));
+        if (lead.empty()) lead = "rel";
+        std::string s = lead + " ";
         s += std::string(str_of(node.get(la::NAME.code)));
         s += " = ";
         s += std::string(str_of(node.get(la::VALUE.code)));

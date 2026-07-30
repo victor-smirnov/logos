@@ -21412,6 +21412,20 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             }
             spec += "}";
         }
+        // ── the SIZE operation (ADR 0024 S4) ─────────────────────────────
+        // `$<fn>[%<ret-ty>]` — how many rows the relation holds, asked ONCE at
+        // run time. The return type travels for the same reason a producer's
+        // does: the emitted binding is ANNOTATED rather than inferred, because a
+        // generated reporter's signature is not always resolvable in the round
+        // its consumer is compiled. Omitted when the source declares no size,
+        // which is what lets the plan report the ABSENCE instead of assuming a
+        // number it never obtained.
+        if (!b.size_fn.empty()) {
+            spec += "$";
+            spec += b.size_fn;
+            std::string szty = producer_ret_type_(b.size_fn);
+            if (!szty.empty()) { spec += "%"; spec += szty; }
+        }
         spec += ";";
     }
     return spec;

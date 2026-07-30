@@ -136,6 +136,28 @@ pub struct AccessPlan {
     /// construction.
     pub once:   [bool; 8],
     pub owhy:   [str; 8],
+    /// THE SOURCE'S SIZE, as a fact the plan ASKED FOR (ADR 0024 S4).
+    ///
+    /// `card` above is an ordinal because expansion time has nothing to count.
+    /// This is the other half of that sentence: the number exists at RUN time,
+    /// so what a compile-time plan can hold is the ASKING — which fn reports the
+    /// size (`size_fn`), where the answer lands in generated code (`size_at`),
+    /// and, when neither exists, why the plan could not ask (`size_why`).
+    ///
+    /// ⚠ IT DOES NOT REPLACE THE ORDINAL, and the two are consumed by different
+    /// readers. `card` orders two candidate accesses in `plan_narrow_rel`, which
+    /// runs before any container exists and must still choose; the measured
+    /// number refines it for a decision made where the data is — a join's
+    /// driving side, which is where a runtime fact changes the answer in
+    /// multiples rather than confirming it. Nothing consumes `size_at` yet: this
+    /// phase supplies the fact and records that it was obtained.
+    ///
+    /// ⚠ ASKED ONCE. A size is a property of the relation, not of a row, so it
+    /// is read in the prelude beside the source's own binding and never inside a
+    /// walk. `size_at` naming ONE binding per rel is what holds that.
+    pub size_fn: [str; 8],
+    pub size_at: [str; 8],
+    pub size_why:[str; 8],
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -158,6 +180,9 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         swhy:  ["", "", "", "", "", "", "", ""],
         once:  [false; 8],
         owhy:  ["", "", "", "", "", "", "", ""],
+        size_fn: ["", "", "", "", "", "", "", ""],
+        size_at: ["", "", "", "", "", "", "", ""],
+        size_why:["", "", "", "", "", "", "", ""],
         n: n,
         drop_where: false,
     };
@@ -191,6 +216,31 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
         } else {
             ap.stream[ri] = true;
             ap.swhy[ri] = "streamed: the producer is an iterator and the plan reads it once";
+        }
+        ri = ri + 1i64;
+    }
+}
+
+/// ASK every source for its SIZE, and record what was asked (ADR 0024 S4).
+///
+/// A separate pass for the same reason materialize-vs-stream is one: it answers a
+/// different question from the access choice. The access says WHICH rows, the mode
+/// says how they travel, this says HOW MANY there are — and it is the only one of
+/// the three whose answer does not exist until the query runs.
+///
+/// Reads the source's declaration and nothing else. A size that were derived from
+/// a source's shape would exclude the source that has neither a `measure count`
+/// nor a `len`, and that source must stay usable — so the absence is a recorded
+/// answer, not a gap.
+pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        if prm.rel_size_fn[ri].len() > 0i64 {
+            ap.size_fn[ri]  = prm.rel_size_fn[ri];
+            ap.size_at[ri]  = prm.rel_size_at[ri];
+            ap.size_why[ri] = "measured: the source reports its size, read once before the first row";
+        } else {
+            ap.size_why[ri] = "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has";
         }
         ri = ri + 1i64;
     }
@@ -237,6 +287,21 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             plan_trace(prm.rel_names[ri],
                        if ap.stream[ri] { "stream" } else { "materialize" },
                        "", ap.swhy[ri]);
+        }
+        // The SIZE the plan asked for, or the absence of one. Reported for every
+        // rel, like the access: a plan that only speaks when it got a number
+        // leaves "no line" meaning both "did not ask" and "asked and got none".
+        if ap.size_why[ri].len() > 0i64 {
+            let mut sb: String = String::new();
+            if ap.size_fn[ri].len() > 0i64 {
+                sb.push_str(ap.size_fn[ri]);
+                if ap.size_at[ri].len() > 0i64 {
+                    sb.push_str(" -> "); sb.push_str(ap.size_at[ri]);
+                }
+            }
+            plan_trace(prm.rel_names[ri],
+                       if ap.size_fn[ri].len() > 0i64 { "size" } else { "size unknown" },
+                       string_as_str(&sb), ap.size_why[ri]);
         }
         ri = ri + 1i64;
     }

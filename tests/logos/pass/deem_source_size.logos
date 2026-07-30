@@ -1,0 +1,114 @@
+// A source's SIZE is a fact the PLAN ASKS FOR (ADR 0024 S4).
+//
+// `AccessPlan.card` is an ordinal — CARD_ONE / CARD_PART / CARD_ALL — and its own
+// comment says why: at macro expansion there is no container to count. That is
+// the whole of the cost story so far, and it is why a query compiled statically
+// can only order two access shapes and never weigh them. The number that would
+// weigh them exists only at RUN time, by which point nothing can influence the
+// plan.
+//
+// So the plane learns to ASK. A Memoria container publishes `measure count`, a
+// `mem` collection has `len`, and a hand-written source may have neither — hence
+// a DECLARED capability, `size <rel> = <fn>;`, travelling exactly as `rel` and
+// `op` do (the natspec, MacroParams, AccessPlan). A source that cannot report a
+// size stays usable, and the plan SAYS it could not ask instead of assuming a
+// number it never obtained.
+//
+// ⚠ THE ORDINAL STAYS, and the two facts have different consumers. `card` orders
+// candidate accesses in `plan_narrow_rel`, which runs where no container exists
+// and must still choose; the measured number refines it for a decision made
+// where the data is. Nothing consumes the number yet — this phase supplies it.
+//
+// ⚠ ASKED ONCE. The size lands in the PRELUDE, beside the source's own binding,
+// so it can never become a per-row cost however the walk below it is shaped.
+//
+// PLAN TRACE (LOGOS_TRACE_PLAN=1) — asserted by tests/logos/plan_size_gate.sh:
+//   [plan] m -> size on __ctr_size_Hs… -> __sz_m
+//              (measured: the source reports its size, read once before the first row)
+//   [plan] s -> size unknown
+//              (unmeasured: the source declares no size operation, so the
+//               cardinality ORDINAL is all this plan has)
+//
+// EMITTED, from_five — one call, before the first row:
+//   let __sz_m: u64 = __ctr_size_Hs…(m);
+//   let mut __rel_m: Hs…Walk = __ctr_from_Hs…(m, 5u64);
+//
+// ORACLE for the RUN: the rows. The size call must not disturb the query it
+// measures — the container is borrowed for a root read, and a walk landed after
+// it must still return exactly the suffix.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+// A GENERATED family: Canon's projection declares `size entry = __ctr_size_Hs…;`
+// beside the four access operations, and the reporter is one root read because
+// `measure count` is what the container already keeps.
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub deem from_five(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e where e.key >= 5 select (e.key, e.val)
+}
+
+// A HAND-WRITTEN source that declares NO size. It has no length to report and is
+// not asked to invent one: it declares a rel and nothing else, and the query over
+// it compiles, streams and returns its rows exactly as before.
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+}
+
+pub deem all_steps(s: &Steps) {
+    from s e select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 8u64 { c.insert(k, k * 10u64); k = k + 1u64; }
+
+    // The measured source: 8 entries, and the narrowed walk still returns the
+    // suffix from 5. A size read that perturbed the container would show here.
+    let f: Vec<(u64, u64)> = match from_five(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if f.len() != 3i64 { return 2i32; }
+    if f.get(0i64).0 != 5u64 || f.get(0i64).1 != 50u64 { return 3i32; }
+    if f.get(2i64).0 != 7u64 || f.get(2i64).1 != 70u64 { return 4i32; }
+
+    // The UNMEASURED source: absence is a recorded answer, not a failure.
+    let s: Steps = Steps { n: 4i64 };
+    let a: Vec<(i64, i64)> = match all_steps(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if a.len() != 4i64 { return 6i32; }
+    if a.get(0i64).0 != 0i64 || a.get(0i64).1 != 0i64 { return 7i32; }
+    if a.get(3i64).0 != 3i64 || a.get(3i64).1 != 30i64 { return 8i32; }
+    return 0i32;
+}

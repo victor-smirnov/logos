@@ -4675,6 +4675,14 @@ private:
         std::string mat_fn;               // materializer: fn(&T) -> Vec<RowTuple>
         std::string mat_module;           // its package (empty = resolve at use)
         std::vector<SourceRelOp> ops;     // declared access operations (ADR 0024 S6)
+        // ADR 0024 S4 — the SIZE operation: `size <rel> = <fn>;`, a fn of the
+        // source alone reporting how many rows the relation holds. DECLARED for
+        // the same reason every other capability on this plane is: a Memoria
+        // container publishes `measure count`, a `mem` collection has `len`, and
+        // a hand-written source may have neither — so a size cannot be derived
+        // from a source's shape without excluding the third. Empty = the source
+        // does not report one, and the plan says so rather than assuming.
+        std::string size_fn;
         std::vector<TraitRelCol> cols;
     };
     std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;
@@ -4684,10 +4692,13 @@ private:
     // type implements no source trait. Entry grammar (consumed by
     // plan_walker::register_native_rels):
     //   <regname>=<matfn>[!<flags>[%<ret-ty>]][#<arg>][@<module>]
-    //           :<param>(<col> <ty>,…)[{<col> <cmp> <fn> <flags>[%<ret-ty>]|…}];
+    //           :<param>(<col> <ty>,…)[{<col> <cmp> <fn> <flags>[%<ret-ty>]|…}]
+    //           [$<sizefn>[%<ret-ty>]];
     // flags are a SET of letters: `e` exact / `s` superset (operations only),
     // `i` the producer returns an iterator (ADR 0024 S4). Operations are
     // separated by `|`, not `,`, because a return type may contain commas.
+    // `$` carries the SIZE operation — one per relation, since a size is asked
+    // once and of the source as a whole, never per column or per row.
     // regname = the param name itself for a single-rel vocabulary, else
     // <param>_<rel>; module omitted when the materializer lives in the
     // consuming package.

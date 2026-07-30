@@ -397,7 +397,15 @@ pub fn hashmap_at<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>, k: K) -> Vec<
     return out;
 }
 
+/// How many rows the relation holds (ADR 0024 S4) — the map's own length, asked
+/// once. Declared, not derived: the plane cannot read a size off a source's
+/// shape without excluding the source that has none to read.
+pub fn hashmap_len<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> i64 {
+    return m.len();
+}
+
 impl<K: Hash + Eq + Copy, V: Copy> MapSource<K, V> for HashMap<K, V> {
     rel entry = hashmap_rows;
     op entry.key eq = hashmap_at  exact;
+    size entry = hashmap_len;
 }

@@ -1587,6 +1587,9 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         let mut upto_s: String = String::new();
         upto_s.push_str("__ctr_upto_"); upto_s.push_str(name);
         let uptofn: Ident = Ident::new(upto_s.as_str());
+        let mut size_s: String = String::new();
+        size_s.push_str("__ctr_size_"); size_s.push_str(name);
+        let sizefn: Ident = Ident::new(size_s.as_str());
         let mut it_s: String = String::new();
         it_s.push_str(name); it_s.push_str("Walk");
         let itid: Ident = Ident::new(it_s.as_str());
@@ -1650,11 +1653,25 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             // DECLARED COMPARISON: `from` returns precisely the rows with
             // `key >= lo`, so answering a `>` demand with it yields a superset
             // — the distinction a name convention could not express at all.
+            /// How many rows the relation holds — the container's own entry
+            /// count (ADR 0024 S4). A FREE FN because the declaration plane names
+            /// fns: `size entry = #sizefn;` travels the same way `rel` and `op`
+            /// do, and the plan asks it ONCE, before the first row.
+            ///
+            /// Cheap because the tree already knows: `bt_size` reads the ROOT —
+            /// the leaf's count, or the branch's subtree-size column — and never
+            /// walks. The family HAD this number and had no way to SAY it.
+            /// Nothing derived it from the container's shape either, and nothing
+            /// should: a source with neither a measure nor a `len` must stay
+            /// usable, so reporting a size is a declaration like every other
+            /// capability on this plane.
+            pub fn #sizefn(c: &#nm) -> u64 { return c.size(); }
             impl OrderedMapSource<#(kid), #(vo)> for #nm {
                 rel entry = #rowsfn;
                 op entry.key eq = #atfn    exact;
                 op entry.key ge = #fromfn  exact;
                 op entry.key le = #uptofn  exact;
+                size entry = #sizefn;
             }
             /// The NARROWING producers — the same walk with a different landing
             /// and a different bound. A plan that filters on the seek column

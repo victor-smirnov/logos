@@ -3511,9 +3511,46 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // trait rel to its native materializer for this type.
                 std::string lead(str_of(m.get(la::REL_KW.code)));
                 std::string rn(str_of(m.get(la::NAME.code)));
+                if (lead == "size") {
+                    // ADR 0024 S4 — `size <rel> = <fn>;`. The source's row
+                    // count, reported at RUN time by a fn of the source alone.
+                    // Shares rel_bind's SHAPE (`<lead> <name> = <fn>;`), which
+                    // is what REL_KW is for: the lead ident is data, and the
+                    // member is told apart by reading it rather than by a rule
+                    // of its own. ⚠ The AST→source renderer had "rel " baked in
+                    // for this node and now prints REL_KW — under `-g` a dump is
+                    // REPARSED, so a lead the renderer cannot say becomes a
+                    // duplicate rel binding.
+                    std::string szfn(str_of(m.get(la::VALUE.code)));
+                    bool rel_found = false;
+                    for (auto& e : source_impls_[target])
+                        if (e.rel == rn) {
+                            // Collect runs in several phases: the same
+                            // declaration seen again is confirmation, and only a
+                            // conflicting one is an error — the rule `op` and
+                            // `rel` already follow.
+                            if (e.size_fn.empty()) e.size_fn = szfn;
+                            else if (e.size_fn != szfn)
+                                error(std::format(
+                                    "impl for '{}': `size {}` declared twice with "
+                                    "different reporters ('{}' vs '{}') — a "
+                                    "relation has one size",
+                                    target, rn, e.size_fn, szfn));
+                            rel_found = true;
+                            break;
+                        }
+                    if (!rel_found)
+                        error(std::format(
+                            "impl for '{}': `size {}` names no bound rel — "
+                            "declare `rel {} = <materializer>;` in this impl "
+                            "first", target, rn, rn));
+                    continue;
+                }
                 if (lead != "rel") {
                     error(std::format(
-                        "impl for '{}': unexpected member '{} {}'",
+                        "impl for '{}': unexpected member '{} {} = …' — the "
+                        "leads of this shape are `rel <r> = <materializer>;` "
+                        "and `size <r> = <reporter>;`",
                         target, lead, rn));
                     continue;
                 }
