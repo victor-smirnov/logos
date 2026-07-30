@@ -871,7 +871,17 @@ set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
 # `quote_item_exprblob_cursor` splices a bare `{ … }` scope (EXPR_STMT). Each
 # rendered to text that PARSED and meant something else, which the round-trip's
 # top-level item census cannot see.
-foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl quote_item_dyn_typearg wql_tuple_first_e2e query_mapping_runtime_e2e quote_item_exprblob_cursor)
+#
+# ⚠ A FOURTH of that shape: a PACKAGE-QUALIFIED call. `pkg.path::fn(args)` keeps
+# its qualifier in RECEIVER + QUAL_PARTS, and the renderer read CALLEE alone, so
+# the dump called by bare name — parses, censuses the same, resolves elsewhere.
+# `quote_item_qual_call_render` is the case, and it is a BEHAVIOUR test, not a
+# text grep: the trigger module declares same-named fns with incompatible
+# signatures, and a chunk's own package wins over a merely-loaded one, so a lost
+# qualifier is a type error HERE under `-g`. It was found the same way as the
+# other three — trama!'s emitter writes `logos.std.wql.el::wql_upper(…)` on
+# every `{{ upper(x) }}`, and nothing hand-written in the corpus did.
+foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse_as quote_item_wstatic_typearg quote_item_wstatic_const quote_item_ctrfamily_impl quote_item_dyn_typearg wql_tuple_first_e2e query_mapping_runtime_e2e quote_item_exprblob_cursor quote_item_qual_call_render)
     add_test(
         NAME logos_09_gendir_${GENDIR_CASE}
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run_gendir_test.sh

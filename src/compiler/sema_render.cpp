@@ -146,7 +146,20 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         // it; no payload skip.
         std::string callee_str(str_of(node.get(la::CALLEE.code)));
         if (callee_str.empty()) callee_str = std::string(str_of(node.get(la::NAME.code)));
-        std::string s = callee_str;
+        // T2-28 `pkg.path::fn(args)`: the PACKAGE qualifier is NOT in CALLEE — it
+        // is RECEIVER (first segment) + QUAL_PARTS (the rest). Rendering only
+        // CALLEE dropped it, and the whole point of the form is to name ONE of
+        // several same-named free fns across packages, so the dropped text does
+        // not mean the same thing. Under `-g` that is not cosmetic: the dump is
+        // REPARSED and REPLACES the in-memory synth doc, so the emitted call
+        // silently re-resolves by bare name — and a same-named fn in the
+        // chunk's own package wins over the qualified target.
+        // Asked of extract_pkg_qualifier, the function SEMA reads the qualifier
+        // with, so render and resolve cannot drift.
+        std::string s;
+        std::string qual = extract_pkg_qualifier(node);
+        if (!qual.empty()) { s += qual; s += "::"; }
+        s += callee_str;
         s += "(";
         if (node.has_key(la::ARGS)) {
             auto args_av = node.get(la::ARGS.code);
@@ -167,7 +180,14 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
     }
 
     case la::GENERIC_CALL: {
-        std::string s(str_of(node.get(la::CALLEE.code)));
+        // Same qualifier slots as CALL above — `pkg.path::fn::<T>(args)` is the
+        // turbofished alternative of the SAME grammar production pair, so the
+        // hole was the same one and the fix has to land on both or the next
+        // emitter to write a turbofished qualified call rediscovers it.
+        std::string s;
+        std::string qual = extract_pkg_qualifier(node);
+        if (!qual.empty()) { s += qual; s += "::"; }
+        s += std::string(str_of(node.get(la::CALLEE.code)));
         if (node.has_key(la::TYPE_PARAMS)) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
             if (tplist.has_key(la::ITEMS)) {

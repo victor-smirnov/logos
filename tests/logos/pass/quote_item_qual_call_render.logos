@@ -1,0 +1,53 @@
+// A PACKAGE-QUALIFIED call inside a quote must survive the --gen-dir
+// render→reparse swap. T2-28's `pkg.path::fn(args)` parses to CALL with the
+// qualifier in RECEIVER + QUAL_PARTS, NOT in CALLEE; the dump renderer read
+// CALLEE alone, so the qualifier vanished and the dumped call resolved by bare
+// name. Under `-g` that is not cosmetic — the dump is reparsed and REPLACES the
+// in-memory synth doc, so the emitted code silently re-binds.
+//
+// The two local fns below are the DISCRIMINATOR, and they are why this file is
+// a behaviour test and not a text grep. The chunk is spliced into `package
+// main`, and a same-package fn WINS over a same-named one in a merely-loaded
+// package (measured: a bare `str_eq("ab","ab")` against `fn str_eq(a: i64)` is
+// "expected 1 args, got 2", not a silent pick of the str package's version). So
+// a lost qualifier binds the emitted call to THESE incompatible signatures and
+// the compile fails — which is exactly what the `-g --gen-dir` gate in
+// tests/logos/CMakeLists.txt (logos_09_gendir_*) catches.
+//
+// Both qualified forms are covered because they are two alternatives of ONE
+// grammar production pair, sharing the RECEIVER/QUAL_PARTS shape:
+//   CALL          `logos.lang.str::str_eq("ab", "ab")`
+//   GENERIC_CALL  `logos.mem.collections.vec::vec_new::<i64>()`
+// Without the turbofished case a later emitter writing one rediscovers the hole.
+package main;
+
+use logos.std.compiler.metaprog;
+
+fn str_eq(a: i64) -> bool { return a == 0i64; }
+fn vec_new(a: i64) -> i64 { return a; }
+
+#[metaprog_handler("qual_call_gen")]
+fn qual_call_gen_hook(target_offset: u32) -> () {
+    let blob: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        pub fn qual_probe() -> i64 {
+            if !logos.lang.str::str_eq("ab", "ab") { return 1i64; }
+            let v: Vec<i64> = logos.mem.collections.vec::vec_new::<i64>();
+            if v.len() != 0i64 { return 2i64; }
+            return 7i64;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[qual_call_gen]
+struct Trigger {}
+
+fn main() -> i32 {
+    // The local shadows stay callable on their OWN signatures — proof they are
+    // really in scope for the chunk, not merely declared.
+    if !str_eq(0i64) { return 91i32; }
+    if vec_new(5i64) != 5i64 { return 92i32; }
+    return qual_probe() as i32 - 7i32;
+}
