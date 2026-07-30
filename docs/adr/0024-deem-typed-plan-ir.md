@@ -440,6 +440,89 @@ base POINTER moving is the fact, and the fix checks it after the walk so that a 
 bound is a diagnostic instead of a corrupt AST. Pinned by
 `quote_large_fragment_splice`.
 
+**S4l — THE APPARATUS OF CHOOSING IS CARRIED ONLY BY PLANS THAT CHOOSE.** S4k put
+`tbl: JCTable` on EVERY emitted plan, and 249 of the corpus's 266 `prepare` bodies
+filled it with `jc_table_none()`. A `JCTable` is 2 + 16 + 16 `i64` = 272 bytes
+returned by value, so a query with no choice to make paid, PER CALL, a 272-byte stack
+write and an out-of-line cross-module call for a field it cannot read. Measured at
+`-O2` on `wql_prepared_plan_e2e::evens`: the direct fn's frame 32 → 312 bytes, calls
+1 → 2, and under `--emit-llvm-opt` the fetched table is provably dead — it survives
+DCE only because a call to another module is not `readnone`. The same 32 → ~304-312
+on `wql_find_e2e`, `wql_join_e2e`, `wql_query_e2e` and `deem_hashmap_source`; the
+fixed `prepare` bodies went 12 → 79-81 instructions and 0 → 288-byte frames, all of
+it insert/extract over the 34-cell zero table.
+
+⚠ BE EXACT ABOUT WHAT THAT VIOLATED. "Per-row cost does not move" HELD — the per-row
+body never touched `tbl`. What failed is "no hidden work", and it failed where it
+matters most: a point-get query invoked in an application loop, which is the shape the
+whole prepared surface exists to serve.
+
+The field is therefore CONDITIONAL on one predicate the emitter already had — does the
+derivation have a table to give this plan (`Prepared.tbl` non-empty: the prepared half
+and the deferred half both do; a fixed or refused plan does not). After, on the same
+five fixtures: every fixed `prepare` body is 18 instructions, NO frame and NO call
+(was 79, 288 bytes, 1 call), every fixed direct fn's frame is 0 or 32 bytes (was
+272-312) with one call fewer — `evens` 21/2/312 → 16/1/32, `find_41` 24/1/272 →
+17/0/0 (the table also blocked inlining `run` into the direct fn), `adults`
+49/3/304 → 46/2/32 — and `jc_table_none` appears in no emitted artifact at all.
+Plans that DO have candidates
+are byte-for-byte unchanged — `by_key`, `q3`, `q4`, `qi`, `qs`, `iter_step`,
+`via_rel`, `db_i64_leaves` do not move — because the saving is not taken from them.
+
+⚠ WHAT IS NOT CONDITIONAL. The SURFACE: both plan shapes carry the same eight methods
+with the same signatures, `dyn_order`/`defer_order`/`order_ix`/the four facts/`why`,
+so one loop over a caller's queries is still one loop — S4i's reason for emitting the
+surface where there is nothing to decide is untouched, and only its COST changed. And
+the COST MODEL: the four answers a table-less plan gives are `jc_none_cost` /
+`jc_none_pick` / `jc_none_margin` / `jc_none_ncand`, four functions in
+`logos.std.wql.join_cost` beside the cost function, and `wql_plan_no_table_e2e` PINS
+each equal to `jc_order_cost`/`jc_order_pick`/`jc_margin`/`ncand` applied to
+`jc_table_none()`, both sides evaluated in the same run. Writing `0i64` and `-1i64`
+into the emitted impl would have put the cost model's boundary behaviour in a second
+place that no test compares to the first.
+
+⚠ AND THE ABSENCE IS DATA. A plan with no table says so, in `explain()` and on the
+`plan_trace` channel — composed from ONE buffer, so the object and the channel cannot
+disagree — because otherwise `considered() == 0` and `cost_of(ix) == -1` read as a
+table that answered nothing rather than as the absence of one.
+
+⚠ A ROUTE THAT WOULD HAVE BEEN BETTER IS BLOCKED BY A COMPILER DEFECT, recorded here
+rather than attempted. Every `JCTable` is a COMPILE-TIME CONSTANT, so the ideal shape
+is one `static` per query plus a shared empty one, with the plan carrying
+`&'static JCTable` — 8 bytes, no call, one struct shape, and the dynamic plans' 34
+`insertvalue`s per call would go too. Struct-typed statics do not work: `static T: S =
+S { … }` with array fields is rejected outright ("initializer must be a literal
+expression"), and with scalar fields it MISCOMPILES — the global is emitted as
+`@T = global ptr null` (8 bytes) with the initializer lowered to runtime stores into
+it, so a 32-byte struct's fields are written PAST the global. At `-O0` a 32-byte
+`memcpy` into the 8-byte global; at `-O2` all but one store folded away and the reads
+returned garbage. That is an out-of-bounds write at every optimisation level, not a
+missing feature, and it is a defect of its own rank.
+
+⚠ ONE ANSWER TO "HOW IS A SIZE FACT BOUND", at both decision points. The deferred path
+had no identity check at all (`db_i64_leaves_run` read `(__rel_g_sl).len()` three
+times) and the prepared path deduped only the declared reporter CALLS by reporter
+index — which a source with no declared reporter escapes, because its size is the
+`(<src>).len()` fallback and has no index (`q3self_prepare` read `(as_).len()` twice).
+Both now go through one binder that dedups on the expression TEXT, which is the right
+granularity: two positions spelling the size the same way ask the same question of the
+same source. `db_i64_leaves_run` now reads `(__rel_g_sl).len()` once and aliases two
+slots to it; `q3self_prepare` reads `(as_).len()` once.
+
+⚠ AND THE OBJECT CODE DID NOT MOVE — `q3self_prepare` is 136 instructions before and
+after, `db_i64_leaves_run` 1234 — which is the measurement that says what the dedup is
+FOR. LLVM already CSE'd the repeats, because a `&[T]` length is a load it can prove
+redundant. The repeats therefore cost nothing today *by grace of the optimizer*, and a
+`len()` the optimizer cannot prove redundant (an opaque call) would have been paid per
+duplicated slot. The dedup makes the property structural instead of incidental; it is
+not a speedup and is not claimed as one. The surviving question is then recorded rather
+than fixed: `run_size_expr_of` now STATES that `len()` must
+be O(1), that this is the entire licence for deferring (the number is "already there"),
+that every source reaching it satisfies that structurally, and that this compiler
+cannot ASK — no capability reports what a receiver's `len()` costs. The remedy the day
+one arrives whose length is computed is a declaration on the same channel as `size`,
+not a special case in that function.
+
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that
 `push_text` is a workaround rather than the intended codegen surface.

@@ -22,6 +22,16 @@
 #     (prepare, then run), not a second copy of the nest. Two copies return the
 #     same rows, so nothing behavioural notices; what notices is compile time and
 #     code size, and the next person to change the emitter.
+#
+#   • A PLAN WITH NO CANDIDATES CARRIES NO CANDIDATE TABLE (ADR 0024 S4l). The
+#     fixture cannot see a field it never reads. S4k put `pub tbl: JCTable` — 272
+#     bytes — on EVERY plan and made every fixed `prepare` call `jc_table_none()` to
+#     fill it: measured at -O2, the `evens` direct fn's frame went 32 → 312 bytes and
+#     its call count 1 → 2, per invocation, for a field the query cannot read. So the
+#     field must appear on the ONE plan here that has candidates and on neither of
+#     the other two, `jc_table_none` must not appear at all, and the plans without a
+#     table must SAY they have none — an absence that is not recorded is the defect,
+#     a declared one with its ground is not.
 set -euo pipefail
 
 LOGOSC="$1"
@@ -71,6 +81,42 @@ for member in 'pub base_n: i64' 'pub step_n: i64' 'pub why: str' \
         fail=1
     fi
 done
+
+# ── the candidate table is carried ONLY where there are candidates ─────────
+# `by_key` has an `order by` and two admissible orders; `no_order` and `evens` have
+# none. One table field, therefore, not three — and no `jc_table_none()` anywhere:
+# the empty set is the ABSENCE of a table, not a table full of zeros fetched by an
+# out-of-line call on every invocation.
+n_tbl=$(count 'pub tbl: JCTable,')
+if [ "$n_tbl" -ne 1 ]; then
+    echo "FAIL: $n_tbl plan types carry 'pub tbl: JCTable' (want 1 — only by_key has candidates)"
+    grep -En 'pub (tbl|struct [A-Za-z]+Plan)' "${DUMPS[@]}" || true
+    fail=1
+fi
+n_none=$(count 'jc_table_none')
+if [ "$n_none" -ne 0 ]; then
+    echo "FAIL: $n_none uses of jc_table_none in the emitted code — a plan with no candidates must carry no table, not an empty one (272 bytes and a PLT call per invocation)"
+    grep -En 'jc_table_none' "${DUMPS[@]}" || true
+    fail=1
+fi
+# The plan that HAS a table still builds it in `prepare` and decides through the one
+# cost function — the saving must not have cost the decision.
+if ! grep -Eq 'let __tb: JCTable = JCTable \{' "${DUMPS[@]}"; then
+    echo "FAIL: no plan builds a JCTable — the query with candidates lost its table"
+    fail=1
+fi
+if ! grep -Eq 'jc_order_pick\(\(&__tb\), __n0,' "${DUMPS[@]}"; then
+    echo "FAIL: the prepared decision does not go through join_cost::jc_order_pick"
+    fail=1
+fi
+# ⚠ AND THE ABSENCE IS DATA. Both table-less plans record it in the ground they
+# carry, so `considered() == 0` reads as "there was no table" and not as "a table
+# that answered nothing".
+n_abs=$(count 'no candidate table: nothing was considered')
+if [ "$n_abs" -ne 2 ]; then
+    echo "FAIL: $n_abs plans record having no candidate table (want 2 — no_order and evens)"
+    fail=1
+fi
 
 # ── prepare measures and returns; it does not run ──────────────────────────
 for f in "${DUMPS[@]}"; do
@@ -126,6 +172,12 @@ if ! grep -q 'decided once in .prepare.' "$TMPD/err"; then
 fi
 if ! grep -q 'the access path is decided where the query compiles' "$TMPD/err"; then
     echo "FAIL: a plan with no run-time decision carries no ground for having none"
+    fail=1
+fi
+# The trace and `explain()` are composed from ONE buffer, so the channel says what
+# the object says — including about the table it does not carry.
+if ! grep -q 'no candidate table: nothing was considered' "$TMPD/err"; then
+    echo "FAIL: the trace does not report that a candidate-less plan carries no table"
     fail=1
 fi
 

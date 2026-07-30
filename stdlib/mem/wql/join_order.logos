@@ -300,6 +300,30 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
 /// materialized, so its length is the exact count rather than a reported estimate,
 /// and it costs less than the call would. `size_expr_of` is the one that asks the
 /// declaration, because before the query runs the declaration is all there is.
+///
+/// ⚠ THE BOUND THIS RESTS ON, STATED: `len()` MUST BE O(1). "The number is already
+/// there" is not a figure of speech — it is the entire licence for deferring, and it
+/// is a claim about the receiver, not about the spelling. Every source that reaches
+/// this function today satisfies it structurally: a floatable side is either a
+/// `&[T]` parameter or a rel binding the prelude materialized into a `Vec`, and both
+/// answer `len()` from a field. A source whose `len()` walked its contents would make
+/// the deferred decision cost a traversal per call — the query's own work traded for
+/// a plan fact, which is the exact error this axis exists to refuse.
+///
+/// ⚠ AND THIS COMPILER CANNOT ASK. There is no capability that reports what a
+/// receiver's `len()` costs — `declares_size` says a source HAS a reported size, not
+/// what reading it costs, and `rel_src_streams` says it has none at all. So the
+/// guarantee is carried by the two shapes above and by the fact that nothing else can
+/// reach here, NOT by a check. The remedy the day a source arrives whose length is
+/// computed rather than stored is a DECLARATION on the same channel as `size` — the
+/// cost class of the length, asked here — and not a special case in this function.
+/// Until then this is a declared limit with its ground, deliberately not silent.
+///
+/// ⚠ REPEATS ARE ELIMINATED SEPARATELY, and that is a different property from this
+/// one: `rexpr_walk::push_size_bindings_4` binds one fact per distinct expression
+/// TEXT, at both decision points, so a self-join asks its source's length once
+/// rather than once per position. That removes the multiplier; it does not weaken the
+/// O(1) requirement on the single read.
 fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
     if prm.rel_src_streams(src) { return false; }
     out.push_str("(");

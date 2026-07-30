@@ -131,6 +131,38 @@ pub fn jc_table_none() -> JCTable {
     return JCTable { ncand: 0i64, nfl: 0i64, slot: [0i64; 16], role: [0i64; 16] };
 }
 
+// ── The answers for an EMPTY candidate set (ADR 0024 S4l) ────────────────────
+// A plan with no choice in it does not CARRY a table: a `JCTable` is 272 bytes and
+// 34 of its cells are the empty set written out, so a query that never entered the
+// axis was paying 272 bytes of stack and one out-of-line `jc_table_none()` per call
+// for a fact table it cannot read. Such a plan's honest content is its decision and
+// its ground, and the table's four questions still have answers — these.
+//
+// ⚠ THEY ARE NOT A SECOND COST MODEL AND MUST NOT BECOME ONE. Each is what
+// `jc_order_cost` / `jc_order_pick` / `jc_margin` / `ncand` return for
+// `jc_table_none()`, stated next to the function that defines them, and
+// `tests/logos/pass/wql_plan_no_table_e2e.logos` PINS the equality by evaluating
+// BOTH SIDES in one run. So "the answers a table-less plan gives" and "the cost
+// function's answers for an empty table" cannot drift apart without a test going red.
+//
+/// `jc_order_cost` on an empty table: -1 for every index, because `ix >= ncand`
+/// holds for all of them. -1 is "there is no such candidate", distinguishable from
+/// a real cost, which is ≥ 0.
+pub fn jc_none_cost() -> i64 { return -1i64; }
+
+/// `jc_order_pick` on an empty table: 0 — the query's own order, which is the only
+/// one that exists. `ncand < 2` short-circuits there.
+pub fn jc_none_pick() -> i64 { return 0i64; }
+
+/// `jc_margin` on an empty table: 0 — no runner-up, hence no distance to a flip.
+/// Same number a one-candidate plan reports, and for the same reason.
+pub fn jc_none_margin() -> i64 { return 0i64; }
+
+/// `considered()` on an empty table: 0 — the axis was never entered, or was entered
+/// and admitted nothing. Distinct from 1, which says one order survived a
+/// derivation (see `jc_table_none`).
+pub fn jc_none_ncand() -> i64 { return 0i64; }
+
 pub fn jc_cap(x: i64) -> i64 {
     if x < 0i64 { return 0i64; }
     if x > JC_CAP() { return JC_CAP(); }

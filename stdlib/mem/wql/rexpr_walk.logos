@@ -335,8 +335,32 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // facts for at most four floatable sources (`JC_MAX_FL`). The first two keep their
 // pair-era names: they still mean the first and second source's size, and the
 // fixtures that read them read the same numbers.
-fn emit_prepared_type(tyn: str, is_priv: bool) {
+//
+// ── A PLAN WITHOUT CANDIDATES CARRIES NO CANDIDATE TABLE (ADR 0024 S4l) ──────
+// `has_tbl` is the emitter's own predicate: TRUE exactly when the derivation handed
+// this query a table (`Prepared.tbl` non-empty — the prepared half and the deferred
+// half both have one; `run` prices the deferred candidates through the plan). Where
+// it is FALSE nothing was considered, and the plan used to say so by carrying 272
+// bytes of zeros fetched by an out-of-line `jc_table_none()` — measured on
+// `wql_prepared_plan_e2e::evens`: the direct fn's frame went 32 → 312 bytes and its
+// call count 1 → 2 for a field it cannot read. 249 of the corpus's 266 `prepare`
+// bodies were that case.
+//
+// So the field is CONDITIONAL and the four table questions still have answers, from
+// `join_cost` itself (`jc_none_*`), where they are pinned equal to the general
+// function applied to `jc_table_none()`. Nothing about the surface is conditional:
+// both shapes carry the same ten-or-nine fields and the SAME EIGHT METHODS with the
+// same signatures, so one loop over a caller's queries is still one loop.
+//
+// ⚠ THIS IS PER CALL, NOT PER ROW. The per-row body never touched `tbl`; what was
+// paid was one plan construction per invocation — which is exactly what hurts a
+// point-get query called in an application loop.
+fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
     let nm: Ident = Ident::new(tyn);
+    if !has_tbl {
+        emit_prepared_type_no_tbl(tyn, is_priv);
+        return;
+    }
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
             use logos.std.wql.join_cost;
@@ -422,26 +446,144 @@ fn emit_prepared_type(tyn: str, is_priv: bool) {
     }
 }
 
+/// The plan of a query with NO CANDIDATE SET: the same surface, minus the field
+/// there was nothing to put in.
+///
+/// ⚠ THE ANSWERS ARE NOT SPELLED HERE. `jc_none_*` are four `join_cost` functions
+/// whose values are what `jc_order_cost`/`jc_order_pick`/`jc_margin`/`ncand` return
+/// for `jc_table_none()`, and a fixture evaluates both sides. Writing `0i64` and
+/// `-1i64` in this quote instead would have put the cost function's boundary
+/// behaviour in a second place — one that no test compares to the first — which is
+/// the drift this whole module is arranged to prevent.
+///
+/// ⚠ `dyn_order` AND `defer_order` STAY, both literally false. They are not dead
+/// weight: fixtures read them (`np.dyn_order`, `p5.dyn_order`) and a caller
+/// distinguishing "nothing to decide" from "decided per call" reads them, so they
+/// are the plan's answer, not its scaffolding. `agrees` and `settled` are then
+/// unconditional — the constant-folded form of the general bodies, which for
+/// `dyn_order == false` / `defer_order == false` return exactly these.
+fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool) {
+    let nm: Ident = Ident::new(tyn);
+    if is_priv {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.std.wql.join_cost;
+            struct #nm {
+                pub dyn_order:   bool,
+                pub defer_order: bool,
+                pub swap:        bool,
+                pub order_ix:    i64,
+                pub base_n:      i64,
+                pub step_n:      i64,
+                pub n2:          i64,
+                pub n3:          i64,
+                pub why:         str,
+            }
+            impl #nm {
+                pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+                    return jc_none_pick();
+                }
+                pub fn cost_of(&self, ix: i64) -> i64 { return jc_none_cost(); }
+                pub fn considered(&self) -> i64 { return jc_none_ncand(); }
+                pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
+                pub fn margin(&self) -> i64 { return jc_none_margin(); }
+                pub fn settled(&self) -> bool { return true; }
+                pub fn explain(&self) -> str { return self.why; }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    } else {
+        let q: QuoteItemBlob = quote_item! {
+            use logos.std.wql.join_cost;
+            pub struct #nm {
+                pub dyn_order:   bool,
+                pub defer_order: bool,
+                pub swap:        bool,
+                pub order_ix:    i64,
+                pub base_n:      i64,
+                pub step_n:      i64,
+                pub n2:          i64,
+                pub n3:          i64,
+                pub why:         str,
+            }
+            impl #nm {
+                pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+                    return jc_none_pick();
+                }
+                pub fn cost_of(&self, ix: i64) -> i64 { return jc_none_cost(); }
+                pub fn considered(&self) -> i64 { return jc_none_ncand(); }
+                pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
+                pub fn margin(&self) -> i64 { return jc_none_margin(); }
+                pub fn settled(&self) -> bool { return true; }
+                pub fn explain(&self) -> str { return self.why; }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&q); }
+    }
+}
+
 /// One `let <pfx><k>: i64 = <size expr>;` per floatable source, then `-1i64` for the
 /// slots the query does not use. Four bindings always, because the cost function
 /// takes four and a plan's fact table is four wide — `jc_order_cost` never reads
 /// past `nfl`, so an unused slot's value is arbitrary and -1 says "not asked" for
 /// anything that prints it.
-fn push_size_bindings(out: &mut String, pfx: str, prep: &Prepared) {
+///
+/// ⚠ THE SAME SIZE FACT IS OBTAINED ONCE. Two candidate positions may be the SAME
+/// SOURCE — a self-join is the obvious case (`q3self` here reads `as_` at two
+/// positions) and so is a rel supplying two positions' numbers. The identity check
+/// is on the EXPRESSION TEXT, which is the only thing this layer has and is exactly
+/// the right granularity: two positions whose size is spelled the same way ask the
+/// same question of the same source, so the second slot aliases the first binding.
+///
+/// ⚠ TEXT IS WHY THIS CATCHES WHAT THE REPORTER DEDUP MISSED. `prepare` also dedups
+/// the declared reporter CALLS (by reporter index, in `chain_frag`), but a source
+/// with no declared reporter falls back to `(<src>).len()` and has no index to
+/// compare — measured: `q3self_prepare` read `(as_).len()` twice, and the deferred
+/// path had no dedup at all (`db_i64_leaves_run` read `(__rel_g_sl).len()` three
+/// times). Both points now come through here, so there is ONE answer to "how is a
+/// size fact bound" rather than one per decision point.
+///
+/// ⚠ WHAT THIS DOES NOT DECIDE is what a single `len()` COSTS — see
+/// `join_order::run_size_expr_of`, which states the bound the deferral rests on.
+/// Deduplication removes the REPEATS; it does not license an expensive one.
+fn push_size_bindings_4(out: &mut String, pfx: str, nfl: i64,
+                        s0: str, s1: str, s2: str, s3: str) {
     let mut k: i64 = 0i64;
     while k < 4i64 {
         out.push_str("    let ");
         out.push_str(pfx);
         out.push_i64(k);
         out.push_str(": i64 = ");
-        if k >= prep.nfl { out.push_str("-1i64"); }
-        else if k == 0i64 { out.push_str(prep.sz0); }
-        else if k == 1i64 { out.push_str(prep.sz1); }
-        else if k == 2i64 { out.push_str(prep.sz2); }
-        else              { out.push_str(prep.sz3); }
+        if k >= nfl { out.push_str("-1i64"); }
+        else {
+            let mut e: str = s0;
+            if k == 1i64      { e = s1; }
+            else if k == 2i64 { e = s2; }
+            else if k == 3i64 { e = s3; }
+            // The first slot whose expression is the same text. `dup == k` means
+            // this one is the first, so it evaluates the expression.
+            let mut dup: i64 = 0i64;
+            while dup < k {
+                let mut p: str = s0;
+                if dup == 1i64      { p = s1; }
+                else if dup == 2i64 { p = s2; }
+                else if dup == 3i64 { p = s3; }
+                if str_eq(p, e) { break; }
+                dup = dup + 1i64;
+            }
+            if dup < k {
+                out.push_str(pfx);
+                out.push_i64(dup);
+            } else {
+                out.push_str(e);
+            }
+        }
         out.push_str(";\n");
         k = k + 1i64;
     }
+}
+
+fn push_size_bindings(out: &mut String, pfx: str, prep: &Prepared) {
+    push_size_bindings_4(out, pfx, prep.nfl, prep.sz0, prep.sz1, prep.sz2, prep.sz3);
 }
 
 /// The size expressions as `A vs B vs …` — the account a deferred plan's `explain()`
@@ -487,7 +629,12 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     let mut tyb: String = String::new();
     prep_type_name(bare, &mut tyb);
     let tyn: str = string_as_str(&tyb);
-    emit_prepared_type(tyn, is_priv);
+    // ⚠ ONE PREDICATE, ASKED ONCE: does the derivation have a table to give this
+    // plan? `Prepared.tbl` IS the answer — the prepared and deferred halves both
+    // fill it, `prep_fixed` and `prep_off` leave it empty — so the field's presence
+    // on the type and its presence in the struct literal cannot disagree.
+    let has_tbl: bool = prep.tbl.len() > 0i64;
+    emit_prepared_type(tyn, is_priv, has_tbl);
 
     // The derived fns keep the query's own visibility marker where they are
     // EMITTED and drop it where they are CALLED: the marker is a directive to
@@ -508,6 +655,14 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // `defer_order`, is what stops a caller reading "nothing decided" as "nothing
     // to decide". So the deferred half costs `prepare` exactly nothing, which is
     // what keeps `agrees` affordable for every plan.
+    //
+    // ⚠ ONE GROUND, TWO DESTINATIONS. The composed `why` becomes both the string
+    // literal on the plan (`explain()`) and the `plan_trace` line at the bottom of
+    // this fn, so a reader of the trace and a caller holding the object are told the
+    // same thing. Declared HERE because the trace call is below the emissions and
+    // the buffer must outlive both — Phase 1 of this slice lost a composed ground to
+    // exactly that (a `String` local to the deciding fn, printed from freed memory).
+    let mut whyb: String = String::new();
     let mut pb: String = String::new();
     pb.push_str("{\n");
     if prep.dynamic {
@@ -519,7 +674,8 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str("    return ");
         pb.push_str(tyn);
         pb.push_str(" { dyn_order: true, defer_order: false, swap: (__ix == 1i64), order_ix: __ix, base_n: __n0, step_n: __n1, n2: __n2, n3: __n3, tbl: __tb, why: ");
-        push_str_lit(&mut pb, prep.why);
+        whyb.push_str(prep.why);
+        push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
     } else {
         // No fact was measured, so none is reported: -1 is "not asked", which a
@@ -533,24 +689,37 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str(tyn);
         pb.push_str(" { dyn_order: false, defer_order: ");
         if prep.deferred { pb.push_str("true"); } else { pb.push_str("false"); }
-        pb.push_str(", swap: false, order_ix: 0i64, base_n: -1i64, step_n: -1i64, n2: -1i64, n3: -1i64, tbl: ");
-        if prep.deferred { pb.push_str(prep.tbl); } else { pb.push_str("jc_table_none()"); }
+        pb.push_str(", swap: false, order_ix: 0i64, base_n: -1i64, step_n: -1i64, n2: -1i64, n3: -1i64");
+        // ⚠ NO TABLE FIELD AND NO `jc_table_none()` CALL WHERE THERE ARE NO
+        // CANDIDATES. This line used to read `tbl: jc_table_none()` for 249 of the
+        // corpus's 266 `prepare` bodies: 272 bytes of the empty set written out and
+        // an out-of-line cross-module call to fetch them, per invocation of a query
+        // that cannot read the field. The type omits it in the same case (`has_tbl`),
+        // from the same predicate.
+        if prep.deferred {
+            pb.push_str(", tbl: ");
+            pb.push_str(prep.tbl);
+        }
         pb.push_str(", why: ");
         // ⚠ THE DEFERRED GROUND NAMES THE EXPRESSIONS, because for a deferred plan
         // every fact field is -1: the numbers do not exist until `run`, so the
         // recorded text is the only account `explain()` can give of WHAT will be
         // compared and where it comes from. The prepared case needs no such
         // appendix — its numbers are on the object.
+        whyb.push_str(prep.why);
         if prep.deferred {
-            let mut wb: String = String::new();
-            wb.push_str(prep.why);
-            wb.push_str(" [in `run`: ");
-            push_size_list(&mut wb, &prep);
-            wb.push_str("]");
-            push_str_lit(&mut pb, string_as_str(&wb));
+            whyb.push_str(" [in `run`: ");
+            push_size_list(&mut whyb, &prep);
+            whyb.push_str("]");
         } else {
-            push_str_lit(&mut pb, prep.why);
+            // ⚠ THE ABSENCE IS RECORDED, not left silent. A plan with no candidate
+            // set carries no table, and `explain()` — and the trace line, from this
+            // same buffer — is where a caller finds that out. Otherwise
+            // `considered() == 0` and `cost_of(ix) == -1` would read as a table that
+            // answered nothing rather than as the absence of one.
+            whyb.push_str(" [no candidate table: nothing was considered, so `considered()` is 0, `cost_of` prices nothing and the plan carries no `tbl`]");
         }
+        push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
     }
     pb.push_str("}\n");
@@ -589,8 +758,10 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
                        parse_block(string_as_str(&db)), prm);
 
-    // The one decision channel, like every other plan decision.
-    plan_trace(bare, "prepared plan", tyn, prep.why);
+    // The one decision channel, like every other plan decision — and the SAME
+    // composed ground the plan carries, so the trace and `explain()` cannot say
+    // different things about the same plan.
+    plan_trace(bare, "prepared plan", tyn, string_as_str(&whyb));
 }
 
 /// The query's parameter NAMES as a call argument list (no parens) — the direct
@@ -2798,18 +2969,15 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         // same numbers.
         let mut disc: str = "__pl.order_ix";
         if jo.deferred {
+            // ⚠ THE SAME BINDER AS `prepare`, deliberately: one answer to "how is a
+            // size fact bound", including the identity check. Before this the
+            // deferred path had none, and `db_i64_leaves_run` read
+            // `(__rel_g_sl).len()` three times for what is one number.
             let mut dfb: String = String::new();
             dfb.push_str("{\n");
-            let mut dk2: i64 = 0i64;
-            while dk2 < 4i64 {
-                dfb.push_str("    let __defer_n");
-                dfb.push_i64(dk2);
-                dfb.push_str(": i64 = ");
-                if dk2 < jo.nfl { dfb.push_str(string_as_str(&szs[dk2])); }
-                else            { dfb.push_str("-1i64"); }
-                dfb.push_str(";\n");
-                dk2 = dk2 + 1i64;
-            }
+            push_size_bindings_4(&mut dfb, "__defer_n", jo.nfl,
+                                 string_as_str(&szs[0]), string_as_str(&szs[1]),
+                                 string_as_str(&szs[2]), string_as_str(&szs[3]));
             dfb.push_str("    let __defer_ix: i64 = __pl.order_pick(__defer_n0, __defer_n1, __defer_n2, __defer_n3);\n}\n");
             defer_f = parse_block(string_as_str(&dfb));
             disc = "__defer_ix";

@@ -1,0 +1,130 @@
+// WQL — A PLAN WITH NO CANDIDATES CARRIES NO CANDIDATE TABLE (ADR 0024 S4l).
+//
+// S4k gave every plan a `JCTable`: the candidate orders, as the justification the
+// program can re-price. What it also gave every plan was 272 bytes and one
+// out-of-line `jc_table_none()` PER CALL — for 249 of the corpus's 266 `prepare`
+// bodies, which have no candidates at all. Measured on `evens` here at -O2 before
+// the fix: the direct fn's frame 32 → 312 bytes, its calls 1 → 2, and under
+// `--emit-llvm-opt` the fetched value was provably dead, surviving DCE only because
+// a cross-module call is not `readnone`. "Per-row cost does not move" was still
+// true; "no hidden work" was not, and it failed exactly on a point-get query in an
+// application loop.
+//
+// So the field is conditional. What must NOT be conditional is the SURFACE, and
+// what must not fork is the COST MODEL — which is why this fixture exists rather
+// than a size assertion:
+//
+//   1. THE FOUR ANSWERS ARE PINNED EQUAL to the cost function's own answers for
+//      `jc_table_none()`, evaluated on both sides in the same run. A plan without a
+//      table answers `considered()`, `cost_of`, `order_pick` and `margin` from
+//      `jc_none_*`; if those four constants ever drift from what `jc_order_cost` and
+//      friends return for an empty table, the boundary behaviour of the cost model
+//      would live in two places and only one of them would be tested. Now neither
+//      can move alone.
+//
+//   2. THE ABSENCE IS DATA. `explain()` says the plan carries no table, so
+//      `considered() == 0` and `cost_of(0) == -1` read as "there was no table"
+//      rather than as "a table that answered nothing". An undeclared narrowing is
+//      the defect; a declared one with its ground is not.
+//
+//   3. THE SURFACE IS UNCHANGED. All eight methods exist with the same signatures
+//      on a plan that has no table, `agrees` is unconditionally true (nothing was
+//      decided, so no fresh fact can make it stale) and `settled()` is true (nothing
+//      is left for `run` to decide either). A caller's one loop over the queries it
+//      holds does not need to know which of them had a choice.
+//
+// The object-level property itself — no `pub tbl:` field and no `jc_table_none` in
+// the emitted artifact for these queries, and both present for a query that HAS
+// candidates — is asserted by `prepared_plan_gate.sh`, which can read the dump.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.join_cost;   // the cost function itself — both sides of the pin
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;            // str_contains — the recorded ground is asserted
+
+struct L { pub k: i64, pub v: i64 }
+
+// A single-source query: the access axis is decided where it compiles, so there is
+// nothing to consider and nothing to carry.
+pub deem evens(ls: &[L]) {
+    from ls l where l.v % 2 == 0 select l.k }
+
+fn main() -> i32 {
+    let ls: [L; 3] = [ L { k: 1i64, v: 2i64 }, L { k: 2i64, v: 3i64 }, L { k: 3i64, v: 4i64 } ];
+
+    // ── 1. THE EQUALITY, BOTH SIDES EVALUATED ─────────────────────────────
+    // `t` is the empty table the plan would have carried. Every `jc_none_*` is
+    // asserted against the general function applied to it — not against a literal
+    // written twice.
+    let t: JCTable = jc_table_none();
+    if t.ncand != jc_none_ncand() { return 1i32; }
+    if t.nfl != 0i64 { return 2i32; }
+
+    // Every index, including one below the range and one above the artifact bound:
+    // `ix >= ncand` is what makes them all -1, and that is the whole reason a plan
+    // without a table can answer `cost_of` at all.
+    let mut ix: i64 = -1i64;
+    while ix < 5i64 {
+        if jc_order_cost(&t, ix, 10i64, 20i64, 30i64, 40i64) != jc_none_cost() { return 3i32; }
+        ix = ix + 1i64;
+    }
+    // And on facts that are all "not asked" (-1), which is what a fixed plan holds.
+    if jc_order_cost(&t, 0i64, -1i64, -1i64, -1i64, -1i64) != jc_none_cost() { return 4i32; }
+
+    // The winner and the distance to the flip, on two different fact sets — an
+    // empty table cannot be made to prefer anything, which is the property the
+    // constant encodes.
+    if jc_order_pick(&t, 10i64, 20i64, 30i64, 40i64) != jc_none_pick() { return 5i32; }
+    if jc_order_pick(&t, 40i64, 30i64, 20i64, 10i64) != jc_none_pick() { return 6i32; }
+    if jc_margin(&t, 0i64, 10i64, 20i64, 30i64, 40i64) != jc_none_margin() { return 7i32; }
+    if jc_margin(&t, 1i64, 40i64, 30i64, 20i64, 10i64) != jc_none_margin() { return 8i32; }
+
+    // ── 2. THE PLAN GIVES THE SAME ANSWERS, AND SAYS WHY IT HAS NO TABLE ──
+    let p: EvensPlan = evens_prepare(&ls[..]);
+    if p.considered() != jc_none_ncand() { return 10i32; }
+    if p.cost_of(0i64) != jc_none_cost() { return 11i32; }
+    if p.cost_of(3i64) != jc_none_cost() { return 12i32; }
+    if p.order_pick(10i64, 20i64, 30i64, 40i64) != jc_none_pick() { return 13i32; }
+    if p.margin() != jc_none_margin() { return 14i32; }
+
+    // The recorded ground names the absence AND its consequences — the failed
+    // antecedent is "something was considered", and the remedy is not a remedy
+    // because nothing is wrong: a query with one source has no order to choose.
+    if !str_contains(p.explain(), "no candidate table") { return 15i32; }
+    if !str_contains(p.explain(), "nothing was considered") { return 16i32; }
+    if !str_contains(p.explain(), "the access path is decided where the query compiles") { return 17i32; }
+
+    // ── 3. THE SURFACE ────────────────────────────────────────────────────
+    if p.dyn_order    { return 20i32; }
+    if p.defer_order  { return 21i32; }
+    if !p.settled()   { return 22i32; }   // nothing left for `run` to decide either
+    if p.swap         { return 23i32; }
+    if p.order_ix != 0i64 { return 24i32; }
+    // The facts are "not asked", which a caller tells apart from an empty source.
+    if p.base_n != -1i64 { return 25i32; }
+    if p.step_n != -1i64 { return 26i32; }
+    if p.n2 != -1i64     { return 27i32; }
+    if p.n3 != -1i64     { return 28i32; }
+
+    // `agrees` over a plan prepared from DIFFERENT data: unconditionally true,
+    // because no measurement can make a decision stale that was never taken.
+    let ls2: [L; 1] = [ L { k: 9i64, v: 8i64 } ];
+    let p2: EvensPlan = evens_prepare(&ls2[..]);
+    if !p.agrees(&p2) { return 30i32; }
+    if !p2.agrees(&p) { return 31i32; }
+
+    // ── AND THE ROWS ARE THE ROWS ─────────────────────────────────────────
+    // prepare-then-run and the direct fn agree, and both return what the query says.
+    let a: Vec<i64> = evens_run(&p, &ls[..]).unwrap();
+    let b: Vec<i64> = evens(&ls[..]).unwrap();
+    if a.len() != 2i64 { return 40i32; }
+    if a.get(0i64) != 1i64 { return 41i32; }
+    if a.get(1i64) != 3i64 { return 42i32; }
+    if b.len() != a.len() { return 43i32; }
+    if b.get(0i64) != a.get(0i64) { return 44i32; }
+    if b.get(1i64) != a.get(1i64) { return 45i32; }
+
+    return 0i32;
+}
