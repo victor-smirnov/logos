@@ -337,8 +337,37 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                 }
                 reflect_loops(view, body_word(&f.body), ty, vtys, &inner);
             }
+            TStmt::Set(s) => {
+                // `{% set v = expr %}` BINDS v, so v needs a value-type in the
+                // dict exactly as a loop var does — otherwise `infer_ty` on a
+                // later `{{ v }}` falls through to its INT default and the
+                // interpolation emits `push_i64` on a str/bool/f64 local. The
+                // emit side already types the binding correctly (it writes
+                // `let v: str`/`: bool`/`: f64`), which is why the mismatch was a
+                // host type error on generated code and not a wrong result: the
+                // declaration half was implemented and the use half was not.
+                //
+                // ⚠ THE PRE-PASS IS WHERE THIS BELONGS, not the emit walk. Chain
+                // ORDER is what makes a set readable by the sets and
+                // interpolations after it (`{% set b = a + 1 %}` must see `a`),
+                // and this loop already walks `next` in order and already holds
+                // `ty` mutably — the emit walk holds it by shared ref and would
+                // have to thread `&mut` through every arm to do the same job
+                // later and less correctly.
+                //
+                // No simplify_sexpr here (the emit side const-folds before
+                // inferring): folding cannot change an EL type — a folded compare
+                // is a bool literal and the unfolded SBin compare infers BOOL —
+                // and the pre-pass has no arena to fold into.
+                ty.set_ty(s.var, infer_ty(s.expr_expr(), ty));
+            }
             TStmt::If(i) => {
                 // Conditionals don't bind vars; recurse both arms with the same env.
+                // ⚠ A `{% set %}` inside an arm still lands in the FLAT dict, so a
+                // conditionally-bound name is typed unconditionally. That matches
+                // what the emit walk does with it (the `let` is emitted inside the
+                // arm and the dict has no scopes), and it is the same looseness
+                // `vtys` and the loop-var bindings already carry.
                 reflect_loops(view, body_word(&i.body), ty, vtys, env);
                 let altw: i64 = alt_word(&i.alt);
                 if altw != 0i64 { reflect_loops(view, altw, ty, vtys, env); }

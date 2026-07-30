@@ -9,13 +9,24 @@
 //     trailing comma. (Measured to pass on the pre-conversion tree too, so this
 //     pins existing behaviour rather than the change.)
 //
-//  2. `{% set %}`. The tag lowers to `let <v>: <ty> = …;` and nothing anywhere
-//     exercised it. It matters more than its size because the body now travels
-//     as ONE `parse_block` fragment: a `let` the emitter names and types is
-//     exactly what a body-shaped reifier has to carry, and a `set` binding must
-//     stay visible to the statements after it — the INLINE, not the wrap. Two
-//     sets here, the second reading the first, so the visibility is asserted and
+//  2. `{% set %}`, ALL FOUR value types. The tag lowers to `let <v>: <ty> = …;`
+//     and nothing anywhere exercised it. It matters more than its size because
+//     the body now travels as ONE `parse_block` fragment: a `let` the emitter
+//     names and types is exactly what a body-shaped reifier has to carry, and a
+//     `set` binding must stay visible to the statements after it — the INLINE,
+//     not the wrap. `doubled` reads `total`, so the visibility is asserted and
 //     not assumed.
+//
+// Only the i64 arm worked when this file was written: the emit side typed the
+// BINDING (`let tag: str`) but nothing registered the bound name in the ElTypes
+// dict, so `{{ tag }}` inferred the INT default and emitted `push_i64(tag)` —
+// a host type error on generated code. `reflect_loops` now types set vars in
+// chain order, which is what the str / bool / f64 arms below hold.
+//
+// The f64 arm also pins the one interpolation that is not a direct push: an f64
+// renders through `logos.std.wql.el::wql_f64_to_str`, a PACKAGE-QUALIFIED call —
+// the construct whose dump-renderer hole 5bc998e2 closed. Under `-g` the dump
+// replaces the AST, so this shape is worth holding here too.
 package main;
 
 use logos.std.wql.trama_render;
@@ -26,11 +37,12 @@ use logos.lang.result;
 struct Ctx {
     n: i64,
     name: str,
+    ratio: f64,
 }
 
 resource card = trama!(c: &Ctx,
                        k: i64,
-){ `{% set total = c.n + k %}{% set doubled = total + total %}[{{ total }}|{{ doubled }}|{{ c.name }}]` };
+){ `{% set total = c.n + k %}{% set doubled = total + total %}{% set tag = c.name %}{% set big = c.n > 2 %}{% set half = c.ratio %}[{{ total }}|{{ doubled }}|{{ tag }}|{{ big }}|{{ half }}]` };
 
 fn streq(s: &String, want: str) -> bool {
     if s.len() != want.len() { return false; }
@@ -44,10 +56,12 @@ fn streq(s: &String, want: str) -> bool {
 }
 
 fn main() -> i32 {
-    let c: Ctx = Ctx { n: 4i64, name: "ada" };
+    let c: Ctx = Ctx { n: 4i64, name: "ada", ratio: 0.5f64 };
     let s: String = card(&c, 9i64).unwrap();
-    // total = 4 + 9 = 13; doubled = 13 + 13 = 26 — the second set READS the
+    // total = 4 + 9 = 13 (i64); doubled = 13 + 13 = 26 — the second set READS the
     // first, which only holds if the fragment's statements are inlined.
-    if !streq(&s, "[13|26|ada]") { return 1i32; }
+    // tag = "ada" (str), big = 4 > 2 = true (bool), half = 0.5 (f64, rendered by
+    // the qualified wql_f64_to_str call).
+    if !streq(&s, "[13|26|ada|true|0.5]") { return 1i32; }
     return 0i32;
 }
