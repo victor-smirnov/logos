@@ -13,20 +13,28 @@
 // peg-generated parser a drop-in producer of the same IR.
 package logos.std.wql.codegen;
 
-use logos.std.compiler.metaprog;  // Emitter, OView — begin_chunk
+use logos.std.compiler.metaprog;  // error — the clause writers' diag channel
 use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;   // WAny::as_wstr (string-literal payloads)
 use logos.std.wql.ir;
 use logos.std.wql.el;          // ElTypes, EL_TY_*, OP_*
 use logos.mem.string;
 use logos.lang.str;
-// The join-strategy containers the emitted chunks `use` (hashmap / set /
+// ── LOAD-CLOSURE ANCHORS, not this module's own dependencies ──────────────
+// The join-strategy containers a generated chunk `use`s (hashmap / set /
 // btree). A CHUNK can only import modules already in the compile's transitive
 // load closure — the module loader follows `use`-deps from the ENTRY file, and
 // late-appended metaprog chunks cannot pull new archives. Importing them HERE
-// (begin_chunk's owner) guarantees every wql!-consuming compile has them
-// loaded. hashmap is also a real dependency of the generated parsers; set and
-// btree exist in emitted text only.
+// guarantees every wql!/trama!-consuming compile has them loaded. hashmap is
+// also a real dependency of the generated parsers; set and btree exist in
+// emitted code only.
+//
+// ⚠ These `use` lines outlived `begin_chunk`, which is why they are labelled.
+// The chunk's own import LIST moved into the quote templates that emit the
+// items (rexpr_walk's emit_fn_quote_blob, trama_render's render-fn quote), but
+// the load-closure requirement did not move — it is a property of the compile,
+// not of the emitter, so deleting them here would make those quoted `use`s
+// unresolvable in a consumer that imports nothing else.
 use logos.mem.collections.hashmap;
 use logos.mem.collections.set;
 use logos.mem.collections.btree;
@@ -35,48 +43,33 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
                                   // params (ADR 0016 M1a); closure-pulled here
                                   // for the same reason as set/btree above.
 
-// ── Chunk prologue (shared by all wql!/trama! emitters) ───────────────────
-// A generated-code chunk is a SEPARATE AST doc: it does NOT inherit the
-// trigger module's `use` list, and when the CONSUMER is the stdlib itself
-// (in-package macro use — no implicit prelude there) unqualified `String`/
-// `Vec` would not resolve at all. So every chunk carries its own imports,
-// the same convention the metacall thunk chunks follow. Package = the
-// TRIGGER module's (emit_target_pkg), so the generated fn lands next to
-// its callsite and sees the trigger package's types (row schemas etc.).
-pub fn begin_chunk(em: &mut Emitter, view: &OView, extra_uses: str) {
-    em.emit_target_pkg(view);
-    // logos.lang.option covers the single-row query modes (`select first` /
-    // `find` return Option<E> / Option<&Row>). hashmap/set/btree cover the
-    // join-strategy tiers (hash join buckets / anti-join key sets / tree join)
-    // — a chunk is a SEPARATE AST and needs its own use-decls.
-    em.push_text("use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option; ");
-    em.push_text("use logos.mem.collections.hashmap; use logos.mem.collections.set; use logos.mem.collections.btree; ");
-    // logos.lang.result — the emitted resource/render fn returns `Result<_, ElError>`
-    // and builds it via `Result::Ok`/`Result::Err`; a chunk is a separate AST with
-    // NO implicit prelude, so Result must be imported explicitly.
-    em.push_text("use logos.lang.result; ");
-    // logos.std.wql.el — the error-returning EL integer arithmetic (`el_add`/…/
-    // `el_neg`, all `-> Result<i64, ElError>`) the emitter calls with `?`, plus
-    // the `ElError` type the generated resource/render fn returns. `el` is in the
-    // compile's load closure (imported by codegen.logos) so a chunk may import it.
-    em.push_text("use logos.std.wql.el; ");
-    // logos.std.wql.writ_graph — the NATIVE graph-source materialization
-    // (ADR 0016 M1a): a `<p>: &Writ` param's prelude calls writ_graph_edges.
-    // logos.lang.writ.container — the Writ type the verbatim `&Writ` fn
-    // signature references.
-    em.push_text("use logos.lang.writ.container; ");
-    // Native-source materializer modules (ADR 0016 §6) — one `use` per
-    // DISTINCT module named by the natspec, built by MacroParams::
-    // native_use_text. Conditional BY CONSTRUCTION: a chunk imports
-    // logos.std.wql.writ_graph only when a graph param exists, logos.std.deem
-    // only when an engine param does (unconditional deem would demand the
-    // engine in every consumer's load closure — and wql itself must not
-    // import deem, module cycle), and a USER source's module only when that
-    // source is used. The emitter knows no source type.
-    if extra_uses.len() > 0i64 {
-        em.push_text(extra_uses);
-    }
-}
+// ── The chunk prologue is GONE — it was the last text in this file ────────
+// (`begin_chunk(em, view, extra_uses)` lived here: `emit_target_pkg` plus six
+// raw text pushes writing `package <pkg>; use …;` into an Emitter. It has no
+// callers and no replacement of its own shape, because the thing it prefixed —
+// a hand-concatenated item — no longer exists. Both consumers now emit their
+// item as a `quote_item!`, and a quote states its imports AS IMPORTS:
+// rexpr_walk's emit_fn_quote_blob for wql!, trama_render's render-fn quote for
+// trama!. ADR 0024 S5.)
+//
+// The two halves of what begin_chunk did are now structural rather than lexical:
+//
+//   • the IMPORT LIST is a run of `use` decls inside each quote template, plus
+//     `#( use #uses; )*` for the runtime-sized native-source part (ADR 0016 §6 —
+//     one module per source the query binds, so a chunk imports
+//     logos.std.wql.writ_graph only when a graph param exists and logos.std.deem
+//     only when an engine param does; unconditional deem would demand the engine
+//     in every consumer's load closure, and wql must not import deem — module
+//     cycle). trama! binds no native source and so carries no repeat.
+//
+//   • the PACKAGE is no longer computed at all. `emit_target_pkg` read it off
+//     the trigger module's root MODULE node because `logos_emit_source` takes
+//     the package FROM THE TEXT; `logos_emit_item_blob_subst` instead stamps the
+//     spliced module's NAME + PATH_PARTS from the metacall SITE's ast, which is
+//     the same package by construction. ⚠ That equivalence is what makes the
+//     quote channel usable here and is exactly what does NOT hold for
+//     lcm/wql/deem_bind.logos, whose metacall is rendered into a
+//     `package logos.gen;` driver chunk — see the note there.
 
 // ── Builtin function registry ───────────────────────────────────────────────
 // The registry (BFN_* ids, builtin_of_name/arity/ret_ty) and the RUNTIME helper
@@ -889,7 +882,8 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
 }
 
 // SBin arithmetic op id → the error-returning i64 checked-op fn NAME (logos.std
-// .wql.el, imported bare by begin_chunk). Emitted as `el_op((L),(R))?` so a math
+// .wql.el, which every emitting quote imports as `use logos.std.wql.el;` — so
+// the name is written BARE here). Emitted as `el_op((L),(R))?` so a math
 // fault propagates to the generated fn's Result. Only the arithmetic ops map;
 // callers gate on `is_arith` first.
 pub fn el_int_op_fn(op: i32) -> str {

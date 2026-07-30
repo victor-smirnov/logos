@@ -1,0 +1,53 @@
+// Two axes with ZERO corpus coverage before this file, both of them axes the
+// quote conversion of trama!'s render fn newly runs through a REIFIER:
+//
+//  1. THE PARAMETER LIST SHAPE. The parens used to be pushed verbatim into
+//     `pub fn <name>(` … `)`; they now go through `parse_params`, which parses
+//     the same text as a `param_list` fragment. Every trama! in the corpus wrote
+//     one line with no trailing comma, so nothing said whether the reifier is as
+//     permissive as concatenation was. Here the list spans lines AND ends in a
+//     trailing comma. (Measured to pass on the pre-conversion tree too, so this
+//     pins existing behaviour rather than the change.)
+//
+//  2. `{% set %}`. The tag lowers to `let <v>: <ty> = …;` and nothing anywhere
+//     exercised it. It matters more than its size because the body now travels
+//     as ONE `parse_block` fragment: a `let` the emitter names and types is
+//     exactly what a body-shaped reifier has to carry, and a `set` binding must
+//     stay visible to the statements after it — the INLINE, not the wrap. Two
+//     sets here, the second reading the first, so the visibility is asserted and
+//     not assumed.
+package main;
+
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+
+struct Ctx {
+    n: i64,
+    name: str,
+}
+
+resource card = trama!(c: &Ctx,
+                       k: i64,
+){ `{% set total = c.n + k %}{% set doubled = total + total %}[{{ total }}|{{ doubled }}|{{ c.name }}]` };
+
+fn streq(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if str_byte_at(sv, i) != str_byte_at(want, i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let c: Ctx = Ctx { n: 4i64, name: "ada" };
+    let s: String = card(&c, 9i64).unwrap();
+    // total = 4 + 9 = 13; doubled = 13 + 13 = 26 — the second set READS the
+    // first, which only holds if the fragment's statements are inlined.
+    if !streq(&s, "[13|26|ada]") { return 1i32; }
+    return 0i32;
+}

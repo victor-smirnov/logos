@@ -785,7 +785,11 @@ EL/Deem codegen emits into a chunk that is a SEPARATE AST doc carrying its own `
 
 *Divergence:* no analogue; a metacall codegen detail.
 
-*Evidence:* `stdlib/std/wql/codegen.logos#L42-L50` (`begin_chunk`)
+*Evidence:* the `use` run at the head of each emitting quote —
+`stdlib/mem/wql/rexpr_walk.logos` (`emit_fn_quote_blob`, wql!) and
+`stdlib/mem/wql/trama_render.logos` (the render-fn quote, trama!). The list was a
+shared text prologue (`codegen.logos::begin_chunk`) until ADR 0024 S5 made both
+items quotes; a quote states its imports as imports, so there is no prologue fn.
 
 ### `el.restrict.f64-key` — f64 is not a hash/set key
 

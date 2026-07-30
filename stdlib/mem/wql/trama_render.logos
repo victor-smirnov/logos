@@ -58,7 +58,10 @@
 // (the T3 post-pass `chain_array`, below). The hand-written Trama parser is retired.
 package logos.std.wql.trama_render;
 
-use logos.std.compiler.metaprog;     // Emitter, ItemList, item_list_new, error
+use logos.std.compiler.metaprog;     // ItemList/item_list_new/error, Emitter (the
+                                     // BODY buffer), and the quote channel the
+                                     // render fn's ITEM travels on: quote_item!,
+                                     // Ident, ExprBlob, parse_params, parse_block
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
@@ -660,21 +663,55 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // The empty-Var-name fallback `ctx` for the codegen: the FIRST param name.
     let ctx0: str = prm.names[0i64];
 
-    // ── Emit the render function ──────────────────────────────────────────
-    // The signature params are re-emitted VERBATIM from the surface parens, so
-    // the compiler parses + type-checks them (`o: &Order, greeting: str` etc.).
+    // ── Emit the render function, as a QUOTE (ADR 0024 S5) ────────────────
+    // The ITEM is structure; only the BODY is text. That split is not a
+    // concession here — it is what this file IS. A Trama template's statement
+    // shape is the template's own nesting: a `while` per `{% for %}`, an `if`
+    // per `{% if %}`, to whatever depth the template goes. That depth is a
+    // runtime value, so no fixed quote template spells the body and `#( … )*`
+    // does not either (a repeat is a flat sequence; a nest is not flat).
+    // `emit_stmts` walks the AST into text — the renderer's job — and
+    // `parse_block` reifies the result ONCE, at the body slot.
+    //
+    // What the quote DOES take over is the fn's HEAD. Visibility, name,
+    // parameter list and return type stop being seven concatenated pushes
+    // where a missing space or paren surfaces as a syntax error inside
+    // generated source, at a position no reader can use. The surface params
+    // still reach the signature VERBATIM (the compiler parses + type-checks
+    // them — `o: &Order, greeting: str`), but now through `parse_params`, so a
+    // malformed list fails AT the fragment. `prm.n == 0` is rejected above,
+    // which is also what `parse_params` needs: `param_list` has no empty form.
+    //
+    // ⚠ The Emitter here is a BODY BUFFER, never committed — `emit_stmts` takes
+    // `&mut Emitter` because it is shared with the text-shaped clause writers.
+    // Nothing in this handler calls `logos_emit_source` any more; the item
+    // travels on the blob channel, whose package is the metacall SITE's — which
+    // is what `begin_chunk`'s `emit_target_pkg(view)` computed by hand, so the
+    // in-package stdlib canary (trama_selfuse) lands where it did before.
     let mut em: Emitter = Emitter::new();
-    begin_chunk(&mut em, &view, "");   // trama has no native sources
-    em.push_text("pub fn ");
-    em.push_text(fn_name);
-    em.push_text("(");
-    em.push_text(params);
-    em.push_text(") -> Result<String, ElError> {\n");
+    em.push_text("{\n");
     em.push_text("    let mut __out: String = String::new();\n");
     emit_stmts(&mut em, head_word, &ty, &vtys, ctx0, 0i64, &h);
     em.push_text("    return Result::Ok(__out);\n");
     em.push_text("}\n");
-    em.commit();
+
+    let nm: Ident    = Ident::new(fn_name);
+    let ps: ExprBlob = parse_params(params);
+    let bd: ExprBlob = parse_block(em.buf.as_str());
+    // The chunk's own `use` list: a spliced item is a SEPARATE AST doc and does
+    // not inherit the trigger module's imports. `logos.lang.result` +
+    // `logos.std.wql.el` carry the `Result<String, ElError>` return; the rest are
+    // what a woven body may touch (String, and the collection tiers a
+    // `{% for %}` over a schema'd container indexes). Trama binds no native
+    // source, so there is no runtime-sized import repeat — unlike wql!.
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+        use logos.mem.collections.hashmap; use logos.mem.collections.set;
+        use logos.mem.collections.btree; use logos.lang.result;
+        use logos.std.wql.el; use logos.lang.writ.container;
+        pub fn #nm(#(ps)) -> Result<String, ElError> #(bd)
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
 
     return out;
 }

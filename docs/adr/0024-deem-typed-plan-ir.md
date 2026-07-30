@@ -170,8 +170,9 @@ relational IR nodes proper.
 `push_text` is a workaround rather than the intended codegen surface.
 
 *The conversion is DONE, BODIES INCLUDED.* `rexpr_walk.logos` has no
-`begin_chunk` caller, no `Emitter::commit`, and — since `dbe92778` — **no
-`push_text` at all**: all nine emitters (`emit_find`, `emit_simple`,
+`Emitter::commit` and — since `dbe92778` — **no
+`push_text` at all** (nor a `begin_chunk` caller; there is no `begin_chunk`
+any more, see the census at the end of this section): all nine emitters (`emit_find`, `emit_simple`,
 `emit_none_find`, `emit_identity`, `emit_head_row`, `emit_empty`,
 `emit_join_chain`, `emit_aggregate`, `emit_rel_fns`) build BOTH the item and its
 body as quotes through one shared shell, and `emit_fn_head` is gone. The only
@@ -299,6 +300,47 @@ Option::None)` came back as `Result::Ok()`. The round-trip's shape gate is a
 top-level item census, so an arity change inside a body is invisible to it. The
 existing `--gen-dir` corpus was all hand-written quotes, which happen to contain
 none of the three; the gate now carries emitter output as well.
+
+⚠ A FOURTH, and it kept the pattern exactly: a PACKAGE-QUALIFIED call. `pkg.path::fn(args)`
+holds its package in `RECEIVER` + `QUAL_PARTS`, never in `CALLEE`, and both the
+`CALL` and `GENERIC_CALL` render cases read `CALLEE` alone — so a dump called by
+bare name. That text parses, censuses identically, and resolves to a DIFFERENT fn
+(the form exists precisely to pick one of several same-named free fns), and a
+same-named fn in the chunk's own package wins. Fixed in `5bc998e2` by asking
+`extract_pkg_qualifier`, the function sema reads the qualifier with, so the two
+cannot drift. Found because trama!'s codegen writes `logos.std.wql.el::wql_upper(…)`
+for every `{{ upper(x) }}` and nothing hand-written did.
+
+*THE SWEEP IS FINISHED, AND FIVE FILES ARE AT ZERO.* `rexpr_walk.logos`,
+`mapping_item.logos` (`4c1014ba`), `catalog_macro.logos` (`6a081d14`),
+`derive_graph_source.logos` (`8d8b9283`) and `codegen.logos` — the last because
+`begin_chunk`, its chunk prologue, lost its final caller when trama!'s render fn
+became a quote, and a function with no callers is deleted rather than kept. The
+two halves it did are now structural: the import list is a run of `use` decls
+inside each emitting quote (plus `#( use #uses; )*` for the runtime-sized
+native-source part), and the package is not computed at all, because
+`logos_emit_item_blob_subst` stamps it from the metacall SITE while
+`logos_emit_source` had to be handed it in text.
+
+The survivors are three, each for a reason that is a property of the file rather
+than unconverted residue:
+
+  * `trama_render.logos` — the AST→source RENDERER. Text is its OUTPUT: a Trama
+    template's statement shape is the template's own nesting (a `while` per
+    `{% for %}`, an `if` per `{% if %}`, to arbitrary depth), which is a runtime
+    value no fixed template spells and no repeat flattens. Its ITEM is a quote;
+    `parse_block` reifies the body once, at the body slot.
+  * `emitter.logos` — the Emitter's own implementation. `push_text` is the method
+    being defined; the rest are doc references to it.
+  * `deem_bind.logos` — BLOCKED, twice measured, recorded at the site (`99abf493`).
+    (1) The quote channel inherits the metacall SITE's package and this handler's
+    site is a `package logos.gen;` driver chunk, while the overload must land in
+    `cs.pkg`; `QuoteItemBlob` carries no package field. (2) `deem_def`'s NAME is a
+    plain `IDENT` with no `HASH IDENT` alternative and its body is a
+    `RAW_GROUP_BRACE`, so `deem #dn(…) { #(qb) }` is a syntax error and a
+    malformed query respectively — and this handler's two inputs are exactly those
+    two positions. Closing it wants a package on the quote channel and a raw-group
+    reifier beside `parse_block`/`parse_params`.
 
 **S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
 structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and
