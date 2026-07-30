@@ -2067,12 +2067,12 @@ fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, va
         return;
     }
     let ri: i64 = prm.rel_find_name(src);
-    if ri >= 0i64 { let _b: bool = stamp_rel_columns(t, prm, ri, var); return; }
+    if ri >= 0i64 { let _b: bool = stamp_rel_columns(t, view, prm, ri, var); return; }
     // An already-rewritten source name (the idempotent re-walk) or an unknown
     // one: the later resolve reports it. Nothing to stamp, and a step whose
     // sides do not type stays a nested loop, which is the safe answer.
     let si: i64 = prm.rel_find_src(src);
-    if si >= 0i64 { let _b2: bool = stamp_rel_columns(t, prm, si, var); }
+    if si >= 0i64 { let _b2: bool = stamp_rel_columns(t, view, prm, si, var); }
 }
 
 /// Decide every classic step of ONE chain and stamp the decision on the nodes.
@@ -2098,7 +2098,7 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView,
             i = i + 1i64;
         }
     }
-    apply_scalar_params(&mut t, prm);
+    apply_scalar_params(&mut t, view, prm);
     stamp_udfs_from_module(view, &mut t);
     let mut k: i64 = 0i64;
     while k < ns {

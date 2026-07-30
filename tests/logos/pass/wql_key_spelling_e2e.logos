@@ -1,0 +1,340 @@
+// WQL — A SPELLING IS NOT A TYPE (ADR 0024 S4k, constraint C1).
+//
+// The join-reorder licence asks whether the comparison the backend emits for the
+// sort key REALIZES the order the query named. That is a question about the key's
+// TYPE. `3bc6429f` keyed it on the type's NAME — the right narrowing, because the
+// four-value EL class cannot tell `u64` from `i64` — and thereby made the answer
+// depend on how the author happened to WRITE the type.
+//
+// ⚠ MEASURED BEFORE THE FIX. `pub type Score = i64;` used as a struct field type,
+// `order by a.s` over a three-source join: `considered() == 0`, with the plan's own
+// ground saying the key is "outside the EL scalar lattice … nothing is known about
+// the comparison the backend would emit for it" — one line below the code that
+// resolved that key to i64 and emitted `Vec<i64>`. Changing ONE token, `Score` →
+// `i64`, restored all four candidates. The refusal was the DEFAULT-DENY branch,
+// which is right for a type nobody has checked and wrong for a NAME that denotes
+// one that has been. The corpus did not catch it: 25 `type` aliases across stdlib/
+// and conuco/, none of them to a scalar used as a query key.
+//
+// The fix resolves a declared type name through the module's `type` aliases at the
+// REFLECTION BOUNDARY (`reflect::resolve_alias_name`), so what is recorded on an
+// `ElTypes` — and therefore what every later question is asked about — is the type
+// and not the spelling. `el` sits below that boundary and holds no module view, so
+// a name that reaches it must already BE the type.
+//
+// The six claims, each one a different spelling of the same axis:
+//   1. A DIRECT ALIAS to an admitted type keeps the licence, and the answer is the
+//      oracle's under every forced nest. `type Score = i64`.
+//   2. AN ALIAS CHAIN resolves to the end. `type Hi = Lo; type Lo = i64`.
+//   3. AN ALIAS TO A GENUINELY UNFAITHFUL TYPE is still refused — resolution is not
+//      an admission — AND THE GROUND NAMES THE TYPE, `f64`, not the spelling
+//      `Weight`. This is the claim that says the justification travels with the
+//      mechanism: the reader is told the property that failed, of the type that has
+//      it, and the remedy for THAT type.
+//      ⚠ `type Big = u64` is NOT here, and the reason is a property of the query
+//      language rather than of this fix: a u64 key does not reach the licence at
+//      all, because the emitted key vector is the class representative `Vec<i64>`
+//      and `u64` has no value-preserving widening into it — the query is refused
+//      where the lossy normalization would be introduced (`codegen::check_calls`,
+//      wql_udf_wide_int_ret_fail). The alias resolves to `u64` exactly as `Weight`
+//      resolves to `f64`; there is simply no compiling query to assert it on.
+//   4. A GENERIC ALIAS WHOSE TARGET IS A FIXED TYPE (`type Ph<T> = i64`) keeps the
+//      licence: the arguments are dropped before this compiler sees the field, and
+//      they could not have changed the answer.
+//   5. A GENERIC ALIAS WHOSE TARGET IS ITS OWN PARAMETER (`type El<T> = T`) is
+//      refused. The answer IS an argument and the reflection boundary cannot see
+//      it, so the honest answer is default-deny — asked of the declaration's
+//      parameter list, not guessed.
+//   6. THE OTHER TWO CONSUMERS OF A DECLARED NAME. A UDF returning an alias
+//      (`fn sc(i64) -> Score`) is callable from the EL and licences a reorder —
+//      before the fix `el_ret_class("Score")` was -1 and the call was refused at its
+//      use site — and a SCALAR PARAM declared with an alias types and filters.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;      // str_contains — the ground is asserted, not just the verdict
+
+pub type Score  = i64;
+pub type Lo     = i64;
+pub type Hi     = Lo;
+pub type Weight = f64;
+pub type Ph<T>  = i64;   // a parameter the target does not mention
+pub type El<T>  = T;     // the target IS the parameter
+
+struct A {
+    pub k: i64, pub v: i64, pub g: i64,
+    pub s: Score, pub h: Hi, pub f: Weight,
+    pub p: Ph<i64>, pub e: El<i64>,
+}
+struct B { pub k: i64, pub m: i64 }
+struct C { pub m: i64, pub w: i64 }
+
+// A UDF whose RETURN TYPE is an alias. Its result is the sort key of `qc`.
+pub fn sc(x: i64) -> Score { return x * 2i64; }
+
+// Three sources in a linear predicate chain: four admissible orders whenever the
+// key licenses them (see wql_join_order_multi_e2e for the derivation). Every query
+// below differs from the others in ONE thing — how the key's type is written.
+//
+// ⚠ EACH QUERY GETS ITS OWN ROW-VAR NAMES so a `plan_trace` reader can attribute
+// the verdicts; the assertions here go through the plan objects, which is stronger,
+// but two queries sharing `a`/`b`/`c` would make the trace unreadable.
+pub deem qs(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ a join bs b on a.k == b.k join cs c on b.m == c.m
+    select a.v * 1000 + c.w order by a.s }
+
+pub deem qh(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ d join bs e on d.k == e.k join cs f on e.m == f.m
+    select d.v * 1000 + f.w order by d.h }
+
+pub deem qf(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ p join bs q on p.k == q.k join cs r on q.m == r.m
+    select p.v * 1000 + r.w order by p.f }
+
+pub deem qp(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ i join bs j on i.k == j.k join cs n on j.m == n.m
+    select i.v * 1000 + n.w order by i.p }
+
+pub deem qe(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ t join bs u on t.k == u.k join cs w on u.m == w.m
+    select t.v * 1000 + w.w order by t.e }
+
+pub deem qc(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ aa join bs bb on aa.k == bb.k join cs cc on bb.m == cc.m
+    select aa.v * 1000 + cc.w order by sc(aa.g) }
+
+// Claim 6's second half: a scalar param whose declared type is an alias.
+pub deem qm(as_: &[A], bs: &[B], cs: &[C], lim: Score) {
+    from as_ m join bs n2 on m.k == n2.k join cs o on n2.m == o.m
+    where m.g > lim select m.v * 1000 + o.w order by m.s }
+
+// ── THE ORACLE ────────────────────────────────────────────────────────────────
+// The join in QUERY order, then a STABLE sort by the key. Derived from the emitted
+// sort's semantics rather than copied from a run: collected in query order, the
+// tiebreak disjunct (`prev == cur && prev_tuple > cur_tuple`) is false for every
+// pair, so what is left is `prev > cur` — a stable sort. Every carried nest must
+// agree with it, which is the whole content of the licence.
+fn oracle(as_: &[A], bs: &[B], cs: &[C], ks: &mut Vec<i64>, out: &mut Vec<i64>, which: i64) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < cs.len() {
+                    if bs[j].m == cs[n].m {
+                        if which == 0i64 { ks.push(as_[i].s); }
+                        else if which == 2i64 { ks.push(sc(as_[i].g)); }
+                        else { ks.push(as_[i].e); }
+                        out.push(as_[i].v * 1000i64 + cs[n].w);
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    ssort(ks, out);
+}
+
+fn ssort(ks: &mut Vec<i64>, vs: &mut Vec<i64>) {
+    let mut a: i64 = 1i64;
+    while a < ks.len() {
+        let kv: i64 = ks.get(a);
+        let vv: i64 = vs.get(a);
+        let mut b: i64 = a;
+        while b > 0i64 && ks.get(b - 1i64) > kv {
+            ks.set(b, ks.get(b - 1i64));
+            vs.set(b, vs.get(b - 1i64));
+            b = b - 1i64;
+        }
+        ks.set(b, kv);
+        vs.set(b, vv);
+        a = a + 1i64;
+    }
+}
+
+// The f64-keyed oracle (claim 3): same join, stable sort by the `Weight` field.
+fn oracle_f(as_: &[A], bs: &[B], cs: &[C], ks: &mut Vec<f64>, out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < cs.len() {
+                    if bs[j].m == cs[n].m {
+                        ks.push(as_[i].f);
+                        out.push(as_[i].v * 1000i64 + cs[n].w);
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    let mut a: i64 = 1i64;
+    while a < ks.len() {
+        let kv: f64 = ks.get(a);
+        let vv: i64 = out.get(a);
+        let mut b: i64 = a;
+        while b > 0i64 && ks.get(b - 1i64) > kv {
+            ks.set(b, ks.get(b - 1i64));
+            out.set(b, out.get(b - 1i64));
+            b = b - 1i64;
+        }
+        ks.set(b, kv);
+        out.set(b, vv);
+        a = a + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let as_: [A; 4] = [
+        A { k: 1i64, v: 1i64, g: 4i64, s: 30i64, h: 30i64, f: 3.0f64, p: 30i64, e: 30i64 },
+        A { k: 2i64, v: 2i64, g: 1i64, s: 10i64, h: 10i64, f: 1.0f64, p: 10i64, e: 10i64 },
+        A { k: 1i64, v: 3i64, g: 3i64, s: 20i64, h: 20i64, f: 2.0f64, p: 20i64, e: 20i64 },
+        A { k: 2i64, v: 4i64, g: 2i64, s: 20i64, h: 20i64, f: 2.0f64, p: 20i64, e: 20i64 },
+    ];
+    let bs: [B; 3] = [ B { k: 1i64, m: 7i64 }, B { k: 2i64, m: 8i64 }, B { k: 1i64, m: 8i64 } ];
+    let cs: [C; 3] = [ C { m: 7i64, w: 10i64 }, C { m: 8i64, w: 20i64 }, C { m: 8i64, w: 30i64 } ];
+
+    // The i64-keyed oracle: `s`, `h`, `p` and the param query all sort by the same
+    // numbers, so one expectation serves them.
+    let mut ki: Vec<i64> = Vec::new();
+    let mut wi: Vec<i64> = Vec::new();
+    oracle(&as_[..], &bs[..], &cs[..], &mut ki, &mut wi, 0i64);
+    if wi.len() != 10i64 { return 1i32; }
+
+    // ── 1. THE DIRECT ALIAS KEEPS ITS LICENCE ────────────────────────────────
+    // Four candidates, and every one of them forced in turn agrees with the oracle.
+    // Before the fix this plan reported `considered() == 0`.
+    let mut ps: QsPlan = qs_prepare(&as_[..], &bs[..], &cs[..]);
+    if ps.considered() != 4i64 { return 2i32; }
+    let mut c0: i64 = 0i64;
+    while c0 < ps.considered() {
+        ps.order_ix = c0;
+        if !same(&qs_run(&ps, &as_[..], &bs[..], &cs[..]).unwrap(), &wi) { return 3i32; }
+        c0 = c0 + 1i64;
+    }
+    // And the plan says the axis was SEARCHED, which is the fact the count reports.
+    if !str_contains(ps.explain(), "more than two orders are admissible") { return 4i32; }
+
+    // ── 2. THE CHAIN RESOLVES TO THE END ─────────────────────────────────────
+    let mut ph: QhPlan = qh_prepare(&as_[..], &bs[..], &cs[..]);
+    if ph.considered() != 4i64 { return 10i32; }
+    let mut c1: i64 = 0i64;
+    while c1 < ph.considered() {
+        ph.order_ix = c1;
+        if !same(&qh_run(&ph, &as_[..], &bs[..], &cs[..]).unwrap(), &wi) { return 11i32; }
+        c1 = c1 + 1i64;
+    }
+
+    // ── 3. AN ALIAS TO AN UNFAITHFUL TYPE IS STILL REFUSED, AS THAT TYPE ─────
+    // Resolution is not admission. `Weight` is f64 and f64's emitted comparison is
+    // partial; the licence is refused and the ground names `f64` — the type whose
+    // property failed — with f64's mechanism and f64's remedy. A ground that said
+    // `Weight` would be telling the reader about a name instead of about a type.
+    let pf: QfPlan = qf_prepare(&as_[..], &bs[..], &cs[..]);
+    if pf.considered() != 0i64 { return 20i32; }
+    if !str_contains(pf.explain(), "This key (`f64`) fails it") { return 21i32; }
+    if !str_contains(pf.explain(), "PARTIALLY ordered") { return 22i32; }
+    if !str_contains(pf.explain(), "remedy is a key whose comparison is total") { return 23i32; }
+    // And it must NOT be the default-deny ground: that is the one the spelling used
+    // to produce, and it names a different failed condition and a different remedy.
+    if str_contains(pf.explain(), "outside the EL scalar lattice") { return 24i32; }
+    // The single nest still answers, and it answers the f64 oracle: a licence was
+    // removed, never a capability.
+    let mut kf: Vec<f64> = Vec::new();
+    let mut wf: Vec<i64> = Vec::new();
+    oracle_f(&as_[..], &bs[..], &cs[..], &mut kf, &mut wf);
+    if !same(&qf_run(&pf, &as_[..], &bs[..], &cs[..]).unwrap(), &wf) { return 25i32; }
+
+    // ── 4. A GENERIC ALIAS WITH A FIXED TARGET KEEPS THE LICENCE ────────────
+    let mut pp: QpPlan = qp_prepare(&as_[..], &bs[..], &cs[..]);
+    if pp.considered() != 4i64 { return 40i32; }
+    let mut c2: i64 = 0i64;
+    while c2 < pp.considered() {
+        pp.order_ix = c2;
+        if !same(&qp_run(&pp, &as_[..], &bs[..], &cs[..]).unwrap(), &wi) { return 41i32; }
+        c2 = c2 + 1i64;
+    }
+
+    // ── 5. A GENERIC ALIAS NAMING ITS OWN PARAMETER IS REFUSED ──────────────
+    // The type argument is dropped before the reflection boundary sees the field,
+    // so the target `T` is a name this compiler has no binding for. Default-deny,
+    // and the ground names the spelling because the spelling is all there is.
+    let pe: QePlan = qe_prepare(&as_[..], &bs[..], &cs[..]);
+    if pe.considered() != 0i64 { return 50i32; }
+    if !str_contains(pe.explain(), "This key (`El`) fails it") { return 51i32; }
+    if !str_contains(pe.explain(), "outside the EL scalar lattice") { return 52i32; }
+    let mut ke: Vec<i64> = Vec::new();
+    let mut we: Vec<i64> = Vec::new();
+    oracle(&as_[..], &bs[..], &cs[..], &mut ke, &mut we, 3i64);
+    if !same(&qe_run(&pe, &as_[..], &bs[..], &cs[..]).unwrap(), &we) { return 53i32; }
+
+    // ── 6. THE OTHER TWO CONSUMERS ──────────────────────────────────────────
+    // A UDF returning an alias: callable at all (its class was -1 before the fix,
+    // which `codegen::check_calls` refuses) and faithful enough to license.
+    let mut pc: QcPlan = qc_prepare(&as_[..], &bs[..], &cs[..]);
+    if pc.considered() != 4i64 { return 60i32; }
+    let mut kc: Vec<i64> = Vec::new();
+    let mut wc: Vec<i64> = Vec::new();
+    oracle(&as_[..], &bs[..], &cs[..], &mut kc, &mut wc, 2i64);
+    let mut c3: i64 = 0i64;
+    while c3 < pc.considered() {
+        pc.order_ix = c3;
+        if !same(&qc_run(&pc, &as_[..], &bs[..], &cs[..]).unwrap(), &wc) { return 61i32; }
+        c3 = c3 + 1i64;
+    }
+
+    // A scalar param declared with an alias: it types, it filters, and the query
+    // over it keeps the licence its (aliased) key earns.
+    let pm: QmPlan = qm_prepare(&as_[..], &bs[..], &cs[..], 2i64);
+    if pm.considered() != 4i64 { return 70i32; }
+    let gm: Vec<i64> = qm_run(&pm, &as_[..], &bs[..], &cs[..], 2i64).unwrap();
+    // `g > 2` keeps the rows v=1 (g=4) and v=3 (g=3); their keys are 30 and 20, so
+    // the answer is v=3's tuples first. v=1 joins b(k=1,m=7)->c(m=7) and
+    // b(k=1,m=8)->c(m=8) twice; v=3 the same shape.
+    let mut km: Vec<i64> = Vec::new();
+    let mut wm: Vec<i64> = Vec::new();
+    let mut i2: i64 = 0i64;
+    while i2 < 4i64 {
+        if as_[i2].g > 2i64 {
+            let mut j2: i64 = 0i64;
+            while j2 < 3i64 {
+                if as_[i2].k == bs[j2].k {
+                    let mut n3: i64 = 0i64;
+                    while n3 < 3i64 {
+                        if bs[j2].m == cs[n3].m {
+                            km.push(as_[i2].s);
+                            wm.push(as_[i2].v * 1000i64 + cs[n3].w);
+                        }
+                        n3 = n3 + 1i64;
+                    }
+                }
+                j2 = j2 + 1i64;
+            }
+        }
+        i2 = i2 + 1i64;
+    }
+    ssort(&mut km, &mut wm);
+    if !same(&gm, &wm) { return 71i32; }
+    if gm.len() == 0i64 { return 72i32; }
+
+    return 0i32;
+}

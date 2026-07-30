@@ -62,6 +62,97 @@ pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
     return WAny::Ref(0i64 as *const u8);
 }
 
+// ── A SPELLING IS NOT A TYPE ────────────────────────────────────────────────
+// `type Score = i64;` and `i64` are ONE type written two ways, and everything the
+// query stack asks about a declared type — is this key's emitted comparison its
+// own order (`el::el_order_faithful`), does this value survive the EL's `as i64`
+// (`el::el_int_fits_i64`), is this column's class in the lattice at all
+// (`el::el_class_lookup`) — is a question about the TYPE. Every one of them was
+// answered from the spelling the author happened to use.
+//
+// ⚠ MEASURED, AND IT COST A CORRECT PLAN ITS LICENCE. `pub s: Score` with
+// `pub type Score = i64;`, sorted over a 3-source join: `considered() == 0`, with
+// the plan's own ground saying the key is "outside the EL scalar lattice … nothing
+// is known about the comparison the backend would emit for it" — one line below the
+// code that resolved the same key to `Vec<i64>` and emitted the i64 comparison.
+// Changing ONE token, `Score` → `i64`, restored all four candidates. The refusal
+// was the DEFAULT-DENY branch, which is right for a type nobody has checked and
+// wrong for a name that denotes one that has been.
+//
+// ⚠ SO THE RESOLUTION HAPPENS AT THE REFLECTION BOUNDARY, ONCE, and not at each
+// question. `el` sits below this module and holds no module view, so a name that
+// reaches it must already BE the type: `stamp_types_from_schema` (struct fields),
+// `stamp_udfs_from_module` (UDF return types) and `rexpr_walk`'s rel-column and
+// scalar-param stamping all pass what they read through here before it is recorded
+// on an `ElTypes`. A spelling that survives that far is one this compiler genuinely
+// cannot resolve, and default-deny is then the honest answer.
+//
+// TYPE_ALIAS is la::Code 72 — `{ CODE: TYPE_ALIAS, NAME: $2, TYPE_PARAMS: $3,
+// TYPE: $5 }` (logos.peg) — so the alias's target is the node's TYPE(3) child and
+// its NAME(1) is the name to ask about next.
+fn LA_TYPE_ALIAS() -> u64 { return 72 as u64; }
+
+// Does `nm` name one of `decl`'s OWN type parameters? The question that separates
+// `type Ph<T> = i64` (resolvable — the arguments cannot change the answer) from
+// `type El<T> = T` (not — the answer IS an argument, and this module does not have
+// it). Asked of the declaration rather than guessed from the shape of the name.
+fn names_own_param(view: &OView, decl: WAny, nm: str) -> bool {
+    let np: u64 = view.ast_type_param_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < np {
+        if sview_eq_str(view.ast_type_param_name(decl, i), nm) { return true; }
+        i = i + (1 as u64);
+    }
+    return false;
+}
+
+// THE resolver: the type `name` denotes, after following this module's `type`
+// aliases. Returns `name` itself when there is nothing to follow.
+//
+// ⚠ FOUR SPELLINGS REACH IT AND IT ANSWERS FOR EACH, deliberately rather than by
+// falling through:
+//   • an admitted scalar (`i64`, `str`, …) — returned untouched without a walk. No
+//     module item can shadow a primitive, so the lookup would be wasted work on the
+//     overwhelmingly common case;
+//   • an alias chain (`type A = B; type B = i64;`) — followed to the type, bounded
+//     at 8 hops and stopped by a self-reference, because a metaprogram that loops
+//     is a compiler that hangs and the AST here is not known to be acyclic;
+//   • a GENERIC alias — followed only when its target does NOT name one of its own
+//     parameters. A field's declared type reaches this module as the bare NAME(1)
+//     of its type node with the ARGUMENTS ALREADY DROPPED, so `Ph<i64>` arrives as
+//     `Ph`: for `type Ph<T> = i64` the target is a fixed type and the arguments
+//     could not have changed it, and denying that key its licence would be denying
+//     it for how it was spelled; for `type El<T> = T` the target IS the parameter,
+//     whose argument this module cannot see, and answering from `T` would be
+//     answering from data it does not have. The parameter list is on the alias node
+//     (TYPE_PARAMS = 27), so the two cases are separated by asking it rather than by
+//     refusing both;
+//   • an alias to a type with no name of its own (`type Buf = [i64; 4]`, `&T`) —
+//     the target node carries no NAME, so the walk stops and returns the last name
+//     it had. Neither name is in the lattice and neither should be.
+pub fn resolve_alias_name(view: &OView, name: str) -> str {
+    if view.holder == (0 as *mut u8) { return name; }
+    if name.len() == 0i64 { return name; }
+    if el_class_lookup(name) >= 0i32 { return name; }
+    let mut cur: str = name;
+    let mut hops: i64 = 0i64;
+    while hops < 8i64 {
+        let decl: WAny = find_decl_by_name(view, cur);
+        if decl.is_null() { return cur; }
+        if (view.ast_node_code(decl) & (0xFFFF as u64)) != LA_TYPE_ALIAS() { return cur; }
+        let tgt: WAny = view.ast_type_child(decl);
+        if tgt.is_null() { return cur; }
+        let nm: str = sview_str(view.ast_node_name(tgt));
+        if nm.len() == 0i64 { return cur; }
+        if str_eq(nm, cur) { return cur; }
+        if names_own_param(view, decl, nm) { return cur; }
+        cur = nm;
+        if el_class_lookup(cur) >= 0i32 { return cur; }
+        hops = hops + 1i64;
+    }
+    return cur;
+}
+
 // Look up the declared Logos TYPE NAME of field `field_name` within the struct
 // node `decl` (an AST item handle from `find_decl_by_name`). Returns an empty
 // `str` if the field is absent. This is the per-field reflection primitive.
@@ -282,7 +373,10 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
         if (view.ast_node_code(item) & (0xFFFF as u64)) == LA_FN() {
             let nm: str = sview_str(view.ast_node_name(item));
             if nm.len() > 0i64 {
-                let rn: str = fn_ret_type_name(view, item);
+                // Through the alias table first: a UDF declared `-> Score` returns
+                // an i64, and `el_ret_class` on the spelling would have reported an
+                // out-of-lattice return and refused the call at its use site.
+                let rn: str = resolve_alias_name(view, fn_ret_type_name(view, item));
                 t.udf_add(nm, el_ret_class(rn), rn, fn_param_count(view, item));
             }
         }
@@ -309,10 +403,12 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) 
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
         let fnm: str = sview_str(view.ast_field_name(fld));
-        let tyname: str = sview_str(view.ast_field_type_name(fld));
+        // The DECLARED name resolved through the module's aliases: a `u64` field
+        // must not come back out of the emitter as `i64` (ADR 0024 S3), and a
+        // `Score` field must not be a type nothing is known about when `Score` IS
+        // i64 (see `resolve_alias_name`).
+        let tyname: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld)));
         if fnm.len() > 0i64 && tyname.len() > 0i64 {
-            // The DECLARED name, not just its class: a `u64` field must not
-            // come back out of the emitter as `i64` (ADR 0024 S3).
             t.set_ty_named(fnm, tyname);
         }
         i = i + (1 as u64);

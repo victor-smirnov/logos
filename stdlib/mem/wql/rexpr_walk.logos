@@ -135,18 +135,25 @@ pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
 // the right type. A non-rel source is a no-op (returns false). This is the
 // rel counterpart of `stamp_types_from_schema` — called right beside it at
 // every scan-source stamping site.
-pub fn stamp_rel_source(ty: &mut ElTypes, prm: &MacroParams,
+//
+// ⚠ `view` IS HERE FOR THE SAME REASON IT IS IN `stamp_types_from_schema`: a
+// declared type NAME is a SPELLING until it is resolved through the module's
+// aliases, and `el` — which answers every question asked about it — holds no
+// module view. Every name recorded on an `ElTypes` goes through
+// `reflect::resolve_alias_name` at the point it is read, so a rel column declared
+// `Score` is an i64 to the licence, the width check and the lattice alike.
+pub fn stamp_rel_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
                         src_name: str, var_name: str) -> bool {
     let ri: i64 = prm.rel_find_src(src_name);
     if ri < 0i64 { return false; }
-    return stamp_rel_columns(ty, prm, ri, var_name);
+    return stamp_rel_columns(ty, view, prm, ri, var_name);
 }
 
 /// The same stamping, by rel INDEX. The planner reaches a rel before its
 /// source name has been written onto the query node, so it has the index and
 /// not the name; splitting the lookup off the stamping is what lets one copy of
 /// the column binding serve both.
-pub fn stamp_rel_columns(ty: &mut ElTypes, prm: &MacroParams,
+pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
                          ri: i64, var_name: str) -> bool {
     if ri < 0i64 { return false; }
     let off: i64 = prm.rel_coff[ri];
@@ -155,19 +162,21 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, prm: &MacroParams,
         // 1-column rel: SCALAR rows (`Vec<i64>` etc. — no 1-tuple exists), so
         // the column binds the WHOLE row (idx -1 → the codegen emits `(*var)`).
         let cn0: str = prm.relc_name[off];
-        let ct0: i32 = el_ty_of_name(prm.relc_ty[off]);
         // The column's DECLARED type, which for a native source came from the
         // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
-        ty.set_ty_named(cn0, prm.relc_ty[off]);
-        ty.rel_bind_named(var_name, cn0, -1i64, ct0, prm.relc_ty[off]);
+        let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
+        let ct0: i32 = el_ty_of_name(tn0);
+        ty.set_ty_named(cn0, tn0);
+        ty.rel_bind_named(var_name, cn0, -1i64, ct0, tn0);
         return true;
     }
     let mut k: i64 = 0i64;
     while k < nc {
         let cn: str = prm.relc_name[off + k];
-        let ct: i32 = el_ty_of_name(prm.relc_ty[off + k]);
-        ty.set_ty_named(cn, prm.relc_ty[off + k]);
-        ty.rel_bind_named(var_name, cn, k, ct, prm.relc_ty[off + k]);
+        let tnk: str = resolve_alias_name(view, prm.relc_ty[off + k]);
+        let ct: i32 = el_ty_of_name(tnk);
+        ty.set_ty_named(cn, tnk);
+        ty.rel_bind_named(var_name, cn, k, ct, tnk);
         k = k + 1i64;
     }
     return true;
@@ -177,12 +186,13 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, prm: &MacroParams,
 // the parsed `deem!(…)` list — the replacement for the retired `with` overlay.
 // Slice params are SOURCES (their row schemas are reflected separately); a
 // scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
-// through this seeding.
-pub fn apply_scalar_params(ty: &mut ElTypes, prm: &MacroParams) {
+// through this seeding — resolved through the module's aliases first, for the
+// reason stated on `stamp_rel_source`.
+pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
     let mut i: i64 = 0i64;
     while i < prm.n {
         if !prm.is_slice[i] {
-            ty.set_ty_named(prm.names[i], prm.tys[i]);
+            ty.set_ty_named(prm.names[i], resolve_alias_name(view, prm.tys[i]));
         }
         i = i + 1i64;
     }
@@ -1311,8 +1321,8 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
-    stamp_rel_source(&mut ty, prm, sc.src_name, sc.var_name);
-    apply_scalar_params(&mut ty, prm);
+    stamp_rel_source(&mut ty, &view, prm, sc.src_name, sc.var_name);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
@@ -1605,8 +1615,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
-    stamp_rel_source(&mut ty, prm, src_name, var_name);
-    apply_scalar_params(&mut ty, prm);
+    stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
@@ -1846,8 +1856,8 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, row_ty);
-    stamp_rel_source(&mut ty, prm, src_name, var_name);
-    apply_scalar_params(&mut ty, prm);
+    stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let mut pred_body: String = String::new();
@@ -2938,17 +2948,17 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
-    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
+    stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
-        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: the VAR NAME itself carries the
         // element's value type (referenced bare in the EL clauses).
         if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
-    apply_scalar_params(&mut ty, prm);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     // Validate every clause's calls (select / where / order / per-step on).
@@ -3377,16 +3387,16 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
-    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
+    stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
-        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
         if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
-    apply_scalar_params(&mut ty, prm);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
     // Group KEY: infer + stamp. A group key needs an IDENTITY (`==` + a hash), and
     // which classes have one is `el::el_eq_hash` — the same one-place, default-deny
@@ -4379,8 +4389,8 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, s.row_ty);
-    stamp_rel_source(&mut ty, prm, s.src_name, s.var_name);
-    apply_scalar_params(&mut ty, prm);
+    stamp_rel_source(&mut ty, &view, prm, s.src_name, s.var_name);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
@@ -4536,16 +4546,16 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, ch.base_ty);
-    stamp_rel_source(&mut ty, prm, ch.base_src, ch.base_var);
+    stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
-        stamp_rel_source(&mut ty, prm, ch.src[si], ch.var[si]);
+        stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
         if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
         si = si + 1i64;
     }
-    apply_scalar_params(&mut ty, prm);
+    apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     // The whole-row-projection gate's var set. SCALAR-element traversal vars

@@ -219,12 +219,34 @@ pub fn JC_NOFACT() -> i64 { return -2i64; }
 /// `jc_order_pick` and `jc_margin` walk the whole table; running an `nfl`-long scan
 /// that cannot change between iterations inside that walk is a loop-invariant
 /// computation left in the loop, and it was measured as one: `ncand + 1` scans per
-/// `prepare` instead of 1, +209 Ir on a `JCTable{ncand: 4, nfl: 3}` decision (+29.4%
-/// of it), which is worst exactly for the point-get-in-a-loop shape where `prepare`
-/// is the whole cost. So the two table walkers ask it themselves and then price
+/// `prepare` instead of 1. So the two table walkers ask it themselves and then price
 /// through `jc_cost_at`, and `jc_order_cost` — the one entry a CALLER reaches, with
 /// a single candidate and no walk — keeps asking it per call, where it is not
 /// invariant of anything.
+///
+/// ⚠ THE SHAPES THAT PAY ARE THE ONES THAT CARRY A TABLE, and this comment used to
+/// name the one shape that pays NOTHING: it said the invariant scan was "worst
+/// exactly for the point-get-in-a-loop shape where `prepare` is the whole cost".
+/// That shape is a plan with no candidates, which carries no `JCTable` at all (ADR
+/// 0024 S4l) — its `considered`/`cost_of`/`order_pick`/`margin` answer from the
+/// `jc_none_*` constants, no call into this module is emitted, and this function is
+/// not on its path. MEASURED with callgrind, one probe source per shape, linked
+/// against a stdlib with the hoist and one without, marginal Ir per iteration (each
+/// probe linked at 100k and 200k iterations and differenced, so no fixed overhead
+/// is in the number):
+///
+///   `deem q3` over 3 sources — `JCTable{ncand: 4, nfl: 3}`
+///     `prepare()`                    (1 walk)   1520.00 → 1332.00   −188.00 (−12.4%)
+///     `prepare()` + `margin()`       (2 walks)  2355.00 → 2003.00   −352.00 (−14.9%)
+///   `deem evens` over 1 source — table-less, the shape the deleted clause named
+///     `prepare()`                    (0 walks)   179.00 →  179.00      0.00
+///
+/// The table-less zero is a measurement and not an argument from the mechanism: it
+/// is the same instruction count to the instruction, on both stdlibs.
+///
+/// ⚠ AND THE OTHER DIRECTION IS ON `jc_order_cost`: a caller pricing ONE candidate
+/// pays +2.0 Ir per call for the hoist. The trade is a fifth of a decision against
+/// two instructions per manual `cost_of`, and it is written down in both places.
 pub fn jc_have_facts(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> bool {
     let mut j: i64 = 0i64;
     while j < t.nfl {
