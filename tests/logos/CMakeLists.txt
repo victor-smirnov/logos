@@ -1053,6 +1053,28 @@ set_tests_properties(logos_09_join_order_beyond_pair PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# KEY-ORDER LICENCE gate (ADR 0024 S4k, C1): carrying more than one nest is licensed
+# by the `order by` sort being a TOTAL order, which is a claim about the key's TYPE
+# and was asserted unconditionally. An f64 key is PartialOrd — on a NaN neither
+# disjunct of the sort's comparison holds, the row-index tiebreak never engages, and
+# two carried nests returned two different sequences from the same data. The fixture
+# asserts the rows; this asserts the DECISION: the refusal names the failed
+# antecedent and its remedy, the artifact carries one nest, the ground travels into
+# the plan's own `why` (so `explain()` can state it), and the i64/str-keyed queries
+# over the same sources keep all four orders — `str` is total, so the narrowing is
+# about the ORDER and not about non-integer keys.
+add_test(
+    NAME logos_09_join_order_key_total
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/join_order_key_total_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_order_key_total_e2e.logos
+)
+set_tests_properties(logos_09_join_order_key_total PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

@@ -1,0 +1,244 @@
+// WQL — THE JOIN-ORDER LICENCE NAMES THE KEY'S ORDER (ADR 0024 S4k, C1).
+//
+// A query body carries more than one join nest for exactly one reason: `order by`
+// sorts the matched row-index tuples on (key, tuple-in-query-order), so every
+// carried nest yields the SAME SEQUENCE and the plan may pick a nest by cost. That
+// premise is a claim about the KEY'S TYPE, and it was asserted unconditionally.
+//
+// ⚠ WHAT THIS FIXTURE MEASURED BEFORE THE FIX. `order by <f64>` is only PartialOrd:
+// on a NaN key both `prev > cur` and `prev == cur` are false, the tuple tiebreak is
+// never reached, and the NaN row's placement — plus every placement the halted
+// shift leaves behind it — becomes a fact about WHICH NEST COLLECTED THE TUPLES.
+// Four carried orders returned four DIFFERENT sequences from the same data, and it
+// was USER-VISIBLE with no plan field written by hand: appending rows that match
+// NOTHING moved the cost function's numbers, the plan picked a different nest, and
+// the ANSWER'S ORDER changed.
+//
+// The licence now asks `el::el_total_order` about the key's class — one answer for
+// every consumer of the sort, DEFAULT-DENY so a class nobody has added yet licenses
+// nothing — and a key that fails it refuses the reorder with its ground on the plan
+// trace (asserted by join_order_key_total_gate.sh) and in `explain()`, asserted
+// here at run time.
+//
+// The four claims, in order:
+//   1. f64 key over a join: the reorder is REFUSED (`considered() == 0`), the
+//      answer is the same for two data shapes that used to pick different nests,
+//      and it equals the query-order stable sort.
+//   2. i64 key over the SAME sources: unchanged — four nests carried, every one of
+//      them forced in turn, all agreeing.
+//   3. str key: also unchanged — `str` compares byte-lexicographically and IS
+//      total, so it keeps the licence. The refusal is about the ORDER, not about
+//      "non-integer keys".
+//   4. a SINGLE-NEST f64 sort with a NaN in it still works. A licence was removed,
+//      not a capability: what f64 `order by` MEANS is untouched.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;      // str_contains — the refusal's ground is asserted, not just its verdict
+
+struct A { pub k: i64, pub v: i64, pub f: f64, pub s: str }
+struct B { pub k: i64, pub m: i64 }
+struct C { pub m: i64, pub w: i64 }
+
+// Three sources, a linear predicate chain: four admissible orders when the key
+// licenses them (see wql_join_order_multi_e2e). The three queries differ in ONE
+// token — the `order by` key's type.
+//
+// ⚠ EACH ONE USES ITS OWN ROW-VAR NAMES, and that is what makes the plan trace
+// attributable: `plan_trace` identifies a decision by its base var, so three
+// queries all spelling `a`/`b`/`c` would emit three verdicts nothing could tell
+// apart — and the whole claim here is that two of them decided differently.
+pub deem qf(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join cs c on b.m == c.m
+    select a.v * 1000 + c.w order by a.f }
+
+pub deem qi(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ p
+    join bs q on p.k == q.k
+    join cs r on q.m == r.m
+    select p.v * 1000 + r.w order by p.k }
+
+pub deem qs(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ x
+    join bs y on x.k == y.k
+    join cs z on y.m == z.m
+    select x.v * 1000 + z.w order by x.s }
+
+// One source: no join, so no order to decide — the f64 sort itself.
+pub deem q1f(as_: &[A]) {
+    from as_ a
+    select a.v order by a.f }
+
+// ── THE ORACLE: the join in QUERY order, then a STABLE sort by the key ───────
+// Independent of any nest, and it predicts the NaN case too. Collected in query
+// order, the emitted sort's tiebreak disjunct (`prev == cur && prev_tuple >
+// cur_tuple`) is false for every pair — prev was collected first, so its tuple is
+// the smaller one — which leaves exactly `prev > cur`: a stable sort. That is what
+// this computes, so the expectation is derived from the semantics rather than
+// copied from a run.
+fn oracle_join(as_: &[A], bs: &[B], cs: &[C], ks: &mut Vec<f64>, out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < cs.len() {
+                    if bs[j].m == cs[n].m {
+                        ks.push(as_[i].f);
+                        out.push(as_[i].v * 1000i64 + cs[n].w);
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    stable_sort_by_f64(ks, out);
+}
+
+// Insertion sort with the STRICT comparison only: equal keys keep the order they
+// arrived in. No tiebreak, because in query order there is nothing to break.
+fn stable_sort_by_f64(ks: &mut Vec<f64>, vs: &mut Vec<i64>) {
+    let mut a: i64 = 1i64;
+    while a < ks.len() {
+        let kv: f64 = ks.get(a);
+        let vv: i64 = vs.get(a);
+        let mut b: i64 = a;
+        while b > 0i64 && ks.get(b - 1i64) > kv {
+            ks.set(b, ks.get(b - 1i64));
+            vs.set(b, vs.get(b - 1i64));
+            b = b - 1i64;
+        }
+        ks.set(b, kv);
+        vs.set(b, vv);
+        a = a + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let nan: f64 = 0.0f64 / 0.0f64;
+
+    // DUPLICATE KEYS ON BOTH SIDES (a.k: 1,1 and 2,2 — b.m: 7,7,7 and 8,8; c.m:
+    // 8,8 and 7,7), and the NaN sits at a row that is NOT first and NOT last, so a
+    // halted shift has rows on both sides of it. The `f` keys repeat (2.0 twice) so
+    // the tuple tiebreak is genuinely exercised for the rows that do compare.
+    let as_: [A; 5] = [
+        A { k: 3i64, v: 1i64, f: 3.0f64, s: "cc" },
+        A { k: 1i64, v: 2i64, f: nan,    s: "aa" },
+        A { k: 2i64, v: 3i64, f: 2.0f64, s: "bb" },
+        A { k: 1i64, v: 4i64, f: 1.0f64, s: "aa" },
+        A { k: 2i64, v: 5i64, f: 2.0f64, s: "bb" },
+    ];
+    let bs: [B; 5] = [
+        B { k: 1i64, m: 7i64 }, B { k: 2i64, m: 8i64 },
+        B { k: 1i64, m: 8i64 }, B { k: 3i64, m: 7i64 },
+        B { k: 2i64, m: 7i64 },
+    ];
+    let cs: [C; 4] = [
+        C { m: 8i64, w: 10i64 }, C { m: 7i64, w: 20i64 },
+        C { m: 8i64, w: 30i64 }, C { m: 7i64, w: 20i64 },
+    ];
+
+    // The SAME `bs`, padded with keys nothing matches, appended AFTER every real
+    // row: the multiset of results cannot change, only the sizes the plan compares.
+    // This is the data shape that used to move the answer.
+    let mut bsp: Vec<B> = Vec::new();
+    let mut i1: i64 = 0i64;
+    while i1 < 5i64 { bsp.push(bs[i1]); i1 = i1 + 1i64; }
+    let mut pr: i64 = 0i64;
+    while pr < 55i64 { bsp.push(B { k: 800i64 + pr, m: 800i64 + pr }); pr = pr + 1i64; }
+
+    // ── 1. THE f64 KEY: the reorder is refused, and the answer is one answer ──
+    let mut kw: Vec<f64> = Vec::new();
+    let mut wf: Vec<i64> = Vec::new();
+    oracle_join(&as_[..], &bs[..], &cs[..], &mut kw, &mut wf);
+    if wf.len() != 18i64 { return 1i32; }
+
+    let gf1: Vec<i64> = qf(&as_[..], &bs[..], &cs[..]).unwrap();
+    let gf2: Vec<i64> = qf(&as_[..], bsp.as_slice(), &cs[..]).unwrap();
+    if !same(&gf1, &wf) { return 2i32; }
+    if !same(&gf2, &wf) { return 3i32; }
+
+    // The FULL SEQUENCE, pinned. Equal to the stable-sort oracle above (asserted),
+    // written out so a change of answer is visible in the diff and not only in a
+    // helper: 1.0 first (v=4), then the two 2.0 rows in query order (v=3, v=5),
+    // then 3.0 (v=1) — and the NaN row (v=2) where a partial comparison leaves it,
+    // which is now the same place for every data shape.
+    let pin: [i64; 18] = [
+        1020i64, 1020i64, 2020i64, 2020i64, 2010i64, 2030i64,
+        4020i64, 4020i64, 4010i64, 4030i64, 3010i64, 3030i64,
+        3020i64, 3020i64, 5010i64, 5030i64, 5020i64, 5020i64,
+    ];
+    let mut pv: Vec<i64> = Vec::new();
+    let mut pi: i64 = 0i64;
+    while pi < 18i64 { pv.push(pin[pi]); pi = pi + 1i64; }
+    if !same(&gf1, &pv) { return 4i32; }
+
+    // THE PLAN SAYS SO ITSELF. `explain()` carries the refusal's ground into the
+    // artifact, so the reason is available to a caller and not only to the compile
+    // trace — the failed antecedent (a TOTAL order) and the remedy.
+    let pf: QfPlan = qf_prepare(&as_[..], &bs[..], &cs[..]);
+    if pf.considered() != 0i64 { return 5i32; }
+    if !str_contains(pf.explain(), "TOTAL") { return 6i32; }
+    if !str_contains(pf.explain(), "PARTIALLY ordered") { return 7i32; }
+    if !str_contains(pf.explain(), "remedy is a totally ordered key") { return 8i32; }
+
+    // ── 2. THE i64 KEY: unchanged — four nests, every one forced, all agree ──
+    let mut pl: QiPlan = qi_prepare(&as_[..], &bs[..], &cs[..]);
+    if pl.considered() != 4i64 { return 10i32; }
+    let base_i: Vec<i64> = qi_run(&pl, &as_[..], &bs[..], &cs[..]).unwrap();
+    if base_i.len() != 18i64 { return 11i32; }
+    let mut ci: i64 = 0i64;
+    while ci < pl.considered() {
+        pl.order_ix = ci;
+        let g: Vec<i64> = qi_run(&pl, &as_[..], &bs[..], &cs[..]).unwrap();
+        if !same(&g, &base_i) { return 12i32; }
+        ci = ci + 1i64;
+    }
+    // And the padded shape, which may pick another nest, answers the same.
+    if !same(&qi(&as_[..], bsp.as_slice(), &cs[..]).unwrap(), &base_i) { return 13i32; }
+
+    // ── 3. THE str KEY: byte-lexicographic IS total, so the licence stands ───
+    let mut ps: QsPlan = qs_prepare(&as_[..], &bs[..], &cs[..]);
+    if ps.considered() != 4i64 { return 20i32; }
+    let base_s: Vec<i64> = qs_run(&ps, &as_[..], &bs[..], &cs[..]).unwrap();
+    if base_s.len() != 18i64 { return 21i32; }
+    let mut cs2: i64 = 0i64;
+    while cs2 < ps.considered() {
+        ps.order_ix = cs2;
+        let g: Vec<i64> = qs_run(&ps, &as_[..], &bs[..], &cs[..]).unwrap();
+        if !same(&g, &base_s) { return 22i32; }
+        cs2 = cs2 + 1i64;
+    }
+    if !same(&qs(&as_[..], bsp.as_slice(), &cs[..]).unwrap(), &base_s) { return 23i32; }
+
+    // ── 4. THE SINGLE-NEST f64 SORT still sorts ──────────────────────────────
+    // No join, so no licence was ever involved. Same oracle: query order, then a
+    // stable sort by `>`. This is the capability the fix must not have touched.
+    let mut k1: Vec<f64> = Vec::new();
+    let mut w1: Vec<i64> = Vec::new();
+    let mut z: i64 = 0i64;
+    while z < 5i64 { k1.push(as_[z].f); w1.push(as_[z].v); z = z + 1i64; }
+    stable_sort_by_f64(&mut k1, &mut w1);
+    let g1: Vec<i64> = q1f(&as_[..]).unwrap();
+    if !same(&g1, &w1) { return 30i32; }
+    if g1.len() != 5i64 { return 31i32; }
+
+    return 0i32;
+}

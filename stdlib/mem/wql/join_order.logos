@@ -53,6 +53,21 @@
 //      the same whichever nest produced it. Without `order by` there is nothing to
 //      restore the sequence to, and the plan says so instead of reordering anyway.
 //
+//      ⚠ AND "TOTAL" IS A CLAIM ABOUT THE KEY'S TYPE, NOT ABOUT THE PRESENCE OF
+//      `order by`. The tiebreak is guarded by an EQUAL compare, so a key whose
+//      comparison is only PARTIAL never reaches it: on an f64 key carrying a NaN
+//      both `prev > cur` and `prev == cur` are false, the NaN row's placement (and
+//      every placement the halted shift leaves behind it) becomes a fact about
+//      WHICH NEST COLLECTED THE TUPLES, and two carried nests return two different
+//      sequences from the same data — measured, four orders and four sequences.
+//      So the antecedent this constraint tests is `has_sort && el_total_order(key
+//      class)`, and the ORDER question is answered once for every consumer of the
+//      sort in `el::el_total_order` (default-DENY: a class the lattice has not
+//      admitted as ordered licenses nothing). A key type that fails it refuses the
+//      reorder HERE, with its ground on the trace — the sort itself is unchanged,
+//      because what f64 `order by` MEANS for a single nest is a separate question
+//      and removing a licence is not the place to answer it.
+//
 //   C2 A PLAN MUST HAVE DECIDED THE CHAIN. A step whose strategy is JS_NONE was
 //      never looked at by a planner (a rel body's own chain is emitted per
 //      fixpoint variant), so there is no decision to offer a second order for and
@@ -668,6 +683,19 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 // ── The entry ────────────────────────────────────────────────────────────────
 /// Decide the set of join orders a query's body carries.
 ///
+/// `has_sort` + `key_cls` are C1's antecedent, and BOTH halves of it: the EL class
+/// of the `order by` key is passed because a sort licenses a second nest only if
+/// its comparison is total, and the caller already knows the class 100 lines before
+/// it asks (`el_class_repr(infer_ty(key, ty))`). `key_cls` is unread when
+/// `has_sort` is false.
+///
+/// `whyb` is a CALLER-OWNED buffer for the one verdict whose ground is composed
+/// rather than a literal (C1's key-order refusal quotes `el`'s answer). ⚠ It must
+/// outlive this call the same way `szs` does: `jo.why` is not only traced, it
+/// becomes a STRING LITERAL IN THE GENERATED PLAN (`prep.why` → `push_str_lit`),
+/// so a buffer local to this fn would be freed before the artifact is written. Do
+/// not touch it between this call and emission.
+///
 /// `szs`/`ats` receive one entry per FLOATABLE source in QUERY order: the size as
 /// an expression, and the rel whose declared reporter it calls (-1 for a
 /// parameter's own `.len()`), so the PREPARE fn can bind exactly the reporters its
@@ -679,8 +707,10 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 /// deferred binding above the nest for a deferred one (S4j). When `deferred` comes
 /// back true, every `ats` entry is -1 and the expressions in `szs` are to be
 /// evaluated in `run`, not in `prepare`.
-pub fn decide_join_orders(c: &JCh, has_sort: bool, t: &ElTypes, prm: &MacroParams,
-                          h: &Writ, szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
+pub fn decide_join_orders(c: &JCh, has_sort: bool, key_cls: i32, t: &ElTypes,
+                          prm: &MacroParams, h: &Writ,
+                          szs: &mut [String; 4], ats: &mut [i64; 4],
+                          whyb: &mut String) -> JoinOrder {
     let mut jo: JoinOrder = jo_fixed("");
     let base_var: str = c.var[0];
     let s0_var: str = c.var[1];
@@ -697,6 +727,17 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, t: &ElTypes, prm: &MacroParam
         jo = jo_fixed("an anti join is not symmetric: the rows of the base with no match are a different question from the rows of the step with no match");
     } else if !has_sort {
         jo = jo_fixed("the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order");
+    } else if !el_total_order(key_cls) {
+        // C1's SECOND antecedent. `order by` is present, so a sequence is named —
+        // but the sort restores it only if the key's comparison is total, and this
+        // one's is not. Refused with its ground rather than redefining what the
+        // sort means for this key: that would move the answer of single-nest
+        // queries, which no reorder decision is entitled to do.
+        whyb.clear();
+        whyb.push_str("`order by` names a sequence, but C1's licence is that the sequence is TOTAL, not that a key exists: ");
+        whyb.push_str(el_order_partial_why(key_cls));
+        whyb.push_str(". The row-index tiebreak that makes every nest yield the same sequence is reached only on an equal compare, so with this key the answer would stay a fact about WHICH NEST collected the tuples — this chain keeps the query's own order. The remedy is a totally ordered key (an integer, a str, or an expression over one)");
+        jo = jo_fixed(string_as_str(whyb));
     } else {
         // C2 — for EVERY step, not only the first: a chain with one undecided step
         // has no recorded strategy to reason from at that position, and C6 is a

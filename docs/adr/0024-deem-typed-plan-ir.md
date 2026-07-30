@@ -355,6 +355,26 @@ sequential row read do not.
 **The admissible set is DERIVED, and every constraint comes from what the emitter
 requires** — an illegal order does not crash, it silently returns different rows.
 C1 a total sort is the licence (without `order by` the nest's order IS the answer's).
+⚠ and TOTAL is a claim about the KEY'S TYPE, not about the presence of `order by`:
+the sort's row-index tiebreak sits behind an EQUAL compare, so a key whose comparison
+is partial never reaches it. Measured on an `order by <f64>` with a NaN present: four
+carried nests, four different row sequences from the same data, and user-visible with
+no plan field written by hand — appending rows that match NOTHING moved the cost
+numbers, the plan picked another nest, and the answer's order changed. The 2-source
+transposition carried the same false premise from the start; the licence now asks
+`el::el_total_order` about the key's EL class, and that is the ONE answer to "which
+key types admit a total comparison" for every consumer of the sort (the sort's
+tiebreak, this licence, the recursive aggregate's lattice). It is DEFAULT-DENY: `str`
+is byte-lexicographic and keeps the licence, f64/f32 lose it, and a class nobody has
+added yet licenses nothing until it is admitted there deliberately. A key that fails
+it refuses the reorder WHOLE with its ground on the trace and in the plan's `why`, so
+`explain()` states the failed antecedent and the remedy at run time. What f64
+`order by` MEANS for a single nest is untouched — a licence was removed, not a
+capability, and redefining the comparison (a total NaN order) would move the answer
+of existing single-nest queries, which is a separate question. ⚠ A single-nest f64
+sort with a NaN in it is therefore still not an ordered result: it is a deterministic
+function of the input, which is all this constraint needs, and the partiality remains
+visible in the answer.
 C2 a plan must have decided the chain (JS_NONE = nobody looked). C3 a PINNED step —
 an anti join, a traversal — keeps its depth in the bound stream: an anti's predicate
 is inseparable from its source and a traversal's source is a field path of an outer

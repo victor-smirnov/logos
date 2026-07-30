@@ -225,6 +225,69 @@ pub fn el_class_lookup(name: str) -> i32 {
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
 pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
 
+// ── IS THE CLASS TOTALLY ORDERED? ─────────────────────────────────────────
+// THE answer, in one place, to a question three different consumers ask and used
+// to answer for themselves: may `<` / `>` / `==` on this class be relied on as a
+// TOTAL order — a decision procedure — rather than merely a predicate that
+// sometimes holds?
+//
+// Who asks, and what each one loses when the answer is wrong:
+//   • the sort's insertion loop (`rexpr_walk::sort_perm_frag`), whose row-index
+//     TIEBREAK is guarded by an EQUAL compare and is therefore reached only if
+//     the comparison is total;
+//   • the JOIN-ORDER LICENCE (`join_order` C1, ADR 0024 S4/S4k), which carries
+//     more than one nest solely because that tiebreak makes every nest yield the
+//     same sequence. Measured on an f64 key with a NaN: four carried orders,
+//     four DIFFERENT row sequences from the same data;
+//   • the recursive aggregate's value column (`rexpr_walk`), whose min/max
+//     fixpoint is a lattice and needs the order to be one.
+//
+// ⚠ DEFAULT-DENY, and that is the substance of the table rather than an omission
+// from it. The EL lattice is four classes today and this compiler's stated
+// direction is the whole Logos type system; a class added later must not inherit
+// a licence resting on a comparison nobody has checked. So an unnamed class is
+// NOT totally ordered here, and the caller records a refusal it can print.
+pub fn el_total_order(ty: i32) -> bool {
+    if ty == EL_TY_INT()  { return true; }   // the integer family: two's complement
+    if ty == EL_TY_STR()  { return true; }   // byte-lexicographic (sema's `str_cmp`)
+    if ty == EL_TY_BOOL() { return true; }   // false < true
+    return false;                            // FLT (NaN), and every unnamed class
+}
+
+/// The same answer over a type NAME. An out-of-lattice name is NOT totally
+/// ordered: `el_ty_of_name`'s lenient INT default is right for a field the EL
+/// never reads and wrong for an ORDER, which is why this goes through the strict
+/// lookup instead.
+pub fn el_total_order_name(name: str) -> bool {
+    return el_total_order(el_class_lookup(name));
+}
+
+/// THE answer to the NEIGHBOURING question, kept next to it because the two are
+/// confusable and have different answers: may this class serve as an IDENTITY —
+/// `==` plus a hash — so that grouping and deduplication put equal values in one
+/// bucket? Ranking (`el_total_order`) and identity are different properties; f64
+/// fails both but for different reasons, and a class added later could easily have
+/// one without the other. Default-DENY for the same reason as the order table: the
+/// group-by key's guard used to be a hand-written `== EL_TY_FLT()`, exhaustive only
+/// as long as the lattice has four classes.
+pub fn el_eq_hash(ty: i32) -> bool {
+    if ty == EL_TY_INT()  { return true; }
+    if ty == EL_TY_STR()  { return true; }
+    if ty == EL_TY_BOOL() { return true; }
+    return false;   // FLT: NaN != NaN, so equality is not even reflexive
+}
+
+/// The GROUND for a class that is not totally ordered — the failed antecedent in
+/// the vocabulary of the comparison that fails, so a caller's refusal can name a
+/// remedy instead of a verdict. Empty for a class that IS totally ordered.
+pub fn el_order_partial_why(ty: i32) -> str {
+    if el_total_order(ty) { return ""; }
+    if ty == EL_TY_FLT() {
+        return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached";
+    }
+    return "this type is not admitted as totally ordered by the EL lattice (`el_total_order`), and a type is not assumed to be ordered until it is admitted there — the default is deny, so that a class added later cannot inherit a licence that rests on a comparison nobody has checked";
+}
+
 // ── The GENERIC aggregate rule table (ADR 0012-queue2 §6) ──────────────────
 // ONE `agg_result_ty(fn, arg_ty) -> ty` map shared by every backend tier:
 //   count : ()  → INT

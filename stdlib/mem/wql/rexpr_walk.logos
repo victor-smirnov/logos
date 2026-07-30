@@ -868,10 +868,20 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 // `desc` flips the KEY comparison. str keys compare with the native `<`/`>`
 // (sema lowers str relationals to byte-lexicographic `str_cmp`).
 //
-// The comparison is TOTAL: equal keys are ordered by the row-index tuple in
-// query source order (`ix_lex_gt_frag`), so the result does not depend on the
-// order the tuples were collected in — see that function for why the plan needs
-// that and why it changes no existing permutation.
+// Equal keys are ordered by the row-index tuple in query source order
+// (`ix_lex_gt_frag`), so WHEN THE KEY'S COMPARISON IS TOTAL the result does not
+// depend on the order the tuples were collected in — see that function for why the
+// plan needs that and why it changes no existing permutation.
+//
+// ⚠ THAT CONDITION IS NOT SPELLED HERE, AND IT IS NOT ASSUMED EITHER. The tiebreak
+// sits behind an EQUAL compare, so for a key class whose comparison is partial
+// (f64: a NaN is not `>`, not `<` and not `==`) it is never reached and the
+// collection order becomes visible in the answer. `el::el_total_order` is the one
+// answer to which classes qualify, and the LICENCE that depends on it — carrying
+// more than one nest — is refused at the decision (`join_order` C1) with its ground
+// on the plan trace. This fragment is deliberately NOT the enforcement point: a
+// single-nest sort over an f64 key is a capability, its comparison is the language's
+// `>` on f64, and this codegen does not get to redefine it.
 //
 // The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
 // cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
@@ -2633,9 +2643,15 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     }
     let mut key_body: String = String::new();
     let mut key_ty: str = "i64";
+    // ⚠ THE CLASS, not only its representative name: the sort key's EL class is
+    // half of the join-order licence (C1 — a sort licenses a second nest only if
+    // the key's comparison is TOTAL), so it is kept and handed to the decision
+    // rather than collapsed to a type name here.
+    let mut key_cls: i32 = EL_TY_INT();
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        key_ty = el_class_repr(infer_ty(key_opt, &ty));
+        key_cls = infer_ty(key_opt, &ty);
+        key_ty = el_class_repr(key_cls);
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     }
     let has_sort: bool = mods.has_sort;
@@ -2736,7 +2752,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
     let mut ats: [i64; 4] = [-1i64; 4];
     let jc: JCh = jch_of(&ch);
-    let jo: JoinOrder = decide_join_orders(&jc, has_sort, &ty, prm, h, &mut szs, &mut ats);
+    // ⚠ `jo_whyb` is declared HERE, not inside the decision: the verdict's ground
+    // is emitted as a string literal in the prepared plan (`prp.why` below), so the
+    // one composed ground needs a buffer that lives until `emit_query_fn` has run.
+    let mut jo_whyb: String = String::new();
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_cls, &ty, prm, h,
+                                           &mut szs, &mut ats, &mut jo_whyb);
 
     // The measurement `prepare` needs: the declared reporters the size expressions
     // call, and ONLY those — a plan does not measure what it will not compare. The
@@ -3005,15 +3026,27 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
     apply_scalar_params(&mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
-    // Group KEY: infer + stamp — f64 is rejected by name (no Eq/Hash).
+    // Group KEY: infer + stamp. A group key needs an IDENTITY (`==` + a hash), and
+    // which classes have one is `el::el_eq_hash` — the same one-place, default-deny
+    // shape as the ORDER question next to it, and for the same reason: this used to
+    // be a hand-written `== EL_TY_FLT()`, which is exhaustive only while the lattice
+    // has four classes. The two questions are kept apart because they are different
+    // properties (ranking vs identity) that a class can have one of.
     // `key_ty` types __k / __g_key / __gf_key / the group binds below.
     let key_e: SExpr = key_ref.any().view::<SExpr>();
     if !reject_tuple(key_e, "wql!: `group by`") { return false; }
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let key_ety: i32 = infer_ty(key_opt, &ty);
-    if key_ety == EL_TY_FLT() {
-        error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
+    if !el_eq_hash(key_ety) {
+        // The DECISION is the shared table; only the WORDING branches, because the
+        // f64 case has a named mechanism worth stating and an unadmitted class does
+        // not have one yet.
+        if key_ety == EL_TY_FLT() {
+            error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
+        } else {
+            error("wql!: a `group by` key needs an identity (`==` and a hash) and this key's type is not admitted as having one (`el_eq_hash`) — group by an i64/str/bool key");
+        }
         return false;
     }
     let key_ty: str = el_class_repr(key_ety);
@@ -4171,11 +4204,25 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let mut val_body: String = String::new();
     if is_agg {
         // Recursive-aggregate: the value column carries an ORDER (the lattice); a
-        // single-key group (slice-1). Require val col = i64 (total Ord, no f64
-        // NaN hazard — design §7 critique #6).
+        // single-key group (slice-1). TWO requirements, and they are two because
+        // they have different grounds — reported separately so the remedy is the
+        // one that applies:
+        //   (a) the type must be TOTALLY ORDERED — a min/max fixpoint over a
+        //       partial comparison is not a lattice at all. This is the SAME
+        //       question the join-order licence asks about a sort key, so it is the
+        //       same answer: `el::el_total_order_name` (design §7 critique #6, the
+        //       f64 NaN hazard). Two answers to it in one file was the defect
+        //       underneath ADR 0024's carried-nest bug.
+        //   (b) and it must be i64 — `str` IS totally ordered and still out of
+        //       slice-1, because the emitted lattice join is the i64 baseline.
         let voff: i64 = prm.rel_coff[ri];
-        if !str_eq(prm.relc_ty[voff + 1i64], "i64") {
-            error("wql!: a recursive min/max aggregate value column must be i64 (the ordered lattice; f64/str are out of slice-1)");
+        let vcty: str = prm.relc_ty[voff + 1i64];
+        if !el_total_order_name(vcty) {
+            error("wql!: a recursive min/max aggregate value column must be TOTALLY ORDERED — the min/max fixpoint is a lattice join, and over a partial comparison it has no least upper bound to converge to");
+            return false;
+        }
+        if !str_eq(vcty, "i64") {
+            error("wql!: a recursive min/max aggregate value column must be i64 (the ordered lattice; a str column is totally ordered but the emitted lattice join is the i64 baseline — out of slice-1)");
             return false;
         }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
