@@ -188,8 +188,13 @@ pub fn el_ty_of_name(name: str) -> i32 {
 // a reference, unit) must be a clean diagnostic, not a silent i64. Returns the
 // EL_TY_* tag, or -1 for an unsupported return type. The full integer family
 // maps to INT (the i64 lattice baseline; narrower ints get an explicit
-// `as i64` widening cast at the emit site — u64/u128/i128 values beyond the
-// i64 range TRUNCATE, documented MVP semantics).
+// `as i64` widening cast at the emit site).
+//
+// ⚠ THE CLASS SAYS NOTHING ABOUT THE WIDTH, and the widths that do NOT survive
+// that cast used to be a sentence in this comment ("u64/u128/i128 truncate,
+// documented MVP semantics") and nothing in the artifact. They are now
+// `el_int_fits_i64` below, and a call whose result cannot survive the
+// normalization is REFUSED at its use site rather than reinterpreted.
 // The representative type NAME of a class — the answer when no declared name
 // was recorded. NOT "the type name": a class has many types, and picking one
 // is exactly how column widths were lost before `infer_ty_name` existed.
@@ -225,67 +230,169 @@ pub fn el_class_lookup(name: str) -> i32 {
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
 pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
 
-// ── IS THE CLASS TOTALLY ORDERED? ─────────────────────────────────────────
-// THE answer, in one place, to a question three different consumers ask and used
-// to answer for themselves: may `<` / `>` / `==` on this class be relied on as a
-// TOTAL order — a decision procedure — rather than merely a predicate that
-// sometimes holds?
+// ── DOES THE EMITTED COMPARISON REALIZE THE ORDER THE QUERY NAMED? ────────
+// THE answer, in one place, keyed on the TYPE NAME, to a question two consumers
+// ask and one of them used to ask of the four-value CLASS TAG — which cannot
+// carry it.
+//
+// ⚠ THE AXIS THIS REPLACED WAS NAMED WRONG, and that is the whole substance of
+// the table. It asked "is this class TOTALLY ORDERED", admitted the integer
+// family on the ground "two's complement", and was right about u64: the emitted
+// comparison for a u64 key IS total. It is simply not the order the query asked
+// for. `order by` names an order over a LOGOS TYPE; what the backends emit is a
+// key vector of the class's representative (`el_class_repr` — i64 / str / bool /
+// f64) compared with the language's `<` / `>`. Those are the same order only
+// while the key reaches that vector INTACT, and the class tag cannot tell:
+// `u64` and `i64` are ONE class and their orders differ above 2^63. MEASURED:
+// `order by ukey(a.v)` with `fn ukey(i64) -> u64` over values 1, 2^64-1, 5,
+// 2^63 emitted `__ks.push(((ukey(a.v)) as i64))` and ranked them 2^63, 2^64-1,
+// 1, 5 — total, nest-independent, and not the query's order.
+//
+// So totality is ONE of the conditions, not the question. This table names which
+// condition each type fails:
+//
+//   EL_ORD_OK       the key reaches the comparison intact and `<`/`>` on the
+//                   emitted type IS this type's own order;
+//   EL_ORD_PARTIAL  it reaches the comparison intact and the comparison is
+//                   PARTIAL — f64/f32, where a NaN compares false against every
+//                   value including itself;
+//   EL_ORD_WRAP     the EL's `as i64` normalization REINTERPRETS the value:
+//                   u64/usize at or above 2^63 arrive negative, so the order
+//                   inverts across that boundary. Total, and not this order;
+//   EL_ORD_TRUNC    the normalization DROPS BITS (u128/i128 outside the i64
+//                   range): the emitted key is not even injective, so two
+//                   different values can arrive equal;
+//   EL_ORD_UNNAMED  outside the lattice — nothing is known, so nothing is
+//                   licensed (DEFAULT-DENY, below).
+//
+// ⚠ FIDELITY IS NOT SIGNEDNESS. u8/u16/u32 widen into i64 without moving a
+// value, so the signed compare IS their unsigned order and they are OK. What
+// decides is whether the VALUE SURVIVES the widening — a fact about the WIDTH.
 //
 // Who asks, and what each one loses when the answer is wrong:
-//   • the sort's insertion loop (`rexpr_walk::sort_perm_frag`), whose row-index
-//     TIEBREAK is guarded by an EQUAL compare and is therefore reached only if
-//     the comparison is total;
-//   • the JOIN-ORDER LICENCE (`join_order` C1, ADR 0024 S4/S4k), which carries
-//     more than one nest solely because that tiebreak makes every nest yield the
-//     same sequence. Measured on an f64 key with a NaN: four carried orders,
-//     four DIFFERENT row sequences from the same data;
-//   • the recursive aggregate's value column (`rexpr_walk`), whose min/max
-//     fixpoint is a lattice and needs the order to be one.
+//   • the JOIN-ORDER LICENCE (`join_order` C1, ADR 0024 S4/S4k) — via
+//     `el_order_faithful` — which carries more than one nest solely because the
+//     sort's row-index TIEBREAK, guarded by an EQUAL compare and hence reached
+//     only under a total comparison, makes every nest yield the same sequence.
+//     Measured on an f64 key with a NaN: four carried orders, four DIFFERENT row
+//     sequences from the same data. Measured on a u64 key: one sequence, every
+//     nest agreeing, and 2^63 ranked below 0;
+//   • the EL's CALL SITE (`codegen::check_calls`) — via `el_int_fits_i64` and
+//     `el_order_why` — which refuses a result whose value cannot survive the i64
+//     normalization instead of reinterpreting it. That is a question about the
+//     VALUE, so it is asked once for `select`/`where`/`group by`/`order by`
+//     together rather than per clause.
 //
-// ⚠ DEFAULT-DENY, and that is the substance of the table rather than an omission
-// from it. The EL lattice is four classes today and this compiler's stated
-// direction is the whole Logos type system; a class added later must not inherit
-// a licence resting on a comparison nobody has checked. So an unnamed class is
-// NOT totally ordered here, and the caller records a refusal it can print.
-pub fn el_total_order(ty: i32) -> bool {
-    if ty == EL_TY_INT()  { return true; }   // the integer family: two's complement
-    if ty == EL_TY_STR()  { return true; }   // byte-lexicographic (sema's `str_cmp`)
-    if ty == EL_TY_BOOL() { return true; }   // false < true
-    return false;                            // FLT (NaN), and every unnamed class
+// ⚠ DEFAULT-DENY is the substance of the UNNAMED row, not an omission from it.
+// The lattice is four classes today and this compiler's stated direction is the
+// whole Logos type system; a type added later must not inherit a licence resting
+// on a comparison nobody has checked.
+//
+// ⚠ WHICH ROWS EACH CALLER CAN REACH, because a row nobody reaches is a claim
+// nobody can check, and stating it is what keeps this a FACT TABLE rather than a
+// pile of guards:
+//   • `el_order_faithful` has ONE caller, the join-order licence. On a query
+//     that BUILDS it can see OK, PARTIAL (an f64/f32 key) and UNNAMED (a key
+//     whose declared name is out of the lattice — `ElTypes`' flat field dict is
+//     keyed on the field NAME, so a same-named non-scalar field of another
+//     source is recorded there and arrives verbatim). WRAP/TRUNC reach the
+//     licence only from a DECLARED u64/u128 column or field, and such a query
+//     cannot build at all: the emitted key vector is the class representative
+//     (`Vec<i64>`) and will not accept the value. The one path that did produce
+//     an i64-normalized wide integer — a UDF call — is refused at its use site;
+//   • `el_order_why` is reached on all four non-OK rows: PARTIAL and UNNAMED
+//     from the licence, WRAP and TRUNC from the call site;
+//   • the recursive aggregate's value column is NOT a caller. It looks like one
+//     and it used to be one; every body-declared rel column has already passed
+//     `plan_walker::rel_col_ty_ok`, whose whitelist is i64/str/bool, so the
+//     question was already answered upstream — see the note there.
+pub fn EL_ORD_OK()      -> i32 { return 0i32; }
+pub fn EL_ORD_PARTIAL() -> i32 { return 1i32; }
+pub fn EL_ORD_WRAP()    -> i32 { return 2i32; }
+pub fn EL_ORD_TRUNC()   -> i32 { return 3i32; }
+pub fn EL_ORD_UNNAMED() -> i32 { return 4i32; }
+
+/// Does every value of this INTEGER type survive the EL's `as i64`
+/// normalization? THE width fact — shared by the order table below and by the
+/// call-site check that refuses a lossy integer result (`codegen::check_calls`),
+/// which is a question about the VALUE and therefore not only about sorting.
+/// False for a name outside the integer family: callers ask it about a name they
+/// have already classified as `EL_TY_INT`.
+pub fn el_int_fits_i64(name: str) -> bool {
+    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
+        || str_eq(name, "i8")  || str_eq(name, "isize")
+        || str_eq(name, "u32") || str_eq(name, "u16") || str_eq(name, "u8")
+        // Writ's packed widths: u56's maximum is 2^56-1, well inside i64.
+        || str_eq(name, "i56") || str_eq(name, "u56");
 }
 
-/// The same answer over a type NAME. An out-of-lattice name is NOT totally
-/// ordered: `el_ty_of_name`'s lenient INT default is right for a field the EL
-/// never reads and wrong for an ORDER, which is why this goes through the strict
-/// lookup instead.
-pub fn el_total_order_name(name: str) -> bool {
-    return el_total_order(el_class_lookup(name));
+/// THE table: how faithfully does the emitted comparison realize `name`'s own
+/// order? One of the `EL_ORD_*` codes.
+pub fn el_order_fidelity(name: str) -> i32 {
+    let c: i32 = el_class_lookup(name);
+    if c < 0i32          { return EL_ORD_UNNAMED(); }
+    if c == EL_TY_FLT()  { return EL_ORD_PARTIAL(); }
+    // `str` compares byte-lexicographically (sema lowers str relationals to
+    // `str_cmp`) and `bool` is false < true — both are the type's own order.
+    if c == EL_TY_STR()  { return EL_ORD_OK(); }
+    if c == EL_TY_BOOL() { return EL_ORD_OK(); }
+    if el_int_fits_i64(name) { return EL_ORD_OK(); }
+    if str_eq(name, "u64") || str_eq(name, "usize") { return EL_ORD_WRAP(); }
+    return EL_ORD_TRUNC();   // i128 / u128 — the rest of the integer class
 }
 
-/// THE answer to the NEIGHBOURING question, kept next to it because the two are
-/// confusable and have different answers: may this class serve as an IDENTITY —
-/// `==` plus a hash — so that grouping and deduplication put equal values in one
-/// bucket? Ranking (`el_total_order`) and identity are different properties; f64
-/// fails both but for different reasons, and a class added later could easily have
-/// one without the other. Default-DENY for the same reason as the order table: the
-/// group-by key's guard used to be a hand-written `== EL_TY_FLT()`, exhaustive only
-/// as long as the lattice has four classes.
+/// The licence predicate: the emitted comparison realizes THIS type's order, so
+/// a decision resting on "the sort determines the sequence" may be taken.
+pub fn el_order_faithful(name: str) -> bool {
+    return el_order_fidelity(name) == EL_ORD_OK();
+}
+
+/// The GROUND for a type whose emitted comparison does not realize its order —
+/// the failed condition in the vocabulary of the comparison that fails, so a
+/// caller's refusal can name a remedy instead of a verdict. Empty for a faithful
+/// type.
+pub fn el_order_why(name: str) -> str {
+    let f: i32 = el_order_fidelity(name);
+    if f == EL_ORD_PARTIAL() {
+        return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached. The remedy is a key whose comparison is total: an integer within the i64 range, a `str`, or a `bool`";
+    }
+    if f == EL_ORD_WRAP() {
+        return "a `u64`/`usize` value is normalized to i64 by the EL, and that cast REINTERPRETS rather than converts: every value at or above 2^63 comes back NEGATIVE, so the number the query goes on to use is not the number the type held — an `order by` over such a key ranks the largest values below zero with a comparison that is TOTAL and identical in every nest, so no plan decision downstream can detect it. The remedy is a value that fits i64 (u32 and narrower widen losslessly), or the i64 it was computed from";
+    }
+    if f == EL_ORD_TRUNC() {
+        return "a `u128`/`i128` value is normalized to i64 by the EL, which DROPS the high bits: the normalization is not injective, so two different values arrive EQUAL — an `order by` then ranks them by the row-index tiebreak and a `group by` puts them in one bucket. The remedy is a value that fits i64";
+    }
+    if f == EL_ORD_UNNAMED() {
+        return "this type is outside the EL scalar lattice (`el_class_lookup`), so nothing is known about the comparison the backend would emit for it — and a type is not assumed to be ordered until it is admitted there. The default is deny, so that a type added later cannot inherit a licence resting on a comparison nobody has checked. The remedy is a key of an admitted scalar type (an integer within the i64 range, `str`, `bool`)";
+    }
+    return "";
+}
+
+/// THE answer to the NEIGHBOURING question, kept next to the order table because
+/// the two are confusable and have different answers: may this class serve as an
+/// IDENTITY — `==` plus a hash — so that grouping and deduplication put equal
+/// values in one bucket? Ranking and identity are different properties; f64 fails
+/// both but for different reasons, and a class added later could easily have one
+/// without the other.
+///
+/// ⚠ THIS ONE IS KEYED ON THE CLASS AND THAT IS SOUND HERE, which is exactly the
+/// distinction the order table above exists to make. The EL's `as i64`
+/// normalization is a BIJECTION on u64/usize, so reinterpretation moves the order
+/// and leaves identity alone: two values are equal as i64 iff they were equal as
+/// u64. It is NOT injective on u128/i128, so identity does fail there — a fact
+/// this class tag cannot express either, and one this table therefore does not
+/// enforce. It does not have to today: the only path that produced an
+/// i64-normalized wide integer was a UDF call, and `codegen::check_calls` now
+/// refuses one (`el_int_fits_i64`) before any consumer sees it.
+///
+/// Default-DENY for the same reason as the order table: the group-by key's guard
+/// used to be a hand-written `== EL_TY_FLT()`, exhaustive only as long as the
+/// lattice has four classes.
 pub fn el_eq_hash(ty: i32) -> bool {
     if ty == EL_TY_INT()  { return true; }
     if ty == EL_TY_STR()  { return true; }
     if ty == EL_TY_BOOL() { return true; }
     return false;   // FLT: NaN != NaN, so equality is not even reflexive
-}
-
-/// The GROUND for a class that is not totally ordered — the failed antecedent in
-/// the vocabulary of the comparison that fails, so a caller's refusal can name a
-/// remedy instead of a verdict. Empty for a class that IS totally ordered.
-pub fn el_order_partial_why(ty: i32) -> str {
-    if el_total_order(ty) { return ""; }
-    if ty == EL_TY_FLT() {
-        return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached";
-    }
-    return "this type is not admitted as totally ordered by the EL lattice (`el_total_order`), and a type is not assumed to be ordered until it is admitted there — the default is deny, so that a class added later cannot inherit a licence that rests on a comparison nobody has checked";
 }
 
 // ── The GENERIC aggregate rule table (ADR 0012-queue2 §6) ──────────────────

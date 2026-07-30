@@ -1054,22 +1054,25 @@ set_tests_properties(logos_09_join_order_beyond_pair PROPERTIES
 )
 
 # KEY-ORDER LICENCE gate (ADR 0024 S4k, C1): carrying more than one nest is licensed
-# by the `order by` sort being a TOTAL order, which is a claim about the key's TYPE
-# and was asserted unconditionally. An f64 key is PartialOrd — on a NaN neither
-# disjunct of the sort's comparison holds, the row-index tiebreak never engages, and
-# two carried nests returned two different sequences from the same data. The fixture
-# asserts the rows; this asserts the DECISION: the refusal names the failed
-# antecedent and its remedy, the artifact carries one nest, the ground travels into
-# the plan's own `why` (so `explain()` can state it), and the i64/str-keyed queries
-# over the same sources keep all four orders — `str` is total, so the narrowing is
-# about the ORDER and not about non-integer keys.
+# by the `order by` sort determining the sequence, which is a claim about the key's
+# TYPE and was asserted unconditionally, then narrowed to "is the CLASS totally
+# ordered" — the wrong axis. An f64 key is PartialOrd, so the tiebreak never engages
+# and two nests returned two sequences; a u64 key's emitted comparison is TOTAL and
+# is the signed reinterpretation, so it passed the totality test while ranking 2^63
+# below 0. The question is whether the EMITTED comparison realizes the order the
+# query NAMED. The fixture asserts the rows; this asserts the DECISION: each refusal
+# names the failed condition and its remedy, the artifact carries one nest, the
+# ground travels into the plan's own `why` (so `explain()` can state it), and the
+# i64/str/u32-keyed queries over the same sources keep all four orders — `str` is
+# faithfully ordered and `u32` widens losslessly, so the narrowing is about FIDELITY
+# and not about non-integer or unsigned keys.
 add_test(
-    NAME logos_09_join_order_key_total
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/join_order_key_total_gate.sh
+    NAME logos_09_join_order_key_fidelity
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/join_order_key_fidelity_gate.sh
             $<TARGET_FILE:logosc>
-            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_order_key_total_e2e.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_order_key_fidelity_e2e.logos
 )
-set_tests_properties(logos_09_join_order_key_total PROPERTIES
+set_tests_properties(logos_09_join_order_key_fidelity PROPERTIES
     TIMEOUT 60
     LABELS  "logos;pass;suite_semantic_core"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"

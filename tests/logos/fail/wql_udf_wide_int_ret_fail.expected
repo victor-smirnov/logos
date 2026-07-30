@@ -1,0 +1,1 @@
+returns `u64`, whose values do not survive the EL's i64 normalization

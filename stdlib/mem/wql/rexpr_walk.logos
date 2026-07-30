@@ -1097,14 +1097,22 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 // plan needs that and why it changes no existing permutation.
 //
 // ⚠ THAT CONDITION IS NOT SPELLED HERE, AND IT IS NOT ASSUMED EITHER. The tiebreak
-// sits behind an EQUAL compare, so for a key class whose comparison is partial
-// (f64: a NaN is not `>`, not `<` and not `==`) it is never reached and the
-// collection order becomes visible in the answer. `el::el_total_order` is the one
-// answer to which classes qualify, and the LICENCE that depends on it — carrying
-// more than one nest — is refused at the decision (`join_order` C1) with its ground
-// on the plan trace. This fragment is deliberately NOT the enforcement point: a
-// single-nest sort over an f64 key is a capability, its comparison is the language's
-// `>` on f64, and this codegen does not get to redefine it.
+// sits behind an EQUAL compare, so for a key whose comparison is partial (f64: a
+// NaN is not `>`, not `<` and not `==`) it is never reached and the collection
+// order becomes visible in the answer. `el::el_order_faithful` is the one answer to
+// which TYPES qualify, and the LICENCE that depends on it — carrying more than one
+// nest — is refused at the decision (`join_order` C1) with its ground on the plan
+// trace. This fragment is deliberately NOT the enforcement point: a single-nest
+// sort over an f64 key is a capability, its comparison is the language's `>` on
+// f64, and this codegen does not get to redefine it.
+//
+// ⚠ AND THIS FRAGMENT IS WHY THE ANSWER IS KEYED ON THE TYPE NAME, NOT THE CLASS.
+// `key_ty` here is the class's REPRESENTATIVE (i64/str/bool/f64), so a key of any
+// other integer width is compared as the i64 it was normalized to. For widths that
+// survive that normalization the two orders coincide; for the ones that do not,
+// the value is refused where it is normalized (`codegen::check_calls`) rather than
+// sorted by its reinterpretation — this loop compares whatever reaches it, and it
+// is not the place that decides what may.
 //
 // The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
 // cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
@@ -2866,15 +2874,20 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     }
     let mut key_body: String = String::new();
     let mut key_ty: str = "i64";
-    // ⚠ THE CLASS, not only its representative name: the sort key's EL class is
-    // half of the join-order licence (C1 — a sort licenses a second nest only if
-    // the key's comparison is TOTAL), so it is kept and handed to the decision
-    // rather than collapsed to a type name here.
-    let mut key_cls: i32 = EL_TY_INT();
+    // ⚠ THE DECLARED TYPE NAME, not the class: the sort key's Logos type is half of
+    // the join-order licence (C1 — a sort licenses a second nest only if the
+    // comparison the backend emits for the key REALIZES the order the query named),
+    // and the four-value class cannot answer that. `u64` and `i64` are one class
+    // and their orders differ above 2^63, so the class-keyed antecedent granted a
+    // u64 key a licence over its own signed reinterpretation. The name is kept
+    // alongside `key_ty` (which is what the emitter PRINTS — still the class's
+    // representative, because the emitted key vector is the i64/str/bool/f64
+    // baseline) and handed to the decision.
+    let mut key_tn: str = "i64";
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        key_cls = infer_ty(key_opt, &ty);
-        key_ty = el_class_repr(key_cls);
+        key_tn = infer_ty_name(key_opt, &ty);
+        key_ty = el_class_repr(infer_ty(key_opt, &ty));
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
     }
     let has_sort: bool = mods.has_sort;
@@ -2979,7 +2992,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // is emitted as a string literal in the prepared plan (`prp.why` below), so the
     // one composed ground needs a buffer that lives until `emit_query_fn` has run.
     let mut jo_whyb: String = String::new();
-    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_cls, &ty, prm, h,
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_tn, &ty, prm, h,
                                            &mut szs, &mut ats, &mut jo_whyb);
 
     // The measurement `prepare` needs: the declared reporters the size expressions
@@ -4424,23 +4437,36 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let mut val_body: String = String::new();
     if is_agg {
         // Recursive-aggregate: the value column carries an ORDER (the lattice); a
-        // single-key group (slice-1). TWO requirements, and they are two because
-        // they have different grounds — reported separately so the remedy is the
-        // one that applies:
-        //   (a) the type must be TOTALLY ORDERED — a min/max fixpoint over a
-        //       partial comparison is not a lattice at all. This is the SAME
-        //       question the join-order licence asks about a sort key, so it is the
-        //       same answer: `el::el_total_order_name` (design §7 critique #6, the
-        //       f64 NaN hazard). Two answers to it in one file was the defect
-        //       underneath ADR 0024's carried-nest bug.
-        //   (b) and it must be i64 — `str` IS totally ordered and still out of
-        //       slice-1, because the emitted lattice join is the i64 baseline.
+        // single-key group (slice-1).
+        //
+        // ⚠ THE ORDER REQUIREMENT IS NOT CHECKED HERE ANY MORE, AND THAT IS A
+        // DELETION, NOT AN OMISSION. This site used to ask `el_total_order_name`
+        // about the value column's type, described as "the same question the
+        // join-order licence asks". It is the same question — and this caller
+        // CANNOT ASK IT: a recursive aggregate lives in a BODY-DECLARED rel, and
+        // every body-declared rel column has already been through
+        // `plan_walker::rel_col_ty_ok`, whose whitelist is exactly i64 / str /
+        // bool. So `vcty` is one of three names here, all of them faithfully
+        // ordered, and the guard could not fire on any input. A guard that cannot
+        // fire while its comment says it protects you is worse than no guard: it is
+        // a claim nobody can check. The live decision about this column's order is
+        // `rel_col_ty_ok` (which refuses f64 for the neighbouring Eq reason and
+        // everything else by whitelist, both with named diagnostics and both
+        // pinned by fixtures) plus the i64 requirement below.
+        //
+        // ⚠ IF THAT WHITELIST EVER WIDENS — a u64 or f64 rel column — THE ORDER
+        // QUESTION COMES BACK HERE, because a min/max fixpoint converges to the
+        // extremum of whatever order the emitted comparison realizes: over a
+        // PARTIAL comparison it has no least upper bound to converge to, and over a
+        // u64 reinterpreted as i64 it converges to the wrong end. The answer to ask
+        // then is `el::el_order_faithful` — the same one the join-order licence
+        // asks, still in one place.
+        //
+        // What remains is the requirement this seam does own: the value column must
+        // be i64. `str` is faithfully ordered and still out of slice-1, because the
+        // emitted lattice join is the i64 baseline.
         let voff: i64 = prm.rel_coff[ri];
         let vcty: str = prm.relc_ty[voff + 1i64];
-        if !el_total_order_name(vcty) {
-            error("wql!: a recursive min/max aggregate value column must be TOTALLY ORDERED — the min/max fixpoint is a lattice join, and over a partial comparison it has no least upper bound to converge to");
-            return false;
-        }
         if !str_eq(vcty, "i64") {
             error("wql!: a recursive min/max aggregate value column must be i64 (the ordered lattice; a str column is totally ordered but the emitted lattice join is the i64 baseline — out of slice-1)");
             return false;

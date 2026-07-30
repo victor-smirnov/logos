@@ -1,0 +1,45 @@
+// WQL — A REL COLUMN'S TYPE WHITELIST IS WHAT DECIDES ITS ORDER, AND IT IS PINNED.
+//
+// A recursive min/max is a LATTICE JOIN: the fixpoint converges to the extremum of
+// whatever order the emitted comparison realizes. `rexpr_walk` used to re-ask that
+// question at the aggregate seam (`el_total_order_name` on the value column) and
+// COULD NOT GET AN INTERESTING ANSWER: every body-declared rel column has already
+// been through `plan_walker::rel_col_ty_ok`, whose whitelist is i64 / str / bool.
+// That guard was deleted rather than left to look like protection it never gave.
+//
+// This fixture is what makes the deletion safe. It pins the whitelist on the case
+// that motivates the order question — a `u64` value column, where the emitted
+// comparison IS total (so "is it totally ordered" would have said yes) and is the
+// SIGNED reinterpretation, so a `min` fixpoint converges to the largest u64
+// present. If the whitelist ever widens, this test changes, and whoever changes it
+// is the person who has to re-ask `el::el_order_faithful` at the aggregate seam.
+//
+// The f64 half of the same whitelist is pinned by wql_rel_float_col_fail (refused
+// for the NEIGHBOURING reason — set semantics need Eq — which is why the two
+// diagnostics are separate).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+
+pub deem bad(src: &[Node], edges: &[Edge]) {
+    rel dist(node: i64, lo: u64) {
+        from src s select (s.id, 0);
+        from dist x join edges e on e.src == x.node
+            group by e.dst
+            aggregate lo = min(x.lo + e.w)
+            select (e.dst, lo);
+    }
+    from dist r select (r.node, r.lo) order by r.node
+}
+
+fn main() -> i32 {
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64, w: 1i64 } ];
+    let out: Vec<(i64, u64)> = bad(&src[..], &edges[..]);
+    return out.len() as i32;
+}

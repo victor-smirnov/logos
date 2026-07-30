@@ -1,0 +1,42 @@
+// WQL — A VALUE THAT CANNOT SURVIVE THE EL'S i64 NORMALIZATION IS REFUSED, NOT
+// REINTERPRETED.
+//
+// The EL's scalar baseline is i64, so a UDF returning a narrower integer is
+// widened at the emit site with `((f(x)) as i64)`. For u64/usize that cast
+// REINTERPRETS and for u128/i128 it TRUNCATES — the number the query goes on to
+// use is not the number the function returned. That was written down as
+// "documented MVP semantics" in a doc comment and was a silently wrong row.
+//
+// ⚠ WHAT IT MEASURED. `order by ukey(a.v)` with `fn ukey(i64) -> u64` over the
+// values 1, 2^64-1, 5, 2^63 emitted `__ks.push(((ukey(a.v)) as i64))` and returned
+// them in the order 2^63, 2^64-1, 1, 5. The comparison is TOTAL — the axis the
+// join-order licence used to test — and every carried nest agreed on it, so no
+// plan decision could have detected it and the trace said nothing. The control in
+// the same run, an identical query with a `u32` return, answered correctly: the
+// axis is whether the VALUE SURVIVES the widening, not signedness.
+//
+// ⚠ REFUSED AT THE CALL SITE (`codegen::check_calls`) AND NOT AT THE SORT. The
+// normalization is not the sort's: the same cast feeds `select`, `where`,
+// `group by` and an aggregate argument, and a per-clause check would have to be
+// written four more times and would still leave the fifth. One use-site refusal
+// closes all of them — including the `select` case here, which is a wrong ROW and
+// not merely a wrong order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct A { pub k: i64, pub v: i64 }
+
+pub fn ukey(v: i64) -> u64 { return v as u64; }
+
+pub deem qu(as_: &[A]) {
+    from as_ a
+    select ukey(a.v) }
+
+fn main() -> i32 {
+    let as_: [A; 1] = [ A { k: 1i64, v: -1i64 } ];
+    let g: Vec<i64> = qu(&as_[..]).unwrap();
+    return g.len() as i32;
+}

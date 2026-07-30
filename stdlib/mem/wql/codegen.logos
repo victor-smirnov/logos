@@ -564,8 +564,11 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
 // Two return-normalization casts keep the emitted expression in the EL
 // lattice baseline (the surrounding expression / result Vec is typed
 // i64 / f64):
-//   • an INT-family return NARROWER than i64 (i32/u32/…): `((f(x)) as i64)`
-//     (u64/u128/i128 values beyond i64 TRUNCATE — documented MVP semantics);
+//   • an INT-family return NARROWER than i64 (i32/u32/…): `((f(x)) as i64)`.
+//     ⚠ Only widths that SURVIVE that cast reach here: `check_calls` refuses a
+//     u64/usize/u128/i128 return at the use site (`el_int_fits_i64`), so this
+//     cast is always value-preserving and no longer has "documented MVP
+//     truncation" hiding behind it;
 //   • an `f32` return:                                    `((f(x)) as f64)`.
 // str / bool / String / f64 / i64 returns emit bare. Unknown names, arity
 // mismatches, and out-of-lattice returns emit the safe `0i64` placeholder —
@@ -690,6 +693,30 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m3.push_str(t.udf_rets[ui]);
                     m3.push_str("` — an EL-callable fn must return an integer, f64/f32, bool, str, or String value");
                     error(string_as_str(&m3));
+                    return false;
+                }
+                // THE WIDTH, which the class does not carry. An INT-family return
+                // is normalized to the lattice baseline with `as i64` at the emit
+                // site (`emit_udf_call`), and for u64/usize/u128/i128 that cast
+                // REINTERPRETS or TRUNCATES: the number the fn returned is not the
+                // number the query goes on to use. This used to be a sentence in a
+                // doc comment ("documented MVP semantics") and a silently wrong
+                // row — measured as an `order by` that ranked 2^63 below 0.
+                //
+                // ⚠ REFUSED HERE AND NOT AT THE SORT, because the normalization is
+                // not the sort's: the same cast feeds `select`, `where`, `group by`
+                // and an aggregate argument, and each of them would need its own
+                // copy of this check. One use-site refusal closes all of them.
+                if t.udf_ret[ui] == EL_TY_INT() && !el_int_fits_i64(t.udf_rets[ui]) {
+                    let mut m5: String = String::new();
+                    m5.push_str(ctx);
+                    m5.push_str(": user function '");
+                    m5.push_str(name);
+                    m5.push_str("' returns `");
+                    m5.push_str(t.udf_rets[ui]);
+                    m5.push_str("`, whose values do not survive the EL's i64 normalization — ");
+                    m5.push_str(el_order_why(t.udf_rets[ui]));
+                    error(string_as_str(&m5));
                     return false;
                 }
             } else {
