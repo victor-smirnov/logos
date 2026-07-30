@@ -1,0 +1,220 @@
+// logos.std.wql.join_cost — THE COST FUNCTION, IN ONE COPY (ADR 0024 S4k).
+//
+// Up to S4j the join-order axis had two candidates and compared them by ONE
+// number each: `step_n > base_n`. With three or more sources that is no longer a
+// decision — it is a comparison of two members of a space, on a fact that does
+// not distinguish the rest of it. What replaces it has to be a COST, stated once
+// and readable, and evaluated over the whole admissible set.
+//
+// ⚠ IT LIVES IN STDLIB AND THE GENERATED CODE CALLS IT. The comparison cannot be
+// made where the query compiles — the sizes are RUN-TIME numbers (a declared
+// reporter's answer at point (1), a materialized rel's `len()` at point (2)) — so
+// the cost function must exist as code the plan can run. The alternative was to
+// EMIT the arithmetic per query, which is the same rule spelled once per query
+// and therefore N chances to diverge from the account the trace gives. Instead
+// each query's plan carries a TABLE (`JCTable`) and this module's `jc_order_cost`
+// interprets it: one function, one copy, and `agrees`, `margin`, the deferred
+// binding in `run` and the prepared decision all go through it.
+//
+// ── THE MODEL ────────────────────────────────────────────────────────────────
+// A left-deep nest over floatable sources o_0 … o_{k-1} charges ROW EVENTS, and
+// the weights are the whole model:
+//
+//   SCAN   (the base, read once, sequentially)          W_SCAN   × n(o_0)
+//   BUILD  (an indexed step's source, inserted once)    W_BUILD  × n(o_j)
+//   PROBE  (one index lookup per row reaching the step) W_PROBE  × R_{j-1}
+//   RESCAN (a LOOP step, re-read per row reaching it)   W_RESCAN × n(o_j) × R_{j-1}
+//
+// with R_{-1} = n(o_0) and R_j = R_{j-1} × n(o_j) / EQ_DIV, floored at 1.
+//
+// ⚠ WHY BUILD COSTS MORE THAN A SCAN OR A PROBE. An index insert writes, may grow
+// the table, and touches an allocator; a probe and a sequential row read do not.
+// That ratio is also what makes the model reproduce the pair rule it generalizes:
+// for k = 2 the two costs are 3n_0 + 4n_1 and 3n_1 + 4n_0, so the query's order
+// wins exactly when n_1 < n_0 — "index the SMALLER side, walk the larger", which
+// is `step_n > base_n` and nothing else. Ties keep the query's order because
+// `jc_order_pick` compares with a strict `<`. The pair case is therefore the
+// DEGENERATE case of this function, not a branch inside it, and the 16 admitted
+// pair queries come out with the answer they came out with before.
+//
+// ⚠ EQ_DIV IS AN ASSUMPTION, NAMED. No fact in this compiler reports a join's
+// SELECTIVITY — not the access plan, not the declared sizes, not the cardinality
+// ordinal. So an equi-step's output is estimated as one tenth of the cross
+// product, the classic no-statistics default for an equality predicate. It is the
+// one number here that data could contradict, and it is written as a function so
+// that the day a source declares a distinct-value count there is exactly one
+// place to consult it from.
+//
+// ⚠ WHAT IS NOT PRICED, and why that is a bias and not an omission: PINNED steps
+// (an anti join, a traversal) are charged nothing. A traversal's source is a field
+// path whose length no fact reports, and an anti's filtered fraction is unknown,
+// so there is no number to charge. The derivation keeps every pinned step at the
+// SAME depth in the bound stream in every candidate (`join_order`, constraint 2),
+// so the omission does not favour one candidate's shape over another's — but the
+// intermediate cardinality reaching that depth differs between candidates, so it
+// is not a proof of neutrality either. Said out loud rather than left implicit.
+//
+// ⚠ EVERY PRODUCT IS CLAMPED. `R` compounds, and a cost that overflows i64 would
+// not be a bad plan, it would be an arbitrary one — a negative number comparing
+// smaller than every real cost. `jc_cap` saturates at a billion row events, which
+// is well past any input where the ORDER still matters and well short of the
+// point where a product of two capped operands can leave i64.
+package logos.std.wql.join_cost;
+
+// ── The bounds, and what a query that exceeds them does ──────────────────────
+// `JC_MAX_FL` — the floatable sources one plan can hold facts for. Four, because
+// the fact table is four named fields on the plan and the permutation search is
+// 4! = 24 orders at compile time; the longest sorted join chain in the corpus
+// binds three. A chain with more floatable sources is NOT reordered and the trace
+// says so — the fallback is the query's own order, never a truncated search.
+//
+// `JC_MAX_CAND` — the candidate orders an ARTIFACT carries, which is the number
+// of loop nests emitted for one join body. Four, because a three-source linear
+// chain has exactly four admissible orders, so the bound covers every shape the
+// corpus contains without ever reaching for a fifth nest. When the derived
+// admissible set is LARGER than this, the plan declines the reorder entirely and
+// names the count: carrying "the first four" would mean choosing three challengers
+// by enumeration order, which is not a decision, and dropping the rest silently is
+// the failure this bound exists to make visible.
+pub fn JC_MAX_FL() -> i64   { return 4i64; }
+pub fn JC_MAX_CAND() -> i64 { return 4i64; }
+
+// ── The roles a position can hold ────────────────────────────────────────────
+// One per shape the emitted nest actually has, and no more: the outermost loop,
+// an indexed step (hash or tree — both build once and probe), and a rescanned
+// step. The join STRATEGY is a finer distinction (`join_sel`), and the cost model
+// does not use it: what a cost cares about is how many times a source is read.
+pub fn JC_SCAN() -> i64   { return 0i64; }
+pub fn JC_INDEX() -> i64  { return 1i64; }
+pub fn JC_RESCAN() -> i64 { return 2i64; }
+
+pub fn JC_W_SCAN() -> i64   { return 2i64; }
+pub fn JC_W_BUILD() -> i64  { return 4i64; }
+pub fn JC_W_PROBE() -> i64  { return 1i64; }
+pub fn JC_W_RESCAN() -> i64 { return 2i64; }
+pub fn JC_EQ_DIV() -> i64   { return 10i64; }
+pub fn JC_CAP() -> i64      { return 1000000000i64; }
+
+/// One prose statement of the model, for the trace and for `explain()`. The
+/// weights are read from the same functions the arithmetic reads, so a reader who
+/// is told the ratio is told the ratio the code used.
+pub fn jc_model_words() -> str {
+    return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read; an equi-step is assumed to emit one tenth of the cross product (no fact reports selectivity); pinned steps are unpriced";
+}
+
+// ── The table a plan carries ─────────────────────────────────────────────────
+// `slot[c*JC_MAX_FL + j]` — for candidate `c`, position `j`, WHICH of the plan's
+// four size facts the source at that position was measured into. The index is the
+// source's QUERY position among the floatable sources, so a candidate is exactly a
+// permutation written down.
+//
+// `role[…]` — SCAN / INDEX / RESCAN, decided where the candidate was derived
+// (the strategy the moved step's equi-key admits is a decision of `join_sel`, not
+// of this module) and stored so the cost function reads a fact instead of
+// re-deriving one.
+//
+// ⚠ THE TABLE IS THE JUSTIFICATION, not a cache of it. A caller holding a plan can
+// price EVERY candidate from the plan's own facts (`jc_order_cost` on any index),
+// which is what makes "on what ground did each loser lose" a question the program
+// can answer rather than a sentence the compiler once printed.
+pub struct JCTable {
+    pub ncand: i64,
+    pub nfl:   i64,
+    pub slot:  [i64; 16],
+    pub role:  [i64; 16],
+}
+
+/// The table of a plan with no choice in it: nothing was considered, so nothing
+/// can be priced. `ncand == 0` is distinct from `ncand == 1` — the first says the
+/// axis was never entered, the second that one order survived the derivation.
+pub fn jc_table_none() -> JCTable {
+    return JCTable { ncand: 0i64, nfl: 0i64, slot: [0i64; 16], role: [0i64; 16] };
+}
+
+pub fn jc_cap(x: i64) -> i64 {
+    if x < 0i64 { return 0i64; }
+    if x > JC_CAP() { return JC_CAP(); }
+    return x;
+}
+
+/// The rows a step emits, per the model's one assumption. Floored at 1: an
+/// estimate of zero would make every later position free and turn a guess into a
+/// certainty the plan has no right to.
+pub fn jc_rows(r: i64, n: i64) -> i64 {
+    let p: i64 = (jc_cap(r) * jc_cap(n)) / JC_EQ_DIV();
+    if p < 1i64 { return 1i64; }
+    return jc_cap(p);
+}
+
+/// The k-th size fact. Four positional arguments rather than an array, because
+/// the caller is generated code holding four named plan fields and a plan is a
+/// value a person reads — `base_n`/`step_n` are the pair era's names for the first
+/// two and they still mean exactly that.
+pub fn jc_size_at(k: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+    if k == 0i64 { return n0; }
+    if k == 1i64 { return n1; }
+    if k == 2i64 { return n2; }
+    return n3;
+}
+
+/// THE COST FUNCTION. Everything above is either a weight it reads or a bound on
+/// the table it walks.
+pub fn jc_order_cost(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+    if ix < 0i64 || ix >= t.ncand { return -1i64; }
+    let b: i64 = ix * JC_MAX_FL();
+    let mut c: i64 = 0i64;
+    let mut r: i64 = 1i64;
+    let mut j: i64 = 0i64;
+    while j < t.nfl {
+        let n: i64 = jc_cap(jc_size_at(t.slot[b + j], n0, n1, n2, n3));
+        let role: i64 = t.role[b + j];
+        if role == JC_SCAN() {
+            c = c + JC_W_SCAN() * n;
+            r = n;
+        } else if role == JC_INDEX() {
+            c = c + JC_W_BUILD() * n + JC_W_PROBE() * r;
+            r = jc_rows(r, n);
+        } else {
+            c = c + JC_W_RESCAN() * jc_cap(n * r);
+            r = jc_rows(r, n);
+        }
+        j = j + 1i64;
+    }
+    return c;
+}
+
+/// The winner: the cheapest candidate, ties to the LOWEST index — which is the
+/// query's own order, because the derivation enumerates it first. A tie must not
+/// move rows around for nothing.
+pub fn jc_order_pick(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+    if t.ncand < 2i64 { return 0i64; }
+    let mut best: i64 = 0i64;
+    let mut bc: i64 = jc_order_cost(t, 0i64, n0, n1, n2, n3);
+    let mut i: i64 = 1i64;
+    while i < t.ncand {
+        let c: i64 = jc_order_cost(t, i, n0, n1, n2, n3);
+        if c < bc { bc = c; best = i; }
+        i = i + 1i64;
+    }
+    return best;
+}
+
+/// THE DISTANCE TO THE FLIP, in cost units: the runner-up's cost minus the
+/// winner's. For two candidates over two sources that is |n_0 − n_1| exactly, so
+/// the number a pair plan reported before this module existed is the number it
+/// reports now.
+pub fn jc_margin(t: &JCTable, win: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+    if t.ncand < 2i64 { return 0i64; }
+    let w: i64 = jc_order_cost(t, win, n0, n1, n2, n3);
+    let mut up: i64 = -1i64;
+    let mut i: i64 = 0i64;
+    while i < t.ncand {
+        if i != win {
+            let c: i64 = jc_order_cost(t, i, n0, n1, n2, n3);
+            if up < 0i64 || c < up { up = c; }
+        }
+        i = i + 1i64;
+    }
+    if up < 0i64 { return 0i64; }
+    return up - w;
+}

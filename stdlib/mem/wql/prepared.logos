@@ -77,6 +77,32 @@
 // there is nothing stale about it to check and nothing to be close to flipping.
 // `settled()` is what says so out loud — a caller holding a plan must not believe
 // the deferred choice was fixed when they prepared it.
+//
+// ── THE DECISION IS OVER A SET (ADR 0024 S4k) ────────────────────────────────
+// Everything above was written when the axis was a PAIR, and it shows in one word:
+// `swap`. A boolean is the right shape for "one of two" and the wrong shape for
+// "one of the orders a derivation admitted", which is what a chain of three or more
+// sources actually offers. So the plan reports:
+//
+//   `order_ix`     WHICH order won — 0 is always the query's own;
+//   `tbl`          the CANDIDATE TABLE it decided over (`join_cost::JCTable`);
+//   `considered()` how many orders are carried, hence how many nests exist;
+//   `cost_of(ix)`  what any one of them would cost ON THIS PLAN'S OWN FACTS.
+//
+// `swap` survives as `order_ix == 1`, which for a two-candidate plan is exactly
+// what it always meant.
+//
+// ⚠ `cost_of` IS THE PART THAT CHANGES WHAT A PLAN IS. Before it, "why this order"
+// was a sentence the compiler printed once, at a moment nobody was watching. Now
+// the losers' grounds are computable from the object: a caller can price every
+// candidate and see the margin it lost by. That is the DL-reasoner bar applied to a
+// cost decision — the minimal set of facts entailing the conclusion, held by the
+// conclusion.
+//
+// ⚠ AND THE COST FUNCTION ITSELF IS NOT HERE AND NOT IN THE EMITTED CODE. It is one
+// stdlib function (`logos.std.wql.join_cost`) that the generated plan calls. Emitting
+// the arithmetic per query would be the same rule spelled once per query — N chances
+// to drift from the account the trace gives, in the place where drift is silent.
 package logos.std.wql.prepared;
 
 use logos.lang.str;      // str_byte_at
@@ -92,51 +118,71 @@ use logos.mem.string;    // String
 // nothing measurable, `agrees` is then unconditionally true, and a caller need
 // not know which queries have a choice to write code that re-checks them all.
 //
-// `deferred` — the plan holds the decision's RULE but not its answer: the two
-// numbers only exist inside `run` (point 2), so `prepare` records that the order
-// is chosen per call and `run` chooses it. `dynamic` and `deferred` are mutually
+// `deferred` — the plan holds the decision's RULE but not its answer: the numbers
+// only exist inside `run` (point 2), so `prepare` records that the order is
+// chosen per call and `run` chooses it. `dynamic` and `deferred` are mutually
 // exclusive by construction — one decision, taken at one of the two points.
 //
-// `base_sz` / `step_sz` are the two size EXPRESSIONS. For `dynamic` they are
-// evaluable in `prepare`'s scope after `measure`; for `deferred` they are
-// evaluable in `run`'s, after the prelude. The comparison over them is made in
-// ONE place per point — the emitted `prepare`, or the one deferred binding above
-// the nest — so the plan and the branch cannot disagree about it.
+// `nfl` / `sz0`..`sz3` are the size EXPRESSIONS, one per FLOATABLE source in QUERY
+// order (ADR 0024 S4k — the axis stopped being a pair). For `dynamic` they are
+// evaluable in `prepare`'s scope after `measure`; for `deferred` they are evaluable
+// in `run`'s, after the prelude. NOTHING here compares them: the comparison is
+// `logos.std.wql.join_cost::jc_order_pick` over `tbl`, which is one function in
+// stdlib rather than arithmetic spelled once per query — so the plan and the branch
+// cannot disagree about it and neither can two queries.
+//
+// `tbl` — the CANDIDATE TABLE as a `JCTable` struct-literal text: every order the
+// derivation admitted, as a permutation of the size facts plus the cost role each
+// position holds. It goes onto the plan because it IS the justification: a caller
+// can price any candidate from the plan's own facts, which is what makes "on what
+// ground did each loser lose" a question the program can answer.
+//
+// `ncand` — how many orders, hence how many nests the body carries.
 pub struct Prepared {
     pub on:       bool,
     pub dynamic:  bool,
     pub deferred: bool,
-    pub base_sz:  str,
-    pub step_sz:  str,
+    pub nfl:      i64,
+    pub ncand:    i64,
+    pub sz0:      str,
+    pub sz1:      str,
+    pub sz2:      str,
+    pub sz3:      str,
     pub measure:  str,
+    pub tbl:      str,
     pub why:      str,
 }
 
 pub fn prep_off() -> Prepared {
-    return Prepared { on: false, dynamic: false, deferred: false, base_sz: "",
-                      step_sz: "", measure: "", why: "" };
+    return Prepared { on: false, dynamic: false, deferred: false, nfl: 0i64, ncand: 0i64,
+                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: "" };
 }
 
 /// A prepared surface with no run-time decision in it — the plan is whatever
 /// the compiler already fixed, and `why` says what fixed it.
 pub fn prep_fixed(why: str) -> Prepared {
-    return Prepared { on: true, dynamic: false, deferred: false, base_sz: "",
-                      step_sz: "", measure: "", why: why };
+    return Prepared { on: true, dynamic: false, deferred: false, nfl: 0i64, ncand: 1i64,
+                      sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: why };
 }
 
-pub fn prep_dyn(base_sz: str, step_sz: str, measure: str, why: str) -> Prepared {
-    return Prepared { on: true, dynamic: true, deferred: false, base_sz: base_sz,
-                      step_sz: step_sz, measure: measure, why: why };
+pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
+                measure: str, tbl: str, why: str) -> Prepared {
+    return Prepared { on: true, dynamic: true, deferred: false, nfl: nfl, ncand: ncand,
+                      sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
+                      measure: measure, tbl: tbl, why: why };
 }
 
 /// The DEFERRED half (ADR 0024 S4j): `prepare` measures nothing and decides
-/// nothing, and `run` decides once per call from two lengths that cost nothing
-/// where it stands. No `measure` — a deferred plan's numbers are not reporter
-/// calls, they are the lengths of bindings the prelude already made, which is
-/// precisely what makes the deferral affordable.
-pub fn prep_deferred(base_sz: str, step_sz: str, why: str) -> Prepared {
-    return Prepared { on: true, dynamic: false, deferred: true, base_sz: base_sz,
-                      step_sz: step_sz, measure: "", why: why };
+/// nothing, and `run` decides once per call from lengths that cost nothing where it
+/// stands. No `measure` — a deferred plan's numbers are not reporter calls, they are
+/// the lengths of bindings the prelude already made, which is precisely what makes
+/// the deferral affordable. The TABLE is still carried: `run` needs it to price the
+/// candidates, and it is the only account `explain()` can give of what will be.
+pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
+                     tbl: str, why: str) -> Prepared {
+    return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
+                      sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
+                      measure: "", tbl: tbl, why: why };
 }
 
 /// The plan TYPE's name: the query's name in CamelCase, plus `Plan`.

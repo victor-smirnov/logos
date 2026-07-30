@@ -1028,6 +1028,31 @@ set_tests_properties(logos_09_deferred_plan_second_point PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
+# DERIVED SET, not a transposition of the first pair. What the fixture cannot see is
+# everything about the orders that did NOT run: which permutations were considered,
+# which constraint each loser failed, and that the plan declined WHOLE rather than
+# searched a set chosen by enumeration order when the artifact bound was reached.
+#
+# ⚠ Also gated: the cost model has exactly ONE copy (generated code calls
+# `logos.std.wql.join_cost`, it does not spell the arithmetic — N queries spelling
+# the same rule is N chances to drift from the account the trace gives), and the
+# discriminant is read outside every loop, checked by BRACE NESTING rather than by
+# column: a four-way branch chain legitimately puts its later tests at deeper
+# indents while still standing above every loop, so an indent assertion would have
+# to be loosened and would then stop meaning anything.
+add_test(
+    NAME logos_09_join_order_beyond_pair
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/join_order_multi_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_order_multi_e2e.logos
+)
+set_tests_properties(logos_09_join_order_beyond_pair PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

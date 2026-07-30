@@ -986,11 +986,40 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         // total_str doubles as the blob-cursor byte budget: each pod is a
         // serialized doc spliced (copied in) exactly once, and the copied-in
         // object graph is bounded by ~its serialized size; 2× covers slack.
+        //
+        // ⚠ AND THE PLAIN `#(blob)` SPLICES HAVE TO BE IN THE BOUND TOO. Every
+        // entry of `blobs_blob` is a serialized doc that `try_blob_splice` /
+        // `try_inline_stmt_blobs` copies into `doc`, and its bytes are NOT part
+        // of `template_size` — the template holds a placeholder. Omitting them
+        // made the bound a function of the TEMPLATE only, so a quote whose
+        // fragments are large (a join body of a few hundred statements) reallocd
+        // the chunk mid-walk, dangled every raw pointer the walk holds, and
+        // emitted an AST whose BODY offset points at freed memory: sema then
+        // segfaulted in `map_of`, or — just under the threshold — reported "not
+        // all paths return a value" about a body that plainly does. The
+        // `--gen-dir` render of the same doc came out correct, which is what made
+        // it read as a front-end bug rather than an arena one.
+        uint64_t total_blob_bytes = 0;
+        for (uint64_t i = 0; i < blobs_count; ++i) total_blob_bytes += blob_entries[i].size;
         size_t bound = static_cast<size_t>(blob->template_size)
                          * (2 * total_idents + 2)
-                     + static_cast<size_t>(total_str) * 2 + 65536;
-        (void)WritAccess::arena(doc).reserve(bound);
+                     + static_cast<size_t>(total_str) * 2
+                     + static_cast<size_t>(total_blob_bytes) * 4 + 65536;
+        if (!WritAccess::arena(doc).reserve(bound)) {
+            std::fprintf(stderr,
+                "logos_emit_item_blob_subst: reserve(%zu) failed — the quote's "
+                "expansion does not fit\n", bound);
+            blob_seen.erase(key);
+            return 0;
+        }
     }
+    // The bound above is the ONLY thing standing between the walk and a realloc,
+    // so it is CHECKED rather than trusted. What must not happen is the head chunk
+    // MOVING: `doc` is GrowableSingleChunk, so growth reallocates the one chunk in
+    // place of adding a second — `chunk_count()` stays 1 either way and says
+    // nothing. The base pointer is the fact that matters, and if it changed then
+    // every raw pointer the walk held was already freed.
+    const uint8_t* doc_base_before = WritAccess::base(doc);
 
     // Substitute placeholders. Root is MODULE TOM with ITEMS array.
     auto root_off = WritAccess::root_offset(doc);
@@ -2151,6 +2180,16 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 }
             }
         }
+    }
+
+    if (WritAccess::base(doc) != doc_base_before) {
+        std::fprintf(stderr,
+            "logos_emit_item_blob_subst: the substitution arena moved during the "
+            "walk — the pre-reserve bound was too small, so every raw pointer the "
+            "walk held was freed and the emitted AST would be corrupt (a quote "
+            "whose spliced fragments are large; see the reserve bound above)\n");
+        blob_seen.erase(key);
+        return 0;
     }
 
     // --gen-dir: dump the synth module as a real .logos file and swap the

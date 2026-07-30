@@ -324,11 +324,101 @@ self-join of the edge relation — so what they lost was never available, and th
 must not declare one: `__gs_edges_<T>` builds its edge list by walking the struct,
 so a declared size would either cost the query's own work or report a lie.
 
-*Remaining:* join order beyond the first pair, which needs more than two nests and
-therefore a cost comparison rather than a comparison of two; and the plan holds
-only the join-order discriminant, because access is the axis where a run-time
-decision is nearly always the same answer — a plan field for it would be a
-mechanism with no consumer.
+*Remaining:* the plan holds only the join-order discriminant, because access is the
+axis where a run-time decision is nearly always the same answer — a plan field for
+it would be a mechanism with no consumer.
+
+**S4k — BEYOND THE FIRST PAIR: A COST, A DERIVED SET, AND A STATED BOUND.** S4h–S4j
+transposed the FIRST PAIR and compared the two candidates by ONE number each. With
+three or more sources that stopped being a decision: it compared two members of a
+space, on a fact that does not distinguish the rest of it. Three things replace it.
+
+**The cost function is one stdlib function that generated code CALLS**
+(`logos.std.wql.join_cost::jc_order_cost`). It charges ROW EVENTS: a base SCAN 2 per
+row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per
+row read, with the intermediate estimated as `R × n / 10`. Every plan carries a
+`JCTable` — the admissible orders as permutations of its own size facts plus the
+cost role each position holds — and `order_pick`, `cost_of`, `margin` and `agrees`
+all go through the one function. It is NOT emitted per query: the same rule spelled
+once per query is one chance per query to drift from the account the trace gives, in
+the place where drift is silent.
+
+⚠ THE PAIR RULE IS THE DEGENERATE CASE, not a branch inside it. For k = 2 the two
+costs are `3n₀ + 4n₁` and `3n₁ + 4n₀`, so the query's order wins exactly when
+`n₁ < n₀` — "index the SMALLER side, walk the larger", which is `step_n > base_n`
+and nothing else. `margin` as the runner-up's cost minus the winner's comes out as
+`|n₀ − n₁|`, which is the number S4i's plans already reported. That the weights had
+to be BUILD > SCAN + PROBE for this to hold is not a coincidence to hide: an index
+insert writes, may grow the table, and touches an allocator, while a probe and a
+sequential row read do not.
+
+**The admissible set is DERIVED, and every constraint comes from what the emitter
+requires** — an illegal order does not crash, it silently returns different rows.
+C1 a total sort is the licence (without `order by` the nest's order IS the answer's).
+C2 a plan must have decided the chain (JS_NONE = nobody looked). C3 a PINNED step —
+an anti join, a traversal — keeps its depth in the bound stream: an anti's predicate
+is inseparable from its source and a traversal's source is a field path of an outer
+row. C4 every slot's dependencies precede it, which is the constraint that does the
+work on real chains. C5 `on` moves with the transposition and attaches to the LAST of
+the vars it reads; two predicates onto one position is inadmissible, because a step
+carries one `on` and nothing builds a conjunction. C6 no candidate may turn a
+read-once source into a rescanned one, because `plan_walker` decided
+materialize-vs-stream against the strategies the query's own order got. C7 an order
+whose (size, role) sequence an earlier candidate already has cannot be cheaper for
+any data — the self-join refusal S4j added is the pair-shaped instance of it, now
+derived rather than special-cased.
+
+⚠ THE JUSTIFICATION IS THE WHOLE CENSUS, not the winner. Every permutation is
+reported on the one decision channel by the row-var sequence it names, admitted or
+refused with the constraint code that refused it, plus a summary line giving
+enumerated / admissible / carried and the cost model's weights and its one
+assumption. At run time `cost_of(ix)` prices any candidate from the plan's own facts,
+so "on what ground did each loser lose" is a question the PROGRAM can answer.
+
+**The bound is stated and the fallback is loud.** Four floatable sources (the plan's
+fact table is four wide, the search is 4! = 24) and four carried nests. Measured: a
+three-source body goes from 3 536 bytes at one nest to 15 366 at four — the nest is
+~3.6 KB and the shell is small, so the artifact grows ~4×. When the derivation proves
+MORE admissible orders than the artifact carries, the plan declines the reorder WHOLE
+and the trace says how many it proved: carrying "the first four" would mean choosing
+three challengers by enumeration order, which is not a decision, and dropping the
+rest without saying so is the failure the bound exists to make visible. The corpus's
+four-source `q5` shape proves 8 of 24 legal and carries 1.
+
+⚠ WHAT THE COST FUNCTION IS NOT GIVEN, and both are facts nothing in this compiler
+reports. SELECTIVITY: no source declares a distinct-value count, so an equi-step's
+output is the classic no-statistics tenth of the cross product — the one number here
+that data could contradict, written as a function so there is one place to consult
+when a source can declare it. And a PINNED step is UNPRICED: a traversal's field-path
+length and an anti's filtered fraction have no reporter. The derivation keeps every
+pinned step at the same depth in every candidate, so the omission does not favour one
+candidate's shape — but the intermediate reaching that depth differs, so that is not
+neutrality either.
+
+⚠ TWO GUARDS IN THIS SLICE CANNOT FIRE ON ANY QUERY THAT EXISTS, and saying so is
+the point. C6's refusal needs a candidate order in which a source the query read once
+loses its equi-key; with scalar keys `equi_term_sides` is symmetric on `==`, so the
+reverse direction of a two-source chain always has the same key and a three-var
+predicate is LOOP in every order. C5's "a predicate lands on the base" needs a
+predicate whose every referenced var sits at position 0, which for an equi-term means
+a single-var predicate that is not a join key at all. Both stay, for the same reason
+S4j's streamed-side guard stays: they are claims about another module's decisions, and
+a function right only by virtue of a distant invariant it does not name is the
+phase-proxy anti-pattern.
+
+⚠ AND THE ARTIFACT BOUND WAS NOT ONLY A PREFERENCE — IT WAS ENFORCED BY A SILENT AST
+CORRUPTION. `logos_emit_item_blob_subst` front-loads one realloc of the substitution
+arena because the walk holds raw pointers into it, and the bound it reserved counted
+the TEMPLATE's bytes but not the bytes of the plain `#(fragment)` splices, which are
+not in the template at all. A four-nest join body crossed it: just under the
+threshold sema reported "not all paths return a value" about a body that visibly ends
+in `return`, just over it the compiler segfaulted in `map_of`, and the `--gen-dir`
+render of the same document came out CORRECT in both cases — so every piece of
+evidence pointed at the front end. `GrowableSingleChunk` growth reallocates the one
+chunk rather than adding a second, so `chunk_count()` stayed 1 and said nothing; the
+base POINTER moving is the fact, and the fix checks it after the walk so that a wrong
+bound is a diagnostic instead of a corrupt AST. Pinned by
+`quote_large_fragment_splice`.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

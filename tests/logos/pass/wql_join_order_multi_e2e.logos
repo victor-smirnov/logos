@@ -1,0 +1,332 @@
+// WQL — JOIN ORDER BEYOND THE FIRST PAIR (ADR 0024 S4k). The plan DERIVES the
+// admissible set of join orders, emits one nest per carried order, and picks the
+// cheapest by ONE cost function (`logos.std.wql.join_cost`) from the sizes it
+// measured. What must hold is that every one of those nests returns the SAME
+// SEQUENCE of rows.
+//
+// ⚠ WHY THE ORACLE IS THE EXACT SEQUENCE AND NOT THE COUNT. A reorder cannot lose
+// rows — every admissible order enumerates the same predicate over the same
+// sources — so a count-only assertion would pass on the failure this actually
+// risks: the same multiset in a different major order. Every source here has
+// DUPLICATE KEYS, so the orders differ row by row, and the expectation is the full
+// sequence.
+//
+// ⚠ AND THE ORACLE IS A PLAIN NESTED LOOP WITH NO SORT IN IT. The `order by` key is
+// non-decreasing along the base array on purpose, so the sorted sequence IS the
+// query-order enumeration and the oracle cannot inherit a bug from the sort it is
+// checking. Within one base row the tuple tiebreak is lexicographic in QUERY var
+// order, which is exactly the oracle's own nesting order.
+//
+// ⚠ EVERY ADMISSIBLE ORDER IS FORCED IN TURN, and the seam that lets a test do
+// that is the plan being a VALUE with public fields: `order_ix` is written by hand
+// after `prepare`, so the nest under test is chosen by the test rather than by the
+// data. An order that only ran when the sizes happened to select it would be an
+// untested order — and three of the four here are never selected by any data this
+// file holds.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub k: i64, pub m: i64 }
+struct C { pub m: i64, pub w: i64 }
+struct W { pub k: i64 }
+struct D { pub w: i64, pub z: i64 }
+
+// ── THREE SOURCES, a LINEAR predicate chain a—b—c ────────────────────────────
+// Six permutations, four admissible: the two that put `c` between `a` and `b`
+// force both predicates onto one position (C5), and a step carries one `on`.
+pub deem q3(as_: &[A], bs: &[B], cs: &[C]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join cs c on b.m == c.m
+    select a.v * 100 + c.w order by a.k }
+
+// ── FOUR SOURCES with a PINNED anti join in the middle ───────────────────────
+// The anti keeps its depth in the bound stream (C3) and its `on` reads `b`, so
+// every candidate that would place `b` after it is refused by C4 — the dependency
+// is not bound at that depth. Two of the six go that way.
+pub deem q4(as_: &[A], bs: &[B], ws: &[W], cs: &[C]) {
+    from as_ a
+    join bs b on a.k == b.k
+    anti join ws w on b.k == w.k
+    join cs c on b.m == c.m
+    select a.v * 100 + c.w order by a.k }
+
+// ── C7: an order that cannot be cheaper is not a candidate ───────────────────
+// `as_` is bound twice, so the permutation that exchanges the two has the same
+// (size, role) sequence as the query's own — it costs the same for every possible
+// data, and a nest no measurement could ever select is not emitted.
+pub deem q3self(as_: &[A], bs: &[B]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join as_ a2 on b.m == a2.k
+    select a.v * 100 + a2.v order by a.k }
+
+// ── THE ARTIFACT BOUND: four floatable sources ───────────────────────────────
+// The derivation proves more admissible orders than an artifact carries nests, so
+// the plan declines the reorder WHOLE and says so. Nothing is silently truncated
+// and nothing is chosen by enumeration order.
+pub deem q5(as_: &[A], bs: &[B], cs: &[C], ds: &[D]) {
+    from as_ a
+    join bs b on a.k == b.k
+    join cs c on b.m == c.m
+    join ds d on c.w == d.w
+    select a.v * 100 + d.z order by a.k }
+
+// ── The ORACLES: the join in QUERY order, base-major, no sort ────────────────
+fn oracle3(as_: &[A], bs: &[B], cs: &[C], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < cs.len() {
+                    if bs[j].m == cs[n].m { out.push(as_[i].v * 100i64 + cs[n].w); }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn oracle4(as_: &[A], bs: &[B], ws: &[W], cs: &[C], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                // The anti step: `b` survives only with NO matching `w`.
+                let mut hit: bool = false;
+                let mut q: i64 = 0i64;
+                while q < ws.len() {
+                    if bs[j].k == ws[q].k { hit = true; }
+                    q = q + 1i64;
+                }
+                if !hit {
+                    let mut n: i64 = 0i64;
+                    while n < cs.len() {
+                        if bs[j].m == cs[n].m { out.push(as_[i].v * 100i64 + cs[n].w); }
+                        n = n + 1i64;
+                    }
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn oracle_self(as_: &[A], bs: &[B], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < as_.len() {
+                    if bs[j].m == as_[n].k { out.push(as_[i].v * 100i64 + as_[n].v); }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn oracle5(as_: &[A], bs: &[B], cs: &[C], ds: &[D], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < as_.len() {
+        let mut j: i64 = 0i64;
+        while j < bs.len() {
+            if as_[i].k == bs[j].k {
+                let mut n: i64 = 0i64;
+                while n < cs.len() {
+                    if bs[j].m == cs[n].m {
+                        let mut p: i64 = 0i64;
+                        while p < ds.len() {
+                            if cs[n].w == ds[p].w { out.push(as_[i].v * 100i64 + ds[p].z); }
+                            p = p + 1i64;
+                        }
+                    }
+                    n = n + 1i64;
+                }
+            }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // DUPLICATE KEYS ON EVERY SIDE, and the sort key (a.k) non-decreasing along
+    // the base array so the sorted sequence is the enumeration.
+    let as_: [A; 5] = [
+        A { k: 1i64, v: 1i64 }, A { k: 1i64, v: 2i64 },
+        A { k: 2i64, v: 3i64 }, A { k: 2i64, v: 4i64 },
+        A { k: 3i64, v: 5i64 },
+    ];
+    let bs: [B; 4] = [
+        B { k: 1i64, m: 7i64 }, B { k: 2i64, m: 8i64 },
+        B { k: 1i64, m: 8i64 }, B { k: 4i64, m: 7i64 },
+    ];
+    let cs: [C; 4] = [
+        C { m: 8i64, w: 10i64 }, C { m: 7i64, w: 20i64 },
+        C { m: 8i64, w: 30i64 }, C { m: 9i64, w: 40i64 },
+    ];
+
+    // ── q3: EVERY admissible order forced in turn ───────────────────────────
+    let mut w3: Vec<i64> = Vec::new();
+    oracle3(&as_[..], &bs[..], &cs[..], &mut w3);
+    // 10 pairs: a(k=1)×{b0→c1, b2→c0,c2} = 3 each, a(k=2)×{b1→c0,c2} = 2 each.
+    if w3.len() != 10i64 { return 1i32; }
+
+    let mut p3: Q3Plan = q3_prepare(&as_[..], &bs[..], &cs[..]);
+    // Four orders were derived and carried, and the plan says how many.
+    if p3.considered() != 4i64 { return 2i32; }
+    if !p3.dyn_order      { return 3i32; }
+    if !p3.settled()      { return 4i32; }
+    if p3.base_n != 5i64  { return 5i32; }
+    if p3.step_n != 4i64  { return 6i32; }
+    if p3.n2 != 4i64      { return 7i32; }
+    if p3.n3 != -1i64     { return 8i32; }
+
+    // The winner is the ARGMIN of the cost function, and every loser's cost is
+    // available from the plan's own facts — that is the ground each one lost on.
+    let mut best: i64 = 0i64;
+    let mut bc: i64 = p3.cost_of(0i64);
+    let mut up: i64 = -1i64;
+    let mut ci: i64 = 1i64;
+    while ci < 4i64 {
+        let c: i64 = p3.cost_of(ci);
+        if c <= 0i64 { return 9i32; }          // every carried order is priced
+        if c < bc { up = bc; bc = c; best = ci; }
+        else if up < 0i64 || c < up { up = c; }
+        ci = ci + 1i64;
+    }
+    if p3.order_ix != best { return 10i32; }
+    if p3.margin() != up - bc { return 11i32; }
+
+    // Now force each one and demand the oracle's sequence from all of them.
+    let mut k: i64 = 0i64;
+    while k < 4i64 {
+        p3.order_ix = k;
+        let g: Vec<i64> = q3_run(&p3, &as_[..], &bs[..], &cs[..]).unwrap();
+        if !same(&g, &w3) { return (20i64 + k) as i32; }
+        k = k + 1i64;
+    }
+    // …and the direct fn, which prepares for itself.
+    let gd: Vec<i64> = q3(&as_[..], &bs[..], &cs[..]).unwrap();
+    if !same(&gd, &w3) { return 30i32; }
+
+    // A SECOND DATA SET that moves the winner: `bs` becomes the largest side, so
+    // the cheapest order is a different one. The rows must not move.
+    let big_bs: [B; 9] = [
+        B { k: 1i64, m: 7i64 }, B { k: 2i64, m: 8i64 }, B { k: 1i64, m: 8i64 },
+        B { k: 4i64, m: 7i64 }, B { k: 3i64, m: 8i64 }, B { k: 3i64, m: 7i64 },
+        B { k: 2i64, m: 7i64 }, B { k: 5i64, m: 8i64 }, B { k: 1i64, m: 9i64 },
+    ];
+    let mut w3b: Vec<i64> = Vec::new();
+    oracle3(&as_[..], &big_bs[..], &cs[..], &mut w3b);
+    let g3b: Vec<i64> = q3(&as_[..], &big_bs[..], &cs[..]).unwrap();
+    if !same(&g3b, &w3b) { return 31i32; }
+    let p3b: Q3Plan = q3_prepare(&as_[..], &big_bs[..], &cs[..]);
+    if p3b.step_n != 9i64 { return 32i32; }
+    // The two plans rest on different numbers, so at least one of them must
+    // disagree with the other's facts — otherwise "re-prepare and compare" would
+    // be advice about nothing. (Which one drifts is the cost model's business;
+    // that they cannot BOTH agree is the property.)
+    let fresh_a: Q3Plan = q3_prepare(&as_[..], &bs[..], &cs[..]);
+    if p3b.agrees(&fresh_a) && fresh_a.agrees(&p3b) { return 33i32; }
+
+    // Empty middle source: no rows, every order.
+    let none_bs: [B; 0] = [];
+    let mut pe: Q3Plan = q3_prepare(&as_[..], &none_bs[..], &cs[..]);
+    let mut ke: i64 = 0i64;
+    while ke < 4i64 {
+        pe.order_ix = ke;
+        let ge: Vec<i64> = q3_run(&pe, &as_[..], &none_bs[..], &cs[..]).unwrap();
+        if ge.len() != 0i64 { return (40i64 + ke) as i32; }
+        ke = ke + 1i64;
+    }
+
+    // ── q4: four sources, a pinned anti in the middle ───────────────────────
+    let ws: [W; 2] = [ W { k: 4i64 }, W { k: 3i64 } ];
+    let mut w4: Vec<i64> = Vec::new();
+    oracle4(&as_[..], &bs[..], &ws[..], &cs[..], &mut w4);
+    // `ws` names k=3 and k=4, and no `b` that reaches an `a` carries either, so the
+    // anti removes nothing here — the same 10 rows, through a chain one step longer.
+    if w4.len() != 10i64 { return 50i32; }
+    let mut p4: Q4Plan = q4_prepare(&as_[..], &bs[..], &ws[..], &cs[..]);
+    if p4.considered() != 4i64 { return 51i32; }
+    let mut k4: i64 = 0i64;
+    while k4 < 4i64 {
+        p4.order_ix = k4;
+        let g4: Vec<i64> = q4_run(&p4, &as_[..], &bs[..], &ws[..], &cs[..]).unwrap();
+        if !same(&g4, &w4) { return (60i64 + k4) as i32; }
+        k4 = k4 + 1i64;
+    }
+    // The anti actually bites: with a `w` that matches k=1, four rows go away.
+    let ws2: [W; 3] = [ W { k: 4i64 }, W { k: 3i64 }, W { k: 1i64 } ];
+    let mut w4b: Vec<i64> = Vec::new();
+    oracle4(&as_[..], &bs[..], &ws2[..], &cs[..], &mut w4b);
+    if w4b.len() >= w4.len() { return 70i32; }
+    let mut p4b: Q4Plan = q4_prepare(&as_[..], &bs[..], &ws2[..], &cs[..]);
+    let mut k4b: i64 = 0i64;
+    while k4b < 4i64 {
+        p4b.order_ix = k4b;
+        let g4b: Vec<i64> = q4_run(&p4b, &as_[..], &bs[..], &ws2[..], &cs[..]).unwrap();
+        if !same(&g4b, &w4b) { return (75i64 + k4b) as i32; }
+        k4b = k4b + 1i64;
+    }
+
+    // ── q3self: C7 collapsed the space to the query's own order ─────────────
+    let mut wsf: Vec<i64> = Vec::new();
+    oracle_self(&as_[..], &bs[..], &mut wsf);
+    let mut psf: Q3selfPlan = q3self_prepare(&as_[..], &bs[..]);
+    // TWO of the six survive, not four: `a>b>a2` and `b>a>a2`. The permutations
+    // that put the SECOND binding of `as_` where the first one was cost the same
+    // for every possible data — C7 — so they are not emitted, and the two that
+    // remain differ in a real way (which side is scanned).
+    if psf.considered() != 2i64 { return 80i32; }
+    if !psf.dyn_order       { return 81i32; }
+    if psf.explain().len() == 0i64 { return 82i32; }
+    let gsf: Vec<i64> = q3self(&as_[..], &bs[..]).unwrap();
+    if !same(&gsf, &wsf) { return 83i32; }
+    let mut ksf: i64 = 0i64;
+    while ksf < 2i64 {
+        psf.order_ix = ksf;
+        let gs2: Vec<i64> = q3self_run(&psf, &as_[..], &bs[..]).unwrap();
+        if !same(&gs2, &wsf) { return (85i64 + ksf) as i32; }
+        ksf = ksf + 1i64;
+    }
+
+    // ── q5: past the artifact bound, the query's own order and a stated ground ─
+    let ds: [D; 3] = [ D { w: 10i64, z: 1i64 }, D { w: 20i64, z: 2i64 }, D { w: 10i64, z: 3i64 } ];
+    let mut w5: Vec<i64> = Vec::new();
+    oracle5(&as_[..], &bs[..], &cs[..], &ds[..], &mut w5);
+    if w5.len() == 0i64 { return 90i32; }
+    let p5: Q5Plan = q5_prepare(&as_[..], &bs[..], &cs[..], &ds[..]);
+    if p5.dyn_order { return 91i32; }
+    if p5.explain().len() == 0i64 { return 92i32; }
+    let g5: Vec<i64> = q5(&as_[..], &bs[..], &cs[..], &ds[..]).unwrap();
+    if !same(&g5, &w5) { return 93i32; }
+
+    return 0i32;
+}

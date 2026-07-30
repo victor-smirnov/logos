@@ -1,0 +1,63 @@
+// A SPLICED FRAGMENT LARGER THAN THE TEMPLATE THAT SPLICES IT.
+//
+// ⚠ THIS IS A REGRESSION TEST FOR A SILENT AST CORRUPTION, not a scale exercise.
+// `logos_emit_item_blob_subst` front-loads ONE realloc of the substitution arena
+// before it starts walking, because the walk holds raw pointers into that arena and
+// a realloc frees the chunk out from under them. The bound it reserved counted the
+// TEMPLATE's bytes, the repeat cursors' idents, and a fixed slack — but NOT the
+// bytes of the plain `#(fragment)` splices, which are not part of the template at
+// all (the template holds a placeholder). So a quote whose FRAGMENT is large — a
+// join body of a few hundred statements, which ADR 0024 S4k's multi-order emission
+// produces routinely — reallocd mid-walk and emitted an item whose BODY offset
+// pointed into freed memory. `GrowableSingleChunk` growth REALLOCATES the one chunk
+// rather than adding a second, so `chunk_count()` stayed 1 throughout and said
+// nothing; the base POINTER moving is the fact, and it is what the guard now reads.
+//
+// What that looked like from the outside is why it needs a test rather than a
+// comment: just under the threshold sema reported "not all paths return a value"
+// about a body that visibly ends in `return`, and just over it the compiler
+// segfaulted in `map_of`. The `--gen-dir` render of the very same document came out
+// CORRECT in both cases, so every piece of evidence pointed at the front end.
+//
+// The fragment here is folded at metaprog time to a size no static file would spell
+// (1501 statements), spliced ONCE into a tiny template, and then CALLED — with the
+// old bound this file crashes the compiler in `map_of`, and `wql_join_order_multi_e2e`
+// and `wql_join_mods_e2e` crash with it.
+package test;
+
+use logos.std.compiler.metaprog;
+
+fn gen(n: i64) -> QuoteItemBlob {
+    // The fold that emitters actually perform: a fragment grown one wrap at a
+    // time, so its SIZE is a runtime value and the template's is not. Ten
+    // statements per wrap rather than one — what has to exceed the old bound is the
+    // FRAGMENT's bytes, and reaching that with few wraps keeps the metaprog side
+    // cheap (150 quote_blocks, not 1500).
+    let mut acc: ExprBlob = quote_block! { o = o + 1i64; };
+    let mut i: i64 = 0i64;
+    while i < n {
+        acc = quote_block! {
+            #(acc);
+            o = o + 1i64; o = o + 1i64; o = o + 1i64; o = o + 1i64; o = o + 1i64;
+            o = o + 1i64; o = o + 1i64; o = o + 1i64; o = o + 1i64; o = o + 1i64;
+        };
+        i = i + 1i64;
+    }
+    let body: ExprBlob = quote_block! {
+        let mut o: i64 = 0i64;
+        #(acc);
+        return o;
+    };
+    return quote_item! {
+        pub fn big() -> i64 #(body)
+    };
+}
+
+metacall gen(150);
+
+fn main() -> i32 {
+    // 1501 statements, each adding one: a body that lost its tail, was reparented,
+    // or was truncated cannot come out at 1501.
+    if big() != 1501i64 { return 1i32; }
+    return 0i32;
+}

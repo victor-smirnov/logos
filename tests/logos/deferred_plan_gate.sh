@@ -23,10 +23,11 @@
 #     affordable for every plan a caller holds, deferred ones included.
 #
 #   • THE TWO POINTS ARE TELLABLE APART, in the artifact and in the trace. The
-#     prepared query in the same fixture still reads `__pl.swap`; the deferred one
-#     reads `__defer_swap`; the trace names the point AND the relation that
-#     supplies the number. A reader must not have to open the emitter to know which
-#     half of a plan decided.
+#     prepared query in the same fixture reads `__pl.order_ix`; the deferred one
+#     reads `__defer_ix`, bound above the nest from the same `order_pick` the plan
+#     re-derives `agrees` through (ADR 0024 S4k — one cost function, in stdlib); the
+#     trace names the point AND the relation that supplies the number. A reader must
+#     not have to open the emitter to know which half of a plan decided.
 set -euo pipefail
 
 LOGOSC="$1"
@@ -86,17 +87,18 @@ fi
 # ── the plan type carries the deferred half and the accessor that discloses it ──
 for member in 'pub defer_order: bool' \
               'pub fn settled\(&self\) -> bool' \
-              'pub fn order_swap\(&self, base_n: i64, step_n: i64\) -> bool'; do
+              'pub fn order_pick\(&self, n0: i64, n1: i64, n2: i64, n3: i64\) -> i64'; do
     if ! grep -Eq "$member" "${DUMPS[@]}"; then
         echo "FAIL: the plan type has no /$member/ — the deferred half would be indistinguishable from a refusal"
         fail=1
     fi
 done
 # ONE rule, in one place: `agrees` re-derives the prepared decision THROUGH
-# `order_swap`, which is the same method the deferred binding calls. A second
+# `order_pick`, which is the same method the deferred binding calls — and which is
+# itself one call into `logos.std.wql.join_cost` (ADR 0024 S4k). A second
 # hand-written comparison in `agrees` is how the two points come to disagree.
-if ! grep -Eq 'self\.swap == self\.order_swap\(fresh\.base_n, fresh\.step_n\)' "${DUMPS[@]}"; then
-    echo "FAIL: agrees does not go through order_swap — the two decision points can drift apart"
+if ! grep -Eq 'self\.order_ix == self\.order_pick\(fresh\.base_n, fresh\.step_n, fresh\.n2, fresh\.n3\)' "${DUMPS[@]}"; then
+    echo "FAIL: agrees does not go through order_pick — the two decision points can drift apart"
     grep -n 'agrees' "${DUMPS[@]}" || true
     fail=1
 fi
@@ -132,8 +134,8 @@ done
 # block, and inside a block here means inside the nest.
 for pat in '^    let __defer_n0: i64 = ' \
            '^    let __defer_n1: i64 = ' \
-           '^    let __defer_swap: bool = __pl\.order_swap\(__defer_n0, __defer_n1\);$' \
-           '^    if \(__defer_swap\) \{$'; do
+           '^    let __defer_ix: i64 = __pl\.order_pick\(__defer_n0, __defer_n1, __defer_n2, __defer_n3\);$' \
+           '^    if \(\(__defer_ix == 1i64\)\) \{$'; do
     n=$(count "$pat")
     if [ "$n" -lt 1 ]; then
         echo "FAIL: no body-level (indent 4) match for /$pat/ — the deferred read left the prelude region"
@@ -142,17 +144,17 @@ for pat in '^    let __defer_n0: i64 = ' \
     fi
 done
 # …and NOWHERE else. Any `__defer_` at a deeper indent is a per-row read.
-n_deep=$(count '^     +(let __defer|if \(__defer_swap\))')
+n_deep=$(count '^     +(let __defer|if \(\(__defer_ix)')
 if [ "$n_deep" -ne 0 ]; then
     echo "FAIL: $n_deep deferred read(s) below body level — the decision moved inside the nest"
     grep -n '__defer' "${DUMPS[@]}" || true
     fail=1
 fi
 # ONE discriminant per deferred query (via_rel, iter_step), read once each.
-n_disc=$(count '^    let __defer_swap: bool')
+n_disc=$(count '^    let __defer_ix: i64')
 if [ "$n_disc" -ne 2 ]; then
     echo "FAIL: $n_disc deferred discriminants (want 2, one per deferred query)"
-    grep -n '__defer_swap' "${DUMPS[@]}" || true
+    grep -n '__defer_ix' "${DUMPS[@]}" || true
     fail=1
 fi
 
@@ -216,23 +218,27 @@ for f in "${DUMPS[@]}"; do
 done
 
 # ── the two points coexist and are distinguishable in the artifact ────────
-n_pl=$(count '^    if \(__pl\.swap\) \{$')
+n_pl=$(count '^    if \(\(__pl\.order_ix == 1i64\)\) \{$')
 if [ "$n_pl" -ne 1 ]; then
     echo "FAIL: $n_pl prepared discriminants (want 1 — settled_by_prepare)"
-    grep -n '__pl.swap' "${DUMPS[@]}" || true
+    grep -n '__pl.order_ix' "${DUMPS[@]}" || true
     fail=1
 fi
-# The prepared query still measures in `prepare`, unchanged by this slice.
-if ! grep -Fq 'swap: ((__n1 > __n0))' "${DUMPS[@]}"; then
+# The prepared query still DECIDES in `prepare`, unchanged by this slice — and it
+# decides through the one cost function, over a table it carries (ADR 0024 S4k).
+if ! grep -Fq 'let __ix: i64 = jc_order_pick((&__tb), __n0, __n1, __n2, __n3);' "${DUMPS[@]}"; then
     echo "FAIL: the prepared decision is no longer made in prepare"
     fail=1
 fi
-# A deferred plan reports NO facts: -1 both, so nothing invites a stale comparison.
-if ! grep -Eq 'defer_order: true, why:' "${DUMPS[@]}"; then
-    echo "FAIL: no deferred plan literal in the dump"
+# A deferred plan reports NO facts: -1 in every slot, so nothing invites a stale
+# comparison. It DOES carry the candidate table — the rule without the answer,
+# which is what `run` prices the orders with (ADR 0024 S4k).
+if ! grep -Eq 'defer_order: true, swap: false, order_ix: 0i64, base_n: \(-1i64\), step_n: \(-1i64\), n2: \(-1i64\), n3: \(-1i64\), tbl: JCTable \{' "${DUMPS[@]}"; then
+    echo "FAIL: no deferred plan literal in the dump (or it does not carry the table run needs)"
+    grep -n 'defer_order: true' "${DUMPS[@]}" || true
     fail=1
 fi
-if grep -Eq 'base_n: __n0.*defer_order: true' "${DUMPS[@]}"; then
+if grep -Eq 'defer_order: true.*base_n: __n' "${DUMPS[@]}"; then
     echo "FAIL: a deferred plan carries measured facts — the deferred half leaked into the reusable surface"
     fail=1
 fi

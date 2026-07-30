@@ -41,7 +41,8 @@ use logos.std.wql.params;     // MacroParams — the parsed deem!(…) param lis
 use logos.std.wql.codegen;    // emit_sexpr / infer_ty / el_ty_name / …
 use logos.std.wql.optimize;   // simplify_sexpr + TermList/split_and_terms/refs_mask (shared IR-level analysis)
 use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step — THE join-step decision
-use logos.std.wql.join_order; // JoinOrder / decide_join_order — WHICH SIDE DRIVES
+use logos.std.wql.join_order; // JoinOrder / decide_join_orders / JCh — WHICH ORDER DRIVES
+use logos.std.wql.join_cost;  // JCTable / jc_* — THE cost function, one copy
 use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
@@ -255,6 +256,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.hashmap; use logos.mem.collections.set;
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
+            use logos.std.wql.join_cost;
             #( use #uses; )*
             fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -265,6 +267,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.hashmap; use logos.mem.collections.set;
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
+            use logos.std.wql.join_cost;
             #( use #uses; )*
             pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -312,37 +315,63 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // it stale — and a caller who read that as "my order is fixed" would be wrong.
 // One accessor is cheaper than the misreading.
 //
-// ⚠ `order_swap` IS THE RULE, IN ONE PLACE. `agrees` re-derives the prepared
-// decision through it and the deferred binding in `run` calls it on the two free
-// lengths, so the two decision points cannot come to different conclusions from
-// the same pair of numbers — which is the whole claim that they are one plan and
-// not two mechanisms. (`prepare`'s own struct literal spells the comparison
-// inline: it has no plan to call a method on yet, and its text is built in exactly
-// one place below.)
+// ── THE ORDER SET (ADR 0024 S4k) ─────────────────────────────────────────────
+// `swap` was a bit because the axis was a pair. It is not: `order_ix` names WHICH
+// of the candidate orders the plan chose, `considered()` how many were carried, and
+// `cost_of(ix)` what any one of them would have cost on the plan's own facts. That
+// last one is the point — "on what ground did each loser lose" becomes a question
+// the PROGRAM can answer, not a sentence the compiler printed once and threw away.
+// `swap` stays as `order_ix == 1`, which for a two-candidate plan is exactly what
+// it always meant.
+//
+// ⚠ THE COST FUNCTION IS NOT HERE AND NOT PER QUERY. It is
+// `logos.std.wql.join_cost::jc_order_cost`, one stdlib function that interprets the
+// `JCTable` a plan carries; every method below delegates to it and so does the
+// emitted `prepare`. Emitting the arithmetic per query would have been the same rule
+// spelled once per query — N chances to drift from the account the trace gives, in
+// the place where drift is silent.
+//
+// ⚠ `base_n`/`step_n`/`n2`/`n3` ARE THE FACT TABLE, four wide because a plan holds
+// facts for at most four floatable sources (`JC_MAX_FL`). The first two keep their
+// pair-era names: they still mean the first and second source's size, and the
+// fixtures that read them read the same numbers.
 fn emit_prepared_type(tyn: str, is_priv: bool) {
     let nm: Ident = Ident::new(tyn);
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
+            use logos.std.wql.join_cost;
             struct #nm {
                 pub dyn_order:   bool,
+                pub defer_order: bool,
                 pub swap:        bool,
+                pub order_ix:    i64,
                 pub base_n:      i64,
                 pub step_n:      i64,
-                pub defer_order: bool,
+                pub n2:          i64,
+                pub n3:          i64,
+                pub tbl:         JCTable,
                 pub why:         str,
             }
             impl #nm {
-                pub fn order_swap(&self, base_n: i64, step_n: i64) -> bool {
-                    return step_n > base_n;
+                // ⚠ EVERY ONE OF THESE DELEGATES. The cost model is one function in
+                // `logos.std.wql.join_cost`, so `agrees`, `margin`, `cost_of` and the
+                // decision itself cannot come to different conclusions from the same
+                // table — and the model is readable in one place instead of being
+                // spelled once per emitted query.
+                pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+                    return jc_order_pick(&self.tbl, n0, n1, n2, n3);
                 }
+                pub fn cost_of(&self, ix: i64) -> i64 {
+                    return jc_order_cost(&self.tbl, ix, self.base_n, self.step_n, self.n2, self.n3);
+                }
+                pub fn considered(&self) -> i64 { return self.tbl.ncand; }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
-                    return self.swap == self.order_swap(fresh.base_n, fresh.step_n);
+                    return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
                 }
                 pub fn margin(&self) -> i64 {
                     if !self.dyn_order { return 0i64; }
-                    if self.step_n > self.base_n { return self.step_n - self.base_n; }
-                    return self.base_n - self.step_n;
+                    return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
                 pub fn explain(&self) -> str { return self.why; }
@@ -351,32 +380,81 @@ fn emit_prepared_type(tyn: str, is_priv: bool) {
         unsafe { logos_emit_item_blob_subst(&q); }
     } else {
         let q: QuoteItemBlob = quote_item! {
+            use logos.std.wql.join_cost;
             pub struct #nm {
                 pub dyn_order:   bool,
+                pub defer_order: bool,
                 pub swap:        bool,
+                pub order_ix:    i64,
                 pub base_n:      i64,
                 pub step_n:      i64,
-                pub defer_order: bool,
+                pub n2:          i64,
+                pub n3:          i64,
+                pub tbl:         JCTable,
                 pub why:         str,
             }
             impl #nm {
-                pub fn order_swap(&self, base_n: i64, step_n: i64) -> bool {
-                    return step_n > base_n;
+                // ⚠ EVERY ONE OF THESE DELEGATES. The cost model is one function in
+                // `logos.std.wql.join_cost`, so `agrees`, `margin`, `cost_of` and the
+                // decision itself cannot come to different conclusions from the same
+                // table — and the model is readable in one place instead of being
+                // spelled once per emitted query.
+                pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
+                    return jc_order_pick(&self.tbl, n0, n1, n2, n3);
                 }
+                pub fn cost_of(&self, ix: i64) -> i64 {
+                    return jc_order_cost(&self.tbl, ix, self.base_n, self.step_n, self.n2, self.n3);
+                }
+                pub fn considered(&self) -> i64 { return self.tbl.ncand; }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
-                    return self.swap == self.order_swap(fresh.base_n, fresh.step_n);
+                    return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
                 }
                 pub fn margin(&self) -> i64 {
                     if !self.dyn_order { return 0i64; }
-                    if self.step_n > self.base_n { return self.step_n - self.base_n; }
-                    return self.base_n - self.step_n;
+                    return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
                 pub fn explain(&self) -> str { return self.why; }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
+    }
+}
+
+/// One `let <pfx><k>: i64 = <size expr>;` per floatable source, then `-1i64` for the
+/// slots the query does not use. Four bindings always, because the cost function
+/// takes four and a plan's fact table is four wide — `jc_order_cost` never reads
+/// past `nfl`, so an unused slot's value is arbitrary and -1 says "not asked" for
+/// anything that prints it.
+fn push_size_bindings(out: &mut String, pfx: str, prep: &Prepared) {
+    let mut k: i64 = 0i64;
+    while k < 4i64 {
+        out.push_str("    let ");
+        out.push_str(pfx);
+        out.push_i64(k);
+        out.push_str(": i64 = ");
+        if k >= prep.nfl { out.push_str("-1i64"); }
+        else if k == 0i64 { out.push_str(prep.sz0); }
+        else if k == 1i64 { out.push_str(prep.sz1); }
+        else if k == 2i64 { out.push_str(prep.sz2); }
+        else              { out.push_str(prep.sz3); }
+        out.push_str(";\n");
+        k = k + 1i64;
+    }
+}
+
+/// The size expressions as `A vs B vs …` — the account a deferred plan's `explain()`
+/// gives of what it will compare, since its fact fields are all -1.
+fn push_size_list(out: &mut String, prep: &Prepared) {
+    let mut k: i64 = 0i64;
+    while k < prep.nfl {
+        if k > 0i64 { out.push_str(" vs "); }
+        if k == 0i64      { out.push_str(prep.sz0); }
+        else if k == 1i64 { out.push_str(prep.sz1); }
+        else if k == 2i64 { out.push_str(prep.sz2); }
+        else              { out.push_str(prep.sz3); }
+        k = k + 1i64;
     }
 }
 
@@ -434,35 +512,40 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     pb.push_str("{\n");
     if prep.dynamic {
         pb.push_str(prep.measure);
-        pb.push_str("    let __n0: i64 = ");
-        pb.push_str(prep.base_sz);
-        pb.push_str(";\n    let __n1: i64 = ");
-        pb.push_str(prep.step_sz);
-        pb.push_str(";\n    return ");
+        push_size_bindings(&mut pb, "__n", &prep);
+        pb.push_str("    let __tb: JCTable = ");
+        pb.push_str(prep.tbl);
+        pb.push_str(";\n    let __ix: i64 = jc_order_pick(&__tb, __n0, __n1, __n2, __n3);\n");
+        pb.push_str("    return ");
         pb.push_str(tyn);
-        pb.push_str(" { dyn_order: true, swap: (__n1 > __n0), base_n: __n0, step_n: __n1, defer_order: false, why: ");
+        pb.push_str(" { dyn_order: true, defer_order: false, swap: (__ix == 1i64), order_ix: __ix, base_n: __n0, step_n: __n1, n2: __n2, n3: __n3, tbl: __tb, why: ");
         push_str_lit(&mut pb, prep.why);
         pb.push_str(" };\n");
     } else {
         // No fact was measured, so none is reported: -1 is "not asked", which a
         // caller can tell apart from an empty source.
+        //
+        // ⚠ A DEFERRED PLAN STILL CARRIES THE TABLE. `run` has to price the
+        // candidates and it prices them through the plan, so the table is the one
+        // part of a deferred decision that IS fixed when the plan is made — the rule
+        // without the answer, which is exactly what "deferred" means here.
         pb.push_str("    return ");
         pb.push_str(tyn);
-        pb.push_str(" { dyn_order: false, swap: false, base_n: -1i64, step_n: -1i64, defer_order: ");
+        pb.push_str(" { dyn_order: false, defer_order: ");
         if prep.deferred { pb.push_str("true"); } else { pb.push_str("false"); }
+        pb.push_str(", swap: false, order_ix: 0i64, base_n: -1i64, step_n: -1i64, n2: -1i64, n3: -1i64, tbl: ");
+        if prep.deferred { pb.push_str(prep.tbl); } else { pb.push_str("jc_table_none()"); }
         pb.push_str(", why: ");
-        // ⚠ THE DEFERRED GROUND NAMES THE TWO EXPRESSIONS, because for a deferred
-        // plan `base_n`/`step_n` are -1: the numbers do not exist until `run`, so
-        // the recorded text is the only account `explain()` can give of WHAT will
-        // be compared and where it comes from. The prepared case needs no such
+        // ⚠ THE DEFERRED GROUND NAMES THE EXPRESSIONS, because for a deferred plan
+        // every fact field is -1: the numbers do not exist until `run`, so the
+        // recorded text is the only account `explain()` can give of WHAT will be
+        // compared and where it comes from. The prepared case needs no such
         // appendix — its numbers are on the object.
         if prep.deferred {
             let mut wb: String = String::new();
             wb.push_str(prep.why);
             wb.push_str(" [in `run`: ");
-            wb.push_str(prep.base_sz);
-            wb.push_str(" vs ");
-            wb.push_str(prep.step_sz);
+            push_size_list(&mut wb, &prep);
             wb.push_str("]");
             push_str_lit(&mut pb, string_as_str(&wb));
         } else {
@@ -2114,58 +2197,191 @@ fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
     };
 }
 
-// ── The chain, TRANSPOSED — the base and the first step exchanged ────────────
+// ── The chain, REORDERED — one candidate order as a chain ────────────────────
 // The nest below is built from a JChain and from nothing else, so a second join
 // ORDER is a second chain rather than a second emitter. What actually differs
-// between driving from `a` and driving from `b` is FOUR things, and only the
-// first is a swap of names:
+// between one order and another is FOUR things, and only the first is a swap of
+// names:
 //
-//   1. the SOURCE of the outermost loop (`base_*`) and of the step;
-//   2. WHICH HALF of the equi-term is the build key: `equi_term_sides` splits
-//      the term by the step's NEW row var, so exchanging the vars exchanges
-//      build and probe — the index is built over the other side;
-//   3. therefore the STRATEGY itself is a different decision (the reverse
-//      direction may have no usable equi-key at all), which is why `alt_*`
-//      arrives from the planner instead of being re-derived here;
-//   4. the PREDICATE moves. `on` is stored on the step, but it constrains the
-//      PAIR: after the transposition it attaches to the source that is now the
-//      step, and the base — whichever source that is — carries none.
+//   1. the SOURCE of the outermost loop (`base_*`) and of each step;
+//   2. WHICH HALF of an equi-term is the build key: `equi_term_sides` splits the
+//      term by the step's NEW row var, so exchanging the vars exchanges build and
+//      probe — the index is built over the other side;
+//   3. therefore the STRATEGY itself is a different decision (a direction may have
+//      no usable equi-key at all), which is why the strategy triple arrives from
+//      the planner's candidate table instead of being re-derived here;
+//   4. the PREDICATES move. `on` is stored on a step, but it constrains the PAIR:
+//      in a candidate order each floating predicate attaches to the LAST of the
+//      vars it reads, and the base — whichever source that is — carries none. The
+//      derivation computed that placement and `conw` carries it.
 //
-// Everything AFTER position 1 is untouched, and that is a property of this
-// particular permutation: both transposed vars are bound by position 1 either
-// way, so no later predicate becomes unevaluable, no later predicate has to
-// merge with another (a step carries one `on`), and no later strategy changes.
-fn chain_swap_head(ch: &JChain, jo: &JoinOrder) -> JChain {
+// ⚠ PINNED STEPS ARE RE-INSERTED, NOT PERMUTED. An anti join and a traversal keep
+// their depth in the bound stream (`join_order` C3), so this function walks the
+// candidate's floatable order and drops each pinned step back in after exactly as
+// many floatable sources as preceded it in the query. Their whole row — predicate,
+// strategy, byval flag — comes off the ORIGINAL chain: nothing about a pinned step
+// was a candidate's decision to make.
+//
+// ⚠ CANDIDATE 0 REPRODUCES THE QUERY'S CHAIN EXACTLY, and it is built through this
+// same function rather than being passed through untouched. The identity
+// permutation with the derivation's own predicate placement and the planner's own
+// recorded strategies has to come out as the chain that was collected — and the
+// derivation ASSERTS that (`RJ_SHAPE` when the placement disagrees), so a shape
+// this reconstruction cannot express refuses instead of emitting a wrong nest.
+fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
+    let m: i64 = ch.n + 1i64;
+    let mut fl: [i64; 4] = [0i64; 4];
+    let mut nfl: i64 = 0i64;
+    let mut pin: [i64; 8] = [0i64; 8];
+    let mut pbc: [i64; 8] = [0i64; 8];
+    let mut npin: i64 = 0i64;
+    let mut s: i64 = 0i64;
+    while s < m {
+        if s > 0i64 && (ch.anti[s - 1i64] || ch.edge[s - 1i64]) {
+            pin[npin] = s;
+            pbc[npin] = nfl;
+            npin = npin + 1i64;
+        } else {
+            if nfl < 4i64 { fl[nfl] = s; }
+            nfl = nfl + 1i64;
+        }
+        s = s + 1i64;
+    }
+    let b: i64 = cix * JC_MAX_FL();
     let mut o: JChain = jchain_new();
-    o.base_src = ch.src[0];
-    o.base_ty  = ch.ty[0];
-    o.base_var = ch.var[0];
-    o.n = ch.n;
-    o.src[0]  = ch.base_src;
-    o.ty[0]   = ch.base_ty;
-    o.var[0]  = ch.base_var;
-    o.anti[0] = false;
-    o.onw[0]  = ch.onw[0];
-    o.jstrat[0] = jo.alt_strat;
-    o.jkey[0]   = jo.alt_key;
-    o.jsel[0]   = jo.alt_sel;
-    o.jwhy[0]   = jo.alt_why;
-    let mut i: i64 = 1i64;
-    while i < ch.n {
-        o.src[i]    = ch.src[i];
-        o.ty[i]     = ch.ty[i];
-        o.var[i]    = ch.var[i];
-        o.anti[i]   = ch.anti[i];
-        o.onw[i]    = ch.onw[i];
-        o.edge[i]   = ch.edge[i];
-        o.byval[i]  = ch.byval[i];
-        o.jstrat[i] = ch.jstrat[i];
-        o.jkey[i]   = ch.jkey[i];
-        o.jsel[i]   = ch.jsel[i];
-        o.jwhy[i]   = ch.jwhy[i];
+    let bs: i64 = fl[jo.cslot[b]];
+    o.base_src = jch_src(ch, bs);
+    o.base_ty  = jch_ty(ch, bs);
+    o.base_var = jch_var(ch, bs);
+    let mut k: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < nfl {
+        if j > 0i64 {
+            let sl: i64 = fl[jo.cslot[b + j]];
+            o.src[k]  = jch_src(ch, sl);
+            o.ty[k]   = jch_ty(ch, sl);
+            o.var[k]  = jch_var(ch, sl);
+            o.anti[k]  = false;
+            o.edge[k]  = false;
+            o.byval[k] = false;
+            o.onw[k]    = jo.conw[b + j];
+            o.jstrat[k] = jo.cstrat[b + j];
+            o.jkey[k]   = jo.ckey[b + j];
+            o.jsel[k]   = jo.csel[b + j];
+            o.jwhy[k]   = jo.cwhy[b + j];
+            k = k + 1i64;
+        }
+        let mut pi: i64 = 0i64;
+        while pi < npin {
+            if pbc[pi] == j + 1i64 {
+                let q: i64 = pin[pi] - 1i64;
+                o.src[k]  = ch.src[q];
+                o.ty[k]   = ch.ty[q];
+                o.var[k]  = ch.var[q];
+                o.anti[k]  = ch.anti[q];
+                o.edge[k]  = ch.edge[q];
+                o.byval[k] = ch.byval[q];
+                o.onw[k]    = ch.onw[q];
+                o.jstrat[k] = ch.jstrat[q];
+                o.jkey[k]   = ch.jkey[q];
+                o.jsel[k]   = ch.jsel[q];
+                o.jwhy[k]   = ch.jwhy[q];
+                k = k + 1i64;
+            }
+            pi = pi + 1i64;
+        }
+        j = j + 1i64;
+    }
+    o.n = k;
+    return o;
+}
+
+// SLOT 0 is the base and slot i+1 the i-th step. One index space over the whole
+// nest is what lets a permutation be a permutation of numbers; the three accessors
+// are the only place the base's separate fields and the step arrays meet.
+fn jch_src(ch: &JChain, s: i64) -> str {
+    if s == 0i64 { return ch.base_src; }
+    return ch.src[s - 1i64];
+}
+fn jch_ty(ch: &JChain, s: i64) -> str {
+    if s == 0i64 { return ch.base_ty; }
+    return ch.ty[s - 1i64];
+}
+fn jch_var(ch: &JChain, s: i64) -> str {
+    if s == 0i64 { return ch.base_var; }
+    return ch.var[s - 1i64];
+}
+
+/// The chain as the join-order derivation sees it: one index space, the two pin
+/// flags, and the strategy the planner recorded. Copied rather than shared, so
+/// `join_order` cannot come to depend on an emitter detail.
+fn jch_of(ch: &JChain) -> JCh {
+    let mut c: JCh = jch_new();
+    c.n = ch.n;
+    let m: i64 = ch.n + 1i64;
+    let mut s: i64 = 0i64;
+    while s < m {
+        c.src[s] = jch_src(ch, s);
+        c.var[s] = jch_var(ch, s);
+        if s > 0i64 {
+            c.onw[s]   = ch.onw[s - 1i64];
+            c.anti[s]  = ch.anti[s - 1i64];
+            c.edge[s]  = ch.edge[s - 1i64];
+            c.strat[s] = ch.jstrat[s - 1i64];
+            c.key[s]   = ch.jkey[s - 1i64];
+            c.sel[s]   = ch.jsel[s - 1i64];
+            c.swhy[s]  = ch.jwhy[s - 1i64];
+        }
+        s = s + 1i64;
+    }
+    return c;
+}
+
+/// The `JCTable` a plan carries, as a struct-literal text. All sixteen cells are
+/// written even though `jc_order_cost` never reads past `ncand * JC_MAX_FL`: an
+/// array literal has a fixed length and a partially-written one would be a shape
+/// that depends on the query.
+fn push_jctable(out: &mut String, jo: &JoinOrder) {
+    out.push_str("JCTable { ncand: ");
+    out.push_i64(jo.ncand);
+    out.push_str("i64, nfl: ");
+    out.push_i64(jo.nfl);
+    out.push_str("i64, slot: [");
+    let mut i: i64 = 0i64;
+    while i < 16i64 {
+        if i > 0i64 { out.push_str(", "); }
+        out.push_i64(jo.cslot[i]);
+        out.push_str("i64");
         i = i + 1i64;
     }
-    return o;
+    out.push_str("], role: [");
+    let mut r: i64 = 0i64;
+    while r < 16i64 {
+        if r > 0i64 { out.push_str(", "); }
+        out.push_i64(jo.crole[r]);
+        out.push_str("i64");
+        r = r + 1i64;
+    }
+    out.push_str("] }");
+}
+
+/// ONE CANDIDATE's whole branch: its build phases and its nest, as a single block.
+/// A function because `ncand` of them are needed and a nest spelled twice would be
+/// two chances to diverge in exactly the place where divergence is silent — a
+/// mis-collected index tuple is a wrong row, not a crash.
+fn cand_branch(ch: &JChain, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
+               h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
+               where_body: str, key_body: str, proj_f: ExprBlob, result_ty: str,
+               lim_f: ExprBlob, has_lim_use: bool, qvars: &[str; 9], nq: i64,
+               out: &mut ExprBlob) -> bool {
+    let cch: JChain = chain_reorder(ch, jo, cix);
+    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut nst: ExprBlob = quote_block! { };
+    if !chain_nest_frag(&cch, ty, prm, h, has_sort, first, distinct, has_where,
+                        where_body, key_body, proj_f, result_ty, lim_f, has_lim_use,
+                        qvars, nq, &mut bps, &mut nst) { return false; }
+    *out = quote_block! { #( #bps; )* #(nst); };
+    return true;
 }
 
 // Which `__ix` slot does the source bound to `v` own? The QUERY position, not
@@ -2338,13 +2554,14 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
 // materialized and insertion-sorted before the projection loop — all existing
 // modifiers compose over joined rows unchanged.
 //
-// EITHER SIDE MAY DRIVE (ADR 0024 S4). The nest is a function of the chain
-// (`chain_nest_frag`), so a second join order is a second chain
-// (`chain_swap_head`) and not a second emitter. When the plan
-// (`logos.std.wql.join_order`) admits both, BOTH nests are emitted and a
-// discriminant computed once in the prelude's scope — the sizes the plan asked
-// for — picks the one that indexes the SMALLER side. When it does not, only the
-// query's own order is emitted and the refusal carries its ground.
+// THE JOIN ORDER IS A DECISION OVER A SET (ADR 0024 S4/S4k). The nest is a
+// function of the chain (`chain_nest_frag`), so another join order is another chain
+// (`chain_reorder`) and not another emitter. `logos.std.wql.join_order` DERIVES the
+// admissible set from the constraints the emitter actually imposes; every carried
+// order is emitted as its own nest, and one discriminant — computed once in
+// `prepare`, or once in the prelude's scope when the numbers are only free there —
+// selects the cheapest by `logos.std.wql.join_cost`. When the derivation admits one
+// order, only the query's own is emitted and the refusal carries its ground.
 fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
@@ -2489,90 +2706,118 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         rty.push_str(">, ElError>");
     }
 
-    // 7. THE JOIN ORDER — one nest, or two and a discriminant.
+    // 7. THE JOIN ORDER — one nest, or a set of them under a discriminant.
     //
     // The plan is asked FIRST, because what it answers is how many nests the body
-    // has. When it admits a second order, the transposed chain is built as a
-    // second nest and the two sit under a test of the PLAN's own field; both fill
-    // the same `__out` / `__ix*` / `__ks` bindings, declared outside them, so
-    // nothing downstream of the nest knows which one ran.
+    // has. Every admissible order becomes its own chain and its own nest, and they
+    // sit under a test of the PLAN's own field; all of them fill the same `__out` /
+    // `__ix*` / `__ks` bindings, declared outside them, so nothing downstream of
+    // the nest knows which one ran.
     //
-    // ⚠ THE DISCRIMINANT IS NO LONGER AN EXPRESSION IN THIS BODY (ADR 0024 S4i).
-    // It is `__pl.swap` — a field of the prepared plan the `_run` fn was handed —
-    // so the sizes are compared ONCE, in `prepare`, and not on every call. The
-    // per-row shape is untouched either way: one branch outside every loop.
+    // ⚠ THE DISCRIMINANT IS NOT AN EXPRESSION IN THIS BODY (ADR 0024 S4i). It is
+    // `__pl.order_ix` — a field of the prepared plan the `_run` fn was handed — so
+    // the cost function ran ONCE, in `prepare`, and not on every call. The per-row
+    // shape is untouched however many candidates there are: ONE branch chain,
+    // outside every loop.
     //
     // ⚠ UNLESS THE DECISION IS DEFERRED (ADR 0024 S4j), in which case it is
-    // `__defer_swap` — a local bound in the PRELUDE REGION, between the
-    // materializations and the join's index build, from two `len()` reads on
-    // bindings the prelude already made. The shape is identical to the prepared
-    // one where it matters: three statements at body level, one branch above every
-    // loop, nothing per row. What differs is only WHERE the number came from, and
+    // `__defer_ix` — a local bound in the PRELUDE REGION, between the
+    // materializations and the join's index build, from `len()` reads on bindings
+    // the prelude already made. The shape is identical to the prepared one where it
+    // matters: `nfl + 1` statements at body level, one branch chain above every
+    // loop, nothing per row. What differs is only WHERE the numbers came from, and
     // therefore whether the choice is reusable.
     //
     // ⚠ The build phases stay at BODY level in the one-nest case. A join body was
     // flat before this and must stay flat: an extra scope is not cosmetic here
     // (ADR 0024 S5 records a stdlib build failing on "use of moved variable
-    // `__out`" from exactly one), so the two-nest form is the only one that
+    // `__out`" from exactly one), so the multi-nest form is the only one that
     // introduces a block, and there it is the branch itself.
-    let mut bszb: String = String::new();
-    let mut sszb: String = String::new();
-    let mut bat: i64 = -1i64;
-    let mut sat: i64 = -1i64;
-    let jo: JoinOrder = decide_join_order(ch.n, ch.base_src, ch.base_var,
-                                          ch.src[0], ch.var[0],
-                                          WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[0] as *const u8)),
-                                          ch.edge[0], ch.anti[0], ch.jstrat[0],
-                                          has_sort, &ty, prm, h,
-                                          &mut bszb, &mut sszb, &mut bat, &mut sat);
-    // The measurement `prepare` needs: the declared reporters the two size
-    // expressions call, and ONLY those — a plan does not measure what it will not
-    // compare.
+    let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
+    let mut ats: [i64; 4] = [-1i64; 4];
+    let jc: JCh = jch_of(&ch);
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, &ty, prm, h, &mut szs, &mut ats);
+
+    // The measurement `prepare` needs: the declared reporters the size expressions
+    // call, and ONLY those — a plan does not measure what it will not compare. The
+    // same rel may supply two positions' numbers, so a reporter already bound is
+    // not bound twice.
     //
-    // ⚠ NOTHING IS MEASURED FOR A DEFERRED DECISION. `bat`/`sat` come back -1 and
-    // the deferred expressions are `len()` reads, not reporter calls — a plan that
-    // emitted a reporter call it would not compare, or a call whose cost it could
-    // not account for, is exactly what point (2) exists to avoid.
+    // ⚠ NOTHING IS MEASURED FOR A DEFERRED DECISION. Every `ats` entry comes back
+    // -1 and the deferred expressions are `len()` reads, not reporter calls — a plan
+    // that emitted a reporter call it would not compare, or a call whose cost it
+    // could not account for, is exactly what point (2) exists to avoid.
     let mut meas: String = String::new();
     if jo.dynamic && !jo.deferred {
-        if bat >= 0i64 { size_binding_text(&mut meas, prm, bat); }
-        if sat >= 0i64 && sat != bat { size_binding_text(&mut meas, prm, sat); }
+        let mut mi: i64 = 0i64;
+        while mi < jo.nfl {
+            if ats[mi] >= 0i64 {
+                let mut seen: bool = false;
+                let mut mj: i64 = 0i64;
+                while mj < mi {
+                    if ats[mj] == ats[mi] { seen = true; }
+                    mj = mj + 1i64;
+                }
+                if !seen { size_binding_text(&mut meas, prm, ats[mi]); }
+            }
+            mi = mi + 1i64;
+        }
     }
+    let mut tblb: String = String::new();
+    if jo.dynamic { push_jctable(&mut tblb, &jo); }
+
     let mut top_bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nest_all: ExprBlob = quote_block! { };
     let mut defer_f: ExprBlob = quote_block! { };
     if jo.dynamic {
-        let mut bps_a: Vec<ExprBlob> = vec_new::<ExprBlob>();
-        let mut nest_a: ExprBlob = quote_block! { };
-        if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
-                            has_where, string_as_str(&where_body), string_as_str(&key_body),
-                            proj_f, result_ty, lim_f, has_lim_use,
-                            &bnd_var, nb, &mut bps_a, &mut nest_a) { return false; }
-        let chb: JChain = chain_swap_head(&ch, &jo);
-        let mut bps_b: Vec<ExprBlob> = vec_new::<ExprBlob>();
-        let mut nest_b: ExprBlob = quote_block! { };
-        if !chain_nest_frag(&chb, &ty, prm, h, has_sort, first, mods.distinct,
-                            has_where, string_as_str(&where_body), string_as_str(&key_body),
-                            proj_f, result_ty, lim_f, has_lim_use,
-                            &bnd_var, nb, &mut bps_b, &mut nest_b) { return false; }
-        let br_b: ExprBlob = quote_block! { #( #bps_b; )* #(nest_b); };
-        let br_a: ExprBlob = quote_block! { #( #bps_a; )* #(nest_a); };
-        let mut disc_f: ExprBlob = parse_expr("__pl.swap");
+        // The DISCRIMINANT, and for a deferred decision the statements that bind it.
+        // They go where the plan's field read would have gone — at body level, above
+        // the nest — and the rule is the PLAN's method, which is `join_cost`'s one
+        // function, so the two decision points cannot answer differently from the
+        // same numbers.
+        let mut disc: str = "__pl.order_ix";
         if jo.deferred {
-            // The three statements of the deferred half. They go where the plan's
-            // field read would have gone — at body level, above the nest — and the
-            // rule is the PLAN's method, so the two decision points cannot answer
-            // differently from the same pair of numbers.
-            let b0_f: ExprBlob = parse_expr(string_as_str(&bszb));
-            let s0_f: ExprBlob = parse_expr(string_as_str(&sszb));
-            defer_f = quote_block! {
-                let __defer_n0: i64 = #(b0_f);
-                let __defer_n1: i64 = #(s0_f);
-                let __defer_swap: bool = __pl.order_swap(__defer_n0, __defer_n1);
-            };
-            disc_f = parse_expr("__defer_swap");
+            let mut dfb: String = String::new();
+            dfb.push_str("{\n");
+            let mut dk2: i64 = 0i64;
+            while dk2 < 4i64 {
+                dfb.push_str("    let __defer_n");
+                dfb.push_i64(dk2);
+                dfb.push_str(": i64 = ");
+                if dk2 < jo.nfl { dfb.push_str(string_as_str(&szs[dk2])); }
+                else            { dfb.push_str("-1i64"); }
+                dfb.push_str(";\n");
+                dk2 = dk2 + 1i64;
+            }
+            dfb.push_str("    let __defer_ix: i64 = __pl.order_pick(__defer_n0, __defer_n1, __defer_n2, __defer_n3);\n}\n");
+            defer_f = parse_block(string_as_str(&dfb));
+            disc = "__defer_ix";
         }
-        nest_all = quote_block! { if (#(disc_f)) #(br_b) else #(br_a) };
+        // Candidate 0 is the query's own order and is the final `else`, so a plan
+        // that somehow reports an index it did not carry runs the order the query
+        // wrote rather than nothing at all.
+        let mut acc: ExprBlob = quote_block! { };
+        if !cand_branch(&ch, &jo, 0i64, &ty, prm, h, has_sort, first, mods.distinct,
+                        has_where, string_as_str(&where_body), string_as_str(&key_body),
+                        proj_f, result_ty, lim_f, has_lim_use, &bnd_var, nb,
+                        &mut acc) { return false; }
+        let mut ci: i64 = 1i64;
+        while ci < jo.ncand {
+            let mut br: ExprBlob = quote_block! { };
+            if !cand_branch(&ch, &jo, ci, &ty, prm, h, has_sort, first, mods.distinct,
+                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            proj_f, result_ty, lim_f, has_lim_use, &bnd_var, nb,
+                            &mut br) { return false; }
+            let mut cb: String = String::new();
+            cb.push_str(disc);
+            cb.push_str(" == ");
+            cb.push_i64(ci);
+            cb.push_str("i64");
+            let cond: ExprBlob = parse_expr(string_as_str(&cb));
+            acc = quote_block! { if (#(cond)) #(br) else #(acc) };
+            ci = ci + 1i64;
+        }
+        nest_all = acc;
     } else {
         if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
                             has_where, string_as_str(&where_body), string_as_str(&key_body),
@@ -2686,10 +2931,15 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut prp: Prepared = prep_fixed(jo.why);
     if jo.dynamic {
         if jo.deferred {
-            prp = prep_deferred(string_as_str(&bszb), string_as_str(&sszb), jo.why);
+            prp = prep_deferred(jo.nfl, jo.ncand,
+                                string_as_str(&szs[0]), string_as_str(&szs[1]),
+                                string_as_str(&szs[2]), string_as_str(&szs[3]),
+                                string_as_str(&tblb), jo.why);
         } else {
-            prp = prep_dyn(string_as_str(&bszb), string_as_str(&sszb),
-                           string_as_str(&meas), jo.why);
+            prp = prep_dyn(jo.nfl, jo.ncand,
+                           string_as_str(&szs[0]), string_as_str(&szs[1]),
+                           string_as_str(&szs[2]), string_as_str(&szs[3]),
+                           string_as_str(&meas), string_as_str(&tblb), jo.why);
         }
     }
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);

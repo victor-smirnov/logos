@@ -1,4 +1,4 @@
-// logos.std.wql.join_order — WHICH SIDE DRIVES THE JOIN (ADR 0024 S4).
+// logos.std.wql.join_order — WHICH ORDER DRIVES THE JOIN (ADR 0024 S4).
 //
 // A left-deep join has a BASE — the outermost loop, read once, scanned whole —
 // and STEPS, each indexed or rescanned per bound row. Until this module existed
@@ -9,16 +9,15 @@
 // nearly always the same answer (a narrowing over an ordered source is never
 // meaningfully worse than a scan — one descent against zero, never more rows).
 //
-// So the answer is not a better compile-time guess. It is TWO orders in the
+// So the answer is not a better compile-time guess. It is a SET of orders in the
 // emitted code and a DISCRIMINANT the plan owns: the sizes the plan asked for
-// (S4g) are compared once and the branch taken indexes the SMALLER side and
-// walks the larger.
+// (S4g) are compared once, and the branch taken is the cheapest order.
 //
 // ⚠ THAT COMPARISON IS NOT MADE HERE AND NOT IN THE QUERY'S BODY. It is made in
 // the query's PREPARE fn and recorded on the plan object (ADR 0024 S4i,
 // `logos.std.wql.prepared`) — decided once, applied many times, which is what
 // makes it a plan rather than a per-call test. What this module hands over is
-// therefore the two size EXPRESSIONS plus the ground.
+// therefore the size EXPRESSIONS, the ADMISSIBLE SET, and the ground.
 //
 // ⚠ AND THERE ARE TWO MOMENTS TO HAND THEM OVER FOR (ADR 0024 S4j). S4i read its
 // own tightening too widely: a size that only exists after the query's prelude
@@ -28,28 +27,89 @@
 // answers TWICE, in order: first with what `prepare` can have (`size_expr_of`),
 // and where that fails, with what `run` can have for nothing
 // (`run_size_expr_of`). A refusal survives only where NEITHER point has a number,
-// which after this slice means exactly one thing: a side that STREAMS, whose
+// which after that slice means exactly one thing: a side that STREAMS, whose
 // length would cost draining the iterator — the query's own work traded for a
 // plan fact, the error this axis exists to avoid.
 //
-// ⚠ WHAT REORDERING IS NOT ALLOWED TO DO IS CHANGE THE ANSWER, and for a join
-// the answer includes the ORDER of the rows. Deem's default row order IS the
-// nest's: `from a x join b y` yields a-major, and every e2e expectation in the
-// tree reads that way. Driving from `b` yields the same multiset in b-major
-// order — the same rows, a different sequence, which is a semantic change and
-// exactly the failure mode that does not crash. So the reorder is offered only
-// where the query names an order of its own AND the emitted sort is TOTAL:
-// `order by` collects the matched row-index tuples and sorts them, and with the
-// tuple itself as the tiebreak (in QUERY source order — `sort_perm_frag`) the
-// sorted sequence is the same whichever nest produced it. Without `order by`
-// there is nothing to restore the sequence to, and the plan says so instead of
-// reordering anyway.
+// ── BEYOND THE FIRST PAIR (ADR 0024 S4k) ─────────────────────────────────────
+// S4h–S4j transposed the FIRST PAIR and compared the two candidates by one number
+// each. With three or more sources that stopped being a decision: it compared two
+// members of a space and it compared them on a fact that does not distinguish the
+// rest of it. What this module does now is DERIVE the admissible set and hand the
+// whole set over, priced by ONE cost function that lives in `join_cost` and is
+// called by the generated plan at run time.
 //
-// The other refusals are semantic, not conservative: an ANTI join is not
-// symmetric (rows of `a` with no matching `b` is a different question from rows
-// of `b` with no matching `a`), and a TRAVERSAL step's source is a field path of
-// an outer row, so it cannot be an outermost loop at all — there is nothing to
-// bind its base to.
+// THE CONSTRAINT SET, and every one of them is derived from what the emitter
+// actually requires — an illegal order does not crash, it silently returns
+// different rows:
+//
+//   C1 A TOTAL SORT IS THE LICENCE. Deem's default row order IS the nest's:
+//      `from a x join b y` yields a-major, and every e2e expectation in the tree
+//      reads that way. Driving from `b` yields the same multiset in b-major order
+//      — the same rows, a different sequence, which is a semantic change and
+//      exactly the failure mode that does not crash. `order by` collects the
+//      matched row-index tuples and sorts them, and with the tuple itself as the
+//      tiebreak (in QUERY source order — `sort_perm_frag`) the sorted sequence is
+//      the same whichever nest produced it. Without `order by` there is nothing to
+//      restore the sequence to, and the plan says so instead of reordering anyway.
+//
+//   C2 A PLAN MUST HAVE DECIDED THE CHAIN. A step whose strategy is JS_NONE was
+//      never looked at by a planner (a rel body's own chain is emitted per
+//      fixpoint variant), so there is no decision to offer a second order for and
+//      no recorded strategy to reason from.
+//
+//   C3 A PINNED STEP KEEPS ITS DEPTH IN THE BOUND STREAM. An ANTI step's
+//      predicate is inseparable from its source — "rows of a with no matching b"
+//      is not "rows of b with no matching a" — and a TRAVERSAL step's source is a
+//      FIELD PATH of an outer row, so it cannot be an outermost loop at all:
+//      there is nothing to bind its base to. Both are therefore PINNED: they may
+//      not be the base, and they are re-inserted after exactly as many floatable
+//      sources as preceded them in the query. What still has to be checked per
+//      candidate is C4.
+//
+//   C4 EVERY SLOT'S DEPENDENCIES PRECEDE IT. A pinned step's `on` and (for a
+//      traversal) its SOURCE EXPRESSION reference row vars; those vars must be
+//      bound earlier in the candidate. This is the constraint that does the work
+//      on real chains — it is what makes a 4-source chain whose anti join depends
+//      on the query's base admit no other order at all.
+//
+//   C5 `on` MOVES WITH THE TRANSPOSITION, AND ONE STEP CARRIES ONE. The predicate
+//      is stored on a step but it constrains the PAIR, so in a candidate order
+//      each floating predicate attaches to the LAST of the vars it references —
+//      the earliest position at which it is evaluable. An order in which two
+//      predicates land on one position is INADMISSIBLE, because a step carries one
+//      `on` and nothing here builds a conjunction; an order in which a predicate
+//      lands on the BASE is inadmissible for the same reason the base carries no
+//      predicate: nothing has bound its other side.
+//
+//   C6 A CANDIDATE MAY NOT TURN A READ-ONCE SOURCE INTO A RESCANNED ONE. HASH and
+//      TREE read a step's source exactly once and LOOP rescans it
+//      (`join_sel::js_reads_once`), and `plan_walker` decided materialize-vs-
+//      stream against the strategies the query's own order got. A candidate that
+//      degrades one of them would have the emitted nest read a source the plan may
+//      have left as a consumed iterator — which does not run slowly, it silently
+//      returns fewer rows.
+//
+//   C7 A CANDIDATE THAT CANNOT BE CHEAPER IS NOT A CANDIDATE. Two orders whose
+//      (size expression, role) sequences are equal cost the same for every
+//      possible data, so the second is a nest no measurement could ever select.
+//      A self-join is the pair-shaped instance: both sides are the same binding,
+//      so the two sizes are equal by construction.
+//
+// ⚠ THE FIRST STEP'S PIN IS STILL CHECKED AHEAD OF THE DERIVATION, and that is a
+// deliberate boundary rather than an oversight. This axis is entered on the first
+// pair: when the query's own first join is an anti or a traversal, the pair it
+// would transpose does not exist, and the general derivation reaches the same
+// conclusion by C4 in every shape the corpus contains (the pinned step's `on`
+// references the base's var, so the base is forced and only the query's own order
+// survives). Keeping the specific antecedent means a reader of the trace is told
+// WHICH property of their query stopped the reorder instead of being told that
+// one order survived.
+//
+// ⚠ WHAT THE PLAN DOES NOT KNOW: nothing in this compiler reports a join's
+// SELECTIVITY, so `join_cost` assumes a fixed one and says so. And a pinned step
+// is UNPRICED — a traversal's field-path length and an anti's filtered fraction
+// are facts no source declares.
 package logos.std.wql.join_order;
 
 use logos.lang.str;
@@ -60,39 +120,102 @@ use logos.std.wql.ir;             // SExpr / WRef
 use logos.std.wql.el;             // ElTypes
 use logos.std.wql.codegen;        // plan_trace / string_as_str — the ONE decision channel
 use logos.std.wql.params;         // MacroParams — the rel registry (sizes, streaming)
+use logos.std.wql.optimize;       // refs_mask — which vars a predicate reads
 use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name / StepSel
+use logos.std.wql.join_cost;      // THE cost model: roles, bounds, weights
+
+// ── The chain, as this module sees it ────────────────────────────────────────
+// SLOT 0 is the base and slot i+1 the i-th step, so one index space covers the
+// whole nest and a permutation is a permutation of slots. The emitter owns the
+// richer `JChain` (row types, byval flags, the recorded key/sel triples); what a
+// join-order derivation needs is the source text, the row var, the predicate, the
+// two pin flags and the recorded strategy — copied in rather than reached for, so
+// this module cannot accidentally depend on an emitter detail.
+pub struct JCh {
+    pub n:     i64,
+    pub src:   [str; 9],
+    pub var:   [str; 9],
+    pub onw:   [i64; 9],
+    pub anti:  [bool; 9],
+    pub edge:  [bool; 9],
+    pub strat: [i32; 9],
+    pub key:   [i32; 9],
+    pub sel:   [i64; 9],
+    pub swhy:  [str; 9],
+}
+
+pub fn jch_new() -> JCh {
+    return JCh { n: 0i64,
+                 src:  ["", "", "", "", "", "", "", "", ""],
+                 var:  ["", "", "", "", "", "", "", "", ""],
+                 onw:  [0i64; 9],
+                 anti: [false; 9],
+                 edge: [false; 9],
+                 strat: [0i32; 9],
+                 key:   [0i32; 9],
+                 sel:   [-1i64; 9],
+                 swhy: ["", "", "", "", "", "", "", "", ""] };
+}
 
 // ── The decision ──────────────────────────────────────────────────────────
-// `dynamic` — the emitted code carries BOTH orders and picks at run time;
-// otherwise the query's own order is the only one emitted (no code growth for a
-// query that cannot use a second one). `why` is the ground either way, because
-// "the plan left this order alone" is the answer a person reading a slow join
-// needs and it is the one a decision recorded only on success cannot give.
+// `ncand` — HOW MANY NESTS the artifact carries. 1 means the query's own order and
+// no discriminant (no code growth for a query that cannot use a second one);
+// 2 is the pair case this generalizes; up to `JC_MAX_CAND()`.
 //
-// `alt_*` is the transposed order's decision for the step it moves, made HERE
-// and stamped onto the reordered chain rather than re-derived by the emitter:
-// the moved step binds a different row var, so its equi-key and therefore its
-// strategy are a different question from the one the planner already answered,
-// and both answers come out of the one copy of the rule (`join_sel`).
+// `dynamic` is `ncand > 1` — kept as its own field because it is what every
+// consumer actually asks.
 //
-// `deferred` — the two nests exist, but the DISCRIMINANT is not a field of the
+// `why` is the ground either way, because "the plan left this order alone" is the
+// answer a person reading a slow join needs and it is the one a decision recorded
+// only on success cannot give.
+//
+// `nperm` / `nadm` — the permutations ENUMERATED and the ones that survived the
+// constraint set. They are on the decision because the count is part of the
+// justification: `nadm > JC_MAX_CAND()` is the one case where the plan refuses an
+// order it proved legal, and a reader has to be able to see that it did.
+//
+// `cslot` / `conw` / `crole` / `cstrat` / `ckey` / `csel` / `cwhy` — the candidate
+// table, `JC_MAX_FL()`-strided. For candidate `c` at floatable position `j`:
+// WHICH FLOATABLE SOURCE sits there — by its QUERY index among the floatable
+// sources, which is also the index of its size fact on the plan, so a candidate is
+// a permutation and a `JCTable` row at once (`fl` maps it back to a chain slot) —
+// then WHICH PREDICATE lands on it, the cost role, and the
+// strategy triple that position's step runs under. The strategies are decided HERE
+// and stamped onto the reordered chain rather than re-derived by the emitter: a
+// moved step binds a different row var, so its equi-key and therefore its strategy
+// are a different question from the one the planner already answered, and both
+// answers come out of the one copy of the rule (`join_sel`).
+//
+// `deferred` — the nests exist, but the DISCRIMINANT is not a field of the
 // prepared plan: the numbers only become free inside `run` (ADR 0024 S4j), so the
-// comparison is made there, once, above the nest. `dynamic` still means "two
-// nests are emitted" either way; `deferred` says WHICH of the two decision points
+// comparison is made there, once, above the nest. `dynamic` still means "more than
+// one nest is emitted" either way; `deferred` says WHICH of the two decision points
 // filled the discriminant, and the emitter reads exactly that.
 pub struct JoinOrder {
-    pub dynamic:   bool,
-    pub deferred:  bool,
-    pub why:       str,
-    pub alt_strat: i32,
-    pub alt_key:   i32,
-    pub alt_sel:   i64,
-    pub alt_why:   str,
+    pub dynamic:  bool,
+    pub deferred: bool,
+    pub ncand:    i64,
+    pub nfl:      i64,
+    pub nperm:    i64,
+    pub nadm:     i64,
+    pub why:      str,
+    pub fl:       [i64; 4],
+    pub cslot:    [i64; 16],
+    pub conw:     [i64; 16],
+    pub crole:    [i64; 16],
+    pub cstrat:   [i32; 16],
+    pub ckey:     [i32; 16],
+    pub csel:     [i64; 16],
+    pub cwhy:     [str; 16],
 }
 
 fn jo_fixed(why: str) -> JoinOrder {
-    return JoinOrder { dynamic: false, deferred: false, why: why, alt_strat: JS_NONE(),
-                       alt_key: 0i32, alt_sel: -1i64, alt_why: "" };
+    return JoinOrder { dynamic: false, deferred: false, ncand: 1i64, nfl: 0i64,
+                       nperm: 0i64, nadm: 0i64, why: why,
+                       fl: [0i64; 4],
+                       cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
+                       cstrat: [0i32; 16], ckey: [0i32; 16], csel: [-1i64; 16],
+                       cwhy: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] };
 }
 
 /// A source's SIZE, as an expression evaluable in the PREPARE fn — that is,
@@ -170,129 +293,621 @@ fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
     return true;
 }
 
-/// Decide whether the FIRST join of a chain may be driven from either side.
+// ── Does a predicate / a source expression read a row var? ───────────────────
+// `refs_mask` answers about ONE name at a time and bit 0 is "references it", so a
+// dependency SET is that question asked per chain var. Written here rather than
+// inlined because C4 and C5 both ask it and they must ask it the same way.
+fn refs_var(w: i64, v: str) -> bool {
+    if w == 0i64 { return false; }
+    if v.len() == 0i64 { return false; }
+    let e: SExpr = WAny::ref_to(w as *const u8).view::<SExpr>();
+    return (refs_mask(e, v) & 1i32) != 0i32;
+}
+
+/// Does the SOURCE TEXT `s` name the row var `v` as its path root? A traversal
+/// step's source is `d.emps` — a field path of an outer row — so the dependency is
+/// in the text, not in a predicate.
 ///
-/// The candidate transposition is always the first two sources, and that is not
-/// a restriction of convenience: swapping positions 0 and 1 leaves every LATER
-/// step's bound set exactly as it was (both vars are bound by position 1 either
-/// way), so no later predicate moves and no later strategy changes. Any other
-/// permutation can force two predicates onto one position, and a step carries
-/// one `on`.
+/// ⚠ A PREFIX MATCH IS NOT ENOUGH: `d` must not match `depts`. The character after
+/// the prefix has to be a non-identifier one, which is what makes `d.emps` a
+/// reference to `d` and `depts` not.
+fn src_refs_var(s: str, v: str) -> bool {
+    if v.len() == 0i64 { return false; }
+    if s.len() < v.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        if str_byte_at(s, i) != str_byte_at(v, i) { return false; }
+        i = i + 1i64;
+    }
+    if s.len() == v.len() { return true; }
+    let c: u8 = str_byte_at(s, v.len());
+    if c >= 48u8 && c <= 57u8 { return false; }
+    if c >= 65u8 && c <= 90u8 { return false; }
+    if c >= 97u8 && c <= 122u8 { return false; }
+    if c == 95u8 { return false; }
+    return true;
+}
+
+/// The next permutation of `p[0..n)` in lexicographic order; false when `p` is the
+/// last one. Lexicographic and not Heap's, because the enumeration must START at
+/// the identity — candidate 0 has to be the query's own order, both so that a tie
+/// keeps the rows where the query put them and so that the recorded strategies of
+/// candidate 0 are the ones the planner already decided.
+fn next_perm(p: &mut [i64; 4], n: i64) -> bool {
+    if n < 2i64 { return false; }
+    let mut i: i64 = n - 2i64;
+    loop {
+        if i < 0i64 { return false; }
+        if p[i] < p[i + 1i64] { break; }
+        i = i - 1i64;
+    }
+    let mut j: i64 = n - 1i64;
+    while p[j] <= p[i] { j = j - 1i64; }
+    let t: i64 = p[i];
+    p[i] = p[j];
+    p[j] = t;
+    let mut a: i64 = i + 1i64;
+    let mut b: i64 = n - 1i64;
+    while a < b {
+        let u: i64 = p[a];
+        p[a] = p[b];
+        p[b] = u;
+        a = a + 1i64;
+        b = b - 1i64;
+    }
+    return true;
+}
+
+// ── Rejection grounds ────────────────────────────────────────────────────────
+// A code per constraint, so the census the trace prints and the ground the plan
+// records come from one table. `RJ_NONE` is admitted.
+fn RJ_NONE() -> i32     { return 0i32; }
+fn RJ_PINDEP() -> i32   { return 1i32; }
+fn RJ_PREDBASE() -> i32 { return 2i32; }
+fn RJ_PREDDUP() -> i32  { return 3i32; }
+fn RJ_RESCAN() -> i32   { return 4i32; }
+fn RJ_DEDUP() -> i32    { return 5i32; }
+fn RJ_SHAPE() -> i32    { return 6i32; }
+fn RJ_PREDPIN() -> i32  { return 7i32; }
+
+fn rj_words(r: i32, nfl: i64) -> str {
+    if r == RJ_PINDEP() {
+        return "C4: a pinned step (an anti join or a traversal) would stand before a row var its `on` or its field-path source reads — the dependency is not bound yet at that depth";
+    }
+    if r == RJ_PREDBASE() {
+        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — nothing has bound its other side at that position";
+    }
+    if r == RJ_PREDDUP() {
+        return "C5: two join predicates land on the same position and a step carries one `on` — this order would need a conjunction, which nothing here builds";
+    }
+    // ⚠ A SEPARATE GROUND, not a variant of the one above, because the antecedent
+    // that failed is a different one: nothing collided here — the predicate's
+    // last-bound var simply belongs to a step whose `on` is not a floating
+    // predicate's to take. Naming the collision instead would send a reader looking
+    // for a second predicate that does not exist.
+    if r == RJ_PREDPIN() {
+        return "C5: a join predicate's last-bound var belongs to a PINNED step (an anti join or a traversal), whose `on` is its own — nothing here re-attaches a floating predicate to one, so the predicate has no evaluable position in this order";
+    }
+    if r == RJ_RESCAN() {
+        if nfl == 2i64 {
+            return "the reverse direction has no equi-key that can be indexed, so driving the other side would rescan a source the query order reads once";
+        }
+        return "C6: this order has no indexable equi-key for a source the query's order reads exactly once, so it would rescan what the plan may already have left as a consumed iterator";
+    }
+    if r == RJ_DEDUP() {
+        if nfl == 2i64 {
+            return "both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen";
+        }
+        return "C7: this order's (size, role) sequence is the one an earlier candidate already has, so it costs the same for every possible data and no measurement could ever select it";
+    }
+    if r == RJ_SHAPE() {
+        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place";
+    }
+    return "admitted";
+}
+
+/// Render a candidate's row-var sequence, for the trace's census. The subject of a
+/// per-candidate line has to name the ORDER, and an order is its sources.
+fn push_seq(out: &mut String, c: &JCh, seq: &[i64; 9], np: i64) {
+    let mut i: i64 = 0i64;
+    while i < np {
+        if i > 0i64 { out.push_str(">"); }
+        out.push_str(c.var[seq[i]]);
+        i = i + 1i64;
+    }
+}
+
+// ── The derivation ───────────────────────────────────────────────────────────
+/// Enumerate the permutations of the floatable sources, apply C3–C7, and fill the
+/// candidate table with the ones that survive (up to `JC_MAX_CAND()`).
 ///
-/// Returns the decision. `bsz`/`ssz` receive the two side SIZES as expressions
-/// and `bat`/`sat` the rel whose declared reporter each one calls (-1 for a
-/// parameter's own `.len()`), so the PREPARE fn can bind exactly the reporters
-/// its comparison reads. The comparison itself is NOT built here: it is made in
-/// one place per decision point — the emitted `prepare` for a prepared decision
-/// (which is also where its result is recorded on the plan, so the branch reads
-/// the plan's field and cannot disagree with the number the plan reports, ADR 0024
-/// S4i), or the one deferred binding above the nest for a deferred one (S4j). When
-/// `deferred` comes back true, `bat`/`sat` are -1 and the expressions in
-/// `bsz`/`ssz` are to be evaluated in `run`, not in `prepare`.
-pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
-                         s0_src: str, s0_var: str, s0_on: WRef<SExpr>,
-                         s0_edge: bool, s0_anti: bool, s0_strat: i32,
-                         has_sort: bool, t: &ElTypes, prm: &MacroParams,
-                         h: &Writ, bsz: &mut String, ssz: &mut String,
-                         bat: &mut i64, sat: &mut i64) -> JoinOrder {
+/// Returns the rejection code of the FIRST challenger that failed — which is the
+/// ground a one-candidate outcome records. The full census goes to the trace,
+/// because "which orders were considered and why each loser lost" is the answer,
+/// not a footnote to it: a single `why` naming the winner is the shape this slice
+/// outgrew.
+fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
+                 jo: &mut JoinOrder) -> i32 {
+    let m: i64 = c.n + 1i64;
+    // Floatable slots (base + classic steps) in QUERY order, and the pinned ones
+    // with the number of floatable slots that preceded them (C3).
+    let mut nfl: i64 = 0i64;
+    let mut pin: [i64; 9] = [0i64; 9];
+    let mut pbc: [i64; 9] = [0i64; 9];
+    let mut npin: i64 = 0i64;
+    let mut s: i64 = 0i64;
+    while s < m {
+        if s > 0i64 && (c.anti[s] || c.edge[s]) {
+            pin[npin] = s;
+            pbc[npin] = nfl;
+            npin = npin + 1i64;
+        } else {
+            jo.fl[nfl] = s;
+            nfl = nfl + 1i64;
+        }
+        s = s + 1i64;
+    }
+    jo.nfl = nfl;
+
+    // The floating predicates: one per floatable STEP. The query's base carries
+    // none, so there are nfl-1 of them and nfl-1 non-base floatable positions —
+    // C5 is a bijection requirement, and a missing predicate breaks it before any
+    // permutation is looked at.
+    let mut fp: [i64; 4] = [0i64; 4];
+    let mut nfp: i64 = 0i64;
+    let mut k: i64 = 1i64;
+    while k < nfl {
+        let sl: i64 = jo.fl[k];
+        if c.onw[sl] == 0i64 { return RJ_SHAPE(); }
+        fp[nfp] = c.onw[sl];
+        nfp = nfp + 1i64;
+        k = k + 1i64;
+    }
+
+    // Which floatable sources the query itself reads exactly once (C6): the base
+    // is read once by construction, a step only under a build-once strategy.
+    let mut once0: [bool; 4] = [false; 4];
+    let mut q: i64 = 0i64;
+    while q < nfl {
+        let sl: i64 = jo.fl[q];
+        if sl == 0i64 { once0[q] = true; } else { once0[q] = js_reads_once(c.strat[sl]); }
+        q = q + 1i64;
+    }
+
+    let mut perm: [i64; 4] = [0i64, 1i64, 2i64, 3i64];
+    let mut first_rej: i32 = RJ_NONE();
+    jo.ncand = 0i64;
+    jo.nadm = 0i64;
+    jo.nperm = 0i64;
+    loop {
+        jo.nperm = jo.nperm + 1i64;
+        let ident: bool = jo.nperm == 1i64;
+
+        // 1. The candidate's full slot sequence: floatable in permuted order, each
+        //    pinned step re-inserted after exactly as many floatable slots as
+        //    preceded it in the query (C3).
+        let mut seq: [i64; 9] = [0i64; 9];
+        let mut pos: [i64; 9] = [0i64; 9];
+        let mut np: i64 = 0i64;
+        let mut j: i64 = 0i64;
+        while j < nfl {
+            seq[np] = jo.fl[perm[j]];
+            np = np + 1i64;
+            let mut pi: i64 = 0i64;
+            while pi < npin {
+                if pbc[pi] == j + 1i64 { seq[np] = pin[pi]; np = np + 1i64; }
+                pi = pi + 1i64;
+            }
+            j = j + 1i64;
+        }
+        let mut pp: i64 = 0i64;
+        while pp < np { pos[seq[pp]] = pp; pp = pp + 1i64; }
+        // The floatable position of each floatable slot in THIS candidate.
+        let mut flpos: [i64; 9] = [0i64; 9];
+        let mut fj: i64 = 0i64;
+        while fj < nfl { flpos[jo.fl[perm[fj]]] = fj; fj = fj + 1i64; }
+
+        let mut rej: i32 = RJ_NONE();
+
+        // 2. C4 — every pinned step's dependencies precede it.
+        let mut pk: i64 = 0i64;
+        while pk < npin && rej == RJ_NONE() {
+            let ps: i64 = pin[pk];
+            let mut dv: i64 = 0i64;
+            while dv < np {
+                let os: i64 = seq[dv];
+                if os != ps {
+                    let mut dep: bool = refs_var(c.onw[ps], c.var[os]);
+                    if !dep && c.edge[ps] { dep = src_refs_var(c.src[ps], c.var[os]); }
+                    if dep && pos[os] > pos[ps] { rej = RJ_PINDEP(); }
+                }
+                dv = dv + 1i64;
+            }
+            pk = pk + 1i64;
+        }
+
+        // 3. C5 — place each floating predicate at the LAST of the vars it reads.
+        let mut land: [i64; 4] = [-1i64, -1i64, -1i64, -1i64];
+        let mut slotpred: [i64; 4] = [0i64; 4];
+        if rej == RJ_NONE() {
+            let mut fi: i64 = 0i64;
+            while fi < nfp {
+                let mut best: i64 = -1i64;
+                let mut dv2: i64 = 0i64;
+                while dv2 < np {
+                    let os2: i64 = seq[dv2];
+                    if refs_var(fp[fi], c.var[os2]) {
+                        if pos[os2] > best { best = pos[os2]; }
+                    }
+                    dv2 = dv2 + 1i64;
+                }
+                land[fi] = best;
+                fi = fi + 1i64;
+            }
+            let mut fi2: i64 = 0i64;
+            while fi2 < nfp && rej == RJ_NONE() {
+                let lp: i64 = land[fi2];
+                if lp <= 0i64 { rej = RJ_PREDBASE(); }
+                else {
+                    let ls: i64 = seq[lp];
+                    if c.anti[ls] || c.edge[ls] { rej = RJ_PREDPIN(); }
+                    else {
+                        let fjx: i64 = flpos[ls];
+                        if fjx == 0i64 { rej = RJ_PREDBASE(); }
+                        else if slotpred[fjx] != 0i64 { rej = RJ_PREDDUP(); }
+                        else { slotpred[fjx] = fp[fi2]; }
+                    }
+                }
+                fi2 = fi2 + 1i64;
+            }
+        }
+
+        // 4. Strategies + roles. Candidate 0 READS the plan's own decisions; a
+        //    challenger asks the one copy of the rule (`join_sel`) about the pair
+        //    it actually forms, because the moved step's equi-key is selected
+        //    against a different new-side.
+        let mut cst: [i32; 4] = [0i32; 4];
+        let mut cky: [i32; 4] = [0i32; 4];
+        let mut csl: [i64; 4] = [-1i64; 4];
+        let mut cwy: [str; 4] = ["", "", "", ""];
+        let mut crl: [i64; 4] = [0i64; 4];
+        if rej == RJ_NONE() {
+            crl[0] = JC_SCAN();
+            let mut sj: i64 = 1i64;
+            while sj < nfl && rej == RJ_NONE() {
+                let sl2: i64 = jo.fl[perm[sj]];
+                if ident {
+                    cst[sj] = c.strat[sl2];
+                    cky[sj] = c.key[sl2];
+                    csl[sj] = c.sel[sl2];
+                    cwy[sj] = c.swhy[sl2];
+                    // ⚠ The derivation must REPRODUCE the query for the identity
+                    // permutation, and the one place that could silently differ is
+                    // C5's placement. If it does, the chain has a shape this
+                    // module does not model and no order is offered.
+                    if slotpred[sj] != c.onw[sl2] { rej = RJ_SHAPE(); }
+                } else {
+                    let pw: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(slotpred[sj] as *const u8));
+                    let ss: StepSel = decide_join_step(pw, c.var[sl2], t, h);
+                    cst[sj] = ss.strat;
+                    cky[sj] = ss.key_ty;
+                    csl[sj] = ss.sel;
+                    cwy[sj] = ss.why;
+                }
+                if rej == RJ_NONE() {
+                    if js_reads_once(cst[sj]) { crl[sj] = JC_INDEX(); } else { crl[sj] = JC_RESCAN(); }
+                }
+                sj = sj + 1i64;
+            }
+        }
+
+        // 5. C6 — no source the query read once may become rescanned.
+        if rej == RJ_NONE() && !ident {
+            let mut ck: i64 = 1i64;
+            while ck < nfl {
+                if once0[perm[ck]] && !js_reads_once(cst[ck]) { rej = RJ_RESCAN(); }
+                ck = ck + 1i64;
+            }
+        }
+
+        // 6. C7 — a candidate whose (size, role) sequence an earlier one already
+        //    has cannot be cheaper for any data.
+        if rej == RJ_NONE() && !ident {
+            let mut cc: i64 = 0i64;
+            while cc < jo.ncand && rej == RJ_NONE() {
+                let bb: i64 = cc * JC_MAX_FL();
+                let mut same: bool = true;
+                let mut dj: i64 = 0i64;
+                while dj < nfl {
+                    let a_ix: i64 = perm[dj];
+                    let b_ix: i64 = jo.cslot[bb + dj];
+                    if crl[dj] != jo.crole[bb + dj] { same = false; }
+                    else if !str_eq(string_as_str(&szs[a_ix]), string_as_str(&szs[b_ix])) { same = false; }
+                    dj = dj + 1i64;
+                }
+                if same { rej = RJ_DEDUP(); }
+                cc = cc + 1i64;
+            }
+        }
+
+        // 7. Record. An admissible order is COUNTED even when the artifact bound
+        //    stops it being carried — that count is what the fallback reports.
+        let mut sb: String = String::new();
+        push_seq(&mut sb, c, &seq, np);
+        if rej == RJ_NONE() {
+            jo.nadm = jo.nadm + 1i64;
+            if jo.ncand < JC_MAX_CAND() {
+                let base: i64 = jo.ncand * JC_MAX_FL();
+                let mut wj: i64 = 0i64;
+                while wj < nfl {
+                    jo.cslot[base + wj]  = perm[wj];
+                    jo.conw[base + wj]   = slotpred[wj];
+                    jo.crole[base + wj]  = crl[wj];
+                    jo.cstrat[base + wj] = cst[wj];
+                    jo.ckey[base + wj]   = cky[wj];
+                    jo.csel[base + wj]   = csl[wj];
+                    jo.cwhy[base + wj]   = cwy[wj];
+                    wj = wj + 1i64;
+                }
+                jo.ncand = jo.ncand + 1i64;
+                plan_trace(string_as_str(&sb), "order admitted", c.var[0],
+                           "every constraint holds and the (size, role) sequence is new — this nest is emitted and priced at run time");
+            } else {
+                plan_trace(string_as_str(&sb), "order admitted but not carried", c.var[0],
+                           "legal, and beyond the artifact's nest bound — see the summary");
+            }
+        } else {
+            if first_rej == RJ_NONE() { first_rej = rej; }
+            plan_trace(string_as_str(&sb), "order refused", c.var[0], rj_words(rej, nfl));
+        }
+        if !next_perm(&mut perm, nfl) { break; }
+    }
+    return first_rej;
+}
+
+// ── The entry ────────────────────────────────────────────────────────────────
+/// Decide the set of join orders a query's body carries.
+///
+/// `szs`/`ats` receive one entry per FLOATABLE source in QUERY order: the size as
+/// an expression, and the rel whose declared reporter it calls (-1 for a
+/// parameter's own `.len()`), so the PREPARE fn can bind exactly the reporters its
+/// comparison reads. The comparison itself is NOT built here and not built per
+/// query: it is `logos.std.wql.join_cost::jc_order_pick` over the candidate table,
+/// called from the emitted `prepare` for a prepared decision (which is also where
+/// its result is recorded on the plan, so the branch reads the plan's field and
+/// cannot disagree with the number the plan reports, ADR 0024 S4i) or from the one
+/// deferred binding above the nest for a deferred one (S4j). When `deferred` comes
+/// back true, every `ats` entry is -1 and the expressions in `szs` are to be
+/// evaluated in `run`, not in `prepare`.
+pub fn decide_join_orders(c: &JCh, has_sort: bool, t: &ElTypes, prm: &MacroParams,
+                          h: &Writ, szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
     let mut jo: JoinOrder = jo_fixed("");
-    if nsteps < 1i64 {
+    let base_var: str = c.var[0];
+    let s0_var: str = c.var[1];
+    if c.n < 1i64 {
         return jo_fixed("no join step — there is no second side to drive from");
     }
-    if s0_edge {
+    // ⚠ THE FIRST STEP'S PIN, ahead of the derivation and on purpose — see the
+    // header. The general constraint C4 reaches the same conclusion on every shape
+    // in the corpus; keeping the specific antecedent is what tells a reader WHICH
+    // property of their query stopped the reorder.
+    if c.edge[1] {
         jo = jo_fixed("a traversal step's source is a field path of an outer row, so it cannot be an outermost loop — there is nothing to bind its base to");
-    } else if s0_anti {
+    } else if c.anti[1] {
         jo = jo_fixed("an anti join is not symmetric: the rows of the base with no match are a different question from the rows of the step with no match");
     } else if !has_sort {
         jo = jo_fixed("the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order");
-    } else if s0_strat == JS_NONE() {
-        jo = jo_fixed("no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for");
-    } else if str_eq(base_src, s0_src) {
-        // ⚠ A SELF-JOIN HAS NOTHING TO MEASURE, at either decision point. Both
-        // sides are the same binding, so the two numbers are equal by
-        // construction and the comparison can only ever answer "do not swap" —
-        // a second nest that no data can select. Said here rather than reached
-        // through the size machinery, because the size machinery would answer
-        // "unmeasurable" and that is the wrong reason: the sizes are perfectly
-        // knowable, they are simply the same one.
-        jo = jo_fixed("both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen");
     } else {
-        // The REVERSE direction's own decision: the moved step binds the base's
-        // row var, so its equi-key is selected against a different new-side.
-        let alt: StepSel = decide_join_step(s0_on, base_var, t, h);
-        if !js_reads_once(alt.strat) {
-            jo = jo_fixed("the reverse direction has no equi-key that can be indexed, so driving the other side would rescan a source the query order reads once");
+        // C2 — for EVERY step, not only the first: a chain with one undecided step
+        // has no recorded strategy to reason from at that position, and C6 is a
+        // claim about the strategies the planner chose.
+        let mut und: bool = false;
+        let mut si: i64 = 1i64;
+        while si <= c.n {
+            if !c.edge[si] && c.strat[si] == JS_NONE() { und = true; }
+            si = si + 1i64;
+        }
+        if und {
+            jo = jo_fixed("no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for");
         } else {
-            // ⚠ BOTH sides are asked, even though the first failure decides:
-            // `size_expr_of` writes into the caller's buffers, so short-circuiting
-            // would leave one half-filled and the ground would then depend on the
-            // order of the operands.
-            let okb: bool = size_expr_of(prm, base_src, bsz, bat);
-            let oks: bool = size_expr_of(prm, s0_src, ssz, sat);
-            if !okb || !oks {
-                bsz.clear();
-                ssz.clear();
-                *bat = -1i64;
-                *sat = -1i64;
-                // ── POINT (2): the number `prepare` cannot have may be FREE in
-                // `run` (ADR 0024 S4j). Asked only after point (1) has failed,
-                // and in that order on purpose: a decision that can be REUSED is
-                // worth more than one that is right per call, so the reusable one
-                // is tried first and the deferral is the fallback, never the
-                // preference.
-                let rokb: bool = run_size_expr_of(prm, base_src, bsz);
-                let roks: bool = run_size_expr_of(prm, s0_src, ssz);
-                if !rokb || !roks {
-                    bsz.clear();
-                    ssz.clear();
-                    jo = jo_fixed("a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses");
-                } else {
-                    jo = JoinOrder { dynamic: true, deferred: true,
-                                     why: "either side may drive, but not on any fact `prepare` can hold: both sizes are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the order is decided inside `run` — once per call, above the nest, from numbers that cost nothing there. Per-call means not reusable: `agrees` and `margin` do not speak about this half",
-                                     alt_strat: alt.strat, alt_key: alt.key_ty,
-                                     alt_sel: alt.sel, alt_why: alt.why };
-                }
-            } else {
-                jo = JoinOrder { dynamic: true, deferred: false,
-                                 why: "either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence",
-                                 alt_strat: alt.strat, alt_key: alt.key_ty,
-                                 alt_sel: alt.sel, alt_why: alt.why };
-            }
+            jo = decide_over_set(c, t, prm, h, szs, ats);
         }
     }
-    // Recorded at the moment of deciding, like every other plan decision: a
-    // returned "fixed" has already lost the antecedent that fixed it.
-    //
-    // ⚠ THE VERDICT NAMES THE DECISION POINT, not just the outcome. "drive either
-    // side" and "drive either side in `run`" are two different claims about a plan
-    // — the first is reusable, the second is remade every call — and a reader must
-    // be able to tell them apart from the trace alone.
+    jo_report(&jo, c, base_var, s0_var, prm);
+    return jo;
+}
+
+/// The size facts, then the derivation, then the verdict — in that order, because
+/// the derivation's C7 compares SIZE EXPRESSIONS and cannot run before they exist.
+fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
+                   szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
+    // How many floatable sources, and is that within the plan's fact table?
+    let m: i64 = c.n + 1i64;
+    let mut nfl: i64 = 0i64;
+    let mut fl: [i64; 9] = [0i64; 9];
+    let mut s: i64 = 0i64;
+    while s < m {
+        if !(s > 0i64 && (c.anti[s] || c.edge[s])) {
+            if nfl < 9i64 { fl[nfl] = s; }
+            nfl = nfl + 1i64;
+        }
+        s = s + 1i64;
+    }
+    if nfl < 2i64 {
+        return jo_fixed("only one source is free to move — every other step is pinned (an anti join or a traversal), so there is no second order to compare");
+    }
+    if nfl > JC_MAX_FL() {
+        return jo_fixed("more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space");
+    }
+
+    // ── The size facts, one per floatable source, at ONE decision point ──────
+    // ⚠ ALL OF THEM AT THE SAME POINT. A cost that mixed a fact `prepare` can hold
+    // with one only `run` can have would be a plan that cannot be prepared, so the
+    // reusable point is tried for every source first and the deferral is the
+    // fallback — never the preference.
+    let mut okp: bool = true;
+    let mut i: i64 = 0i64;
+    while i < nfl {
+        szs[i].clear();
+        if !size_expr_of(prm, c.src[fl[i]], &mut szs[i], &mut ats[i]) { okp = false; }
+        i = i + 1i64;
+    }
+    let mut deferred: bool = false;
+    if !okp {
+        let mut okr: bool = true;
+        let mut i2: i64 = 0i64;
+        while i2 < nfl {
+            szs[i2].clear();
+            ats[i2] = -1i64;
+            if !run_size_expr_of(prm, c.src[fl[i2]], &mut szs[i2]) { okr = false; }
+            i2 = i2 + 1i64;
+        }
+        if !okr {
+            let mut i3: i64 = 0i64;
+            while i3 < nfl { szs[i3].clear(); ats[i3] = -1i64; i3 = i3 + 1i64; }
+            return jo_fixed("a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses");
+        }
+        deferred = true;
+    }
+
+    let mut jo: JoinOrder = jo_fixed("");
+    let rej: i32 = derive_orders(c, t, h, szs, &mut jo);
+    if jo.nadm > JC_MAX_CAND() {
+        // ⚠ THE STATED FALLBACK. Carrying "the first four" would mean choosing
+        // three challengers by enumeration order, which is not a decision, and
+        // dropping the rest without saying so is the failure the bound exists to
+        // make visible. So the plan declines the whole reorder and reports the
+        // count — the remedy is a smaller chain or an artifact that can hold one
+        // order per object file.
+        //
+        // ⚠ THE COUNT IS ON THE TRACE, NOT IN THIS STRING. `why` travels onto the
+        // plan as a string LITERAL in generated source and outlives the compile; a
+        // `str` built from a local `String` here would be a view into a buffer this
+        // function is about to drop. The `order search` line carries the numbers.
+        let mut r: JoinOrder = jo_fixed("more admissible orders than an artifact carries nests (four): the reorder is declined whole rather than searched over a set chosen by enumeration order, so the query's own order is emitted — the `order search` trace line reports how many were proved legal");
+        r.nfl = jo.nfl;
+        r.nperm = jo.nperm;
+        r.nadm = jo.nadm;
+        let mut z: i64 = 0i64;
+        while z < 4i64 { szs[z].clear(); ats[z] = -1i64; z = z + 1i64; }
+        return r;
+    }
+    if jo.ncand < 2i64 {
+        let mut r2: JoinOrder = jo_fixed(rj_words(rej, jo.nfl));
+        r2.nfl = jo.nfl;
+        r2.nperm = jo.nperm;
+        r2.nadm = jo.nadm;
+        let mut z2: i64 = 0i64;
+        while z2 < 4i64 { szs[z2].clear(); ats[z2] = -1i64; z2 = z2 + 1i64; }
+        return r2;
+    }
+    jo.dynamic = true;
+    jo.deferred = deferred;
+    jo.why = admitted_why(jo.ncand, deferred);
+    return jo;
+}
+
+/// The ground an ADMITTED set records. Two candidates over two sources is the pair
+/// case and keeps the pair case's sentence, because it is still exactly what
+/// happened: the model's answer for k = 2 is "index the smaller side".
+fn admitted_why(ncand: i64, deferred: bool) -> str {
+    if ncand == 2i64 {
+        if deferred {
+            return "either side may drive, but not on any fact `prepare` can hold: both sizes are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the order is decided inside `run` — once per call, above the nest, from numbers that cost nothing there. Per-call means not reusable: `agrees` and `margin` do not speak about this half";
+        }
+        return "either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence";
+    }
+    if deferred {
+        return "more than two orders are admissible and the numbers to price them are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the cost function runs inside `run` — once per call, above the nest. Per-call means not reusable: `agrees` and `margin` do not speak about this half";
+    }
+    return "more than two orders are admissible: every one of them is emitted as its own nest and `join_cost` prices them all in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes every nest yield the same sequence, and `cost_of(ix)` reports what each one would have cost";
+}
+
+// ── The one decision channel ─────────────────────────────────────────────────
+// Recorded at the moment of deciding, like every other plan decision: a returned
+// "fixed" has already lost the antecedent that fixed it.
+//
+// ⚠ THE VERDICT NAMES THE DECISION POINT, not just the outcome. "drive either
+// side" and "drive either side in `run`" are two different claims about a plan —
+// the first is reusable, the second is remade every call — and a reader must be
+// able to tell them apart from the trace alone. Beyond two candidates the verdict
+// names the COUNT, because "either" stops being true.
+fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str, prm: &MacroParams) {
     let mut verdict: str = "drive fixed";
+    let mut vb: String = String::new();
     if jo.dynamic {
-        verdict = "drive either side";
-        if jo.deferred { verdict = "drive either side in `run`"; }
+        if jo.ncand == 2i64 {
+            verdict = "drive either side";
+            if jo.deferred { verdict = "drive either side in `run`"; }
+        } else {
+            vb.push_str("drive 1 of ");
+            vb.push_i64(jo.ncand);
+            if jo.deferred { vb.push_str(" in `run`"); }
+            verdict = string_as_str(&vb);
+        }
     }
     plan_trace(base_var, verdict, s0_var, jo.why);
-    if jo.deferred {
-        // WHICH RELATION SUPPLIED THE NUMBER. The plan's own facts are -1 for a
-        // deferred decision (nothing was measured when it was prepared), so the
-        // two expressions are the only record of what will be compared and where
-        // it comes from. Rebuilt through the same rule that produced them, so the
-        // trace cannot name one thing while the code reads another.
+
+    // The SEARCH's own account: how big the space was, how much of it is legal,
+    // and how much the artifact carries. Printed for every chain that reached the
+    // derivation, admitted or not, because "nothing was considered" and "four were
+    // considered and three lost" are different answers.
+    if jo.nperm > 0i64 {
         let mut sb: String = String::new();
-        sb.push_str("compared in `run` after the prelude, before the join's index: ");
-        let _tb: bool = run_size_expr_of(prm, base_src, &mut sb);
-        sb.push_str(" vs ");
-        let _ts: bool = run_size_expr_of(prm, s0_src, &mut sb);
-        sb.push_str(" — each is the length of a binding the prelude already made, so the read is one field and the per-row cost does not move");
-        plan_trace(base_var, "sizes deferred to run", s0_var, string_as_str(&sb));
+        sb.push_i64(jo.nperm);
+        sb.push_str(" permutations of ");
+        sb.push_i64(jo.nfl);
+        sb.push_str(" floatable sources enumerated, ");
+        sb.push_i64(jo.nadm);
+        sb.push_str(" admissible, ");
+        sb.push_i64(jo.ncand);
+        sb.push_str(" carried as nests; ");
+        sb.push_str(jc_model_words());
+        plan_trace(base_var, "order search", s0_var, string_as_str(&sb));
     }
+
+    if jo.deferred {
+        // WHICH RELATION SUPPLIES EACH NUMBER. The plan's own facts are -1 for a
+        // deferred decision (nothing was measured when it was prepared), so the
+        // expressions are the only record of what will be compared and where it
+        // comes from. Rebuilt through the same rule that produced them, so the
+        // trace cannot name one thing while the code reads another.
+        let mut sb2: String = String::new();
+        sb2.push_str("compared in `run` after the prelude, before the join's index: ");
+        let m: i64 = c.n + 1i64;
+        let mut nn: i64 = 0i64;
+        let mut s: i64 = 0i64;
+        while s < m {
+            if !(s > 0i64 && (c.anti[s] || c.edge[s])) {
+                if nn > 0i64 { sb2.push_str(" vs "); }
+                let _t: bool = run_size_expr_of(prm, c.src[s], &mut sb2);
+                nn = nn + 1i64;
+            }
+            s = s + 1i64;
+        }
+        sb2.push_str(" — each is the length of a binding the prelude already made, so the read is one field and the per-row cost does not move");
+        plan_trace(base_var, "sizes deferred to run", s0_var, string_as_str(&sb2));
+    }
+
+    // Every CARRIED challenger's own strategy decisions. The reverse direction is
+    // a different question from the one the planner answered, and the answer is
+    // recorded rather than left to the emitter to re-derive.
     if jo.dynamic {
-        let mut ab: String = String::new();
-        ab.push_str(js_name(jo.alt_strat));
-        ab.push_str(" when driven from ");
-        ab.push_str(s0_var);
-        plan_trace(base_var, string_as_str(&ab), "", jo.alt_why);
+        let mut cc: i64 = 1i64;
+        while cc < jo.ncand {
+            let b: i64 = cc * JC_MAX_FL();
+            let nb_var: str = c.var[jo.fl[jo.cslot[b]]];
+            let mut j: i64 = 1i64;
+            while j < jo.nfl {
+                let mut ab: String = String::new();
+                ab.push_str(js_name(jo.cstrat[b + j]));
+                ab.push_str(" when driven from ");
+                ab.push_str(nb_var);
+                plan_trace(c.var[jo.fl[jo.cslot[b + j]]], string_as_str(&ab), "",
+                           jo.cwhy[b + j]);
+                j = j + 1i64;
+            }
+            cc = cc + 1i64;
+        }
     }
-    return jo;
 }

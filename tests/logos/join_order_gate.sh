@@ -77,17 +77,27 @@ count() { grep -Fc "$1" "${DUMPS[@]}" 2>/dev/null | awk -F: '{s+=$2} END{print s
 # One discriminant per DYNAMIC query (4 of them in the fixture) — and since
 # ADR 0024 S4i it is a field of the PREPARED PLAN, not a comparison in the
 # query's body: the sizes are compared once, in `prepare`.
-n_disc=$(count 'if (__pl.swap)')
+n_disc=$(count 'if ((__pl.order_ix == 1i64))')
 if [ "$n_disc" -ne 4 ]; then
     echo "FAIL: $n_disc plan discriminants in the emitted fns (want 4, one per dynamic query)"
     grep -n 'if (__pl' "${DUMPS[@]}" || true
     fail=1
 fi
-# …and the comparison itself is in `prepare`, over the two sources' sizes.
-n_cmp=$(count 'swap: ((__n1 > __n0))')
+# …and the DECISION itself is in `prepare`, through the one cost function over the
+# candidate table (ADR 0024 S4k — a two-source chain is the degenerate case of it,
+# and its answer must be the pair rule's: index the smaller side).
+n_cmp=$(count 'let __ix: i64 = jc_order_pick((&__tb), __n0, __n1, __n2, __n3);')
 if [ "$n_cmp" -ne 4 ]; then
-    echo "FAIL: $n_cmp prepared size comparisons (want 4, one prepare fn per dynamic query)"
-    grep -n '__n1 > __n0' "${DUMPS[@]}" || true
+    echo "FAIL: $n_cmp prepared order decisions (want 4, one prepare fn per dynamic query)"
+    grep -n 'jc_order_pick' "${DUMPS[@]}" || true
+    fail=1
+fi
+# TWO candidates, both of them a permutation of the two size facts, and the roles
+# say which side is scanned and which is indexed.
+n_tbl=$(count 'JCTable { ncand: 2i64, nfl: 2i64, slot: [0i64, 1i64, 0i64, 0i64, 1i64, 0i64,')
+if [ "$n_tbl" -ne 4 ]; then
+    echo "FAIL: $n_tbl two-candidate tables (want 4) — the pair case is not the degenerate cost comparison"
+    grep -n 'JCTable {' "${DUMPS[@]}" || true
     fail=1
 fi
 if ! grep -Fq 'let __n1: i64 = (rs).len();' "${DUMPS[@]}"; then
