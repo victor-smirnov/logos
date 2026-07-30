@@ -1,0 +1,362 @@
+// WQL — THERE ARE TWO DECISION POINTS (ADR 0024 S4j). S4i built the first one:
+// `prepare` measures what the input data declares and decides once. This fixture
+// is about the second: a join whose sides have NO size before the query runs, but
+// whose sizes are FREE inside `run` — past the prelude that materialized them, and
+// before the join builds its index. The plan carries a DEFERRED half, and `run`
+// fills it from the `len()` of a relation the query materialized anyway.
+//
+// ⚠ WHAT MAKES THIS A TEST OF THE DEFERRED HALF AND NOT OF THE JOIN. ONE plan
+// object, run against TWO data sets whose better driving side differs — and the
+// nest that executes must differ too. A PREPARED plan cannot do that: its
+// discriminant was fixed when it was prepared, which `settled_by_prepare` below
+// pins as the contrast. So the assertion that separates point (2) from point (1)
+// is precisely that the same plan value yields a different nest on different data,
+// and the answer is the same either way.
+//
+// ⚠ THE DEFERRED NUMBER IS THE MATERIALIZED LENGTH, NOT THE INPUT'S. `ls_small`
+// holds NINE rows of which only TWO survive the rel's filter, against FIVE rows of
+// `rs`. The rel's length (2) says "index the rel"; the input's length (9) says the
+// opposite. So a compiler that reached for the wrong number — the source it could
+// have measured in `prepare` — picks the other nest, and the pull log below sees
+// it. That is the one assertion the mirror case cannot make, because rel_n <= ls_n
+// always: the rel can only ever be the SMALLER surprise.
+//
+// ⚠ AND THE OBSERVABLE IS THE ROW SEQUENCE, NOT THE COUNT. Both nests enumerate
+// the same predicate, so a count-only assertion passes on the failure that
+// actually risks: the same multiset in the other major order. Every key here is
+// DUPLICATED ON BOTH SIDES, so base-major and step-major differ row by row, and
+// the expectation is the full sequence against a plain nested-loop oracle with no
+// sort in it. The `order by` keys are all equal on purpose, so the sorted sequence
+// is decided by the row-index tuple tiebreak alone — which is what licenses two
+// nests to exist at all.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait MapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+struct L { pub k: i64, pub v: i64 }
+struct R { pub k: i64, pub w: i64 }
+
+// ── AN ITERATOR PRODUCER — the direct measurement of "genuinely free" ────────
+// This source's producer returns an ITERATOR, which has no length. What makes its
+// length available anyway is that `order by` — the very precondition a
+// transposition needs — re-binds joined rows BY POSITION after collecting them, so
+// the plan must drain the iterator into a Vec regardless of anything the join order
+// wants (`plan_walker::plan_mark_single_pass`). The deferral therefore reads a
+// length that the query already paid for, and `PULLED` is the instrument that says
+// so: ONE drain, not two. A deferral that had reached for the number itself would
+// double the count, and no assertion about rows would notice.
+//
+// ⚠ AND THIS IS WHY A "STREAMED SIDE" NEVER REACHES THE JOIN-ORDER AXIS: streaming
+// requires no `order by`, a transposition requires one. The guard against it lives
+// in `join_order::run_size_expr_of` because that function must be right on its own
+// terms — the coupling is another module's decision and could change (a streaming
+// sort would break it) — but no query can exercise it today, and this fixture is
+// where that fact is written down.
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+}
+
+// The PULL LOG — the same instrument the S4i fixture uses. `FIRST` is 1 when a
+// rel-side key was computed first, 2 when an `rs` key was; the nest that INDEXES
+// a side computes all of that side's keys before it touches the other, so the
+// first tick names the side that was built and therefore the side that did NOT
+// drive.
+static mut FIRST: i64 = 0i64;
+static mut NL:    i64 = 0i64;
+static mut NR:    i64 = 0i64;
+
+fn tl(x: i64) -> i64 {
+    unsafe {
+        if FIRST == 0i64 { FIRST = 1i64; }
+        NL = NL + 1i64;
+    }
+    return x;
+}
+
+fn tr(x: i64) -> i64 {
+    unsafe {
+        if FIRST == 0i64 { FIRST = 2i64; }
+        NR = NR + 1i64;
+    }
+    return x;
+}
+
+fn reset() {
+    unsafe {
+        FIRST = 0i64;
+        NL = 0i64;
+        NR = 0i64;
+    }
+}
+
+// THE DEFERRED SHAPE. The base is a REL — a relation this query computes and
+// materializes — so `prepare` has no size for it: obtaining one would mean running
+// the query, which is what a prepared plan may never do. The step is a plain slice
+// param, which `prepare` COULD measure; one unmeasurable side is enough to decide
+// nothing at point (1). Inside `run` both lengths are field reads on bindings the
+// prelude already made, so the order is chosen there.
+pub deem via_rel(ls: &[L], rs: &[R]) {
+    rel hot(k: i64, v: i64) {
+        from ls l where l.v > 0 select (l.k, l.v);
+    }
+    from hot x join rs r on tl(x.k) == tr(r.k)
+    select x.v * 100 + r.w order by x.k
+}
+
+// THE CONTRAST — the same join over two SLICE PARAMS, whose sizes `prepare` can
+// have. This one is decided at point (1), so one plan applied to two data sets
+// drives the same side both times. Without it, "the nest followed the data" would
+// be indistinguishable from "every plan follows the data".
+pub deem settled_by_prepare(ls: &[L], rs: &[R]) {
+    from ls l join rs r on tl(l.k) == tr(r.k)
+    select l.v * 100 + r.w order by l.k
+}
+
+// THE STEP'S PRODUCER IS AN ITERATOR, and `order by` drains it before the join.
+// So the deferred length exists and costs nothing extra — which is the claim
+// `PULLED` below measures directly. This is the query that stops "free where it is
+// free" from becoming "force a materialization to obtain a size".
+pub deem iter_step(ls: &[L], s: &Steps) {
+    from ls l join s e on l.k == e.key
+    select l.v * 100 + e.val order by l.k
+}
+
+// The ORACLE for `via_rel`: the rel is `ls` filtered to `v > 0`, in `ls` order,
+// and the join is a plain nested loop over it, base-major, with no sort. Every
+// surviving `(k, v)` pair in the data below is distinct, so the rel's own dedup
+// removes nothing and this walk is its exact content.
+fn oracle_rel(ls: &[L], rs: &[R], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < ls.len() {
+        if ls[i].v > 0i64 {
+            let mut j: i64 = 0i64;
+            while j < rs.len() {
+                if ls[i].k == rs[j].k { out.push(ls[i].v * 100i64 + rs[j].w); }
+                j = j + 1i64;
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// The ORACLE for the prepared contrast: no filter, otherwise the same walk.
+fn oracle_all(ls: &[L], rs: &[R], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < ls.len() {
+        let mut j: i64 = 0i64;
+        while j < rs.len() {
+            if ls[i].k == rs[j].k { out.push(ls[i].v * 100i64 + rs[j].w); }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+fn same(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < got.len() {
+        if got.get(i) != want.get(i) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    // NINE input rows, TWO of which survive `v > 0`. Every `k` is 1, so every sort
+    // key ties and the sequence is the tuple tiebreak alone: a step-major nest
+    // would return 101, 201, 102, … instead of 101, 102, ….
+    let ls_small: [L; 9] = [
+        L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 0i64 },
+        L { k: 1i64, v: 2i64 }, L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 0i64 },
+        L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 0i64 },
+    ];
+    // NINE input rows again — the SAME input length — but SEVEN survive. The rel
+    // is now the larger side, so the other nest is the right one. The input length
+    // cannot tell these two data sets apart; only the materialized length can.
+    let ls_big: [L; 9] = [
+        L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 }, L { k: 1i64, v: 3i64 },
+        L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 4i64 }, L { k: 1i64, v: 5i64 },
+        L { k: 1i64, v: 6i64 }, L { k: 1i64, v: 0i64 }, L { k: 1i64, v: 7i64 },
+    ];
+    // FIVE step rows, four of which match — duplicated keys on this side too.
+    let rs: [R; 5] = [
+        R { k: 1i64, w: 1i64 }, R { k: 1i64, w: 2i64 }, R { k: 2i64, w: 3i64 },
+        R { k: 1i64, w: 4i64 }, R { k: 1i64, w: 5i64 },
+    ];
+
+    // ── THE PLAN AT POINT (1): nothing measured, and it says which half is left
+    // ── to `run` rather than leaving that silently true.
+    reset();
+    let p: ViaRelPlan = via_rel_prepare(&ls_small[..], &rs[..]);
+    // Preparing a deferred plan is as cheap as preparing a refused one: it makes
+    // no measurement at all, so no tick can fire.
+    unsafe { if FIRST != 0i64 || NL != 0i64 || NR != 0i64 { return 1i32; } }
+    if p.dyn_order        { return 2i32; }   // point (1) decided nothing …
+    if !p.defer_order     { return 3i32; }   // … because the decision is point (2)'s
+    if p.settled()        { return 4i32; }   // and the plan SAYS it is not settled
+    if p.base_n != -1i64  { return 5i32; }   // -1 is "not asked", not "empty"
+    if p.step_n != -1i64  { return 6i32; }
+    if p.margin() != 0i64 { return 7i32; }   // no facts ⇒ no distance to a flip
+    if p.explain().len() == 0i64 { return 8i32; }
+
+    // `agrees` answers about the PREPARED half, and a deferred plan has none — so
+    // it agrees with every set of fresh facts, and that is not a claim about the
+    // order. `settled()` above is what a caller must read instead.
+    let p2: ViaRelPlan = via_rel_prepare(&ls_big[..], &rs[..]);
+    if !p.agrees(&p2) { return 9i32; }
+    if !p2.agrees(&p) { return 10i32; }
+
+    // ── (a) ONE PLAN, TWO DATA SETS, TWO NESTS ────────────────────────────
+    // The rel holds 2 rows against 5 in `rs`: the rel is the smaller side, so it
+    // is the one to index — `hot` keys are computed first, `rs` drives.
+    let mut w_small: Vec<i64> = Vec::new();
+    oracle_rel(&ls_small[..], &rs[..], &mut w_small);
+    reset();
+    let g_small: Vec<i64> = via_rel_run(&p, &ls_small[..], &rs[..]).unwrap();
+    let f_small: i64 = unsafe { FIRST };
+    let nl_small: i64 = unsafe { NL };
+    let nr_small: i64 = unsafe { NR };
+
+    // The mirror: 7 rel rows against 5 — the rel is now the larger side, so `rs`
+    // is indexed and the rel drives. SAME PLAN OBJECT.
+    let mut w_big: Vec<i64> = Vec::new();
+    oracle_rel(&ls_big[..], &rs[..], &mut w_big);
+    reset();
+    let g_big: Vec<i64> = via_rel_run(&p, &ls_big[..], &rs[..]).unwrap();
+    let f_big: i64 = unsafe { FIRST };
+
+    // THE DEFERRED DECISION, observed: the same plan drove different sides.
+    if f_small != 1i64 { return 11i32; }   // rel indexed  ⇒ rel_n(2) < rs_n(5)
+    if f_big   != 2i64 { return 12i32; }   // rs indexed   ⇒ rel_n(7) > rs_n(5)
+    // ⚠ AND THIS IS WHERE A WRONG NUMBER SHOWS. `ls.len()` is 9 in BOTH data sets,
+    // so a plan that read the input's length instead of the materialized rel's
+    // would answer "do not swap" both times and `f_small` would be 2.
+
+    // ── (b) THE ROWS AND THEIR ORDER ARE THE PLAN-INDEPENDENT PART ────────
+    if g_small.len() != 8i64  { return 13i32; }   // 2 rel rows × 4 matching rs
+    if !same(&g_small, &w_small) { return 14i32; }
+    if g_big.len() != 28i64   { return 15i32; }   // 7 rel rows × 4 matching rs
+    if !same(&g_big, &w_big)  { return 16i32; }
+    // The first pair pins the MAJOR order outright: 101 then 102 is base-major.
+    if g_small.get(0i64) != 101i64 { return 17i32; }
+    if g_small.get(1i64) != 102i64 { return 18i32; }
+    if g_big.get(0i64) != 101i64   { return 19i32; }
+    if g_big.get(1i64) != 102i64   { return 20i32; }
+
+    // Each side is walked once whichever nest ran, so no count distinguishes them
+    // — which is why the log had to record an ORDER.
+    if nl_small != 2i64 { return 21i32; }
+    if nr_small != 5i64 { return 22i32; }
+
+    // ── (c) THE DIRECT FN IS UNCHANGED — prepare-then-run ─────────────────
+    reset();
+    let d_small: Vec<i64> = via_rel(&ls_small[..], &rs[..]).unwrap();
+    if !same(&d_small, &w_small) { return 23i32; }
+    if unsafe { FIRST } != 1i64  { return 24i32; }
+    reset();
+    let d_big: Vec<i64> = via_rel(&ls_big[..], &rs[..]).unwrap();
+    if !same(&d_big, &w_big) { return 25i32; }
+    if unsafe { FIRST } != 2i64 { return 26i32; }
+
+    // ── (d) THE CONTRAST: A PREPARED PLAN DOES NOT FOLLOW THE DATA ────────
+    // Both sides measurable ⇒ decided at point (1). One plan prepared over the
+    // SMALL-vs-`rs` shape, then run against both — the nest is the plan's, not the
+    // data's, so the log reads the same both times. This is what makes (a) an
+    // observation about the deferred half rather than about joins in general.
+    let q: SettledByPreparePlan = settled_by_prepare_prepare(&ls_small[..], &rs[..]);
+    if !q.dyn_order    { return 27i32; }
+    if q.defer_order   { return 28i32; }
+    if !q.settled()    { return 29i32; }
+    if q.base_n != 9i64 { return 30i32; }    // the INPUT's length, at point (1)
+    if q.step_n != 5i64 { return 31i32; }
+    if q.swap          { return 32i32; }     // ls larger ⇒ index rs, the step
+    if q.margin() != 4i64 { return 33i32; }
+
+    let mut w_all_s: Vec<i64> = Vec::new();
+    oracle_all(&ls_small[..], &rs[..], &mut w_all_s);
+    let mut w_all_b: Vec<i64> = Vec::new();
+    oracle_all(&ls_big[..], &rs[..], &mut w_all_b);
+
+    reset();
+    let s_small: Vec<i64> = settled_by_prepare_run(&q, &ls_small[..], &rs[..]).unwrap();
+    let qf_small: i64 = unsafe { FIRST };
+    reset();
+    let s_big: Vec<i64> = settled_by_prepare_run(&q, &ls_big[..], &rs[..]).unwrap();
+    let qf_big: i64 = unsafe { FIRST };
+    if qf_small != 2i64 { return 34i32; }    // `rs` indexed, per the plan
+    if qf_big != qf_small { return 35i32; }  // the PLAN's nest, both times
+    if !same(&s_small, &w_all_s) { return 36i32; }
+    if !same(&s_big, &w_all_b)   { return 37i32; }
+    if s_small.len() != 36i64 { return 38i32; }   // 9 × 4 matching rs
+    if s_big.len() != 36i64   { return 39i32; }
+
+    // A prepared plan CAN go stale, and `agrees` is how a caller finds out — the
+    // half a deferred plan has nothing to say about.
+    let fresh: SettledByPreparePlan = settled_by_prepare_prepare(&rs_as_ls()[..], &rs[..]);
+    if q.agrees(&fresh) { return 40i32; }
+
+    // ── (e) THE DEFERRED NUMBER IS GENUINELY FREE — measured, not argued ───
+    // An ITERATOR producer, deferred like any other materialized side, and the pull
+    // count is the observable: the iterator is drained ONCE, by the prelude, for
+    // `order by`'s own reasons. Six rows for `n == 6`. A deferral that had obtained
+    // the length itself would drain it a second time and the count would be twelve
+    // — a cost no assertion about rows can see.
+    let st: Steps = Steps { n: 6i64 };
+    let sp: IterStepPlan = iter_step_prepare(&ls_small[..], &st);
+    if sp.dyn_order   { return 41i32; }
+    if !sp.defer_order { return 42i32; }
+    if sp.settled()   { return 43i32; }
+    if sp.explain().len() == 0i64 { return 44i32; }
+
+    unsafe { PULLED = 0i64; }
+    let sr: Vec<i64> = iter_step_run(&sp, &ls_small[..], &st).unwrap();
+    unsafe { if PULLED != 6i64 { return 45i32; } }
+    // `ls_small` is nine rows all with k == 1, and the stream's key 1 carries val
+    // 10 — so every input row matches exactly once, in input order.
+    if sr.len() != 9i64 { return 46i32; }
+    let mut si: i64 = 0i64;
+    while si < sr.len() {
+        if sr.get(si) != ls_small[si].v * 100i64 + 10i64 { return 47i32; }
+        si = si + 1i64;
+    }
+
+    // The mirror on this query too: `n == 20` makes the drained side the LARGER
+    // one, so the other nest runs — same rows, same order, still ONE drain.
+    let st_big: Steps = Steps { n: 20i64 };
+    unsafe { PULLED = 0i64; }
+    let sr2: Vec<i64> = iter_step_run(&sp, &ls_small[..], &st_big).unwrap();
+    unsafe { if PULLED != 20i64 { return 48i32; } }
+    if !same(&sr2, &sr) { return 49i32; }
+
+    return 0i32;
+}
+
+/// A THREE-row left side, so re-preparing the settled query over it flips the
+/// decision (3 < 5 ⇒ index `rs`) and `agrees` reports the disagreement. A fn
+/// rather than a local because it is the only place the third shape is needed.
+fn rs_as_ls() -> [L; 3] {
+    return [ L { k: 1i64, v: 1i64 }, L { k: 1i64, v: 2i64 }, L { k: 2i64, v: 3i64 } ];
+}

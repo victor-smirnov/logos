@@ -296,27 +296,55 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // `margin` is what the facts are FOR beyond the answer: the distance to the flip.
 // A plan decided on 1000-vs-999 is right and fragile; one decided on 10-vs-10000
 // is right and robust, and only the numbers say which.
+//
+// ── THE TWO DECISION POINTS ON ONE OBJECT (ADR 0024 S4j) ─────────────────────
+// `defer_order` is the DEFERRED half: the plan holds the rule but not the answer,
+// because the two numbers only become free inside `run` (past the prelude's
+// unavoidable materializations, before the join's index). It is a separate field
+// from `dyn_order` and not a third value of it, because the two say different
+// things to a caller — `dyn_order` means "I decided, and here are the facts I
+// decided on"; `defer_order` means "this is decided again on every call, and
+// there is nothing here for you to re-check".
+//
+// ⚠ `agrees` AND `margin` COVER ONLY THE PREPARED HALF, and `settled` is what
+// says so instead of leaving it silently true. A plan whose order is deferred
+// agrees with every set of fresh facts — correctly, since none of them can make
+// it stale — and a caller who read that as "my order is fixed" would be wrong.
+// One accessor is cheaper than the misreading.
+//
+// ⚠ `order_swap` IS THE RULE, IN ONE PLACE. `agrees` re-derives the prepared
+// decision through it and the deferred binding in `run` calls it on the two free
+// lengths, so the two decision points cannot come to different conclusions from
+// the same pair of numbers — which is the whole claim that they are one plan and
+// not two mechanisms. (`prepare`'s own struct literal spells the comparison
+// inline: it has no plan to call a method on yet, and its text is built in exactly
+// one place below.)
 fn emit_prepared_type(tyn: str, is_priv: bool) {
     let nm: Ident = Ident::new(tyn);
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
             struct #nm {
-                pub dyn_order: bool,
-                pub swap:      bool,
-                pub base_n:    i64,
-                pub step_n:    i64,
-                pub why:       str,
+                pub dyn_order:   bool,
+                pub swap:        bool,
+                pub base_n:      i64,
+                pub step_n:      i64,
+                pub defer_order: bool,
+                pub why:         str,
             }
             impl #nm {
+                pub fn order_swap(&self, base_n: i64, step_n: i64) -> bool {
+                    return step_n > base_n;
+                }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
-                    return self.swap == (fresh.step_n > fresh.base_n);
+                    return self.swap == self.order_swap(fresh.base_n, fresh.step_n);
                 }
                 pub fn margin(&self) -> i64 {
                     if !self.dyn_order { return 0i64; }
                     if self.step_n > self.base_n { return self.step_n - self.base_n; }
                     return self.base_n - self.step_n;
                 }
+                pub fn settled(&self) -> bool { return !self.defer_order; }
                 pub fn explain(&self) -> str { return self.why; }
             }
         };
@@ -324,22 +352,27 @@ fn emit_prepared_type(tyn: str, is_priv: bool) {
     } else {
         let q: QuoteItemBlob = quote_item! {
             pub struct #nm {
-                pub dyn_order: bool,
-                pub swap:      bool,
-                pub base_n:    i64,
-                pub step_n:    i64,
-                pub why:       str,
+                pub dyn_order:   bool,
+                pub swap:        bool,
+                pub base_n:      i64,
+                pub step_n:      i64,
+                pub defer_order: bool,
+                pub why:         str,
             }
             impl #nm {
+                pub fn order_swap(&self, base_n: i64, step_n: i64) -> bool {
+                    return step_n > base_n;
+                }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
-                    return self.swap == (fresh.step_n > fresh.base_n);
+                    return self.swap == self.order_swap(fresh.base_n, fresh.step_n);
                 }
                 pub fn margin(&self) -> i64 {
                     if !self.dyn_order { return 0i64; }
                     if self.step_n > self.base_n { return self.step_n - self.base_n; }
                     return self.base_n - self.step_n;
                 }
+                pub fn settled(&self) -> bool { return !self.defer_order; }
                 pub fn explain(&self) -> str { return self.why; }
             }
         };
@@ -391,6 +424,12 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     prep_derived_name(bare, "_run", &mut runc);
 
     // ── prepare ────────────────────────────────────────────────────────────
+    // ⚠ A DEFERRED PLAN'S `prepare` IS THE SAME SHAPE AS A REFUSED ONE — no
+    // measurement, no decision, facts -1 — and that is the honest artifact: at
+    // point (1) there was nothing to know. The single field that differs,
+    // `defer_order`, is what stops a caller reading "nothing decided" as "nothing
+    // to decide". So the deferred half costs `prepare` exactly nothing, which is
+    // what keeps `agrees` affordable for every plan.
     let mut pb: String = String::new();
     pb.push_str("{\n");
     if prep.dynamic {
@@ -401,7 +440,7 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str(prep.step_sz);
         pb.push_str(";\n    return ");
         pb.push_str(tyn);
-        pb.push_str(" { dyn_order: true, swap: (__n1 > __n0), base_n: __n0, step_n: __n1, why: ");
+        pb.push_str(" { dyn_order: true, swap: (__n1 > __n0), base_n: __n0, step_n: __n1, defer_order: false, why: ");
         push_str_lit(&mut pb, prep.why);
         pb.push_str(" };\n");
     } else {
@@ -409,8 +448,26 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         // caller can tell apart from an empty source.
         pb.push_str("    return ");
         pb.push_str(tyn);
-        pb.push_str(" { dyn_order: false, swap: false, base_n: -1i64, step_n: -1i64, why: ");
-        push_str_lit(&mut pb, prep.why);
+        pb.push_str(" { dyn_order: false, swap: false, base_n: -1i64, step_n: -1i64, defer_order: ");
+        if prep.deferred { pb.push_str("true"); } else { pb.push_str("false"); }
+        pb.push_str(", why: ");
+        // ⚠ THE DEFERRED GROUND NAMES THE TWO EXPRESSIONS, because for a deferred
+        // plan `base_n`/`step_n` are -1: the numbers do not exist until `run`, so
+        // the recorded text is the only account `explain()` can give of WHAT will
+        // be compared and where it comes from. The prepared case needs no such
+        // appendix — its numbers are on the object.
+        if prep.deferred {
+            let mut wb: String = String::new();
+            wb.push_str(prep.why);
+            wb.push_str(" [in `run`: ");
+            wb.push_str(prep.base_sz);
+            wb.push_str(" vs ");
+            wb.push_str(prep.step_sz);
+            wb.push_str("]");
+            push_str_lit(&mut pb, string_as_str(&wb));
+        } else {
+            push_str_lit(&mut pb, prep.why);
+        }
         pb.push_str(" };\n");
     }
     pb.push_str("}\n");
@@ -2445,6 +2502,14 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // so the sizes are compared ONCE, in `prepare`, and not on every call. The
     // per-row shape is untouched either way: one branch outside every loop.
     //
+    // ⚠ UNLESS THE DECISION IS DEFERRED (ADR 0024 S4j), in which case it is
+    // `__defer_swap` — a local bound in the PRELUDE REGION, between the
+    // materializations and the join's index build, from two `len()` reads on
+    // bindings the prelude already made. The shape is identical to the prepared
+    // one where it matters: three statements at body level, one branch above every
+    // loop, nothing per row. What differs is only WHERE the number came from, and
+    // therefore whether the choice is reusable.
+    //
     // ⚠ The build phases stay at BODY level in the one-nest case. A join body was
     // flat before this and must stay flat: an extra scope is not cosmetic here
     // (ADR 0024 S5 records a stdlib build failing on "use of moved variable
@@ -2463,13 +2528,19 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // The measurement `prepare` needs: the declared reporters the two size
     // expressions call, and ONLY those — a plan does not measure what it will not
     // compare.
+    //
+    // ⚠ NOTHING IS MEASURED FOR A DEFERRED DECISION. `bat`/`sat` come back -1 and
+    // the deferred expressions are `len()` reads, not reporter calls — a plan that
+    // emitted a reporter call it would not compare, or a call whose cost it could
+    // not account for, is exactly what point (2) exists to avoid.
     let mut meas: String = String::new();
-    if jo.dynamic {
+    if jo.dynamic && !jo.deferred {
         if bat >= 0i64 { size_binding_text(&mut meas, prm, bat); }
         if sat >= 0i64 && sat != bat { size_binding_text(&mut meas, prm, sat); }
     }
     let mut top_bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nest_all: ExprBlob = quote_block! { };
+    let mut defer_f: ExprBlob = quote_block! { };
     if jo.dynamic {
         let mut bps_a: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut nest_a: ExprBlob = quote_block! { };
@@ -2486,7 +2557,21 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                             &bnd_var, nb, &mut bps_b, &mut nest_b) { return false; }
         let br_b: ExprBlob = quote_block! { #( #bps_b; )* #(nest_b); };
         let br_a: ExprBlob = quote_block! { #( #bps_a; )* #(nest_a); };
-        let disc_f: ExprBlob = parse_expr("__pl.swap");
+        let mut disc_f: ExprBlob = parse_expr("__pl.swap");
+        if jo.deferred {
+            // The three statements of the deferred half. They go where the plan's
+            // field read would have gone — at body level, above the nest — and the
+            // rule is the PLAN's method, so the two decision points cannot answer
+            // differently from the same pair of numbers.
+            let b0_f: ExprBlob = parse_expr(string_as_str(&bszb));
+            let s0_f: ExprBlob = parse_expr(string_as_str(&sszb));
+            defer_f = quote_block! {
+                let __defer_n0: i64 = #(b0_f);
+                let __defer_n1: i64 = #(s0_f);
+                let __defer_swap: bool = __pl.order_swap(__defer_n0, __defer_n1);
+            };
+            disc_f = parse_expr("__defer_swap");
+        }
         nest_all = quote_block! { if (#(disc_f)) #(br_b) else #(br_a) };
     } else {
         if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
@@ -2582,8 +2667,15 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
     }
+    // ⚠ `defer_f` SITS IMMEDIATELY AFTER THE PRELUDE, and its position is the
+    // whole argument for the slice: the prelude has just materialized every rel
+    // this query needs, and nothing has been built yet. One statement earlier the
+    // lengths do not exist; one loop later the read would be per-row. Empty for
+    // every plan that is not deferred, so the one-nest and prepared shapes are
+    // byte-for-byte what they were.
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
+        #(defer_f);
         #(head_f);
         #( #top_bps; )*
         #(sortdecl);
@@ -2593,8 +2685,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     };
     let mut prp: Prepared = prep_fixed(jo.why);
     if jo.dynamic {
-        prp = prep_dyn(string_as_str(&bszb), string_as_str(&sszb),
-                       string_as_str(&meas), jo.why);
+        if jo.deferred {
+            prp = prep_deferred(string_as_str(&bszb), string_as_str(&sszb), jo.why);
+        } else {
+            prp = prep_dyn(string_as_str(&bszb), string_as_str(&sszb),
+                           string_as_str(&meas), jo.why);
+        }
     }
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);
     return true;

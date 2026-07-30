@@ -1004,6 +1004,30 @@ set_tests_properties(logos_09_prepared_plan_surface PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# DEFERRED-PLAN gate (ADR 0024 S4j): the plan's SECOND decision point — inside
+# `run`, past the prelude's unavoidable materializations and before the join's
+# index, where a rel's `len()` is a field read the nest was going to make anyway.
+#
+# ⚠ Four properties the fixture cannot see, and each is the difference between a
+# deferral worth having and one that costs more than it saves: that the two reads
+# and the branch stay at BODY LEVEL (a decision paid per row is not a plan), that
+# the number read is the MATERIALIZED length rather than the input parameter the
+# planner could have measured earlier (the two agree on the mirror data set, so
+# behaviour only separates them on one side), that a deferred `prepare` measures
+# NOTHING (which is what keeps `agrees` affordable for every plan), and that the two
+# decision points are tellable apart in the artifact and in the trace.
+add_test(
+    NAME logos_09_deferred_plan_second_point
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/deferred_plan_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_deferred_plan_e2e.logos
+)
+set_tests_properties(logos_09_deferred_plan_second_point PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

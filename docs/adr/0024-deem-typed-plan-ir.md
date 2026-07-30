@@ -257,11 +257,75 @@ the same data: same rows, different driving side. ⚠ MEASURED COST OF THE TIGHT
 recorded rather than glossed: two corpus queries (`wql_writ_graph_e2e`,
 `wql_gpath_e2e` — joins over a Writ-graph rel with `order by`) had a second nest
 under S4h and now keep one, because their sides are only measurable after
-materialization. Rows are unchanged and the refusal is a trace line; the REMEDY is
-the mechanism this plane already has — those sources declare no `size` operation,
-and declaring one (S4g) restores the choice without a special case. *Remaining:*
-that declaration; join order beyond the first pair, which needs more than two nests
-and therefore a cost comparison rather than a comparison of two; and the plan holds
+materialization. Rows are unchanged and the refusal is a trace line; the REMEDY was
+read as the mechanism this plane already has — those sources declare no `size`
+operation, and declaring one (S4g) restores the choice without a special case.
+**S4j found a better remedy, and it makes that one wrong for these sources.**
+
+**S4j — THERE ARE TWO DECISION POINTS, AND S4i NAMED ONLY ONE.** S4i's tightening
+is right about `prepare` and was read too widely. A derived rel's row count is not
+a fact about the INPUT data — hence unusable at point (1) — but by the time the join
+builds its index the query has already materialized that rel for its own reasons:
+the binding exists and its `len()` is the same field read the nest's own loop
+condition makes. So the number point (1) could not afford is FREE at a second
+point, and refusing there was refusing for a reason that had stopped applying.
+
+  * **(1) `prepare`** — before any data is touched. Facts: the parameters and the
+    sizes sources DECLARE. Reusable across calls. The PreparedStatement; unchanged.
+  * **(2) inside `run`** — after the prelude's unavoidable materializations, before
+    the join's index. Facts: (1)'s, plus the `len()` of every rel the query
+    materializes ANYWAY. Per-call, therefore not reusable.
+
+Built as a DEFERRED HALF OF THE SAME PLAN, not a second mechanism: one plan object,
+one decision channel, one `why` vocabulary. `join_order::run_size_expr_of` is asked
+only after `size_expr_of` has failed — a reusable decision is worth more than one
+that is merely right per call, so the deferral is the fallback and never the
+preference — and the emitted `run` gains exactly three statements at BODY LEVEL,
+where the prepared plan's field read sits: two `len()` reads and
+`let __defer_swap: bool = __pl.order_swap(__defer_n0, __defer_n1);`. Per-row cost
+does not move; the branch is one `if` above every loop, as `__pl.swap` is.
+
+⚠ THE RULE LIVES ON THE PLAN, in one place: `order_swap` is a method, `agrees`
+re-derives the prepared decision through it, and the deferred binding calls the same
+method — so the two points cannot reach different conclusions from the same pair of
+numbers, which is the entire claim that they are one plan. ⚠ A DEFERRED DECISION IS
+NOT A PREPARED ONE, and the plan says so instead of leaving it silently true:
+`defer_order` is its own field (not a third value of `dyn_order`), `base_n`/`step_n`
+stay `-1` because nothing was measured, `agrees`/`margin` answer about the PREPARED
+half only, and `settled()` is the accessor that discloses which halves a caller has
+actually pinned. The trace distinguishes them too — `drive either side` vs
+`drive either side in `run``, plus a second line naming the two expressions and
+where in `run` they become free.
+
+⚠ WHAT IS STILL REFUSED, and would be wrong to relax: an anti join is not
+symmetric; a traversal step's source is a field path of an outer row; without
+`order by` the nest's order IS the answer's order. And a STREAMED side has no
+length at either point — counting means draining the iterator, the query's own work
+traded for a plan fact, which is the error this axis exists to refuse.
+
+⚠ MEASURED, AND IT CONTRADICTS THE OBVIOUS DESIGN: that streamed-side guard CANNOT
+FIRE on this axis. Streaming requires the ABSENCE of `order by`
+(`plan_mark_single_pass`: a sort re-binds joined rows by position, so every side
+must be indexable) and a transposition requires its PRESENCE — the conditions
+exclude each other, so every side reaching `run_size_expr_of` is materialized. The
+guard stays, because the coupling is another module's decision and a streaming
+order-preserving sort would end it silently; a function right only by virtue of a
+distant invariant it does not name is the phase-proxy anti-pattern. What the fixture
+measures instead is the consequence: an ITERATOR producer whose length is free
+*because* the sort drained it anyway, with a pull count pinning that the deferral
+added no second drain.
+
+⚠ AND A SECOND REFUSAL WAS ADDED, not removed: a SELF-JOIN. Both sides being the
+same binding makes the two sizes equal by construction, so the comparison can only
+ever answer "do not swap" and the transposed nest could never be selected. The two
+`wql_gpath_e2e` queries S4i costed are exactly this shape — a gpath lowers to a
+self-join of the edge relation — so what they lost was never available, and the
+"declare a `size`" remedy would not have restored it. The Writ-graph source still
+must not declare one: `__gs_edges_<T>` builds its edge list by walking the struct,
+so a declared size would either cost the query's own work or report a lie.
+
+*Remaining:* join order beyond the first pair, which needs more than two nests and
+therefore a cost comparison rather than a comparison of two; and the plan holds
 only the join-order discriminant, because access is the axis where a run-time
 decision is nearly always the same answer — a plan field for it would be a
 mechanism with no consumer.

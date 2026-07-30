@@ -18,10 +18,19 @@
 // the query's PREPARE fn and recorded on the plan object (ADR 0024 S4i,
 // `logos.std.wql.prepared`) — decided once, applied many times, which is what
 // makes it a plan rather than a per-call test. What this module hands over is
-// therefore the two size EXPRESSIONS plus the ground, and the consequence is a
-// tightening: a size that only exists after the query's own prelude has run
-// (a materialized rel's `.len()`) is no longer usable, because a plan prepared
-// over the input data cannot have it.
+// therefore the two size EXPRESSIONS plus the ground.
+//
+// ⚠ AND THERE ARE TWO MOMENTS TO HAND THEM OVER FOR (ADR 0024 S4j). S4i read its
+// own tightening too widely: a size that only exists after the query's prelude
+// has run is unusable IN `prepare`, and that is all it means. Inside `run`, past
+// the prelude and before the join's index, a materialized rel's `.len()` is the
+// same field read the nest's own loop condition makes — free. So this module
+// answers TWICE, in order: first with what `prepare` can have (`size_expr_of`),
+// and where that fails, with what `run` can have for nothing
+// (`run_size_expr_of`). A refusal survives only where NEITHER point has a number,
+// which after this slice means exactly one thing: a side that STREAMS, whose
+// length would cost draining the iterator — the query's own work traded for a
+// plan fact, the error this axis exists to avoid.
 //
 // ⚠ WHAT REORDERING IS NOT ALLOWED TO DO IS CHANGE THE ANSWER, and for a join
 // the answer includes the ORDER of the rows. Deem's default row order IS the
@@ -65,8 +74,15 @@ use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name 
 // the moved step binds a different row var, so its equi-key and therefore its
 // strategy are a different question from the one the planner already answered,
 // and both answers come out of the one copy of the rule (`join_sel`).
+//
+// `deferred` — the two nests exist, but the DISCRIMINANT is not a field of the
+// prepared plan: the numbers only become free inside `run` (ADR 0024 S4j), so the
+// comparison is made there, once, above the nest. `dynamic` still means "two
+// nests are emitted" either way; `deferred` says WHICH of the two decision points
+// filled the discriminant, and the emitter reads exactly that.
 pub struct JoinOrder {
     pub dynamic:   bool,
+    pub deferred:  bool,
     pub why:       str,
     pub alt_strat: i32,
     pub alt_key:   i32,
@@ -75,7 +91,7 @@ pub struct JoinOrder {
 }
 
 fn jo_fixed(why: str) -> JoinOrder {
-    return JoinOrder { dynamic: false, why: why, alt_strat: JS_NONE(),
+    return JoinOrder { dynamic: false, deferred: false, why: why, alt_strat: JS_NONE(),
                        alt_key: 0i32, alt_sel: -1i64, alt_why: "" };
 }
 
@@ -114,6 +130,46 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
     return true;
 }
 
+/// A source's SIZE as an expression evaluable INSIDE `run` — in the region between
+/// the prelude's materializations and the join's index build (ADR 0024 S4j, the
+/// SECOND decision point).
+///
+/// ⚠ ONE SPELLING, and that is the point: `(<src>).len()`, which is the SAME
+/// expression the nest's own base loop condition reads (`chain_nest_frag`). So the
+/// number is not obtained, it is already there — a length field of a binding the
+/// prelude made because the query needed it. That is what "free" means here, and
+/// it is the only ground on which deferring is allowed to buy anything: nothing
+/// about the query's cost moves.
+///
+/// ⚠ A STREAMED SIDE STILL HAS NO NUMBER. An iterator has no length, and draining
+/// it to count is the query's own work — exactly what streaming exists to avoid,
+/// and exactly the trade this axis forbids. Such a side reports none at BOTH
+/// points, so its join keeps one nest and the refusal keeps its ground.
+///
+/// ⚠ AND THAT GUARD CANNOT FIRE TODAY, which is a fact worth writing down rather
+/// than a reason to drop it. Streaming requires the ABSENCE of `order by`
+/// (`plan_walker::plan_mark_single_pass`: a sort re-binds joined rows by position,
+/// so every side must be indexable) and a transposition requires its PRESENCE — the
+/// two conditions exclude each other, so every side reaching this function is
+/// materialized. The check stays because the coupling is another module's decision
+/// and a streaming order-preserving sort would end it silently; a function that is
+/// right only because of a distant invariant it does not name is the phase-proxy
+/// anti-pattern. `wql_deferred_plan_e2e` measures the consequence instead: an
+/// ITERATOR producer whose length is free because the sort drained it anyway, with
+/// the pull count pinning that the deferral added no second drain.
+///
+/// ⚠ A DECLARED SIZE REPORTER IS NOT CONSULTED HERE. At this point the rel is
+/// materialized, so its length is the exact count rather than a reported estimate,
+/// and it costs less than the call would. `size_expr_of` is the one that asks the
+/// declaration, because before the query runs the declaration is all there is.
+fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
+    if prm.rel_src_streams(src) { return false; }
+    out.push_str("(");
+    out.push_str(src);
+    out.push_str(").len()");
+    return true;
+}
+
 /// Decide whether the FIRST join of a chain may be driven from either side.
 ///
 /// The candidate transposition is always the first two sources, and that is not
@@ -127,9 +183,12 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
 /// and `bat`/`sat` the rel whose declared reporter each one calls (-1 for a
 /// parameter's own `.len()`), so the PREPARE fn can bind exactly the reporters
 /// its comparison reads. The comparison itself is NOT built here: it is made in
-/// one place, the emitted `prepare`, which is also where its result is recorded
-/// on the plan — the branch then reads the plan's field and cannot disagree with
-/// the number the plan reports (ADR 0024 S4i).
+/// one place per decision point — the emitted `prepare` for a prepared decision
+/// (which is also where its result is recorded on the plan, so the branch reads
+/// the plan's field and cannot disagree with the number the plan reports, ADR 0024
+/// S4i), or the one deferred binding above the nest for a deferred one (S4j). When
+/// `deferred` comes back true, `bat`/`sat` are -1 and the expressions in
+/// `bsz`/`ssz` are to be evaluated in `run`, not in `prepare`.
 pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
                          s0_src: str, s0_var: str, s0_on: WRef<SExpr>,
                          s0_edge: bool, s0_anti: bool, s0_strat: i32,
@@ -148,6 +207,15 @@ pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
         jo = jo_fixed("the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order");
     } else if s0_strat == JS_NONE() {
         jo = jo_fixed("no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for");
+    } else if str_eq(base_src, s0_src) {
+        // ⚠ A SELF-JOIN HAS NOTHING TO MEASURE, at either decision point. Both
+        // sides are the same binding, so the two numbers are equal by
+        // construction and the comparison can only ever answer "do not swap" —
+        // a second nest that no data can select. Said here rather than reached
+        // through the size machinery, because the size machinery would answer
+        // "unmeasurable" and that is the wrong reason: the sizes are perfectly
+        // knowable, they are simply the same one.
+        jo = jo_fixed("both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen");
     } else {
         // The REVERSE direction's own decision: the moved step binds the base's
         // row var, so its equi-key is selected against a different new-side.
@@ -166,9 +234,26 @@ pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
                 ssz.clear();
                 *bat = -1i64;
                 *sat = -1i64;
-                jo = jo_fixed("a side's size cannot be had before the query runs — it is streamed, or it is a rel this query materializes — so a plan prepared over the input data has no two numbers to compare");
+                // ── POINT (2): the number `prepare` cannot have may be FREE in
+                // `run` (ADR 0024 S4j). Asked only after point (1) has failed,
+                // and in that order on purpose: a decision that can be REUSED is
+                // worth more than one that is right per call, so the reusable one
+                // is tried first and the deferral is the fallback, never the
+                // preference.
+                let rokb: bool = run_size_expr_of(prm, base_src, bsz);
+                let roks: bool = run_size_expr_of(prm, s0_src, ssz);
+                if !rokb || !roks {
+                    bsz.clear();
+                    ssz.clear();
+                    jo = jo_fixed("a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses");
+                } else {
+                    jo = JoinOrder { dynamic: true, deferred: true,
+                                     why: "either side may drive, but not on any fact `prepare` can hold: both sizes are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the order is decided inside `run` — once per call, above the nest, from numbers that cost nothing there. Per-call means not reusable: `agrees` and `margin` do not speak about this half",
+                                     alt_strat: alt.strat, alt_key: alt.key_ty,
+                                     alt_sel: alt.sel, alt_why: alt.why };
+                }
             } else {
-                jo = JoinOrder { dynamic: true,
+                jo = JoinOrder { dynamic: true, deferred: false,
                                  why: "either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence",
                                  alt_strat: alt.strat, alt_key: alt.key_ty,
                                  alt_sel: alt.sel, alt_why: alt.why };
@@ -177,8 +262,31 @@ pub fn decide_join_order(nsteps: i64, base_src: str, base_var: str,
     }
     // Recorded at the moment of deciding, like every other plan decision: a
     // returned "fixed" has already lost the antecedent that fixed it.
-    plan_trace(base_var, if jo.dynamic { "drive either side" } else { "drive fixed" },
-               s0_var, jo.why);
+    //
+    // ⚠ THE VERDICT NAMES THE DECISION POINT, not just the outcome. "drive either
+    // side" and "drive either side in `run`" are two different claims about a plan
+    // — the first is reusable, the second is remade every call — and a reader must
+    // be able to tell them apart from the trace alone.
+    let mut verdict: str = "drive fixed";
+    if jo.dynamic {
+        verdict = "drive either side";
+        if jo.deferred { verdict = "drive either side in `run`"; }
+    }
+    plan_trace(base_var, verdict, s0_var, jo.why);
+    if jo.deferred {
+        // WHICH RELATION SUPPLIED THE NUMBER. The plan's own facts are -1 for a
+        // deferred decision (nothing was measured when it was prepared), so the
+        // two expressions are the only record of what will be compared and where
+        // it comes from. Rebuilt through the same rule that produced them, so the
+        // trace cannot name one thing while the code reads another.
+        let mut sb: String = String::new();
+        sb.push_str("compared in `run` after the prelude, before the join's index: ");
+        let _tb: bool = run_size_expr_of(prm, base_src, &mut sb);
+        sb.push_str(" vs ");
+        let _ts: bool = run_size_expr_of(prm, s0_src, &mut sb);
+        sb.push_str(" — each is the length of a binding the prelude already made, so the read is one field and the per-row cost does not move");
+        plan_trace(base_var, "sizes deferred to run", s0_var, string_as_str(&sb));
+    }
     if jo.dynamic {
         let mut ab: String = String::new();
         ab.push_str(js_name(jo.alt_strat));

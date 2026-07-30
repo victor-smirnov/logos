@@ -40,6 +40,43 @@
 // rel, which is the query's own work — so a join whose sides can only be
 // measured that way keeps ONE nest and says so. A prepared plan that had to run
 // the query to be prepared would not be a plan.
+//
+// ── THE SECOND DECISION POINT (ADR 0024 S4j) ─────────────────────────────────
+// The paragraph above is where the argument STOPPED, and it named only one of
+// the two moments a plan can be decided at:
+//
+//   (1) `prepare` — before any data is touched. Facts: the parameters and the
+//       sizes sources DECLARE. Reusable across calls. This is the
+//       PreparedStatement, and nothing about it moves.
+//
+//   (2) inside `run`, AFTER the prelude's unavoidable materializations and
+//       BEFORE the join builds its index. Facts: everything from (1) plus the
+//       `len()` of every relation this query materializes ANYWAY. Per-call,
+//       therefore not reusable.
+//
+// A rel's row count is not a fact about the input data — that is why (1) may not
+// have it. But by the time the join's index is built, the query has already
+// materialized the rel for its own reasons: the binding exists, and its `len()`
+// is the same field read the nest's own loop condition makes. So the number that
+// (1) could not afford is FREE at (2), and refusing there was refusing for a
+// reason that had already stopped applying.
+//
+// This is a DEFERRED HALF OF THE SAME PLAN, not a second mechanism: one plan
+// object, one decision channel, one `why` vocabulary. The plan reports which
+// half decided (`dyn_order` vs `defer_order`) and `explain()` says so, so a
+// reader can tell (1) from (2) without opening the emitter.
+//
+// ⚠ WHAT IS STILL REFUSED, and for a reason that does not weaken with time: a
+// STREAMED side has no `len()` at (2) either, and obtaining one costs draining
+// the iterator — the query's own work traded for a plan fact, which is the exact
+// error this whole axis exists to avoid. Such a join keeps one nest at both
+// points.
+//
+// ⚠ AND A DEFERRED DECISION IS NOT A PREPARED ONE. `agrees` and `margin` answer
+// about the PREPARED half only: the deferred half is re-derived on every call, so
+// there is nothing stale about it to check and nothing to be close to flipping.
+// `settled()` is what says so out loud — a caller holding a plan must not believe
+// the deferred choice was fixed when they prepared it.
 package logos.std.wql.prepared;
 
 use logos.lang.str;      // str_byte_at
@@ -55,33 +92,51 @@ use logos.mem.string;    // String
 // nothing measurable, `agrees` is then unconditionally true, and a caller need
 // not know which queries have a choice to write code that re-checks them all.
 //
-// `base_sz` / `step_sz` are the two size EXPRESSIONS, evaluable in `prepare`'s
-// scope after `measure`; the comparison over them is made in ONE place (the
-// emitted `prepare`) so the plan and the branch cannot disagree about it.
+// `deferred` — the plan holds the decision's RULE but not its answer: the two
+// numbers only exist inside `run` (point 2), so `prepare` records that the order
+// is chosen per call and `run` chooses it. `dynamic` and `deferred` are mutually
+// exclusive by construction — one decision, taken at one of the two points.
+//
+// `base_sz` / `step_sz` are the two size EXPRESSIONS. For `dynamic` they are
+// evaluable in `prepare`'s scope after `measure`; for `deferred` they are
+// evaluable in `run`'s, after the prelude. The comparison over them is made in
+// ONE place per point — the emitted `prepare`, or the one deferred binding above
+// the nest — so the plan and the branch cannot disagree about it.
 pub struct Prepared {
-    pub on:      bool,
-    pub dynamic: bool,
-    pub base_sz: str,
-    pub step_sz: str,
-    pub measure: str,
-    pub why:     str,
+    pub on:       bool,
+    pub dynamic:  bool,
+    pub deferred: bool,
+    pub base_sz:  str,
+    pub step_sz:  str,
+    pub measure:  str,
+    pub why:      str,
 }
 
 pub fn prep_off() -> Prepared {
-    return Prepared { on: false, dynamic: false, base_sz: "", step_sz: "",
-                      measure: "", why: "" };
+    return Prepared { on: false, dynamic: false, deferred: false, base_sz: "",
+                      step_sz: "", measure: "", why: "" };
 }
 
 /// A prepared surface with no run-time decision in it — the plan is whatever
 /// the compiler already fixed, and `why` says what fixed it.
 pub fn prep_fixed(why: str) -> Prepared {
-    return Prepared { on: true, dynamic: false, base_sz: "", step_sz: "",
-                      measure: "", why: why };
+    return Prepared { on: true, dynamic: false, deferred: false, base_sz: "",
+                      step_sz: "", measure: "", why: why };
 }
 
 pub fn prep_dyn(base_sz: str, step_sz: str, measure: str, why: str) -> Prepared {
-    return Prepared { on: true, dynamic: true, base_sz: base_sz, step_sz: step_sz,
-                      measure: measure, why: why };
+    return Prepared { on: true, dynamic: true, deferred: false, base_sz: base_sz,
+                      step_sz: step_sz, measure: measure, why: why };
+}
+
+/// The DEFERRED half (ADR 0024 S4j): `prepare` measures nothing and decides
+/// nothing, and `run` decides once per call from two lengths that cost nothing
+/// where it stands. No `measure` — a deferred plan's numbers are not reporter
+/// calls, they are the lengths of bindings the prelude already made, which is
+/// precisely what makes the deferral affordable.
+pub fn prep_deferred(base_sz: str, step_sz: str, why: str) -> Prepared {
+    return Prepared { on: true, dynamic: false, deferred: true, base_sz: base_sz,
+                      step_sz: step_sz, measure: "", why: why };
 }
 
 /// The plan TYPE's name: the query's name in CamelCase, plus `Plan`.
