@@ -31,7 +31,9 @@
 #     field must appear on the ONE plan here that has candidates and on neither of
 #     the other two, `jc_table_none` must not appear at all, and the plans without a
 #     table must SAY they have none — an absence that is not recorded is the defect,
-#     a declared one with its ground is not.
+#     a declared one with its ground is not. And it must say WHICH absence: an axis
+#     that was never entered is not an axis that proved orders and carried none
+#     (ADR 0024 S4n), and `proved()` is the constant that separates them.
 set -euo pipefail
 
 LOGOSC="$1"
@@ -112,9 +114,41 @@ fi
 # ⚠ AND THE ABSENCE IS DATA. Both table-less plans record it in the ground they
 # carry, so `considered() == 0` reads as "there was no table" and not as "a table
 # that answered nothing".
-n_abs=$(count 'no candidate table: nothing was considered')
+# ⚠ AND WHICH ABSENCE (ADR 0024 S4n). The old rule pinned the substring 'nothing was
+# considered', which the emitter appended to EVERY table-less plan without asking the
+# search that had just run — so the rule also passed on a plan whose derivation proved
+# eight legal orders and declined to carry them. Both queries here have NO order axis
+# at all, so the accurate sentence is the "never entered" one, and the gate now pins
+# THAT — same count, same two plans, one more thing asserted about each.
+n_abs=$(count 'no candidate table: the order axis was never entered')
 if [ "$n_abs" -ne 2 ]; then
     echo "FAIL: $n_abs plans record having no candidate table (want 2 — no_order and evens)"
+    fail=1
+fi
+# The census is on the OBJECT as a compile-time constant, not only in the prose: a
+# table-less plan whose axis was never entered reports `proved()` 0. `q5` in
+# `wql_join_order_multi_e2e` is the contrasting artifact (proved 8, carried none) and
+# `join_order_multi_gate.sh` pins it there.
+n_pv0=$(grep -A1 -h 'pub fn proved(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 0i64;' || true)
+if [ "$n_pv0" -lt 2 ]; then
+    echo "FAIL: $n_pv0 plans emit proved() == 0 (want >= 2 — no_order and evens never entered the axis)"
+    grep -En 'fn proved' "${DUMPS[@]}" || true
+    fail=1
+fi
+# …and `enumerated() == 0` is what makes that "never entered" rather than "entered and
+# refused everything", which reports the same `proved()`.
+n_en0=$(grep -A1 -h 'pub fn enumerated(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 0i64;' || true)
+if [ "$n_en0" -lt 2 ]; then
+    echo "FAIL: $n_en0 plans emit enumerated() == 0 (want >= 2 — no permutation was walked for either)"
+    grep -En 'fn enumerated' "${DUMPS[@]}" || true
+    fail=1
+fi
+# ⚠ NO PIPE INTO `grep -q` HERE. Under `pipefail` the producer takes SIGPIPE (141)
+# and the whole condition reads FALSE — a gate that cannot fire. The count is a
+# variable, and the test is arithmetic.
+n_old=$(count 'no candidate table: nothing was considered')
+if [ "$n_old" -ne 0 ]; then
+    echo "FAIL: $n_old plans carry the undifferentiated 'nothing was considered' suffix"
     fail=1
 fi
 # ⚠ A FIXED PLAN NAMES ORDER 0 AND MEANS IT (ADR 0024 S4m). The deferred half now
@@ -192,7 +226,7 @@ if ! grep -q 'the access path is decided where the query compiles' "$TMPD/err"; 
 fi
 # The trace and `explain()` are composed from ONE buffer, so the channel says what
 # the object says — including about the table it does not carry.
-if ! grep -q 'no candidate table: nothing was considered' "$TMPD/err"; then
+if ! grep -q 'no candidate table: the order axis was never entered' "$TMPD/err"; then
     echo "FAIL: the trace does not report that a candidate-less plan carries no table"
     fail=1
 fi

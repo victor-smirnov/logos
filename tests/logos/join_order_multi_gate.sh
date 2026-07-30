@@ -85,6 +85,37 @@ if ! grep -q 'more admissible orders than an artifact carries nests (four): the 
     echo "FAIL: the over-bound case does not state its fallback — a truncated search would look the same"
     fail=1
 fi
+# ⚠ AND THE PLAN OBJECT MUST SAY IT TOO (ADR 0024 S4n). The trace is a compile-time
+# channel; the plan is what survives the compile, and it carried the OPPOSITE claim —
+# "[no candidate table: nothing was considered, so `considered()` is 0]" appended to a
+# ground that had just said eight orders were proved legal. This is the one case
+# `JC_MAX_CAND` exists to make visible, so the bound's disclosure is asserted on the
+# artifact and not only on the channel.
+if ! grep -q '8 of 24 permutations were proved admissible and NONE of them is carried' "$TMPD/err"; then
+    echo "FAIL: the over-bound plan's own ground does not report what the search proved"
+    fail=1
+fi
+if grep -q 'nothing was considered' "$TMPD/err"; then
+    echo "FAIL: a plan whose axis was entered claims nothing was considered"
+    fail=1
+fi
+# `proved()` is the same fact where a PROGRAM reads it — a compile-time constant on
+# the plan's impl, so `considered() == 0` stops meaning two different things.
+n_pv8=$(grep -A1 -h 'pub fn proved(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 8i64;' || true)
+if [ "$n_pv8" -lt 1 ]; then
+    echo "FAIL: the over-bound plan does not carry its census as proved() == 8"
+    grep -En 'fn proved' "${DUMPS[@]}" || true
+    fail=1
+fi
+# The census is the same TRIPLE the trace line prints — enumerated / proved /
+# carried. Two numbers could not tell "the axis was never entered" from "entered and
+# admitted nothing"; three can, and `q5` is the artifact where all three differ.
+n_en24=$(grep -A1 -h 'pub fn enumerated(&self)' "${DUMPS[@]}" 2>/dev/null | grep -c 'return 24i64;' || true)
+if [ "$n_en24" -lt 1 ]; then
+    echo "FAIL: the over-bound plan does not carry enumerated() == 24"
+    grep -En 'fn enumerated' "${DUMPS[@]}" || true
+    fail=1
+fi
 
 # ── THE SEARCH SUMMARY: the three counts, and the model it priced with ──────
 if ! grep -q '6 permutations of 3 floatable sources enumerated, 4 admissible, 4 carried as nests' "$TMPD/err"; then

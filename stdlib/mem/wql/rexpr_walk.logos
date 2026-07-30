@@ -342,6 +342,11 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // ⚠ A METHOD THAT ANSWERS OUTSIDE ITS DOMAIN IS A GATE THAT RETURNS 0 WHEN IT COULD
 // NOT LOOK. So the domain is now visible in the ANSWERS and not only in `settled()`:
 //
+//   `proved()`  the CENSUS, on both shapes: how many orders the derivation proved
+//               legal, carried or not. A compile-time constant, so it costs no
+//               field and no store — and it is what stops `considered() == 0`
+//               meaning both "the axis was never entered" and "entered, proved
+//               eight, carried none" (ADR 0024 S4n).
 //   `order_ix`  -1 on a deferred plan — no order is named, `run` names one
 //   `cost_of`   `JC_NOFACT()` (-2), and -1 stays "there is no such candidate"
 //   `margin`    `JC_NOFACT()`, from the same test inside `jc_margin`
@@ -373,16 +378,27 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // So the field is CONDITIONAL and the four table questions still have answers, from
 // `join_cost` itself (`jc_none_*`), where they are pinned equal to the general
 // function applied to `jc_table_none()`. Nothing about the surface is conditional:
-// both shapes carry the same ten-or-nine fields and the SAME EIGHT METHODS with the
+// both shapes carry the same ten-or-nine fields and the SAME TEN METHODS with the
 // same signatures, so one loop over a caller's queries is still one loop.
 //
 // ⚠ THIS IS PER CALL, NOT PER ROW. The per-row body never touched `tbl`; what was
 // paid was one plan construction per invocation — which is exactly what hurts a
 // point-get query called in an application loop.
-fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
+fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, nperm: i64, nadm: i64) {
     let nm: Ident = Ident::new(tyn);
+    // The census is a COMPILE-TIME number, so it is emitted as a constant-returning
+    // method and not as a field: a plan pays nothing per call to carry it, which is
+    // the same rule `has_tbl` follows for the table itself.
+    let mut nab: String = String::new();
+    nab.push_i64(nadm);
+    nab.push_str("i64");
+    let na: ExprBlob = parse_expr(string_as_str(&nab));
+    let mut npb: String = String::new();
+    npb.push_i64(nperm);
+    npb.push_str("i64");
+    let np: ExprBlob = parse_expr(string_as_str(&npb));
     if !has_tbl {
-        emit_prepared_type_no_tbl(tyn, is_priv);
+        emit_prepared_type_no_tbl(tyn, is_priv, np, na);
         return;
     }
     if is_priv {
@@ -413,6 +429,16 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
                     return jc_order_cost(&self.tbl, ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn considered(&self) -> i64 { return self.tbl.ncand; }
+                // ⚠ THE SEARCH'S CENSUS, THE SAME TRIPLE THE TRACE PRINTS.
+                // `enumerated()` how many permutations were walked, `proved()`
+                // how many were proved LEGAL (carried or not), `considered()`
+                // how many are carried as candidates. Three numbers because two
+                // could not tell "the axis was never entered" (enumerated 0)
+                // from "entered and admitted nothing" (enumerated > 0, proved 0)
+                // — the conflation this replaces, one level down. Both are
+                // compile-time constants: a plan pays no field and no store.
+                pub fn enumerated(&self) -> i64 { return #(np); }
+                pub fn proved(&self) -> i64 { return #(na); }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
@@ -463,6 +489,16 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
                     return jc_order_cost(&self.tbl, ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn considered(&self) -> i64 { return self.tbl.ncand; }
+                // ⚠ THE SEARCH'S CENSUS, THE SAME TRIPLE THE TRACE PRINTS.
+                // `enumerated()` how many permutations were walked, `proved()`
+                // how many were proved LEGAL (carried or not), `considered()`
+                // how many are carried as candidates. Three numbers because two
+                // could not tell "the axis was never entered" (enumerated 0)
+                // from "entered and admitted nothing" (enumerated > 0, proved 0)
+                // — the conflation this replaces, one level down. Both are
+                // compile-time constants: a plan pays no field and no store.
+                pub fn enumerated(&self) -> i64 { return #(np); }
+                pub fn proved(&self) -> i64 { return #(na); }
                 pub fn agrees(&self, fresh: &#nm) -> bool {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
@@ -504,7 +540,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
 /// are the plan's answer, not its scaffolding. `agrees` and `settled` are then
 /// unconditional — the constant-folded form of the general bodies, which for
 /// `dyn_order == false` / `defer_order == false` return exactly these.
-fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool) {
+fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob) {
     let nm: Ident = Ident::new(tyn);
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
@@ -526,6 +562,8 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool) {
                 }
                 pub fn cost_of(&self, ix: i64) -> i64 { return jc_none_cost(); }
                 pub fn considered(&self) -> i64 { return jc_none_ncand(); }
+                pub fn enumerated(&self) -> i64 { return #(np); }
+                pub fn proved(&self) -> i64 { return #(na); }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
@@ -553,6 +591,8 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool) {
                 }
                 pub fn cost_of(&self, ix: i64) -> i64 { return jc_none_cost(); }
                 pub fn considered(&self) -> i64 { return jc_none_ncand(); }
+                pub fn enumerated(&self) -> i64 { return #(np); }
+                pub fn proved(&self) -> i64 { return #(na); }
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
@@ -642,6 +682,57 @@ fn push_size_list(out: &mut String, prep: &Prepared) {
     }
 }
 
+/// WHY A PLAN CARRIES NO CANDIDATE TABLE — the three answers the census actually
+/// distinguishes, and never one sentence for all of them.
+///
+/// ⚠ THE MIDDLE CASE IS THE ONE THE ARTIFACT BOUND EXISTS FOR. `JC_MAX_CAND` declines
+/// a reorder WHOLE rather than carrying "the first four", precisely so that dropping
+/// admissible orders is visible; a plan that then reports "nothing was considered" is
+/// the bound's own disclosure being deleted by the object that was supposed to carry
+/// it. So the count is stated, with the enumeration it came out of, and `proved()`
+/// puts the same number where a program can reach it.
+///
+/// ⚠ AND THE THIRD CASE IS NOT THE FIRST. One admissible order out of six is a
+/// derivation that ran and refused five — the ground for that is already in `why`,
+/// composed from the refusal census — while zero permutations is a query with no
+/// order axis at all. Collapsing them would re-create the defect one level down.
+///
+/// ⚠ WHICH IS ALSO WHY THE CENSUS IS A TRIPLE. `proved() == 0` alone cannot separate
+/// "no permutation was enumerated" from "every permutation was refused"; `enumerated()`
+/// can, and it is the same first number the `order search` trace line prints. The
+/// fourth branch here is not known to be reachable in the corpus — `derive_orders`
+/// admits the identity permutation in every shape measured — and it is written
+/// anyway, because default-DENY is the rule this file follows and an unreachable
+/// branch that would produce a FALSE sentence is still a `why` a reader could be
+/// shown.
+fn push_no_table_why(out: &mut String, prep: &Prepared) {
+    if prep.nperm == 0i64 {
+        out.push_str(" [no candidate table: the order axis was never entered — no permutation was enumerated, so `proved()` is 0 as well as `considered()`, `cost_of` prices nothing and the plan carries no `tbl`]");
+        return;
+    }
+    if prep.nadm == 0i64 {
+        out.push_str(" [no candidate table: the order axis WAS entered and admitted nothing — ");
+        out.push_i64(prep.nperm);
+        out.push_str(" permutations were enumerated and every one was refused, on the ground above, so `enumerated()` reports ");
+        out.push_i64(prep.nperm);
+        out.push_str(" while `proved()` and `considered()` both report 0 — which is why the census is a TRIPLE and not a pair]");
+        return;
+    }
+    out.push_str(" [no candidate table, and NOT because nothing was proved: ");
+    out.push_i64(prep.nadm);
+    out.push_str(" of ");
+    out.push_i64(prep.nperm);
+    if prep.nadm >= 2i64 {
+        out.push_str(" permutations were proved admissible and NONE of them is carried, on the ground above — `proved()` reports ");
+        out.push_i64(prep.nadm);
+        out.push_str(" where `considered()` reports 0, which is how a reader tells this apart from an axis that was never entered]");
+    } else {
+        out.push_str(" permutations survived the derivation, which is not a set to choose between — `proved()` reports ");
+        out.push_i64(prep.nadm);
+        out.push_str(", `considered()` reports 0 because a lone survivor is the query's own order and needs no table, and `cost_of` prices nothing]");
+    }
+}
+
 /// A query's four items: the plan type, `prepare`, `run`, and the direct fn as
 /// prepare-then-run. `body` — the query's real body — goes into `run` and
 /// nowhere else, so per-row code is emitted exactly once and the direct fn is
@@ -676,7 +767,7 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // fill it, `prep_fixed` and `prep_off` leave it empty — so the field's presence
     // on the type and its presence in the struct literal cannot disagree.
     let has_tbl: bool = prep.tbl.len() > 0i64;
-    emit_prepared_type(tyn, is_priv, has_tbl);
+    emit_prepared_type(tyn, is_priv, has_tbl, prep.nperm, prep.nadm);
 
     // The derived fns keep the query's own visibility marker where they are
     // EMITTED and drop it where they are CALLED: the marker is a directive to
@@ -769,7 +860,18 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
             // same buffer — is where a caller finds that out. Otherwise
             // `considered() == 0` and `cost_of(ix) == -1` would read as a table that
             // answered nothing rather than as the absence of one.
-            whyb.push_str(" [no candidate table: nothing was considered, so `considered()` is 0, `cost_of` prices nothing and the plan carries no `tbl`]");
+            //
+            // ⚠ AND WHAT THE ABSENCE MEANS IS DERIVED FROM THE CENSUS, not asserted.
+            // "Nothing was considered" was appended to EVERY table-less plan — 207 of
+            // 226 prepared plans in the corpus — without consulting the search that
+            // had just run. On `wql_join_order_multi_e2e::q5` that put the sentence
+            // next to its own contradiction in one string: the ground says eight
+            // orders were proved legal and declined whole, the suffix says nothing was
+            // considered. The count is the same either way, so the count alone can
+            // never have been the answer; `proved()` is the number a program reads,
+            // and this is the sentence a person reads, and both come from `nperm` /
+            // `nadm`.
+            push_no_table_why(&mut whyb, &prep);
         }
         push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
@@ -3196,6 +3298,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                            string_as_str(&meas), string_as_str(&tblb), jo.why);
         }
     }
+    // ⚠ THE CENSUS TRAVELS WITH THE PLAN, NOT ONLY WITH THE TRACE. This is the one
+    // site where the order axis was ENTERED, so it is the one site that can tell
+    // "nothing to permute" from "24 permuted, 8 legal, none carried" — and the plan
+    // object is the only artifact of the two that survives the compile.
+    prep_set_search(&mut prp, jo.nperm, jo.nadm);
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);
     return true;
 }

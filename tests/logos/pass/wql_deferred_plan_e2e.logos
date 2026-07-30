@@ -304,9 +304,32 @@ fn main() -> i32 {
     // QUERY MATERIALIZES ANYWAY", "not on any fact `prepare` can hold") asserted of
     // two sides what is true of one. The ground is composed from the per-side
     // classification the deferral was decided on, so it names both groups.
-    if !str_contains(p.explain(), "`__rel_hot_sl` is a relation THIS QUERY MATERIALIZES") { return 58i32; }
+    if !str_contains(p.explain(), "`__rel_hot_sl` is a `rel` BLOCK OF THIS QUERY") { return 58i32; }
     if !str_contains(p.explain(), "`prepare` COULD have measured `rs`") { return 59i32; }
     if str_contains(p.explain(), "both sizes are LENGTHS") { return 60i32; }
+
+    // ── AND THE REMEDY IS ONE THIS READER CAN TAKE (ADR 0024 S4n) ─────────
+    // The tail used to read "Declaring a `size` operation on the source(s) above
+    // would move the whole decision back to `prepare`", emitted whenever ANY side was
+    // measurable and with no test of whether the side that FAILED can declare
+    // anything. `hot` is a parse-side `rel` block: `rel_size_fn` is written in exactly
+    // one place (`plan_walker::reg_native`, from a natspec), so no file anywhere can
+    // carry that declaration for it. A remedy is the repair of the failed antecedent;
+    // one addressed to a declaration surface the source does not have is worse than
+    // none, because it sends the reader somewhere that does not exist.
+    if !str_contains(p.explain(), "there is NOTHING TO DECLARE A SIZE ON") { return 64i32; }
+    if !str_contains(p.explain(), "materialized by the caller and passed in as a source that declares a `size`") { return 65i32; }
+    if str_contains(p.explain(), "Declaring a `size` operation on the source(s) above") { return 66i32; }
+
+    // THE CONTRAST, in the same file: `iter_step` defers on `s`, a source that
+    // DECLARES its rows through an `impl` and could declare its size the same way. The
+    // advice there is actionable and says so — without this line, "derive the remedy"
+    // would be indistinguishable from "never advise a declaration".
+    let st_c: Steps = Steps { n: 6i64 };
+    let pi: IterStepPlan = iter_step_prepare(&ls_small[..], &st_c);
+    if !str_contains(pi.explain(), "declaring a size is ACTIONABLE for it") { return 67i32; }
+    if !str_contains(pi.explain(), "`size <name> = <fn>;` line beside that one") { return 68i32; }
+    if str_contains(pi.explain(), "NOTHING TO DECLARE A SIZE ON") { return 69i32; }
     // and the reason the measurable side moved is stated, not implied
     if !str_contains(p.explain(), "may not mix a fact from point (1) with one from point (2)") { return 61i32; }
     // the disclosure covers the members S4k added, not only S4j's two

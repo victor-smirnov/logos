@@ -87,6 +87,7 @@
 //   `order_ix`     WHICH order won — 0 is always the query's own;
 //   `tbl`          the CANDIDATE TABLE it decided over (`join_cost::JCTable`);
 //   `considered()` how many orders are carried, hence how many nests exist;
+//   `proved()`     how many the derivation proved LEGAL, carried or not (S4n);
 //   `cost_of(ix)`  what any one of them would cost ON THIS PLAN'S OWN FACTS.
 //
 // `swap` survives as `order_ix == 1`, which for a two-candidate plan is exactly
@@ -164,12 +165,34 @@ use logos.mem.string;    // String
 // ground did each loser lose" a question the program can answer.
 //
 // `ncand` — how many orders, hence how many nests the body carries.
+//
+// ── THE ORDER SEARCH'S CENSUS (ADR 0024 S4n) ─────────────────────────────────
+// `nperm` / `nadm` — the permutations the derivation ENUMERATED and the ones it
+// PROVED ADMISSIBLE. They are compile-time numbers and they stay compile-time
+// numbers: `proved()` is emitted as a constant-returning method, so a plan pays no
+// field and no store for carrying its own census.
+//
+// ⚠ THEY EXIST BECAUSE `considered() == 0` MEANT TWO DIFFERENT THINGS. A plan with
+// no candidate table reports 0 whether the axis was never entered (one source, no
+// join, nothing to permute) or entered and proved EIGHT legal orders that the
+// artifact bound then declined to carry — measured on `wql_join_order_multi_e2e::q5`,
+// whose trace says "24 permutations … 8 admissible, 1 carried" while its plan said
+// "nothing was considered". A count that means two things is not a fact, and the
+// second reading is precisely the one `JC_MAX_CAND` exists to make visible.
+//
+// ⚠ ZERO IS THE DEFAULT AND IT IS THE HONEST ONE. Every `prep_*` constructor sets
+// both to 0 — "no permutation was enumerated" — which is exactly true of every
+// surface that returns before `decide_join_orders` runs (a scan, a head row, a
+// constantly-false filter, an aggregate). The ONE caller that entered the axis
+// overwrites them from the `JoinOrder` it holds, through `prep_set_search`.
 pub struct Prepared {
     pub on:       bool,
     pub dynamic:  bool,
     pub deferred: bool,
     pub nfl:      i64,
     pub ncand:    i64,
+    pub nperm:    i64,
+    pub nadm:     i64,
     pub sz0:      str,
     pub sz1:      str,
     pub sz2:      str,
@@ -181,6 +204,7 @@ pub struct Prepared {
 
 pub fn prep_off() -> Prepared {
     return Prepared { on: false, dynamic: false, deferred: false, nfl: 0i64, ncand: 0i64,
+                      nperm: 0i64, nadm: 0i64,
                       sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: "" };
 }
 
@@ -188,12 +212,14 @@ pub fn prep_off() -> Prepared {
 /// the compiler already fixed, and `why` says what fixed it.
 pub fn prep_fixed(why: str) -> Prepared {
     return Prepared { on: true, dynamic: false, deferred: false, nfl: 0i64, ncand: 1i64,
+                      nperm: 0i64, nadm: 0i64,
                       sz0: "", sz1: "", sz2: "", sz3: "", measure: "", tbl: "", why: why };
 }
 
 pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
                 measure: str, tbl: str, why: str) -> Prepared {
     return Prepared { on: true, dynamic: true, deferred: false, nfl: nfl, ncand: ncand,
+                      nperm: 0i64, nadm: 0i64,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: measure, tbl: tbl, why: why };
 }
@@ -207,8 +233,24 @@ pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
 pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,
                      tbl: str, why: str) -> Prepared {
     return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
+                      nperm: 0i64, nadm: 0i64,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: "", tbl: tbl, why: why };
+}
+
+/// RECORD THE ORDER SEARCH'S CENSUS on a plan the search produced. Called from the
+/// one site that holds a `JoinOrder` — every other `prep_*` result keeps the 0/0
+/// default, which is the true statement "no permutation was enumerated".
+///
+/// ⚠ IT IS A SEPARATE CALL RATHER THAN TWO MORE CONSTRUCTOR PARAMETERS because the
+/// census is orthogonal to WHICH half decided: `prep_fixed`, `prep_dyn` and
+/// `prep_deferred` are all reachable from a search that ran, and all three are also
+/// reachable from surfaces that never entered the axis. Threading the pair through
+/// three signatures would have put the same two numbers in three places and left the
+/// default to each of them.
+pub fn prep_set_search(p: &mut Prepared, nperm: i64, nadm: i64) {
+    p.nperm = nperm;
+    p.nadm  = nadm;
 }
 
 // ── WHAT A DEFERRED PLAN DOES NOT HOLD (ADR 0024 S4m) ────────────────────────

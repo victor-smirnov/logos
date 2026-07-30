@@ -27,7 +27,7 @@
 //      rather than as "a table that answered nothing". An undeclared narrowing is
 //      the defect; a declared one with its ground is not.
 //
-//   3. THE SURFACE IS UNCHANGED. All eight methods exist with the same signatures
+//   3. THE SURFACE IS UNCHANGED. All ten methods exist with the same signatures
 //      on a plan that has no table, `agrees` is unconditionally true (nothing was
 //      decided, so no fresh fact can make it stale) and `settled()` is true (nothing
 //      is left for `run` to decide either). A caller's one loop over the queries it
@@ -92,9 +92,23 @@ fn main() -> i32 {
     // The recorded ground names the absence AND its consequences — the failed
     // antecedent is "something was considered", and the remedy is not a remedy
     // because nothing is wrong: a query with one source has no order to choose.
+    //
+    // ⚠ AND IT NAMES WHICH ABSENCE (ADR 0024 S4n). "Nothing was considered" used to be
+    // appended to every table-less plan without consulting the search, so it was also
+    // said by plans whose derivation had proved eight legal orders and declined to
+    // carry them. `evens` is the OTHER case — one source, no order axis, nothing
+    // enumerated — and it now says so in those words, with `proved()` reporting 0
+    // beside `considered()`. The pair is what a program reads;
+    // `wql_join_order_multi_e2e::q5` pins the contrasting case in the same vocabulary.
     if !str_contains(p.explain(), "no candidate table") { return 15i32; }
-    if !str_contains(p.explain(), "nothing was considered") { return 16i32; }
+    if !str_contains(p.explain(), "the order axis was never entered") { return 16i32; }
     if !str_contains(p.explain(), "the access path is decided where the query compiles") { return 17i32; }
+    if p.proved() != 0i64 { return 18i32; }
+    if p.proved() != p.considered() { return 19i32; }
+    // And the number that makes "never entered" a fact rather than an inference:
+    // nothing was enumerated. A plan whose axis WAS entered and admitted nothing
+    // would report the same `proved()` and a non-zero `enumerated()`.
+    if p.enumerated() != 0i64 { return 29i32; }
 
     // ── 3. THE SURFACE ────────────────────────────────────────────────────
     if p.dyn_order    { return 20i32; }

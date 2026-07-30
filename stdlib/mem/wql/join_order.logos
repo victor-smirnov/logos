@@ -333,17 +333,45 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
 // the plan's `why` and the trace compose their sentences from it. A hand-written
 // sentence that happens to be true of the fixture in front of you is exactly what
 // produced the defect.
+//
+// ── AND THE CODE HAS TO SPLIT WHERE THE REMEDY SPLITS (ADR 0024 S4n) ─────────
+// `SZ_DERIVED` covered two situations with the same failed antecedent and opposite
+// repairs, and the plan advised the repair that does not exist:
+//
+//   a NATIVE source (a param whose `impl` declares `rel <name> = <fn>;`) that
+//   declares no `size` — the declaration surface EXISTS and one line adds the
+//   number, so "declare a `size` on that source" is advice a reader can take;
+//
+//   a parse-side `rel` BLOCK — part of THIS query, registered at
+//   `plan_walker.logos` with no size fields at all. `rel_size_fn` is written in
+//   exactly one place (`reg_native`, from the natspec), so the advised declaration
+//   cannot be written for such a source in any file.
+//
+// Measured on `wql_deferred_plan_e2e::via_rel`, whose deferral is forced by
+// `__rel_hot_sl`, a `rel` block: the plan told its reader to declare a `size` on a
+// source that has nowhere to declare one. A remedy is the HOW half of a
+// justification — the failed antecedent's repair — and an unactionable one sends the
+// reader to a surface that does not exist, which is worse than recording none.
 fn SZ_OK() -> i32      { return 0i32; }
 fn SZ_STREAMS() -> i32 { return 1i32; }
 fn SZ_DERIVED() -> i32 { return 2i32; }
+fn SZ_LOCAL() -> i32   { return 3i32; }
 
 /// THE ONE RULE. `size_expr_of` returns true exactly when this returns `SZ_OK()`,
 /// because it asks this and nothing else; `jo_report` asks it again to annotate the
 /// trace, so the account and the code cannot name different reasons.
+///
+/// ⚠ `rel_native` IS THE DECLARABILITY TEST, and it is a fact the registry already
+/// holds rather than a new one: `reg_native` sets it on exactly the sources whose
+/// operations arrive from a natspec, which is exactly the set that can carry a
+/// `size <rel> = <fn>;` line. A parse-side `rel` block is everything else.
 fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
     if prm.rel_src_streams(src) { return SZ_STREAMS(); }
     let ri: i64 = prm.rel_find_src(src);
-    if ri >= 0i64 && prm.rel_size_at[ri].len() == 0i64 { return SZ_DERIVED(); }
+    if ri >= 0i64 && prm.rel_size_at[ri].len() == 0i64 {
+        if prm.rel_native[ri] { return SZ_DERIVED(); }
+        return SZ_LOCAL();
+    }
     return SZ_OK();
 }
 
@@ -351,7 +379,10 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
 /// vocabulary of the thing that failed.
 fn sz_no_prepare_words(r: i32) -> str {
     if r == SZ_DERIVED() {
-        return "is a relation THIS QUERY MATERIALIZES: the binding is a local of the generated fn, so before the query's own prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
+        return "is a source whose rows this query materializes and which declares no `size`: the binding is a local of the generated fn, so before the query's own prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
+    }
+    if r == SZ_LOCAL() {
+        return "is a `rel` BLOCK OF THIS QUERY: its rows are produced by the query's own fixpoint into a local of the generated fn, so before the prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
     }
     if r == SZ_STREAMS() {
         return "STREAMS: an iterator has no length, and counting means draining it — the query's own work traded for a plan fact, which this axis refuses at both points";
@@ -361,17 +392,45 @@ fn sz_no_prepare_words(r: i32) -> str {
     return "has no size at point (1) for a reason this module has not named — the classification reached a code with no ground, which is a defect in `prep_size_reason` and not a property of the query";
 }
 
+/// THE REPAIR THE FAILED ANTECEDENT ADMITS — one per code, because the codes were
+/// split precisely where the repair differs.
+///
+/// ⚠ "THERE IS NONE, AND HERE IS WHAT THE SOURCE WOULD HAVE TO BECOME" IS AN ANSWER.
+/// What is not an answer is naming a declaration surface the reader's source does not
+/// have; that is the defect this function exists to make impossible, since the same
+/// code that decided the refusal now decides the advice.
+fn sz_remedy_words(r: i32) -> str {
+    if r == SZ_DERIVED() {
+        return "declaring a size is ACTIONABLE for it: it already declares its rows through an `impl` (`rel <name> = <fn>;`), and a `size <name> = <fn>;` line beside that one is read by the same natspec, lands as a reporter call in `prepare`, and moves the whole decision back to point (1)";
+    }
+    if r == SZ_LOCAL() {
+        return "there is NOTHING TO DECLARE A SIZE ON: a `rel` block is part of this query, not a source it was given, and the registry carries no size field for one (`plan_walker::reg_native` is the only writer of `rel_size_fn` and it reads a natspec). The decision returns to point (1) only if the relation stops being the query's — materialized by the caller and passed in as a source that declares a `size`";
+    }
+    if r == SZ_STREAMS() {
+        return "this axis offers no repair: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
+    }
+    return "no repair is derivable, because the classification reached a code this module has not named — a defect in `prep_size_reason` and not a property of the query";
+}
+
 /// What the side IS, for the account of the read that `run` actually makes. Both
 /// answers are O(1) field reads (`run_size_expr_of` states the bound); they differ
 /// in WHERE the field came from, which is the whole of what point (1) could not have.
+///
+/// ⚠ DEFAULT-DENY HERE TOO. This used to fall through to `SZ_OK`'s sentence, so an
+/// unnamed code would have been described as "an input the caller passed in" — the
+/// one answer that makes the deferral look unnecessary. `SZ_OK` is tested for by
+/// name now, like every other code.
 fn sz_run_words(r: i32) -> str {
-    if r == SZ_DERIVED() {
+    if r == SZ_DERIVED() || r == SZ_LOCAL() {
         return "a relation the prelude materialized for the query's own reasons";
     }
     if r == SZ_STREAMS() {
         return "a streamed source, which has no length here either — this side cannot be reached";
     }
-    return "an input the caller passed in, which `prepare` COULD have measured";
+    if r == SZ_OK() {
+        return "an input the caller passed in, which `prepare` COULD have measured";
+    }
+    return "a side whose classification reached a code this module has not named — a defect in `prep_size_reason`";
 }
 
 /// A source's SIZE as an expression evaluable INSIDE `run` — in the region between
@@ -1094,6 +1153,41 @@ fn push_defer_src(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64, k: i64) {
     }
 }
 
+/// THE REMEDY CLAUSE, one entry per DISTINCT FAILING CLASS, naming the sources it
+/// applies to. Composed from `rsn` — the same per-side codes the refusal was decided
+/// on — so the advice cannot name a repair the refusal's own ground contradicts.
+///
+/// ⚠ ONE CLAUSE PER CLASS, NOT ONE PER QUERY. `db_i64_leaves` defers on two `rel`
+/// blocks and `iter_step` on a declared source; a query that mixed the two would have
+/// had a single sentence covering both, which is how one remedy came to be printed
+/// for sources that cannot take it. Class order is CODE order, the same rule
+/// `push_census_why` follows for refusal grounds.
+fn push_defer_remedy(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64,
+                     rsn: &[i32; 4]) {
+    let mut w: i64 = 0i64;
+    let mut code: i64 = 1i64;
+    while code < 4i64 {
+        let mut n: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < nfl {
+            if (rsn[i] as i64) == code && defer_first_at(c, fl, i) == i {
+                if n > 0i64 { out.push_str(", "); }
+                else if w > 0i64 { out.push_str("; "); }
+                else { out.push_str(". THE REMEDY, derived from what each refused side IS: "); }
+                push_defer_src(out, c, fl, nfl, i);
+                n = n + 1i64;
+            }
+            i = i + 1i64;
+        }
+        if n > 0i64 {
+            out.push_str(" — ");
+            out.push_str(sz_remedy_words(code as i32));
+            w = w + 1i64;
+        }
+        code = code + 1i64;
+    }
+}
+
 fn push_defer_why(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64,
                   ncand: i64, rsn: &[i32; 4]) {
     if ncand == 2i64 {
@@ -1123,6 +1217,12 @@ fn push_defer_why(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64,
     if nno == 0i64 {
         out.push_str("the deferral was taken with every side measurable at point (1), which contradicts the condition that sets it — this is a defect in `decide_over_set`, not a property of the query");
     }
+    // ⚠ THE REMEDY BELONGS TO THE SIDES THAT FAILED, and it is emitted here, next to
+    // them, rather than in the `nok` tail below. That placement was itself part of the
+    // defect: the sentence "declaring a `size` on the source(s) above" sat after the
+    // list of sides `prepare` COULD have measured, so "above" named the wrong sources
+    // AND asserted a declaration surface the failing ones may not have.
+    push_defer_remedy(out, c, fl, nfl, rsn);
     // The sides point (1) COULD have measured. Naming them is the whole correction:
     // their presence is why "no fact was obtainable" was false, and their movement to
     // point (2) has a ground of its own.
@@ -1140,7 +1240,7 @@ fn push_defer_why(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64,
     if nok > 0i64 {
         if nok == 1i64 { out.push_str(" — that side is read in `run` all the same"); }
         else           { out.push_str(" — those sides are read in `run` all the same"); }
-        out.push_str(", because a cost may not mix a fact from point (1) with one from point (2): every size in one comparison comes from the one point at which every one of them is free, and one unmeasurable side is enough to choose which point that is. Declaring a `size` operation on the source(s) above would move the whole decision back to `prepare`");
+        out.push_str(", because a cost may not mix a fact from point (1) with one from point (2): every size in one comparison comes from the one point at which every one of them is free, and one unmeasurable side is enough to choose which point that is");
     }
     out.push_str(". So the order is decided inside `run` — once per call, above the nest, from lengths that are one field read where they stand. ");
     out.push_str(defer_not_held());

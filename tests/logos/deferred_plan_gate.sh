@@ -83,8 +83,29 @@ fi
 # lie. It now asserts the two halves of the accurate ground, which is strictly more
 # than one substring: WHICH source has no number before the query runs, and WHICH one
 # `prepare` could have had — plus the antecedent that moved the second one.
-if ! grep -q '`__rel_hot_sl` is a relation THIS QUERY MATERIALIZES' "$TMPD/err"; then
+if ! grep -q '`__rel_hot_sl` is a `rel` BLOCK OF THIS QUERY' "$TMPD/err"; then
     echo "FAIL: the deferred ground does not name the source that has no size at point (1)"
+    fail=1
+fi
+# ⚠ AND THE REMEDY MUST BE ONE THE NAMED SOURCE CAN TAKE (ADR 0024 S4n). The tail
+# read "Declaring a `size` operation on the source(s) above would move the whole
+# decision back to `prepare`" whenever ANY side was measurable — with no test of
+# whether the side that FAILED has a declaration surface at all. `hot` is a parse-side
+# `rel` block and `rel_size_fn` is written only by `plan_walker::reg_native` from a
+# natspec, so that declaration cannot be written for it anywhere. Two rules, because
+# both halves can regress independently: the unactionable advice must be gone, and the
+# ACTIONABLE one must still be given where it applies (`iter_step`'s `s` declares its
+# rows through an `impl` and can declare its size the same way).
+if grep -q 'Declaring a `size` operation on the source(s) above' "$TMPD/err"; then
+    echo "FAIL: the undifferentiated remedy is back — it advises a declaration a `rel` block cannot carry"
+    fail=1
+fi
+if ! grep -q '`__rel_hot_sl` — there is NOTHING TO DECLARE A SIZE ON' "$TMPD/err"; then
+    echo "FAIL: the `rel`-block deferral records no remedy, or one not tied to the source that forced it"
+    fail=1
+fi
+if ! grep -q '`__rel_s_sl` — declaring a size is ACTIONABLE for it' "$TMPD/err"; then
+    echo "FAIL: a source that CAN declare a size is not told so — the remedy was derived away instead of derived"
     fail=1
 fi
 if ! grep -q '`prepare` COULD have measured `rs`' "$TMPD/err"; then

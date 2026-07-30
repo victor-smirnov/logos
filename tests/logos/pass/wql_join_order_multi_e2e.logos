@@ -28,6 +28,7 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.option;
+use logos.lang.str;            // str_contains — the recorded census is asserted
 
 struct A { pub k: i64, pub v: i64 }
 struct B { pub k: i64, pub m: i64 }
@@ -327,6 +328,31 @@ fn main() -> i32 {
     if p5.explain().len() == 0i64 { return 92i32; }
     let g5: Vec<i64> = q5(&as_[..], &bs[..], &cs[..], &ds[..]).unwrap();
     if !same(&g5, &w5) { return 93i32; }
+
+    // ── "ENTERED, PROVED EIGHT, CARRIED NONE" IS A PROGRAM-READABLE FACT ───────
+    // ADR 0024 S4n. This is the case `JC_MAX_CAND` exists to make visible, and the
+    // plan — the only artifact of the compile that survives it — used to report the
+    // same `considered() == 0` a one-source query reports, with a `why` that said
+    // "nothing was considered" three clauses after saying eight orders were proved
+    // legal. `proved()` is the census on the object, emitted as a compile-time
+    // constant, so a caller separates the two readings without parsing prose.
+    if p5.considered() != 0i64 { return 94i32; }
+    if p5.proved() != 8i64 { return 95i32; }
+    // The census is a TRIPLE, and this is the query that shows why two would not do:
+    // 24 walked, 8 legal, 0 carried — three different numbers, each with its own
+    // question. `enumerated()` is what separates "the axis was never entered" from
+    // "entered and admitted nothing", which `proved() == 0` alone cannot.
+    if p5.enumerated() != 24i64 { return 100i32; }
+    if !str_contains(p5.explain(), "8 of 24 permutations were proved admissible and NONE of them is carried") { return 96i32; }
+    if str_contains(p5.explain(), "nothing was considered") { return 97i32; }
+
+    // THE CONTRAST, in the same run: q3's axis was entered too, and it CARRIED what
+    // it proved. Without this line "proved() == considered()" would be untested and
+    // `proved()` could be reporting the carried count under another name.
+    let p3c: Q3Plan = q3_prepare(&as_[..], &bs[..], &cs[..]);
+    if p3c.proved() != 4i64 { return 98i32; }
+    if p3c.considered() != 4i64 { return 99i32; }
+    if p3c.enumerated() != 6i64 { return 101i32; }
 
     return 0i32;
 }

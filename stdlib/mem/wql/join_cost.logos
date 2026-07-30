@@ -164,9 +164,18 @@ pub fn jc_none_pick() -> i64 { return 0i64; }
 /// Same number a one-candidate plan reports, and for the same reason.
 pub fn jc_none_margin() -> i64 { return 0i64; }
 
-/// `considered()` on an empty table: 0 — the axis was never entered, or was entered
-/// and admitted nothing. Distinct from 1, which says one order survived a
-/// derivation (see `jc_table_none`).
+/// `considered()` on an empty table: 0 — NO CANDIDATE IS CARRIED. That is the whole
+/// of what this number says.
+///
+/// ⚠ IT DOES NOT SAY WHETHER THE AXIS WAS ENTERED, and this comment used to claim it
+/// covered both readings ("never entered, or entered and admitted nothing"), which is
+/// a count meaning two things and therefore not a fact. Measured on
+/// `wql_join_order_multi_e2e::q5`: the derivation enumerated 24 permutations and
+/// proved EIGHT admissible, then declined the reorder whole at `JC_MAX_CAND` — and
+/// the plan reported 0 here, indistinguishable from a one-source query. The census
+/// lives on the plan instead, as `proved()`, emitted as a compile-time constant by
+/// `rexpr_walk::emit_prepared_type`: `proved() == 0` is "never entered", `proved() > 0
+/// && considered() == 0` is "entered, proved that many, carried none".
 pub fn jc_none_ncand() -> i64 { return 0i64; }
 
 // ── THE THIRD ANSWER: "NOT ON THE FACTS YOU GAVE ME" (ADR 0024 S4m) ──────────

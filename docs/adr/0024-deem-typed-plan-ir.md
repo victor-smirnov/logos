@@ -492,8 +492,8 @@ Plans that DO have candidates
 are byte-for-byte unchanged — `by_key`, `q3`, `q4`, `qi`, `qs`, `iter_step`,
 `via_rel`, `db_i64_leaves` do not move — because the saving is not taken from them.
 
-⚠ WHAT IS NOT CONDITIONAL. The SURFACE: both plan shapes carry the same eight methods
-with the same signatures, `dyn_order`/`defer_order`/`order_ix`/the four facts/`why`,
+⚠ WHAT IS NOT CONDITIONAL. The SURFACE: both plan shapes carry the same methods
+(eight at S4l, ten since S4n added `enumerated()` and `proved()`) with the same signatures, `dyn_order`/`defer_order`/`order_ix`/the four facts/`why`,
 so one loop over a caller's queries is still one loop — S4i's reason for emitting the
 surface where there is nothing to decide is untouched, and only its COST changed. And
 the COST MODEL: the four answers a table-less plan gives are `jc_none_cost` /
@@ -545,6 +545,82 @@ that every source reaching it satisfies that structurally, and that this compile
 cannot ASK — no capability reports what a receiver's `len()` costs. The remedy the day
 one arrives whose length is computed is a declaration on the same channel as `size`,
 not a special case in that function.
+
+**S4n — THE THREE DEFECTS S4k–S4m INTRODUCED WHILE FIXING SIX.** Every one of them
+landed under green gates, in a commit whose message was accurate about its own intent,
+and every one is the same class the slice it belonged to was fixing: a per-call cost
+nobody declared, a justification that denies what the code did, and a remedy nobody
+can act on. They are recorded here because the pattern is the finding.
+
+⚠ A FACT CHECK THAT DOES NOT DEPEND ON THE CANDIDATE RAN ONCE PER CANDIDATE. `7f74399f`
+put `jc_have_facts` inside `jc_order_cost` — correct for the one caller that asks for a
+single candidate's price, wrong for the two that walk the table, because `jc_order_pick`
+and `jc_margin` had already refused on the same test and then re-ran it per candidate.
+An `nfl`-long scan, `ncand + 1` times per decision instead of once. MEASURED with
+callgrind, one probe object linked against both stdlibs (`cmp`-identical, so the delta
+is entirely stdlib), `q3` and `q4`, both `JCTable{ncand: 4, nfl: 3}`, 200k `prepare()`
+each: 871,017,427 → 730,217,418 Ir, −352 per `prepare()`, −21.5% of the decision; per
+call 172.0 → 113.75. The fix is `jc_cost_at`, private, the arithmetic with both
+refusals discharged by the caller and its precondition stated as a memory-safety
+obligation. What it COSTS is declared in the same place: the public `jc_order_cost` is
+now guards plus a call, +2.0 Ir per call over 800k `cost_of` calls, static 120 insns →
+29 + 95. The alternative was the model in two copies. The irony is the lesson: one
+commit after S4l removed a per-call cost from queries with NO choice, the queries WITH
+a choice picked one up, and nothing recorded it.
+
+⚠ `explain()` SAID "NOTHING WAS CONSIDERED" WHERE THE SEARCH PROVED EIGHT ORDERS.
+`156ead4e` appended the no-table suffix on the `else` of `if prep.deferred` — to every
+non-dynamic plan, without consulting the `JoinOrder` the same function had in hand. 207
+of 226 prepared plans carried it; two carried a ground that contradicts it in the SAME
+STRING (`wql_join_order_multi_e2e::q5`, `wql_gpath_e2e::all_ports`), and the other 205
+were true only by coincidence of their ground. q5's plan said `considered() == 0` while
+its trace said "24 permutations of 4 floatable sources enumerated, 8 admissible, 1
+carried" — which is exactly the case `JC_MAX_CAND` exists to make visible ("dropping
+the rest without saying so is the failure the bound exists to make visible"), deleted by
+the only artifact that survives the compile.
+
+The count was the defect, not the sentence: `considered() == 0` meant "the axis was
+never entered" and "entered, proved N, carried none", and a count that means two things
+is not a fact. So `Prepared` carries the search census (`nperm`/`nadm`, compile-time,
+defaulting to 0/0 = "nothing enumerated", overwritten at the ONE site that entered the
+axis), the suffix is DERIVED from it in three cases that the census actually
+distinguishes, and `proved()` puts the same number where a PROGRAM reads it — emitted
+as a constant-returning method, so a plan pays no field and no store to carry its own
+census, by the same rule `has_tbl` follows for the table. `jc_none_ncand`'s doc
+comment, which asserted the conflation, says so instead.
+
+⚠ AND THE CENSUS IS A TRIPLE, because a pair reproduces the defect one level down:
+`proved() == 0` cannot separate "no permutation was enumerated" from "every
+permutation was refused". So the plan carries `enumerated()` / `proved()` /
+`considered()` — the same three numbers the `order search` trace line prints, in the
+same order — and both new ones are compile-time constants. `enumerated() == 0` is
+"never entered"; `enumerated() > 0 && proved() == 0` is "entered, admitted nothing";
+`proved() > 0 && considered() == 0` is "entered, proved that many, carried none". The
+last branch is not known to be reachable in the corpus and is written anyway: an
+unreachable branch that would produce a FALSE sentence is still a `why` a reader
+could be shown.
+
+⚠ THE DEFERRED REFUSAL ADVISED A DECLARATION THAT CANNOT BE WRITTEN. `push_defer_why`
+emitted "Declaring a `size` operation on the source(s) above would move the whole
+decision back to `prepare`" whenever any side was `SZ_OK` — with no test of whether the
+side that FAILED can declare anything, and positioned after the list of sides `prepare`
+COULD have measured, so "above" named the wrong sources as well. On
+`wql_deferred_plan_e2e::via_rel` the forcing source is `hot`, a parse-side `rel` block:
+`rel_size_fn` is written in exactly one place (`plan_walker::reg_native`, from a
+natspec), so no file anywhere can carry that declaration for it. A remedy is the HOW
+half of a justification — the failed antecedent's repair — and an unactionable one is
+worse than none, because it sends a reader to a surface that does not exist.
+
+`SZ_DERIVED` therefore splits where the repair splits, on `rel_native`, a fact the
+registry already holds: a NATIVE source that declares no `size` gets the actionable
+line (`size <name> = <fn>;` beside its `rel` line, read by the same natspec), and a
+`rel` BLOCK gets what it would have to BECOME (materialized by the caller and passed in
+as a source that declares a `size`), because nothing can be declared on it. The remedy
+is emitted next to the sides that failed, one clause per distinct class in code order —
+the same rule `push_census_why` follows — so a query deferring on both kinds is told
+both things. `sz_run_words` also stops defaulting to `SZ_OK`'s sentence, which would
+have described an unnamed code as "an input the caller passed in", the one answer that
+makes a deferral look unnecessary.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that
