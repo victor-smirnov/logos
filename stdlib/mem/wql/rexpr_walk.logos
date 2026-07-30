@@ -331,6 +331,30 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // spelled once per query — N chances to drift from the account the trace gives, in
 // the place where drift is silent.
 //
+// ── WHAT THIS SURFACE ANSWERS ON A DEFERRED PLAN (ADR 0024 S4m) ──────────────
+// S4k added `order_ix` and `cost_of` and did not ask what they say about the half
+// S4j had just deferred. They answered — confidently, in the prepared vocabulary,
+// on a plan that measured nothing: `order_ix` 0 ("the query's own order won"),
+// `cost_of(ix)` 0 for EVERY ix, because the plan's facts are -1 and `jc_cap` clamped
+// each -1 to 0, so a caller re-deriving the decision read a tie and concluded order
+// 0 — while the nest that ran was candidate 1 (measured, 2-row rel vs 5-row param).
+//
+// ⚠ A METHOD THAT ANSWERS OUTSIDE ITS DOMAIN IS A GATE THAT RETURNS 0 WHEN IT COULD
+// NOT LOOK. So the domain is now visible in the ANSWERS and not only in `settled()`:
+//
+//   `order_ix`  -1 on a deferred plan — no order is named, `run` names one
+//   `cost_of`   `JC_NOFACT()` (-2), and -1 stays "there is no such candidate"
+//   `margin`    `JC_NOFACT()`, from the same test inside `jc_margin`
+//   `agrees`    unconditionally true, and `defer_not_held()` says why that is not
+//               a claim about the order
+//
+// and NOT ONE OF THEM IS A BRANCH ON `defer_order` in the emitted method. `cost_of`
+// and `margin` hand the plan's facts to the model and the MODEL refuses, because
+// "-1 is not a size" is a statement about the cost function's inputs and belongs
+// where the cost function is. The emitter's only contribution is writing -1 rather
+// than 0 into `order_ix`, which is the same "not held" every fact field on that
+// line already carries.
+//
 // ⚠ `base_n`/`step_n`/`n2`/`n3` ARE THE FACT TABLE, four wide because a plan holds
 // facts for at most four floatable sources (`JC_MAX_FL`). The first two keep their
 // pair-era names: they still mean the first and second source's size, and the
@@ -393,8 +417,17 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
                 }
+                // ⚠ NO EARLY RETURN, AND THAT IS THE WHOLE FIX. `if !self.dyn_order
+                // { return 0 }` was the pair era's shorthand for "a plan with no
+                // decision has no distance to a flip" — and a DEFERRED plan is also
+                // `!dyn_order`, so it reported 0: "the runner-up costs the same",
+                // which is a real answer and the wrong one. Every plan that reaches
+                // THIS shape carries a table (`has_tbl`), so it is dynamic or
+                // deferred and nothing else, and `jc_margin` distinguishes them from
+                // the facts alone: a measured plan gets its distance, an unmeasured
+                // one gets `JC_NOFACT()`. The model answers; this method does not
+                // second-guess it.
                 pub fn margin(&self) -> i64 {
-                    if !self.dyn_order { return 0i64; }
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
@@ -434,8 +467,17 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool) {
                     if !self.dyn_order { return true; }
                     return self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3);
                 }
+                // ⚠ NO EARLY RETURN, AND THAT IS THE WHOLE FIX. `if !self.dyn_order
+                // { return 0 }` was the pair era's shorthand for "a plan with no
+                // decision has no distance to a flip" — and a DEFERRED plan is also
+                // `!dyn_order`, so it reported 0: "the runner-up costs the same",
+                // which is a real answer and the wrong one. Every plan that reaches
+                // THIS shape carries a table (`has_tbl`), so it is dynamic or
+                // deferred and nothing else, and `jc_margin` distinguishes them from
+                // the facts alone: a measured plan gets its distance, an unmeasured
+                // one gets `JC_NOFACT()`. The model answers; this method does not
+                // second-guess it.
                 pub fn margin(&self) -> i64 {
-                    if !self.dyn_order { return 0i64; }
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
@@ -689,7 +731,17 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str(tyn);
         pb.push_str(" { dyn_order: false, defer_order: ");
         if prep.deferred { pb.push_str("true"); } else { pb.push_str("false"); }
-        pb.push_str(", swap: false, order_ix: 0i64, base_n: -1i64, step_n: -1i64, n2: -1i64, n3: -1i64");
+        // ⚠ `order_ix` IS -1 ON A DEFERRED PLAN AND 0 ON A FIXED ONE, and the two are
+        // different answers to the same question. A fixed plan HAS an order and it is
+        // the query's own: 0 is a fact. A deferred plan names no order — `run` names
+        // one, per call — so 0 would be the plan claiming a decision it did not take,
+        // which is what a caller reading `order_ix` to reproduce the choice was told
+        // (measured: `order_ix` 0 and `cost_of` 0 for both candidates, while the nest
+        // that ran was candidate 1). -1 is this compiler's spelling of "not held",
+        // already carried by every fact field on this same line.
+        if prep.deferred { pb.push_str(", swap: false, order_ix: -1i64"); }
+        else             { pb.push_str(", swap: false, order_ix: 0i64"); }
+        pb.push_str(", base_n: -1i64, step_n: -1i64, n2: -1i64, n3: -1i64");
         // ⚠ NO TABLE FIELD AND NO `jc_table_none()` CALL WHERE THERE ARE NO
         // CANDIDATES. This line used to read `tbl: jc_table_none()` for 249 of the
         // corpus's 266 `prepare` bodies: 272 bytes of the empty set written out and

@@ -99,6 +99,24 @@
 // cost decision — the minimal set of facts entailing the conclusion, held by the
 // conclusion.
 //
+// ⚠ ON A PLAN THAT MEASURED. `cost_of` prices from THIS PLAN'S FACTS, and a DEFERRED
+// plan has none — its candidate table is real and its sizes arrive inside `run`. The
+// paragraph above was written for the prepared half and read as if it covered both,
+// which is how `cost_of` came to answer 0 for every candidate of a deferred plan
+// (every -1 fact clamped to zero) while the nest that ran was not candidate 0. The
+// answer is now `join_cost::JC_NOFACT()`, distinct from a cost and from "no such
+// candidate", and `defer_not_held()` below is the one place the exclusion is stated.
+
+// ── THE VOCABULARY IS PER HALF (ADR 0024 S4m) ────────────────────────────────
+// S4j wrote down that `agrees` and `margin` do not speak about the deferred half.
+// S4k added two members to the surface — `order_ix` and `cost_of` — and did not
+// return to that list, so the disclosure named exactly the members that were safe
+// to ask and omitted the two that were not. The lesson is not "keep the list up to
+// date": it is that a list kept in prose next to a decision drifts from a surface
+// kept in an emitter. So the exclusion is now ONE function (`defer_not_held`) that
+// names the members AND the values they answer with, and a fixture asserts those
+// values against `join_cost` itself.
+//
 // ⚠ AND THE COST FUNCTION ITSELF IS NOT HERE AND NOT IN THE EMITTED CODE. It is one
 // stdlib function (`logos.std.wql.join_cost`) that the generated plan calls. Emitting
 // the arithmetic per query would be the same rule spelled once per query — N chances
@@ -113,10 +131,18 @@ use logos.mem.string;    // String
 // query is made of (a rel's per-relation fn, an SCC's semi-naïve driver): those
 // are internals of one query's body, not queries an application holds.
 //
-// `dynamic` — the plan holds a RUN-TIME discriminant. Where it does not, the
-// surface is still emitted and still uniform: the plan reports that it rests on
-// nothing measurable, `agrees` is then unconditionally true, and a caller need
-// not know which queries have a choice to write code that re-checks them all.
+// `dynamic` — the plan holds a RUN-TIME discriminant AND the facts it was set from.
+// Where it does not, the surface is still emitted and still uniform: `agrees` is
+// then unconditionally true, and a caller need not know which queries have a choice
+// to write code that re-checks them all.
+//
+// ⚠ "NOT `dynamic`" IS TWO DIFFERENT PLANS AND `deferred` IS WHICH. A fixed plan
+// rests on nothing measurable — there was no choice. A deferred plan rests on
+// something very measurable that is simply not measurable YET, at the point
+// `prepare` stands. Reading the first sentence onto both is how `cost_of` came to
+// price a deferred plan's candidates at zero: the flag says "no facts here", and
+// only `deferred` says whether that is because there are none or because they
+// arrive later.
 //
 // `deferred` — the plan holds the decision's RULE but not its answer: the numbers
 // only exist inside `run` (point 2), so `prepare` records that the order is
@@ -183,6 +209,25 @@ pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: st
     return Prepared { on: true, dynamic: false, deferred: true, nfl: nfl, ncand: ncand,
                       sz0: sz0, sz1: sz1, sz2: sz2, sz3: sz3,
                       measure: "", tbl: tbl, why: why };
+}
+
+// ── WHAT A DEFERRED PLAN DOES NOT HOLD (ADR 0024 S4m) ────────────────────────
+/// The DISCLOSURE, in one copy, for every ground a deferred decision records.
+///
+/// ⚠ IT IS ONE FUNCTION BECAUSE IT WENT WRONG AS TWO SENTENCES. S4j disclosed
+/// `agrees` and `margin`; S4k then added `order_ix` and `cost_of` to the surface and
+/// did not come back here, so a caller was told exactly which members to distrust and
+/// the list was short by the two that had just been added. A list that must be
+/// extended whenever the surface grows has to live at ONE address, next to the
+/// surface it describes.
+///
+/// ⚠ AND IT NAMES THE ANSWERS, NOT JUST THE MEMBERS. `join_cost::JC_NOFACT()` is
+/// what `cost_of` and `margin` return here, and `wql_deferred_plan_e2e` asserts the
+/// equality against that function — so the sentence and the artifact cannot drift
+/// apart without a fixture going red. Prose that merely says "do not rely on this"
+/// is what a caller ignores; a value they can compare is not.
+pub fn defer_not_held() -> str {
+    return "per-call means the PREPARED surface holds none of the answer: `order_ix` is -1 (no order is named — `run` names one, per call, from `order_pick` on the lengths it reads there), `swap` is false for want of an order rather than for want of a transposition, `cost_of` and `margin` return `join_cost::JC_NOFACT()` (-2, `the facts this answer needs are not on this plan` — distinct from -1, `there is no such candidate`), `agrees` is vacuously true because nothing here can go stale, and `settled()` is false, which is the one member whose whole job is to say so";
 }
 
 /// The plan TYPE's name: the query's name in CamelCase, plus `Plan`.

@@ -90,6 +90,27 @@ fn main() -> i32 {
     let b: Vec<i64> = match all_ports(&doc)
     { Result::Ok(v) => { v } Result::Err(_e2) => { return 3i32; } };
     if b.len() != 2i64 || b.get(0i64) != 8080i64 || b.get(1i64) != 8443i64 { return 4i32; }
+    // ── A DECLINED REORDER'S GROUND IS THE CONJUNCTION (ADR 0024 S4m) ─────
+    // `all_ports` desugars to THREE floatable sources, and 5 of its 6 permutations
+    // are refused — 2 by C5, 3 by C7. The plan's `why` used to be `first_rej`, the
+    // ground of the first challenger the enumeration happened to visit, so it carried
+    // the C5 sentence and a reader was told one antecedent of a conjunction. Remove
+    // either ground and an order survives, so both are the justification and the
+    // census is composed in CODE order rather than in enumeration order. This is the
+    // same argument the artifact bound already rests on: choosing by enumeration
+    // order is not a decision.
+    let apl: AllPortsPlan = all_ports_prepare(&doc);
+    if !str_contains(apl.explain(), "rests on ALL of the refusals") { return 60i32; }
+    if !str_contains(apl.explain(), "5 of 6 permutations were refused, on 2 distinct grounds") { return 61i32; }
+    if !str_contains(apl.explain(), "2x [C5: two join predicates land on the same position") { return 62i32; }
+    if !str_contains(apl.explain(), "3x [C7: this order's (size, role) sequence") { return 63i32; }
+    if !str_contains(apl.explain(), "not the first one listed") { return 64i32; }
+    // A single-ground refusal is UNCHANGED — there is nothing to choose between, so
+    // the ground is recorded verbatim and no census sentence wraps it. `pool_min` is
+    // an exact key path with no `order by`, refused by C1 alone.
+    let pml: PoolMinPlan = pool_min_prepare(&doc);
+    if str_contains(pml.explain(), "rests on ALL of the refusals") { return 65i32; }
+    if !str_contains(pml.explain(), "the row order of a join IS the nest's") { return 66i32; }
     let b2: Vec<i64> = match second_port(&doc)
     { Result::Ok(v) => { v } Result::Err(_e3) => { return 5i32; } };
     if b2.len() != 1i64 || b2.get(0i64) != 8443i64 { return 6i32; }

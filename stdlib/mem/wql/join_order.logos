@@ -125,6 +125,24 @@
 // SELECTIVITY, so `join_cost` assumes a fixed one and says so. And a pinned step
 // is UNPRICED — a traversal's field-path length and an anti's filtered fraction
 // are facts no source declares.
+//
+// ── THE GROUND IS DERIVED, NOT WRITTEN DOWN (ADR 0024 S4m) ───────────────────
+// Two of the verdicts this module records were constants, and both of them asserted
+// something the derivation could have computed differently:
+//
+//   • the DEFERRED admission said both sizes were lengths of relations the query
+//     materializes anyway — false whenever a side is a PARAMETER, which
+//     `size_expr_of` measures happily at point (1). It is composed now, from the
+//     per-side classification the deferral was decided on (`prep_size_reason`).
+//
+//   • a REFUSAL said `first_rej` — the ground of the FIRST permutation that failed,
+//     which with three or more sources is one antecedent of a conjunction chosen by
+//     enumeration order. It is composed now, from the whole census (`rjn`).
+//
+// The rule this leaves behind: a `why` may be a literal only where the antecedent it
+// names is a literal too. Everything a candidate, a side or a count can vary is
+// composed from the same facts the decision used, into the caller's buffer, so the
+// justification cannot drift from the decision without the decision changing.
 package logos.std.wql.join_order;
 
 use logos.lang.str;
@@ -138,6 +156,7 @@ use logos.std.wql.params;         // MacroParams — the rel registry (sizes, st
 use logos.std.wql.optimize;       // refs_mask — which vars a predicate reads
 use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name / StepSel
 use logos.std.wql.join_cost;      // THE cost model: roles, bounds, weights
+use logos.std.wql.prepared;       // defer_not_held — the deferred half's exclusions, in ONE copy
 
 // ── The chain, as this module sees it ────────────────────────────────────────
 // SLOT 0 is the base and slot i+1 the i-th step, so one index space covers the
@@ -201,6 +220,17 @@ pub fn jch_new() -> JCh {
 // are a different question from the one the planner already answered, and both
 // answers come out of the one copy of the rule (`join_sel`).
 //
+// `rjn` — THE REFUSAL CENSUS, one count per rejection code (`RJ_*`). It exists
+// because the ground a one-candidate outcome records used to be `first_rej` — the
+// code of the FIRST permutation that failed — and with three or more sources the
+// alternatives fail on DIFFERENT constraints: measured on `wql_gpath_e2e::all_ports`,
+// 5 refused permutations, 2 on C5 and 3 on C7, and the plan carried the C5 sentence
+// alone. The conclusion "no other order is admissible" is entailed by the
+// CONJUNCTION of the refusals, so the plan records all of them with their counts, in
+// CODE order — a fixed table — and not in the order the enumeration happened to
+// visit them. That last part is the same argument the artifact bound rests on:
+// choosing by enumeration order is not a decision.
+//
 // `deferred` — the nests exist, but the DISCRIMINANT is not a field of the
 // prepared plan: the numbers only become free inside `run` (ADR 0024 S4j), so the
 // comparison is made there, once, above the nest. `dynamic` still means "more than
@@ -213,6 +243,7 @@ pub struct JoinOrder {
     pub nfl:      i64,
     pub nperm:    i64,
     pub nadm:     i64,
+    pub rjn:      [i64; 8],
     pub why:      str,
     pub fl:       [i64; 4],
     pub cslot:    [i64; 16],
@@ -226,7 +257,7 @@ pub struct JoinOrder {
 
 fn jo_fixed(why: str) -> JoinOrder {
     return JoinOrder { dynamic: false, deferred: false, ncand: 1i64, nfl: 0i64,
-                       nperm: 0i64, nadm: 0i64, why: why,
+                       nperm: 0i64, nadm: 0i64, rjn: [0i64; 8], why: why,
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
                        cstrat: [0i32; 16], ckey: [0i32; 16], csel: [-1i64; 16],
@@ -252,10 +283,9 @@ fn jo_fixed(why: str) -> JoinOrder {
 /// avoid).
 fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> bool {
     *at = -1i64;
-    if prm.rel_src_streams(src) { return false; }
+    if prep_size_reason(prm, src) != SZ_OK() { return false; }
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 {
-        if prm.rel_size_at[ri].len() == 0i64 { return false; }
         *at = ri;
         out.push_str("(");
         out.push_str(prm.rel_size_at[ri]);
@@ -266,6 +296,61 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
     out.push_str(src);
     out.push_str(").len()");
     return true;
+}
+
+// ── WHY POINT (1) COULD OR COULD NOT MEASURE A SIDE (ADR 0024 S4m) ───────────
+// The deferral is a decision about ONE SIDE AT A TIME that then binds all of them,
+// and the ground it records has to say which side lost the number and which side
+// merely came along. It did not: `admitted_why` asserted that BOTH sizes were
+// "lengths of relations this query materializes anyway", which is false the moment
+// one side is a PARAMETER — measured on `wql_deferred_plan_e2e::via_rel(ls, rs)`,
+// whose `run` reads `(rs).len()` on a slice parameter `size_expr_of` measures
+// happily. 2 of the corpus's 4 deferred queries carried that false ground.
+//
+// So the answer to "could `prepare` have had this one, and if not why not" is a CODE
+// per side, produced by the one function `size_expr_of` itself consults, and both
+// the plan's `why` and the trace compose their sentences from it. A hand-written
+// sentence that happens to be true of the fixture in front of you is exactly what
+// produced the defect.
+fn SZ_OK() -> i32      { return 0i32; }
+fn SZ_STREAMS() -> i32 { return 1i32; }
+fn SZ_DERIVED() -> i32 { return 2i32; }
+
+/// THE ONE RULE. `size_expr_of` returns true exactly when this returns `SZ_OK()`,
+/// because it asks this and nothing else; `jo_report` asks it again to annotate the
+/// trace, so the account and the code cannot name different reasons.
+fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
+    if prm.rel_src_streams(src) { return SZ_STREAMS(); }
+    let ri: i64 = prm.rel_find_src(src);
+    if ri >= 0i64 && prm.rel_size_at[ri].len() == 0i64 { return SZ_DERIVED(); }
+    return SZ_OK();
+}
+
+/// Why point (1) has no number for this side — the failed antecedent, in the
+/// vocabulary of the thing that failed.
+fn sz_no_prepare_words(r: i32) -> str {
+    if r == SZ_DERIVED() {
+        return "is a relation THIS QUERY MATERIALIZES: the binding is a local of the generated fn, so before the query's own prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
+    }
+    if r == SZ_STREAMS() {
+        return "STREAMS: an iterator has no length, and counting means draining it — the query's own work traded for a plan fact, which this axis refuses at both points";
+    }
+    // Default-DENY, stated: a code nobody has named yet does not get to borrow one
+    // of the grounds above.
+    return "has no size at point (1) for a reason this module has not named — the classification reached a code with no ground, which is a defect in `prep_size_reason` and not a property of the query";
+}
+
+/// What the side IS, for the account of the read that `run` actually makes. Both
+/// answers are O(1) field reads (`run_size_expr_of` states the bound); they differ
+/// in WHERE the field came from, which is the whole of what point (1) could not have.
+fn sz_run_words(r: i32) -> str {
+    if r == SZ_DERIVED() {
+        return "a relation the prelude materialized for the query's own reasons";
+    }
+    if r == SZ_STREAMS() {
+        return "a streamed source, which has no length here either — this side cannot be reached";
+    }
+    return "an input the caller passed in, which `prepare` COULD have measured";
 }
 
 /// A source's SIZE as an expression evaluable INSIDE `run` — in the region between
@@ -697,6 +782,11 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
             }
         } else {
             if first_rej == RJ_NONE() { first_rej = rej; }
+            // ⚠ COUNTED, not just remembered. `first_rej` alone made the plan's own
+            // ground a function of the enumeration order; the census is what lets the
+            // verdict be the conjunction the conclusion actually rests on.
+            let rc: i64 = rej as i64;
+            jo.rjn[rc] = jo.rjn[rc] + 1i64;
             plan_trace(string_as_str(&sb), "order refused", c.var[0], rj_words(rej, nfl));
         }
         if !next_perm(&mut perm, nfl) { break; }
@@ -775,7 +865,7 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_cls: i32, t: &ElTypes,
         if und {
             jo = jo_fixed("no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for");
         } else {
-            jo = decide_over_set(c, t, prm, h, szs, ats);
+            jo = decide_over_set(c, t, prm, h, szs, ats, whyb);
         }
     }
     jo_report(&jo, c, base_var, s0_var, prm);
@@ -784,8 +874,16 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_cls: i32, t: &ElTypes,
 
 /// The size facts, then the derivation, then the verdict — in that order, because
 /// the derivation's C7 compares SIZE EXPRESSIONS and cannot run before they exist.
+///
+/// ⚠ `whyb` IS THE CALLER'S BUFFER AND BOTH COMPOSED VERDICTS LIVE IN IT. Two of the
+/// three grounds this fn can record are now DERIVED rather than written down — the
+/// deferred admission names which side lost its number at point (1), and a refusal
+/// names every constraint that refused rather than the first — and both are built
+/// text. `jo.why` becomes a string LITERAL in the generated plan, so the buffer must
+/// outlive this call; the two paths are mutually exclusive, so one buffer suffices.
 fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
-                   szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
+                   szs: &mut [String; 4], ats: &mut [i64; 4],
+                   whyb: &mut String) -> JoinOrder {
     // How many floatable sources, and is that within the plan's fact table?
     let m: i64 = c.n + 1i64;
     let mut nfl: i64 = 0i64;
@@ -810,10 +908,16 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     // with one only `run` can have would be a plan that cannot be prepared, so the
     // reusable point is tried for every source first and the deferral is the
     // fallback — never the preference.
+    //
+    // ⚠ AND THE PER-SIDE ANSWER IS KEPT, not collapsed into one boolean. `okp` says
+    // the deferral is forced; `rsn` says BY WHICH SIDE, which is the difference
+    // between the ground this plan records and the ground it used to record.
     let mut okp: bool = true;
+    let mut rsn: [i32; 4] = [0i32; 4];
     let mut i: i64 = 0i64;
     while i < nfl {
         szs[i].clear();
+        rsn[i] = prep_size_reason(prm, c.src[fl[i]]);
         if !size_expr_of(prm, c.src[fl[i]], &mut szs[i], &mut ats[i]) { okp = false; }
         i = i + 1i64;
     }
@@ -853,39 +957,209 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         r.nfl = jo.nfl;
         r.nperm = jo.nperm;
         r.nadm = jo.nadm;
+        let mut cy: i64 = 0i64;
+        while cy < 8i64 { r.rjn[cy] = jo.rjn[cy]; cy = cy + 1i64; }
         let mut z: i64 = 0i64;
         while z < 4i64 { szs[z].clear(); ats[z] = -1i64; z = z + 1i64; }
         return r;
     }
     if jo.ncand < 2i64 {
+        // ⚠ THE GROUND IS THE WHOLE CENSUS WHERE THE CENSUS HAS MORE THAN ONE ENTRY.
+        // One distinct ground records that ground verbatim — there is nothing to
+        // choose between, and the pair case's own sentences are reached exactly as
+        // before. Two or more and the plain `rj_words(first_rej)` would be a verdict
+        // selected by enumeration order, which is what the artifact bound already
+        // refuses to do with candidates.
         let mut r2: JoinOrder = jo_fixed(rj_words(rej, jo.nfl));
+        if rj_distinct(&jo) > 1i64 {
+            whyb.clear();
+            push_census_why(whyb, &jo);
+            r2 = jo_fixed(string_as_str(whyb));
+        }
         r2.nfl = jo.nfl;
         r2.nperm = jo.nperm;
         r2.nadm = jo.nadm;
+        let mut cz: i64 = 0i64;
+        while cz < 8i64 { r2.rjn[cz] = jo.rjn[cz]; cz = cz + 1i64; }
         let mut z2: i64 = 0i64;
         while z2 < 4i64 { szs[z2].clear(); ats[z2] = -1i64; z2 = z2 + 1i64; }
         return r2;
     }
     jo.dynamic = true;
     jo.deferred = deferred;
-    jo.why = admitted_why(jo.ncand, deferred);
+    if deferred {
+        whyb.clear();
+        push_defer_why(whyb, c, &fl, nfl, jo.ncand, &rsn);
+        jo.why = string_as_str(whyb);
+    } else {
+        jo.why = admitted_why(jo.ncand);
+    }
     return jo;
 }
 
-/// The ground an ADMITTED set records. Two candidates over two sources is the pair
-/// case and keeps the pair case's sentence, because it is still exactly what
+/// The ground an ADMITTED PREPARED set records. Two candidates over two sources is
+/// the pair case and keeps the pair case's sentence, because it is still exactly what
 /// happened: the model's answer for k = 2 is "index the smaller side".
-fn admitted_why(ncand: i64, deferred: bool) -> str {
+///
+/// ⚠ THE DEFERRED HALF IS NOT HERE ANY MORE, and that is the fix: its ground depends
+/// on WHICH SIDE lost its number at point (1), so it cannot be a constant. See
+/// `push_defer_why`.
+fn admitted_why(ncand: i64) -> str {
     if ncand == 2i64 {
-        if deferred {
-            return "either side may drive, but not on any fact `prepare` can hold: both sizes are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the order is decided inside `run` — once per call, above the nest, from numbers that cost nothing there. Per-call means not reusable: `agrees` and `margin` do not speak about this half";
-        }
         return "either side may drive: the plan indexes the SMALLER side and walks the larger, decided once in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes both nests yield the same sequence";
     }
-    if deferred {
-        return "more than two orders are admissible and the numbers to price them are LENGTHS OF RELATIONS THIS QUERY MATERIALIZES ANYWAY, so the cost function runs inside `run` — once per call, above the nest. Per-call means not reusable: `agrees` and `margin` do not speak about this half";
-    }
     return "more than two orders are admissible: every one of them is emitted as its own nest and `join_cost` prices them all in `prepare` from the sizes the plan asked for — the sort's tuple tiebreak makes every nest yield the same sequence, and `cost_of(ix)` reports what each one would have cost";
+}
+
+/// The ground a DEFERRED admission records, COMPOSED FROM THE PER-SIDE ANSWERS the
+/// deferral was decided on.
+///
+/// ⚠ WHAT THE OLD SENTENCE GOT WRONG, precisely: it said both sizes were lengths of
+/// relations this query materializes anyway, and "not on any fact `prepare` can
+/// hold". For `via_rel(ls, rs)` one of the two is `(rs).len()` on a slice PARAMETER —
+/// a fact `prepare` holds happily, and `size_expr_of` measures it at point (1)
+/// without complaint. A reader was told no number was obtainable when one of two was.
+///
+/// ⚠ SO THE SENTENCE NAMES BOTH GROUPS AND WHY THE SECOND ONE MOVED. The accurate
+/// antecedent is the one already written above the size loop: ALL OF THEM AT THE SAME
+/// POINT. A cost that mixed a fact from point (1) with one from point (2) would be a
+/// plan that cannot be prepared, so one unmeasurable side sends every side to point
+/// (2) — and a side that came along is a different fact about a query than a side
+/// that forced the move. The remedy differs too: declaring a `size` on the source
+/// that lost its number would move the whole decision back to point (1), which is
+/// advice only a reader who was told which source that is can act on.
+///
+/// ⚠ ONE SENTENCE PER DISTINCT SOURCE, not per position. A self-join binds the same
+/// source at two or three positions and repeating its ground once per position is
+/// noise a reader has to diff — the same reason `push_size_bindings_4` binds one fact
+/// per distinct expression TEXT rather than one per slot. The count is kept, because
+/// "this source supplies three of the four numbers" is a fact about the query.
+fn defer_first_at(c: &JCh, fl: &[i64; 9], k: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < k {
+        if str_eq(c.src[fl[i]], c.src[fl[k]]) { return i; }
+        i = i + 1i64;
+    }
+    return k;
+}
+
+fn defer_count_at(c: &JCh, fl: &[i64; 9], nfl: i64, k: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < nfl {
+        if str_eq(c.src[fl[i]], c.src[fl[k]]) { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+fn push_defer_src(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64, k: i64) {
+    out.push_str("`");
+    out.push_str(c.src[fl[k]]);
+    out.push_str("`");
+    let n: i64 = defer_count_at(c, fl, nfl, k);
+    if n > 1i64 {
+        out.push_str(" (");
+        out.push_i64(n);
+        out.push_str(" positions)");
+    }
+}
+
+fn push_defer_why(out: &mut String, c: &JCh, fl: &[i64; 9], nfl: i64,
+                  ncand: i64, rsn: &[i32; 4]) {
+    if ncand == 2i64 {
+        out.push_str("either side may drive");
+    } else {
+        out.push_str("one of ");
+        out.push_i64(ncand);
+        out.push_str(" orders drives");
+    }
+    out.push_str(", and not on a fact `prepare` can hold, because ");
+    let mut nno: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < nfl {
+        if rsn[i] != SZ_OK() && defer_first_at(c, fl, i) == i {
+            if nno > 0i64 { out.push_str("; "); }
+            push_defer_src(out, c, fl, nfl, i);
+            out.push_str(" ");
+            out.push_str(sz_no_prepare_words(rsn[i]));
+            nno = nno + 1i64;
+        }
+        i = i + 1i64;
+    }
+    // ⚠ AND IF NO SIDE FAILED, SAY SO RATHER THAN EMITTING A SENTENCE WITH A HOLE.
+    // `deferred` is set only where `size_expr_of` refused at least one side, so this
+    // is unreachable — and an unreachable branch that would produce broken prose is
+    // still a `why` a reader could be shown, so it names the contradiction instead.
+    if nno == 0i64 {
+        out.push_str("the deferral was taken with every side measurable at point (1), which contradicts the condition that sets it — this is a defect in `decide_over_set`, not a property of the query");
+    }
+    // The sides point (1) COULD have measured. Naming them is the whole correction:
+    // their presence is why "no fact was obtainable" was false, and their movement to
+    // point (2) has a ground of its own.
+    let mut nok: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < nfl {
+        if rsn[j] == SZ_OK() && defer_first_at(c, fl, j) == j {
+            if nok > 0i64 { out.push_str(", "); }
+            else { out.push_str(". `prepare` COULD have measured "); }
+            push_defer_src(out, c, fl, nfl, j);
+            nok = nok + 1i64;
+        }
+        j = j + 1i64;
+    }
+    if nok > 0i64 {
+        if nok == 1i64 { out.push_str(" — that side is read in `run` all the same"); }
+        else           { out.push_str(" — those sides are read in `run` all the same"); }
+        out.push_str(", because a cost may not mix a fact from point (1) with one from point (2): every size in one comparison comes from the one point at which every one of them is free, and one unmeasurable side is enough to choose which point that is. Declaring a `size` operation on the source(s) above would move the whole decision back to `prepare`");
+    }
+    out.push_str(". So the order is decided inside `run` — once per call, above the nest, from lengths that are one field read where they stand. ");
+    out.push_str(defer_not_held());
+}
+
+/// How many DISTINCT rejection grounds the census holds. `RJ_NONE` is admission and
+/// is never counted.
+fn rj_distinct(jo: &JoinOrder) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut k: i64 = 1i64;
+    while k < 8i64 {
+        if jo.rjn[k] > 0i64 { n = n + 1i64; }
+        k = k + 1i64;
+    }
+    return n;
+}
+
+/// The verdict a MULTI-GROUND refusal records: every ground, with its count, in CODE
+/// order.
+///
+/// ⚠ CODE ORDER, NOT ENUMERATION ORDER, and not "the first". `all_ports` in
+/// `wql_gpath_e2e` refuses 5 permutations — 2 by C5, 3 by C7 — and the plan used to
+/// carry the C5 sentence alone because C5 happened to fire on the first challenger.
+/// The conclusion "the query's own order is the only one left" is entailed by the
+/// CONJUNCTION: remove either ground and an order survives. A justification that
+/// names one antecedent of a conjunction is a justification a reader cannot check.
+fn push_census_why(out: &mut String, jo: &JoinOrder) {
+    out.push_str("no other order is admissible, and that conclusion rests on ALL of the refusals rather than on the first one: ");
+    out.push_i64(jo.nperm - jo.nadm);
+    out.push_str(" of ");
+    out.push_i64(jo.nperm);
+    out.push_str(" permutations were refused, on ");
+    out.push_i64(rj_distinct(jo));
+    out.push_str(" distinct grounds — ");
+    let mut w: i64 = 0i64;
+    let mut k: i64 = 1i64;
+    while k < 8i64 {
+        if jo.rjn[k] > 0i64 {
+            if w > 0i64 { out.push_str("; "); }
+            out.push_i64(jo.rjn[k]);
+            out.push_str("x [");
+            out.push_str(rj_words(k as i32, jo.nfl));
+            out.push_str("]");
+            w = w + 1i64;
+        }
+        k = k + 1i64;
+    }
+    out.push_str(". Every one of them had to hold for the query's own order to be the only one left, so the remedy is whichever of them your query can lose — not the first one listed");
 }
 
 // ── The one decision channel ─────────────────────────────────────────────────
@@ -937,6 +1211,13 @@ fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str, prm: &MacroPar
         // expressions are the only record of what will be compared and where it
         // comes from. Rebuilt through the same rule that produced them, so the
         // trace cannot name one thing while the code reads another.
+        //
+        // ⚠ AND EACH IS ANNOTATED WITH WHAT IT IS. "each is the length of a binding
+        // the prelude already made" was false for a side that is a PARAMETER — the
+        // prelude made nothing of it, the caller passed it in, and `prepare` could
+        // have measured it. The annotation comes from `prep_size_reason`, the same
+        // function `size_expr_of` consulted to decide the deferral, so the trace
+        // cannot describe a side differently from the way the decision classified it.
         let mut sb2: String = String::new();
         sb2.push_str("compared in `run` after the prelude, before the join's index: ");
         let m: i64 = c.n + 1i64;
@@ -946,11 +1227,14 @@ fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str, prm: &MacroPar
             if !(s > 0i64 && (c.anti[s] || c.edge[s])) {
                 if nn > 0i64 { sb2.push_str(" vs "); }
                 let _t: bool = run_size_expr_of(prm, c.src[s], &mut sb2);
+                sb2.push_str(" [");
+                sb2.push_str(sz_run_words(prep_size_reason(prm, c.src[s])));
+                sb2.push_str("]");
                 nn = nn + 1i64;
             }
             s = s + 1i64;
         }
-        sb2.push_str(" — each is the length of a binding the prelude already made, so the read is one field and the per-row cost does not move");
+        sb2.push_str(" — every one of them is one field read where it stands, so the per-row cost does not move; they are read at the SAME point because a cost may not mix a fact from point (1) with one from point (2)");
         plan_trace(base_var, "sizes deferred to run", s0_var, string_as_str(&sb2));
     }
 

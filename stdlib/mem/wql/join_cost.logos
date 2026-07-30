@@ -117,6 +117,12 @@ pub fn jc_model_words() -> str {
 // price EVERY candidate from the plan's own facts (`jc_order_cost` on any index),
 // which is what makes "on what ground did each loser lose" a question the program
 // can answer rather than a sentence the compiler once printed.
+//
+// ⚠ AND THE TABLE IS ONLY HALF OF IT: pricing needs the SIZES too, and a DEFERRED
+// plan holds the table without them (ADR 0024 S4j — the numbers only exist inside
+// `run`). So "price every candidate" is a claim about a plan that MEASURED, and on
+// one that did not, `jc_order_cost` answers `JC_NOFACT()` rather than a number.
+// See below: the absence of a fact is not the number 0.
 pub struct JCTable {
     pub ncand: i64,
     pub nfl:   i64,
@@ -163,6 +169,58 @@ pub fn jc_none_margin() -> i64 { return 0i64; }
 /// derivation (see `jc_table_none`).
 pub fn jc_none_ncand() -> i64 { return 0i64; }
 
+// ── THE THIRD ANSWER: "NOT ON THE FACTS YOU GAVE ME" (ADR 0024 S4m) ──────────
+// Up to here this function had two kinds of answer: a cost (≥ 0) and -1, "there is
+// no such candidate". That is one distinction short, and the missing one is the
+// expensive kind — a DEFERRED plan carries a real candidate table and NO facts
+// (`base_n`…`n3` are all -1, because at point (1) nothing was measured), so
+// `cost_of` used to walk the table with -1 for every size, `jc_cap` mapped each -1
+// to 0, and every candidate came back priced at ZERO. A caller re-deriving the
+// decision from the object read a tie and concluded "order 0" — measured on a
+// 2-row rel against a 5-row parameter, where the nest that actually ran was
+// candidate 1.
+//
+// ⚠ THAT IS THE SAME DEFECT AS A GATE THAT RETURNS 0 WHEN IT COULD NOT LOOK. The
+// absence of a number is not the number 0, and the function that owns the model is
+// the only place the distinction can be made once. So:
+//
+//   ≥ 0   a cost, priced from facts
+//   -1    THERE IS NO SUCH CANDIDATE — the index is outside the carried set
+//   -2    THE FACTS THIS ANSWER NEEDS ARE NOT HELD — the candidate exists, the
+//         model is here, and the sizes were never measured (`JC_NOFACT`)
+//
+// -1 and -2 are separate because the remedies differ: for -1 there is nothing to
+// ask about, for -2 there is, and it becomes askable the moment real sizes arrive
+// (which for a deferred plan is inside `run`, where `order_pick` is handed the
+// lengths as ARGUMENTS and answers normally).
+pub fn JC_NOFACT() -> i64 { return -2i64; }
+
+/// Are the sizes a table of `nfl` positions needs actual facts? -1 is this
+/// compiler's spelling of "this number was never asked for" — written by
+/// `rexpr_walk::push_size_bindings_4` into every slot past `nfl` and by a deferred
+/// `prepare` into every fact field it has — so a NEGATIVE size is not a small
+/// relation, it is the absence of a measurement.
+///
+/// ⚠ THE POSITIONS ARE THE SOURCE INDICES 0..nfl, not the candidate's slots. Every
+/// candidate is a PERMUTATION of the same `nfl` sources, so "candidate `c` reads a
+/// fact that is missing" and "one of the first `nfl` facts is missing" are the same
+/// statement, and the check does not need a candidate to be meaningful.
+pub fn jc_have_facts(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> bool {
+    let mut j: i64 = 0i64;
+    while j < t.nfl {
+        if jc_size_at(j, n0, n1, n2, n3) < 0i64 { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+/// Saturate a row-event count.
+///
+/// ⚠ THE `x < 0` ARM IS NOT WHERE A MISSING FACT GOES ANY MORE. It used to be, by
+/// accident: a -1 size arrived here and left as 0, which is how the absence of a
+/// measurement became the cheapest possible cost. `jc_have_facts` refuses first, so
+/// what reaches this arm is arithmetic only, and 0 is its floor — a row-event count
+/// is never negative.
 pub fn jc_cap(x: i64) -> i64 {
     if x < 0i64 { return 0i64; }
     if x > JC_CAP() { return JC_CAP(); }
@@ -191,8 +249,15 @@ pub fn jc_size_at(k: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
 
 /// THE COST FUNCTION. Everything above is either a weight it reads or a bound on
 /// the table it walks.
+///
+/// ⚠ THREE KINDS OF ANSWER, and the order of the two refusals is deliberate. "There
+/// is no such candidate" (-1) is checked first because it is the stronger statement:
+/// an index outside the carried set has no cost on ANY facts. Only then is "the
+/// facts are not held" (-2) reachable, which is the answer a DEFERRED plan gives —
+/// its candidates are real, its sizes are not.
 pub fn jc_order_cost(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if ix < 0i64 || ix >= t.ncand { return -1i64; }
+    if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
     let b: i64 = ix * JC_MAX_FL();
     let mut c: i64 = 0i64;
     let mut r: i64 = 1i64;
@@ -218,8 +283,15 @@ pub fn jc_order_cost(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -
 /// The winner: the cheapest candidate, ties to the LOWEST index — which is the
 /// query's own order, because the derivation enumerates it first. A tie must not
 /// move rows around for nothing.
+///
+/// ⚠ AND WITHOUT FACTS THERE IS NO WINNER. `JC_NOFACT()` here is not an index and
+/// cannot be mistaken for one: 0 would have been "the query's own order won", which
+/// is a decision, and the caller supplied nothing to decide from. A deferred plan's
+/// `run` reaches this function with the real lengths as ARGUMENTS and gets an index;
+/// a caller who asks the plan's own (unmeasured) facts gets told so.
 pub fn jc_order_pick(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if t.ncand < 2i64 { return 0i64; }
+    if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
     let mut best: i64 = 0i64;
     let mut bc: i64 = jc_order_cost(t, 0i64, n0, n1, n2, n3);
     let mut i: i64 = 1i64;
@@ -235,8 +307,16 @@ pub fn jc_order_pick(t: &JCTable, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
 /// winner's. For two candidates over two sources that is |n_0 − n_1| exactly, so
 /// the number a pair plan reported before this module existed is the number it
 /// reports now.
+///
+/// ⚠ A MARGIN IS A DIFFERENCE OF TWO COSTS, so it is exactly as available as they
+/// are: no facts, no margin, and `JC_NOFACT()` says so instead of 0. 0 is a real
+/// answer here — "the runner-up costs the same, this decision is one row from
+/// flipping" — and it is the answer a one-candidate plan gives, so it is the last
+/// value an unanswerable question may return. Checked BEFORE `win` is used, because
+/// a plan that holds no facts holds no winning index either.
 pub fn jc_margin(t: &JCTable, win: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
     if t.ncand < 2i64 { return 0i64; }
+    if !jc_have_facts(t, n0, n1, n2, n3) { return JC_NOFACT(); }
     let w: i64 = jc_order_cost(t, win, n0, n1, n2, n3);
     let mut up: i64 = -1i64;
     let mut i: i64 = 0i64;

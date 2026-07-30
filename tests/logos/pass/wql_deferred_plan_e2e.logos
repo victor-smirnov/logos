@@ -32,14 +32,17 @@
 package test;
 
 use logos.std.wql.wql;
+use logos.std.wql.join_cost;      // JC_NOFACT / jc_none_cost — both sides of the pin
 use logos.mem.bt.map;             // trait MapSource
 use logos.mem.collections.vec;
 use logos.lang.iter;
 use logos.lang.option;
 use logos.lang.result;
+use logos.lang.str;               // str_contains — the recorded ground is asserted
 
 struct L { pub k: i64, pub v: i64 }
 struct R { pub k: i64, pub w: i64 }
+struct T { pub w: i64, pub z: i64 }
 
 // ── AN ITERATOR PRODUCER — the direct measurement of "genuinely free" ────────
 // This source's producer returns an ITERATOR, which has no length. What makes its
@@ -134,6 +137,29 @@ pub deem settled_by_prepare(ls: &[L], rs: &[R]) {
     select l.v * 100 + r.w order by l.k
 }
 
+// ── THREE FLOATABLE SOURCES, DEFERRED (ADR 0024 S4m) ─────────────────────────
+// The same deferral over a chain of three: four admissible orders, so `run` carries
+// FOUR nests and the discriminant is a BRANCH CHAIN — `__defer_ix == 3` at body
+// level, then 2 and 1 nested inside the `else` arms at indents 8 and 12. Every one of
+// them is still ABOVE every loop.
+//
+// ⚠ THIS QUERY EXISTS BECAUSE A GATE RULE HAD NOTHING TO BITE ON. The per-row-cost
+// rule in `deferred_plan_gate.sh` measured "inside the nest" by COLUMN — any
+// `__defer` past indent 4 was a failure — which is correct for two candidates and
+// wrong for three, where the legitimate chain sits at 8 and 12. The corpus had no
+// three-source deferred query, so the rule read as passing while asserting something
+// false. It is brace nesting now (the same route the S4k multi gate took), and this
+// is the artifact that proves it does not fire on a legal one.
+pub deem via_rel3(ls: &[L], rs: &[R], ts: &[T]) {
+    rel hot(k: i64, v: i64) {
+        from ls l where l.v > 0 select (l.k, l.v);
+    }
+    from hot x
+    join rs r on x.k == r.k
+    join ts t on r.w == t.w
+    select x.v * 1000 + r.w * 10 + t.z order by x.k
+}
+
 // THE STEP'S PRODUCER IS AN ITERATOR, and `order by` drains it before the join.
 // So the deferred length exists and costs nothing extra — which is the claim
 // `PULLED` below measures directly. This is the query that stops "free where it is
@@ -154,6 +180,30 @@ fn oracle_rel(ls: &[L], rs: &[R], out: &mut Vec<i64>) {
             let mut j: i64 = 0i64;
             while j < rs.len() {
                 if ls[i].k == rs[j].k { out.push(ls[i].v * 100i64 + rs[j].w); }
+                j = j + 1i64;
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// The ORACLE for `via_rel3`: the same filtered rel, then a plain three-deep nested
+// loop in QUERY order. Every carried order must reproduce this sequence.
+fn oracle_rel3(ls: &[L], rs: &[R], ts: &[T], out: &mut Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < ls.len() {
+        if ls[i].v > 0i64 {
+            let mut j: i64 = 0i64;
+            while j < rs.len() {
+                if ls[i].k == rs[j].k {
+                    let mut n: i64 = 0i64;
+                    while n < ts.len() {
+                        if rs[j].w == ts[n].w {
+                            out.push(ls[i].v * 1000i64 + rs[j].w * 10i64 + ts[n].z);
+                        }
+                        n = n + 1i64;
+                    }
+                }
                 j = j + 1i64;
             }
         }
@@ -219,8 +269,49 @@ fn main() -> i32 {
     if p.settled()        { return 4i32; }   // and the plan SAYS it is not settled
     if p.base_n != -1i64  { return 5i32; }   // -1 is "not asked", not "empty"
     if p.step_n != -1i64  { return 6i32; }
-    if p.margin() != 0i64 { return 7i32; }   // no facts ⇒ no distance to a flip
     if p.explain().len() == 0i64 { return 8i32; }
+
+    // ── THE EXCLUDED MEMBERS ANSWER "I CANNOT" (ADR 0024 S4m) ─────────────
+    // S4k added `order_ix` and `cost_of` to the plan surface and left S4j's
+    // disclosure list at `agrees`/`margin`. Both then answered in the PREPARED
+    // vocabulary on a plan that measured nothing: `order_ix` 0 ("the query's own
+    // order won") and `cost_of` 0 for every candidate, because each -1 fact was
+    // clamped to zero — a tie at the cheapest possible cost. A caller re-deriving
+    // the decision concluded "order 0" while the nest that ran below was
+    // candidate 1, which (a) measures directly.
+    //
+    // ⚠ THE POINT IS THE THREE ANSWERS BEING DISTINGUISHABLE, so all three are
+    // pinned here against `join_cost` itself rather than against literals:
+    //   ≥ 0                 a real cost, from real facts
+    //   `jc_none_cost()`    -1, there is no such candidate
+    //   `JC_NOFACT()`       -2, the candidate exists and this plan has no facts
+    if JC_NOFACT() == jc_none_cost() { return 50i32; }
+    if p.order_ix != -1i64 { return 51i32; }          // no order is NAMED here
+    if p.cost_of(0i64) != JC_NOFACT() { return 52i32; }
+    if p.cost_of(1i64) != JC_NOFACT() { return 53i32; }
+    if p.cost_of(9i64) != jc_none_cost() { return 54i32; }   // and 9 is not a candidate
+    if p.margin() != JC_NOFACT() { return 7i32; }
+    if p.considered() != 2i64 { return 55i32; }       // the TABLE is real; the facts are not
+    // …and the same plan answers normally the moment real lengths arrive, which is
+    // exactly what `run` does with them: 2 rel rows against 5 in `rs` ⇒ candidate 1.
+    if p.order_pick(2i64, 5i64, -1i64, -1i64) != 1i64 { return 56i32; }
+    if p.order_pick(-1i64, -1i64, -1i64, -1i64) != JC_NOFACT() { return 57i32; }
+
+    // ── THE RECORDED GROUND NAMES THE ACTUAL ANTECEDENT (ADR 0024 S4m) ────
+    // `via_rel(ls, rs)` defers because the REL has no length before the query runs.
+    // `rs` is a slice parameter — `size_expr_of` measures it at point (1) without
+    // complaint — so the old ground ("BOTH sizes are LENGTHS OF RELATIONS THIS
+    // QUERY MATERIALIZES ANYWAY", "not on any fact `prepare` can hold") asserted of
+    // two sides what is true of one. The ground is composed from the per-side
+    // classification the deferral was decided on, so it names both groups.
+    if !str_contains(p.explain(), "`__rel_hot_sl` is a relation THIS QUERY MATERIALIZES") { return 58i32; }
+    if !str_contains(p.explain(), "`prepare` COULD have measured `rs`") { return 59i32; }
+    if str_contains(p.explain(), "both sizes are LENGTHS") { return 60i32; }
+    // and the reason the measurable side moved is stated, not implied
+    if !str_contains(p.explain(), "may not mix a fact from point (1) with one from point (2)") { return 61i32; }
+    // the disclosure covers the members S4k added, not only S4j's two
+    if !str_contains(p.explain(), "`cost_of` and `margin` return `join_cost::JC_NOFACT()`") { return 62i32; }
+    if !str_contains(p.explain(), "`order_ix` is -1") { return 63i32; }
 
     // `agrees` answers about the PREPARED half, and a deferred plan has none — so
     // it agrees with every set of fresh facts, and that is not a claim about the
@@ -294,6 +385,12 @@ fn main() -> i32 {
     if q.step_n != 5i64 { return 31i32; }
     if q.swap          { return 32i32; }     // ls larger ⇒ index rs, the step
     if q.margin() != 4i64 { return 33i32; }
+    // THE CONTRAST FOR THE THREE ANSWERS: this plan MEASURED, so its costs are real
+    // numbers and neither sentinel can be mistaken for one.
+    if q.order_ix < 0i64      { return 64i32; }
+    if q.cost_of(0i64) < 0i64 { return 65i32; }
+    if q.cost_of(1i64) < 0i64 { return 66i32; }
+    if q.cost_of(9i64) != jc_none_cost() { return 67i32; }
 
     let mut w_all_s: Vec<i64> = Vec::new();
     oracle_all(&ls_small[..], &rs[..], &mut w_all_s);
@@ -350,6 +447,53 @@ fn main() -> i32 {
     let sr2: Vec<i64> = iter_step_run(&sp, &ls_small[..], &st_big).unwrap();
     unsafe { if PULLED != 20i64 { return 48i32; } }
     if !same(&sr2, &sr) { return 49i32; }
+
+    // ── (f) THREE FLOATABLE SOURCES, DEFERRED: FOUR NESTS, ONE SEQUENCE ────
+    // The deferral generalizes past the pair exactly as the prepared half did: four
+    // admissible orders, one `order_pick` above the nest, and every nest must return
+    // the oracle's sequence. Run over three data shapes so more than one of the four
+    // is actually taken — a nest selected by no data would be an untested nest.
+    let ts_s: [T; 3] = [ T { w: 1i64, z: 1i64 }, T { w: 2i64, z: 2i64 }, T { w: 4i64, z: 4i64 } ];
+    let ts_b: [T; 8] = [
+        T { w: 1i64, z: 1i64 }, T { w: 2i64, z: 2i64 }, T { w: 4i64, z: 4i64 },
+        T { w: 5i64, z: 5i64 }, T { w: 1i64, z: 6i64 }, T { w: 2i64, z: 7i64 },
+        T { w: 4i64, z: 8i64 }, T { w: 5i64, z: 9i64 },
+    ];
+    let p3: ViaRel3Plan = via_rel3_prepare(&ls_small[..], &rs[..], &ts_s[..]);
+    if p3.dyn_order    { return 70i32; }
+    if !p3.defer_order { return 71i32; }
+    if p3.settled()    { return 72i32; }
+    if p3.considered() != 4i64 { return 73i32; }
+    // The same three answers, on a plan whose table holds four candidates.
+    if p3.order_ix != -1i64 { return 74i32; }
+    if p3.cost_of(0i64) != JC_NOFACT() { return 75i32; }
+    if p3.cost_of(3i64) != JC_NOFACT() { return 76i32; }
+    if p3.cost_of(4i64) != jc_none_cost() { return 77i32; }
+    if p3.margin() != JC_NOFACT() { return 78i32; }
+    // Its ground names the count rather than "either", and still names both groups.
+    if !str_contains(p3.explain(), "one of 4 orders drives") { return 79i32; }
+    if !str_contains(p3.explain(), "`prepare` COULD have measured") { return 80i32; }
+
+    let mut w3a: Vec<i64> = Vec::new();
+    oracle_rel3(&ls_small[..], &rs[..], &ts_s[..], &mut w3a);
+    let g3a: Vec<i64> = via_rel3_run(&p3, &ls_small[..], &rs[..], &ts_s[..]).unwrap();
+    if g3a.len() != 6i64 { return 81i32; }     // 2 rel rows × 3 matching (r, t) pairs
+    if !same(&g3a, &w3a) { return 82i32; }
+
+    let mut w3b: Vec<i64> = Vec::new();
+    oracle_rel3(&ls_big[..], &rs[..], &ts_s[..], &mut w3b);
+    let g3b: Vec<i64> = via_rel3_run(&p3, &ls_big[..], &rs[..], &ts_s[..]).unwrap();
+    if g3b.len() != 21i64 { return 83i32; }    // 7 rel rows × 3
+    if !same(&g3b, &w3b) { return 84i32; }
+
+    let mut w3c: Vec<i64> = Vec::new();
+    oracle_rel3(&ls_small[..], &rs[..], &ts_b[..], &mut w3c);
+    let g3c: Vec<i64> = via_rel3_run(&p3, &ls_small[..], &rs[..], &ts_b[..]).unwrap();
+    if !same(&g3c, &w3c) { return 85i32; }
+
+    // The direct fn is still prepare-then-run, on the three-source shape too.
+    let d3: Vec<i64> = via_rel3(&ls_big[..], &rs[..], &ts_s[..]).unwrap();
+    if !same(&d3, &w3b) { return 86i32; }
 
     return 0i32;
 }

@@ -117,6 +117,22 @@ if [ "$n_abs" -ne 2 ]; then
     echo "FAIL: $n_abs plans record having no candidate table (want 2 — no_order and evens)"
     fail=1
 fi
+# ⚠ A FIXED PLAN NAMES ORDER 0 AND MEANS IT (ADR 0024 S4m). The deferred half now
+# writes `order_ix: -1i64` — "no order is held, `run` names one" — and the two
+# absences must not be spelled the same way: a fixed plan HAS an order and it is the
+# query's own. This is the contrast that keeps -1 meaningful; the deferred side of it
+# is `deferred_plan_gate.sh`.
+n_fix0=$(count 'dyn_order: false, defer_order: false, swap: false, order_ix: 0i64')
+if [ "$n_fix0" -lt 1 ]; then
+    echo "FAIL: no fixed plan records order 0 — a plan with one order holds it, and -1 would say it does not"
+    grep -En 'order_ix: ' "${DUMPS[@]}" || true
+    fail=1
+fi
+n_fixneg=$(count 'defer_order: false, swap: false, order_ix: \(-1i64\)')
+if [ "$n_fixneg" -ne 0 ]; then
+    echo "FAIL: $n_fixneg fixed plan(s) claim no order is held — -1 is the DEFERRED half's answer"
+    fail=1
+fi
 
 # ── prepare measures and returns; it does not run ──────────────────────────
 for f in "${DUMPS[@]}"; do
