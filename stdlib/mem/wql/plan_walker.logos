@@ -1775,6 +1775,27 @@ fn pw_field_col(e: SExpr) -> str {
     }
 }
 
+/// The BARE NAME an expression refers to, or "" if it refers to none.
+///
+/// The mirror of `pw_field_col`, and the pair is the point: a bare identifier
+/// reaches the IR as an `SField` whose base is NULL, so `pw_field_col` rejects it
+/// by exactly the test this one requires. `SParam` and `SVar` are accepted too —
+/// which node kind a name arrives as depends on how far resolution has got, and
+/// guessing it is how the parameter case was missed twice. Whether the name is a
+/// query PARAMETER is not decided here; `MacroParams::ty_of` is the authority.
+fn pw_bare_name(e: SExpr) -> str {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return f.name; }
+            return "";
+        }
+        SExpr::Param(p) => { return p.name; }
+        SExpr::Var(v)   => { return v.name; }
+        _ => { return ""; }
+    }
+}
+
 /// The comparison class name for an EL operator, read FROM the column's point
 /// of view. `col_left = false` mirrors it: `42 > e.key` is `key < 42`.
 fn pw_cmp_name(op: i32, col_left: bool) -> str {
@@ -1882,29 +1903,65 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                 ap.scan(ri, "the filter names a column this source does not have");
                 return;
             }
-            // The constant the column is compared against; a narrowing needs
-            // the VALUE, not just the shape.
-            let mut has_lit: bool = false;
+            // The BOUND the column is compared against.
+            //
+            // ⚠ This used to demand a LITERAL, with a comment saying "a
+            // narrowing needs the VALUE, not just the shape". That was an
+            // assumption, not a requirement, and it cost every parameterised
+            // range query its narrowing: a declared operation takes the bound as
+            // an ARGUMENT, and an argument may be a query PARAMETER just as well
+            // as a constant — `lo` is in scope in the generated fn exactly where
+            // `100u64` would be. `from m e where e.key >= lo …` scanned the whole
+            // container for no reason but this.
+            //
+            // 1 = a literal (emitted with the COLUMN's type, which is why the
+            // column types had to stop being i64 first), 2 = a parameter
+            // (emitted by name).
+            let mut argk: i32 = 0i32;
             let mut lit: i64 = 0i64;
+            let mut pnm: str = "";
             match b.rhs_expr() {
                 SExpr::Lit(l) => {
                     let w: WAny = l.val;
-                    if w.is_int() { has_lit = true; lit = w.as_i64(); }
+                    if w.is_int() { argk = 1i32; lit = w.as_i64(); }
                 }
                 _ => { }
             }
-            if !has_lit {
+            if argk == 0i32 {
                 match b.lhs_expr() {
                     SExpr::Lit(l2) => {
                         let w2: WAny = l2.val;
-                        if w2.is_int() { has_lit = true; lit = w2.as_i64(); }
+                        if w2.is_int() { argk = 1i32; lit = w2.as_i64(); }
                     }
                     _ => { }
                 }
             }
-            if !has_lit {
-                ap.scan(ri, "the comparison carries no constant to narrow to");
+            // Not a literal — then a NAME, if the side opposite the column is
+            // one. `pw_bare_name` is the mirror of `pw_field_col`: a bare
+            // identifier is an `SField` with a NULL base, which is precisely
+            // what makes it not a column.
+            if argk == 0i32 {
+                pnm = pw_bare_name(if col_left { b.rhs_expr() } else { b.lhs_expr() });
+                if pnm.len() > 0i64 { argk = 2i32; }
+            }
+            if argk == 0i32 {
+                ap.scan(ri, "the comparison carries no bound a source could be given");
                 return;
+            }
+            // A PARAMETER is passed by name, so its type must BE the column's —
+            // there is no literal here for the emitter to re-type. A mismatch
+            // would reach the host compiler as a bad argument to a generated
+            // call, which is the diagnostic this ADR exists to abolish.
+            if argk == 2i32 {
+                let pty: str = prm.ty_of(pnm);
+                if pty.len() == 0i64 {
+                    ap.scan(ri, "the bound is not a query parameter this fn takes");
+                    return;
+                }
+                if !str_eq(pty, colty) {
+                    ap.scan(ri, "the parameter's type is not the column's, so it cannot be passed as the bound");
+                    return;
+                }
             }
             let cmp: str = pw_cmp_name(b.op, col_left);
             if cmp.len() == 0i64 {
@@ -1940,9 +1997,14 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                 return;
             }
             // The constant is typed by the COLUMN, which is why the column
-            // types had to stop being i64 first (S2/S3).
-            argb.push_i64(lit);
-            argb.push_str(colty);
+            // types had to stop being i64 first (S2/S3). A parameter carries its
+            // own type and is passed by name.
+            if argk == 1i32 {
+                argb.push_i64(lit);
+                argb.push_str(colty);
+            } else {
+                argb.push_str(pnm);
+            }
             // EXACTNESS (ADR 0024 S6): when the operation returns precisely the
             // rows of THIS comparison, the query's own filter re-tests what the
             // source already decided. Retiring it is a REWRITE — the query said
