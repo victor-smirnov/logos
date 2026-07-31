@@ -1,0 +1,585 @@
+// WQL — THE LATTICE'S COMPARISON FACTS ARE MEASURED AGAINST THE LANGUAGE.
+//
+// `ElTy.self_ord` / `ElTy.self_ident` say what `<`, `>`, `==` and the emitted hash
+// DO for a type. They are the antecedent of the join-order licence (C1) and of the
+// group/equi-join key capability, so a wrong one is a plan decision taken over a
+// comparison that does not do what the plan believes.
+//
+// They used to be INFERRED FROM THE FOUR-VALUE CLASS TAG:
+//
+//     self_ord = if cls == EL_TY_FLT() { PARTIAL } else { OK }
+//
+// which is a claim about the instructions the backend selects, derived from how
+// this compiler happens to bucket types. It was FALSE for the whole life of the
+// table: `usize` is `EL_TY_INT`, so the tag said "OK, the emitted `<` realizes
+// usize's order", and the backend emitted `slt` — every usize at or above 2^63
+// ranked below zero (fixed in `0684b185`; the INFERENCE was unfounded before that
+// commit and is still unfounded after it, which is why it is gone). It was false a
+// second way for `String`: the tag said the emitted comparison is faithful, and
+// the backend emits no `String` comparison at all.
+//
+// THIS FIXTURE IS WHERE THOSE FACTS ARE KEPT HONEST. For every type `el_ty` names
+// it RUNS the comparison in the language, on values at the extremes that separate
+// a right lowering from a wrong one, and compares the outcome with the row:
+//
+//   unsigned  1 < 2^(w-1) < 2^w - 1        — the middle value has its top bit set,
+//                                            so a signed `<` ranks it below 1
+//   signed    -2^(w-1) < 0 < 2^(w-1) - 1   — an unsigned `<` ranks the minimum top
+//   float     -1.5 < 0.0 < 1.5, plus a NaN — which must compare false against
+//                                            every value INCLUDING ITSELF
+//   bool      false < true
+//   str       "" < "a" < "ab", and "z" < "é" (byte order, not code point order:
+//             `é` is 0xC3 0xA9 and `z` is 0x7A)
+//   String    its content compared through the `str` view
+//
+// and, for every type the lattice licenses as an INDEX key, calls the `Hash` and
+// `Eq` instances: equal values must hash equal and `Eq::eq` must agree with `==`.
+// That call is also the proof the instances EXIST — a type `el_index_key_ok`
+// admits without a `Hash` impl does not compile here.
+//
+// ⚠ THE VALUES COME FROM CALLS, never from literals in the comparison, so nothing
+// under test can be folded away before the backend picks a predicate.
+//
+// ⚠ WHAT THE .expected PINS IS THE LANGUAGE, NOT THE TABLE. Each line is what the
+// running program measured; the `agree=` column is the table's answer checked
+// against it. A lowering change moves the measured column and fails the test; a
+// table edit moves the agreement column and fails the test. Both are the point.
+//
+// ⚠ THE ONE ROW THAT CANNOT BE MEASURED AT RUN TIME IS `String`'s ORDER, because
+// there is nothing to run: `a < b` over two `String`s passes sema and dies in
+// mlir_gen with "'logos.mem.string.String__lt' does not reference a valid
+// function". Absence of an operator is a COMPILE-time fact, so the probe records
+// it as `NO_CMP` and this comment is its witness. If `String` ever gains an `lt`,
+// the row and this probe are both wrong and must both be revisited — that residual
+// is stated rather than hidden.
+package test;
+
+use logos.std.wql.el;
+use logos.lang.str;
+use logos.lang.hash;
+use logos.lang.cmp;
+use logos.mem.string;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn emit(b: &mut String) {
+    b.push_u8(10u8);
+    b.push_u8(0u8);
+    let f: str = "%s";
+    unsafe { printf(f.as_ptr(), b.as_ptr()); }
+}
+
+/// The hash the backend emits for this type, through the same `Hasher` the
+/// `HashMap` uses. Generic, so it exists only for types with a `Hash` instance.
+fn hv<K: Hash>(k: &K) -> u64 {
+    let mut s: FxHasher = fx_hasher_new();
+    k.hash(&mut s);
+    return s.finish();
+}
+/// The `Eq` instance — the equality a `HashMap` bucket actually calls, which is
+/// not the same artifact as the `==` operator and must agree with it.
+fn eqv<K: Eq>(a: &K, b: &K) -> bool { return a.eq(b); }
+
+// ── MEASURED VERDICTS (this fixture's vocabulary, not the table's) ─────────
+// The mapping onto `EL_ORD_*` / `EL_ID_*` is in `expect_ord` / `expect_ident`,
+// and MISORDER / BAD map onto NOTHING: a type whose `<` is total and ranks
+// against its own order is a language defect, not a table entry, so it can only
+// ever be reported as a disagreement.
+fn M_OK()       -> i32 { return 0i32; }
+fn M_PARTIAL()  -> i32 { return 1i32; }
+fn M_MISORDER() -> i32 { return 2i32; }
+fn M_NO_CMP()   -> i32 { return 3i32; }
+
+fn I_OK()    -> i32 { return 0i32; }
+fn I_NO_EQ() -> i32 { return 1i32; }
+fn I_BAD()   -> i32 { return 2i32; }
+
+pub struct Meas {
+    pub s_ord:   i32,   // M_* — what `<` / `>` did on this type's own values
+    pub s_ident: i32,   // I_* — what `==` (and the hash) did on them
+    pub inj:     bool,  // the conversion into `repr` kept distinct values distinct
+    pub keeps:   bool,  // the conversion into `repr` kept the order
+    pub hashed:  bool,  // this probe called the `Hash` + `Eq` instances
+}
+
+fn ord_verdict(chain: bool, refl: bool, total: bool) -> i32 {
+    if !chain { return M_MISORDER(); }   // ranks against the type's own order
+    if !refl  { return M_PARTIAL(); }    // a value comparable to nothing, not even itself
+    if !total { return M_PARTIAL(); }    // some pair satisfies none of < == >
+    return M_OK();
+}
+fn ident_verdict(refl: bool, dist: bool, hok: bool) -> i32 {
+    if !refl { return I_NO_EQ(); }       // equality is not reflexive
+    if !dist { return I_BAD(); }         // distinct values compare equal
+    if !hok  { return I_BAD(); }         // the hash or `Eq` disagrees with `==`
+    return I_OK();
+}
+fn mk(chain: bool, refl: bool, total: bool, dist: bool, hok: bool,
+      inj: bool, keeps: bool, hashed: bool) -> Meas {
+    return Meas { s_ord: ord_verdict(chain, refl, total),
+                  s_ident: ident_verdict(refl, dist, hok),
+                  inj: inj, keeps: keeps, hashed: hashed };
+}
+
+// ── THE LADDERS ───────────────────────────────────────────────────────────
+// Every value is returned by a call. A literal written into the comparison
+// itself could be folded before the backend chooses a predicate, and then the
+// measurement would be of the folder rather than of the emitted code.
+fn k_i8(i: i64)  -> i8  { if i == 0i64 { return -128i8; }   if i == 1i64 { return 0i8; } return 127i8; }
+fn k_i16(i: i64) -> i16 { if i == 0i64 { return -32768i16; } if i == 1i64 { return 0i16; } return 32767i16; }
+fn k_i32(i: i64) -> i32 { if i == 0i64 { return -2147483648i32; } if i == 1i64 { return 0i32; } return 2147483647i32; }
+fn k_i64(i: i64) -> i64 { if i == 0i64 { return (-9223372036854775807i64) - 1i64; } if i == 1i64 { return 0i64; } return 9223372036854775807i64; }
+fn k_i128(i: i64) -> i128 {
+    if i == 0i64 { return (-170141183460469231731687303715884105727i128) - 1i128; }
+    if i == 1i64 { return 0i128; }
+    return 170141183460469231731687303715884105727i128;
+}
+fn k_u8(i: i64)  -> u8  { if i == 0i64 { return 1u8; }  if i == 1i64 { return 128u8; }   return 255u8; }
+fn k_u16(i: i64) -> u16 { if i == 0i64 { return 1u16; } if i == 1i64 { return 32768u16; } return 65535u16; }
+fn k_u32(i: i64) -> u32 { if i == 0i64 { return 1u32; } if i == 1i64 { return 2147483648u32; } return 4294967295u32; }
+fn k_u64(i: i64) -> u64 { if i == 0i64 { return 1u64; } if i == 1i64 { return 9223372036854775808u64; } return 18446744073709551615u64; }
+fn k_u128(i: i64) -> u128 {
+    if i == 0i64 { return 1u128; }
+    if i == 1i64 { return 170141183460469231731687303715884105728u128; }
+    return 340282366920938463463374607431768211455u128;
+}
+fn k_isize(i: i64) -> isize { return k_i64(i) as isize; }
+fn k_usize(i: i64) -> usize { return k_u64(i) as usize; }
+fn k_i56(i: i64) -> i56 { if i == 0i64 { return -36028797018963968i64 as i56; } if i == 1i64 { return 0i64 as i56; } return 36028797018963967i64 as i56; }
+fn k_u56(i: i64) -> u56 { if i == 0i64 { return 1u64 as u56; } if i == 1i64 { return 36028797018963968u64 as u56; } return 72057594037927935u64 as u56; }
+fn k_f64(i: i64) -> f64 { if i == 0i64 { return -1.5; } if i == 1i64 { return 0.0; } return 1.5; }
+fn k_f32(i: i64) -> f32 { if i == 0i64 { return -1.5f32; } if i == 1i64 { return 0.0f32; } return 1.5f32; }
+fn nan_f64() -> f64 { let z: f64 = k_f64(1i64); return z / z; }
+fn nan_f32() -> f32 { let z: f32 = k_f32(1i64); return z / z; }
+fn k_bool(i: i64) -> bool { if i == 0i64 { return false; } return true; }
+fn k_str(i: i64) -> str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
+/// A second, independent producer of the same bytes — an equal value of separate
+/// provenance, which is what "equal values hash equal" has to be asked about.
+fn k_str2(i: i64) -> str { if i == 0i64 { return ""; } if i == 1i64 { return "a"; } return "ab"; }
+fn k_zed() -> str { return "z"; }
+fn k_acc() -> str { return "é"; }
+fn k_string(i: i64) -> String {
+    let mut b: String = String::new();
+    b.push_str(k_str(i));
+    return b;
+}
+
+// ── THE PROBES ────────────────────────────────────────────────────────────
+fn m_i8() -> Meas {
+    let lo: i8 = k_i8(0i64); let md: i8 = k_i8(1i64); let hi: i8 = k_i8(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_i8(0i64)) && hv(&hi) == hv(&k_i8(2i64))
+                && eqv(&hi, &k_i8(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i8) == lo) && ((nmd as i8) == md) && ((nhi as i8) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_i16() -> Meas {
+    let lo: i16 = k_i16(0i64); let md: i16 = k_i16(1i64); let hi: i16 = k_i16(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_i16(0i64)) && hv(&hi) == hv(&k_i16(2i64))
+                && eqv(&hi, &k_i16(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i16) == lo) && ((nmd as i16) == md) && ((nhi as i16) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_i32() -> Meas {
+    let lo: i32 = k_i32(0i64); let md: i32 = k_i32(1i64); let hi: i32 = k_i32(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_i32(0i64)) && hv(&hi) == hv(&k_i32(2i64))
+                && eqv(&hi, &k_i32(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i32) == lo) && ((nmd as i32) == md) && ((nhi as i32) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_i64() -> Meas {
+    let lo: i64 = k_i64(0i64); let md: i64 = k_i64(1i64); let hi: i64 = k_i64(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_i64(0i64)) && hv(&hi) == hv(&k_i64(2i64))
+                && eqv(&hi, &k_i64(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && (nlo == lo) && (nmd == md) && (nhi == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_i128() -> Meas {
+    let lo: i128 = k_i128(0i64); let md: i128 = k_i128(1i64); let hi: i128 = k_i128(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i128) == lo) && ((nmd as i128) == md) && ((nhi as i128) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+fn m_u8() -> Meas {
+    let lo: u8 = k_u8(0i64); let md: u8 = k_u8(1i64); let hi: u8 = k_u8(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_u8(0i64)) && hv(&hi) == hv(&k_u8(2i64))
+                && eqv(&hi, &k_u8(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u8) == lo) && ((nmd as u8) == md) && ((nhi as u8) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_u16() -> Meas {
+    let lo: u16 = k_u16(0i64); let md: u16 = k_u16(1i64); let hi: u16 = k_u16(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_u16(0i64)) && hv(&hi) == hv(&k_u16(2i64))
+                && eqv(&hi, &k_u16(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u16) == lo) && ((nmd as u16) == md) && ((nhi as u16) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_u32() -> Meas {
+    let lo: u32 = k_u32(0i64); let md: u32 = k_u32(1i64); let hi: u32 = k_u32(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_u32(0i64)) && hv(&hi) == hv(&k_u32(2i64))
+                && eqv(&hi, &k_u32(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u32) == lo) && ((nmd as u32) == md) && ((nhi as u32) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_u64() -> Meas {
+    let lo: u64 = k_u64(0i64); let md: u64 = k_u64(1i64); let hi: u64 = k_u64(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_u64(0i64)) && hv(&hi) == hv(&k_u64(2i64))
+                && eqv(&hi, &k_u64(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u64) == lo) && ((nmd as u64) == md) && ((nhi as u64) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_u128() -> Meas {
+    let lo: u128 = k_u128(0i64); let md: u128 = k_u128(1i64); let hi: u128 = k_u128(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u128) == lo) && ((nmd as u128) == md) && ((nhi as u128) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+fn m_isize() -> Meas {
+    let lo: isize = k_isize(0i64); let md: isize = k_isize(1i64); let hi: isize = k_isize(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_isize(0i64)) && hv(&hi) == hv(&k_isize(2i64))
+                && eqv(&hi, &k_isize(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as isize) == lo) && ((nmd as isize) == md) && ((nhi as isize) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_usize() -> Meas {
+    let lo: usize = k_usize(0i64); let md: usize = k_usize(1i64); let hi: usize = k_usize(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_usize(0i64)) && hv(&hi) == hv(&k_usize(2i64))
+                && eqv(&hi, &k_usize(2i64)) && !eqv(&lo, &hi),
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as usize) == lo) && ((nmd as usize) == md) && ((nhi as usize) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
+}
+fn m_i56() -> Meas {
+    let lo: i56 = k_i56(0i64); let md: i56 = k_i56(1i64); let hi: i56 = k_i56(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i56) == lo) && ((nmd as i56) == md) && ((nhi as i56) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+fn m_u56() -> Meas {
+    let lo: u56 = k_u56(0i64); let md: u56 = k_u56(1i64); let hi: u56 = k_u56(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u56) == lo) && ((nmd as u56) == md) && ((nhi as u56) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+// The float probes ask the SAME questions, and the reflexivity witness is a NaN
+// rather than the ladder's top: that is the whole difference between this class
+// and every other one, and it is measured rather than assumed.
+fn m_f32() -> Meas {
+    let lo: f32 = k_f32(0i64); let md: f32 = k_f32(1i64); let hi: f32 = k_f32(2i64);
+    let nn: f32 = nan_f32();
+    let nlo: f64 = lo as f64; let nmd: f64 = md as f64; let nhi: f64 = hi as f64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(nn < nn) && !(nn > nn) && (nn == nn) && (lo == lo) && (md == md) && (hi == hi),
+              (nn < md) || (nn == md) || (nn > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as f32) == lo) && ((nmd as f32) == md) && ((nhi as f32) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+fn m_f64() -> Meas {
+    let lo: f64 = k_f64(0i64); let md: f64 = k_f64(1i64); let hi: f64 = k_f64(2i64);
+    let nn: f64 = nan_f64();
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(nn < nn) && !(nn > nn) && (nn == nn) && (lo == lo) && (md == md) && (hi == hi),
+              (nn < md) || (nn == md) || (nn > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              (lo < md) && (md < hi), false);
+}
+// `bool` has two values, so the ladder is a pair; everything else is unchanged.
+fn m_bool() -> Meas {
+    let lo: bool = k_bool(0i64); let hi: bool = k_bool(1i64);
+    return mk((lo < hi) && (hi > lo) && !(hi < lo) && !(lo > hi),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo),
+              (lo < hi) || (lo == hi) || (lo > hi),
+              !(lo == hi),
+              hv(&lo) == hv(&k_bool(0i64)) && hv(&hi) == hv(&k_bool(1i64))
+                && eqv(&hi, &k_bool(1i64)) && !eqv(&lo, &hi),
+              !(lo == hi), lo < hi, true);
+}
+// `str` is byte-lexicographic, so the ladder carries the empty string and a
+// multi-byte value whose first byte outranks `z` — a code-point comparison would
+// order those two the same way, a length comparison would not, and a comparison
+// that stopped at the NUL of the shorter string would put "ab" before "a".
+fn m_str() -> Meas {
+    let lo: str = k_str(0i64); let md: str = k_str(1i64); let hi: str = k_str(2i64);
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md)
+                && (k_zed() < k_acc()) && !(k_acc() < k_zed()),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              hv(&lo) == hv(&k_str2(0i64)) && hv(&hi) == hv(&k_str2(2i64))
+                && eqv(&hi, &k_str2(2i64)) && !eqv(&lo, &hi),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              (lo < md) && (md < hi), true);
+}
+// `String`: `==` IS emitted and exact; `<` IS NOT EMITTED AT ALL (see the header),
+// so the order verdict is the compile-time fact NO_CMP and everything else is
+// measured through the `str` view the EL normalizes a String into.
+fn m_string() -> Meas {
+    let refl: bool = (k_string(0i64) == k_string(0i64))
+                  && (k_string(1i64) == k_string(1i64))
+                  && (k_string(2i64) == k_string(2i64));
+    let dist: bool = !(k_string(0i64) == k_string(1i64))
+                  && !(k_string(1i64) == k_string(2i64))
+                  && !(k_string(0i64) == k_string(2i64));
+    let a: String = k_string(0i64); let b: String = k_string(1i64); let c: String = k_string(2i64);
+    let keeps: bool = (a.as_str() < b.as_str()) && (b.as_str() < c.as_str());
+    let inj: bool = !(a.as_str() == b.as_str()) && !(b.as_str() == c.as_str())
+                 && (c.as_str() == k_string(2i64).as_str());
+    return Meas { s_ord: M_NO_CMP(), s_ident: ident_verdict(refl, dist, true),
+                  inj: inj, keeps: keeps, hashed: false };
+}
+
+fn probe(name: str) -> Meas {
+    if str_eq(name, "i8")     { return m_i8(); }
+    if str_eq(name, "i16")    { return m_i16(); }
+    if str_eq(name, "i32")    { return m_i32(); }
+    if str_eq(name, "i64")    { return m_i64(); }
+    if str_eq(name, "i128")   { return m_i128(); }
+    if str_eq(name, "u8")     { return m_u8(); }
+    if str_eq(name, "u16")    { return m_u16(); }
+    if str_eq(name, "u32")    { return m_u32(); }
+    if str_eq(name, "u64")    { return m_u64(); }
+    if str_eq(name, "u128")   { return m_u128(); }
+    if str_eq(name, "isize")  { return m_isize(); }
+    if str_eq(name, "usize")  { return m_usize(); }
+    if str_eq(name, "i56")    { return m_i56(); }
+    if str_eq(name, "u56")    { return m_u56(); }
+    if str_eq(name, "f32")    { return m_f32(); }
+    if str_eq(name, "f64")    { return m_f64(); }
+    if str_eq(name, "bool")   { return m_bool(); }
+    if str_eq(name, "str")    { return m_str(); }
+    if str_eq(name, "String") { return m_string(); }
+    // NO PROBE — a row was added to the lattice and nobody measured it. The
+    // verdicts below cannot match any stored code, so the gate fails naming it.
+    return Meas { s_ord: -1i32, s_ident: -1i32, inj: false, keeps: false, hashed: false };
+}
+
+// ── MEASURED → THE CODE THE ROW MUST CARRY ────────────────────────────────
+// The two negative results are OUTSIDE the `EL_ORD_*` / `EL_ID_*` domains on
+// purpose: no row may carry them, so they can only ever surface as a
+// disagreement, and each names a distinct thing to go fix.
+fn X_MISORDER() -> i32 { return -1i32; }   // total, and ranks against its own order
+fn X_UNPROBED() -> i32 { return -2i32; }   // a lattice row nobody measured
+fn X_LOSSY()    -> i32 { return -3i32; }   // the conversion lost values it should not
+
+fn expect_self_ord(m: Meas) -> i32 {
+    if m.s_ord == M_OK()       { return EL_ORD_OK(); }
+    if m.s_ord == M_PARTIAL()  { return EL_ORD_PARTIAL(); }
+    if m.s_ord == M_NO_CMP()   { return EL_ORD_NO_CMP(); }
+    if m.s_ord == M_MISORDER() { return X_MISORDER(); }
+    return X_UNPROBED();
+}
+fn expect_self_ident(m: Meas) -> i32 {
+    if m.s_ident == I_OK()    { return EL_ID_OK(); }
+    if m.s_ident == I_NO_EQ() { return EL_ID_NO_EQ(); }
+    if m.s_ident == I_BAD()   { return X_MISORDER(); }
+    return X_UNPROBED();
+}
+/// `ord` is the composition the table claims: the value survives the conversion
+/// into `repr`, and then `repr`'s OWN comparison decides. Both halves measured.
+fn expect_ord(m: Meas, repr: Meas, bits: i64, cls: i32) -> i32 {
+    if !m.inj {
+        if cls == EL_TY_INT() && bits > 64i64 { return EL_ORD_TRUNC(); }
+        return X_LOSSY();
+    }
+    if !m.keeps { return EL_ORD_WRAP(); }
+    return expect_self_ord(repr);
+}
+fn expect_ident(m: Meas, repr: Meas) -> i32 {
+    if m.s_ident == I_NO_EQ() { return EL_ID_NO_EQ(); }
+    if !m.inj                 { return EL_ID_NO_INJ(); }
+    return expect_self_ident(repr);
+}
+
+fn ord_name(o: i32) -> str {
+    if o == X_MISORDER()     { return "MISORDER"; }
+    if o == X_UNPROBED()     { return "UNPROBED"; }
+    if o == X_LOSSY()        { return "LOSSY"; }
+    if o == EL_ORD_OK()      { return "OK"; }
+    if o == EL_ORD_PARTIAL() { return "PARTIAL"; }
+    if o == EL_ORD_WRAP()    { return "WRAP"; }
+    if o == EL_ORD_TRUNC()   { return "TRUNC"; }
+    if o == EL_ORD_UNNAMED() { return "UNNAMED"; }
+    if o == EL_ORD_NO_CMP()  { return "NO_CMP"; }
+    return "??";
+}
+fn id_name(i: i32) -> str {
+    if i == X_MISORDER()    { return "BAD"; }
+    if i == X_UNPROBED()    { return "UNPROBED"; }
+    if i == EL_ID_OK()      { return "OK"; }
+    if i == EL_ID_NO_EQ()   { return "NO_EQ"; }
+    if i == EL_ID_NO_INJ()  { return "NO_INJ"; }
+    if i == EL_ID_UNNAMED() { return "UNNAMED"; }
+    return "??";
+}
+fn yn(v: bool) -> str { if v { return "y"; } return "n"; }
+
+fn cmp_field(b: &mut String, label: str, want: i32, got: i32, is_ord: bool) -> i64 {
+    b.push_str(" ");
+    b.push_str(label);
+    b.push_str("=");
+    if is_ord { b.push_str(ord_name(want)); } else { b.push_str(id_name(want)); }
+    if want == got { return 0i64; }
+    b.push_str("/TABLE=");
+    if is_ord { b.push_str(ord_name(got)); } else { b.push_str(id_name(got)); }
+    b.push_str("!MISMATCH");
+    return 1i64;
+}
+fn cmp_bool(b: &mut String, label: str, want: bool, got: bool) -> i64 {
+    b.push_str(" ");
+    b.push_str(label);
+    b.push_str("=");
+    b.push_str(yn(want));
+    if want == got { return 0i64; }
+    b.push_str("/TABLE=");
+    b.push_str(yn(got));
+    b.push_str("!MISMATCH");
+    return 1i64;
+}
+
+fn main() -> i32 {
+    let mut bad: i64 = 0i64;
+    let n: i64 = el_ty_arity();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let t: ElTy = el_ty_at(i);
+        let m: Meas = probe(t.name);
+        let r: Meas = probe(t.repr);
+        let mut b: String = String::new();
+        b.push_str(t.name);
+        bad = bad + cmp_field(&mut b, "self_ord",   expect_self_ord(m), t.self_ord, true);
+        bad = bad + cmp_field(&mut b, "self_ident", expect_self_ident(m), t.self_ident, false);
+        bad = bad + cmp_field(&mut b, "ord",   expect_ord(m, r, t.bits, t.cls), t.ord, true);
+        bad = bad + cmp_field(&mut b, "ident", expect_ident(m, r), t.ident, false);
+        bad = bad + cmp_bool(&mut b, "fits",  m.inj && m.keeps, t.fits);
+        bad = bad + cmp_bool(&mut b, "index", m.hashed, el_index_key_ok(t.name));
+        emit(&mut b);
+        i = i + 1i64;
+    }
+
+    // ⚠ THE ARITY IS PINNED AGAINST THE CASE LIST, not asserted beside it: the last
+    // admitted index must be admitted and the next one must not. A row added to
+    // `el_ty_at` without bumping `el_ty_arity` is invisible to `el_ty` and to the
+    // loop above; a bump without a row hands the scan a denied name.
+    let mut c: String = String::new();
+    c.push_str("arity="); c.push_i64(n);
+    c.push_str(" last_admitted="); c.push_str(yn(el_ty_at(n - 1i64).cls >= 0i32));
+    c.push_str(" past_end_denied="); c.push_str(yn(el_ty_at(n).cls < 0i32));
+    // And the scan finds by NAME what the enumeration returns by index.
+    let mut round: bool = true;
+    let mut j: i64 = 0i64;
+    while j < n {
+        if el_ty(el_ty_at(j).name).cls != el_ty_at(j).cls { round = false; }
+        j = j + 1i64;
+    }
+    c.push_str(" name_scan_agrees="); c.push_str(yn(round));
+    emit(&mut c);
+
+    let mut d: String = String::new();
+    d.push_str("mismatches="); d.push_i64(bad);
+    emit(&mut d);
+    return bad as i32;
+}

@@ -140,6 +140,11 @@ WANT_STDOUT=$(printf '%s' "$WANT_STDOUT" | sed 's/[[:space:]]*$//')
 
 if [ "$ACTUAL_EXIT" != "$WANT_EXIT" ]; then
     echo "FAIL: exit code $ACTUAL_EXIT (expected $WANT_EXIT)"
+    # ⚠ AND THE STDOUT, because a test whose exit code IS its verdict has already
+    # written WHY on stdout and this check used to throw it away. Purely additive:
+    # nothing about when the test fails changes, only what it tells you when it does.
+    echo "  stdout was:"
+    echo "$ACTUAL_STDOUT"
     exit 1
 fi
 if [ -n "$WANT_STDOUT" ] && [ "$ACTUAL_STDOUT" != "$WANT_STDOUT" ]; then

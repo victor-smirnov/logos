@@ -224,10 +224,14 @@ pub fn el_class_repr(ty: i32) -> str {
 // DERIVED FROM THE TYPE'S OWN PROPERTIES rather than listed per fact.
 //
 // ⚠ WHAT IS STORED AND WHAT IS DERIVED, and why the split falls there. Stored:
-// the CLASS, the WIDTH IN BITS and the SIGNEDNESS — three independent properties
-// of the type, none recoverable from the others. Derived: everything that is a
-// consequence of the EL's normalization, because those are theorems about a
-// two's-complement conversion, not opinions:
+// the CLASS, the WIDTH IN BITS, the SIGNEDNESS, and the type's OWN ORDER AND
+// IDENTITY (`self_ord` / `self_ident`) — five independent properties, none
+// recoverable from the others. The last two are stored because they are claims
+// about THE INSTRUCTIONS THE BACKEND SELECTS, and no property of a type entails
+// those: `usize` is an unsigned 64-bit integer whose `<` lowered to `slt` for the
+// whole life of this table. Derived: everything that is a consequence of the EL's
+// normalization COMPOSED WITH THE REPR'S OWN STORED COMPARISON, because those are
+// theorems about a two's-complement conversion, not opinions:
 //
 //   repr   the type the emitted EL expression actually computes in — the class's
 //          representative (`el_class_repr`). A `u32` column is READ as u32 and
@@ -250,7 +254,14 @@ pub fn el_class_repr(ty: i32) -> str {
 //          value has been normalized into `repr` — the `EL_ORD_*` codes below;
 //   self_ord / self_ident
 //          the same two questions asked of a comparison IN THE TYPE ITSELF, with
-//          no normalization in between.
+//          no normalization in between. THE TWO STORED ROWS, and the two a gate
+//          keeps honest: `tests/logos/pass/wql_el_cmp_measured.logos` RUNS `<`,
+//          `>`, `==` and the `Hash`/`Eq` instances on values of every type this
+//          table names, at the extremes that separate a right lowering from a
+//          wrong one (above the signed ceiling for the unsigned types, the
+//          minimum for the signed ones, a NaN for the floats, the empty string
+//          and multi-byte content for `str`), and refuses any row whose stored
+//          answer differs from what the language did.
 //
 // ⚠ `ord` AND `self_ord` ARE TWO FIELDS BECAUSE THEY ARE TWO STATES, and this is
 // the whole of what stage 2 fixes. One field answered both, so "does the emitted
@@ -302,80 +313,168 @@ pub fn el_ty_has_ident(t: ElTy) -> bool { return t.ident == EL_ID_OK(); }
 /// ⚠ `el` sits BELOW the reflection boundary and holds no module view: `name`
 /// must already BE a type, not an alias for one. Alias resolution happens at the
 /// READ sites (`reflect::resolve_alias_name`).
-pub fn el_ty(name: str) -> ElTy {
-    // Integer family — (bits, signed) is the whole of what distinguishes them.
-    if str_eq(name, "i8")    { return el_ty_row(name, EL_TY_INT(), 8i64,   true); }
-    if str_eq(name, "i16")   { return el_ty_row(name, EL_TY_INT(), 16i64,  true); }
-    if str_eq(name, "i32")   { return el_ty_row(name, EL_TY_INT(), 32i64,  true); }
-    if str_eq(name, "i64")   { return el_ty_row(name, EL_TY_INT(), 64i64,  true); }
-    if str_eq(name, "i128")  { return el_ty_row(name, EL_TY_INT(), 128i64, true); }
-    if str_eq(name, "u8")    { return el_ty_row(name, EL_TY_INT(), 8i64,   false); }
-    if str_eq(name, "u16")   { return el_ty_row(name, EL_TY_INT(), 16i64,  false); }
-    if str_eq(name, "u32")   { return el_ty_row(name, EL_TY_INT(), 32i64,  false); }
-    if str_eq(name, "u64")   { return el_ty_row(name, EL_TY_INT(), 64i64,  false); }
-    if str_eq(name, "u128")  { return el_ty_row(name, EL_TY_INT(), 128i64, false); }
-    if str_eq(name, "isize") { return el_ty_row(name, EL_TY_INT(), 64i64,  true); }
-    if str_eq(name, "usize") { return el_ty_row(name, EL_TY_INT(), 64i64,  false); }
+pub fn el_ty(name: str) -> ElTy { return el_ty_complete(el_ty_stored_of(name)); }
+
+/// The type admitted at index `i`, complete. The enumeration `el_ty` scans.
+pub fn el_ty_at(i: i64) -> ElTy { return el_ty_complete(el_ty_stored(i)); }
+
+/// HOW MANY TYPES THE LATTICE ADMITS. Not a second list — `el_ty_stored` returns
+/// the denied row past the end, and the fixture pins `arity` against that boundary
+/// (`el_ty_at(arity - 1)` is admitted, `el_ty_at(arity)` is not), so this number
+/// cannot drift from the cases below without a gate failing.
+pub fn el_ty_arity() -> i64 { return 19i64; }
+
+/// The STORED row of a NAME — THE one place a name is admitted, by scan over the
+/// enumeration. Nothing here derives anything, which is what keeps completion
+/// (whose composition reads the REPRESENTATIVE's stored row) from recurring.
+fn el_ty_stored_of(name: str) -> ElTy {
+    let n: i64 = el_ty_arity();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let s: ElTy = el_ty_stored(i);
+        if str_eq(s.name, name) { return s; }
+        i = i + 1i64;
+    }
+    return el_ty_denied(name);
+}
+
+/// THE LATTICE, ENUMERATED — and it is enumerated rather than looked up because
+/// the per-type comparison facts below are PINNED BY A TEST THAT RUNS THE
+/// COMPARISON IN THE LANGUAGE (`tests/logos/pass/wql_el_cmp_measured.logos`), and
+/// a table a test cannot walk is a table whose new row arrives unmeasured. The
+/// name lookup is a scan over this, so there is exactly one place a type is
+/// admitted.
+///
+/// ⚠ THE LAST TWO ARGUMENTS ARE STORED, NOT DERIVED, AND THAT IS THE WHOLE POINT.
+/// `self_ord` / `self_ident` are claims about the code THE BACKEND EMITS for this
+/// type's own `<` and `==`. They used to be computed from the four-value class tag
+/// (`cls == EL_TY_FLT()` ? PARTIAL : OK), which is a claim about the LANGUAGE
+/// inferred from how this compiler happens to bucket types — and the inference was
+/// FALSE while `usize` lowered `<` to `slt` (fixed in `0684b185`; the inference was
+/// unfounded before the defect and stayed unfounded after it). A fact about the
+/// emitted comparison is stored where the type is admitted and MEASURED by a gate
+/// that compares two values of that type at the extremes. If the lowering changes,
+/// the gate fails. That is what a class tag could never do.
+fn el_ty_stored(i: i64) -> ElTy {
+    // Integer family — (bits, signed) is the whole of what distinguishes them,
+    // and every one of them has a total `<` and an exact `==` in the language.
+    if i == 0i64  { return el_ty_raw("i8",    EL_TY_INT(), 8i64,   true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 1i64  { return el_ty_raw("i16",   EL_TY_INT(), 16i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 2i64  { return el_ty_raw("i32",   EL_TY_INT(), 32i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 3i64  { return el_ty_raw("i64",   EL_TY_INT(), 64i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 4i64  { return el_ty_raw("i128",  EL_TY_INT(), 128i64, true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 5i64  { return el_ty_raw("u8",    EL_TY_INT(), 8i64,   false, EL_ORD_OK(), EL_ID_OK()); }
+    if i == 6i64  { return el_ty_raw("u16",   EL_TY_INT(), 16i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    if i == 7i64  { return el_ty_raw("u32",   EL_TY_INT(), 32i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    if i == 8i64  { return el_ty_raw("u64",   EL_TY_INT(), 64i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    if i == 9i64  { return el_ty_raw("u128",  EL_TY_INT(), 128i64, false, EL_ORD_OK(), EL_ID_OK()); }
+    if i == 10i64 { return el_ty_raw("isize", EL_TY_INT(), 64i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 11i64 { return el_ty_raw("usize", EL_TY_INT(), 64i64,  false, EL_ORD_OK(), EL_ID_OK()); }
     // Writ's packed widths. u56's maximum is 2^56-1, well inside i64 — and that
     // is now DERIVED from the 56 rather than asserted in a list of names.
-    if str_eq(name, "i56")   { return el_ty_row(name, EL_TY_INT(), 56i64,  true); }
-    if str_eq(name, "u56")   { return el_ty_row(name, EL_TY_INT(), 56i64,  false); }
-    if str_eq(name, "f32")   { return el_ty_row(name, EL_TY_FLT(), 32i64,  true); }
-    if str_eq(name, "f64")   { return el_ty_row(name, EL_TY_FLT(), 64i64,  true); }
-    if str_eq(name, "bool")  { return el_ty_row(name, EL_TY_BOOL(), 1i64,  false); }
-    if str_eq(name, "str")   { return el_ty_row(name, EL_TY_STR(), 0i64,   false); }
+    if i == 12i64 { return el_ty_raw("i56",   EL_TY_INT(), 56i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 13i64 { return el_ty_raw("u56",   EL_TY_INT(), 56i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    // The float class: a NaN compares false against every value INCLUDING ITSELF,
+    // so the order is partial and the equality is not reflexive. Measured, not
+    // assumed — the fixture builds a NaN and asks.
+    if i == 14i64 { return el_ty_raw("f32",   EL_TY_FLT(), 32i64,  true,  EL_ORD_PARTIAL(), EL_ID_NO_EQ()); }
+    if i == 15i64 { return el_ty_raw("f64",   EL_TY_FLT(), 64i64,  true,  EL_ORD_PARTIAL(), EL_ID_NO_EQ()); }
+    if i == 16i64 { return el_ty_raw("bool",  EL_TY_BOOL(), 1i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    // `str` relationals are lowered to `str_cmp` — byte-lexicographic, total.
+    if i == 17i64 { return el_ty_raw("str",   EL_TY_STR(), 0i64,   false, EL_ORD_OK(), EL_ID_OK()); }
     // `String` is in the lattice and is NOT its own repr: an owned String is
     // compared and stored through its `str` view. That single fact is what four
     // whitelists spelled out by excluding the name.
-    if str_eq(name, "String"){ return el_ty_row(name, EL_TY_STR(), 0i64,   false); }
+    //
+    // ⚠ AND ITS OWN `<` DOES NOT EXIST. The class-derived rule said OK here — a
+    // claim that the backend emits a faithful `String` comparison — and the
+    // backend emits none at all (`String__lt` is unresolved at mlir_gen). It is
+    // unreachable today only because `el_vec_key_ok` denies `String` a key vector
+    // one antecedent earlier; the row still asserted something false, in the
+    // dangerous direction. `==` IS emitted and IS exact, so identity stays OK:
+    // this is exactly why order and identity are two fields.
+    if i == 18i64 { return el_ty_raw("String", EL_TY_STR(), 0i64,  false, EL_ORD_NO_CMP(), EL_ID_OK()); }
+    return el_ty_denied("");
+}
+
+/// The row for a name the lattice does not admit: every fact DENIED. The
+/// default-deny that keeps a type added later from inheriting a licence resting
+/// on a comparison nobody has checked.
+fn el_ty_denied(name: str) -> ElTy {
     return ElTy { name: name, cls: -1i32, bits: 0i64, signed: false, repr: "",
                   canon: false, fits: false, ident: EL_ID_UNNAMED(),
                   ord: EL_ORD_UNNAMED(), self_ord: EL_ORD_UNNAMED(),
                   self_ident: EL_ID_UNNAMED() };
 }
 
-/// Complete a lattice row: the three stored properties in, the derived facts
-/// out. THE place the consequences of the EL's normalization are written down.
-fn el_ty_row(name: str, cls: i32, bits: i64, signed: bool) -> ElTy {
-    let repr: str = el_class_repr(cls);
+/// A STORED row: the five properties nothing derives, and nothing else. The
+/// derived fields are left DENIED so that a row read before completion cannot be
+/// mistaken for an answer.
+fn el_ty_raw(name: str, cls: i32, bits: i64, signed: bool,
+             self_ord: i32, self_ident: i32) -> ElTy {
+    return ElTy { name: name, cls: cls, bits: bits, signed: signed,
+                  repr: "", canon: false, fits: false, ident: EL_ID_UNNAMED(),
+                  ord: EL_ORD_UNNAMED(), self_ord: self_ord, self_ident: self_ident };
+}
+
+/// Complete a lattice row: the five stored properties in, the derived facts out.
+/// THE place the consequences of the EL's normalization are written down.
+///
+/// ⚠ WHAT MAY BE DERIVED HERE AND WHAT MAY NOT. Derived: `fits`, `ident`, `ord`,
+/// `canon`, `repr` — theorems about a two's-complement `as` conversion, GIVEN the
+/// comparison at each end. Stored: `self_ord` / `self_ident` — facts about the
+/// instructions the backend selects, which no property of the type entails.
+fn el_ty_complete(s: ElTy) -> ElTy {
+    if s.cls < 0i32 { return s; }
+    let repr: str = el_class_repr(s.cls);
     // Every value survives the conversion to `repr`. For the integer family that
     // is the i64 range: a signed type of ≤ 64 bits fits exactly, an unsigned one
     // needs its top bit free. f32 → f64 is exact; str/bool are not converted.
-    let fits: bool = if cls == EL_TY_INT() {
-        if signed { bits <= 64i64 } else { bits <= 63i64 }
+    let fits: bool = if s.cls == EL_TY_INT() {
+        if s.signed { s.bits <= 64i64 } else { s.bits <= 63i64 }
     } else { true };
+    // ⚠ THE COMPARISON AFTER THE CONVERSION IS THE REPR'S, AND IT IS READ OFF THE
+    // REPR'S ROW. `ord`/`ident` used to end at `cls == EL_TY_FLT() → PARTIAL`,
+    // which is the same inference one level down: "the emitted comparison is
+    // partial" derived from a class tag. The composition is (the value survives
+    // the conversion) ∘ (the comparison in `repr` realizes `repr`'s order), and
+    // the second half is `repr`'s own STORED fact. It is read from the STORED row
+    // — completing it would recur, and it has nothing this needs.
+    let canon: bool = str_eq(s.name, repr);
+    let mut r_ord: i32   = s.self_ord;
+    let mut r_ident: i32 = s.self_ident;
+    if !canon {
+        let rr: ElTy = el_ty_stored_of(repr);
+        r_ord   = rr.self_ord;
+        r_ident = rr.self_ident;
+    }
     // Is the conversion injective? u64 → i64 is a BIJECTION, so identity holds
     // where order does not; i128/u128 drop bits, so it fails; f64/f32 have no
-    // reflexive equality to preserve in the first place.
-    let ident: i32 = if cls == EL_TY_FLT() { EL_ID_NO_EQ() }
-                     else if cls == EL_TY_INT() && bits > 64i64 { EL_ID_NO_INJ() }
-                     else { EL_ID_OK() };
-    // The SAME two questions asked of the type ITSELF — no conversion in between,
-    // because the vector / map / comparison is emitted in this very type. Then
-    // width and signedness say nothing at all: `<` on `u128` IS u128's order and
-    // `==` on `u64` IS u64's equality. Only the FLOAT class fails, and it fails
-    // both, for the one reason it always does — a NaN compares false against
-    // every value including itself, so the order is partial and the equality is
-    // not reflexive.
-    let self_ord: i32   = if cls == EL_TY_FLT() { EL_ORD_PARTIAL() } else { EL_ORD_OK() };
-    let self_ident: i32 = if cls == EL_TY_FLT() { EL_ID_NO_EQ() } else { EL_ID_OK() };
+    // reflexive equality to preserve in the first place — and that last fact is
+    // the SOURCE type's own, so it is read off the stored `self_ident` rather
+    // than re-derived from the class.
+    let ident: i32 = if s.self_ident != EL_ID_OK() { s.self_ident }
+                     else if s.cls == EL_TY_INT() && s.bits > 64i64 { EL_ID_NO_INJ() }
+                     else { r_ident };
     return ElTy {
-        name: name, cls: cls, bits: bits, signed: signed,
-        repr: repr, canon: str_eq(name, repr), fits: fits, ident: ident,
-        ord: el_ord_of(cls, bits, fits),
-        self_ord: self_ord, self_ident: self_ident,
+        name: s.name, cls: s.cls, bits: s.bits, signed: s.signed,
+        repr: repr, canon: canon, fits: fits, ident: ident,
+        ord: el_ord_of(s.cls, s.bits, fits, r_ord),
+        self_ord: s.self_ord, self_ident: s.self_ident,
     };
 }
 
-/// The order-fidelity consequence of the same three properties.
-fn el_ord_of(cls: i32, bits: i64, fits: bool) -> i32 {
-    if cls == EL_TY_FLT()  { return EL_ORD_PARTIAL(); }
-    // `str` compares byte-lexicographically (sema lowers str relationals to
-    // `str_cmp`) and `bool` is false < true — both are the type's own order.
-    if cls != EL_TY_INT()  { return EL_ORD_OK(); }
-    if fits                { return EL_ORD_OK(); }
-    if bits <= 64i64       { return EL_ORD_WRAP(); }   // u64/usize: reinterpreted
-    return EL_ORD_TRUNC();                             // i128/u128: bits dropped
+/// The order-fidelity consequence: what the CONVERSION into `repr` does to the
+/// value, composed with what `repr`'s OWN comparison does (`r_ord`, the stored
+/// fact off the representative's row — never re-derived from the class here).
+fn el_ord_of(cls: i32, bits: i64, fits: bool, r_ord: i32) -> i32 {
+    if cls == EL_TY_INT() && !fits {
+        if bits <= 64i64 { return EL_ORD_WRAP(); }     // u64/usize: reinterpreted
+        return EL_ORD_TRUNC();                         // i128/u128: bits dropped
+    }
+    // The value arrived intact, so the only question left is `repr`'s own order:
+    // `i64`/`bool`/`str` are faithful, `f64` is partial, and each says so itself.
+    return r_ord;
 }
 
 /// The scalar-lattice class of a type NAME, or -1 when the name is outside the
@@ -532,6 +631,15 @@ pub fn EL_ORD_PARTIAL() -> i32 { return 1i32; }
 pub fn EL_ORD_WRAP()    -> i32 { return 2i32; }
 pub fn EL_ORD_TRUNC()   -> i32 { return 3i32; }
 pub fn EL_ORD_UNNAMED() -> i32 { return 4i32; }
+// ⚠ A SIXTH STATE, AND IT IS NOT "UNNAMED": the type is IN the lattice and the
+// backend emits NO `<` FOR IT AT ALL. `String` is the one row that is in this
+// state today — `logos.mem.string` declares no `lt`, so `a < b` over two
+// `String`s reaches mlir_gen and dies there ("'logos.mem.string.String__lt' does
+// not reference a valid function"). UNNAMED would have been the wrong code and
+// its ground the wrong sentence: it says "this type is outside the lattice", and
+// `String` is not — its equality, its width story and its normalization are all
+// admitted and all correct. Only the ORDER does not exist.
+pub fn EL_ORD_NO_CMP()  -> i32 { return 5i32; }
 
 /// Does every value of this INTEGER type survive the EL's `as i64`
 /// normalization? THE width fact — asked by the call-site check that refuses a
@@ -582,6 +690,9 @@ pub fn el_ord_why_code(f: i32) -> str {
     }
     if f == EL_ORD_UNNAMED() {
         return "this type is outside the EL scalar lattice (`el_class_lookup`), so nothing is known about the comparison the backend would emit for it — and a type is not assumed to be ordered until it is admitted there. The default is deny, so that a type added later cannot inherit a licence resting on a comparison nobody has checked. The remedy is a key of an admitted scalar type (an integer within the i64 range, `str`, `bool`)";
+    }
+    if f == EL_ORD_NO_CMP() {
+        return "the backend emits NO `<` for this type: `String` has no `lt`, so a comparison between two `String`s is accepted by sema and then fails in mlir_gen with an unresolved `String__lt`. This is not a defective order, it is the absence of one — the bytes are perfectly ordered, nothing compares them. The remedy is the `str` VIEW of the value (`as_str()`), whose comparison is the byte order and is emitted";
     }
     return "";
 }
@@ -716,10 +827,14 @@ pub fn el_vec_key_ok(name: str) -> bool {
 // `Vec<u128>`, no trait call) and cannot be INDEXED. That asymmetry is exactly why
 // this is its own conjunct and not folded into `self_ident`.
 //
-// ⚠ THE FLOATS ARE NOT EXCLUDED HERE and must not be: `f64` has both instances'
-// worth of machinery and is refused by `self_ident` / `self_ord`, which is where
-// the reason lives (a NaN is equal to nothing). Excluding it here as well would
-// put one refusal in two places with two different grounds.
+// ⚠ THE FLOATS GET NO CLAUSE OF THEIR OWN HERE, and the comment that used to sit
+// on this line said they were "not excluded", which the code below contradicts:
+// `f64` is neither BOOL nor STR nor INT, so the class test denies it. Both facts
+// are true and the sentence had collapsed them — `logos.lang.hash` declares NO
+// `impl Hash for f64`, so the honest answer here IS false, and separately the
+// reason a float key is refused (a NaN is equal to nothing) lives in
+// `self_ident` / `self_ord` where the ground is stated. What must not happen is a
+// float-specific clause here restating that ground a second time.
 //
 // ⚠ `String` IS EXCLUDED, and this is the honest half of the String story. An
 // index keyed in `String` would have to OWN each key; the emitted shape borrows
