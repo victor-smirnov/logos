@@ -4519,13 +4519,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             default: return 0;
             }
         };
-        // Local scrut_unsigned helper — match-as-expression had no
-        // Range-arm handling, so it never needed this. Mirror the
-        // match-stmt version (mlir_gen_stmt.cpp).
-        auto scrut_unsigned = [&]() -> bool {
-            return scrut_ty &&
-                LogosType::is_unsigned_repr_kind(TypeRef(scrut_ty).kind());
-        };
         if (is_wild) {
             else_block = arm_entry;
         } else if (arm_pat_ref.kind() == pc::Code::Tuple &&
@@ -4585,22 +4578,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // missing here, so range arms silently fell through to
             // the wildcard via the `get_disc` default of 0.
             lir_view::PatRangeView pr{arm_pat_ref};
-            auto pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
-                                            : mlir::arith::CmpIPredicate::sge;
-            auto pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
-                                            : mlir::arith::CmpIPredicate::sle;
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
-                auto lo_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
-                auto hi_val = coerce_int(
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
-                auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
-                auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
-                auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                auto both = emit_range_test(scrut, scrut_ty, pr.lo(), pr.hi());
                 builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
             }
             else_block = test_block;
@@ -4802,22 +4785,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             auto sub = lir_view::PatAtView{arm_pat_ref}.sub();
             if (sub && sub.kind() == pc::Code::Range) {
                 lir_view::PatRangeView pr{sub};
-                auto pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
-                                                : mlir::arith::CmpIPredicate::sge;
-                auto pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
-                                                : mlir::arith::CmpIPredicate::sle;
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
                 {
                     mlir::OpBuilder::InsertionGuard ig(builder_);
                     builder_.setInsertionPointToStart(test_block);
-                    auto lo_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
-                    auto hi_val = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
-                    auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, pred_ge, scrut, lo_val);
-                    auto le = builder_.create<mlir::arith::CmpIOp>(loc_, pred_le, scrut, hi_val);
-                    auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                    auto both = emit_range_test(scrut, scrut_ty, pr.lo(), pr.hi());
                     builder_.create<mlir::cf::CondBranchOp>(loc_, both, arm_entry, else_block);
                 }
                 else_block = test_block;

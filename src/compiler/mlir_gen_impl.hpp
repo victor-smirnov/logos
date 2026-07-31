@@ -157,6 +157,23 @@ private:
     // llvm.data_layout) so `mlir::DataLayout` and ISel are the same oracle.
     void attach_target_data_layout(mlir::ModuleOp mod);
 
+public:
+    // `lo <= scrut && scrut <= hi` for an integer range PATTERN — the ONE
+    // emitter behind every site that compiles one (`match`, `if let`,
+    // `let … else`, `while let`, at-bindings, or-alternatives, nested
+    // `pat_test`). The comparison predicate is a property of the SCRUTINEE'S
+    // TYPE and is read from `is_unsigned_repr_kind` here, once.
+    //
+    // Why it is a function and not a two-line idiom: it WAS the idiom, spelled
+    // out at seven sites. `let 100u8..=200u8 = x else {…}` hardcoded `sge`/`sle`
+    // and took the else branch for x = 150u8, while `match` on the identical
+    // pattern was right; `pat_test` re-derived "is this unsigned" from its own
+    // list of kind constants and left out u24, u56 and u128. A site that cannot
+    // spell the predicate cannot spell it wrong.
+    mlir::Value emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
+                                int64_t lo, int64_t hi);
+private:
+
     // ── DWARF debug info (-g) ─────────────────────────────────────────────
     // Path: per-stmt FileLineColLoc fused with the current fn's DISubprogram →
     // translateModuleToLLVMIR emits DWARF. Locations are only debug-fused while

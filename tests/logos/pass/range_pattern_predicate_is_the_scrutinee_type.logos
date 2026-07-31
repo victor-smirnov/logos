@@ -1,0 +1,68 @@
+package range_pattern_predicate_is_the_scrutinee_type;
+// A range pattern's comparison predicate is a property of the SCRUTINEE'S TYPE.
+// It was spelled out at seven emission sites instead of asked once:
+//   * `let <range> = x else {…}` hardcoded `sge`/`sle`, so
+//     `let 100u8..=200u8 = x else {…}` with x = 150u8 took the ELSE branch
+//     while `match` on the identical pattern took the arm. The previous
+//     round's census of signedness sites found 26 and missed this one.
+//   * `pat_test` (nested / or-alternative patterns) re-derived "is this
+//     unsigned" from its own list of kind constants and left out u24, u56
+//     and u128 — every one of them tested SIGNED.
+// Both are only visible above the signed ceiling of the type, which is where
+// this fixture puts every bound.
+//
+// All four emission sites are exercised for each width, and the four must
+// agree with each other as well as with the answer.
+
+fn s_match(x: u8)    -> i64 { match x { 100..=200 => { return 1; } _ => { return 0; } } }
+fn s_iflet(x: u8)    -> i64 { if let 100..=200 = x { return 1; } return 0; }
+fn s_letelse(x: u8)  -> i64 { let 100..=200 = x else { return 0; }; return 1; }
+fn s_whilelet(x: u8) -> i64 { while let 100..=200 = x { return 1; } return 0; }
+
+fn w_match(x: u32)    -> i64 { match x { 2147483598..=2147483698 => { return 1; } _ => { return 0; } } }
+fn w_iflet(x: u32)    -> i64 { if let 2147483598..=2147483698 = x { return 1; } return 0; }
+fn w_letelse(x: u32)  -> i64 { let 2147483598..=2147483698 = x else { return 0; }; return 1; }
+fn w_whilelet(x: u32) -> i64 { while let 2147483598..=2147483698 = x { return 1; } return 0; }
+
+// u24 / u56: the widths `pat_test`'s hand-written list forgot.
+fn n24(x: u24) -> i64 { match x { 8388558..=8388658 => { return 1; } _ => { return 0; } } }
+fn n56(x: u56) -> i64 { match x { 36028797018963918..=36028797018964018 => { return 1; } _ => { return 0; } } }
+fn e24(x: u24) -> i64 { let 8388558..=8388658 = x else { return 0; }; return 1; }
+fn e56(x: u56) -> i64 { let 36028797018963918..=36028797018964018 = x else { return 0; }; return 1; }
+
+// a SIGNED scrutinee must keep the signed predicate
+fn i_match(x: i8)   -> i64 { match x { -100..=-50 => { return 1; } _ => { return 0; } } }
+fn i_letelse(x: i8) -> i64 { let -100..=-50 = x else { return 0; }; return 1; }
+
+fn main() -> i64 {
+    // u8: 100/150/200 are inside; as i8 they are all NEGATIVE, so a signed
+    // test rejects every one of them.
+    if s_match(150) + s_iflet(150) + s_letelse(150) + s_whilelet(150) != 4 { return 10; }
+    if s_match(100) + s_iflet(100) + s_letelse(100) + s_whilelet(100) != 4 { return 11; }
+    if s_match(200) + s_iflet(200) + s_letelse(200) + s_whilelet(200) != 4 { return 12; }
+    // outside, on both sides
+    if s_match(99)  + s_iflet(99)  + s_letelse(99)  + s_whilelet(99)  != 0 { return 13; }
+    if s_match(201) + s_iflet(201) + s_letelse(201) + s_whilelet(201) != 0 { return 14; }
+    if s_match(255) + s_iflet(255) + s_letelse(255) + s_whilelet(255) != 0 { return 15; }
+
+    // u32 straddling 2^31
+    if w_match(2147483648) + w_iflet(2147483648) + w_letelse(2147483648)
+       + w_whilelet(2147483648) != 4 { return 20; }
+    if w_match(2147483597) + w_iflet(2147483597) + w_letelse(2147483597)
+       + w_whilelet(2147483597) != 0 { return 21; }
+    if w_match(4294967295) + w_iflet(4294967295) + w_letelse(4294967295)
+       + w_whilelet(4294967295) != 0 { return 22; }
+
+    // u24 / u56 straddling their own signed ceilings
+    if n24(8388608) != 1 || e24(8388608) != 1 { return 30; }
+    if n24(8388557) != 0 || e24(8388557) != 0 { return 31; }
+    if n56(36028797018963968) != 1 || e56(36028797018963968) != 1 { return 32; }
+    if n56(36028797018963917) != 0 || e56(36028797018963917) != 0 { return 33; }
+
+    // signed scrutinee unchanged
+    if i_match(-75) != 1 || i_letelse(-75) != 1 { return 40; }
+    if i_match(-49) != 0 || i_letelse(-49) != 0 { return 41; }
+    if i_match(0)   != 0 || i_letelse(0)   != 0 { return 42; }
+
+    return 0;
+}
