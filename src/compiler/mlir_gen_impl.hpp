@@ -142,12 +142,20 @@ public:
     // Resolved backend target CPU has BMI2 → pdep_u64/pext_u64 lower to the
     // inline hardware intrinsic instead of the rt cpuid-dispatch fallback.
     void set_target_bmi2(bool v) { target_has_bmi2_ = v; }
+    // Resolved backend target CPU name — feeds the module's data-layout spec
+    // (attach_target_data_layout). Before generate().
+    void set_target_cpu(std::string_view s) { target_cpu_.assign(s); }
     // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
     void set_main_source(std::string_view s) { main_source_.assign(s); }
 
 private:
     mlir::OpBuilder builder_;
     mlir::Location  loc_;
+    std::string     target_cpu_;
+
+    // Stamp the module with the BACKEND's data layout (dlti.dl_spec +
+    // llvm.data_layout) so `mlir::DataLayout` and ISel are the same oracle.
+    void attach_target_data_layout(mlir::ModuleOp mod);
 
     // ── DWARF debug info (-g) ─────────────────────────────────────────────
     // Path: per-stmt FileLineColLoc fused with the current fn's DISubprogram →

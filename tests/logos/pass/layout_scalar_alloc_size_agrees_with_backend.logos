@@ -1,0 +1,110 @@
+package layout_scalar_alloc_size_agrees_with_backend;
+// The compiler's answer to "how many bytes does a value occupy" must be the
+// BACKEND's answer. Three engines used to answer it independently (mlir-gen
+// `layout_of`, sema `sema_abi_byte_size`, mono `mono_abi_size`) and a fourth
+// oracle — MLIR's DataLayout with no `dlti.dl_spec` — answered a fourth way.
+//
+// Two measured consequences, both silent:
+//   (1) MLIR's default integer ABI alignment is `w < 64 ? PowerOf2Ceil : 4`, so
+//       `{i32, i64}` sized 12 instead of 16 and every value copy of such a
+//       struct dropped the top 4 bytes of the field after the narrow one. A
+//       `[S; N]` literal of `struct S { f0: u32, id: i64 }` therefore stored
+//       ids whose high half was garbage — reads through the real stride saw
+//       addresses. Nothing about the query, the join or the loop was involved:
+//       one narrow field ahead of a wide one was enough.
+//   (2) The odd widths were written at their STORE size (i24 = 3, i56 = 7)
+//       while the emitted GEP steps their ALLOC size (4, 8), so `Vec<i56>`
+//       allocated 7 bytes per element and wrote at 8 — a heap overrun
+//       (`realloc(): invalid next size`), not a wrong value.
+//
+// Every assertion below is a ROUND TRIP: a value written through one shape and
+// read through another. No expected byte count is written down, so the test
+// cannot agree with a wrong layout by copying it.
+use logos.mem.collections.vec;
+
+struct Narrow  { f0: u32, id: i64 }
+struct NarrowB { f0: u8,  f1: i64, f2: i64, id: i64 }
+struct Wide16  { a: u8,   b: i128 }
+struct Odd     { a: i24,  b: i64, c: u56 }
+
+fn sum_narrow(ss: &[Narrow]) -> i64 {
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < ss.len() { let s: &Narrow = &ss[i]; t = t + s.id; i = i + 1; }
+    return t;
+}
+
+fn sum_narrow_b(ss: &[NarrowB]) -> i64 {
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < ss.len() { let s: &NarrowB = &ss[i]; t = t + s.id + s.f1 + s.f2; i = i + 1; }
+    return t;
+}
+
+fn main() -> i64 {
+    // (1) narrow field ahead of a wide one — array literal → direct index.
+    let a: [Narrow; 4] = [Narrow { f0: 0, id: 1000000000001 },
+                          Narrow { f0: 1, id: 2000000000002 },
+                          Narrow { f0: 2, id: 3000000000003 },
+                          Narrow { f0: 3, id: 4000000000004 }];
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 4 { t = t + a[i].id; i = i + 1; }
+    if t != 10000000000010 { return 10; }
+    // ... and the same array read through a SLICE in a callee.
+    if sum_narrow(&a[..]) != 10000000000010 { return 11; }
+    // the narrow field itself must survive the copy too
+    if a[0].f0 != 0 || a[3].f0 != 3 { return 12; }
+
+    // (1b) narrow field ahead of THREE wide ones.
+    let b: [NarrowB; 3] = [NarrowB { f0: 7, f1: 1000000000001, f2: 2, id: 3 },
+                           NarrowB { f0: 8, f1: 2000000000002, f2: 4, id: 6 },
+                           NarrowB { f0: 9, f1: 3000000000003, f2: 8, id: 9 }];
+    if sum_narrow_b(&b[..]) != 6000000000038 { return 20; }
+    if b[0].f0 != 7 || b[2].f0 != 9 { return 21; }
+
+    // (1c) a 16-byte-aligned member after a 1-byte one: the aggregate's own
+    // alignment is the member's, not min(size, 8).
+    let w: [Wide16; 3] = [Wide16 { a: 1, b: 170141183460469231731687303715884105727i128 },
+                          Wide16 { a: 2, b: -170141183460469231731687303715884105728i128 },
+                          Wide16 { a: 3, b: 0 }];
+    if w[0].b != 170141183460469231731687303715884105727i128 { return 30; }
+    if w[1].b != -170141183460469231731687303715884105728i128 { return 31; }
+    if w[2].b != 0 { return 32; }
+    if w[0].a != 1 || w[1].a != 2 || w[2].a != 3 { return 33; }
+
+    // (2) odd widths: a container indexes with size_of, the GEP steps the
+    // backend's alloc size. Nine pushes is past the first two reallocs.
+    let mut v56: Vec<i56> = Vec::<i56>::new();
+    let mut v24: Vec<u24>  = Vec::<u24>::new();
+    let mut k: i64 = 0;
+    while k < 9 { v56.push(k as i56); v24.push(k as u24); k = k + 1; }
+    let mut s56: i64 = 0;
+    let mut s24: i64 = 0;
+    let mut j: i64 = 0;
+    while j < v56.len() { s56 = s56 + (v56.get(j) as i64); s24 = s24 + (v24.get(j) as i64); j = j + 1; }
+    if s56 != 36 { return 40; }
+    if s24 != 36 { return 41; }
+
+    // an odd-width field between two ordinary ones, in an array
+    let o: [Odd; 3] = [Odd { a: -100, b: 11, c: 5 },
+                       Odd { a:  200, b: 22, c: 6 },
+                       Odd { a: -300, b: 33, c: 7 }];
+    let mut oa: i64 = 0;
+    let mut ob: i64 = 0;
+    let mut oc: i64 = 0;
+    let mut m: i64 = 0;
+    while m < 3 { oa = oa + (o[m].a as i64); ob = ob + o[m].b; oc = oc + (o[m].c as i64); m = m + 1; }
+    if oa != -200 { return 50; }
+    if ob != 66   { return 51; }
+    if oc != 18   { return 52; }
+
+    // an odd-width array read back at its own stride
+    let arr: [i24; 5] = [1, -2, 3, -4, 5];
+    let mut sa: i64 = 0;
+    let mut n: i64 = 0;
+    while n < 5 { sa = sa + (arr[n] as i64); n = n + 1; }
+    if sa != 3 { return 60; }
+
+    return 0;
+}

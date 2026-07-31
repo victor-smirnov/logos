@@ -373,50 +373,56 @@ lir_view::StructView Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
     return sit;
 }
 
-uint64_t Mono::mono_abi_size(TypeRef t) {
+uint64_t Mono::mono_abi_size(TypeRef t) { return mono_abi_layout(t).size; }
+
+// Same accumulator law as mlir-gen's LayoutAgg and sema's SemaLayoutAgg: a
+// member's alignment is the member's OWN alignment, never `min(size, 8)`.
+namespace {
+struct MonoLayoutAgg {
+    uint64_t offset = 0, align = 1;
+    void push(uint64_t fsize, uint64_t falign) {
+        if (falign > 1) offset = (offset + falign - 1) & ~(falign - 1);
+        offset += fsize;
+        if (falign > align) align = falign;
+    }
+    uint64_t size() const { return (offset + align - 1) & ~(align - 1); }
+};
+}  // namespace
+
+Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
     using K = LogosType::Kind;
-    if (!t) return 8;
+    if (!t) return {8, 8};
+    // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
+    if (auto sl = LogosType::scalar_layout(t.kind()); sl.align != 0)
+        return {sl.size, sl.align};
     switch (t.kind()) {
-    case K::Void: case K::Never: return 0;
-    case K::Bool: case K::U8: case K::I8: return 1;
-    case K::I16: case K::U16: return 2;
-    case K::I24: case K::U24: return 3;
-    case K::I32: case K::U32: case K::F32: case K::Char: case K::IntLit: return 4;
-    case K::I56: case K::U56: return 7;
-    case K::I64: case K::U64: case K::F64: case K::FloatLit:
-    case K::Ptr: case K::Ref: case K::MutRef: case K::FnPtr: case K::FnItem:
-    case K::Usize: case K::Isize: case K::TaggedPtr: return 8;
-    case K::I128: case K::U128: return 16;
-    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef: return 16;
-    case K::Array:
-        return t.elem() ? t.arr_size() * mono_abi_size(t.elem()) : 0;
+    // Unsized `[T]` tail: no bytes of its own, aligned as its element.
+    case K::UnsizedSlice:
+        return { 0, t.elem() ? mono_abi_layout(t.elem()).align : 1 };
+    case K::Array: {
+        if (!t.elem()) return {0, 1};
+        auto e = mono_abi_layout(t.elem());
+        return { t.arr_size() * e.size, e.align };
+    }
     case K::Tuple: {
-        uint64_t off = 0, maxa = 1;
-        for (auto e : t.tuple_elems()) {
-            uint64_t sz = mono_abi_size(e), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
-            if (a > 1) off = (off + a - 1) & ~(a - 1);
-            off += sz; if (a > maxa) maxa = a;
-        }
-        if (maxa > 1) off = (off + maxa - 1) & ~(maxa - 1);
-        return off;
+        MonoLayoutAgg agg;
+        for (auto e : t.tuple_elems()) { auto l = mono_abi_layout(e); agg.push(l.size, l.align); }
+        return { agg.size(), agg.align };
     }
     case K::Struct: case K::ZonedStruct: {
         SubstMap m;
         auto sit = resolve_struct_layout(t, m);
-        if (!sit.valid()) return 8;
+        if (!sit.valid()) return {8, 8};
         const TypePoolImpl* mas_pool = out_.type_pool.impl();
-        uint64_t off = 0, maxa = 1;
+        MonoLayoutAgg agg;
         for (auto f : sit.fields()) {
             TypeRef fty = f.type(mas_pool);
-            TypeRef ft = m.empty() ? fty : subst_type(fty, m);
-            uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
-            if (a > 1) off = (off + a - 1) & ~(a - 1);
-            off += sz; if (a > maxa) maxa = a;
+            auto l = mono_abi_layout(m.empty() ? fty : subst_type(fty, m));
+            agg.push(l.size, l.align);
         }
-        if (maxa > 1) off = (off + maxa - 1) & ~(maxa - 1);
-        return off;
+        return { agg.size(), agg.align };
     }
-    default: return 8;
+    default: return {8, 8};
     }
 }
 
@@ -452,7 +458,8 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
     for (auto f : sit.fields()) {
         TypeRef fty = f.type(mdpf_pool);
         TypeRef ft = m.empty() ? fty : subst_type(fty, m);
-        uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
+        auto fl = mono_abi_layout(ft);
+        uint64_t sz = fl.size, a = fl.align;
         if (a > 1) off = (off + a - 1) & ~(a - 1);
         if (f.name() == field) {
             // Returns the field's byte offset + (substituted) type. The caller

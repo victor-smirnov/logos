@@ -249,6 +249,11 @@ private:
     // projection, at mono time. Returns false (no re-lower) for the unsized
     // tail field — that is only ever projected at concrete use sites.
     uint64_t mono_abi_size(TypeRef t);
+    // {size, align} form — the actual computation; mono_abi_size is the
+    // size-only view. Leaf kinds come from LogosType::scalar_layout, so mono
+    // cannot disagree with sema or mlir-gen about a primitive's footprint.
+    struct AbiLayout { uint64_t size; uint64_t align; };
+    AbiLayout mono_abi_layout(TypeRef t);
     bool mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                uint64_t& off_out, TypeRef& ftype_out);
     // True when the let-binding `var`'s initializer is an owned DST-tail dyn

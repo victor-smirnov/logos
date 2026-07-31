@@ -4259,77 +4259,85 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     return make_dst_ref(sn, spkg, is_mut, std::move(targs));
 }
 
+// Aggregate accumulator: appends members in declaration order with natural
+// alignment padding and rounds the total to the aggregate's own alignment —
+// the same law as mlir-gen's LayoutAgg. The old form derived a member's
+// alignment as `min(size, 8)`, which is wrong for every member whose size is
+// not its alignment (i128: align 16 read as 8; a 12-byte struct: align 4 read
+// as 8) — a SECOND answer to a question the layout already answers.
+namespace {
+struct SemaLayoutAgg {
+    uint64_t offset = 0, align = 1;
+    void push(uint64_t fsize, uint64_t falign) {
+        if (falign > 1) offset = (offset + falign - 1) & ~(falign - 1);
+        offset += fsize;
+        if (falign > align) align = falign;
+    }
+    uint64_t size() const { return (offset + align - 1) & ~(align - 1); }
+};
+}  // namespace
+
 uint64_t SemaChecker::sema_abi_byte_size(TypeRef t, logos::compiler::StrSet& seen) {
+    return sema_abi_layout(t, seen).size;
+}
+
+SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
+                                                    logos::compiler::StrSet& seen) {
     using K = LogosType::Kind;
-    if (!t) return 8;
+    if (!t) return {8, 8};
     TypeRef tv{t};
+    // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
+    if (auto sl = LogosType::scalar_layout(tv.kind()); sl.align != 0)
+        return {sl.size, sl.align};
     switch (tv.kind()) {
-    case K::Void:    return 0;
-    case K::Bool:    return 1;
-    case K::U8: case K::I8:      return 1;
-    case K::I16: case K::U16:    return 2;
-    case K::I24: case K::U24:    return 3;
-    case K::I32: case K::U32: case K::F32: case K::IntLit:
-    case K::Char:                return 4;
-    case K::I56: case K::U56:    return 7;
-    case K::I64: case K::U64: case K::F64: case K::FloatLit:
-    case K::Ptr:  case K::Ref:  case K::MutRef:
-    case K::FnPtr: case K::FnItem: case K::TaggedPtr:
-    case K::Usize: case K::Isize: return 8;
-    case K::I128: case K::U128:  return 16;
-    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef:
-        return 16;
-    case K::UnsizedSlice: case K::UnsizedDyn:
-        return 0;
-    case K::Array:
-        if (!tv.elem()) return 0;
-        return tv.arr_size() * sema_abi_byte_size(tv.elem(), seen);
+    // Unsized `[T]` tail: no bytes of its own, aligned as its element.
+    case K::UnsizedSlice:
+        return { 0, tv.elem() ? sema_abi_layout(tv.elem(), seen).align : 1 };
+    case K::Array: {
+        if (!tv.elem()) return {0, 1};
+        auto e = sema_abi_layout(tv.elem(), seen);
+        return { tv.arr_size() * e.size, e.align };
+    }
     case K::Tuple: {
-        uint64_t off = 0, max_align = 1;
-        for (auto e : tv.tuple_elems()) {
-            uint64_t esz = sema_abi_byte_size(e, seen);
-            uint64_t align = std::min(esz, (uint64_t)8);
-            if (align > 1) off = (off + align - 1) & ~(align - 1);
-            off += esz;
-            if (align > max_align) max_align = align;
-        }
-        return (off + max_align - 1) & ~(max_align - 1);
+        SemaLayoutAgg agg;
+        for (auto e : tv.tuple_elems()) { auto l = sema_abi_layout(e, seen); agg.push(l.size, l.align); }
+        return { agg.size(), agg.align };
     }
     case K::Struct:
     case K::ZonedStruct: {
         std::string sn(tv.struct_name());
-        if (seen.count(sn)) return 8;  // cycle guard
+        if (seen.count(sn)) return {8, 8};  // cycle guard
         auto [spkg, ssi] = find_struct_by_name(sn);
         if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
-        if (!ssi) return 8;  // unknown — assume pointer size
+        if (!ssi) return {8, 8};  // unknown — assume pointer size
         seen.insert(sn);
-        uint64_t off = 0, max_align = 1;
-        for (auto& f : ssi->fields) {
-            uint64_t esz = sema_abi_byte_size(f.type, seen);
-            uint64_t align = std::min(esz, (uint64_t)8);
-            if (align > 1) off = (off + align - 1) & ~(align - 1);
-            off += esz;
-            if (align > max_align) max_align = align;
-        }
+        SemaLayoutAgg agg;
+        for (auto& f : ssi->fields) { auto l = sema_abi_layout(f.type, seen); agg.push(l.size, l.align); }
         seen.erase(sn);
-        return (off + max_align - 1) & ~(max_align - 1);
+        return { agg.size(), agg.align };
     }
     case K::Enum: {
-        // Simplified: tag (i32) + max variant payload. Mirrors mlir_gen.
+        // `{ i32 disc, <aligned payload blob> }` — mirrors mlir-gen's
+        // layout_of(Enum): the payload starts at its own alignment, not at 4.
         auto [epkg, esi] = find_enum_by_name(std::string(tv.enum_name()));
-        if (!esi) return 8;
-        uint64_t max_payload = 0;
+        if (!esi) return {8, 8};
+        uint64_t max_payload = 0, payload_align = 1;
         for (auto& v : esi->variants) {
-            uint64_t variant = 0;
+            SemaLayoutAgg pv;
             for (auto& pt : v.payload_types) {
                 if (TypeRef(pt).kind() == K::Void) continue;
-                variant += sema_abi_byte_size(pt, seen);
+                auto pl0 = sema_abi_layout(pt, seen);
+                pv.push(pl0.size, pl0.align);
             }
-            if (variant > max_payload) max_payload = variant;
+            if (pv.size()  > max_payload)   max_payload   = pv.size();
+            if (pv.align > payload_align) payload_align = pv.align;
         }
-        return 4 + max_payload;
+        SemaLayoutAgg agg;
+        agg.push(4, 4);
+        agg.push(max_payload, payload_align);
+        return { agg.size(), agg.align };
     }
-    default: return 8;
+    default: return {8, 8};
     }
 }
 

@@ -13,6 +13,7 @@
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/DLTI/DLTI.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/RegionUtils.h>
@@ -73,6 +74,20 @@ bool target_cpu_has_bmi2(const std::string& target_cpu)
     return sti->checkFeatures("+bmi2");
 }
 
+std::string target_data_layout_string(const std::string& target_cpu)
+{
+    llvm::InitializeNativeTarget();
+    std::string triple = llvm::sys::getDefaultTargetTriple();
+    std::string err;
+    auto* target = llvm::TargetRegistry::lookupTarget(triple, err);
+    if (!target) return {};
+    llvm::TargetOptions tmopts;
+    std::unique_ptr<llvm::TargetMachine> tm(target->createTargetMachine(
+        triple, resolve_target_cpu(target_cpu), "", tmopts, llvm::Reloc::PIC_));
+    if (!tm) return {};
+    return tm->createDataLayout().getStringRepresentation();
+}
+
 int lower_and_emit_object(lir::LProgram& prog,
                            const std::string& output_path,
                            const LowerEmitOpts& opts)
@@ -84,10 +99,12 @@ int lower_and_emit_object(lir::LProgram& prog,
     mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
     mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
     mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+    mlir_ctx.getOrLoadDialect<mlir::DLTIDialect>();
 
     auto mlir_module = mlir_gen(mlir_ctx, prog, opts.debug_info, opts.source_path,
                                 opts.overflow_checks,
-                                target_cpu_has_bmi2(opts.target_cpu));
+                                target_cpu_has_bmi2(opts.target_cpu),
+                                opts.target_cpu);
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");

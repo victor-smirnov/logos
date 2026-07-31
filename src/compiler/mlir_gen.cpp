@@ -12,6 +12,10 @@
 // mlir_gen_stmt.cpp, mlir_gen_expr.cpp, mlir_gen_dyn.cpp.
 
 #include "mlir_gen_impl.hpp"
+#include "compile_pipeline.hpp"
+#include <mlir/Dialect/DLTI/DLTI.h>
+#include <mlir/Target/LLVMIR/Import.h>
+#include <llvm/IR/DataLayout.h>
 #include <chrono>
 #include <cstring>
 #include <algorithm>
@@ -54,6 +58,35 @@ struct MlirPhaseTimer {
 } // namespace
 
 // ---------------------------------------------------------------------------
+// Target data layout — the ONE answer to "how many bytes does a value occupy"
+// ---------------------------------------------------------------------------
+//
+// An MLIR module with no `dlti.dl_spec` answers every `mlir::DataLayout` query
+// from `getDefaultABIAlignment`, whose integer rule is
+//     width < 64 ? PowerOf2Ceil(bytes) : 4
+// so i64/i128 get ABI ALIGNMENT 4 and `{i32, i64}` sizes as 12, not 16. Every
+// value copy sized from that DataLayout (array-literal element memcpy, inline
+// struct field memcpy, `[v; N]` fill stride) then dropped the trailing bytes of
+// the copied value — a struct whose first field is narrower than 64 bits lost
+// the top half of the field after it, silently.
+//
+// Attaching the BACKEND's data layout makes `mlir::DataLayout` and ISel the same
+// oracle. The `llvm.data_layout` string rides along so the translated LLVM
+// module carries it too (it used to reach the backend with a triple and no
+// layout, i.e. LLVM's default layout, not the target's).
+void MLIRGenImpl::attach_target_data_layout(mlir::ModuleOp mod) {
+    std::string dl_str = target_data_layout_string(target_cpu_);
+    if (dl_str.empty()) return;
+    llvm::DataLayout dl(dl_str);
+    // The spec attribute is a DLTI attribute — the dialect must be loaded no
+    // matter which of mlir_gen's callers built the context.
+    builder_.getContext()->getOrLoadDialect<mlir::DLTIDialect>();
+    if (auto spec = mlir::translateDataLayout(dl, builder_.getContext()))
+        mod->setAttr(mlir::DLTIDialect::kDataLayoutAttrName, spec);
+    mod->setAttr("llvm.data_layout", builder_.getStringAttr(dl_str));
+}
+
+// ---------------------------------------------------------------------------
 // MLIRGenImpl::generate — top-level lowering pipeline
 // ---------------------------------------------------------------------------
 
@@ -62,6 +95,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     pt.reset();
 
     auto mod = mlir::ModuleOp::create(loc_);
+    attach_target_data_layout(mod);
 
     prog_   = &prog;
     mirror_ = prog.mirror_table.get();
@@ -1445,13 +1479,15 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             bool debug_info,
                                             std::string_view main_source,
                                             bool overflow_checks,
-                                            bool target_has_bmi2) noexcept
+                                            bool target_has_bmi2,
+                                            std::string_view target_cpu) noexcept
 {
     auto t0 = std::chrono::steady_clock::now();
     MLIRGenImpl gen(ctx);
     gen.set_debug_info(debug_info);
     gen.set_overflow_checks(overflow_checks);
     gen.set_target_bmi2(target_has_bmi2);
+    gen.set_target_cpu(target_cpu);
     gen.set_main_source(main_source);
     auto t_ctor = std::chrono::steady_clock::now();
     auto mod = gen.generate(prog);

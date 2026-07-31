@@ -53,6 +53,18 @@ std::string resolve_target_cpu(const std::string& target_cpu);
 // pdep_u64/pext_u64 lowering choice: inline llvm.x86.bmi.* vs rt-fallback call.
 bool target_cpu_has_bmi2(const std::string& target_cpu);
 
+// The BACKEND's data layout for the resolved target, as an LLVM datalayout
+// string. SINGLE SOURCE for "how many bytes does a value occupy": mlir-gen
+// attaches it to the MLIR module (dlti.dl_spec + llvm.data_layout) so that
+// `mlir::DataLayout` answers with the SAME numbers ISel will use.
+//
+// Without it MLIR falls back to `getDefaultABIAlignment`, whose integer rule is
+// `width < 64 ? PowerOf2Ceil(bytes) : 4` — i64/i128 get ABI ALIGNMENT 4, so
+// `{i32, i64}` sized 12 instead of 16 and every value copy of such a struct
+// dropped its last 4 bytes. Returns "" if the target cannot be looked up (the
+// caller then leaves the module unannotated, as before).
+std::string target_data_layout_string(const std::string& target_cpu);
+
 // Lowers prog → object file at `output_path`. On --jit, returns the JIT'd
 // main()'s exit code instead. Returns 0 on success / non-zero on failure.
 //

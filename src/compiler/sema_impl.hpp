@@ -792,6 +792,11 @@ private:
     // mismatches). Cycle-guarded via `seen` set keyed by struct name.
     uint64_t sema_abi_byte_size(TypeRef t,
                                 logos::compiler::StrSet& seen);
+    // {size, align} form — the actual computation; sema_abi_byte_size is the
+    // size-only view of it. Leaf kinds come from LogosType::scalar_layout so
+    // sema, mono and mlir-gen cannot disagree about a primitive's footprint.
+    struct AbiLayout { uint64_t size; uint64_t align; };
+    AbiLayout sema_abi_layout(TypeRef t, logos::compiler::StrSet& seen);
     // Phase 2-1: cfg!() compile-time predicate evaluation. Walks the
     // ARGS items of a FN_MACRO_CALL with callee="cfg" and returns the
     // boolean truth value. Recursive on `all(...)`/`any(...)`/`not(...)`

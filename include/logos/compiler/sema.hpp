@@ -250,6 +250,63 @@ struct LogosType {
         return is_unsigned_int_kind(k) || k == Kind::Bool || k == Kind::Char;
     }
 
+    // ── Scalar layout: DECIDED HERE, next to the enum that defines the kinds ──
+    // {byte size, byte alignment} of every kind that has a layout without
+    // consulting a definition — the primitives, the reference-like kinds and
+    // the fat pairs. Aggregates (Struct / Enum / Tuple / Array) need a
+    // definition to size, so they answer `{0,0}` = "ask the phase that owns
+    // the defs"; each phase's accumulator supplies them, but they all take
+    // their LEAF answers from here.
+    //
+    // Same rule as is_unsigned_int_kind above, and the same history: this
+    // table existed in THREE independent copies (mlir_gen `layout_of`, sema
+    // `sema_abi_byte_size`, mono `mono_abi_size`) and all three wrote the
+    // STORE size of the odd widths — i24 = 3, i56 = 7. The backend gives a
+    // non-power-of-two integer the alignment of the smallest specified integer
+    // type at least as wide (x86-64: i24→i32, i56→i64) and rounds its ALLOC
+    // size up to that alignment, so the emitted GEP steps 4 / 8 bytes. A
+    // container that indexes with `size_of::<T>()` therefore allocated 7 bytes
+    // per `i56` element and wrote at stride 8: `Vec<i56>::push` overran the
+    // heap (`realloc(): invalid next size`). The size of a value is one fact;
+    // it is written once.
+    struct ScalarLayout { uint64_t size; uint64_t align; };
+    static constexpr ScalarLayout scalar_layout(Kind k) noexcept {
+        switch (k) {
+        case Kind::Void: case Kind::Never:                return {0, 1};
+        // A `dyn` TAIL contributes no bytes of its own but forces the enclosing
+        // custom-DST struct to POINTER alignment: `Wrap<dyn Tr>` and the sized
+        // `Wrap<A>` whose data it aliases must agree on where the tail starts,
+        // and the compiler cannot know A. 8 is the conservative assumption
+        // every phase must share — mono had it (by accident, via a
+        // `default: 8`), mlir-gen and sema said 1, and the disagreement moved
+        // the tail of `Inner<i32, dyn Tr>` from offset 8 to offset 4 depending
+        // on which phase was asked. (`[T]` is NOT here: its alignment is
+        // align_of(T), which IS knowable, so it needs `elem()`.)
+        case Kind::UnsizedDyn:                           return {0, 8};
+        case Kind::Bool: case Kind::I8:  case Kind::U8:  return {1, 1};
+        case Kind::I16:  case Kind::U16:                 return {2, 2};
+        case Kind::I24:  case Kind::U24:                 return {4, 4};
+        case Kind::I32:  case Kind::U32: case Kind::F32:
+        case Kind::IntLit: case Kind::Char:              return {4, 4};
+        case Kind::I56:  case Kind::U56:                 return {8, 8};
+        case Kind::I64:  case Kind::U64: case Kind::F64:
+        case Kind::FloatLit:
+        case Kind::Ptr:  case Kind::Ref: case Kind::MutRef:
+        case Kind::FnPtr: case Kind::FnItem: case Kind::TaggedPtr:
+        case Kind::Usize: case Kind::Isize:              return {8, 8};
+        case Kind::I128: case Kind::U128:                return {16, 16};
+        // Fat pairs — two pointers wide, pointer-aligned.
+        case Kind::Slice: case Kind::Closure:
+        case Kind::TraitObject: case Kind::DstRef:       return {16, 8};
+        default:                                         return {0, 0};
+        }
+    }
+    // True when scalar_layout(k) answers; false for the aggregate kinds whose
+    // size needs a definition.
+    static constexpr bool has_scalar_layout(Kind k) noexcept {
+        return scalar_layout(k).align != 0;
+    }
+
     // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()
     // which reads the mirror's schema_type_code. The mirror is the single
     // source of truth.

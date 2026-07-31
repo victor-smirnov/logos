@@ -469,24 +469,13 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     // sites are migrated.
     if (auto rk = ref_repr_of(tv); rk != RefReprKind::NotARef)
         return repr_storage_layout(rk);
+    // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
+    if (auto sl = LogosType::scalar_layout(tv.kind()); sl.align != 0)
+        return {sl.size, sl.align};
     switch (tv.kind()) {
-    case K::Void: case K::Never:                return {0, 1};  // zero-size
-    case K::Bool: case K::I8: case K::U8:       return {1, 1};
-    case K::I16:  case K::U16:                  return {2, 2};
-    case K::I24:  case K::U24:                  return {3, 1};  // odd width, align 1
-    case K::I32:  case K::U32: case K::F32: case K::IntLit:
-    case K::Char:                               return {4, 4};
-    case K::I56:  case K::U56:                  return {7, 1};
-    case K::I64:  case K::U64: case K::F64: case K::FloatLit:
-    case K::Ptr:  case K::Ref: case K::MutRef:
-    case K::FnPtr: case K::TaggedPtr:
-    case K::Usize: case K::Isize:               return {8, 8};
-    case K::I128: case K::U128:                 return {16, 16};
-    // Fat pointers — two pointers wide (ptr-aligned).
-    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef:
-        return {16, 8};
-    // Unsized — no by-value footprint (sema/borrow-check reject by-value use).
-    case K::UnsizedSlice: case K::UnsizedDyn:   return {0, 1};
+    // Unsized `[T]` tail: no bytes of its own, aligned as its element.
+    case K::UnsizedSlice:
+        return { 0, tv.elem() ? aggregate_member_layout(tv.elem(), seen).align : 1 };
     case K::Array: {
         if (!tv.elem()) return {0, 1};
         // Same law as the mlir_type path: an unbound length has no layout.

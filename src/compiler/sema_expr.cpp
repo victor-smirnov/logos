@@ -10340,15 +10340,14 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                         TypeRef ft = sub.empty() ? TypeRef(pssi->fields[i].type)
                                                  : subst_type_sema(pssi->fields[i].type, sub);
                         logos::compiler::StrSet seen;
-                        uint64_t esz = sema_abi_byte_size(ft, seen);
-                        uint64_t align = std::min(esz, (uint64_t)8);
+                        auto fl = sema_abi_layout(ft, seen);
+                        uint64_t esz = fl.size, align = fl.align;
                         if (align > 1) off = (off + align - 1) & ~(align - 1);
                         off += esz;
                     }
                     uint64_t tail_align;
                     { logos::compiler::StrSet seen;
-                      uint64_t es = sema_abi_byte_size(elem, seen);
-                      tail_align = std::min(es ? es : (uint64_t)1, (uint64_t)8); }
+                      tail_align = sema_abi_layout(elem, seen).align; }
                     if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
                     std::string cname = concrete_struct_name(sd_pointee);
                     TypeRef self_cptr = make_ptr(false, sd_pointee);
@@ -10467,8 +10466,8 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                     TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
                                                    : subst_type_sema(f.type, dst_subst);
                     logos::compiler::StrSet seen;
-                    uint64_t esz = sema_abi_byte_size(ft, seen);
-                    uint64_t align = std::min(esz, (uint64_t)8);
+                    auto fl = sema_abi_layout(ft, seen);
+                    uint64_t esz = fl.size, align = fl.align;
                     if (align > 1) off = (off + align - 1) & ~(align - 1);
                     off += esz;
                     if (align > max_align) max_align = align;
@@ -10481,8 +10480,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 uint64_t tail_align = 8;
                 if (tail_is_slice) {
                     logos::compiler::StrSet seen;
-                    uint64_t tail_elem_sz = sema_abi_byte_size(tail_elem_t, seen);
-                    tail_align = std::min(tail_elem_sz ? tail_elem_sz : (uint64_t)1, (uint64_t)8);
+                    tail_align = sema_abi_layout(tail_elem_t, seen).align;
                 }
                 if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
                 prefix_byte_size = off;
@@ -10554,8 +10552,8 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
                                                : subst_type_sema(f.type, dst_subst);
                 logos::compiler::StrSet seen;
-                uint64_t esz = sema_abi_byte_size(ft, seen);
-                uint64_t align = std::min(esz ? esz : (uint64_t)1, (uint64_t)8);
+                auto fl = sema_abi_layout(ft, seen);
+                uint64_t esz = fl.size, align = fl.align;
                 if (align > 1) off = (off + align - 1) & ~(align - 1);
                 if (f.name == field_name) { fld_type = ft; found_fld = true; break; }
                 off += esz;
@@ -19265,21 +19263,11 @@ lir::LExprPtr SemaChecker::lower_offset_of(TinyMapView node) {
     for (auto& f : ssi->fields) {
         TypeRef ft = subst.empty() ? TypeRef(f.type) : subst_type_sema(f.type, subst);
         logos::compiler::StrSet seen;
-        uint64_t esz = sema_abi_byte_size(ft, seen);
-        // Alignment: a `[T]` tail aligns to sizeof(T); a `dyn` tail to the
-        // pointer width (8); otherwise min(size,8). (Unsized tails report
-        // size 0, so the size-based heuristic would wrongly give align 1 —
-        // mirror the DstRef tail-offset walk.)
-        uint64_t align;
-        auto fk = TypeRef(ft).kind();
-        if (fk == LogosType::Kind::UnsizedSlice) {
-            logos::compiler::StrSet es; uint64_t elsz = sema_abi_byte_size(TypeRef(ft).elem(), es);
-            align = std::min(elsz ? elsz : (uint64_t)1, (uint64_t)8);
-        } else if (fk == LogosType::Kind::UnsizedDyn) {
-            align = 8;
-        } else {
-            align = std::min(esz ? esz : (uint64_t)1, (uint64_t)8);
-        }
+        // One law for a field's {size, align} — including the unsized tails
+        // (`[T]` aligns as T, `dyn` as a pointer). This walk used to re-derive
+        // alignment as min(size,8) and special-case the two tails inline.
+        auto fl = sema_abi_layout(ft, seen);
+        uint64_t esz = fl.size, align = fl.align;
         if (align > 1) off = (off + align - 1) & ~(align - 1);
         if (f.name == field)
             return builder().lit_int(static_cast<int64_t>(off),

@@ -32,6 +32,7 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             bool debug_info = false,
                                             std::string_view main_source = {},
                                             bool overflow_checks = true,
-                                            bool target_has_bmi2 = false) noexcept;
+                                            bool target_has_bmi2 = false,
+                                            std::string_view target_cpu = {}) noexcept;
 
 } // namespace logos::compiler
