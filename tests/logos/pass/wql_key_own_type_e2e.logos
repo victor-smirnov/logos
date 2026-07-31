@@ -29,7 +29,12 @@
 //      tier that needs no index and the answer is still right;
 //   7. an equi-join on a `String` key: the LOOP tier for the same shape of reason
 //      (an index would have to own its keys), comparing through `impl Eq for
-//      String`.
+//      String`;
+//   8. equi-joins on `u16` / `i16` / `isize` keys. These reach the HASH tier only
+//      because this arc added their `Hash` impls (`logos.lang.hash` had i8/i32/
+//      i64/u8/u32/u64/usize/bool/str and nothing else), and `el_index_key_ok`
+//      claims they are indexable — so the claim is exercised here rather than
+//      asserted in a comment.
 //
 // ⚠ 5/6/7 ARE THREE DIFFERENT TIERS FOR THREE DIFFERENT MISSING CAPABILITIES, and
 // each is on the plan trace with the capability named. A single "is this class
@@ -44,6 +49,7 @@ use logos.lang.str;
 struct Rec { pub id: i64, pub v: u64, pub w: u128, pub name: String }
 struct Side { pub k: u64, pub b: i64 }
 struct SStr { pub k: String, pub b: i64 }
+struct Narrow { pub h: u16, pub g: i16, pub z: isize, pub id: i64 }
 
 pub deem by_v(src: &[Rec])   { from src s select s.id order by s.v }
 pub deem grp_v(src: &[Rec])  { from src s group by s.v aggregate n = count() select (key, n) }
@@ -52,6 +58,9 @@ pub deem names(src: &[Rec])  { from src s select s.name }
 pub deem j64(xs: &[Rec], ys: &[Side])  { from xs x join ys y on x.v == y.k select (x.id, y.b) }
 pub deem j128(xs: &[Rec], ys: &[Rec])  { from xs x join ys y on x.w == y.w select (x.id, y.id) }
 pub deem jstr(xs: &[Rec], ys: &[SStr]) { from xs x join ys y on x.name == y.k select (x.id, y.b) }
+pub deem ju16(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.h == y.h select (x.id, y.id) }
+pub deem ji16(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.g == y.g select (x.id, y.id) }
+pub deem jisz(xs: &[Narrow], ys: &[Narrow]) { from xs x join ys y on x.z == y.z select (x.id, y.id) }
 
 fn mk(s: str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
 
@@ -118,6 +127,21 @@ fn main() -> i32 {
     if j3.len() != 2i64      { return 19i32; }
     if j3.get(0i64).0 != 2i64 { return 20i32; }
     if j3.get(1i64).0 != 3i64 { return 21i32; }
+
+    // 8. u16 / i16 / isize equi-joins — the HASH tier, over the impls this arc
+    //    added. Each key is unique, so a self-join yields exactly one pair per row
+    //    and every pair is a row with itself.
+    let nw: [Narrow; 2] = [ Narrow { h: 65535u16, g: -5i16, z: 9isize,  id: 1i64 },
+                            Narrow { h: 7u16,     g: 11i16, z: -3isize, id: 2i64 } ];
+    let n1: Vec<(i64, i64)> = ju16(&nw[..], &nw[..]).unwrap();
+    if n1.len() != 2i64            { return 22i32; }
+    if n1.get(0i64).0 != n1.get(0i64).1 { return 23i32; }
+    let n2: Vec<(i64, i64)> = ji16(&nw[..], &nw[..]).unwrap();
+    if n2.len() != 2i64            { return 24i32; }
+    if n2.get(1i64).0 != n2.get(1i64).1 { return 25i32; }
+    let n3: Vec<(i64, i64)> = jisz(&nw[..], &nw[..]).unwrap();
+    if n3.len() != 2i64            { return 26i32; }
+    if n3.get(0i64).0 != n3.get(0i64).1 { return 27i32; }
 
     return 0i32;
 }
