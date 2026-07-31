@@ -1,0 +1,38 @@
+// WQL — ARITHMETIC OVER A VALUE THAT CANNOT SURVIVE THE EL's i64 TOWER IS
+// REFUSED, NOT REINTERPRETED.
+//
+// The EL's checked integer arithmetic is `el_add`/`el_sub`/`el_mul`/`el_div`/
+// `el_rem` — i64 in, i64 out, with an overflow returned as an `ElError` rather
+// than trapped. So EVERY integer arithmetic node computes in i64 whatever the
+// query named its operands, and each operand is normalized into i64 to reach the
+// call. For u8..u32 / i8..i32 / isize that normalization keeps every value and the
+// arithmetic is ADMITTED (wql_arith_narrow_e2e). For `u64`/`usize` it
+// REINTERPRETS and for `u128`/`i128` it TRUNCATES.
+//
+// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
+// parent commit, `from src s select s.v + 1` over a `u64` column:
+//   <metaprog-blob-subst>:1: error [fn p_run]: call to 'el_add' arg 1:
+//     expected i64, got u64
+//   <metaprog-blob-subst>:1190: error [fn p_run]: method 'Vec__push' arg 1:
+//     expected u64, got i64
+// — two type errors in generated lines, naming neither the column nor the reason,
+// for a query the compiler had decided to accept. The same query over a `u32`
+// column failed identically; it compiles and answers now.
+//
+// ⚠ REFUSED AT THE OPERAND, WHICH IS WHERE THE CAST IS. The same fact
+// (`ElTy.fits`) refuses a lossy UDF RESULT at its call site
+// (wql_udf_wide_int_ret_fail); this is the other site the same `as i64` is
+// emitted at, and the two share the ground text rather than a second copy of it.
+//
+// A `u64` column may still be projected, sorted by, grouped by and compared —
+// none of those go through the i64 tower (wql_key_own_type_e2e).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub v: u64 }
+
+pub deem shifted(src: &[Rec]) { from src s select s.v + 1 }
+
+fn main() -> i32 { return 0i32; }

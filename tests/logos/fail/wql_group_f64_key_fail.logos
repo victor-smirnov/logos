@@ -1,6 +1,12 @@
 // wql! diagnostic: a `group by` key cannot be f64 — floats have no Eq/Hash
 // (NaN breaks both), so float group keys get a NAMED compile-time error
 // instead of the emitter miscompiling the key comparison/dedup machinery.
+//
+// ⚠ THE GROUND IS NOW DERIVED FROM THE PAIR (named type, emitted bucket type)
+// rather than from the four-value CLASS, so the message names the type, the type
+// the bucket is keyed in, and WHICH antecedent failed — reflexivity, which is
+// the f64 mechanism. The refusal itself is unchanged; what the expectation pins
+// is strictly more specific than the class-keyed sentence it replaces.
 package test;
 
 use logos.std.wql.wql;

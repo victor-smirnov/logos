@@ -1,0 +1,39 @@
+// WQL — A KEY THE EMITTED KEY VECTOR CANNOT HOLD IS REFUSED, WITH ITS GROUND.
+//
+// ⚠ THIS FIXTURE'S SUBJECT CHANGED, AND THE REASON IS THAT ITS OLD SUBJECT NOW
+// WORKS. It used to pin a `u64` sort key, refused because the key vector was
+// typed with the class's REPRESENTATIVE (i64) and the `as i64` normalization
+// REINTERPRETS above 2^63. The vector holds the key's own type now, so a `u64`
+// key is collected as u64 and compared in u64's order — pinned working, with the
+// values that used to invert, by wql_key_own_type_e2e. Refusing it would be a
+// refusal of something the backend does correctly.
+//
+// What is left refused is the case the conversion table cannot see, because it is
+// not about a conversion at all: a `String` key. Its equality is exact, its order
+// is the byte order, and it IS its own emitted type — every antecedent about the
+// VALUE passes. The vector still cannot hold it:
+//
+//   • the sort and the group scan read keys back with `Vec::get`, which refuses to
+//     move a non-`Copy` element out of the vector's storage;
+//   • the `str` view that would avoid the move borrows the row var, and the row
+//     var's binding ends with the loop body while the key vector outlives it
+//     (E0597, measured on this exact shape).
+//
+// ⚠ SO THE ADMISSION HAS TWO INDEPENDENT ANTECEDENTS AND THIS IS THE SECOND ONE.
+// Deriving "may this be a key" from the conversion alone admitted `String` and
+// then miscompiled it — `cannot move out of a value behind a reference (E0507)`
+// plus three `cannot move a non-Copy element out of Vec` inside a generated
+// chunk, measured at the parent commit. The remedy the message names is a `str`
+// column, which the row stores as a view and which works today
+// (wql_group_str_key_e2e, wql_join_str_key_e2e).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+
+struct Rec { pub id: i64, pub name: String }
+
+pub deem sorted(src: &[Rec]) { from src s select s.id order by s.name }
+
+fn main() -> i32 { return 0i32; }

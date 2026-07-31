@@ -1,0 +1,79 @@
+// WQL — ARITHMETIC COMPUTES IN THE EL's REPRESENTATIVE, AND THE OPERANDS ARE
+// NORMALIZED INTO IT EXACTLY ONCE.
+//
+// `el_add`/`el_sub`/… take i64 and return i64; float arithmetic is IEEE infix in
+// f64. So an arithmetic node's EMITTED type is the class's representative whatever
+// the query named its operands, and each operand reaches it through the EL's own
+// normalization. Two things used to be wrong about that at once, and they were
+// wrong in opposite directions:
+//
+//   • `infer_ty_name` said `u32` for `s.w + 1` (arithmetic "keeps the operands'
+//     type"), so the projection's element type was `Vec<u32>` while the body's
+//     type was i64 → `method 'Vec__push' arg 1: expected u32, got i64`;
+//   • the operands were printed raw and the literal took the COLUMN's spelling →
+//     `el_add((s.w), (1u32))` → `call to 'el_add' arg 1: expected i64, got u32`.
+//
+// Both measured at the parent commit, on `select s.w + 1` over a `u32` column.
+// Neither diagnostic named the column or the reason: they were type errors in
+// generated lines for a query the compiler had accepted.
+//
+// This fixture pins the admitted half — the widths whose normalization keeps
+// every value. The refused half (u64/usize reinterpret, u128/i128 truncate) is
+// wql_arith_wide_int_fail.
+//
+//   1. `u32 + literal` above the i32 range: the result is i64 and is exact;
+//   2. `u32 + u32` — BOTH operands normalized (neither is a literal that could
+//      have taken the other's spelling), and the sum beyond u32's range;
+//   3. `f32 * float literal`: computed in f64 (`f32 * 2.5f64` does not type-check,
+//      so the f32 side is widened exactly once);
+//   4. `order by` an arithmetic key: the key vector is i64 because the NODE is
+//      i64 — this is the one place the key's type is NOT the column's, and the
+//      admission has to notice;
+//   5. `-` (unary) over a u32 column: `el_neg` is the i64 tower too.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub w: u32, pub f: f32 }
+
+pub deem plus(src: &[Rec])  { from src s select s.w + 1 }
+pub deem prod(src: &[Rec])  { from src s select s.w + s.w }
+pub deem scaled(src: &[Rec]) { from src s select s.f * 2.0 }
+pub deem by_sum(src: &[Rec]) { from src s select s.id order by s.w + 1 }
+pub deem negd(src: &[Rec])  { from src s select -s.w }
+
+fn main() -> i32 {
+    let rs: [Rec; 2] = [
+        Rec { id: 1i64, w: 4000000000u32, f: 1.5f32 },
+        Rec { id: 2i64, w: 7u32,          f: 0.5f32 },
+    ];
+
+    // 1. u32 + 1 above the i32 range, exact in i64.
+    let a: Vec<i64> = plus(&rs[..]).unwrap();
+    if a.len() != 2i64              { return 1i32; }
+    if a.get(0i64) != 4000000001i64 { return 2i32; }
+    if a.get(1i64) != 8i64          { return 3i32; }
+
+    // 2. u32 + u32 — the sum does not fit u32 and is exact in i64.
+    let b: Vec<i64> = prod(&rs[..]).unwrap();
+    if b.get(1i64) != 14i64         { return 4i32; }
+    if b.get(0i64) != 8000000000i64 { return 5i32; }
+
+    // 3. f32 * 2.0 computed in f64.
+    let c: Vec<f64> = scaled(&rs[..]).unwrap();
+    if c.get(0i64) != 3.0f64 { return 6i32; }
+    if c.get(1i64) != 1.0f64 { return 7i32; }
+
+    // 4. an arithmetic sort key — the vector is i64 because the node is.
+    let d: Vec<i64> = by_sum(&rs[..]).unwrap();
+    if d.get(0i64) != 2i64 { return 8i32; }
+    if d.get(1i64) != 1i64 { return 9i32; }
+
+    // 5. unary minus over a u32 column, through `el_neg`.
+    let e: Vec<i64> = negd(&rs[..]).unwrap();
+    if e.get(0i64) != -4000000000i64 { return 10i32; }
+    if e.get(1i64) != -7i64          { return 11i32; }
+
+    return 0i32;
+}

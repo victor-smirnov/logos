@@ -1,1 +1,1 @@
-a `group by` key cannot be f64
+a `group by` key of type `f64` has no identity to group by (the emitted bucket key is `f64`) — this key's equality is not even REFLEXIVE

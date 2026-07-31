@@ -1259,12 +1259,14 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 // f64, and this codegen does not get to redefine it.
 //
 // ⚠ AND THIS FRAGMENT IS WHY THE ANSWER IS KEYED ON THE TYPE NAME, NOT THE CLASS.
-// `key_ty` here is the class's REPRESENTATIVE (i64/str/bool/f64), so a key of any
-// other integer width is compared as the i64 it was normalized to. For widths that
-// survive that normalization the two orders coincide; for the ones that do not,
-// the value is refused where it is normalized (`codegen::check_calls`) rather than
-// sorted by its reinterpretation — this loop compares whatever reaches it, and it
-// is not the place that decides what may.
+// `key_ty` here is the type the EMITTER PRINTS for the key (`infer_emit_ty`), which
+// for a column read is the COLUMN'S OWN TYPE and for an arithmetic node or a UDF
+// call is the class's representative (those normalize at their own site). So the
+// comparison this loop emits is `<` on the key's own type wherever the key IS a
+// value of a named type — and a `u64` key is compared as u64, in u64's order.
+// Where a normalization did happen the value is refused at the site that performs
+// it (`codegen::check_calls`) rather than sorted by its reinterpretation: this loop
+// compares whatever reaches it, and it is not the place that decides what may.
 //
 // The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
 // cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
@@ -1302,28 +1304,53 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 // So this seam refuses only what it KNOWS is lossy — the ORDER question's
 // default-deny stays where it belongs, on the licence (`el_order_faithful`), which
 // denies an unresolvable name without denying the query.
-fn key_norm_ok(tn: str, ctx: str) -> bool {
+fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
     let t: ElTy = el_ty(tn);
-    if t.cls < 0i32 { return true; }
-    if t.canon || t.fits { return true; }
+    if t.cls < 0i32           { return true; }   // lenient — the host is the oracle
+    // ⚠ THE VECTOR MUST BE ABLE TO HOLD THE TYPE, and that is a SECOND antecedent,
+    // not a consequence of the first. `String` passes every conversion test in the
+    // table — it is its own emitted type, its equality is exact, its order is the
+    // byte order — and a `Vec<String>` key vector still cannot be sorted or
+    // scanned: `Vec::get` refuses to move a non-`Copy` element out, and the `str`
+    // view that would avoid the move borrows the row var, which dies with the loop
+    // body while the vector outlives it. MEASURED, both halves, on
+    // `order by s.name` over a `String` column. Deriving the answer from the
+    // conversion alone is what let this through as an admit-then-miscompile.
+    if !el_vec_key_ok(kv) {
+        let mut mk: String = String::new();
+        mk.push_str(ctx);
+        mk.push_str(": a key of type `");
+        mk.push_str(kv);
+        mk.push_str("` cannot be held by the key vector the backend emits: the sort and the bucket scan read keys back out of a `Vec` by value, and this type is not `Copy` — a borrowed `str` view of the row would not outlive the loop that binds it. The remedy is a `str` column (a borrowed view stored in the row itself), or a scalar key");
+        error(string_as_str(&mk));
+        return false;
+    }
+    if str_eq(tn, kv)         { return true; }   // the vector IS the key's type
+    if str_eq(kv, t.repr) && t.fits { return true; }   // value-preserving
     let mut m: String = String::new();
     m.push_str(ctx);
     m.push_str(": a key of type `");
     m.push_str(tn);
     m.push_str("` cannot be collected into the key vector the backend emits (`");
-    m.push_str(el_class_repr(el_ty_of_name(tn)));
+    m.push_str(kv);
     m.push_str("`) — ");
-    m.push_str(el_order_why(tn));
+    m.push_str(el_cmp_why(tn, kv));
     error(string_as_str(&m));
     return false;
 }
 
-/// The emitted key body, normalized into the key vector's element type. Call
-/// ONLY after `key_norm_ok` has admitted the type.
-fn key_norm_body(body: str, tn: str) -> String {
-    let cast: str = el_norm_cast(tn);
+/// The emitted key body, normalized into the key vector's element type `kv`.
+/// Call ONLY after `key_norm_ok` has admitted the pair.
+///
+/// ⚠ NOTHING IS EMITTED WHEN THE VECTOR HOLDS THE KEY'S OWN TYPE, which is now the
+/// common case: the cast exists to bridge a type to its REPR, so it is derived from
+/// the pair rather than from the key alone. `el_norm_cast(tn)` alone would have
+/// wrapped a `u32` key in `as i64` while the vector was declared `Vec<u32>`.
+fn key_norm_body(body: str, tn: str, kv: str) -> String {
     let mut out: String = String::new();
-    if cast.len() == 0i64 { out.push_str(body); return out; }
+    if str_eq(tn, kv) { out.push_str(body); return out; }
+    let cast: str = el_norm_cast(tn);
+    if cast.len() == 0i64 || !str_eq(cast, kv) { out.push_str(body); return out; }
     out.push_str("(("); out.push_str(body);
     out.push_str(") as "); out.push_str(cast); out.push_str(")");
     return out;
@@ -1707,7 +1734,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut body: String = String::new();
-    emit_sexpr(&mut body, proj_opt, &ty, var_name);
+    emit_proj_value(&mut body, proj_opt, &ty, var_name);
 
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
@@ -1755,11 +1782,11 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         if !check_calls(key_e, &ty, "wql!: `order by`") { return false; }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         let key_tn: str = infer_ty_name(key_opt, &ty);
-        if !key_norm_ok(key_tn, "wql!: `order by`") { return false; }
-        key_ty = el_class_repr(infer_ty(key_opt, &ty));
+        key_ty = infer_emit_ty(key_opt, &ty);
+        if !key_norm_ok(key_tn, key_ty, "wql!: `order by`") { return false; }
         let mut kb0: String = String::new();
         emit_sexpr(&mut kb0, key_opt, &ty, var_name);
-        key_body = key_norm_body(string_as_str(&kb0), key_tn);
+        key_body = key_norm_body(string_as_str(&kb0), key_tn, key_ty);
     }
 
     // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
@@ -2203,7 +2230,8 @@ fn sexpr_of_word(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<S
 //
 // The split is `join_sel::step_terms`, the same call the planner made, so term
 // index `sel` denotes the same term here as it did there.
-fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, t: &ElTypes, var0: str, h: &Writ,
+fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
+                   t: &ElTypes, var0: str, h: &Writ,
                    build: &mut String, probe: &mut String,
                    resid: &mut String, pred: &mut String) -> bool {
     let st: StepTerms = step_terms(on_ref, h);
@@ -2213,9 +2241,24 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, t: &ElTypes, var
     // Which half of the key term is the build side is `equi_term_sides` — the
     // same function that made the term selectable, asked again rather than
     // re-derived.
+    //
+    // ⚠ BOTH HALVES ARE NORMALIZED INTO THE INDEX'S KEY TYPE, by the same
+    // function the sort key uses. The index is declared `HashMap<ktn, …>`, and
+    // when a side's own type is narrower (`x.a: u32` probing an `i64` build)
+    // inserting it raw is a `let '__k1': expected i64, got u32` inside a
+    // generated chunk. `key_norm_body` emits nothing when the side already IS
+    // `ktn`, which is the common case now that `ktn` is the sides' own type.
     let sd: EquiSides = equi_term_sides(sexpr_of_word(tl.w[sel]), new_var);
-    emit_sexpr(build, sexpr_of_word(sd.bw), t, var0);
-    emit_sexpr(probe, sexpr_of_word(sd.pw), t, var0);
+    let mut b0: String = String::new();
+    let mut p0: String = String::new();
+    emit_sexpr(&mut b0, sexpr_of_word(sd.bw), t, var0);
+    emit_sexpr(&mut p0, sexpr_of_word(sd.pw), t, var0);
+    let bn: String = key_norm_body(string_as_str(&b0),
+                                   infer_ty_name(sexpr_of_word(sd.bw), t), ktn);
+    let pn: String = key_norm_body(string_as_str(&p0),
+                                   infer_ty_name(sexpr_of_word(sd.pw), t), ktn);
+    build.push_str(string_as_str(&bn));
+    probe.push_str(string_as_str(&pn));
     let mut k: i64 = 0i64;
     let mut none_yet: bool = true;
     while k < tl.n {
@@ -2275,13 +2318,26 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
             let mut strat: i32 = ch.jstrat[i];
             let mut kty: i32   = ch.jkey[i];
             let mut sel: i64   = ch.jsel[i];
+            // The key's EMITTED type — the index map's key type and the type both
+            // key expressions must reach. Re-derived from the SAME term index the
+            // plan recorded, so the pre-decided path and the decide-here path
+            // cannot disagree: `step_key_ty_of` is a function of that term.
+            let mut ktn: str = el_class_repr(kty);
             if strat == JS_NONE() {
                 let ss: StepSel = decide_join_step(onr, ch.var[i], t, h);
-                strat = ss.strat; kty = ss.key_ty; sel = ss.sel;
+                strat = ss.strat; kty = ss.key_ty; sel = ss.sel; ktn = ss.key_tn;
                 // Traced HERE because this is where it was decided. A step the
                 // planner decided was already traced there, and echoing it
                 // would put the same decision in the log twice.
-                plan_trace(ch.var[i], js_name(strat), el_class_repr(kty), ss.why);
+                plan_trace(ch.var[i], js_name(strat), ktn, ss.why);
+            } else if sel >= 0i64 {
+                let stt: StepTerms = step_terms(onr, h);
+                if sel < stt.tl.n {
+                    let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
+                    if sd2.bw != 0i64 {
+                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t, kty);
+                    }
+                }
             }
             if st_stream[i] && !js_reads_once(strat) {
                 let mut m: String = String::new();
@@ -2292,10 +2348,10 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
                 return false;
             }
             st_strat[i]  = strat;
-            st_hasres[i] = emit_step_texts(onr, ch.var[i], sel, t, var0, h,
+            st_hasres[i] = emit_step_texts(onr, ch.var[i], sel, ktn, t, var0, h,
                                            &mut st_build[i], &mut st_probe[i],
                                            &mut st_resid[i], &mut st_pred[i]);
-            st_ktn[i]    = el_class_repr(kty);
+            st_ktn[i]    = ktn;
             st_equi[i]   = sel >= 0i64;
         }
         i = i + 1i64;
@@ -3113,7 +3169,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     if tres < 0i32 { return false; }
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut where_body: String = String::new();
     if has_where {
         let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
@@ -3126,19 +3182,19 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // comparison the backend emits for the key REALIZES the order the query named),
     // and the four-value class cannot answer that. `u64` and `i64` are one class
     // and their orders differ above 2^63, so the class-keyed antecedent granted a
-    // u64 key a licence over its own signed reinterpretation. The name is kept
-    // alongside `key_ty` (which is what the emitter PRINTS — still the class's
-    // representative, because the emitted key vector is the i64/str/bool/f64
-    // baseline) and handed to the decision.
+    // u64 key a licence over its own signed reinterpretation. BOTH names travel to
+    // the decision: `key_tn` is what the query NAMED and `key_ty` is what the
+    // emitter PRINTS for the key vector, and the licence is a claim about the
+    // relation between them — see `el::el_cmp_fidelity`.
     let mut key_tn: str = "i64";
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         key_tn = infer_ty_name(key_opt, &ty);
-        if !key_norm_ok(key_tn, "wql!: `order by`") { return false; }
-        key_ty = el_class_repr(infer_ty(key_opt, &ty));
+        key_ty = infer_emit_ty(key_opt, &ty);
+        if !key_norm_ok(key_tn, key_ty, "wql!: `order by`") { return false; }
         let mut kb1: String = String::new();
         emit_sexpr(&mut kb1, key_opt, &ty, ch.base_var);
-        key_body = key_norm_body(string_as_str(&kb1), key_tn);
+        key_body = key_norm_body(string_as_str(&kb1), key_tn, key_ty);
     }
     let has_sort: bool = mods.has_sort;
 
@@ -3244,7 +3300,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // a `str` view that had to outlive two frames, which is exactly the shape one
     // round shipped a use-after-free in. The decision returns a `Why`; the text is
     // composed once, at the emission site, from the record.
-    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_tn, &ty, prm, h,
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_tn, key_ty, &ty, prm, h,
                                            &mut szs, &mut ats);
 
     // The measurement `prepare` needs: the declared reporters the size expressions
@@ -3543,18 +3599,35 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // writes `ty` (the "key" binding) before the body is emitted.
     let mut key_tn3s: String = String::new();
     key_tn3s.push_str(infer_ty_name(key_opt, &ty));
-    let key_id: ElTy = el_ty(string_as_str(&key_tn3s));
-    if key_id.cls >= 0i32 && key_id.ident == EL_ID_NO_INJ() {
+    // ⚠ THE IDENTITY IS ASKED OF THE PAIR (named, emitted), not of either alone.
+    // The group's buckets are a linear `==` scan over `__g_key`, whose element type
+    // is what the emitter PRINTS for the key — the key's own type wherever the key
+    // is a named value. So a `u64` key groups in u64: `==` there is u64's equality,
+    // exact, and the `key` column comes back OUT as a u64 rather than as the -1 an
+    // i64 vector would have made of `u64::MAX`. What is refused is the case where a
+    // NORMALIZATION stands between the two, and `el_cmp_ident` names which
+    // antecedent failed — NO_INJ for the wide integers the EL truncates, NO_EQ for
+    // the floats whose equality is not reflexive in any type.
+    // OWNED for the same reason `key_tn3s` is: the inferred name is a view into
+    // `ty`'s table and `set_ty("key", …)` below writes that table.
+    let mut key_tys: String = String::new();
+    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_ty: str = string_as_str(&key_tys);
+    let ki: i32 = el_cmp_ident(string_as_str(&key_tn3s), key_ty);
+    if el_ty(string_as_str(&key_tn3s)).cls >= 0i32 && ki != EL_ID_OK() {
         let mut mni: String = String::new();
         mni.push_str("wql!: a `group by` key of type `");
         mni.push_str(string_as_str(&key_tn3s));
-        mni.push_str("` has no identity to group by — ");
-        mni.push_str(el_order_why(string_as_str(&key_tn3s)));
+        mni.push_str("` has no identity to group by (the emitted bucket key is `");
+        mni.push_str(key_ty);
+        mni.push_str("`) — ");
+        mni.push_str(el_cmp_ident_why(string_as_str(&key_tn3s), key_ty));
         error(string_as_str(&mni));
         return false;
     }
-    if !key_norm_ok(string_as_str(&key_tn3s), "wql!: `group by`") { return false; }
-    if !el_eq_hash(key_ety) {
+    if !key_norm_ok(string_as_str(&key_tn3s), key_ty, "wql!: `group by`") { return false; }
+    if el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
+        // The out-of-lattice fallback: no NAME to ask, so the class is all there is.
         // The DECISION is the shared table; only the WORDING branches, because the
         // f64 case has a named mechanism worth stating and an unadmitted class does
         // not have one yet.
@@ -3565,8 +3638,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
         return false;
     }
-    let key_ty: str = el_class_repr(key_ety);
-    ty.set_ty("key", key_ety);
+    ty.set_ty_named("key", key_ty);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
@@ -3612,14 +3684,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let mut kb3: String = String::new();
     emit_sexpr(&mut kb3, key_opt, &ty, ch.base_var);
-    let key_body: String = key_norm_body(string_as_str(&kb3), string_as_str(&key_tn3s));
+    let key_body: String = key_norm_body(string_as_str(&kb3), string_as_str(&key_tn3s), key_ty);
     let mut where_body: String = String::new();
     if has_where {
         let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
         emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
     }
     let mut proj_body: String = String::new();
-    emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+    emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut having_body: String = String::new();
     if has_having {
         let hav_e: SExpr = having_ref.any().view::<SExpr>();
@@ -3635,11 +3707,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         let okey_tn: str = infer_ty_name(okey_opt, &ty);
-        if !key_norm_ok(okey_tn, "wql!: `order by`") { return false; }
-        okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
+        okey_ty = infer_emit_ty(okey_opt, &ty);
+        if !key_norm_ok(okey_tn, okey_ty, "wql!: `order by`") { return false; }
         let mut okb: String = String::new();
         emit_sexpr(&mut okb, okey_opt, &ty, ch.base_var);
-        okey_body = key_norm_body(string_as_str(&okb), okey_tn);
+        okey_body = key_norm_body(string_as_str(&okb), okey_tn, okey_ty);
     }
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -4566,7 +4638,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     if is_agg {
         if !split_agg_proj(proj_opt, ri, prm, &ty, s.var_name, &mut key_body, &mut val_body) { return false; }
     } else {
-        emit_sexpr(&mut proj_body, proj_opt, &ty, s.var_name);
+        emit_proj_value(&mut proj_body, proj_opt, &ty, s.var_name);
     }
 
     let mut pred_body: String = String::new();
@@ -4784,7 +4856,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
         let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
         if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
         if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, nv) { return false; }
-        emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
+        emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
     }
     let mut where_body: String = String::new();
     if has_where {

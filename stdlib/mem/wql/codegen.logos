@@ -261,10 +261,38 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
 /// to the baseline; keeping the leniency HERE and the strictness at the licence
 /// keeps both answers right while the flat dict remains imprecise — which is its
 /// own arc, not this one.
+///
+/// ⚠ AN ARITHMETIC NODE IS NOT ITS OPERANDS' TYPE, whatever the query named it.
+/// The EL's checked integer arithmetic is `el_add`/`el_sub`/… — i64 in, i64 out —
+/// and `-x` is `el_neg`, so the type the emitter prints for such a node is the
+/// class's REPRESENTATIVE and nothing else. `infer_ty_name` says `u64` for
+/// `s.v + 1` because that is what the query named; the generated line is
+/// `el_add(((s.v) as i64), (1i64))?` and its type is i64. Keeping the operands'
+/// name here is what made `select s.v + 1` over a `u64` column emit
+/// `Vec<u64>::push(i64)`.
 pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
+    if el_computes_in_repr(e) { return el_class_repr(infer_ty(e, t)); }
     let n: str = infer_ty_name(e, t);
     if el_class_lookup(n) >= 0i32 { return n; }
     return el_class_repr(infer_ty(e, t));
+}
+
+/// True iff the EL emits `e` through its own computation type rather than
+/// through the operands' declared types — the arithmetic nodes, whose emitted
+/// form is a call into `el.logos`'s i64 tower (or an IEEE infix on the f64 one).
+/// THE predicate behind both the element type above and the operand
+/// normalization in `emit_sexpr_as`; a second spelling of "is this arithmetic"
+/// at either site is a second thing to drift.
+pub fn el_computes_in_repr(e: SExpr) -> bool {
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            return op == OP_ADD() || op == OP_SUB() || op == OP_MUL()
+                || op == OP_DIV() || op == OP_MOD();
+        }
+        SExpr::Un(u) => { return u.op == OP_NEG(); }
+        _ => { return false; }
+    }
 }
 
 // The bare-identifier ROOT name of `e` — the name when `e` is a root-shaped
@@ -360,6 +388,86 @@ pub fn tuple_has_flt(tp: STuple, t: &ElTypes) -> bool {
 // `t` is the type dictionary; `var` is a fallback name for a comprehension SVar.
 pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
     emit_sexpr_as(out, e, t, var, "");
+}
+
+/// Emit the PROJECTION value of `e` — the thing the generated loop pushes into
+/// the result vector. Identical to `emit_sexpr` except for one case: a `String`
+/// value read out of a BORROWED row is COPIED (`.as_str().to_string()`).
+///
+/// ⚠ THE ROW IS A `&T`, SO A `String` FIELD CANNOT BE MOVED OUT OF IT. MEASURED:
+/// `from src s select s.name` over `name: String` emitted `__out.push(s.name)`
+/// and failed as `cannot move out of a value behind a reference (E0507)` inside a
+/// generated chunk. The alternative — pushing a `str` VIEW of the field — is not
+/// available: the view borrows the row var, whose binding ends with the loop body,
+/// and the result vector outlives it (E0597, measured on the same shape).
+///
+/// ⚠ NOT APPLIED TO A String-RETURNING CALL, which already produces an owned
+/// temporary — `returns_string` is that case and copying it again would be a
+/// second allocation for nothing.
+pub fn emit_proj_value(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+    if el_owned_copy_needed(e, t) {
+        out.push_str("(");
+        emit_sexpr(out, e, t, var);
+        out.push_str(").as_str().to_string()");
+        return;
+    }
+    emit_sexpr(out, e, t, var);
+}
+
+/// True iff `e`'s emitted value is a `String` the generated code does not own.
+pub fn el_owned_copy_needed(e: SExpr, t: &ElTypes) -> bool {
+    return str_eq(infer_emit_ty(e, t), "String") && !returns_string(e, t);
+}
+
+/// One operand of an arithmetic node must reach the EL's checked i64 tower, and
+/// the cast that takes it there is the SAME `as i64` a UDF result gets — so it is
+/// refused by the same fact, `ElTy.fits`, and gets the same ground.
+///
+/// ⚠ ASKED OF THE OPERAND'S NAMED TYPE (`infer_ty_name`), because the question is
+/// about the VALUE the query put there. A nested arithmetic node or a UDF call has
+/// already been normalized at its own site and answers `i64` here, so the check
+/// lands exactly once, on the leaf that carries a width.
+///
+/// Non-arithmetic nodes are not operands of anything and pass unconditionally: a
+/// `u64` column may be COMPARED (`s.v > 100u64` is emitted in u64 and is exact),
+/// projected, sorted by and grouped by — the tower is the only place the value has
+/// to become an i64.
+pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bool {
+    if !el_computes_in_repr(parent) { return true; }
+    if infer_ty(parent, t) != EL_TY_INT() { return true; }
+    let n: str = infer_ty_name(e, t);
+    if el_arith_ok(n) { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": arithmetic over a value of type `");
+    m.push_str(n);
+    m.push_str("` — the EL's checked arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's values do not survive the normalization into it — ");
+    m.push_str(el_order_why(n));
+    error(string_as_str(&m));
+    return false;
+}
+
+/// Emit one operand of an arithmetic node into the EL's computation type `want`
+/// (`i64` / `f64`), parenthesized, with the normalizing cast when the operand's
+/// EMITTED type is not already that type.
+///
+/// ⚠ IT ASKS `infer_emit_ty`, NOT `infer_ty_name` — what the sub-expression's
+/// generated text ACTUALLY has, which for a nested arithmetic node or a UDF call
+/// is already the representative (both normalize at their own site) and for a
+/// column read is the column's declared type. Asking the query's name here would
+/// have wrapped an already-normalized call in a second, redundant cast.
+pub fn emit_norm_operand(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: str) {
+    let et: str = infer_emit_ty(e, t);
+    let ec: i32 = el_class_lookup(et);
+    let wc: i32 = el_class_lookup(want);
+    let numeric: bool = (ec == EL_TY_INT() || ec == EL_TY_FLT())
+                     && (wc == EL_TY_INT() || wc == EL_TY_FLT());
+    let need: bool = !str_eq(et, want) && numeric;
+    out.push_str("(");
+    if need { out.push_str("("); }
+    emit_sexpr_as(out, e, t, var, want);
+    if need { out.push_str(") as "); out.push_str(want); }
+    out.push_str(")");
 }
 
 /// `emit_sexpr` with an EXPECTED type for integer literals (ADR 0024 S3).
@@ -464,12 +572,34 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             let want_l: str = infer_ty_name(rhs, t);
             let want_r: str = infer_ty_name(lhs, t);
             if res_int {
+                // ⚠ THE OPERANDS OF THE CHECKED TOWER ARE i64, NOT THE COLUMN'S
+                // TYPE. `el_add` takes i64, so a `u32` column reaches it through
+                // the SAME normalization the call site applies, and a literal
+                // beside it takes i64 rather than the column's spelling. Without
+                // this the emitted line was `el_add((s.w), (1u32))` and the host
+                // compiler reported an arg-1 mismatch in a generated chunk. The
+                // types whose normalization does NOT preserve the value are
+                // refused upstream (`check_calls` → `el_arith_ok`), so the cast
+                // here is only ever applied where it is value-preserving.
+                let ir: str = el_class_repr(EL_TY_INT());
                 out.push_str(el_int_op_fn(op));
-                out.push_str("((");
-                emit_sexpr_as(out, lhs, t, var, want_l);
-                out.push_str("), (");
-                emit_sexpr_as(out, rhs, t, var, want_r);
-                out.push_str("))?");
+                out.push_str("(");
+                emit_norm_operand(out, lhs, t, var, ir);
+                out.push_str(", ");
+                emit_norm_operand(out, rhs, t, var, ir);
+                out.push_str(")?");
+                return;
+            }
+            // FLOAT arithmetic is IEEE infix and computes in the class's
+            // representative too, so an `f32` operand is widened exactly once,
+            // here — `f32 * 2.5f64` does not type-check and never did.
+            if is_arith && (lt == EL_TY_FLT() || rt == EL_TY_FLT()) {
+                let fr: str = el_class_repr(EL_TY_FLT());
+                out.push_str("(");
+                emit_norm_operand(out, lhs, t, var, fr);
+                out.push_str(emit_binop(op));
+                emit_norm_operand(out, rhs, t, var, fr);
+                out.push_str(")");
                 return;
             }
             let cast_l: bool = lt == EL_TY_INT() && rt == EL_TY_FLT();
@@ -491,9 +621,9 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // negation is an Overflow error, not a trap). `!` and FLT negation
             // stay infix (bool / IEEE, no trap).
             if op == OP_NEG() && infer_ty(arg, t) == EL_TY_INT() {
-                out.push_str("el_neg((");
-                emit_sexpr(out, arg, t, var);
-                out.push_str("))?");
+                out.push_str("el_neg(");
+                emit_norm_operand(out, arg, t, var, el_class_repr(EL_TY_INT()));
+                out.push_str(")?");
                 return;
             }
             out.push_str("(");
@@ -521,7 +651,11 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             let mut i: i64 = 0i64;
             while i < n {
                 if i > 0i64 { out.push_str(", "); }
-                emit_sexpr(out, items.arg_at(i), t, var);
+                // A tuple is legal ONLY as the select projection (`reject_tuple`
+                // guards every other clause), so its components are projection
+                // values and a borrowed `String` component is copied here too —
+                // `push_tuple_ty` already prints `String` for them.
+                emit_proj_value(out, items.arg_at(i), t, var);
                 i = i + 1i64;
             }
             out.push_str(")");
@@ -769,8 +903,15 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             }
             return true;
         }
-        SExpr::Bin(b)  => { return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx); }
-        SExpr::Un(u)   => { return check_calls(u.arg_expr(), t, ctx); }
+        SExpr::Bin(b)  => {
+            if !check_arith_operand(e, b.lhs_expr(), t, ctx) { return false; }
+            if !check_arith_operand(e, b.rhs_expr(), t, ctx) { return false; }
+            return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx);
+        }
+        SExpr::Un(u)   => {
+            if !check_arith_operand(e, u.arg_expr(), t, ctx) { return false; }
+            return check_calls(u.arg_expr(), t, ctx);
+        }
         SExpr::Cond(c) => {
             return check_calls(c.cond_expr(), t, ctx)
                 && check_calls(c.then_expr(), t, ctx)

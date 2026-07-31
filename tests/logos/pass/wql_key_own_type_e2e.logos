@@ -1,0 +1,123 @@
+// WQL — THE KEY VECTOR HOLDS THE KEY'S OWN TYPE, SO ADMISSION IS A PROPERTY OF
+// THE EMITTED CODE AND NOT OF A CLASS TAG.
+//
+// Every key site — the sort's `__ks`, the group's `__g_key`, the join's index —
+// used to be typed with the class's REPRESENTATIVE (`el_class_repr`: i64 / f64 /
+// str / bool). That is one emission strategy, and while it was the only one, the
+// per-type facts the compiler recorded about ORDER and IDENTITY were facts about
+// IT: `u64` was refused as a sort key not because u64's order is defective but
+// because THAT vector held i64 and the `as i64` normalization reinterprets. The
+// vector holds `infer_emit_ty` now — the key's own type wherever the key is a
+// named value — so the comparison the backend emits IS the type's own.
+//
+// What this fixture pins, all of it RUN and asserted on rows, not merely compiled:
+//
+//   1. `order by` a `u64` key over 5 / 2^63 / 2^64-1. The i64 vector ranked them
+//      2^63, 2^64-1, 5 — total, identical in every nest, undetectable downstream.
+//      The u64 vector ranks 5, 2^63, 2^64-1;
+//   2. `group by` a `u64` key: the bucket is keyed in u64 and `key` comes back OUT
+//      as a u64 — `u64::MAX` as itself, not as -1;
+//   3. `order by` a `u128` key: sorts and compares in u128 (the language's own
+//      `<` on a `Vec<u128>`);
+//   4. a `String` PROJECTION: the row is a `&T`, so the field is COPIED
+//      (`.as_str().to_string()`) rather than moved out of the borrow;
+//   5. an equi-join on a `u64` key: a `HashMap<u64, …>` index — the HASH tier,
+//      because u64's `==` is exact and the stdlib has its `Hash`/`Eq` instances;
+//   6. an equi-join on a `u128` key: the LOOP tier. Not a refusal and not a hash —
+//      u128's equality is exact, and what is missing is the stdlib instance pair
+//      (`impl Eq for u128` SIGSEGVs on call today), so the cascade falls to the
+//      tier that needs no index and the answer is still right;
+//   7. an equi-join on a `String` key: the LOOP tier for the same shape of reason
+//      (an index would have to own its keys), comparing through `impl Eq for
+//      String`.
+//
+// ⚠ 5/6/7 ARE THREE DIFFERENT TIERS FOR THREE DIFFERENT MISSING CAPABILITIES, and
+// each is on the plan trace with the capability named. A single "is this class
+// hashable" tag answered `true` for all three.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Rec { pub id: i64, pub v: u64, pub w: u128, pub name: String }
+struct Side { pub k: u64, pub b: i64 }
+struct SStr { pub k: String, pub b: i64 }
+
+pub deem by_v(src: &[Rec])   { from src s select s.id order by s.v }
+pub deem grp_v(src: &[Rec])  { from src s group by s.v aggregate n = count() select (key, n) }
+pub deem by_w(src: &[Rec])   { from src s select s.id order by s.w }
+pub deem names(src: &[Rec])  { from src s select s.name }
+pub deem j64(xs: &[Rec], ys: &[Side])  { from xs x join ys y on x.v == y.k select (x.id, y.b) }
+pub deem j128(xs: &[Rec], ys: &[Rec])  { from xs x join ys y on x.w == y.w select (x.id, y.id) }
+pub deem jstr(xs: &[Rec], ys: &[SStr]) { from xs x join ys y on x.name == y.k select (x.id, y.b) }
+
+fn mk(s: str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
+
+fn main() -> i32 {
+    let rs: [Rec; 3] = [
+        Rec { id: 1i64, v: 18446744073709551615u64,
+              w: 340282366920938463463374607431768211455u128, name: mk("zeta") },
+        Rec { id: 2i64, v: 5u64,
+              w: 2u128,                                       name: mk("alpha") },
+        Rec { id: 3i64, v: 9223372036854775808u64,
+              w: 18446744073709551617u128,                    name: mk("alpha") },
+    ];
+
+    // 1. u64 sort key: 5 < 2^63 < 2^64-1 → ids 2, 3, 1.
+    let a: Vec<i64> = by_v(&rs[..]).unwrap();
+    if a.len() != 3i64     { return 1i32; }
+    if a.get(0i64) != 2i64 { return 2i32; }
+    if a.get(1i64) != 3i64 { return 3i32; }
+    if a.get(2i64) != 1i64 { return 4i32; }
+
+    // 2. u64 group key: three distinct values, and u64::MAX is itself.
+    let g: Vec<(u64, i64)> = grp_v(&rs[..]).unwrap();
+    if g.len() != 3i64                          { return 5i32; }
+    if g.get(0i64).0 != 18446744073709551615u64 { return 6i32; }
+    if g.get(0i64).1 != 1i64                    { return 7i32; }
+
+    // 3. u128 sort key: 2 < 2^64+1 < u128::MAX → ids 2, 3, 1.
+    let b: Vec<i64> = by_w(&rs[..]).unwrap();
+    if b.len() != 3i64     { return 8i32; }
+    if b.get(0i64) != 2i64 { return 9i32; }
+    if b.get(1i64) != 3i64 { return 10i32; }
+    if b.get(2i64) != 1i64 { return 11i32; }
+
+    // 4. String projection — one owned copy per row, in row order.
+    let n: Vec<String> = names(&rs[..]).unwrap();
+    if n.len() != 3i64                              { return 12i32; }
+    if !str_eq(n.borrow(0i64).as_str(), "zeta")     { return 13i32; }
+    if !str_eq(n.borrow(1i64).as_str(), "alpha")    { return 14i32; }
+
+    // 5. u64 equi-join (HASH): 5 → 50, u64::MAX → 99; 2^63 matches nothing.
+    let sd: [Side; 2] = [ Side { k: 5u64, b: 50i64 },
+                          Side { k: 18446744073709551615u64, b: 99i64 } ];
+    let j: Vec<(i64, i64)> = j64(&rs[..], &sd[..]).unwrap();
+    if j.len() != 2i64      { return 15i32; }
+    let mut sum: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < j.len() { sum = sum + j.get(i).1; i = i + 1i64; }
+    if sum != 149i64        { return 16i32; }
+
+    // 6. u128 equi-join (LOOP): self-join on a unique key → exactly 3 pairs, each
+    //    a row with itself. A truncating key would have matched rows 1 and 3.
+    let j2: Vec<(i64, i64)> = j128(&rs[..], &rs[..]).unwrap();
+    if j2.len() != 3i64 { return 17i32; }
+    let mut k: i64 = 0i64;
+    while k < j2.len() {
+        if j2.get(k).0 != j2.get(k).1 { return 18i32; }
+        k = k + 1i64;
+    }
+
+    // 7. String equi-join (LOOP): "alpha" matches rows 2 and 3, "nope" nothing.
+    let ss: [SStr; 2] = [ SStr { k: mk("alpha"), b: 7i64 },
+                          SStr { k: mk("nope"),  b: 8i64 } ];
+    let j3: Vec<(i64, i64)> = jstr(&rs[..], &ss[..]).unwrap();
+    if j3.len() != 2i64      { return 19i32; }
+    if j3.get(0i64).0 != 2i64 { return 20i32; }
+    if j3.get(1i64).0 != 3i64 { return 21i32; }
+
+    return 0i32;
+}

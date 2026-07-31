@@ -106,6 +106,22 @@ impl Hash for bool {
 impl Hash for usize {
     fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
 }
+impl Hash for i16 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
+}
+impl Hash for u16 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
+}
+impl Hash for isize {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
+}
+// ⚠ NO `Hash for i128`/`u128` HERE, AND THE REASON IS NOT THE HASH. Both impls
+// were written and measured correct in isolation; what a `HashMap<u128, V>` needs
+// beside them is `Eq`, and `impl Eq for u128 { *self == *other }` SIGSEGVs on
+// call — a 128-bit `==` through a trait method with a `&Self` receiver, while the
+// same comparison written inline is fine. Adding the Hash half alone would be an
+// impl nothing can use; adding both would make the segfault reachable from a
+// query. See el.logos::el_index_key_ok, which refuses a 128-bit index key.
 // Tuple Hash — per-arity generic impls (arities 2..8), Rust-parity: hash each
 // component in order (no length prefix — the arity is part of the type). The
 // per-arity form is the pattern tuple Eq used before its variadic rewrite; a

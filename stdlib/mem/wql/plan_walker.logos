@@ -2134,7 +2134,12 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView,
         st.jkey   = ss.key_ty;
         st.jsel   = ss.sel as i32;
         st.jwhy   = ss.why;
-        plan_trace(st.var_name, js_name(ss.strat), el_class_repr(ss.key_ty), ss.why);
+        // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
+        // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
+        // key was announced as `hash join on i64` while the emitted map is
+        // `HashMap<u64, …>`. A justification that names a type the code does not
+        // use is not a justification of that code.
+        plan_trace(st.var_name, js_name(ss.strat), ss.key_tn, ss.why);
         k = k + 1i64;
     }
 }

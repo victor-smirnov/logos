@@ -1,0 +1,1 @@
+wql!: `select`: arithmetic over a value of type `u64` — the EL's checked arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's values do not survive the normalization into it

@@ -246,8 +246,22 @@ pub fn el_class_repr(ty: i32) -> str {
 //          leaves equality alone), `EL_ID_NO_INJ` for i128/u128 (bits are
 //          dropped, so two different values arrive equal), `EL_ID_NO_EQ` for
 //          f64/f32 (NaN != NaN — equality is not even reflexive);
-//   ord    how faithfully the emitted comparison realizes the type's own order —
-//          the `EL_ORD_*` codes below.
+//   ord    how faithfully a comparison realizes the type's own order AFTER the
+//          value has been normalized into `repr` — the `EL_ORD_*` codes below;
+//   self_ord / self_ident
+//          the same two questions asked of a comparison IN THE TYPE ITSELF, with
+//          no normalization in between.
+//
+// ⚠ `ord` AND `self_ord` ARE TWO FIELDS BECAUSE THEY ARE TWO STATES, and this is
+// the whole of what stage 2 fixes. One field answered both, so "does the emitted
+// comparison realize this type's order" had exactly one answer per type — and it
+// was the answer for ONE emission strategy, the one that normalized every key
+// into the class's representative. A `u64` key was refused not because u64 has a
+// defective order but because THAT vector held i64. The strategy is a property of
+// the emitter, not of the type, so it cannot live in a per-type field that
+// callers read as if it were about the type. `self_ord` is the type's own answer;
+// `ord` is the answer under normalization; `el_cmp_fidelity(named, emitted)`
+// composes the two and names WHICH antecedent failed.
 //
 // ⚠ THE WIDTH OF `usize`/`isize` IS THE HOST'S. 64 here is the LP64 assumption
 // every Logos target makes today; it is a stored number precisely so that a
@@ -264,7 +278,9 @@ pub struct ElTy {
     pub canon:  bool,   // name == repr: the EL computes in this type itself
     pub fits:   bool,   // every value survives the conversion to `repr`
     pub ident:  i32,    // EL_ID_*  — identity under that conversion
-    pub ord:    i32,    // EL_ORD_* — order fidelity of the emitted comparison
+    pub ord:    i32,    // EL_ORD_* — order fidelity AFTER normalization into repr
+    pub self_ord:   i32, // EL_ORD_* — order fidelity of `<` on the type ITSELF
+    pub self_ident: i32, // EL_ID_*  — identity of `==` on the type ITSELF
 }
 
 // ── IDENTITY: does `==` plus a hash agree with the source type's equality? ─
@@ -314,7 +330,8 @@ pub fn el_ty(name: str) -> ElTy {
     if str_eq(name, "String"){ return el_ty_row(name, EL_TY_STR(), 0i64,   false); }
     return ElTy { name: name, cls: -1i32, bits: 0i64, signed: false, repr: "",
                   canon: false, fits: false, ident: EL_ID_UNNAMED(),
-                  ord: EL_ORD_UNNAMED() };
+                  ord: EL_ORD_UNNAMED(), self_ord: EL_ORD_UNNAMED(),
+                  self_ident: EL_ID_UNNAMED() };
 }
 
 /// Complete a lattice row: the three stored properties in, the derived facts
@@ -333,10 +350,20 @@ fn el_ty_row(name: str, cls: i32, bits: i64, signed: bool) -> ElTy {
     let ident: i32 = if cls == EL_TY_FLT() { EL_ID_NO_EQ() }
                      else if cls == EL_TY_INT() && bits > 64i64 { EL_ID_NO_INJ() }
                      else { EL_ID_OK() };
+    // The SAME two questions asked of the type ITSELF — no conversion in between,
+    // because the vector / map / comparison is emitted in this very type. Then
+    // width and signedness say nothing at all: `<` on `u128` IS u128's order and
+    // `==` on `u64` IS u64's equality. Only the FLOAT class fails, and it fails
+    // both, for the one reason it always does — a NaN compares false against
+    // every value including itself, so the order is partial and the equality is
+    // not reflexive.
+    let self_ord: i32   = if cls == EL_TY_FLT() { EL_ORD_PARTIAL() } else { EL_ORD_OK() };
+    let self_ident: i32 = if cls == EL_TY_FLT() { EL_ID_NO_EQ() } else { EL_ID_OK() };
     return ElTy {
         name: name, cls: cls, bits: bits, signed: signed,
         repr: repr, canon: str_eq(name, repr), fits: fits, ident: ident,
         ord: el_ord_of(cls, bits, fits),
+        self_ord: self_ord, self_ident: self_ident,
     };
 }
 
@@ -536,7 +563,14 @@ pub fn el_order_faithful(name: str) -> bool {
 /// caller's refusal can name a remedy instead of a verdict. Empty for a faithful
 /// type.
 pub fn el_order_why(name: str) -> str {
-    let f: i32 = el_order_fidelity(name);
+    return el_ord_why_code(el_order_fidelity(name));
+}
+
+/// The ground for an `EL_ORD_*` CODE — ONE renderer, because the same four
+/// failures are reached from two questions now (the value's normalization at a
+/// call site, and the key vector's element type at a sort site) and a second copy
+/// of the four sentences is a second thing to drift.
+pub fn el_ord_why_code(f: i32) -> str {
     if f == EL_ORD_PARTIAL() {
         return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached. The remedy is a key whose comparison is total: an integer within the i64 range, a `str`, or a `bool`";
     }
@@ -550,6 +584,181 @@ pub fn el_order_why(name: str) -> str {
         return "this type is outside the EL scalar lattice (`el_class_lookup`), so nothing is known about the comparison the backend would emit for it — and a type is not assumed to be ordered until it is admitted there. The default is deny, so that a type added later cannot inherit a licence resting on a comparison nobody has checked. The remedy is a key of an admitted scalar type (an integer within the i64 range, `str`, `bool`)";
     }
     return "";
+}
+
+// ══ THE COMPARISON THE BACKEND EMITS IS OVER A TYPE, NOT OVER A CLASS ═══════
+//
+// A key reaches a comparison through a VECTOR (or a map), and the element type of
+// that vector is what the emitter prints. Two names are therefore in play at every
+// key site and they are NOT the same question:
+//
+//   named    the type the QUERY gave the key expression (`infer_ty_name`);
+//   emitted  the type the EMITTER prints for the vector and for the body
+//            (`infer_emit_ty`) — the same rule the projection's element type uses.
+//
+// While every key vector held `el_class_repr(class)`, `named != emitted` was the
+// normal case and `ElTy.ord` — order fidelity UNDER the normalization — was the
+// whole answer. It is not any more: a vector may hold the key's own type, and then
+// the conversion step does not happen at all. So the question is a CONJUNCTION and
+// each conjunct is a separate fact:
+//
+//   1. the value must REACH the comparison: `named == emitted` (nothing happens),
+//      or `emitted` is `named`'s repr and `ElTy.fits` (the EL normalized it and
+//      every value survived);
+//   2. the comparison over `emitted` must be `emitted`'s own order / equality
+//      (`self_ord` / `self_ident`).
+//
+// The returned code names WHICH conjunct failed, in the vocabulary that conjunct
+// speaks: WRAP/TRUNC when the conversion lost the value, PARTIAL when the emitted
+// comparison is not total, UNNAMED when either type is outside the lattice or the
+// two are related by no conversion this table knows.
+pub fn el_cmp_fidelity(named: str, emitted: str) -> i32 {
+    let n: ElTy = el_ty(named);
+    let e: ElTy = el_ty(emitted);
+    if n.cls < 0i32 || e.cls < 0i32 { return EL_ORD_UNNAMED(); }
+    if str_eq(named, emitted)       { return e.self_ord; }
+    if !str_eq(emitted, n.repr)     { return EL_ORD_UNNAMED(); }
+    if !n.fits                      { return n.ord; }
+    return e.self_ord;
+}
+
+/// The IDENTITY counterpart of `el_cmp_fidelity`, for the sites that need `==`
+/// plus a hash rather than a ranking — a `group by` bucket, an equi-join key.
+/// Same two conjuncts, same "which one failed" discipline.
+pub fn el_cmp_ident(named: str, emitted: str) -> i32 {
+    let n: ElTy = el_ty(named);
+    let e: ElTy = el_ty(emitted);
+    if n.cls < 0i32 || e.cls < 0i32 { return EL_ID_UNNAMED(); }
+    if str_eq(named, emitted)       { return e.self_ident; }
+    if !str_eq(emitted, n.repr)     { return EL_ID_UNNAMED(); }
+    if n.ident != EL_ID_OK()        { return n.ident; }
+    return e.self_ident;
+}
+
+/// The ground for a key whose emitted comparison does not realize its order.
+pub fn el_cmp_why(named: str, emitted: str) -> str {
+    let f: i32 = el_cmp_fidelity(named, emitted);
+    if f == EL_ORD_OK() { return ""; }
+    if f == EL_ORD_UNNAMED() && el_ty(named).cls >= 0i32 && el_ty(emitted).cls >= 0i32 {
+        return "the key vector the backend emits holds neither this type nor the type the EL normalizes it into, so no conversion this table knows carries the value into the comparison. The remedy is a key whose type IS the emitted element type";
+    }
+    return el_ord_why_code(f);
+}
+
+/// The ground for a key whose emitted `==` does not realize its equality.
+pub fn el_cmp_ident_why(named: str, emitted: str) -> str {
+    let i: i32 = el_cmp_ident(named, emitted);
+    if i == EL_ID_OK() { return ""; }
+    if i == EL_ID_NO_EQ() {
+        return "this key's equality is not even REFLEXIVE: an f64/f32 NaN compares false against every value including itself, so such a row is equal to nothing, not even to a copy of itself, and no bucket can hold it. The remedy is a key whose equality is meaningful — an integer, a `str` or a `bool`";
+    }
+    if i == EL_ID_NO_INJ() {
+        return "the EL's normalization of this key is NOT INJECTIVE: a value wider than 64 bits arrives with its high bits dropped, so two different keys collapse into one bucket. The remedy is a key that fits the i64 the EL computes in";
+    }
+    return "this key's type is outside the EL scalar lattice (`el_ty`), so nothing is known about the `==` and the hash the backend would emit for it — and a type is not assumed to have an identity until it is admitted there. The remedy is a key of an admitted scalar type";
+}
+
+/// Can a value of type `n` be collected into a key vector / index of type `kv`
+/// WITHOUT losing anything — either because it is already that type, or because
+/// the EL's normalization takes it there and every value survives?
+///
+/// THE shared antecedent of `key_norm_ok` and `step_key_ty_of`: one asks it to
+/// admit, the other to pick a common type for two sides of an equi-term.
+pub fn el_key_reaches(n: str, kv: str) -> bool {
+    let t: ElTy = el_ty(n);
+    if t.cls < 0i32   { return false; }
+    if str_eq(n, kv)  { return true; }
+    return str_eq(kv, t.repr) && t.fits
+        && (t.cls == EL_TY_INT() || t.cls == EL_TY_FLT());
+}
+
+/// Can the emitted KEY VECTOR hold this type — `Vec<K>` filled per row, read back
+/// by value with `get`, compared with `<` and `==`?
+///
+/// ⚠ A DIFFERENT QUESTION FROM `el_index_key_ok`, AND THE ANSWERS DIFFER. The
+/// vector path uses the LANGUAGE's `<`/`==` on the element, so it works for every
+/// scalar including the 128-bit ones (measured: a `Vec<u128>` sort ranks
+/// u128::MAX last). What it cannot do is hold a NON-`Copy` element: `Vec::get`
+/// refuses to move a `String` out, and the `str` view that would avoid the move
+/// borrows the row var, which dies with the loop body. So `String` is the one
+/// lattice type this denies — and it is denied HERE rather than in the identity
+/// or order tables, because its equality and its order are both perfectly fine.
+pub fn el_vec_key_ok(name: str) -> bool {
+    let t: ElTy = el_ty(name);
+    if t.cls < 0i32          { return false; }
+    if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // `String` is not Copy
+    return true;
+}
+
+// ── CAN THE BACKEND BUILD AN INDEX KEYED IN THIS TYPE? ────────────────────
+// A DIFFERENT KIND OF FACT from everything above it, and that is why it is its
+// own function rather than a clause inside one. Every other row here is a
+// THEOREM about a conversion — it follows from the width, the signedness and the
+// class, and no amount of stdlib work can change it. This one is a fact about
+// what the STDLIB CURRENTLY PROVIDES: `HashMap<K, V>` requires `K: Hash + Eq`,
+// and `logos.lang.hash` / `logos.lang.cmp` enumerate their instances.
+//
+// ⚠ SO IT IS THE ONE ROW THAT IS ALLOWED TO BE A LIST — it is a list of impls
+// that exist, read off the two files that declare them, and a type gains its
+// entry by gaining the impl. Deriving it from the width instead would be exactly
+// the mistake this table was built to stop: a claim about the emitted code
+// inferred from a property of the type.
+//
+// The instances, as of `logos.lang.hash` + `logos.lang.cmp`: i8/i16/i32/i64,
+// u8/u16/u32/u64, isize/usize, bool, str.
+//
+// ⚠ 128-BIT IS EXCLUDED AND THE REASON IS A MEASURED SIGSEGV, not a missing impl.
+// `impl Hash for u128` was written and verified in isolation; the `Eq` half it
+// needs — `impl Eq for u128 { *self == *other }` — SEGFAULTS AT THE CALL, while
+// the same `==` written inline is correct (probe: a `Vec<u128>` sort compares and
+// orders u128::MAX correctly, and `w.eq(&w)` on the same value dies). So a
+// 128-bit key sorts and GROUPS (both go through the language's own `==`/`<` on a
+// `Vec<u128>`, no trait call) and cannot be INDEXED. That asymmetry is exactly why
+// this is its own conjunct and not folded into `self_ident`.
+//
+// ⚠ THE FLOATS ARE NOT EXCLUDED HERE and must not be: `f64` has both instances'
+// worth of machinery and is refused by `self_ident` / `self_ord`, which is where
+// the reason lives (a NaN is equal to nothing). Excluding it here as well would
+// put one refusal in two places with two different grounds.
+//
+// ⚠ `String` IS EXCLUDED, and this is the honest half of the String story. An
+// index keyed in `String` would have to OWN each key; the emitted shape borrows
+// the row's bytes, and the borrow does not outlive the loop body the row var is
+// bound in (measured: E0597, `'s' does not live long enough`). So a `String`
+// equi-key falls to the LOOP tier, where the comparison is `String == String`
+// through `impl Eq for String` and is exact. No index, correct answer, and the
+// cascade says which capability was missing.
+pub fn el_index_key_ok(name: str) -> bool {
+    let t: ElTy = el_ty(name);
+    if t.cls == EL_TY_BOOL() { return true; }
+    if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String` — see above
+    if t.cls != EL_TY_INT()  { return false; }
+    // `i56`/`u56` are Writ's PACKED widths — a storage encoding, not a Logos
+    // type a `HashMap` can be instantiated over.
+    if str_eq(name, "i56") || str_eq(name, "u56") { return false; }
+    return t.bits <= 64i64;
+}
+
+// ── MAY THE EL COMPUTE ARITHMETIC IN THIS TYPE? ───────────────────────────
+// The EL's integer arithmetic is `el_add`/`el_sub`/… — i64 in, i64 out, checked.
+// So the RESULT of an integer arithmetic node is i64 whatever the operands were
+// named, and each operand is normalized into i64 to reach the call. That is the
+// same `as i64` the call site refuses when the value cannot survive it, and it is
+// refused here for the same reason and by the same fact (`ElTy.fits`): u8..u32,
+// i8..i32, u56/i56 and isize normalize without moving a value, `u64`/`usize`
+// REINTERPRET and `u128`/`i128` TRUNCATE.
+//
+// ⚠ THIS IS NOT A NEW RESTRICTION, IT IS A NEW DIAGNOSTIC. MEASURED at HEAD:
+// `select s.v + 1` over a `u64` column emitted `el_add((s.v), (1u64))` and failed
+// as `call to 'el_add' arg 1: expected i64, got u64` — inside a generated chunk,
+// naming neither the column nor the reason. The same query over `u32` failed the
+// same way; it is ADMITTED now, with its operands normalized, because the u32
+// normalization keeps every value.
+pub fn el_arith_ok(name: str) -> bool {
+    let t: ElTy = el_ty(name);
+    if t.cls < 0i32 { return true; }           // lenient: the host compiler decides
+    if t.cls != EL_TY_INT() { return true; }   // float arithmetic is infix, no i64
+    return t.fits;
 }
 
 /// THE answer to the NEIGHBOURING question, kept next to the order table because

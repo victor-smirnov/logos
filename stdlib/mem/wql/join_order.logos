@@ -841,7 +841,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 /// deferred binding above the nest for a deferred one (S4j). When `deferred` comes
 /// back true, every `ats` entry is -1 and the expressions in `szs` are to be
 /// evaluated in `run`, not in `prepare`.
-pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
+pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: &ElTypes,
                           prm: &MacroParams, h: &Writ,
                           szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
     let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
@@ -866,7 +866,7 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
         jo = jo_ground(WG_ANTI_FIRST(), AX_REFUSED());
     } else if !has_sort {
         jo = jo_ground(WG_NO_SORT(), AX_REFUSED());
-    } else if !el_order_faithful(key_tn) {
+    } else if el_cmp_fidelity(key_tn, key_kv) != EL_ORD_OK() {
         // C1's SECOND antecedent. `order by` is present, so a sequence is named —
         // but the sort restores THAT sequence only if the comparison the backend
         // emits for this key realizes it, and this key's does not. Refused with its
@@ -875,11 +875,19 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
         // is entitled to do.
         //
         // ⚠ THE OPERANDS TRAVEL, NOT A SENTENCE. `key_tn` is the exact name the test
-        // above was applied to and `el_order_why` is the condition `el` says it
+        // above was applied to and `el_cmp_why` is the condition `el` says it
         // fails; both go onto the record, so the plan's `operand()` answers the first
         // and a reader can check the verdict against the type they wrote. Composing
         // them here is what needed the caller's buffer.
-        jo = jo_why(why_key(key_tn, el_order_why(key_tn), AX_REFUSED()));
+        //
+        // ⚠ THE TEST TAKES TWO NAMES NOW. The licence is not "does this TYPE have a
+        // faithful order" — it is "does the comparison the backend EMITS for this
+        // key realize it", and the emitted key vector holds the key's own type
+        // wherever the key is a named value. A `u64` column key is therefore
+        // compared IN u64 and is faithful; what still fails here is a key the EL
+        // had to normalize (a UDF result) and a key whose declared name is out of
+        // the lattice.
+        jo = jo_why(why_key(key_tn, el_cmp_why(key_tn, key_kv), AX_REFUSED()));
     } else {
         // C2 — for EVERY step, not only the first: a chain with one undecided step
         // has no recorded strategy to reason from at that position, and C6 is a

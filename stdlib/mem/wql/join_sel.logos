@@ -87,19 +87,39 @@ pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 // the type's own order); `eq` is admission (`==` is meaningful at all — true for
 // f64, which is PartialEq).
 //
-// ⚠ AND IT IS ASKED OF THE CLASS'S REPRESENTATIVE, not of the key's real type,
-// because the caller only holds a class. That is exactly the gap this stage does
-// not close: `join_key_caps(EL_TY_INT())` answers about `i64` even when the key
-// is a `u64`, and the join-order licence has to re-ask `el_order_faithful` with
-// the NAME to catch it. When the class tag at this seam becomes an `ElTy` the
-// second question disappears — see `el_ty` and ADR 0024 S6 stage 2.
+// ⚠ AND IT IS NOW ASKED OF THE KEY'S OWN TYPE. It used to be asked of the CLASS'S
+// REPRESENTATIVE because the caller only held a class, so `join_key_caps(EL_TY_INT)`
+// answered about `i64` even when the key was a `u64` — and the join-order licence
+// had to re-ask `el_order_faithful` with the NAME to catch it. The key's emitted
+// type travels on `StepKey` now (`ktn`), so the capability row is the type's own:
+// `hash` is `self_ident` (the map is keyed IN this type — `==` there is the type's
+// own equality) AND the backend having a `Hash`/`Eq` instance for it; `ord` is
+// `self_ord`; `eq` is admission to the lattice.
+//
+// ⚠ `hash` HAS TWO CONJUNCTS AND THE SECOND IS NOT ABOUT THE TYPE'S SEMANTICS. A
+// `u128` key's equality is exact — it is the STDLIB that has no `impl Hash for
+// u128` to build the index with. Keeping that as its own conjunct is what lets the
+// cascade fall to the ORD tier instead of refusing, and what makes adding the impl
+// a one-line widening rather than a re-derivation.
+pub fn join_key_caps_named(name: str) -> KeyCaps {
+    let t: ElTy = el_ty(name);
+    if t.cls < 0i32 {
+        // DEFAULT-DENY on a name this lattice does not enumerate.
+        return KeyCaps { hash: false, ord: false, eq: false };
+    }
+    return KeyCaps { hash: t.self_ident == EL_ID_OK() && el_index_key_ok(name),
+                     ord:  t.self_ord   == EL_ORD_OK() && el_index_key_ok(name),
+                     eq:   true };
+}
+
+/// The CLASS-keyed view, kept for the callers that hold only a class (the
+/// dynamic tier's rel validation). Answers about the class's representative,
+/// which is exactly what those callers emit.
 pub fn join_key_caps(cls: i32) -> KeyCaps {
     if cls == EL_TY_INT() || cls == EL_TY_STR()
        || cls == EL_TY_BOOL() || cls == EL_TY_FLT() {
-        let t: ElTy = el_ty(el_class_repr(cls));
-        return KeyCaps { hash: el_ty_has_ident(t), ord: t.ord == EL_ORD_OK(), eq: t.cls >= 0i32 };
+        return join_key_caps_named(el_class_repr(cls));
     }
-    // DEFAULT-DENY on a class this lattice does not enumerate.
     return KeyCaps { hash: false, ord: false, eq: false };
 }
 
@@ -134,7 +154,7 @@ pub fn step_terms(on: WRef<SExpr>, h: &Writ) -> StepTerms {
 ///
 /// `sel < 0` means no term qualifies, which is the honest form of "this step
 /// has no join key" and is what forces LOOP.
-pub struct StepKey { pub sel: i64, pub bw: i64, pub pw: i64, pub kty: i32 }
+pub struct StepKey { pub sel: i64, pub bw: i64, pub pw: i64, pub kty: i32, pub ktn: str }
 
 /// Split ONE candidate term into its BUILD side (the half referencing only the
 /// step's new row var) and its PROBE side (the half referencing only already-
@@ -171,15 +191,40 @@ pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
         let te: SExpr = WAny::ref_to(tl.w[i] as *const u8).view::<SExpr>();
         let sd: EquiSides = equi_term_sides(te, new_var);
         if sd.bw != 0i64 {
-            let kb: i32 = infer_ty(WAny::ref_to(sd.bw as *const u8).view::<SExpr>(), t);
-            let kp: i32 = infer_ty(WAny::ref_to(sd.pw as *const u8).view::<SExpr>(), t);
+            let be: SExpr = WAny::ref_to(sd.bw as *const u8).view::<SExpr>();
+            let pe: SExpr = WAny::ref_to(sd.pw as *const u8).view::<SExpr>();
+            let kb: i32 = infer_ty(be, t);
+            let kp: i32 = infer_ty(pe, t);
             if kb == kp {
-                return StepKey { sel: i, bw: sd.bw, pw: sd.pw, kty: kb };
+                return StepKey { sel: i, bw: sd.bw, pw: sd.pw, kty: kb,
+                                 ktn: step_key_ty_of(be, pe, t, kb) };
             }
         }
         i = i + 1i64;
     }
-    return StepKey { sel: -1i64, bw: 0i64, pw: 0i64, kty: EL_TY_INT() };
+    return StepKey { sel: -1i64, bw: 0i64, pw: 0i64, kty: EL_TY_INT(),
+                     ktn: el_class_repr(EL_TY_INT()) };
+}
+
+/// The type the emitter must PRINT for a step's index map and its two key
+/// expressions — the EMITTED type of the term's two halves when they agree, and
+/// the class's representative when they do not.
+///
+/// ⚠ THE DISAGREEMENT CASE IS NOT A FALLBACK, IT IS THE ANSWER. `x.a == y.b` with
+/// `a: u32` and `b: i64` is one key only through the EL's normalization, so the
+/// map must hold the type that normalization lands in — and each side reaches it
+/// by the value-preserving cast `key_norm_body` emits. Printing either side's own
+/// type would have declared a map neither expression can be inserted into.
+pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes, cls: i32) -> str {
+    let bt: str = infer_emit_ty(be, t);
+    let pt: str = infer_emit_ty(pe, t);
+    if str_eq(bt, pt) { return bt; }
+    let r: str = el_class_repr(cls);
+    if el_key_reaches(bt, r) && el_key_reaches(pt, r) { return r; }
+    // No common type either side can be converted into. Returned as the BUILD
+    // side's type so the capability row is asked about a real type and the step
+    // degrades to the LOOP tier, whose comparison is the language's own `==`.
+    return bt;
 }
 
 // ── The cascade ───────────────────────────────────────────────────────────
@@ -187,30 +232,30 @@ pub fn step_equi_key(tl: &TermList, new_var: str, t: &ElTypes) -> StepKey {
 /// produced the choice; recording the ground alongside it is what makes a plan
 /// explainable instead of merely reproducible — and now the ground travels ON
 /// the plan, so the emitter's trace and the planner's are the same sentence.
-pub struct StepSel { pub strat: i32, pub key_ty: i32, pub sel: i64, pub why: str }
+pub struct StepSel { pub strat: i32, pub key_ty: i32, pub key_tn: str, pub sel: i64, pub why: str }
 
 pub fn step_cascade(k: StepKey) -> StepSel {
     if k.sel < 0i64 {
-        return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: -1i64,
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64,
                          why: "no equi-join key — a nested loop is the only shape left" };
     }
-    let caps: KeyCaps = join_key_caps(k.kty);
+    let caps: KeyCaps = join_key_caps_named(k.ktn);
     if caps.hash && !join_force_tree() {
-        return StepSel { strat: JS_HASH(), key_ty: k.kty, sel: k.sel,
+        return StepSel { strat: JS_HASH(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
                          why: "the key type is hashable — build once, probe per row" };
     }
     if caps.ord {
-        return StepSel { strat: JS_TREE(), key_ty: k.kty, sel: k.sel,
+        return StepSel { strat: JS_TREE(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
                          why: if join_force_tree()
                               { "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised" }
                               else { "the key type is ordered but not hashable — a sorted index, not a hash one" } };
     }
     if caps.eq {
-        return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: k.sel,
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
                          why: "the key type has equality only — no index can be built, so every pair is tested" };
     }
     error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
-    return StepSel { strat: JS_LOOP(), key_ty: k.kty, sel: -1i64,
+    return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64,
                      why: "the key type has no usable capability" };
 }
 
@@ -226,6 +271,6 @@ pub fn decide_join_step(on: WRef<SExpr>, new_var: str, t: &ElTypes, h: &Writ) ->
 /// decision anyway so that "why is this a loop" has an answer on the plan
 /// rather than only in a comment.
 pub fn traversal_step_sel() -> StepSel {
-    return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), sel: -1i64,
+    return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), key_tn: "", sel: -1i64,
                      why: "a traversal step ranges over a field path of an outer row — the source is re-derived per bound row, so no index can be built over it" };
 }
