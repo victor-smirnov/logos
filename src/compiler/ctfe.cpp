@@ -89,7 +89,7 @@ eval_lit_float(TinyMapView node, MemHolder* h) noexcept {
     s.erase(std::remove(s.begin(), s.end(), '_'), s.end());
     K suf = float_suffix_kind(sv);
     if (suf != K::Error) s.resize(s.size() - 3);
-    double v = std::stod(s);
+    double v = parse_float_literal(s);
     CtfeValue out;
     out.kind = (suf != K::Error) ? suf : K::FloatLit;
     out.f = v;

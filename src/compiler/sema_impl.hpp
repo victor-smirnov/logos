@@ -36,6 +36,8 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <cstdlib>   // strtod — parse_float_literal
+#include <cerrno>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -5522,6 +5524,30 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
     // Raw bit-cast: preserve full 64-bit pattern for u64 literals whose value
     // exceeds INT64_MAX (e.g. FNV offset basis 0xcbf29ce484222325).
     return (int64_t)result;
+}
+
+// The value of a FLOAT literal, with the suffix and the `_` separators already
+// stripped by the caller. `noexcept` and total: every input yields a double.
+//
+// This exists because `std::stod` THROWS, and the compiler called it at four
+// sites without a handler. libstdc++ raises `std::out_of_range` whenever
+// `strtod` sets ERANGE — and strtod sets ERANGE for an UNDERFLOW as well as an
+// overflow, so every SUBNORMAL literal killed the compiler:
+// `let s: f64 = 5.0e-324f64;` terminated with
+// `terminate called after throwing an instance of 'std::out_of_range'` and no
+// source location, no diagnostic, nothing a caller could act on.
+//
+// The correct answer is what `strtod` already computed: on underflow it returns
+// the correctly-rounded subnormal (or ±0.0), on overflow ±HUGE_VAL = ±inf.
+// Both are the values the literal denotes. ERANGE is not an error here.
+inline double parse_float_literal(std::string_view sv) noexcept {
+    std::string s(sv);
+    errno = 0;
+    const char* b = s.c_str();
+    char* end = nullptr;
+    double v = std::strtod(b, &end);
+    if (end == b) return 0.0;  // no conversion — the caller's format check ran first
+    return v;
 }
 
 // 128-bit magnitude parse (sign ignored — caller negates). Mirrors

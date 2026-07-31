@@ -1229,7 +1229,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // Strip optional float suffix before passing to stod
         auto suf = float_suffix_kind(sv);
         if (suf != LogosType::Kind::Error) s.resize(s.size() - 3);
-        double v = std::stod(s);
+        double v = parse_float_literal(s);
         TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf)
                                                               : prim(LogosType::Kind::FloatLit);
         return builder().lit_float(v, t);
@@ -2788,21 +2788,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             (TypeRef(rt).kind() == LogosType::Kind::IntLit ||
              is_integer_kind(TypeRef(rt).kind()))) {
             if (auto v = get_intlit_value(rhs)) {
-                using K = LogosType::Kind;
-                auto bits = [](K k) -> int {
-                    switch (k) {
-                        case K::I8: case K::U8:        return 8;
-                        case K::I16: case K::U16:      return 16;
-                        case K::I24: case K::U24:      return 24;
-                        case K::I32: case K::U32:      return 32;
-                        case K::I56: case K::U56:      return 56;
-                        case K::I64: case K::U64:      return 64;
-                        case K::I128: case K::U128:    return 128;
-                        case K::Usize: case K::Isize:  return 64;  // 64-bit target
-                        default: return 0;
-                    }
-                };
-                int w = bits(TypeRef(lt).kind());
+                // WIDTH comes from `int_rank`, the one table — the local copy
+                // that used to sit here hardcoded 64 for usize/isize.
+                int w = (int)int_rank(TypeRef(lt).kind()).first;
                 if (w > 0 && *v >= w)
                     error(std::format(
                         "operator '{}': shift count {} >= bit-width of "
@@ -2811,7 +2799,19 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                         op, *v, type_str(lt), w));
             }
         }
-        result_type = unify_int(lt, rt);
+        // A SHIFT IS NOT A SYMMETRIC OPERATOR. Rust's `Shl<Rhs>` / `Shr<Rhs>`
+        // are implemented for every integer Rhs and their Output is ALWAYS the
+        // LHS's type: the right operand names how far to shift, not what the
+        // result is. Unifying the two — the rule the five symmetric bitwise
+        // operators need — made `let r: u8 = (x: u8) << (y: i32)` an i32 and
+        // the compile failed on the let, for every LHS narrower than the shift
+        // count's type. An unconstrained IntLit LHS keeps the unification so
+        // `1 << n` still takes its type from `n`.
+        if ((op == "<<" || op == ">>") &&
+            TypeRef(lt).kind() != LogosType::Kind::IntLit)
+            result_type = lt;
+        else
+            result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
         if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
             if (auto v = get_intlit_value(lhs))
@@ -16589,7 +16589,7 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
         // strip f32/f64 suffix
         if (s.size() > 3 && (s.substr(s.size()-3) == "f32" || s.substr(s.size()-3) == "f64"))
             s = s.substr(0, s.size()-3);
-        double v = std::stod(s);
+        double v = parse_float_literal(s);
         return alloc_hv_emit(lir::WVFloat{v});
     }
 

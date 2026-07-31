@@ -1,0 +1,49 @@
+package float_literal_subnormal_parses;
+// A SUBNORMAL float literal must parse to the value it denotes.
+//
+// It killed the compiler instead. Four sites converted a literal with
+// `std::stod`, which THROWS, and none of them had a handler. libstdc++ raises
+// `std::out_of_range` whenever `strtod` sets ERANGE — and strtod sets ERANGE on
+// UNDERFLOW as well as overflow, so `let s: f64 = 5.0e-324f64;` terminated the
+// process with
+//     terminate called after throwing an instance of 'std::out_of_range'
+//       what():  stod
+// and no source location, no diagnostic, and nothing a caller could act on. A
+// crash is not a refusal: the program is valid and 5e-324 is a representable
+// f64 (the smallest positive subnormal, bit pattern 1).
+//
+// `parse_float_literal` is total and noexcept: it keeps what strtod computed —
+// the correctly-rounded subnormal on underflow, ±inf on overflow.
+use logos.lang.num.float;
+
+fn main() -> i64 {
+    // the smallest positive subnormal f64 — bit pattern 1
+    let tiny: f64 = 5.0e-324f64;
+    if f64_to_bits(tiny) != 1u64 { return 10; }
+    if f64_is_normal(tiny) { return 11; }
+
+    // the largest subnormal f64 — every mantissa bit set, exponent 0
+    let big_sub: f64 = 2.2250738585072009e-308f64;
+    if f64_to_bits(big_sub) != 0x000FFFFFFFFFFFFFu64 { return 12; }
+
+    // the smallest positive subnormal f32 — bit pattern 1
+    let tiny32: f32 = 1.0e-45f32;
+    if f32_to_bits(tiny32) != 1u32 { return 13; }
+    if f32_is_normal(tiny32) { return 14; }
+
+    // underflow all the way to zero is a value, not an error
+    let zero: f64 = 1.0e-400f64;
+    if f64_to_bits(zero) != 0u64 { return 15; }
+
+    // overflow saturates to +inf rather than throwing
+    let huge: f64 = 1.0e400f64;
+    if !f64_is_infinite(huge) { return 16; }
+    if f64_to_bits(huge) != 0x7FF0000000000000u64 { return 17; }
+
+    // the ordinary boundary still parses exactly
+    let smallest_normal: f64 = 2.2250738585072014e-308f64;
+    if f64_to_bits(smallest_normal) != 0x0010000000000000u64 { return 18; }
+    if !f64_is_normal(smallest_normal) { return 19; }
+
+    return 0;
+}

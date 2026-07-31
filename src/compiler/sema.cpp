@@ -8347,7 +8347,7 @@ lir::LAnnotationValue SemaChecker::parse_annot_literal(TinyMapView v) {
         // strip optional f32/f64 suffix
         if (s.size() > 3 && (s.ends_with("f32") || s.ends_with("f64")))
             s.resize(s.size() - 3);
-        out.f = std::stod(s);
+        out.f = parse_float_literal(s);
     } else if (c == la::LIT_BOOL) {
         out.kind = Kind::Bool;
         AnyVal av = v.get(la::VALUE.code);

@@ -1,0 +1,84 @@
+package shift_result_type_is_the_left_operand;
+// `a << b` and `a >> b` have the type of `a`. Rust's `Shl<Rhs>` / `Shr<Rhs>`
+// are implemented for every integer Rhs and their Output is always the LEFT
+// operand's type: the right operand says HOW FAR to shift, not what the result
+// is.
+//
+// Sema typed all six bitwise operators the same way — `unify_int(lt, rt)` —
+// which is right for the five SYMMETRIC ones (`& | ^` need both sides equal)
+// and wrong for the two shifts. `let r: u8 = (x: u8) << (y: i32)` therefore
+// failed to compile with "expected u8, got i32", for every left operand
+// narrower than the shift count's type. 216 of the enumerating harness's cases
+// were this one rule.
+//
+// Every shift below mixes the operand types on purpose, and the result is
+// bound to a `let` of the LEFT operand's type — which is the assertion.
+
+fn main() -> i64 {
+    // narrow left, wide right
+    let x: u8 = 3u8;
+    let y: i32 = 1i32;
+    let r: u8 = x << y;
+    if r != 6u8 { return 10; }
+
+    // the shift must still be ARITHMETIC for a signed left operand …
+    let a: i16 = -4i16;
+    let b: u8 = 1u8;
+    let s: i16 = a >> b;
+    if s != -2i16 { return 11; }
+
+    // … and LOGICAL for an unsigned one, at full width.
+    let c: u64 = 18446744073709551615u64;
+    let d: i32 = 1i32;
+    let e: u64 = c >> d;
+    if e != 9223372036854775807u64 { return 12; }
+
+    // the odd widths, both directions, count typed differently from the value
+    let f: u24 = 8388608u24;          // 2^23 — above i24's ceiling
+    let g: i64 = 1i64;
+    let h: u24 = f >> g;
+    if h != 4194304u24 { return 13; }
+
+    let i2: i24 = -8388608i24;        // i24::MIN
+    let j: u16 = 1u16;
+    let k: i24 = i2 >> j;
+    if k != -4194304i24 { return 14; }
+
+    let l: u56 = 36028797018963968u56;  // 2^55 — above i56's ceiling
+    let m: i32 = 3i32;
+    let n: u56 = l >> m;
+    if n != 4503599627370496u56 { return 15; }
+
+    // left shift that overflows the narrow type wraps within it, not within
+    // the wider count type
+    let o: u8 = 255u8;
+    let p: i64 = 1i64;
+    let q: u8 = o << p;
+    if q != 254u8 { return 16; }
+
+    // usize / isize on either side
+    let t1: usize = 8usize;
+    let t2: i32 = 2i32;
+    let t3: usize = t1 >> t2;
+    if t3 != 2usize { return 17; }
+
+    let u1: u8 = 1u8;
+    let u2: usize = 3usize;
+    let u3: u8 = u1 << u2;
+    if u3 != 8u8 { return 18; }
+
+    // the SYMMETRIC bitwise operators are unchanged: both sides same type
+    let v1: u8 = 0b1100u8;
+    let v2: u8 = 0b1010u8;
+    if (v1 & v2) != 0b1000u8 { return 20; }
+    if (v1 | v2) != 0b1110u8 { return 21; }
+    if (v1 ^ v2) != 0b0110u8 { return 22; }
+
+    // an unconstrained integer literal on the left still takes its type from
+    // the context, so `1 << n` keeps working
+    let w: i32 = 4i32;
+    let z: i64 = 1 << w;
+    if z != 16i64 { return 30; }
+
+    return 0;
+}
