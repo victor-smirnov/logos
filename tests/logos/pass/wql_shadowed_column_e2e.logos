@@ -1,0 +1,137 @@
+// A COLUMN'S TYPE IS A FACT ABOUT A BINDING, NOT ABOUT A FIELD NAME.
+//
+// The type dictionary the wql!/deem emitters carry used to key a column on the
+// bare spelling of its field. Two joined sources declaring the SAME column name
+// therefore overwrote each other, last write wins, and the surviving type was
+// applied to BOTH — measured twice, in two severities:
+//
+//   • the mild half — `A { n: i64 }` joined with `B { n: u64 }`, `select a.n`
+//     emitted `Vec__push` with a u64 argument on an i64 column and the build
+//     failed with "expected u64, got i64". A type error is loud.
+//   • THE SERIOUS HALF — the PLANNER reads the same dictionary. `A { k: f64 }`
+//     joined with `G { k: i64 }` and `order by f.k` traced ORDER AXIS SEARCHED:
+//     the reorder licence was GRANTED over an f64 key, which is exactly what
+//     `24141965` (C1, key-order fidelity) exists to refuse. Only the downstream
+//     type error happened to stop that artifact from being emitted; a query
+//     whose types agreed would have shipped a nest chosen over a partial order.
+//
+// The key is now (row var, column) — the same key the rel-sourced scans have
+// always used, extended to struct sources, which are the ones that carry field
+// NAMES. The flat name dictionary survives only as the fallback for names that
+// have no row var (scalar params, the group key, an aggregate output).
+//
+// ORACLE — four queries over two source pairs whose columns collide:
+//   q_ai / q_bu   the ROWS and the emitted element type, in BOTH directions:
+//                 i64 must not become u64 because B was stamped later, and u64
+//                 must not become i64 because A was stamped first.
+//   q_n           the NESTED path `x.b.c`, which has no row var at all and was
+//                 therefore keyed on the bare name to the very end.
+//   q_f / q_g     the DECISION, asserted separately by
+//                 `wql_shadowed_column_gate.sh` off `LOGOS_TRACE_PLAN`: `f.k`
+//                 is f64 and its axis must be REFUSED even though `G.k` is a
+//                 perfectly orderable i64, while `r.k` — genuinely i64 — must
+//                 still be SEARCHED. One fixture cannot see either fact.
+//
+// ⚠ EVERY ROW VAR IN THIS FILE IS UNIQUE ACROSS QUERIES. `plan_trace` attributes
+// a decision to its base var, so two queries sharing `a` would let one verdict
+// stand in for the other's.
+//
+// ⚠ THE TYPES ARE EQUAL-WIDTH ON PURPOSE (i64 vs u64, f64 vs i64). A struct
+// mixing a u32 with an i64 field trips an UNRELATED and PRE-EXISTING layout
+// defect — an extra unused local of another struct-array type in the caller
+// makes the same query return zero rows, with the emitted query source
+// byte-identical — and this fixture must fail for its own reason only.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+// `n` is declared by BOTH, with different types.
+struct A { pub n: i64, pub v: i64 }
+struct B { pub n: u64, pub m: i64 }
+
+// `a.n` is i64 and must be emitted as i64 — B's `n` is stamped after A's.
+pub deem q_ai(as_: &[A], bs: &[B]) {
+    from as_ a join bs b on a.v == b.m select a.n order by a.n }
+
+// The other direction: `d.n` is u64 and must survive A's stamping.
+pub deem q_bu(as_: &[A], bs: &[B]) {
+    from as_ c join bs d on c.v == d.m select d.n order by d.n }
+
+// `k` is declared by both — f64 on one side, i64 on the other.
+struct P { pub k: f64, pub w: i64 }
+struct Q { pub k: i64, pub w: i64 }
+
+// The order key is the f64 one: the reorder axis must be REFUSED.
+pub deem q_f(ps: &[P], qs: &[Q]) {
+    from ps f join qs g on f.w == g.w select f.w order by f.k }
+
+// The control — same two sources, key genuinely i64: the axis is SEARCHED, so
+// the refusal above is about THIS key and not about these sources.
+pub deem q_g(ps: &[P], qs: &[Q]) {
+    from ps p join qs r on p.w == r.w select r.w order by r.k }
+
+// ── THE NESTED PATH, which has no row var of its own ──────────────────────
+// `codegen::root_ident_name` reports "" for a field whose base is a field, so
+// `x.b.c` cannot be keyed on (row var, column) at all. Its base's DECLARED TYPE
+// is the key instead: `x.b` is an `Inner`, and (`Inner`, `c`) is as precise as
+// (`x`, `b`). Before that existed the only key left was the bare name `c`, and
+// `Other.c` — an i64 on the joined source — re-typed `Inner.c`: measured as
+// "expected i64, got u64" on the emitted push.
+struct Inner { pub c: u64 }
+struct Outer { pub b: Inner, pub k: i64 }
+struct Other { pub c: i64,   pub k: i64 }
+
+pub deem q_n(os: &[Outer], ts: &[Other]) {
+    from os x join ts y on x.k == y.k select x.b.c }
+
+fn main() -> i32 {
+    let aa: [A; 3] = [ A { n: 7i64, v: 1i64 },
+                       A { n: 3i64, v: 2i64 },
+                       A { n: 5i64, v: 9i64 } ];      // no match — dropped
+    let bb: [B; 2] = [ B { n: 40u64, m: 1i64 },
+                       B { n: 20u64, m: 2i64 } ];
+
+    // i64 column, ordered ascending: A's rows that join, by `n`.
+    let ra: Vec<i64> = q_ai(&aa[..], &bb[..]).unwrap();
+    if ra.len() != 2i64    { return 1i32; }
+    if ra.get(0i64) != 3i64 { return 2i32; }
+    if ra.get(1i64) != 7i64 { return 3i32; }
+
+    // u64 column, ordered ascending: B's rows that join, by `n`. A `Vec<i64>`
+    // here would not compile, so the ANNOTATION is half the assertion.
+    let rb: Vec<u64> = q_bu(&aa[..], &bb[..]).unwrap();
+    if rb.len() != 2i64      { return 4i32; }
+    if rb.get(0i64) != 20u64 { return 5i32; }
+    if rb.get(1i64) != 40u64 { return 6i32; }
+
+    // The two keys rank the same two rows OPPOSITELY, so the answers differ and
+    // neither query can stand in for the other: `P.k` puts w = 2 first, `Q.k`
+    // puts w = 1 first.
+    let pp: [P; 2] = [ P { k: 2.5f64, w: 1i64 }, P { k: 1.5f64, w: 2i64 } ];
+    let qq: [Q; 2] = [ Q { k: 4i64,   w: 1i64 }, Q { k: 8i64,   w: 2i64 } ];
+
+    // The axis is REFUSED, but the `order by` still SORTS — what the refusal
+    // withdraws is the licence to carry more than one nest, not the sort. So
+    // the rows come back ranked by the f64 key: 1.5 (w = 2) before 2.5 (w = 1).
+    let rf: Vec<i64> = q_f(&pp[..], &qq[..]).unwrap();
+    if rf.len() != 2i64     { return 7i32; }
+    if rf.get(0i64) != 2i64 { return 8i32; }
+    if rf.get(1i64) != 1i64 { return 9i32; }
+
+    // Searched axis, i64 key: ranked by `r.k` — 4 (w = 1) before 8 (w = 2).
+    let rg: Vec<i64> = q_g(&pp[..], &qq[..]).unwrap();
+    if rg.len() != 2i64      { return 10i32; }
+    if rg.get(0i64) != 1i64  { return 11i32; }
+    if rg.get(1i64) != 2i64  { return 12i32; }
+
+    // The nested path keeps `Inner.c`'s u64 against `Other.c`'s i64. The
+    // `Vec<u64>` annotation is again half the assertion.
+    let oo: [Outer; 2] = [ Outer { b: Inner { c: 11u64 }, k: 1i64 },
+                           Outer { b: Inner { c: 22u64 }, k: 3i64 } ];
+    let tt: [Other; 1] = [ Other { c: 0i64, k: 1i64 } ];
+    let rn: Vec<u64> = q_n(&oo[..], &tt[..]).unwrap();
+    if rn.len() != 1i64      { return 13i32; }
+    if rn.get(0i64) != 11u64 { return 14i32; }
+    return 0i32;
+}

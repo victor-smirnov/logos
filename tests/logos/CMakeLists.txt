@@ -1078,6 +1078,29 @@ set_tests_properties(logos_09_join_order_key_fidelity PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# SHADOWED-COLUMN gate (ADR 0024 S3/S6 + S4k C1): a column's type is a fact about a
+# BINDING (row var, column), not about the spelling of a field. The flat name
+# dictionary let two joined sources declaring the same column name overwrite each
+# other, last write wins. The fixture asserts the rows; this asserts the two things
+# it cannot see — the EMITTED element type per query as TEXT (both queries returned
+# `Vec<u64>` before the fix), and the PLANNER's order-axis verdict, which is the
+# serious half: an f64 key re-typed i64 by the other source's `k` was GRANTED the
+# reorder licence C1 exists to refuse, with no diagnostic anywhere.
+#
+# ⚠ The i64-keyed CONTROL over the SAME two sources is half the gate: a planner that
+# had simply stopped reordering would pass a refusal-only assertion.
+add_test(
+    NAME logos_09_wql_shadowed_column
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/wql_shadowed_column_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_shadowed_column_e2e.logos
+)
+set_tests_properties(logos_09_wql_shadowed_column PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

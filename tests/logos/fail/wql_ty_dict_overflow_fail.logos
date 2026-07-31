@@ -1,0 +1,54 @@
+// A BINDING THAT DOES NOT FIT IS A DIAGNOSTIC, NEVER A SILENT `i64`.
+//
+// The type dictionary is a fixed-size table (`el::EL_TY_CAP`, 256 bindings —
+// eight sources of thirty-two columns, four times the flat rel-column window
+// this plane already states). Past the cap a binding used to be dropped with no
+// word at all, and a dropped binding is not an absent type: `ty_name_of` answers
+// the `i64` baseline, so the column is EMITTED at the wrong width with nothing
+// to see. That is how this plane's worst defects begin, so the overflow is
+// recorded where it is decided (the setter) and reported by the stampers, which
+// hold the metaprog diag channel `el` deliberately does not import.
+//
+// `W` declares 300 columns; the 257th binding is the first one dropped, and the
+// message names it.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct W {
+    pub c0: i64, pub c1: i64, pub c2: i64, pub c3: i64, pub c4: i64, pub c5: i64, pub c6: i64, pub c7: i64, pub c8: i64, pub c9: i64,
+    pub c10: i64, pub c11: i64, pub c12: i64, pub c13: i64, pub c14: i64, pub c15: i64, pub c16: i64, pub c17: i64, pub c18: i64, pub c19: i64,
+    pub c20: i64, pub c21: i64, pub c22: i64, pub c23: i64, pub c24: i64, pub c25: i64, pub c26: i64, pub c27: i64, pub c28: i64, pub c29: i64,
+    pub c30: i64, pub c31: i64, pub c32: i64, pub c33: i64, pub c34: i64, pub c35: i64, pub c36: i64, pub c37: i64, pub c38: i64, pub c39: i64,
+    pub c40: i64, pub c41: i64, pub c42: i64, pub c43: i64, pub c44: i64, pub c45: i64, pub c46: i64, pub c47: i64, pub c48: i64, pub c49: i64,
+    pub c50: i64, pub c51: i64, pub c52: i64, pub c53: i64, pub c54: i64, pub c55: i64, pub c56: i64, pub c57: i64, pub c58: i64, pub c59: i64,
+    pub c60: i64, pub c61: i64, pub c62: i64, pub c63: i64, pub c64: i64, pub c65: i64, pub c66: i64, pub c67: i64, pub c68: i64, pub c69: i64,
+    pub c70: i64, pub c71: i64, pub c72: i64, pub c73: i64, pub c74: i64, pub c75: i64, pub c76: i64, pub c77: i64, pub c78: i64, pub c79: i64,
+    pub c80: i64, pub c81: i64, pub c82: i64, pub c83: i64, pub c84: i64, pub c85: i64, pub c86: i64, pub c87: i64, pub c88: i64, pub c89: i64,
+    pub c90: i64, pub c91: i64, pub c92: i64, pub c93: i64, pub c94: i64, pub c95: i64, pub c96: i64, pub c97: i64, pub c98: i64, pub c99: i64,
+    pub c100: i64, pub c101: i64, pub c102: i64, pub c103: i64, pub c104: i64, pub c105: i64, pub c106: i64, pub c107: i64, pub c108: i64, pub c109: i64,
+    pub c110: i64, pub c111: i64, pub c112: i64, pub c113: i64, pub c114: i64, pub c115: i64, pub c116: i64, pub c117: i64, pub c118: i64, pub c119: i64,
+    pub c120: i64, pub c121: i64, pub c122: i64, pub c123: i64, pub c124: i64, pub c125: i64, pub c126: i64, pub c127: i64, pub c128: i64, pub c129: i64,
+    pub c130: i64, pub c131: i64, pub c132: i64, pub c133: i64, pub c134: i64, pub c135: i64, pub c136: i64, pub c137: i64, pub c138: i64, pub c139: i64,
+    pub c140: i64, pub c141: i64, pub c142: i64, pub c143: i64, pub c144: i64, pub c145: i64, pub c146: i64, pub c147: i64, pub c148: i64, pub c149: i64,
+    pub c150: i64, pub c151: i64, pub c152: i64, pub c153: i64, pub c154: i64, pub c155: i64, pub c156: i64, pub c157: i64, pub c158: i64, pub c159: i64,
+    pub c160: i64, pub c161: i64, pub c162: i64, pub c163: i64, pub c164: i64, pub c165: i64, pub c166: i64, pub c167: i64, pub c168: i64, pub c169: i64,
+    pub c170: i64, pub c171: i64, pub c172: i64, pub c173: i64, pub c174: i64, pub c175: i64, pub c176: i64, pub c177: i64, pub c178: i64, pub c179: i64,
+    pub c180: i64, pub c181: i64, pub c182: i64, pub c183: i64, pub c184: i64, pub c185: i64, pub c186: i64, pub c187: i64, pub c188: i64, pub c189: i64,
+    pub c190: i64, pub c191: i64, pub c192: i64, pub c193: i64, pub c194: i64, pub c195: i64, pub c196: i64, pub c197: i64, pub c198: i64, pub c199: i64,
+    pub c200: i64, pub c201: i64, pub c202: i64, pub c203: i64, pub c204: i64, pub c205: i64, pub c206: i64, pub c207: i64, pub c208: i64, pub c209: i64,
+    pub c210: i64, pub c211: i64, pub c212: i64, pub c213: i64, pub c214: i64, pub c215: i64, pub c216: i64, pub c217: i64, pub c218: i64, pub c219: i64,
+    pub c220: i64, pub c221: i64, pub c222: i64, pub c223: i64, pub c224: i64, pub c225: i64, pub c226: i64, pub c227: i64, pub c228: i64, pub c229: i64,
+    pub c230: i64, pub c231: i64, pub c232: i64, pub c233: i64, pub c234: i64, pub c235: i64, pub c236: i64, pub c237: i64, pub c238: i64, pub c239: i64,
+    pub c240: i64, pub c241: i64, pub c242: i64, pub c243: i64, pub c244: i64, pub c245: i64, pub c246: i64, pub c247: i64, pub c248: i64, pub c249: i64,
+    pub c250: i64, pub c251: i64, pub c252: i64, pub c253: i64, pub c254: i64, pub c255: i64, pub c256: i64, pub c257: i64, pub c258: i64, pub c259: i64,
+    pub c260: i64, pub c261: i64, pub c262: i64, pub c263: i64, pub c264: i64, pub c265: i64, pub c266: i64, pub c267: i64, pub c268: i64, pub c269: i64,
+    pub c270: i64, pub c271: i64, pub c272: i64, pub c273: i64, pub c274: i64, pub c275: i64, pub c276: i64, pub c277: i64, pub c278: i64, pub c279: i64,
+    pub c280: i64, pub c281: i64, pub c282: i64, pub c283: i64, pub c284: i64, pub c285: i64, pub c286: i64, pub c287: i64, pub c288: i64, pub c289: i64,
+    pub c290: i64, pub c291: i64, pub c292: i64, pub c293: i64, pub c294: i64, pub c295: i64, pub c296: i64, pub c297: i64, pub c298: i64, pub c299: i64,
+}
+
+pub deem wide(ws: &[W]) { from ws w select w.c0 }
+
+fn main() -> i32 { return 0i32; }

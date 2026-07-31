@@ -47,9 +47,20 @@
 //      sequence is the UNSIGNED one — `w32(-1)` is the largest key and sorts LAST,
 //      where an i64 reading of the same key would sort it first.
 //   6. a key whose DECLARED type is out of the lattice: DEFAULT-DENY is live from
-//      this caller and not only in the table. `ElTypes`' field dict is keyed on the
-//      field NAME, so a same-named non-scalar field of the other source is what the
-//      planner sees; it refuses rather than guessing, and says which.
+//      this caller and not only in the table. The key is declared `Wrap<i64>` over
+//      `type Wrap<T> = T;` — `reflect::resolve_alias_name` stops at an alias whose
+//      target names the alias's OWN type parameter, so what reaches the lattice is
+//      the spelling `Wrap`, which it does not admit. It refuses rather than
+//      guessing, and says which.
+//
+//      ⚠ THIS CLAIM USED TO STAND ON A DEFECT. `E.n` was an i64 and `F.n` a struct
+//      `P`, and the comment here said so outright: "the per-query field dict is
+//      keyed on the NAME, so the key's recorded type is `P`". That dict is keyed on
+//      (row var, column) now, `d.n` resolves to E's own i64, and the query is
+//      correctly LICENSED — so the construction stopped exercising default-deny the
+//      moment the collision was fixed. The claim is unchanged; only the way the
+//      out-of-lattice key is obtained is, and it is now a property of the key's own
+//      declaration rather than of another source's field list.
 package test;
 
 use logos.std.wql.wql;
@@ -61,13 +72,16 @@ struct A { pub k: i64, pub v: i64, pub f: f64, pub s: str, pub g: i64 }
 struct B { pub k: i64, pub m: i64 }
 struct C { pub m: i64, pub w: i64 }
 
-// Claim 6's sources. `P` is a plain struct — nothing about it is scalar — and `F`
-// gives it the field name `n`, which `E` also uses for an i64. The dict `ElTypes`
-// builds per query is keyed on the field NAME, so `n` resolves to `P` and the
-// planner has no fact about the key's order to license a reorder from.
-struct P { pub z: i64 }
-struct E { pub k: i64, pub n: i64 }
-struct F { pub k: i64, pub n: P }
+// Claim 6's sources. `Wrap<T> = T` is a generic alias, and `resolve_alias_name`
+// STOPS at an alias whose target names the alias's own parameter (`names_own_param`)
+// — there is nothing to resolve `T` to without an instantiation the reflection does
+// not carry. So the key's declared type reaches the lattice as the spelling `Wrap`,
+// which it does not admit, and the planner has no fact about the key's order to
+// license a reorder from. The FIELD is an i64 at run time, which is why the query
+// still compiles and still answers: what is withdrawn is a licence, not a capability.
+type Wrap<T> = T;
+struct E { pub k: i64, pub n: Wrap<i64> }
+struct F { pub k: i64, pub m: i64 }
 
 // The u32 key of claim 5. A value-PRESERVING widening: every u32 fits i64, so the
 // emitted i64 comparison is the u32 order — which is not the i64 order of the same
@@ -374,16 +388,17 @@ fn main() -> i32 {
     if !same(&qu(&as_[..], bsp.as_slice(), &cs[..]).unwrap(), &wu) { return 45i32; }
 
     // ── 6. THE KEY THE PLANNER CANNOT IDENTIFY: default-deny, and it is LIVE ───
-    // Not a table row nobody reaches: `E.n` is an i64 and `F.n` is a struct, the
-    // per-query field dict is keyed on the NAME, so the key's recorded type is `P`.
-    // The query still compiles and still answers — the refusal removes a LICENCE,
-    // never a capability — and the plan states which type it could not identify.
+    // Not a table row nobody reaches: `E.n` is declared `Wrap<i64>`, whose spelling
+    // survives alias resolution unresolved, so the lattice is asked about `Wrap` and
+    // does not admit it. The query still compiles and still answers — the refusal
+    // removes a LICENCE, never a capability — and the plan states which type it
+    // could not identify.
     let es: [E; 3] = [ E { k: 1i64, n: 9i64 }, E { k: 1i64, n: 2i64 },
                        E { k: 2i64, n: 5i64 } ];
-    let fs: [F; 2] = [ F { k: 1i64, n: P { z: 0i64 } }, F { k: 2i64, n: P { z: 0i64 } } ];
+    let fs: [F; 2] = [ F { k: 1i64, m: 0i64 }, F { k: 2i64, m: 0i64 } ];
     let pn: QnPlan = qn_prepare(&es[..], &fs[..]);
     if pn.considered() != 0i64 { return 50i32; }
-    if !str_contains(pn.explain(), "This key (`P`) fails it") { return 51i32; }
+    if !str_contains(pn.explain(), "This key (`Wrap`) fails it") { return 51i32; }
     if !str_contains(pn.explain(), "outside the EL scalar lattice") { return 52i32; }
     if !str_contains(pn.explain(), "The default is deny") { return 53i32; }
     let gn: Vec<i64> = qn_run(&pn, &es[..], &fs[..]).unwrap();

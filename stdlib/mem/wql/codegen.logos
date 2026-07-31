@@ -109,17 +109,10 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
         SExpr::Param(pp) => { return t.ty_of(pp.name); }
         SExpr::Var(vv)   => { return t.ty_of(vv.name); }
         SExpr::Field(f)  => {
-            // Rel-sourced column (`s.a` over a rel-bound var): the (var, col)
-            // pair types off the rel-binding table — precise per-var (the flat
-            // name dict can collide across same-named struct fields).
-            let base_ref: WRef<SExpr> = f.base;
-            if !base_ref.any().is_null() {
-                let rn: str = root_ident_name(f.base_expr());
-                if rn.len() > 0i64 {
-                    let rt: i32 = t.rel_col_ty(rn, f.name);
-                    if rt >= 0i32 { return rt; }
-                }
-            }
+            // THE CLASS IS THE VIEW OF THE NAME — one resolution, not two, so a
+            // column cannot be one class here and another type there.
+            let fn0: str = field_ty_name(f, t);
+            if fn0.len() > 0i64 { return el_ty_of_name(fn0); }
             return t.ty_of(f.name);
         }
         SExpr::Bin(b) => {
@@ -207,14 +200,8 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
         SExpr::Param(pp) => { return t.ty_name_of(pp.name); }
         SExpr::Var(vv)   => { return t.ty_name_of(vv.name); }
         SExpr::Field(f)  => {
-            let base_ref: WRef<SExpr> = f.base;
-            if !base_ref.any().is_null() {
-                let rn: str = root_ident_name(f.base_expr());
-                if rn.len() > 0i64 {
-                    let nm: str = t.rel_col_ty_name(rn, f.name);
-                    if nm.len() > 0i64 { return nm; }
-                }
-            }
+            let nm: str = field_ty_name(f, t);
+            if nm.len() > 0i64 { return nm; }
             return t.ty_name_of(f.name);
         }
         SExpr::Bin(b) => {
@@ -310,6 +297,32 @@ pub fn root_ident_name(e: SExpr) -> str {
         SExpr::Param(p) => { return p.name; }
         _ => { return ""; }
     }
+}
+
+/// THE DECLARED TYPE OF A FIELD STEP, or "" when nothing is bound for it.
+///
+/// One resolution for both the class view (`infer_ty`) and the printed name
+/// (`infer_ty_name`) — they used to walk the same cases twice, which is how a
+/// column could be one class here and a different type there.
+///
+/// Two keys, both of them BINDINGS and neither of them a bare spelling:
+///
+///   `a.n`    the ROW VAR and the column. A struct source and a rel source
+///            stamp the same table, so `n` means A's `n` under `a` and B's
+///            under `b` even when both declare one.
+///   `a.b.c`  a nested path has NO row var — `root_ident_name` reports "" for a
+///            field whose base is a field — so the base's own DECLARED TYPE is
+///            the key: `a.b` is an `Inner`, and (`Inner`, `c`) is as precise a
+///            key as (`a`, `n`). `reflect::stamp_schema_by_type` fills it.
+pub fn field_ty_name(f: SField, t: &ElTypes) -> str {
+    let base_ref: WRef<SExpr> = f.base;
+    if base_ref.any().is_null() { return ""; }   // a BARE name, not a step
+    let be: SExpr = f.base_expr();
+    let rn: str = root_ident_name(be);
+    if rn.len() > 0i64 { return t.rel_col_ty_name(rn, f.name); }
+    let bt: str = infer_ty_name(be, t);
+    if bt.len() == 0i64 { return ""; }
+    return t.type_col_ty_name(bt, f.name);
 }
 
 // ── Tuple projections (`select (a, b, …)`) ─────────────────────────────────
@@ -532,12 +545,18 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                             out.push_str(rn);
                             out.push_str(".");
                             out.push_i64(k);
-                        } else {
+                            return;
+                        }
+                        if k == COL_WHOLE() {
                             out.push_str("(*");
                             out.push_str(rn);
                             out.push_str(")");
+                            return;
                         }
-                        return;
+                        // COL_FIELD — a STRUCT source's column. The binding is
+                        // what TYPED it; the access is the ordinary named field
+                        // step, so fall through to the generic emission below
+                        // rather than duplicate it here.
                     }
                 }
                 emit_sexpr(out, be, t, var);

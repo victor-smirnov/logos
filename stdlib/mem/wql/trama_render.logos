@@ -339,7 +339,7 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                     // `el_ty_of_name`'s INT default and render `push_i64` on a `str`.
                     ty.set_ty_named(f.var, resolve_alias_name(view, elem_ty));
                     // Reflect the element struct's fields so `v.member` types.
-                    stamp_types_from_schema(view, ty, elem_ty);
+                    stamp_types_from_schema(view, ty, elem_ty, f.var);
                 }
                 reflect_loops(view, body_word(&f.body), ty, vtys, &inner);
             }
@@ -679,7 +679,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
         // schema, and the raw lookup would answer with the alias and reflect nothing.
         let decl: WAny = find_struct_decl(&view, pty);
         if !decl.is_null() {
-            stamp_types_from_schema(&view, &mut ty, pty);
+            stamp_types_from_schema(&view, &mut ty, pty, pnm);
             env0.bind(pnm, pty);
         }
         pi = pi + 1i64;
@@ -688,6 +688,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // `{% if myfn(x) %}` route through the SHARED emit_call path (zero
     // trama-specific lowering; builtins shadow same-named user fns).
     stamp_udfs_from_module(&view, &mut ty);
+    report_ty_overflow(&mut ty);
 
     // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
     // FOLLOW loop variables: `{% for v in o.field %}` where `o.field` is a
@@ -696,6 +697,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // NESTED loops — so a schema struct param needs NO annotation.
     let mut vtys: TVarTys = tvartys_new();
     reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
+    report_ty_overflow(&mut ty);
 
     // The empty-Var-name fallback `ctx` for the codegen: the FIRST param name.
     let ctx0: str = prm.names[0i64];

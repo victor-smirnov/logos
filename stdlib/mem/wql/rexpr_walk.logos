@@ -166,7 +166,8 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
         // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
         let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
         ty.set_ty_named(cn0, tn0);
-        ty.rel_bind_named(var_name, cn0, -1i64, tn0);
+        ty.rel_bind_named(var_name, cn0, COL_WHOLE(), tn0);
+        report_ty_overflow(ty);
         return true;
     }
     let mut k: i64 = 0i64;
@@ -177,6 +178,7 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
         ty.rel_bind_named(var_name, cn, k, tnk);
         k = k + 1i64;
     }
+    report_ty_overflow(ty);
     return true;
 }
 
@@ -194,6 +196,7 @@ pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
         }
         i = i + 1i64;
     }
+    report_ty_overflow(ty);
 }
 
 // Validate a `limit <ident>` reference: the ident must name a SCALAR param
@@ -1429,7 +1432,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_types_from_schema(&view, &mut ty, row_ty, sc.var_name);
     stamp_rel_source(&mut ty, &view, prm, sc.src_name, sc.var_name);
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
@@ -1723,7 +1726,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_types_from_schema(&view, &mut ty, row_ty, var_name);
     stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
@@ -1968,7 +1971,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, row_ty);
+    stamp_types_from_schema(&view, &mut ty, row_ty, var_name);
     stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
@@ -3116,11 +3119,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // (var, col) → tuple-index bindings instead of a schema reflection.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty, ch.base_var);
     stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
-        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si], ch.var[si]);
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: the VAR NAME itself carries the
         // element's value type (referenced bare in the EL clauses).
@@ -3562,11 +3565,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // Types: every bound source's row schema + scalar params + key/outputs.
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty, ch.base_var);
     stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
-        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si], ch.var[si]);
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
         // ⚠ THROUGH THE ALIAS TABLE. A traversal step's element type is a DECLARED
@@ -3639,6 +3642,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return false;
     }
     ty.set_ty_named("key", key_ty);
+    report_ty_overflow(&mut ty);
     let mut agg_flt:  [bool; 8] = [false; 8];
     let mut agg_cast: [bool; 8] = [false; 8];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
@@ -4137,6 +4141,7 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
         }
         i = i + 1i64;
     }
+    report_ty_overflow(ty);
 }
 
 // Validate each aggregate spec (known fn / resolved UDA, arg presence, arg-
@@ -4617,7 +4622,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
                         prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, s.row_ty);
+    stamp_types_from_schema(&view, &mut ty, s.row_ty, s.var_name);
     stamp_rel_source(&mut ty, &view, prm, s.src_name, s.var_name);
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
@@ -4774,11 +4779,11 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let is_agg: bool = prm.rel_is_agg[ri];
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
-    stamp_types_from_schema(&view, &mut ty, ch.base_ty);
+    stamp_types_from_schema(&view, &mut ty, ch.base_ty, ch.base_var);
     stamp_rel_source(&mut ty, &view, prm, ch.base_src, ch.base_var);
     let mut si: i64 = 0i64;
     while si < ch.n {
-        stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
+        stamp_types_from_schema(&view, &mut ty, ch.ty[si], ch.var[si]);
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
         // ⚠ THROUGH THE ALIAS TABLE. A traversal step's element type is a DECLARED

@@ -2083,7 +2083,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, var: str) {
     let pi: i64 = prm.index_of(src);
     if pi >= 0i64 && prm.is_slice[pi] {
-        stamp_types_from_schema(view, t, prm.tys[pi]);
+        stamp_types_from_schema(view, t, prm.tys[pi], var);
         return;
     }
     let ri: i64 = prm.rel_find_name(src);

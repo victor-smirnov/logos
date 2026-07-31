@@ -30,7 +30,14 @@
 # `el_total_order` could only ever refuse f64 and the "every unnamed class" branch
 # was dead code with a comment claiming it protected you. The licence now reads the
 # key's DECLARED TYPE NAME, so a name the lattice does not admit arrives and is
-# refused — query `qn`, whose key resolves to the struct `P`.
+# refused — query `qn`, whose key is declared `Wrap<i64>` over `type Wrap<T> = T;` and
+# so reaches the lattice as the unresolvable spelling `Wrap`.
+#
+# ⚠ THAT KEY USED TO BE OBTAINED FROM A DEFECT: the other source declared a struct
+# field of the SAME NAME and the type dict, keyed on the bare field name, handed the
+# planner the struct's type for an i64 column. With the dict keyed on (row var,
+# column) the key resolves to its own i64 and the query is correctly licensed, so the
+# construction had to be replaced by one that does not depend on a collision.
 #
 # ⚠ ATTRIBUTION IS BY ROW VAR. `plan_trace` names a decision by its base var, so the
 # fixture gives each query its own (`a` = f64, `p` = i64, `x` = str, `u` = u32,
@@ -100,7 +107,7 @@ done
 # The DEFAULT-DENY refusal's own ground — a different failed condition, so a
 # different mechanism and a different remedy. This is the branch that could not fire
 # from this caller before the licence read the key's declared type NAME.
-for clause in 'This key (`P`) fails it' \
+for clause in 'This key (`Wrap`) fails it' \
               'outside the EL scalar lattice' \
               'The default is deny' \
               'cannot inherit a licence resting on a comparison nobody has checked' \

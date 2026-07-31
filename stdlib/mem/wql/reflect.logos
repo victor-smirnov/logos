@@ -21,8 +21,9 @@ package logos.std.wql.reflect;
 
 use logos.std.compiler.metaprog;   // OView, SView, oview_module_ast
 use logos.lang.writ.anyval;        // WAny
-use logos.std.wql.el;              // ElTypes, EL_TY_*, el_ty_of_name
+use logos.std.wql.el;              // ElTypes, EL_TY_*, el_ty_of_name, EL_TY_CAP
 use logos.lang.str;
+use logos.mem.string;              // String — the overflow diagnostic's buffer
 
 // Byte-equality of an `SView` (borrowed AST bytes) against a `str`.
 fn sview_eq_str(sv: SView, name: str) -> bool {
@@ -439,7 +440,8 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
 //
 // `view` is a fresh module-AST view; `t` the type dictionary the handler passes
 // to the codegen.
-pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) {
+pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str,
+                               row_var: str) {
     if view.holder == (0 as *mut u8) { return; }
     // ⚠ THROUGH THE ALIAS TABLE, exactly as the field type below is. `struct_name` is
     // an ELEMENT TYPE SPELLING — `&[Prec]` reaches here as `Prec` — and the raw item
@@ -459,8 +461,92 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) 
         // i64 (see `resolve_alias_name`).
         let tyname: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld)));
         if fnm.len() > 0i64 && tyname.len() > 0i64 {
+            // KEYED ON THE BINDING. `row_var` is the row variable this schema
+            // was bound to at the scan (`from as a` → "a"); the pair (a, n) is
+            // what a field step asks about, and it is unique where the bare
+            // name "n" is not: a second joined source declaring `n` used to
+            // overwrite the first's type in the flat dict and re-type BOTH.
+            if row_var.len() > 0i64 { t.field_bind_named(row_var, fnm, tyname); }
+            // The flat entry is what a name with NO owner resolves through — a
+            // scalar param, the group key, an aggregate output. A column lands
+            // here too, but only as the answer of last resort: it is ambiguous
+            // by construction, and every field step that HAS an owner (a row
+            // var, or its base's declared type) reads a keyed table instead.
             t.set_ty_named(fnm, tyname);
         }
         i = i + (1 as u64);
     }
+    // The SAME fields, keyed by the STRUCT — what a nested path resolves
+    // against, and it walks the schema graph so `a.b.c.d` resolves too.
+    stamp_schema_by_type(view, t, struct_name);
+    report_ty_overflow(t);
+}
+
+/// Record struct `sname`'s fields under the TYPE, and recurse into every field
+/// whose own type is a struct.
+///
+/// ⚠ A NESTED PATH HAS NO ROW VAR. `codegen::root_ident_name` reports "" for
+/// `a.b.c` — a field whose base is itself a field — so before this existed the
+/// only key left for `c` was the bare name, and `Inner { c: u64 }` reached the
+/// emitter as `Other { c: i64 }`'s type whenever some other source declared a
+/// `c`. Measured: `select a.b.c` over those two structs failed with "expected
+/// i64, got u64". The type of `a.b` IS a struct name, so (that name, `c`) is a
+/// key as precise as (row var, column), and the resolution is the same one step
+/// deeper.
+///
+/// ⚠ THE WALK IS KEYED BY TYPE, NOT BY PATH, and that is what bounds it: a
+/// struct is stamped once however many paths reach it, so the table grows with
+/// the schema graph and not with the number of routes through it. The fields are
+/// written BEFORE the recursion, so `type_stamped` is already true when a cycle
+/// comes back around — a self-referential schema terminates.
+fn stamp_schema_by_type(view: &OView, t: &mut ElTypes, sname: str) {
+    let ty_of: str = resolve_alias_name(view, sname);
+    if ty_of.len() == 0i64 { return; }
+    if t.type_stamped(ty_of) { return; }
+    let decl: WAny = find_struct_decl(view, ty_of);
+    if decl.is_null() { return; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        let fnm: str = sview_str(view.ast_field_name(fld));
+        let tyname: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld)));
+        if fnm.len() > 0i64 && tyname.len() > 0i64 { t.type_bind_named(ty_of, fnm, tyname); }
+        i = i + (1 as u64);
+    }
+    let mut k: u64 = 0 as u64;
+    while k < nf {
+        let fld2: WAny = view.ast_struct_field(decl, k);
+        let tn2: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld2)));
+        if tn2.len() > 0i64 && el_class_lookup(tn2) < 0i32 {
+            stamp_schema_by_type(view, t, tn2);
+        }
+        k = k + (1 as u64);
+    }
+}
+
+/// Turn a recorded binding-table overflow into ONE readable diagnostic.
+///
+/// `el` records the drop where it happens and deliberately imports no metaprog
+/// channel; this is the other half. Called from every stamper — `claim_overflow`
+/// makes the message appear once no matter how many stampers run.
+///
+/// ⚠ NOT a warning. A dropped binding types its column `i64`, which is a WRONG
+/// TYPE with no other symptom — a silent miscompile on a wide query. The build
+/// fails instead.
+pub fn report_ty_overflow(t: &mut ElTypes) {
+    if !t.claim_overflow() { return; }
+    let mut m: String = String::new();
+    m.push_str("wql!: type-dictionary capacity (");
+    m.push_i64(EL_TY_CAP());
+    m.push_str(" bindings) exhausted — the binding `");
+    if t.overflow_var().len() > 0i64 {
+        m.push_str(t.overflow_var());
+        m.push_str(".");
+    }
+    m.push_str(t.overflow_key());
+    m.push_str("` and ");
+    m.push_i64(t.overflow_count() - 1i64);
+    m.push_str(" further one(s) were dropped, and a dropped binding would be emitted with the `i64` baseline instead of its declared type. Reduce the number of columns the query's sources declare, or raise `el::EL_TY_CAP`.");
+    error(unsafe { str_from_raw(m.as_ptr(), m.len()) });
 }
