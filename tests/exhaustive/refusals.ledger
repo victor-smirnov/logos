@@ -1,0 +1,203 @@
+# tests/exhaustive/refusals.ledger — the OPEN refusals, one per line.
+#
+# WHAT MAY BE IN THIS FILE. A case the compiler REFUSES to compile, whose root
+# is named below. Nothing else. A WRONG ANSWER is never ledgerable at any tier
+# for any reason: writing one down would pin the lie as the specification,
+# which is the exact failure mode this directory exists to replace.
+#
+# THE CHECK RUNS BOTH WAYS. A refusal that is not listed here fails the gate —
+# it is a new defect. A listed refusal that no longer reproduces ALSO fails the
+# gate — the arc landed and the ledger has stopped describing the compiler.
+# There is no way to make the gate green by adding a line and walking away.
+#
+# ── THE ONE ROOT: an integer literal's value is carried in 64 SIGNED bits ────
+#
+# All 162 entries are `where <col> <op> <literal>` over an unsigned column,
+# with the literal above i64::MAX. The value travels from the WQL surface
+# tokenizer to the emitter inside a 64-bit signed `WAny`:
+#
+#   stdlib/mem/wql/wql_surface_parser.logos  wstr_decode_i64 — a decimal token
+#       whose value exceeds i64::MAX is POISONED to i64::MIN (el_lit_poison),
+#       because a signed 64-bit accumulator has nowhere to put it. The same
+#       decoder is duplicated in el_parser.logos and trama_parser.logos.
+#   stdlib/mem/wql/codegen.logos:985         reads the poison back and reports
+#       "integer literal out of range — exceeds i64::MAX".
+#   stdlib/mem/deem/check.logos:207          the same report on the deem path.
+#
+# The refusal is LOUD — the program does not compile and the message names the
+# limit — which is why it is ledgerable at all. 108 of the entries need a 64-bit
+# UNSIGNED carriage (pivot 2^63, columns u64/usize/u128); the other 54 need a
+# 128-bit one (pivot 2^127, column u128). It is one arc, not two patches, and
+# it is reported rather than half-done.
+#
+# The pattern-side half of this same root CLOSED: a range-pattern bound is now
+# 128 bits wide from `parse_int_literal_u128` through `PatRange`'s two mirror
+# halves to the `arith.constant` the backend materialises. That half had 88
+# refusals AND 24 wrong answers; the wrong answers are what made it not
+# ledgerable.
+#
+# Regenerate after an arc lands:
+#   python3 tests/exhaustive/harness.py --all --tier full --jobs 12 --json /tmp/f.json
+#   python3 -c "import json;print('\n'.join(sorted(x['cid'] for x in json.load(open('/tmp/f.json'))['findings'])))"
+deem.u128.0.bare.where_eq
+deem.u128.0.bare.where_ge
+deem.u128.0.bare.where_gt
+deem.u128.0.bare.where_le
+deem.u128.0.bare.where_lt
+deem.u128.0.bare.where_ne
+deem.u128.0.padafter.where_eq
+deem.u128.0.padafter.where_ge
+deem.u128.0.padafter.where_gt
+deem.u128.0.padafter.where_le
+deem.u128.0.padafter.where_lt
+deem.u128.0.padafter.where_ne
+deem.u128.0.padbefore.where_eq
+deem.u128.0.padbefore.where_ge
+deem.u128.0.padbefore.where_gt
+deem.u128.0.padbefore.where_le
+deem.u128.0.padbefore.where_lt
+deem.u128.0.padbefore.where_ne
+deem.u128.1.bare.where_eq
+deem.u128.1.bare.where_ge
+deem.u128.1.bare.where_gt
+deem.u128.1.bare.where_le
+deem.u128.1.bare.where_lt
+deem.u128.1.bare.where_ne
+deem.u128.1.padafter.where_eq
+deem.u128.1.padafter.where_ge
+deem.u128.1.padafter.where_gt
+deem.u128.1.padafter.where_le
+deem.u128.1.padafter.where_lt
+deem.u128.1.padafter.where_ne
+deem.u128.1.padbefore.where_eq
+deem.u128.1.padbefore.where_ge
+deem.u128.1.padbefore.where_gt
+deem.u128.1.padbefore.where_le
+deem.u128.1.padbefore.where_lt
+deem.u128.1.padbefore.where_ne
+deem.u128.2.bare.where_eq
+deem.u128.2.bare.where_ge
+deem.u128.2.bare.where_gt
+deem.u128.2.bare.where_le
+deem.u128.2.bare.where_lt
+deem.u128.2.bare.where_ne
+deem.u128.2.padafter.where_eq
+deem.u128.2.padafter.where_ge
+deem.u128.2.padafter.where_gt
+deem.u128.2.padafter.where_le
+deem.u128.2.padafter.where_lt
+deem.u128.2.padafter.where_ne
+deem.u128.2.padbefore.where_eq
+deem.u128.2.padbefore.where_ge
+deem.u128.2.padbefore.where_gt
+deem.u128.2.padbefore.where_le
+deem.u128.2.padbefore.where_lt
+deem.u128.2.padbefore.where_ne
+deem.u64.0.bare.where_eq
+deem.u64.0.bare.where_ge
+deem.u64.0.bare.where_gt
+deem.u64.0.bare.where_le
+deem.u64.0.bare.where_lt
+deem.u64.0.bare.where_ne
+deem.u64.0.padafter.where_eq
+deem.u64.0.padafter.where_ge
+deem.u64.0.padafter.where_gt
+deem.u64.0.padafter.where_le
+deem.u64.0.padafter.where_lt
+deem.u64.0.padafter.where_ne
+deem.u64.0.padbefore.where_eq
+deem.u64.0.padbefore.where_ge
+deem.u64.0.padbefore.where_gt
+deem.u64.0.padbefore.where_le
+deem.u64.0.padbefore.where_lt
+deem.u64.0.padbefore.where_ne
+deem.u64.1.bare.where_eq
+deem.u64.1.bare.where_ge
+deem.u64.1.bare.where_gt
+deem.u64.1.bare.where_le
+deem.u64.1.bare.where_lt
+deem.u64.1.bare.where_ne
+deem.u64.1.padafter.where_eq
+deem.u64.1.padafter.where_ge
+deem.u64.1.padafter.where_gt
+deem.u64.1.padafter.where_le
+deem.u64.1.padafter.where_lt
+deem.u64.1.padafter.where_ne
+deem.u64.1.padbefore.where_eq
+deem.u64.1.padbefore.where_ge
+deem.u64.1.padbefore.where_gt
+deem.u64.1.padbefore.where_le
+deem.u64.1.padbefore.where_lt
+deem.u64.1.padbefore.where_ne
+deem.u64.2.bare.where_eq
+deem.u64.2.bare.where_ge
+deem.u64.2.bare.where_gt
+deem.u64.2.bare.where_le
+deem.u64.2.bare.where_lt
+deem.u64.2.bare.where_ne
+deem.u64.2.padafter.where_eq
+deem.u64.2.padafter.where_ge
+deem.u64.2.padafter.where_gt
+deem.u64.2.padafter.where_le
+deem.u64.2.padafter.where_lt
+deem.u64.2.padafter.where_ne
+deem.u64.2.padbefore.where_eq
+deem.u64.2.padbefore.where_ge
+deem.u64.2.padbefore.where_gt
+deem.u64.2.padbefore.where_le
+deem.u64.2.padbefore.where_lt
+deem.u64.2.padbefore.where_ne
+deem.usize.0.bare.where_eq
+deem.usize.0.bare.where_ge
+deem.usize.0.bare.where_gt
+deem.usize.0.bare.where_le
+deem.usize.0.bare.where_lt
+deem.usize.0.bare.where_ne
+deem.usize.0.padafter.where_eq
+deem.usize.0.padafter.where_ge
+deem.usize.0.padafter.where_gt
+deem.usize.0.padafter.where_le
+deem.usize.0.padafter.where_lt
+deem.usize.0.padafter.where_ne
+deem.usize.0.padbefore.where_eq
+deem.usize.0.padbefore.where_ge
+deem.usize.0.padbefore.where_gt
+deem.usize.0.padbefore.where_le
+deem.usize.0.padbefore.where_lt
+deem.usize.0.padbefore.where_ne
+deem.usize.1.bare.where_eq
+deem.usize.1.bare.where_ge
+deem.usize.1.bare.where_gt
+deem.usize.1.bare.where_le
+deem.usize.1.bare.where_lt
+deem.usize.1.bare.where_ne
+deem.usize.1.padafter.where_eq
+deem.usize.1.padafter.where_ge
+deem.usize.1.padafter.where_gt
+deem.usize.1.padafter.where_le
+deem.usize.1.padafter.where_lt
+deem.usize.1.padafter.where_ne
+deem.usize.1.padbefore.where_eq
+deem.usize.1.padbefore.where_ge
+deem.usize.1.padbefore.where_gt
+deem.usize.1.padbefore.where_le
+deem.usize.1.padbefore.where_lt
+deem.usize.1.padbefore.where_ne
+deem.usize.2.bare.where_eq
+deem.usize.2.bare.where_ge
+deem.usize.2.bare.where_gt
+deem.usize.2.bare.where_le
+deem.usize.2.bare.where_lt
+deem.usize.2.bare.where_ne
+deem.usize.2.padafter.where_eq
+deem.usize.2.padafter.where_ge
+deem.usize.2.padafter.where_gt
+deem.usize.2.padafter.where_le
+deem.usize.2.padafter.where_lt
+deem.usize.2.padafter.where_ne
+deem.usize.2.padbefore.where_eq
+deem.usize.2.padbefore.where_ge
+deem.usize.2.padbefore.where_gt
+deem.usize.2.padbefore.where_le
+deem.usize.2.padbefore.where_lt
+deem.usize.2.padbefore.where_ne

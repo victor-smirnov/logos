@@ -1429,3 +1429,58 @@ if (TARGET lforge)
         LABELS  "logos;lforge;suite_lforge"
     )
 endif()
+
+# ── THE ENUMERATOR (tests/exhaustive) ────────────────────────────────────────
+#
+# `tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and
+# wrote the expectation. That is why six defects — including four SILENT WRONG
+# ANSWERS — survived six rounds of green gates: coverage was measured against
+# what the corpus contained, not against what the type lattice and the query
+# shapes admit. `tests/exhaustive` is a GENERATOR over those axes, and every
+# expectation is computed by `model.py` (Python exact integers, IEEE `struct`),
+# which shares no code, algorithm or assumption with the compiler.
+#
+# TWO TIERS, and both are stated rather than sampled:
+#
+#   logos_26_exhaustive_smoke — 86 programs / 11 316 cases, ~34 s.
+#       cast, cmp, arith, pattern and poison IN FULL, plus a DIAGONAL through
+#       deem: one program per payload type, walking the nine (field-position ×
+#       caller-context) combinations, so all 20 types and all 3 positions and
+#       all 3 caller contexts appear. Runs at EVERY level of test-levels.sh —
+#       it is wired in explicitly there, because it is not a corpus member and
+#       the L1/L2/L3 samplers enumerate the corpus.
+#
+#   logos_26_exhaustive_full — 246 programs / 13 508 cases, ~153 s.
+#       The whole product, including the 160 deem programs the smoke tier does
+#       not run (the rest of the per-type field-position × caller-context
+#       product). L4 only — it is a ctest test with no corpus name, so the
+#       samplers never select it and `ctest` runs it when it runs everything.
+#
+# EACH TIER ASSERTS TWO THINGS.
+#   (1) ZERO wrong answers, absolutely, with no ledger and no exception. A
+#       wrong answer at any tier fails the gate.
+#   (2) The set of COMPILE REFUSALS is EXACTLY `refusals.ledger`, checked in
+#       both directions: an unlisted refusal is a new defect, and a listed
+#       refusal that now compiles means the arc landed and the ledger is stale.
+# and each checks the CORPUS DIGEST first, so "the generator produces the same
+# corpus today" is a gate rather than a hope.
+if(EXISTS ${CMAKE_SOURCE_DIR}/tests/exhaustive/harness.py)
+    foreach(EXH_TIER smoke full)
+        if(EXH_TIER STREQUAL smoke)
+            set(_exh_timeout 600)
+        else()
+            set(_exh_timeout 1800)
+        endif()
+        add_test(
+            NAME logos_26_exhaustive_${EXH_TIER}
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/exhaustive/run_tier.sh ${EXH_TIER}
+                    $<TARGET_FILE:logosc>
+                    ${LOGOS_BUILD_LIB_DIR}
+        )
+        set_tests_properties(logos_26_exhaustive_${EXH_TIER} PROPERTIES
+            TIMEOUT    ${_exh_timeout}
+            PROCESSORS 12
+            LABELS     "logos;exhaustive;suite_exhaustive"
+        )
+    endforeach()
+endif()

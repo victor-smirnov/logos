@@ -4550,7 +4550,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
     }
     case pc::Code::Range: {
         lir_view::PatRangeView v{pref};
-        int64_t lo = v.lo(), hi = v.hi();
+        __int128 lo = v.lo(), hi = v.hi();
         lir::Pattern p;
         p.mirror_ptr_ = lir_mirror_emit_pat_range(*prog_, lo, hi);
         return p;

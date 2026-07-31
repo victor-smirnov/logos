@@ -1,56 +1,171 @@
 # `tests/exhaustive` — the enumerator
 
-**Status: STILL RED, and every red case left is ONE root — see the ledger below.
-Not wired into `ctest`: a gate that is red is not a gate.**
+**Status: a GATE. Two ctest tests, both green, both red the moment any of the
+six defects it found comes back.**
 
-## The ledger — what it found, what closed, what is left
+## Why it exists
 
-Measured on the same 246 programs / 13 508 cases at each point. The "before"
-column is the run that produced this directory; the "after" column is HEAD.
+Six consecutive rounds on the Deem query compiler shipped with green gates, and
+every one of them was later found to contain real defects — including silent
+wrong answers that survived all six. The diagnosis was not "the tests were bad".
+It was:
 
-| family  | cases  | before | after | what closed |
+> **Coverage was measured against what the CORPUS contains, not against what the
+> TYPE LATTICE and the QUERY SHAPES admit.**
+
+`tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and
+wrote the expectation. This directory holds a GENERATOR: nobody chose the cases,
+and no expectation is written by hand — the product of the axes is enumerated
+and every answer is checked against `model.py`.
+
+## The rule that makes it worth running
+
+> The expected answer must be computed by something that does not share code,
+> algorithm or assumption with what it checks.
+
+`tests/logos/pass/wql_join_order_key_fidelity_e2e.logos` was the counter-example
+this exists to replace. It checked `order by <f64>` against `stable_sort_by_f64`
+— an insertion sort written in the same file, comparing with the same partial
+`>` the emitter used. The oracle halted at the NaN in exactly the same place as
+the implementation, so the assertion compared the implementation WITH ITSELF and
+passed while the answer was wrong; its pinned 18-element sequence recorded the
+unsorted answer as the specification.
+
+That is not a hypothetical. **Measured**: with `key_ord_frag` reverted to the
+partial comparator, the pre-fix fixture *as it shipped* still exits 0, while the
+enumerator's smoke tier fails with
+
+    NOT ascending at 1.0 > -inf; key sequence
+      [-1.0, 0.0, -0.0, 1.0, -inf, -1.797…e+308, 0.5, 1.797…e+308, inf]
+
+Where an independent VALUE oracle is impractical, a PROPERTY is checked instead,
+never a self-comparison. `_order_check` is the example above: it asserts that
+the returned ids are a permutation of the input and that the key sequence READ
+OUT OF THE ANSWER is monotone. It never sorts anything, so it has nothing to
+reproduce the defect with.
+
+## The two tiers
+
+| ctest test | programs | cases | time | runs at |
+|---|---|---|---|---|
+| `logos_26_exhaustive_smoke` | 86 | 11 316 | ~34 s | **every level** of `test-levels.sh` (L1/L2/L3), and L4 |
+| `logos_26_exhaustive_full`  | 246 | 13 508 | ~153 s | L4 |
+
+`smoke` is DECLARED, not sampled (`apply_tier` in `harness.py`):
+
+* `cast`, `cmp`, `arith`, `pattern`, `poison` **in full** — 66 programs, 11 042
+  cases. They cost ~11 s together because each program batches thousands of
+  cases behind ONE compile, so there is nothing to gain by cutting them.
+* `deem` — a **diagonal**: one program per payload type, walking the nine
+  (field-position × caller-context) combinations in order. All 20 types, all 3
+  field positions and all 3 caller contexts appear, in 20 programs of 180.
+
+**What `smoke` therefore does not run**, stated so nobody has to infer it: the
+other 160 `deem` programs, i.e. the rest of the per-type field-position ×
+caller-context product — 2 192 cases. Those run in `full` at L4. Nothing else
+is dropped, and nothing anywhere is random.
+
+The enumerator is not a corpus member, so the L1/L2/L3 samplers — which
+enumerate `.logos` files — can never select it. `test-levels.sh` therefore names
+the smoke test explicitly, ahead of the sampled corpus, and its failure is the
+level's failure. `LOGOS_NO_EXHAUSTIVE=1` skips it, for BISECTING a corpus
+failure, not for making a commit green.
+
+## What each tier asserts
+
+1. **The corpus digest matches** `corpus.<tier>.sha256`. Checked first: the
+   numbers below are about a specific corpus, and a run against a drifted
+   generator is a run about nothing.
+2. **ZERO wrong answers** — absolutely, with no ledger and no tier exemption.
+3. **The set of compile REFUSALS is EXACTLY `refusals.ledger`**, checked in
+   three directions: an unlisted refusal is a new defect; a listed refusal that
+   now compiles means the arc landed and the ledger is stale; a line naming no
+   case at all asserts nothing. All three are red.
+
+There is no way to make this gate green by adding a line and walking away.
+
+## Reproducibility: the digest, not the corpus
+
+The generated text is **not** checked in — it is regenerated from the axes, and
+a generated file that could be edited would stop being a spec. What IS checked
+in is a sha256 over `(program name, program source, case id, expected value)`
+for every program in the tier. Changing an axis changes the digest, so growing
+the corpus is a deliberate act with a diff:
+
+    python3 tests/exhaustive/harness.py --all --tier smoke --digest > tests/exhaustive/corpus.smoke.sha256
+    python3 tests/exhaustive/harness.py --all --tier full  --digest > tests/exhaustive/corpus.full.sha256
+
+Observed at this commit: `smoke c30ce517…`, `full 36a89b16…`, byte-identical
+across regenerations.
+
+## Mutation proofs — the gate BITES, measured
+
+Each: revert one fix, `cmake --build`, run `ctest -R logos_26_exhaustive_smoke`.
+Every one exits **8** (ctest's failure code) and names the type, the operation
+and the shape. The tree was restored and re-verified byte-identical after each.
+
+Case ids below are quoted from the runs, not summarised from the axes.
+
+| reverted | cases the gate named | findings |
+|---|---|---|
+| `attach_target_data_layout` (`8ba3c764`) | `deem.{i8,u8,i16,u16,i24,u24,i32,u32,i128}.{0,1,2}.{bare,padbefore,padafter}.{join,anti,where_*}` | 34–35 wrong answers¹ |
+| `uns` in `emit_range_test` (`ac81ba99`) | `pat.u8.100.200.{100,150,200}` and `pat.u16.32718.32818.{…}`, each at all four of `{match,iflet,letelse,whilelet}` | 96 wrong answers |
+| `key_ord_frag` (`519a181d`) | `deem.f64.2.padbefore.{order_asc,order_desc}`, `deem.f32.2.padafter.{order_asc,order_desc}` | 4 wrong answers |
+| the 128-bit `PatRange` half (this commit) | `pat.i128.{match,iflet,letelse,whilelet}` over `-2^126..=2^126-1` at scrutinees `-2^126, -1, 0, 1, 2^126-1` | 56 wrong answers |
+
+¹ The layout defect reads adjacent memory, so how many cases manifest varies run
+to run (34 and 35 on two consecutive runs). The gate's VERDICT does not vary.
+
+The ledger's three directions were proven the same way, without a rebuild: an
+orphan line, a listed refusal that now compiles, and a real refusal removed from
+the ledger — exit 1 each, each naming the offending case.
+
+## The ledger — what is still open
+
+**Zero wrong answers over 13 508 cases.** The 162 findings that remain are
+COMPILE REFUSALS and they are all one root, written out in `refusals.ledger`:
+
+> **An integer literal's value is carried in 64 SIGNED bits.** A `where <col>
+> <op> <literal>` over an unsigned column with the literal above `i64::MAX`
+> reaches `wstr_decode_i64` in the WQL surface tokenizer (duplicated in
+> `el_parser.logos` and `trama_parser.logos`), which has nowhere to put it and
+> POISONS the token to `i64::MIN`; `codegen.logos:985` and `check.logos:207`
+> report "integer literal out of range — exceeds i64::MAX". 108 entries need a
+> 64-bit UNSIGNED carriage (pivot 2^63, columns u64/usize/u128), the other 54 a
+> 128-bit one (pivot 2^127, column u128). One arc, not two patches.
+
+The refusal is LOUD — the program does not compile and the message names the
+limit — which is why it is ledgerable at all. **A wrong answer never is.**
+
+The pattern-side half of the same root CLOSED at this commit: a range-pattern
+bound is 128 bits wide from `parse_int_literal_u128` through `PatRange`'s two
+mirror halves to the `arith.constant` the backend materialises. That half had 88
+refusals AND 24 wrong answers — and the wrong answers are exactly why it could
+not have been ledgered instead.
+
+## The ledger, historically
+
+Measured on the same 246 programs / 13 508 cases at each point.
+
+| family  | cases  | before | HEAD | what closed |
 |---|---|---|---|---|
 | cast    | 2 048  | 0   | 0   | (control) |
 | cmp     | 3 456  | 0   | 0   | (control) |
 | arith   | 4 320  | 216 | 0   | a shift's result type is its LEFT operand |
-| pattern | 1 216  | 211 | 112 | the range predicate + the unsigned bounds |
+| pattern | 1 216  | 211 | 0   | the range predicate, the unsigned bounds, the 128-bit bound |
 | deem    | 2 466  | 686 | 162 | the value's byte size; float total order; `!=`; the f32 literal; the 24-bit lattice rows |
 | poison  | 2      | 1   | 0   | a subnormal float literal no longer kills the compiler |
 
-**Silent wrong answers: 484 → 0.** Every remaining finding is a COMPILE
-REFUSAL, and all 274 of them are the same root:
+`cast` and `cmp` clean over 5 504 cases is the control that says the model and
+the four render channels are right; without it, "0 findings" in a family would
+be indistinguishable from a broken bridge.
 
-> **An integer literal's value is carried in 64 SIGNED bits.**
-> `parse_int_literal` returns the raw 64-bit pattern for a magnitude above
-> `INT64_MAX`, and the readers that treat that pattern as a signed value refuse
-> what they should accept. What is left:
->
-> * **deem, 162** — a `where` literal above `i64::MAX` over a `u64` / `usize` /
->   `u128` column. The WQL surface tokenizer POISONS the token and `codegen`
->   reports "integer literal out of range — exceeds i64::MAX". The value is
->   carried in a 64-bit signed `WAny` from the token to the emitter.
-> * **pattern, 88 + 24** — an `i128` / `u128` range-pattern bound. The L-IR
->   mirror stores a pattern's bounds as `int64` (`PatRangeView::lo()`), so a
->   bound outside 64 bits is truncated: 88 of these are refusals and 24 are
->   WRONG ANSWERS (the truncated bound still compiles and tests the wrong
->   range). These 24 are the only wrong answers left in the whole product.
->
-> Fixing it is one arc — widen the literal's value end-to-end — not five
-> patches. It is reported rather than half-done.
-
-One more finding is recorded in
-`tests/logos/pass/range_pattern_predicate_is_the_scrutinee_type.logos` rather
-than here, because it is outside the axes: an unsuffixed literal above
-`INT64_MAX` passed to a `usize` PARAMETER is rejected while the same literal to
-a `u64` parameter is accepted — `intlit_fits` reads the identical 64-bit
-pattern as `v >= 0` for `Usize` and as `true` for `U64`.
-
-## What the six defects it found were, in one line each
+## What the seven defects it found were, in one line each
 
 1. `mlir::DataLayout` on a module with no `dlti.dl_spec` gives i64 an ABI
-   ALIGNMENT of 4, so `{i32,i64}` sized 12 and every value copy of such a
-   struct dropped four bytes — a struct whose first field is narrower than 64
-   bits returned addresses instead of ids.
+   ALIGNMENT of 4, so `{i32,i64}` sized 12 and every value copy of such a struct
+   dropped four bytes — a struct whose first field is narrower than 64 bits
+   returned addresses instead of ids.
 2. The odd widths were written at their STORE size (i24 = 3, i56 = 7) while the
    emitted GEP steps their ALLOC size — `Vec<i56>::push` overran the heap.
 3. `let <range> = x else {…}` emitted a SIGNED range test for an unsigned
@@ -61,43 +176,11 @@ pattern as `v >= 0` for `Usize` and as `true` for `U64`.
    filter dropped every NaN row.
 6. A subnormal float literal terminated the compiler through an uncaught
    `std::out_of_range` from `std::stod`.
+7. An `i128`/`u128` range-pattern bound was TRUNCATED to its low 64 bits and
+   still compiled, so the test covered a different range.
 
-None of the six was visible to `tests/logos`. Two of them had a fixture that
-CLAIMED the axis: `wql_join_order_key_fidelity_e2e` checked `order by <f64>`
-against a sort written beside it with the same partial comparator, and pinned
-the unsorted answer as its expectation.
-
-## Why it is here and not in `tests/logos`
-
-`tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and
-wrote the expectation. This directory holds a GENERATOR: nobody chose the cases,
-and no expectation is written by hand — the product of the axes is enumerated and
-every answer is checked against `model.py`. The two are different kinds of
-artifact with different failure modes, so they get different directories. The
-generator's output is never checked in: it is regenerated from the axes, and a
-generated file that could be edited would stop being a spec.
-
-## The rule that makes it worth running
-
-> The expected answer must be computed by something that does not share code,
-> algorithm or assumption with what it checks.
-
-`tests/logos/pass/wql_join_order_key_fidelity_e2e.logos` was the counter-example
-this exists to replace: it checked `order by <f64>` against `stable_sort_by_f64`,
-a sort written in the same file with the same comparator the emitter used. The
-oracle reproduced the defect, so the assertion compared the implementation with
-itself and passed while the answer was wrong — and its pinned sequence recorded
-the unsorted answer as the specification. That fixture's oracle now compares
-through `f64_total_key` and its pin is re-derived by hand; the NaN axis itself
-moved to `wql_order_by_float_is_a_total_order_e2e`, whose expected sequences are
-written-out constants. Here the oracle is Python's exact integer arithmetic and
-the IEEE semantics of `struct` — see `model.py`, which states everything it
-trusts.
-
-Where an independent VALUE oracle is impractical, a PROPERTY is checked instead,
-never a self-comparison. `_order_check` is the example: it asserts that the
-returned ids are a permutation of the input and that the key sequence READ OUT OF
-THE ANSWER is monotone — it never sorts anything.
+None of the seven was visible to `tests/logos`. Two had a fixture that CLAIMED
+the axis.
 
 ## Layout
 
@@ -105,7 +188,10 @@ THE ANSWER is monotone — it never sorts anything.
 |---|---|
 | `model.py` | the oracle: type lattice, boundary values, exact arithmetic, and the POISON list (values excluded from shared corpora, each naming the finding that forced it) |
 | `emit.py`  | the render bridge — how each Logos type's value reaches Python, and what trust each channel costs |
-| `harness.py` | the families, the runner, the bisector, the CLI |
+| `harness.py` | the families, the runner, the bisector, the tiers, the ledger check, the digest, the CLI |
+| `run_tier.sh` | one tier, as ctest invokes it |
+| `refusals.ledger` | the open refusals, one cid per line, with the root named |
+| `corpus.{smoke,full}.sha256` | the committed corpus digests |
 
 ## Axes
 
@@ -127,34 +213,26 @@ THE ANSWER is monotone — it never sorts anything.
 * **EMISSION SITE** — a range pattern is compiled at `match`, `if let`,
   `let … else` and `while let`; each is its own site and each is enumerated.
 
-## Size, honestly
+**Nothing is sampled at run time.** The only sampling in the harness is inside
+the generator and it is DECLARED: `model.small_values_of` returns a fixed 6-value
+subset for the two quadratic families (`cmp`, `arith`, which are all-pairs), and
+its rule is written next to it — both ends of the type plus the
+sign-reinterpretation boundary, never a midpoint, never random.
 
-    $ python3 tests/exhaustive/harness.py --list --all
-    246 programs, 13508 cases
-
-A full run is ~9 minutes wall at `--jobs 12` — dominated by ~1.7 s of `logosc`
-per program, not by the cases. **Nothing is sampled at run time.** The only
-sampling in the harness is inside the generator and it is DECLARED:
-`model.small_values_of` returns a fixed 6-value subset for the two quadratic
-families (`cmp`, `arith`, which are all-pairs), and its rule is written next to
-it — both ends of the type plus the sign-reinterpretation boundary, never a
-midpoint, never random. Everything else is the full product.
-
-Nine minutes is too long for the per-commit loop and short enough for a nightly
-or a pre-merge gate. It is deliberately NOT wired into `ctest` yet: wiring a red
-gate in is the thing this run is not allowed to do. At HEAD it runs in ~170 s
-(the compile failures are cheap), and it stays red until the 64-bit-literal arc
-lands — at which point wiring it in is one CMake entry and no new judgement.
-
-## Running it
+## Running it by hand
 
     python3 tests/exhaustive/harness.py --list --all
-    python3 tests/exhaustive/harness.py --all --jobs 12 --json findings.json
+    python3 tests/exhaustive/harness.py --all --tier smoke --jobs 12 \
+        --ledger tests/exhaustive/refusals.ledger \
+        --digest-file tests/exhaustive/corpus.smoke.sha256
     python3 tests/exhaustive/harness.py --family deem --only deem_u32_p0 --jobs 4 \
         --workdir /tmp/x --json /tmp/x/f.json
 
-`--workdir` keeps the generated `.logos`, `.o` and binaries, so any finding has a
-standalone reproducer on disk. Exit status is non-zero when there is any finding.
+`--workdir` keeps the generated `.logos`, `.o` and binaries, so any finding has
+a standalone reproducer on disk. `LOGOSC` and `LOGOS_LIB_DIR` override the
+toolchain under test; ctest passes the build it is actually testing, because a
+gate that measures a DIFFERENT toolchain than the one being built reports on
+nothing.
 
 ## Attribution
 

@@ -1225,10 +1225,19 @@ public:
         if (!slots_av.is_null()) put(map_off, pk::BIND_SLOTS, slots_av);
         return map_off;
     }
-    const uint8_t* emit_pat_range_direct(int64_t lo, int64_t hi) {
+    const uint8_t* emit_pat_range_direct(__int128 lo, __int128 hi) {
         auto map_off = make_map(writ::schema::lir_pat(lir_schema::pat::Code::Range));
-        put(map_off, pk::LO, put_i64(lo));
-        put(map_off, pk::HI, put_i64(hi));
+        // The high half is written only when it carries information the sign
+        // extension of the low half does not — so a sub-128-bit bound produces
+        // byte-identical mirror bytes to the pre-widening emitter.
+        auto put_half = [&](const lir_schema::Key& k, const lir_schema::Key& k_hi, __int128 v) {
+            int64_t low = (int64_t)(uint64_t)(unsigned __int128)v;
+            int64_t high = (int64_t)(uint64_t)((unsigned __int128)v >> 64);
+            put(map_off, k, put_i64(low));
+            if (high != (low >> 63)) put(map_off, k_hi, put_i64(high));
+        };
+        put_half(pk::LO, pk::LO_HI, lo);
+        put_half(pk::HI, pk::HI_HI, hi);
         return map_off;
     }
     const uint8_t* emit_pat_struct_direct(std::string_view struct_name,
@@ -2423,7 +2432,7 @@ const uint8_t* lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_tuple_direct(bindings, binding_types, subs, bind_slots);
 }
-const uint8_t* lir_mirror_emit_pat_range(lir::LProgram& prog, int64_t lo, int64_t hi) {
+const uint8_t* lir_mirror_emit_pat_range(lir::LProgram& prog, __int128 lo, __int128 hi) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_range_direct(lo, hi);

@@ -2603,11 +2603,28 @@ struct PatTupleView {
     }
 };
 
-// PatRange { lo: i64, hi: i64 }
+// PatRange { lo: i128, hi: i128 } — carried as two 64-bit halves.
+//
+// The bound is as wide as the SCRUTINEE, and the scrutinee can be 128 bits.
+// The high half is written only when it is not the sign-extension of the low
+// half, so every sub-128-bit pattern stores exactly what it did before; when
+// the key is absent the sign-extension is what reconstruction produces, which
+// is the same value. There is no `int64_t lo()`: a narrowing read is what made
+// an i128 bound compile to a test over the wrong range.
 struct PatRangeView {
     PatRef self;
-    int64_t lo() const noexcept { return detail::read_i64(self, pk::LO.code); }
-    int64_t hi() const noexcept { return detail::read_i64(self, pk::HI.code); }
+    static __int128 compose(int64_t lo64, std::optional<int64_t> hi64) noexcept {
+        uint64_t h = hi64 ? (uint64_t)*hi64 : (uint64_t)(lo64 >> 63);
+        return (__int128)(((unsigned __int128)h << 64) | (uint64_t)lo64);
+    }
+    __int128 lo() const noexcept {
+        return compose(detail::read_i64(self, pk::LO.code),
+                       detail::read_i64_opt(self, pk::LO_HI.code));
+    }
+    __int128 hi() const noexcept {
+        return compose(detail::read_i64(self, pk::HI.code),
+                       detail::read_i64_opt(self, pk::HI_HI.code));
+    }
 };
 
 // PatFieldBinding mirror { field_name, sub: 0|1 pattern }

@@ -4763,73 +4763,103 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // open side to the scrutinee integer type's min/max.
         bool has_lo = pnode.has_key(la::LHS);
         bool has_hi = pnode.has_key(la::RHS);
-        // THE BOUND'S RANGE AND THE BOUND'S ORDER ARE ASKED IN THE SCRUTINEE'S
-        // OWN SIGNEDNESS. `parse_int_literal` returns the raw 64-bit PATTERN for
-        // a magnitude above INT64_MAX (that is what makes `0xcbf29ce484222325`
-        // usable as a u64 literal), so a bound like `9223372036854775858`
-        // arrives as a NEGATIVE int64. Read signed, it failed "does not fit in
-        // 'u64'" and then "lo > hi": EVERY unsigned range straddling the signed
-        // ceiling was rejected, at all four emission sites.
+        // THE BOUND IS A BIT PATTERN OF THE SCRUTINEE'S WIDTH, AND ITS RANGE AND
+        // ITS ORDER ARE ASKED IN THE SCRUTINEE'S OWN SIGNEDNESS.
+        //
+        // The bound used to be an `int64_t`, which is the scrutinee's width for
+        // exactly ten of the sixteen integer types. For `i128`/`u128` the
+        // literal was TRUNCATED to its low 64 bits and still compiled, so the
+        // emitted test covered a different range and the answer was silently
+        // wrong — `170141183460469231731687303715884105726..=…727` matched
+        // nothing. It is 128 bits wide here and 128 bits wide in the mirror.
         //
         // Width and signedness come from `int_rank`, the one table. The local
         // one that used to sit here listed eight kinds and sent i8, u8, i24,
         // u24, i56, u56, i128 and u128 to its `default:` arm — i32's bounds —
         // so an open-ended `..=5` over a `u8` clamped its low end to INT32_MIN.
         using PK = LogosType::Kind;
+        using u128 = unsigned __int128;
+        using i128 = __int128;
         PK skind = scrut_type ? TypeRef(scrut_type).kind() : PK::I32;
         auto srank = int_rank(skind);
         unsigned swidth = srank.first;
         bool ssigned = srank.second;
         if (swidth == 0) { swidth = 32; ssigned = true; }
         bool sunsigned = !ssigned;
-        // The type's maximum magnitude as a 64-bit pattern (u64/usize → all 1s).
-        uint64_t umax = swidth >= 64 ? ~UINT64_C(0) : ((UINT64_C(1) << swidth) - 1);
-        bool uns_cmp = sunsigned && swidth <= 64;
-        int64_t tmin = sunsigned ? 0
-                                 : (swidth >= 64 ? INT64_MIN
-                                                 : -(INT64_C(1) << (swidth - 1)));
-        int64_t tmax = sunsigned ? (int64_t)umax
-                                 : (swidth >= 64 ? INT64_MAX
-                                                 : (INT64_C(1) << (swidth - 1)) - 1);
-        int64_t lo = has_lo ? parse_int_literal(str_of(pnode.get(la::LHS.code))) : tmin;
-        int64_t hi = has_hi ? parse_int_literal(str_of(pnode.get(la::RHS.code))) : tmax;
-        bool lo_neg = false, hi_neg = false;
-        if (has_lo && pnode.has_key(la::LO_NEG)) {
-            AnyVal av = pnode.get(la::LO_NEG.code);
-            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) { lo = -lo; lo_neg = true; }
-        }
-        if (has_hi && pnode.has_key(la::HI_NEG)) {
-            AnyVal av = pnode.get(la::HI_NEG.code);
-            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) { hi = -hi; hi_neg = true; }
-        }
+        bool uns_cmp = sunsigned;
+        // The type's bounds as MAGNITUDES. `umax` is the unsigned ceiling of
+        // `swidth` bits; `smax_mag`/`smin_mag` are |max| and |min| of the signed
+        // type of the same width. u128's ceiling is not representable in i128,
+        // which is why the whole block works in patterns and compares by
+        // signedness rather than in one signed type.
+        u128 umax     = swidth >= 128 ? ~(u128)0 : ((((u128)1) << swidth) - 1);
+        u128 smin_mag = ((u128)1) << (swidth - 1);
+        u128 smax_mag = smin_mag - 1;
+        // Sign- or zero-extend a `swidth`-bit pattern to 128 bits, so that the
+        // ordering comparisons below and the constant the backend materialises
+        // see the same value the scrutinee's own width would.
+        auto canon = [&](u128 p) -> u128 {
+            if (swidth >= 128) return p;
+            u128 mask = (((u128)1) << swidth) - 1;
+            p &= mask;
+            if (!sunsigned && (p >> (swidth - 1)) & 1) p |= ~mask;
+            return p;
+        };
+        auto u128_str = [](u128 m) {
+            if (m == 0) return std::string("0");
+            char buf[48]; int i = 48;
+            while (m) { buf[--i] = char('0' + (int)(m % 10)); m /= 10; }
+            return std::string(buf + i, size_t(48 - i));
+        };
+        auto pat_str = [&](u128 p) {
+            if (!sunsigned && (i128)p < 0) return "-" + u128_str((u128)0 - p);
+            return u128_str(p);
+        };
+        // A bound's TEXT gives a magnitude and a sign; the pattern is derived.
+        // `parse_int_literal` returned the raw 64-bit pattern for a magnitude
+        // above INT64_MAX, which conflated "the value 2^63" with "the value
+        // -2^63" and cost the fit test its footing.
+        auto read_bound = [&](la::Key text_key, la::Key neg_key, bool present,
+                              u128 dflt, const char* which) -> u128 {
+            if (!present) return dflt;
+            auto sv = str_of(pnode.get(text_key.code));
+            bool neg = false;
+            if (pnode.has_key(neg_key)) {
+                AnyVal av = pnode.get(neg_key.code);
+                neg = !av.is_null() && av.is_value() && av.as_value<uint8_t>();
+            }
+            if (parse_int_literal_overflows_128(sv)) {
+                error(std::format("range pattern: {} ('{}') exceeds 128 bits", which, sv));
+                return 0;
+            }
+            u128 mag = parse_int_literal_u128(sv);
+            if (scrut_type && skind != PK::Error && is_integer(scrut_type)) {
+                if (neg && sunsigned)
+                    error(std::format("range pattern: a negative bound does not fit in '{}'",
+                          type_str(scrut_type)));
+                else if (neg && mag > smin_mag)
+                    error(std::format("range pattern: {} (-{}) does not fit in '{}'",
+                          which, u128_str(mag), type_str(scrut_type)));
+                else if (!neg && mag > umax)
+                    error(std::format("range pattern: {} ({}) does not fit in '{}'",
+                          which, u128_str(mag), type_str(scrut_type)));
+                // PRE-EXISTING RULE, PRESERVED AND NOW EXPLICIT: on a SIGNED
+                // scrutinee a magnitude between |max|+1 and the unsigned
+                // ceiling is read as the two's-complement pattern it spells
+                // (`0xFFFF_FFFF_FFFF_FFFF` on an `i64` bound is -1). `canon`
+                // below performs the reinterpretation.
+            }
+            return canon(neg ? ((u128)0 - mag) : mag);
+        };
+        u128 lo = read_bound(la::LHS, la::LO_NEG, has_lo,
+                             canon(sunsigned ? (u128)0 : ((u128)0 - smin_mag)), "lo");
+        u128 hi = read_bound(la::RHS, la::HI_NEG, has_hi,
+                             canon(sunsigned ? umax : smax_mag), "hi");
         if (scrut_type && skind != PK::Error &&
             skind != PK::Never &&  // G160-10
             !is_integer(scrut_type))
             error(std::format("range pattern requires integer scrutinee, got '{}'",
                   type_str(scrut_type)));
-        // S2: validate that lo/hi fit in the scrutinee integer type.
-        if (scrut_type && skind != PK::Error && is_integer(scrut_type)) {
-            if (uns_cmp) {
-                if (lo_neg || hi_neg)
-                    error(std::format("range pattern: a negative bound does not fit in '{}'",
-                          type_str(scrut_type)));
-                else {
-                    if ((uint64_t)lo > umax)
-                        error(std::format("range pattern: lo ({}) does not fit in '{}'",
-                              (uint64_t)lo, type_str(scrut_type)));
-                    if ((uint64_t)hi > umax)
-                        error(std::format("range pattern: hi ({}) does not fit in '{}'",
-                              (uint64_t)hi, type_str(scrut_type)));
-                }
-            } else {
-                if (!intlit_fits(lo, skind))
-                    error(std::format("range pattern: lo ({}) does not fit in '{}'",
-                          lo, type_str(scrut_type)));
-                if (!intlit_fits(hi, skind))
-                    error(std::format("range pattern: hi ({}) does not fit in '{}'",
-                          hi, type_str(scrut_type)));
-            }
-        }
         // P4-pm-22: exclusive range `lo..hi` lowers as inclusive
         // `lo..=(hi-1)` since the PatRange mirror has no inclusive
         // flag. The grammar tags inclusive arms with INCLUSIVE: true,
@@ -4843,19 +4873,19 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // Emptiness and ordering are the SCRUTINEE'S order, for the same reason
         // the fit test above is.
         if (!inclusive) {
-            bool empty = uns_cmp ? ((uint64_t)lo >= (uint64_t)hi) : (lo >= hi);
+            bool empty = uns_cmp ? (lo >= hi) : ((i128)lo >= (i128)hi);
             if (empty) {
                 error(std::format("exclusive range pattern: lo ({}) >= hi ({}) (empty range)",
-                      lo, hi));
+                      pat_str(lo), pat_str(hi)));
             }
-            hi = hi - 1;
+            hi = canon(hi - 1);
         } else {
-            bool bad = uns_cmp ? ((uint64_t)lo > (uint64_t)hi) : (lo > hi);
+            bool bad = uns_cmp ? (lo > hi) : ((i128)lo > (i128)hi);
             if (bad)
-                error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
+                error(std::format("range pattern: lo ({}) > hi ({})", pat_str(lo), pat_str(hi)));
         }
         lir::Pattern p_;
-        p_.mirror_ptr_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
+        p_.mirror_ptr_ = lir_mirror_emit_pat_range(*cur_prog_, (i128)lo, (i128)hi);
         return p_;
     }
 

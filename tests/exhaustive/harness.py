@@ -47,8 +47,11 @@ import model
 import emit
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-LOGOSC = os.path.join(REPO, "build", "bin", "logosc")
-LIBDIR = os.path.join(REPO, "build", "lib", "logos")
+# `./build` is the project's build dir and the default. ctest passes the build
+# it is actually testing, because a gate that measures a DIFFERENT toolchain
+# than the one being built is a gate that reports on nothing.
+LOGOSC = os.environ.get("LOGOSC") or os.path.join(REPO, "build", "bin", "logosc")
+LIBDIR = os.environ.get("LOGOS_LIB_DIR") or os.path.join(REPO, "build", "lib", "logos")
 
 
 # ── a case and a program ─────────────────────────────────────────────────────
@@ -863,6 +866,133 @@ FAMILIES = {
 }
 
 
+# ── TIERS ────────────────────────────────────────────────────────────────────
+# `full` is the whole product. `smoke` is what the per-commit tier runs, and its
+# rule is DECLARED here rather than sampled at run time — a tier that picks its
+# own cases is a tier nobody can reason about.
+#
+#   * cast, cmp, arith, pattern, poison run IN FULL. They cost ~11 s together
+#     because each program batches thousands of cases behind ONE compile, so
+#     there is nothing to gain by cutting them.
+#   * deem is the expensive family (~1.3 s wall per program even at --jobs 12).
+#     `smoke` takes a DIAGONAL: one program per payload TYPE, walking the nine
+#     (field-position × caller-context) combinations in order. All 20 types
+#     appear, all 3 field positions appear, all 3 caller contexts appear — 20
+#     programs instead of 180.
+#
+# What `smoke` therefore does NOT run: the other 160 deem programs, i.e. the
+# rest of the per-type field-position × caller-context product. Those run at
+# `full`. Nothing else is dropped, and nothing anywhere is random.
+def smoke_deem_names():
+    combos = [(pos, ctx) for pos in POSITIONS for ctx in CONTEXTS]
+    return {f"deem_{t}_p{combos[i % len(combos)][0]}_{combos[i % len(combos)][1]}"
+            for i, t in enumerate(DEEM_TYPES)}
+
+
+def apply_tier(tier, progs):
+    if tier == "full":
+        return progs
+    keep = smoke_deem_names()
+    return [p for p in progs if p.family != "deem" or p.name in keep]
+
+
+# ── the corpus digest ────────────────────────────────────────────────────────
+# The generated text is not checked in — it is regenerated from the axes, and a
+# generated file that could be edited would stop being a spec. What IS checked
+# in is this digest, so "the generator produces the same corpus today" is a
+# GATE rather than a hope. Changing an axis changes the digest; updating the
+# digest is then a deliberate act with a diff, not a silent drift.
+def corpus_digest(progs):
+    import hashlib
+    h = hashlib.sha256()
+    for p in sorted(progs, key=lambda p: (p.family, p.name)):
+        h.update(p.name.encode())
+        h.update(b"\0")
+        h.update(p.source().encode())
+        h.update(b"\0")
+        for c in p.cases:
+            h.update(c.cid.encode())
+            h.update(b"\0")
+            h.update(repr(c.want).encode())
+            h.update(b"\0")
+    return h.hexdigest()
+
+
+# ── the ledger ───────────────────────────────────────────────────────────────
+# A COMPILE REFUSAL that is known, attributed to a named root and written down
+# is an open defect. A WRONG ANSWER is never ledgerable, at any tier, for any
+# reason: the whole point of this directory is that the compiler does not
+# silently lie, and a ledger entry for a wrong answer would pin the lie as the
+# specification — exactly the failure mode of the fixture this replaces.
+#
+# The ledger is checked in BOTH directions. An unlisted refusal is a new defect.
+# A listed refusal that no longer reproduces means the arc landed and the ledger
+# is stale — also red, because a ledger nobody must update is a ledger that
+# stops describing the compiler.
+LEDGERABLE = {"COMPILE_FAIL"}
+
+
+def read_ledger(path):
+    out = set()
+    with open(path) as fh:
+        for line in fh:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                out.add(line)
+    return out
+
+
+def check_ledger(findings, ledger, in_scope, all_cids):
+    """Returns (ok, list-of-report-lines).
+
+    `in_scope` is the tier's cases; `all_cids` is every case the FULL product
+    has. A ledger line outside `all_cids` names no case at all — a typo, or an
+    axis that was removed — and would otherwise sit there forever looking like
+    an open defect while asserting nothing, at any tier.
+    """
+    bad = [f for f in findings if f["kind"] not in LEDGERABLE]
+    orphans = sorted(ledger - all_cids)
+    observed = {f["cid"] for f in findings if f["kind"] in LEDGERABLE}
+    expected = ledger & in_scope
+    new_refusals = sorted(observed - expected)
+    stale = sorted(expected - observed)
+    lines = []
+    if bad:
+        lines.append(f"NOT LEDGERABLE — {len(bad)} finding(s) that are not compile refusals.")
+        lines.append("A wrong answer is never expected. These are defects:")
+        for f in bad[:20]:
+            lines.append(f"  [{f['kind']}] {f['cid']}")
+            lines.append(f"      {f['desc']}")
+            lines.append(f"      want {f['want']}  got {f['got'][:200]}")
+        if len(bad) > 20:
+            lines.append(f"  … and {len(bad) - 20} more")
+    if new_refusals:
+        lines.append(f"NEW REFUSAL — {len(new_refusals)} case(s) the compiler rejects "
+                     f"that are not in the ledger:")
+        for cid in new_refusals[:20]:
+            f = next(x for x in findings if x["cid"] == cid)
+            lines.append(f"  {cid}")
+            lines.append(f"      {f['desc']}")
+            lines.append(f"      {f['got'][:200]}")
+        if len(new_refusals) > 20:
+            lines.append(f"  … and {len(new_refusals) - 20} more")
+    if stale:
+        lines.append(f"STALE LEDGER — {len(stale)} case(s) listed as refused that now "
+                     f"compile. The arc landed; remove them from the ledger:")
+        for cid in stale[:20]:
+            lines.append(f"  {cid}")
+        if len(stale) > 20:
+            lines.append(f"  … and {len(stale) - 20} more")
+    if orphans:
+        lines.append(f"ORPHAN LEDGER LINE — {len(orphans)} entr(y|ies) naming no case "
+                     f"in the product. A line that matches nothing asserts nothing:")
+        for cid in orphans[:20]:
+            lines.append(f"  {cid}")
+        if len(orphans) > 20:
+            lines.append(f"  … and {len(orphans) - 20} more")
+    return (not lines), lines
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--family", action="append", default=[])
@@ -872,6 +1002,14 @@ def main():
     ap.add_argument("--json", default=None)
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--only", default=None, help="substring filter on program name")
+    ap.add_argument("--tier", choices=("smoke", "full"), default="full",
+                    help="smoke = the declared per-commit subset (see apply_tier)")
+    ap.add_argument("--ledger", default=None,
+                    help="path to the open-refusal ledger; enables the two-way check")
+    ap.add_argument("--digest", action="store_true",
+                    help="print the corpus digest and exit")
+    ap.add_argument("--digest-file", default=None,
+                    help="assert the corpus digest matches this file")
     args = ap.parse_args()
 
     fams = list(FAMILIES) if (args.all or not args.family) else args.family
@@ -880,14 +1018,32 @@ def main():
         progs.extend(FAMILIES[f]())
     if args.only:
         progs = [p for p in progs if args.only in p.name]
+    progs = apply_tier(args.tier, progs)
 
     ncases = sum(len(p.cases) for p in progs)
+    if args.digest:
+        print(corpus_digest(progs))
+        return 0
     if args.list:
         print(f"{len(progs)} programs, {ncases} cases")
         for f in fams:
             ps = [p for p in progs if p.family == f]
             print(f"  {f:8s} {len(ps):4d} programs {sum(len(p.cases) for p in ps):6d} cases")
         return 0
+
+    if args.digest_file:
+        want = open(args.digest_file).read().split()[0]
+        got = corpus_digest(progs)
+        if got != want:
+            print(f"[harness] CORPUS DIGEST MISMATCH for tier '{args.tier}'\n"
+                  f"           committed {want}\n"
+                  f"           generated {got}\n"
+                  f"           The generator no longer produces the corpus the digest "
+                  f"pins. If an axis changed on purpose, regenerate:\n"
+                  f"             python3 {os.path.relpath(__file__, REPO)} "
+                  f"--all --tier {args.tier} --digest > <digest file>", flush=True)
+            return 1
+        print(f"[harness] corpus digest {got} — matches", flush=True)
 
     wd = args.workdir or tempfile.mkdtemp(prefix="logos-exh-")
     os.makedirs(wd, exist_ok=True)
@@ -920,6 +1076,22 @@ def main():
             json.dump(dict(programs=len(progs), cases=ncases, seconds=dt,
                            findings=FINDINGS), fh, indent=1)
         print(f"[harness] findings -> {args.json}")
+
+    if args.ledger:
+        in_scope = {c.cid for p in progs for c in p.cases}
+        # Generating the full product costs no compiles — it is the axes walked
+        # in Python — so the orphan check is available at every tier.
+        all_cids = {c.cid for fn in FAMILIES.values() for p in fn() for c in p.cases}
+        ok, lines = check_ledger(FINDINGS, read_ledger(args.ledger), in_scope, all_cids)
+        if ok:
+            n = len({f["cid"] for f in FINDINGS})
+            print(f"[harness] tier '{args.tier}': {ncases} cases, 0 wrong answers, "
+                  f"{n} known refusals, all in the ledger.", flush=True)
+            return 0
+        print("[harness] LEDGER CHECK FAILED", flush=True)
+        for ln in lines:
+            print("  " + ln, flush=True)
+        return 1
     return 1 if FINDINGS else 0
 
 

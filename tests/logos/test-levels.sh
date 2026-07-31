@@ -25,6 +25,14 @@
 # when you want the full conformance gate. Nothing is deleted; this is a
 # `ctest -LE imported` split (see tests/logos/CMakeLists.txt).
 #
+# THE ENUMERATOR: `tests/exhaustive` is a GENERATOR, not a corpus member, so the
+# samplers above — which enumerate .logos files — can never select it. Its SMOKE
+# tier (86 programs / 11 316 cases, ~34 s) is therefore run EXPLICITLY at every
+# level L1-L3, ahead of the sampled corpus; its FULL tier (246 programs / 13 508
+# cases, ~153 s) is a plain ctest test and so runs at L4 with everything else.
+# Set LOGOS_NO_EXHAUSTIVE=1 to skip it — for BISECTING a corpus failure, not for
+# making a commit green.
+#
 # Examples:
 #   bash ../tests/logos/test-levels.sh L0 nested-by-ref-b167
 #   bash ../tests/logos/test-levels.sh L1            # default variant 1, core only
@@ -91,6 +99,17 @@ if [ "$LEVEL" = "L0" ]; then
 fi
 
 VARIANT=${1:-1}
+
+# ── The enumerator's smoke tier — every level, ahead of the sampled corpus ───
+# It is not a .logos file, so the samplers below cannot reach it; it is named
+# here instead. Its failure is the level's failure.
+EXH_FAIL=0
+if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
+    echo "[test-levels] enumerator — smoke tier (11 316 generated cases)"
+    if ! ctest --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
+        EXH_FAIL=1
+    fi
+fi
 
 # ── Enumerate (group, base) from the .logos corpus ───────────────────────────
 # Group key: category dir for imported tests, "native_{pass,fail}" otherwise.
@@ -199,8 +218,19 @@ for ((i = 0; i < n; i += CHUNK)); do
         printf '%s\n' "$out" | awk '/\*\*\*Failed/{print; c=0; f=1; next} f{print; if(++c>=40){f=0; print "---"}}'
     fi
 done
-[ "$had_fail" -eq 0 ] && echo "(none)"
+[ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && echo "(none)"
+[ "$EXH_FAIL" -ne 0 ] && echo "logos_26_exhaustive_smoke ***Failed (see above)"
 echo
 echo "=== Pass/fail ==="
 echo "$(( tot_run - tot_fail ))/$tot_run tests passed, $tot_fail failed  (level $LEVEL.$VARIANT)"
-[ "$tot_fail" -eq 0 ]
+# The enumerator is counted separately BECAUSE it is not one of the $tot_run:
+# it is 11 316 generated cases behind one ctest name, and folding it into the
+# corpus count would misreport both.
+if [ "${LOGOS_NO_EXHAUSTIVE:-0}" = "1" ]; then
+    echo "PLUS: the enumerator's smoke tier was SKIPPED (LOGOS_NO_EXHAUSTIVE=1)"
+elif [ "$EXH_FAIL" -ne 0 ]; then
+    echo "PLUS: the enumerator's smoke tier FAILED (11 316 generated cases)"
+else
+    echo "PLUS: the enumerator's smoke tier passed (11 316 generated cases)"
+fi
+[ "$tot_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ]

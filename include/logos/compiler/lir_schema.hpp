@@ -741,6 +741,15 @@ inline constexpr Key BIND_TYPE         {"BIND_TYPE",       21};   // RelPtr<Logo
 inline constexpr Key TYPE              {"TYPE",            22};   // RelPtr<LogosType> (PatAt)
 inline constexpr Key BIND_SLOTS        {"BIND_SLOTS",      23};   // Array<u32> — Phase-1 dense slots, parallel to BINDINGS (0xFFFFFFFF = none, e.g. `_`)
 inline constexpr Key BIND_SLOT         {"BIND_SLOT",       24};   // u32 — Phase-1 dense slot for single-name patterns (Wild/At/RefBind)
+
+// A RANGE BOUND IS AS WIDE AS THE SCRUTINEE. LO/HI hold the LOW 64 bits;
+// these hold the HIGH 64. Absent ⇒ the bound is the sign-extension of LO/HI,
+// which is what every sub-128-bit scrutinee produces — so the keys cost
+// nothing outside i128/u128 and `PatRangeView` reconstructs the same value
+// either way. Reading LO alone TRUNCATED an i128 bound and still compiled: the
+// test then covered the wrong range and the answer was silently wrong.
+inline constexpr Key LO_HI             {"LO_HI",           25};   // i64 (PatRange, high half)
+inline constexpr Key HI_HI             {"HI_HI",           26};   // i64 (PatRange, high half)
 } // namespace pat_keys
 
 } // namespace logos::compiler::lir_schema

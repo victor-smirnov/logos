@@ -170,8 +170,10 @@ public:
     // pattern was right; `pat_test` re-derived "is this unsigned" from its own
     // list of kind constants and left out u24, u56 and u128. A site that cannot
     // spell the predicate cannot spell it wrong.
+    // The bound is 128 bits WIDE, not 64: it is as wide as the widest scrutinee
+    // the language has. A 64-bit parameter truncated every i128/u128 bound.
     mlir::Value emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
-                                int64_t lo, int64_t hi);
+                                __int128 lo, __int128 hi);
 private:
 
     // ── DWARF debug info (-g) ─────────────────────────────────────────────

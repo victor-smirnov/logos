@@ -3484,11 +3484,27 @@ void MLIRGenImpl::collect_pat_bindings(
 
 // See mlir_gen_impl.hpp: the single range-pattern test emitter.
 mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
-                                         int64_t lo, int64_t hi) {
+                                         __int128 lo, __int128 hi) {
     bool uns = scrut_ty && LogosType::is_unsigned_repr_kind(TypeRef(scrut_ty).kind());
     auto ty = scrut.getType();
-    auto lo_val = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, lo, 64), ty);
-    auto hi_val = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, hi, 64), ty);
+    // THE BOUND IS AS WIDE AS THE SCRUTINEE. Materialising it at 64 bits and
+    // coercing dropped the high half of every i128/u128 bound: the test still
+    // compiled and still answered, over the wrong range. Build the constant at
+    // the scrutinee's own width when that width exceeds 64.
+    auto bound = [&](__int128 v) -> mlir::Value {
+        auto it = llvm::dyn_cast<mlir::IntegerType>(ty);
+        if (it && it.getWidth() > 64) {
+            uint64_t words[2] = { (uint64_t)(unsigned __int128)v,
+                                  (uint64_t)((unsigned __int128)v >> 64) };
+            llvm::APInt big(it.getWidth(), llvm::ArrayRef<uint64_t>(words, 2));
+            return builder_.create<mlir::arith::ConstantOp>(
+                loc_, it, builder_.getIntegerAttr(it, big));
+        }
+        return coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
+                              loc_, (int64_t)(uint64_t)(unsigned __int128)v, 64), ty);
+    };
+    auto lo_val = bound(lo);
+    auto hi_val = bound(hi);
     auto ge = builder_.create<mlir::arith::CmpIOp>(
         loc_, uns ? mlir::arith::CmpIPredicate::uge : mlir::arith::CmpIPredicate::sge,
         scrut, lo_val);
