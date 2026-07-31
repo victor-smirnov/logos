@@ -177,8 +177,15 @@ use logos.std.wql.why;   // Why — the justification as a RECORD, and its one r
 // `nperm == 0` was read as "the order axis was never entered" — true of a scan, and
 // equally true of a chain `decide_join_orders` entered and refused before the
 // derivation ran, which is 59 of the corpus's 259 plans. The census is not a count,
-// it is a STATE (`why::why_axis`), and a state derived from the ground code cannot
-// contradict the ground.
+// it is a STATE (`why::why_axis`).
+//
+// ⚠ AND FOR ONE ROUND THAT STATE WAS DERIVED FROM THE GROUND CODE'S RANGE, which is
+// the same defect one level in: it could not contradict the ground, but it could
+// contradict the QUERY, and it did — `WG_AGG` sits in the "no axis" band, so a
+// joined aggregate announced that it had no join. A range couples two independent
+// decisions (what the ground is, which state it was reached in) into one number, and
+// the second moves silently when the first is extended. `Why.axis` is a FIELD now
+// and `why_axis_of` is deleted (ADR 0024 S4p).
 //
 // ⚠ AND THERE IS NO `prep_set_search` ANY MORE. The census arrived through a second
 // entry point precisely because it lived beside the decision instead of in it; a
@@ -214,8 +221,16 @@ pub fn prep_fixed(w: Why) -> Prepared {
 
 /// The same, for a ground whose whole content is its CODE — a scan, a head row, an
 /// aggregate: no operand, nothing composed, and now nothing written down twice.
-pub fn prep_ground(g: i32) -> Prepared {
-    return prep_fixed(why_of(g));
+///
+/// ⚠ THE CENSUS STATE TRAVELS WITH THE GROUND (ADR 0024 S4p) AND EVERY CALLER MUST
+/// SAY IT. These grounds are recorded by the SHAPE EMITTERS, and three of them —
+/// `WG_AGG`, `WG_FALSE_FILTER`, `WG_FALSE_PRED` — apply equally to a bare scan and
+/// to a join chain. While the state was a band over the ground code they all landed
+/// in "no axis", so nine corpus plans with an explicit join reported "this query has
+/// no join whose order a plan could choose" one line under their own
+/// `hash join on i64`. The emitter holds the chain; it is the only thing that knows.
+pub fn prep_ground(g: i32, ax: i32) -> Prepared {
+    return prep_fixed(why_of(g, ax));
 }
 
 pub fn prep_dyn(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: str,

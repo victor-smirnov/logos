@@ -493,7 +493,7 @@ are byte-for-byte unchanged — `by_key`, `q3`, `q4`, `qi`, `qs`, `iter_step`,
 `via_rel`, `db_i64_leaves` do not move — because the saving is not taken from them.
 
 ⚠ WHAT IS NOT CONDITIONAL. The SURFACE: both plan shapes carry the same methods
-(eight at S4l, ten since S4n added `enumerated()` and `proved()`) with the same signatures, `dyn_order`/`defer_order`/`order_ix`/the four facts/`why`,
+(eight at S4l, ten since S4n added `enumerated()` and `proved()`) with the same signatures, `dyn_order`/`defer_order`/`order_ix`/the four facts (S4q moved `why` off the FIELDS and onto `explain()` as a constant),
 so one loop over a caller's queries is still one loop — S4i's reason for emitting the
 surface where there is nothing to decide is untouched, and only its COST changed. And
 the COST MODEL: the four answers a table-less plan gives are `jc_none_cost` /
@@ -621,6 +621,95 @@ the same rule `push_census_why` follows — so a query deferring on both kinds i
 both things. `sz_run_words` also stops defaulting to `SZ_OK`'s sentence, which would
 have described an unnamed code as "an input the caller passed in", the one answer that
 makes a deferral look unnecessary.
+
+**S4p — A DISTINGUISHABLE STATE IS A FIELD, NOT A PREDICATE OVER A CODE RANGE.**
+S4o (`f5688fb8`) replaced the composed ground with a record, `logos.std.wql.why::Why`,
+because `nperm == 0` meant two things. The record then derived the census state from
+the numeric RANGE of the ground code — `why_axis_of`: 0–9 `AX_NONE`, 10–19
+`AX_REFUSED`, 20+ `AX_SEARCHED` — and its own doc argued that this was the safer
+shape, since a state stored beside a code is "a second place to be wrong". THE CURE
+CARRIED THE DISEASE. `WG_AGG` is 6, so nine corpus plans announced *"ORDER AXIS NOT
+ENTERED (`axis()` 0): this query has no join whose order a plan could choose"* one
+trace line under their own `[plan] d -> hash join on i64`
+(`wql_join_group_e2e::region_totals`, `big_regions`, `by_region`, `join_rowvar`,
+`region_stats`, `joined_means`, `kind_hist`, `census`; two of them carrying an
+`order by` as well). Not confined to that ground: `where 1 > 2` over a join reaches
+the same sentence on `WG_FALSE_FILTER`.
+
+The defect is not the band `WG_AGG` was put in, and moving it repeats the mistake with
+a different number. A range COUPLES TWO INDEPENDENT DECISIONS — what the ground is, and
+which state it was reached in — into one number, and the second changes silently when
+the first is extended. There is no function from ground to state to write: the same
+ground legitimately occurs in two states, because an aggregate over a bare scan has no
+order axis while an aggregate over a join has one and this ground is what refused it.
+
+`Why.axis` is therefore a FIELD, and `why_axis_of` is deleted. `why_of(g, ax)` takes
+the state as a parameter (a default would be a band by another name) and `why_set(w, g,
+ax)` is the only write of the verdict, so a re-grounding in flight — `join_order`
+re-grounds three times — cannot leave a stale state. The shape emitters supply it from
+the linearized chain (`chain_axis(ch.n)`), which is the only thing that knows: those
+paths never call `decide_join_orders`. `wql_plan_census_e2e` asserts the refutation
+directly — `agg_scan` and `agg_join` carry the SAME ground and the SAME
+`enumerated()`/`proved()`/`considered()`, and differ in `axis()`.
+
+⚠ AND THE SAME CLASS ONE LEVEL UP IN REFLECTION, found in the same round. The previous
+round installed `resolve_alias_name` for a struct's FIELD types and stopped there; the
+ELEMENT type naming the struct stayed a spelling, and `find_decl_by_name` matches on the
+name with no kind check — so `type Prec = Rec;` answered with the TYPE_ALIAS node, whose
+field count is 0, and every field silently kept the i64 baseline. Measured one token
+apart: `as_: &[Rec]` with `order by a.s` is correctly refused (`WG_KEY_ORDER`, operand
+`f64`, `considered()` 0); `as_: &[Prec]` reported `WG_ADMITTED`, carried four nests on a
+key the sort cannot realize, and the build then failed `expected i64, got f64`. A wrong
+plan and a broken artifact from a `type` declaration. `reflect::find_struct_decl`
+resolves the spelling and then requires an item that HAS fields (allowlist: `STRUCT`
+50, `SCHEMA_DEF` 256) — one function, so a new call site cannot forget it — and the
+remaining spelling reads (`trama_render` ctx/param/loop-element types, `plan_walker`'s
+traversal path, the byval traversal element type, the declared rel column type in the
+select check) go through the resolver where they are read. `wql_alias_element_e2e`
+holds it: an aliased element, a two-hop chain and the direct spelling produce the same
+ground, the same operand, the same census and the SAME `explain()` text.
+
+**S4q — THE JUSTIFICATION IS FREE FOR A CALLER WHO DOES NOT ASK, AND THE PREVIOUS COST
+CLAIM WAS WRONG BY TWO ORDERS OF MAGNITUDE.**
+
+⚠ CORRECTION OF RECORD. `f5688fb8` asserted *"Linked with --gc-sections: +8 bytes"*.
+Independent re-measurement of the LOADED IMAGE (`size`: text+data+bss) found +1168 on
+`wql_deferred_plan_e2e`, +784 on `wql_join_order_multi_e2e`, +48..+576 on others, with
+the per-plan `why` literal growing 214→384, 293→463, 543→836 (~+34%, ~+200 B/plan). The
++8 came from reading total FILE size — which had fallen ~160 bytes because
+`.debug_str`/`.debug_line_str` shrank for unrelated reasons — and from measuring only at
+-O2 while the suite compiles at -O0, where the growth is strictly larger. Nothing in the
+gates could see the claim, so the next round inherited it as fact. Two rules follow:
+measure the loaded image at the level the suite uses, and PIN what you assert.
+
+The claim could not have been true in any case: `prepare` STORED the rendered text into
+the plan, so the literal was written by a live constructor and `--gc-sections` cannot
+reach it. That "every plan carries its prose as a string literal in the binary" was
+never a stated design choice, and it is the wrong one for a caller shipping thousands of
+queries.
+
+THE DECISION: keep the justification whole — it is the deliverable, and Victor's bar is
+a DL reasoner's justification UX — and move it off the construction path. `explain()`
+becomes a CONSTANT-RETURNING METHOD, the rule `axis()`/`ground()`/`operand()`/`proved()`
+already follow; the `why: str` field leaves all four plan shapes and the store leaves
+every `prepare` body. The text is byte-identical and always available; what changed is
+that it is reachable only from `explain`.
+
+MEASURED, -O0 (the level the suite compiles at), `--gc-sections`, loaded image, two
+programs differing in ONE expression — five plans constructed and five queries run in
+both, then either five `explain()` reads or five `ground()` reads:
+
+| | at `df129585` | after | justification literals present |
+|---|---|---|---|
+| calls `explain()` | 32888 | 32360 | 5 → 5 |
+| never calls `explain()` | 32792 | 29416 | 5 → **0** |
+
+At HEAD both programs carried all five literals and differed by 96 bytes; now the
+non-explaining one links none of the prose and is 2944 bytes smaller. A caller who does
+ask still saves the field (16 bytes per plan VALUE) and the store.
+`tests/logos/why_size_gate.sh` pins BOTH halves — the prose must be present for the
+program that asks and absent from the one that does not — because a gate that only
+rewarded shrinkage would be satisfied by deleting the justification.
 
 **S5 — CODEGEN AS A CONSUMER.** Emitters read the IR instead of deciding.
 `push_text` gives way to quotes, which also settles the standing debt that

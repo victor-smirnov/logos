@@ -41,19 +41,40 @@
 //   AX_SEARCHED  the derivation ran: `enumerated()` permutations walked,
 //                `proved()` admissible, `considered()` carried as candidates.
 //
-// ⚠ AND IT IS DERIVED FROM `ground`, NOT STORED BESIDE IT. A state field set next to
-// a code is a second place to be wrong; `why_axis_of` is a partition of the code
-// space, so a new ground lands in a state by the number it is given and cannot land
-// in two.
+// ⚠⚠ AND IT IS A FIELD, WRITTEN BY THE DECISION. This paragraph used to say the
+// opposite — "derived from `ground`, not stored beside it; a state field set next to a
+// code is a second place to be wrong" — and the reasoning was the defect. It is true
+// that a derived state cannot contradict the ground; what it can contradict is the
+// QUERY, and it did. `why_axis_of` partitioned the CODE SPACE (0–9 no axis, 10–19
+// refused, 20+ searched), `WG_AGG` is 6, and nine corpus plans with an explicit join
+// announced "this query has no join whose order a plan could choose" one trace line
+// under their own `hash join on i64`. A range couples two independent decisions — what
+// the ground is, and which state it was reached in — into one number, and the second
+// moves silently when the first is extended.
+//
+// There is no function from ground to state to write, because the same ground occurs
+// in two states: an aggregate over a bare scan has no order axis, an aggregate over a
+// join has one and this ground is what refused it. `Why.axis` is the only answer,
+// `why_set` is the only write of the verdict, and `why_of` takes the state as a
+// PARAMETER — a default would be a band by another name (ADR 0024 S4p).
 //
 // ── WHAT THE PLAN PAYS FOR THIS ──────────────────────────────────────────────
-// NOTHING. The record is a COMPILE-TIME value: it lives in the metaprogram, it is
-// rendered once where the plan literal is written, and what reaches the artifact is
-// the same `why: str` field that was there before plus four CONSTANT-RETURNING
-// METHODS (`axis`, `ground`, `operand`, `refused`). A plan struct gains no field and
-// a `prepare` gains no store — the rule `has_tbl` and `proved()` already follow, and
-// the reason it matters is `156ead4e`: a query with no choice must not pay for the
-// apparatus of justifying a choice.
+// NOTHING IT DID NOT ASK FOR. The record is a COMPILE-TIME value: it lives in the
+// metaprogram, it is rendered once where the plan's type is emitted, and what reaches
+// the artifact is FIVE CONSTANT-RETURNING METHODS — `axis`, `ground`, `operand`,
+// `refused`, and since S4q `explain` too. A plan struct gains no field and a `prepare`
+// gains no store, the rule `has_tbl` and `proved()` already follow.
+//
+// ⚠ `explain()` USED TO BE A FIELD, AND THE ROUND THAT MADE IT ONE CLAIMED IT COST
+// +8 BYTES. It did not: the claim measured total FILE size at -O2, where `.debug_str`
+// had shrunk for unrelated reasons, while the suite compiles at -O0. The LOADED image
+// (text+data+bss) grew +1168 bytes on `wql_deferred_plan_e2e`. And it could not have
+// been free by construction — `prepare` STORED the text into the plan, so a live
+// constructor referenced the literal and `--gc-sections` could never drop it.
+// Measured after: a program that constructs five plans and never calls `explain()`
+// links ZERO justification literals (was five) and is 2944 bytes smaller;
+// `tests/logos/why_size_gate.sh` pins both halves. The text itself is unchanged —
+// the justification is the deliverable, and what moved is only who pays for it.
 //
 // ── AND THE LIFETIME PROBLEM GOES AWAY WITH THE SENTENCES ────────────────────
 // A composed ground used to be a `str` VIEW INTO A CALLER'S BUFFER, held from the
@@ -75,9 +96,26 @@ pub fn AX_REFUSED() -> i32  { return 1i32; }
 pub fn AX_SEARCHED() -> i32 { return 2i32; }
 
 // ── THE GROUNDS: WHICH ANTECEDENT FAILED ─────────────────────────────────────
-// The number RANGE is the state (see `why_axis_of`), so the codes are grouped and
-// the gaps are deliberate: 0–9 no axis, 10–19 refused before enumeration, 20+ the
-// derivation ran.
+// A GROUND IS A CODE AND NOTHING ELSE. The numbers are still grouped and the gaps
+// are still there, because a reader scanning the list wants like beside like — but
+// NOTHING READS THE RANGE, and the grouping carries no meaning a program may act on.
+//
+// ⚠⚠ IT USED TO, AND THAT WAS THIS AXIS'S FOURTH JUSTIFICATION DEFECT, INSIDE ITS
+// OWN CURE. `why_axis_of` mapped 0–9 to `AX_NONE`, 10–19 to `AX_REFUSED`, 20+ to
+// `AX_SEARCHED`, and the census state was therefore a PREDICATE OVER A CODE RANGE.
+// That couples two independent decisions into one number — WHAT the ground is, and
+// WHICH STATE the query is in — and the second changes silently when the first is
+// extended. Measured at `df129585`: `WG_AGG` (6) sits in the "no axis" band, so
+// `wql_join_group_e2e::region_totals` — a query whose own trace line one row above
+// reads `[plan] d -> hash join on i64` — announced "this query has no join whose
+// order a plan could choose". Nine corpus plans, two of them carrying an `order by`
+// as well; a `where 1 > 2` over a join reached the same sentence on `WG_FALSE_FILTER`.
+//
+// The same ground legitimately occurs in TWO states: an aggregate over a bare scan
+// has no order axis, an aggregate over a join has one and refuses it. No assignment
+// of `WG_AGG` to a band can be right for both, so the band is gone: `Why.axis` is a
+// FIELD, written by the code that knows whether the query has a join (ADR 0024 S4p).
+// Adding a ground now cannot move any plan's state.
 //
 // ⚠ `WG_UNSET` IS A DEFECT, NOT A GROUND. It is what an unfilled record holds, and
 // every renderer names it as one rather than falling through to a neighbour's
@@ -106,14 +144,11 @@ pub fn WG_REFUSED() -> i32      { return 21i32; }
 pub fn WG_ADMITTED() -> i32     { return 22i32; }
 pub fn WG_DEFERRED() -> i32     { return 23i32; }
 
-/// THE STATE IS A PARTITION OF THE CODE SPACE. A ground belongs to exactly one
-/// census state by the number it was given, so "which state is this plan in" has one
-/// answer and no field can contradict it.
-pub fn why_axis_of(g: i32) -> i32 {
-    if g >= 20i32 { return AX_SEARCHED(); }
-    if g >= 10i32 { return AX_REFUSED(); }
-    return AX_NONE();
-}
+// ⚠ `why_axis_of(g)` USED TO LIVE HERE AND IS DELIBERATELY GONE. There is no
+// function from a ground to a state, because there is no such function to write:
+// `WG_AGG` is `AX_NONE` over a bare scan and `AX_REFUSED` over a join, and the same
+// holds for `WG_FALSE_FILTER` and `WG_FALSE_PRED`. Anything reconstructing the state
+// from the code would be reintroducing the coupling; `Why.axis` is the only answer.
 
 // ── WHY POINT (1) COULD OR COULD NOT MEASURE A SIDE ──────────────────────────
 // The per-side size classification, moved here from `join_order` with the rest of
@@ -150,6 +185,14 @@ pub fn RJ_N() -> i64        { return 8i64; }
 /// counted. Nothing here is derivable-and-derived twice.
 ///
 /// `ground`  WHICH ANTECEDENT FAILED (`WG_*`). The whole verdict in one number.
+/// `axis`    THE CENSUS STATE (`AX_*`) — was there an order axis at all, was it
+///           entered and refused before enumeration, did the derivation run. A
+///           FIELD, written by the decision, and INDEPENDENT of `ground`: the same
+///           ground occurs in two states (an aggregate over a scan has no axis; an
+///           aggregate over a join has one and refuses it), so no function of the
+///           code can supply it. ⚠ Every write of `ground` goes through `why_set`,
+///           which writes both — a ground assigned on its own would leave a stale
+///           state, which is the defect this field exists to end.
 /// `nfl`     floatable sources — the operand of `WG_MAX_FL` and the width of the
 ///           per-side arrays below.
 /// `nperm`   permutations ENUMERATED. 0 in both `AX_NONE` and `AX_REFUSED`, which
@@ -180,6 +223,7 @@ pub fn RJ_N() -> i64        { return 8i64; }
 ///           will be compared.
 pub struct Why {
     pub ground: i32,
+    pub axis:   i32,
     pub nfl:    i64,
     pub nperm:  i64,
     pub nadm:   i64,
@@ -199,18 +243,37 @@ pub struct Why {
 /// An UNSET record — `WG_UNSET`, which every renderer names as a defect. One nest is
 /// the floor because a query that emitted none would have no body.
 pub fn why_new() -> Why {
-    return Why { ground: WG_UNSET(), nfl: 0i64, nperm: 0i64, nadm: 0i64,
+    return Why { ground: WG_UNSET(), axis: AX_NONE(), nfl: 0i64, nperm: 0i64, nadm: 0i64,
                  ncand: 0i64, nnest: 1i64, rjn: [0i64; 8],
                  key: "", keywhy: "", nsd: 0i64,
                  scode: [0i32; 4], ssrc: ["", "", "", ""], srep: [0i64; 4],
                  sfirst: [false; 4], ssz: ["", "", "", ""] };
 }
 
+/// THE ONE WRITE OF THE VERDICT — the ground AND the state it was reached in, set
+/// together because they are two independent facts about one decision and a write of
+/// either alone is a record that can contradict itself.
+///
+/// ⚠ THIS IS WHY IT IS A FUNCTION AND NOT TWO ASSIGNMENTS. `join_order` re-grounds a
+/// record in flight (a derivation that ran, then declined; a deferral discovered
+/// after the enumeration), and every one of those sites used to write `w.ground`
+/// alone. With the state stored, `w.ground = g` on its own is exactly the drift the
+/// field was introduced to prevent, so no site does it: they call this.
+pub fn why_set(w: &mut Why, g: i32, ax: i32) {
+    w.ground = g;
+    w.axis = ax;
+}
+
 /// The record of a decision with ONE operand — the code — which is every ground
 /// whose antecedent mentions nothing the query can vary.
-pub fn why_of(g: i32) -> Why {
+///
+/// ⚠ THE STATE IS A PARAMETER, NOT A DEFAULT. A default would be a band by another
+/// name: the caller that knows the shape of the query is the only thing that knows
+/// whether the axis existed, and making it say so is what stops the next ground
+/// added to the table from inheriting a neighbour's census.
+pub fn why_of(g: i32, ax: i32) -> Why {
     let mut w: Why = why_new();
-    w.ground = g;
+    why_set(&mut w, g, ax);
     return w;
 }
 
@@ -218,14 +281,14 @@ pub fn why_of(g: i32) -> Why {
 /// its emitted comparison fails. Both are carried, not re-asked — the plan's
 /// `operand()` answers the first, and a reader who disagrees with the verdict can
 /// check it against the type they wrote.
-pub fn why_key(tn: str, why: str) -> Why {
-    let mut w: Why = why_of(WG_KEY_ORDER());
+pub fn why_key(tn: str, why: str, ax: i32) -> Why {
+    let mut w: Why = why_of(WG_KEY_ORDER(), ax);
     w.key = tn;
     w.keywhy = why;
     return w;
 }
 
-pub fn why_axis(w: &Why) -> i32 { return why_axis_of(w.ground); }
+pub fn why_axis(w: &Why) -> i32 { return w.axis; }
 
 /// THE OPERAND A PROGRAM CAN READ — one `str`, because one is what a plan can carry
 /// as a constant and because every ground has at most one operand that is not a
@@ -679,6 +742,12 @@ fn push_defer_ground(w: &Why, out: &mut String) {
 /// whose own ground, one clause earlier, said which antecedent of the axis had
 /// refused them: the clause is selected by `why_axis`, so a refusal cannot be
 /// described as an absence.
+///
+/// ⚠ AND `why_axis` IS NOW A FIELD READ. It was a range test over the ground code for
+/// one round, and that round put `WG_AGG` in the absence band: nine plans with an
+/// explicit join were told they had none. The clause below is unchanged; what changed
+/// is that the thing selecting it is a fact the decision recorded rather than a fact
+/// re-derived from how the grounds happen to be numbered.
 fn push_census(w: &Why, out: &mut String) {
     let ax: i32 = why_axis(w);
     if ax == AX_NONE() {

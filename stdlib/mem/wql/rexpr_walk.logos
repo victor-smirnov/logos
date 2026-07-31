@@ -395,7 +395,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
 // ⚠ THIS IS PER CALL, NOT PER ROW. The per-row body never touched `tbl`; what was
 // paid was one plan construction per invocation — which is exactly what hurts a
 // point-get query called in an application loop.
-fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
+fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why, why_text: str) {
     let nm: Ident = Ident::new(tyn);
     // The census is a COMPILE-TIME number, so it is emitted as a constant-returning
     // method and not as a field: a plan pays nothing per call to carry it, which is
@@ -415,8 +415,30 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
     push_str_lit(&mut opb, why_operand(w));
     let op: ExprBlob = parse_expr(string_as_str(&opb));
     let rf: ExprBlob = refused_body(w);
+    // ── AND THE PROSE IS A CONSTANT TOO (ADR 0024 S4q) ──────────────────────
+    // ⚠ IT USED TO BE A FIELD, AND THAT MADE EVERY CALLER PAY FOR IT. `prepare`
+    // STORED the rendered justification into the plan, so the literal was reachable
+    // from the constructor of every plan whether or not anything ever asked for it —
+    // which is why `f5688fb8`'s claim that `--gc-sections` absorbed the growth could
+    // not be true: the linker cannot drop a string a live constructor writes. Measured
+    // at -O0 (the level the suite compiles at), on the LOADED IMAGE (`size`,
+    // text+data+bss) rather than the file: that round cost +1168 bytes on
+    // `wql_deferred_plan_e2e` and +784 on `wql_join_order_multi_e2e`, not the +8 it
+    // asserted from total file size at -O2.
+    //
+    // ⚠ THE ANSWER IS NOT A SHORTER JUSTIFICATION. Victor's bar is a DL reasoner's
+    // justification UX and the text is the deliverable; what was never a stated
+    // design choice is that a caller who never asks should carry it. As a constant
+    // returned BY `explain()` the text is byte-identical and always available, the
+    // plan loses a `str` field (16 bytes per plan VALUE, per call), `prepare` loses a
+    // store, and the literal is reachable only through `explain` — so a program that
+    // does not explain its plans links none of it. `tests/logos/why_size_gate.sh`
+    // measures that difference and fails if it stops holding.
+    let mut wb: String = String::new();
+    push_str_lit(&mut wb, why_text);
+    let ex: ExprBlob = parse_expr(string_as_str(&wb));
     if !has_tbl {
-        emit_prepared_type_no_tbl(tyn, is_priv, np, na, ax, gr, op, rf);
+        emit_prepared_type_no_tbl(tyn, is_priv, np, na, ax, gr, op, rf, ex);
         return;
     }
     if is_priv {
@@ -433,7 +455,6 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
                 pub n2:          i64,
                 pub n3:          i64,
                 pub tbl:         JCTable,
-                pub why:         str,
             }
             impl #nm {
                 // ⚠ EVERY ONE OF THESE DELEGATES. The cost model is one function in
@@ -488,7 +509,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
-                pub fn explain(&self) -> str { return self.why; }
+                pub fn explain(&self) -> str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -506,7 +527,6 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
                 pub n2:          i64,
                 pub n3:          i64,
                 pub tbl:         JCTable,
-                pub why:         str,
             }
             impl #nm {
                 // ⚠ EVERY ONE OF THESE DELEGATES. The cost model is one function in
@@ -561,7 +581,7 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
                     return jc_margin(&self.tbl, self.order_ix, self.base_n, self.step_n, self.n2, self.n3);
                 }
                 pub fn settled(&self) -> bool { return !self.defer_order; }
-                pub fn explain(&self) -> str { return self.why; }
+                pub fn explain(&self) -> str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -585,7 +605,8 @@ fn emit_prepared_type(tyn: str, is_priv: bool, has_tbl: bool, w: &Why) {
 /// unconditional — the constant-folded form of the general bodies, which for
 /// `dyn_order == false` / `defer_order == false` return exactly these.
 fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob,
-                             ax: ExprBlob, gr: ExprBlob, op: ExprBlob, rf: ExprBlob) {
+                             ax: ExprBlob, gr: ExprBlob, op: ExprBlob, rf: ExprBlob,
+                             ex: ExprBlob) {
     let nm: Ident = Ident::new(tyn);
     if is_priv {
         let q: QuoteItemBlob = quote_item! {
@@ -600,7 +621,6 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub step_n:      i64,
                 pub n2:          i64,
                 pub n3:          i64,
-                pub why:         str,
             }
             impl #nm {
                 pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
@@ -617,7 +637,7 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
-                pub fn explain(&self) -> str { return self.why; }
+                pub fn explain(&self) -> str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -634,7 +654,6 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub step_n:      i64,
                 pub n2:          i64,
                 pub n3:          i64,
-                pub why:         str,
             }
             impl #nm {
                 pub fn order_pick(&self, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
@@ -651,7 +670,7 @@ fn emit_prepared_type_no_tbl(tyn: str, is_priv: bool, np: ExprBlob, na: ExprBlob
                 pub fn agrees(&self, fresh: &#nm) -> bool { return true; }
                 pub fn margin(&self) -> i64 { return jc_none_margin(); }
                 pub fn settled(&self) -> bool { return true; }
-                pub fn explain(&self) -> str { return self.why; }
+                pub fn explain(&self) -> str { return #(ex); }
             }
         };
         unsafe { logos_emit_item_blob_subst(&q); }
@@ -805,7 +824,16 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // fill it, `prep_fixed` and `prep_off` leave it empty — so the field's presence
     // on the type and its presence in the struct literal cannot disagree.
     let has_tbl: bool = prep.tbl.len() > 0i64;
-    emit_prepared_type(tyn, is_priv, has_tbl, &prep.w);
+    // ⚠ ONE RENDER, THREE DESTINATIONS, ONE FUNCTION — and the buffer outlives all
+    // three. `why_render` is the same call `join_order::jo_report` makes over the
+    // same record, so `explain()`'s constant, the `[plan]` trace line and the
+    // deferred appendix are the SAME TEXT. Declared here because `push_str_lit`
+    // escapes a view of it inside `emit_prepared_type` and `plan_trace` reads it at
+    // the bottom of this fn: one frame, whole fn, which is the lifetime discipline
+    // this module has carried since a composed ground was printed from freed memory.
+    let mut whyb: String = String::new();
+    why_render(&prep.w, &mut whyb);
+    emit_prepared_type(tyn, is_priv, has_tbl, &prep.w, string_as_str(&whyb));
 
     // The derived fns keep the query's own visibility marker where they are
     // EMITTED and drop it where they are CALLED: the marker is a directive to
@@ -838,11 +866,11 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     // plan carries and the `[plan]` line a reader sees are the SAME TEXT. Before this
     // they were two texts from two composers, and they disagreed (`q5`).
     //
-    // ⚠ AND ITS LIFETIME IS ONE STATEMENT. The buffer is declared here because
-    // `push_str_lit` reads it below and because nothing else does: the record holds
-    // no composed `str`, so no ground has to survive the decision any more.
-    let mut whyb: String = String::new();
-    why_render(&prep.w, &mut whyb);
+    // ⚠ AND `prepare` DOES NOT WRITE IT ANY MORE (ADR 0024 S4q). The render is done
+    // once at the top of this fn and reaches the artifact through `explain()`'s
+    // constant body; what `prepare` builds is the FACTS. A store of ~200 bytes of
+    // prose per plan construction was the one part of the justification apparatus a
+    // caller paid for without asking — see `emit_prepared_type`.
     let mut pb: String = String::new();
     pb.push_str("{\n");
     if prep.dynamic {
@@ -853,9 +881,7 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         pb.push_str(";\n    let __ix: i64 = jc_order_pick(&__tb, __n0, __n1, __n2, __n3);\n");
         pb.push_str("    return ");
         pb.push_str(tyn);
-        pb.push_str(" { dyn_order: true, defer_order: false, swap: (__ix == 1i64), order_ix: __ix, base_n: __n0, step_n: __n1, n2: __n2, n3: __n3, tbl: __tb, why: ");
-        push_str_lit(&mut pb, string_as_str(&whyb));
-        pb.push_str(" };\n");
+        pb.push_str(" { dyn_order: true, defer_order: false, swap: (__ix == 1i64), order_ix: __ix, base_n: __n0, step_n: __n1, n2: __n2, n3: __n3, tbl: __tb };\n");
     } else {
         // No fact was measured, so none is reported: -1 is "not asked", which a
         // caller can tell apart from an empty source.
@@ -889,12 +915,11 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
             pb.push_str(", tbl: ");
             pb.push_str(prep.tbl);
         }
-        pb.push_str(", why: ");
-        // ⚠ NOTHING IS APPENDED TO THE RENDERED GROUND HERE — not the deferred
+        // ⚠ NOTHING IS APPENDED TO THE RENDERED GROUND ANYWHERE — not the deferred
         // size list, not the table's absence. Both used to be this emitter's own
         // additions to its own copy, which is precisely why the plan and the
         // `[plan] … -> drive …` line disagreed on 66 of 81 join-order decisions.
-        // `why_render` produces the whole justification and both channels print it.
+        // `why_render` produces the whole justification and every channel prints it.
         //
         // ⚠ AND THE ABSENCE OF A TABLE IS NOT ASSERTED FROM A COUNT ANY MORE. That suffix was
         // this emitter's own sentence about a search this emitter did not run, keyed
@@ -903,7 +928,6 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
         // and one (`q5`) whose ground said eight orders were proved legal. The census
         // clause is inside `why_render`, selected by `why_axis`, so the state and the
         // ground come out of one record and cannot contradict each other.
-        push_str_lit(&mut pb, string_as_str(&whyb));
         pb.push_str(" };\n");
     }
     pb.push_str("}\n");
@@ -1373,7 +1397,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
         quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
-                  prep_ground(WG_FALSE_FILTER()));
+                  prep_ground(WG_FALSE_FILTER(), input_axis(scan_e)));
     return true;
 }
 
@@ -1396,7 +1420,7 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // the list the chunk route builds for every other emitter.
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
                   quote_block! { return Result::Ok(Option::None); }, prm,
-                  prep_ground(WG_FALSE_PRED()));
+                  prep_ground(WG_FALSE_PRED(), input_axis(scan_e)));
     return true;
 }
 
@@ -1425,7 +1449,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
         return Result::Ok(Option::None);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
-                  prep_ground(WG_HEAD()));
+                  prep_ground(WG_HEAD(), input_axis(scan_e)));
     return true;
 }
 
@@ -1451,7 +1475,7 @@ fn emit_identity(scan_e: RExpr,
     let s1: ExprBlob = parse_expr(src_name);
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
                   quote_block! { return Result::Ok(#(s1)); }, prm,
-                  prep_ground(WG_IDENTITY()));
+                  prep_ground(WG_IDENTITY(), input_axis(scan_e)));
     return true;
 }
 
@@ -1835,7 +1859,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         #(tail_f);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_ground(WG_SCAN()));
+                  prep_ground(WG_SCAN(), input_axis(scan_e)));
     return true;
 }
 
@@ -1904,7 +1928,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_ground(WG_SCAN()));
+                  prep_ground(WG_SCAN(), input_axis(scan_e)));
     return true;
 }
 
@@ -2011,6 +2035,33 @@ fn jchain_new() -> JChain {
                     jkey:   [0i32; 8],
                     jsel:   [-1i64; 8],
                     jwhy:   ["", "", "", "", "", "", "", ""] };
+}
+
+// ── WAS THERE AN ORDER AXIS AT ALL? (ADR 0024 S4p) ───────────────────────────
+/// THE CENSUS STATE OF A SHAPE THAT NEVER CALLS `decide_join_orders`. `AX_REFUSED`
+/// where the query has at least one join step — the axis exists and the emitter's
+/// ground is what refused it — and `AX_NONE` where it has none.
+///
+/// ⚠⚠ THIS EXISTS BECAUSE THE STATE WAS READ OFF THE GROUND CODE'S RANGE FOR A ROUND
+/// AND THE READING WAS WRONG. Three of the grounds these emitters record — `WG_AGG`,
+/// `WG_FALSE_FILTER`, `WG_FALSE_PRED` — apply to a bare scan and to a join chain
+/// alike, so no assignment of them to a band can be right for both, and the band they
+/// were in said "no axis": `wql_join_group_e2e::region_totals` and eight more corpus
+/// plans announced "this query has no join whose order a plan could choose" one trace
+/// line under their own `[plan] d -> hash join on i64`, two of them while carrying an
+/// `order by`. The shape emitter holds the chain and is the only thing that knows.
+fn chain_axis(n: i64) -> i32 {
+    if n > 0i64 { return AX_REFUSED(); }
+    return AX_NONE();
+}
+
+/// The same question asked of an un-linearized input. `emit_aggregate` and
+/// `emit_join_chain` already hold a `JChain` and pass `ch.n` to `chain_axis`
+/// directly; the thin emitters do not, so they walk the spine once here.
+fn input_axis(e: RExpr) -> i32 {
+    let mut ch: JChain = jchain_new();
+    collect_chain(e, &mut ch);
+    return chain_axis(ch.n);
 }
 
 // Walk the left spine of the binary join tree: the recursion bottoms out at
@@ -2955,7 +3006,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: the VAR NAME itself carries the
         // element's value type (referenced bare in the EL clauses).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
+        // ⚠ THROUGH THE ALIAS TABLE. A traversal step's element type is a DECLARED
+        // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
+        // unknown name and takes its INT default — the same class of defect as the
+        // element type of a source parameter (see `reflect::find_struct_decl`).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);
@@ -3393,7 +3448,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
+        // ⚠ THROUGH THE ALIAS TABLE. A traversal step's element type is a DECLARED
+        // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
+        // unknown name and takes its INT default — the same class of defect as the
+        // element type of a source parameter (see `reflect::find_struct_decl`).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);
@@ -3800,7 +3859,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return Result::Ok(__out);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
-                  prep_ground(WG_AGG()));
+                  prep_ground(WG_AGG(), chain_axis(ch.n)));
     return true;
 }
 
@@ -4207,7 +4266,7 @@ fn is_bound_var(name: str, vars: &[str; 9], nvars: i64) -> bool {
 // (bare row-var) components, no owned-String components (a str column stores
 // a borrowed view; the call's String temporary would dangle). Errors are
 // NAMED per rel/column. Returns false with the error surfaced.
-fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes,
+fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTypes,
                  vars: &[str; 9], nvars: i64) -> bool {
     let rel_name: str = prm.rel_names[ri];
     let nc: i64  = prm.rel_ccnt[ri];
@@ -4231,7 +4290,7 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes,
                 while k < nc {
                     let comp: SExpr = items.arg_at(k);
                     if !rel_select_comp_ok(comp, rel_name, prm.relc_name[off + k],
-                                           prm.relc_ty[off + k], t, vars, nvars) { return false; }
+                                           prm.relc_ty[off + k], view, t, vars, nvars) { return false; }
                     k = k + 1i64;
                 }
             }
@@ -4258,12 +4317,12 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes,
         return false;
     }
     return rel_select_comp_ok(proj, rel_name, prm.relc_name[off],
-                              prm.relc_ty[off], t, vars, nvars);
+                              prm.relc_ty[off], view, t, vars, nvars);
 }
 
 // One select component vs its declared column: whole-row / String / type.
 fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
-                      t: &ElTypes, vars: &[str; 9], nvars: i64) -> bool {
+                      view: &OView, t: &ElTypes, vars: &[str; 9], nvars: i64) -> bool {
     let rn: str = root_ident_name(comp);
     if rn.len() > 0i64 && is_bound_var(rn, vars, nvars) {
         let mut m: String = String::new();
@@ -4290,7 +4349,12 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         return false;
     }
     let got: i32  = infer_ty(comp, t);
-    let want: i32 = el_ty_of_name(col_ty);
+    // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and `infer_ty` answers from an
+    // `ElTypes` whose names went through `resolve_alias_name` at stamping time — so
+    // comparing the two without resolving this one compares a resolved answer with
+    // an unresolved question. `type Ratio = f64;` on a column would take
+    // `el_ty_of_name`'s INT default and admit an i64 component.
+    let want: i32 = el_ty_of_name(resolve_alias_name(view, col_ty));
     if got != want {
         let mut m2: String = String::new();
         m2.push_str("wql!: rel '");
@@ -4398,7 +4462,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
 
     let proj_opt: SExpr = simplify_sexpr(s.select_expr(), h).any().view::<SExpr>();
     if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
-    if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, 1i64) { return false; }
+    if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, 1i64) { return false; }
     // Aggregate MEMBER (recursive min/max): its bodies — including seed scans —
     // absorb `(key, val)` into the best-map, not the set shadow. Split the select
     // tuple into the two lattice operands.
@@ -4552,7 +4616,11 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
         stamp_types_from_schema(&view, &mut ty, ch.ty[si]);
         stamp_rel_source(&mut ty, &view, prm, ch.src[si], ch.var[si]);
         // Scalar-element traversal var: name → element value type (bare refs).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(ch.ty[si])); }
+        // ⚠ THROUGH THE ALIAS TABLE. A traversal step's element type is a DECLARED
+        // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
+        // unknown name and takes its INT default — the same class of defect as the
+        // element type of a source parameter (see `reflect::find_struct_decl`).
+        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);
@@ -4620,7 +4688,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     } else {
         let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
         if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
-        if !rel_select_ok(proj_opt, ri, prm, &ty, &vars, nv) { return false; }
+        if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, nv) { return false; }
         emit_sexpr(&mut proj_body, proj_opt, &ty, ch.base_var);
     }
     let mut where_body: String = String::new();

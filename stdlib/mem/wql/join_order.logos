@@ -290,8 +290,15 @@ fn jo_why(w: Why) -> JoinOrder {
 /// refusal whose antecedent mentions nothing the query can vary. What used to be a
 /// sentence passed here is now the code that selects it, so the sentence exists in
 /// exactly one place (`why::wg_words`) and the decision records which one applies.
-fn jo_ground(g: i32) -> JoinOrder {
-    return jo_why(why_of(g));
+///
+/// ⚠ THE CENSUS STATE IS AN ARGUMENT (ADR 0024 S4p). It used to be read off the
+/// ground's NUMBER, which made "which state is this" a property of how the grounds
+/// happen to be laid out rather than of what this function's caller just decided.
+/// Every call below is inside `decide_join_orders`, which runs only where the query
+/// HAS a join — so all but one of them pass `AX_REFUSED`, and the one that does not
+/// (`WG_NO_STEP`) is the one place the axis genuinely does not exist.
+fn jo_ground(g: i32, ax: i32) -> JoinOrder {
+    return jo_why(why_of(g, ax));
 }
 
 /// A source's SIZE, as an expression evaluable in the PREPARE fn — that is,
@@ -837,22 +844,28 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
 pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
                           prm: &MacroParams, h: &Writ,
                           szs: &mut [String; 4], ats: &mut [i64; 4]) -> JoinOrder {
-    let mut jo: JoinOrder = jo_ground(WG_UNSET());
+    let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
     let base_var: str = c.var[0];
     let s0_var: str = c.var[1];
     if c.n < 1i64 {
-        return jo_ground(WG_NO_STEP());
+        // ⚠ THE ONE `AX_NONE` ON THIS PATH, and it is the honest one: no step means
+        // no second side, hence no order for a plan to choose. It read `AX_REFUSED`
+        // while the state was a band over the code (`WG_NO_STEP` is 10), which said
+        // "entered and refused" of a query that has nothing to enter. Defensive —
+        // `emit_join_chain` is the only caller and it has a chain — but a defence
+        // that lies is worse than none.
+        return jo_ground(WG_NO_STEP(), AX_NONE());
     }
     // ⚠ THE FIRST STEP'S PIN, ahead of the derivation and on purpose — see the
     // header. The general constraint C4 reaches the same conclusion on every shape
     // in the corpus; keeping the specific antecedent is what tells a reader WHICH
     // property of their query stopped the reorder.
     if c.edge[1] {
-        jo = jo_ground(WG_EDGE_FIRST());
+        jo = jo_ground(WG_EDGE_FIRST(), AX_REFUSED());
     } else if c.anti[1] {
-        jo = jo_ground(WG_ANTI_FIRST());
+        jo = jo_ground(WG_ANTI_FIRST(), AX_REFUSED());
     } else if !has_sort {
-        jo = jo_ground(WG_NO_SORT());
+        jo = jo_ground(WG_NO_SORT(), AX_REFUSED());
     } else if !el_order_faithful(key_tn) {
         // C1's SECOND antecedent. `order by` is present, so a sequence is named —
         // but the sort restores THAT sequence only if the comparison the backend
@@ -866,7 +879,7 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
         // fails; both go onto the record, so the plan's `operand()` answers the first
         // and a reader can check the verdict against the type they wrote. Composing
         // them here is what needed the caller's buffer.
-        jo = jo_why(why_key(key_tn, el_order_why(key_tn)));
+        jo = jo_why(why_key(key_tn, el_order_why(key_tn), AX_REFUSED()));
     } else {
         // C2 — for EVERY step, not only the first: a chain with one undecided step
         // has no recorded strategy to reason from at that position, and C6 is a
@@ -878,7 +891,7 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, t: &ElTypes,
             si = si + 1i64;
         }
         if und {
-            jo = jo_ground(WG_UNDECIDED());
+            jo = jo_ground(WG_UNDECIDED(), AX_REFUSED());
         } else {
             jo = decide_over_set(c, t, prm, h, szs, ats);
         }
@@ -911,13 +924,13 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         s = s + 1i64;
     }
     if nfl < 2i64 {
-        return jo_ground(WG_ONE_FLOAT());
+        return jo_ground(WG_ONE_FLOAT(), AX_REFUSED());
     }
     if nfl > JC_MAX_FL() {
         // ⚠ THE COUNT IS AN OPERAND OF THIS GROUND, so it is recorded rather than
         // spelled: `nfl` is what exceeded `JC_MAX_FL()`, and a reader asking "by how
         // much" reads the number off the plan instead of off a sentence.
-        let mut r0: JoinOrder = jo_ground(WG_MAX_FL());
+        let mut r0: JoinOrder = jo_ground(WG_MAX_FL(), AX_REFUSED());
         r0.w.nfl = nfl;
         return r0;
     }
@@ -957,7 +970,7 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
             // first source that has no number at either point, so a reader is sent to
             // the source that refused rather than to the query as a whole — and
             // `sz_remedy_words` derives the repair from the same code.
-            let mut rs: JoinOrder = jo_ground(WG_NO_SIZE());
+            let mut rs: JoinOrder = jo_ground(WG_NO_SIZE(), AX_REFUSED());
             rs.w.nfl = nfl;
             why_sides(&mut rs.w, c, &fl, nfl, &rsn, szs);
             let mut i4: i64 = 0i64;
@@ -967,11 +980,11 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         deferred = true;
     }
 
-    let mut jo: JoinOrder = jo_ground(WG_UNSET());
+    let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
     let ran: bool = derive_orders(c, t, h, szs, &mut jo);
     jo.w.nfl = jo.nfl;
     if !ran {
-        jo_decline(&mut jo, WG_CROSS(), szs, ats);
+        jo_decline(&mut jo, WG_CROSS(), AX_REFUSED(), szs, ats);
         return jo;
     }
     // ⚠ THE CENSUS IS ALREADY ON THE RECORD AND NOTHING BELOW COPIES IT. Every
@@ -987,7 +1000,7 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         // make visible. So the plan declines the whole reorder and reports the
         // count — the remedy is a smaller chain or an artifact that can hold one
         // order per object file.
-        jo_decline(&mut jo, WG_MAX_CAND(), szs, ats);
+        jo_decline(&mut jo, WG_MAX_CAND(), AX_SEARCHED(), szs, ats);
         return jo;
     }
     if jo.ncand < 2i64 {
@@ -997,7 +1010,7 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         // them. Where exactly one fired it states that one — the pair case's own
         // sentences, reached exactly as before, and now without anything having
         // remembered which refusal the enumeration happened to hit first.
-        jo_decline(&mut jo, WG_REFUSED(), szs, ats);
+        jo_decline(&mut jo, WG_REFUSED(), AX_SEARCHED(), szs, ats);
         return jo;
     }
     jo.dynamic = true;
@@ -1005,10 +1018,10 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     jo.w.ncand = jo.ncand;
     jo.w.nnest = jo.ncand;
     if deferred {
-        jo.w.ground = WG_DEFERRED();
+        why_set(&mut jo.w, WG_DEFERRED(), AX_SEARCHED());
         why_sides(&mut jo.w, c, &fl, nfl, &rsn, szs);
     } else {
-        jo.w.ground = WG_ADMITTED();
+        why_set(&mut jo.w, WG_ADMITTED(), AX_SEARCHED());
     }
     return jo;
 }
@@ -1025,11 +1038,11 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
 /// as nests" while the plan said `considered()` 0, both true, of different things,
 /// with nothing naming the difference. `jo.ncand` — the emitter's nest count — stays
 /// 1 for the same reason.
-fn jo_decline(jo: &mut JoinOrder, g: i32, szs: &mut [String; 4], ats: &mut [i64; 4]) {
+fn jo_decline(jo: &mut JoinOrder, g: i32, ax: i32, szs: &mut [String; 4], ats: &mut [i64; 4]) {
     jo.dynamic = false;
     jo.deferred = false;
     jo.ncand = 1i64;
-    jo.w.ground = g;
+    why_set(&mut jo.w, g, ax);
     jo.w.ncand = 0i64;
     jo.w.nnest = 1i64;
     let mut z: i64 = 0i64;

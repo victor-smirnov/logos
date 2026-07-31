@@ -75,7 +75,28 @@ for kind in 'pub struct [A-Za-z]+Plan \{' \
 done
 
 # The plan carries THE FACTS and the methods that read them — not just a bit.
-for member in 'pub base_n: i64' 'pub step_n: i64' 'pub why: str' \
+# ⚠ AND `explain()` IS A CONSTANT, NOT A FIELD READ (ADR 0024 S4q). `pub why: str`
+# used to be in this list. The plan carried the rendered justification as a member and
+# `prepare` STORED it, which made the text reachable from every plan construction — so
+# `--gc-sections` could not drop it and a caller that never explains anything paid for
+# the prose anyway (measured: +1168 bytes of LOADED IMAGE on `wql_deferred_plan_e2e`,
+# against a commit message asserting +8). The assertion moves here rather than
+# weakening: the method must return a STRING LITERAL, which is the field's absence AND
+# the constant's presence in one test. `tests/logos/why_size_gate.sh` weighs the
+# consequence.
+if grep -Eq 'pub why: *str' "${DUMPS[@]}"; then
+    echo "FAIL: a plan type still carries 'pub why: str' — the justification is back on the construction path"
+    grep -En 'pub why: *str' "${DUMPS[@]}" || true
+    fail=1
+fi
+n_exlit=$(count '^ *return "(one source, no join|the row order of a join|either side may drive)')
+if [ "$n_exlit" -ne 3 ]; then
+    echo "FAIL: $n_exlit explain() bodies return a justification literal (want 3, one per query)"
+    grep -En 'pub fn explain' -A1 "${DUMPS[@]}" || true
+    fail=1
+fi
+
+for member in 'pub base_n: i64' 'pub step_n: i64' \
               'pub fn agrees\(&self, fresh: &[A-Za-z]+Plan\)' \
               'pub fn margin\(&self\)' 'pub fn explain\(&self\)'; do
     if ! grep -Eq "$member" "${DUMPS[@]}"; then
@@ -263,7 +284,7 @@ if ! grep -q 'ORDER AXIS NOT ENTERED (`axis()` 0)' "$TMPD/err"; then
     fail=1
 fi
 # ⚠ AND THE TWO CHANNELS ARE COMPARED, NOT EYEBALLED. Every `[plan] <q> -> prepared
-# plan on <T> (...)` payload must be EXACTLY the `why:` literal of `<T>`'s own plan
+# plan on <T> (...)` payload must be EXACTLY the constant `<T>::explain()` returns
 # struct. Before the record, the emitter appended a census suffix to its own copy of
 # a ground the decision had composed, and the join-order verdict line then said
 # something else again — 66 of 81 verdict lines disagreed with the plan the same
@@ -273,8 +294,14 @@ while IFS= read -r line; do
     ty=$(printf '%s' "$line" | sed -n 's/^\[plan\] [^ ]* -> prepared plan on \([A-Za-z0-9_]*\) .*/\1/p')
     [ -n "$ty" ] || continue
     payload=$(printf '%s' "$line" | sed -n 's/^\[plan\].*   (\(.*\))$/\1/p')
-    lit=$(grep -h -o "return ${ty} {[^\"]*why: \"[^\"]*\"" "${DUMPS[@]}" 2>/dev/null \
-          | sed -n 's/.*why: "\(.*\)"$/\1/p' | head -1)
+    # ⚠ READ OUT OF `explain()`'s BODY, not out of the struct literal. The plan has no
+    # `why` field since S4q; the justification reaches the artifact as the constant
+    # this method returns, and the impl block's own header is what ties it to `${ty}`.
+    lit=$(awk -v want="${ty}" '
+        /^impl [A-Za-z0-9_]+ \{/ { cur = $2 }
+        grab { print; grab = 0 }
+        cur == want && /pub fn explain\(&self\) -> str \{/ { grab = 1 }
+    ' "${DUMPS[@]}" 2>/dev/null | sed -n 's/^ *return "\(.*\)";$/\1/p' | head -1)
     if [ -z "$lit" ]; then
         echo "FAIL: no plan literal found for ${ty} — the trace names a plan the artifact does not"
         fail=1

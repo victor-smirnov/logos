@@ -1093,6 +1093,25 @@ set_tests_properties(logos_09_render_type_fidelity PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# WHY-SIZE gate (ADR 0024 S4q): the rendered justification reaches the artifact only
+# through `explain()`, so a program that never asks for one links none of the prose.
+#
+# ⚠ THIS IS A GATE ON A MEASURED CLAIM, and it exists because the previous one was
+# wrong by two orders of magnitude and nothing could see it: `f5688fb8` asserted
+# "+8 bytes" from total FILE size at -O2, while the loaded image at -O0 (what the
+# suite compiles) had grown +1168 on `wql_deferred_plan_e2e`. No fixture can weigh
+# its own binary, so the property lives here or nowhere.
+add_test(
+    NAME logos_09_why_size_reachability
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/why_size_gate.sh
+            $<TARGET_FILE:logosc>
+)
+set_tests_properties(logos_09_why_size_reachability PROPERTIES
+    TIMEOUT 180
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Diagnostics: --diag-format=json + structured exit codes (B0.2).
 add_test(
     NAME logos_09_diag_json_format

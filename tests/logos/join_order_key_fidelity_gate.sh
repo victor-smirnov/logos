@@ -170,19 +170,33 @@ if ! grep -Fq '(((w32(u.g)) as i64))' "${DUMPS[@]}"; then
 fi
 
 # ── THE GROUND TRAVELS INTO THE PLAN, not only onto the trace ──────────────
-# `explain()` returns this literal, so the refusal is answerable at run time. It is
-# also why the composed ground cannot live in a buffer local to the decision: it is
-# written into the artifact after that fn has returned.
+# `explain()` returns this literal, so the refusal is answerable at run time.
+#
+# ⚠ IT IS THE METHOD'S CONSTANT, NOT A `why:` FIELD OF THE STRUCT LITERAL (ADR 0024
+# S4q). This check used to read `return QfPlan { … why: "…" }` — the plan STORED the
+# text, which is precisely what made the justification unstrippable for callers who
+# never ask for it. Same literal, same strength, read where it now lives: the impl
+# block's header ties the body to the type, so the assertion is still per-plan and not
+# "somewhere in the dump".
 for pl in 'QfPlan' 'QnPlan'; do
     if ! grep -Fq "return ${pl} { dyn_order: false," "${DUMPS[@]}"; then
         echo "FAIL: the ${pl} prepare does not return a non-dynamic plan"
         grep -n "return ${pl}" "${DUMPS[@]}" || true
         fail=1
     fi
-    if ! grep -F "return ${pl} { dyn_order: false," "${DUMPS[@]}" | grep -Fq 'why: "`order by` names a sequence, but C1'; then
-        echo "FAIL: ${pl}'s refusal ground is not carried in the plan's own why — explain() cannot state it"
-        fail=1
-    fi
+    lit=$(awk -v want="${pl}" '
+        /^impl [A-Za-z0-9_]+ \{/ { cur = $2 }
+        grab { print; grab = 0 }
+        cur == want && /pub fn explain\(&self\) -> str \{/ { grab = 1 }
+    ' "${DUMPS[@]}" 2>/dev/null | head -1)
+    case "$lit" in
+        *'return "`order by` names a sequence, but C1'*) ;;
+        *)
+            echo "FAIL: ${pl}'s refusal ground is not the constant explain() returns — it cannot state it"
+            echo "  got: ${lit}"
+            fail=1
+            ;;
+    esac
 done
 
 if [ "$fail" -ne 0 ]; then

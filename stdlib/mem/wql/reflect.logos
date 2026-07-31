@@ -44,9 +44,18 @@ fn sview_str(sv: SView) -> str {
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }
 
-// Find the top-level MODULE item (struct/schema) whose NAME equals `struct_name`;
-// returns its AST node handle (a `WAny` Ref), or a null WAny if not found. Walks
-// the module ITEMS array directly (the `find_template_decl` shape, but `str`-keyed).
+// Find the top-level MODULE item whose NAME equals `struct_name` — ANY item, of any
+// kind: a struct, a schema, a `type` alias, an enum. Returns its AST node handle (a
+// `WAny` Ref), or a null WAny if not found. Walks the module ITEMS array directly
+// (the `find_template_decl` shape, but `str`-keyed).
+//
+// ⚠ THIS IS THE RAW ITEM LOOKUP AND IT IS NOT WHAT A CALLER WANTING A ROW SCHEMA
+// SHOULD ASK. It matches on the name alone, so `type Prec = Rec;` answers to `Prec`
+// with the ALIAS node — whose field count is 0, which reads to every caller as "a
+// struct with no fields" and not as "you asked the wrong question". Use
+// `find_struct_decl`, which resolves the spelling first and then requires the answer
+// to BE a schema. `resolve_alias_name` is the one legitimate caller of this raw form:
+// it needs the alias node itself.
 pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
     let root: WAny = view.root();
     let items: WAny = view.tiny_map_get(root, 2 as u8);   // ITEMS = 2
@@ -91,6 +100,42 @@ pub fn find_decl_by_name(view: &OView, struct_name: str) -> WAny {
 // TYPE: $5 }` (logos.peg) — so the alias's target is the node's TYPE(3) child and
 // its NAME(1) is the name to ask about next.
 fn LA_TYPE_ALIAS() -> u64 { return 72 as u64; }
+
+// The two item kinds that HAVE a FIELDS(22) array a row schema can be read out of:
+// `struct` (la::Code 50) and `schema` (la::Code 256, ADR 0011).
+fn LA_STRUCT() -> u64     { return 50 as u64; }
+fn LA_SCHEMA_DEF() -> u64 { return 256 as u64; }
+
+// ── AN ELEMENT TYPE IS A SPELLING TOO ───────────────────────────────────────
+/// THE ROW-SCHEMA LOOKUP: the declaration whose fields describe the rows of a source
+/// spelled `name`. Empty when `name` denotes nothing this module declares, or denotes
+/// something that is not a schema.
+///
+/// ⚠⚠ MEASURED, ONE TOKEN APART, AND IT MISCOMPILED. `as_: &[Rec]` over
+/// `Rec { k: i64, s: f64 }` with `order by a.s` is refused correctly (`WG_KEY_ORDER`,
+/// key `f64`, `considered()` 0). Change the parameter to `as_: &[Prec]` with
+/// `pub type Prec = Rec;` — nothing else — and the plan reported `WG_ADMITTED`,
+/// carried four nests, and the build then failed with `expected i64, got f64`,
+/// because `stamp_types_from_schema` had passed the spelling `Prec` to
+/// `find_decl_by_name`, got the TYPE_ALIAS node back, read 0 fields off it, and left
+/// every field at the i64 baseline. The previous round installed exactly this
+/// resolution for a struct's FIELD types and stopped there; the ELEMENT type naming
+/// the struct went unresolved, so the fields were never reached to be resolved.
+///
+/// ⚠ SO THE RULE IS: A SPELLING IS RESOLVED WHERE IT IS READ, and reading a schema
+/// off a name happens HERE — one function, so a new call site cannot forget it. The
+/// kind test is an ALLOWLIST, not a TYPE_ALIAS blocklist: after resolution the answer
+/// must be an item that HAS fields, and anything else (an enum, a fn, an unresolvable
+/// alias to `[i64; 4]`) is "no schema" rather than "a schema with no fields".
+pub fn find_struct_decl(view: &OView, name: str) -> WAny {
+    let none: WAny = WAny::Ref(0i64 as *const u8);
+    if view.holder == (0 as *mut u8) { return none; }
+    let decl: WAny = find_decl_by_name(view, resolve_alias_name(view, name));
+    if decl.is_null() { return none; }
+    let code: u64 = view.ast_node_code(decl) & (0xFFFF as u64);
+    if code != LA_STRUCT() && code != LA_SCHEMA_DEF() { return none; }
+    return decl;
+}
 
 // Does `nm` name one of `decl`'s OWN type parameters? The question that separates
 // `type Ph<T> = i64` (resolvable — the arguments cannot change the answer) from
@@ -396,7 +441,12 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
 // to the codegen.
 pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str) {
     if view.holder == (0 as *mut u8) { return; }
-    let decl: WAny = find_decl_by_name(view, struct_name);
+    // ⚠ THROUGH THE ALIAS TABLE, exactly as the field type below is. `struct_name` is
+    // an ELEMENT TYPE SPELLING — `&[Prec]` reaches here as `Prec` — and the raw item
+    // lookup answers a `type Prec = Rec;` with the alias node, whose field count is
+    // 0: the loop body then never runs and every field silently keeps the i64
+    // baseline. That is the miscompile recorded on `find_struct_decl`.
+    let decl: WAny = find_struct_decl(view, struct_name);
     if decl.is_null() { return; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;

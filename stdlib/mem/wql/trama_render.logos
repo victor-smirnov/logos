@@ -263,7 +263,10 @@ fn resolve_struct_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
             let be: SExpr = f.base_expr();
             let bt: str = resolve_struct_type(view, be, env);
             if bt.len() == 0i64 { return ""; }
-            let decl: WAny = find_decl_by_name(view, bt);
+            // ⚠ THE BASE TYPE IS A SPELLING. `find_struct_decl` resolves it through
+            // the module's aliases and requires a schema back, so a ctx field declared
+            // with an aliased struct type still reflects its members.
+            let decl: WAny = find_struct_decl(view, bt);
             return field_type_name(view, decl, fname);
         }
         SExpr::Var(v) => { let vn: str = v.name; return env.type_of(vn); }
@@ -292,7 +295,7 @@ fn resolve_for_element_type(view: &OView, e: SExpr, env: &StructEnv) -> str {
             let be: SExpr = f.base_expr();
             let bt: str = resolve_struct_type(view, be, env);
             if bt.len() == 0i64 { return ""; }
-            let decl: WAny = find_decl_by_name(view, bt);
+            let decl: WAny = find_struct_decl(view, bt);
             return field_element_type_name(view, decl, fname);
         }
         SExpr::Var(v) => { let vn: str = v.name; return env.type_of(vn); }
@@ -331,7 +334,10 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                     // A struct element maps to INT here (harmless: a struct loop
                     // var is only ever used via `v.field`, typed by the reflect
                     // below, never rendered bare).
-                    ty.set_ty(f.var, el_ty_of_name(elem_ty));
+                    // ⚠ Through the alias table, like every other name reaching `el`:
+                    // `type Cell = str;` on a collection field would otherwise take
+                    // `el_ty_of_name`'s INT default and render `push_i64` on a `str`.
+                    ty.set_ty(f.var, el_ty_of_name(resolve_alias_name(view, elem_ty)));
                     // Reflect the element struct's fields so `v.member` types.
                     stamp_types_from_schema(view, ty, elem_ty);
                 }
@@ -666,10 +672,12 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
         let pnm: str = prm.names[pi];
         let pty: str = prm.tys[pi];
         // Scalar/str value-type for the bare-param render path.
-        ty.set_ty(pnm, el_ty_of_name(pty));
+        ty.set_ty(pnm, el_ty_of_name(resolve_alias_name(&view, pty)));
         // If the core type names a schema struct, reflect its fields + bind the
         // env; a non-struct name (str/i64/…) is a no-op reflect + harmless bind.
-        let decl: WAny = find_decl_by_name(&view, pty);
+        // A param type is a spelling too: `p: Prec` with `type Prec = Rec;` names a
+        // schema, and the raw lookup would answer with the alias and reflect nothing.
+        let decl: WAny = find_struct_decl(&view, pty);
         if !decl.is_null() {
             stamp_types_from_schema(&view, &mut ty, pty);
             env0.bind(pnm, pty);

@@ -16,8 +16,22 @@
 // numbers a program can compare:
 //
 //   `axis()`     0 no order axis at all · 1 entered and refused BEFORE enumeration ·
-//                2 the derivation ran. Derived from the ground code, so it cannot
-//                contradict the ground.
+//                2 the derivation ran. A FIELD the decision writes.
+//
+//                ⚠⚠ FOR ONE ROUND IT WAS DERIVED FROM THE GROUND CODE'S RANGE, and
+//                that was the SAME DEFECT one level in — the cure carrying the
+//                disease. It could not contradict the ground; it contradicted the
+//                QUERY. `WG_AGG` (6) sits in the 0–9 "no axis" band, so
+//                `wql_join_group_e2e::region_totals` — whose own trace line one row
+//                above reads `[plan] d -> hash join on i64` — announced "this query
+//                has no join whose order a plan could choose". Nine corpus plans,
+//                two of them carrying an `order by`; a `where 1 > 2` over a join
+//                reached the same sentence on `WG_FALSE_FILTER`. A range couples two
+//                independent decisions — WHAT the ground is, WHICH state it was
+//                reached in — into one number, and the second moves silently when the
+//                first is extended. `agg_scan`/`agg_join` below are the pair that
+//                holds it: ONE GROUND, TWO STATES, which is exactly what no function
+//                of the code can produce.
 //   `ground()`   WHICH ANTECEDENT FAILED (`why::WG_*`).
 //   `operand()`  the value it failed on, where the antecedent has one that is not a
 //                count (the `order by` key's type, the source that could not be
@@ -77,6 +91,30 @@ pub deem unsorted(as_: &[A], bs: &[B]) {
     join bs b on a.k == b.k
     select a.v * 100 + b.m }
 
+// ── ONE GROUND, TWO STATES ───────────────────────────────────────────────────
+// THE PAIR THAT REFUTES ANY FUNCTION FROM THE GROUND CODE TO THE CENSUS STATE. Both
+// record `why::WG_AGG` — an aggregate's output order is its groups' first-occurrence
+// order, which no sort restores, so there is nothing for a measurement to choose
+// between — and that is the whole justification in both cases. But `agg_scan` has ONE
+// source and `agg_join` has a join whose order a plan could in principle have chosen:
+// the first has no order axis, the second has one and this ground is what refused it.
+//
+// ⚠ NEITHER IS A JOIN-ORDER DECISION: `emit_aggregate` never calls
+// `decide_join_orders`, so nothing downstream can supply the state. The emitter holds
+// the linearized chain and is the only thing that knows.
+pub deem agg_scan(as_: &[A]) {
+    from as_ a
+    group by a.k
+    aggregate tot = sum(a.v)
+    select key * 1000i64 + tot }
+
+pub deem agg_join(as_: &[A], bs: &[B]) {
+    from as_ a
+    join bs b on a.k == b.k
+    group by a.k
+    aggregate tot = sum(b.m)
+    select key * 1000i64 + tot }
+
 // ── STATE 2: THE DERIVATION RAN ──────────────────────────────────────────────
 // Two floatable sources, `order by` on an i64 key: two permutations, both
 // admissible, both carried.
@@ -95,6 +133,8 @@ fn main() -> i32 {
     let pa: AntiSortedPlan = anti_sorted_prepare(&as_[..], &ws[..]);
     let pu: UnsortedPlan   = unsorted_prepare(&as_[..], &bs[..]);
     let pj: SortedPlan     = sorted_prepare(&as_[..], &bs[..]);
+    let pgs: AggScanPlan   = agg_scan_prepare(&as_[..]);
+    let pgj: AggJoinPlan   = agg_join_prepare(&as_[..], &bs[..]);
 
     // ── 1. THE THREE STATES, AS THREE DISTINCT VALUES ─────────────────────
     if ps.axis() != AX_NONE()     { return 1i32; }
@@ -133,11 +173,33 @@ fn main() -> i32 {
     // whole justification and the ground is not the state.
     if pa.axis() != pu.axis()       { return 24i32; }
     if pa.ground() == pu.ground()   { return 25i32; }
-    // The state is a FUNCTION of the ground, in one direction, for every plan here.
-    if why_axis_of(ps.ground()) != ps.axis() { return 26i32; }
-    if why_axis_of(pa.ground()) != pa.axis() { return 27i32; }
-    if why_axis_of(pu.ground()) != pu.axis() { return 28i32; }
-    if why_axis_of(pj.ground()) != pj.axis() { return 29i32; }
+    // ⚠⚠ AND THE STATE IS *NOT* A FUNCTION OF THE GROUND. This block used to assert
+    // that it was — `why_axis_of(p.ground()) == p.axis()` for all four plans above —
+    // and the assertion held for all four while being false of the language: it was
+    // written from the four shapes in front of the author, and the function it pinned
+    // was the very coupling that then told nine joined queries they had no join.
+    // `why_axis_of` is deleted; what replaces the block is its REFUTATION.
+    //
+    // ONE GROUND, TWO STATES, read off two plans in one run:
+    if pgs.ground() != WG_AGG() { return 26i32; }
+    if pgj.ground() != WG_AGG() { return 27i32; }
+    if pgs.ground() != pgj.ground() { return 28i32; }
+    // …and the states differ, which no function of that one shared code could give.
+    if pgs.axis() != AX_NONE()    { return 29i32; }
+    if pgj.axis() != AX_REFUSED() { return 36i32; }
+    if pgs.axis() == pgj.axis()   { return 37i32; }
+    // Every count they carry is identical too — the same trap `scan` vs `anti_sorted`
+    // sets one level up, now sprung by two plans that also share a ground.
+    if pgs.enumerated() != pgj.enumerated() { return 38i32; }
+    if pgs.proved()     != pgj.proved()     { return 39i32; }
+    if pgs.considered() != pgj.considered() { return 43i32; }
+    // THE SENTENCE A PERSON READS FOLLOWS THE FIELD, not the code: the joined
+    // aggregate must NOT be told it has no join.
+    if !str_contains(pgj.explain(), "an aggregate's output order") { return 44i32; }
+    if !str_contains(pgs.explain(), "an aggregate's output order") { return 45i32; }
+    if str_contains(pgj.explain(), "no join whose order a plan could choose") { return 46i32; }
+    if !str_contains(pgs.explain(), "no join whose order a plan could choose") { return 47i32; }
+    if !str_contains(pgj.explain(), "ORDER AXIS ENTERED AND REFUSED BEFORE ENUMERATION") { return 48i32; }
 
     // ── 4. THE SEARCHED PLAN'S CENSUS IS A TRIPLE THAT AGREES WITH ITSELF ─
     if pj.enumerated() != 2i64 { return 30i32; }
@@ -211,6 +273,20 @@ fn main() -> i32 {
     if r4d.len() != r4.len() { return 69i32; }
     if r4d.get(0i64) != r4.get(0i64) { return 70i32; }
     if r4d.get(1i64) != r4.get(1i64) { return 71i32; }
+
+    // The two new plans answer, and answer the same as their direct fns.
+    let g1: Vec<i64> = agg_scan_run(&pgs, &as_[..]).unwrap();
+    let g1d: Vec<i64> = agg_scan(&as_[..]).unwrap();
+    if g1.len() != 3i64 { return 72i32; }
+    if g1.len() != g1d.len() { return 73i32; }
+    if g1.get(0i64) != g1d.get(0i64) { return 74i32; }
+
+    let g2: Vec<i64> = agg_join_run(&pgj, &as_[..], &bs[..]).unwrap();
+    let g2d: Vec<i64> = agg_join(&as_[..], &bs[..]).unwrap();
+    if g2.len() != 2i64 { return 75i32; }
+    if g2.len() != g2d.len() { return 76i32; }
+    if g2.get(0i64) != g2d.get(0i64) { return 77i32; }
+    if g2.get(1i64) != g2d.get(1i64) { return 78i32; }
 
     return 0i32;
 }

@@ -479,7 +479,10 @@ fn stamp_edge_step(st: RQJoinStep,
     let mut k: i64 = 0i64;
     while k < np {
         let seg: str = segs.seg_at(k).name;
-        let decl: WAny = find_decl_by_name(&view, cur_ty);
+        // The traversal path walks TYPE SPELLINGS: `cur_ty` starts as a source's
+        // declared element type and is then the declared type of each intermediate
+        // field, either of which may be an alias. Resolved here, where it is read.
+        let decl: WAny = find_struct_decl(&view, cur_ty);
         if decl.is_null() {
             let mut m4: String = String::new();
             m4.push_str("wql!: traversal path segment `.");

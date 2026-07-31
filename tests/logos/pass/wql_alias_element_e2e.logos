@@ -1,0 +1,151 @@
+// WQL — AN ELEMENT TYPE IS A SPELLING TOO (ADR 0024 S4p).
+//
+// `type Score = i64;` and `i64` are ONE type written two ways, and the round before
+// this one installed that rule for a struct's FIELD types: `reflect::resolve_alias_name`
+// at the reflection boundary, so `el` — which answers every question the query stack
+// asks about a declared type — is never handed a name it cannot resolve.
+//
+// ⚠⚠ IT STOPPED ONE LEVEL SHORT, AND THE MISS MISCOMPILED. The ELEMENT type naming
+// the struct went through unresolved: `stamp_types_from_schema` passed the spelling
+// to `find_decl_by_name`, which matches on the NAME with no kind check, so
+// `type Prec = Rec;` answered with the TYPE_ALIAS node. `ast_struct_field_count` on
+// an alias is 0, the stamping loop never ran, and EVERY FIELD kept the i64 baseline —
+// so the fields were never reached to be resolved at all.
+//
+// Measured one token apart, and this fixture is that measurement:
+//
+//   `as_: &[Rec]`  with `order by a.s` (f64) → refused, `WG_KEY_ORDER`, operand
+//                  `f64`, `considered()` 0 — the f64 key is only partially ordered,
+//                  so the reorder has no licence. Compiles, runs.
+//   `as_: &[Prec]` with `pub type Prec = Rec;` → `WG_ADMITTED`, `drive 1 of 4`, FOUR
+//                  nests carried on a key the sort cannot realize — and then the
+//                  build FAILED, `expected i64, got f64`, because the key vector was
+//                  typed off a field the compiler believed was an i64.
+//
+// So a wrong plan and a broken artifact, from a `type` declaration.
+//
+// ⚠ WHAT THIS FIXTURE HOLDS, and why each half is needed:
+//
+//   • the ALIASED query compiles and RUNS — the miscompile is gone;
+//   • its plan carries the SAME ground, operand and census as the directly-spelled
+//     one. A fixture asserting only "it compiles" would pass on a compiler that
+//     resolved the alias for codegen and not for the licence, which is the shape of
+//     the defect one level up;
+//   • `explain()` of the two is the SAME TEXT. The justification is what a reader
+//     acts on, and "a different sentence for the same query, spelled differently" is
+//     the failure this whole axis exists to prevent;
+//   • a CHAIN of aliases (`type P2 = Prec;`) resolves too — the resolver is bounded
+//     at 8 hops and this is the case a one-step fix would leave broken;
+//   • a NON-KEY aliased element still types its fields: `alias_sum` folds an f64
+//     field of an aliased row, which an i64 baseline could not compile.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.why;         // WG_* / AX_* — both sides of every pin, in one run
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.str;            // str_eq / str_contains — the prose is asserted too
+
+struct Rec { pub k: i64, pub s: f64 }
+struct Oth { pub k: i64, pub m: i64 }
+
+pub type Prec = Rec;
+pub type P2   = Prec;
+
+// The DIRECTLY spelled query — the oracle. `order by a.s` names a sequence the
+// emitted f64 comparison does not realize, so C1 refuses the reorder.
+pub deem direct_ord(as_: &[Rec], bs: &[Oth]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select a.k * 10i64 + b.m order by a.s }
+
+// The SAME query with the element type spelled through one alias.
+pub deem alias_ord(as_: &[Prec], bs: &[Oth]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select a.k * 10i64 + b.m order by a.s }
+
+// …and through a CHAIN of two.
+pub deem chain_ord(as_: &[P2], bs: &[Oth]) {
+    from as_ a
+    join bs b on a.k == b.k
+    select a.k * 10i64 + b.m order by a.s }
+
+// An aliased element whose f64 FIELD is folded — this does not compile at all if the
+// row's fields kept the i64 baseline.
+pub deem alias_sum(as_: &[Prec]) {
+    from as_ a
+    group by a.k
+    aggregate tot = sum(a.s)
+    select tot }
+
+fn main() -> i32 {
+    let as_: [Rec; 3] = [ Rec { k: 1i64, s: 2.5f64 },
+                          Rec { k: 2i64, s: 0.5f64 },
+                          Rec { k: 3i64, s: 1.5f64 } ];
+    let bs: [Oth; 2] = [ Oth { k: 1i64, m: 7i64 }, Oth { k: 3i64, m: 9i64 } ];
+
+    let pd: DirectOrdPlan = direct_ord_prepare(&as_[..], &bs[..]);
+    let pa: AliasOrdPlan  = alias_ord_prepare(&as_[..], &bs[..]);
+    let pc: ChainOrdPlan  = chain_ord_prepare(&as_[..], &bs[..]);
+
+    // ── 1. THE DECISION IS THE SAME DECISION ──────────────────────────────
+    // The direct spelling is the oracle; every number the aliased plans carry is
+    // pinned against IT, not against a constant written here, so the pair cannot
+    // both drift to the same wrong answer without the named codes below catching it.
+    if pd.ground() != WG_KEY_ORDER() { return 1i32; }
+    if pa.ground() != pd.ground()    { return 2i32; }
+    if pc.ground() != pd.ground()    { return 3i32; }
+    if pd.axis()   != AX_REFUSED()   { return 4i32; }
+    if pa.axis()   != pd.axis()      { return 5i32; }
+    if pc.axis()   != pd.axis()      { return 6i32; }
+
+    // ── 2. THE OPERAND IS THE RESOLVED TYPE, NOT THE SPELLING ─────────────
+    // ⚠ THIS IS THE ASSERTION THE DEFECT FAILED. `operand()` is the `order by` key's
+    // LOGOS TYPE NAME as the licence was asked about it. With the element type
+    // unresolved the field was never stamped, so the key came back i64 and the
+    // refusal never happened at all.
+    if !str_eq(pd.operand(), "f64") { return 10i32; }
+    if !str_eq(pa.operand(), "f64") { return 11i32; }
+    if !str_eq(pc.operand(), "f64") { return 12i32; }
+
+    // ── 3. THE CENSUS ─────────────────────────────────────────────────────
+    // Refused BEFORE enumeration: nothing was permuted, nothing proved, no table.
+    // The defect reported `WG_ADMITTED` with FOUR candidates here.
+    if pd.considered() != 0i64 { return 20i32; }
+    if pa.considered() != pd.considered() { return 21i32; }
+    if pc.considered() != pd.considered() { return 22i32; }
+    if pa.enumerated() != pd.enumerated() { return 23i32; }
+    if pa.proved()     != pd.proved()     { return 24i32; }
+
+    // ── 4. AND THE PROSE IS THE SAME PROSE ────────────────────────────────
+    // One text, from one renderer, over records that agree — so a reader who spells
+    // the element type through an alias is told exactly what a reader who did not is.
+    if !str_eq(pa.explain(), pd.explain()) { return 30i32; }
+    if !str_eq(pc.explain(), pd.explain()) { return 31i32; }
+    if !str_contains(pd.explain(), "ORDER AXIS ENTERED AND REFUSED BEFORE ENUMERATION") { return 32i32; }
+
+    // ── 5. THE ROWS ───────────────────────────────────────────────────────
+    // A justification is worth nothing if the plan it justifies answers differently.
+    // Query order is a-major; `order by a.s` puts k=1 (2.5) after k=3 (1.5).
+    let rd: Vec<i64> = direct_ord_run(&pd, &as_[..], &bs[..]).unwrap();
+    let ra: Vec<i64> = alias_ord_run(&pa, &as_[..], &bs[..]).unwrap();
+    let rc: Vec<i64> = chain_ord_run(&pc, &as_[..], &bs[..]).unwrap();
+    if rd.len() != 2i64 { return 40i32; }
+    if ra.len() != rd.len() { return 41i32; }
+    if rc.len() != rd.len() { return 42i32; }
+    if ra.get(0i64) != rd.get(0i64) { return 43i32; }
+    if ra.get(1i64) != rd.get(1i64) { return 44i32; }
+    if rc.get(0i64) != rd.get(0i64) { return 45i32; }
+    if rc.get(1i64) != rd.get(1i64) { return 46i32; }
+
+    // ── 6. AN f64 FIELD OF AN ALIASED ROW IS AN f64 ───────────────────────
+    // Three distinct keys, three groups, each folding its own single f64.
+    let rs: Vec<f64> = alias_sum(&as_[..]).unwrap();
+    if rs.len() != 3i64 { return 50i32; }
+    if rs.get(0i64) < 2.4f64 || rs.get(0i64) > 2.6f64 { return 51i32; }
+    if rs.get(1i64) < 0.4f64 || rs.get(1i64) > 0.6f64 { return 52i32; }
+    if rs.get(2i64) < 1.4f64 || rs.get(2i64) > 1.6f64 { return 53i32; }
+
+    return 0i32;
+}
