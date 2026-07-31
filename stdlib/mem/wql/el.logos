@@ -322,7 +322,7 @@ pub fn el_ty_at(i: i64) -> ElTy { return el_ty_complete(el_ty_stored(i)); }
 /// the denied row past the end, and the fixture pins `arity` against that boundary
 /// (`el_ty_at(arity - 1)` is admitted, `el_ty_at(arity)` is not), so this number
 /// cannot drift from the cases below without a gate failing.
-pub fn el_ty_arity() -> i64 { return 19i64; }
+pub fn el_ty_arity() -> i64 { return 21i64; }
 
 /// The STORED row of a NAME — THE one place a name is admitted, by scan over the
 /// enumeration. Nothing here derives anything, which is what keeps completion
@@ -374,6 +374,13 @@ fn el_ty_stored(i: i64) -> ElTy {
     // is now DERIVED from the 56 rather than asserted in a list of names.
     if i == 12i64 { return el_ty_raw("i56",   EL_TY_INT(), 56i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
     if i == 13i64 { return el_ty_raw("u56",   EL_TY_INT(), 56i64,  false, EL_ORD_OK(), EL_ID_OK()); }
+    // 24-bit, the other pair of packed widths. They were MISSING from the
+    // lattice while 56 was present, so an `i24` column fell to the lenient
+    // default (the i64 baseline) and `select s.k` over one emitted `Vec<i64>`
+    // against a caller's `Vec<i24>` — a type mismatch on the LET, for a column
+    // the language has and the lattice simply did not list.
+    if i == 19i64 { return el_ty_raw("i24",   EL_TY_INT(), 24i64,  true,  EL_ORD_OK(), EL_ID_OK()); }
+    if i == 20i64 { return el_ty_raw("u24",   EL_TY_INT(), 24i64,  false, EL_ORD_OK(), EL_ID_OK()); }
     // The float class: a NaN compares false against every value INCLUDING ITSELF,
     // so the order is partial and the equality is not reflexive. Measured, not
     // assumed — the fixture builds a NaN and asks.
@@ -848,9 +855,11 @@ pub fn el_index_key_ok(name: str) -> bool {
     if t.cls == EL_TY_BOOL() { return true; }
     if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String` — see above
     if t.cls != EL_TY_INT()  { return false; }
-    // `i56`/`u56` are Writ's PACKED widths — a storage encoding, not a Logos
-    // type a `HashMap` can be instantiated over.
-    if str_eq(name, "i56") || str_eq(name, "u56") { return false; }
+    // Writ's PACKED widths (24 and 56) are a storage encoding, not a Logos type
+    // a `HashMap` can be instantiated over. Asked as "is the width a power of
+    // two" rather than as a list of names, so the 24-bit pair could not be
+    // admitted here by being added to the lattice without anyone noticing.
+    if (t.bits & (t.bits - 1i64)) != 0i64 { return false; }
     return t.bits <= 64i64;
 }
 

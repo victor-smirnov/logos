@@ -147,6 +147,8 @@ fn k_isize(i: i64) -> isize { return k_i64(i) as isize; }
 fn k_usize(i: i64) -> usize { return k_u64(i) as usize; }
 fn k_i56(i: i64) -> i56 { if i == 0i64 { return -36028797018963968i64 as i56; } if i == 1i64 { return 0i64 as i56; } return 36028797018963967i64 as i56; }
 fn k_u56(i: i64) -> u56 { if i == 0i64 { return 1u64 as u56; } if i == 1i64 { return 36028797018963968u64 as u56; } return 72057594037927935u64 as u56; }
+fn k_i24(i: i64) -> i24 { if i == 0i64 { return -8388608i64 as i24; } if i == 1i64 { return 0i64 as i24; } return 8388607i64 as i24; }
+fn k_u24(i: i64) -> u24 { if i == 0i64 { return 1u64 as u24; } if i == 1i64 { return 8388608u64 as u24; } return 16777215u64 as u24; }
 fn k_f64(i: i64) -> f64 { if i == 0i64 { return -1.5; } if i == 1i64 { return 0.0; } return 1.5; }
 fn k_f32(i: i64) -> f32 { if i == 0i64 { return -1.5f32; } if i == 1i64 { return 0.0f32; } return 1.5f32; }
 fn nan_f64() -> f64 { let z: f64 = k_f64(1i64); return z / z; }
@@ -344,6 +346,32 @@ fn m_i56() -> Meas {
                 && ((nlo as i56) == lo) && ((nmd as i56) == md) && ((nhi as i56) == hi),
               (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
 }
+fn m_i24() -> Meas {
+    let lo: i24 = k_i24(0i64); let md: i24 = k_i24(1i64); let hi: i24 = k_i24(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as i24) == lo) && ((nmd as i24) == md) && ((nhi as i24) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
+fn m_u24() -> Meas {
+    let lo: u24 = k_u24(0i64); let md: u24 = k_u24(1i64); let hi: u24 = k_u24(2i64);
+    let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
+    return mk((lo < md) && (md < hi) && (lo < hi) && (md > lo) && (hi > md) && (hi > lo)
+                && !(md < lo) && !(hi < md) && !(lo > md),
+              !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
+              (lo < md) || (lo == md) || (lo > md),
+              !(lo == md) && !(md == hi) && !(lo == hi),
+              true,
+              (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
+                && ((nlo as u24) == lo) && ((nmd as u24) == md) && ((nhi as u24) == hi),
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+}
 fn m_u56() -> Meas {
     let lo: u56 = k_u56(0i64); let md: u56 = k_u56(1i64); let hi: u56 = k_u56(2i64);
     let nlo: i64 = lo as i64; let nmd: i64 = md as i64; let nhi: i64 = hi as i64;
@@ -447,6 +475,8 @@ fn probe(name: str) -> Meas {
     if str_eq(name, "usize")  { return m_usize(); }
     if str_eq(name, "i56")    { return m_i56(); }
     if str_eq(name, "u56")    { return m_u56(); }
+    if str_eq(name, "i24")    { return m_i24(); }
+    if str_eq(name, "u24")    { return m_u24(); }
     if str_eq(name, "f32")    { return m_f32(); }
     if str_eq(name, "f64")    { return m_f64(); }
     if str_eq(name, "bool")   { return m_bool(); }

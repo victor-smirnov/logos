@@ -1,0 +1,86 @@
+package wql_narrow_and_f32_columns_e2e;
+// Two column types the emitter could not serve, both refused INSIDE generated
+// source with a diagnostic naming a line nobody wrote.
+//
+// 1. AN f32 COLUMN. `emit_sexpr_as` gave an INTEGER literal the type of the
+//    other operand ("a literal has no type of its own; it takes one from its
+//    context") and gave a FLOAT literal `f64` unconditionally. So over an f32
+//    column `where s.k < 2.5` emitted `(s.k) < (2.5f64)` and the host compiler
+//    answered `operator '<': type mismatch (f32 vs f64)` from
+//    `<metaprog-blob-subst>:1`. The same rule now covers both literal kinds,
+//    and the int→float promotion beside it targets the float side's OWN type
+//    rather than always f64.
+//
+// 2. AN i24 / u24 COLUMN. The EL type lattice listed Writ's 56-bit packed pair
+//    and not its 24-bit pair, so an `i24` column fell to the lattice's LENIENT
+//    default — the i64 baseline — and `select s.k` emitted `Vec<i64>` against
+//    the caller's `Vec<i24>`. The rows are added where types are admitted, and
+//    `wql_el_cmp_measured` MEASURES their comparison facts in the language
+//    rather than taking this file's word for them.
+//
+// The index-key question is asked as "is the width a power of two" instead of
+// as a list of names, so the 24-bit pair could not be admitted to a HashMap key
+// by being added to the lattice while nobody looked.
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct F { pub k: f32, pub id: i64 }
+struct N { pub a: i24, pub b: u24, pub id: i64 }
+
+pub deem f_lt(fs: &[F])  { from fs s where s.k < 2.5f32 select s.id }
+pub deem f_ge(fs: &[F])  { from fs s where s.k >= 2.5f32 select s.id }
+// an INTEGER literal against a float column — the promotion's target is f32
+pub deem f_gt0(fs: &[F]) { from fs s where s.k > 0 select s.id }
+pub deem f_ord(fs: &[F]) { from fs s select s.id order by s.k }
+
+pub deem n_sel(ns: &[N])  { from ns s select s.a }
+pub deem n_selb(ns: &[N]) { from ns s select s.b }
+pub deem n_w(ns: &[N])    { from ns s where s.b > 8388608u24 select s.id }
+pub deem n_ord(ns: &[N])  { from ns s select s.id order by s.b }
+
+fn main() -> i32 {
+    let fs: [F; 4] = [F { k: 1.0f32,  id: 0i64 },
+                      F { k: 2.5f32,  id: 1i64 },
+                      F { k: 4.0f32,  id: 2i64 },
+                      F { k: -1.0f32, id: 3i64 }];
+
+    let a: Vec<i64> = f_lt(&fs[..]).unwrap();
+    if a.len() != 2i64 || a.get(0i64) != 0i64 || a.get(1i64) != 3i64 { return 10i32; }
+    let b: Vec<i64> = f_ge(&fs[..]).unwrap();
+    if b.len() != 2i64 || b.get(0i64) != 1i64 || b.get(1i64) != 2i64 { return 11i32; }
+    let c: Vec<i64> = f_gt0(&fs[..]).unwrap();
+    if c.len() != 3i64 || c.get(0i64) != 0i64 || c.get(2i64) != 2i64 { return 12i32; }
+    let d: Vec<i64> = f_ord(&fs[..]).unwrap();
+    if d.len() != 4i64 { return 13i32; }
+    if d.get(0i64) != 3i64 || d.get(1i64) != 0i64
+       || d.get(2i64) != 1i64 || d.get(3i64) != 2i64 { return 14i32; }
+
+    // u24 values straddling the SIGNED 24-bit ceiling: 8388607 / 8388608 /
+    // 16777215. An i64-baseline column would still answer these correctly, so
+    // the claim here is the emitted ELEMENT TYPE, asserted by the `let`.
+    let ns: [N; 4] = [N { a: -8388608i24, b: 1u24,        id: 0i64 },
+                      N { a: 0i24,        b: 8388607u24,  id: 1i64 },
+                      N { a: 8388607i24,  b: 8388608u24,  id: 2i64 },
+                      N { a: -1i24,       b: 16777215u24, id: 3i64 }];
+
+    let e: Vec<i24> = n_sel(&ns[..]).unwrap();
+    if e.len() != 4i64 { return 20i32; }
+    if e.get(0i64) != -8388608i24 || e.get(2i64) != 8388607i24 || e.get(3i64) != -1i24 { return 21i32; }
+
+    let f: Vec<u24> = n_selb(&ns[..]).unwrap();
+    if f.len() != 4i64 { return 22i32; }
+    if f.get(1i64) != 8388607u24 || f.get(3i64) != 16777215u24 { return 23i32; }
+
+    // `> 2^23` in the UNSIGNED order: ids 3 only (16777215), since 8388608 is
+    // not strictly greater than itself.
+    let g: Vec<i64> = n_w(&ns[..]).unwrap();
+    if g.len() != 1i64 || g.get(0i64) != 3i64 { return 24i32; }
+
+    // ascending by the u24 column: 1, 8388607, 8388608, 16777215 → ids 0,1,2,3
+    let h: Vec<i64> = n_ord(&ns[..]).unwrap();
+    if h.len() != 4i64 { return 25i32; }
+    if h.get(0i64) != 0i64 || h.get(1i64) != 1i64
+       || h.get(2i64) != 2i64 || h.get(3i64) != 3i64 { return 26i32; }
+
+    return 0i32;
+}

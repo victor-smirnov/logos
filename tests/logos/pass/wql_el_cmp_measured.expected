@@ -18,5 +18,7 @@ f64 self_ord=PARTIAL self_ident=NO_EQ ord=PARTIAL ident=NO_EQ fits=y index=n
 bool self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 str self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 String self_ord=NO_CMP self_ident=OK ord=OK ident=OK fits=y index=n
-arity=19 last_admitted=y past_end_denied=y name_scan_agrees=y
+i24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
+u24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
+arity=21 last_admitted=y past_end_denied=y name_scan_agrees=y
 mismatches=0
