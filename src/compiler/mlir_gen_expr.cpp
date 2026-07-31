@@ -734,28 +734,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
             if (li.getWidth() < ri.getWidth()) {
                 bool lhs_unsigned = lhs_ty &&
-                    (TypeRef(lhs_ty).kind() == LogosType::Kind::U8   ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U16  ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U32  ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U24  ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U56  ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U64  ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::U128 ||
-                     TypeRef(lhs_ty).kind() == LogosType::Kind::Bool);
+                    LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
                 if (lhs_unsigned)
                     lhs = builder_.create<mlir::arith::ExtUIOp>(loc_, rhs.getType(), lhs);
                 else
                     lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
             } else if (ri.getWidth() < li.getWidth()) {
                 bool rhs_unsigned = rhs_ty &&
-                    (TypeRef(rhs_ty).kind() == LogosType::Kind::U8   ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U16  ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U32  ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U24  ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U56  ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U64  ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::U128 ||
-                     TypeRef(rhs_ty).kind() == LogosType::Kind::Bool);
+                    LogosType::is_unsigned_repr_kind(TypeRef(rhs_ty).kind());
                 if (rhs_unsigned)
                     rhs = builder_.create<mlir::arith::ExtUIOp>(loc_, lhs.getType(), rhs);
                 else
@@ -768,13 +754,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     if (mlir::isa<mlir::FloatType>(lhs.getType()) &&
         mlir::isa<mlir::IntegerType>(rhs.getType())) {
         bool rhs_unsigned = rhs_ty &&
-            (TypeRef(rhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(rhs_ty).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(rhs_ty).kind());
         if (rhs_unsigned)
             rhs = builder_.create<mlir::arith::UIToFPOp>(loc_, lhs.getType(), rhs);
         else
@@ -783,13 +763,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     if (mlir::isa<mlir::IntegerType>(lhs.getType()) &&
         mlir::isa<mlir::FloatType>(rhs.getType())) {
         bool lhs_unsigned = lhs_ty &&
-            (TypeRef(lhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         if (lhs_unsigned)
             lhs = builder_.create<mlir::arith::UIToFPOp>(loc_, rhs.getType(), lhs);
         else
@@ -839,14 +813,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     // intrinsic family which emits the silent arith op directly.
     if (op == "+" || op == "-" || op == "*") {
         bool is_unsigned = lhs_ty &&
-            (TypeRef(lhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U128 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::Usize);
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         auto int_ty = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
         if (int_ty && overflow_checks_) {
             mlir::Type i1 = builder_.getI1Type();
@@ -884,13 +851,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     }
     {
         bool is_unsigned = lhs_ty &&
-            (TypeRef(lhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         if (op == "/") {
             if (is_unsigned) return builder_.create<mlir::arith::DivUIOp>(loc_, lhs, rhs);
             return builder_.create<mlir::arith::DivSIOp>(loc_, lhs, rhs);
@@ -908,14 +869,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     if (op == "<<") return builder_.create<mlir::arith::ShLIOp>(loc_, lhs, rhs);
     if (op == ">>") {
         auto it = mlir::dyn_cast<mlir::IntegerType>(lhs.getType());
-        bool is_unsigned = it && (lhs_ty &&
-            (TypeRef(lhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U128));
+        bool is_unsigned = it && lhs_ty &&
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         if (is_unsigned)
             return builder_.create<mlir::arith::ShRUIOp>(loc_, lhs, rhs);
         return builder_.create<mlir::arith::ShRSIOp>(loc_, lhs, rhs);
@@ -1110,10 +1065,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
             mlir::Value lp = swap ? rhs : lhs;   // "less-than" operand order
             mlir::Value rp = swap ? lhs : rhs;
             auto is_unsigned = [](LogosType::Kind k) {
-                using K = LogosType::Kind;
-                return k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
-                       k == K::U56 || k == K::U64 || k == K::U128 ||
-                       k == K::Usize || k == K::Bool || k == K::Char;
+                return LogosType::is_unsigned_repr_kind(k);
             };
             if (struct_ty) {
                 // By-value tuple operand (call result) → spill before GEP;
@@ -1209,18 +1161,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
     }
     {
         bool is_unsigned_cmp = lhs_ty &&
-            (TypeRef(lhs_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(lhs_ty).kind() == LogosType::Kind::U128 ||
-             // Bool lowers to LLVM i1. Signed i1 has `true`=−1, `false`=0,
-             // which inverts `<` / `>` / `<=` / `>=` relative to Rust's
-             // canonical `false < true` semantics. Treat as unsigned so
-             // i1 `true`(1) > i1 `false`(0) as in Rust.
-             TypeRef(lhs_ty).kind() == LogosType::Kind::Bool);
+            LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
         if (op == "<")  return builder_.create<mlir::arith::CmpIOp>(loc_,
             is_unsigned_cmp ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt, lhs, rhs);
         if (op == ">")  return builder_.create<mlir::arith::CmpIOp>(loc_,
@@ -1379,13 +1320,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
         auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
         bool idx_unsigned = index_ty &&
-            (TypeRef(index_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(index_ty).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(index_ty).kind());
         mlir::Value gep_idx = (idx_unsigned && index.getType() != builder_.getI64Type())
             ? builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index).getResult()
             : index;
@@ -1456,11 +1391,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         auto idx = gen_expr(irv.index());
         if (!idx) return nullptr;
         TypeRef it = irv.index().type(pool_impl());
-        bool uns = it &&
-            (it.kind() == LogosType::Kind::U8  || it.kind() == LogosType::Kind::U16 ||
-             it.kind() == LogosType::Kind::U32 || it.kind() == LogosType::Kind::U24 ||
-             it.kind() == LogosType::Kind::U56 || it.kind() == LogosType::Kind::U64 ||
-             it.kind() == LogosType::Kind::U128);
+        bool uns = it && LogosType::is_unsigned_repr_kind(it.kind());
         if (uns && idx.getType() != builder_.getI64Type())
             idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
         llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
@@ -1712,13 +1643,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
             if (!idx) return nullptr;
             TypeRef ir_idx_t = ir_index.type(pool_impl());
             bool idx_unsigned = ir_idx_t &&
-                (ir_idx_t.kind() == LogosType::Kind::U8  ||
-                 ir_idx_t.kind() == LogosType::Kind::U16 ||
-                 ir_idx_t.kind() == LogosType::Kind::U32 ||
-                 ir_idx_t.kind() == LogosType::Kind::U24 ||
-                 ir_idx_t.kind() == LogosType::Kind::U56 ||
-                 ir_idx_t.kind() == LogosType::Kind::U64 ||
-                 ir_idx_t.kind() == LogosType::Kind::U128);
+                LogosType::is_unsigned_repr_kind(ir_idx_t.kind());
             if (idx_unsigned && idx.getType() != builder_.getI64Type())
                 idx = builder_.create<mlir::arith::ExtUIOp>(
                     loc_, builder_.getI64Type(), idx);
@@ -3173,14 +3098,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
 
     auto idx = gen_expr(idx_ref);
     if (!idx || !arr_ptr) return nullptr;
-    bool idx_unsigned = idx_t &&
-        (idx_t.kind() == LogosType::Kind::U8  ||
-         idx_t.kind() == LogosType::Kind::U16 ||
-         idx_t.kind() == LogosType::Kind::U32 ||
-         idx_t.kind() == LogosType::Kind::U24 ||
-         idx_t.kind() == LogosType::Kind::U56 ||
-         idx_t.kind() == LogosType::Kind::U64 ||
-         idx_t.kind() == LogosType::Kind::U128);
+    bool idx_unsigned = idx_t && LogosType::is_unsigned_repr_kind(idx_t.kind());
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     // Cluster A: a struct-typed element of an ARRAY is stored INLINE
@@ -3827,14 +3745,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (fi && ti) {
         if (ti.getWidth() > fi.getWidth()) {
             bool src_unsigned = fi.getWidth() == 1 ||
-                (op_ty &&
-                 (TypeRef(op_ty).kind() == LogosType::Kind::U8  ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U16 ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U32 ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U24 ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U56 ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U64 ||
-                  TypeRef(op_ty).kind() == LogosType::Kind::U128));
+                (op_ty && LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind()));
             if (src_unsigned)
                 return builder_.create<mlir::arith::ExtUIOp>(loc_, target, val);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, target, val);
@@ -3848,14 +3759,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
         // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
         bool src_unsigned = (val.getType() == builder_.getI1Type()) ||
-            (op_ty &&
-             (TypeRef(op_ty).kind() == LogosType::Kind::U8  ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U16 ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U32 ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U24 ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U56 ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U64 ||
-              TypeRef(op_ty).kind() == LogosType::Kind::U128));
+            (op_ty && LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind()));
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
@@ -3872,13 +3776,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (mlir::dyn_cast<mlir::FloatType>(val.getType()) &&
         mlir::dyn_cast<mlir::IntegerType>(target)) {
         bool dst_unsigned = type &&
-            (TypeRef(type).kind() == LogosType::Kind::U8  ||
-             TypeRef(type).kind() == LogosType::Kind::U16 ||
-             TypeRef(type).kind() == LogosType::Kind::U32 ||
-             TypeRef(type).kind() == LogosType::Kind::U24 ||
-             TypeRef(type).kind() == LogosType::Kind::U56 ||
-             TypeRef(type).kind() == LogosType::Kind::U64 ||
-             TypeRef(type).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(type).kind());
         if (dst_unsigned)
             return builder_.create<mlir::arith::FPToUIOp>(loc_, target, val);
         return builder_.create<mlir::arith::FPToSIOp>(loc_, target, val);
@@ -3888,13 +3786,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) && target == ptr_type()) {
         mlir::Value v64;
         bool src_unsigned = op_ty &&
-            (TypeRef(op_ty).kind() == LogosType::Kind::U8  ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U16 ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U32 ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U24 ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U56 ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U64 ||
-             TypeRef(op_ty).kind() == LogosType::Kind::U128);
+            LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind());
         if (src_unsigned && val.getType() != builder_.getI64Type())
             v64 = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), val);
         else
@@ -4631,15 +4523,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         // Range-arm handling, so it never needed this. Mirror the
         // match-stmt version (mlir_gen_stmt.cpp).
         auto scrut_unsigned = [&]() -> bool {
-            if (!scrut_ty) return false;
-            switch (TypeRef(scrut_ty).kind()) {
-                case LogosType::Kind::U8:  case LogosType::Kind::U16:
-                case LogosType::Kind::U24: case LogosType::Kind::U32:
-                case LogosType::Kind::U56: case LogosType::Kind::U64:
-                case LogosType::Kind::U128: case LogosType::Kind::Usize:
-                case LogosType::Kind::Char: return true;
-                default: return false;
-            }
+            return scrut_ty &&
+                LogosType::is_unsigned_repr_kind(TypeRef(scrut_ty).kind());
         };
         if (is_wild) {
             else_block = arm_entry;
@@ -5429,13 +5314,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
     auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
     // GEP into data array by index.
     bool idx_unsigned = index_ty &&
-        (TypeRef(index_ty).kind() == LogosType::Kind::U8  ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U16 ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U32 ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U24 ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U56 ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U64 ||
-         TypeRef(index_ty).kind() == LogosType::Kind::U128);
+        LogosType::is_unsigned_repr_kind(TypeRef(index_ty).kind());
     mlir::Value gep_idx;
     if (idx_unsigned && index.getType() != builder_.getI64Type())
         gep_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index);
@@ -5530,6 +5409,8 @@ int MLIRGenImpl::format_type_tag(TypeRef t) noexcept {
         case LogosType::Kind::U56:    return 6;  // dispatches as u64
         case LogosType::Kind::I128:   return 1;  // dispatches as i64
         case LogosType::Kind::U128:   return 6;  // dispatches as u64
+        case LogosType::Kind::Usize:  return 6;  // dispatches as u64
+        case LogosType::Kind::Isize:  return 1;  // dispatches as i64
         case LogosType::Kind::IntLit: return 0;
         default:                      return 0;
     }
@@ -5574,13 +5455,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
         } else {
             TypeRef arg_lt = static_cast<size_t>(i) < arg_types.size() ? arg_types[i] : TypeRef{};
             bool arg_unsigned = arg_lt &&
-                (arg_lt.kind() == LogosType::Kind::U8   ||
-                 arg_lt.kind() == LogosType::Kind::U16  ||
-                 arg_lt.kind() == LogosType::Kind::U32  ||
-                 arg_lt.kind() == LogosType::Kind::U24  ||
-                 arg_lt.kind() == LogosType::Kind::U56  ||
-                 arg_lt.kind() == LogosType::Kind::U64  ||
-                 arg_lt.kind() == LogosType::Kind::U128);
+                LogosType::is_unsigned_repr_kind(arg_lt.kind());
             auto ai = mlir::dyn_cast<mlir::IntegerType>(arg_val.getType());
             if (arg_unsigned && ai && ai.getWidth() < 64)
                 as_i64 = builder_.create<mlir::arith::ExtUIOp>(loc_, i64_type, arg_val);

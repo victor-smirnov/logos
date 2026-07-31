@@ -1,0 +1,114 @@
+package int_signedness_cast_signed;
+// SIGNED SIGNEDNESS ORACLE — the other direction of the same guard.
+//
+// The cure for the `usize` miscompile replaced ~26 hand-written unsigned-kind
+// lists with one predicate. A predicate that answered "unsigned" too eagerly
+// would break the signed widths instead, and negative values are exactly where
+// that shows: `ult`, `udiv`, `urem`, `lshr` and `uitofp` all read a negative
+// two's-complement value as an enormous positive one. `isize` is here for the
+// same reason `usize` is — it is a pointer-width ALIAS resolved through its own
+// path, so it needs its own fixture and not the coverage `i64` provides.
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    // ── i8 : -100 ──
+    let v_i8: i8 = -100i8;
+    let s_i8: i8 = 1i8;
+    if !(v_i8 <  s_i8) { return 10; }
+    if v_i8 >  s_i8 { return 11; }
+    if !(v_i8 <= s_i8) { return 12; }
+    if v_i8 >= s_i8 { return 13; }
+    if v_i8 / 7i8 != -14i8 { return 14; }
+    if v_i8 % 7i8 != -2i8 { return 15; }
+    if (v_i8 >> 1i8) != -50i8 { return 16; }
+    if !((v_i8 as f64) < 0.0f64) { return 17; }
+
+    // ── i16 : -30000 ──
+    let v_i16: i16 = -30000i16;
+    let s_i16: i16 = 1i16;
+    if !(v_i16 <  s_i16) { return 18; }
+    if v_i16 >  s_i16 { return 19; }
+    if !(v_i16 <= s_i16) { return 20; }
+    if v_i16 >= s_i16 { return 21; }
+    if v_i16 / 7i16 != -4285i16 { return 22; }
+    if v_i16 % 7i16 != -5i16 { return 23; }
+    if (v_i16 >> 1i16) != -15000i16 { return 24; }
+    if !((v_i16 as f64) < 0.0f64) { return 25; }
+
+    // ── i24 : -4000000 ──
+    let v_i24: i24 = -4000000i24;
+    let s_i24: i24 = 1i24;
+    if !(v_i24 <  s_i24) { return 26; }
+    if v_i24 >  s_i24 { return 27; }
+    if !(v_i24 <= s_i24) { return 28; }
+    if v_i24 >= s_i24 { return 29; }
+    if v_i24 / 7i24 != -571428i24 { return 30; }
+    if v_i24 % 7i24 != -4i24 { return 31; }
+    if (v_i24 >> 1i24) != -2000000i24 { return 32; }
+    if !((v_i24 as f64) < 0.0f64) { return 33; }
+
+    // ── i32 : -2000000000 ──
+    let v_i32: i32 = -2000000000i32;
+    let s_i32: i32 = 1i32;
+    if !(v_i32 <  s_i32) { return 34; }
+    if v_i32 >  s_i32 { return 35; }
+    if !(v_i32 <= s_i32) { return 36; }
+    if v_i32 >= s_i32 { return 37; }
+    if v_i32 / 7i32 != -285714285i32 { return 38; }
+    if v_i32 % 7i32 != -5i32 { return 39; }
+    if (v_i32 >> 1i32) != -1000000000i32 { return 40; }
+    if !((v_i32 as f64) < 0.0f64) { return 41; }
+
+    // ── i56 : -30000000000000000 ──
+    let v_i56: i56 = -30000000000000000i56;
+    let s_i56: i56 = 1i56;
+    if !(v_i56 <  s_i56) { return 42; }
+    if v_i56 >  s_i56 { return 43; }
+    if !(v_i56 <= s_i56) { return 44; }
+    if v_i56 >= s_i56 { return 45; }
+    if v_i56 / 7i56 != -4285714285714285i56 { return 46; }
+    if v_i56 % 7i56 != -5i56 { return 47; }
+    if (v_i56 >> 1i56) != -15000000000000000i56 { return 48; }
+    if !((v_i56 as f64) < 0.0f64) { return 49; }
+
+    // ── i64 : -9223372036854775807 ──
+    let v_i64: i64 = -9223372036854775807i64;
+    let s_i64: i64 = 1i64;
+    if !(v_i64 <  s_i64) { return 50; }
+    if v_i64 >  s_i64 { return 51; }
+    if !(v_i64 <= s_i64) { return 52; }
+    if v_i64 >= s_i64 { return 53; }
+    if v_i64 / 7i64 != -1317624576693539401i64 { return 54; }
+    if v_i64 % 7i64 != 0i64 { return 55; }
+    if (v_i64 >> 1i64) != -4611686018427387904i64 { return 56; }
+    if !((v_i64 as f64) < 0.0f64) { return 57; }
+
+    // ── i128 : -100 ──
+    let v_i128: i128 = -100i128;
+    let s_i128: i128 = 1i128;
+    if !(v_i128 <  s_i128) { return 58; }
+    if v_i128 >  s_i128 { return 59; }
+    if !(v_i128 <= s_i128) { return 60; }
+    if v_i128 >= s_i128 { return 61; }
+    if v_i128 / 7i128 != -14i128 { return 62; }
+    if v_i128 % 7i128 != -2i128 { return 63; }
+    if (v_i128 >> 1i128) != -50i128 { return 64; }
+    if !((v_i128 as f64) < 0.0f64) { return 65; }
+
+    // ── isize : -9223372036854775807 ──
+    let v_isize: isize = -9223372036854775807isize;
+    let s_isize: isize = 1isize;
+    if !(v_isize <  s_isize) { return 66; }
+    if v_isize >  s_isize { return 67; }
+    if !(v_isize <= s_isize) { return 68; }
+    if v_isize >= s_isize { return 69; }
+    if v_isize / 7isize != -1317624576693539401isize { return 70; }
+    if v_isize % 7isize != 0isize { return 71; }
+    if (v_isize >> 1isize) != -4611686018427387904isize { return 72; }
+    if !((v_isize as f64) < 0.0f64) { return 73; }
+
+    println!("{} {} {} {} {}", v_i8, v_i16, v_i32, v_i64, v_isize);
+    return 0;
+}

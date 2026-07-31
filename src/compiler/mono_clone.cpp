@@ -1553,14 +1553,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 else if (nc.callee == "__is_float__")     { bool_of(floating); break; }
                 else if (nc.callee == "__is_integer__")   { bool_of(integer); break; }
                 else if (nc.callee == "__is_signed__") {
-                    bool_of(tk == K::I8 || tk == K::I16 || tk == K::I24 ||
-                            tk == K::I32 || tk == K::I56 || tk == K::I64 ||
-                            tk == K::I128); break;
+                    bool_of(LogosType::is_signed_int_kind(tk)); break;
                 }
                 else if (nc.callee == "__is_unsigned__") {
-                    bool_of(tk == K::U8 || tk == K::U16 || tk == K::U24 ||
-                            tk == K::U32 || tk == K::U56 || tk == K::U64 ||
-                            tk == K::U128); break;
+                    bool_of(LogosType::is_unsigned_int_kind(tk)); break;
                 }
                 else if (nc.callee == "__is_primitive__") {
                     bool_of(tk == K::Bool || floating || integer); break;

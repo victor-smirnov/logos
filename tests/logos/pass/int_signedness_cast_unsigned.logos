@@ -1,0 +1,159 @@
+package int_signedness_cast_unsigned;
+// UNSIGNED SIGNEDNESS ORACLE — one section per unsigned width, each holding a
+// value ABOVE that width's SIGNED ceiling, where a signed lowering and an
+// unsigned lowering disagree on <, >, <=, >=, /, %, >>, widening cast and
+// int->float.
+//
+// This fixture exists because the corpus had no such value for `usize`: every
+// usize in every test stayed under 2^63, where `slt` and `ult` agree. The
+// backend enumerated the unsigned kinds by hand at ~26 sites and 21 of those
+// lists omitted `Usize`, so `usize` compared, divided, remaindered and
+// right-shifted AS A NEGATIVE i64 and sign-extended on every widening cast —
+// silently, with every gate green. Widening the RANGE is what makes the
+// lowering observable; the assertions themselves are ordinary.
+//
+// Each check returns its own code, so a failure names the width and the op.
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    // ── u8 : 200 (> 2^7) ──
+    let v_u8: u8 = 200u8;
+    let s_u8: u8 = 100u8;
+    if v_u8 <  s_u8 { return 10; }
+    if !(v_u8 >  s_u8) { return 11; }
+    if v_u8 <= s_u8 { return 12; }
+    if !(v_u8 >= s_u8) { return 13; }
+    if !(s_u8 <  v_u8) { return 14; }
+    if s_u8 >  v_u8 { return 15; }
+    if v_u8 / 7u8 != 28u8 { return 16; }
+    if v_u8 % 7u8 != 4u8 { return 17; }
+    if (v_u8 >> 1u8) != 100u8 { return 18; }
+    let wide_u8: u128 = v_u8 as u128;
+    if (wide_u8 >> 64u128) != 0u128 { return 19; }
+    if (wide_u8 & 18446744073709551615u128) != 200u128 { return 20; }
+    if !((v_u8 as f64) > 0.0f64) { return 21; }
+
+    // ── u16 : 60000 (> 2^15) ──
+    let v_u16: u16 = 60000u16;
+    let s_u16: u16 = 100u16;
+    if v_u16 <  s_u16 { return 22; }
+    if !(v_u16 >  s_u16) { return 23; }
+    if v_u16 <= s_u16 { return 24; }
+    if !(v_u16 >= s_u16) { return 25; }
+    if !(s_u16 <  v_u16) { return 26; }
+    if s_u16 >  v_u16 { return 27; }
+    if v_u16 / 7u16 != 8571u16 { return 28; }
+    if v_u16 % 7u16 != 3u16 { return 29; }
+    if (v_u16 >> 1u16) != 30000u16 { return 30; }
+    let wide_u16: u128 = v_u16 as u128;
+    if (wide_u16 >> 64u128) != 0u128 { return 31; }
+    if (wide_u16 & 18446744073709551615u128) != 60000u128 { return 32; }
+    if !((v_u16 as f64) > 0.0f64) { return 33; }
+
+    // ── u24 : 12000000 (> 2^23) ──
+    let v_u24: u24 = 12000000u24;
+    let s_u24: u24 = 100u24;
+    if v_u24 <  s_u24 { return 34; }
+    if !(v_u24 >  s_u24) { return 35; }
+    if v_u24 <= s_u24 { return 36; }
+    if !(v_u24 >= s_u24) { return 37; }
+    if !(s_u24 <  v_u24) { return 38; }
+    if s_u24 >  v_u24 { return 39; }
+    if v_u24 / 7u24 != 1714285u24 { return 40; }
+    if v_u24 % 7u24 != 5u24 { return 41; }
+    if (v_u24 >> 1u24) != 6000000u24 { return 42; }
+    let wide_u24: u128 = v_u24 as u128;
+    if (wide_u24 >> 64u128) != 0u128 { return 43; }
+    if (wide_u24 & 18446744073709551615u128) != 12000000u128 { return 44; }
+    if !((v_u24 as f64) > 0.0f64) { return 45; }
+
+    // ── u32 : 4000000000 (> 2^31) ──
+    let v_u32: u32 = 4000000000u32;
+    let s_u32: u32 = 100u32;
+    if v_u32 <  s_u32 { return 46; }
+    if !(v_u32 >  s_u32) { return 47; }
+    if v_u32 <= s_u32 { return 48; }
+    if !(v_u32 >= s_u32) { return 49; }
+    if !(s_u32 <  v_u32) { return 50; }
+    if s_u32 >  v_u32 { return 51; }
+    if v_u32 / 7u32 != 571428571u32 { return 52; }
+    if v_u32 % 7u32 != 3u32 { return 53; }
+    if (v_u32 >> 1u32) != 2000000000u32 { return 54; }
+    let wide_u32: u128 = v_u32 as u128;
+    if (wide_u32 >> 64u128) != 0u128 { return 55; }
+    if (wide_u32 & 18446744073709551615u128) != 4000000000u128 { return 56; }
+    if !((v_u32 as f64) > 0.0f64) { return 57; }
+
+    // ── u56 : 50000000000000000 (> 2^55) ──
+    let v_u56: u56 = 50000000000000000u56;
+    let s_u56: u56 = 100u56;
+    if v_u56 <  s_u56 { return 58; }
+    if !(v_u56 >  s_u56) { return 59; }
+    if v_u56 <= s_u56 { return 60; }
+    if !(v_u56 >= s_u56) { return 61; }
+    if !(s_u56 <  v_u56) { return 62; }
+    if s_u56 >  v_u56 { return 63; }
+    if v_u56 / 7u56 != 7142857142857142u56 { return 64; }
+    if v_u56 % 7u56 != 6u56 { return 65; }
+    if (v_u56 >> 1u56) != 25000000000000000u56 { return 66; }
+    let wide_u56: u128 = v_u56 as u128;
+    if (wide_u56 >> 64u128) != 0u128 { return 67; }
+    if (wide_u56 & 18446744073709551615u128) != 50000000000000000u128 { return 68; }
+    if !((v_u56 as f64) > 0.0f64) { return 69; }
+
+    // ── u64 : 18446744073709551615 (> 2^63) ──
+    let v_u64: u64 = 18446744073709551615u64;
+    let s_u64: u64 = 100u64;
+    if v_u64 <  s_u64 { return 70; }
+    if !(v_u64 >  s_u64) { return 71; }
+    if v_u64 <= s_u64 { return 72; }
+    if !(v_u64 >= s_u64) { return 73; }
+    if !(s_u64 <  v_u64) { return 74; }
+    if s_u64 >  v_u64 { return 75; }
+    if v_u64 / 7u64 != 2635249153387078802u64 { return 76; }
+    if v_u64 % 7u64 != 1u64 { return 77; }
+    if (v_u64 >> 1u64) != 9223372036854775807u64 { return 78; }
+    let wide_u64: u128 = v_u64 as u128;
+    if (wide_u64 >> 64u128) != 0u128 { return 79; }
+    if (wide_u64 & 18446744073709551615u128) != 18446744073709551615u128 { return 80; }
+    if !((v_u64 as f64) > 0.0f64) { return 81; }
+
+    // ── u128 : 340282366920938463463374607431768211455 (> 2^127) ──
+    let v_u128: u128 = 340282366920938463463374607431768211455u128;
+    let s_u128: u128 = 100u128;
+    if v_u128 <  s_u128 { return 82; }
+    if !(v_u128 >  s_u128) { return 83; }
+    if v_u128 <= s_u128 { return 84; }
+    if !(v_u128 >= s_u128) { return 85; }
+    if !(s_u128 <  v_u128) { return 86; }
+    if s_u128 >  v_u128 { return 87; }
+    if v_u128 / 7u128 != 48611766702991209066196372490252601636u128 { return 88; }
+    if v_u128 % 7u128 != 3u128 { return 89; }
+    if (v_u128 >> 1u128) != 170141183460469231731687303715884105727u128 { return 90; }
+    let wide_u128: u128 = v_u128 as u128;
+    if (wide_u128 >> 64u128) != 18446744073709551615u128 { return 91; }
+    if (wide_u128 & 18446744073709551615u128) != 18446744073709551615u128 { return 92; }
+    if !((v_u128 as f64) > 0.0f64) { return 93; }
+
+    // ── usize : 18446744073709551615 (> 2^63) ──
+    let v_usize: usize = 18446744073709551615usize;
+    let s_usize: usize = 100usize;
+    if v_usize <  s_usize { return 94; }
+    if !(v_usize >  s_usize) { return 95; }
+    if v_usize <= s_usize { return 96; }
+    if !(v_usize >= s_usize) { return 97; }
+    if !(s_usize <  v_usize) { return 98; }
+    if s_usize >  v_usize { return 99; }
+    if v_usize / 7usize != 2635249153387078802usize { return 100; }
+    if v_usize % 7usize != 1usize { return 101; }
+    if (v_usize >> 1usize) != 9223372036854775807usize { return 102; }
+    let wide_usize: u128 = v_usize as u128;
+    if (wide_usize >> 64u128) != 0u128 { return 103; }
+    if (wide_usize & 18446744073709551615u128) != 18446744073709551615u128 { return 104; }
+    if !((v_usize as f64) > 0.0f64) { return 105; }
+
+    println!("{} {} {} {} {}", v_u8, v_u16, v_u32, v_u64, v_usize);
+    return 0;
+}

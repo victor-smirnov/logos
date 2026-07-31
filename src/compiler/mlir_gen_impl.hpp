@@ -677,14 +677,9 @@ private:
             // Pick zero vs sign extend by *source* signedness when known.
             // Bool (i1) is always zero-extended.  Without src_lt, fall back
             // to sign-extend to preserve legacy behavior for signed sources.
-            bool src_unsigned = fi.getWidth() == 1;
-            if (src_lt) {
-                using K = LogosType::Kind;
-                auto k = TypeRef(src_lt).kind();
-                src_unsigned = src_unsigned ||
-                    k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
-                    k == K::U56 || k == K::U64 || k == K::U128 || k == K::Bool;
-            }
+            bool src_unsigned = fi.getWidth() == 1 ||
+                (src_lt &&
+                 LogosType::is_unsigned_repr_kind(TypeRef(src_lt).kind()));
             if (src_unsigned)
                 return builder_.create<mlir::arith::ExtUIOp>(loc_, to, v);
             return builder_.create<mlir::arith::ExtSIOp>(loc_, to, v);
@@ -718,14 +713,8 @@ private:
             return coerce_float(v, to);
         // int → float: use unsigned op for unsigned Logos types
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to)) {
-            auto src_k = src_lt ? TypeRef(src_lt).kind() : LogosType::Kind::Error;
             bool src_unsigned = src_lt &&
-                (src_k == LogosType::Kind::U8   ||
-                 src_k == LogosType::Kind::U16  ||
-                 src_k == LogosType::Kind::U32  ||
-                 src_k == LogosType::Kind::U56  ||
-                 src_k == LogosType::Kind::U64  ||
-                 src_k == LogosType::Kind::U128);
+                LogosType::is_unsigned_repr_kind(TypeRef(src_lt).kind());
             if (src_unsigned)
                 return builder_.create<mlir::arith::UIToFPOp>(loc_, to, v);
             return builder_.create<mlir::arith::SIToFPOp>(loc_, to, v);

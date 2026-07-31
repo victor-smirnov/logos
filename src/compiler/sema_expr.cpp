@@ -3004,10 +3004,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // B-ex-04: unary minus on an unsigned type wraps silently. Reject —
         // the user must cast to a signed type explicitly if that's intended.
         auto vk = TypeRef(vt).kind();
-        if (vk == LogosType::Kind::U8  || vk == LogosType::Kind::U16 ||
-            vk == LogosType::Kind::U24 || vk == LogosType::Kind::U32 ||
-            vk == LogosType::Kind::U56 || vk == LogosType::Kind::U64 ||
-            vk == LogosType::Kind::U128) {
+        if (LogosType::is_unsigned_int_kind(vk)) {
             error(std::format(
                 "unary '-': operand has unsigned type {}; negation would wrap silently — "
                 "cast to a signed type first (e.g. `-(x as i64)`)",

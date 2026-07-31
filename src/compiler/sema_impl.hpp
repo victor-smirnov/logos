@@ -5321,25 +5321,22 @@ inline bool is_integer_kind(LogosType::Kind k) noexcept {
 // for non-concrete-integer kinds (IntLit, Enum, non-integers).
 inline std::pair<unsigned, bool> int_rank(LogosType::Kind k) noexcept {
     using K = LogosType::Kind;
+    // WIDTH is this table's business; SIGNEDNESS is not — it is read from
+    // LogosType::is_signed_int_kind so a kind can never be wide here and
+    // signed-vs-unsigned somewhere else.
+    unsigned w = 0;
     switch (k) {
-    case K::Usize: return {static_cast<unsigned>(g_target_pointer_bits), false};
-    case K::Isize: return {static_cast<unsigned>(g_target_pointer_bits), true};
-    case K::I8:   return {8, true};
-    case K::U8:   return {8, false};
-    case K::I16:  return {16, true};
-    case K::U16:  return {16, false};
-    case K::I24:  return {24, true};
-    case K::U24:  return {24, false};
-    case K::I32:  return {32, true};
-    case K::U32:  return {32, false};
-    case K::I56:  return {56, true};
-    case K::U56:  return {56, false};
-    case K::I64:  return {64, true};
-    case K::U64:  return {64, false};
-    case K::I128: return {128, true};
-    case K::U128: return {128, false};
+    case K::Usize: case K::Isize: w = static_cast<unsigned>(g_target_pointer_bits); break;
+    case K::I8:   case K::U8:   w = 8;   break;
+    case K::I16:  case K::U16:  w = 16;  break;
+    case K::I24:  case K::U24:  w = 24;  break;
+    case K::I32:  case K::U32:  w = 32;  break;
+    case K::I56:  case K::U56:  w = 56;  break;
+    case K::I64:  case K::U64:  w = 64;  break;
+    case K::I128: case K::U128: w = 128; break;
     default:      return {0, false};
     }
+    return {w, LogosType::is_signed_int_kind(k)};
 }
 
 // True iff every value of `from` is representable in `to` — i.e. a safe

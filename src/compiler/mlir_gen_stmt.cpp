@@ -2488,13 +2488,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
 
     auto i_alloca = create_entry_alloca(loop_type);
     bool lo_unsigned = lo_ty &&
-        (TypeRef(lo_ty).kind() == LogosType::Kind::U8  ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U16 ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U32 ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U24 ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U56 ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U64 ||
-         TypeRef(lo_ty).kind() == LogosType::Kind::U128);
+        LogosType::is_unsigned_repr_kind(TypeRef(lo_ty).kind());
     mlir::Value lo_coerced;
     if (lo_unsigned && lo.getType() != loop_type)
         lo_coerced = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, lo);
@@ -2524,13 +2518,7 @@ void MLIRGenImpl::gen_for(lir_view::SForView v) {
     builder_.setInsertionPointToStart(cond_block);
     auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
     bool hi_unsigned = hi_ty &&
-        (TypeRef(hi_ty).kind() == LogosType::Kind::U8  ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U16 ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U32 ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U24 ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U56 ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U64 ||
-         TypeRef(hi_ty).kind() == LogosType::Kind::U128);
+        LogosType::is_unsigned_repr_kind(TypeRef(hi_ty).kind());
     mlir::Value hi_val;
     if (hi_unsigned && hi.getType() != loop_type)
         hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
@@ -3276,13 +3264,7 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
 
     // Zero-extend unsigned index types so u8(200) doesn't become i8(-56) in GEP.
     bool idx_unsigned = idx_ty &&
-        (TypeRef(idx_ty).kind() == LogosType::Kind::U8  ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U16 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U32 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U24 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U56 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U64 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U128);
+        LogosType::is_unsigned_repr_kind(TypeRef(idx_ty).kind());
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
@@ -3375,13 +3357,7 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
 
     // Zero-extend unsigned index types; coerce_int sign-extends, which is wrong for u8/u16/u32/u64.
     bool idx_unsigned = idx_ty &&
-        (TypeRef(idx_ty).kind() == LogosType::Kind::U8  ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U16 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U32 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U24 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U56 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U64 ||
-         TypeRef(idx_ty).kind() == LogosType::Kind::U128);
+        LogosType::is_unsigned_repr_kind(TypeRef(idx_ty).kind());
     auto extend_idx = [&](mlir::Type to) -> mlir::Value {
         if (idx.getType() == to) return idx;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(idx.getType());
@@ -4566,13 +4542,8 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         }
     };
     auto scrut_unsigned = [&]() -> bool {
-        if (!scrut_ty) return false;
-        switch (TypeRef(scrut_ty).kind()) {
-            case LogosType::Kind::U8:  case LogosType::Kind::U16: case LogosType::Kind::U24:
-            case LogosType::Kind::U32: case LogosType::Kind::U56: case LogosType::Kind::U64:
-            case LogosType::Kind::U128: return true;
-            default: return false;
-        }
+        return scrut_ty &&
+            LogosType::is_unsigned_repr_kind(TypeRef(scrut_ty).kind());
     };
 
     // Build if-else chain from last arm down to first.

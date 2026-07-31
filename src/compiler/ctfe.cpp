@@ -33,12 +33,12 @@ inline TinyMapView map_of(AnyVal av, MemHolder* h) noexcept {
 }
 
 inline bool is_signed_int(K k) noexcept {
-    return k == K::I8 || k == K::I16 || k == K::I24 || k == K::I32 ||
-           k == K::I56 || k == K::I64 || k == K::I128 || k == K::IntLit;
+    // IntLit (an un-suffixed literal) is signed until a suffix says otherwise;
+    // every other answer comes from the one signedness table in sema.hpp.
+    return LogosType::is_signed_int_kind(k) || k == K::IntLit;
 }
 inline bool is_unsigned_int(K k) noexcept {
-    return k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
-           k == K::U56 || k == K::U64 || k == K::U128;
+    return LogosType::is_unsigned_int_kind(k);
 }
 inline bool is_int(K k) noexcept { return is_signed_int(k) || is_unsigned_int(k); }
 inline bool is_float(K k) noexcept {

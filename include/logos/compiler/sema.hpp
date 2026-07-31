@@ -215,6 +215,41 @@ struct LogosType {
         return k == Kind::FnPtr || k == Kind::FnItem;
     }
 
+    // ── Signedness: DECIDED HERE, next to the enum that defines the kinds ──
+    // A kind's signedness is a property of the kind, so it is written down
+    // exactly once — at the definition — and every lowering that branches on
+    // it ASKS. It is never re-derived from a list of kind constants retyped
+    // at the use site.
+    //
+    // Why this is a hard rule and not a style preference: before this
+    // existed there were ~26 hand-written `k == U8 || k == U16 || …` lists
+    // across mlir-gen, ctfe and mono. Each was an independent chance to omit
+    // a kind, and 21 of them omitted `Usize`. The consequence was a SILENT
+    // MISCOMPILE — a `usize` above 2^63 compared, divided, remaindered and
+    // right-shifted as a NEGATIVE i64, and zero/sign-extended the wrong way
+    // at every widening cast. `u8`..`u128` were correct, so no fixture that
+    // stayed under 2^63 could see it. Adding a new integer kind must be one
+    // edit here, not an archaeology pass over the whole backend.
+    static constexpr bool is_unsigned_int_kind(Kind k) noexcept {
+        return k == Kind::U8   || k == Kind::U16 || k == Kind::U24 ||
+               k == Kind::U32  || k == Kind::U56 || k == Kind::U64 ||
+               k == Kind::U128 || k == Kind::Usize;
+    }
+    static constexpr bool is_signed_int_kind(Kind k) noexcept {
+        return k == Kind::I8   || k == Kind::I16 || k == Kind::I24 ||
+               k == Kind::I32  || k == Kind::I56 || k == Kind::I64 ||
+               k == Kind::I128 || k == Kind::Isize;
+    }
+    // The machine-level question a lowering actually asks: "does this value's
+    // LLVM integer representation carry an unsigned magnitude?" — i.e. use a
+    // `u`-predicate to compare it, `zext` to widen it, `uitofp` to convert it.
+    // Bool (i1: signed i1 `true` is −1, which inverts `false < true`) and Char
+    // (a Unicode scalar, never negative) answer yes without being integer
+    // TYPES, so they are named here rather than at each call site.
+    static constexpr bool is_unsigned_repr_kind(Kind k) noexcept {
+        return is_unsigned_int_kind(k) || k == Kind::Bool || k == Kind::Char;
+    }
+
     // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()
     // which reads the mirror's schema_type_code. The mirror is the single
     // source of truth.
