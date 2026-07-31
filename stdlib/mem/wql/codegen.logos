@@ -242,6 +242,31 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
     }
 }
 
+/// The type the EMITTER MUST PRINT for `e` — its resolved Logos type when that
+/// type is one the EL admits, and the class's representative otherwise.
+///
+/// ⚠ TWO QUESTIONS, AND THEY HAVE DIFFERENT DEFAULTS. `infer_ty_name` answers
+/// "what type did the query give this expression", and an unresolvable answer must
+/// stay unresolvable — the reorder LICENCE denies on it, which is right: nothing is
+/// known about that type's order. This one answers "what do I write in the
+/// generated source", and there the domain's documented LENIENT policy applies: an
+/// unknown name is the lattice baseline, and the HOST COMPILER is the oracle for
+/// whether the emitted push type-checks.
+///
+/// ⚠ MEASURED, and it is not a hypothetical. `ElTypes`' flat dict is keyed on the
+/// field NAME, so two sources with a same-named field share one entry and the last
+/// write wins: in wql_join_order_key_fidelity_e2e claim 6, `E.n: i64` and `F.n: P`
+/// collide and `n` resolves to the STRUCT `P`. Printing that name emits
+/// `Vec<P>::push(i64)`. The class view was masking the collision by flattening `P`
+/// to the baseline; keeping the leniency HERE and the strictness at the licence
+/// keeps both answers right while the flat dict remains imprecise — which is its
+/// own arc, not this one.
+pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
+    let n: str = infer_ty_name(e, t);
+    if el_class_lookup(n) >= 0i32 { return n; }
+    return el_class_repr(infer_ty(e, t));
+}
+
 // The bare-identifier ROOT name of `e` — the name when `e` is a root-shaped
 // leaf (a null-base SField — the EL parser's bare-ident node — or an SVar /
 // SParam), "" otherwise. The rel-binding lookups key off this (a rel row var
@@ -298,7 +323,7 @@ pub fn push_tuple_ty(out: &mut String, tp: STuple, t: &ElTypes) {
             SExpr::Tuple(nt) => { push_tuple_ty(out, nt, t); }
             _ => {
                 if returns_string(c, t) { out.push_str("String"); }
-                else { out.push_str(infer_ty_name(c, t)); }
+                else { out.push_str(infer_emit_ty(c, t)); }
             }
         }
         i = i + 1i64;

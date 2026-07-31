@@ -1,0 +1,98 @@
+// WQL — THE COLUMN'S TYPE REACHES THE EMITTED CODE, AND THE VALUE SURVIVES.
+//
+// The recorded root of the query compiler's type erasure: a column's type was a
+// four-value CLASS, so `u64` and `i64` were one thing, the projection's element
+// type came back out of the class as `i64`, and a `u64` column produced an `i64`
+// row. What that cost, MEASURED at HEAD before this fixture existed:
+//
+//   from src s select s.v      (v: u64)
+//   → <metaprog-blob-subst>: error [fn pick_run]: method 'Vec__push' arg 1:
+//     expected i64, got u64
+//
+// — a diagnostic pointing at a line nobody wrote, inside a generated chunk, for a
+// query that is perfectly well typed. The four emitters did not even agree: the
+// `find` emitter already asked `infer_ty_name` while the other three still printed
+// the class's representative.
+//
+// This fixture pins the whole path — declared type → ElTypes → `infer_ty_name` →
+// the emitted element type / key vector — over exactly the types the class
+// conflates:
+//
+//   1. a `u64` projection, carrying `u64::MAX` (0xFFFF_FFFF_FFFF_FFFF). Under the
+//      class it would have been an `i64` column and this value is where it shows:
+//      as -1. Round-tripping it is the assertion;
+//   2. a `u32` projection carrying a value above the i32 range;
+//   3. an `f32` projection — same class as f64, different repr;
+//   4. `order by` a `u32` key: the key VECTOR is the class's representative
+//      (`i64`), so the key is NORMALIZED into it — a conversion that preserves
+//      every u32 value, hence also its order (`ElTy.fits` ⇒ `ElTy.ord == OK`).
+//      The largest u32 sorts last, which an i32-shaped key would get wrong;
+//   5. `order by` an `f32` key — normalized to f64 the same way;
+//   6. `group by` a `u32` key: identity survives the same normalization, so equal
+//      u32s land in one bucket.
+//
+// The refusal half — a `u64` key, whose normalization REINTERPRETS — is
+// wql_order_by_wrap_key_fail.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec {
+    pub id: i64,
+    pub v:  u64,
+    pub w:  u32,
+    pub f:  f32,
+}
+
+pub deem vals(src: &[Rec])   { from src s select s.v }
+pub deem ws(src: &[Rec])     { from src s select s.w }
+pub deem fs(src: &[Rec])     { from src s select s.f }
+pub deem by_w(src: &[Rec])   { from src s select s.id order by s.w }
+pub deem by_f(src: &[Rec])   { from src s select s.id order by s.f }
+pub deem grp(src: &[Rec])    { from src s group by s.w aggregate n = count() select (key, n) }
+
+fn main() -> i32 {
+    let rs: [Rec; 3] = [
+        Rec { id: 1i64, v: 18446744073709551615u64, w: 4000000000u32, f: 1.5f32 },
+        Rec { id: 2i64, v: 5u64,                    w: 7u32,          f: 0.5f32 },
+        Rec { id: 3i64, v: 9223372036854775808u64,  w: 7u32,          f: 2.5f32 },
+    ];
+
+    // 1. u64 projection — the element type is `u64`, and u64::MAX is itself.
+    let vs: Vec<u64> = vals(&rs[..]).unwrap();
+    if vs.len() != 3i64                      { return 1i32; }
+    if vs.get(0i64) != 18446744073709551615u64 { return 2i32; }
+    if vs.get(2i64) != 9223372036854775808u64  { return 3i32; }
+
+    // 2. u32 projection above the i32 range.
+    let w: Vec<u32> = ws(&rs[..]).unwrap();
+    if w.get(0i64) != 4000000000u32 { return 4i32; }
+
+    // 3. f32 projection.
+    let f: Vec<f32> = fs(&rs[..]).unwrap();
+    if f.get(1i64) != 0.5f32 { return 5i32; }
+
+    // 4. u32 sort key: 7, 7, 4000000000 — the big one LAST.
+    let a: Vec<i64> = by_w(&rs[..]).unwrap();
+    if a.len() != 3i64    { return 6i32; }
+    if a.get(0i64) != 2i64 { return 7i32; }
+    if a.get(1i64) != 3i64 { return 8i32; }
+    if a.get(2i64) != 1i64 { return 9i32; }
+
+    // 5. f32 sort key: 0.5, 1.5, 2.5 → ids 2, 1, 3.
+    let b: Vec<i64> = by_f(&rs[..]).unwrap();
+    if b.get(0i64) != 2i64 { return 10i32; }
+    if b.get(1i64) != 1i64 { return 11i32; }
+    if b.get(2i64) != 3i64 { return 12i32; }
+
+    // 6. u32 group key: {7 → 2 rows, 4000000000 → 1 row}.
+    let g: Vec<(i64, i64)> = grp(&rs[..]).unwrap();
+    if g.len() != 2i64 { return 13i32; }
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < g.len() { total = total + g.get(i).1; i = i + 1i64; }
+    if total != 3i64 { return 14i32; }
+
+    return 0i32;
+}

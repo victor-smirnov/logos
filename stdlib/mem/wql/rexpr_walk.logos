@@ -165,18 +165,16 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
         // The column's DECLARED type, which for a native source came from the
         // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
         let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
-        let ct0: i32 = el_ty_of_name(tn0);
         ty.set_ty_named(cn0, tn0);
-        ty.rel_bind_named(var_name, cn0, -1i64, ct0, tn0);
+        ty.rel_bind_named(var_name, cn0, -1i64, tn0);
         return true;
     }
     let mut k: i64 = 0i64;
     while k < nc {
         let cn: str = prm.relc_name[off + k];
         let tnk: str = resolve_alias_name(view, prm.relc_ty[off + k]);
-        let ct: i32 = el_ty_of_name(tnk);
         ty.set_ty_named(cn, tnk);
-        ty.rel_bind_named(var_name, cn, k, ct, tnk);
+        ty.rel_bind_named(var_name, cn, k, tnk);
         k = k + 1i64;
     }
     return true;
@@ -1271,6 +1269,66 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
 // The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
 // cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
 // and a decimal into the middle of a half-written line.
+// ── THE KEY VECTOR HOLDS THE CLASS'S REPRESENTATIVE, SO THE KEY IS NORMALIZED ─
+// `__ks` / `__k` / `__g_key` are typed `el_class_repr(class)` — i64 / f64 / str /
+// bool — while the key EXPRESSION has whatever type the query gave it. Those are
+// the same type only when the key type is its own repr (`ElTy.canon`). They were
+// not checked to be, and the mismatch surfaced as a raw `Vec__push arg 1: expected
+// i64, got u64` inside the GENERATED chunk — a diagnostic pointing at a line
+// nobody wrote. MEASURED before this seam existed, on `order by s.v` over a `u64`
+// column.
+//
+// Three outcomes, decided by the type and nothing else:
+//   • canon                  → the body is already the key vector's type;
+//   • not canon but `fits`   → the normalization is VALUE-PRESERVING, so it is
+//                              EMITTED (`el_norm_cast`): u8..u32, i8..i32, u56,
+//                              isize and f32 keys work, and they compare in their
+//                              own order because a value that survives the
+//                              widening carries its order with it (`ElTy.ord`);
+//   • not canon and !fits    → the normalization REINTERPRETS (u64/usize) or
+//                              TRUNCATES (u128/i128). REFUSED, with the ground
+//                              `el_order_why` already states — never sorted by a
+//                              reinterpretation.
+// ⚠ AN OUT-OF-LATTICE KEY IS NOT REFUSED HERE, and the difference matters. The
+// lattice's LENIENT default (`el_ty_of_name`: an unknown name is the i64 baseline)
+// is what lets a key whose declared type this layer cannot resolve — a generic
+// alias to its own parameter, `type El<T> = T`, is the pinned case — still emit,
+// with the HOST compiler as the oracle for whether the push type-checks. Refusing
+// it here would turn a documented lenient default into a hard error and break a
+// query that compiles and runs correctly. MEASURED: three fixtures, including
+// wql_key_spelling_e2e claim 5, which asserts exactly that such a key keeps
+// working while being refused the reorder LICENCE.
+//
+// So this seam refuses only what it KNOWS is lossy — the ORDER question's
+// default-deny stays where it belongs, on the licence (`el_order_faithful`), which
+// denies an unresolvable name without denying the query.
+fn key_norm_ok(tn: str, ctx: str) -> bool {
+    let t: ElTy = el_ty(tn);
+    if t.cls < 0i32 { return true; }
+    if t.canon || t.fits { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": a key of type `");
+    m.push_str(tn);
+    m.push_str("` cannot be collected into the key vector the backend emits (`");
+    m.push_str(el_class_repr(el_ty_of_name(tn)));
+    m.push_str("`) — ");
+    m.push_str(el_order_why(tn));
+    error(string_as_str(&m));
+    return false;
+}
+
+/// The emitted key body, normalized into the key vector's element type. Call
+/// ONLY after `key_norm_ok` has admitted the type.
+fn key_norm_body(body: str, tn: str) -> String {
+    let cast: str = el_norm_cast(tn);
+    let mut out: String = String::new();
+    if cast.len() == 0i64 { out.push_str(body); return out; }
+    out.push_str("(("); out.push_str(body);
+    out.push_str(") as "); out.push_str(cast); out.push_str(")");
+    return out;
+}
+
 fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     let mut saves: Vec<ExprBlob>  = vec_new::<ExprBlob>();
     let mut shifts: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -1354,7 +1412,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = infer_ty_name(proj_opt, &ty);
+        result_ty = infer_emit_ty(proj_opt, &ty);
         // A String-returning call projects an OWNED element (Vec<String>).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -1653,7 +1711,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
+        result_ty = infer_emit_ty(proj_opt, &ty);
         // A String-returning call (upper/lower or a String UDF) projects an
         // OWNED element: Vec<String> / Option<String> — a borrowed `str` view
         // of the call's temporary would dangle.
@@ -1696,8 +1754,12 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         if !reject_tuple(key_e, "wql!: `order by`") { return false; }
         if !check_calls(key_e, &ty, "wql!: `order by`") { return false; }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+        let key_tn: str = infer_ty_name(key_opt, &ty);
+        if !key_norm_ok(key_tn, "wql!: `order by`") { return false; }
         key_ty = el_class_repr(infer_ty(key_opt, &ty));
-        emit_sexpr(&mut key_body, key_opt, &ty, var_name);
+        let mut kb0: String = String::new();
+        emit_sexpr(&mut kb0, key_opt, &ty, var_name);
+        key_body = key_norm_body(string_as_str(&kb0), key_tn);
     }
 
     // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
@@ -3010,7 +3072,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
         // unknown name and takes its INT default — the same class of defect as the
         // element type of a source parameter (see `reflect::find_struct_decl`).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
+        if ch.byval[si] { ty.set_ty_named(ch.var[si], resolve_alias_name(&view, ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);
@@ -3040,7 +3102,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
+        result_ty = infer_emit_ty(proj_opt, &ty);
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -3072,8 +3134,11 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         key_tn = infer_ty_name(key_opt, &ty);
+        if !key_norm_ok(key_tn, "wql!: `order by`") { return false; }
         key_ty = el_class_repr(infer_ty(key_opt, &ty));
-        emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
+        let mut kb1: String = String::new();
+        emit_sexpr(&mut kb1, key_opt, &ty, ch.base_var);
+        key_body = key_norm_body(string_as_str(&kb1), key_tn);
     }
     let has_sort: bool = mods.has_sort;
 
@@ -3452,7 +3517,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
         // unknown name and takes its INT default — the same class of defect as the
         // element type of a source parameter (see `reflect::find_struct_decl`).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
+        if ch.byval[si] { ty.set_ty_named(ch.var[si], resolve_alias_name(&view, ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);
@@ -3469,6 +3534,26 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let key_ety: i32 = infer_ty(key_opt, &ty);
+    // ⚠ ASKED OF THE TYPE FIRST, then of the class. `el_eq_hash` answers about the
+    // class's REPRESENTATIVE, so it admits every EL_TY_INT — including a `u128`,
+    // whose normalization drops bits and puts two different keys in one bucket.
+    // The type knows better (`ElTy.ident`), and the ground it gives names which
+    // way the identity failed.
+    // OWNED: the inferred name is a view into `ty`'s table and the group path
+    // writes `ty` (the "key" binding) before the body is emitted.
+    let mut key_tn3s: String = String::new();
+    key_tn3s.push_str(infer_ty_name(key_opt, &ty));
+    let key_id: ElTy = el_ty(string_as_str(&key_tn3s));
+    if key_id.cls >= 0i32 && key_id.ident == EL_ID_NO_INJ() {
+        let mut mni: String = String::new();
+        mni.push_str("wql!: a `group by` key of type `");
+        mni.push_str(string_as_str(&key_tn3s));
+        mni.push_str("` has no identity to group by — ");
+        mni.push_str(el_order_why(string_as_str(&key_tn3s)));
+        error(string_as_str(&mni));
+        return false;
+    }
+    if !key_norm_ok(string_as_str(&key_tn3s), "wql!: `group by`") { return false; }
     if !el_eq_hash(key_ety) {
         // The DECISION is the shared table; only the WORDING branches, because the
         // f64 case has a named mechanism worth stating and an unadmitted class does
@@ -3516,7 +3601,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
     if !has_result_ty {
-        result_ty = el_class_repr(infer_ty(proj_opt, &ty));
+        result_ty = infer_emit_ty(proj_opt, &ty);
         // Owned-String projection (String-returning call at the select root).
         if returns_string(proj_opt, &ty) { result_ty = "String"; }
     }
@@ -3525,8 +3610,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
     if tres < 0i32 { return false; }
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
-    let mut key_body: String = String::new();
-    emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
+    let mut kb3: String = String::new();
+    emit_sexpr(&mut kb3, key_opt, &ty, ch.base_var);
+    let key_body: String = key_norm_body(string_as_str(&kb3), string_as_str(&key_tn3s));
     let mut where_body: String = String::new();
     if has_where {
         let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
@@ -3548,8 +3634,12 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
         if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
+        let okey_tn: str = infer_ty_name(okey_opt, &ty);
+        if !key_norm_ok(okey_tn, "wql!: `order by`") { return false; }
         okey_ty = el_class_repr(infer_ty(okey_opt, &ty));
-        emit_sexpr(&mut okey_body, okey_opt, &ty, ch.base_var);
+        let mut okb: String = String::new();
+        emit_sexpr(&mut okb, okey_opt, &ty, ch.base_var);
+        okey_body = key_norm_body(string_as_str(&okb), okey_tn);
     }
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -4623,7 +4713,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
         // SPELLING off a field's type node, so `type Cel = f64;` reaches `el` as an
         // unknown name and takes its INT default — the same class of defect as the
         // element type of a source parameter (see `reflect::find_struct_decl`).
-        if ch.byval[si] { ty.set_ty(ch.var[si], el_ty_of_name(resolve_alias_name(&view, ch.ty[si]))); }
+        if ch.byval[si] { ty.set_ty_named(ch.var[si], resolve_alias_name(&view, ch.ty[si])); }
         si = si + 1i64;
     }
     apply_scalar_params(&mut ty, &view, prm);

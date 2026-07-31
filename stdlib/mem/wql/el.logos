@@ -654,15 +654,12 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
 // (emit_sexpr / infer_ty) BEFORE the flat name dictionary.
 pub struct ElTypes {
     pub names:  [str; 64],
-    pub tys:    [i32; 64],
-    // The LOGOS TYPE NAME behind each binding (ADR 0024 S3). `tys` is a
-    // four-value classification — INT/FLT/BOOL/STR — which is the right shape
-    // for choosing a join strategy and the wrong shape for EMITTING: every
-    // integer width collapses to INT and comes back out of `el_class_repr` as
-    // `i64`, so a `u64` column produced `i64` literals and an `i64` row type.
-    // Carrying the name alongside the class keeps both answers available; the
-    // same pair already exists for UDF returns (`udf_ret` + `udf_rets`).
-    // Empty = the name was never recorded, and `el_class_repr(class)` answers.
+    // The LOGOS TYPE of each binding — THE column (ADR 0024 S3/S6). It used to
+    // sit BESIDE a four-value classification, and a binding recorded through the
+    // class-only setter left this empty: `ty_name_of` then invented the class's
+    // representative, so a `u64` column produced `i64` literals and an `i64` row
+    // type. The class is a VIEW now (`ty_of` = `el_ty_of_name` of this), so there
+    // is no second column to disagree with.
     pub tns:    [str; 64],
     pub n:      i64,
     pub udf_names: [str; 32],
@@ -673,10 +670,10 @@ pub struct ElTypes {
     pub rb_var: [str; 32],
     pub rb_col: [str; 32],
     pub rb_idx: [i64; 32],
-    pub rb_ty:  [i32; 32],
-    // The column's DECLARED type name, per binding (ADR 0024 S3). The flat name
+    // The column's DECLARED type, per binding (ADR 0024 S3/S6). The flat name
     // dict can collide across rels that share a column name; this table is the
-    // precise one, so the NAME belongs here too and not only the class.
+    // precise one — and, like the flat one, it keeps the TYPE and derives the
+    // class rather than storing both.
     pub rb_tn:  [str; 32],
     pub rb_n:   i64,
 }
@@ -691,7 +688,6 @@ pub fn el_types_new() -> ElTypes {
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:    [0i32; 64],
         n:      0i64,
         udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
@@ -705,7 +701,6 @@ pub fn el_types_new() -> ElTypes {
         rb_col: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         rb_idx: [0i64; 32],
-        rb_ty:  [0i32; 32],
         rb_tn:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         rb_n:   0i64,
@@ -714,60 +709,48 @@ pub fn el_types_new() -> ElTypes {
 
 impl ElTypes {
     // The recorded value-type for `name` (EL_TY_*), or INT if unknown.
+    //
+    // ⚠ DERIVED, not stored. The class used to be a second column beside the
+    // name, and a binding recorded through the class-only setter left the name
+    // EMPTY — so `ty_name_of` INVENTED the class's representative and a `u64`
+    // column came back out as `i64`. There is now one column, the TYPE, and the
+    // class is a view of it.
     pub fn ty_of(self: &ElTypes, name: str) -> i32 {
-        let mut i: i64 = 0i64;
-        while i < self.n {
-            if str_eq(self.names[i], name) { return self.tys[i]; }
-            i = i + 1i64;
-        }
-        return EL_TY_INT();
+        return el_ty_of_name(self.ty_name_of(name));
     }
 
-    // Record / overwrite `name`'s value-type (idempotent by name). Reflection +
-    // the param-list seeding call this; last write wins.
+    // Record / overwrite `name` by CLASS (idempotent by name). The recorded type
+    // is the class's representative — which is not a fallback here but the truth:
+    // the callers that reach this hold a value the EL has already normalized (a
+    // group key vector, an aggregate output column), and the representative IS
+    // what the emitted code holds.
     pub fn set_ty(self: &mut ElTypes, name: str, ty: i32) {
-        let mut i: i64 = 0i64;
-        while i < self.n {
-            if str_eq(self.names[i], name) { self.tys[i] = ty; return; }
-            i = i + 1i64;
-        }
-        if self.n >= 64i64 { return; }
-        self.names[self.n] = name;
-        self.tys[self.n]   = ty;
-        self.n = self.n + 1i64;
+        self.set_ty_named(name, el_class_repr(ty));
     }
 
-    // Record `name` with its LOGOS TYPE NAME as well as its class. Callers that
-    // know the declared type — reflection over a struct's fields, a native
-    // rel's columns — use this; the class is still derived so every existing
-    // consumer keeps working unchanged.
+    // Record `name` with its LOGOS TYPE NAME. THE setter: everything a consumer
+    // needs about the binding is derivable from the type, so the type is what is
+    // kept. Reflection over a struct's fields, a native rel's columns, the
+    // parameter list and every by-value element binding come through here.
     pub fn set_ty_named(self: &mut ElTypes, name: str, ty_name: str) {
-        let cls: i32 = el_ret_class(ty_name);
-        let c: i32 = if cls < 0i32 { EL_TY_INT() } else { cls };
         let mut i: i64 = 0i64;
         while i < self.n {
-            if str_eq(self.names[i], name) {
-                self.tys[i] = c; self.tns[i] = ty_name; return;
-            }
+            if str_eq(self.names[i], name) { self.tns[i] = ty_name; return; }
             i = i + 1i64;
         }
         if self.n >= 64i64 { return; }
         self.names[self.n] = name;
-        self.tys[self.n]   = c;
         self.tns[self.n]   = ty_name;
         self.n = self.n + 1i64;
     }
 
-    // The LOGOS TYPE NAME for `name` — the declared type when it was recorded,
-    // otherwise the class's representative (`el_ty_name`). This is what the
-    // emitter must print: a type, a literal suffix, a row-tuple component.
+    // The LOGOS TYPE NAME for `name` — what the emitter must print: a type, a
+    // literal suffix, a row-tuple component. `i64` for a name never recorded (the
+    // lattice baseline, the same answer the class view has always given).
     pub fn ty_name_of(self: &ElTypes, name: str) -> str {
         let mut i: i64 = 0i64;
         while i < self.n {
-            if str_eq(self.names[i], name) {
-                if self.tns[i].len() > 0i64 { return self.tns[i]; }
-                return el_class_repr(self.tys[i]);
-            }
+            if str_eq(self.names[i], name) { return self.tns[i]; }
             i = i + 1i64;
         }
         return "i64";
@@ -809,25 +792,22 @@ impl ElTypes {
     // `(*var)`). Existence tests go through `rel_col_ty` (≥ 0 iff bound) —
     // `rel_col_of`'s -1 is only meaningful under a bound (var, col).
 
-    // Bind (var, col) → tuple component `idx` of EL type `ty`.
-    pub fn rel_bind(self: &mut ElTypes, var: str, col: str, idx: i64, ty: i32) {
-        self.rel_bind_named(var, col, idx, ty, "");
-    }
-
-    /// Bind with the column's DECLARED type name as well as its class.
+    /// Bind (var, col) → tuple component `idx` of DECLARED type `ty_name`.
+    ///
+    /// ⚠ THE CLASS IS NOT STORED HERE EITHER. The class-only `rel_bind` that used
+    /// to sit beside this one recorded an empty name, which is how a rel column's
+    /// width could be lost between binding it and emitting it.
     pub fn rel_bind_named(self: &mut ElTypes, var: str, col: str, idx: i64,
-                          ty: i32, ty_name: str) {
+                          ty_name: str) {
         if self.rb_n >= 32i64 { return; }
         self.rb_var[self.rb_n] = var;
         self.rb_col[self.rb_n] = col;
         self.rb_idx[self.rb_n] = idx;
-        self.rb_ty[self.rb_n]  = ty;
         self.rb_tn[self.rb_n]  = ty_name;
         self.rb_n = self.rb_n + 1i64;
     }
 
-    /// The declared type NAME of `var.col`, or "" when this is not a rel
-    /// binding or the name was never recorded.
+    /// The declared type NAME of `var.col`, or "" when this is not a rel binding.
     pub fn rel_col_ty_name(self: &ElTypes, var: str, col: str) -> str {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
@@ -849,11 +829,14 @@ impl ElTypes {
         return -1i64;
     }
 
-    // The EL value-type of `var.col`, or -1 (not a rel binding).
+    // The EL value-type of `var.col`, or -1 (not a rel binding) — the class VIEW
+    // of the bound type, and also the existence test the callers use.
     pub fn rel_col_ty(self: &ElTypes, var: str, col: str) -> i32 {
         let mut i: i64 = 0i64;
         while i < self.rb_n {
-            if str_eq(self.rb_var[i], var) && str_eq(self.rb_col[i], col) { return self.rb_ty[i]; }
+            if str_eq(self.rb_var[i], var) && str_eq(self.rb_col[i], col) {
+                return el_ty_of_name(self.rb_tn[i]);
+            }
             i = i + 1i64;
         }
         return -1i32;

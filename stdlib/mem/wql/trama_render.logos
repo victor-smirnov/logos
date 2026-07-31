@@ -337,7 +337,7 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                     // ⚠ Through the alias table, like every other name reaching `el`:
                     // `type Cell = str;` on a collection field would otherwise take
                     // `el_ty_of_name`'s INT default and render `push_i64` on a `str`.
-                    ty.set_ty(f.var, el_ty_of_name(resolve_alias_name(view, elem_ty)));
+                    ty.set_ty_named(f.var, resolve_alias_name(view, elem_ty));
                     // Reflect the element struct's fields so `v.member` types.
                     stamp_types_from_schema(view, ty, elem_ty);
                 }
@@ -365,7 +365,7 @@ fn reflect_loops(view: &OView, head: i64, ty: &mut ElTypes, vtys: &mut TVarTys, 
                 // inferring): folding cannot change an EL type — a folded compare
                 // is a bool literal and the unfolded SBin compare infers BOOL —
                 // and the pre-pass has no arena to fold into.
-                ty.set_ty(s.var, infer_ty(s.expr_expr(), ty));
+                ty.set_ty_named(s.var, infer_ty_name(s.expr_expr(), ty));
             }
             TStmt::If(i) => {
                 // Conditionals don't bind vars; recurse both arms with the same env.
@@ -672,7 +672,7 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
         let pnm: str = prm.names[pi];
         let pty: str = prm.tys[pi];
         // Scalar/str value-type for the bare-param render path.
-        ty.set_ty(pnm, el_ty_of_name(resolve_alias_name(&view, pty)));
+        ty.set_ty_named(pnm, resolve_alias_name(&view, pty));
         // If the core type names a schema struct, reflect its fields + bind the
         // env; a non-struct name (str/i64/…) is a no-op reflect + harmless bind.
         // A param type is a spelling too: `p: Prec` with `type Prec = Rec;` names a
