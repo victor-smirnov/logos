@@ -22,6 +22,18 @@ trap 'rm -rf "$TMPD"' EXIT
 if [ "$MODE" = fail ]; then
     STDERR=$("$LOGOSC" "$TEST_LOGOS" -o /dev/null "${EXTRA[@]}" 2>&1 || true)
     WANT=$(cat "$EXPECTED")
+    # ⚠ AN EMPTY EXPECTATION MATCHES EVERYTHING. `grep -F ""` succeeds on any
+    # input including no input at all, so a fail test whose `.expected` is empty
+    # (truncated, half-written, `git add`ed before it was filled in) passes on
+    # every compiler, forever, while looking exactly like a test that holds a
+    # diagnostic. The file is what makes the test exist at all — cmake globs
+    # `.expected` — so an empty one is a registered assertion about nothing.
+    if [ -z "$(printf '%s' "$WANT" | tr -d '[:space:]')" ]; then
+        echo "FAIL: $EXPECTED is empty, so the diagnostic assertion is vacuous —"
+        echo "      \`grep -F ''\` matches any stderr, and this test would pass on a"
+        echo "      compiler that printed nothing at all."
+        exit 1
+    fi
     if echo "$STDERR" | grep -qF "$WANT"; then
         exit 0
     fi

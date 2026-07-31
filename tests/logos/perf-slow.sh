@@ -42,7 +42,10 @@ TESTS=(
 re="^($(IFS='|'; echo "${TESTS[*]}"))\$"
 
 echo "perf-slow: ${#TESTS[@]} tests, -j${JOBS}"
-out=$(ctest -R "$re" -j"$JOBS" 2>&1)
+# `--no-tests=error`: this list is a hand-maintained set of exact ctest names and
+# a renamed test drops out of it silently — `ctest -R` that matches nothing exits
+# 0 (measured, ctest 3.28.3), so the timing table below would just be empty.
+out=$(ctest --no-tests=error -R "$re" -j"$JOBS" 2>&1)
 echo "$out" | grep -E "Test #[0-9]+:" \
   | sed -E 's/.*Test #[0-9]+: +([^ ]+) .*(Passed|Failed) +([0-9.]+) sec.*/\3s \2 \1/' \
   | sort -rn

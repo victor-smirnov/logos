@@ -210,8 +210,15 @@ if ! grep -Eq 'let __tb: JCTable = JCTable \{ ncand: 4i64, nfl: 3i64, slot: \[' 
 fi
 
 # ── FOUR NESTS, one per carried order, each driving a different source ──────
+# ⚠ THE GUARD IS COUNTED. `grep -q … || continue` skips a file that does not hold
+# `q3_run` — which is right, most dumps do not — but if NO dump holds it the loop
+# body never runs and every assertion in it evaporates into a pass. The rename of
+# one emitted fn would silently delete this whole block, so the number of files
+# the guard admitted is asserted below.
+n_q3=0
 for f in "${DUMPS[@]}"; do
     grep -Eq '^pub fn q3_run\(' "$f" || continue
+    n_q3=$((n_q3 + 1))
     n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
     if [ "$n_disc" -ne 3 ]; then
         echo "FAIL: $n_disc order tests in q3_run (want 3: candidates 1..3, with 0 as the final else)"
@@ -231,6 +238,11 @@ for f in "${DUMPS[@]}"; do
         fi
     done
 done
+if [ "$n_q3" -ne 1 ]; then
+    echo "FAIL: $n_q3 dumps carry \`q3_run\` (want 1) — the four-nest assertions above ran on $n_q3 files"
+    grep -lE '^pub fn ' "${DUMPS[@]}" || true
+    fail=1
+fi
 
 # ── PER-ROW COST: the discriminant is never read inside a loop ──────────────
 # Checked by BRACE NESTING, not by column. A four-way branch chain puts its later

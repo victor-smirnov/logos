@@ -26,6 +26,14 @@ BATCHING AND ATTRIBUTION. Cases are batched into programs because a compile is
 the single case whose diagnostic is then recorded — so batching costs nothing in
 attribution. A program that CRASHES is likewise bisected.
 
+⚠ AND BISECTION IS AN AID, NOT A FILTER. A defect that manifests only in the
+BATCHED program does not reproduce in either half — the halves are a different
+`main` with different locals, which is precisely the axis such a defect rides.
+An unattributable failure is therefore reported as `UNATTRIBUTED`, with the
+program and the reason attribution failed, and it is never ledgerable. Every
+case must also reach a verdict: `main` compares the cases OBSERVED against the
+cases the tier declares and reports the difference as `UNOBSERVED`.
+
 USAGE
     python3 tests/exhaustive/harness.py --list
     python3 tests/exhaustive/harness.py --family cast --jobs 12
@@ -815,29 +823,53 @@ def run_program(prog, workdir):
 FINDINGS = []
 
 
+# ── ATTRIBUTION IS AN AID, NEVER A FILTER ────────────────────────────────────
+# A whole-program failure is bisected so the report can name ONE case. Bisection
+# regenerates the program from half the case list, which means it changes the
+# very thing a batched defect depends on: a different `main`, different locals,
+# a different frame. The defect class this harness was BUILT for — a query that
+# returns zero rows only when an unrelated array exists in the caller — is
+# exactly the class that stops reproducing when you cut the program in half.
+#
+# So `check_program` may never return "nothing to report" for a program that
+# failed. If neither half reproduces, THE PARENT'S FAILURE IS THE FINDING: the
+# program, the output, and the reason attribution failed. `UNATTRIBUTED` is not
+# in `LEDGERABLE`, so it is red at every tier, like a wrong answer.
+#
+# Each call returns (n_failure_findings, accounted_cids):
+#   * n_failure_findings counts only findings that could EXPLAIN a whole-program
+#     failure — a build refusal, a missing answer, a malformed one. A
+#     WRONG_ANSWER in a half is a defect of its own and explains no compile
+#     error, so it does not count as an attribution.
+#   * accounted_cids is every case this call reached a verdict about. `main`
+#     checks the union against the tier and reports what it never observed —
+#     "the harness ran" and "the harness looked at every case" are different
+#     claims and only the second one is the gate.
+ATTRIBUTES = ("COMPILE_FAIL", "LINK_FAIL", "NO_ANSWER", "MALFORMED",
+              "UNATTRIBUTED")
+
+
 def check_program(prog, workdir):
     kind, payload = run_program(prog, workdir)
     if kind in ("COMPILE_FAIL", "LINK_FAIL"):
-        h = prog.halves()
-        if h is None:
-            c = prog.cases[0]
-            FINDINGS.append(dict(kind=kind, cid=c.cid, family=c.family,
-                                 desc=c.desc, want=repr(c.want),
-                                 got=payload.strip()[-1500:]))
-            return
-        for p in h:
-            check_program(p, workdir)
-        return
+        return _bisect(prog, workdir, kind, payload.strip()[-1500:],
+                       f"the whole program did not build ({kind}); every half of "
+                       f"it built and answered")
     rc, out, err = payload
     lines, done = parse_output(out)
     crashed = (done != len(prog.cases))
     if crashed and len(prog.cases) > 1:
-        h = prog.halves()
-        for p in h:
-            check_program(p, workdir)
-        return
+        return _bisect(prog, workdir, "CRASH",
+                       f"program exit {rc}, DONE {done} of {len(prog.cases)} "
+                       f"cases; stderr {err.strip()[-1000:]}",
+                       f"the whole program stopped after {done} of "
+                       f"{len(prog.cases)} cases; every half ran to DONE")
+    nfail = 0
+    seen = set()
     for c in prog.cases:
+        seen.add(c.cid)
         if c.cid not in lines:
+            nfail += 1
             FINDINGS.append(dict(kind="NO_ANSWER", cid=c.cid, family=c.family,
                                  desc=c.desc, want=repr(c.want),
                                  got=f"program exit {rc}, no line for this case; "
@@ -846,6 +878,7 @@ def check_program(prog, workdir):
         try:
             vals = tokenize(c.types, lines[c.cid])
         except Exception as e:
+            nfail += 1
             FINDINGS.append(dict(kind="MALFORMED", cid=c.cid, family=c.family,
                                  desc=c.desc, want=repr(c.want),
                                  got=f"{lines[c.cid]!r} ({e})"))
@@ -854,6 +887,35 @@ def check_program(prog, workdir):
         if reason:
             FINDINGS.append(dict(kind="WRONG_ANSWER", cid=c.cid, family=c.family,
                                  desc=c.desc, want=repr(c.want), got=reason))
+    return nfail, seen
+
+
+def _bisect(prog, workdir, kind, payload, why_unattributable):
+    """Narrow a whole-program failure to a case — and RECORD IT EITHER WAY."""
+    h = prog.halves()
+    if h is None:
+        c = prog.cases[0]
+        FINDINGS.append(dict(kind=kind, cid=c.cid, family=c.family,
+                             desc=c.desc, want=repr(c.want), got=payload))
+        return 1, {c.cid}
+    nfail = 0
+    seen = set()
+    for p in h:
+        n, s = check_program(p, workdir)
+        nfail += n
+        seen |= s
+    if nfail == 0:
+        FINDINGS.append(dict(
+            kind="UNATTRIBUTED", cid=prog.name, family=prog.family,
+            desc=f"{len(prog.cases)} cases batched into one program; "
+                 f"{why_unattributable}, so no single case can be named",
+            want="a program that builds and answers every case",
+            got=f"{payload}\n"
+                f"---- the program that failed ----\n{prog.source()[:4000]}"))
+        # The parent's cases are accounted BY THIS FINDING — it names the whole
+        # batch — so the observation census below stays exact.
+        return 1, seen | {c.cid for c in prog.cases}
+    return nfail, seen
 
 
 FAMILIES = {
@@ -929,6 +991,12 @@ def corpus_digest(progs):
 # A listed refusal that no longer reproduces means the arc landed and the ledger
 # is stale — also red, because a ledger nobody must update is a ledger that
 # stops describing the compiler.
+#
+# ⚠ NEITHER IS AN UNATTRIBUTABLE FAILURE, NOR AN UNOBSERVED CASE. A ledger line
+# names a CASE the compiler refuses; `UNATTRIBUTED` says no case could be named
+# and `UNOBSERVED` says a case was never looked at. Both are failures OF THE
+# HARNESS to measure, and a harness that could ledger its own blindness would be
+# able to declare itself green by going blind.
 LEDGERABLE = {"COMPILE_FAIL"}
 
 
@@ -1049,13 +1117,15 @@ def main():
     os.makedirs(wd, exist_ok=True)
     t0 = time.time()
     print(f"[harness] {len(progs)} programs, {ncases} cases, workdir {wd}", flush=True)
+    accounted = set()
     with cf.ThreadPoolExecutor(max_workers=args.jobs) as ex:
         futs = {ex.submit(check_program, p, wd): p for p in progs}
         n = 0
         for fu in cf.as_completed(futs):
             n += 1
             try:
-                fu.result()
+                _, cids = fu.result()
+                accounted |= cids
             except Exception as e:
                 FINDINGS.append(dict(kind="HARNESS_ERROR", cid=futs[fu].name,
                                      family=futs[fu].family, desc="", want="",
@@ -1064,8 +1134,25 @@ def main():
                 print(f"[harness] {n}/{len(progs)} programs, "
                       f"{len(FINDINGS)} findings, {time.time()-t0:.0f}s", flush=True)
     dt = time.time() - t0
+
+    # ── THE OBSERVATION CENSUS ───────────────────────────────────────────────
+    # THE MINIMUM THIS HARNESS MUST OBSERVE IS ITS OWN TIER. "N cases were
+    # generated" and "N cases were looked at" are different claims, and only the
+    # second one is a gate: a case that produced neither a verdict nor a finding
+    # was not measured, and reporting the generated count for it is the same
+    # shrug as dropping an unattributable failure.
+    in_scope = {c.cid for p in progs for c in p.cases}
+    unobserved = sorted(in_scope - accounted)
+    if unobserved:
+        FINDINGS.append(dict(
+            kind="UNOBSERVED", cid="<census>", family="harness",
+            desc=f"{len(unobserved)} of {ncases} cases reached no verdict",
+            want=f"{ncases} cases observed",
+            got=f"{len(accounted)} observed; first unobserved: "
+                + ", ".join(unobserved[:10])))
     print(f"[harness] DONE {len(progs)} programs, {ncases} cases, "
-          f"{len(FINDINGS)} findings, {dt:.0f}s", flush=True)
+          f"{len(accounted)} observed, {len(FINDINGS)} findings, {dt:.0f}s",
+          flush=True)
     by = {}
     for f in FINDINGS:
         by[(f["family"], f["kind"])] = by.get((f["family"], f["kind"]), 0) + 1
@@ -1085,8 +1172,11 @@ def main():
         ok, lines = check_ledger(FINDINGS, read_ledger(args.ledger), in_scope, all_cids)
         if ok:
             n = len({f["cid"] for f in FINDINGS})
-            print(f"[harness] tier '{args.tier}': {ncases} cases, 0 wrong answers, "
-                  f"{n} known refusals, all in the ledger.", flush=True)
+            # The count reported is the OBSERVED one. A tier that printed the
+            # generated count would say the same thing whether it looked or not.
+            print(f"[harness] tier '{args.tier}': {len(accounted)} of {ncases} "
+                  f"cases observed, 0 wrong answers, {n} known refusals, all in "
+                  f"the ledger.", flush=True)
             return 0
         print("[harness] LEDGER CHECK FAILED", flush=True)
         for ln in lines:

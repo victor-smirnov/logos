@@ -18,7 +18,13 @@ set -u
 LOG=$(mktemp -t ctest.XXXXXX.log)
 trap 'rm -f "$LOG"' EXIT
 
-ctest -j"$(nproc)" --output-on-failure "$@" 2>&1 | tee "$LOG" > /dev/null
+# ⚠ `--no-tests=error` IS NOT OPTIONAL. `ctest -R <pattern>` that matches NOTHING
+# prints "No tests were found!!!" and exits 0 — measured on ctest 3.28.3: without
+# the flag `ctest -R '^zzz_no_such_test$'` exits 0, with it 8 — so a selection
+# regex that stopped matching (a renamed test, a mangled alternation, a build
+# that registered no tests at all) reported success having run nothing. A gate
+# that observed no test may not report on any.
+ctest --no-tests=error -j"$(nproc)" --output-on-failure "$@" 2>&1 | tee "$LOG" > /dev/null
 EXIT=${PIPESTATUS[0]}
 
 echo "=== Failures ==="
@@ -50,5 +56,14 @@ tail -40 "$LOG"
 echo
 echo "=== Pass/fail ==="
 grep -E "tests passed|tests failed" "$LOG" | tail -2 || true
+# ⚠ AND THE COUNT MUST EXIST. If ctest never printed a pass/fail line there is no
+# number above and nothing to read — belt to `--no-tests=error`'s braces, because
+# "the summary is missing" and "everything passed" look identical to a reader who
+# only checks the exit code.
+if ! grep -qE "tests passed" "$LOG"; then
+    echo "FAIL: ctest emitted no pass/fail summary — no test was observed."
+    tail -20 "$LOG"
+    exit 1
+fi
 
 exit "$EXIT"

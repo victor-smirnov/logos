@@ -73,14 +73,30 @@ if ! git diff --quiet -- "$SPEC"; then
 fi
 
 # ── 2. verdict vs base ────────────────────────────────────────────────────────
+# ⚠ A GATE THAT COULD NOT LOOK IS NOT A GATE THAT SAW NOTHING WRONG. This branch
+# used to print "NOTHING was compared" and exit 0 — it announced its own blindness
+# in prose and reported success in the exit code, which is the only channel a CI
+# job or a commit script reads. No base spec means the verdict below and the bump
+# gate after it are both unanswerable, so the answer is red with the reason.
 if ! git show "${BASE}:${SPEC}" > "$base_spec" 2>/dev/null; then
-    echo "abi-check: WARNING — no $SPEC at '${BASE}', so NOTHING was compared."
-    echo "           Pass a base ref that has one (e.g. scripts/abi-check.sh HEAD~1)."
-    exit 0
+    echo "::error:: no $SPEC at '${BASE}', so NOTHING could be compared and no ABI"
+    echo "          verdict exists. Pass a base ref that has one (e.g."
+    echo "          scripts/abi-check.sh HEAD~1), or fetch the default base."
+    exit 1
 fi
 "$LOGOSC" --abi-diff "$base_spec" "$SPEC"
 verdict=$?
 [ "$verdict" = 2 ] && { echo "abi-check: --abi-diff error"; exit 2; }
+# ⚠ AND ONLY 0 AND 1 ARE VERDICTS. Every other status is the differ failing to
+# reach one — a crash (13x), a removed flag (64), a missing binary (127) — and
+# the fallthrough below printed "ABI preserved" for all of them. "The tool did
+# not answer" is not the answer "nothing changed".
+if [ "$verdict" != 0 ] && [ "$verdict" != 1 ]; then
+    echo "::error:: --abi-diff exited $verdict, which is not a verdict (0 = preserved,"
+    echo "          1 = breaking, 2 = internal error). No comparison was made, so this"
+    echo "          gate has no answer about the ABI."
+    exit 1
+fi
 
 # ── 3. bump gate ──────────────────────────────────────────────────────────────
 ver_of() {  # "MAJOR MINOR" from CMakeLists project(VERSION) at a ref ($1=ref, ""=worktree)

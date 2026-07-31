@@ -23,9 +23,19 @@ if grep -q "fidelity" "$TMPD/err"; then
     grep "fidelity" "$TMPD/err"
     exit 1
 fi
-GEN_COUNT=$(ls "$TMPD"/gen/*.gen.logos 2>/dev/null | wc -l)
+# ⚠ NOT `ls <glob> | wc -l`. With no match `ls` exits 2, and under
+# `set -euo pipefail` the command substitution takes the whole script down —
+# measured: the gate died at exit 2 having printed NOTHING, so the one case it
+# exists to report ("the compiler generated no dump at all") was the one case it
+# could not name. `nullglob` + an array counts without a subprocess that can fail.
+shopt -s nullglob
+DUMPS=("$TMPD"/gen/*.gen.logos)
+GEN_COUNT=${#DUMPS[@]}
 if [ "$GEN_COUNT" -lt 1 ]; then
-    echo "FAIL: no .gen.logos dump produced"; exit 1
+    echo "FAIL: no .gen.logos dump produced — the DWARF assertion below would be"
+    echo "      about nothing, and 'the dump reparses' would be a claim about no dump."
+    ls -la "$TMPD/gen" 2>&1 || true
+    exit 1
 fi
 # NOT `objdump … | grep -q`: under `set -o pipefail` that construct FAILS
 # INTERMITTENTLY and blames the compiler for it. `grep -q` exits the moment it

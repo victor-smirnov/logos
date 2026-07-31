@@ -705,6 +705,29 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     )
 endfunction()
 
+# ── THE REGISTRATION CENSUS ───────────────────────────────────────────────────
+# Everything below registers tests by globbing `*.expected` and deriving the
+# `.logos` from it. That asymmetry is the hole: an `.expected` with no `.logos`
+# gets a `message(WARNING …)` a few lines down, while a `.logos` with no
+# `.expected` gets NOTHING — no warning, no test, no trace. Such a file is
+# indistinguishable from a passing one at every level of the suite, and
+# `test-levels.sh` even selects its name (the samplers enumerate `.logos`
+# files), so the anchored `-R` alternation quietly matches one fewer test.
+#
+# Measured when this gate landed: 6737 corpus `.logos`, 14 of them in no suite.
+# The gate holds the set against a ledger in BOTH directions, so a new one is
+# red and a fixed one is red too.
+add_test(
+    NAME logos_00_corpus_registration
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/corpus_registration_gate.sh
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/unregistered.ledger
+)
+set_tests_properties(logos_00_corpus_registration PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core"
+)
+
 # ── Pass tests ────────────────────────────────────────────────────────────────
 # Both .logos and .expected live in tests/logos/pass/ (native suite).
 # Imported rust-derived tests live in tests/imported/{pass,fail}/<category>/

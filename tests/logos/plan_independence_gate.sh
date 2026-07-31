@@ -48,7 +48,28 @@
 # a silent skip. The census that decides the bucket is the emitter's own
 # (`LOGOS_WQL_ORDER_CENSUS=1`), so the gate cannot disagree with the compiler
 # about how many orders a query carries.
+#
+# ⚠⚠ AND THE GATE DECLARES THE MINIMUM IT MUST OBSERVE. Every bucket here is
+# decided by counting `[wql-order]` lines on the compiler's stderr, so a gate
+# that only floors the FIXTURE COUNT is green the moment that channel stops
+# speaking: with the census suppressed, every fixture reports zero nests, every
+# fixture lands in "no join nest", `MULTI` is empty, `ncase` is 0, and the report
+# prints "OK: 0 forced-order runs over 0 fixtures" and exits 0 — having compared
+# nothing. Measured: with a wrapper filtering `[wql-order] ` out of stderr the
+# gate passed. "How many fixtures exist" is not the observation; "how many nests
+# the compiler reported", "how many fixtures carry a choice" and "how many forced
+# runs actually ran" are, and each has a recorded floor below. They are FLOORS,
+# not equalities — the corpus grows — and a drop is red and says what it stopped
+# seeing.
 set -euo pipefail
+
+# The baselines, measured at the commit that introduced them: 127 fixtures, 102
+# join nests reported by the emitter's own census, 12 fixtures carrying more than
+# one order, 35 forced runs.
+MIN_FIXTURES=100
+MIN_NESTS=102
+MIN_MULTI=12
+MIN_FORCED=35
 
 LOGOSC="$1"
 CORPUS="$2"
@@ -81,8 +102,8 @@ for f in "$CORPUS"/deem_*.logos "$CORPUS"/wql_*.logos; do
     [ -f "$CORPUS/$b.expected" ] || continue
     FIXTURES+=("$b")
 done
-if [ "${#FIXTURES[@]}" -lt 100 ]; then
-    echo "FAIL: only ${#FIXTURES[@]} deem/wql fixtures found under $CORPUS — the corpus glob is wrong"
+if [ "${#FIXTURES[@]}" -lt "$MIN_FIXTURES" ]; then
+    echo "FAIL: only ${#FIXTURES[@]} deem/wql fixtures found under $CORPUS (want >= $MIN_FIXTURES) — the corpus glob is wrong"
     exit 1
 fi
 
@@ -119,15 +140,29 @@ fail=0
 # ── Phase 2: buckets ────────────────────────────────────────────────────────
 EX_COMPILE=(); EX_NONEST=(); EX_ONE=(); MULTI=()
 declare -A NCAND=(); declare -A NNEST=(); declare -A NDEFER=()
+TOT_NESTS=0
 while read -r b st n mx df; do
     case "$st" in
         ERR) EX_COMPILE+=("$b"); continue ;;
     esac
     NNEST["$b"]=$n; NCAND["$b"]=$mx; NDEFER["$b"]=$df
+    TOT_NESTS=$((TOT_NESTS + n))
     if [ "$n" -eq 0 ];  then EX_NONEST+=("$b"); continue; fi
     if [ "$mx" -le 1 ]; then EX_ONE+=("$b");    continue; fi
     MULTI+=("$b")
 done < "$TMPD/census.txt"
+
+# ⚠ THE CENSUS CHANNEL MUST HAVE SPOKEN. Every bucket above is a count of
+# `[wql-order]` lines; if the emitter stops printing them the buckets are all
+# "no join nest" and the gate has nothing to compare, which is not the same fact
+# as "nothing needs comparing".
+if [ "$TOT_NESTS" -lt "$MIN_NESTS" ]; then
+    echo "FAIL: the emitter's census reported $TOT_NESTS join nests across ${#FIXTURES[@]} fixtures (want >= $MIN_NESTS)."
+    echo "      Either LOGOS_WQL_ORDER_CENSUS stopped printing '[wql-order]' lines, or the"
+    echo "      corpus lost its join queries. This gate buckets on those lines and cannot"
+    echo "      tell 'no nest carries a choice' from 'nobody told me about the nests'."
+    fail=1
+fi
 
 # A fixture that does not compile under the census env is a FINDING: the knob is
 # supposed to be inert when it only prints.
@@ -210,10 +245,29 @@ if [ "$(wc -l < "$TMPD/forced.txt")" -ne "$ncase" ]; then
     fail=1
 fi
 
+# ⚠ AND THE COMPARISONS MUST ACTUALLY HAVE BEEN MADE. "0 of 0 forced runs
+# disagreed" is not a green gate, it is a gate that ran nothing; the two floors
+# below are what separate them. They are the recorded baseline, so a corpus that
+# loses its multi-order queries — or an emitter that stops carrying a second
+# nest — is red and says which of the two it could not see.
+if [ "${#MULTI[@]}" -lt "$MIN_MULTI" ]; then
+    echo "FAIL: only ${#MULTI[@]} fixture(s) carry more than one join order (want >= $MIN_MULTI)."
+    echo "      The property under test is 'the answer does not depend on the pick'; with"
+    echo "      fewer carriers than the recorded baseline there is less of it being tested"
+    echo "      than the day this floor was written."
+    fail=1
+fi
+if [ "$ncase" -lt "$MIN_FORCED" ]; then
+    echo "FAIL: $ncase forced-order runs were dispatched (want >= $MIN_FORCED) — the gate"
+    echo "      compared fewer answers than its recorded baseline."
+    fail=1
+fi
+
 # ── The report ──────────────────────────────────────────────────────────────
 echo "── plan independence, corpus-wide ─────────────────────────────────────"
-echo "fixtures examined            : ${#FIXTURES[@]}"
-echo "carrying > 1 join order      : ${#MULTI[@]}   (forced cases: $ncase)"
+echo "fixtures examined            : ${#FIXTURES[@]}   (floor $MIN_FIXTURES)"
+echo "join nests the census named  : $TOT_NESTS   (floor $MIN_NESTS)"
+echo "carrying > 1 join order      : ${#MULTI[@]}   (floor $MIN_MULTI; forced cases: $ncase, floor $MIN_FORCED)"
 echo "EXCLUDED — no join nest      : ${#EX_NONEST[@]}   (single-source query, or no deem query at all: nothing to reorder)"
 echo "EXCLUDED — one order carried : ${#EX_ONE[@]}   (the derivation refused every permutation, or proved none cheaper: one nest is emitted, so there is no second answer to compare)"
 echo "EXCLUDED — did not compile   : ${#EX_COMPILE[@]}"

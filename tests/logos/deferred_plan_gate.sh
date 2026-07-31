@@ -171,8 +171,15 @@ fi
 # prose contains both "agrees" and "defer_order", so a file-wide match reads as a
 # violation of a rule it is actually stating. (The prepared gate hit the same trap
 # with the word "for".)
+# ⚠ EVERY `|| continue` GUARD IN THIS FILE IS COUNTED, and the counts are
+# asserted just before the verdict. A guard that admits no file skips its whole
+# block, and a block that never ran passes — which is the same shrug as a
+# bisector that drops an unattributable failure. Renaming one emitted fn would
+# otherwise delete five of the assertions below without a word.
+n_impl=0; n_r3=0; n_vr=0; n_seq=0; n_prep=0
 for f in "${DUMPS[@]}"; do
     grep -Eq '^impl [A-Za-z]+Plan \{' "$f" || continue
+    n_impl=$((n_impl + 1))
     agr=$(sed -n '/^    pub fn agrees(/,/^    }$/p' "$f")
     if echo "$agr" | grep -q 'defer_order'; then
         echo "FAIL: agrees consults defer_order — it would claim to cover a half that is re-decided every call"
@@ -253,6 +260,7 @@ fi
 # for: four nests, so three tests, two of them past indent 4.
 for f in "${DUMPS[@]}"; do
     grep -Eq '^pub fn via_rel3_run\(' "$f" || continue
+    n_r3=$((n_r3 + 1))
     n_ch=$(grep -Ec '^ +if \(\(__defer_ix == [0-9]+i64\)\) \{$' "$f" || true)
     if [ "$n_ch" -ne 3 ]; then
         echo "FAIL: $n_ch order tests in via_rel3_run (want 3: candidates 1..3, with 0 as the final else)"
@@ -278,6 +286,7 @@ fi
 # data, not of the compiler. Pinned here on the text instead.
 for f in "${DUMPS[@]}"; do
     grep -Eq '^pub fn via_rel_run\(' "$f" || continue
+    n_vr=$((n_vr + 1))
     if grep -Eq '^    let __defer_n[01]: i64 = \(ls\)\.len\(\);' "$f"; then
         echo "FAIL: via_rel's deferred size reads the input parameter instead of the materialized rel"
         grep -n '__defer_n' "$f" || true
@@ -294,6 +303,7 @@ fi
 # The deferred read comes AFTER the rel's materialization and BEFORE the index.
 for f in "${DUMPS[@]}"; do
     grep -Fq 'let __defer_n0: i64 = (__rel_hot_sl).len();' "$f" || continue
+    n_seq=$((n_seq + 1))
     l_mat=$(grep -n '__rel_hot_sl: &\[' "$f" | head -1 | cut -d: -f1)
     l_def=$(grep -n 'let __defer_n0:' "$f" | head -1 | cut -d: -f1)
     l_idx=$(grep -n 'hashmap_new::' "$f" | head -1 | cut -d: -f1)
@@ -310,6 +320,7 @@ done
 # A deferred prepare measures nothing: no loop, no reporter binding, no `__n0`.
 for f in "${DUMPS[@]}"; do
     grep -Eq '^pub fn (via_rel|via_rel3|iter_step)_prepare\(' "$f" || continue
+    n_prep=$((n_prep + 1))
     if grep -Eq '^[[:space:]]*(while|loop|for)[[:space:](]' "$f"; then
         echo "FAIL: a deferred prepare contains a loop — it would run the query it declines to plan:"
         sed -n '/^pub fn /,$p' "$f"
@@ -357,9 +368,32 @@ if grep -Eq 'defer_order: true.*base_n: __n' "${DUMPS[@]}"; then
     fail=1
 fi
 
+# ── WHAT THE GUARDED BLOCKS ACTUALLY RAN ON ───────────────────────────────
+# THE MINIMUM THIS GATE MUST OBSERVE. Each `|| continue` above is right for a
+# dump that does not hold the artifact and catastrophic if NO dump does: the
+# block's whole body is skipped and the gate passes on a compiler that emitted
+# none of it. These are FLOORS at the values measured when they were written
+# (`wql_deferred_plan_e2e`: 3 dumps with an impl block, 1 with `via_rel3_run`,
+# 1 with `via_rel_run`, 2 carrying the materialized-rel read, 3 with a deferred
+# prepare) — the dump layout may grow, it may not stop carrying these.
+check_guard() {  # name got want
+    if [ "$2" -lt "$3" ]; then
+        echo "FAIL: the '$1' block ran on $2 dump(s), want >= $3 — a guard that admits"
+        echo "      nothing skips every assertion inside it, and this gate cannot tell"
+        echo "      'the artifact is correct' from 'the artifact was never emitted'."
+        fail=1
+    fi
+}
+check_guard 'agrees/margin vs defer_order' "$n_impl" 3
+check_guard 'via_rel3_run branch chain'    "$n_r3"   1
+check_guard 'via_rel_run size read'        "$n_vr"   1
+check_guard 'materialize/defer/index order' "$n_seq" 2
+check_guard 'deferred prepare measures nothing' "$n_prep" 3
+
 if [ "$fail" -ne 0 ]; then
     echo "---- trace ----"
     grep '^\[plan\]' "$TMPD/err" || true
     exit 1
 fi
+echo "OK: deferred plan — guarded blocks ran on $n_impl/$n_r3/$n_vr/$n_seq/$n_prep dumps"
 exit 0

@@ -1,0 +1,54 @@
+# tests/logos/unregistered.ledger — the corpus files that are in NO suite.
+#
+# WHAT REGISTERS A TEST. `tests/logos/CMakeLists.txt` globs `*.expected` and
+# derives the `.logos` from it. So a `.logos` with no sibling `.expected` is
+# registered nowhere — and unlike the reverse case (an `.expected` with no
+# `.logos`, which cmake reports with `message(WARNING …)` and skips) NOTHING
+# says so. The file sits in the corpus directory, `test-levels.sh` selects its
+# name, ctest does not know it, and every level reports a pass count that is a
+# true statement about a smaller suite.
+#
+# THE CHECK RUNS BOTH WAYS, like `tests/exhaustive/refusals.ledger`. An
+# unlisted orphan fails the gate — it is a new one. A listed path that now HAS
+# its `.expected`, or that no longer exists, ALSO fails — the arc landed and the
+# ledger has stopped describing the corpus. There is no way to make the gate
+# green by adding a line and walking away.
+#
+# ⚠ THIS FILE IS A RECORD OF WORK NOT DONE, NOT A PERMISSION. Every line below
+# is a test somebody wrote and nobody runs. Two of them additionally record a
+# compiler answer that is not the one the file was written to assert, and those
+# are the reason this is a ledger rather than fourteen new `.expected` files
+# written from what the compiler prints today — a `.expected` derived from the
+# implementation is the implementation checking itself.
+#
+# ── tests/logos/fail — the compiler REFUSES these, so an `.expected` naming the
+#    diagnostic would register them as-is. Measured 2026-07-31: each exits
+#    non-zero on `logosc <f> -o /dev/null`.
+tests/logos/fail/naming_collision.logos
+tests/logos/fail/trait_unsafe_mismatch.logos
+tests/logos/fail/unchecked_struct_bounds.logos
+tests/logos/fail/variadic_bounds_repro.logos
+tests/logos/fail/variadic_collision.logos
+#
+# ── tests/logos/fail — THE COMPILER DOES NOT REFUSE THESE. Measured
+#    2026-07-31: `logosc <f> -o /dev/null` exits 0 on both, so registering them
+#    as fail tests would be registering a red gate.
+#    * assoc_primitive — `fn check_i32(val: i32::Item) -> bool` compiles. An
+#      associated-type projection through a PRIMITIVE self type is accepted.
+#    * simple — `package test; struct S { x: i32 } fn main() {}` compiles, and
+#      should: it is a pass-shaped file sitting in fail/.
+tests/logos/fail/assoc_primitive.logos
+tests/logos/fail/simple.logos
+#
+# ── tests/logos/pass — these compile and run; they need `exit:`/`stdout:`
+#    expectations that state what each one is FOR, not what it happens to print.
+tests/logos/pass/assoc_proj_in_default_method.logos
+tests/logos/pass/default_type_param_fn.logos
+tests/logos/pass/lforge_manifest.logos
+tests/logos/pass/struct_lifetime_generic.logos
+tests/logos/pass/struct_lifetime_param.logos
+#
+# ── tests/imported — Rust-derived conformance ports that arrived without an
+#    expectation.
+tests/imported/pass/closures/hrtb-deep-bound-chain.logos
+tests/imported/pass/late-bound-lifetimes/issue-36381.logos

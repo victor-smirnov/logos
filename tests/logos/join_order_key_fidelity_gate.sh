@@ -141,9 +141,16 @@ for owner in 'p' 'x' 'u'; do
 done
 
 # ── THE ARTIFACT: one nest for a refused key, four for the others ───────────
+# ⚠ EVERY GUARD IS COUNTED. `grep -q "^pub fn ${r}(" || continue` is right for the
+# dumps that do not hold the fn and catastrophic if NO dump does: the loop body —
+# which is the entire artifact half of this gate — would simply not run, and the
+# gate would pass on a compiler that emitted none of these five queries. The five
+# admitted (file, fn) pairs are asserted after the loop.
+n_art=0
 for f in "${DUMPS[@]}"; do
     for r in 'qf_run' 'qn_run'; do
         grep -Eq "^pub fn ${r}\(" "$f" || continue
+        n_art=$((n_art + 1))
         n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
         if [ "$n_disc" -ne 0 ]; then
             echo "FAIL: $n_disc order tests in ${r} — a refused reorder must emit no discriminant"
@@ -157,6 +164,7 @@ for f in "${DUMPS[@]}"; do
     done
     for r in 'qi_run' 'qs_run' 'qu_run'; do
         grep -Eq "^pub fn ${r}\(" "$f" || continue
+        n_art=$((n_art + 1))
         n_disc=$(grep -Ec '\(__pl\.order_ix == [0-9]+i64\)' "$f" || true)
         if [ "$n_disc" -ne 3 ]; then
             echo "FAIL: $n_disc order tests in ${r} (want 3: candidates 1..3 with 0 as the final else)"
@@ -164,6 +172,12 @@ for f in "${DUMPS[@]}"; do
         fi
     done
 done
+if [ "$n_art" -ne 5 ]; then
+    echo "FAIL: the artifact assertions ran on $n_art emitted queries (want 5: qf, qn, qi, qs, qu)."
+    echo "      A guard that admits nothing skips every check inside it."
+    grep -hE '^pub fn q._run\(' "${DUMPS[@]}" || true
+    fail=1
+fi
 
 # ⚠ THE u32 KEY IS STILL NORMALIZED, AND THE CAST MUST BE THE LOSSLESS ONE. The
 # emitted key vector is the class representative (`Vec<i64>`), so what makes this

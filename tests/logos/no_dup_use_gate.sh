@@ -19,7 +19,20 @@
 # ⚠ The dumps cannot gate this. `render_module_source_for_dump` prints each
 # package once, so --gen-dir / --dump-metaprog output looks clean either way.
 # The only observable is the compiler's own stderr.
+#
+# ⚠⚠ BUT THE ABSENCE OF A WARNING IS ONLY EVIDENCE IF SOMETHING WAS GENERATED.
+# This gate is a pure negative — "no line matched" — and a pure negative is green
+# on a fixture that emits no synth module at all, on a compiler that stopped
+# emitting the diagnostic, and on one that stopped generating code. So the dumps
+# ARE read here, not for the duplicates they cannot show but as the FLOOR: this
+# fixture must still produce generated modules carrying imports, or the silence
+# above is silence about nothing. Measured when the floor was written: 16 dumps,
+# 12 emitted fns, 424 `use` lines.
 set -euo pipefail
+
+MIN_DUMPS=8
+MIN_FNS=6
+MIN_USES=200
 
 LOGOSC="${1:?logosc path}"
 TEST_LOGOS="${2:?fixture path}"
@@ -32,8 +45,26 @@ trap 'rm -rf "$TMPD"' EXIT
 # which `set -o pipefail` reports as a compiler failure — intermittently, under
 # load only. Same reason run_gendir_test.sh splits its objdump read from its
 # match.
-if ! "$LOGOSC" "$TEST_LOGOS" -o "$TMPD/t.o" 2>"$TMPD/err"; then
+if ! "$LOGOSC" "$TEST_LOGOS" --gen-dir "$TMPD/gen" -o "$TMPD/t.o" 2>"$TMPD/err"; then
     echo "FAIL: logosc failed:"; cat "$TMPD/err"; exit 1
+fi
+
+# ── THE FLOOR: this fixture still generates modules, and they carry imports ──
+shopt -s nullglob
+DUMPS=("$TMPD"/gen/*.gen.logos)
+n_fns=0; n_uses=0
+if [ "${#DUMPS[@]}" -gt 0 ]; then
+    n_fns=$(cat "${DUMPS[@]}"  | grep -cE '^(pub )?fn ' || true)
+    n_uses=$(cat "${DUMPS[@]}" | grep -c '^use '        || true)
+fi
+if [ "${#DUMPS[@]}" -lt "$MIN_DUMPS" ] || [ "$n_fns" -lt "$MIN_FNS" ] \
+   || [ "$n_uses" -lt "$MIN_USES" ]; then
+    echo "FAIL: ${#DUMPS[@]} generated dumps (floor $MIN_DUMPS), $n_fns emitted fns"
+    echo "      (floor $MIN_FNS), $n_uses import lines (floor $MIN_USES)."
+    echo "      This gate asserts that NO duplicate-import warning was emitted; with"
+    echo "      nothing generated that assertion is about nothing, and 'the compiler"
+    echo "      emitted no synth module' would read exactly like 'the dedup holds'."
+    exit 1
 fi
 
 if grep -F "duplicate 'use" "$TMPD/err" > "$TMPD/hits"; then
@@ -42,4 +73,5 @@ if grep -F "duplicate 'use" "$TMPD/err" > "$TMPD/hits"; then
     sort < "$TMPD/hits" | uniq -c | sort -rn
     exit 1
 fi
+echo "OK: no duplicate imports across ${#DUMPS[@]} generated modules ($n_uses import lines, $n_fns emitted fns)"
 exit 0

@@ -106,7 +106,13 @@ VARIANT=${1:-1}
 EXH_FAIL=0
 if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
     echo "[test-levels] enumerator — smoke tier (11 316 generated cases)"
-    if ! ctest --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
+    # ⚠ `--no-tests=error`. This name is registered by a `if(EXISTS
+    # tests/exhaustive/harness.py)` block, so a moved or deleted generator
+    # un-registers it — and `ctest -R` that matches nothing exits 0. Every level
+    # would then print "the enumerator's smoke tier passed (11 316 generated
+    # cases)" about 0 cases. Measured on ctest 3.28.3: no match exits 0 without
+    # the flag and 8 with it.
+    if ! ctest --no-tests=error --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
         EXH_FAIL=1
     fi
 fi
@@ -206,18 +212,47 @@ for ((i = 0; i < n; i += CHUNK)); do
     batch=("${NAMES[@]:i:CHUNK}")
     rx=$(printf '%s\n' "${batch[@]}" | sed 's/[].[^$*+?(){}|\\]/\\&/g' | paste -sd '|' -)
     rx="_(${rx})\$"
-    out=$(ctest -j12 --output-on-failure -R "$rx" 2>&1)
+    out=$(ctest --no-tests=error -j12 --output-on-failure -R "$rx" 2>&1)
     line=$(printf '%s\n' "$out" | grep -E "tests passed" | tail -1)
     # "X% tests passed, Y tests failed out of Z"
     z=$(printf '%s' "$line" | sed -nE 's/.*out of ([0-9]+).*/\1/p')
     y=$(printf '%s' "$line" | sed -nE 's/.*, ([0-9]+) tests failed.*/\1/p')
-    tot_run=$(( tot_run + ${z:-0} ))
+    # ⚠ A CHUNK THAT REPORTED NO SUMMARY RAN NOTHING, and `${z:-0}` used to fold
+    # that into the totals as a zero — so a `-R` that matched nothing (a renamed
+    # test, an alternation over the KWSys size cap, a build with no tests
+    # registered) added 0 run and 0 failed and the level stayed green. ctest exits
+    # 0 on "No tests were found!!!"; only the missing summary says so.
+    if [ -z "$z" ]; then
+        echo "***Failed: ctest produced no pass/fail summary for a chunk of ${#batch[@]} selected tests"
+        printf '%s\n' "$out" | tail -15
+        had_fail=1
+        continue
+    fi
+    tot_run=$(( tot_run + z ))
     tot_fail=$(( tot_fail + ${y:-0} ))
     if [ "${y:-0}" -gt 0 ]; then
         had_fail=1
         printf '%s\n' "$out" | awk '/\*\*\*Failed/{print; c=0; f=1; next} f{print; if(++c>=40){f=0; print "---"}}'
     fi
 done
+# ⚠ THE LEVEL DECLARES THE MINIMUM IT MUST OBSERVE, AND IT IS ITS OWN SELECTION.
+# The samplers above compute $COUNT names from the .logos corpus and ctest is
+# asked for them by an anchored alternation; if fewer than $COUNT tests actually
+# ran, the two halves disagree — a name the corpus has and ctest does not (a
+# fixture never registered, a `.expected` cmake skipped, a regex escaped wrong) —
+# and the pass count below would be a true statement about a smaller suite.
+#
+# It is a FLOOR AND ONLY A FLOOR: one base name can register more than one ctest
+# name (measured at L2: 1773 names selected, 1859 tests run), so this cannot see
+# a single name going missing. The EXACT pairing — every corpus .logos has the
+# .expected that registers it — is `corpus_registration_gate.sh`, which is where
+# the per-file answer belongs; this one catches a whole chunk evaporating.
+if [ "$tot_run" -lt "$COUNT" ]; then
+    echo "***Failed: $COUNT tests were selected from the corpus but only $tot_run ran."
+    echo "  A selected name that ctest does not know is a test that exists on disk and"
+    echo "  in no suite. This level cannot report on tests it never observed."
+    had_fail=1
+fi
 [ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && echo "(none)"
 [ "$EXH_FAIL" -ne 0 ] && echo "logos_26_exhaustive_smoke ***Failed (see above)"
 echo
@@ -233,4 +268,11 @@ elif [ "$EXH_FAIL" -ne 0 ]; then
 else
     echo "PLUS: the enumerator's smoke tier passed (11 316 generated cases)"
 fi
-[ "$tot_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ]
+# ⚠ `had_fail` IS PART OF THE EXIT STATUS. It used to be equivalent to
+# `tot_fail > 0` — the only thing that set it — and the two checks above set it
+# for failures that produce NO failed-test count at all: a chunk that reported no
+# summary ran zero tests, and a selection larger than the run is a test the suite
+# does not know. Both print `***Failed` and both would have left `tot_fail` at 0,
+# so the script would have printed the failure and exited 0. A message on stdout
+# is not a verdict; the exit code is.
+[ "$tot_fail" -eq 0 ] && [ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ]
