@@ -369,6 +369,209 @@ def _pat_body(c):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# FAMILY: layout — the STRUCT SHAPE axis
+# ═══════════════════════════════════════════════════════════════════════════
+# WHY THIS AXIS EXISTS. The `deem` family's row struct is
+# `{ f0, f1, f2, id }` with the payload at one of the three `f` slots and the
+# other two `i64` — so a narrow payload is ALWAYS followed by an 8-aligned
+# field. Under that shape MLIR's store-size struct walk and LLVM's alloc-size
+# one give the SAME answer, because the next field re-aligns the offset either
+# way. It takes a SECOND sub-64-bit field, which does not re-align, for them to
+# drift: `{i56, i8, i64}` is 16 bytes to one and 24 to the other, and the array
+# literal's element memcpy was sized by the first while every read used the
+# second. 13 508 generated cases did not contain two adjacent narrow fields.
+#
+# So the shape of the row is an axis, crossed with the ACCESS PATH — which
+# decides which of the compiler's size readers is on the hook: an array literal
+# copies each element (the memcpy byte count), a `[v; N]` fill strides (the fill
+# stride), a `Vec` allocates by `size_of` and writes through a GEP (both, and
+# they must agree or the heap is overrun), a slice in a callee reads at the
+# backend's stride only.
+#
+# Every case is a ROUND TRIP: values written through one shape, read back
+# through another, compared against Python. No byte count is written down.
+LAYOUT_TYPES = [t for t in model.INT_TYPES] + ["f64", "f32", "bool"]
+LAYOUT_SHAPES = ("iso", "adj", "nnw", "tail", "nest", "narrow")
+LAYOUT_PATHS = ("arrlit", "slice", "fill", "vec")
+LAYOUT_ROWS = 3
+LAYOUT_FILL = 20     # past any small-array special case
+LAYOUT_PUSH = 9      # past the first two Vec reallocs
+
+# shape → [(field name, field type)] in DECLARATION ORDER. `p` is the payload.
+# `iso` is the shape the deem family already had (narrow, then wide) and is here
+# as the CONTROL: it must pass, and it did pass while the others were failing.
+_LAYOUT_FIELDS = {
+    "iso":    [("p", None), ("id", "i64")],
+    "adj":    [("p", None), ("n", "u8"), ("id", "i64")],
+    "nnw":    [("n", "u8"), ("p", None), ("m", "u24"), ("id", "i64")],
+    "tail":   [("id", "i64"), ("p", None), ("n", "u8")],
+    "nest":   [("p", None), ("n", "u8"), ("id", "i64")],   # p,n live in a NESTED struct
+    "narrow": [("p", None), ("n", "u8"), ("m", "u24")],    # no wide field at all
+}
+
+
+def layout_values(t):
+    """LAYOUT_ROWS distinct values of `t`, both ends plus the middle."""
+    if t in model.INT_TYPES:
+        vs = model.small_values_of(t)
+        return [vs[0], vs[len(vs) // 2], vs[-1]]
+    if t == "f64":
+        d = dict(model.F64_VALUES)
+        return [d["nan"], d["negzero"], d["maxfin"]]
+    if t == "f32":
+        d = dict(model.F32_VALUES)
+        return [model.as_f32(d["nan"]), model.as_f32(d["negzero"]),
+                model.as_f32(d["maxfin"])]
+    if t == "bool":
+        return [True, False, True]
+    raise AssertionError(t)
+
+
+def _layout_filler(fname, row):
+    """The non-payload fields' values — DISTINCT per row, so a row that copies
+    its neighbour's bytes is visible in every field, not only in `id`."""
+    if fname == "id":
+        return 1000000000001 + row * 111111111111   # > 2^32: a lost high half shows
+    if fname == "n":
+        return 1 + row
+    if fname == "m":
+        return 1000 + row
+    raise AssertionError(fname)
+
+
+def _layout_ftype(t, fname):
+    return t if fname == "p" else dict(_LAYOUT_FIELDS["nnw"] + [("id", "i64")])[fname]
+
+
+def _layout_sname(shape):
+    return "S_" + shape
+
+
+def _layout_access(shape, fname):
+    """How field `fname` is reached from a row expression `%s`."""
+    if shape == "nest" and fname in ("p", "n"):
+        return "%s.inner." + fname
+    return "%s." + fname
+
+
+def _layout_items(c):
+    _, t, shape, path, fname = c.cid.split(".")
+    sn = _layout_sname(shape)
+    flds = _LAYOUT_FIELDS[shape]
+    items = []
+    if shape == "nest":
+        inner = ", ".join(f"pub {n}: {_layout_ftype(t, n)}"
+                          for n, _ in flds if n in ("p", "n"))
+        items.append(f"struct In_{shape} {{ {inner} }}")
+        outer = ["pub inner: In_" + shape] + \
+                [f"pub {n}: {_layout_ftype(t, n)}" for n, _ in flds if n == "id"]
+        items.append(f"struct {sn} {{ " + ", ".join(outer) + " }")
+    else:
+        items.append(f"struct {sn} {{ "
+                     + ", ".join(f"pub {n}: {_layout_ftype(t, n)}" for n, _ in flds)
+                     + " }")
+    if path == "slice":
+        acc = _layout_access(shape, fname) % "ss[i]"
+        fty = _layout_ftype(t, fname)
+        items.append(f"fn g_{shape}_{fname}(ss: &[{sn}], i: i64) -> {fty} "
+                     f"{{ return {acc}; }}")
+    return items
+
+
+def _layout_row_literal(t, shape, row):
+    sn = _layout_sname(shape)
+    flds = _LAYOUT_FIELDS[shape]
+    pv = emit.literal(t, layout_values(t)[row])
+    def one(n):
+        if n == "p":
+            return f"p: {pv}"
+        return f"{n}: {emit.literal(_layout_ftype(t, n), _layout_filler(n, row))}"
+    if shape == "nest":
+        inner = ", ".join(one(n) for n, _ in flds if n in ("p", "n"))
+        outer = [f"inner: In_{shape} {{ {inner} }}"] + [one("id")]
+        return f"{sn} {{ " + ", ".join(outer) + " }"
+    return f"{sn} {{ " + ", ".join(one(n) for n, _ in flds) + " }"
+
+
+def _layout_body(c):
+    _, t, shape, path, fname = c.cid.split(".")
+    sn = _layout_sname(shape)
+    fty = _layout_ftype(t, fname)
+    rows = [_layout_row_literal(t, shape, r) for r in range(LAYOUT_ROWS)]
+    L = ["    {"]
+    if path == "fill":
+        L.append(f"        let a: [{sn}; {LAYOUT_FILL}] = [{rows[0]}; {LAYOUT_FILL}];")
+        src, n_expr = "a", "(&a[..]).len()"
+    elif path == "vec":
+        L.append(f"        let mut a: Vec<{sn}> = Vec::<{sn}>::new();")
+        L.append(f"        let mut _k: i64 = 0i64;")
+        L.append(f"        while _k < {LAYOUT_PUSH}i64 {{")
+        for r, lit in enumerate(rows):
+            kw = "if" if r == 0 else "else if"
+            L.append(f"            {kw} _k % {LAYOUT_ROWS}i64 == {r}i64 {{ a.push({lit}); }}")
+        L.append("            _k = _k + 1i64;")
+        L.append("        }")
+        src, n_expr = "a", "a.len()"
+    else:
+        L.append(f"        let a: [{sn}; {LAYOUT_ROWS}] = [" + ", ".join(rows) + "];")
+        src, n_expr = "a", "(&a[..]).len()"
+    # The row COUNT is read from the container, never written down: a short or
+    # long answer is then a measured disagreement, not a formatting constant.
+    L.append('        let mut _acc: String = String::new();')
+    L.append(f'        _acc.push_str(format!("#{c.cid}|{{}}", {n_expr}).as_str());')
+    L.append("        let mut _i: i64 = 0i64;")
+    L.append(f"        while _i < {n_expr} {{")
+    if path == "slice":
+        val = f"g_{shape}_{fname}(&{src}[..], _i)"
+    elif path == "vec":
+        val = _layout_access(shape, fname) % f"{src}.get(_i)"
+    else:
+        val = _layout_access(shape, fname) % f"{src}[_i]"
+    ph, ex = emit.print_exprs(fty, val)
+    L.append(f'            _acc.push_str(format!(" {ph}", {", ".join(ex)}).as_str());')
+    L.append("            _i = _i + 1i64;")
+    L.append("        }")
+    L.append("        println_string(&_acc);")
+    L.append("    }")
+    return L
+
+
+def family_layout():
+    progs = []
+    for t in LAYOUT_TYPES:
+        cases = []
+        for shape in LAYOUT_SHAPES:
+            for path in LAYOUT_PATHS:
+                for fname, _ in _LAYOUT_FIELDS[shape]:
+                    fty = _layout_ftype(t, fname)
+                    if path == "fill":
+                        want = [layout_values(t)[0] if fname == "p"
+                                else _layout_filler(fname, 0)] * LAYOUT_FILL
+                    elif path == "vec":
+                        want = [(layout_values(t)[i % LAYOUT_ROWS] if fname == "p"
+                                 else _layout_filler(fname, i % LAYOUT_ROWS))
+                                for i in range(LAYOUT_PUSH)]
+                    else:
+                        want = [(layout_values(t)[r] if fname == "p"
+                                 else _layout_filler(fname, r))
+                                for r in range(LAYOUT_ROWS)]
+                    cid = f"layout.{t}.{shape}.{path}.{fname}"
+                    cases.append(Case(
+                        cid, "layout",
+                        f"payload {t} in a {shape}-shaped row, read back via {path}, "
+                        f"field {fname}",
+                        ("SEQ", fty), _seq_check(fty, want), want))
+        progs.append(Rebuildable(
+            f"layout_{t}", "layout", cases,
+            lambda n, cs: build_program(
+                n, cs,
+                ["use logos.mem.collections.vec;"],
+                _layout_items, _layout_body),
+        ))
+    return progs
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # FAMILY: deem — the query shapes, crossed with the CONTEXT shape
 # ═══════════════════════════════════════════════════════════════════════════
 # The context axis is here because a defect that depends on it is invisible to a
@@ -923,6 +1126,7 @@ FAMILIES = {
     "cmp": family_cmp,
     "arith": family_arith,
     "pattern": family_pattern,
+    "layout": family_layout,
     "deem": family_deem,
     "poison": family_poison,
 }

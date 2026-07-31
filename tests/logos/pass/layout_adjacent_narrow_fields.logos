@@ -1,0 +1,192 @@
+package layout_adjacent_narrow_fields;
+// TWO ADJACENT SUB-64-BIT FIELDS — the residue `8ba3c764` left behind.
+//
+// That commit unified three engines onto one answer for "how many bytes does a
+// value occupy" and stamped the target's `dlti.dl_spec` on the module so
+// `mlir::DataLayout` would agree with ISel. A FOURTH reader still disagreed,
+// and no layout spec could have fixed it: MLIR's LLVMStructType layout
+// accumulates each member at its STORE size (`getTypeSize(i56)` = 7) while
+// `llvm::StructLayout` — which is what the emitted GEPs and the object file
+// use — accumulates ALLOC sizes (8).
+//
+// MEASURED at the previous HEAD, with no query and no container involved:
+//     struct M { x: u56, y: u8, id: i64 }
+//     let ss: [M; 3] = [M{x:3,y:7,id:111}, M{x:1,y:7,id:222}, M{x:3,y:2,id:333}];
+// LLVM lays `%M = { i56, i8, i64 }` out at 24 bytes with `id` at offset 16; the
+// array-literal element memcpy was sized 16, so each row's `id` was written
+// into the NEXT row's `x`/`y` and read back as 13 / 4 / 1516123455504. A scalar
+// `let m: M = …` read back correctly — only the array path lost bytes.
+//
+// The generated corpus missed it because its row struct never put two narrow
+// fields next to each other: with `{i56, i64, i64}` MLIR's store-size walk and
+// LLVM's alloc-size walk happen to agree, since the i56 is followed by an
+// 8-aligned field that re-aligns the offset either way. It takes a SECOND
+// narrow field, which does NOT re-align, for the two to drift apart.
+//
+// Every assertion here is a ROUND TRIP: a value written through one shape and
+// read through another. No expected byte count is written down anywhere, so
+// this file cannot agree with a wrong layout by copying it.
+use logos.mem.collections.vec;
+
+// the minimal repro's own shape
+struct M      { x: u56, y: u8,  id: i64 }
+// narrow-narrow-wide, both odd widths
+struct NNW    { a: u24, b: i24, id: i64 }
+// three adjacent narrows ahead of the wide one
+struct NNNW   { a: u8,  b: u24, c: i56, id: i64 }
+// narrow at the END — trailing padding is the aggregate's own alignment
+struct WN     { id: i64, a: u24, b: u8 }
+// only narrows: the aggregate's alignment comes from the widest of them
+struct NN     { a: i24, b: u8 }
+// a nested struct of narrows, followed by a wide field
+struct Nest   { inner: NN, id: i64 }
+// a nested struct of narrows BETWEEN two wide fields
+struct Nest2  { lo: i64, inner: NNW, hi: i64 }
+
+fn sum_m(ss: &[M]) -> i64 {
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < ss.len() { let s: &M = &ss[i]; t = t + s.id; i = i + 1; }
+    return t;
+}
+
+fn sum_nnnw(ss: &[NNNW]) -> i64 {
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < ss.len() {
+        let s: &NNNW = &ss[i];
+        t = t + s.id + (s.a as i64) + (s.b as i64) + (s.c as i64);
+        i = i + 1;
+    }
+    return t;
+}
+
+// a whole array crossing a fn boundary by value
+fn first_id(a: [M; 3]) -> i64 { return a[0].id; }
+
+fn main() -> i64 {
+    // ── the minimal repro, asserted on values ───────────────────────────────
+    let ss: [M; 3] = [M { x: 3, y: 7, id: 111 },
+                      M { x: 1, y: 7, id: 222 },
+                      M { x: 3, y: 2, id: 333 }];
+    let mut t: i64 = 0;
+    let mut i: i64 = 0;
+    while i < 3 { t = t + ss[i].id; i = i + 1; }
+    if t != 666 { return 10; }
+    if ss[0].id != 111 || ss[1].id != 222 || ss[2].id != 333 { return 11; }
+    // the narrow fields must survive the same copy
+    if ss[0].x != 3 || ss[1].x != 1 || ss[2].x != 3 { return 12; }
+    if ss[0].y != 7 || ss[1].y != 7 || ss[2].y != 2 { return 13; }
+    // the scalar path (which was already correct) must stay correct
+    let m: M = M { x: 9, y: 4, id: 444 };
+    if m.id != 444 || m.x != 9 || m.y != 4 { return 14; }
+    // through a slice in a callee, and by value across a fn boundary
+    if sum_m(&ss[..]) != 666 { return 15; }
+    if first_id(ss) != 111 { return 16; }
+
+    // ── narrow-narrow-wide, both odd widths ─────────────────────────────────
+    let q: [NNW; 4] = [NNW { a: 1,       b: -1,      id: 1000000000001 },
+                       NNW { a: 16777215, b: 8388607, id: 2000000000002 },
+                       NNW { a: 0,       b: -8388608, id: 3000000000003 },
+                       NNW { a: 8388608, b: 0,       id: 4000000000004 }];
+    let mut s2: i64 = 0;
+    let mut j: i64 = 0;
+    while j < 4 { s2 = s2 + q[j].id; j = j + 1; }
+    if s2 != 10000000000010 { return 20; }
+    if q[1].a != 16777215 || q[1].b != 8388607 { return 21; }
+    if q[2].b != -8388608 { return 22; }
+    if q[3].a != 8388608  { return 23; }
+
+    // ── three adjacent narrows ahead of the wide one ────────────────────────
+    let r: [NNNW; 3] = [NNNW { a: 1, b: 2, c: 3, id: 1000000000000 },
+                        NNNW { a: 4, b: 5, c: 6, id: 2000000000000 },
+                        NNNW { a: 7, b: 8, c: 9, id: 3000000000000 }];
+    if sum_nnnw(&r[..]) != 6000000000045 { return 30; }
+    if r[2].a != 7 || r[2].b != 8 || r[2].c != 9 { return 31; }
+
+    // ── narrow at the END: the trailing padding is part of the stride ───────
+    let w: [WN; 3] = [WN { id: 111111111111, a: 1, b: 2 },
+                      WN { id: 222222222222, a: 3, b: 4 },
+                      WN { id: 333333333333, a: 5, b: 6 }];
+    let mut s3: i64 = 0;
+    let mut k: i64 = 0;
+    while k < 3 { s3 = s3 + w[k].id + (w[k].a as i64) + (w[k].b as i64); k = k + 1; }
+    if s3 != 666666666687 { return 40; }
+    if w[0].b != 2 || w[2].a != 5 { return 41; }
+
+    // ── ONLY narrows: no wide field re-aligns anything ──────────────────────
+    let n: [NN; 5] = [NN { a: -1, b: 1 }, NN { a: -2, b: 2 }, NN { a: -3, b: 3 },
+                      NN { a: -4, b: 4 }, NN { a: -5, b: 5 }];
+    let mut sa: i64 = 0;
+    let mut sb: i64 = 0;
+    let mut p: i64 = 0;
+    while p < 5 { sa = sa + (n[p].a as i64); sb = sb + (n[p].b as i64); p = p + 1; }
+    if sa != -15 { return 50; }
+    if sb != 15  { return 51; }
+
+    // ── a NESTED struct of narrows ──────────────────────────────────────────
+    let e: [Nest; 3] = [Nest { inner: NN { a: 10, b: 1 }, id: 7000000000001 },
+                        Nest { inner: NN { a: 20, b: 2 }, id: 7000000000002 },
+                        Nest { inner: NN { a: 30, b: 3 }, id: 7000000000003 }];
+    let mut s4: i64 = 0;
+    let mut u: i64 = 0;
+    while u < 3 { s4 = s4 + e[u].id + (e[u].inner.a as i64); u = u + 1; }
+    if s4 != 21000000000066 { return 60; }
+    if e[1].inner.b != 2 { return 61; }
+
+    // ── a nested struct of narrows BETWEEN two wide fields ──────────────────
+    let f: [Nest2; 3] = [Nest2 { lo: 1, inner: NNW { a: 1, b: -1, id: 9 }, hi: 100 },
+                         Nest2 { lo: 2, inner: NNW { a: 2, b: -2, id: 8 }, hi: 200 },
+                         Nest2 { lo: 3, inner: NNW { a: 3, b: -3, id: 7 }, hi: 300 }];
+    let mut s5: i64 = 0;
+    let mut v: i64 = 0;
+    while v < 3 { s5 = s5 + f[v].lo + f[v].hi + f[v].inner.id + (f[v].inner.b as i64); v = v + 1; }
+    if s5 != 624 { return 70; }
+    if f[2].inner.a != 3 || f[2].hi != 300 { return 71; }
+
+    // ── the `[value; N]` fill path takes the same stride ────────────────────
+    let g: [M; 20] = [M { x: 5, y: 6, id: 987654321 }; 20];
+    let mut s6: i64 = 0;
+    let mut y: i64 = 0;
+    while y < 20 { s6 = s6 + g[y].id + (g[y].x as i64) + (g[y].y as i64); y = y + 1; }
+    if s6 != 19753086640 { return 80; }
+
+    // ── a CONTAINER indexes with size_of; the GEP steps the backend's stride ─
+    // Nine pushes is past the first two reallocs, so a stride disagreement is a
+    // heap overrun rather than a value that happens to survive.
+    let mut vm: Vec<M> = Vec::<M>::new();
+    let mut vn: Vec<NN> = Vec::<NN>::new();
+    let mut z: i64 = 0;
+    while z < 9 {
+        vm.push(M { x: (z as u56), y: (z as u8), id: z * 1000000000 });
+        vn.push(NN { a: (z as i24), b: (z as u8) });
+        z = z + 1;
+    }
+    let mut s7: i64 = 0;
+    let mut s8: i64 = 0;
+    let mut c: i64 = 0;
+    while c < vm.len() {
+        let mv: M  = vm.get(c);
+        let nv: NN = vn.get(c);
+        s7 = s7 + mv.id + (mv.x as i64) + (mv.y as i64);
+        s8 = s8 + (nv.a as i64) + (nv.b as i64);
+        c = c + 1;
+    }
+    if s7 != 36000000072 { return 90; }
+    if s8 != 72 { return 91; }
+
+    // ── a 2-D array of the adjacent-narrow struct ───────────────────────────
+    let h: [[NN; 2]; 3] = [[NN { a: 1, b: 2 }, NN { a: 3, b: 4 }],
+                           [NN { a: 5, b: 6 }, NN { a: 7, b: 8 }],
+                           [NN { a: 9, b: 10 }, NN { a: 11, b: 12 }]];
+    let mut s9: i64 = 0;
+    let mut aa: i64 = 0;
+    while aa < 3 {
+        let mut bb: i64 = 0;
+        while bb < 2 { s9 = s9 + (h[aa][bb].a as i64) + (h[aa][bb].b as i64); bb = bb + 1; }
+        aa = aa + 1;
+    }
+    if s9 != 78 { return 100; }
+
+    return 0;
+}

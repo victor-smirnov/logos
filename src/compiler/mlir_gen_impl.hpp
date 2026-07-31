@@ -39,6 +39,88 @@ namespace logos::compiler {
 using namespace lir;
 
 // ---------------------------------------------------------------------------
+// THE MLIR-TYPE LAYOUT ENGINE — the backend's rule, over LLVM-dialect types
+// ---------------------------------------------------------------------------
+//
+// `mlir::DataLayout` MUST NOT be used to size a value. Even with the target's
+// `dlti.dl_spec` attached (`attach_target_data_layout`), MLIR's LLVMStructType
+// layout accumulates each member at its STORE size — `getTypeSize(i56)` = 7 —
+// while `llvm::StructLayout`, which is what the emitted GEPs and the object
+// actually use, accumulates ALLOC sizes (8). For `{i56, i8, i64}` MLIR answers
+// 16 and LLVM answers 24 with `id` at offset 16, so an array-literal element
+// memcpy sized from MLIR copied 16 bytes and every `id` past the first was
+// whatever the neighbouring row happened to leave there. `8ba3c764` moved three
+// engines onto one answer and stamped the layout spec on the module; this is
+// the fourth reader, and no `dl_spec` can fix it because the divergence is in
+// the STRUCT ACCUMULATION RULE, not in the leaf alignments.
+//
+// So the walk is written here, once, and every reader of an MLIR type's size /
+// alignment / field offset goes through it. Leaf integers delegate to
+// `LogosType::int_layout`, the same function `LogosType::scalar_layout` uses,
+// so the TypeRef engine (`layout_of`) and this one cannot disagree at a leaf.
+// That they do not disagree at an AGGREGATE either — and that both equal
+// `llvm::DataLayout`'s own answer — is asserted by `verify_layout_engines()`,
+// which runs on every compile.
+
+inline uint64_t layout_align_up(uint64_t v, uint64_t a) {
+    return a ? (v + a - 1) / a * a : v;
+}
+
+inline uint64_t mlir_abi_align(mlir::Type t) {
+    if (auto it = mlir::dyn_cast<mlir::IntegerType>(t))
+        return LogosType::int_layout(it.getWidth()).align;
+    if (mlir::isa<mlir::Float32Type>(t)) return 4;
+    if (mlir::isa<mlir::Float64Type>(t)) return 8;
+    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t)) return 8;
+    if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
+        if (st.isPacked()) return 1;
+        uint64_t m = 1;
+        for (auto e : st.getBody()) m = std::max(m, mlir_abi_align(e));
+        return m;
+    }
+    if (auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t))
+        return mlir_abi_align(at.getElementType());
+    return 1;
+}
+
+// ALLOC size — the stride the backend steps between two adjacent values of this
+// type. Never the store size: `i56` occupies 8 bytes even though it writes 7.
+inline uint64_t mlir_abi_size(mlir::Type t) {
+    if (auto it = mlir::dyn_cast<mlir::IntegerType>(t))
+        return LogosType::int_layout(it.getWidth()).size;
+    if (mlir::isa<mlir::Float32Type>(t)) return 4;
+    if (mlir::isa<mlir::Float64Type>(t)) return 8;
+    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t)) return 8;
+    if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
+        bool packed = st.isPacked();
+        uint64_t off = 0, maxa = 1;
+        for (auto e : st.getBody()) {
+            uint64_t a = packed ? 1 : mlir_abi_align(e);
+            maxa = std::max(maxa, a);
+            off = layout_align_up(off, a) + mlir_abi_size(e);
+        }
+        return layout_align_up(off, maxa);
+    }
+    if (auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t))
+        return at.getNumElements() * mlir_abi_size(at.getElementType());
+    return 1;
+}
+
+// Byte offset of member `idx` — the same accumulation, stopped early. This is
+// what a `getelementptr %S, ptr, i32 0, i32 idx` resolves to.
+inline uint64_t mlir_field_offset(mlir::LLVM::LLVMStructType st, unsigned idx) {
+    bool packed = st.isPacked();
+    uint64_t off = 0;
+    auto body = st.getBody();
+    for (unsigned i = 0; i < idx && i < body.size(); ++i) {
+        off = layout_align_up(off, packed ? 1 : mlir_abi_align(body[i]))
+              + mlir_abi_size(body[i]);
+    }
+    return layout_align_up(off, (packed || idx >= body.size())
+                                    ? 1 : mlir_abi_align(body[idx]));
+}
+
+// ---------------------------------------------------------------------------
 // Struct type registry (MLIR-level)
 // ---------------------------------------------------------------------------
 
@@ -942,6 +1024,23 @@ public:
 private:
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
+    // `layout_of`'s Struct case, keyed by the DEFINITION instead of a TypeRef —
+    // so verify_layout_engines can ask the TypeRef engine about a registered
+    // struct without synthesising a TypeRef for it.
+    Layout struct_def_layout(lir_view::StructView sv,
+                             std::unordered_set<std::string>& seen);
+    // Does this struct carry an `[T]` / `dyn` tail at any depth? Such a type has
+    // no static size, so `layout_of` (the sized PREFIX) and the LLVM stand-in
+    // aggregate answer different questions and are not comparable.
+    bool struct_is_unsized(lir_view::StructView sv,
+                           std::unordered_set<std::string>& seen);
+    // THE ENGINE-AGREEMENT GATE. Compares, for every registered struct type,
+    // the TypeRef engine (layout_of), the MLIR-type engine (mlir_abi_size) and
+    // `llvm::DataLayout` on the mirrored llvm::Type — the layout the object is
+    // actually emitted with. A disagreement is a hard compile error naming the
+    // type and both answers; it is not allowed to become a wrong program. Runs
+    // on every compile. Set `LOGOS_VERIFY_LAYOUT=1` to print what it observed.
+    void verify_layout_engines();
     // True iff T is "Freeze" (Rust): NO interior mutability in its own
     // transitively-inline bytes — no `logos.lang.cell.UnsafeCell` reachable
     // through fields/payload/elements WITHOUT crossing a pointer/reference.

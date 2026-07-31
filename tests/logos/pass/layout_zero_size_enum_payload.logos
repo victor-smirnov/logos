@@ -1,0 +1,104 @@
+package layout_zero_size_enum_payload;
+// A ZERO-BYTE PAYLOAD IS ZERO BYTES.
+//
+// A tagged enum is emitted as `{ i32 disc, [count x i<align*8>] payload }`. The
+// blob's element count was computed as `(pb + pa - 1) / pa` from
+// `pb = payload_bytes ? payload_bytes : 1` — a floor that turned a payload of
+// NO bytes into a payload of ONE byte. `logos.lang.convert.ConvertError` is
+// `struct ConvertError {}`, so `Option<ConvertError>` got the body
+// `{i32, [1 x i8]}` = 8 bytes, while `layout_of` sized the same enum from
+// `payload_bytes = 0` and answered 4. Every read stepped 8; `size_of` and every
+// container's element stride said 4.
+//
+// FOUND BY `verify_layout_engines`, on the stdlib's own iterators
+// (`OptionIter<ConvertError>`, and `RevIter`/`PeekableIter` over it), during the
+// first build after the check was added — not by a failing program. The classes
+// it breaks are `Vec<E>` (allocate 4 per element, write at 8 → heap overrun
+// past the first realloc) and any `size_of`-driven copy of such an enum.
+//
+// Asserted as ROUND TRIPS through the paths that use the stride: a Vec past two
+// reallocs, an array literal, and a struct field after the enum.
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+struct Empty {}
+enum E { A, B(Empty) }
+// a zero-byte payload next to a real one: the blob is sized by the WIDEST
+// variant, so this enum must be 8 and the previous one 4 — two different
+// answers from one rule.
+enum E2 { X(Empty), Y(i32) }
+// the enum as a struct field, with a wide field after it
+struct Holder { e: E, id: i64 }
+
+fn disc_of(e: &E) -> i64 {
+    return match e { E::A => 1, E::B(_) => 2 };
+}
+
+fn main() -> i64 {
+    // ── a Vec past two reallocs: allocate at one stride, write at another ────
+    let mut v: Vec<E> = Vec::<E>::new();
+    let mut i: i64 = 0;
+    while i < 9 {
+        if i % 2 == 0 { v.push(E::A); } else { v.push(E::B(Empty {})); }
+        i = i + 1;
+    }
+    if v.len() != 9 { return 10; }
+    let mut s: i64 = 0;
+    let mut j: i64 = 0;
+    while j < v.len() { let e: E = v.get(j); s = s + disc_of(&e); j = j + 1; }
+    if s != 13 { return 11; }   // 5 * 1 + 4 * 2
+
+    // ── an array literal of them, read back at the array's own stride ───────
+    let a: [E; 6] = [E::A, E::B(Empty {}), E::A, E::B(Empty {}), E::A, E::A];
+    let mut s2: i64 = 0;
+    let mut k: i64 = 0;
+    while k < 6 { s2 = s2 + disc_of(&a[k]); k = k + 1; }
+    if s2 != 8 { return 20; }   // 4 * 1 + 2 * 2
+
+    // ── the enum as a field, with a wide field AFTER it ─────────────────────
+    let h: [Holder; 3] = [Holder { e: E::A, id: 1000000000001 },
+                          Holder { e: E::B(Empty {}), id: 2000000000002 },
+                          Holder { e: E::A, id: 3000000000003 }];
+    let mut s3: i64 = 0;
+    let mut m: i64 = 0;
+    while m < 3 { s3 = s3 + h[m].id + disc_of(&h[m].e); m = m + 1; }
+    if s3 != 6000000000010 { return 30; }
+
+    // ── the widest variant still sizes the blob ─────────────────────────────
+    let mut v2: Vec<E2> = Vec::<E2>::new();
+    let mut n: i64 = 0;
+    while n < 9 {
+        if n % 3 == 0 { v2.push(E2::X(Empty {})); } else { v2.push(E2::Y(n as i32)); }
+        n = n + 1;
+    }
+    let mut s4: i64 = 0;
+    let mut p: i64 = 0;
+    while p < v2.len() {
+        let e2: E2 = v2.get(p);
+        s4 = s4 + match e2 { E2::X(_) => 0, E2::Y(z) => (z as i64) };
+        p = p + 1;
+    }
+    if s4 != 27 { return 40; }  // 1+2+4+5+7+8
+
+    // ── the stdlib type the check actually found ────────────────────────────
+    // `Option<ConvertError>` is the empty-payload shape, and `OptionIter` over
+    // it is what disagreed. A Vec of Options of a zero-size payload exercises
+    // exactly that stride.
+    let mut v3: Vec<Option<Empty>> = Vec::<Option<Empty>>::new();
+    let mut q: i64 = 0;
+    while q < 9 {
+        if q % 2 == 0 { v3.push(Option::<Empty>::None); }
+        else { v3.push(Option::<Empty>::Some(Empty {})); }
+        q = q + 1;
+    }
+    let mut s5: i64 = 0;
+    let mut r: i64 = 0;
+    while r < v3.len() {
+        let o: Option<Empty> = v3.get(r);
+        s5 = s5 + match o { Option::None => 1, Option::Some(_) => 2 };
+        r = r + 1;
+    }
+    if s5 != 13 { return 50; }
+
+    return 0;
+}

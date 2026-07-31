@@ -270,6 +270,24 @@ struct LogosType {
     // heap (`realloc(): invalid next size`). The size of a value is one fact;
     // it is written once.
     struct ScalarLayout { uint64_t size; uint64_t align; };
+
+    // The BACKEND's rule for an integer of `bits`, keyed by WIDTH rather than by
+    // Kind. `getIntegerAlignment` takes the alignment of the smallest SPECIFIED
+    // integer type at least as wide, and the largest one if there is none; the
+    // x86-64 layout string specifies i1/i8/i16/i32/i64/i128, so a width lands on
+    // the next power-of-two byte count, capped at 16. ALLOC size is the store
+    // size rounded up to that alignment — i24 → {4,4}, i56 → {8,8}.
+    //
+    // Two engines ask this question with two different keys: `scalar_layout`
+    // has a Kind, and the walk over emitted LLVM-dialect types (`mlir_abi_size`
+    // in mlir_gen_impl.hpp) has only an `mlir::IntegerType`'s width. Both read
+    // THIS function, so an integer cannot be sized two ways.
+    static constexpr ScalarLayout int_layout(unsigned bits) noexcept {
+        uint64_t store = (bits + 7) / 8, a = 1;
+        while (a < store && a < 16) a <<= 1;
+        return { (store + a - 1) / a * a, a };
+    }
+
     static constexpr ScalarLayout scalar_layout(Kind k) noexcept {
         switch (k) {
         case Kind::Void: case Kind::Never:                return {0, 1};
@@ -283,18 +301,19 @@ struct LogosType {
         // on which phase was asked. (`[T]` is NOT here: its alignment is
         // align_of(T), which IS knowable, so it needs `elem()`.)
         case Kind::UnsizedDyn:                           return {0, 8};
-        case Kind::Bool: case Kind::I8:  case Kind::U8:  return {1, 1};
-        case Kind::I16:  case Kind::U16:                 return {2, 2};
-        case Kind::I24:  case Kind::U24:                 return {4, 4};
+        case Kind::Bool:                                 return int_layout(1);
+        case Kind::I8:   case Kind::U8:                  return int_layout(8);
+        case Kind::I16:  case Kind::U16:                 return int_layout(16);
+        case Kind::I24:  case Kind::U24:                 return int_layout(24);
         case Kind::I32:  case Kind::U32: case Kind::F32:
-        case Kind::IntLit: case Kind::Char:              return {4, 4};
-        case Kind::I56:  case Kind::U56:                 return {8, 8};
+        case Kind::IntLit: case Kind::Char:              return int_layout(32);
+        case Kind::I56:  case Kind::U56:                 return int_layout(56);
         case Kind::I64:  case Kind::U64: case Kind::F64:
         case Kind::FloatLit:
         case Kind::Ptr:  case Kind::Ref: case Kind::MutRef:
         case Kind::FnPtr: case Kind::FnItem: case Kind::TaggedPtr:
-        case Kind::Usize: case Kind::Isize:              return {8, 8};
-        case Kind::I128: case Kind::U128:                return {16, 16};
+        case Kind::Usize: case Kind::Isize:              return int_layout(64);
+        case Kind::I128: case Kind::U128:                return int_layout(128);
         // Fat pairs — two pointers wide, pointer-aligned.
         case Kind::Slice: case Kind::Closure:
         case Kind::TraitObject: case Kind::DstRef:       return {16, 8};

@@ -42,57 +42,13 @@ constexpr unsigned DW_ATE_signed           = 0x05;
 constexpr unsigned DW_ATE_unsigned         = 0x07;
 constexpr unsigned DW_ATE_UTF              = 0x10;
 
-inline uint64_t align_up(uint64_t v, uint64_t a) {
-    return a ? (v + a - 1) / a * a : v;
-}
-
-// x86-64 SysV ABI alignment (bytes) for an MLIR/LLVM type. Computed directly
-// rather than via mlir::DataLayout: at mlir-gen time the module carries no data
-// layout spec, so DataLayout returns defaults (e.g. align(i64)=4) that disagree
-// with the target layout the LLVM backend actually uses — which would mis-place
-// DWARF struct members. This mirrors what Clang/LLVM emit for non-packed types.
-inline uint64_t abi_align_bytes(mlir::Type t) {
-    if (auto it = mlir::dyn_cast<mlir::IntegerType>(t)) {
-        uint64_t bytes = (it.getWidth() + 7) / 8, a = 1;
-        while (a < bytes && a < 16) a <<= 1;
-        return a;
-    }
-    if (mlir::isa<mlir::Float32Type>(t)) return 4;
-    if (mlir::isa<mlir::Float64Type>(t)) return 8;
-    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t)) return 8;
-    if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
-        uint64_t m = 1;
-        for (auto e : st.getBody()) m = std::max(m, abi_align_bytes(e));
-        return m;
-    }
-    if (auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t))
-        return abi_align_bytes(at.getElementType());
-    return 1;
-}
-
-// x86-64 alloc size (bytes) — mirrors LLVM's real layout (mlir::DataLayout's
-// no-spec defaults disagree: no inter-field padding, e.g. {i32,i64} → 12 not 16).
-inline uint64_t abi_size_bytes(mlir::Type t) {
-    if (auto it = mlir::dyn_cast<mlir::IntegerType>(t)) {
-        uint64_t b = (it.getWidth() + 7) / 8;
-        return align_up(b, abi_align_bytes(t));
-    }
-    if (mlir::isa<mlir::Float32Type>(t)) return 4;
-    if (mlir::isa<mlir::Float64Type>(t)) return 8;
-    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t)) return 8;
-    if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
-        uint64_t off = 0, maxa = 1;
-        for (auto e : st.getBody()) {
-            uint64_t a = abi_align_bytes(e);
-            maxa = std::max(maxa, a);
-            off = align_up(off, a) + abi_size_bytes(e);
-        }
-        return align_up(off, maxa);
-    }
-    if (auto at = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t))
-        return at.getNumElements() * abi_size_bytes(at.getElementType());
-    return 1;
-}
+// The DWARF member walk asks the SAME question as the value-copy memcpy sizes
+// ("what stride does the backend step, where does member i start"), so it asks
+// the same engine: `mlir_abi_align` / `mlir_abi_size` / `layout_align_up` in
+// mlir_gen_impl.hpp. This file used to carry its own copy of that walk — the
+// correct one, as it happens, while the memcpy sites used `mlir::DataLayout`
+// and got a different answer. A second copy of a right answer is still a second
+// engine, and the next edit only has to reach one of them.
 } // namespace
 
 mlir::LLVM::DIFileAttr MLIRGenImpl::di_file_for(std::string_view path) {
@@ -230,7 +186,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_leaf_from_mlir(mlir::Type t) {
             /*sizeInBits=*/64, /*alignInBits=*/64, /*offsetInBits=*/0,
             /*dwarfAddressSpace=*/std::nullopt, /*extraData=*/mlir::LLVM::DINodeAttr{});
     // Aggregate (struct/array/...) → opaque, correctly sized.
-    uint64_t bits = abi_size_bytes(t) * 8;
+    uint64_t bits = mlir_abi_size(t) * 8;
     std::string nm;
     if (auto st = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t); st && st.isIdentified())
         nm = st.getName().str();
@@ -266,7 +222,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
         return opaque(logos_abi_byte_size(t, seen) * 8);
     }
     if (di_struct_inprogress_.count(key))
-        return opaque(abi_size_bytes(sit->second.llvm_type) * 8);
+        return opaque(mlir_abi_size(sit->second.llvm_type) * 8);
     di_struct_inprogress_.insert(key);
 
     // name → Logos field type (typed pointers / signedness for members).
@@ -283,9 +239,9 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
     llvm::SmallVector<mlir::LLVM::DINodeAttr> members;
     uint64_t off = 0;
     for (auto& f : sit->second.fields) {
-        uint64_t fbits = abi_size_bytes(f.type) * 8;
-        uint64_t falign = abi_align_bytes(f.type);                     // bytes (x86-64)
-        off = align_up(off, falign * 8);
+        uint64_t fbits = mlir_abi_size(f.type) * 8;
+        uint64_t falign = mlir_abi_align(f.type);                     // bytes (x86-64)
+        off = layout_align_up(off, falign * 8);
         mlir::LLVM::DITypeAttr base;
         if (auto lit = logos_fields.find(f.name);
             lit != logos_fields.end() && lit->second)
@@ -297,7 +253,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
             /*offsetInBits=*/off, std::nullopt, mlir::LLVM::DINodeAttr{}));
         off += fbits;
     }
-    uint64_t total = abi_size_bytes(sit->second.llvm_type) * 8;
+    uint64_t total = mlir_abi_size(sit->second.llvm_type) * 8;
     di_struct_inprogress_.erase(key);
     return mlir::LLVM::DICompositeTypeAttr::get(
         ctx, DW_TAG_structure_type, mlir::StringAttr::get(ctx, disp), di_file_,
@@ -415,7 +371,7 @@ void MLIRGenImpl::emit_local_dbg_declare(std::string_view name, TypeRef ty,
     // default DataLayout under-reports (no inter-field padding).
     std::unordered_set<std::string> seen;
     uint64_t ty_bytes = logos_abi_byte_size(ty, seen);
-    uint64_t slot_bytes = abi_size_bytes(alloca.getElemType());
+    uint64_t slot_bytes = mlir_abi_size(alloca.getElemType());
     if (ty_bytes == 0 || ty_bytes != slot_bytes) return;
 
     auto dty = di_type(ty);
@@ -531,7 +487,7 @@ void MLIRGenImpl::collect_enum_meta(TypeRef t) {
         }
     } else if (te) {
         uint64_t pa = te->payload_align ? te->payload_align : 1;
-        uint64_t payload_off = align_up(4, pa);
+        uint64_t payload_off = layout_align_up(4, pa);
         if (payload_off < 4) payload_off = 4;
         rec = "{\"kind\":\"tagged\",\"disc_off\":0,\"disc_size\":4,\"payload_off\":" +
               std::to_string(payload_off) + ",\"variants\":[";

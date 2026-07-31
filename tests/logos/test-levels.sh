@@ -27,8 +27,8 @@
 #
 # THE ENUMERATOR: `tests/exhaustive` is a GENERATOR, not a corpus member, so the
 # samplers above — which enumerate .logos files — can never select it. Its SMOKE
-# tier (86 programs / 11 316 cases, ~34 s) is therefore run EXPLICITLY at every
-# level L1-L3, ahead of the sampled corpus; its FULL tier (246 programs / 13 508
+# tier (105 programs / 12 684 cases, ~34 s) is therefore run EXPLICITLY at every
+# level L1-L3, ahead of the sampled corpus; its FULL tier (265 programs / 14 876
 # cases, ~153 s) is a plain ctest test and so runs at L4 with everything else.
 # Set LOGOS_NO_EXHAUSTIVE=1 to skip it — for BISECTING a corpus failure, not for
 # making a commit green.
@@ -105,11 +105,11 @@ VARIANT=${1:-1}
 # here instead. Its failure is the level's failure.
 EXH_FAIL=0
 if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
-    echo "[test-levels] enumerator — smoke tier (11 316 generated cases)"
+    echo "[test-levels] enumerator — smoke tier (12 684 generated cases)"
     # ⚠ `--no-tests=error`. This name is registered by a `if(EXISTS
     # tests/exhaustive/harness.py)` block, so a moved or deleted generator
     # un-registers it — and `ctest -R` that matches nothing exits 0. Every level
-    # would then print "the enumerator's smoke tier passed (11 316 generated
+    # would then print "the enumerator's smoke tier passed (12 684 generated
     # cases)" about 0 cases. Measured on ctest 3.28.3: no match exits 0 without
     # the flag and 8 with it.
     if ! ctest --no-tests=error --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
@@ -259,14 +259,14 @@ echo
 echo "=== Pass/fail ==="
 echo "$(( tot_run - tot_fail ))/$tot_run tests passed, $tot_fail failed  (level $LEVEL.$VARIANT)"
 # The enumerator is counted separately BECAUSE it is not one of the $tot_run:
-# it is 11 316 generated cases behind one ctest name, and folding it into the
+# it is 12 684 generated cases behind one ctest name, and folding it into the
 # corpus count would misreport both.
 if [ "${LOGOS_NO_EXHAUSTIVE:-0}" = "1" ]; then
     echo "PLUS: the enumerator's smoke tier was SKIPPED (LOGOS_NO_EXHAUSTIVE=1)"
 elif [ "$EXH_FAIL" -ne 0 ]; then
-    echo "PLUS: the enumerator's smoke tier FAILED (11 316 generated cases)"
+    echo "PLUS: the enumerator's smoke tier FAILED (12 684 generated cases)"
 else
-    echo "PLUS: the enumerator's smoke tier passed (11 316 generated cases)"
+    echo "PLUS: the enumerator's smoke tier passed (12 684 generated cases)"
 fi
 # ⚠ `had_fail` IS PART OF THE EXIT STATUS. It used to be equivalent to
 # `tot_fail > 0` — the only thing that set it — and the two checks above set it

@@ -4,6 +4,15 @@
 
 #include "mlir_gen_impl.hpp"
 #include "mono_impl.hpp"
+#include "compile_pipeline.hpp"
+
+#include <llvm/IR/DataLayout.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Type.h>
+#include <llvm/ADT/DenseMap.h>
+
+#include <algorithm>
 
 namespace logos::compiler {
 
@@ -457,6 +466,63 @@ MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
     return layout_of(m, seen);
 }
 
+// The layout of a struct FROM ITS DEFINITION. Split out of `layout_of`'s
+// Struct case so `verify_layout_engines` can ask the TypeRef engine the same
+// question it asks the MLIR-type engine and the backend, keyed by the struct
+// def rather than by a TypeRef it would have to synthesise. Same code, one
+// caller more — not a copy.
+MLIRGenImpl::Layout MLIRGenImpl::struct_def_layout(
+        lir_view::StructView sv, std::unordered_set<std::string>& seen) {
+    const TypePoolImpl* lo_pool = pool_impl();
+    auto sv_fields = sv.fields();
+    // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper
+    // inherits its field's layout exactly (no aggregate padding).
+    // `NonZeroI64`-style wrappers at FFI boundaries depend on this.
+    // The single-field invariant is enforced by sema_collect at
+    // collect time (errors on multi-field `#[repr(transparent)]`),
+    // so we can trust fields.size() == 1 here.
+    if (sv.repr_transparent() && sv_fields.size() == 1)
+        return aggregate_member_layout(sv_fields[0].type(lo_pool), seen);
+    if (sv.is_union()) {
+        // §6.1: union layout per Rust spec
+        // `items.union.common-storage` — size = max(field
+        // sizes), align = max(field aligns), rounded up.
+        uint64_t max_sz = 0, max_al = 1;
+        for (auto f : sv_fields) {
+            auto fl = aggregate_member_layout(f.type(lo_pool), seen);
+            if (fl.size > max_sz) max_sz = fl.size;
+            if (fl.align > max_al) max_al = fl.align;
+        }
+        return { (max_sz + max_al - 1) & ~(max_al - 1), max_al };
+    }
+    LayoutAgg agg;
+    for (auto f : sv_fields) agg.push(aggregate_member_layout(f.type(lo_pool), seen));
+    return agg.finish();
+}
+
+// Is this struct UNSIZED — does it carry an `[T]` / `dyn` tail, at any depth?
+// `MemNode`'s last field is a `PkdAlloc`, whose last field is a `[u8]`, so the
+// property has to be transitive: MemNode has no static size either. TRANSITIVE
+// and CONSERVATIVE — an unresolvable field type answers "not unsized", which
+// keeps the type IN the comparison rather than silently out of it.
+bool MLIRGenImpl::struct_is_unsized(lir_view::StructView sv,
+                                    std::unordered_set<std::string>& seen) {
+    using K = LogosType::Kind;
+    if (!seen.insert(qualify_pkg(sv.pkg(), sv.name())).second) return false;
+    const TypePoolImpl* p = pool_impl();
+    for (auto f : sv.fields()) {
+        TypeRef ft = f.type(p);
+        auto k = TypeRef(ft).kind();
+        if (k == K::UnsizedSlice || k == K::UnsizedDyn) return true;
+        if (k == K::Struct || k == K::ZonedStruct) {
+            auto it = find_struct_def_it(ft);
+            if (it != all_struct_defs_.end() && struct_is_unsized(it->second, seen))
+                return true;
+        }
+    }
+    return false;
+}
+
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
     using K = LogosType::Kind;
@@ -502,35 +568,8 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         auto cname = mlir_struct_key(t);
         if (!seen.insert(cname).second) return {8, 8};  // cycle guard
         Layout r{8, 8};
-        if (auto it = find_struct_def_it(t); it != all_struct_defs_.end()) {
-            const TypePoolImpl* lo_pool = pool_impl();
-            auto sv = it->second;
-            auto sv_fields = sv.fields();
-            // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper
-            // inherits its field's layout exactly (no aggregate padding).
-            // `NonZeroI64`-style wrappers at FFI boundaries depend on this.
-            // The single-field invariant is enforced by sema_collect at
-            // collect time (errors on multi-field `#[repr(transparent)]`),
-            // so we can trust fields.size() == 1 here.
-            if (sv.repr_transparent() && sv_fields.size() == 1) {
-                r = aggregate_member_layout(sv_fields[0].type(lo_pool), seen);
-            } else if (sv.is_union()) {
-                // §6.1: union layout per Rust spec
-                // `items.union.common-storage` — size = max(field
-                // sizes), align = max(field aligns), rounded up.
-                uint64_t max_sz = 0, max_al = 1;
-                for (auto f : sv_fields) {
-                    auto fl = aggregate_member_layout(f.type(lo_pool), seen);
-                    if (fl.size > max_sz) max_sz = fl.size;
-                    if (fl.align > max_al) max_al = fl.align;
-                }
-                r = { (max_sz + max_al - 1) & ~(max_al - 1), max_al };
-            } else {
-                LayoutAgg agg;
-                for (auto f : sv_fields) agg.push(aggregate_member_layout(f.type(lo_pool), seen));
-                r = agg.finish();
-            }
-        }
+        if (auto it = find_struct_def_it(t); it != all_struct_defs_.end())
+            r = struct_def_layout(it->second, seen);
         seen.erase(cname);
         return r;
     }
@@ -548,9 +587,12 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
             agg.push({te->payload_bytes, te->payload_align});   // aligned payload
             return agg.finish();
         }
-        // C-like enum — backing-type-sized discriminant.
-        uint64_t b = (enum_disc_bits(std::string(tv.enum_name())) + 7) / 8;
-        return { b, b ? b : 1 };
+        // C-like enum — backing-type-sized discriminant. `(bits + 7) / 8` is the
+        // STORE size and would give a `#[repr(u24)]` enum {3,3}: a size that is
+        // not its own multiple and an alignment the backend never uses. The
+        // discriminant is an integer, so it is sized by the integer rule.
+        auto dl = LogosType::int_layout(enum_disc_bits(std::string(tv.enum_name())));
+        return { dl.size, dl.align };
     }
     default: return {8, 8};
     }
@@ -1045,6 +1087,171 @@ mlir::Type MLIRGenImpl::dyn_llvm_type() {
 mlir::Type MLIRGenImpl::closure_llvm_type() {
     return mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), ptr_type()});
+}
+
+// ---------------------------------------------------------------------------
+// THE ENGINE-AGREEMENT GATE
+// ---------------------------------------------------------------------------
+//
+// Three engines answer "how many bytes, at what alignment, with which field at
+// which offset":
+//
+//   A  `layout_of` / `struct_def_layout` — over TypeRef. Drives `size_of`, the
+//      alloca sizes, every container's element stride, sema and mono.
+//   B  `mlir_abi_size` / `mlir_abi_align` / `mlir_field_offset` — over the
+//      EMITTED LLVM-dialect type. Drives every value-copy memcpy byte count and
+//      the DWARF member offsets.
+//   C  `llvm::DataLayout` on the same type, built from the TARGET's own layout
+//      string. This is what the object file is actually laid out with: it is
+//      what the emitted `getelementptr` resolves to, so it is what every READ
+//      the compiler emits uses.
+//
+// A ≠ C or B ≠ C is a miscompile with no diagnostic: the value is written at
+// one stride and read at another. Two rounds of exactly that shipped — first
+// `{i32,i64}` sized 12 against ISel's 16, then `{i56,i8,i64}` sized 16 against
+// LLVM's 24 with `id` at offset 16. Both were found by running programs and
+// noticing wrong numbers.
+//
+// So the disagreement is made to be a COMPILE ERROR naming the type and both
+// answers, and the check runs on EVERY compile, not in a fixture. C is computed
+// by mirroring the MLIR type into a real `llvm::Type` and asking LLVM — it
+// shares no line of code with A or B, which is what makes it an oracle rather
+// than a restatement.
+namespace {
+
+// mlir::Type → llvm::Type. Structural mirror only; reads nothing from A or B.
+llvm::Type* mirror_to_llvm(mlir::Type t, llvm::LLVMContext& c,
+                           llvm::DenseMap<mlir::Type, llvm::Type*>& memo) {
+    if (auto it = memo.find(t); it != memo.end()) return it->second;
+    if (auto i = mlir::dyn_cast<mlir::IntegerType>(t))
+        return llvm::IntegerType::get(c, i.getWidth());
+    if (mlir::isa<mlir::Float32Type>(t))  return llvm::Type::getFloatTy(c);
+    if (mlir::isa<mlir::Float64Type>(t))  return llvm::Type::getDoubleTy(c);
+    if (mlir::isa<mlir::LLVM::LLVMPointerType>(t))
+        return llvm::PointerType::get(c, 0);
+    if (auto a = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(t)) {
+        auto* e = mirror_to_llvm(a.getElementType(), c, memo);
+        return e ? llvm::ArrayType::get(e, a.getNumElements()) : nullptr;
+    }
+    if (auto s = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(t)) {
+        if (s.isIdentified() && !s.isInitialized()) return nullptr;  // opaque
+        auto* st = llvm::StructType::create(c);
+        memo[t] = st;                       // break recursion before descending
+        llvm::SmallVector<llvm::Type*, 8> body;
+        for (auto e : s.getBody()) {
+            auto* m = mirror_to_llvm(e, c, memo);
+            if (!m) { memo.erase(t); return nullptr; }
+            body.push_back(m);
+        }
+        st->setBody(body, s.isPacked());
+        return st;
+    }
+    return nullptr;   // vectors, tokens, … — not something we size
+}
+
+}  // namespace
+
+void MLIRGenImpl::verify_layout_engines() {
+    // No target → no C. Report nothing rather than compare against a guess;
+    // the count the gate asserts then drops to 0 and the gate goes red, which
+    // is the correct outcome for "could not look".
+    std::string dl_str = target_data_layout_string(target_cpu_);
+    if (dl_str.empty()) return;
+    llvm::DataLayout DL(dl_str);
+    llvm::LLVMContext ctx;
+    llvm::DenseMap<mlir::Type, llvm::Type*> memo;
+
+    uint64_t n_types = 0, n_fields = 0, n_defs = 0;
+    std::vector<std::string> bad;
+
+    auto note = [&](std::string_view what, std::string_view name,
+                    std::string_view lhs_engine, uint64_t lhs,
+                    std::string_view rhs_engine, uint64_t rhs) {
+        bad.push_back(std::string(name) + ": " + std::string(what) + " — " +
+                      std::string(lhs_engine) + " says " + std::to_string(lhs) +
+                      ", " + std::string(rhs_engine) + " says " + std::to_string(rhs));
+    };
+
+    // Deterministic order: the diagnostic must not depend on hash iteration.
+    std::vector<const StructInfo*> infos;
+    infos.reserve(struct_types_.size());
+    for (auto& kv : struct_types_) infos.push_back(&kv.second);
+    std::sort(infos.begin(), infos.end(),
+              [](const StructInfo* a, const StructInfo* b) { return a->name < b->name; });
+
+    for (const StructInfo* info : infos) {
+        auto st = info->llvm_type;
+        if (!st || (st.isIdentified() && !st.isInitialized())) continue;
+        auto* lt = mirror_to_llvm(st, ctx, memo);
+        if (!lt || !lt->isStructTy()) continue;
+        auto* slt = llvm::cast<llvm::StructType>(lt);
+        const llvm::StructLayout* SL = DL.getStructLayout(slt);
+        ++n_types;
+
+        // ── B vs C: the memcpy byte count against the GEP stride ─────────────
+        uint64_t b_size  = mlir_abi_size(st);
+        uint64_t b_align = mlir_abi_align(st);
+        uint64_t c_size  = DL.getTypeAllocSize(slt).getFixedValue();
+        uint64_t c_align = DL.getABITypeAlign(slt).value();
+        if (b_size != c_size)
+            note("size", info->name, "mlir_abi_size", b_size, "llvm::DataLayout", c_size);
+        if (b_align != c_align)
+            note("align", info->name, "mlir_abi_align", b_align, "llvm::DataLayout", c_align);
+        for (unsigned i = 0, n = slt->getNumElements(); i < n; ++i) {
+            ++n_fields;
+            uint64_t b_off = mlir_field_offset(st, i);
+            uint64_t c_off = SL->getElementOffset(i);
+            if (b_off != c_off)
+                note("offset of field " + std::to_string(i), info->name,
+                     "mlir_field_offset", b_off, "llvm::StructLayout", c_off);
+        }
+
+        // ── A vs C: `size_of` / the container stride against the same ────────
+        // TWO shapes are excluded, and each is excluded because A and C are
+        // answering DIFFERENT QUESTIONS about it, not because they disagree:
+        //
+        //   * a UNION — its LLVM type is the field list in sequence (the
+        //     variants are reached by casting the storage), so C is a sum where
+        //     A is a max, by design;
+        //   * a CUSTOM DST (`Segment { …, data: [u8] }`, `RcInner<T: ?Sized>`,
+        //     `WString { bytes: [u8] }`) — A is the size of the SIZED PREFIX,
+        //     which is the only static size such a type has, while its LLVM
+        //     stand-in carries a placeholder slot for the tail. Nothing is ever
+        //     allocated at C's number, and the FIELD OFFSETS, which is what a
+        //     prefix access actually uses, are still compared above.
+        //
+        // Every other shape — plain, `#[repr(transparent)]`, nested, arrays of
+        // them, tuple-carrying — is compared. Removing either exclusion must
+        // make exactly these types reappear and nothing else.
+        auto dit = all_struct_defs_.find(info->name);
+        if (dit == all_struct_defs_.end()) continue;
+        if (dit->second.is_union()) continue;
+        {
+            std::unordered_set<std::string> dseen;
+            if (struct_is_unsized(dit->second, dseen)) continue;
+        }
+        std::unordered_set<std::string> seen;
+        Layout a = struct_def_layout(dit->second, seen);
+        ++n_defs;
+        if (a.size != c_size)
+            note("size", info->name, "layout_of", a.size, "llvm::DataLayout", c_size);
+        if (a.align != c_align)
+            note("align", info->name, "layout_of", a.align, "llvm::DataLayout", c_align);
+    }
+
+    if (std::getenv("LOGOS_VERIFY_LAYOUT"))
+        std::fprintf(stderr,
+                     "layout-verify: %llu struct types, %llu fields, %llu defs, "
+                     "%llu disagreements\n",
+                     (unsigned long long)n_types, (unsigned long long)n_fields,
+                     (unsigned long long)n_defs, (unsigned long long)bad.size());
+
+    if (!bad.empty()) {
+        std::string msg = "the compiler's layout engines disagree — a value would "
+                          "be written at one stride and read at another:\n";
+        for (auto& b : bad) msg += "  " + b + "\n";
+        llvm::report_fatal_error(llvm::StringRef(msg));
+    }
 }
 
 } // namespace logos::compiler

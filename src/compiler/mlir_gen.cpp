@@ -199,7 +199,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         auto i32 = builder_.getI32Type();
         for (auto& [name, info] : tagged_enums_) {
             if (!info.llvm_type) continue;
-            uint64_t pb = info.payload_bytes ? info.payload_bytes : 1;
+            // A payload of ZERO bytes is zero bytes. The floor `pb ? pb : 1`
+            // that used to sit here gave `Option<ConvertError>` (payload = an
+            // EMPTY struct) the body `{i32, [1 x i8]}` = 8 bytes, while
+            // `layout_of` sized the same enum from payload_bytes = 0 and said
+            // 4. Every read stepped 8 and `size_of` / the Vec stride said 4.
+            // Found by verify_layout_engines on the stdlib's own iterators, not
+            // by a failing program.
+            uint64_t pb = info.payload_bytes;
             uint64_t pa = info.payload_align ? info.payload_align : 1;
             uint64_t count = (pb + pa - 1) / pa;  // round up to whole elements
             auto elem = builder_.getIntegerType((unsigned)(pa * 8));
@@ -702,6 +709,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // -g: emit the enum pretty-print metadata global (collected during di_type).
     emit_debug_metadata(mod);
 
+    // Every struct type this module will emit is registered by now. Before the
+    // module leaves mlir-gen, prove that the three engines that size a value
+    // agree with the one the object file is laid out with. A disagreement here
+    // is a compile error; a disagreement NOT checked here is a wrong program.
+    verify_layout_engines();
+    pt.tick("verify layout engines");
+
     if (mlir::failed(mlir::verify(mod))) {
         // The module goes to a FILE, not to stderr. Dumping it inline buries
         // the diagnostics that precede it — a real failure prints its cause on
@@ -1086,9 +1100,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), arr_llvm, gep, idx);
                 if (elem_is_agg && val.getType() == ptr_type()) {
-                    auto dl = mlir::DataLayout::closest(
-                        builder_.getInsertionBlock()->getParentOp());
-                    auto bytes = (int64_t)dl.getTypeSize(elem_type);
+                    auto bytes = (int64_t)mlir_abi_size(elem_type);
                     auto sz = builder_.create<mlir::LLVM::ConstantOp>(
                         loc_, builder_.getI64Type(),
                         builder_.getI64IntegerAttr(bytes));
@@ -1145,9 +1157,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
                 // per-word movs (the queue-2 Query/QEnv structs made the
                 // scheduler grind for minutes). Memcpy pointer→slot instead;
                 // small aggregates keep the value form (more optimizable).
-                auto dl = mlir::DataLayout::closest(
-                    builder_.getInsertionBlock()->getParentOp());
-                uint64_t fsz = dl.getTypeSize(fi->type);
+                uint64_t fsz = mlir_abi_size(fi->type);
                 if (fsz > 64) {
                     auto sz = builder_.create<mlir::LLVM::ConstantOp>(
                         loc_, builder_.getI64Type(),
@@ -1176,8 +1186,7 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         if (fi && mlir::isa<mlir::LLVM::LLVMArrayType>(fi->type) &&
             val.getType() == ptr_type()) {
             auto arr_t = mlir::cast<mlir::LLVM::LLVMArrayType>(fi->type);
-            auto dl    = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            uint64_t sz = dl.getTypeSize(arr_t);
+            uint64_t sz = mlir_abi_size(arr_t);
             auto sz_val = builder_.create<mlir::arith::ConstantIntOp>(
                 loc_, (int64_t)sz, 64);
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz_val, false);
@@ -1298,8 +1307,7 @@ bool MLIRGenImpl::gen_arr_fill_fast(lir_view::EArrLitView v,
     if (n < kFillFastMin) return false;
     bool zero = false;
     if (!arr_lit_const_splat(v, n, &zero)) return false;
-    auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-    uint64_t esz = dl.getTypeSize(elem_type);
+    uint64_t esz = mlir_abi_size(elem_type);
     if (esz == 0) return false;
     if (zero) {
         // All-zero-bits scalar splat → ONE memset over the whole array.
@@ -1434,8 +1442,7 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
             auto src = gen_expr(er);
             if (!src) return nullptr;
             if (src.getType() == ptr_type()) {
-                auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-                auto bytes = (int64_t)dl.getTypeSize(elem_type);
+                auto bytes = (int64_t)mlir_abi_size(elem_type);
                 auto sz = builder_.create<mlir::LLVM::ConstantOp>(
                     loc_, builder_.getI64Type(),
                     builder_.getI64IntegerAttr(bytes));

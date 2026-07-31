@@ -319,6 +319,29 @@ std::string SemaChecker::render_expr_src(TinyMapView node) {
         return s;
     }
 
+    case la::RANGE_EXPR: {
+        // `lo..hi` / `lo..=hi`, EITHER BOUND OPTIONAL — `a[..]`, `a[2..]`,
+        // `a[..n]`. Missing here, the default arm rendered
+        // `/* render_expr: unsupported AST code 112 */` INTO the synthesised
+        // block, and `format!("{}", (&a[..]).len())` then failed with
+        // "format!: internal — synthesised block failed to parse" — a render
+        // gap reported as an internal error at the call site rather than as the
+        // missing case it is. Found by the enumerator's new `layout` family,
+        // whose every program reads its row count from `(&a[..]).len()`.
+        std::string s;
+        if (node.has_key(la::LHS))
+            s += render_expr_src(map_of(node.get(la::LHS.code)));
+        bool incl = false;
+        if (node.has_key(la::INCLUSIVE)) {
+            AnyVal av = node.get(la::INCLUSIVE.code);
+            if (!av.is_null() && av.is_value()) incl = av.as_value<uint8_t>() != 0;
+        }
+        s += incl ? "..=" : "..";
+        if (node.has_key(la::RHS))
+            s += render_expr_src(map_of(node.get(la::RHS.code)));
+        return s;
+    }
+
     case la::INDEX_READ: {
         std::string s = "(";
         s += render_expr_src(map_of(node.get(la::RECEIVER.code)));

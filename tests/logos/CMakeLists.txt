@@ -1483,6 +1483,32 @@ set_tests_properties(logos_09_plan_independence PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR};LOGOS_TEST_LIB_DIR=${CMAKE_CURRENT_BINARY_DIR}"
 )
 
+# Layout-engine agreement (see layout_engine_agreement_gate.sh for the full
+# argument). Three engines answer "how many bytes, at what alignment, with which
+# field at which offset" — `layout_of` over TypeRef, `mlir_abi_size` over the
+# emitted LLVM-dialect type, and `llvm::DataLayout` on the mirrored llvm::Type,
+# which is the layout the object is emitted with. `verify_layout_engines()`
+# compares all three on EVERY compile and makes a disagreement a compile error,
+# so the corpus already carries the claim.
+#
+# ⚠ What the corpus does NOT carry is that the check LOOKED at anything. This
+# gate generates a (scalar type × struct shape) lattice — the odd widths in
+# every position relative to a SECOND sub-64-bit field, which is exactly the
+# shape 13 508 generated cases did not contain — and asserts the verifier saw at
+# least as many new types as the lattice defines. It also runs the two authored
+# fixtures and asserts their exit codes.
+add_test(
+    NAME logos_09_layout_engine_agreement
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/layout_engine_agreement_gate.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_09_layout_engine_agreement PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── THE ENUMERATOR (tests/exhaustive) ────────────────────────────────────────
 #
 # `tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and

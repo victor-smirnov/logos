@@ -48,13 +48,13 @@ reproduce the defect with.
 
 | ctest test | programs | cases | time | runs at |
 |---|---|---|---|---|
-| `logos_26_exhaustive_smoke` | 86 | 11 316 | ~34 s | **every level** of `test-levels.sh` (L1/L2/L3), and L4 |
-| `logos_26_exhaustive_full`  | 246 | 13 508 | ~153 s | L4 |
+| `logos_26_exhaustive_smoke` | 105 | 12 684 | ~34 s | **every level** of `test-levels.sh` (L1/L2/L3), and L4 |
+| `logos_26_exhaustive_full`  | 265 | 14 876 | ~153 s | L4 |
 
 `smoke` is DECLARED, not sampled (`apply_tier` in `harness.py`):
 
-* `cast`, `cmp`, `arith`, `pattern`, `poison` **in full** — 66 programs, 11 042
-  cases. They cost ~11 s together because each program batches thousands of
+* `cast`, `cmp`, `arith`, `pattern`, `layout`, `poison` **in full** — 85
+  programs, 12 410 cases. They cost ~11 s together because each program batches thousands of
   cases behind ONE compile, so there is nothing to gain by cutting them.
 * `deem` — a **diagonal**: one program per payload type, walking the nine
   (field-position × caller-context) combinations in order. All 20 types, all 3
@@ -111,10 +111,19 @@ Case ids below are quoted from the runs, not summarised from the axes.
 | `attach_target_data_layout` (`8ba3c764`) | `deem.{i8,u8,i16,u16,i24,u24,i32,u32,i128}.{0,1,2}.{bare,padbefore,padafter}.{join,anti,where_*}` | 34–35 wrong answers¹ |
 | `uns` in `emit_range_test` (`ac81ba99`) | `pat.u8.100.200.{100,150,200}` and `pat.u16.32718.32818.{…}`, each at all four of `{match,iflet,letelse,whilelet}` | 96 wrong answers |
 | `key_ord_frag` (`519a181d`) | `deem.f64.2.padbefore.{order_asc,order_desc}`, `deem.f32.2.padafter.{order_asc,order_desc}` | 4 wrong answers |
-| the 128-bit `PatRange` half (this commit) | `pat.i128.{match,iflet,letelse,whilelet}` over `-2^126..=2^126-1` at scrutinees `-2^126, -1, 0, 1, 2^126-1` | 56 wrong answers |
+| the 128-bit `PatRange` half | `pat.i128.{match,iflet,letelse,whilelet}` over `-2^126..=2^126-1` at scrutinees `-2^126, -1, 0, 1, 2^126-1` | 56 wrong answers |
+| the array-literal element memcpy back to `mlir::DataLayout::getTypeSize` (this commit) | `layout.{i24,u24,i56,u56}.{adj,tail,nest,narrow}.{arrlit,slice,fill}.{id,n,m}` | 24 wrong answers |
 
 ¹ The layout defect reads adjacent memory, so how many cases manifest varies run
 to run (34 and 35 on two consecutive runs). The gate's VERDICT does not vary.
+
+⚠ THE LAST ROW IS THE POINT OF THE `layout` FAMILY. Under that mutation the
+`iso` shape — the one the `deem` row struct has always had — reports **zero**
+findings, and so does the `vec` path. Every one of the 24 is an `adj`, `tail`,
+`nest` or `narrow` row read through `arrlit`, `slice` or `fill`, and every one
+is an odd width. That is the residue `8ba3c764` left: a corpus of 13 508 cases
+that never put two sub-64-bit fields next to each other could not see it, and it
+was found by running a program by hand.
 
 The ledger's three directions were proven the same way, without a rebuild: an
 orphan line, a listed refusal that now compiles, and a real refusal removed from
@@ -122,7 +131,7 @@ the ledger — exit 1 each, each naming the offending case.
 
 ## The ledger — what is still open
 
-**Zero wrong answers over 13 508 cases.** The 162 findings that remain are
+**Zero wrong answers over 14 876 cases.** The 162 findings that remain are
 COMPILE REFUSALS and they are all one root, written out in `refusals.ledger`:
 
 > **An integer literal's value is carried in 64 SIGNED bits.** A `where <col>
@@ -145,7 +154,7 @@ not have been ledgered instead.
 
 ## The ledger, historically
 
-Measured on the same 246 programs / 13 508 cases at each point.
+Measured on the same 265 programs / 14 876 cases at each point.
 
 | family  | cases  | before | HEAD | what closed |
 |---|---|---|---|---|
@@ -154,6 +163,7 @@ Measured on the same 246 programs / 13 508 cases at each point.
 | arith   | 4 320  | 216 | 0   | a shift's result type is its LEFT operand |
 | pattern | 1 216  | 211 | 0   | the range predicate, the unsigned bounds, the 128-bit bound |
 | deem    | 2 466  | 686 | 162 | the value's byte size; float total order; `!=`; the f32 literal; the 24-bit lattice rows |
+| layout  | 1 368  | 24  | 0   | the array-literal / fill / slice element size is the BACKEND's, not `mlir::DataLayout`'s |
 | poison  | 2      | 1   | 0   | a subnormal float literal no longer kills the compiler |
 
 `cast` and `cmp` clean over 5 504 cases is the control that says the model and
@@ -210,6 +220,21 @@ the axis.
   between two wide fields, last) and the presence of unrelated locals in the
   CALLER. This axis is not decoration: the defect that motivated it is invisible
   without it.
+* **STRUCT SHAPE** (`layout` family) — what SURROUNDS the payload field:
+  `iso` (payload then a wide field — the shape `deem` already had, kept as the
+  control), `adj` (an ADJACENT sub-64-bit field after the payload), `nnw`
+  (narrow-narrow-wide, payload in the middle), `tail` (payload at the END, so
+  the aggregate's trailing padding is part of the stride), `nest` (payload and
+  its neighbour inside a NESTED struct) and `narrow` (no wide field anywhere).
+  This axis exists because `deem`'s row struct always put an 8-aligned field
+  after a narrow one, and under that shape two engines that disagree about
+  `i56` still agree about the struct — the next field re-aligns the offset
+  either way. It takes a SECOND narrow field for them to drift.
+* **ACCESS PATH** (`layout` family) — which of the compiler's size readers is on
+  the hook: `arrlit` (per-element memcpy byte count), `fill` (the `[v; N]` fill
+  stride), `slice` (a callee reading at the backend's stride only), `vec` (the
+  container allocates by `size_of` and writes through a GEP — the two must agree
+  or the heap is overrun past the first realloc).
 * **EMISSION SITE** — a range pattern is compiled at `match`, `if let`,
   `let … else` and `while let`; each is its own site and each is enumerated.
 
