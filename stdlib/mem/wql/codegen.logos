@@ -580,10 +580,13 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
         out.push_str("0i64");
         return;
     }
+    // THE NORMALIZATION, asked of the type rather than spelled out here: a value
+    // is cast exactly when its type is not the type the EL computes in
+    // (`el_norm_cast` — `ElTy.canon` / `ElTy.repr`). The two hand-written tests
+    // this replaces ("INT and not `i64`", "FLT and `f32`") were the same rule
+    // enumerated, and `rexpr_walk::uda_fin_cast` held a second copy of it.
     let rn: str = t.udf_rets[ui];
-    let mut cast: str = "";
-    if t.udf_ret[ui] == EL_TY_INT() && !str_eq(rn, "i64") { cast = " as i64)"; }
-    if t.udf_ret[ui] == EL_TY_FLT() && str_eq(rn, "f32")  { cast = " as f64)"; }
+    let cast: str = el_norm_cast(rn);
     if cast.len() > 0i64 { out.push_str("(("); }
     out.push_str(name);
     out.push_str("(");
@@ -595,8 +598,9 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
     }
     out.push_str(")");
     if cast.len() > 0i64 {
-        out.push_str(")");
+        out.push_str(") as ");
         out.push_str(cast);
+        out.push_str(")");
     }
 }
 

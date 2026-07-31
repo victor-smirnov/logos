@@ -1,0 +1,24 @@
+stdout:
+i64 cls=0 bits=64 sgn=y repr=i64 canon=y fits=y ident=OK ord=OK cast=- setcol=OK
+u64 cls=0 bits=64 sgn=n repr=i64 canon=n fits=n ident=OK ord=WRAP cast=i64 setcol=NOT_REPR
+i32 cls=0 bits=32 sgn=y repr=i64 canon=n fits=y ident=OK ord=OK cast=i64 setcol=NOT_REPR
+u32 cls=0 bits=32 sgn=n repr=i64 canon=n fits=y ident=OK ord=OK cast=i64 setcol=NOT_REPR
+u56 cls=0 bits=56 sgn=n repr=i64 canon=n fits=y ident=OK ord=OK cast=i64 setcol=NOT_REPR
+i128 cls=0 bits=128 sgn=y repr=i64 canon=n fits=n ident=NO_INJ ord=TRUNC cast=i64 setcol=NO_INJ
+u128 cls=0 bits=128 sgn=n repr=i64 canon=n fits=n ident=NO_INJ ord=TRUNC cast=i64 setcol=NO_INJ
+usize cls=0 bits=64 sgn=n repr=i64 canon=n fits=n ident=OK ord=WRAP cast=i64 setcol=NOT_REPR
+isize cls=0 bits=64 sgn=y repr=i64 canon=n fits=y ident=OK ord=OK cast=i64 setcol=NOT_REPR
+f32 cls=3 bits=32 sgn=y repr=f64 canon=n fits=y ident=NO_EQ ord=PARTIAL cast=f64 setcol=NO_EQ
+f64 cls=3 bits=64 sgn=y repr=f64 canon=y fits=y ident=NO_EQ ord=PARTIAL cast=- setcol=NO_EQ
+bool cls=2 bits=1 sgn=n repr=bool canon=y fits=y ident=OK ord=OK cast=- setcol=OK
+str cls=1 bits=0 sgn=n repr=str canon=y fits=y ident=OK ord=OK cast=- setcol=OK
+String cls=1 bits=0 sgn=n repr=str canon=n fits=y ident=OK ord=OK cast=- setcol=NOT_REPR
+Prec cls=-1 bits=0 sgn=n repr=- canon=n fits=n ident=UNNAMED ord=UNNAMED cast=- setcol=UNKNOWN
+RowId cls=-1 bits=0 sgn=n repr=- canon=n fits=n ident=UNNAMED ord=UNNAMED cast=- setcol=UNKNOWN
+f64: a rel is a SET — rows are deduplicated by `==` and a hash — and this type's equality is not even REFLEXIVE: an f64/f32 NaN compares false against every value including itself, so a row containing one is equal to nothing, not even to a copy of itself. The remedy is a column whose equality is meaningful — `i64`, `str` or `bool`
+u128: a rel is a SET — rows are deduplicated by `==` and a hash — and the EL's normalization of this type is NOT INJECTIVE: a value wider than 64 bits arrives with its high bits dropped, so two different rows collapse into one. The remedy is a column that fits the i64 the EL computes in
+u64: the rel row STORES this type and the EL COMPUTES in another one, so the emitted body would mix the two: the normalization is not the identity here. The remedy is to declare the column as the type the EL computes in — `i64` for the integer family, `str` for `String`
+Prec: this type is outside the EL scalar lattice (`el_ty`), so nothing is known about the comparison, the hash or the storage the backend would emit for it — and a type is not assumed to have an identity until it is admitted there. The remedy is a column of an admitted scalar type — `i64`, `str` or `bool`
+eq_hash INT=y STR=y BOOL=y FLT=n other=n
+faithful i64=y u64=n u32=y f64=n Prec=n
+fits_i64 i64=y u64=n u56=y f64=n Prec=n

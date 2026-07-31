@@ -824,16 +824,32 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
     }
 }
 
-// Is `t` a supported rel column type? Rels are SETS — dedup by structural
-// equality — so columns must be Hash+Eq: i64 / str / bool. f64 gets its OWN
-// named diagnostic (the Eq loss is the reason, worth spelling).
+// Is `t` a supported rel column type? THE ANSWER IS NOT HERE any more: it is
+// `el::el_set_col_admit`, because `Query::compile` (the dynamic tier) asks the
+// same question and used to carry its own copy of the spelling list `i64 / str /
+// bool`. Two lists for one fact is two things that can drift. What is left here
+// is the wql!-flavoured MESSAGE around the shared verdict and its ground.
+//
+// The admitted set is unchanged and is now a derivation: a rel is a SET, so a
+// column type needs an IDENTITY (`ElTy.ident` — f64 has none, and neither does a
+// 128-bit integer, whose normalization drops bits); and the row is stored as a
+// native tuple of the DECLARED types while the EL computes in `ElTy.repr`, so the
+// type must be its own repr (`ElTy.canon` — which is what excludes `u64`, `u32`
+// and `String` alike, each for the same stated reason instead of by absence from
+// a list).
 fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
-    if str_eq(t, "i64") || str_eq(t, "str") || str_eq(t, "bool") { return true; }
-    if str_eq(t, "f64") || str_eq(t, "f32") {
+    let a: i32 = el_set_col_admit(t);
+    if a == EL_COL_OK() { return true; }
+    // The float wording belongs to the float FAILURE, and `EL_COL_NO_EQ` IS that
+    // failure — the other way an identity can fail (a 128-bit normalization that
+    // drops bits) is its own code and gets the general message. No class test is
+    // needed to pick between them: the verdict already distinguishes them.
+    if a == EL_COL_NO_EQ() {
         let mut m: String = String::new();
         m.push_str("wql!: rel column '");
         m.push_str(col_name);
-        m.push_str("': f64 columns are not allowed (set semantics require Eq)");
+        m.push_str("': f64 columns are not allowed (set semantics require Eq) — ");
+        m.push_str(el_set_col_why(t));
         error(string_as_str(&m));
         return false;
     }
@@ -844,7 +860,8 @@ fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
     m1.push_str(col_name);
     m1.push_str("': unsupported column type `");
     m1.push_str(t);
-    m1.push_str("` — rel columns are i64 / str / bool");
+    m1.push_str("` — ");
+    m1.push_str(el_set_col_why(t));
     error(string_as_str(&m1));
     return false;
 }

@@ -247,13 +247,15 @@ impl SchemaCatalog {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
+        // ⚠ "CANONICAL value-type name" IS a fact about the type, not a list of
+        // four spellings: `ElTy.canon` says the type is the one the EL actually
+        // computes in. `u64` and `String` are in the lattice and are NOT their own
+        // representation, so they register erased exactly as before — but now for
+        // a stated reason rather than by absence from a chain of `str_eq`.
+        let r: ElTy = el_ty(ty);
         let mut k: i32 = FK_SCALAR;
         let mut t: i32 = EL_TY_INT();
-        if str_eq(ty, "i64")      { t = EL_TY_INT(); }
-        else if str_eq(ty, "f64") { t = EL_TY_FLT(); }
-        else if str_eq(ty, "bool"){ t = EL_TY_BOOL(); }
-        else if str_eq(ty, "str") { t = EL_TY_STR(); }
-        else                      { k = FK_ANY; }
+        if r.canon { t = r.cls; } else { k = FK_ANY; }
         self.f_owner.push(si);
         self.f_names.push(field);
         self.f_keys.push(key);

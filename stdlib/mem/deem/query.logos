@@ -469,20 +469,30 @@ impl Query {
                 let mut k: i64 = 0i64;
                 while k < nc {
                     let col: RQRelCol = cols.col_at(k);
+                    // ⚠ THE ADMITTED SET IS NOT DECIDED HERE. This tier used to
+                    // carry its own copy of the static handler's spelling list
+                    // (`i64 / str / bool`) — the same fact written twice, free to
+                    // drift. Both now ask `el::el_set_col_admit`, whose verdict
+                    // NAMES the failed antecedent (no identity to deduplicate by /
+                    // not the type the EL computes in). CT_INT..CT_FLT equal the
+                    // EL_TY_* values by construction, so the class IS the tag.
                     let tn: str = col.ty_name;
-                    let mut ctt: i32 = -1i32;
-                    if str_eq(tn, "i64")       { ctt = CT_INT; }
-                    else if str_eq(tn, "str")  { ctt = CT_STR; }
-                    else if str_eq(tn, "bool") { ctt = CT_BOOL; }
-                    if ctt < 0i32 {
-                        if str_eq(tn, "f64") || str_eq(tn, "f32") {
+                    let adm: i32 = el_set_col_admit(tn);
+                    if adm != EL_COL_OK() {
+                        if adm == EL_COL_NO_EQ() {
                             return Result::Err(qfail("rel column '", col.name,
-                                     "': f64 columns are not allowed (set semantics require Eq)",
-                                     "", ""));
+                                     "': f64 columns are not allowed (set semantics require Eq) — ",
+                                     el_set_col_why(tn), ""));
                         }
-                        return Result::Err(qfail("rel '", rel.name, "' column '", col.name,
-                                 "': unsupported column type — rel columns are i64 / str / bool"));
+                        let mut mct: String = String::new();
+                        mct.push_str("rel '");             mct.push_str(rel.name);
+                        mct.push_str("' column '");        mct.push_str(col.name);
+                        mct.push_str("': unsupported column type `");
+                        mct.push_str(tn);
+                        mct.push_str("` — ");              mct.push_str(el_set_col_why(tn));
+                        return Result::Err(QError { msg: mct });
                     }
+                    let ctt: i32 = el_class_lookup(tn);
                     // per-rel column-name uniqueness
                     if qreg_col(&reg, i, col.name) >= 0i64 {
                         return Result::Err(qfail("rel '", rel.name, "': duplicate column name '",

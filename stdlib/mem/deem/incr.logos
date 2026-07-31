@@ -310,8 +310,10 @@ impl FactStore {
         while i < n {
             let f: str = keyf[i];
             let ty: str = cat.field_ty(sname, f);
-            let ok: bool = str_eq(ty, "i64") || str_eq(ty, "f64")
-                        || str_eq(ty, "bool") || str_eq(ty, "str");
+            // Scalar = the type IS the one the EL computes in (`ElTy.canon`) —
+            // the same fact `SchemaCatalog::add_field` uses to decide FK_SCALAR,
+            // asked of the type instead of spelled out a second time.
+            let ok: bool = el_ty(ty).canon;
             if !ok { return Result::Err("FactStore: key field must be scalar (i64/f64/bool/str)"); }
             kf.push(f);
             i = i + 1i64;

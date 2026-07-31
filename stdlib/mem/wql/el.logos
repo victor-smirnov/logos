@@ -207,28 +207,221 @@ pub fn el_class_repr(ty: i32) -> str {
     return "i64";
 }
 
-/// The scalar-lattice class of a type NAME, or -1 when the name is outside the
-/// lattice. THE table — every classification in the query stack goes through
-/// it, so a type is admitted (or not) in one place rather than in each caller's
-/// own list of names.
-pub fn el_class_lookup(name: str) -> i32 {
-    if str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
-       || str_eq(name, "i8") || str_eq(name, "u64") || str_eq(name, "u32")
-       || str_eq(name, "u16") || str_eq(name, "u8")
-       || str_eq(name, "usize") || str_eq(name, "isize")
-       || str_eq(name, "i128") || str_eq(name, "u128")
-       // Writ's packed widths — present in the catalog's copy of this table and
-       // absent here, which is what a duplicated table costs. Merged on the way
-       // to having one.
-       || str_eq(name, "i56")  || str_eq(name, "u56")  { return EL_TY_INT(); }
-    if str_eq(name, "f64") || str_eq(name, "f32")      { return EL_TY_FLT(); }
-    if str_eq(name, "bool")                            { return EL_TY_BOOL(); }
-    if str_eq(name, "str") || str_eq(name, "String")   { return EL_TY_STR(); }
-    return -1i32;
+// ══ THE VALUE TYPE IS A RECORD, NOT A TAG (ADR 0024 S6, stage 1) ══════════
+//
+// The query compiler's value domain used to BE the four-class tag: a column, a
+// key and an expression each carried an `EL_TY_*`, and every fact anyone needed
+// about the type had to be recovered from a four-valued number. It cannot be:
+// `u64` and `i64` are one class and their orders differ above 2^63, `u128` and
+// `i64` are one class and their identities differ. What followed is on record —
+// the reorder licence had to be keyed on the type's SPELLING (a side table of
+// names beside a domain that could not carry the fact), `el_int_fits_i64` was a
+// second list of names, `plan_walker::rel_col_ty_ok` a third, `Query::compile`'s
+// rel validation a fourth, and `emit_udf_call`'s widening cast a fifth. Five
+// tables answering questions about ONE type, each free to drift from the others.
+//
+// `ElTy` is that type, resolved: ONE row per admitted Logos type, and every fact
+// DERIVED FROM THE TYPE'S OWN PROPERTIES rather than listed per fact.
+//
+// ⚠ WHAT IS STORED AND WHAT IS DERIVED, and why the split falls there. Stored:
+// the CLASS, the WIDTH IN BITS and the SIGNEDNESS — three independent properties
+// of the type, none recoverable from the others. Derived: everything that is a
+// consequence of the EL's normalization, because those are theorems about a
+// two's-complement conversion, not opinions:
+//
+//   repr   the type the emitted EL expression actually computes in — the class's
+//          representative (`el_class_repr`). A `u32` column is READ as u32 and
+//          COMPUTED as i64;
+//   canon  the type IS its own repr (no normalization happens at all). This is
+//          the fact four separate spelling whitelists were standing in for;
+//   fits   every value survives the conversion to `repr` — signed ⇒ bits ≤ 64,
+//          unsigned ⇒ bits ≤ 63. `u64` fails, `u32` passes, `u56` passes, and a
+//          `u48` added tomorrow passes without anyone editing a second list;
+//   ident  whether `==` plus a hash agree with the source type's equality, and
+//          WHEN NOT, WHICH WAY IT FAILS — an `EL_ID_*` code, not a bool, for the
+//          same reason `ord` is one: "no identity" is two distinguishable states
+//          with two different remedies, and a bool makes a caller compose the
+//          difference back out of prose. `EL_ID_OK` for every integer of ≤ 64
+//          bits (u64 → i64 is a BIJECTION: reinterpretation moves the order and
+//          leaves equality alone), `EL_ID_NO_INJ` for i128/u128 (bits are
+//          dropped, so two different values arrive equal), `EL_ID_NO_EQ` for
+//          f64/f32 (NaN != NaN — equality is not even reflexive);
+//   ord    how faithfully the emitted comparison realizes the type's own order —
+//          the `EL_ORD_*` codes below.
+//
+// ⚠ THE WIDTH OF `usize`/`isize` IS THE HOST'S. 64 here is the LP64 assumption
+// every Logos target makes today; it is a stored number precisely so that a
+// target where it is false changes one row and not five predicates.
+//
+// ⚠ `bits` = 0 means WIDTH IS NOT A PROPERTY of this type (`str`, `String`), not
+// "zero bits". No derivation reads `bits` for a non-numeric class.
+pub struct ElTy {
+    pub name:   str,    // the resolved Logos spelling — this type's identity
+    pub cls:    i32,    // EL_TY_* — the coarse VIEW, -1 = outside the lattice
+    pub bits:   i64,    // width of the SOURCE type (0 = not a width-bearing type)
+    pub signed: bool,
+    pub repr:   str,    // the type the emitted EL expression computes in
+    pub canon:  bool,   // name == repr: the EL computes in this type itself
+    pub fits:   bool,   // every value survives the conversion to `repr`
+    pub ident:  i32,    // EL_ID_*  — identity under that conversion
+    pub ord:    i32,    // EL_ORD_* — order fidelity of the emitted comparison
 }
+
+// ── IDENTITY: does `==` plus a hash agree with the source type's equality? ─
+// Ranking and identity are different properties with different failures, and
+// each failure has its own remedy — so each is its own code.
+pub fn EL_ID_OK()      -> i32 { return 0i32; }  // the conversion is injective
+pub fn EL_ID_NO_EQ()   -> i32 { return 1i32; }  // equality is not reflexive (NaN)
+pub fn EL_ID_NO_INJ()  -> i32 { return 2i32; }  // the conversion DROPS bits
+pub fn EL_ID_UNNAMED() -> i32 { return 3i32; }  // outside the lattice — deny
+
+/// The bool VIEW of the identity code, for the consumers that only branch.
+pub fn el_ty_has_ident(t: ElTy) -> bool { return t.ident == EL_ID_OK(); }
+
+/// THE lattice table: the resolved value type of a Logos type NAME. A name
+/// outside the lattice comes back with `cls = -1` and every fact denied — the
+/// DEFAULT-DENY that keeps a type added later from inheriting a licence resting
+/// on a comparison nobody has checked.
+///
+/// ⚠ `el` sits BELOW the reflection boundary and holds no module view: `name`
+/// must already BE a type, not an alias for one. Alias resolution happens at the
+/// READ sites (`reflect::resolve_alias_name`).
+pub fn el_ty(name: str) -> ElTy {
+    // Integer family — (bits, signed) is the whole of what distinguishes them.
+    if str_eq(name, "i8")    { return el_ty_row(name, EL_TY_INT(), 8i64,   true); }
+    if str_eq(name, "i16")   { return el_ty_row(name, EL_TY_INT(), 16i64,  true); }
+    if str_eq(name, "i32")   { return el_ty_row(name, EL_TY_INT(), 32i64,  true); }
+    if str_eq(name, "i64")   { return el_ty_row(name, EL_TY_INT(), 64i64,  true); }
+    if str_eq(name, "i128")  { return el_ty_row(name, EL_TY_INT(), 128i64, true); }
+    if str_eq(name, "u8")    { return el_ty_row(name, EL_TY_INT(), 8i64,   false); }
+    if str_eq(name, "u16")   { return el_ty_row(name, EL_TY_INT(), 16i64,  false); }
+    if str_eq(name, "u32")   { return el_ty_row(name, EL_TY_INT(), 32i64,  false); }
+    if str_eq(name, "u64")   { return el_ty_row(name, EL_TY_INT(), 64i64,  false); }
+    if str_eq(name, "u128")  { return el_ty_row(name, EL_TY_INT(), 128i64, false); }
+    if str_eq(name, "isize") { return el_ty_row(name, EL_TY_INT(), 64i64,  true); }
+    if str_eq(name, "usize") { return el_ty_row(name, EL_TY_INT(), 64i64,  false); }
+    // Writ's packed widths. u56's maximum is 2^56-1, well inside i64 — and that
+    // is now DERIVED from the 56 rather than asserted in a list of names.
+    if str_eq(name, "i56")   { return el_ty_row(name, EL_TY_INT(), 56i64,  true); }
+    if str_eq(name, "u56")   { return el_ty_row(name, EL_TY_INT(), 56i64,  false); }
+    if str_eq(name, "f32")   { return el_ty_row(name, EL_TY_FLT(), 32i64,  true); }
+    if str_eq(name, "f64")   { return el_ty_row(name, EL_TY_FLT(), 64i64,  true); }
+    if str_eq(name, "bool")  { return el_ty_row(name, EL_TY_BOOL(), 1i64,  false); }
+    if str_eq(name, "str")   { return el_ty_row(name, EL_TY_STR(), 0i64,   false); }
+    // `String` is in the lattice and is NOT its own repr: an owned String is
+    // compared and stored through its `str` view. That single fact is what four
+    // whitelists spelled out by excluding the name.
+    if str_eq(name, "String"){ return el_ty_row(name, EL_TY_STR(), 0i64,   false); }
+    return ElTy { name: name, cls: -1i32, bits: 0i64, signed: false, repr: "",
+                  canon: false, fits: false, ident: EL_ID_UNNAMED(),
+                  ord: EL_ORD_UNNAMED() };
+}
+
+/// Complete a lattice row: the three stored properties in, the derived facts
+/// out. THE place the consequences of the EL's normalization are written down.
+fn el_ty_row(name: str, cls: i32, bits: i64, signed: bool) -> ElTy {
+    let repr: str = el_class_repr(cls);
+    // Every value survives the conversion to `repr`. For the integer family that
+    // is the i64 range: a signed type of ≤ 64 bits fits exactly, an unsigned one
+    // needs its top bit free. f32 → f64 is exact; str/bool are not converted.
+    let fits: bool = if cls == EL_TY_INT() {
+        if signed { bits <= 64i64 } else { bits <= 63i64 }
+    } else { true };
+    // Is the conversion injective? u64 → i64 is a BIJECTION, so identity holds
+    // where order does not; i128/u128 drop bits, so it fails; f64/f32 have no
+    // reflexive equality to preserve in the first place.
+    let ident: i32 = if cls == EL_TY_FLT() { EL_ID_NO_EQ() }
+                     else if cls == EL_TY_INT() && bits > 64i64 { EL_ID_NO_INJ() }
+                     else { EL_ID_OK() };
+    return ElTy {
+        name: name, cls: cls, bits: bits, signed: signed,
+        repr: repr, canon: str_eq(name, repr), fits: fits, ident: ident,
+        ord: el_ord_of(cls, bits, fits),
+    };
+}
+
+/// The order-fidelity consequence of the same three properties.
+fn el_ord_of(cls: i32, bits: i64, fits: bool) -> i32 {
+    if cls == EL_TY_FLT()  { return EL_ORD_PARTIAL(); }
+    // `str` compares byte-lexicographically (sema lowers str relationals to
+    // `str_cmp`) and `bool` is false < true — both are the type's own order.
+    if cls != EL_TY_INT()  { return EL_ORD_OK(); }
+    if fits                { return EL_ORD_OK(); }
+    if bits <= 64i64       { return EL_ORD_WRAP(); }   // u64/usize: reinterpreted
+    return EL_ORD_TRUNC();                             // i128/u128: bits dropped
+}
+
+/// The scalar-lattice class of a type NAME, or -1 when the name is outside the
+/// lattice. The coarse VIEW of `el_ty` — kept because a join strategy and a
+/// literal-emission route genuinely want a four-way answer, but no longer the
+/// place any fact LIVES.
+pub fn el_class_lookup(name: str) -> i32 { return el_ty(name).cls; }
 
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
 pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
+
+// ── THE NUMERIC NORMALIZATION, in one place ───────────────────────────────
+/// The cast the emitter must wrap a value of type `name` in so it lands in the
+/// EL's computation type — `""` when none is needed. THE rule behind two
+/// separately-written pairs of spelling tests (`codegen::emit_udf_call`'s
+/// `INT && != "i64"` / `FLT && == "f32"`, and `rexpr_walk::uda_fin_cast`'s copy
+/// of the same): a value is normalized exactly when its type is NOT its own
+/// repr, and only for the numeric classes — `String` is also non-canon and is
+/// converted by borrowing, not by casting.
+pub fn el_norm_cast(name: str) -> str {
+    let t: ElTy = el_ty(name);
+    if t.cls != EL_TY_INT() && t.cls != EL_TY_FLT() { return ""; }
+    if t.canon { return ""; }
+    return t.repr;
+}
+
+// ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────
+// A `rel` is a SET: rows are deduplicated, so a column type needs an identity;
+// and the row is stored as a NATIVE tuple of the DECLARED types while the EL
+// computes in `repr`, so a column whose type is not its own repr would have the
+// emitted body mixing the two. Both tiers ask this — the static `wql!` handler
+// (`plan_walker::rel_col_ty_ok`) and the dynamic `Query::compile` — and each
+// used to carry its own copy of the answer as the spelling list i64/str/bool.
+// ONE predicate, and the code it returns NAMES THE FAILED ANTECEDENT so the
+// caller reports a remedy rather than a verdict.
+pub fn EL_COL_OK()       -> i32 { return 0i32; }
+pub fn EL_COL_UNKNOWN()  -> i32 { return 1i32; }   // outside the lattice
+pub fn EL_COL_NO_EQ()    -> i32 { return 2i32; }   // equality is not reflexive
+pub fn EL_COL_NO_INJ()   -> i32 { return 3i32; }   // two values arrive equal
+pub fn EL_COL_NOT_REPR() -> i32 { return 4i32; }   // the EL computes in another type
+
+pub fn el_set_col_admit(name: str) -> i32 {
+    let t: ElTy = el_ty(name);
+    if t.cls < 0i32                { return EL_COL_UNKNOWN(); }
+    if t.ident == EL_ID_NO_EQ()    { return EL_COL_NO_EQ(); }
+    if t.ident == EL_ID_NO_INJ()   { return EL_COL_NO_INJ(); }
+    if t.ident != EL_ID_OK()       { return EL_COL_UNKNOWN(); }
+    if !t.canon                    { return EL_COL_NOT_REPR(); }
+    return EL_COL_OK();
+}
+
+/// The GROUND for a refused set column — the failed antecedent in its own
+/// vocabulary, with the remedy. Empty for an admitted type.
+///
+/// ⚠ ONE ANTECEDENT PER GROUND. An earlier draft of this text named both ways an
+/// identity can fail and left the reader to work out which one applied — which is
+/// prose composed at report time wearing a record's clothes.
+pub fn el_set_col_why(name: str) -> str {
+    let a: i32 = el_set_col_admit(name);
+    if a == EL_COL_UNKNOWN() {
+        return "this type is outside the EL scalar lattice (`el_ty`), so nothing is known about the comparison, the hash or the storage the backend would emit for it — and a type is not assumed to have an identity until it is admitted there. The remedy is a column of an admitted scalar type — `i64`, `str` or `bool`";
+    }
+    if a == EL_COL_NO_EQ() {
+        return "a rel is a SET — rows are deduplicated by `==` and a hash — and this type's equality is not even REFLEXIVE: an f64/f32 NaN compares false against every value including itself, so a row containing one is equal to nothing, not even to a copy of itself. The remedy is a column whose equality is meaningful — `i64`, `str` or `bool`";
+    }
+    if a == EL_COL_NO_INJ() {
+        return "a rel is a SET — rows are deduplicated by `==` and a hash — and the EL's normalization of this type is NOT INJECTIVE: a value wider than 64 bits arrives with its high bits dropped, so two different rows collapse into one. The remedy is a column that fits the i64 the EL computes in";
+    }
+    if a == EL_COL_NOT_REPR() {
+        return "the rel row STORES this type and the EL COMPUTES in another one, so the emitted body would mix the two: the normalization is not the identity here. The remedy is to declare the column as the type the EL computes in — `i64` for the integer family, `str` for `String`";
+    }
+    return "";
+}
 
 // ── DOES THE EMITTED COMPARISON REALIZE THE ORDER THE QUERY NAMED? ────────
 // THE answer, in one place, keyed on the TYPE NAME, to a question two consumers
@@ -304,8 +497,9 @@ pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
 //     from the licence, WRAP and TRUNC from the call site;
 //   • the recursive aggregate's value column is NOT a caller. It looks like one
 //     and it used to be one; every body-declared rel column has already passed
-//     `plan_walker::rel_col_ty_ok`, whose whitelist is i64/str/bool, so the
-//     question was already answered upstream — see the note there.
+//     `plan_walker::rel_col_ty_ok`, whose admitted set is i64/str/bool — now as a
+//     DERIVATION from `el_set_col_admit` rather than a spelling list — so the
+//     question was already answered upstream. See the note there.
 pub fn EL_ORD_OK()      -> i32 { return 0i32; }
 pub fn EL_ORD_PARTIAL() -> i32 { return 1i32; }
 pub fn EL_ORD_WRAP()    -> i32 { return 2i32; }
@@ -313,33 +507,23 @@ pub fn EL_ORD_TRUNC()   -> i32 { return 3i32; }
 pub fn EL_ORD_UNNAMED() -> i32 { return 4i32; }
 
 /// Does every value of this INTEGER type survive the EL's `as i64`
-/// normalization? THE width fact — shared by the order table below and by the
-/// call-site check that refuses a lossy integer result (`codegen::check_calls`),
-/// which is a question about the VALUE and therefore not only about sorting.
-/// False for a name outside the integer family: callers ask it about a name they
-/// have already classified as `EL_TY_INT`.
+/// normalization? THE width fact — asked by the call-site check that refuses a
+/// lossy integer result (`codegen::check_calls`), which is a question about the
+/// VALUE and therefore not only about sorting. False for a name outside the
+/// integer family: callers ask it about a name they have already classified as
+/// `EL_TY_INT`, and the class conjunct keeps the answer honest for the rest.
+///
+/// ⚠ THIS USED TO BE A SECOND LIST OF NAMES beside the lattice table, so a type
+/// admitted there and forgotten here would have been silently treated as fitting.
+/// It is now the type's own width.
 pub fn el_int_fits_i64(name: str) -> bool {
-    return str_eq(name, "i64") || str_eq(name, "i32") || str_eq(name, "i16")
-        || str_eq(name, "i8")  || str_eq(name, "isize")
-        || str_eq(name, "u32") || str_eq(name, "u16") || str_eq(name, "u8")
-        // Writ's packed widths: u56's maximum is 2^56-1, well inside i64.
-        || str_eq(name, "i56") || str_eq(name, "u56");
+    let t: ElTy = el_ty(name);
+    return t.cls == EL_TY_INT() && t.fits;
 }
 
-/// THE table: how faithfully does the emitted comparison realize `name`'s own
-/// order? One of the `EL_ORD_*` codes.
-pub fn el_order_fidelity(name: str) -> i32 {
-    let c: i32 = el_class_lookup(name);
-    if c < 0i32          { return EL_ORD_UNNAMED(); }
-    if c == EL_TY_FLT()  { return EL_ORD_PARTIAL(); }
-    // `str` compares byte-lexicographically (sema lowers str relationals to
-    // `str_cmp`) and `bool` is false < true — both are the type's own order.
-    if c == EL_TY_STR()  { return EL_ORD_OK(); }
-    if c == EL_TY_BOOL() { return EL_ORD_OK(); }
-    if el_int_fits_i64(name) { return EL_ORD_OK(); }
-    if str_eq(name, "u64") || str_eq(name, "usize") { return EL_ORD_WRAP(); }
-    return EL_ORD_TRUNC();   // i128 / u128 — the rest of the integer class
-}
+/// How faithfully does the emitted comparison realize `name`'s own order? One of
+/// the `EL_ORD_*` codes — a stored field of the resolved type.
+pub fn el_order_fidelity(name: str) -> i32 { return el_ty(name).ord; }
 
 /// The licence predicate: the emitted comparison realizes THIS type's order, so
 /// a decision resting on "the sort determines the sequence" may be taken.
@@ -375,24 +559,23 @@ pub fn el_order_why(name: str) -> str {
 /// both but for different reasons, and a class added later could easily have one
 /// without the other.
 ///
-/// ⚠ THIS ONE IS KEYED ON THE CLASS AND THAT IS SOUND HERE, which is exactly the
-/// distinction the order table above exists to make. The EL's `as i64`
-/// normalization is a BIJECTION on u64/usize, so reinterpretation moves the order
-/// and leaves identity alone: two values are equal as i64 iff they were equal as
-/// u64. It is NOT injective on u128/i128, so identity does fail there — a fact
-/// this class tag cannot express either, and one this table therefore does not
-/// enforce. It does not have to today: the only path that produced an
-/// i64-normalized wide integer was a UDF call, and `codegen::check_calls` now
-/// refuses one (`el_int_fits_i64`) before any consumer sees it.
+/// ⚠ THIS ONE IS ASKED OF THE CLASS, and the class is not where the answer
+/// lives: it is `ElTy.ident`, and this function reads it off the class's
+/// REPRESENTATIVE. So the answer here is "does the type the EL actually computes
+/// in have an identity" — true for the i64/str/bool representatives, false for
+/// f64 (NaN != NaN, so equality is not even reflexive). A caller holding the real
+/// type NAME should read `el_ty(name).ident` instead and get the sharper answer:
+/// `u128` is EL_TY_INT and has no identity, because its normalization drops bits.
 ///
-/// Default-DENY for the same reason as the order table: the group-by key's guard
-/// used to be a hand-written `== EL_TY_FLT()`, exhaustive only as long as the
-/// lattice has four classes.
+/// Default-DENY on a class this lattice does not enumerate — the group-by key's
+/// guard used to be a hand-written `== EL_TY_FLT()`, exhaustive only as long as
+/// the lattice has four classes.
 pub fn el_eq_hash(ty: i32) -> bool {
-    if ty == EL_TY_INT()  { return true; }
-    if ty == EL_TY_STR()  { return true; }
-    if ty == EL_TY_BOOL() { return true; }
-    return false;   // FLT: NaN != NaN, so equality is not even reflexive
+    if ty == EL_TY_INT() || ty == EL_TY_STR()
+       || ty == EL_TY_BOOL() || ty == EL_TY_FLT() {
+        return el_ty_has_ident(el_ty(el_class_repr(ty)));
+    }
+    return false;
 }
 
 // ── The GENERIC aggregate rule table (ADR 0012-queue2 §6) ──────────────────

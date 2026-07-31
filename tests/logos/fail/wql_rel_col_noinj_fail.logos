@@ -1,0 +1,47 @@
+// WQL — TWO WAYS A REL COLUMN CAN LACK AN IDENTITY, AND THEY ARE NOT THE SAME.
+//
+// A rel is a SET: rows are deduplicated by `==` and a hash. Two admitted types
+// fail that requirement and they fail it DIFFERENTLY:
+//
+//   f64/f32   equality is not even REFLEXIVE — a NaN compares false against
+//             itself (pinned by wql_rel_float_col_fail);
+//   i128/u128 equality is reflexive, but the EL's normalization to the i64 it
+//             computes in is NOT INJECTIVE — the high bits are dropped, so two
+//             different rows collapse into one.
+//
+// Under the whitelist this file replaces, the second case was not a case at all:
+// every name outside `i64 / str / bool` produced the one message "unsupported
+// column type", so `u128` (identity lost) and `u64` (identity INTACT — the cast
+// is a bijection — but the order reinterpreted) were the same verdict with the
+// same remedy, and neither remedy was the right one.
+//
+// `el::el_set_col_admit` distinguishes them because `ElTy.ident` is a CODE and
+// not a bool: EL_ID_NO_EQ, EL_ID_NO_INJ, EL_ID_OK. This fixture pins that the
+// distinction survives the whole way out to the diagnostic the author reads.
+//
+// The i128/u128 row is also the one place `ElTy.ident` and `ElTy.ord` disagree
+// with the four-class tag in the same direction: EL_TY_INT is `el_eq_hash`-true,
+// and this type is not.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64 }
+
+pub deem bad(src: &[Node], edges: &[Edge]) {
+    rel reach(node: i64, tag: u128) {
+        from src s select (s.id, 0);
+        from reach x join edges e on e.src == x.node select (e.dst, x.tag);
+    }
+    from reach r select (r.node, r.tag) order by r.node
+}
+
+fn main() -> i32 {
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64 } ];
+    let out: Vec<(i64, u128)> = bad(&src[..], &edges[..]);
+    return out.len() as i32;
+}

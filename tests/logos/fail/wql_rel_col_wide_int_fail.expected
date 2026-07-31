@@ -1,1 +1,1 @@
-unsupported column type `u64`
+unsupported column type `u64` — the rel row STORES this type and the EL COMPUTES in another one

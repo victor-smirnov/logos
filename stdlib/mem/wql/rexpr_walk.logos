@@ -3714,7 +3714,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         if uda[gd] {
             let acc_read: ExprBlob = quote_expr! { #n_ga.get(__r0) };
             let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gd],
-                                                  uda_fin_cast(act[gd], uda_ret[gd]));
+                                                  uda_fin_cast(uda_ret[gd]));
             let act_f3: ExprBlob = parse_type(act[gd]);
             freads.push(quote_block! { let #n_out: #(act_f3) = #(fin); });
         } else if fnid == AGG_AVG() {
@@ -4168,10 +4168,13 @@ fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
 // caller had opened) — a half-expression that only made sense inside a
 // particular concatenation. A fragment builder takes the TYPE and shapes the
 // cast itself.
-fn uda_fin_cast(col_ty: str, ret_ty: str) -> str {
-    if str_eq(col_ty, "i64") && !str_eq(ret_ty, "i64") { return "i64"; }
-    if str_eq(col_ty, "f64") && str_eq(ret_ty, "f32")  { return "f64"; }
-    return "";
+// ⚠ AND IT IS THE SAME RULE `codegen::emit_udf_call` APPLIES, which is why it is
+// no longer written twice: a value is normalized exactly when its type is not the
+// type the EL computes in (`el::el_norm_cast`). `col_ty` was never a second
+// condition — it is `el_class_repr` of `ret_ty`'s own class by construction
+// (`compute_agg_col_tys`), so testing it tested the consequent.
+fn uda_fin_cast(ret_ty: str) -> str {
+    return el_norm_cast(ret_ty);
 }
 
 // The finalize EXPRESSION for a UDA spec, over the accumulator fragment `acc`
@@ -4652,8 +4655,10 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
         // join-order licence asks". It is the same question — and this caller
         // CANNOT ASK IT: a recursive aggregate lives in a BODY-DECLARED rel, and
         // every body-declared rel column has already been through
-        // `plan_walker::rel_col_ty_ok`, whose whitelist is exactly i64 / str /
-        // bool. So `vcty` is one of three names here, all of them faithfully
+        // `plan_walker::rel_col_ty_ok`, whose admitted set is exactly i64 / str /
+        // bool — derived now (`el::el_set_col_admit`: a set column needs an
+        // identity and must be the type the EL computes in), not listed. So
+        // `vcty` is one of three names here, all of them faithfully
         // ordered, and the guard could not fire on any input. A guard that cannot
         // fire while its comment says it protects you is worse than no guard: it is
         // a claim nobody can check. The live decision about this column's order is

@@ -4,19 +4,25 @@
 // whatever order the emitted comparison realizes. `rexpr_walk` used to re-ask that
 // question at the aggregate seam (`el_total_order_name` on the value column) and
 // COULD NOT GET AN INTERESTING ANSWER: every body-declared rel column has already
-// been through `plan_walker::rel_col_ty_ok`, whose whitelist is i64 / str / bool.
-// That guard was deleted rather than left to look like protection it never gave.
+// been through `plan_walker::rel_col_ty_ok`, whose admitted set is i64 / str /
+// bool. That guard was deleted rather than left to look like protection it never
+// gave.
 //
-// This fixture is what makes the deletion safe. It pins the whitelist on the case
-// that motivates the order question — a `u64` value column, where the emitted
+// This fixture is what makes the deletion safe. It pins the admitted set on the
+// case that motivates the order question — a `u64` value column, where the emitted
 // comparison IS total (so "is it totally ordered" would have said yes) and is the
 // SIGNED reinterpretation, so a `min` fixpoint converges to the largest u64
-// present. If the whitelist ever widens, this test changes, and whoever changes it
-// is the person who has to re-ask `el::el_order_faithful` at the aggregate seam.
+// present. If that set ever widens, this test changes, and whoever changes it is
+// the person who has to re-ask `el::el_order_faithful` at the aggregate seam.
 //
-// The f64 half of the same whitelist is pinned by wql_rel_float_col_fail (refused
-// for the NEIGHBOURING reason — set semantics need Eq — which is why the two
-// diagnostics are separate).
+// ⚠ AND IT IS NO LONGER A WHITELIST OF SPELLINGS. The admitted set is derived from
+// the type (`el::el_set_col_admit`): a rel is a SET, so a column needs an identity
+// (`ElTy.ident`) and must be the type the EL actually computes in (`ElTy.canon`).
+// `u64` fails the SECOND of those — its identity is intact, the cast being a
+// bijection — so the ground it is refused with is not the ground `u128` gets
+// (wql_rel_col_noinj_fail) nor the one `f64` gets (wql_rel_float_col_fail). The
+// three used to be one message. The expected text pins WHICH antecedent failed,
+// because that is the part an author acts on.
 package test;
 
 use logos.std.wql.wql;

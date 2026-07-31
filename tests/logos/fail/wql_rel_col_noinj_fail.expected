@@ -1,0 +1,1 @@
+unsupported column type `u128` — a rel is a SET — rows are deduplicated by `==` and a hash — and the EL's normalization of this type is NOT INJECTIVE

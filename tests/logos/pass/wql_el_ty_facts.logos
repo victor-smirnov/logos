@@ -1,0 +1,149 @@
+// WQL — THE VALUE DOMAIN CARRIES THE TYPE: one fact table, read off `ElTy`.
+//
+// The query compiler's value domain used to BE the four-class tag (INT/STR/BOOL/
+// FLT), and every fact anyone needed about a column, a key or an expression had
+// to be recovered from that four-valued number. It cannot be: `u64` and `i64` are
+// ONE class whose orders differ above 2^63; `u128` and `i64` are ONE class whose
+// identities differ. Each consumer that needed a real answer grew its own side
+// table keyed on the type's SPELLING — the reorder licence, the width check, the
+// static rel-column whitelist, the dynamic rel-column whitelist, the widening
+// cast. Five tables about one type, each free to drift from the others.
+//
+// This fixture is the ORACLE for the replacement: `el::el_ty(name)` resolves the
+// type once and every fact is a FIELD of it. It pins, per type:
+//
+//   cls     the coarse four-way VIEW (still useful, no longer where facts live);
+//   bits    the width of the SOURCE type (0 = width is not a property);
+//   repr    the type the EMITTED code actually computes in;
+//   canon   the type IS its own repr — no normalization happens at all;
+//   fits    every value survives the conversion to `repr`;
+//   ident   whether that conversion preserves equality, and WHICH WAY it fails
+//           when it does not (NO_EQ: not even reflexive / NO_INJ: bits dropped);
+//   ord     how faithfully the emitted comparison realizes this type's order;
+//   cast    the normalization the emitter must wrap a value in (`el_norm_cast`);
+//   setcol  may this type be a column of a SET-valued relation, and if not,
+//           WHICH antecedent failed.
+//
+// The rows are chosen to be exactly the distinctions the four-tag domain could
+// not make:
+//   • u64 vs i64      — same class, ORDER differs (WRAP vs OK);
+//   • u32 vs i64      — same class, same order, but u32 is NOT its own repr;
+//   • u128 vs u64     — same class, same non-fitting width, IDENTITY differs
+//                       (truncation is not injective; reinterpretation is);
+//   • u56 vs u64      — same class, same signedness, the WIDTH decides;
+//   • f32 vs f64      — same class, one is its own repr and one is not;
+//   • str vs String   — same class, `String` is not its own repr;
+//   • an out-of-lattice type name, and an ALIAS spelling. `el` sits BELOW the
+//     reflection boundary and holds no module view, so a name arriving here must
+//     already BE a type: an alias is UNKNOWN here by design, and is resolved at
+//     the READ sites (`reflect::resolve_alias_name`) before it ever arrives.
+package test;
+
+use logos.std.wql.el;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn emit(b: &mut String) {
+    b.push_u8(10u8);
+    b.push_u8(0u8);
+    let f: str = "%s";
+    unsafe { printf(f.as_ptr(), b.as_ptr()); }
+}
+
+fn yn(v: bool) -> str { if v { return "y"; } return "n"; }
+
+fn ord_name(o: i32) -> str {
+    if o == EL_ORD_OK()      { return "OK"; }
+    if o == EL_ORD_PARTIAL() { return "PARTIAL"; }
+    if o == EL_ORD_WRAP()    { return "WRAP"; }
+    if o == EL_ORD_TRUNC()   { return "TRUNC"; }
+    return "UNNAMED";
+}
+
+fn id_name(i: i32) -> str {
+    if i == EL_ID_OK()     { return "OK"; }
+    if i == EL_ID_NO_EQ()  { return "NO_EQ"; }
+    if i == EL_ID_NO_INJ() { return "NO_INJ"; }
+    return "UNNAMED";
+}
+
+fn col_name(a: i32) -> str {
+    if a == EL_COL_OK()      { return "OK"; }
+    if a == EL_COL_UNKNOWN() { return "UNKNOWN"; }
+    if a == EL_COL_NO_EQ()   { return "NO_EQ"; }
+    if a == EL_COL_NO_INJ()  { return "NO_INJ"; }
+    return "NOT_REPR";
+}
+
+fn dash(s: str) -> str { if s.len() == 0i64 { return "-"; } return s; }
+
+fn row(name: str) {
+    let t: ElTy = el_ty(name);
+    let mut b: String = String::new();
+    b.push_str(name);
+    b.push_str(" cls=");    b.push_i64(t.cls as i64);
+    b.push_str(" bits=");   b.push_i64(t.bits);
+    b.push_str(" sgn=");    b.push_str(yn(t.signed));
+    b.push_str(" repr=");   b.push_str(dash(t.repr));
+    b.push_str(" canon=");  b.push_str(yn(t.canon));
+    b.push_str(" fits=");   b.push_str(yn(t.fits));
+    b.push_str(" ident=");  b.push_str(id_name(t.ident));
+    b.push_str(" ord=");    b.push_str(ord_name(t.ord));
+    b.push_str(" cast=");   b.push_str(dash(el_norm_cast(name)));
+    b.push_str(" setcol="); b.push_str(col_name(el_set_col_admit(name)));
+    emit(&mut b);
+}
+
+fn why(name: str) {
+    let mut b: String = String::new();
+    b.push_str(name);
+    b.push_str(": ");
+    b.push_str(el_set_col_why(name));
+    emit(&mut b);
+}
+
+fn main() -> i32 {
+    row("i64");    row("u64");    row("i32");    row("u32");
+    row("u56");    row("i128");   row("u128");   row("usize");
+    row("isize");  row("f32");    row("f64");    row("bool");
+    row("str");    row("String"); row("Prec");   row("RowId");
+
+    // The GROUND of each refusal, in the vocabulary of the antecedent that
+    // failed — this is what a caller prints instead of a verdict.
+    why("f64");
+    why("u128");
+    why("u64");
+    why("Prec");
+
+    // The four-class VIEW still answers the coarse question, and answers it
+    // ABOUT THE CLASS'S REPRESENTATIVE — which is why a caller holding only a
+    // class cannot see the u64/u128 distinctions above.
+    let mut b: String = String::new();
+    b.push_str("eq_hash INT=");  b.push_str(yn(el_eq_hash(EL_TY_INT())));
+    b.push_str(" STR=");         b.push_str(yn(el_eq_hash(EL_TY_STR())));
+    b.push_str(" BOOL=");        b.push_str(yn(el_eq_hash(EL_TY_BOOL())));
+    b.push_str(" FLT=");         b.push_str(yn(el_eq_hash(EL_TY_FLT())));
+    b.push_str(" other=");       b.push_str(yn(el_eq_hash(99i32)));
+    emit(&mut b);
+
+    // And the licence the join-order decision asks, by NAME — the one the class
+    // could not answer.
+    let mut c: String = String::new();
+    c.push_str("faithful i64=");  c.push_str(yn(el_order_faithful("i64")));
+    c.push_str(" u64=");          c.push_str(yn(el_order_faithful("u64")));
+    c.push_str(" u32=");          c.push_str(yn(el_order_faithful("u32")));
+    c.push_str(" f64=");          c.push_str(yn(el_order_faithful("f64")));
+    c.push_str(" Prec=");         c.push_str(yn(el_order_faithful("Prec")));
+    emit(&mut c);
+
+    let mut d: String = String::new();
+    d.push_str("fits_i64 i64=");  d.push_str(yn(el_int_fits_i64("i64")));
+    d.push_str(" u64=");          d.push_str(yn(el_int_fits_i64("u64")));
+    d.push_str(" u56=");          d.push_str(yn(el_int_fits_i64("u56")));
+    d.push_str(" f64=");          d.push_str(yn(el_int_fits_i64("f64")));
+    d.push_str(" Prec=");         d.push_str(yn(el_int_fits_i64("Prec")));
+    emit(&mut d);
+    return 0i32;
+}

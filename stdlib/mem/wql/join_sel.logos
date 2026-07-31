@@ -79,16 +79,27 @@ pub fn js_reads_once(s: i32) -> bool {
 // the key's schema type) without touching the cascade.
 pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 
-pub fn join_key_caps(el_ty: i32) -> KeyCaps {
-    // i64 / str / bool: Hash+Eq (also Ord — hash wins first in the cascade).
-    if el_ty == EL_TY_INT() || el_ty == EL_TY_STR() || el_ty == EL_TY_BOOL() {
-        return KeyCaps { hash: true, ord: true, eq: true };
+// ⚠ THE ROWS ARE NOT WRITTEN HERE ANY MORE — they are READ OFF THE TYPE. This
+// was a fourth hand-written copy of the identity fact (`i64/str/bool` yes, `f64`
+// no), and a fourth thing to remember to edit. `hash` is `ElTy.ident` (the EL's
+// normalization is injective, so `==` and a hash agree with the source type's
+// equality); `ord` is `ElTy.ord == EL_ORD_OK` (the emitted comparison realizes
+// the type's own order); `eq` is admission (`==` is meaningful at all — true for
+// f64, which is PartialEq).
+//
+// ⚠ AND IT IS ASKED OF THE CLASS'S REPRESENTATIVE, not of the key's real type,
+// because the caller only holds a class. That is exactly the gap this stage does
+// not close: `join_key_caps(EL_TY_INT())` answers about `i64` even when the key
+// is a `u64`, and the join-order licence has to re-ask `el_order_faithful` with
+// the NAME to catch it. When the class tag at this seam becomes an `ElTy` the
+// second question disappears — see `el_ty` and ADR 0024 S6 stage 2.
+pub fn join_key_caps(cls: i32) -> KeyCaps {
+    if cls == EL_TY_INT() || cls == EL_TY_STR()
+       || cls == EL_TY_BOOL() || cls == EL_TY_FLT() {
+        let t: ElTy = el_ty(el_class_repr(cls));
+        return KeyCaps { hash: el_ty_has_ident(t), ord: t.ord == EL_ORD_OK(), eq: t.cls >= 0i32 };
     }
-    // f64: PartialEq ONLY — NaN breaks the Hash key contract (NaN != NaN) and
-    // the total order Ord demands; == on the key is still meaningful.
-    if el_ty == EL_TY_FLT() {
-        return KeyCaps { hash: false, ord: false, eq: true };
-    }
+    // DEFAULT-DENY on a class this lattice does not enumerate.
     return KeyCaps { hash: false, ord: false, eq: false };
 }
 
