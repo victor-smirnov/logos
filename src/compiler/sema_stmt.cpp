@@ -4763,45 +4763,72 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // open side to the scrutinee integer type's min/max.
         bool has_lo = pnode.has_key(la::LHS);
         bool has_hi = pnode.has_key(la::RHS);
-        auto int_bounds = [](LogosType::Kind k) -> std::pair<int64_t,int64_t> {
-            switch (k) {
-            case LogosType::Kind::I8:  return {-128, 127};
-            case LogosType::Kind::U8:  return {0, 255};
-            case LogosType::Kind::I16: return {-32768, 32767};
-            case LogosType::Kind::U16: return {0, 65535};
-            case LogosType::Kind::U32: return {0, (int64_t)UINT32_MAX};
-            case LogosType::Kind::I64: case LogosType::Kind::Isize:
-                                       return {INT64_MIN, INT64_MAX};
-            case LogosType::Kind::U64: case LogosType::Kind::Usize:
-                                       return {0, INT64_MAX};
-            default:                   return {(int64_t)INT32_MIN, (int64_t)INT32_MAX};
-            }
-        };
-        auto [tmin, tmax] = int_bounds(scrut_type ? TypeRef(scrut_type).kind()
-                                                   : LogosType::Kind::I32);
+        // THE BOUND'S RANGE AND THE BOUND'S ORDER ARE ASKED IN THE SCRUTINEE'S
+        // OWN SIGNEDNESS. `parse_int_literal` returns the raw 64-bit PATTERN for
+        // a magnitude above INT64_MAX (that is what makes `0xcbf29ce484222325`
+        // usable as a u64 literal), so a bound like `9223372036854775858`
+        // arrives as a NEGATIVE int64. Read signed, it failed "does not fit in
+        // 'u64'" and then "lo > hi": EVERY unsigned range straddling the signed
+        // ceiling was rejected, at all four emission sites.
+        //
+        // Width and signedness come from `int_rank`, the one table. The local
+        // one that used to sit here listed eight kinds and sent i8, u8, i24,
+        // u24, i56, u56, i128 and u128 to its `default:` arm — i32's bounds —
+        // so an open-ended `..=5` over a `u8` clamped its low end to INT32_MIN.
+        using PK = LogosType::Kind;
+        PK skind = scrut_type ? TypeRef(scrut_type).kind() : PK::I32;
+        auto srank = int_rank(skind);
+        unsigned swidth = srank.first;
+        bool ssigned = srank.second;
+        if (swidth == 0) { swidth = 32; ssigned = true; }
+        bool sunsigned = !ssigned;
+        // The type's maximum magnitude as a 64-bit pattern (u64/usize → all 1s).
+        uint64_t umax = swidth >= 64 ? ~UINT64_C(0) : ((UINT64_C(1) << swidth) - 1);
+        bool uns_cmp = sunsigned && swidth <= 64;
+        int64_t tmin = sunsigned ? 0
+                                 : (swidth >= 64 ? INT64_MIN
+                                                 : -(INT64_C(1) << (swidth - 1)));
+        int64_t tmax = sunsigned ? (int64_t)umax
+                                 : (swidth >= 64 ? INT64_MAX
+                                                 : (INT64_C(1) << (swidth - 1)) - 1);
         int64_t lo = has_lo ? parse_int_literal(str_of(pnode.get(la::LHS.code))) : tmin;
         int64_t hi = has_hi ? parse_int_literal(str_of(pnode.get(la::RHS.code))) : tmax;
+        bool lo_neg = false, hi_neg = false;
         if (has_lo && pnode.has_key(la::LO_NEG)) {
             AnyVal av = pnode.get(la::LO_NEG.code);
-            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) lo = -lo;
+            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) { lo = -lo; lo_neg = true; }
         }
         if (has_hi && pnode.has_key(la::HI_NEG)) {
             AnyVal av = pnode.get(la::HI_NEG.code);
-            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
+            if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) { hi = -hi; hi_neg = true; }
         }
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&
-            TypeRef(scrut_type).kind() != LogosType::Kind::Never &&  // G160-10
+        if (scrut_type && skind != PK::Error &&
+            skind != PK::Never &&  // G160-10
             !is_integer(scrut_type))
             error(std::format("range pattern requires integer scrutinee, got '{}'",
                   type_str(scrut_type)));
         // S2: validate that lo/hi fit in the scrutinee integer type.
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error && is_integer(scrut_type)) {
-            if (!intlit_fits(lo, TypeRef(scrut_type).kind()))
-                error(std::format("range pattern: lo ({}) does not fit in '{}'",
-                      lo, type_str(scrut_type)));
-            if (!intlit_fits(hi, TypeRef(scrut_type).kind()))
-                error(std::format("range pattern: hi ({}) does not fit in '{}'",
-                      hi, type_str(scrut_type)));
+        if (scrut_type && skind != PK::Error && is_integer(scrut_type)) {
+            if (uns_cmp) {
+                if (lo_neg || hi_neg)
+                    error(std::format("range pattern: a negative bound does not fit in '{}'",
+                          type_str(scrut_type)));
+                else {
+                    if ((uint64_t)lo > umax)
+                        error(std::format("range pattern: lo ({}) does not fit in '{}'",
+                              (uint64_t)lo, type_str(scrut_type)));
+                    if ((uint64_t)hi > umax)
+                        error(std::format("range pattern: hi ({}) does not fit in '{}'",
+                              (uint64_t)hi, type_str(scrut_type)));
+                }
+            } else {
+                if (!intlit_fits(lo, skind))
+                    error(std::format("range pattern: lo ({}) does not fit in '{}'",
+                          lo, type_str(scrut_type)));
+                if (!intlit_fits(hi, skind))
+                    error(std::format("range pattern: hi ({}) does not fit in '{}'",
+                          hi, type_str(scrut_type)));
+            }
         }
         // P4-pm-22: exclusive range `lo..hi` lowers as inclusive
         // `lo..=(hi-1)` since the PatRange mirror has no inclusive
@@ -4813,14 +4840,19 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             AnyVal av = pnode.get(la::INCLUSIVE.code);
             if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
         }
+        // Emptiness and ordering are the SCRUTINEE'S order, for the same reason
+        // the fit test above is.
         if (!inclusive) {
-            if (lo >= hi) {
+            bool empty = uns_cmp ? ((uint64_t)lo >= (uint64_t)hi) : (lo >= hi);
+            if (empty) {
                 error(std::format("exclusive range pattern: lo ({}) >= hi ({}) (empty range)",
                       lo, hi));
             }
             hi = hi - 1;
-        } else if (lo > hi) {
-            error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
+        } else {
+            bool bad = uns_cmp ? ((uint64_t)lo > (uint64_t)hi) : (lo > hi);
+            if (bad)
+                error(std::format("range pattern: lo ({}) > hi ({})", lo, hi));
         }
         lir::Pattern p_;
         p_.mirror_ptr_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);

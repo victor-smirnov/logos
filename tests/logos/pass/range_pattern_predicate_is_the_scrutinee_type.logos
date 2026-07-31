@@ -30,6 +30,28 @@ fn n56(x: u56) -> i64 { match x { 36028797018963918..=36028797018964018 => { ret
 fn e24(x: u24) -> i64 { let 8388558..=8388658 = x else { return 0; }; return 1; }
 fn e56(x: u56) -> i64 { let 36028797018963918..=36028797018964018 = x else { return 0; }; return 1; }
 
+// ── AND THE BOUNDS ARE READ IN THE SCRUTINEE'S ORDER TOO ──────────────────
+// `parse_int_literal` returns the raw 64-bit PATTERN for a magnitude above
+// INT64_MAX, so a `u64` bound like 9223372036854775858 arrived as a NEGATIVE
+// int64 and sema rejected the pattern outright: "hi does not fit in 'u64'"
+// followed by "lo > hi". Every unsigned range straddling the signed ceiling was
+// a COMPILE ERROR, at all four sites — a separate defect from the predicate
+// above, in the same sentence: a range pattern's facts are asked in the
+// scrutinee's type.
+fn b64_match(x: u64)   -> i64 { match x { 9223372036854775758..=9223372036854775858 => { return 1; } _ => { return 0; } } }
+fn b64_iflet(x: u64)   -> i64 { if let 9223372036854775758..=9223372036854775858 = x { return 1; } return 0; }
+fn b64_letelse(x: u64) -> i64 { let 9223372036854775758..=9223372036854775858 = x else { return 0; }; return 1; }
+fn bsz(x: usize)       -> i64 { match x { 9223372036854775758..=9223372036854775858 => { return 1; } _ => { return 0; } } }
+// the very top of u64 — both bounds above the signed ceiling
+fn btop(x: u64)        -> i64 { match x { 18446744073709551614..=18446744073709551615 => { return 1; } _ => { return 0; } } }
+
+// An OPEN-ENDED bound clamps to the SCRUTINEE's min/max. The table that
+// supplied them listed eight kinds and sent u8 (and i8/i24/u24/i56/u56/i128/
+// u128) to its `default:` arm — i32's bounds — so `..=5` over a u8 clamped its
+// low end to INT32_MIN and `200..` clamped its high end to INT32_MAX.
+fn open_lo(x: u8) -> i64 { match x { ..=5 => { return 1; } _ => { return 0; } } }
+fn open_hi(x: u8) -> i64 { match x { 200.. => { return 1; } _ => { return 0; } } }
+
 // a SIGNED scrutinee must keep the signed predicate
 fn i_match(x: i8)   -> i64 { match x { -100..=-50 => { return 1; } _ => { return 0; } } }
 fn i_letelse(x: i8) -> i64 { let -100..=-50 = x else { return 0; }; return 1; }
@@ -58,6 +80,34 @@ fn main() -> i64 {
     if n24(8388557) != 0 || e24(8388557) != 0 { return 31; }
     if n56(36028797018963968) != 1 || e56(36028797018963968) != 1 { return 32; }
     if n56(36028797018963917) != 0 || e56(36028797018963917) != 0 { return 33; }
+
+    // u64 / usize bounds above the signed ceiling
+    if b64_match(9223372036854775808) != 1 { return 50; }
+    if b64_iflet(9223372036854775808) != 1 { return 51; }
+    if b64_letelse(9223372036854775808) != 1 { return 52; }
+    if b64_match(9223372036854775758) != 1 { return 53; }
+    if b64_match(9223372036854775858) != 1 { return 54; }
+    if b64_match(9223372036854775757) != 0 { return 55; }
+    if b64_match(9223372036854775859) != 0 { return 56; }
+    if b64_match(0) != 0 { return 57; }
+    // ⚠ the usize ARGUMENT is written through a u64 cast on purpose. An
+    // unsuffixed literal above INT64_MAX passed straight to a `usize` parameter
+    // is still rejected ("value -9223372036854775808 does not fit in usize") —
+    // the same 64-bit-pattern-read-as-signed fact at the CALL-ARGUMENT check,
+    // where `u64` accepts it and `usize` does not. Reported, not fixed here:
+    // making them agree is a change to what `intlit_fits` is allowed to accept,
+    // not a change to how the range pattern reads its own bounds.
+    if bsz((9223372036854775808u64) as usize) != 1 { return 58; }
+    if bsz(0) != 0 { return 59; }
+    if btop(18446744073709551615) != 1 { return 60; }
+    if btop(18446744073709551613) != 0 { return 61; }
+    if btop(0) != 0 { return 62; }
+
+    // open-ended bounds clamp to the SCRUTINEE's own min/max
+    if open_lo(0) != 1 || open_lo(5) != 1 { return 70; }
+    if open_lo(6) != 0 || open_lo(255) != 0 { return 71; }
+    if open_hi(200) != 1 || open_hi(255) != 1 { return 72; }
+    if open_hi(199) != 0 || open_hi(0) != 0 { return 73; }
 
     // signed scrutinee unchanged
     if i_match(-75) != 1 || i_letelse(-75) != 1 { return 40; }
