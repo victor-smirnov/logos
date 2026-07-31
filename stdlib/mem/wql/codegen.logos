@@ -195,6 +195,76 @@ pub fn plan_trace(subject: str, verdict: str, about: str, why: str) {
     unsafe { write(2i32, ln.as_ptr(), ln.len()); }
 }
 
+// ── THE PLAN-INDEPENDENCE SEAM (ADR 0024 S4r) ───────────────────────────────
+//
+// The Deem compiler carries several join orders and picks one at run time from
+// the data. What must hold is that the ANSWER does not depend on that pick —
+// same rows, same sequence, whichever nest runs. That is a property of every
+// query with more than one candidate, and until this seam existed it was
+// checked by the two or three fixtures that write `order_ix` by hand.
+//
+// `LOGOS_WQL_FORCE_ORDER=<k>` makes every multi-candidate nest in the compile
+// run candidate `k mod ncand` instead of the one the cost function selected. It
+// is a COMPILE-time knob because the discriminant is compiled in: a caller can
+// write `order_ix` only on a plan it holds, and most of the corpus calls the
+// direct fn, which prepares for itself. This is the only seam from which every
+// carried nest of every fixture is reachable without editing the fixture.
+//
+// ⚠ THE PLAN OBJECT IS NOT TOUCHED. `prepare` still measures, still prices, and
+// still writes the argmin into `order_ix`; `agrees`/`margin`/`cost_of` are
+// unchanged. A fixture that asserts the DECISION goes on asserting the same
+// decision while the nest beneath it changes — which is what makes the forced
+// run a metamorphic transformation of the fixture rather than a different test.
+//
+// ⚠ UNSET ⇒ -1 ⇒ the emitter takes the path it took before this existed. The
+// knob is read once per join nest, in `emit_join_chain`, and its only effect is
+// the text of one discriminant expression.
+pub fn force_order_ix() -> i64 {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_WQL_FORCE_ORDER");
+    c.push_u8(0u8);
+    unsafe {
+        let v: *const u8 = getenv(c.as_ptr());
+        if v == 0 as *const u8 { return -1i64; }
+        let s: str = str_from_cstr(v);
+        if s.len() == 0i64 { return -1i64; }
+        let mut acc: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < s.len() {
+            let d: u8 = str_byte_at(s, i);
+            if d < 48u8 || d > 57u8 { return -1i64; }   // not a number ⇒ not set
+            acc = acc * 10i64 + ((d - 48u8) as i64);
+            i = i + 1i64;
+        }
+        return acc;
+    }
+}
+
+/// `LOGOS_WQL_ORDER_CENSUS=1` — one line per join nest naming how many
+/// candidates it carries, so the driver of the gate knows how far to range `k`
+/// and which fixtures carry more than one order AT ALL. Without it the gate
+/// would be guessing the size of the space it claims to cover.
+pub fn order_census_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_WQL_ORDER_CENSUS");
+    c.push_u8(0u8);
+    unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
+}
+
+/// `[wql-order] <query> ncand=<n> deferred=<0|1>` on stderr.
+pub fn order_census(fn_name: str, ncand: i64, deferred: bool) {
+    if !order_census_on() { return; }
+    let mut ln: String = String::new();
+    ln.push_str("[wql-order] ");
+    ln.push_str(fn_name);
+    ln.push_str(" ncand=");
+    ln.push_i64(ncand);
+    ln.push_str(" deferred=");
+    if deferred { ln.push_str("1"); } else { ln.push_str("0"); }
+    ln.push_str("\n");
+    unsafe { write(2i32, ln.as_ptr(), ln.len()); }
+}
+
 pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
     match e {
         SExpr::Param(pp) => { return t.ty_name_of(pp.name); }

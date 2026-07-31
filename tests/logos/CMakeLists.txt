@@ -1430,6 +1430,36 @@ if (TARGET lforge)
     )
 endif()
 
+# ── PLAN INDEPENDENCE, CORPUS-WIDE (ADR 0024 S4r) ────────────────────────────
+# The property every multi-candidate query has: the answer does not depend on
+# WHICH carried nest the cost function picked. Until this test it was asserted by
+# three fixtures that write `order_ix` by hand; the other nine that carry more
+# than one order were exercised only on the nest their data happened to select.
+#
+# This runs THE EXISTING FIXTURES, unmodified, once per carried order, against
+# their own committed `.expected` — 12 fixtures, 35 forced runs — with the
+# emitter's discriminant pinned by `LOGOS_WQL_FORCE_ORDER`. It is not a fixture
+# of its own and adds no `.logos` file: a metamorphic gate's whole point is that
+# it needs no new oracle.
+#
+# ⚠ Its cost is a corpus of compiles (127 census + 35 forced), so it is a plain
+# `add_test` with no sampled label: the L1-L3 samplers enumerate `.logos` files
+# and cannot reach it, and L4 runs it with everything else.
+add_test(
+    NAME logos_09_plan_independence
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plan_independence_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+            ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh
+            12
+)
+set_tests_properties(logos_09_plan_independence PROPERTIES
+    TIMEOUT    900
+    PROCESSORS 12
+    LABELS     "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR};LOGOS_TEST_LIB_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+)
+
 # ── THE ENUMERATOR (tests/exhaustive) ────────────────────────────────────────
 #
 # `tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and

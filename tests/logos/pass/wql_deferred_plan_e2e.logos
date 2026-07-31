@@ -1,3 +1,10 @@
+// PLAN-INDEPENDENCE: OBSERVES-CHOICE codes=11,12,24,26,34,35 — this fixture reads
+// the PULL LOG and asserts WHICH nest ran, including for the DEFERRED half. The
+// corpus-wide plan-independence gate (`plan_independence_gate.sh`) forces a nest,
+// so those assertions are false by construction under it and the fixture is allowed
+// to exit at exactly these codes and no others. Every assertion before the first of
+// them — the row block, 13-22 — must still hold on the forced nest.
+//
 // WQL — THERE ARE TWO DECISION POINTS (ADR 0024 S4j). S4i built the first one:
 // `prepare` measures what the input data declares and decides once. This fixture
 // is about the second: a join whose sides have NO size before the query runs, but
@@ -362,14 +369,14 @@ fn main() -> i32 {
     let g_big: Vec<i64> = via_rel_run(&p, &ls_big[..], &rs[..]).unwrap();
     let f_big: i64 = unsafe { FIRST };
 
-    // THE DEFERRED DECISION, observed: the same plan drove different sides.
-    if f_small != 1i64 { return 11i32; }   // rel indexed  ⇒ rel_n(2) < rs_n(5)
-    if f_big   != 2i64 { return 12i32; }   // rs indexed   ⇒ rel_n(7) > rs_n(5)
-    // ⚠ AND THIS IS WHERE A WRONG NUMBER SHOWS. `ls.len()` is 9 in BOTH data sets,
-    // so a plan that read the input's length instead of the materialized rel's
-    // would answer "do not swap" both times and `f_small` would be 2.
-
     // ── (b) THE ROWS AND THEIR ORDER ARE THE PLAN-INDEPENDENT PART ────────
+    // ⚠ CHECKED BEFORE THE CHOICE IS OBSERVED, deliberately (ADR 0024 S4r). Nothing
+    // here is weaker for it — every assertion below still runs, in this order, on
+    // every run. What the order buys is REACH: the corpus-wide plan-independence
+    // gate forces a nest and therefore falsifies the pull-log assertions by
+    // construction, so a fixture that observed the choice FIRST stopped there and
+    // its rows were never reached under forcing. The row block is the part that gate
+    // exists to exercise, so it goes first.
     if g_small.len() != 8i64  { return 13i32; }   // 2 rel rows × 4 matching rs
     if !same(&g_small, &w_small) { return 14i32; }
     if g_big.len() != 28i64   { return 15i32; }   // 7 rel rows × 4 matching rs
@@ -384,6 +391,13 @@ fn main() -> i32 {
     // — which is why the log had to record an ORDER.
     if nl_small != 2i64 { return 21i32; }
     if nr_small != 5i64 { return 22i32; }
+
+    // THE DEFERRED DECISION, observed: the same plan drove different sides.
+    if f_small != 1i64 { return 11i32; }   // rel indexed  ⇒ rel_n(2) < rs_n(5)
+    if f_big   != 2i64 { return 12i32; }   // rs indexed   ⇒ rel_n(7) > rs_n(5)
+    // ⚠ AND THIS IS WHERE A WRONG NUMBER SHOWS. `ls.len()` is 9 in BOTH data sets,
+    // so a plan that read the input's length instead of the materialized rel's
+    // would answer "do not swap" both times and `f_small` would be 2.
 
     // ── (c) THE DIRECT FN IS UNCHANGED — prepare-then-run ─────────────────
     reset();

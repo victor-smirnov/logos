@@ -1,3 +1,11 @@
+// PLAN-INDEPENDENCE: OBSERVES-CHOICE codes=18,19,24,25,36,38 — this fixture reads
+// the PULL LOG and asserts WHICH nest ran. The corpus-wide plan-independence gate
+// (`plan_independence_gate.sh`) forces a nest, so those assertions are false by
+// construction under it and the fixture is allowed to exit at exactly these codes
+// and no others. That is stronger than skipping it: every assertion BEFORE the
+// first of them — the whole row block, 13-17 — must still hold on the forced nest,
+// and any other exit code is a gate failure.
+//
 // WQL — THE PLAN IS A RUNTIME VALUE (ADR 0024 S4i): a query emits a plan TYPE, a
 // `prepare` that measures and decides once, and a `run` that applies a plan to
 // data. The direct fn becomes prepare-then-run, so nothing existing moves.

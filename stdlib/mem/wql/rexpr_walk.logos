@@ -3376,6 +3376,13 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     let mut tblb: String = String::new();
     if jo.dynamic { push_jctable(&mut tblb, &jo); }
 
+    // THE CENSUS OF CARRIED ORDERS, one line per join nest. A gate that forces
+    // each order in turn has to know how many there are, and it must be able to
+    // tell "one nest" from "several" — a fixture with a single candidate is an
+    // EXCLUDED case with a stated ground, not a silent pass.
+    if jo.dynamic { order_census(fn_name, jo.ncand, jo.deferred); }
+    else          { order_census(fn_name, 1i64, false); }
+
     let mut top_bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nest_all: ExprBlob = quote_block! { };
     let mut defer_f: ExprBlob = quote_block! { };
@@ -3399,6 +3406,25 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             dfb.push_str("    let __defer_ix: i64 = __pl.order_pick(__defer_n0, __defer_n1, __defer_n2, __defer_n3);\n}\n");
             defer_f = parse_block(string_as_str(&dfb));
             disc = "__defer_ix";
+        }
+        // ⚠ THE PLAN-INDEPENDENCE SEAM (ADR 0024 S4r). `LOGOS_WQL_FORCE_ORDER=k`
+        // replaces the discriminant with the CONSTANT `k mod ncand`, so the nest
+        // that runs is the gate's choice rather than the data's. The original read
+        // is KEPT (`(…) * 0 +`): whatever `run` would have measured it still
+        // measures, and only the branch that reading feeds is overridden — a
+        // deferred plan's prelude `len()` reads are part of what is under test.
+        //
+        // The buffer is declared in this scope because `disc` becomes a view of it
+        // and the view is consumed by the branch chain below, in the same block.
+        let mut fdb: String = String::new();
+        let fix: i64 = force_order_ix();
+        if fix >= 0i64 && jo.ncand > 0i64 {
+            fdb.push_str("((");
+            fdb.push_str(disc);
+            fdb.push_str(") * 0i64 + ");
+            fdb.push_i64(fix % jo.ncand);
+            fdb.push_str("i64)");
+            disc = string_as_str(&fdb);
         }
         // Candidate 0 is the query's own order and is the final `else`, so a plan
         // that somehow reports an index it did not carry runs the order the query
