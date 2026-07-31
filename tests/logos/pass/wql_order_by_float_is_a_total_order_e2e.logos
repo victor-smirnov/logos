@@ -1,0 +1,109 @@
+package wql_order_by_float_is_a_total_order_e2e;
+// `order by <f64 key>` must return a PERMUTATION whose keys read back sorted,
+// with a NaN in the data.
+//
+// It did not. The emitted insertion sort compared with the language's `>` on
+// f64, which is a PARTIAL order: a NaN is neither `<`, `>` nor `==` anything,
+// so the inner loop stops shifting the moment it meets one and every row ahead
+// of the NaN keeps its COLLECTION order. MEASURED at the previous HEAD on the
+// eight rows below: `order by s.k` returned ids 0..7 unchanged — the answer was
+// neither sorted nor flagged.
+//
+// ⚠ THE ORACLE IS WRITTEN OUT, NOT COMPUTED. The fixture that used to claim
+// this axis (wql_join_order_key_fidelity_e2e) checked `order by <f64>` against
+// `stable_sort_by_f64`, an insertion sort written in the same file with the
+// SAME `>` — so the oracle reproduced the defect and the assertion compared the
+// implementation with itself. Here the expected id sequence is a constant,
+// derived from IEEE 754 totalOrder by hand:
+//
+//   key      -inf  -2.5  -0.0   0.0   1.0   3.0  +inf   NaN
+//   id          4     7     1     5     3     0     6     2
+//
+// and `desc` is its exact reverse (no two keys are totalOrder-equal here).
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.num.float;
+
+struct S { pub k: f64, pub id: i64 }
+
+pub deem q_asc(ss: &[S])  { from ss s select s.id order by s.k }
+pub deem q_desc(ss: &[S]) { from ss s select s.id order by s.k desc }
+// `!=` is the negation of `==`, so it is UNORDERED: the NaN row PASSES.
+pub deem q_ne(ss: &[S])   { from ss s where s.k != 1.0f64 select s.id }
+// the four relational operators stay ORDERED: the NaN row fails all of them.
+pub deem q_lt(ss: &[S])   { from ss s where s.k < 1.0f64 select s.id }
+pub deem q_ge(ss: &[S])   { from ss s where s.k >= 1.0f64 select s.id }
+
+fn rows() -> [S; 8] {
+    let nan:  f64 = f64_from_bits(0x7FF8000000000000u64);
+    let pinf: f64 = f64_from_bits(0x7FF0000000000000u64);
+    let ninf: f64 = f64_from_bits(0xFFF0000000000000u64);
+    let nzero: f64 = f64_from_bits(0x8000000000000000u64);
+    return [S { k: 3.0f64,  id: 0i64 },
+            S { k: nzero,   id: 1i64 },
+            S { k: nan,     id: 2i64 },
+            S { k: 1.0f64,  id: 3i64 },
+            S { k: ninf,    id: 4i64 },
+            S { k: 0.0f64,  id: 5i64 },
+            S { k: pinf,    id: 6i64 },
+            S { k: -2.5f64, id: 7i64 }];
+}
+
+fn eq(got: &Vec<i64>, want: &[i64]) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < want.len() { if got.get(i) != want[i] { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let ss: [S; 8] = rows();
+
+    let asc: Vec<i64> = q_asc(&ss[..]).unwrap();
+    let want_asc: [i64; 8] = [4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64];
+    if !eq(&asc, &want_asc[..]) { return 10i32; }
+
+    let desc: Vec<i64> = q_desc(&ss[..]).unwrap();
+    let want_desc: [i64; 8] = [2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64];
+    if !eq(&desc, &want_desc[..]) { return 11i32; }
+
+    // `k != 1.0` — every row but id 3, INCLUDING the NaN (id 2). It used to be
+    // emitted as an ORDERED not-equal, which answers false on a NaN, so the
+    // filter silently dropped the row.
+    let ne: Vec<i64> = q_ne(&ss[..]).unwrap();
+    let want_ne: [i64; 7] = [0i64, 1i64, 2i64, 4i64, 5i64, 6i64, 7i64];
+    if !eq(&ne, &want_ne[..]) { return 20i32; }
+
+    // `k < 1.0` — ordered: NaN out, and −inf/−2.5/−0.0/0.0 in.
+    let lt: Vec<i64> = q_lt(&ss[..]).unwrap();
+    let want_lt: [i64; 4] = [1i64, 4i64, 5i64, 7i64];
+    if !eq(&lt, &want_lt[..]) { return 21i32; }
+
+    // `k >= 1.0` — ordered: NaN out, 1.0/3.0/+inf in.
+    let ge: Vec<i64> = q_ge(&ss[..]).unwrap();
+    let want_ge: [i64; 3] = [0i64, 3i64, 6i64];
+    if !eq(&ge, &want_ge[..]) { return 22i32; }
+
+    // The language-level law the emitter now rests on: `!=` is `!(==)` for
+    // every pair, NaN included, while the relational four are all false.
+    let nan: f64 = f64_from_bits(0x7FF8000000000000u64);
+    let one: f64 = 1.0f64;
+    if !(nan != one)  { return 30i32; }
+    if !(nan != nan)  { return 31i32; }
+    if nan == nan     { return 32i32; }
+    if nan < one      { return 33i32; }
+    if nan >= one     { return 34i32; }
+    let nanf: f32 = f32_from_bits(0x7FC00000u32);
+    if !(nanf != 1.0f32) { return 35i32; }
+
+    // totalOrder itself: the key that makes the sort well-defined.
+    if f64_total_key(f64_from_bits(0xFFF0000000000000u64)) >= f64_total_key(-2.5f64) { return 40i32; }
+    if f64_total_key(-2.5f64) >= f64_total_key(f64_from_bits(0x8000000000000000u64)) { return 41i32; }
+    if f64_total_key(f64_from_bits(0x8000000000000000u64)) >= f64_total_key(0.0f64)  { return 42i32; }
+    if f64_total_key(0.0f64) >= f64_total_key(1.0f64)  { return 43i32; }
+    if f64_total_key(1.0f64) >= f64_total_key(f64_from_bits(0x7FF0000000000000u64)) { return 44i32; }
+    if f64_total_key(f64_from_bits(0x7FF0000000000000u64)) >= f64_total_key(nan)     { return 45i32; }
+    if f32_total_key(-1.0f32) >= f32_total_key(1.0f32) { return 46i32; }
+
+    return 0i32;
+}

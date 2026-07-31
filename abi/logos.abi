@@ -9925,6 +9925,7 @@ sym	logos_lang.logos.lang.num.float$f32_is_infinite__f__f32
 sym	logos_lang.logos.lang.num.float$f32_is_nan__f__f32
 sym	logos_lang.logos.lang.num.float$f32_is_normal__f__f32
 sym	logos_lang.logos.lang.num.float$f32_to_bits__f__f32
+sym	logos_lang.logos.lang.num.float$f32_total_key__f__f32
 sym	logos_lang.logos.lang.num.float$f64_classify__f__f64
 sym	logos_lang.logos.lang.num.float$f64_from_bits__f__u64
 sym	logos_lang.logos.lang.num.float$f64_is_finite__f__f64
@@ -9932,6 +9933,7 @@ sym	logos_lang.logos.lang.num.float$f64_is_infinite__f__f64
 sym	logos_lang.logos.lang.num.float$f64_is_nan__f__f64
 sym	logos_lang.logos.lang.num.float$f64_is_normal__f__f64
 sym	logos_lang.logos.lang.num.float$f64_to_bits__f__f64
+sym	logos_lang.logos.lang.num.float$f64_total_key__f__f64
 sym	logos_lang.logos.lang.num.parse$f32_from_str__f__slice_u8
 sym	logos_lang.logos.lang.num.parse$f64_from_str__f__slice_u8
 sym	logos_lang.logos.lang.num.parse$i32_from_str__f__slice_u8

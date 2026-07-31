@@ -800,7 +800,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         if (op == "/")  return builder_.create<mlir::arith::DivFOp>(loc_, lhs, rhs);
         if (op == "%")  return builder_.create<mlir::arith::RemFOp>(loc_, lhs, rhs);
         if (op == "==") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lhs, rhs);
-        if (op == "!=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::ONE, lhs, rhs);
+        // `!=` is the NEGATION of `==`, so it is UNORDERED: `NaN != x` is TRUE
+        // for every x (IEEE-754, and Rust's `PartialEq for f64`). ONE (ordered
+        // not-equal) answers FALSE whenever either operand is NaN, which made
+        // `!(a != b)` and `a == b` disagree — and made a `where k != v` filter
+        // drop every NaN row. The four relational operators stay ORDERED (a
+        // NaN compares false against everything), which is also Rust.
+        if (op == "!=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::UNE, lhs, rhs);
         if (op == "<")  return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, lhs, rhs);
         if (op == ">")  return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OGT, lhs, rhs);
         if (op == "<=") return builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLE, lhs, rhs);

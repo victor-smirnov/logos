@@ -24,6 +24,17 @@
 // THE QUERY NAMED — `el::el_order_faithful`, keyed on the TYPE NAME because the
 // four-value class cannot tell `u64` from `i64`.
 //
+// ⚠⚠⚠ AND WHAT CHANGED UNDER IT SINCE. The premise above — "on a NaN key both
+// `prev > cur` and `prev == cur` are false" — was a fact about THE COMPARATOR THE
+// EMITTER CHOSE, not about `order by`. A sort is only defined over a TOTAL order,
+// and choosing one is the sort's own job: the emitted comparison is IEEE 754
+// totalOrder (`f64_total_key`) now, so an f64 `order by` is a permutation whose
+// keys read back monotone with the NaN at the end, for every nest. The reorder
+// LICENCE is deliberately NOT widened to match — claims 1 and 4 still assert
+// `considered() == 0` and the refusal's ground — because widening it is a
+// decision about the plan, taken where the plan is decided. What it costs today
+// is an optimization; what it used to cover was a wrong answer.
+//
 // The u64 case is not in this file: it is refused where the lossy normalization is
 // introduced (`codegen::check_calls`, wql_udf_wide_int_ret_fail), so a reorder
 // decision never has to compensate for a value the emitter damaged. What IS here is
@@ -66,6 +77,7 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.option;
+use logos.lang.num.float; // f64_total_key — the ORACLE's comparator, deliberately not the emitter's `>`
 use logos.lang.str;      // str_contains — the refusal's ground is asserted, not just its verdict
 
 struct A { pub k: i64, pub v: i64, pub f: f64, pub s: str, pub g: i64 }
@@ -163,13 +175,23 @@ fn oracle_join(as_: &[A], bs: &[B], cs: &[C], ks: &mut Vec<f64>, out: &mut Vec<i
 
 // Insertion sort with the STRICT comparison only: equal keys keep the order they
 // arrived in. No tiebreak, because in query order there is nothing to break.
+//
+// ⚠ THE COMPARISON HERE IS `f64_total_key`, NOT `>` ON f64, AND THAT IS THE POINT.
+// This oracle used to compare with the same partial `>` the emitter emitted, so
+// on a NaN key it stopped shifting in exactly the same place and produced exactly
+// the wrong answer the emitter produced — the assertion compared the
+// implementation with itself and passed while `order by <f64>` returned rows in
+// collection order. An oracle that shares the comparator under test is not an
+// oracle. The NaN axis itself lives in wql_order_by_float_is_a_total_order_e2e,
+// whose expected sequence is a written-out constant; what this fixture needs from
+// the sort is only that it be a TOTAL order, which is what the emitter now uses.
 fn stable_sort_by_f64(ks: &mut Vec<f64>, vs: &mut Vec<i64>) {
     let mut a: i64 = 1i64;
     while a < ks.len() {
         let kv: f64 = ks.get(a);
         let vv: i64 = vs.get(a);
         let mut b: i64 = a;
-        while b > 0i64 && ks.get(b - 1i64) > kv {
+        while b > 0i64 && f64_total_key(ks.get(b - 1i64)) > f64_total_key(kv) {
             ks.set(b, ks.get(b - 1i64));
             vs.set(b, vs.get(b - 1i64));
             b = b - 1i64;
@@ -284,12 +306,24 @@ fn main() -> i32 {
     // The FULL SEQUENCE, pinned. Equal to the stable-sort oracle above (asserted),
     // written out so a change of answer is visible in the diff and not only in a
     // helper: 1.0 first (v=4), then the two 2.0 rows in query order (v=3, v=5),
-    // then 3.0 (v=1) — and the NaN row (v=2) where a partial comparison leaves it,
-    // which is now the same place for every data shape.
+    // then 3.0 (v=1), and the NaN row (v=2) LAST.
+    //
+    // ⚠ THIS CONSTANT USED TO PIN THE DEFECT. It read `1020, 1020, 2020, 2020,
+    // 2010, 2030, 4020, …` — the NaN row second and the 3.0 rows FIRST — because
+    // that is where a shift halted by a partial `>` left them, and the comment
+    // beside it said so ("the NaN row where a partial comparison leaves it") as if
+    // an unsorted answer were the specification. The emitted sort compares through
+    // IEEE 754 totalOrder now, so `order by <f64>` is a permutation whose keys read
+    // back monotone with the NaN at the end. Derived by hand from the query-order
+    // collection, not from the helper: a.f is 3,3 | NaN×4 | 2×4 | 1×4 | 2×4, so
+    // ascending-stable is v=4's four rows, then v=3's and v=5's, then v=1's, then
+    // v=2's.
     let pin: [i64; 18] = [
-        1020i64, 1020i64, 2020i64, 2020i64, 2010i64, 2030i64,
-        4020i64, 4020i64, 4010i64, 4030i64, 3010i64, 3030i64,
-        3020i64, 3020i64, 5010i64, 5030i64, 5020i64, 5020i64,
+        4020i64, 4020i64, 4010i64, 4030i64,
+        3010i64, 3030i64, 3020i64, 3020i64,
+        5010i64, 5030i64, 5020i64, 5020i64,
+        1020i64, 1020i64,
+        2020i64, 2020i64, 2010i64, 2030i64,
     ];
     let mut pv: Vec<i64> = Vec::new();
     let mut pi: i64 = 0i64;

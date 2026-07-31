@@ -269,6 +269,10 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
             use logos.std.wql.join_cost;
+            // `f64_total_key` / `f32_total_key` — the sort's comparator for a
+            // float key (see key_ord_frag). A spliced item is its own AST doc
+            // and inherits none of the trigger module's imports.
+            use logos.lang.num.float;
             #( use #uses; )*
             fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -280,6 +284,10 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
             use logos.std.wql.join_cost;
+            // `f64_total_key` / `f32_total_key` — the sort's comparator for a
+            // float key (see key_ord_frag). A spliced item is its own AST doc
+            // and inherits none of the trigger module's imports.
+            use logos.lang.num.float;
             #( use #uses; )*
             pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -1359,6 +1367,35 @@ fn key_norm_body(body: str, tn: str, kv: str) -> String {
     return out;
 }
 
+// ── THE SORT'S COMPARATOR MUST BE A TOTAL ORDER, AND `<` ON f64 IS NOT ONE ──
+// A NaN is neither `<`, `>` nor `==` anything, so an insertion sort keyed on the
+// language's `>` simply STOPS SHIFTING when it meets one and leaves every row
+// before it in collection order. MEASURED on six rows with one NaN: `order by
+// s.k` returned the rows in QUERY order and the answer was neither sorted nor
+// flagged. This was previously written down here as a documented consequence of
+// "this codegen does not get to redefine `>` on f64" — but a sort is not a
+// redefinition of `>`: it is an algorithm that is only DEFINED over a total
+// order, and choosing which one is the sort's own job.
+//
+// So a float key is compared through `f64_total_key` / `f32_total_key` (IEEE
+// 754 totalOrder, the construction of Rust's `f64::total_cmp`), which agrees
+// with `<` on every pair of non-NaN values, orders −0.0 before +0.0, and puts
+// −NaN first / +NaN last. Every other key type compares with its own `<`, which
+// is already total. `order by` on a float is now a permutation whose keys read
+// back monotone — the property the enumerating harness checks, and the one the
+// old fixture could not see because its oracle was a sort written beside the
+// emitter with the same partial comparator.
+//
+// ⚠ The reorder LICENCE (`el::el_order_faithful`, refused at `join_order` C1)
+// is NOT widened here. It denies a second nest over a float key, and that
+// denial now costs only an optimization rather than covering a wrong answer;
+// widening it is a decision about the plan, taken where the plan is decided.
+fn key_ord_frag(key_ty: str, e: ExprBlob) -> ExprBlob {
+    if str_eq(key_ty, "f64") { return quote_expr! { f64_total_key(#(e)) }; }
+    if str_eq(key_ty, "f32") { return quote_expr! { f32_total_key(#(e)) }; }
+    return e;
+}
+
 fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     let mut saves: Vec<ExprBlob>  = vec_new::<ExprBlob>();
     let mut shifts: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -1376,6 +1413,11 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     }
     let kt: ExprBlob = parse_type(key_ty);
     let tie: ExprBlob = ix_lex_gt_frag(0i64, nidx);
+    // Four fragments, not two reused: a spliced blob is consumed by its splice.
+    let pa: ExprBlob = key_ord_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) });
+    let ca: ExprBlob = key_ord_frag(key_ty, quote_expr! { __kv });
+    let pe: ExprBlob = key_ord_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) });
+    let ce: ExprBlob = key_ord_frag(key_ty, quote_expr! { __kv });
     if desc {
         return quote_block! {
             let mut __a: i64 = 1i64;
@@ -1383,8 +1425,8 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
                 let __kv: #(kt) = __ks.get(__a);
                 #( #saves; )*
                 let mut __b: i64 = __a;
-                while __b > 0i64 && (__ks.get(__b - 1i64) < __kv
-                                     || (__ks.get(__b - 1i64) == __kv && (#(tie)))) {
+                while __b > 0i64 && ((#(pa)) < (#(ca))
+                                     || ((#(pe)) == (#(ce)) && (#(tie)))) {
                     __ks.set(__b, __ks.get(__b - 1i64));
                     #( #shifts; )*
                     __b = __b - 1i64;
@@ -1401,8 +1443,8 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
             let __kv: #(kt) = __ks.get(__a);
             #( #saves; )*
             let mut __b: i64 = __a;
-            while __b > 0i64 && (__ks.get(__b - 1i64) > __kv
-                                 || (__ks.get(__b - 1i64) == __kv && (#(tie)))) {
+            while __b > 0i64 && ((#(pa)) > (#(ca))
+                                 || ((#(pe)) == (#(ce)) && (#(tie)))) {
                 __ks.set(__b, __ks.get(__b - 1i64));
                 #( #shifts; )*
                 __b = __b - 1i64;

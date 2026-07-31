@@ -61,6 +61,39 @@ pub fn f64_from_bits(b: u64) -> f64 {
     }
 }
 
+// ── Total order (IEEE 754 totalOrder) ────────────────────────────────────
+//
+// `<` on floats is a PARTIAL order: a NaN is neither less than, greater than
+// nor equal to anything, including itself. Any algorithm that needs a total
+// order — a sort, a binary search, a keyed index — is ill-defined on it, and
+// the failure is silent: an insertion sort's inner loop simply stops shifting
+// at the NaN and leaves everything before it in collection order.
+//
+// `f64_total_key` maps a float to the i64 whose ORDINARY `<` reproduces IEEE
+// 754's totalOrder: flip the sign bit for positives, invert the rest for
+// negatives. It agrees with `<` on every pair of non-NaN values, orders
+// −0.0 before +0.0, and puts −NaN first / +NaN last. Same construction as
+// Rust's `f64::total_cmp`.
+
+/// The `i64` sort key of `x` under IEEE 754 totalOrder (see `f64::total_cmp`).
+/// `f64_total_key(a) < f64_total_key(b)` is a TOTAL order that agrees with
+/// `a < b` wherever neither operand is NaN.
+pub fn f64_total_key(x: f64) -> i64 {
+    let b: i64 = f64_to_bits(x) as i64;
+    // Arithmetic-shift the sign bit across, then drop its top copy: 0 for a
+    // positive (flip only the sign bit), 0x7FFF… for a negative (flip
+    // everything below the sign bit as well).
+    let m: i64 = (((b >> 63i64) as u64) >> 1u64) as i64;
+    return b ^ m;
+}
+
+/// The `i64` sort key of `x` under IEEE 754 totalOrder, for `f32`.
+pub fn f32_total_key(x: f32) -> i64 {
+    let b: i32 = f32_to_bits(x) as i32;
+    let m: i32 = (((b >> 31i32) as u32) >> 1u32) as i32;
+    return (b ^ m) as i64;
+}
+
 // ── Classification ───────────────────────────────────────────────────────
 //
 // IEEE 754 bit layout:
