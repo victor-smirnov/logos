@@ -62,4 +62,23 @@ void record(const char* engine, std::string key, Answer answer) noexcept {
         LedgerEntry{ engine, std::move(key), answer.layout, answer.shape });
 }
 
+std::vector<Decline>& declines() noexcept {
+    static std::vector<Decline> v;
+    return v;
+}
+
+// A decline is recorded under the SAME door as an answer (`recording_enabled`),
+// because it is the same kind of fact about the same run: the verifier reads
+// both or neither, and a decline recorded into a ledger nobody reads would be
+// exactly the silence it exists to break. The engine asked at codegen does not
+// rely on this door — it dies at the decline site regardless.
+void record_declined(const char* engine, std::string key, std::string why) noexcept {
+    if (!recording_enabled()) return;
+    declines().push_back(Decline{ engine, std::move(key), std::move(why) });
+}
+
+std::string kind_key(LogosType::Kind k) noexcept {
+    return "<kind " + std::to_string(static_cast<int>(k)) + ">";
+}
+
 }  // namespace logos::compiler::layout

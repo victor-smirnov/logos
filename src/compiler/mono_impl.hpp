@@ -1284,10 +1284,30 @@ private:
         case LogosType::Kind::Ptr:
         case LogosType::Kind::Ref:
         case LogosType::Kind::MutRef:   collect_type_for_structs(tr.pointee()); break;
-        case LogosType::Kind::Array: collect_type_for_structs(tr.elem());    break;
+        case LogosType::Kind::Array:
+        case LogosType::Kind::Slice:
+        case LogosType::Kind::UnsizedSlice: collect_type_for_structs(tr.elem()); break;
+        // A TUPLE IS A COMPOSITION LIKE ANY OTHER. It was not walked, so
+        // `sizeof::<(A<i64>, u8)>()` demanded nothing and answered 16 for a
+        // 32-byte tuple: the walk that decides what gets monomorphized has to
+        // reach every position a type can occupy, not the positions a value
+        // usually occupies.
+        case LogosType::Kind::Tuple:
+            for (auto e : tr.tuple_elems()) collect_type_for_structs(e);
+            break;
+        case LogosType::Kind::Closure:
+            for (auto p : tr.closure_params()) collect_type_for_structs(p);
+            collect_type_for_structs(tr.closure_ret());
+            break;
         case LogosType::Kind::Struct:
         case LogosType::Kind::ZonedStruct:
             record_needed_struct(tr);
+            for (auto a : tr.type_args()) collect_type_for_structs(a);
+            break;
+        // An enum's ARGUMENTS can name generic structs (`Option<A<i64>>`), and
+        // the enum instance itself is a demand of the same kind as a struct's.
+        case LogosType::Kind::Enum:
+            record_needed_enum(tr);
             for (auto a : tr.type_args()) collect_type_for_structs(a);
             break;
         default: break;

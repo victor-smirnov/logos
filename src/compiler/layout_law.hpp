@@ -490,6 +490,47 @@ std::vector<LedgerEntry>& ledger() noexcept;
 void record(const char* engine, std::string key, Answer answer) noexcept;
 bool recording_enabled() noexcept;
 
+// ── A DECLINE IS AN ANSWER, AND IT MUST BE A RECORDED ONE ───────────────────
+//
+// The ledger above holds what an engine ANSWERED. It has nothing to say about
+// the case an engine could not answer, and every one of the three engines has
+// that case: a struct whose definition is not in its registry, a kind its
+// switch does not name. Each of them met it with `return {8,8}` — a plausible
+// number, silently, recording nothing.
+//
+// That default is not a wrong answer among right ones; it is the reason a wrong
+// answer cannot be SEEN. `verify_layout_engines` compares recorded answers
+// against `llvm::DataLayout`; a type nothing recorded has no row, so the matrix
+// "cannot have a cell for it, by construction". MEASURED: `sizeof::<W<i128>>()`
+// answered 8 for a 32-byte type — mono never instantiated `W<i128>` because a
+// type mentioned only in `sizeof` was not treated as an instantiation demand,
+// `layout_of` found no definition, took the `{8,8}` default WITHOUT calling
+// `struct_def_layout`, and so recorded nothing at all. The gate reported 0
+// disagreements, truthfully, about a comparison it was never given the chance
+// to make. `malloc(sizeof::<W<i128>>())` asked for 8 bytes.
+//
+// So an engine that cannot answer says so HERE. A decline carries the engine,
+// the type as that engine could name it, and WHY — and the verifier reports the
+// count on the census line the gate floors. The engine that is asked at CODEGEN
+// (`layout_of`, whose number reaches `malloc`) additionally dies on the spot:
+// there is no phase after it in which a missing definition could arrive.
+struct Decline {
+    const char* engine;
+    std::string key;   // the type as that engine could name it (may be a kind)
+    std::string why;
+};
+
+// Declines are recorded whenever the ledger is recording, and are ALWAYS
+// counted — `n_declined` is a floor-zero field of the census line, so a decline
+// that reaches the verifier is a red gate rather than a footnote.
+std::vector<Decline>& declines() noexcept;
+void record_declined(const char* engine, std::string key, std::string why) noexcept;
+
+// Name a `LogosType::Kind` for a decline whose subject has no type name at all
+// (the `default:` arm of a layout switch). One spelling, so two engines
+// declining over the same kind produce the same key.
+std::string kind_key(LogosType::Kind k) noexcept;
+
 // ⚠ THE CANARY — FAULT INJECTION SO A GATE CAN PROVE ITS INSTRUMENT IS LIVE.
 //
 // `verify_layout_engines()` reports "0 disagreements" both when every engine

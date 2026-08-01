@@ -385,7 +385,10 @@ namespace lay = logos::compiler::layout;
 // phase that computes a DST prefix's field offsets.
 Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
     using K = LogosType::Kind;
-    if (!t) return {8, 8};
+    if (!t) {
+        lay::record_declined("mono_abi_layout", "<null type>", "no type to size");
+        return {8, 8};
+    }
     // Leaf kinds: the ONE table, at the enum (LogosType::scalar_layout).
     if (auto sl = LogosType::scalar_layout(t.kind()); sl.align != 0)
         return {sl.size, sl.align};
@@ -406,12 +409,22 @@ Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
     case K::Struct: case K::ZonedStruct: {
         SubstMap m;
         auto sit = resolve_struct_layout(t, m);
-        if (!sit.valid()) return {8, 8};
-        return struct_view_layout(sit, m,
-                                  lay::type_key(t.pkg_name(), concrete_struct_name(t)));
+        auto key = lay::type_key(t.pkg_name(), concrete_struct_name(t));
+        // A DECLINE, NOT A DEFAULT. mono resolves through the TEMPLATE registry,
+        // so a miss here is a struct this run has no declaration for at all —
+        // `{8,8}` is a guess that reads as an answer and enters no ledger.
+        if (!sit.valid()) {
+            lay::record_declined("mono_abi_layout", key,
+                                 "no struct template resolvable for this instance");
+            return {8, 8};
+        }
+        return struct_view_layout(sit, m, key);
     }
     case K::Enum: return mono_enum_layout(t);
-    default: return {8, 8};
+    default:
+        lay::record_declined("mono_abi_layout", lay::kind_key(t.kind()),
+                             "kind has no layout rule in mono_abi_layout");
+        return {8, 8};
     }
 }
 
@@ -6184,6 +6197,19 @@ void Mono::collect_struct_needs_from_output() {
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)
         for (auto f : sd.fields()) collect_type_for_structs(f.type(csn_pool));
+    // AND THE ENUMS — a variant payload is a type position like a struct field.
+    // This was missing, and mlir-gen sizes every registered enum's payload from
+    // exactly these types. FOUND BY THE `layout_of` FATAL, not by a test:
+    // `enum Json { …, Array(Vec<Json>), Object(Vec<JsonField>) }` is emitted by
+    // anything that merely `use`s the json module, its payload was sized
+    // through `Vec<Json>`, and `Vec<Json>` was never instantiated because no
+    // VALUE of it existed in that program. `Json`'s payload_bytes was therefore
+    // computed from an 8-byte stand-in for a `Vec`.
+    for (auto& ed : out_.enums)
+        ed.each_variant([&](lir_view::EnumVariantView v) {
+            v.each_payload_type(csn_pool,
+                                [&](TypeRef pt) { collect_type_for_structs(pt); });
+        });
 }
 
 
@@ -6223,8 +6249,25 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
         collect_struct_needs_from_block(v.body());
         break;
     }
-    case SCode::For:
-        collect_struct_needs_from_block(lir_view::SForView{s}.body());
+    case SCode::For: {
+        lir_view::SForView v{s};
+        collect_struct_needs_from_expr(v.lo());
+        collect_struct_needs_from_expr(v.hi());
+        collect_struct_needs_from_block(v.body());
+        break;
+    }
+    case SCode::ForEach: {
+        lir_view::SForEachView v{s};
+        collect_type_for_structs(v.elem_type(pool));
+        collect_struct_needs_from_expr(v.iter());
+        collect_struct_needs_from_block(v.body());
+        break;
+    }
+    case SCode::Break:
+        if (auto v = lir_view::SBreakView{s}.value())
+            collect_struct_needs_from_expr(v);
+        break;
+    case SCode::Continue:
         break;
     case SCode::Loop:
         collect_struct_needs_from_block(lir_view::SLoopView{s}.body());
@@ -6282,17 +6325,55 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
         collect_struct_needs_from_block(v.else_block());
         break;
     }
-    default: break;
+    // NO `default:` — see the note on `collect_struct_needs_from_expr`. Every
+    // stmt code is named, so a new one is a compile error here rather than a
+    // silently unvisited subtree. `ForEach`, `Break`-with-value and `For`'s
+    // bounds were exactly that: reachable statements the walk did not name.
     }
 }
 
 
+// ── WHAT MAKES A TYPE NEEDED ────────────────────────────────────────────────
+//
+// This walk decides which generic struct/enum INSTANCES exist at all. It used
+// to read `e.type()` — the type of the VALUE the expression produces — and
+// recurse through a hand-picked subset of children, everything else falling to
+// `default: break`. Two holes of one shape followed from that:
+//
+//   * a type can be USED WITHOUT A VALUE. `sizeof::<T>()` / `align_of::<T>()`
+//     / `typecodeof` / `reflectof` consume T for its LAYOUT; the expression's
+//     own type is `usize`, so T was never seen. MEASURED at HEAD:
+//     `sizeof::<W<i128>>()` = 8 for a 32-byte type, and the same file with one
+//     unused `let w: W<i128>` = 32. `mono` never cloned the instance, mlir-gen
+//     found no definition, and `malloc(sizeof(..))` asked for 8 bytes;
+//   * a node the switch did not NAME hid every type under it. `ForEach`,
+//     `Break`-with-value, `For`'s bounds, `IfExpr`, `TupleLit`, `Try`,
+//     `ClosureCall` and a dozen more were unvisited subtrees.
+//
+// So: the type-arguments of the layout intrinsics are collected, and the switch
+// carries NO `default:` — every expr code is named, and a new one is a compile
+// error here instead of a silently unvisited subtree. Same discipline as
+// `scan_expr`, which was already exhaustive; the two walks are now the same
+// shape over the same node set, which is what makes them comparable.
 void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
     if (!e) return;
     const TypePoolImpl* pool = out_.type_pool.impl();
     collect_type_for_structs(e.type(pool));
     using ECode = lir_schema::expr::Code;
     switch (e.kind()) {
+    // ── A TYPE USED WITHOUT A VALUE IS AN INSTANTIATION DEMAND ──────────
+    case ECode::SizeOf:
+        collect_type_for_structs(lir_view::ESizeOfView{e}.elem_type(pool));
+        break;
+    case ECode::AlignOf:
+        collect_type_for_structs(lir_view::EAlignOfView{e}.elem_type(pool));
+        break;
+    case ECode::TypeCodeOf:
+        collect_type_for_structs(lir_view::ETypeCodeOfView{e}.elem_type(pool));
+        break;
+    case ECode::ReflectOf:
+        collect_type_for_structs(lir_view::EReflectOfView{e}.type(pool));
+        break;
     case ECode::Call:
         lir_view::ECallView{e}.each_arg(
             [&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
@@ -6341,14 +6422,12 @@ void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
         v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
         break;
     }
-    case ECode::PackExpand:
-        break;
     case ECode::MatchExpr: {
         lir_view::EMatchExprView v{e};
         collect_struct_needs_from_expr(v.scrut());
         v.each_arm([&](lir_view::EMatchArmRef arm) {
             if (auto g = arm.guard()) collect_struct_needs_from_expr(g);
-            collect_struct_needs_from_expr(arm.value());
+            if (auto val = arm.value()) collect_struct_needs_from_expr(val);
         });
         break;
     }
@@ -6358,7 +6437,91 @@ void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
         if (auto r = v.result()) collect_struct_needs_from_expr(r);
         break;
     }
-    default: break;
+    case ECode::IfExpr: {
+        lir_view::EIfExprView v{e};
+        collect_struct_needs_from_expr(v.cond());
+        collect_struct_needs_from_expr(v.then_val());
+        collect_struct_needs_from_expr(v.else_val());
+        break;
+    }
+    case ECode::TupleLit:
+        lir_view::ETupleLitView{e}.each_elem(
+            [&](lir_view::ExprRef el) { collect_struct_needs_from_expr(el); });
+        break;
+    case ECode::TupleIndex:
+        collect_struct_needs_from_expr(lir_view::ETupleIndexView{e}.receiver());
+        break;
+    case ECode::EnumLitData:
+        lir_view::EEnumLitDataView{e}.each_payload(
+            [&](lir_view::ExprRef p) { collect_struct_needs_from_expr(p); });
+        break;
+    case ECode::SliceLit: {
+        lir_view::ESliceLitView v{e};
+        collect_struct_needs_from_expr(v.base());
+        collect_struct_needs_from_expr(v.len());
+        break;
+    }
+    case ECode::SliceIndex: {
+        lir_view::ESliceIndexView v{e};
+        collect_struct_needs_from_expr(v.slice());
+        collect_struct_needs_from_expr(v.index());
+        break;
+    }
+    case ECode::SliceLen:
+        collect_struct_needs_from_expr(lir_view::ESliceLenView{e}.slice());
+        break;
+    case ECode::SlicePtr:
+        collect_struct_needs_from_expr(lir_view::ESlicePtrView{e}.slice());
+        break;
+    case ECode::ClosureBox:
+        collect_struct_needs_from_block(lir_view::EClosureBoxView{e}.body());
+        break;
+    case ECode::ClosureCall: {
+        lir_view::EClosureCallView v{e};
+        collect_struct_needs_from_expr(v.callee());
+        v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
+        break;
+    }
+    case ECode::FnPtrCall: {
+        lir_view::EFnPtrCallView v{e};
+        collect_struct_needs_from_expr(v.callee());
+        v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
+        break;
+    }
+    case ECode::Try:
+        collect_struct_needs_from_expr(lir_view::ETryView{e}.inner());
+        break;
+    case ECode::AddrOfTemp:
+        collect_struct_needs_from_expr(lir_view::EAddrOfTempView{e}.inner());
+        break;
+    case ECode::PtrArith: {
+        lir_view::EPtrArithView v{e};
+        collect_struct_needs_from_expr(v.ptr());
+        collect_struct_needs_from_expr(v.offset());
+        break;
+    }
+    case ECode::PtrDiff: {
+        lir_view::EPtrDiffView v{e};
+        collect_struct_needs_from_expr(v.lhs());
+        collect_struct_needs_from_expr(v.rhs());
+        break;
+    }
+    case ECode::WritLit:
+        lir_view::EWritLitView{e}.each_capture_expr(
+            [&](lir_view::ExprRef c) { collect_struct_needs_from_expr(c); });
+        break;
+    // Leaf / no-recurse: `e.type()` above is the whole type content. Named
+    // rather than defaulted — see the note on this function.
+    case ECode::LitInt:
+    case ECode::LitFloat:
+    case ECode::LitBool:
+    case ECode::LitStr:
+    case ECode::VarRef:
+    case ECode::EnumLit:
+    case ECode::AddrOf:
+    case ECode::PackExpand:
+    case ECode::GenericRef:  // rewritten to VarRef during subst_expr
+        break;
     }
 }
 

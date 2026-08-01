@@ -451,7 +451,8 @@ using LayoutAgg = lay::Agg;
 MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
         TypeRef m, std::unordered_set<std::string>& seen) {
     (void)seen;
-    if (!m) return {8, 8};
+    // A null member type was its own silent `{8,8}` here, one call short of the
+    // one `layout_of` now records. Fall through instead of answering twice.
     // All aggregate members are now stored INLINE by value (Rust layout):
     // struct/enum/slice/closure/dyn/array AND tuples. A nested tuple field
     // occupies its full by-value footprint, not a collapsed 8-byte ptr.
@@ -529,6 +530,15 @@ MLIRGenImpl::Layout MLIRGenImpl::enum_def_layout(const std::string& ename,
         ekey = ev->name();
         if (auto bt = ev->backing_type(pool_impl()))
             backing = lay::backing_layout(TypeRef(bt).kind());
+    } else {
+        // NO DECLARATION FOUND. `backing` stays `nullopt`, which the law reads
+        // as "no backing declared" and answers with the default i32 disc — a
+        // real answer to a question that was never asked. `enum B : u64` losing
+        // its backing type this way is the defect `clone_enum_def`'s note
+        // records, one phase earlier. Say that the declaration is missing.
+        lay::record_declined("layout_of", lay::type_key(epkg, ekey),
+                             "no enum declaration found — backing type unknown, "
+                             "the law was handed the i32 default");
     }
     auto ans = lay::enum_layout(te != nullptr, te && te->niche.packed,
                                 payload, backing);
@@ -537,10 +547,39 @@ MLIRGenImpl::Layout MLIRGenImpl::enum_def_layout(const std::string& ename,
     return { ans.layout.size, ans.layout.align };
 }
 
+// Does this type still carry something mono refuses to instantiate? Mirrors
+// `Mono::contains_typevar` / `Mono::type_contains_error` — the two predicates
+// that gate `record_needed_struct`. A type this answers TRUE for has no
+// instance ANYWHERE by construction, so a missing definition for it is a
+// different fact from a demand that was missed.
+bool MLIRGenImpl::type_has_unresolved_residue(TypeRef t, int depth) {
+    using K = LogosType::Kind;
+    if (!t || depth > 16) return false;
+    TypeRef tv{t};
+    switch (tv.kind()) {
+    case K::TypeVar: case K::Error: case K::AssocType:
+    case K::ConstVar: case K::CfgSlotType: case K::ImplTrait:
+        return true;
+    default: break;
+    }
+    for (auto a : tv.type_args())
+        if (type_has_unresolved_residue(a, depth + 1)) return true;
+    if (auto p = tv.pointee(); p && p != t)
+        if (type_has_unresolved_residue(p, depth + 1)) return true;
+    if (auto e = tv.elem(); e && e != t)
+        if (type_has_unresolved_residue(e, depth + 1)) return true;
+    for (auto e : tv.tuple_elems())
+        if (type_has_unresolved_residue(e, depth + 1)) return true;
+    return false;
+}
+
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
     using K = LogosType::Kind;
-    if (!t) return {8, 8};
+    if (!t) {
+        lay::record_declined("layout_of", "<null type>", "no type to size");
+        return {8, 8};
+    }
     TypeRef tv{t};
     if (is_anyval(tv)) return {4, 4};  // AnyVal is lowered as i32 everywhere
     // RefRepr (Phase 1): reference-like kinds get their {size,align} from the
@@ -557,7 +596,13 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     case K::UnsizedSlice:
         return { 0, tv.elem() ? aggregate_member_layout(tv.elem(), seen).align : 1 };
     case K::Array: {
-        if (!tv.elem()) return {0, 1};
+        if (!tv.elem()) {
+            // An array of nothing: `{0,1}` is as much a guess as `{8,8}`, and it
+            // silently zeroes every enclosing aggregate's stride.
+            lay::record_declined("layout_of", "<array with no element type>",
+                                 "array element type is absent");
+            return {0, 1};
+        }
         // Same law as the mlir_type path: an unbound length has no layout.
         // Returning 0 here silently sized every enclosing aggregate wrong,
         // and did so BEHIND the mlir_type guard rather than through it.
@@ -580,16 +625,73 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         // cycle-guard set and (b) mis-resolve all_struct_defs_ to the wrong def
         // → wrong size (find_struct_def_it).
         auto cname = mlir_struct_key(t);
-        if (!seen.insert(cname).second) return {8, 8};  // cycle guard
-        Layout r{8, 8};
-        if (auto it = find_struct_def_it(t); it != all_struct_defs_.end())
-            r = struct_def_layout(it->second, seen);
+        if (!seen.insert(cname).second) {
+            // A by-value cycle has no layout — a struct cannot contain itself.
+            // Reaching here means the recursion crossed something that is not
+            // an indirection, so the number below is not a layout; say so.
+            lay::record_declined("layout_of", cname,
+                                 "by-value cycle — a struct cannot contain itself");
+            return {8, 8};
+        }
+        // ⚠ NO PLAUSIBLE DEFAULT HERE. This engine's answer is what `sizeof`
+        // returns, what an alloca is sized with, and what `malloc` is handed.
+        // A missing definition used to fall to `{8, 8}` SILENTLY and, worse,
+        // without calling `struct_def_layout` — so nothing entered the ledger
+        // and `verify_layout_engines` could not have a cell for the type: the
+        // gate reported "0 disagreements" about a comparison it was never given.
+        // MEASURED: `sizeof::<W<i128>>()` = 8 for a 32-byte struct, with
+        // `offset_of!(W<i128>, n)` = 16 in the SAME compile — a field past the
+        // end of a type the compiler called 8 bytes.
+        //
+        // `all_struct_defs_` is built in mlir-gen's pass 0, before any layout
+        // question is asked, from everything mono emitted. A miss is therefore
+        // never "not yet": it is an instance mono never made, and there is no
+        // later phase in which it could arrive. So this dies, naming the type.
+        //
+        // TWO DECLINES, NOT ONE, and the difference is whether mono COULD have
+        // made the instance. `record_needed_struct` refuses, deliberately, to
+        // instantiate anything still carrying a TypeVar; so an unresolved
+        // residue reaching here is not "the demand was missed" — it is a type
+        // that has no instance to have. FOUND BY THIS FATAL, on
+        // `zone_zvec_two_zones`: the fully concrete `ZVec$G2$i64$Writ` carries a
+        // field still typed `HRel<T>`, T unbound, because the GAT `Z::Ptr<T>`
+        // resolved its constructor without substituting its argument. `{8,8}`
+        // was accidentally right there (`HRel` is one `i64`), which is exactly
+        // why nothing had ever noticed. That is a separate defect in mono's GAT
+        // substitution; it is RECORDED here, not diagnosed here.
+        auto it = find_struct_def_it(t);
+        if (it == all_struct_defs_.end()) {
+            std::string key = lay::type_key(tv.pkg_name(), concrete_struct_name(t));
+            if (type_has_unresolved_residue(t)) {
+                lay::record_declined("layout_of", key,
+                                     "type still carries an unresolved type variable — "
+                                     "no instance of it can exist");
+                seen.erase(cname);
+                return {8, 8};
+            }
+            lay::record_declined("layout_of", key,
+                                 "no struct definition registered — never monomorphized");
+            llvm::report_fatal_error(llvm::StringRef(
+                "layout of '" + key + "' was asked for, but no definition of that "
+                "instance exists — it was never monomorphized. A type used without a "
+                "value (sizeof / align_of / offset_of! / a type argument consumed for "
+                "its layout) is an instantiation demand like any other."));
+        }
+        Layout r = struct_def_layout(it->second, seen);
         seen.erase(cname);
         return r;
     }
     case K::Enum:
         return enum_def_layout(std::string(tv.enum_name()), t);
-    default: return {8, 8};
+    default:
+        // Same law as above, one level up: a kind this switch does not name has
+        // no layout here, and `{8, 8}` is a guess that reads as an answer. It is
+        // not fatal — `TypeVar` / `Error` residue reaches this in ill-typed
+        // programs whose diagnostics must still be emitted — but it is RECORDED,
+        // so the census the gate floors can see that a computation was declined.
+        lay::record_declined("layout_of", lay::kind_key(tv.kind()),
+                             "kind has no layout rule in layout_of");
+        return {8, 8};
     }
 }
 
@@ -1369,6 +1471,38 @@ void MLIRGenImpl::verify_layout_engines() {
         }
     }
 
+    // ── THE ANSWERS NOBODY GAVE ─────────────────────────────────────────────
+    //
+    // Everything above compares RECORDED answers. A type an engine DECLINED to
+    // size has no row, so it cannot disagree with anything: "0 disagreements"
+    // was true of `sizeof::<W<i128>>() == 8` because the comparison was never
+    // offered the type. A decline is now recorded (layout_law.hpp), and it is
+    // counted HERE, on the same census line and into the same `bad` list as a
+    // disagreement — so a declined computation is red, by the same instrument,
+    // rather than absent.
+    // ⚠ THE CANARY FOR THIS FIELD. `declined` is 0 on every program in the
+    // gate's set, and a number that is always 0 and has never been shown able
+    // to be anything else is indistinguishable from a number nobody computes.
+    // `LOGOS_LAYOUT_CANARY=declined` pushes ONE synthetic decline through
+    // `record_declined`, so it rides `declines()`, `n_declined`, the `bad` rows,
+    // the census line, the JSON field the gate binds, and the `!bad.empty()`
+    // fatal — every step after an engine has decided to decline. The decision
+    // itself is per-site and is not injectable from here; that limit is stated
+    // rather than papered over.
+    if (const char* dce = layout::canary_engine();
+        dce && std::strcmp(dce, "declined") == 0)
+        layout::record_declined("canary", "<fault-injected>",
+                                "LOGOS_LAYOUT_CANARY=declined");
+    uint64_t n_declined = layout::declines().size();
+    {
+        std::string db = bucket;
+        bucket = "declined";
+        for (auto& d : layout::declines())
+            bad.push_back({ bucket, d.key + ": DECLINED — " + std::string(d.engine) +
+                                    " could not size it (" + d.why + ")" });
+        bucket = db;
+    }
+
     if (std::getenv("LOGOS_VERIFY_LAYOUT")) {
         // PER ENGINE, not a total: a total lets one engine go silent while the
         // other carries the number. Every engine that answers must appear here
@@ -1378,11 +1512,13 @@ void MLIRGenImpl::verify_layout_engines() {
             per += ", " + eng + " " + std::to_string(n);
         std::fprintf(stderr,
                      "layout-verify: %llu struct types, %llu fields, %llu defs, "
-                     "%llu enum types%s, %llu unmatched, %llu disagreements\n",
+                     "%llu enum types%s, %llu unmatched, %llu declined, "
+                     "%llu disagreements\n",
                      (unsigned long long)n_types, (unsigned long long)n_fields,
                      (unsigned long long)n_defs,
                      (unsigned long long)n_enum_types, per.c_str(),
                      (unsigned long long)n_unmatched,
+                     (unsigned long long)n_declined,
                      (unsigned long long)bad.size());
         // THE MATRIX, one row per engine. Every cell is a COUNT OF CHECKED
         // ANSWERS of that shape — not a claim that the shape exists. The gate
@@ -1423,6 +1559,11 @@ void MLIRGenImpl::verify_layout_engines() {
         j += jnum("defs", n_defs) + ",";
         j += jnum("enum_types", n_enum_types) + ",";
         j += jnum("unmatched", n_unmatched) + ",";
+        // COUNTED SEPARATELY FROM `disagreements` EVEN THOUGH IT FEEDS IT: the
+        // gate floors `declined` at exactly 0, and a decline folded only into
+        // the disagreement total would be indistinguishable from a byte-count
+        // mismatch — two different failures, one number.
+        j += jnum("declined", n_declined) + ",";
         j += jnum("disagreements", bad.size()) + ",";
         j += "\"engines\":{";
         bool first = true;

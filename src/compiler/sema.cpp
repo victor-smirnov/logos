@@ -4375,7 +4375,14 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         // registered first.
         SemaStructInfo* ssi = find_struct_repr_(tv.pkg_name(), tv.struct_name());
         if (!ssi) ssi = find_datatype_repr_(tv.pkg_name(), tv.struct_name());
-        if (!ssi) return {8, 8};  // unknown — assume pointer size
+        // A DECLINE, NOT A DEFAULT — `{8,8}` here is a guess that reads as an
+        // answer and enters no ledger, so nothing downstream can tell it from a
+        // computed layout. Recorded so the verifier's census can count it.
+        if (!ssi) {
+            lay::record_declined("sema_abi_layout", lay::type_key(tv.pkg_name(), cn),
+                                 "no struct repr registered for this type");
+            return {8, 8};
+        }
         SemaSubst sub = layout_subst(*ssi, tv);
         auto fl = [&](TypeRef ft) {
             return sema_abi_layout(sub.empty() ? ft : subst_type_sema(ft, sub), seen);
@@ -4394,7 +4401,12 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
     }
     case K::Enum: {
         SemaEnumInfo* esi = find_enum_repr_(tv.pkg_name(), tv.enum_name());
-        if (!esi) return {8, 8};
+        if (!esi) {
+            lay::record_declined("sema_abi_layout",
+                                 lay::type_key(tv.pkg_name(), tv.enum_name()),
+                                 "no enum repr registered for this type");
+            return {8, 8};
+        }
         SemaSubst sub = layout_subst(*esi, tv);
         // Payload types SUBSTITUTED: the whole point. `Option<i32>`'s Some arm
         // is `T` in the declaration; unsubstituted it is a TypeVar and falls to
@@ -4435,7 +4447,10 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
                     lay::type_key(tv.pkg_name(), sema_enum_key(tv)), ans);
         return { ans.layout.size, ans.layout.align };
     }
-    default: return {8, 8};
+    default:
+        lay::record_declined("sema_abi_layout", lay::kind_key(tv.kind()),
+                             "kind has no layout rule in sema_abi_layout");
+        return {8, 8};
     }
 }
 

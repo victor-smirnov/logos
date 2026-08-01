@@ -68,6 +68,30 @@
 #   the rule-selector scan    a planted TU that names         the same grep, the
 #   (new)                     `lay::Uni` and chooses between  same allowlist
 #                             `niche_enum`/`tagged_enum`
+#   the DECLINE count (new)   `LOGOS_LAYOUT_CANARY=declined`  `declines()`, the
+#                             pushes ONE synthetic decline    `n_declined` count,
+#                             through `record_declined`       the `bad` rows, the
+#                                                             census + JSON field,
+#                                                             this file's
+#                                                             `N_DECLINED != 0`
+#
+# ⚠⚠ AND WHY `declined` EXISTS AT ALL — THE HOLE A DISAGREEMENT CANNOT SHOW.
+#
+# Every arm above compares TWO ANSWERS. It is silent, by construction, about a
+# type an engine never answered for: no row, no cell, no disagreement. That is
+# not hypothetical. `layout_of`'s Struct case met a missing definition with
+# `Layout r{8, 8}` and returned WITHOUT calling `struct_def_layout`, so nothing
+# entered the ledger — and mono did not make the instance because a type
+# mentioned only in `sizeof::<T>()` was not treated as an instantiation demand.
+# MEASURED: `sizeof::<W<i128>>()` = 8 for a 32-byte struct, `offset_of!(W<i128>,
+# n)` = 16 in the SAME compile, `malloc(sizeof(..))` short by 24 bytes — and
+# THIS GATE, on that program, reported 0 disagreements. Truthfully. It had never
+# been offered the type.
+#
+# So a decline is now a recorded fact with its own field, floored at exactly 0,
+# and the canary above proves the field can move. The engine asked at CODEGEN
+# additionally dies at the decline site, since no later phase can supply what it
+# was missing.
 #
 # ⚠⚠ AND WHY THERE IS NOW A MATRIX. The previous form floored a per-engine
 # TOTAL. A total says the engine was checked; it does not say WHICH BRANCHES
@@ -280,7 +304,7 @@ MIN_ENUM_TYPES=91
 # The verdict's exact field set. A field this gate does not floor is still a
 # field whose disappearance means the verdict's shape moved, and a gate reading
 # a shape it was not written against is guessing.
-VERDICT_KEYS='struct_types,fields,defs,enum_types,unmatched,disagreements,engines,matrix'
+VERDICT_KEYS='struct_types,fields,defs,enum_types,unmatched,declined,disagreements,engines,matrix'
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -357,6 +381,7 @@ census_raw() {   # census_raw <src> [canary-engine]; sets RC and, when the verdi
     # nothing — absent must read as 0 and never as "not measured" — so those two
     # are defaulted by `have_engine` below rather than bound blindly.
     N_TYPES=0; N_FIELDS=0; N_DEFS=0; N_BAD=-1; N_SEMA=0; N_MONO=0; N_ENUMS=0
+    N_DECLINED=-1
     HAVE_VERDICT=0
     grep -q '^layout-verify-json:' "$TMPD/err" || return 0
     HAVE_VERDICT=1
@@ -368,7 +393,7 @@ census_raw() {   # census_raw <src> [canary-engine]; sets RC and, when the verdi
         --exact-keys "$VERDICT_KEYS" \
         --bind N_TYPES=struct_types --bind N_FIELDS=fields \
         --bind N_DEFS=defs --bind N_ENUMS=enum_types \
-        --bind N_BAD=disagreements \
+        --bind N_BAD=disagreements --bind N_DECLINED=declined \
         --bind-opt N_SEMA=engines.sema_abi_layout:0 \
         --bind-opt N_MONO=engines.mono_abi_layout:0
 }
@@ -385,6 +410,21 @@ census() {   # the REAL path: compiles, verdict present, ZERO disagreements
     fi
     if [ "$N_BAD" -ne 0 ]; then
         echo "FAIL: $N_BAD layout disagreements on $1"; cat "$TMPD/err"; exit 1
+    fi
+    # ── AND THE ANSWERS NOBODY GAVE ─────────────────────────────────────────
+    # `disagreements` is about types that were SIZED TWICE and differ. It is
+    # silent about a type an engine DECLINED to size — which is how
+    # `sizeof::<W<i128>>() == 8` lived behind this gate reporting 0: mono never
+    # made the instance, `layout_of` found no definition, took `{8,8}` without
+    # calling `struct_def_layout`, and so recorded NOTHING. No row, no cell, no
+    # disagreement. A declined computation is now a recorded fact and its floor
+    # is EXACTLY ZERO, read as its own field so it cannot be confused with a
+    # byte-count mismatch.
+    if [ "$N_DECLINED" -ne 0 ]; then
+        echo "FAIL: $N_DECLINED layout computation(s) DECLINED on $1 — an engine"
+        echo "       could not size a type and would have answered {8,8}. That is"
+        echo "       not a disagreement, it is a type the comparison never saw."
+        cat "$TMPD/err"; exit 1
     fi
 }
 
@@ -603,6 +643,44 @@ floor "baseline defs compared (A vs C)"           "$BASE_DEFS"   "$MIN_BASELINE_
 for eng in layout_of mlir_abi_size sema_abi_layout mono_abi_layout; do
     canary "$TMPD/base.logos" "$eng"
 done
+
+# ── 1c. THE CANARY FOR `declined` ────────────────────────────────────────────
+# The four canaries above ride the DISAGREEMENT path: two engines answered and
+# differ. `declined` is the other half — an engine that did not answer at all —
+# and it reads 0 on every program here. A field that is always 0 and has never
+# been shown able to be anything else is exactly the failure this gate exists to
+# remove: it is indistinguishable from a field nobody computes. So one synthetic
+# decline is injected and BOTH numbers must move.
+canary_declined() {
+    local src=$1
+    census_raw "$src" "declined"
+    if [ "$HAVE_VERDICT" -eq 0 ]; then
+        echo "FAIL (CANARY 'declined'): no 'layout-verify-json:' verdict at all."
+        sed -n '1,20p' "$TMPD/err"; exit 1
+    fi
+    if [ "$N_DECLINED" -lt 1 ]; then
+        echo "FAIL (CANARY 'declined' NOT CAUGHT): a decline was injected and the"
+        echo "       verifier still reported declined=$N_DECLINED. The zero this"
+        echo "       gate floors on every real program is therefore a statement"
+        echo "       about nothing. THE GATE IS BROKEN, not the tree."
+        grep -m1 '^layout-verify-json:' "$TMPD/err" || true
+        exit 1
+    fi
+    if [ "$N_BAD" -lt 1 ]; then
+        echo "FAIL (CANARY 'declined'): declined=$N_DECLINED was counted but"
+        echo "       disagreements=$N_BAD — a decline is not reaching the rows"
+        echo "       that make the compile fail, so it would be a footnote."
+        exit 1
+    fi
+    if ! grep -q -- 'DECLINED —' "$TMPD/err"; then
+        echo "FAIL (CANARY 'declined'): counted but no 'DECLINED —' row names it,"
+        echo "       so a real decline would be a number with nothing to act on."
+        sed -n '1,20p' "$TMPD/err"; exit 1
+    fi
+    echo "[layout-gate] canary 'declined': caught — declined=$N_DECLINED, and it" \
+         "reached the failure rows (disagreements=$N_BAD)"
+}
+canary_declined "$TMPD/base.logos"
 
 # ── 2. the lattice ───────────────────────────────────────────────────────────
 # Generated here, from the axes, so "which shapes are covered" is a loop and not

@@ -1040,6 +1040,11 @@ public:
     // drop a field. The composition rules that build it live in layout_law.hpp.
     using Layout = logos::compiler::layout::L;
 private:
+    // TRUE iff the type still carries something mono refuses to instantiate
+    // (TypeVar / Error / AssocType / ConstVar / …). Such a type has no instance
+    // by construction, so "no definition registered" means something different
+    // about it than it does about a concrete one — see `layout_of`'s Struct case.
+    bool type_has_unresolved_residue(TypeRef t, int depth = 0);
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
     // `layout_of`'s Struct case, keyed by the DEFINITION instead of a TypeRef —

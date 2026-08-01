@@ -1,0 +1,153 @@
+// A TYPE USED WITHOUT A VALUE IS AN INSTANTIATION DEMAND.
+//
+// `sizeof::<T>()` / `align_of::<T>()` / `offset_of!(T, f)` consume T for its
+// LAYOUT. The expression's own type is `usize`/`i64`, so mono's needs-walk —
+// which read the type of the VALUE an expression produces — never saw T. A
+// generic instance mentioned only there was therefore never monomorphized,
+// mlir-gen's `layout_of` found no definition, and its `Layout r{8, 8}` default
+// answered SILENTLY.
+//
+// MEASURED at the defect, exit code only, two files differing by one UNUSED
+// local:
+//     struct W<T> { pub v: T, pub n: u8 }
+//     fn main() -> i64 { return sizeof::<W<i128>>() as i64; }         -> 8
+//     the same plus `let w: W<i128> = W { v: 1i128, n: 2u8 };`        -> 32
+// and, inside ONE compile: `sizeof::<G<i64>>()` = 8 while
+// `offset_of!(G<i64>, c)` = 16 — a field sixteen bytes into a type the compiler
+// called eight bytes long. `malloc(sizeof::<G<i64>>())` asked for 8.
+//
+// THE ORACLE HERE IS NOT THE NUMBERS. It is that an answer must not depend on
+// whether a VALUE of the type happens to exist in the program: every question
+// below is asked twice over two structurally identical types, once where no
+// value is ever built and once where an unused local forces the instance. The
+// absolute numbers are asserted too, so "both halves wrong the same way" is
+// still red.
+//
+// Each shape gets its OWN type: a demand recorded for one shape must not be
+// what makes another shape's answer right.
+//
+// ── WHICH CHECKS ARE SENSORS, MEASURED ──────────────────────────────────────
+// Every assertion below was split into its own program and run against the
+// PRE-CHANGE compiler and this one. A check that is green on both is an
+// invariant, not evidence — writing that distinction down is the point, because
+// a check that cannot go red for the class it appears to cover is the exact
+// shape of a gate that lies.
+//
+//   SENSOR (red before, green after) — 15:
+//     1 2 3 4 6 7 8   (the absolute no-value answers)
+//     21 22 23 24 26 27 28   (the metamorphic pairs)
+//     32   (offset_of! past the end of the type's own size — the
+//           self-contradiction inside ONE compile)
+//
+//   INVARIANT ONLY (green before AND after) — 13:
+//     5, 25   `offset_of!` is resolved by SEMA against the TEMPLATE, so it was
+//             already right; that is WHY it contradicted `sizeof`.
+//     11–18   the value half. Correct by construction — it is the control.
+//     31      `sizeof::<[N8; 3]>() == sizeof::<N8>() * 3`. ⚠ NOT a sensor for
+//             this defect: the array case MULTIPLIES the element's answer, so
+//             8*3 and a 24-byte array agreed while both were wrong. Kept as a
+//             stride invariant, not counted as coverage of this class.
+//     33, 34  loose ordering invariants; both held at the defect.
+package sizeof_type_without_value;
+
+// ── the no-value half: no value of any of these is ever constructed ─────────
+struct N1<T> { pub a: u8, pub b: T, pub c: u8 }   // sizeof
+struct N2<T> { pub a: u8, pub b: T, pub c: u8 }   // align_of
+struct N3<T> { pub a: u8, pub b: T, pub c: u8 }   // element of an array type
+struct N4<T> { pub a: u8, pub b: T, pub c: u8 }   // member of a tuple type
+struct N5<T> { pub a: u8, pub b: T, pub c: u8 }   // offset_of!
+struct N6<T> { pub a: u8, pub b: T, pub c: u8 }   // field of another generic
+struct N7<T> { pub a: u8, pub b: T, pub c: u8 }   // payload of a generic enum
+struct N8<T> { pub a: u8, pub b: T, pub c: u8 }   // the three-way coherence
+struct N9<T> { pub v: T, pub n: u8 }              // payload of a PLAIN enum
+
+struct NNest<T> { pub x: N6<T>, pub y: u8 }
+enum NMaybe<T> { None, Some(T) }
+enum NTree { Leaf, Node(N9<i128>) }
+
+// ── the value half: same shapes, and `force_values` builds one of each ──────
+struct V1<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V2<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V3<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V4<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V5<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V6<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V7<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V8<T> { pub a: u8, pub b: T, pub c: u8 }
+struct V9<T> { pub v: T, pub n: u8 }
+
+struct VNest<T> { pub x: V6<T>, pub y: u8 }
+enum VMaybe<T> { None, Some(T) }
+enum VTree { Leaf, Node(V9<i128>) }
+
+// The ONLY difference between the two halves. Every local here is unused; the
+// function is called so nothing prunes it away.
+fn force_values() -> i64 {
+    let v1: V1<i128> = V1 { a: 1u8, b: 2i128, c: 3u8 };
+    let v2: V2<i128> = V2 { a: 1u8, b: 2i128, c: 3u8 };
+    let v3: V3<i64>  = V3 { a: 1u8, b: 2i64,  c: 3u8 };
+    let v4: V4<i64>  = V4 { a: 1u8, b: 2i64,  c: 3u8 };
+    let v5: V5<i64>  = V5 { a: 1u8, b: 2i64,  c: 3u8 };
+    let v8: V8<i64>  = V8 { a: 1u8, b: 2i64,  c: 3u8 };
+    let vn: VNest<i64> = VNest { x: V6 { a: 1u8, b: 2i64, c: 3u8 }, y: 4u8 };
+    let vm: VMaybe<V7<i64>> = VMaybe::Some(V7 { a: 1u8, b: 2i64, c: 3u8 });
+    let v9: V9<i128> = V9 { v: 1i128, n: 2u8 };
+    return (v1.a as i64) + (v2.a as i64) + (v3.a as i64) + (v4.a as i64)
+         + (v5.a as i64) + (v8.a as i64) + (vn.y as i64) + (v9.n as i64)
+         + match vm { VMaybe::Some(s) => s.a as i64, VMaybe::None => 0i64 };
+}
+
+fn main() -> i64 {
+    if force_values() != 13i64 { return 90i64; }
+
+    // ── ABSOLUTE: what the layout law says these are ────────────────────────
+    // `{u8, i128, u8}`: b at 16, c at 32, rounded to align 16 -> 48.
+    if sizeof::<N1<i128>>() != 48i64 { return 1i64; }
+    if align_of::<N2<i128>>() != 16i64 { return 2i64; }
+    // `{u8, i64, u8}` is 24; three of them stride to 72.
+    if sizeof::<[N3<i64>; 3]>() != 72i64 { return 3i64; }
+    // (24-byte struct, u8) -> 25 rounded to 8.
+    if sizeof::<(N4<i64>, u8)>() != 32i64 { return 4i64; }
+    if offset_of!(N5<i64>, c) != 16i64 { return 5i64; }
+    if sizeof::<NNest<i64>>() != 32i64 { return 6i64; }
+    // tagged enum: i32 disc, payload at align_up(4, 8) = 8, 8 + 24 = 32.
+    if sizeof::<NMaybe<N7<i64>>>() != 32i64 { return 7i64; }
+    // A PLAIN enum whose payload names a generic struct no value of which
+    // exists. This is the docgen shape — `enum Json { Array(Vec<Json>) … }`
+    // sized its payload through a `Vec` instance nothing had built.
+    // {i128, u8} is 32/16; disc at 0, payload at 16, total 48.
+    if sizeof::<NTree>() != 48i64 { return 8i64; }
+
+    // ── THE SAME QUESTIONS, WHERE A VALUE EXISTS ───────────────────────────
+    if sizeof::<V1<i128>>() != 48i64 { return 11i64; }
+    if align_of::<V2<i128>>() != 16i64 { return 12i64; }
+    if sizeof::<[V3<i64>; 3]>() != 72i64 { return 13i64; }
+    if sizeof::<(V4<i64>, u8)>() != 32i64 { return 14i64; }
+    if offset_of!(V5<i64>, c) != 16i64 { return 15i64; }
+    if sizeof::<VNest<i64>>() != 32i64 { return 16i64; }
+    if sizeof::<VMaybe<V7<i64>>>() != 32i64 { return 17i64; }
+    if sizeof::<VTree>() != 48i64 { return 18i64; }
+
+    // ── METAMORPHIC: the answer is independent of whether a value exists ────
+    // Red even if every number above were revised: the two halves are the same
+    // shapes, and the only difference between them is `force_values`.
+    if sizeof::<N1<i128>>() != sizeof::<V1<i128>>() { return 21i64; }
+    if align_of::<N2<i128>>() != align_of::<V2<i128>>() { return 22i64; }
+    if sizeof::<[N3<i64>; 3]>() != sizeof::<[V3<i64>; 3]>() { return 23i64; }
+    if sizeof::<(N4<i64>, u8)>() != sizeof::<(V4<i64>, u8)>() { return 24i64; }
+    if offset_of!(N5<i64>, c) != offset_of!(V5<i64>, c) { return 25i64; }
+    if sizeof::<NNest<i64>>() != sizeof::<VNest<i64>>() { return 26i64; }
+    if sizeof::<NMaybe<N7<i64>>>() != sizeof::<VMaybe<V7<i64>>>() { return 27i64; }
+    if sizeof::<NTree>() != sizeof::<VTree>() { return 28i64; }
+
+    // ── COHERENT WITH ITSELF, IN ONE COMPILE ───────────────────────────────
+    // The defect's sharpest face was not a wrong number, it was two numbers:
+    // a field at byte 16 of an 8-byte type, and an array of three of them
+    //24 bytes long. These hold whatever the size turns out to be.
+    if sizeof::<[N8<i64>; 3]>() != sizeof::<N8<i64>>() * 3i64 { return 31i64; }
+    if offset_of!(N8<i64>, c) >= sizeof::<N8<i64>>() { return 32i64; }
+    if sizeof::<(N8<i64>, u8)>() < sizeof::<N8<i64>>() { return 33i64; }
+    if align_of::<N8<i64>>() > sizeof::<N8<i64>>() { return 34i64; }
+
+    return 0i64;
+}

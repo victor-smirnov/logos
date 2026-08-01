@@ -99,14 +99,41 @@ unsafe fn main() -> i64 {
     if sizeof::<&SliceFoo>() != 16 { return 80; }
     if sizeof::<&mut SliceFoo>() != 16 { return 81; }
 
-    // @rule layout.dst.dyn-tail-ref-is-thin
-    // A ref whose pointee has a `dyn`-tail (Rc<dyn>) is physically thin: single 8-byte pointer.
-    if sizeof::<Rc<dyn Speak>>() != 8 { return 90; }
+    // ⚠ `layout.dst.dyn-tail-ref-is-thin` IS NOT WHAT THE COMPILER DOES, AND
+    // THIS LINE WAS NOT MEASURING IT.
+    //
+    // The `8` below was never the size of anything: `Rc<dyn Speak>` is not
+    // constructed in this file, so mono never made the instance, `layout_of`
+    // found no definition and returned its `{8, 8}` DEFAULT. The moment a value
+    // of the type exists in the program, the same expression answers 16 — that
+    // is the defect this note comes from, and it is now fixed, so the default is
+    // gone and the real number is here.
+    //
+    // MEASURED, one file, a value present, exit code only:
+    //     sizeof::<&RcInner<dyn Speak>>()     = 16
+    //     sizeof::<*mut RcInner<dyn Speak>>() = 16
+    //     sizeof::<Rc<dyn Speak>>()           = 16
+    // and the emitted LLVM agrees — `%"logos.lang.rc.Rc$G1$udyn_Speak" =
+    // type { { ptr, i64 } }`, with `dereferenceable(16)` on every method's
+    // self pointer. `verify_layout_engines` reports 0 disagreements on this
+    // file, so `llvm::DataLayout` says 16 too.
+    //
+    // The rule's OWN witness (`&RcInner<dyn>`) is 16, not 8, and always has
+    // been: that path never went through the missing-definition default. So the
+    // rule text in docs/spec/types.md §layout.dst is stale with respect to the
+    // implementation, INDEPENDENTLY of the defect above. Whether the dyn-tail
+    // pointer SHOULD become thin is a representation decision, not a bug fix,
+    // and it is left open here rather than decided in a test. What this file
+    // asserts is what the object file does, which is the only thing `sizeof` is
+    // allowed to mean.
+    if sizeof::<Rc<dyn Speak>>() != 16 { return 90; }
 
     // @rule layout.dstref.fat-only-with-slice-tail
-    // Fat {data,len} ONLY for a literal `[T]` slice tail; dyn-tail and self_describing DST refs are thin 8.
+    // Fat {data,len} for a literal `[T]` slice tail. The `Rc<dyn>` witness on
+    // the second line was the same unmonomorphized default as above — see the
+    // note there; it reads the measured 16.
     if sizeof::<&SliceFoo>() != 16 { return 100; }
-    if sizeof::<Rc<dyn Speak>>() != 8 { return 101; }
+    if sizeof::<Rc<dyn Speak>>() != 16 { return 101; }
 
     // @rule layout.dst.self-describing-ref-is-thin
     // A ref to a #[self_describing] DST is a thin 8-byte pointer; tail length recovered in-band.
