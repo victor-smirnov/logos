@@ -53,7 +53,10 @@ namespace logos::compiler {
 
 // Defined in sema.cpp (non-inline, single definition):
 bool types_equal(TypeRef a, TypeRef b) noexcept;
-std::string type_str(TypeRef t);
+// ⚠ ONE declaration, in `sema.hpp` — this re-declaration used to shadow it with
+// a narrower signature, which is how a defaulted second parameter turns into an
+// "ambiguous call" at every use site rather than into the default.
+std::string type_str(TypeRef t, bool source_form);
 
 // Diagnostic helper: when two types have the same bare struct/enum name but
 // different packages (B-mv-02 / B-mv-09), prepend `pkg.` so the user can see

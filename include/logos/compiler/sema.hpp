@@ -771,7 +771,28 @@ struct TypeParam {
 bool types_equal(TypeRef a, TypeRef b) noexcept;
 
 // Human-readable name for error messages.
-std::string type_str(TypeRef t);
+//
+// ⚠ TWO JOBS, AND THEY DIVERGE IN EXACTLY ONE CASE — hence the parameter.
+// `type_str` is read as a NAME (`sema_expr`'s `tname + "__" + method` is the
+// symbol a primitive/enum method call resolves to, and an enum's methods are
+// emitted under its BARE name: `Result__ne`), and it is ALSO read as SOURCE
+// (`SemaChecker::render_type_src` returns it verbatim into a synthesised block
+// that is then RE-PARSED — that is how `println!` carries its argument types).
+// For an enum those two answers are not the same string: the name must stay
+// `Result`, the source must say `Result<T, E>`.
+//
+// Dropping the arguments in the source form is not cosmetic. MEASURED:
+// `println!("{}", sizeof::<Option<Arc<i32>>>())` printed **4** — the bare word
+// `Option` re-parses to an enum with no arguments, so no instance is found, the
+// law is handed "no payload" and answers the i32 discriminant. The same
+// expression OUTSIDE `println!` was right (8), which is why nothing noticed.
+// `sizeof::<G<i64>>()` printed 4 for 16, `sizeof::<G<i32>>()` 4 for 8.
+//
+// `source_form` is FALSE by default, so every existing caller — every symbol
+// name and every diagnostic — is byte-identical to before. Only the renderer
+// asks for the other answer, and the flag threads through the recursion so a
+// generic enum nested inside a type argument is rendered too.
+std::string type_str(TypeRef t, bool source_form = false);
 
 // Render an entire Writ AST document back as Logos source. Used by
 // `logosc --dump-metaprog` to display metafn-generated ASTs without

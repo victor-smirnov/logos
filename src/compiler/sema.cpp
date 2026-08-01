@@ -2298,7 +2298,7 @@ static std::string decode_len_expr_infix(std::string_view post) {
     return st.size() == 1 ? st[0] : "<expr>";
 }
 
-std::string type_str(TypeRef t) {
+std::string type_str(TypeRef t, bool source_form) {
     if (!t) return "<null>";
     switch (TypeRef(t).kind()) {
     case LogosType::Kind::Void:   return "void";
@@ -2333,16 +2333,16 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::Ptr:
         return std::string(TypeRef(t).zoned_ptr() ? (TypeRef(t).mut_ptr() ? "*zoned mut " : "*zoned ")
                                                   : (TypeRef(t).mut_ptr() ? "*mut " : "*const "))
-             + type_str(TypeRef(t).pointee());
+             + type_str(TypeRef(t).pointee(), source_form);
     case LogosType::Kind::Ref: {
         std::string s = "&";
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
-        return s + type_str(TypeRef(t).pointee());
+        return s + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::MutRef: {
         std::string s = "&";
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
-        return s + "mut " + type_str(TypeRef(t).pointee());
+        return s + "mut " + type_str(TypeRef(t).pointee(), source_form);
     }
     case LogosType::Kind::Array: {
         // A symbolic length must print as its NAME. Printing arr_size() gave
@@ -2350,11 +2350,11 @@ std::string type_str(TypeRef t) {
         // type nobody wrote. A deferred EXPRESSION decodes back to infix.
         std::string asv(TypeRef(t).arr_size_var());
         if (asv.rfind(ARR_LEN_EXPR_PFX, 0) == 0)
-            return std::format("[{}; {}]", type_str(TypeRef(t).elem()),
+            return std::format("[{}; {}]", type_str(TypeRef(t).elem(), source_form),
                                decode_len_expr_infix(std::string_view(asv).substr(ARR_LEN_EXPR_PFX.size())));
         if (!asv.empty())
-            return std::format("[{}; {}]", type_str(TypeRef(t).elem()), asv);
-        return std::format("[{}; {}]", type_str(TypeRef(t).elem()), TypeRef(t).arr_size());
+            return std::format("[{}; {}]", type_str(TypeRef(t).elem(), source_form), asv);
+        return std::format("[{}; {}]", type_str(TypeRef(t).elem(), source_form), TypeRef(t).arr_size());
     }
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
@@ -2367,21 +2367,21 @@ std::string type_str(TypeRef t) {
           }
           for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
               if (!first) r += ", "; first = false;
-              r += type_str(TypeRef(t).type_args()[i]);
+              r += type_str(TypeRef(t).type_args()[i], source_form);
           }
           return r + ">"; }
     case LogosType::Kind::Tuple: {
         std::string r = "(";
         for (size_t i = 0; i < TypeRef(t).tuple_elems().size(); ++i) {
             if (i) r += ", ";
-            r += type_str(TypeRef(t).tuple_elems()[i]);
+            r += type_str(TypeRef(t).tuple_elems()[i], source_form);
         }
         return r + ")"; }
     case LogosType::Kind::Slice:
         return std::format("&{}[{}]", TypeRef(t).mut_ptr() ? "mut " : "",
-                           type_str(TypeRef(t).elem()));
+                           type_str(TypeRef(t).elem(), source_form));
     case LogosType::Kind::UnsizedSlice:
-        return std::format("[{}]", type_str(TypeRef(t).elem()));
+        return std::format("[{}]", type_str(TypeRef(t).elem(), source_form));
     case LogosType::Kind::UnsizedDyn:
         return std::format("dyn {}", TypeRef(t).trait_name());
     case LogosType::Kind::DstRef: {
@@ -2392,7 +2392,7 @@ std::string type_str(TypeRef t) {
             s += "<";
             for (size_t i = 0; i < args.size(); ++i) {
                 if (i) s += ", ";
-                s += type_str(args[i]);
+                s += type_str(args[i], source_form);
             }
             s += ">";
         }
@@ -2402,10 +2402,10 @@ std::string type_str(TypeRef t) {
         std::string r = "|";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
-            r += type_str(TypeRef(t).closure_params()[i]);
+            r += type_str(TypeRef(t).closure_params()[i], source_form);
         }
         r += "| -> ";
-        r += type_str(TypeRef(t).closure_ret());
+        r += type_str(TypeRef(t).closure_ret(), source_form);
         return r; }
     case LogosType::Kind::FnPtr: {
         // T2-23: surface the extern ABI tag (struct_name; "" = default) so
@@ -2416,10 +2416,10 @@ std::string type_str(TypeRef t) {
         r += "fn(";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
-            r += type_str(TypeRef(t).closure_params()[i]);
+            r += type_str(TypeRef(t).closure_params()[i], source_form);
         }
         r += ") -> ";
-        r += type_str(TypeRef(t).closure_ret());
+        r += type_str(TypeRef(t).closure_ret(), source_form);
         return r; }
     case LogosType::Kind::FnItem: {
         // logos-core 1.4: render as `fn ITEM<name>(args) -> ret` — the
@@ -2434,19 +2434,44 @@ std::string type_str(TypeRef t) {
             r += "::<";
             for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
                 if (i) r += ", ";
-                r += type_str(TypeRef(t).type_args()[i]);
+                r += type_str(TypeRef(t).type_args()[i], source_form);
             }
             r += ">";
         }
         r += ">(";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
-            r += type_str(TypeRef(t).closure_params()[i]);
+            r += type_str(TypeRef(t).closure_params()[i], source_form);
         }
         r += ") -> ";
-        r += type_str(TypeRef(t).closure_ret());
+        r += type_str(TypeRef(t).closure_ret(), source_form);
         return r; }
-    case LogosType::Kind::Enum:        return std::string(TypeRef(t).enum_name());
+    // ⚠ THE ONE CASE WHERE THE NAME AND THE SOURCE ARE DIFFERENT STRINGS.
+    // An enum's methods are emitted under its BARE name (`Result__ne`), and
+    // `sema_expr`'s method dispatch builds that symbol as `type_str(recv) +
+    // "__" + method` — so the NAME form must keep dropping the arguments, and
+    // making it render them broke `impl Eq for Result` in the stdlib's own
+    // build. The SOURCE form must render them: `render_type_src` feeds its
+    // result into a synthesised block that is RE-PARSED, and a bare `Option`
+    // re-parses to an enum with no arguments, no instance and no payload —
+    // `sizeof::<Option<Arc<i32>>>()` inside a `println!` printed 4 for 8.
+    // (The struct case above has no such split: a struct's methods are keyed
+    // by `concrete_struct_name`, not by this function.)
+    case LogosType::Kind::Enum: {
+        if (!source_form ||
+            (TypeRef(t).type_args().empty() && TypeRef(t).lifetime_args().empty()))
+            return std::string(TypeRef(t).enum_name());
+        std::string r = std::string(TypeRef(t).enum_name()) + "<";
+        bool first = true;
+        for (auto& lt : TypeRef(t).lifetime_args()) {
+            if (!first) r += ", "; first = false;
+            r += lt;
+        }
+        for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
+            if (!first) r += ", "; first = false;
+            r += type_str(TypeRef(t).type_args()[i], source_form);
+        }
+        return r + ">"; }
     case LogosType::Kind::TraitObject: {
         std::string r = "&dyn " + std::string(TypeRef(t).trait_name());
         auto ta = TypeRef(t).type_args();
@@ -2454,7 +2479,7 @@ std::string type_str(TypeRef t) {
             r += "<";
             for (size_t i = 0; i < ta.size(); ++i) {
                 if (i) r += ", ";
-                r += type_str(ta[i]);
+                r += type_str(ta[i], source_form);
             }
             r += ">";
         }
@@ -2470,12 +2495,12 @@ std::string type_str(TypeRef t) {
         return nm;
     }
     case LogosType::Kind::AssocType: {
-        std::string r = type_str(TypeRef(t).assoc_base()) + "::" + std::string(TypeRef(t).assoc_type_name());
+        std::string r = type_str(TypeRef(t).assoc_base(), source_form) + "::" + std::string(TypeRef(t).assoc_type_name());
         if (!TypeRef(t).gat_args().empty()) {
             r += "<";
             for (size_t i = 0; i < TypeRef(t).gat_args().size(); ++i) {
                 if (i) r += ", ";
-                r += type_str(TypeRef(t).gat_args()[i]);
+                r += type_str(TypeRef(t).gat_args()[i], source_form);
             }
             r += ">";
         }

@@ -1,0 +1,10 @@
+stdout:
+opt_i32 8 8
+opt_i64 16 16
+opt_w 24 24
+opt_box 8 8
+g_i64 16 16
+g_i32 8 8
+two 16 16
+align 8 8
+rc 8 8

@@ -67,9 +67,51 @@ fi
 #   stdout:
 #   line1
 #   line2          (multi-line: everything after a bare "stdout:" to EOF)
+#   <bare body>    (no `exit:`/`stdout:` line anywhere → the WHOLE FILE is the
+#                   expected stdout, like fail mode's `.expected`)
+#
+# ⚠ AND WHY THE BARE-BODY FORM IS NOT OPTIONAL. This parser used to recognise
+# ONLY the two keys, and silently discarded anything else: a `.expected` holding
+# four lines of intended program output set `WANT_STDOUT=""`, the comparison
+# below is guarded by `[ -n "$WANT_STDOUT" ]`, and the test degenerated to
+# "logosc exited 0 and the binary exited 0". MEASURED 2026-08-01 over the whole
+# pass corpus (5422 files): 34 such files, asserting nothing about their output
+# while LOOKING exactly like tests that pin it.
+#
+# That is not a hypothetical loss of strictness. `option_ptr_wrapper_niche`
+# says `Option<Arc>=8` and the program PRINTED `Option<Arc>=4` — a live
+# `sizeof` miscompile of every generic enum in a rendered context — green, for
+# as long as the file has existed. Fail mode already refuses an empty
+# expectation for exactly this reason ("`grep -F ''` matches any stderr"); this
+# is the same defect on the other side of the harness, and it is now the same
+# hard error. A `.expected` that states nothing is a registered assertion about
+# nothing.
 WANT_EXIT=0
 WANT_STDOUT=""
+HAVE_STDOUT=0
 IN_STDOUT=0
+# Pre-scan: does the file state ANY recognised key? The bare-body and vacuous
+# forms are properties of the whole file, so they cannot be decided line by line.
+HAS_KEY=0
+while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    case "${raw_line%%:*}" in
+        exit|stdout) HAS_KEY=1; break ;;
+    esac
+done < "$EXPECTED"
+if [ "$HAS_KEY" = 0 ]; then
+    if [ -z "$(tr -d '[:space:]' < "$EXPECTED")" ]; then
+        echo "FAIL: $EXPECTED states no expectation at all — no \`exit:\`, no"
+        echo "      \`stdout:\`, no body. Such a file asserts only that the"
+        echo "      program was built and returned 0, while reading as a test"
+        echo "      that pins its behaviour. Write \`exit: 0\` if that IS the"
+        echo "      whole assertion, or the expected stdout."
+        exit 1
+    fi
+    # Bare body: the file IS the expected stdout (trailing newline stripped by $()).
+    WANT_STDOUT="$(cat "$EXPECTED")"
+    HAVE_STDOUT=1
+fi
+if [ "$HAS_KEY" = 1 ]; then
 while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     if [ "$IN_STDOUT" = 1 ]; then
         # accumulate multi-line stdout body
@@ -85,6 +127,7 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
     case "$key" in
         exit)   WANT_EXIT="$val" ;;
         stdout)
+            HAVE_STDOUT=1
             if [ "$raw_line" = "stdout:" ]; then
                 IN_STDOUT=1   # multi-line mode
             else
@@ -93,6 +136,7 @@ while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
             ;;
     esac
 done < "$EXPECTED"
+fi
 
 BIN="$TMPD/test"
 # Collect .a archives for static linking. Sources, in order:
@@ -166,7 +210,11 @@ if [ "$ACTUAL_EXIT" != "$WANT_EXIT" ]; then
     echo "$ACTUAL_STDOUT"
     exit 1
 fi
-if [ -n "$WANT_STDOUT" ] && [ "$ACTUAL_STDOUT" != "$WANT_STDOUT" ]; then
+# ⚠ `HAVE_STDOUT`, NOT `-n "$WANT_STDOUT"`. The old guard skipped the comparison
+# whenever the expectation was the EMPTY STRING, so `stdout:` with nothing after
+# it — a stated expectation that the program prints nothing — passed on a program
+# that printed anything at all. "Stated" and "non-empty" are different facts.
+if [ "$HAVE_STDOUT" = 1 ] && [ "$ACTUAL_STDOUT" != "$WANT_STDOUT" ]; then
     echo "FAIL: stdout mismatch"
     echo "  expected: $WANT_STDOUT"
     echo "  got:      $ACTUAL_STDOUT"

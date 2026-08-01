@@ -1,0 +1,60 @@
+// Regression: a generic enum's TYPE ARGUMENTS survive the AST→source→AST
+// round trip that `println!` performs on its argument expressions.
+//
+// `SemaChecker::render_type_src` returns `type_str(t)` AS SOURCE, and that text
+// is spliced into a synthesised block which is then RE-PARSED. `type_str`'s
+// Enum case answered the bare enum name, so `sizeof::<Option<Box<i32>>>()`
+// inside a `println!` came back as `sizeof::<Option>()` — an enum with no
+// arguments, hence no registered instance, hence no payload, hence the law's
+// C-like branch and the i32 discriminant. MEASURED before the fix:
+//
+//   println!("{}", sizeof::<Option<Box<i32>>>())  ->  4   (真 8)
+//   println!("{}", sizeof::<G<i64>>())            ->  4   (真 16)
+//   println!("{}", sizeof::<G<i32>>())            ->  4   (真 8)
+//
+// while the SAME expressions bound to a `let` first were correct — which is why
+// nothing had ever noticed, and why this test asserts BOTH forms on every case.
+// `malloc(sizeof::<Option<T>>())` was short by 4..20 bytes.
+//
+// The compiler's own cross-engine layout verifier DID see it: `layout_of`
+// recorded a decline ("no enum declaration found — backing type unknown, the
+// law was handed the i32 default") on exactly these three sizeofs. The decline
+// was honest and the answer was wrong; this is that decline as a test.
+package sizeof_generic_enum_rendered;
+
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.rc;
+
+struct W { a: i64, b: i64 }
+
+enum G<T> { X(T), Y }
+enum Two<A, B> { L(A), R(B) }
+
+fn main() -> i32 {
+    // Bound FIRST — the path that was always right, so a regression that
+    // breaks both forms cannot hide behind an agreeing pair.
+    let l_opt_i32:  i64 = sizeof::<Option<i32>>();
+    let l_opt_i64:  i64 = sizeof::<Option<i64>>();
+    let l_opt_w:    i64 = sizeof::<Option<W>>();
+    let l_opt_box:  i64 = sizeof::<Option<Box<i32>>>();
+    let l_g_i64:    i64 = sizeof::<G<i64>>();
+    let l_g_i32:    i64 = sizeof::<G<i32>>();
+    let l_two:      i64 = sizeof::<Two<i64, i32>>();
+    let l_align:    i64 = align_of::<G<i64>>();
+
+    // RENDERED — each of these goes AST → source → AST inside `println!`.
+    println!("opt_i32 {} {}", l_opt_i32, sizeof::<Option<i32>>());
+    println!("opt_i64 {} {}", l_opt_i64, sizeof::<Option<i64>>());
+    println!("opt_w {} {}", l_opt_w, sizeof::<Option<W>>());
+    println!("opt_box {} {}", l_opt_box, sizeof::<Option<Box<i32>>>());
+    println!("g_i64 {} {}", l_g_i64, sizeof::<G<i64>>());
+    println!("g_i32 {} {}", l_g_i32, sizeof::<G<i32>>());
+    println!("two {} {}", l_two, sizeof::<Two<i64, i32>>());
+    println!("align {} {}", l_align, align_of::<G<i64>>());
+
+    // A niche-packed one: `Option<Box<T>>` is pointer-sized, so the C-like
+    // wrong answer (4) and the tagged wrong answer (16) are both excluded.
+    println!("rc {} {}", sizeof::<Rc<i32>>(), sizeof::<Option<Rc<i32>>>());
+    return 0;
+}

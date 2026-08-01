@@ -71,7 +71,10 @@ std::string SemaChecker::render_type_src(TinyMapView node) {
     if (dump_syntactic_types_) return render_type_src_syntactic_(node);
     auto t = resolve_type(node);
     if (!t) return "_";
-    return type_str(t);
+    // SOURCE form, not the name form. What this returns is spliced into a block
+    // that is RE-PARSED (that is how `println!` carries its argument types), so
+    // a generic enum has to come back with its arguments. See `type_str`.
+    return type_str(t, /*source_form=*/true);
 }
 
 std::string SemaChecker::render_expr_src(TinyMapView node) {

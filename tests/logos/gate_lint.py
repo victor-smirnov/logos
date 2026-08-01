@@ -341,6 +341,10 @@ RE_ARITH = re.compile(r'^\$\(\((?P<e>[0-9+\-*/ ()]+)\)\)$')
 # What may sit immediately before an `exit` that is a COMMAND. Everything else
 # (a `=`, a letter, a `"`) means this `exit` is a word inside something.
 _CMD_LEAD = re.compile(r'(?:^|[;&|(){}]|&&|\|\||;;|\bthen\b|\belse\b|\belif\b|\bdo\b)\s*$')
+# The tail of a CASE LABEL whose first branch is the word we matched:
+# `|stdout)`, `|stdout|status)`. A pattern branch contains no whitespace and no
+# command separator, which is what tells it from a pipeline `exit | tee`.
+RE_CASE_ALT = re.compile(r'^(?:\|[^\s|)(&;]+)+\)')
 
 
 def _sh_unquoted_spans(line):
@@ -390,7 +394,18 @@ def sh_exit_sites(line):
             # `exit)` is a CASE LABEL, not a command — `case "$key" in exit) …`
             # sits in command position by every other test. A subshell `( exit 1 )`
             # has a space, so the immediate `)` is what distinguishes them.
-            if rest.startswith(")"):
+            #
+            # ⚠ AND A CASE LABEL MAY BE AN ALTERNATION: `exit|stdout)` is one
+            # pattern with two branches, and only the FIRST branch was
+            # recognised. MEASURED 2026-08-01 on `tests/logos/run_test.sh`, the
+            # first file written after this rule landed that reads two keys in
+            # one arm: the rule reported a bare `exit` (undecidable) on
+            # `exit|stdout) HAS_KEY=1; break ;;` — a false finding, which costs
+            # exactly what a missed one does, because the fix on offer is to
+            # annotate a line that never exits.
+            # The distinguishing fact is the same as above: pattern branches
+            # carry no whitespace and no command separator before the `)`.
+            if rest.startswith(")") or RE_CASE_ALT.match(rest):
                 continue
             arg = re.split(r'[;&|)]|\}|&&|\|\|', rest, maxsplit=1)[0]
             out.append((lo + m.start(), arg.strip()))
@@ -704,6 +719,15 @@ CANARIES = [
     (r1_exit_ceiling, "c.sh", "exit $RC  # lint:exit-ok — $RC is a real wait status\n",
      False),
     (r1_exit_ceiling, "c.sh", 'case "$k" in\n  exit)   W="$v" ;;\nesac\n', False),
+    # A case label with ALTERNATION branches — the form the single-`)` test
+    # could not see, found live in `run_test.sh` the day after the rule landed.
+    (r1_exit_ceiling, "c.sh", 'case "$k" in\n  exit|stdout) H=1 ;;\nesac\n', False),
+    (r1_exit_ceiling, "c.sh", 'case "$k" in\n  exit|stdout|status) H=1 ;;\nesac\n', False),
+    # …and the alternation form must not swallow a real one: a pattern branch
+    # carries no whitespace, so `exit | tee` stays a pipeline whose `exit` is a
+    # command, and `exit|stdout) exit 256` still reports the 256.
+    (r1_exit_ceiling, "c.sh", 'case "$k" in\n  exit|stdout) exit 256 ;;\nesac\n', True),
+    (r1_exit_ceiling, "c.sh", "set -e\nexit | tee log\n", True),
     (r1_exit_ceiling, "c.py", "sys.exit(300)\n", True),
     (r1_exit_ceiling, "c.py", "sys.exit(4)\n", False),
     (r1_exit_ceiling, "c.py", 'out.append(f"  if x {{ return {code}i32; }}")\n', True),

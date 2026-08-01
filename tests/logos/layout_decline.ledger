@@ -1,0 +1,32 @@
+# THE OPEN LAYOUT DECLINES — a ledger that can only shrink.
+#
+# `verify_layout_engines()` (src/compiler/mlir_gen_types.cpp) makes a DECLINE a
+# recorded, counted fact: an engine that cannot size a type says so instead of
+# returning a plausible number. Every `pass` corpus test now compiles under
+# `LOGOS_VERIFY_LAYOUT=1`, so a decline is a red test where it happens — except
+# for the programs listed here, which are excluded BY NAME in
+# tests/logos/CMakeLists.txt (LAYOUT_DECLINE_LEDGER).
+#
+# `layout_decline_ledger_gate.sh` holds this file in BOTH directions:
+#   * a listed program that no longer declines, or declines a different type,
+#     or declines a different NUMBER of times → RED ("the ledger is stale,
+#     remove/adjust the entry")
+#   * a listed program whose decline count GREW → RED
+# So the only edit this file ever accepts is a shrinking one.
+#
+# FORMAT: one entry per line —
+#   <test-base-name> <expected-decline-count> <decline-key>
+# `#` comments and blank lines ignored. The key is matched literally against the
+# `[declined] <key>: DECLINED` rows the compiler prints.
+#
+# ── ENTRIES ──────────────────────────────────────────────────────────────────
+#
+# zone_zvec_two_zones — the fully concrete instance `ZVec$G2$i64$Writ` carries a
+# field still typed `HRel<T>` with T unbound: the GAT `Z::Ptr<T>` resolved its
+# constructor without substituting its argument. `layout_of` is handed a type
+# that has NO INSTANCE ANYWHERE, and "no layout exists" is the correct answer —
+# the defect is mono's GAT substitution, one phase earlier, and fixing it here
+# would mean inventing a number. `{8,8}` happens to be right for this struct
+# (`HRel` is a single `i64`), which is exactly why nothing had ever noticed and
+# exactly why the entry is not "harmless".
+zone_zvec_two_zones 2 zvec.HRel$G1$T

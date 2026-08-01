@@ -693,6 +693,41 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         set(_labels "${_labels};imported")
     endif()
 
+    # ── THE LAYOUT VERIFIER'S POPULATION IS THE CORPUS ────────────────────────
+    # `verify_layout_engines()` compares five engines that size a value. Two of
+    # them — sema's and mono's, the ones whose numbers become byte OFFSETS and
+    # `malloc` sizes — are not reachable from the comparison site, so they RECORD
+    # what they answered and the record is checked. Recording is behind
+    # `LOGOS_VERIFY_LAYOUT`, and until now the only thing that set it was
+    # `layout_engine_agreement_gate.sh`, over a lattice IT generates. The gate
+    # imports nothing, so the answer it certified was about ~200 synthetic types
+    # and said nothing whatever about the 1913 real programs.
+    #
+    # MEASURED 2026-08-01, all 1913 `pass/*.logos` compiled with the variable
+    # set (23 need archives the sweep did not pass): of the remaining 1890, TWO
+    # were red — and one of them, `option_ptr_wrapper_niche`, was a live
+    # `sizeof` miscompile of every generic enum in a rendered context, sitting
+    # behind an `.expected` the harness never compared.
+    #
+    # COST, MEASURED, three runs each on `rc_arc_dyn_dispatch`: 0.48/0.48/0.47s
+    # without, 0.48/0.49/0.48s with. The verification rides a compile that is
+    # already happening, so making the population the corpus is free and belongs
+    # in EVERY tier (L0-L4) rather than in a separate heavy pass.
+    #
+    # PASS TESTS ONLY, and that exclusion is not cosmetic: a `fail` test compiles
+    # an ill-typed program on purpose, `TypeVar`/`Error` residue reaching a
+    # layout switch is the CORRECT behaviour there, and the resulting decline
+    # would replace the diagnostic the test asserts on. The `fail` corpus is
+    # excluded by kind, counted here as a kind, not silently.
+    #
+    # The one further exclusion is BY NAME and carries its ground:
+    # `LAYOUT_DECLINE_LEDGER` below. It is enforced in both directions by
+    # `logos_00_layout_decline_ledger`, so it can only shrink.
+    set(_env "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
+    if (MODE STREQUAL pass AND NOT BASE IN_LIST LAYOUT_DECLINE_LEDGER)
+        list(APPEND _env "LOGOS_VERIFY_LAYOUT=1")
+    endif()
+
     add_test(
         NAME  ${_test_name}
         COMMAND ${TEST_RUNNER} ${MODE} $<TARGET_FILE:logosc>
@@ -701,7 +736,7 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     set_tests_properties(${_test_name} PROPERTIES
         TIMEOUT ${_timeout}
         LABELS  "${_labels}"
-        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+        ENVIRONMENT "${_env}"
     )
 endfunction()
 
@@ -755,6 +790,38 @@ add_test(
 set_tests_properties(logos_00_gate_lint PROPERTIES
     TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core"
+)
+
+# ── THE OPEN LAYOUT DECLINES — A LEDGER THAT CAN ONLY SHRINK ─────────────────
+#
+# A `pass` test named here compiles WITHOUT `LOGOS_VERIFY_LAYOUT=1`, because
+# with it the compile is a hard error. Each entry states which type is declined
+# and why the defect is not in the layout law, and each is held in BOTH
+# directions by `logos_00_layout_decline_ledger`: a program that stops declining
+# is as red as one that starts. A silent exclusion is what this whole arc is
+# about; this is the exclusion written down, counted, and re-measured.
+#
+#   zone_zvec_two_zones — `layout_of` declines `zvec.HRel$G1$T`: the fully
+#     concrete `ZVec$G2$i64$Writ` carries a field still typed `HRel<T>` with T
+#     unbound, because the GAT `Z::Ptr<T>` resolved its constructor without
+#     substituting its argument. That is a MONO substitution defect, not a
+#     layout one — the law was handed a type that has no instance anywhere, and
+#     answering "no layout" is correct. `{8,8}` is accidentally right here
+#     (`HRel` is one `i64`), which is why nothing had ever noticed; it is not
+#     right in general, so the decline stays until mono substitutes the GAT.
+set(LAYOUT_DECLINE_LEDGER zone_zvec_two_zones)
+
+add_test(
+    NAME logos_00_layout_decline_ledger
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/layout_decline_ledger_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/layout_decline.ledger
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_00_layout_decline_ledger PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
 # ── Pass tests ────────────────────────────────────────────────────────────────
