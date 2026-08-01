@@ -740,13 +740,20 @@ set_tests_properties(logos_00_corpus_registration PROPERTIES
 # A written lesson that is not mechanized gets re-made. This runs the rules on
 # every configure-and-test, and each rule proves it still bites by catching its
 # own planted canary in the same invocation (exit 4 if one stops).
+# ⚠ `--build-dir` IS NOT OPTIONAL, and that is the point. The set of shell gates
+# is the set of scripts CTEST INVOKES, and only a configured build knows it. The
+# previous form walked three directory names and reported clean over 23 of the
+# 42 registered gates; the 24 it never opened held 15 live violations. Without
+# this argument gate_lint.py exits 3 ("could not look") rather than falling back
+# to a directory walk, which is the same defect wearing the fixed rule's name.
 add_test(
     NAME logos_00_gate_lint
     COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/gate_lint.py --selftest
+            --build-dir=${CMAKE_BINARY_DIR}
             ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(logos_00_gate_lint PROPERTIES
-    TIMEOUT 120
+    TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core"
 )
 

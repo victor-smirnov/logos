@@ -38,11 +38,11 @@ git config user.email lforge-test@example.com
 git config user.name  lforge-test
 git add . && git commit --quiet -m "v1.0.0"
 git tag v1.0.0
-SHA_V1=$(git rev-parse HEAD)
+SHA_V1=$(git rev-parse HEAD)  # lint:git-ok — the SHA of the v1.0.0 commit this fixture just made
 sed -i 's/50/60/' src/util/util.logos
 git commit --quiet -am "v1.1.0"
 git tag v1.1.0
-SHA_V11=$(git rev-parse HEAD)
+SHA_V11=$(git rev-parse HEAD)  # lint:git-ok — the SHA of the v1.1.0 commit this fixture just made
 
 # ── Case 2 first (simpler): cmd_update on a shifting manifest.
 mkdir -p "$ROOT/app1/src"

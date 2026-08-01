@@ -185,10 +185,28 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
         if (!logos_to_mlir(pt)) continue;          // zero-width param: NO slot pushed
         if (pt && (pt.kind() == K::Ref || pt.kind() == K::MutRef) &&
             ref_repr_of(pt) == RefReprKind::ThinPtr) {
-            Layout lo = layout_of(pt.pointee());
+            // ⚠ `llvm.align` / `llvm.dereferenceable` ARE A LAYOUT CLAIM, so they
+            // may only be written when the pointee HAS a layout. A forward
+            // declaration is emitted for every function in the program, including
+            // ones whose signature still carries a TypeVar (an HRTB bound's
+            // `&T`) or an Error — types no instance of which exists, which is
+            // exactly what `type_has_unresolved_residue` names. Asking `layout_of`
+            // for one is a question with no answer: it DECLINED and returned
+            // `{8,8}`, and that guess was then written into the object file as
+            // `align 8, dereferenceable 8` for a pointee whose real alignment is
+            // whatever the instantiation says. MEASURED 2026-08-01 over the 5536
+            // registered pass programs: 14 of them reached here, 10 with a bare
+            // TypeVar (`tests/imported/pass/closures/hrtb-*`) and the rest with a
+            // generic struct still carrying one.
+            //
+            // `noalias` / `readonly` / `noundef` are aliasing facts, not layout
+            // facts, and stay — they are true of the reference whatever T is.
+            bool sizeable = pt.pointee() && !type_has_unresolved_residue(pt.pointee());
+            Layout lo = sizeable ? layout_of(pt.pointee()) : Layout{0, 0};
             f.setArgAttr(arg, "llvm.noundef", unit);
-            f.setArgAttr(arg, "llvm.align",
-                         builder_.getI64IntegerAttr((int64_t)lo.align));
+            if (sizeable)
+                f.setArgAttr(arg, "llvm.align",
+                             builder_.getI64IntegerAttr((int64_t)lo.align));
             if (lo.size > 0)
                 f.setArgAttr(arg, "llvm.dereferenceable",
                              builder_.getI64IntegerAttr((int64_t)lo.size));

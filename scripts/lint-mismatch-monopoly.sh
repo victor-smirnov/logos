@@ -12,7 +12,15 @@ cd "$(dirname "$0")/.."
 # Excluded: comment lines (documentation of the rule) and the variance
 # diagnostic — "variance mismatch" is check_variance's own verdict class,
 # not the type-mismatch verdict this gate protects.
-hits=$(grep -rn "expected {}, got {}" src/compiler/sema*.cpp src/compiler/sema*.hpp \
+# ⚠ THE POPULATION IS `src/`, NOT TWO FILENAME GLOBS. A monopoly gate whose
+# scan is `src/compiler/sema*.{cpp,hpp}` reports "1 emitter" — green — for a
+# tree in which mono, mlir-gen or the writ frontend emits the same template:
+# the second emitter is outside the glob, so it is counted as zero. The
+# question the gate asks is about the WHOLE compiler, so the scan is too.
+# MEASURED 2026-08-01 at the widening: still exactly 1 emitter
+# (src/compiler/sema_expr.cpp), which is what makes this a safe widening and
+# not a re-baselining.
+hits=$(grep -rn "expected {}, got {}" src include \
        | grep -vE "^\S+: *//|variance mismatch")
 n=$(printf '%s' "$hits" | grep -c . || true)
 if [ "$n" -gt 1 ]; then

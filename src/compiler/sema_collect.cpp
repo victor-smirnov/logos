@@ -3059,6 +3059,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // *const T or *mut T → resolve full type string
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+            // ⚠ AND CARRY IT. Every sibling branch below binds `target_resolved`;
+            // this one resolved the type, spelled its NAME and dropped the type.
+            // `Self` then fell through to `lookup_type_by_name("*const u8")`,
+            // which has no entry, so `Self` was never bound and `&self` resolved
+            // to `&<error>` — a Kind::Error inside a well-typed program's
+            // signature. MEASURED 2026-08-01: `impl Display for *const u8` in
+            // logos.mem.fmt gave `logos.mem.fmt.*const u8__fmt__f__ref_<error>__
+            // refmut_Formatter`, and mlir-gen then set that parameter's
+            // `llvm.align`/`llvm.dereferenceable` from layout_of's DECLINE
+            // default. 361 of the 1913 pass-corpus programs reached it.
+            target_resolved = resolved;
         } else if (code_of(tnode) == la::UNSIZED_SLICE_TYPE) {
             // Phase 1B-10: `impl Trait for [T]` — bare unsized-slice
             // self-type. Resolve under `unsized_ok_=true` so the bare

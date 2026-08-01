@@ -59,17 +59,28 @@ CLOSED BY CONSTRUCTION — the mistake cannot be spelled
                                                 already-collapsed dict.
 
 CAUGHT BY A RULE HERE — expressible, and flagged
-  R1  an exit status above 255 (or 126/127)     literal `exit N`, `sys.exit(N)`,
-                                                a generated `return <code>i32`,
-                                                an `.expected` declaring one
+  R1  an exit status above 255 (or 126/127)     `exit N` in COMMAND POSITION at
+                                                any indent, inside a function,
+                                                after then/else/do, in a `case`
+                                                arm, in `$((…))`; `sys.exit(N)`;
+                                                a generated `return <code>i32`;
+                                                an `.expected` declaring one. A
+                                                status this cannot DECIDE
+                                                (`exit $RC`, bare `exit`) is a
+                                                finding, not a pass
   R2  `pipefail` + `| grep -q`                  read into a file, then match
-  R3  a gate asking git instead of the build    `# lint:git-ok — <ground>` is the
-                                                only way past, and it is cheap to
-                                                write truthfully and impossible
-                                                to write honestly for a proxy
+  R3  a gate asking git instead of the build    the QUERY verbs (diff/status/log/
+                                                rev-parse/…), since those are the
+                                                ones that answer; `# lint:git-ok
+                                                — <ground>` is the only way past,
+                                                cheap to write truthfully and
+                                                impossible to write honestly for
+                                                a proxy
   R4  a relative `-newermt` (bfs errors → 0)    `@<epoch>` or `$VAR`
-  R5  a gate script no CMakeLists runs          comments stripped first, so being
-                                                DESCRIBED is not being registered
+  R5  a gate script CTEST DOES NOT INVOKE       the population is asked of ctest,
+                                                not grepped out of a CMakeLists:
+                                                a name in a file is not a
+                                                registration
   R6  `-ge 0` / `-gt -1` as a floor in shell    the spelling no parser sees
   R7  a conuco `main` returning a code          the 07-19 idiom, re-established
 
@@ -113,26 +124,98 @@ OPEN, WITH THE GROUND — and a wrong claim of coverage would be worse
 EXIT
   0  every file clean
   1  a rule fired — the TREE is what is wrong (the message names file:line)
+  3  the POPULATION could not be derived (no --build-dir, ctest unavailable, an
+     unparseable or empty answer). Nothing in the run is evidence about the
+     tree; a smaller population reported clean is the defect, not the report.
   4  --selftest: a rule did not catch its own canary — THIS PROGRAM is wrong
 """
+import json
 import os
 import re
+import subprocess
 import sys
 
-# ── the corpus: the artifacts that PRONOUNCE VERDICTS ────────────────────────
-# Gates and their helpers. Corpus fixtures are not here: they assert nothing on
-# their own, and `corpus_registration_gate.sh` is what watches them.
-SHELL_DIRS = ["tests/logos", "tests/exhaustive", "scripts"]
+# ── THE POPULATION IS DERIVED FROM THE ARTIFACT, NOT LISTED HERE ─────────────
+#
+# ⚠⚠ WHAT THIS REPLACED, AND WHY IT WAS THE SAME DEFECT ONE LEVEL UP.
+#
+# This file used to open with
+#     SHELL_DIRS = ["tests/logos", "tests/exhaustive", "scripts"]
+# walked NON-RECURSIVELY, and `MIN_SH = 23` — a floor which happened to equal
+# exactly what that walk found, so it certified the walk against itself.
+#
+# MEASURED 2026-08-01: ctest registers 42 distinct shell scripts as test
+# COMMANDs. 24 of them were outside those three directories — 21 in
+# `tests/lforge/`, plus `tests/diag/json_format.sh`,
+# `tools/check_typebuilder_lint.sh` and `tests/logos/ir/run_ir_snapshot.sh`
+# (that last one one directory DOWN from a scanned directory, which is what
+# "non-recursively" costs). Running this file's own rules over the 24 found 15
+# R2 violations in 7 files, every one of them a registered ctest test inside L4,
+# and the dangerous `if <pipe> | grep -q` form live in `archive_integrity.sh` at
+# two sites where a successful match is reported as a failure.
+#
+# A gate whose population is a directory list checks the directories somebody
+# thought of. So the population is now ASKED:
+#
+#   THE SET OF SHELL GATES = the scripts CTEST ACTUALLY INVOKES
+#                          ∪ the scripts on disk that ctest does NOT invoke.
+#
+# The second half is not a leak: an unregistered script is either a gate nothing
+# runs (R5, a finding) or a tool run by hand, and the rules are applied to it
+# EITHER WAY — an idiom that lies lies whether ctest calls it or a person does.
+# What derivation buys is that neither half can be short without the count
+# saying so, and the count is floored below at a value measured off the
+# derivation, not off a directory list.
+#
+# ⚠ The ctest half needs a CONFIGURED BUILD DIRECTORY, passed as `--build-dir`.
+# Without it this program does NOT fall back to a directory walk and report
+# clean over the smaller set — that is precisely the shape it exists to refuse.
+# It exits 3, the same code verdict.py uses for "I could not look".
+SHELL_ROOTS = ["tests", "scripts", "tools"]
 PY_DIRS = ["tests/logos", "tests/exhaustive"]
 # The conuco suite: 67 standalone binaries whose `main` IS the verdict channel.
 # This is where the 8-bit ceiling was first diagnosed and fixed, and where the
 # fix decayed — see R7.
 CONUCO_TESTS = "conuco/memoria/tests"
 
-# `ctest-summary.sh` and `perf-slow.sh` pronounce no verdict — they report. That
-# is written down in verdict.py's gate census, and it is why R5 lets them be
-# unregistered. Any OTHER unregistered gate is a gate nothing runs.
-NOT_GATES = {"ctest-summary.sh", "perf-slow.sh", "test-levels.sh"}
+# ── THE RESIDUE, AND ITS GROUND, ONE LINE EACH ───────────────────────────────
+#
+# Everything above is derived. This is what derivation CANNOT answer: whether a
+# script that ctest does not invoke is a gate nobody runs (the fifth recorded
+# kind) or a thing that legitimately runs elsewhere. No artifact records that —
+# "elsewhere" is a person's procedure — so it is written here, with the ground
+# on the line, and this program PRINTS the whole list on every clean run. A
+# hand-written exception that nobody ever sees again is how a list becomes a
+# blindfold; one that is printed beside the derived counts is a stated gap.
+#
+# Adding a name here is the only way past R5, and the ground is the cost.
+NOT_GATES = {
+    # Reporters. They pronounce no verdict at all — this is also written down in
+    # verdict.py's gate census.
+    "ctest-summary.sh":        "reports a ctest run; asserts nothing",
+    "perf-slow.sh":            "lists the slowest tests; asserts nothing",
+    "test-levels.sh":          "DRIVES ctest (L0–L4); being a ctest test would "
+                               "be a recursion",
+    # Gates that run OUTSIDE ctest, by the commit procedure. Each does pronounce
+    # a verdict; what ctest cannot give them is their input.
+    "abi-check.sh":            "the ABI gate — step 4 of the commit procedure; "
+                               "needs a BUILT stdlib plus the committed spec "
+                               "baseline, which a ctest test has no way to "
+                               "sequence against the build",
+    "abi-analyze.sh":          "qualifies an ABI delta BETWEEN TWO GIT REVISIONS "
+                               "— its input is a revision range, not the tree",
+    # Oracle harnesses and regenerators under tools/. Each builds two parsers
+    # from a grammar and compares them; the checked-in artifact they produce is
+    # what the suite gates, and building both backends is minutes, not seconds.
+    "run.sh":                  "peg_gen cross-backend / AST-equality oracle — "
+                               "builds two parser backends and diffs them; the "
+                               "CHECKED-IN generated parser is what ctest gates",
+    "run_wql.sh":              "peg_gen_cpp WQL cross-backend oracle; same",
+    "regen.sh":                "REGENERATES the checked-in WQL/Trama parsers; a "
+                               "producer, not a verdict",
+    "trama_run.sh":            "peg_gen_logos Trama behaviour oracle; same as "
+                               "run.sh",
+}
 
 
 # A file may hold DELIBERATE violations — this program's own canary table is
@@ -141,6 +224,61 @@ NOT_GATES = {"ctest-summary.sh", "perf-slow.sh", "test-levels.sh"}
 # make "the lint is clean" a statement about a smaller tree than it claims.
 CANARY_BEGIN = "lint:canaries-begin"
 CANARY_END = "lint:canaries-end"
+
+
+class CannotLook(Exception):
+    """The derivation failed. NOT a finding about the tree — a statement that
+    this program could not obtain its own population, which must never be
+    reported as a clean scan of a smaller one."""
+
+
+def ctest_shell_commands(build_dir, root):
+    """Every `.sh` ctest invokes, repo-relative. THE ARTIFACT IS ASKED.
+
+    `--show-only=json-v1` runs no test; it prints the registered command line of
+    each, which is the only place that knows what the suite is. A CMakeLists
+    grep would find the strings somebody wrote, not the commands cmake built:
+    an `add_test` behind an `if()` that is false registers nothing and greps the
+    same."""
+    try:
+        p = subprocess.run(["ctest", "--show-only=json-v1"], cwd=build_dir,
+                           capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise CannotLook(f"could not run ctest in {build_dir}: {e}")
+    if p.returncode != 0:
+        raise CannotLook(f"ctest --show-only failed in {build_dir} "
+                         f"(exit {p.returncode}): {p.stderr.strip()[:300]}")
+    try:
+        d = json.loads(p.stdout)
+    except ValueError as e:
+        raise CannotLook(f"ctest's json was not parseable: {e}")
+    tests = d.get("tests")
+    if not tests:
+        raise CannotLook("ctest reported ZERO tests — a configured build "
+                         "registers thousands, so this is a build directory "
+                         "that has not been configured, not an empty suite.")
+    out = {}
+    for t in tests:
+        for a in t.get("command", []):
+            if a.endswith(".sh"):
+                out.setdefault(os.path.relpath(a, root), set()).add(t.get("name", "?"))
+    return out, len(tests)
+
+
+def on_disk_shell(root):
+    """Every `.sh` under the roots, RECURSIVELY. `tests/logos/ir/` is one
+    directory below a directory the old walk listed, and its `run_ir_snapshot.sh`
+    is registered eight times."""
+    out = set()
+    for d in SHELL_ROOTS:
+        full = os.path.join(root, d)
+        if not os.path.isdir(full):
+            continue
+        for base, _dirs, names in os.walk(full):
+            for n in sorted(names):
+                if n.endswith(".sh"):
+                    out.add(os.path.relpath(os.path.join(base, n), root))
+    return out
 
 
 def _mask_canary_regions(text):
@@ -172,10 +310,91 @@ class Finding:
 # COMPUTED code into a generated program's `main` return — which is the same
 # channel one level of indirection away, and is exactly how 272 codes ended up
 # in 8 bits after the class had been fixed.
-RE_SH_EXIT = re.compile(r'(?:^|[;&|]\s*|\bthen\s+|\belse\s+|\bdo\s+)exit\s+(\d+)')
+#
+# ⚠⚠ AND THE REGEX SAW 15% OF ITS OWN CORPUS. The previous form was
+#     r'(?:^|[;&|]\s*|\bthen\s+|\belse\s+|\bdo\s+)exit\s+(\d+)'
+# which anchors at COLUMN 0 or immediately after `;`/`&`/`|`/then/else/do.
+# MEASURED 2026-08-01 over the derived population: 13 `exit N` at column 0
+# against 75 INDENTED. It was silent on
+#     if [ 1 ]; then\n    exit 256\nfi        (indented under `then`)
+#     fail() { exit 256; }                    (inside a function body)
+#     \texit 256                              (tab-indented)
+#     exit $((250+6))                         (arithmetic)
+#     RC=256; exit $RC                        (through a variable)
+# A rule must see every form the LANGUAGE admits, not the form its author wrote.
+#
+# So the test is now COMMAND POSITION, computed: `exit` is a finding wherever a
+# command can start — after nothing but whitespace, after `;` `&` `|` `(` `{`,
+# after `&&` `||` `;;`, or after the keywords then/else/elif/do — at ANY indent,
+# and NOT inside a quoted string (which is what made `echo "exit=$rc"` 21 false
+# positives when the anchor was simply dropped).
+#
+# THREE VERDICTS, NOT TWO. A literal and an arithmetic expression are DECIDED. A
+# status that comes from a variable or from a bare `exit` (which re-raises `$?`)
+# CANNOT BE, and the rule says so instead of passing: the line carries
+# `# lint:exit-ok — <ground>` or it is a finding. That is the same discipline
+# R3 uses, and it is what stops "no findings" from meaning "the rule looked away".
 RE_PY_EXIT = re.compile(r'\bsys\.exit\(\s*(\d+)\s*\)')
 RE_EMIT_CODE = re.compile(r'return\s*\{[^}]*\}\s*i(?:8|16|32|64)\b')
 RE_EXPECTED_EXIT = re.compile(r'^exit:\s*(-?\d+)\s*$')
+RE_ARITH = re.compile(r'^\$\(\((?P<e>[0-9+\-*/ ()]+)\)\)$')
+# What may sit immediately before an `exit` that is a COMMAND. Everything else
+# (a `=`, a letter, a `"`) means this `exit` is a word inside something.
+_CMD_LEAD = re.compile(r'(?:^|[;&|(){}]|&&|\|\||;;|\bthen\b|\belse\b|\belif\b|\bdo\b)\s*$')
+
+
+def _sh_unquoted_spans(line):
+    """The [start, end) spans of `line` that are NOT inside '…' or "…".
+
+    Approximate on purpose and deliberately CONSERVATIVE about its own limits:
+    it tracks single/double quotes and backslash escapes, which is what
+    separates `exit 256` from `echo "exit=$rc"`. A heredoc body is not tracked —
+    those show up as unquoted and are therefore SCANNED, which errs toward
+    reporting rather than toward silence."""
+    spans, start, q, i = [], 0, None, 0
+    while i < len(line):
+        c = line[i]
+        if q is None:
+            if c == "\\":
+                i += 2
+                continue
+            if c in "'\"":
+                spans.append((start, i))
+                q = c
+        elif c == q:
+            q = None
+            start = i + 1
+        elif c == "\\" and q == '"':
+            i += 2
+            continue
+        i += 1
+    if q is None:
+        spans.append((start, len(line)))
+    return spans
+
+
+def sh_exit_sites(line):
+    """(column, argument-text) for every `exit` in COMMAND POSITION on `line`.
+
+    The argument is everything up to the next command terminator; `''` means a
+    bare `exit`, which exits with `$?`."""
+    if line.lstrip().startswith("#"):
+        return []
+    out = []
+    for lo, hi in _sh_unquoted_spans(line):
+        seg = line[lo:hi]
+        for m in re.finditer(r'exit\b', seg):
+            if not _CMD_LEAD.search(seg[:m.start()]):
+                continue
+            rest = seg[m.end():]
+            # `exit)` is a CASE LABEL, not a command — `case "$key" in exit) …`
+            # sits in command position by every other test. A subshell `( exit 1 )`
+            # has a space, so the immediate `)` is what distinguishes them.
+            if rest.startswith(")"):
+                continue
+            arg = re.split(r'[;&|)]|\}|&&|\|\|', rest, maxsplit=1)[0]
+            out.append((lo + m.start(), arg.strip()))
+    return out
 
 
 def r1_exit_ceiling(path, text):
@@ -183,9 +402,34 @@ def r1_exit_ceiling(path, text):
     is_py = path.endswith(".py")
     for i, ln in enumerate(text.splitlines(), 1):
         code = ln.split("#", 1)[0] if is_py else ln
-        for m in (RE_PY_EXIT if is_py else RE_SH_EXIT).finditer(code):
-            n = int(m.group(1))
-            if n > 125:
+        if is_py:
+            sites = [(m.start(), m.group(1)) for m in RE_PY_EXIT.finditer(code)]
+        else:
+            sites = sh_exit_sites(code)
+        for _col, arg in sites:
+            n = None
+            if re.fullmatch(r'-?\d+', arg):
+                n = int(arg)
+            elif not is_py:
+                am = RE_ARITH.match(arg)
+                if am:
+                    try:
+                        n = int(eval(am.group("e"), {"__builtins__": {}}, {}))
+                    except Exception:
+                        n = None
+                elif "lint:exit-ok" in ln:
+                    continue
+                else:
+                    out.append(Finding(
+                        "R1-exit-undecidable", path, i, ln,
+                        f"`exit {arg or '(bare — re-raises $?)'}` — this rule "
+                        f"CANNOT DECIDE the status statically, and a rule that "
+                        f"cannot look must not report clean. A real process "
+                        f"status is already a byte; a computed one is the 8-bit "
+                        f"ceiling waiting to happen (`RC=256; exit $RC` exits 0). "
+                        f"Say which it is: `# lint:exit-ok — <ground>`."))
+                    continue
+            if n is not None and not (0 <= n <= 125):
                 out.append(Finding(
                     "R1-exit-ceiling", path, i, ln,
                     f"exit status {n} — a process exit status is EIGHT BITS "
@@ -245,7 +489,26 @@ def r2_pipefail_grep_q(path, text):
 # what only git knows — what the BASE commit held, whether a file is committed —
 # and each such use must say so on the line, which is the whole point: the
 # marker is cheap for a real use and impossible to write honestly for a proxy.
-RE_GIT = re.compile(r'(?:^|[;&|(`$]\s*|\bthen\s+|\bif\s+!?\s*)git\s+[a-z-]')
+#
+# ⚠ IT IS THE QUERY THAT CAN LIE, NOT THE MUTATION. Widening the population to
+# every registered gate brought in `tests/lforge/{git_dep,lockfile,mvs_update,
+# build_cache,replace_and_floor}.sh`, which BUILD a throwaway git repository in a
+# temp directory because lforge's git-dependency resolution is the thing under
+# test. `git init` / `add` / `commit` / `tag` / `config` produce no answer to
+# anything — they cannot be a proxy for the build because they return nothing to
+# read. MEASURED 2026-08-01: 34 hits across those five files, 30 of them
+# construction, 4 of them `git rev-parse HEAD` capturing the SHA the fixture just
+# made — and those four are queries and DO carry the marker.
+#
+# So the rule fires on the verbs that ANSWER. Narrowing a predicate to what it
+# was always about is not weakening it: the same run scans 24 files the old
+# predicate never opened.
+GIT_QUERY_VERBS = ("diff", "status", "log", "show", "rev-parse", "rev-list",
+                   "ls-files", "ls-tree", "describe", "cat-file", "blame",
+                   "merge-base", "symbolic-ref", "name-rev", "shortlog",
+                   "for-each-ref", "check-ignore", "grep")
+RE_GIT = re.compile(r'(?:^|[;&|(`$]\s*|\bthen\s+|\bif\s+!?\s*)git\s+(?:-C\s+\S+\s+)?'
+                    r'(' + "|".join(GIT_QUERY_VERBS) + r')\b')
 
 
 def r3_gate_asks_git(path, text):
@@ -293,29 +556,26 @@ def r4_find_newermt(path, text):
 # fixtures. This is the same sentence one level up: a gate script that no
 # CMakeLists registers runs never, and unlike a fixture it usually has no
 # sibling to make its absence visible.
-def r5_unregistered_gates(root):
+#
+# ⚠ THIS USED TO GREP `tests/logos/CMakeLists.txt` FOR THE FILENAME, over the
+# scripts in ONE directory. Two things were wrong with that and both are the
+# slice's subject: a NAME appearing in a file is not a registration (an
+# `add_test` inside a false `if()` greps the same), and one directory is not the
+# tree. It now compares the scripts ON DISK against the commands CTEST ACTUALLY
+# INVOKES — cmake's own answer, after every conditional has been evaluated.
+def r5_unregistered_gates(on_disk, registered):
     out = []
-    cml = os.path.join(root, "tests/logos/CMakeLists.txt")
-    # ⚠ COMMENT LINES ARE STRIPPED FIRST. A substring hit anywhere in the file
-    # would let a script be "registered" by being NAMED in a comment that
-    # explains why it exists — which is precisely a gate whose only evidence of
-    # running is prose about it.
-    reg = "\n".join(
-        ln for ln in open(cml, encoding="utf-8", errors="replace").read()
-                         .splitlines()
-        if not ln.lstrip().startswith("#"))
-    d = os.path.join(root, "tests/logos")
-    for name in sorted(os.listdir(d)):
-        if not name.endswith("_gate.sh") and not name.endswith(".sh"):
-            continue
+    for rel in sorted(on_disk - set(registered)):
+        name = os.path.basename(rel)
         if name in NOT_GATES or name.startswith("run_"):
             continue
-        if name not in reg:
-            out.append(Finding(
-                "R5-unregistered-gate", f"tests/logos/{name}", 1, name,
-                "no CMakeLists registers this script, so nothing runs it. A "
-                "gate outside the suite is indistinguishable from a passing "
-                "one at every level — that is the fifth recorded kind."))
+        out.append(Finding(
+            "R5-unregistered-gate", rel, 1, name,
+            "ctest invokes no test with this script as its command, so nothing "
+            "runs it. A gate outside the suite is indistinguishable from a "
+            "passing one at every level — that is the fifth recorded kind. If "
+            "it is a hand-run tool and not a gate, it belongs in NOT_GATES with "
+            "its ground."))
     return out
 
 
@@ -422,6 +682,28 @@ CANARIES = [
     (r1_exit_ceiling, "c.sh", "set -e\nif [ 1 ]; then exit 256; fi\n", True),
     (r1_exit_ceiling, "c.sh", "set -e\nexit 137\n", True),
     (r1_exit_ceiling, "c.sh", "set -e\nexit 1\nexit 0\nexit 2\n", False),
+    # ── THE FORMS THE COLUMN-0 ANCHOR COULD NOT SEE (2026-08-01) ────────────
+    # Each of these is a real spelling from the tree the widened population
+    # brought in, and the old regex was silent on every one.
+    (r1_exit_ceiling, "c.sh", "set -e\nif [ 1 ]; then\n    exit 256\nfi\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\n\texit 256\n", True),
+    (r1_exit_ceiling, "c.sh", "fail() { exit 256; }\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\nfor f in a; do\n  exit 300\ndone\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\ncase $x in a) exit 256 ;; esac\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\n[ -f x ] && exit 256\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\nexit $((250+6))\n", True),
+    (r1_exit_ceiling, "c.sh", "set -e\n  exit 2\n    exit 0\n", False),
+    # …and the forms it must NOT read as an exit at all: the word inside a
+    # string. Dropping the anchor without the quote test made 21 of these fire.
+    (r1_exit_ceiling, "c.sh", 'echo "exit=$rc, want 256"\n', False),
+    (r1_exit_ceiling, "c.sh", "echo 'exit 256 is what it printed'\n", False),
+    # UNDECIDABLE: the rule says so rather than passing.
+    (r1_exit_ceiling, "c.sh", "RC=256\nexit $RC\n", True),
+    (r1_exit_ceiling, "c.sh", 'exit "$EXIT"\n', True),
+    (r1_exit_ceiling, "c.sh", "trap 'exit' INT\nexit\n", True),
+    (r1_exit_ceiling, "c.sh", "exit $RC  # lint:exit-ok — $RC is a real wait status\n",
+     False),
+    (r1_exit_ceiling, "c.sh", 'case "$k" in\n  exit)   W="$v" ;;\nesac\n', False),
     (r1_exit_ceiling, "c.py", "sys.exit(300)\n", True),
     (r1_exit_ceiling, "c.py", "sys.exit(4)\n", False),
     (r1_exit_ceiling, "c.py", 'out.append(f"  if x {{ return {code}i32; }}")\n', True),
@@ -437,6 +719,14 @@ CANARIES = [
     (r3_gate_asks_git, "c.sh",
      "if ! git diff --quiet -- spec; then exit 1; fi  # lint:git-ok — is it committed\n",
      False),
+    (r3_gate_asks_git, "c.sh", "SHA=$(git rev-parse HEAD)\n", True),
+    (r3_gate_asks_git, "c.sh", "if git log -1 --format=%H; then :; fi\n", True),
+    # CONSTRUCTION, not interrogation: these five build the throwaway repo that
+    # lforge's git-dependency tests resolve against. They return no answer, so
+    # they cannot be a proxy for one.
+    (r3_gate_asks_git, "c.sh",
+     "git init --quiet\ngit add .\ngit commit --quiet -m v1\ngit tag v1.0.0\n"
+     "git config user.email t@example.com\n", False),
     (r4_find_newermt, "c.sh", "find . -newermt '-15 minutes' | wc -l\n", True),
     (r4_find_newermt, "c.sh", 'find . -newermt "15 minutes ago"\n', True),
     (r4_find_newermt, "c.sh", 'B=$(date -d "-15 min" +%s); find . -newermt "@$B"\n',
@@ -462,27 +752,65 @@ CANARIES = [
 
 
 def _selftest_r5(broken, fired, silent):
-    """R5 asks the FILESYSTEM, so its canary is a filesystem: a two-file tree
-    with one registered gate and one that only a COMMENT mentions. Without this
-    R5 would be the one rule nothing proves is alive, which this file forbids."""
+    """R5 now compares two SETS, so its canary is two sets: one script ctest
+    invokes and one it does not. Without this R5 would be the one rule nothing
+    proves is alive, which this file forbids."""
+    on_disk = {"tests/logos/registered_gate.sh", "tests/logos/orphan_gate.sh",
+               "tests/logos/ctest-summary.sh"}
+    registered = {"tests/logos/registered_gate.sh": {"t"}}
+    got = {f.path for f in r5_unregistered_gates(on_disk, registered)}
+    fired.add("r5_unregistered_gates")
+    silent.add("r5_unregistered_gates")
+    if "tests/logos/orphan_gate.sh" not in got:
+        broken.append("  r5_unregistered_gates: a script ctest does not invoke "
+                      "read as registered.")
+    if "tests/logos/registered_gate.sh" in got:
+        broken.append("  r5_unregistered_gates: flagged a script that IS a "
+                      "ctest command.")
+    if "tests/logos/ctest-summary.sh" in got:
+        broken.append("  r5_unregistered_gates: flagged a declared NOT_GATES "
+                      "reporter, so the grounded exception does not hold.")
+
+
+def _selftest_derivation(broken):
+    """THE DERIVATION ITSELF, PROVED ABLE TO FAIL. Every number this program
+    floors comes from `ctest --show-only`; if that call could silently yield an
+    empty or unparseable answer and be read as a small population, the whole
+    conversion would be decoration. Three broken answers, each of which MUST
+    raise CannotLook rather than return a short list."""
     import tempfile
-    with tempfile.TemporaryDirectory() as td:
-        d = os.path.join(td, "tests", "logos")
-        os.makedirs(d)
-        open(os.path.join(d, "CMakeLists.txt"), "w").write(
-            "add_test(NAME t COMMAND ${D}/registered_gate.sh)\n"
-            "# orphan_gate.sh is described here and registered nowhere\n")
-        for n in ("registered_gate.sh", "orphan_gate.sh"):
-            open(os.path.join(d, n), "w").write("#!/usr/bin/env bash\nexit 0\n")
-        got = {f.path for f in r5_unregistered_gates(td)}
-        fired.add("r5_unregistered_gates")
-        silent.add("r5_unregistered_gates")
-        if "tests/logos/orphan_gate.sh" not in got:
-            broken.append("  r5_unregistered_gates: a gate named ONLY by a "
-                          "comment read as registered.")
-        if "tests/logos/registered_gate.sh" in got:
-            broken.append("  r5_unregistered_gates: flagged a gate that IS in "
-                          "an add_test COMMAND.")
+    cases = [
+        ("a directory with no CMakeCache", None),
+        ("ctest answering with zero tests", '{"tests": []}'),
+        ("ctest answering with non-json", 'Total Tests: 0\n'),
+    ]
+    for label, payload in cases:
+        with tempfile.TemporaryDirectory() as td:
+            if payload is not None:
+                # A fake `ctest` on PATH that prints the broken answer and
+                # succeeds — the shape that would otherwise read as a real,
+                # small population.
+                bindir = os.path.join(td, "bin")
+                os.makedirs(bindir)
+                fake = os.path.join(bindir, "ctest")
+                with open(fake, "w") as fh:
+                    fh.write("#!/bin/sh\ncat <<'XEOF'\n" + payload + "\nXEOF\n")
+                os.chmod(fake, 0o755)
+                saved = os.environ["PATH"]
+                os.environ["PATH"] = bindir + os.pathsep + saved
+            else:
+                saved = None
+            try:
+                ctest_shell_commands(td, td)
+            except CannotLook:
+                pass
+            else:
+                broken.append(f"  ctest_shell_commands: {label} did NOT raise "
+                              f"CannotLook — a failed derivation would be read "
+                              f"as a small population.")
+            finally:
+                if saved is not None:
+                    os.environ["PATH"] = saved
 
 
 def selftest():
@@ -496,6 +824,7 @@ def selftest():
                 f"  {rule.__name__} on {src.strip()[:70]!r}: "
                 f"{'did NOT fire, and must' if want else 'FIRED, and must not'}")
     _selftest_r5(broken, fired, silent)
+    _selftest_derivation(broken)
     for rule in ALL_RULES:
         if rule.__name__ not in fired:
             broken.append(f"  {rule.__name__}: no canary that MUST fire. A rule "
@@ -516,21 +845,37 @@ def selftest():
     return 0
 
 
-def walk(root):
-    findings, n_sh, n_py, n_exp, n_cnc = [], 0, 0, 0, 0
-    for d in SHELL_DIRS:
-        full = os.path.join(root, d)
-        if not os.path.isdir(full):
+def walk(root, build_dir):
+    """Every rule over a population ASKED FOR, with the derivation's own counts.
+
+    Returns (findings, census) where census is a dict of numbers the caller
+    floors. Raises CannotLook when the population could not be obtained — which
+    is not a clean scan and must not be reported as one."""
+    registered, n_ctest = ctest_shell_commands(build_dir, root)
+    on_disk = on_disk_shell(root)
+    # THE UNION, and the two halves are counted separately so a shrink in either
+    # is visible. A registered script that is not on disk would be a ctest entry
+    # pointing at nothing — reported here rather than skipped.
+    missing = sorted(set(registered) - on_disk)
+    corpus = sorted(on_disk | set(registered))
+    findings = []
+    for rel in missing:
+        findings.append(Finding(
+            "R5-registered-but-absent", rel, 1, rel,
+            "ctest registers a test whose command is this script, and the file "
+            "is not on disk. The test cannot run; nothing distinguishes that "
+            "from a test that passes."))
+    n_sh = 0
+    for rel in corpus:
+        p = os.path.join(root, rel)
+        if not os.path.isfile(p):
             continue
-        for name in sorted(os.listdir(full)):
-            if not name.endswith(".sh"):
-                continue
-            p = os.path.join(full, name)
-            text = _mask_canary_regions(
-                open(p, encoding="utf-8", errors="replace").read())
-            n_sh += 1
-            for rule in SHELL_RULES:
-                findings += rule(f"{d}/{name}", text)
+        text = _mask_canary_regions(
+            open(p, encoding="utf-8", errors="replace").read())
+        n_sh += 1
+        for rule in SHELL_RULES:
+            findings += rule(rel, text)
+    n_py = 0
     for d in PY_DIRS:
         full = os.path.join(root, d)
         if not os.path.isdir(full):
@@ -538,15 +883,16 @@ def walk(root):
         for name in sorted(os.listdir(full)):
             if not name.endswith(".py"):
                 continue
-            p = os.path.join(full, name)
             text = _mask_canary_regions(
-                open(p, encoding="utf-8", errors="replace").read())
+                open(os.path.join(full, name), encoding="utf-8",
+                     errors="replace").read())
             n_py += 1
             for rule in PY_RULES:
                 findings += rule(f"{d}/{name}", text)
     # RECURSIVE: `tests/imported/pass` alone holds 120 subdirectories, and a
     # walk that only lists the top level would report "no bad exit expectation"
     # about a corpus it never opened.
+    n_exp = 0
     for base, _dirs, names in os.walk(os.path.join(root, "tests")):
         for name in sorted(names):
             if not name.endswith(".expected"):
@@ -556,7 +902,8 @@ def walk(root):
             findings += r1c_expected_exit(
                 os.path.relpath(p, root),
                 open(p, encoding="utf-8", errors="replace").read())
-    # THE CONUCO SUITE: 67 standalone binaries whose `main` IS the channel.
+    # THE CONUCO SUITE: standalone binaries whose `main` IS the channel.
+    n_cnc = 0
     cnc = os.path.join(root, CONUCO_TESTS)
     if os.path.isdir(cnc):
         for name in sorted(os.listdir(cnc)):
@@ -567,15 +914,26 @@ def walk(root):
                 f"{CONUCO_TESTS}/{name}",
                 open(os.path.join(cnc, name), encoding="utf-8",
                      errors="replace").read())
-    findings += r5_unregistered_gates(root)
-    return findings, n_sh, n_py, n_exp, n_cnc
+    findings += r5_unregistered_gates(on_disk, registered)
+    return findings, {"sh": n_sh, "sh_registered": len(registered),
+                      "sh_on_disk": len(on_disk), "ctest_tests": n_ctest,
+                      "py": n_py, "expected": n_exp, "conuco": n_cnc}
 
 
-# ⚠ A FLOOR ON THE WALK ITSELF. "0 findings" over 0 files is the defect this
-# whole file is about, so the population is asserted before the verdict is.
-# MEASURED 2026-08-01 by this program: 23 shell scripts under tests/logos,
-# tests/exhaustive and scripts; 8 python helpers; 6728 `.expected` under tests/.
-MIN_SH, MIN_PY, MIN_EXPECTED, MIN_CONUCO = 23, 8, 6728, 67
+# ⚠ FLOORS ON THE DERIVATION, NOT ON A DIRECTORY LIST. The old `MIN_SH = 23`
+# equalled exactly what the old walk found, so it asserted the walk against
+# itself and said nothing about the 24 registered gates outside it. These are
+# read off the DERIVED numbers, MEASURED 2026-08-01 by this program:
+#   [gate-lint] population: 42 scripts registered by ctest (6807 tests),
+#               54 on disk under tests/ scripts/ tools/, 54 scanned
+#   8 python helpers; 6728 `.expected` under tests/; 67 conuco tests.
+# `sh_registered` is the number that matters: it is the one a directory list
+# cannot produce, and the one that drops when a gate falls out of the suite.
+MIN_SH, MIN_SH_REGISTERED, MIN_PY = 54, 42, 8
+MIN_EXPECTED, MIN_CONUCO, MIN_CTEST_TESTS = 6728, 67, 6807
+FLOORS = {"sh": MIN_SH, "sh_registered": MIN_SH_REGISTERED, "py": MIN_PY,
+          "expected": MIN_EXPECTED, "conuco": MIN_CONUCO,
+          "ctest_tests": MIN_CTEST_TESTS}
 
 
 def main(argv):
@@ -584,17 +942,39 @@ def main(argv):
         if rc:
             return rc
         argv = [a for a in argv if a != "--selftest"]
-    root = argv[0] if argv else "."
-    findings, n_sh, n_py, n_exp, n_cnc = walk(root)
-    if n_sh < MIN_SH or n_py < MIN_PY or n_exp < MIN_EXPECTED \
-            or n_cnc < MIN_CONUCO:
+    build_dir = None
+    rest = []
+    for a in argv:
+        if a.startswith("--build-dir="):
+            build_dir = a.split("=", 1)[1]
+        else:
+            rest.append(a)
+    root = rest[0] if rest else "."
+    if not build_dir:
         sys.stderr.write(
-            f"FAIL (gate_lint SAW TOO LITTLE): {n_sh} shell (floor {MIN_SH}), "
-            f"{n_py} python (floor {MIN_PY}), {n_exp} .expected (floor "
-            f"{MIN_EXPECTED}), {n_cnc} conuco tests (floor {MIN_CONUCO}) under "
-            f"{os.path.abspath(root)}.\n"
-            f"      A clean report over a corpus that shrank is the blindness "
-            f"this program checks for.\n")
+            "FAIL (gate_lint COULD NOT LOOK): no --build-dir=<configured build>.\n"
+            "      The population of shell gates is the set of scripts CTEST\n"
+            "      INVOKES, and that answer lives in the build directory. This\n"
+            "      program does NOT fall back to walking a list of directories:\n"
+            "      the previous form did exactly that and reported clean over 23\n"
+            "      of the 42 registered gates, with 15 live violations in the\n"
+            "      other 24.\n")
+        return 3
+    try:
+        findings, census = walk(root, build_dir)
+    except CannotLook as e:
+        sys.stderr.write(
+            f"FAIL (gate_lint COULD NOT LOOK): {e}\n"
+            f"      Nothing above this line is evidence about the tree.\n")
+        return 3
+    short = [(k, census[k], v) for k, v in FLOORS.items() if census[k] < v]
+    if short:
+        sys.stderr.write(
+            "FAIL (gate_lint SAW TOO LITTLE): "
+            + ", ".join(f"{k}={got} (floor {want})" for k, got, want in short)
+            + f" under {os.path.abspath(root)}.\n"
+              "      A clean report over a corpus that shrank is the blindness\n"
+              "      this program checks for.\n")
         return 1
     if findings:
         sys.stderr.write(
@@ -604,11 +984,22 @@ def main(argv):
             + "\n".join(f.render() for f in findings) + "\n")
         return 1
     sys.stderr.write(
-        f"[gate-lint] OK — {n_sh} gate scripts, {n_py} gate helpers, {n_exp} "
-        f"corpus expectations, {n_cnc} conuco tests: no exit status carrying "
-        f"more than a byte, no `| grep -q` under pipefail, no gate asking git "
-        f"without its ground, no relative `-newermt`, no vacuous floor, no "
-        f"unregistered gate, and every conuco `main` a boolean.\n")
+        "[gate-lint] the residue, printed so it cannot become a blindfold — "
+        f"{len(NOT_GATES)} scripts ctest does not invoke, each with its ground:\n"
+        + "".join(f"              {k:26s} {v}\n"
+                  for k, v in sorted(NOT_GATES.items())))
+    sys.stderr.write(
+        f"[gate-lint] population DERIVED, not listed: {census['sh_registered']} "
+        f"shell scripts are the command of a ctest test (out of "
+        f"{census['ctest_tests']} tests), {census['sh_on_disk']} are on disk "
+        f"under {'/ '.join(SHELL_ROOTS)}, {census['sh']} were scanned.\n"
+        f"[gate-lint] OK — {census['sh']} gate scripts, {census['py']} gate "
+        f"helpers, {census['expected']} corpus expectations, {census['conuco']} "
+        f"conuco tests: no exit status carrying more than a byte and none this "
+        f"rule could not decide, no `| grep -q` under pipefail, no gate asking "
+        f"git for an answer without its ground, no relative `-newermt`, no "
+        f"vacuous floor, no unregistered gate, and every conuco `main` a "
+        f"boolean.\n")
     return 0
 
 

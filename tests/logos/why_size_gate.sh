@@ -192,4 +192,4 @@ if [ "$DELTA" -lt "$MIN_DELTA" ]; then
     fail=1
 fi
 
-exit "$fail"
+exit "$fail"  # lint:exit-ok — `fail` is set only to the literals 0 and 1

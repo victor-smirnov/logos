@@ -67,7 +67,11 @@ LINES=$(wc -l < "$PROJ/src/grow.logos")
 "$LOGOSC" --emit-module "$PROJ/big.module" -L "$LIB" -o "$PROJ/libbig.a" >/dev/null 2>&1
 
 # The package must be advertised in the .pkgi the loader consults.
-ar p "$PROJ/libbig.a" bigmod.pkgi 2>/dev/null | strings | grep -qx "bigmod.grow" || {
+# ⚠ NOT `… | grep -q`. Under `set -o pipefail` grep exits at its first match and
+# closes the pipe; `ar`/`strings` take SIGPIPE 141 and pipefail reports the
+# MATCH as a failed pipeline. Read the index out ONCE, then match the file.
+ar p "$PROJ/libbig.a" bigmod.pkgi 2>/dev/null | strings > "$PROJ/bigmod.idx"
+grep -qx "bigmod.grow" "$PROJ/bigmod.idx" || {
     echo "FAIL: bigmod.grow ($LINES lines) missing from libbig.a package index"
     ar t "$PROJ/libbig.a"
     exit 1
@@ -103,7 +107,11 @@ EOF
 
 "$LOGOSC" --emit-module "$PROJ/big.module" -L "$LIB" -o "$PROJ/libbig.a" >/dev/null 2>&1
 
-if ar t "$PROJ/libbig.a" | grep -q '^bigmod\.'; then
+# ⚠ THE `if` FORM IS THE DANGEROUS ONE: a SIGPIPE'd pipeline reads as FALSE, so
+# a stale member that IS present would read as absent and this gate would pass
+# on exactly the thing it forbids.
+ar t "$PROJ/libbig.a" > "$PROJ/members.txt"
+if grep -q '^bigmod\.' "$PROJ/members.txt"; then
     echo "FAIL: stale members from the previous build survived the rebuild"
     ar t "$PROJ/libbig.a"
     exit 1
@@ -112,7 +120,10 @@ NPKGI=$(ar t "$PROJ/libbig.a" | grep -c '\.pkgi$')
 [ "$NPKGI" = "1" ] || { echo "FAIL: $NPKGI .pkgi members in archive, want 1"; exit 1; }
 
 # The stale package must no longer be advertised by this archive.
-if ar p "$PROJ/libbig.a" bigmod2.pkgi 2>/dev/null | strings | grep -qx "bigmod.grow"; then
+# ⚠ Same inverted form: a match reported as a miss is this gate going green on
+# a stale package that is still advertised.
+ar p "$PROJ/libbig.a" bigmod2.pkgi 2>/dev/null | strings > "$PROJ/bigmod2.idx"
+if grep -qx "bigmod.grow" "$PROJ/bigmod2.idx"; then
     echo "FAIL: stale package bigmod.grow still advertised after rebuild"
     exit 1
 fi
@@ -141,7 +152,8 @@ HDR=$(grep -n "^package" "$PROJ/docsrc/documented.logos" | cut -d: -f1)
 
 "$LOGOSC" --emit-module "$PROJ/doc.module" -L "$LIB" -o "$PROJ/libdoc.a" >/dev/null 2>&1
 
-ar p "$PROJ/libdoc.a" docmod.pkgi 2>/dev/null | strings | grep -qx "docmod.documented" || {
+ar p "$PROJ/libdoc.a" docmod.pkgi 2>/dev/null | strings > "$PROJ/docmod.idx"
+grep -qx "docmod.documented" "$PROJ/docmod.idx" || {
     echo "FAIL: docmod.documented (package on line $HDR) missing from package index"
     ar t "$PROJ/libdoc.a"
     exit 1

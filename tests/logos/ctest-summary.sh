@@ -66,4 +66,4 @@ if ! grep -qE "tests passed" "$LOG"; then
     exit 1
 fi
 
-exit "$EXIT"
+exit "$EXIT"  # lint:exit-ok — ${PIPESTATUS[0]} of ctest: a real wait status, already a byte

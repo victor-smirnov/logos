@@ -58,9 +58,12 @@ diff <(sort_members "$LIB/liblstdlib_fibers.a") \
 
 # Sanity: lforge's lstdlib_rt has at least the expected symbols.
 # (use a saved nm dump to avoid SIGPIPE under `set -o pipefail` from `grep -q`)
-nm_out=$(nm "$PROJ/.lforge/debug/out/liblstdlib_rt.a" 2>/dev/null)
+# ⚠ The saved dump was not enough: `echo "$nm_out" | grep -q` is STILL a pipe
+# into `grep -q` under pipefail. Write the dump to a FILE and match the file —
+# then there is no writer to kill.
+nm "$PROJ/.lforge/debug/out/liblstdlib_rt.a" > "$PROJ/nm_out.txt" 2>/dev/null || true
 for sym in logos_path_exists logos_mkdir logos_path_size; do
-    echo "$nm_out" | grep -q "T $sym" || { echo "FAIL: $sym not exported from lforge's lstdlib_rt.a"; exit 1; }
+    grep -q "T $sym" "$PROJ/nm_out.txt" || { echo "FAIL: $sym not exported from lforge's lstdlib_rt.a"; exit 1; }
 done
 
 echo "OK"

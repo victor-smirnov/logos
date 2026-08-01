@@ -10945,7 +10945,7 @@ sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Format
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64__i64__i64
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__i64__i64__i64__i64__i64__i64
-sym	logos_mem..logos.mem.fmt.*const u8__fmt__f__ref_<error>__refmut_Formatter
+sym	logos_mem..logos.mem.fmt.*const u8__fmt__f__ref_pcst_u8__refmut_Formatter
 sym	logos_mem..logos.mem.fmt.DebugList__finish__f__refmut_DebugList
 sym	logos_mem..logos.mem.fmt.DebugMap__finish__f__refmut_DebugMap
 sym	logos_mem..logos.mem.fmt.DebugSet__finish__f__refmut_DebugSet

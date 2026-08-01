@@ -268,6 +268,21 @@ MIN_BASELINE_FIELDS=9810
 # actually asked. It was parsed and never asserted, so the gate was green with
 # it at 0: the whole A arm could go silent behind B's number.
 MIN_BASELINE_DEFS=3676
+# ⚠ AND THE ARM THOSE THREE WERE MEASURED ON IMPORTS NOTHING (see §1). The
+# STDLIB baseline — every `package` declared under `stdlib/`, DERIVED from the
+# tree at run time — is the population that actually has types in it. MEASURED
+# 2026-08-01 by this gate:
+#   [layout-gate] stdlib baseline over 188 DERIVED packages: 6314 struct types,
+#                 17906 fields, 6300 defs
+# The empty program's 3676/9810/3676 held on the same build on which four
+# disagreements were sitting one `use logos.lang.writ.container;` away.
+MIN_STDLIB_TYPES=6314
+MIN_STDLIB_FIELDS=17906
+MIN_STDLIB_DEFS=6300
+# The DERIVATION's own floor: how many `package` declarations the stdlib tree
+# yields. MEASURED 2026-08-01: 188. An empty or truncated list gives back the
+# empty program, whose clean report reads identically.
+MIN_STDLIB_PKGS=188
 # The lattice's contribution, MEASURED. The generator's own count (202) is a
 # cross-check below, not the floor: it shrinks when a shape is deleted, so using
 # it as the floor is exactly the "half the measured value" hole — two of the six
@@ -642,14 +657,75 @@ echo "[layout-gate] the rule selectors (Uni / niche_enum / tagged_enum) are name
 echo "              ONLY by layout_law.hpp"
 caught "rule-selector scan" "the planted TU naming lay::Uni and both enum rules"
 
-# ── 1. the baseline: a program with no structs of its own ────────────────────
+# ── 1. THE BASELINE, AND ITS POPULATION IS DERIVED FROM THE STDLIB TREE ──────
+#
+# ⚠⚠ THE PREVIOUS BASELINE IMPORTED NOTHING, AND ITS ZERO SAID SO.
+#
+# It was `package layout_gate_base; fn main() -> i64 { return 0; }` — two lines
+# whose whole content is that they have no types. It reported "0 declined, 0
+# disagreements" BECAUSE THERE WAS ALMOST NOTHING TO DISAGREE ABOUT: the walk
+# reached only what a bare program links, and every stdlib type that no such
+# program mentions was outside the comparison, indistinguishable from a type
+# that agreed. MEASURED 2026-08-01: adding ONE `use logos.lang.writ.container;`
+# to that same file took it from 0 disagreements to 4, and the compile aborted
+# with "the compiler's layout engines disagree" — `Rc<dyn Resident>` was 8 bytes
+# to sema and 16 to llvm::DataLayout, and `HeldAny` 16 against 24.
+#
+# So the import list is not a list any more. It is EVERY `package` declared
+# under `stdlib/`, read off the tree at run time: a new stdlib module is in this
+# gate's population the moment it exists, and a module that stops existing takes
+# its own count down with it. Nobody adds a `use` line here, and nobody can
+# forget to.
+#
+# MEASURED, same day, same build: 182 packages; the walk goes 3676 → 6314 struct
+# types, 9810 → 17906 fields, 64 → 430 sema answers, 58 → 151 enum types.
+STDLIB_DIR="$HERE/../../stdlib"
+if [ ! -d "$STDLIB_DIR" ]; then
+    echo "FAIL: no stdlib tree at $STDLIB_DIR — this gate's baseline population is"
+    echo "       DERIVED from it, and a missing tree would silently give the empty"
+    echo "       program whose zero is what this arm exists to stop being."
+    exit 1
+fi
+# `grep -h` over the files, first match per file, comments stripped: a `package`
+# named only inside a comment is not a package. The list is sorted -u because
+# one package is declared by several files.
+: >"$TMPD/pkgs.txt"
+while IFS= read -r f; do
+    sed 's://.*::' "$f" \
+      | grep -m1 -oE '^[[:space:]]*package[[:space:]]+[A-Za-z0-9_.]+' \
+      | grep -oE '[A-Za-z0-9_.]+$' >>"$TMPD/pkgs.txt" || true
+done < <(find "$STDLIB_DIR" -name '*.logos' -type f | sort)
+sort -u "$TMPD/pkgs.txt" -o "$TMPD/pkgs.txt"
+N_PKGS=$(grep -c . "$TMPD/pkgs.txt" || true)
+# ⚠ A FLOOR ON THE DERIVATION ITSELF. An empty or truncated package list gives
+# back exactly the old two-line program, and its clean report would read the
+# same. MEASURED 2026-08-01: 182 packages under stdlib/.
+if [ "$N_PKGS" -lt "$MIN_STDLIB_PKGS" ]; then
+    echo "FAIL: derived $N_PKGS stdlib packages, floor $MIN_STDLIB_PKGS (MEASURED"
+    echo "       2026-08-01). The baseline's population comes from this list; a"
+    echo "       short list is a smaller comparison reporting the same zero."
+    exit 1
+fi
+{
+    echo "package layout_gate_stdbase;"
+    sed 's/^/use /; s/$/;/' "$TMPD/pkgs.txt"
+    echo 'fn main() -> i64 { return 0; }'
+} >"$TMPD/stdbase.logos"
+census "$TMPD/stdbase.logos"
+STD_TYPES=$N_TYPES; STD_FIELDS=$N_FIELDS; STD_DEFS=$N_DEFS
+echo "[layout-gate] stdlib baseline over $N_PKGS DERIVED packages: $STD_TYPES struct types, $STD_FIELDS fields, $STD_DEFS defs"
+
+# The EMPTY program stays, and it is not a second baseline — it is the REFERENCE
+# the lattice's delta is measured against (§2 below). Both are compiled; the
+# derived one is what makes the comparison big, the empty one is what makes the
+# lattice's contribution a difference of two numbers taken the same way.
 cat >"$TMPD/base.logos" <<'EOF'
 package layout_gate_base;
 fn main() -> i64 { return 0; }
 EOF
 census "$TMPD/base.logos"
 BASE_TYPES=$N_TYPES; BASE_FIELDS=$N_FIELDS; BASE_DEFS=$N_DEFS
-echo "[layout-gate] baseline: $BASE_TYPES struct types, $BASE_FIELDS fields, $BASE_DEFS defs"
+echo "[layout-gate] empty-program reference: $BASE_TYPES struct types, $BASE_FIELDS fields, $BASE_DEFS defs"
 floor() {   # floor <what> <got> <want>
     # ⚠ THE NON-NUMBER IS CHECKED FIRST, EXPLICITLY. `[ "$got" -lt N ]` on
     # anything that is not an integer exits 2 with "integer expression expected"
@@ -675,6 +751,24 @@ floor() {   # floor <what> <got> <want>
 floor "baseline struct types the verifier walked" "$BASE_TYPES"  "$MIN_BASELINE_TYPES"
 floor "baseline fields compared (B vs C)"         "$BASE_FIELDS" "$MIN_BASELINE_FIELDS"
 floor "baseline defs compared (A vs C)"           "$BASE_DEFS"   "$MIN_BASELINE_DEFS"
+# The DERIVED arm's own floors. These are the ones that move when the stdlib
+# grows a type, and they are ~1.7x the empty program's on every axis.
+floor "stdlib-baseline struct types the verifier walked" "$STD_TYPES"  "$MIN_STDLIB_TYPES"
+floor "stdlib-baseline fields compared (B vs C)"         "$STD_FIELDS" "$MIN_STDLIB_FIELDS"
+floor "stdlib-baseline defs compared (A vs C)"           "$STD_DEFS"   "$MIN_STDLIB_DEFS"
+# ⚠ AND THE DERIVED POPULATION MUST BE STRICTLY BIGGER THAN THE EMPTY ONE. If a
+# future edit breaks the import generation — a bad `sed`, a moved stdlib, a
+# `package` spelling this scan stops matching — the generated program degrades
+# gracefully into the EMPTY program, whose census is a valid, clean verdict.
+# That is the failure this whole section is about, one level up, so it is tested
+# and not assumed.
+if [ "$STD_TYPES" -le "$BASE_TYPES" ]; then
+    echo "FAIL: the DERIVED stdlib baseline walked $STD_TYPES struct types and the"
+    echo "       EMPTY program walked $BASE_TYPES. The import generation produced a"
+    echo "       program no larger than importing nothing, so this arm is reporting"
+    echo "       about the empty program under another name."
+    exit 1
+fi
 
 # ── 1b. THE FOUR-ENGINE CANARY, on that same baseline program ────────────────
 # Each engine in turn is told to answer ONE BYTE wrong. The census must come
@@ -961,7 +1055,10 @@ for f in layout_adjacent_narrow_fields layout_zero_size_enum_payload \
 done
 floor "authored layout fixtures run" "$NFIX" 4
 
-echo "[layout-gate] OK — baseline $BASE_TYPES/$BASE_FIELDS/$BASE_DEFS, lattice +$DELTA"
+echo "[layout-gate] OK — stdlib baseline $STD_TYPES/$STD_FIELDS/$STD_DEFS over"
+echo "              $N_PKGS packages DERIVED from the stdlib tree (nobody maintains"
+echo "              that import list); empty-program reference"
+echo "              $BASE_TYPES/$BASE_FIELDS/$BASE_DEFS, lattice +$DELTA"
 echo "              (generator emitted $GEN_TYPES shapes), on the lattice: sema"
 echo "              $LAT_SEMA / mono $LAT_MONO early-engine answers checked against"
 echo "              llvm::DataLayout, 0 disagreements, all 18 ENGINE × SHAPE"

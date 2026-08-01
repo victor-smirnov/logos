@@ -72,10 +72,12 @@ done
 
 # Final archive exists, contains every per-file .o and .writ0.
 [ -f "$PROJ/.lforge/debug/out/libcore.a" ] || { echo "FAIL: libcore.a missing"; exit 1; }
-ar_list=$(ar t "$PROJ/.lforge/debug/out/libcore.a")
+# ⚠ Materialised, not piped: `… | grep -q` under pipefail reports a MATCH as a
+# failed pipeline (SIGPIPE 141 on the writer).
+ar t "$PROJ/.lforge/debug/out/libcore.a" > "$PROJ/ar_list.txt"
 for stem in a b c d; do
-    echo "$ar_list" | grep -q "^$stem.o$"       || { echo "FAIL: archive missing $stem.o"; exit 1; }
-    echo "$ar_list" | grep -q "^$stem.wr0$"     || { echo "FAIL: archive missing $stem.wr0"; exit 1; }
+    grep -qx "$stem.o"   "$PROJ/ar_list.txt" || { echo "FAIL: archive missing $stem.o"; exit 1; }
+    grep -qx "$stem.wr0" "$PROJ/ar_list.txt" || { echo "FAIL: archive missing $stem.wr0"; exit 1; }
 done
 
 # Consumer behaves correctly: 1+2+4+8 = 15.

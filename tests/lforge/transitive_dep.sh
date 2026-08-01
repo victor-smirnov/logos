@@ -96,9 +96,11 @@ LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$ROOT/b1.log" 2>&1 || {
 
 # ── Lockfile is a no-op for local-path-only closures (no git pins to record).
 [ ! -s "$ROOT/root/lforge.lock" ] || {
-    LOCK_CONTENTS=$(cat "$ROOT/root/lforge.lock")
+    # ⚠ Matched against the FILE, not through a pipe. `echo "$LOCK" | grep -q`
+    # under pipefail turns a present `project:` into an absent one — and this is
+    # the NEGATIVE form, so the gate would go green on the thing it forbids.
     # If a lockfile was written, it must have empty `pinned`.
-    echo "$LOCK_CONTENTS" | grep -q "project:" && {
+    grep -q "project:" "$ROOT/root/lforge.lock" && {
         echo "FAIL: lockfile wrote pinned entries for local-path-only closure"
         cat "$ROOT/root/lforge.lock"
         exit 1

@@ -49,7 +49,11 @@ done
 # ── --diag-format with separate arg form ──────────────────────────────────
 JSON_OUT2=$("$LOGOSC" "$TMPD/bad.logos" --diag-format json -o "$TMPD/out.o" 2>&1) && rc=$? || rc=$?
 if [ "$rc" != "1" ]; then echo "FAIL: separate-arg form exit=$rc, want 1"; exit 1; fi
-echo "$JSON_OUT2" | grep -q '"level":"error"' || { echo "FAIL: separate-arg form no JSON"; exit 1; }
+# NOT `echo … | grep -q`: under `set -o pipefail` grep exits at its first match
+# and `echo` dies of SIGPIPE 141, which pipefail hands to the pipeline — a
+# PRESENT string read as a failure. Materialise, then match the file.
+printf '%s' "$JSON_OUT2" > "$TMPD/json2.txt"
+grep -q '"level":"error"' "$TMPD/json2.txt" || { echo "FAIL: separate-arg form no JSON"; exit 1; }
 
 # ── Bad value ──────────────────────────────────────────────────────────────
 "$LOGOSC" "$TMPD/bad.logos" --diag-format=garble -o "$TMPD/out.o" 2>/dev/null && rc=$? || rc=$?

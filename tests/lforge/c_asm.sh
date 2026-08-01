@@ -81,11 +81,13 @@ grep -q "compiling 3 file(s) in parallel" "$PROJ/b1.log" || {
 [ -f "$PROJ/.lforge/debug/_files/core/triple.S.o" ]  || { echo "FAIL: triple.S.o missing"; exit 1; }
 
 # Archive contains all four members.
-ar_list=$(ar t "$PROJ/.lforge/debug/out/libcore.a")
-echo "$ar_list" | grep -q "^wrap.o$"        || { echo "FAIL: archive missing wrap.o"; exit 1; }
-echo "$ar_list" | grep -q "^wrap.wr0$"      || { echo "FAIL: archive missing wrap.wr0"; exit 1; }
-echo "$ar_list" | grep -q "^answer.c.o$"    || { echo "FAIL: archive missing answer.c.o"; exit 1; }
-echo "$ar_list" | grep -q "^triple.S.o$"    || { echo "FAIL: archive missing triple.S.o"; exit 1; }
+# ⚠ NOT `echo "$ar_list" | grep -q`. `grep -q` exits at its first match, `echo`
+# takes SIGPIPE 141, and `set -o pipefail` gives that status to the pipeline: a
+# member that IS in the archive would be reported as missing. Write it once.
+ar t "$PROJ/.lforge/debug/out/libcore.a" > "$PROJ/ar_list.txt"
+for member in wrap.o wrap.wr0 answer.c.o triple.S.o; do
+    grep -qx "$member" "$PROJ/ar_list.txt" || { echo "FAIL: archive missing $member"; exit 1; }
+done
 
 # Run: triple(answer()) = triple(42) = 126.
 "$PROJ/.lforge/debug/out/app" && rc=$? || rc=$?
@@ -130,6 +132,7 @@ EOF
 cd "$PROJ/pure_proj"
 LOGOSC="$LOGOSC" LOGOS_LIB_DIR="$LIB" "$LFORGE" build > "$PROJ/pure.log" 2>&1
 [ -f "$PROJ/pure_proj/.lforge/debug/out/librt.a" ] || { echo "FAIL: pure-native lib not built"; cat "$PROJ/pure.log"; exit 1; }
-ar t "$PROJ/pure_proj/.lforge/debug/out/librt.a" | grep -q "^only.c.o$" || { echo "FAIL: pure-native archive missing only.c.o"; exit 1; }
+ar t "$PROJ/pure_proj/.lforge/debug/out/librt.a" > "$PROJ/pure_ar.txt"
+grep -qx "only.c.o" "$PROJ/pure_ar.txt" || { echo "FAIL: pure-native archive missing only.c.o"; exit 1; }
 
 echo "OK"

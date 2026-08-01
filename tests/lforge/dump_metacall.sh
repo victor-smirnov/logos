@@ -129,7 +129,11 @@ if [ "$sites" != "1" ]; then
     find "$DUMP_DIR" -maxdepth 1 -type d
     exit 1
 fi
-if ! find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d -name '*main_5' -print -quit | grep -q .; then
+# ⚠ `find … -print -quit | grep -q .` is a pipe into `grep -q` under pipefail:
+# grep exits on the first byte, find takes SIGPIPE 141, and the `!` turns that
+# into "the directory was NOT found" — a match reported as a miss.
+find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d -name '*main_5' -print -quit > "$PROJ/main5.txt"
+if [ ! -s "$PROJ/main5.txt" ]; then
     echo "FAIL: file:line filter didn't pick the main:5 dir"
     find "$DUMP_DIR" -maxdepth 1 -type d
     exit 1

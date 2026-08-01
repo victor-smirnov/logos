@@ -4174,12 +4174,40 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     if (!in_progress.insert(sn).second) return false;
     struct PopGuard { std::unordered_set<std::string>& s; std::string n;
         ~PopGuard() { s.erase(n); } } pop{in_progress, sn};
-    // Layout-only query: look up WITHOUT pub enforcement. is_effective_dst is
-    // called on substituted field types (e.g. `Arc<i32>`'s `inner: *mut
-    // ArcInner<T>` → recurse into the package-private `ArcInner`), and a
-    // privacy diagnostic must not fire from a pure structural probe.
-    auto [spkg, ssi] = lookup_qualified_<false>(structs_, sn);
-    if (!ssi) { auto [dpkg, dsi] = lookup_qualified_<false>(datatypes_, sn); ssi = dsi; }
+    // ⚠ PKG-QUALIFIED, and that is the whole content of this line.
+    //
+    // `lookup_qualified_<false>` is pub-check-free but resolves a BARE name
+    // against the packages in scope AT THE CALL, and this is called from
+    // whatever package is being checked. `RcInner` is private to `logos.lang.rc`
+    // and in scope nowhere else, so the probe answered "no such struct" — i.e.
+    // NOT a DST — for `RcInner<dyn Tr>`, and `*mut RcInner<dyn Tr>` stayed a
+    // THIN `Ptr` instead of canonicalising to a fat `DstRef`.
+    //
+    // MEASURED 2026-08-01, with `use logos.lang.writ.container;` in the program:
+    //   logos.lang.rc.Rc$G1$udyn_Resident: sema_abi_layout 8, llvm::DataLayout 16
+    //   logos.lang.writ.container.HeldAny: sema_abi_layout 16, llvm::DataLayout 24
+    // and the same probe answered correctly 99 times out of 101 in the SAME
+    // compile — the two that failed were the two asked from a foreign package.
+    // This is the identical defect `find_struct_repr_` exists for, one function
+    // over: a bare-name lookup asked a question about a type it cannot see and
+    // returned an answer rather than a decline.
+    // ⚠ THE QUALIFIED KEY IS TRIED FIRST AND THE BARE SLOT LAST — the ORDER is
+    // the fix, not the qualification. `find_struct_repr_` falls straight from
+    // the qualified key to the BARE registry slot, and that skips the
+    // scope-aware resolution the old call did: a program declaring its own
+    // `struct S` got whichever `S` registered first, and its Drop/move analysis
+    // changed. MEASURED: two imported pass tests went red on exactly that.
+    SemaStructInfo* ssi = nullptr;
+    if (!t.pkg_name().empty()) {
+        auto it = structs_.find(sema_key(t.pkg_name(), sn));
+        if (it != structs_.end()) ssi = &it->second;
+        if (!ssi) {
+            auto dit = datatypes_.find(sema_key(t.pkg_name(), sn));
+            if (dit != datatypes_.end()) ssi = &dit->second;
+        }
+    }
+    if (!ssi) { auto [spkg, s2] = lookup_qualified_<false>(structs_, sn); ssi = s2; }
+    if (!ssi) { auto [dpkg, d2] = lookup_qualified_<false>(datatypes_, sn); ssi = d2; }
     if (!ssi) return false;
     if (ssi->is_dst) return true;
     // Generic instantiation check: substitute type-args into the

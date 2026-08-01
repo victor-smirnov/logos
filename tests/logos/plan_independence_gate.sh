@@ -507,4 +507,4 @@ else
     fi
 fi
 
-exit $fail
+exit $fail  # lint:exit-ok — `fail` is set only to the literals 0 and 1

@@ -27,8 +27,15 @@ LINT_BASELINE=5
 # call per candidate. Helper itself counts as 1 site (Enum branch);
 # net reduction 10 → 7.
 
+# ⚠ THE POPULATION IS `src/`, NOT `src/compiler/`. A lint whose scan is one
+# hand-named directory says nothing about the same anti-pattern one directory
+# over: `LogosTypeBuilder` is reachable from every TU that includes sema.hpp, and
+# `src/` holds seven of them (compiler, core, hrpc, jit, reactor, verification,
+# writ). MEASURED 2026-08-01 at the widening: 0 sites outside src/compiler, so
+# the baseline is unchanged — which is the point. The number that would have had
+# to change is the one this scan could not see.
 count=$(grep -rE "kind[[:space:]]*=[[:space:]]*LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
-        "$ROOT/src/compiler/" 2>/dev/null \
+        "$ROOT/src/" "$ROOT/tools/" 2>/dev/null \
         | grep -v "sema_impl.hpp" \
         | wc -l)
 
@@ -37,7 +44,7 @@ if [ "$count" -gt "$LINT_BASELINE" ]; then
     echo "  baseline: $LINT_BASELINE, current: $count" >&2
     echo "Each new site is a pkg-threading risk.  Use make_*_type helpers." >&2
     grep -rEn "kind[[:space:]]*=[[:space:]]*LogosType::Kind::(Struct|Enum|ZonedStruct)\b" \
-        "$ROOT/src/compiler/" | grep -v "sema_impl.hpp" >&2
+        "$ROOT/src/" "$ROOT/tools/" | grep -v "sema_impl.hpp" >&2
     exit 1
 fi
 

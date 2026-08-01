@@ -88,14 +88,14 @@ if [ "$LEVEL" = "L4" ]; then
         echo "[test-levels] L4 — full suite (core+spec; imported excluded, add 'imp' for full)"
         bash "$SUMMARY" -LE imported
     fi
-    exit $?
+    exit $?  # lint:exit-ok — the status of the `bash` just run: a real wait status
 fi
 if [ "$LEVEL" = "L0" ]; then
     NAME=${1:-}
     [ -z "$NAME" ] && { echo "L0 needs a test name (substring)"; exit 2; }
     echo "[test-levels] L0 — '$NAME'"
     bash "$SUMMARY" -R "$NAME"
-    exit $?
+    exit $?  # lint:exit-ok — the status of the `bash` just run: a real wait status
 fi
 
 VARIANT=${1:-1}

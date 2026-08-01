@@ -43,7 +43,7 @@ git config user.name  lforge-test
 git add .
 git commit --quiet -m "v0.1.0"
 git tag v0.1.0
-TAG_SHA=$(git rev-parse HEAD)
+TAG_SHA=$(git rev-parse HEAD)  # lint:git-ok — the SHA of the commit this fixture just made; only git knows it
 
 # ── Consumer pulls upstream by tag via file:// URL.
 mkdir -p "$ROOT/app/src"
