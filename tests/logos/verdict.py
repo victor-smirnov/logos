@@ -14,6 +14,13 @@ INDISTINGUISHABLE FROM SUCCESS:
     EXIT 0, printing its OK line with the whole census line embedded in it.
   * `grep -c` yields 0, which is a number, so a floor of 0 reads as a
     measurement.
+  * A DUPLICATED KEY IN THE VERDICT ITSELF.  JSON says last-wins and
+    `set(doc.keys())` collapses the duplicate, so the STRICT parser accepted the
+    one corruption that reads as healthy.  MEASURED 2026-08-01, against this
+    program before the fix below: a verdict carrying the real `defs` at 0 and a
+    second `defs` at 3676 met a floor of 3676 and printed the healthy number,
+    EXIT 0 — where the same 0 without the appendix is a correct red.  Fixed at
+    the level where the mistake is expressible: `object_pairs_hook`.
   * `grep -q PATTERN file1 file2 file3` is an EXISTENTIAL.  A rule that means
     "every emitted plan goes through order_pick" written that way is green when
     two of three do not.  MEASURED 2026-08-01: deferred_plan_gate.sh EXIT 0.
@@ -34,7 +41,9 @@ CONTRACT
                        added field is then fatal even if nothing floors it.
   --bind NAME=path     resolve a dotted path to an int and bind it to a shell
                        variable NAME.
-  --floor PATH N       the value at `PATH` must be >= N.
+  --floor PATH N       the value at `PATH` must be >= N. N MUST BE POSITIVE: a
+                       floor of 0 on a count holds for a run that measured
+                       nothing, so it is refused at the argument (exit 3).
   --eq    PATH N       the value at `PATH` must be == N.
   --export FILE        write `NAME=value` lines for every --bind.  Written ONLY
                        if every bind resolved and every assertion passed, so a
@@ -149,6 +158,28 @@ class Failed(Exception):
     """The verdict was read and an assertion did not hold."""
 
 
+class _DuplicateKey(ValueError):
+    """A key appeared twice in one JSON object. NEVER resolved by taking one."""
+
+
+def _reject_duplicate_keys(pairs):
+    """object_pairs_hook: the ONLY way this program builds a JSON object.
+
+    `json.loads` without this hook implements JSON's LAST-WINS rule, and
+    `set(doc.keys())` — what --exact-keys uses — collapses the duplicate before
+    anything can notice it. So a strict parser that rejects a renamed field, a
+    mistyped field and a malformed document accepted the one corruption that
+    LOOKS HEALTHY. It is a hook and not a post-hoc check because a post-hoc check
+    reads the already-collapsed dict: at the level where the mistake is
+    expressible, the evidence is gone."""
+    seen = {}
+    for k, v in pairs:
+        if k in seen:
+            raise _DuplicateKey(f"the field {k!r} (first {seen[k]!r}, then {v!r})")
+        seen[k] = v
+    return seen
+
+
 def read_verdict(text, prefix, label="the subject"):
     """text -> dict. Raises Unreadable, naming what could not be parsed."""
     hits = [ln for ln in text.splitlines() if ln.startswith(prefix)]
@@ -168,7 +199,17 @@ def read_verdict(text, prefix, label="the subject"):
     if not body:
         raise Unreadable(f"{label}: the {prefix!r} line carries no document at all.")
     try:
-        doc = json.loads(body)
+        doc = json.loads(body, object_pairs_hook=_reject_duplicate_keys)
+    except _DuplicateKey as e:
+        raise Unreadable(
+            f"{label}: the {prefix!r} line names {e} twice.\n"
+            f"       JSON's LAST-WINS rule makes a duplicated key the one shape of\n"
+            f"       corruption that reads as healthy: the real value is emitted,\n"
+            f"       something appends a second one, and every floor is met by the\n"
+            f"       appendix. MEASURED 2026-08-01 before this check: a verdict with\n"
+            f"       the real `defs` at 0 and a second `defs` at 3676 passed a floor\n"
+            f"       of 3676 and printed the healthy number. A key is emitted once or\n"
+            f"       the document is not a verdict.")
     except json.JSONDecodeError as e:
         raise Unreadable(
             f"{label}: the {prefix!r} line is not valid JSON: {e}.\n"
@@ -249,6 +290,30 @@ def check_exact_keys(doc, want, label="the subject"):
             f"       know how to read. Update the gate deliberately.")
 
 
+def parse_floor(path, raw, label="the subject"):
+    """(PATH, N) for a --floor. A FLOOR OF ZERO IS REFUSED AT THE ARGUMENT.
+
+    Every quantity floored here is a count, so `>= 0` holds for the empty run,
+    the silenced channel and the deleted corpus alike: it is a measurement-shaped
+    assertion about nothing. Refusing it here — rather than writing it down —
+    means the mistake cannot be expressed in the only reader the gates have. If
+    the intended sentence really is "this is exactly zero", that is `--eq`, which
+    is a different and honest claim."""
+    try:
+        n = int(raw)
+    except ValueError:
+        raise Unreadable(f"{label}: --floor {path} {raw!r} — a floor must be an "
+                         f"integer.")
+    if n <= 0:
+        raise Unreadable(
+            f"{label}: --floor {path} {n} — A FLOOR OF {n} IS NOT A MEASUREMENT.\n"
+            f"       Every floored quantity is a count, so this holds for a run\n"
+            f"       that measured nothing exactly as it holds for a healthy one.\n"
+            f"       Floor it at the value you OBSERVED, or say `--eq {path} {n}`\n"
+            f"       if zero is the assertion.")
+    return (path, n)
+
+
 def assertions(doc, floors, eqs, label="the subject"):
     """Raises Unreadable (cannot read) or Failed (read, and wrong)."""
     bad = []
@@ -312,6 +377,22 @@ def _selftest_cases():
         ("the top-level key set grew",
          lambda: check_exact_keys(read_verdict(good, "V: "), ["a"]),
          "unexpected: ['b']"),
+        # ── THE LAST-WINS HOLE. Every row above rejects a document that LOOKS
+        # broken. These three reject the one that looks HEALTHY: the subject
+        # emitted the field, and something emitted it again.
+        ("a top-level key appears TWICE",
+         lambda: read_verdict('V: {"a": 0, "a": 3}', "V: "), "twice"),
+        ("a NESTED key appears twice",
+         lambda: read_verdict('V: {"b": {"c": 0, "c": 4}}', "V: "), "twice"),
+        ("a key appears twice with the SAME value",
+         lambda: read_verdict('V: {"a": 3, "a": 3}', "V: "), "twice"),
+        # ── A FLOOR OF ZERO IS REFUSED AT THE ARGUMENT, not written down.
+        ("a floor of 0 is offered",
+         lambda: parse_floor("a", "0"), "IS NOT A MEASUREMENT"),
+        ("a negative floor is offered",
+         lambda: parse_floor("a", "-1"), "IS NOT A MEASUREMENT"),
+        ("a non-integer floor is offered",
+         lambda: parse_floor("a", "many"), "must be an integer"),
     ]
 
 
@@ -422,7 +503,7 @@ def main(argv):
         doc = read_verdict(text, args.prefix, label)
         if args.exact_keys is not None:
             check_exact_keys(doc, [k for k in args.exact_keys.split(",") if k], label)
-        floors = [(p, int(v)) for p, v in args.floor]
+        floors = [parse_floor(p, v, label) for p, v in args.floor]
         eqs = [(p, int(v)) for p, v in args.eq]
         binds = [_kv(b, "=", "bind") for b in args.bind]
         # Resolve EVERY bind before asserting anything: a rename must be reported

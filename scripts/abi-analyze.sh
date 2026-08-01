@@ -27,7 +27,7 @@ REV_B="${2:-}"
 
 tmp_a="$(mktemp)"
 trap 'rm -f "$tmp_a" "${tmp_b:-}"' EXIT
-git show "${REV_A}:${SPEC}" > "$tmp_a"
+git show "${REV_A}:${SPEC}" > "$tmp_a"  # lint:git-ok — this tool compares two REVISIONS by name; the artefact of a past revision is not built here
 
 if [ -n "$REV_B" ]; then
     tmp_b="$(mktemp)"

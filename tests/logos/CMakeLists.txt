@@ -728,6 +728,28 @@ set_tests_properties(logos_00_corpus_registration PROPERTIES
     LABELS  "logos;pass;suite_semantic_core"
 )
 
+# ── THE RECORDED LESSONS ABOUT LYING GATES, AS RULES ─────────────────────────
+# `bug_exit_code_gate_lies` records eight ways a gate answers "nothing is wrong"
+# when what happened is "I could not look". Each was diagnosed, fixed at the
+# class and WRITTEN DOWN — and MEASURED 2026-08-01, two of them were live again
+# in artifacts written the same week to stop gates from lying: 272 failure codes
+# returned through an 8-bit exit status (code 256 read as SUCCESS), and two
+# `awk … | grep -q` under `pipefail`, one of them in the negative form where a
+# SIGPIPE turns a present forbidden string into an absent one.
+#
+# A written lesson that is not mechanized gets re-made. This runs the rules on
+# every configure-and-test, and each rule proves it still bites by catching its
+# own planted canary in the same invocation (exit 4 if one stops).
+add_test(
+    NAME logos_00_gate_lint
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/gate_lint.py --selftest
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_gate_lint PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core"
+)
+
 # ── Pass tests ────────────────────────────────────────────────────────────────
 # Both .logos and .expected live in tests/logos/pass/ (native suite).
 # Imported rust-derived tests live in tests/imported/{pass,fail}/<category>/

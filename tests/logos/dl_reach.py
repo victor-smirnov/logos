@@ -283,7 +283,15 @@ def main(argv):
                          f"could not be read: {e}\n")
         return 3
 
-    bad, broken = [], []
+    # ⚠ CANARIES ARE COUNTED, NOT DESCRIBED. The closing prose of this program
+    # and of the gate that calls it named the canaries in a sentence somebody
+    # maintained; MEASURED 2026-08-01, the gate's said NINE while TEN fired —
+    # `declined`, added the day before, was caught and never listed. That is the
+    # sixth recorded kind of lying gate (a measured claim nothing pins) inside
+    # the artifact written to stop gates from lying. So every canary site that
+    # did NOT go into `broken` appends its name here, the count travels to the
+    # caller as a number, and no sentence restates it.
+    bad, broken, caught = [], [], []
     try:
         # ── Q1: who can NAME one, per the compiler's dependency record ──────
         reach = q1_include_reach(args.build, args.target_dir, args.header)
@@ -366,6 +374,9 @@ def main(argv):
                 f"    includes <{headers[0]}> BEFORE {args.law} came back with a\n"
                 f"    {n_c}-header closure and no hit. The -MD record this arm\n"
                 "    reads is not the one being written.")
+        else:
+            caught.append("the law's include closure (a probe TU with a "
+                          "DataLayout header added)")
 
         # ── CANARY A: a TU compiled here, from source, that asks one ────────
         cobj = compile_canary(args.build, args.tmpd, "mlir_gen_types.cpp")
@@ -382,6 +393,9 @@ def main(argv):
                     f"    scan with {crefs.get(cname, [])!r}.\n"
                     "    The scan that just said the tree is clean cannot see a\n"
                     "    reader of that family.")
+            else:
+                caught.append(f"a fifth engine COMPILED from source, asking "
+                              f"{fam}")
         # ── CANARY B: a planted copy of a real oracle object, misnamed ──────
         planted = os.path.join(args.tmpd, "planted_oracle_copy.cpp.o")
         model = os.path.join(objdir, "mlir_gen_types.cpp.o")
@@ -395,6 +409,8 @@ def main(argv):
                 "    mlir_gen_types.cpp.o under a name that is not allowlisted came\n"
                 "    back from the same scan with no query member. The scan is not\n"
                 "    reading the objects it is pointed at.")
+        else:
+            caught.append("a planted byte-for-byte copy of an oracle object")
     except Unaskable as e:
         sys.stderr.write(f"FAIL (UNASKABLE — the build could not be asked): {e}\n")
         return 3
@@ -416,9 +432,12 @@ def main(argv):
         f"replaces claimed 2.\n"
         f"[dl-reach] Q2 the linker's view: {len(refs)} TUs reference one; the "
         f"oracle(s) {sorted(oracles)} are the only ones that ASK it for a layout.\n"
-        f"[dl-reach] canaries caught: a fifth engine compiled from source with this "
-        f"build's flags (via <llvm/IR/Module.h>, never naming DataLayout.h), and a "
-        f"planted copy of an oracle object.\n")
+        f"[dl-reach] {len(caught)} canaries caught: {'; '.join(caught)}\n")
+    # The COUNT is a number the caller adds to its own tally, so the gate's
+    # closing "N canaries caught" is arithmetic over sites that actually fired
+    # and not a word somebody typed.
+    sys.stderr.write("dl-reach-json: " + json.dumps({"canaries": len(caught)})
+                     + "\n")
     print(json.dumps({"include_reach": reach, "symbol_refs": refs}, indent=1))
     return 0
 

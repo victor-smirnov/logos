@@ -154,7 +154,7 @@ if ! diff -q "$fresh_spec" "$SPEC" >/dev/null 2>&1; then
     exit 1
 fi
 # Fresh, but is it COMMITTED? CI compares the committed spec against the base.
-if ! git diff --quiet -- "$SPEC"; then
+if ! git diff --quiet -- "$SPEC"; then  # lint:git-ok — the BUILD was asked above; only git knows whether the regenerated spec is COMMITTED
     echo "::error:: $SPEC is regenerated but uncommitted — commit it with the change."
     git --no-pager diff --stat -- "$SPEC"
     exit 1
@@ -166,7 +166,7 @@ fi
 # in prose and reported success in the exit code, which is the only channel a CI
 # job or a commit script reads. No base spec means the verdict below and the bump
 # gate after it are both unanswerable, so the answer is red with the reason.
-if ! git show "${BASE}:${SPEC}" > "$base_spec" 2>/dev/null; then
+if ! git show "${BASE}:${SPEC}" > "$base_spec" 2>/dev/null; then  # lint:git-ok — the base spec exists ONLY in history; there is no build of it to ask
     echo "::error:: no $SPEC at '${BASE}', so NOTHING could be compared and no ABI"
     echo "          verdict exists. Pass a base ref that has one (e.g."
     echo "          scripts/abi-check.sh HEAD~1), or fetch the default base."
@@ -236,7 +236,7 @@ fi
 # ── 3. bump gate ──────────────────────────────────────────────────────────────
 ver_of() {  # "MAJOR MINOR" from CMakeLists project(VERSION) at a ref ($1=ref, ""=worktree)
     local src
-    if [ -z "$1" ]; then src="$(cat CMakeLists.txt)"; else src="$(git show "$1:CMakeLists.txt")"; fi
+    if [ -z "$1" ]; then src="$(cat CMakeLists.txt)"; else src="$(git show "$1:CMakeLists.txt")"; fi  # lint:git-ok — the BASE revision's declared version, which only history holds
     echo "$src" | grep -m1 -oE 'project\(logos VERSION [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+$'
 }
 base_ver="$(ver_of "$BASE")"; cur_ver="$(ver_of "")"

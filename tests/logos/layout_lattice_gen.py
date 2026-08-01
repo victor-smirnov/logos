@@ -19,6 +19,7 @@ payload, generic instantiation, and nestings of those. A scalars-only lattice is
 how three engines could lack a whole `is_union()` branch behind a green gate.
 """
 import json
+import re
 import sys
 
 # 20 distinct scalar leaves — every integer width the language has, both
@@ -131,6 +132,136 @@ static NINE: i64 = 9i64;
 """
 
 
+# ── THE ORACLE'S SIGNAL: A BOOLEAN. ITS DIAGNOSIS: THE OUTPUT. ───────────────
+# A process exit status is EIGHT BITS. This generator allocates 272 distinct
+# failure codes, and the gate used to read them off `$?`. MEASURED 2026-08-01
+# against this file before the change: an oracle forced to fail at code 255
+# exited 255 and the gate went RED; forced at code 256 it exited 0 and THE GATE
+# WENT GREEN, because 256 & 0xFF == 0. Sixteen further codes (257…272 — every
+# DstRef row of the u56/i56/u64/i64 backings, which is the exact cell of the
+# miscompile this oracle exists to catch) aliased onto earlier probes, so a
+# failure there named the wrong row.
+#
+# ⚠ THIS PROJECT DIAGNOSED THIS CLASS ON 07-19 AND FIXED IT ACROSS ALL 33 CONUCO
+# TESTS: the diagnostic code goes to the OUTPUT, where it has no ceiling, and the
+# process returns a FIXED non-zero byte. The record is a paragraph long and this
+# artifact — written a week later, to stop gates from lying — was written
+# straight past it. Renumbering into a "safe band" is a deferral, not a fix.
+#
+# So the oracle emits `oracle-run-json: {"probes":P,"failures":F,"first":C}` and
+# returns 0 or 1. `probes` is the second gain: it is a RUN-TIME census, so the
+# gate asserts that as many assertions EXECUTED as the generator EMITTED, and an
+# oracle whose probes never ran is caught by arithmetic rather than only by the
+# canary. `write(2)` and not a buffered stream, so a report is never lost to an
+# unflushed exit.
+REPORT_HELPERS = """
+unsafe fn pb(buf: *mut u8, n: i64, c: u8) -> i64 { *(buf.add(n)) = c; return n + 1i64; }
+unsafe fn pnum(buf: *mut u8, n0: i64, v: i64) -> i64 {
+    let mut n: i64 = n0;
+    if v == 0i64 { return pb(buf, n, 48u8); }
+    let mut d: i64 = 1i64;
+    while v / d >= 10i64 { d = d * 10i64; }
+    while d > 0i64 { n = pb(buf, n, (48i64 + ((v / d) % 10i64)) as u8); d = d / 10i64; }
+    return n;
+}
+"""
+
+
+def _lit_bytes(s):
+    return "".join(f"    n = pb(buf, n, {ord(c)}u8);\n" for c in s)
+
+
+def gen_report_fn():
+    """`emit_report` — the verdict line, byte by byte, through one `write`."""
+    body = ["unsafe fn emit_report(probes: i64, failures: i64, first: i64) -> i64 {",
+            "    let buf: *mut u8 = malloc(256i64);",
+            "    let mut n: i64 = 0i64;"]
+    body.append(_lit_bytes('oracle-run-json: {"probes":').rstrip("\n"))
+    body.append("    n = pnum(buf, n, probes);")
+    body.append(_lit_bytes(',"failures":').rstrip("\n"))
+    body.append("    n = pnum(buf, n, failures);")
+    body.append(_lit_bytes(',"first":').rstrip("\n"))
+    body.append("    n = pnum(buf, n, first);")
+    body.append(_lit_bytes("}\n").rstrip("\n"))
+    body.append("    return write(1i32, buf as *const u8, n) - n;")
+    body.append("}")
+    return "\n".join(body)
+
+
+class Codes:
+    """THE DIAGNOSTIC CODE IS ALLOCATED, NEVER WRITTEN DOWN.
+
+    The 8-bit ceiling is the FIRST form of the recorded class; the SECOND, found
+    on main the same day, is the COLLISION — `assert_mutation` taking `base..
+    base+3` with bases spaced 1 apart, a base written twice, 134 sites in 45
+    laws sharing a code with another clause of the same law. Every one of those
+    was a hand-written number sitting next to a hand-written increment, which is
+    exactly the shape this generator had: `chk(…, code)`, `chk(…, code + 1)`,
+    `chk(…, code + 2)`, then `code += 3` — where `code += 2` is a silent alias
+    and `code += 4` is a silent hole.
+
+    So there is no number to maintain. `chk` takes a condition and nothing else,
+    and gets the next code this allocator has never issued. A collision is not
+    caught here; it cannot be spelled."""
+
+    def __init__(self):
+        self.n = 0
+
+    def take(self):
+        self.n += 1
+        return self.n
+
+
+def chk(codes, cond):
+    """ONE assertion: counted, and its allocated code kept for the REPORT.
+
+    There is deliberately no `return <code>i32` form available here — that is the
+    shape that put a 272-valued diagnosis into an 8-bit channel. The code is a
+    value in a variable; the only thing that reaches the exit status is whether
+    `failures` is zero."""
+    return (f"        probes = probes + 1i64;\n"
+            f"        if {cond} {{\n"
+            f"            failures = failures + 1i64;\n"
+            f"            if first == 0i64 {{ first = {codes.take()}i64; }}\n"
+            f"        }}")
+
+
+class Botched(Exception):
+    """The GENERATOR is wrong. Nothing it wrote is evidence about the compiler."""
+
+
+def _audit_emitted_codes(src, n):
+    """READ THE PROGRAM BACK — the allocator is not allowed to be its own oracle.
+
+    `Codes` makes a collision unspellable *through `chk`*. This asks the emitted
+    TEXT instead: the codes it actually carries must be exactly 1..n with no gap
+    and no repeat, and there must be one `probes` increment per code. That is an
+    independent reading — a probe emitted by some other path, a `chk` result
+    dropped on the floor by an f-string that was edited, a literal code typed by
+    hand — none of which the counter can see, because the counter only knows
+    what it was asked for.
+
+    Raises rather than printing: a generator that cannot vouch for its own
+    output must not hand the gate a program to run."""
+    emitted = [int(m) for m in re.findall(r'first = (\d+)i64;', src)]
+    want = list(range(1, n + 1))
+    if sorted(emitted) != want:
+        dup = sorted({c for c in emitted if emitted.count(c) > 1})
+        raise Botched(
+            f"the oracle carries {len(emitted)} diagnostic codes and the "
+            f"allocator issued {n}. duplicated: {dup or '-'}; "
+            f"missing: {sorted(set(want) - set(emitted)) or '-'}; "
+            f"unallocated: {sorted(set(emitted) - set(want)) or '-'}. "
+            f"A code reachable from two probes names the wrong row, which is "
+            f"the SECOND form of the recorded exit-code class.")
+    n_probes = len(re.findall(r'probes = probes \+ 1i64;', src))
+    if n_probes != n:
+        raise Botched(
+            f"{n_probes} probe increments for {n} codes — an assertion that "
+            f"does not count itself makes the run-time census a lower bound on "
+            f"nothing.")
+
+
 def gen_lattice(path):
     out = ["package layout_gate_lattice;", USES, PRELUDE]
     mains = []
@@ -223,7 +354,9 @@ def gen_oracle(path, canary=False):
     out = ["package layout_gate_oracle;",
            USES,
            "extern fn malloc(size: i64) -> *mut u8;",
-           PRELUDE]
+           "extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;",
+           PRELUDE,
+           REPORT_HELPERS]
     for tag, ty in prefixes:
         out.append(f"struct Seg_{tag} {{ h: {ty}, data: [u8] }}")
     out.append("")
@@ -315,74 +448,81 @@ unsafe fn gk_{w}() -> i64 {{
 }}""")
 
     out.append("")
+    out.append(gen_report_fn())
+    out.append("")
     out.append("unsafe fn main() -> i32 {")
-    code = 1
+    out.append("    let mut probes: i64 = 0i64;")
+    out.append("    let mut failures: i64 = 0i64;")
+    out.append("    let mut first: i64 = 0i64;")
+    codes = Codes()
     for tag, ty in prefixes:
-        cmp_op = "==" if (canary and code == 1) else "!="
+        cmp_op = "==" if (canary and codes.n == 0) else "!="
         out.append(f"""    {{
         let claimed: i64 = sizeof::<Seg_{tag}>() as i64;
         let measured: i64 = tail_at_{tag}(8i64);
         // The tail must begin exactly at the end of the sized prefix: a LOWER
         // offset overlaps the last prefix field, a HIGHER one writes past the
         // `sizeof + cap` bytes a caller allocates.
-        if measured {cmp_op} claimed {{ return {code}i32; }}
+{chk(codes, f"measured {cmp_op} claimed")}
     }}""")
-        code += 1
     for sn, ty, init in off_structs:
         out.append(f"""    {{
         let x: {sn} = {sn} {{ a: 1u8, c: {init}, z: 5i64 }};
         let base: i64 = ((&x) as *const {sn} as *const u8) as i64;
-        if offset_of!({sn}, c) as i64 != ((&x.c) as *const {ty} as *const u8) as i64 - base {{
-            return {code}i32;
-        }}
-        if offset_of!({sn}, z) as i64 != ((&x.z) as *const i64 as *const u8) as i64 - base {{
-            return {code + 1}i32;
-        }}
-        if x.a != 1u8 || x.z != 5i64 {{ return {code + 2}i32; }}
+{chk(codes, f"offset_of!({sn}, c) as i64 != ((&x.c) as *const {ty} as *const u8) as i64 - base")}
+{chk(codes, f"offset_of!({sn}, z) as i64 != ((&x.z) as *const i64 as *const u8) as i64 - base")}
+{chk(codes, "x.a != 1u8 || x.z != 5i64")}
     }}""")
-        code += 3
     # A union's fields are ALL at offset zero — the one place the accumulator
     # must not be used, and the place sema used it.
     out.append("""    {
         let u: UBig = UBig { big: 7i64 };
         let base: i64 = ((&u) as *const UBig as *const u8) as i64;
-        if offset_of!(UBig, big) as i64 != 0i64 { return %di32; }
-        if offset_of!(UBig, bytes) as i64 != 0i64 { return %di32; }
-        if ((&u.big) as *const i64 as *const u8) as i64 - base != 0i64 { return %di32; }
-    }""" % (code, code + 1, code + 2))
-    code += 3
-    # THE DstRef PREFIX ROWS. Three facts per backing width, each a distinct
-    # code so the failure names the width and which of the three broke.
+%s
+%s
+%s
+    }""" % (chk(codes, "offset_of!(UBig, big) as i64 != 0i64"),
+            chk(codes, "offset_of!(UBig, bytes) as i64 != 0i64"),
+            chk(codes,
+                "((&u.big) as *const i64 as *const u8) as i64 - base != 0i64")))
+    # THE DstRef PREFIX ROWS. Four facts per backing width, each with its own
+    # allocated code so the failure names the width and which of the four broke.
     for w in BACKINGS:
         out.append(f"""    {{
         let s: i64 = qk_sized_{w}();
         let d: i64 = qk_dyn_{w}();
         // (1) TWO MEASUREMENTS, NO ENGINE. The same field written through the
         //     sized and the `dyn` instantiation must land on the same byte.
-        if s != d {{ return {code}i32; }}
+{chk(codes, "s != d")}
         // (2) …and where the compiler CLAIMS it is.
-        if d != offset_of!(QI_{w}<QA>, k) as i64 {{ return {code + 1}i32; }}
+{chk(codes, f"d != offset_of!(QI_{w}<QA>, k) as i64")}
         // (3) a generic C-like enum weighs what its backing type weighs, and
         //     the field after it lands accordingly.
-        if gk_{w}() != offset_of!(GH_{w}<i32>, k) as i64 {{ return {code + 2}i32; }}
-        if sizeof::<GB_{w}<i32>>() as i64 != sizeof::<EB_{w}>() as i64 {{
-            return {code + 3}i32;
-        }}
+{chk(codes, f"gk_{w}() != offset_of!(GH_{w}<i32>, k) as i64")}
+{chk(codes, f"sizeof::<GB_{w}<i32>>() as i64 != sizeof::<EB_{w}>() as i64")}
     }}""")
-        code += 4
+    # THE REPORT IS THE DIAGNOSIS; THE EXIT STATUS IS ONE BIT OF IT. A short
+    # write is itself a failure — a gate that reads a verdict must not be handed
+    # half of one.
+    out.append("    let short: i64 = emit_report(probes, failures, first);")
+    out.append("    if short != 0i64 { return 1i32; }")
+    out.append("    if failures != 0i64 { return 1i32; }")
     out.append("    return 0i32;")
     out.append("}")
-    open(path, "w").write("\n".join(out) + "\n")
+    src = "\n".join(out) + "\n"
+    _audit_emitted_codes(src, codes.n)
+    open(path, "w").write(src)
     what = "run oracle CANARY" if canary else "run oracle"
     sys.stderr.write(f"[layout-gate] {what} generated: {len(prefixes)} DST prefix "
                      f"shapes, {len(off_structs)} offset_of shapes, "
                      f"{len(BACKINGS)} DstRef-projection widths, "
-                     f"{code - 1} distinct failure codes\n")
+                     f"{codes.n} distinct diagnostic codes — ALLOCATED and "
+                     f"REPORTED, never returned\n")
     # The counts are the gate's floors, read back from the loop that emitted
     # them rather than maintained by hand.
     sys.stderr.write("oracle-gen-json: " + json.dumps({
         "prefixes": len(prefixes), "offsets": len(off_structs),
-        "dstref_widths": len(BACKINGS), "codes": code - 1,
+        "dstref_widths": len(BACKINGS), "codes": codes.n,
         "canary": 1 if canary else 0}) + "\n")
 
 

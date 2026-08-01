@@ -82,12 +82,20 @@ if ! grep -qE '^\[plan\] f -> ' "$TMPD/err"; then
 fi
 # The refusal must be q_f's, must name the KEY TYPE that failed, and must have
 # enumerated nothing.
-if ! awk '/^\[plan\] f -> /' "$TMPD/err" | grep -q 'This key (`f64`) fails it'; then
+# ⚠ THE EXTRACTION IS SEPARATED FROM THE SEARCH. `awk … | grep -q` under
+# `set -o pipefail` is the third recorded kind of lying gate: `grep -q` exits at
+# the first match and closes the pipe, `awk` dies of SIGPIPE (141), and pipefail
+# hands that status to the whole pipeline. In the NEGATIVE form below it inverts
+# the verdict outright — a present forbidden string reads as absent, i.e. GREEN.
+# The class was diagnosed and fixed here on 07-30 (`ff85443c`); these two lines
+# were written after it. Read into a file, then match the file.
+awk '/^\[plan\] f -> /' "$TMPD/err" > "$TMPD/q_f.trace"
+if ! grep -q 'This key (`f64`) fails it' "$TMPD/q_f.trace"; then
     echo "FAIL: q_f's decision does not name the f64 key as the failed antecedent:"
-    awk '/^\[plan\] f -> /' "$TMPD/err" | cut -c1-200
+    cut -c1-200 "$TMPD/q_f.trace"
     fail=1
 fi
-if awk '/^\[plan\] f -> /' "$TMPD/err" | grep -q 'ORDER AXIS SEARCHED'; then
+if grep -q 'ORDER AXIS SEARCHED' "$TMPD/q_f.trace"; then
     echo "FAIL: q_f SEARCHED the order axis over an f64 key — the i64 column named 'k' on the"
     echo "      other source was read as this key's type"
     fail=1

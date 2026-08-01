@@ -17,6 +17,7 @@ use logos.mem.string;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.panic;
+use logos.std.io;
 
 metacall alg_kernel_family("FmK", "fse8o,vle,ssrle2");
 metacall alg_kernel_with_entry("WeK", "fse8o,fse8", "if hit { ET_SET } else { ET_INS }");
@@ -96,7 +97,7 @@ unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
     return true;
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     unsafe {
         let mut sch: NodeSchema = node_schema_new();
         sch.streams.push(sd_fse(8u32, true));
@@ -227,4 +228,23 @@ fn main() -> i32 {
         dealloc(md);
     }
     return 0i32;
+}
+
+// ⚠ THE DIAGNOSTIC CODE IS PRINTED, NEVER RETURNED. A process exit status is an
+// 8-bit channel: a test that returns >= 256 wraps and reports SUCCESS (07-19,
+// `881939d3`), and one that returns 126/127/128+ collides with the shell's own
+// statuses. `main` therefore returns 0 or 1 and the code travels in stderr,
+// where it has no ceiling. This file kept the old shape because the 07-19 pass
+// covered the 33 tests that existed then and nothing stopped the 34th being
+// written the old way; `gate_lint.py` R7 now does.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL alg_kernel_family: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

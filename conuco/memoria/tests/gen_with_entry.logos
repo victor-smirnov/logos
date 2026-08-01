@@ -65,7 +65,7 @@ fn set_hello(cur: Option<&[u8]>) -> Option<str> {
     }
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     // ── FSE: counter map, every mutation through with_entry ──
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
@@ -128,4 +128,23 @@ fn main() -> i32 {
         if got[0i64] != 114u8 { return 8i32; }   // 'r'
     }
     return 0i32;
+}
+
+// ⚠ THE DIAGNOSTIC CODE IS PRINTED, NEVER RETURNED. A process exit status is an
+// 8-bit channel: a test that returns >= 256 wraps and reports SUCCESS (07-19,
+// `881939d3`), and one that returns 126/127/128+ collides with the shell's own
+// statuses. `main` therefore returns 0 or 1 and the code travels in stderr,
+// where it has no ceiling. This file kept the old shape because the 07-19 pass
+// covered the 33 tests that existed then and nothing stopped the 34th being
+// written the old way; `gate_lint.py` R7 now does.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL gen_with_entry: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

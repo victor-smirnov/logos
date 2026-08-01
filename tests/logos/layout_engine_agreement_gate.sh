@@ -238,7 +238,9 @@
 # appearing INSIDE an allowed TU, the include check's own stated blind spot).
 #
 # ⚠ AND THE PARSER'S OWN MEDIUM IS CHECKED THE WAY THE CANARIES ARE. Every run
-# starts with `verdict.py --selftest`, which pushes 17 malformed/false inputs
+# starts with `verdict.py --selftest`, which pushes its whole table of
+# malformed and false inputs — the count is the selftest's own to print, not a
+# number restated here where nothing pins it —
 # through the SAME read_verdict/resolve_int/assertions this gate then uses and
 # requires each to be rejected — plus the well-formed one accepted, so a parser
 # that rejects everything proves nothing. It exits 4 if it accepts one.
@@ -257,7 +259,8 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 #   [layout-gate] lattice: 4336 struct types (660 more than the baseline), 11506 fields
 #   [layout-gate] early engines … : sema 343, mono 2235
 #   [layout-gate] run oracle generated: 59 DST prefix shapes, 54 offset_of shapes,
-#                 12 DstRef-projection widths, 272 codes
+#                 12 DstRef-projection widths, 272 diagnostic codes
+#   oracle-run-json: {"probes":272,"failures":0,"first":0}
 #   [layout-gate] all 18 cells at or above their measured floors, 91 enum types
 MIN_BASELINE_TYPES=3676
 MIN_BASELINE_FIELDS=9810
@@ -305,6 +308,35 @@ MIN_ENUM_TYPES=91
 # field whose disappearance means the verdict's shape moved, and a gate reading
 # a shape it was not written against is guessing.
 VERDICT_KEYS='struct_types,fields,defs,enum_types,unmatched,declined,disagreements,engines,matrix'
+# ── THE CANARY TALLY IS DERIVED, AND ITS FLOOR IS MEASURED ───────────────────
+# ⚠ This gate's closing line said "NINE canaries caught" and listed nine names.
+# MEASURED 2026-08-01: TWELVE fire. `declined` — added the day before, in the
+# commit that made an engine's silence a failure — is caught on every run and
+# was in no list. That is the SIXTH recorded kind of lying gate, a measured
+# claim that nothing pins, inside the artifact written to stop gates from lying;
+# and unlike a stale number in a commit message it is re-read by every reader of
+# this file as a statement about the present.
+#
+# So the count and the names are an accumulator. `caught` is the only way to
+# announce one, the summary prints what it accumulated, and the floor below is
+# the ONE hand-maintained number — which cannot drift silently, because a canary
+# that stops firing already fails the gate at its own site, and one that is
+# DELETED drops the tally under this floor.
+# MEASURED 2026-08-01: dl-reach 4, engines 4, rule-selector 1, declined 1, enum
+# rows 1, inverted run-oracle probe 1 = 12.
+MIN_DLREACH_CANARIES=4
+MIN_CANARIES=12
+N_CANARIES=0
+CANARY_NAMES=()
+caught() {   # caught <name> <detail…> — THE ONLY WAY TO ANNOUNCE A CAUGHT CANARY
+    N_CANARIES=$((N_CANARIES + 1))
+    CANARY_NAMES+=("$1")
+    echo "[layout-gate] canary '$1': caught — ${*:2}"
+}
+caught_n() { # caught_n <label> <n> — a sub-tool that counted its own, already announced
+    N_CANARIES=$((N_CANARIES + $2))
+    CANARY_NAMES+=("$1×$2")
+}
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -313,7 +345,8 @@ export LOGOS_LIB_DIR="$LIB_DIR"
 
 # ── THE STRICT PARSER, AND ITS OWN MEDIUM CHECKED FIRST ──────────────────────
 # Nothing below this line reads prose. `verdict.py` is the only reader, and it
-# proves itself before it is trusted: 17 malformed/false inputs through the same
+# proves itself before it is trusted: every malformed and false input in its
+# table goes through the same
 # functions this run uses, each of which must be REJECTED, plus one well-formed
 # input that must be ACCEPTED. Exit 4 means the parser is broken and no verdict
 # it would have pronounced means anything.
@@ -455,7 +488,7 @@ canary() {   # the SAME path with one engine moved by one byte: the census MUST
         sed -n '1,20p' "$TMPD/err"
         exit 1
     fi
-    echo "[layout-gate] canary '$engine': caught — $N_BAD disagreement(s), e.g. $(grep -m1 -- "$engine says" "$TMPD/err" | sed 's/^ *//')"
+    caught "$engine" "$N_BAD disagreement(s), e.g. $(grep -m1 -- "$engine says" "$TMPD/err" | sed 's/^ *//')"
 }
 
 # ── 0. WHO CAN REACH AN llvm::DataLayout — ASKED OF THE BUILD ────────────────
@@ -500,9 +533,10 @@ mkdir -p "$TMPD/dlreach"
 set +e
 python3 "$HERE/dl_reach.py" --build "$BUILD_ROOT" --src "$SRC_ROOT" \
         --expected "$HERE/datalayout_reach.expected.json" \
-        --tmpd "$TMPD/dlreach" >"$TMPD/dlreach.json"
+        --tmpd "$TMPD/dlreach" >"$TMPD/dlreach.json" 2>"$TMPD/dlreach.err"
 DL_RC=$?
 set -e
+grep -v '^dl-reach-json:' "$TMPD/dlreach.err" >&2 || true
 case "$DL_RC" in
   0) ;;
   3) echo "       ⚠ EXIT 3: THE BUILD COULD NOT BE ASKED. Not a clean tree — an"
@@ -511,6 +545,11 @@ case "$DL_RC" in
      echo "       tree."; exit 1 ;;
   *) exit 1 ;;
 esac
+# …and its canaries join THIS gate's tally as a number, not as a clause.
+read_verdict "$TMPD/dlreach.err" 'dl-reach-json:' "the DataLayout-reach scan" \
+    --exact-keys canaries --floor canaries "$MIN_DLREACH_CANARIES" \
+    --bind DL_CANARIES=canaries
+caught_n "dl-reach" "$DL_CANARIES"
 
 # ⚠ THE TWO TEXT SCANS THAT USED TO STAND HERE ARE GONE, and what replaced them
 # is in dl_reach.py above:
@@ -600,7 +639,8 @@ if [ "$(grep -c 'canary_engine_shape' <<<"$SHAPE_HIT")" -ne "$(grep -c . <<<"$SH
     echo "      planted file:"; echo "$SHAPE_HIT"; exit 1
 fi
 echo "[layout-gate] the rule selectors (Uni / niche_enum / tagged_enum) are named"
-echo "              ONLY by layout_law.hpp; canary caught the planted fifth engine"
+echo "              ONLY by layout_law.hpp"
+caught "rule-selector scan" "the planted TU naming lay::Uni and both enum rules"
 
 # ── 1. the baseline: a program with no structs of its own ────────────────────
 cat >"$TMPD/base.logos" <<'EOF'
@@ -677,8 +717,8 @@ canary_declined() {
         echo "       so a real decline would be a number with nothing to act on."
         sed -n '1,20p' "$TMPD/err"; exit 1
     fi
-    echo "[layout-gate] canary 'declined': caught — declined=$N_DECLINED, and it" \
-         "reached the failure rows (disagreements=$N_BAD)"
+    caught "declined" "declined=$N_DECLINED, and it reached the failure rows" \
+           "(disagreements=$N_BAD)"
 }
 canary_declined "$TMPD/base.logos"
 
@@ -787,7 +827,7 @@ if ! grep -qE 'layout_gate_lattice\.(EB_|GB_)[a-z0-9]+:' "$TMPD/err"; then
     grep -m5 'says' "$TMPD/err" || true
     exit 1
 fi
-echo "[layout-gate] canary 'enum rows reach the comparison': caught — e.g. $(grep -m1 -E 'layout_gate_lattice\.(EB_|GB_)' "$TMPD/err" | sed 's/^ *//')"
+caught "enum rows reach the comparison" "e.g. $(grep -m1 -E 'layout_gate_lattice\.(EB_|GB_)' "$TMPD/err" | sed 's/^ *//')"
 
 # ── 3. the RUN oracle: measured tail offsets and measured field offsets ──────
 # `size_of` is a CLAIM. Where the tail lands is a FACT: the program writes
@@ -834,9 +874,40 @@ read_verdict "$TMPD/or.count" 'oracle-gen-json:' "the run-oracle generator" \
     --bind OR_PREFIXES=prefixes --bind OR_OFFSETS=offsets \
     --bind OR_CODES=codes --bind OR_DSTREF=dstref_widths
 census "$TMPD/oracle.logos"
-link_and_run "$TMPD/x.o" oracle
-echo "[layout-gate] run oracle: exit 0 — every measured tail offset and every"
-echo "              measured field offset matched the compiler's claim"
+link_run_rc "$TMPD/x.o" oracle
+# ⚠ THE EXIT STATUS IS A BOOLEAN AND THE DIAGNOSIS IS THE REPORT. A process exit
+# status is EIGHT BITS; this oracle allocates 272 distinct codes. MEASURED
+# 2026-08-01 on the previous form of this gate, which read the code off `$?`:
+# an oracle forced to fail at code 255 exited 255 → RED; forced at code 256 it
+# exited 0 → GREEN, 256 & 0xFF == 0. Codes 257…272 aliased onto probes 1…16, so
+# a failure in the u56/i56/u64/i64 DstRef rows — the exact cell of the generic
+# backing-width miscompile — named a DST prefix shape instead. The class was
+# diagnosed and fixed here on 07-19 across all 33 conuco tests; this gate,
+# written a week later to stop gates from lying, reproduced it.
+#
+# So `main` returns 0 or 1 and writes `oracle-run-json:`. The code lives in
+# `first`, where it has no ceiling, and `probes` is a RUN-TIME census: asserting
+# it equals the number the generator EMITTED is what makes "exit 0" mean "272
+# assertions executed and none disagreed" rather than "nothing ran".
+run_boolean() {   # run_boolean <name> <want-rc>; the status may only be 0 or 1
+    if [ "$RUN_RC" -ne 0 ] && [ "$RUN_RC" -ne 1 ]; then
+        echo "FAIL: $1 exited $RUN_RC. Its exit status carries ONE BIT — 0 or 1 —"
+        echo "      so any other value is a crash or a signal, not a verdict, and"
+        echo "      no report below it can be trusted."
+        cat "$TMPD/$1.out"; exit 1
+    fi
+    if [ "$RUN_RC" -ne "$2" ]; then
+        echo "FAIL: $1 exited $RUN_RC, want $2."; cat "$TMPD/$1.out"; exit 1
+    fi
+}
+run_boolean oracle 0
+read_verdict "$TMPD/oracle.out" 'oracle-run-json:' "the run oracle" \
+    --exact-keys probes,failures,first \
+    --eq failures 0 --eq first 0 --eq probes "$OR_CODES" \
+    --bind ORUN_PROBES=probes
+echo "[layout-gate] run oracle: exit 0, $ORUN_PROBES assertions EXECUTED (= the"
+echo "              $OR_CODES the generator emitted) — every measured tail offset"
+echo "              and every measured field offset matched the compiler's claim"
 
 # ⚠ CANARY. The same generator emits the same program with the FIRST probe's
 # comparison inverted: it returns 1 exactly when the compiler is right. It goes
@@ -865,7 +936,17 @@ if [ "$RUN_RC" -eq 0 ]; then
     cat "$TMPD/oracle_canary.out"
     exit 1
 fi
-echo "[layout-gate] canary 'run oracle first probe inverted': caught — exit $RUN_RC"
+run_boolean oracle_canary 1
+# …and the canary must NAME what it caught. `failures: 1, first: 1` is the
+# inverted probe and nothing else: a canary that came back with `first: 7` would
+# mean the run is failing for an unrelated reason and the inversion proves
+# nothing. `probes` is asserted here too, so "the canary fired" cannot be an
+# oracle that aborted after one assertion.
+read_verdict "$TMPD/oracle_canary.out" 'oracle-run-json:' "the run-oracle CANARY" \
+    --exact-keys probes,failures,first \
+    --eq failures 1 --eq first 1 --eq probes "$OR_CODES"
+caught "run oracle first probe inverted" \
+       "exit 1, failures=1, first=1, $OR_CODES assertions still executed"
 
 # ── 4. the authored fixtures compile, run, and exit 0 ────────────────────────
 NFIX=0
@@ -887,9 +968,11 @@ echo "              llvm::DataLayout, 0 disagreements, all 18 ENGINE × SHAPE"
 echo "              cells at or above their measured floors. EVERY NUMBER ABOVE"
 echo "              WAS READ BY verdict.py OUT OF A JSON VERDICT — no sed on"
 echo "              prose, no grep -c as a measurement — and the parser passed"
-echo "              its own 19-case selftest first. NINE canaries caught:"
-echo "              layout_of, mlir_abi_size, sema_abi_layout, mono_abi_layout,"
-echo "              a fifth engine COMPILED from source that asks both"
-echo "              DataLayouts, a planted copy of an oracle object, a probe TU"
-echo "              that puts a DataLayout in the law's include closure, the"
-echo "              enum rows of the comparison, the inverted run-oracle probe."
+echo "              its own selftest first — whose case count it PRINTS, so no"
+echo "              number here restates a measurement nothing pins."
+# ⚠ AND NEITHER DOES THIS ONE. Both the count and the list are what `caught`
+# accumulated during THIS run; the floor is the only maintained number, and a
+# canary that was deleted rather than fixed lands under it.
+floor "canaries caught" "$N_CANARIES" "$MIN_CANARIES"
+echo "[layout-gate] $N_CANARIES canaries caught, every one of them announced by the"
+echo "              site that caught it: ${CANARY_NAMES[*]}"

@@ -15,6 +15,8 @@ use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.result;
 use logos.lang.panic;
+use logos.mem.string;
+use logos.std.io;
 
 fn mm_schema() -> NodeSchema {
     let mut sch: NodeSchema = node_schema_new();
@@ -56,7 +58,7 @@ fn entry_batch(kpos: u64, vpos: u64, spos: u64, key: u64, vlen: i64) -> Eb {
     return Eb { b: b, d: d };
 }
 
-fn main() -> i32 {
+fn run_all() -> i32 {
     let sch: NodeSchema = mm_schema();
     unsafe {
         let mem: *mut u8 = alloc(4096i64);
@@ -183,4 +185,23 @@ fn main() -> i32 {
         dealloc(mem);
     }
     return 0i32;
+}
+
+// ⚠ THE DIAGNOSTIC CODE IS PRINTED, NEVER RETURNED. A process exit status is an
+// 8-bit channel: a test that returns >= 256 wraps and reports SUCCESS (07-19,
+// `881939d3`), and one that returns 126/127/128+ collides with the shell's own
+// statuses. `main` therefore returns 0 or 1 and the code travels in stderr,
+// where it has no ceiling. This file kept the old shape because the 07-19 pass
+// covered the 33 tests that existed then and nothing stopped the 34th being
+// written the old way; `gate_lint.py` R7 now does.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 {
+        return 0i32;
+    }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL alg_interp: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
 }

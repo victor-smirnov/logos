@@ -34,7 +34,14 @@ if [ "$MODE" = fail ]; then
         echo "      compiler that printed nothing at all."
         exit 1
     fi
-    if echo "$STDERR" | grep -qF "$WANT"; then
+    # ⚠ NOT `echo "$STDERR" | grep -qF`. Under `set -o pipefail`, `grep -q` exits
+    # at the first match and `echo` — which for a compiler's whole stderr can far
+    # exceed a pipe buffer — dies of SIGPIPE 141, which pipefail reports as the
+    # pipeline's status. Here that direction fails CLOSED (a match reads as a
+    # miss, so the test flakes red rather than green), but it is the same idiom
+    # that lied on 07-30, and this runs for every fail test in the corpus.
+    printf '%s' "$STDERR" > "$TMPD/stderr.txt"
+    if grep -qF -- "$WANT" "$TMPD/stderr.txt"; then
         exit 0
     fi
     echo "FAIL: stderr did not contain:"
