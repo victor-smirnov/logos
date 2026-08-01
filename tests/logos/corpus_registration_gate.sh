@@ -38,10 +38,13 @@ set -euo pipefail
 REPO="${1:?repo root}"
 LEDGER="${2:?ledger path}"
 
-# The floor is deliberately far below the measured 6737: it is here to catch a
-# broken walk (a moved directory, a `find` predicate that errored into "no
-# matches"), not to track corpus growth.
-MIN_SCANNED=5000
+# ⚠ THE FLOOR IS THE MEASURED VALUE. It was 5000 against a measured 6740 — a
+# quarter of the corpus could stop being walked and this stayed green, and the
+# ground written for it ("it is here to catch a broken walk, not to track corpus
+# growth") is the argument for halving a floor, which is the argument for not
+# noticing. The corpus only grows; a DROP is an event.
+# MEASURED 2026-07-31 at `62835ad3`: 6740 .logos, 6726 .expected, 14 unregistered.
+MIN_SCANNED=6740
 
 DIRS=(
     "$REPO/tests/logos/pass"   "$REPO/tests/logos/fail"
@@ -62,8 +65,57 @@ fi
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 
-find "${PRESENT[@]}" -name '*.logos'    -type f | sort > "$TMPD/logos"
-find "${PRESENT[@]}" -name '*.expected' -type f | sort > "$TMPD/expected"
+# ONE walk, one pair of orphan rules — used for the real corpus and for the
+# canary below, so the canary is judged by exactly the code that judges the tree.
+scan_corpus() {   # scan_corpus <out-prefix> <root> <dir>...
+    local pfx=$1 root=$2 f; shift 2
+    find "$@" -name '*.logos'    -type f | sort > "$pfx.logos"
+    find "$@" -name '*.expected' -type f | sort > "$pfx.expected"
+    : > "$pfx.orphans"; : > "$pfx.orphan_exp"
+    while IFS= read -r f; do
+        [ -f "${f%.logos}.expected" ] || printf '%s\n' "${f#"$root"/}" >> "$pfx.orphans"
+    done < "$pfx.logos"
+    while IFS= read -r f; do
+        [ -f "${f%.expected}.logos" ] || printf '%s\n' "${f#"$root"/}" >> "$pfx.orphan_exp"
+    done < "$pfx.expected"
+}
+
+# ⚠⚠ THE CANARY, BEFORE ANY VERDICT. Every finding this gate can make is "a list
+# came back non-empty"; on a walk that finds nothing, or an orphan rule that
+# stopped pairing, every list is empty and the gate says the corpus is fully
+# registered. A three-file corpus is planted here — one `.logos` with no
+# `.expected`, one `.expected` with no `.logos`, and one COMPLETE pair — and
+# `scan_corpus` must report the first two and NOT the third. Both directions:
+# a rule that flags everything would satisfy the first half alone.
+# RIDES: the same `find`, the same pairing test, the same relative-path
+# stripping. DOES NOT RIDE: the ledger reconciliation (`comm`), whose two
+# findings are `comm -23` and `comm -13` of the same list against the ledger.
+mkdir -p "$TMPD/canary"
+: > "$TMPD/canary/a_no_expected.logos"
+: > "$TMPD/canary/b_no_logos.expected"
+: > "$TMPD/canary/c_complete.logos"
+: > "$TMPD/canary/c_complete.expected"
+scan_corpus "$TMPD/can" "$TMPD/canary" "$TMPD/canary"
+canary_bad=""
+grep -qx 'a_no_expected.logos'  "$TMPD/can.orphans"    || canary_bad+="the .logos with no .expected was NOT reported; "
+grep -qx 'b_no_logos.expected'  "$TMPD/can.orphan_exp" || canary_bad+="the .expected with no .logos was NOT reported; "
+grep -qx 'c_complete.logos'     "$TMPD/can.orphans"    && canary_bad+="a COMPLETE pair was reported as an orphan; "
+grep -qx 'c_complete.expected'  "$TMPD/can.orphan_exp" && canary_bad+="a COMPLETE pair's .expected was reported as an orphan; "
+if [ -n "$canary_bad" ]; then
+    echo "FAIL (CANARY 'orphan detection' NOT CAUGHT): $canary_bad"
+    echo "      A planted three-file corpus was not classified correctly by the same"
+    echo "      walk that judges the real tree, so 'no orphans' below is not evidence."
+    echo "      THE GATE IS BROKEN, not the tree."
+    echo "      orphans: $(paste -sd' ' - < "$TMPD/can.orphans")"
+    echo "      orphan .expected: $(paste -sd' ' - < "$TMPD/can.orphan_exp")"
+    exit 1
+fi
+echo "[corpus-gate] canary: a missing .expected and a missing .logos were both"
+echo "              reported, and a complete pair was not"
+
+scan_corpus "$TMPD/real" "$REPO" "${PRESENT[@]}"
+cp "$TMPD/real.logos" "$TMPD/logos"; cp "$TMPD/real.expected" "$TMPD/expected"
+cp "$TMPD/real.orphans" "$TMPD/orphans"; cp "$TMPD/real.orphan_exp" "$TMPD/orphan_exp"
 
 n_logos=$(wc -l < "$TMPD/logos")
 n_exp=$(wc -l < "$TMPD/expected")
@@ -80,11 +132,6 @@ if [ "$n_logos" -lt "$MIN_SCANNED" ]; then
 fi
 
 # ── 2/3. .logos without .expected, against the ledger, BOTH ways ───────────
-: > "$TMPD/orphans"
-while IFS= read -r f; do
-    [ -f "${f%.logos}.expected" ] || printf '%s\n' "${f#"$REPO"/}" >> "$TMPD/orphans"
-done < "$TMPD/logos"
-
 sed 's/#.*//' "$LEDGER" | sed 's/[[:space:]]*$//' | grep -v '^$' | sort > "$TMPD/ledger"
 sort "$TMPD/orphans" > "$TMPD/orphans.sorted"
 
@@ -115,10 +162,6 @@ if [ -n "$stale" ]; then
 fi
 
 # ── 4. .expected without .logos ────────────────────────────────────────────
-: > "$TMPD/orphan_exp"
-while IFS= read -r f; do
-    [ -f "${f%.expected}.logos" ] || printf '%s\n' "${f#"$REPO"/}" >> "$TMPD/orphan_exp"
-done < "$TMPD/expected"
 if [ -s "$TMPD/orphan_exp" ]; then
     echo "FAIL: $(wc -l < "$TMPD/orphan_exp") .expected file(s) name no .logos. cmake prints"
     echo "      'no .logos for …, skipping' and carries on — a warning in a configure log"

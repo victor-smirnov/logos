@@ -5,6 +5,7 @@
 #include "mlir_gen_impl.hpp"
 #include <set>
 #include <map>
+#include <cstring>
 #include "mono_impl.hpp"
 #include "compile_pipeline.hpp"
 
@@ -1121,6 +1122,18 @@ void MLIRGenImpl::verify_layout_engines() {
     std::sort(infos.begin(), infos.end(),
               [](const StructInfo* a, const StructInfo* b) { return a->name < b->name; });
 
+    // ⚠ THE CANARY for the two engines that are asked RIGHT HERE (see
+    // layout_law.hpp). `sema_abi_layout`/`mono_abi_layout` are moved on the way
+    // into the ledger; `layout_of` and `mlir_abi_size` never enter it — they are
+    // read below — so their canary is injected at the read, one line above the
+    // comparison that judges them, and travels through the same `note()`, the
+    // same `bad`, the same census field and the same fatal error. Only the FIRST
+    // compared type is moved: `infos` is sorted, every type that reaches the
+    // read is compared, so one is deterministic and enough.
+    const char* canary = layout::canary_engine();
+    const bool canary_b = canary && std::strcmp(canary, "mlir_abi_size") == 0;
+    const bool canary_a = canary && std::strcmp(canary, "layout_of") == 0;
+
     for (const StructInfo* info : infos) {
         auto st = info->llvm_type;
         if (!st || (st.isIdentified() && !st.isInitialized())) continue;
@@ -1133,6 +1146,7 @@ void MLIRGenImpl::verify_layout_engines() {
         // ── B vs C: the memcpy byte count against the GEP stride ─────────────
         uint64_t b_size  = mlir_abi_size(st);
         uint64_t b_align = mlir_abi_align(st);
+        if (canary_b && n_types == 1) b_size += 1;
         uint64_t c_size  = DL.getTypeAllocSize(slt).getFixedValue();
         uint64_t c_align = DL.getABITypeAlign(slt).value();
         if (b_size != c_size)
@@ -1175,6 +1189,7 @@ void MLIRGenImpl::verify_layout_engines() {
         std::unordered_set<std::string> seen;
         Layout a = struct_def_layout(dit->second, seen);
         ++n_defs;
+        if (canary_a && n_defs == 1) a.size += 1;
         if (a.size != c_size)
             note("size", info->name, "layout_of", a.size, "llvm::DataLayout", c_size);
         if (a.align != c_align)
@@ -1231,7 +1246,13 @@ void MLIRGenImpl::verify_layout_engines() {
     if (!bad.empty()) {
         std::string msg = "the compiler's layout engines disagree — a value would "
                           "be written at one stride and read at another:\n";
-        for (auto& b : bad) msg += "  " + b + "\n";
+        // Bounded: a whole engine off by one byte (the canary does exactly that)
+        // would otherwise print thousands of rows and bury the count. The COUNT
+        // is on the census line above and is what the gate reads.
+        constexpr size_t kMaxShown = 24;
+        for (size_t i = 0; i < bad.size() && i < kMaxShown; ++i) msg += "  " + bad[i] + "\n";
+        if (bad.size() > kMaxShown)
+            msg += "  … and " + std::to_string(bad.size() - kMaxShown) + " more\n";
         llvm::report_fatal_error(llvm::StringRef(msg));
     }
 }

@@ -166,8 +166,17 @@ def gen_lattice(path):
     sys.stderr.write(f"LATTICE_TYPES={n}\n")
 
 
-def gen_oracle(path):
-    """A program that MEASURES what it is told and returns non-zero on a lie."""
+def gen_oracle(path, canary=False):
+    """A program that MEASURES what it is told and returns non-zero on a lie.
+
+    With `canary=True` the FIRST probe's comparison is INVERTED — the program
+    then returns code 1 exactly when the compiler is right. The gate generates
+    both and runs them through the same compile, the same link and the same
+    `rc != 0` reading; the canary proves that probe is reachable, that its
+    verdict becomes an exit code and that the exit code reaches the gate. A
+    generator that emitted an oracle whose probes never ran would produce a
+    canary that exits 0, and the gate reports itself broken.
+    """
     prefixes = [("i64", "i64"), ("u8", "u8"), ("i128", "i128"),
                 ("f64", "f64"), ("char", "char")]
     prefixes += [(tag, ty) for tag, ty, _ in composition_axes()
@@ -209,13 +218,14 @@ def gen_oracle(path):
     out.append("unsafe fn main() -> i32 {")
     code = 1
     for tag, ty in prefixes:
+        cmp_op = "==" if (canary and code == 1) else "!="
         out.append(f"""    {{
         let claimed: i64 = sizeof::<Seg_{tag}>() as i64;
         let measured: i64 = tail_at_{tag}(8i64);
         // The tail must begin exactly at the end of the sized prefix: a LOWER
         // offset overlaps the last prefix field, a HIGHER one writes past the
         // `sizeof + cap` bytes a caller allocates.
-        if measured != claimed {{ return {code}i32; }}
+        if measured {cmp_op} claimed {{ return {code}i32; }}
     }}""")
         code += 1
     for sn, ty, init in off_structs:
@@ -244,9 +254,15 @@ def gen_oracle(path):
     out.append("    return 0i32;")
     out.append("}")
     open(path, "w").write("\n".join(out) + "\n")
-    sys.stderr.write(f"[layout-gate] run oracle generated: {len(prefixes)} DST prefix "
+    what = "run oracle CANARY" if canary else "run oracle"
+    sys.stderr.write(f"[layout-gate] {what} generated: {len(prefixes)} DST prefix "
                      f"shapes, {len(off_structs)} offset_of shapes, "
                      f"{code - 1} distinct failure codes\n")
+    # The counts are the gate's floors, read back from the loop that emitted
+    # them rather than maintained by hand.
+    sys.stderr.write(f"ORACLE_PREFIXES={len(prefixes)}\n"
+                     f"ORACLE_OFFSETS={len(off_structs)}\n"
+                     f"ORACLE_CODES={code - 1}\n")
 
 
 if __name__ == "__main__":
@@ -255,5 +271,7 @@ if __name__ == "__main__":
         gen_lattice(path)
     elif mode == "oracle":
         gen_oracle(path)
+    elif mode == "oracle-canary":
+        gen_oracle(path, canary=True)
     else:
         sys.exit(f"unknown mode {mode}")

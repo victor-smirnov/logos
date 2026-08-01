@@ -24,10 +24,53 @@
 #        LOGOS_LIB_DIR stdlib archive dir (default <logosc dir>/../lib/logos)
 #
 #   exit 0 = OK (preserved, or broke-with-bump), 1 = gate failure, 2 = IO error.
+#
+# ⚠⚠ AND EVERY CHECK CARRIES A CANARY, IN THE SAME RUN, THROUGH THE SAME TOOL.
+#
+# Measured hole this closes: with an EMPTY base spec, `--abi-diff` reported
+# "ADDED: 12844 record(s) / VERDICT: ABI-PRESERVING" and exited 0. Nothing was
+# removed because nothing was there — the gate answered a question about a blob,
+# not about the previous ABI, and said "preserved". A floor on the base spec's
+# record count closes that particular hole; a canary closes the CLASS, because a
+# differ that has stopped comparing at all cannot be enumerated into.
+#
+#   CHECK      CANARY                                RIDES / DOES NOT RIDE
+#   ────────── ───────────────────────────────────── ──────────────────────────
+#   build age  a file stamped in the past, compared  the same `-nt` test. Not
+#              with the same `-nt`                   the archive list itself.
+#   freshness  the fresh spec with one record moved  the same `diff -q`. Not
+#              must compare UNEQUAL to the spec      `--emit-abi` itself; the
+#                                                    record floor covers that.
+#   verdict    (a) base = spec + one real-shaped     the same `--abi-diff`
+#              record the build does not have  ⇒     invocation and the same
+#              MUST come back 1 / BREAKING           `$verdict` reading that
+#              (b) base = the spec itself      ⇒     judges the real base. Not
+#              MUST come back 0 / preserved          the bump arithmetic.
+#
+# (a) and (b) together pin the differ from both sides: (a) alone passes on a
+# tool stuck at "breaking", (b) alone passes on a tool stuck at "preserved" —
+# which is exactly what the empty-base reading looked like.
+#
+# BLINDING MUTATION, RE-RUN: a base ref whose `abi/logos.abi` is an empty blob.
+# Was GREEN ("ADDED: 12844 record(s) / VERDICT: ABI-PRESERVING / OK"). Now RED:
+#   "::error:: the base spec at '<ref>' holds sym=0 type=0 vtable=0 schema=0,
+#    under the floors sym>=12368 type>=359 vtable>=115 schema>=2."
 set -uo pipefail
 
 SPEC=abi/logos.abi
 BASE="${1:-origin/main}"
+
+# ── FLOORS: MEASURED VALUES, WITH THE MEASUREMENT ────────────────────────────
+# Read off `abi/logos.abi` at `62835ad3` on 2026-07-31 (12844 records total):
+#   sym 12368, type 359, vtable 115, schema 2
+# PER CATEGORY, not a total: `sym` is 96% of the file and would carry a total on
+# its own while `type` or `vtable` went silent. These are floors on BOTH the
+# freshly emitted spec and the BASE spec — a base that cannot meet them is not a
+# previous ABI, it is a blob, and no verdict about it is a verdict about the ABI.
+MIN_SYM=12368
+MIN_TYPE=359
+MIN_VTABLE=115
+MIN_SCHEMA=2
 
 LOGOSC="${LOGOSC:-}"
 if [ -z "$LOGOSC" ]; then
@@ -39,6 +82,31 @@ if [ ! -f "$SPEC" ]; then echo "abi-check: $SPEC missing"; exit 2; fi
 if [ ! -d "$LIB_DIR" ]; then
     echo "abi-check: stdlib archive dir '$LIB_DIR' not found — set LOGOS_LIB_DIR"; exit 2
 fi
+
+workdir="$(mktemp -d)"
+fresh_spec="$workdir/fresh.abi"; base_spec="$workdir/base.abi"
+trap 'rm -rf "$workdir"' EXIT
+
+# One spelling of "how many records of kind K", used for the fresh spec, the
+# base spec and the canaries alike.
+records_of() { grep -c "^$2	" "$1" 2>/dev/null || true; }
+spec_floor() {   # spec_floor <file> <what-it-is>
+    local f=$1 what=$2 s t v c
+    s=$(records_of "$f" sym); t=$(records_of "$f" type)
+    v=$(records_of "$f" vtable); c=$(records_of "$f" schema)
+    if [ "$s" -lt "$MIN_SYM" ] || [ "$t" -lt "$MIN_TYPE" ] || \
+       [ "$v" -lt "$MIN_VTABLE" ] || [ "$c" -lt "$MIN_SCHEMA" ]; then
+        echo "::error:: $what holds sym=$s type=$t vtable=$v schema=$c, under the"
+        echo "          floors sym>=$MIN_SYM type>=$MIN_TYPE vtable>=$MIN_VTABLE"
+        echo "          schema>=$MIN_SCHEMA (MEASURED at 62835ad3, 2026-07-31)."
+        echo "          A spec that thin is not an ABI surface, and a verdict"
+        echo "          computed against it is not a verdict about the ABI."
+        echo "          If the shrink is deliberate, edit the floor and say why."
+        return 1
+    fi
+    echo "abi-check: $what — sym $s, type $t, vtable $v, schema $c"
+    return 0
+}
 
 # ── 0. build age ──────────────────────────────────────────────────────────────
 # An archive older than logosc means the build did not catch up with the
@@ -52,12 +120,32 @@ for a in "$LIB_DIR"/liblogos-lang.a "$LIB_DIR"/liblogos-mem.a \
         exit 1
     fi
 done
+# ⚠ CANARY. The loop above passing means "no archive is older than logosc" — and
+# it means exactly the same thing if `-nt` were `-ot`, or if the paths were
+# wrong and the test degenerated. A file deliberately stamped in 2000 must come
+# back OLDER under the SAME operator.
+touch -d '2000-01-01 00:00:00' "$workdir/older_than_anything"
+if [ ! "$LOGOSC" -nt "$workdir/older_than_anything" ]; then
+    echo "::error:: CANARY 'build age' NOT CAUGHT — a file stamped 2000-01-01 did"
+    echo "          not compare older than $LOGOSC under the same test the archive"
+    echo "          loop uses. That loop's silence is not evidence. GATE BROKEN."
+    exit 1
+fi
 
 # ── 1. freshness, against the BUILD ───────────────────────────────────────────
-fresh_spec="$(mktemp)"; base_spec="$(mktemp)"
-trap 'rm -f "$fresh_spec" "$base_spec"' EXIT
 if ! "$LOGOSC" --emit-abi -L "$LIB_DIR" -o "$fresh_spec" 2>/dev/null; then
     echo "abi-check: --emit-abi failed"; exit 2
+fi
+spec_floor "$fresh_spec" "the spec emitted from the built stdlib" || exit 1
+# ⚠ CANARY. `diff -q` reporting "same" is the whole freshness check; a `diff`
+# that has stopped looking says the same thing. One record moved out of the
+# fresh spec must come back DIFFERENT under the same comparison.
+sed '7d' "$fresh_spec" > "$workdir/fresh_minus_one.abi"
+if diff -q "$workdir/fresh_minus_one.abi" "$fresh_spec" >/dev/null 2>&1; then
+    echo "::error:: CANARY 'freshness' NOT CAUGHT — a copy of the emitted spec with"
+    echo "          one record deleted compared EQUAL to it. The comparison below"
+    echo "          cannot see a stale spec either. GATE BROKEN."
+    exit 1
 fi
 if ! diff -q "$fresh_spec" "$SPEC" >/dev/null 2>&1; then
     echo "::error:: $SPEC does not match the built stdlib — regenerate and commit:"
@@ -84,6 +172,53 @@ if ! git show "${BASE}:${SPEC}" > "$base_spec" 2>/dev/null; then
     echo "          scripts/abi-check.sh HEAD~1), or fetch the default base."
     exit 1
 fi
+# ⚠ AND A BASE THAT IS NOT AN ABI SURFACE IS NOT A BASE. MEASURED: with an empty
+# base blob this script printed "ADDED: 12844 record(s) — ABI-PRESERVING" and
+# exited 0. Nothing had been removed because nothing was there to remove.
+spec_floor "$base_spec" "the base spec at '$BASE'" || exit 1
+
+# ⚠⚠ CANARY, BOTH DIRECTIONS, THROUGH THE SAME `--abi-diff` AND THE SAME
+# `$verdict` READING that judges the real base below.
+#
+# (a) A REMOVAL MUST BE SEEN. The canary base is the committed spec plus ONE
+#     record of the real shape — a real `sym` line with its key prefixed — so
+#     the current build is missing it and the differ must say BREAKING. This is
+#     the same computation that would notice a genuinely deleted export; if it
+#     comes back 0, the "preserved" verdict below is the differ not looking.
+awk 'BEGIN{FS=OFS="\t"} {print}
+     /^sym\t/ && !done {n=$0; sub(/^sym\t/, "sym\t__abi_canary_removed_", n); print n; done=1}' \
+    "$SPEC" > "$workdir/canary_removal.abi"
+if [ "$(wc -l < "$workdir/canary_removal.abi")" -le "$(wc -l < "$SPEC")" ]; then
+    echo "::error:: CANARY 'removal' could not be BUILT — no sym record to derive it"
+    echo "          from. The gate cannot prove its differ live. GATE BROKEN."
+    exit 1
+fi
+"$LOGOSC" --abi-diff "$workdir/canary_removal.abi" "$SPEC" > "$workdir/canary_removal.out" 2>&1
+canary_removal=$?
+if [ "$canary_removal" != 1 ] || ! grep -q 'BREAKING' "$workdir/canary_removal.out"; then
+    echo "::error:: CANARY 'removal' NOT CAUGHT — a base carrying one export this"
+    echo "          build does not have came back verdict=$canary_removal:"
+    sed -n '1,10p' "$workdir/canary_removal.out"
+    echo "          --abi-diff cannot see a removal, so 'ABI preserved' below is"
+    echo "          a statement about nothing. GATE BROKEN, not the tree."
+    exit 1
+fi
+# (b) AND AN IDENTICAL SURFACE MUST COME BACK PRESERVED. Without this, a differ
+#     stuck at "breaking" would satisfy (a) and every real change would be a
+#     false red — the mirror image of the empty-base hole.
+"$LOGOSC" --abi-diff "$SPEC" "$SPEC" > "$workdir/canary_same.out" 2>&1
+canary_same=$?
+if [ "$canary_same" != 0 ]; then
+    echo "::error:: CANARY 'identity' NOT CAUGHT — the spec compared against ITSELF"
+    echo "          came back verdict=$canary_same:"
+    sed -n '1,10p' "$workdir/canary_same.out"
+    echo "          --abi-diff answers the same thing regardless of its inputs."
+    echo "          GATE BROKEN, not the tree."
+    exit 1
+fi
+echo "abi-check: canaries caught — a planted removal reads BREAKING(1), an"
+echo "           identical surface reads PRESERVING(0); the differ is live."
+
 "$LOGOSC" --abi-diff "$base_spec" "$SPEC"
 verdict=$?
 [ "$verdict" = 2 ] && { echo "abi-check: --abi-diff error"; exit 2; }

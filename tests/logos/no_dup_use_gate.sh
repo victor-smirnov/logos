@@ -26,13 +26,30 @@
 # emitting the diagnostic, and on one that stopped generating code. So the dumps
 # ARE read here, not for the duplicates they cannot show but as the FLOOR: this
 # fixture must still produce generated modules carrying imports, or the silence
-# above is silence about nothing. Measured when the floor was written: 16 dumps,
-# 12 emitted fns, 424 `use` lines.
+# above is silence about nothing.
+#
+# ⚠⚠⚠ AND THE FLOOR IS NOT ENOUGH EITHER, because the OTHER half of the
+# instrument is the compiler's diagnostic and this gate's `grep` for it. A
+# compiler that stopped emitting `duplicate 'use …'` at all, or a `grep` looking
+# for a string the diagnostic no longer spells, is green with everything
+# generated and every floor met. So the gate compiles a THREE-LINE PROGRAM WITH A
+# DUPLICATE IMPORT WRITTEN IN IT BY HAND and requires that same grep to find the
+# warning. RIDES: the compiler's diagnostic channel and the exact `grep -F`
+# pattern that judges the real fixture. DOES NOT RIDE: the synth-module path —
+# the canary's duplicate is hand-written, which is the only kind a source file
+# can carry; what it proves is that the detector both halves depend on is alive.
+#
+# FLOORS ARE MEASURED VALUES, read off this gate on 2026-07-31 at `62835ad3`:
+# 16 dumps, 12 emitted fns, 424 `use` lines. They were 8 / 6 / 200 — half of
+# each, so half of the generated surface could disappear unremarked.
 set -euo pipefail
 
-MIN_DUMPS=8
-MIN_FNS=6
-MIN_USES=200
+MIN_DUMPS=16
+MIN_FNS=12
+MIN_USES=424
+# The diagnostic the whole gate is a negative of. One spelling, used by the
+# canary and by the verdict.
+DUP_PAT="duplicate 'use"
 
 LOGOSC="${1:?logosc path}"
 TEST_LOGOS="${2:?fixture path}"
@@ -67,11 +84,37 @@ if [ "${#DUMPS[@]}" -lt "$MIN_DUMPS" ] || [ "$n_fns" -lt "$MIN_FNS" ] \
     exit 1
 fi
 
-if grep -F "duplicate 'use" "$TMPD/err" > "$TMPD/hits"; then
+# ── THE CANARY: THE DETECTOR IS ALIVE, IN THIS RUN ──────────────────────────
+# A hand-written duplicate import. The SAME compiler and the SAME `grep -F
+# "$DUP_PAT"` that pronounce the verdict below must find it here.
+cat >"$TMPD/canary.logos" <<'EOF'
+package no_dup_use_canary;
+use logos.lang.str;
+use logos.lang.str;
+fn main() -> i64 { return 0; }
+EOF
+if ! "$LOGOSC" "$TMPD/canary.logos" -o "$TMPD/canary.o" 2>"$TMPD/canary.err"; then
+    echo "FAIL (CANARY): the duplicate-import canary did not compile:"
+    cat "$TMPD/canary.err"; exit 1
+fi
+if ! grep -Fq "$DUP_PAT" "$TMPD/canary.err"; then
+    echo "FAIL (CANARY 'duplicate import' NOT CAUGHT): a module with the same"
+    echo "      \`use\` written twice produced no /$DUP_PAT/ on stderr. Either the"
+    echo "      compiler stopped emitting that diagnostic or it no longer spells it"
+    echo "      this way — and this gate's whole verdict is the ABSENCE of that"
+    echo "      string. Its silence below is not evidence. GATE BROKEN, not the tree."
+    sed -n '1,10p' "$TMPD/canary.err"
+    exit 1
+fi
+n_canary=$(grep -Fc "$DUP_PAT" "$TMPD/canary.err" || true)
+
+if grep -F "$DUP_PAT" "$TMPD/err" > "$TMPD/hits"; then
     echo "FAIL: generated modules carry duplicate imports —"
     echo "      the synth USES dedup in logos_emit_item_blob_subst regressed."
     sort < "$TMPD/hits" | uniq -c | sort -rn
     exit 1
 fi
-echo "OK: no duplicate imports across ${#DUMPS[@]} generated modules ($n_uses import lines, $n_fns emitted fns)"
+echo "OK: no duplicate imports across ${#DUMPS[@]} generated modules ($n_uses import lines,"
+echo "    $n_fns emitted fns) — and the detector is proven live: a hand-written"
+echo "    duplicate raised $n_canary warning(s) through the same grep."
 exit 0

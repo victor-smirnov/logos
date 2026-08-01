@@ -164,15 +164,28 @@ if [ "$NNO" -ne 0 ]; then
 fi
 
 # ── AND THE IMAGE FOLLOWS ────────────────────────────────────────────────────
-# A FLOOR, not an equality. The five literals measured 2960 bytes when this landed;
-# 1500 is half of that, so a reworded justification does not turn this red but a
-# justification that stopped being strippable does.
+# A FLOOR, not an equality — AT THE MEASURED VALUE. It was 1500 against a
+# measured 2960 with the ground "so a reworded justification does not turn this
+# red". That is the argument for halving a floor, and halving a floor is choosing
+# not to notice: two thirds of the justification could stop being stripped and
+# this stayed green.
+#
+# MEASURED 2026-07-31 at `62835ad3`, x86_64-linux: explain=32360 no-explain=29416
+# delta=2944. ONE observation, so this is the minimum ever legitimately seen. A
+# rewording that genuinely shortens the justification WILL turn this red — that
+# is the point; re-measure, put the new number here, and say in the commit
+# message what changed. A drop nobody had to look at is the failure being
+# removed.
 ASKB=$(image_bytes "$TMPD/ask.bin")
 NOB=$(image_bytes "$TMPD/noask.bin")
 DELTA=$(( ASKB - NOB ))
 echo "[why-size] loaded image (text+data+bss): explain=$ASKB  no-explain=$NOB  delta=$DELTA"
-if [ "$DELTA" -lt 1500 ]; then
-    echo "FAIL: the two images differ by only $DELTA bytes (want >= 1500)."
+MIN_DELTA=2944
+if [ "$DELTA" -lt "$MIN_DELTA" ]; then
+    echo "FAIL: the two images differ by only $DELTA bytes (want >= $MIN_DELTA,"
+    echo "      MEASURED 2026-07-31 at 62835ad3 — the value this gate saw, not a"
+    echo "      fraction of it; if the justification legitimately got shorter,"
+    echo "      re-measure and edit the floor with its ground)."
     echo "      The justification is supposed to be the difference between them:"
     echo "      either it is being linked into the program that never asks for it,"
     echo "      or explain() no longer carries it."

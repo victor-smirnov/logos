@@ -39,6 +39,20 @@
 #     re-derives `agrees` through (ADR 0024 S4k — one cost function, in stdlib); the
 #     trace names the point AND the relation that supplies the number. A reader must
 #     not have to open the emitter to know which half of a plan decided.
+#
+# ⚠⚠ AND A RULE WHOSE VERDICT IS SILENCE MUST PROVE IT CAN STILL SPEAK. The two
+# rules below that judge an EXTRACTED body (`impl_block_rules`) and a BRACE WALK
+# (`loop_nesting_violations`) both deliver "clean" as an empty string, which is
+# also what a renamed fn, a changed indent or a broken awk deliver. A canary dump
+# — a real dump broken four ways — is pushed through those same two functions in
+# the same run and every violation must be named back.
+#
+# BLINDING MUTATION, RE-RUN: a wrapper that renames the emitted `margin` in the
+# `--gen-dir` dumps. Was GREEN. Now RED three ways in one run:
+#   "no `margin` body could be extracted … the rule below judged NOTHING" (x3),
+#   "FAIL (CANARY NOT CAUGHT): a dump deliberately broken so that /margin
+#    consults defer_order/ must be reported came back without it",
+#   "FAIL: the 'margin body extracted' block ran on 0 dump(s), want >= 3".
 set -euo pipefail
 
 LOGOSC="$1"
@@ -176,56 +190,47 @@ fi
 # block, and a block that never ran passes — which is the same shrug as a
 # bisector that drops an unattributable failure. Renaming one emitted fn would
 # otherwise delete five of the assertions below without a word.
-n_impl=0; n_r3=0; n_vr=0; n_seq=0; n_prep=0
-for f in "${DUMPS[@]}"; do
-    grep -Eq '^impl [A-Za-z]+Plan \{' "$f" || continue
-    n_impl=$((n_impl + 1))
+#
+# ⚠⚠ AND AN EXTRACTION THAT COMES BACK EMPTY IS SILENT, NOT CLEAN. MEASURED:
+# renaming the emitted `margin` fn made `sed -n '/^    pub fn margin(/,…/p'`
+# produce nothing, `echo "" | grep -q defer_order` false, and the rule passed —
+# the gate reported the property held of a function that no longer existed. That
+# is the same shrug as a guard that admits no file, one level lower.
+#
+# THE FIX IS NOT ANOTHER FLOOR. The rules that judge an extracted body live in
+# ONE function below, and that function is run twice: over the real dumps, where
+# it must be SILENT, and over a CANARY DUMP deliberately mutated to violate all
+# three, where it must SPEAK. Same `sed` extraction, same `grep`s, same
+# violation strings — so a rule that cannot see a violation is caught by the
+# canary whatever killed it, including a rename nobody predicted. The extraction
+# counts are floored too, so the canary and the real dumps are known to be the
+# same shape of input.
+impl_block_rules() {   # impl_block_rules <file>; prints one line per violation
+    local f=$1 agr mrg
     agr=$(sed -n '/^    pub fn agrees(/,/^    }$/p' "$f")
-    if echo "$agr" | grep -q 'defer_order'; then
-        echo "FAIL: agrees consults defer_order — it would claim to cover a half that is re-decided every call"
-        echo "$agr"
-        fail=1
-    fi
-    if ! echo "$agr" | grep -Fq 'if (!self.dyn_order) {'; then
-        echo "FAIL: agrees does not gate on dyn_order — it no longer answers about the prepared half alone"
-        echo "$agr"
-        fail=1
-    fi
     mrg=$(sed -n '/^    pub fn margin(/,/^    }$/p' "$f")
-    if echo "$mrg" | grep -q 'defer_order'; then
-        echo "FAIL: margin consults defer_order — a per-call decision has no distance to a flip"
-        fail=1
+    if [ -z "$agr" ]; then
+        echo "no \`agrees\` body could be extracted from $f — the rules below judged NOTHING"
+    else
+        echo "$agr" | grep -q 'defer_order' && \
+            echo "agrees consults defer_order — it would claim to cover a half that is re-decided every call"
+        echo "$agr" | grep -Fq 'if (!self.dyn_order) {' || \
+            echo "agrees does not gate on dyn_order — it no longer answers about the prepared half alone"
     fi
-done
+    if [ -z "$mrg" ]; then
+        echo "no \`margin\` body could be extracted from $f — the rule below judged NOTHING"
+    else
+        echo "$mrg" | grep -q 'defer_order' && \
+            echo "margin consults defer_order — a per-call decision has no distance to a flip"
+    fi
+    return 0
+}
 
-# ── PER-ROW COST: the reads and the branch sit above every loop ────────────────
-# The SIZE READS and the discriminant BINDING are still anchored at exactly four
-# spaces: they are the prelude region's own statements and there is no legal shape in
-# which one of them is nested.
-for pat in '^    let __defer_n0: i64 = ' \
-           '^    let __defer_n1: i64 = ' \
-           '^    let __defer_ix: i64 = __pl\.order_pick\(__defer_n0, __defer_n1, __defer_n2, __defer_n3\);$' \
-           '^    if \(\(__defer_ix == 1i64\)\) \{$'; do
-    n=$(count "$pat")
-    if [ "$n" -lt 1 ]; then
-        echo "FAIL: no body-level (indent 4) match for /$pat/ — the deferred read left the prelude region"
-        grep -n '__defer' "${DUMPS[@]}" || true
-        fail=1
-    fi
-done
-# ⚠ THE BRANCH IS MEASURED BY LOOP NESTING, NOT BY COLUMN. This rule read
-# `^     +(let __defer|if \(\(__defer_ix)` — anything past indent 4 is a per-row read
-# — which is right for TWO candidates and wrong for three: `via_rel3` carries four
-# nests, so its chain tests `__defer_ix == 3` at indent 4 and then 2 and 1 inside the
-# `else` arms at indents 8 and 12, every one of them still above every loop. S4k had
-# already rewritten the MULTI gate for exactly this and this rule was left on
-# indentation, where it asserted something false about a shape the corpus did not yet
-# contain. What it MEANS is "the decision is not paid per row", so it counts braces
-# and flags a `__defer` read at loop depth > 0 — which is strictly stronger than the
-# column test on the shape that matters: a read at indent 4 INSIDE a loop body (a
-# `while` whose brace opened earlier) was invisible to the old rule and is caught here.
-for f in "${DUMPS[@]}"; do
-    bad=$(awk '
+# The loop-nesting rule, likewise as ONE function used by the real dumps and by
+# the canary. Its whole verdict is an EMPTY string; an awk that stopped matching
+# produces exactly the same empty string as a clean artifact.
+loop_nesting_violations() {   # loop_nesting_violations <file>
+    awk '
         /^[[:space:]]*(while|loop|for)[[:space:](]/ { pending = 1 }
         {
             line = $0
@@ -242,13 +247,138 @@ for f in "${DUMPS[@]}"; do
             }
             pending = 0
         }
-    ' "$f")
+    ' "$1"
+}
+
+n_impl=0; n_r3=0; n_vr=0; n_seq=0; n_prep=0; n_agrees=0; n_margin=0
+IMPL_DUMP=""
+for f in "${DUMPS[@]}"; do
+    grep -Eq '^impl [A-Za-z]+Plan \{' "$f" || continue
+    n_impl=$((n_impl + 1))
+    [ -n "$IMPL_DUMP" ] || IMPL_DUMP="$f"
+    [ -z "$(sed -n '/^    pub fn agrees(/,/^    }$/p' "$f")" ] || n_agrees=$((n_agrees + 1))
+    [ -z "$(sed -n '/^    pub fn margin(/,/^    }$/p' "$f")" ] || n_margin=$((n_margin + 1))
+    v=$(impl_block_rules "$f")
+    if [ -n "$v" ]; then
+        echo "FAIL: $f"
+        sed 's/^/  /' <<<"$v"
+        fail=1
+    fi
+done
+
+# ── PER-ROW COST: the reads and the branch sit above every loop ────────────────
+# The SIZE READS and the discriminant BINDING are still anchored at exactly four
+# spaces: they are the prelude region's own statements and there is no legal shape in
+# which one of them is nested.
+# ⚠ THE FLOORS ARE THE MEASURED COUNTS, not 1. MEASURED on
+# `wql_deferred_plan_e2e` on 2026-07-31 at `62835ad3`: `__defer_n0` 3,
+# `__defer_n1` 3, the `order_pick` binding 3 (one per deferred query — via_rel,
+# via_rel3, iter_step), the indent-4 `__defer_ix == 1` test 2. A floor of 1 meant
+# two of the three deferred queries could stop emitting a prelude read and this
+# rule would still pass.
+while read -r want pat; do
+    n=$(count "$pat")
+    if [ "$n" -lt "$want" ]; then
+        echo "FAIL: $n body-level (indent 4) matches for /$pat/, floor $want (MEASURED"
+        echo "      2026-07-31 at 62835ad3) — a deferred read left the prelude region."
+        grep -n '__defer' "${DUMPS[@]}" || true
+        fail=1
+    fi
+done <<'PATS'
+3 ^    let __defer_n0: i64 =
+3 ^    let __defer_n1: i64 =
+3 ^    let __defer_ix: i64 = __pl\.order_pick\(__defer_n0, __defer_n1, __defer_n2, __defer_n3\);$
+2 ^    if \(\(__defer_ix == 1i64\)\) \{$
+PATS
+# ⚠ THE BRANCH IS MEASURED BY LOOP NESTING, NOT BY COLUMN. This rule read
+# `^     +(let __defer|if \(\(__defer_ix)` — anything past indent 4 is a per-row read
+# — which is right for TWO candidates and wrong for three: `via_rel3` carries four
+# nests, so its chain tests `__defer_ix == 3` at indent 4 and then 2 and 1 inside the
+# `else` arms at indents 8 and 12, every one of them still above every loop. S4k had
+# already rewritten the MULTI gate for exactly this and this rule was left on
+# indentation, where it asserted something false about a shape the corpus did not yet
+# contain. What it MEANS is "the decision is not paid per row", so it counts braces
+# and flags a `__defer` read at loop depth > 0 — which is strictly stronger than the
+# column test on the shape that matters: a read at indent 4 INSIDE a loop body (a
+# `while` whose brace opened earlier) was invisible to the old rule and is caught here.
+for f in "${DUMPS[@]}"; do
+    bad=$(loop_nesting_violations "$f")
     if [ -n "$bad" ]; then
         echo "FAIL: a deferred read or the discriminant is INSIDE a loop in $f:"
         echo "$bad"
         fail=1
     fi
 done
+
+# ── THE CANARY: THE TWO SILENT RULES ARE PROVEN LIVE, IN THIS RUN ────────────
+# `impl_block_rules` and `loop_nesting_violations` both deliver their verdict as
+# an EMPTY STRING. A renamed emitted fn, a changed indent, a broken `sed` range,
+# an awk that stopped matching — every one of them produces the same empty
+# string as a correct artifact, and the gate reported OK. So a real dump is
+# copied and DELIBERATELY BROKEN in four ways, and the same two functions are run
+# over it. Each of the four must be named back. If one is not, the gate reports
+# ITSELF broken: nobody had to predict which way the rule would die.
+#
+# WHAT IT RIDES: the same `sed` range extraction, the same `grep`s, the same
+# awk brace walk, the same violation strings — the canary dump differs from a
+# real dump only in the four injected lines.
+# WHAT IT DOES NOT RIDE: the compile that produced the dump. A `--gen-dir` that
+# emitted nothing is caught by the `${#DUMPS[@]}` check and by `check_guard`.
+if [ -z "$IMPL_DUMP" ]; then
+    echo "FAIL (CANARY unavailable): no dump carries an \`impl …Plan {\` block, so the"
+    echo "      rules that judge \`agrees\` and \`margin\` were never run and cannot be"
+    echo "      proven live."
+    fail=1
+else
+    CAN="$TMPD/canary.gen.logos"
+    awk '
+        /^    pub fn agrees\(/ { print; print "        let _canary_a: bool = self.defer_order;"; ina=1; next }
+        /^    pub fn margin\(/ { print; print "        let _canary_m: bool = self.defer_order;"; inm=1; next }
+        ina && /^    \}$/ { ina=0 }
+        inm && /^    \}$/ { inm=0 }
+        ina && /if \(!self\.dyn_order\) \{/ { print "        // CANARY: the dyn_order gate was removed here"; next }
+        { print }
+        END {
+            print ""
+            print "pub fn __canary_per_row(n: i64) -> i64 {"
+            print "    let mut i: i64 = 0i64;"
+            print "    while (i < n) {"
+            print "        let __defer_n7: i64 = (n).len();"
+            print "        i = i + 1i64;"
+            print "    }"
+            print "    return i;"
+            print "}"
+        }
+    ' "$IMPL_DUMP" > "$CAN"
+    cfail=0
+    cv=$(impl_block_rules "$CAN")
+    for expect in 'agrees consults defer_order' \
+                  'agrees does not gate on dyn_order' \
+                  'margin consults defer_order'; do
+        if ! grep -Fq "$expect" <<<"$cv"; then
+            echo "FAIL (CANARY NOT CAUGHT): a dump deliberately broken so that /$expect/"
+            echo "      must be reported came back without it. The rule cannot see its own"
+            echo "      violation, so its silence on the real dumps is not evidence."
+            echo "      THE GATE IS BROKEN, not the tree. What the rules said:"
+            sed 's/^/        /' <<<"${cv:-<nothing>}"
+            fail=1; cfail=1
+        fi
+    done
+    cl=$(loop_nesting_violations "$CAN")
+    if ! grep -q '__defer_n7' <<<"$cl"; then
+        echo "FAIL (CANARY NOT CAUGHT): a \`__defer\` read placed INSIDE a \`while\` body was"
+        echo "      not reported by the loop-nesting walk. That walk's empty output on the"
+        echo "      real dumps therefore says nothing about where the reads sit."
+        echo "      THE GATE IS BROKEN, not the tree. walk said: '${cl}'"
+        fail=1; cfail=1
+    fi
+    if [ "$cfail" -eq 0 ]; then
+        echo "OK: canary — a dump broken four ways (defer_order in \`agrees\`, the"
+        echo "    dyn_order gate deleted, defer_order in \`margin\`, a \`__defer\` read"
+        echo "    inside a loop) was named back by the same two rules that are silent"
+        echo "    on the real dumps."
+    fi
+fi
 # ONE discriminant per deferred query (via_rel, via_rel3, iter_step), read once each.
 n_disc=$(count '^    let __defer_ix: i64')
 if [ "$n_disc" -ne 3 ]; then
@@ -389,11 +519,26 @@ check_guard 'via_rel3_run branch chain'    "$n_r3"   1
 check_guard 'via_rel_run size read'        "$n_vr"   1
 check_guard 'materialize/defer/index order' "$n_seq" 2
 check_guard 'deferred prepare measures nothing' "$n_prep" 3
+# ⚠ AND THE EXTRACTIONS INSIDE THOSE BLOCKS. `n_impl` counts dumps that HOLD an
+# impl block; it says nothing about whether the `sed` range for `agrees` or for
+# `margin` came back with anything. Renaming the emitted `margin` left `n_impl`
+# at 3 and the margin rule judging an empty string. MEASURED 2026-07-31 at
+# `62835ad3`: 3 dumps yield an `agrees` body, 3 yield a `margin` body.
+check_guard 'agrees body extracted' "$n_agrees" 3
+check_guard 'margin body extracted' "$n_margin" 3
+# The trace channel this gate greps 20 rules out of must have SPOKEN. Each of
+# those rules fails on absence, so a dead channel is caught — but it is caught 20
+# times with 20 misleading messages; one floor says the real thing once.
+# MEASURED: 50 `[plan]` lines.
+n_plan=$(grep -c '^\[plan\]' "$TMPD/err" || true)
+check_guard 'the [plan] trace channel' "$n_plan" 50
 
 if [ "$fail" -ne 0 ]; then
     echo "---- trace ----"
     grep '^\[plan\]' "$TMPD/err" || true
     exit 1
 fi
-echo "OK: deferred plan — guarded blocks ran on $n_impl/$n_r3/$n_vr/$n_seq/$n_prep dumps"
+echo "OK: deferred plan — guarded blocks ran on $n_impl/$n_r3/$n_vr/$n_seq/$n_prep dumps,"
+echo "    agrees/margin bodies extracted from $n_agrees/$n_margin, $n_plan trace lines,"
+echo "    and the two silent rules were proven live by the four-way canary."
 exit 0

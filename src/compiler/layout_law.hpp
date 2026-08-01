@@ -298,4 +298,32 @@ std::vector<LedgerEntry>& ledger() noexcept;
 void record(const char* engine, std::string key, L answer) noexcept;
 bool recording_enabled() noexcept;
 
+// ⚠ THE CANARY — FAULT INJECTION SO A GATE CAN PROVE ITS INSTRUMENT IS LIVE.
+//
+// `verify_layout_engines()` reports "0 disagreements" both when every engine
+// agrees and when it never managed to ask one. Those are the same string, the
+// same exit code, and the same green gate — which is the failure this whole arc
+// is about, one level up. The previous answer was to ENUMERATE the ways the
+// check could go blind (an engine stops recording, the census line disappears,
+// the lattice does not reach the registry) and floor each one. That list is
+// written by the same mind that wrote the check, so it is exactly as incomplete.
+//
+// `LOGOS_LAYOUT_CANARY=<engine>` makes the compiler lie about that engine's
+// layout by one byte. The gate compiles the SAME program a second time with it
+// set and demands the census come back with a NONZERO disagreement count naming
+// that engine. If it does not, the gate reports ITSELF broken. No one has to
+// think of the blinding mode: whatever kills the comparison also kills the
+// canary, because the canary is judged by the same `bad.size()` field of the
+// same census line as the real run.
+//
+// The named engine is one of: `sema_abi_layout`, `mono_abi_layout` (perturbed
+// HERE, on the way into the ledger — so the recording door, the dedup, the
+// key→truth lookup, the per-engine count and the comparison are all ridden),
+// `layout_of`, `mlir_abi_size` (perturbed at the comparison site in
+// `verify_layout_engines`, which is where those two are asked).
+//
+// Off unless the variable is set, read once; a normal compile pays one
+// already-initialised static read per `record` call.
+const char* canary_engine() noexcept;
+
 }  // namespace logos::compiler::layout
