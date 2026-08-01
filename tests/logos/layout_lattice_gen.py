@@ -18,6 +18,7 @@ union (sum vs max), tagged enum, C-like enum, niche-packed enum, zero-sized
 payload, generic instantiation, and nestings of those. A scalars-only lattice is
 how three engines could lack a whole `is_union()` branch behind a green gate.
 """
+import json
 import sys
 
 # 20 distinct scalar leaves — every integer width the language has, both
@@ -196,7 +197,11 @@ def gen_lattice(path):
     out.append("}")
     open(path, "w").write("\n".join(out) + "\n")
     sys.stderr.write(f"[layout-gate] lattice generated: {n} types\n")
-    sys.stderr.write(f"LATTICE_TYPES={n}\n")
+    # A STRUCTURED verdict: the gate reads this with tests/logos/verdict.py, not
+    # with `sed`. `sed -nE 's/^LATTICE_TYPES=([0-9]+)$/\\1/p'` was safe by luck —
+    # it printed nothing on a non-match — but the same file's `, N defs,` scrape
+    # was not, and a gate should not have two idioms for reading one number.
+    sys.stderr.write("lattice-gen-json: " + json.dumps({"types": n}) + "\n")
 
 
 def gen_oracle(path, canary=False):
@@ -375,10 +380,10 @@ unsafe fn gk_{w}() -> i64 {{
                      f"{code - 1} distinct failure codes\n")
     # The counts are the gate's floors, read back from the loop that emitted
     # them rather than maintained by hand.
-    sys.stderr.write(f"ORACLE_PREFIXES={len(prefixes)}\n"
-                     f"ORACLE_OFFSETS={len(off_structs)}\n"
-                     f"ORACLE_DSTREF={len(BACKINGS)}\n"
-                     f"ORACLE_CODES={code - 1}\n")
+    sys.stderr.write("oracle-gen-json: " + json.dumps({
+        "prefixes": len(prefixes), "offsets": len(off_structs),
+        "dstref_widths": len(BACKINGS), "codes": code - 1,
+        "canary": 1 if canary else 0}) + "\n")
 
 
 if __name__ == "__main__":

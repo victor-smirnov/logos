@@ -96,14 +96,36 @@ if [ "$n_exlit" -ne 3 ]; then
     fail=1
 fi
 
-for member in 'pub base_n: i64' 'pub step_n: i64' \
-              'pub fn agrees\(&self, fresh: &[A-Za-z]+Plan\)' \
-              'pub fn margin\(&self\)' 'pub fn explain\(&self\)'; do
-    if ! grep -Eq "$member" "${DUMPS[@]}"; then
-        echo "FAIL: the plan type has no /$member/ — a decision without its facts is not re-checkable"
-        fail=1
-    fi
+# ⚠ UNIVERSAL, NOT EXISTENTIAL. `grep -Eq PATTERN "${DUMPS[@]}"` asks whether
+# SOME dump has the member; the sentence is that EVERY emitted plan type carries
+# it. MEASURED in the sibling gate on 2026-08-01: the same idiom left
+# deferred_plan_gate.sh at EXIT 0 with two of three emitted `agrees` bodies
+# violating the rule they were supposed to enforce, because one surviving dump
+# satisfied the ∃. So the loop is over the dumps that CARRY a plan impl, and the
+# count of those is floored — a guard that admits nothing is the same shrug.
+# ⚠ THE GUARD PATTERN IS `[A-Za-z_][A-Za-z0-9_]*Plan`, NOT `[A-Za-z]+Plan`: the
+# latter does not match `ViaRel3Plan`, and in the sibling gate it silently
+# excluded the three-source query — 3 of 4 dumps judged, with the floor written
+# at the observed 3.
+n_planimpl=0
+for f in "${DUMPS[@]}"; do
+    grep -Eq '^impl [A-Za-z_][A-Za-z0-9_]*Plan \{' "$f" || continue
+    n_planimpl=$((n_planimpl + 1))
+    for member in 'pub base_n: i64' 'pub step_n: i64' \
+                  'pub fn agrees\(&self, fresh: &[A-Za-z0-9_]+Plan\)' \
+                  'pub fn margin\(&self\)' 'pub fn explain\(&self\)'; do
+        if ! grep -Eq "$member" "$f"; then
+            echo "FAIL: $f — the plan type has no /$member/; a decision without its facts is not re-checkable"
+            fail=1
+        fi
+    done
 done
+# MEASURED 2026-08-01 on this fixture: 3 dumps carry a plan impl.
+if [ "$n_planimpl" -lt 3 ]; then
+    echo "FAIL: the plan-member rules ran on $n_planimpl dump(s), want >= 3 — a"
+    echo "      guard that admits nothing skips every assertion inside it."
+    fail=1
+fi
 
 # ── the candidate table is carried ONLY where there are candidates ─────────
 # `by_key` has an `order by` and two admissible orders; `no_order` and `evens` have

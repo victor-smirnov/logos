@@ -171,6 +171,53 @@
 #     llvm::DataLayout says 24".
 #   * restoring `pb = payload_bytes ? payload_bytes : 1` → red naming
 #     `OptionIter$G1$ConvertError`, "layout_of says 4, llvm::DataLayout says 8".
+#
+# ⚠⚠⚠ AND WHY NOTHING HERE READS PROSE ANY MORE (2026-08-01).
+#
+# The canaries answered "is the instrument DEAD?". They cannot answer "is the
+# instrument ALIVE AND READING THE WRONG THING?", and two arms of this gate were
+# doing exactly that:
+#
+#   * THE FLOORS WERE PARSED WITH `sed`, WHICH ON A NON-MATCH RETURNS ITS INPUT.
+#     `N_DEFS=$(sed -E 's/.*, ([0-9]+) defs.*/\1/' <<<"$LINE")` gives the WHOLE
+#     CENSUS LINE when the wording moves by one token. `[ "<a sentence>" -lt
+#     3676 ]` then writes "integer expression expected" and exits 2 — and `if`
+#     reads a non-zero status as FALSE, so the floor NEVER FIRES. MEASURED: a
+#     wrapper rewriting only `, N defs,` to `, defs=N,` on logosc's stderr left
+#     this gate at EXIT 0, printing its OK line with the census line embedded in
+#     it where the number should be. Rewriting all three floored fields the same
+#     way passed all three floors and then died at an arithmetic expansion
+#     saying "layout: unbound variable", naming nothing. The canaries could not
+#     cover it: they read a differently-anchored field that still matched.
+#     ⚠ THE SAME FUNCTION already used the safe `;t;s/.*/0/` idiom for
+#     `N_SEMA`/`N_MONO` and the safe `sed -n …p` for the generator counts. The
+#     idiom was known and applied to three of six parses. That is the argument
+#     against idiom discipline as a fix.
+#
+#   * THE DataLayout ARM ASSERTED A PROPERTY OF #include LINES AND STATED IT AS A
+#     PROPERTY OF THE PROGRAM: "a TU that does not include the header has no
+#     declaration to call, under any spelling, through any alias, behind any
+#     macro". FALSE — `llvm/IR/Module.h` includes `llvm/IR/DataLayout.h`, and the
+#     compiler's own dependency record says NINE logosc TUs hold a live
+#     `llvm::DataLayout`, not two. A text scan of a source file cannot see what
+#     the preprocessor does.
+#
+# So: THE SUBJECT EMITS A STRUCTURED VERDICT AND A STRICT PARSER READS IT.
+# `layout-verify-json:` / `lattice-gen-json:` / `oracle-gen-json:` are JSON
+# objects with named, typed fields; `tests/logos/verdict.py` reads them, and a
+# missing field, a RENAMED field, a non-integer value or a malformed document is
+# a FATAL ERROR (exit 3) that names what it could not parse — never an empty
+# string that floors to true. And `tests/logos/dl_reach.py` puts the DataLayout
+# question to the TOOLCHAIN: `ninja -t deps` for who can NAME one (the
+# preprocessed TU, not the include lines) and `nm -uC` for who ASKS one (the
+# undefined references the linker will resolve — which also sees a new reader
+# appearing INSIDE an allowed TU, the include check's own stated blind spot).
+#
+# ⚠ AND THE PARSER'S OWN MEDIUM IS CHECKED THE WAY THE CANARIES ARE. Every run
+# starts with `verdict.py --selftest`, which pushes 17 malformed/false inputs
+# through the SAME read_verdict/resolve_int/assertions this gate then uses and
+# requires each to be rejected — plus the well-formed one accepted, so a parser
+# that rejects everything proves nothing. It exits 4 if it accepts one.
 set -euo pipefail
 
 LOGOSC="${1:?logosc path}"
@@ -230,15 +277,53 @@ MIN_MO_CLIKE=27     ; MIN_MO_TAGGED=36 ; MIN_MO_NICHE=4
 MIN_SE_PRODUCT=321  ; MIN_SE_UNION=3 ; MIN_SE_TRANSPARENT=2
 MIN_SE_CLIKE=15     ; MIN_SE_TAGGED=1  ; MIN_SE_NICHE=1
 MIN_ENUM_TYPES=91
-# Exactly these TUs may see a DataLayout — an EQUALITY, checked in both
-# directions. The old form only checked the complement, so a `grep` that matched
-# NOTHING (a broken root, a typo in the pattern) read as "nobody includes one".
-ALLOWED_DL_TUS="mlir_gen_types.cpp mlir_gen.cpp"
+# The verdict's exact field set. A field this gate does not floor is still a
+# field whose disappearance means the verdict's shape moved, and a gate reading
+# a shape it was not written against is guessing.
+VERDICT_KEYS='struct_types,fields,defs,enum_types,unmatched,disagreements,engines,matrix'
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 
 export LOGOS_LIB_DIR="$LIB_DIR"
+
+# ── THE STRICT PARSER, AND ITS OWN MEDIUM CHECKED FIRST ──────────────────────
+# Nothing below this line reads prose. `verdict.py` is the only reader, and it
+# proves itself before it is trusted: 17 malformed/false inputs through the same
+# functions this run uses, each of which must be REJECTED, plus one well-formed
+# input that must be ACCEPTED. Exit 4 means the parser is broken and no verdict
+# it would have pronounced means anything.
+VERDICT="$HERE/verdict.py"
+[ -f "$VERDICT" ] || { echo "FAIL: $VERDICT is missing — this gate has no reader."; exit 1; }
+if ! python3 "$VERDICT" --selftest; then
+    echo "FAIL: the verdict parser did not pass its own selftest. Every number"
+    echo "      this gate is about to read would be read by it. Stop here."
+    exit 1
+fi
+
+# `read_verdict <file> <prefix> <label> <exact-keys> <bind…>` — resolves every
+# binding or DIES. On success it writes $TMPD/bind.sh with one NAME=value line
+# per binding and this shell sources it under `set -u`, so a field that moved is
+# a missing shell variable at the point of use and not an empty string that
+# floors to true. Floors and equalities are passed as `--floor path:N`.
+read_verdict() {   # read_verdict <file> <prefix> <label> [verdict.py args…]
+    local file=$1 prefix=$2 label=$3 rc=0; shift 3
+    rm -f "$TMPD/bind.sh"
+    set +e
+    python3 "$VERDICT" --file "$file" --prefix "$prefix" --label "$label" \
+            --export "$TMPD/bind.sh" --quiet "$@"
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        if [ "$rc" -eq 3 ]; then
+            echo "       ⚠ EXIT 3 IS THE GATE REPORTING THAT IT COULD NOT LOOK."
+            echo "       Nothing above this line is evidence about the tree."
+        fi
+        exit 1
+    fi
+    # shellcheck disable=SC1090
+    . "$TMPD/bind.sh"
+}
 
 # ── one compile, one census line, parsed — DECIDING NOTHING ──────────────────
 # NOT `logosc … | grep`: the whole stream goes to a file first, then it is
@@ -250,8 +335,9 @@ export LOGOS_LIB_DIR="$LIB_DIR"
 # both call it and both read the SAME `N_BAD`, which is the SAME `bad.size()`
 # from the SAME census line: that is what makes "the canary was caught" and "the
 # program is clean" two readings of ONE assertion rather than two mechanisms.
-census_raw() {   # census_raw <src> [canary-engine]; sets RC / N_TYPES / N_FIELDS
-                 # / N_DEFS / N_BAD / N_SEMA / N_MONO / LINE
+census_raw() {   # census_raw <src> [canary-engine]; sets RC and, when the verdict
+                 # is present, N_TYPES / N_FIELDS / N_DEFS / N_BAD / N_SEMA /
+                 # N_MONO / N_ENUMS through the strict parser.
     local src=$1 canary=${2:-}
     set +e
     # A CAUGHT CANARY ABORTS THE COMPILER — that is what `report_fatal_error`
@@ -264,49 +350,40 @@ census_raw() {   # census_raw <src> [canary-engine]; sets RC / N_TYPES / N_FIELD
         "$LOGOSC" "$src" "$TMPD/x.o" "$TMPD/out" "$TMPD/err" 2>/dev/null
     RC=$?
     set -e
-    LINE=$(grep -m1 '^layout-verify:' "$TMPD/err" || true)
-    N_TYPES=0; N_FIELDS=0; N_DEFS=0; N_BAD=-1; N_SEMA=0; N_MONO=0
-    [ -n "$LINE" ] || return 0
-    N_TYPES=$(sed -E 's/^layout-verify: ([0-9]+) struct types.*/\1/'   <<<"$LINE")
-    N_FIELDS=$(sed -E 's/.*, ([0-9]+) fields,.*/\1/'                   <<<"$LINE")
-    N_DEFS=$(sed -E 's/.*, ([0-9]+) defs.*/\1/'                        <<<"$LINE")
-    N_BAD=$(sed -E 's/.*, ([0-9]+) disagreements$/\1/'                 <<<"$LINE")
-    # Per-engine counts appear as ", <engine> <n>" and are ABSENT when an engine
-    # recorded nothing — absent must read as 0, never as "not measured".
-    N_SEMA=$(sed -E 's/.*, sema_abi_layout ([0-9]+).*/\1/;t;s/.*/0/'   <<<"$LINE")
-    N_MONO=$(sed -E 's/.*, mono_abi_layout ([0-9]+).*/\1/;t;s/.*/0/'   <<<"$LINE")
-    N_ENUMS=$(sed -E 's/.*, ([0-9]+) enum types.*/\1/;t;s/.*/0/'       <<<"$LINE")
+    # ⚠ NO `sed` ON THE PROSE LINE. The compiler emits the SAME census as a JSON
+    # object; a field that was renamed is a MISSING field here and verdict.py
+    # exits 3 naming it, where the old `sed` returned the whole line and the
+    # floor silently passed. `engines.*` are ABSENT when an engine recorded
+    # nothing — absent must read as 0 and never as "not measured" — so those two
+    # are defaulted by `have_engine` below rather than bound blindly.
+    N_TYPES=0; N_FIELDS=0; N_DEFS=0; N_BAD=-1; N_SEMA=0; N_MONO=0; N_ENUMS=0
+    HAVE_VERDICT=0
+    grep -q '^layout-verify-json:' "$TMPD/err" || return 0
+    HAVE_VERDICT=1
+    # `engines.<name>` is ABSENT when that engine recorded nothing, and absent
+    # must read as 0 — `--bind-opt` is the ONE documented absence. A missing
+    # `engines` OBJECT is still fatal, which is the difference between "this
+    # engine said nothing" and "the verdict's shape moved".
+    read_verdict "$TMPD/err" 'layout-verify-json:' "the layout verifier on $src" \
+        --exact-keys "$VERDICT_KEYS" \
+        --bind N_TYPES=struct_types --bind N_FIELDS=fields \
+        --bind N_DEFS=defs --bind N_ENUMS=enum_types \
+        --bind N_BAD=disagreements \
+        --bind-opt N_SEMA=engines.sema_abi_layout:0 \
+        --bind-opt N_MONO=engines.mono_abi_layout:0
 }
 
-# ── THE ENGINE × SHAPE MATRIX ────────────────────────────────────────────────
-# `cell <engine> <shape>` reads one cell out of the compiler's own
-# `layout-matrix:` lines. A cell is the number of answers OF THAT SHAPE, FROM
-# THAT ENGINE, that were checked — against `llvm::DataLayout` where it has an
-# opinion and against every other engine that answered the same key.
-#
-# ⚠ WHY A MATRIX AND NOT A TOTAL. A per-engine total says the engine was
-# checked; it does not say WHICH BRANCHES were, and a missing branch is exactly
-# a branch nothing exercised. mono ran with NO C-LIKE branch behind a green
-# per-engine total of 2114, because the only C-like enum in the corpus had the
-# DEFAULT i32 backing — the one width at which having the branch and not having
-# it give the same four bytes. A zero cell is the report that was missing.
-# (No shape name is a substring of another, so a bare `<shape>=` match is
-# unambiguous; each shape appears once per row.)
-cell() {   # cell <engine> <shape>; prints the count, EMPTY if the row is absent
-    sed -nE "s/^layout-matrix: $1 .*$2=([0-9]+).*/\1/p" "$TMPD/err" | head -1
-}
-
-census() {   # the REAL path: compiles, census present, ZERO disagreements
+census() {   # the REAL path: compiles, verdict present, ZERO disagreements
     census_raw "$1"
     if [ "$RC" -ne 0 ]; then
         echo "FAIL: logosc failed on $1 (exit $RC):"; cat "$TMPD/err"; exit 1
     fi
-    if [ -z "$LINE" ]; then
-        echo "FAIL: no 'layout-verify:' census from $1 — the check did NOT run."
+    if [ "$HAVE_VERDICT" -eq 0 ]; then
+        echo "FAIL: no 'layout-verify-json:' verdict from $1 — the check did NOT run."
         echo "       A gate that could not look must not report that nothing is wrong."
         exit 1
     fi
-    if [ "$N_BAD" != "0" ]; then
+    if [ "$N_BAD" -ne 0 ]; then
         echo "FAIL: $N_BAD layout disagreements on $1"; cat "$TMPD/err"; exit 1
     fi
 }
@@ -315,9 +392,9 @@ canary() {   # the SAME path with one engine moved by one byte: the census MUST
              # come back with a nonzero disagreement count NAMING that engine.
     local src=$1 engine=$2
     census_raw "$src" "$engine"
-    if [ -z "$LINE" ]; then
-        echo "FAIL (CANARY '$engine'): no 'layout-verify:' census at all."
-        echo "       The instrument this gate reads is not producing its line, so"
+    if [ "$HAVE_VERDICT" -eq 0 ]; then
+        echo "FAIL (CANARY '$engine'): no 'layout-verify-json:' verdict at all."
+        echo "       The instrument this gate reads is not producing its verdict, so"
         echo "       every 'no disagreements' above is a statement about nothing."
         sed -n '1,20p' "$TMPD/err"
         exit 1
@@ -328,7 +405,7 @@ canary() {   # the SAME path with one engine moved by one byte: the census MUST
         echo "       reported $N_BAD disagreements. The comparison this gate reads"
         echo "       is DEAD for that engine, so its green verdict on the real"
         echo "       program means nothing. THE GATE IS BROKEN, not the tree."
-        echo "       census: $LINE"
+        grep -m1 '^layout-verify-json:' "$TMPD/err" || true
         exit 1
     fi
     if ! grep -q -- "$engine says" "$TMPD/err"; then
@@ -341,114 +418,73 @@ canary() {   # the SAME path with one engine moved by one byte: the census MUST
     echo "[layout-gate] canary '$engine': caught — $N_BAD disagreement(s), e.g. $(grep -m1 -- "$engine says" "$TMPD/err" | sed 's/^ *//')"
 }
 
-# ── 0. no TU outside the two allowed can even SEE a DataLayout ───────────────
+# ── 0. WHO CAN REACH AN llvm::DataLayout — ASKED OF THE BUILD ────────────────
 # `mlir::DataLayout` accumulates a struct's members at their STORE size while
 # `llvm::StructLayout` — the layout the object is emitted with — accumulates
 # ALLOC sizes. For `{i56,i8,i64}` that is 16 against 24, and no `dlti.dl_spec`
 # can reconcile it: the divergence is in the ACCUMULATION RULE, not the leaf
 # alignments. `8ba3c764` moved three engines onto one leaf table and stamped the
-# spec on the module, and a fourth reader still disagreed.
+# spec on the module, and a fourth reader still disagreed. So exactly one place
+# may ask `llvm::DataLayout` what a type weighs: the verifier that IS the
+# independent answer.
 #
-# Asserted by INCLUDE, not by call spelling. A spelling list is a guess — an
-# adversarial reader got past the previous one by writing `dl->getTypeSize(t)`
-# instead of `dl.getTypeSize(t)`. A TU that does not include the header has no
-# declaration to call, under any spelling, through any alias, behind any macro.
+# ⚠ THIS WAS A TEXT SCAN AND THE TEXT SCAN WAS WRONG. It grepped `#include`
+# lines over src/compiler and said "two TUs", on the stated ground that "a TU
+# that does not include the header has no declaration to call, under any
+# spelling, through any alias, behind any macro". `llvm/IR/Module.h` includes
+# `llvm/IR/DataLayout.h`. NINE logosc TUs hold a live one — including
+# `compile_pipeline.cpp`, which the scan called clean while its object carries
+# three undefined `llvm::DataLayout` references. A text scan of a source file
+# cannot see what the preprocessor does; the question has to be put to the
+# toolchain, and it has an answer there.
+#
+#   Q1  WHO CAN NAME ONE — `ninja -t deps`, the compiler's own -MD record: the
+#       preprocessed TU, not the first ten lines of the source.
+#   Q2  WHO ASKS ONE — `nm -uC` on the built objects: the undefined references
+#       the linker will resolve. This is the question the include check meant to
+#       ask, and it ALSO sees a new reader appearing INSIDE an allowed TU, which
+#       the include check named as its own blind spot and could not cover.
+#
+# Both answers are compared, in BOTH directions, against a recorded one with its
+# ground per TU (`datalayout_reach.expected.json`) — so a shrink (the scan went
+# blind) is as red as a growth. Two canaries ride the same nm scan: a fifth
+# engine COMPILED HERE from source with this build's own flags, which reaches
+# `llvm::DataLayout` through `<llvm/IR/Module.h>` and never names the header the
+# old scan looked for; and a planted copy of a real oracle object. What Q2
+# cannot see — a size query on a scalar type only, which is fully header-inline
+# and leaves no symbol — is written down in that file, and is covered by the
+# four-engine comparison the engine canaries prove live.
 SRC_ROOT=$(cd "$HERE/../../src/compiler" && pwd)
-DL_RE='^[[:space:]]*#include[[:space:]]*[<"](llvm/IR/DataLayout\.h|mlir/Interfaces/DataLayoutInterfaces\.h)[>"]'
+BUILD_ROOT=$(cd "$LIB_DIR/../.." && pwd)
+mkdir -p "$TMPD/dlreach"
+set +e
+python3 "$HERE/dl_reach.py" --build "$BUILD_ROOT" --src "$SRC_ROOT" \
+        --expected "$HERE/datalayout_reach.expected.json" \
+        --tmpd "$TMPD/dlreach" >"$TMPD/dlreach.json"
+DL_RC=$?
+set -e
+case "$DL_RC" in
+  0) ;;
+  3) echo "       ⚠ EXIT 3: THE BUILD COULD NOT BE ASKED. Not a clean tree — an"
+     echo "       unanswered question. Nothing above is evidence."; exit 1 ;;
+  4) echo "       ⚠ EXIT 4: a canary was not caught. THE SCAN IS BROKEN, not the"
+     echo "       tree."; exit 1 ;;
+  *) exit 1 ;;
+esac
 
-dl_scan() {   # dl_scan <root>...; prints the files that include a DataLayout and
-              # are NOT in the allowlist. ONE implementation, used for the real
-              # tree and for the canary, so the canary rides the same regex and
-              # the same allowlist match.
-    local f b
-    # `|| true`: no match is an ANSWER here, not an error. Without it `pipefail`
-    # turns "nobody includes one" into a command substitution that fails and a
-    # `set -e` exit with no message.
-    { grep -rlnE "$DL_RE" "$@" --include=*.cpp --include=*.hpp --include=*.h 2>/dev/null || true; } \
-    | sort | while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        b=$(basename "$f")
-        case " $ALLOWED_DL_TUS " in
-            *" $b "*) ;;
-            *) printf '%s\n' "$f" ;;
-        esac
-    done
-}
-
-BAD_INC=$(dl_scan "$SRC_ROOT")
-if [ -n "$BAD_INC" ]; then
-    echo "FAIL: a translation unit that is not a layout ORACLE includes a DataLayout:"
-    echo "$BAD_INC"
-    echo "       Only these may: $ALLOWED_DL_TUS — the verifier, and the builder"
-    echo "       of the module's dlti spec string (not a size query)."
-    echo "       Everything else asks layout_law.hpp / mlir_abi_size, which"
-    echo "       verify_layout_engines proves equal to llvm::DataLayout."
-    exit 1
-fi
-# ⚠ AND THE ALLOWED SET MUST ACTUALLY HAVE BEEN FOUND. "No TU outside the two"
-# is also true of a scan that matched nothing at all — a moved SRC_ROOT, a
-# renamed header, a typo in the pattern. The two ARE expected to include one, so
-# their absence is the scan reporting its own death.
-# ⚠ `|| true` ON THE GREP, NOT ON THE PIPELINE. A pattern that matches nothing
-# makes `grep` exit 1, and under `set -o pipefail` the command substitution
-# fails, `set -e` kills the script — non-zero, but with NOT ONE WORD said. A gate
-# that dies mute is only marginally better than one that lies; the empty result
-# has to REACH the comparison below so the diagnostic can be printed.
-FOUND_ALLOWED=$({ grep -rlE "$DL_RE" "$SRC_ROOT" --include=*.cpp --include=*.hpp --include=*.h || true; } \
-                | xargs -r -n1 basename | sort -u | paste -sd' ' -)
-EXPECT_ALLOWED=$(printf '%s\n' $ALLOWED_DL_TUS | sort -u | paste -sd' ' -)
-if [ "$FOUND_ALLOWED" != "$EXPECT_ALLOWED" ]; then
-    echo "FAIL: the DataLayout include scan found '{$FOUND_ALLOWED}' where the two"
-    echo "      oracle TUs are '{$EXPECT_ALLOWED}'. Either a TU stopped being an"
-    echo "      oracle, or the scan is looking at the wrong tree / for the wrong"
-    echo "      header and its 'nobody else includes one' is about nothing."
-    exit 1
-fi
-# ⚠ CANARY. A planted TU that DOES include a DataLayout, scanned by the SAME
-# `dl_scan` in the SAME shape, must come back flagged. This is what separates
-# "no TU is out of bounds" from "the scan cannot see a TU that is".
-mkdir -p "$TMPD/dlcanary"
-cat >"$TMPD/dlcanary/fourth_engine_canary.cpp" <<'EOF'
-// canary — deliberately out of bounds; the gate's own scan must flag this file.
-#include <llvm/IR/DataLayout.h>
-uint64_t ask(const llvm::DataLayout* dl, llvm::Type* t) { return dl->getTypeAllocSize(t); }
-EOF
-CANARY_HIT=$(dl_scan "$SRC_ROOT" "$TMPD/dlcanary")
-if ! grep -q 'fourth_engine_canary\.cpp$' <<<"$CANARY_HIT"; then
-    echo "FAIL (CANARY 'DataLayout include scan' NOT CAUGHT): a planted TU that"
-    echo "      includes <llvm/IR/DataLayout.h> and calls dl->getTypeAllocSize was"
-    echo "      NOT reported by the same scan that just said the tree is clean."
-    echo "      THE GATE IS BROKEN, not the tree. scan returned: '${CANARY_HIT}'"
-    exit 1
-fi
-if [ "$(grep -c . <<<"$CANARY_HIT")" -ne 1 ]; then
-    echo "FAIL (CANARY): the scan flagged more than the planted file:"; echo "$CANARY_HIT"
-    exit 1
-fi
-echo "[layout-gate] DataLayout reachable from exactly: $FOUND_ALLOWED"
-echo "[layout-gate] canary 'planted out-of-bounds TU': caught by the same scan"
-
-# The law itself must stay a pure rule: if layout_law.hpp could see a
-# DataLayout, the one place that is supposed to BE the answer would have a
-# second answer in scope. (Covered by the include check above; asserted
-# separately so the diagnostic names the reason.)
-if grep -qE 'DataLayout' "$SRC_ROOT/layout_law.hpp"; then
-    if grep -vE '^\s*(//|\*)' "$SRC_ROOT/layout_law.hpp" | grep -q 'DataLayout'; then
-        echo "FAIL: layout_law.hpp — the law — has a DataLayout in scope."
-        exit 1
-    fi
-fi
-# And the two that MAY see one must not use the MLIR one as a size oracle: its
-# accumulation rule is the wrong one. (Building the spec string from an
-# `llvm::DataLayout` is not a size query and is not matched.)
-BAD=$(grep -rn -E 'mlir::DataLayout|DataLayout::closest' \
-          "$SRC_ROOT" --include=*.cpp --include=*.hpp --include=*.h \
-      | grep -v '^\s*//' | grep -vE ':[0-9]+: *//' || true)
-if [ -n "$BAD" ]; then
-    echo "FAIL: mlir::DataLayout is being used as a size oracle:"
-    echo "$BAD"
-    exit 1
-fi
+# ⚠ THE TWO TEXT SCANS THAT USED TO STAND HERE ARE GONE, and what replaced them
+# is in dl_reach.py above:
+#   * `grep -qE DataLayout layout_law.hpp` asked about ONE FILE'S TEXT when the
+#     property is "the law has no second answer IN SCOPE" — its whole
+#     preprocessed closure. dl_reach.py compiles a TU whose entire content is
+#     `#include "layout_law.hpp"`, reads the compiler's own -MD list (338
+#     headers) and asserts neither DataLayout header is in it. Its canary is the
+#     same probe with the header added, which must come back flagged.
+#   * `grep -rn 'mlir::DataLayout'` guessed at a spelling. MEASURED: an
+#     `mlir::DataLayout` size query leaves `mlir::DataLayout::getTypeSize` /
+#     `getTypeABIAlignment` as UNDEFINED SYMBOLS, so the linker answers this one
+#     too — the Q2 symbol map covers both families, and the compiled canary asks
+#     both and must be flagged for both.
 
 # ── 0b. NO ENGINE DECIDES ITS OWN AGGREGATE SHAPE ────────────────────────────
 # The previous round put the aggregate RULE in one header and left each engine
@@ -535,6 +571,19 @@ census "$TMPD/base.logos"
 BASE_TYPES=$N_TYPES; BASE_FIELDS=$N_FIELDS; BASE_DEFS=$N_DEFS
 echo "[layout-gate] baseline: $BASE_TYPES struct types, $BASE_FIELDS fields, $BASE_DEFS defs"
 floor() {   # floor <what> <got> <want>
+    # ⚠ THE NON-NUMBER IS CHECKED FIRST, EXPLICITLY. `[ "$got" -lt N ]` on
+    # anything that is not an integer exits 2 with "integer expression expected"
+    # and `if` reads a non-zero status as FALSE — the floor then never fires.
+    # That is exactly how this gate stayed green with `defs` unparsed. Every
+    # value reaching here now comes from verdict.py and IS an integer; this
+    # guard is so that a future arithmetic path cannot re-open the hole.
+    case "$2" in
+        ''|*[!0-9-]*)
+            echo "FAIL: $1 — the measured value is '$2', which is NOT A NUMBER."
+            echo "       A floor cannot be applied to it, and a floor that cannot"
+            echo "       be applied must never read as a floor that held."
+            exit 1 ;;
+    esac
     if [ "$2" -lt "$3" ]; then
         echo "FAIL: $1 — observed $2, floor $3 (MEASURED 2026-08-01)."
         echo "       A floor here is the value this gate actually saw, not a"
@@ -560,11 +609,12 @@ done
 # a list somebody maintains. Each type is CONSTRUCTED and read back, so it is
 # reachable code and really gets registered.
 python3 "$HERE/layout_lattice_gen.py" lattice "$TMPD/lattice.logos" 2>"$TMPD/lat.count"
-grep -v '^LATTICE_TYPES=' "$TMPD/lat.count" || true
-GEN_TYPES=$(sed -nE 's/^LATTICE_TYPES=([0-9]+)$/\1/p' "$TMPD/lat.count")
-if [ -z "$GEN_TYPES" ]; then
-    echo "FAIL: the generator did not report its type count."; exit 1
-fi
+grep -v '^lattice-gen-json:' "$TMPD/lat.count" || true
+# The generator emits its own tally as a structured verdict; a rename of `types`
+# is exit 3 here, not an empty string that a `-z` test happens to catch and a
+# floor happens not to.
+read_verdict "$TMPD/lat.count" 'lattice-gen-json:' "the lattice generator" \
+    --exact-keys types --bind GEN_TYPES=types
 # TWO checks, because they fail on different things. The generator's count going
 # down means a SHAPE was deleted (it is the emitting loop's own tally); the
 # verifier's delta going down means the shapes stopped REACHING the registry.
@@ -596,64 +646,45 @@ LAT_MONO=$N_MONO
 # defect that started this arc.
 echo "[layout-gate] ENGINE × SHAPE — answers of each shape checked against"
 echo "              llvm::DataLayout and against the other engines:"
-MATRIX_ROWS=0
-for eng in layout_of mono_abi_layout sema_abi_layout; do
-    row=$(sed -nE "s/^layout-matrix: $eng (.*)$/\1/p" "$TMPD/err" | head -1)
-    if [ -z "$row" ]; then
-        echo "FAIL: no 'layout-matrix' row for '$eng'. The matrix this gate reads"
-        echo "      does not exist for that engine, so every cell floor below is a"
-        echo "      statement about nothing."
-        exit 1
-    fi
-    printf '              %-18s %s\n' "$eng" "$row"
-    MATRIX_ROWS=$((MATRIX_ROWS + 1))
-done
-floor "engines with a matrix row" "$MATRIX_ROWS" 3
-
-matrix_cell() {   # matrix_cell <engine> <shape> <floor>
-    local got; got=$(cell "$1" "$2")
-    if [ -z "$got" ]; then
-        echo "FAIL: the matrix has no '$2' cell for '$1' — the compiler's row does"
-        echo "      not carry that shape at all. The gate cannot floor a column"
-        echo "      that is not printed."
-        exit 1
-    fi
-    if [ "$got" -lt "$3" ]; then
-        echo "FAIL: $1 × $2 — $got answers checked, floor $3."
-        if [ "$got" = "0" ]; then
-            echo "       A ZERO CELL IS A MISSING BRANCH OR A MISSING SHAPE IN THE"
-            echo "       CORPUS. This engine never took the '$2' branch on the whole"
-            echo "       lattice: either it does not have it (which is the bug this"
-            echo "       matrix exists to name) or nothing in the corpus has that"
-            echo "       shape any more (which is the same blindness one level up)."
-        else
-            echo "       Fewer answers of this shape reached the comparison than the"
-            echo "       measurement this floor was read from. Something stopped"
-            echo "       being asked; find out what before lowering the number."
-        fi
-        exit 1
-    fi
-}
-#            engine            shape        floor  (MEASURED — see the header)
-matrix_cell layout_of        product      "$MIN_LO_PRODUCT"
-matrix_cell layout_of        union        "$MIN_LO_UNION"
-matrix_cell layout_of        transparent  "$MIN_LO_TRANSPARENT"
-matrix_cell layout_of        c-like       "$MIN_LO_CLIKE"
-matrix_cell layout_of        tagged       "$MIN_LO_TAGGED"
-matrix_cell layout_of        niche        "$MIN_LO_NICHE"
-matrix_cell mono_abi_layout  product      "$MIN_MO_PRODUCT"
-matrix_cell mono_abi_layout  union        "$MIN_MO_UNION"
-matrix_cell mono_abi_layout  transparent  "$MIN_MO_TRANSPARENT"
-matrix_cell mono_abi_layout  c-like       "$MIN_MO_CLIKE"
-matrix_cell mono_abi_layout  tagged       "$MIN_MO_TAGGED"
-matrix_cell mono_abi_layout  niche        "$MIN_MO_NICHE"
-matrix_cell sema_abi_layout  product      "$MIN_SE_PRODUCT"
-matrix_cell sema_abi_layout  union        "$MIN_SE_UNION"
-matrix_cell sema_abi_layout  transparent  "$MIN_SE_TRANSPARENT"
-matrix_cell sema_abi_layout  c-like       "$MIN_SE_CLIKE"
-matrix_cell sema_abi_layout  tagged       "$MIN_SE_TAGGED"
-matrix_cell sema_abi_layout  niche        "$MIN_SE_NICHE"
-floor "enum types the verifier sized with llvm::DataLayout" "$N_ENUMS" "$MIN_ENUM_TYPES"
+# ⚠ ALL 18 CELLS IN ONE STRICT READ. The old form scraped each cell with
+# `sed -nE "s/^layout-matrix: $eng .*$shape=([0-9]+).*/\\1/p"` and guarded the
+# empty case by hand. Here the whole matrix is a nested object in the verdict:
+# `matrix.<engine>.<shape>` either resolves to an integer or the parser exits 3
+# naming the path AND listing the keys that ARE at that level — so a renamed
+# engine, a renamed shape, a dropped row and a dropped column all say what they
+# are, in one message, instead of eighteen "cell is empty" guesses.
+grep -E '^layout-matrix: ' "$TMPD/err" | sed 's/^/              /' || true
+read_verdict "$TMPD/err" 'layout-verify-json:' "the ENGINE × SHAPE matrix" \
+    --exact-keys "$VERDICT_KEYS" \
+    --floor matrix.layout_of.product          "$MIN_LO_PRODUCT" \
+    --floor matrix.layout_of.union            "$MIN_LO_UNION" \
+    --floor matrix.layout_of.transparent      "$MIN_LO_TRANSPARENT" \
+    --floor matrix.layout_of.c-like           "$MIN_LO_CLIKE" \
+    --floor matrix.layout_of.tagged           "$MIN_LO_TAGGED" \
+    --floor matrix.layout_of.niche            "$MIN_LO_NICHE" \
+    --floor matrix.mono_abi_layout.product    "$MIN_MO_PRODUCT" \
+    --floor matrix.mono_abi_layout.union      "$MIN_MO_UNION" \
+    --floor matrix.mono_abi_layout.transparent "$MIN_MO_TRANSPARENT" \
+    --floor matrix.mono_abi_layout.c-like     "$MIN_MO_CLIKE" \
+    --floor matrix.mono_abi_layout.tagged     "$MIN_MO_TAGGED" \
+    --floor matrix.mono_abi_layout.niche      "$MIN_MO_NICHE" \
+    --floor matrix.sema_abi_layout.product    "$MIN_SE_PRODUCT" \
+    --floor matrix.sema_abi_layout.union      "$MIN_SE_UNION" \
+    --floor matrix.sema_abi_layout.transparent "$MIN_SE_TRANSPARENT" \
+    --floor matrix.sema_abi_layout.c-like     "$MIN_SE_CLIKE" \
+    --floor matrix.sema_abi_layout.tagged     "$MIN_SE_TAGGED" \
+    --floor matrix.sema_abi_layout.niche      "$MIN_SE_NICHE" \
+    --floor enum_types                        "$MIN_ENUM_TYPES" \
+    --bind N_TYPES=struct_types --bind N_FIELDS=fields \
+    --bind N_DEFS=defs --bind N_ENUMS=enum_types \
+    --bind N_BAD=disagreements \
+    --bind-opt N_SEMA=engines.sema_abi_layout:0 \
+    --bind-opt N_MONO=engines.mono_abi_layout:0
+# ⚠ A ZERO CELL IS A MISSING BRANCH OR A MISSING SHAPE IN THE CORPUS: the engine
+# never took that branch on the whole lattice — either it does not have it (the
+# bug this matrix exists to name) or nothing in the corpus has that shape any
+# more (the same blindness one level up). Both are red; the floors above are the
+# MEASURED values and none of them is 0.
 echo "[layout-gate] all 18 cells at or above their measured floors,"
 echo "              $N_ENUMS enum types sized by llvm::DataLayout"
 
@@ -710,22 +741,20 @@ link_and_run() {  # the REAL path: must exit 0
 }
 
 python3 "$HERE/layout_lattice_gen.py" oracle "$TMPD/oracle.logos" 2>"$TMPD/or.count"
-grep -v '^ORACLE_' "$TMPD/or.count" || true
-OR_PREFIXES=$(sed -nE 's/^ORACLE_PREFIXES=([0-9]+)$/\1/p' "$TMPD/or.count")
-OR_OFFSETS=$(sed -nE 's/^ORACLE_OFFSETS=([0-9]+)$/\1/p'   "$TMPD/or.count")
-OR_CODES=$(sed -nE 's/^ORACLE_CODES=([0-9]+)$/\1/p'       "$TMPD/or.count")
-OR_DSTREF=$(sed -nE 's/^ORACLE_DSTREF=([0-9]+)$/\1/p'     "$TMPD/or.count")
-if [ -z "$OR_PREFIXES" ] || [ -z "$OR_OFFSETS" ] || [ -z "$OR_CODES" ] \
-   || [ -z "$OR_DSTREF" ]; then
-    echo "FAIL: the oracle generator did not report its population."; exit 1
-fi
-floor "backing widths whose DstRef projection the oracle measures" \
-      "$OR_DSTREF" "$MIN_ORACLE_DSTREF"
-# These three were PRINTED and never asserted, so the oracle could shrink to one
-# probe and the gate would still say "every measured offset matched".
-floor "DST prefix shapes the oracle measures"  "$OR_PREFIXES" "$MIN_ORACLE_PREFIXES"
-floor "offset_of shapes the oracle measures"   "$OR_OFFSETS"  "$MIN_ORACLE_OFFSETS"
-floor "distinct failure codes the oracle can return" "$OR_CODES" "$MIN_ORACLE_CODES"
+grep -v '^oracle-gen-json:' "$TMPD/or.count" || true
+# These four were PRINTED and never asserted, so the oracle could shrink to one
+# probe and the gate would still say "every measured offset matched". Read and
+# floored in ONE strict pass; `canary: 0` is asserted too, so the REAL oracle can
+# never be silently replaced by the inverted one.
+read_verdict "$TMPD/or.count" 'oracle-gen-json:' "the run-oracle generator" \
+    --exact-keys prefixes,offsets,dstref_widths,codes,canary \
+    --floor dstref_widths "$MIN_ORACLE_DSTREF" \
+    --floor prefixes      "$MIN_ORACLE_PREFIXES" \
+    --floor offsets       "$MIN_ORACLE_OFFSETS" \
+    --floor codes         "$MIN_ORACLE_CODES" \
+    --eq    canary 0 \
+    --bind OR_PREFIXES=prefixes --bind OR_OFFSETS=offsets \
+    --bind OR_CODES=codes --bind OR_DSTREF=dstref_widths
 census "$TMPD/oracle.logos"
 link_and_run "$TMPD/x.o" oracle
 echo "[layout-gate] run oracle: exit 0 — every measured tail offset and every"
@@ -739,6 +768,14 @@ echo "              measured field offset matched the compiler's claim"
 # THAT is what this catches. "exit 0" from the real oracle then means "the
 # probes ran and agreed", not "the probes were not there".
 python3 "$HERE/layout_lattice_gen.py" oracle-canary "$TMPD/oracle_canary.logos" 2>"$TMPD/orc.count"
+# ⚠ AND THE CANARY GENERATOR MUST SAY IT INVERTED SOMETHING. `oracle-canary` and
+# `oracle` differ by one flipped comparison; if the mode argument stopped being
+# honoured, the "canary" would be the real oracle and its exit 0 would be read
+# as "the probes did not run". `canary: 1` is that difference, in the verdict.
+read_verdict "$TMPD/orc.count" 'oracle-gen-json:' "the run-oracle CANARY generator" \
+    --exact-keys prefixes,offsets,dstref_widths,codes,canary \
+    --eq canary 1 \
+    --floor prefixes "$MIN_ORACLE_PREFIXES" --floor offsets "$MIN_ORACLE_OFFSETS"
 census "$TMPD/oracle_canary.logos"
 link_run_rc "$TMPD/x.o" oracle_canary
 if [ "$RUN_RC" -eq 0 ]; then
@@ -769,8 +806,12 @@ echo "[layout-gate] OK — baseline $BASE_TYPES/$BASE_FIELDS/$BASE_DEFS, lattice
 echo "              (generator emitted $GEN_TYPES shapes), on the lattice: sema"
 echo "              $LAT_SEMA / mono $LAT_MONO early-engine answers checked against"
 echo "              llvm::DataLayout, 0 disagreements, all 18 ENGINE × SHAPE"
-echo "              cells at or above their measured floors — and EIGHT canaries"
-echo "              caught: layout_of, mlir_abi_size, sema_abi_layout,"
-echo "              mono_abi_layout, the planted DataLayout TU, the planted"
-echo "              rule-selecting fifth engine, the enum rows of the"
-echo "              comparison, the inverted run-oracle probe."
+echo "              cells at or above their measured floors. EVERY NUMBER ABOVE"
+echo "              WAS READ BY verdict.py OUT OF A JSON VERDICT — no sed on"
+echo "              prose, no grep -c as a measurement — and the parser passed"
+echo "              its own 19-case selftest first. NINE canaries caught:"
+echo "              layout_of, mlir_abi_size, sema_abi_layout, mono_abi_layout,"
+echo "              a fifth engine COMPILED from source that asks both"
+echo "              DataLayouts, a planted copy of an oracle object, a probe TU"
+echo "              that puts a DataLayout in the law's include closure, the"
+echo "              enum rows of the comparison, the inverted run-oracle probe."

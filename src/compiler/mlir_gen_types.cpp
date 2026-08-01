@@ -1398,6 +1398,54 @@ void MLIRGenImpl::verify_layout_engines() {
             }
             std::fprintf(stderr, "%s\n", line.c_str());
         }
+        // ── THE SAME CENSUS AS A STRUCTURED VERDICT ─────────────────────────
+        // The two blocks above are for a human reading a failing build. THE
+        // GATE READS ONLY THIS ONE, with a strict parser (tests/logos/
+        // verdict.py), because a gate that scrapes prose has a failure mode
+        // that looks exactly like a pass: `sed -E 's/…([0-9]+) defs…/\1/'` on
+        // a line whose wording moved prints the WHOLE LINE, and
+        // `[ "<a sentence>" -lt 3676 ]` exits 2, which `if` reads as FALSE.
+        // MEASURED 2026-08-01: rewriting only `, N defs,` to `, defs=N,` on
+        // this stream left the gate at EXIT 0 with its OK line printed.
+        //
+        // Here a renamed field is a MISSING field and the parser says so and
+        // exits 3. Every name below is an identifier and every value an
+        // integer, so this is emitted without a JSON library and cannot be
+        // malformed by its own content: engine and shape names come from
+        // `layout::shape_name` and from the engines' own registered names,
+        // which are C identifiers, plus the '-' in "c-like".
+        auto jnum = [](const char* k, uint64_t v) {
+            return "\"" + std::string(k) + "\":" + std::to_string(v);
+        };
+        std::string j = "{";
+        j += jnum("struct_types", n_types) + ",";
+        j += jnum("fields", n_fields) + ",";
+        j += jnum("defs", n_defs) + ",";
+        j += jnum("enum_types", n_enum_types) + ",";
+        j += jnum("unmatched", n_unmatched) + ",";
+        j += jnum("disagreements", bad.size()) + ",";
+        j += "\"engines\":{";
+        bool first = true;
+        for (auto& [eng, n] : per_engine) {
+            if (!first) j += ",";
+            first = false;
+            j += jnum(eng.c_str(), n);
+        }
+        j += "},\"matrix\":{";
+        first = true;
+        for (auto& [eng, row] : cells) {
+            if (!first) j += ",";
+            first = false;
+            j += "\"" + eng + "\":{";
+            for (size_t i = 0; i < layout::kShapeCount; ++i) {
+                if (i) j += ",";
+                j += jnum(std::string(layout::shape_name(
+                              static_cast<layout::Shape>(i))).c_str(), row[i]);
+            }
+            j += "}";
+        }
+        j += "}}";
+        std::fprintf(stderr, "layout-verify-json: %s\n", j.c_str());
     }
 
     if (!bad.empty()) {

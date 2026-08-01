@@ -180,22 +180,50 @@ if [ "$n_def" -ne 0 ]; then
     grep -n 'fn jc_order' "${DUMPS[@]}" || true
     fail=1
 fi
-for wanted in 'use logos.std.wql.join_cost;' \
-              'pub tbl: JCTable' \
-              'return jc_order_pick((&self.tbl)' \
-              'return jc_order_cost((&self.tbl)' \
-              'return jc_margin((&self.tbl)'; do
-    if ! grep -Fq "$wanted" "${DUMPS[@]}"; then
-        echo "FAIL: the plan type does not delegate to join_cost: missing /$wanted/"
+# ⚠ UNIVERSAL, NOT EXISTENTIAL. `grep -Fq PATTERN "${DUMPS[@]}"` asks whether
+# SOME dump has it; every sentence below is about EVERY emitted plan. MEASURED
+# 2026-08-01 in the sibling gate: the same idiom left deferred_plan_gate.sh at
+# EXIT 0 with two of three emitted `agrees` bodies re-deriving the order by hand
+# — exactly the drift the rule forbids — because one surviving dump satisfied
+# the ∃. The loop is over the dumps that CARRY a plan impl, and their count is
+# floored, because a guard that admits nothing is the same shrug one level down.
+# ⚠ `[A-Za-z_][A-Za-z0-9_]*Plan`, NOT `[A-Za-z]+Plan`: the latter does not match
+# `ViaRel3Plan`, and in the sibling gate that silently excluded 1 of 4 dumps.
+# ⚠ AND MAKING IT UNIVERSAL FORCED THE RULE TO STATE ITS OWN CONDITION.
+# Run ∀ over every plan dump, `Q5Plan` fails all four delegation rules — and it
+# is RIGHT to: q5 has more admissible orders than an artifact carries nests, so
+# the reorder is declined whole and the plan carries NO candidate table. The ∃
+# form could never have noticed, because the other three plans satisfied it; it
+# also could not say WHEN the rule applies. It applies to a plan that CARRIES A
+# TABLE, and that is now written down.
+# MEASURED 2026-08-01 on `wql_join_order_multi_e2e`: 4 dumps carry a plan impl,
+# 3 of them carry a table (q3, q4, q3self); q5 declines.
+n_planimpl=0; n_tblplan=0
+for f in "${DUMPS[@]}"; do
+    grep -Eq '^impl [A-Za-z_][A-Za-z0-9_]*Plan \{' "$f" || continue
+    n_planimpl=$((n_planimpl + 1))
+    # Every plan, table or not, imports the one cost model.
+    if ! grep -Fq 'use logos.std.wql.join_cost;' "$f"; then
+        echo "FAIL: $f — a plan that does not import logos.std.wql.join_cost"
         fail=1
     fi
+    grep -Fq 'pub tbl: JCTable' "$f" || continue
+    n_tblplan=$((n_tblplan + 1))
+    for wanted in 'return jc_order_pick((&self.tbl)' \
+                  'return jc_order_cost((&self.tbl)' \
+                  'return jc_margin((&self.tbl)' \
+                  'return (self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3));'; do
+        if ! grep -Fq "$wanted" "$f"; then
+            echo "FAIL: $f — a plan that CARRIES a candidate table does not go"
+            echo "      through join_cost for it: missing /$wanted/"
+            fail=1
+        fi
+    done
 done
-# `agrees` re-derives the decision THROUGH the same entry point the emitted
-# `prepare` used. A second hand-written comparison is how a plan comes to disagree
-# with the branch it selected.
-if ! grep -Fq 'return (self.order_ix == self.order_pick(fresh.base_n, fresh.step_n, fresh.n2, fresh.n3));' "${DUMPS[@]}"; then
-    echo "FAIL: agrees does not re-derive through order_pick"
-    grep -n 'agrees' "${DUMPS[@]}" || true
+if [ "$n_planimpl" -lt 4 ] || [ "$n_tblplan" -lt 3 ]; then
+    echo "FAIL: the plan rules ran on $n_planimpl plan dump(s) (want >= 4) of which"
+    echo "      $n_tblplan carry a candidate table (want >= 3) — a guard that admits"
+    echo "      nothing skips every assertion inside it."
     fail=1
 fi
 # The emitted `prepare` decides through the same function, over a table it names.

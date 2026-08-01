@@ -1,0 +1,48 @@
+{
+  "_measured": "2026-08-01, x86_64-linux, clang++-20, by tests/logos/dl_reach.py against build/ — from `ninja -t deps` (the compiler's own -MD record) and `nm -uC` on the built objects. Not read off the source text.",
+
+  "_why_this_file_exists": "The gate used to assert, by grepping #include lines, that exactly TWO translation units may see an llvm::DataLayout, on the ground that 'a TU that does not include the header has no declaration to call, under any spelling, through any alias, behind any macro'. That is false: llvm/IR/Module.h includes llvm/IR/DataLayout.h. NINE TUs hold a live, callable llvm::DataLayout. A text scan of a source file cannot see what the preprocessor does, so the question is now put to the toolchain and the answer is recorded here, in both directions.",
+
+  "include_reach": [
+    "compile_pipeline.cpp",
+    "main.cpp",
+    "mlir_gen.cpp",
+    "mlir_gen_debug.cpp",
+    "mlir_gen_dyn.cpp",
+    "mlir_gen_expr.cpp",
+    "mlir_gen_fn.cpp",
+    "mlir_gen_stmt.cpp",
+    "mlir_gen_types.cpp"
+  ],
+  "_include_reach_ground": "Q1 — the TUs of logosc whose PREPROCESSED input contains llvm/IR/DataLayout.h. Every one of them reaches it TRANSITIVELY through llvm/IR/Module.h; none of them but mlir_gen.cpp and mlir_gen_types.cpp names the header itself. This set is an OBSERVATION, not a permission: what may not happen is asking one for a layout, which is Q2. A GROWTH here says a new TU can now name one and should be looked at; a SHRINK says the scan went blind.",
+
+  "symbol_refs": {
+    "compile_pipeline.cpp.o": [
+      "llvm::DataLayout::operator=(llvm::DataLayout const&)",
+      "llvm::DataLayout::~DataLayout()",
+      "llvm::Module::setDataLayout(llvm::DataLayout const&)"
+    ],
+    "mlir_gen.cpp.o": [
+      "llvm::DataLayout::DataLayout(llvm::StringRef)",
+      "llvm::DataLayout::~DataLayout()",
+      "mlir::translateDataLayout(llvm::DataLayout const&, mlir::MLIRContext*)"
+    ],
+    "mlir_gen_types.cpp.o": [
+      "llvm::DataLayout::DataLayout(llvm::StringRef)",
+      "llvm::DataLayout::getABITypeAlign(llvm::Type*) const",
+      "llvm::DataLayout::getPointerSpec(unsigned int) const",
+      "llvm::DataLayout::getStructLayout(llvm::StructType*) const",
+      "llvm::DataLayout::~DataLayout()"
+    ]
+  },
+  "_symbol_refs_ground": {
+    "compile_pipeline.cpp.o": "Copies the target machine's layout onto the Module (setDataLayout) and destroys the temporary. It ASKS NOTHING: no member that returns a size, an offset or an alignment appears. Note that the old include scan called this TU clean because it never spells the header — it gets the type through llvm/IR/Module.h.",
+    "mlir_gen.cpp.o": "Builds the module's dlti spec: constructs one from the target's layout string and hands it to mlir::translateDataLayout. Constructing and passing is not a size query.",
+    "mlir_gen_types.cpp.o": "THE ORACLE. verify_layout_engines() is the one place allowed to ask llvm::DataLayout what a type weighs — getStructLayout / getABITypeAlign / getPointerSpec — because its whole job is to be the independent answer the other engines are compared against."
+  },
+
+  "query_oracles": ["mlir_gen_types.cpp.o"],
+  "_query_oracles_ground": "The only objects that may carry an undefined reference to a QUERY member (see QUERY_MEMBERS in dl_reach.py). Checked in BOTH directions: an oracle that stops asking is also red, because then the scan is reading the wrong objects and its verdict about everybody else is about nothing.",
+
+  "_what_this_cannot_see": "A size query whose argument can never be an aggregate or a pointer is fully header-inline (getTypeAllocSize / getTypeStoreSize / getTypeSizeInBits on an integer type leave NO undefined symbol — MEASURED with a probe TU built with this build's own flags). The moment the argument can be a struct or a pointer, getStructLayout / getPointerSpec appear and this scan sees it. The residue — a fifth engine that asks only about scalars — is covered by the four-engine comparison inside the compiler, since 8ba3c764 put every engine's leaf scalars on one table; the engine canaries prove that comparison live in the same run."
+}

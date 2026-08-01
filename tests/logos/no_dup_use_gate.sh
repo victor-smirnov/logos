@@ -32,12 +32,25 @@
 # instrument is the compiler's diagnostic and this gate's `grep` for it. A
 # compiler that stopped emitting `duplicate 'use …'` at all, or a `grep` looking
 # for a string the diagnostic no longer spells, is green with everything
-# generated and every floor met. So the gate compiles a THREE-LINE PROGRAM WITH A
-# DUPLICATE IMPORT WRITTEN IN IT BY HAND and requires that same grep to find the
-# warning. RIDES: the compiler's diagnostic channel and the exact `grep -F`
-# pattern that judges the real fixture. DOES NOT RIDE: the synth-module path —
-# the canary's duplicate is hand-written, which is the only kind a source file
-# can carry; what it proves is that the detector both halves depend on is alive.
+# generated and every floor met. So the gate compiles a program with a DUPLICATE
+# IMPORT WRITTEN IN IT BY HAND and requires that same grep to find the warning.
+#
+# ⚠⚠⚠⚠ AND THE CANARY MUST RIDE THE SAME INVOCATION IT CERTIFIES (2026-08-01).
+# It used to be a THREE-LINE program compiled WITHOUT `--gen-dir`, while the
+# verdict is the silence of a compile WITH `--gen-dir`. Those are two different
+# invocations of two different inputs, so anything that suppresses the
+# diagnostic on the metaprogramming path alone is invisible: MEASURED with a
+# wrapper that filtered `duplicate 'use` from stderr ONLY when `--gen-dir` was
+# present — the gate exited 0 and printed "the detector is proven live", which
+# was FALSE of the compile whose silence it had just read.
+#
+# The canary is now THE FIXTURE ITSELF, copied, with one `use` line duplicated
+# in place, compiled with the IDENTICAL argv shape. RIDES: the same source, the
+# same `--gen-dir` flag, the same metaprog and synth-module path, the same
+# diagnostic channel, the same `grep -F` pattern. DOES NOT RIDE: the injection
+# of a duplicate BY THE SYNTH PATH — a source file can only carry a hand-written
+# one; what this proves is that the detector the verdict depends on is alive on
+# the very invocation the verdict is about.
 #
 # FLOORS ARE MEASURED VALUES, read off this gate on 2026-07-31 at `62835ad3`:
 # 16 dumps, 12 emitted fns, 424 `use` lines. They were 8 / 6 / 200 — half of
@@ -87,22 +100,31 @@ fi
 # ── THE CANARY: THE DETECTOR IS ALIVE, IN THIS RUN ──────────────────────────
 # A hand-written duplicate import. The SAME compiler and the SAME `grep -F
 # "$DUP_PAT"` that pronounce the verdict below must find it here.
-cat >"$TMPD/canary.logos" <<'EOF'
-package no_dup_use_canary;
-use logos.lang.str;
-use logos.lang.str;
-fn main() -> i64 { return 0; }
-EOF
-if ! "$LOGOSC" "$TMPD/canary.logos" -o "$TMPD/canary.o" 2>"$TMPD/canary.err"; then
+# The fixture, with its FIRST `use` line emitted twice. Built with awk so the
+# duplicated package is whatever the fixture actually imports, and so a fixture
+# that stopped importing anything is caught here rather than passing silently.
+awk 'BEGIN{done=0} { print } /^use /{ if (!done) { print; done=1 } }
+     END{ if (!done) { print "NO_USE_LINE_IN_FIXTURE" > "/dev/stderr"; exit 9 } }' \
+    "$TEST_LOGOS" > "$TMPD/canary.logos" || {
+        echo "FAIL (CANARY unavailable): $TEST_LOGOS has no \`use\` line to"
+        echo "      duplicate, so the detector cannot be proven live on it."
+        exit 1; }
+# ⚠ THE SAME ARGV SHAPE AS THE REAL COMPILE — `--gen-dir` included. A diagnostic
+# suppressed on the metaprogramming path alone is exactly what the old canary
+# (a three-line program, no `--gen-dir`) could not see.
+if ! "$LOGOSC" "$TMPD/canary.logos" --gen-dir "$TMPD/cgen" -o "$TMPD/canary.o" \
+        2>"$TMPD/canary.err"; then
     echo "FAIL (CANARY): the duplicate-import canary did not compile:"
     cat "$TMPD/canary.err"; exit 1
 fi
 if ! grep -Fq "$DUP_PAT" "$TMPD/canary.err"; then
     echo "FAIL (CANARY 'duplicate import' NOT CAUGHT): a module with the same"
     echo "      \`use\` written twice produced no /$DUP_PAT/ on stderr. Either the"
-    echo "      compiler stopped emitting that diagnostic or it no longer spells it"
-    echo "      this way — and this gate's whole verdict is the ABSENCE of that"
-    echo "      string. Its silence below is not evidence. GATE BROKEN, not the tree."
+    echo "      compiler stopped emitting that diagnostic, or it no longer spells"
+    echo "      it this way, or it is SUPPRESSED ON THIS VERY INVOCATION — and this"
+    echo "      gate's whole verdict is the ABSENCE of that string on exactly such"
+    echo "      an invocation. Its silence below is not evidence. GATE BROKEN, not"
+    echo "      the tree."
     sed -n '1,10p' "$TMPD/canary.err"
     exit 1
 fi
@@ -115,6 +137,7 @@ if grep -F "$DUP_PAT" "$TMPD/err" > "$TMPD/hits"; then
     exit 1
 fi
 echo "OK: no duplicate imports across ${#DUMPS[@]} generated modules ($n_uses import lines,"
-echo "    $n_fns emitted fns) — and the detector is proven live: a hand-written"
-echo "    duplicate raised $n_canary warning(s) through the same grep."
+echo "    $n_fns emitted fns) — and the detector is proven live ON THIS SHAPE OF"
+echo "    INVOCATION: the same fixture with one \`use\` duplicated, compiled with"
+echo "    the same --gen-dir argv, raised $n_canary warning(s) through the same grep."
 exit 0
