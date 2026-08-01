@@ -375,20 +375,14 @@ lir_view::StructView Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
 
 uint64_t Mono::mono_abi_size(TypeRef t) { return mono_abi_layout(t).size; }
 
-// Same accumulator law as mlir-gen's LayoutAgg and sema's SemaLayoutAgg: a
-// member's alignment is the member's OWN alignment, never `min(size, 8)`.
-namespace {
-struct MonoLayoutAgg {
-    uint64_t offset = 0, align = 1;
-    void push(uint64_t fsize, uint64_t falign) {
-        if (falign > 1) offset = (offset + falign - 1) & ~(falign - 1);
-        offset += fsize;
-        if (falign > align) align = falign;
-    }
-    uint64_t size() const { return (offset + align - 1) & ~(align - 1); }
-};
-}  // namespace
+namespace lay = logos::compiler::layout;
 
+// The accumulation rule, the union rule and the enum rule are ONE copy, in
+// layout_law.hpp. Mono's transcription used to be an accumulator ALONE: no
+// `is_union()` branch (sum where the layout is a max), no `#[repr(transparent)]`
+// branch, and NO ENUM CASE — every enum fell through to `default: {8,8}`, so
+// `Option<i32>` and `Option<i64>` and a 40-byte enum were all 8 bytes to the
+// phase that computes a DST prefix's field offsets.
 Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
     using K = LogosType::Kind;
     if (!t) return {8, 8};
@@ -405,25 +399,109 @@ Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
         return { t.arr_size() * e.size, e.align };
     }
     case K::Tuple: {
-        MonoLayoutAgg agg;
-        for (auto e : t.tuple_elems()) { auto l = mono_abi_layout(e); agg.push(l.size, l.align); }
-        return { agg.size(), agg.align };
+        lay::Agg agg;
+        for (auto e : t.tuple_elems()) agg.push(mono_abi_layout(e));
+        return agg.finish();
     }
     case K::Struct: case K::ZonedStruct: {
         SubstMap m;
         auto sit = resolve_struct_layout(t, m);
         if (!sit.valid()) return {8, 8};
-        const TypePoolImpl* mas_pool = out_.type_pool.impl();
-        MonoLayoutAgg agg;
-        for (auto f : sit.fields()) {
-            TypeRef fty = f.type(mas_pool);
-            auto l = mono_abi_layout(m.empty() ? fty : subst_type(fty, m));
-            agg.push(l.size, l.align);
-        }
-        return { agg.size(), agg.align };
+        return struct_view_layout(sit, m,
+                                  lay::type_key(t.pkg_name(), concrete_struct_name(t)));
     }
+    case K::Enum: return mono_enum_layout(t);
     default: return {8, 8};
     }
+}
+
+// A struct's layout FROM ITS DEFINITION, under a substitution. Split out of the
+// Struct case so the end-of-run sweep can ask this engine about every struct it
+// emitted — including every generic INSTANTIATION — without synthesising a
+// TypeRef for each and hoping the name resolves back to the same def.
+Mono::AbiLayout Mono::struct_view_layout(lir_view::StructView sv, const SubstMap& m,
+                                         std::string key) {
+    const TypePoolImpl* p = out_.type_pool.impl();
+    auto fl = [&](lir_view::LFieldView f) {
+        TypeRef fty = f.type(p);
+        return mono_abi_layout(m.empty() ? fty : subst_type(fty, m));
+    };
+    auto fields = sv.fields();
+    AbiLayout out;
+    if (sv.repr_transparent() && fields.size() == 1) {
+        out = fl(fields[0]);
+    } else if (sv.is_union()) {
+        lay::Uni u;
+        for (auto f : fields) u.push(fl(f));
+        out = u.finish();
+    } else {
+        lay::Agg agg;
+        for (auto f : fields) agg.push(fl(f));
+        out = agg.finish();
+    }
+    lay::record("mono_abi_layout", std::move(key), out);
+    return out;
+}
+
+// One enum's layout, in mono's terms: payload = max over variants of the
+// aggregate of that variant's (substituted) payload types; niche eligibility
+// from the shared classifier; then the shared enum rule.
+Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
+    using K = LogosType::Kind;
+    std::string ename(t.enum_name());
+    std::optional<lir_view::EnumView> edo;
+    for (auto& e : out_.enums) if (e.name() == ename) { edo = e; break; }
+    if (!edo) for (auto& e : in_.enums) if (e.name() == ename) { edo = e; break; }
+    if (!edo) return {8, 8};
+    lir_view::EnumView ed = *edo;
+    const TypePoolImpl* p = out_.type_pool.impl();
+    SubstMap m;
+    {
+        std::vector<std::string> tps;
+        ed.each_type_param([&](lir_view::EnumTParamView tp) {
+            tps.push_back(std::string(tp.name()));
+        });
+        auto args = t.type_args();
+        for (size_t i = 0; i < tps.size() && i < args.size(); ++i)
+            m[tps[i]] = args[i];
+    }
+    std::vector<lay::VariantDesc> vds;
+    lay::L payload{0, 1};
+    ed.each_variant([&](lir_view::EnumVariantView v) {
+        lay::Agg pv;
+        lay::VariantDesc vd;
+        vd.disc = v.disc();
+        TypeRef sole{nullptr};
+        v.each_payload_type(p, [&](TypeRef pt0) {
+            if (TypeRef(pt0).kind() == K::Void) return;
+            TypeRef pt = m.empty() ? pt0 : subst_type(pt0, m);
+            pv.push(mono_abi_layout(pt));
+            ++vd.n_payload;
+            sole = pt;
+        });
+        if (vd.n_payload == 1) vd.arm = mono_niche_arm(sole);
+        vds.push_back(vd);
+        auto pl = pv.finish();
+        if (pl.size  > payload.size)  payload.size  = pl.size;
+        if (pl.align > payload.align) payload.align = pl.align;
+    });
+    auto niche = lay::classify_niche(ed.zoned2(), vds);
+    return niche.packed ? lay::niche_enum(payload) : lay::tagged_enum(payload);
+}
+
+lay::ArmDesc Mono::mono_niche_arm(TypeRef t) {
+    using K = LogosType::Kind;
+    auto k = TypeRef(t).kind();
+    uint64_t pointee_align = 0;
+    if ((k == K::Ref || k == K::MutRef) && TypeRef(t).pointee())
+        pointee_align = mono_abi_layout(TypeRef(t).pointee()).align;
+    bool nonnull_wrapper = false;
+    if (k == K::Struct || k == K::ZonedStruct) {
+        SubstMap m;
+        auto sv = resolve_struct_layout(t, m);
+        if (sv.valid() && sv.non_null()) nonnull_wrapper = mono_abi_layout(t).size == 8;
+    }
+    return lay::arm_desc_of_kind(k, pointee_align, nonnull_wrapper);
 }
 
 bool Mono::let_init_is_owned_dyn_tail(const std::string& var, const SubstMap& s) {
@@ -454,13 +532,14 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
     auto sit = resolve_struct_layout(dstref, m);
     if (!sit.valid() || sit.fields().empty()) return false;
     const TypePoolImpl* mdpf_pool = out_.type_pool.impl();
-    uint64_t off = 0;
+    // Field offsets from THE accumulator — the same walk that answers the
+    // struct's size, so a prefix offset and a size cannot drift apart.
+    lay::Agg agg;
     for (auto f : sit.fields()) {
         TypeRef fty = f.type(mdpf_pool);
         TypeRef ft = m.empty() ? fty : subst_type(fty, m);
         auto fl = mono_abi_layout(ft);
-        uint64_t sz = fl.size, a = fl.align;
-        if (a > 1) off = (off + a - 1) & ~(a - 1);
+        uint64_t off = agg.place(fl);
         if (f.name() == field) {
             // Returns the field's byte offset + (substituted) type. The caller
             // branches on the kind: a sized PREFIX field → offset deref; the
@@ -470,7 +549,6 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
             (void)K::Error;
             off_out = off; ftype_out = ft; return true;
         }
-        off += sz;
     }
     return false;
 }

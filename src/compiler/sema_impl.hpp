@@ -19,6 +19,7 @@
 #include <logos/compiler/variance.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/subtype.hpp>
+#include "layout_law.hpp"
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -797,8 +798,13 @@ private:
     // {size, align} form — the actual computation; sema_abi_byte_size is the
     // size-only view of it. Leaf kinds come from LogosType::scalar_layout so
     // sema, mono and mlir-gen cannot disagree about a primitive's footprint.
-    struct AbiLayout { uint64_t size; uint64_t align; };
+    using AbiLayout = logos::compiler::layout::L;
     AbiLayout sema_abi_layout(TypeRef t, logos::compiler::StrSet& seen);
+    // Sema's half of the niche rule — the two facts that need sema's registry
+    // (`#[non_null]` 8-byte wrapper, a reference's pointee alignment). The
+    // eligibility DECISION is `layout::classify_niche`, shared with mlir-gen.
+    logos::compiler::layout::ArmDesc sema_niche_arm(TypeRef t,
+                                                    logos::compiler::StrSet& seen);
     // Phase 2-1: cfg!() compile-time predicate evaluation. Walks the
     // ARGS items of a FN_MACRO_CALL with callee="cfg" and returns the
     // boolean truth value. Recursive on `all(...)`/`any(...)`/`not(...)`
@@ -3507,8 +3513,36 @@ private:
         if (it != structs_.end()) return &it->second;
         return nullptr;
     }
+    // Same, for `#[zoned]` datatypes — the second registry a struct-kind
+    // TypeRef can resolve into. LAYOUT queries take this path too: asking the
+    // pub-checking, bare-name lookup makes a foreign package's private type
+    // answer "unknown" (→ the {8,8} default) and makes two same-named types
+    // from different packages alias onto whichever registered first.
+    SemaStructInfo* find_datatype_repr_(std::string_view pkg, std::string_view name) {
+        if (!pkg.empty()) {
+            auto it = datatypes_.find(sema_key(pkg, name));
+            if (it != datatypes_.end()) return &it->second;
+        }
+        auto it = datatypes_.find(std::string(name));
+        if (it != datatypes_.end()) return &it->second;
+        return nullptr;
+    }
     std::pair<std::string, SemaStructInfo*> find_datatype_by_name(std::string_view name) {
         return lookup_qualified_<true>(datatypes_, name);
+    }
+    // Pub-check-FREE, pkg-qualified enum lookup — the layout counterpart of
+    // find_struct_repr_. Asking the pub-checking bare-name lookup made every
+    // foreign package's enum answer "unknown": `Option<Location>` was sized
+    // {8,8} instead of {32,8} and `PanicInfo` came out 24 against the object
+    // file's 48. Found by the ledger check, not by a program.
+    SemaEnumInfo* find_enum_repr_(std::string_view pkg, std::string_view name) {
+        if (!pkg.empty()) {
+            auto it = enums_.find(sema_key(pkg, name));
+            if (it != enums_.end()) return &it->second;
+        }
+        auto it = enums_.find(std::string(name));
+        if (it != enums_.end()) return &it->second;
+        return nullptr;
     }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
         return lookup_qualified_<true>(enums_, name);

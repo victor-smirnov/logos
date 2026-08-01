@@ -1089,6 +1089,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             (unsigned long long)stats_.emitted_checks);
     }
 
+    // Ask THIS engine about every struct it emitted — including every generic
+    // INSTANTIATION, which is where a generic's layout first exists — so the
+    // ledger `verify_layout_engines` checks is a statement about the whole
+    // program and not about the two types a DST access happened to touch.
+    if (logos::compiler::layout::recording_enabled()) {
+        SubstMap none;
+        for (auto& sd : out_.structs)
+            (void)struct_view_layout(
+                sd, none, logos::compiler::layout::type_key(sd.pkg(), sd.name()));
+    }
+
     return std::move(out_);
 }
 

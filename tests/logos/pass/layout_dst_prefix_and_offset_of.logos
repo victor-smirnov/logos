@@ -1,0 +1,172 @@
+package layout_dst_prefix_and_offset_of;
+// A DST's TAIL BEGINS WHERE ITS PREFIX ENDS — MEASURED, NOT CLAIMED.
+//
+// A custom DST `struct Seg { h: P, data: [u8] }` is allocated as
+// `sizeof::<Seg>() + cap` bytes and its `[u8]` tail is addressed as
+// `base + prefix_byte_size`. Those two numbers came from DIFFERENT ENGINES:
+// `sizeof` from mlir-gen's `layout_of`, `prefix_byte_size` from sema's own
+// aggregate walk. Sema's walk had no `is_union()` branch, no niche branch, and
+// read a generic enum's payload types UNSUBSTITUTED — so:
+//
+//   prefix P                      sizeof said   the tail actually landed at
+//   i64                     (ok)        8                 8
+//   Option<i64>             (ok)       16                16
+//   Option<i32>                         8                16   ← 8 bytes past
+//   Option<u8>                          8                16   ← 8 bytes past
+//   Option<&i64> (niche)                8                16   ← 8 bytes past
+//   union { [u8;12], i64 }             16                24   ← 8 bytes past
+//
+// Every write through such a tail is out of bounds of what the caller
+// allocated, and `offset_of!` — the same walk — reported offsets a pointer
+// difference refutes.
+//
+// The oracle here is MEMORY, not a second engine: the tail offset is found by
+// writing one byte through the fat pointer and scanning the allocation for it,
+// and `offset_of!` is checked against a pointer difference. Each return code
+// names one row.
+//
+// The general form lives in `layout_engine_agreement_gate.sh`, which enumerates
+// the axes; this fixture pins the measured rows so the suite carries them too.
+use logos.lang.option;
+
+extern fn malloc(size: i64) -> *mut u8;
+
+struct Zst {}
+union UBig { bytes: [u8; 12], big: i64 }
+struct Wrap<T> { pub v: T, pub n: u8 }
+
+struct SegI64  { h: i64,          data: [u8] }
+struct SegOI64 { h: Option<i64>,  data: [u8] }
+struct SegOI32 { h: Option<i32>,  data: [u8] }
+struct SegOU8  { h: Option<u8>,   data: [u8] }
+struct SegORef { h: Option<&i64>, data: [u8] }
+struct SegOZst { h: Option<Zst>,  data: [u8] }
+struct SegU    { h: UBig,         data: [u8] }
+struct SegWI32 { h: Wrap<i32>,    data: [u8] }
+struct SegWI64 { h: Wrap<i64>,    data: [u8] }
+
+static NINE: i64 = 9i64;
+
+// Where does the tail REALLY start? Zero a generous buffer, write one byte
+// through `s.data[0]`, and report the index that changed. No engine is asked.
+unsafe fn scan(raw: *mut u8, n: i64) -> i64 {
+    let mut i: i64 = 0;
+    while i < n { if *(raw.add(i)) == 171u8 { return i; } i = i + 1; }
+    return -1;
+}
+unsafe fn zeroed(n: i64) -> *mut u8 {
+    let raw: *mut u8 = malloc(n);
+    let mut i: i64 = 0;
+    while i < n { *(raw.add(i)) = 0u8; i = i + 1; }
+    return raw;
+}
+
+struct OffOI32 { pub a: u8, pub c: Option<i32>, pub z: i64 }
+struct OffU    { pub a: u8, pub c: UBig,        pub z: i64 }
+struct OffWI32 { pub a: u8, pub c: Wrap<i32>,   pub z: i64 }
+
+unsafe fn main() -> i32 {
+    let n: i64 = 136i64;   // 128 slack + cap
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegI64 = dst_from_raw_parts_mut::<SegI64>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegI64>() as i64 { return 1i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegOI64 = dst_from_raw_parts_mut::<SegOI64>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegOI64>() as i64 { return 2i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegOI32 = dst_from_raw_parts_mut::<SegOI32>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegOI32>() as i64 { return 3i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegOU8 = dst_from_raw_parts_mut::<SegOU8>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegOU8>() as i64 { return 4i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegORef = dst_from_raw_parts_mut::<SegORef>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegORef>() as i64 { return 5i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegOZst = dst_from_raw_parts_mut::<SegOZst>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegOZst>() as i64 { return 6i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegU = dst_from_raw_parts_mut::<SegU>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegU>() as i64 { return 7i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegWI32 = dst_from_raw_parts_mut::<SegWI32>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegWI32>() as i64 { return 8i32; }
+    }
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegWI64 = dst_from_raw_parts_mut::<SegWI64>(r, 8i64);
+        s.data[0] = 171u8;
+        if scan(r, n) != sizeof::<SegWI64>() as i64 { return 9i32; }
+    }
+
+    // A PREFIX FIELD read through the fat pointer uses the same walk. Write the
+    // whole tail and the prefix must be untouched — an overlapping tail would
+    // corrupt it, a short one would leave the last tail byte outside.
+    {
+        let r: *mut u8 = zeroed(n);
+        let s: &mut SegOI32 = dst_from_raw_parts_mut::<SegOI32>(r, 8i64);
+        s.h = Option::Some(0x5A5Ai32);
+        let mut i: i64 = 0;
+        while i < 8i64 { s.data[i] = 0xFFu8; i = i + 1; }
+        match s.h {
+            Option::Some(v) => { if v != 0x5A5Ai32 { return 10i32; } }
+            Option::None    => { return 11i32; }
+        }
+    }
+
+    // `offset_of!` against a POINTER DIFFERENCE.
+    {
+        let x: OffOI32 = OffOI32 { a: 1u8, c: Option::Some(3i32), z: 5i64 };
+        let base: i64 = ((&x) as *const OffOI32 as *const u8) as i64;
+        if offset_of!(OffOI32, c) as i64
+             != ((&x.c) as *const Option<i32> as *const u8) as i64 - base { return 12i32; }
+        if offset_of!(OffOI32, z) as i64
+             != ((&x.z) as *const i64 as *const u8) as i64 - base { return 13i32; }
+    }
+    {
+        let x: OffU = OffU { a: 1u8, c: UBig { big: 7i64 }, z: 5i64 };
+        let base: i64 = ((&x) as *const OffU as *const u8) as i64;
+        if offset_of!(OffU, c) as i64
+             != ((&x.c) as *const UBig as *const u8) as i64 - base { return 14i32; }
+        if offset_of!(OffU, z) as i64
+             != ((&x.z) as *const i64 as *const u8) as i64 - base { return 15i32; }
+    }
+    {
+        let x: OffWI32 = OffWI32 { a: 1u8, c: Wrap { v: 3i32, n: 2u8 }, z: 5i64 };
+        let base: i64 = ((&x) as *const OffWI32 as *const u8) as i64;
+        if offset_of!(OffWI32, c) as i64
+             != ((&x.c) as *const Wrap<i32> as *const u8) as i64 - base { return 16i32; }
+        if offset_of!(OffWI32, z) as i64
+             != ((&x.z) as *const i64 as *const u8) as i64 - base { return 17i32; }
+    }
+    // EVERY field of a union is at offset 0 — the one aggregate where the
+    // accumulator must not be used, and the one sema used it on.
+    {
+        if offset_of!(UBig, big) as i64 != 0i64 { return 18i32; }
+        if offset_of!(UBig, bytes) as i64 != 0i64 { return 19i32; }
+    }
+    return 0i32;
+}

@@ -1484,19 +1484,23 @@ set_tests_properties(logos_09_plan_independence PROPERTIES
 )
 
 # Layout-engine agreement (see layout_engine_agreement_gate.sh for the full
-# argument). Three engines answer "how many bytes, at what alignment, with which
+# argument). FIVE engines answer "how many bytes, at what alignment, with which
 # field at which offset" — `layout_of` over TypeRef, `mlir_abi_size` over the
-# emitted LLVM-dialect type, and `llvm::DataLayout` on the mirrored llvm::Type,
-# which is the layout the object is emitted with. `verify_layout_engines()`
-# compares all three on EVERY compile and makes a disagreement a compile error,
-# so the corpus already carries the claim.
+# emitted LLVM-dialect type, `llvm::DataLayout` on the mirrored llvm::Type
+# (the layout the object is emitted with), `sema_abi_layout` and
+# `mono_abi_layout`. The last two run and are CONSUMED before mlir-gen exists,
+# so they record every answer into a ledger and `verify_layout_engines()` checks
+# the record. A disagreement is a compile error, so the corpus carries the claim.
 #
-# ⚠ What the corpus does NOT carry is that the check LOOKED at anything. This
-# gate generates a (scalar type × struct shape) lattice — the odd widths in
-# every position relative to a SECOND sub-64-bit field, which is exactly the
-# shape 13 508 generated cases did not contain — and asserts the verifier saw at
-# least as many new types as the lattice defines. It also runs the two authored
-# fixtures and asserts their exit codes.
+# ⚠ What the corpus does NOT carry is that the check LOOKED at anything, or that
+# it looked at every ENGINE. This gate generates a lattice over (scalar type ×
+# struct shape) AND over the composition shapes whose branches were missing from
+# an engine (union, tagged/C-like/niche enum, zero-sized payload, generic
+# instantiation, nestings), asserts the verifier saw at least as many new types
+# as the lattice defines, and floors the ledger count PER ENGINE so one engine
+# cannot go silent behind another's number. It then RUNS a generated oracle that
+# measures where a DST's tail really lands and where a field really is, and runs
+# the authored fixtures.
 add_test(
     NAME logos_09_layout_engine_agreement
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/layout_engine_agreement_gate.sh

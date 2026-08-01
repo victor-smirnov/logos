@@ -2607,6 +2607,28 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     lower_program(asts, prog);
     sema_tick("lower_program");
 
+    // Ask THIS engine about every struct it knows, so that what it answers can
+    // be checked against `llvm::DataLayout` later (verify_layout_engines reads
+    // the ledger). Without the sweep the ledger holds only the handful of types
+    // a DST access or `offset_of!` happened to size, and "sema agrees" would be
+    // a statement about almost nothing. Off unless LOGOS_VERIFY_LAYOUT is set.
+    // Generic TEMPLATES are skipped: they have no layout until instantiated —
+    // mono's sweep covers the instantiations, which is where they get one.
+    // BEFORE take_snapshot() below: that MOVES the symbol tables out of this
+    // checker, and a sweep after it reads an empty registry and records
+    // nothing — a check that looked at zero types and said nothing was wrong.
+    if (layout::recording_enabled()) {
+        for (auto& [skey, ssi] : structs_) {
+            if (!ssi.type_params.empty()) continue;
+            auto p = skey.rfind("::");
+            std::string bare = p == std::string::npos ? skey : skey.substr(p + 2);
+            TypeRef st = make_struct_type(bare, ssi.package);
+            if (!st) continue;
+            logos::compiler::StrSet seen;
+            (void)sema_abi_layout(st, seen);
+        }
+    }
+
     // M5 step 3b: snapshot symbol tables for the next sema_lower call.
     // lower_program reads the tables but never mutates them (verified by
     // grep across sema_expr/stmt/decl), so taking the snapshot now is
@@ -4259,26 +4281,49 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     return make_dst_ref(sn, spkg, is_mut, std::move(targs));
 }
 
-// Aggregate accumulator: appends members in declaration order with natural
-// alignment padding and rounds the total to the aggregate's own alignment —
-// the same law as mlir-gen's LayoutAgg. The old form derived a member's
-// alignment as `min(size, 8)`, which is wrong for every member whose size is
-// not its alignment (i128: align 16 read as 8; a 12-byte struct: align 4 read
-// as 8) — a SECOND answer to a question the layout already answers.
-namespace {
-struct SemaLayoutAgg {
-    uint64_t offset = 0, align = 1;
-    void push(uint64_t fsize, uint64_t falign) {
-        if (falign > 1) offset = (offset + falign - 1) & ~(falign - 1);
-        offset += fsize;
-        if (falign > align) align = falign;
-    }
-    uint64_t size() const { return (offset + align - 1) & ~(align - 1); }
-};
-}  // namespace
+// The accumulation rule, the union rule, the enum rule and niche eligibility
+// are ONE copy, in layout_law.hpp. Sema had its own partial transcription: an
+// accumulator but no `is_union()` branch (a union got the SUM where its layout
+// is the MAX), no niche branch, and enum payloads read UNSUBSTITUTED so every
+// `Option<T>` came out {16,8}. Sema's number is the byte offset at which a
+// custom DST's `[T]` tail begins — measured: `Seg { h: Option<i32>, data: [u8] }`
+// put the tail at 16 in a prefix of 8, and every write through it landed past
+// the allocation.
+namespace lay = logos::compiler::layout;
 
 uint64_t SemaChecker::sema_abi_byte_size(TypeRef t, logos::compiler::StrSet& seen) {
     return sema_abi_layout(t, seen).size;
+}
+
+// Bind an aggregate's type PARAMETERS to the type-args carried by the TypeRef
+// being sized. Without this a generic's fields are read as bare TypeVars, which
+// fall to the `{8,8}` unknown default — `Wrap<i32>` came out 16, `Option<i32>`
+// came out 16, and the number is a byte OFFSET, not just a size.
+template <class InfoT>
+static logos::compiler::StrMap<TypeRef> layout_subst(const InfoT& info, TypeRef tv) {
+    logos::compiler::StrMap<TypeRef> s;
+    auto args = TypeRef(tv).type_args();
+    for (size_t i = 0; i < info.type_params.size() && i < args.size(); ++i)
+        s[info.type_params[i].name] = args[i];
+    return s;
+}
+
+// The niche description of one enum-variant payload, in sema's terms. The
+// DECISION is layout_law.hpp's `classify_niche` — shared with mlir-gen, so a
+// `Option<&T>` cannot be 8 bytes to one phase and 16 to the other.
+lay::ArmDesc SemaChecker::sema_niche_arm(TypeRef t, logos::compiler::StrSet& seen) {
+    using K = LogosType::Kind;
+    auto k = TypeRef(t).kind();
+    uint64_t pointee_align = 0;
+    if ((k == K::Ref || k == K::MutRef) && TypeRef(t).pointee())
+        pointee_align = sema_abi_layout(TypeRef(t).pointee(), seen).align;
+    bool nonnull_wrapper = false;
+    if (k == K::Struct || k == K::ZonedStruct) {
+        auto [spkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
+        if (ssi && ssi->non_null)
+            nonnull_wrapper = sema_abi_layout(t, seen).size == 8;
+    }
+    return lay::arm_desc_of_kind(k, pointee_align, nonnull_wrapper);
 }
 
 SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
@@ -4299,43 +4344,91 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         return { tv.arr_size() * e.size, e.align };
     }
     case K::Tuple: {
-        SemaLayoutAgg agg;
-        for (auto e : tv.tuple_elems()) { auto l = sema_abi_layout(e, seen); agg.push(l.size, l.align); }
-        return { agg.size(), agg.align };
+        lay::Agg agg;
+        for (auto e : tv.tuple_elems()) agg.push(sema_abi_layout(e, seen));
+        return agg.finish();
     }
     case K::Struct:
     case K::ZonedStruct: {
-        std::string sn(tv.struct_name());
-        if (seen.count(sn)) return {8, 8};  // cycle guard
-        auto [spkg, ssi] = find_struct_by_name(sn);
-        if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
+        // The cycle guard is keyed by the CONCRETE name: a bare struct name
+        // makes `Wrap<i32>` and `Wrap<i64>` one entry, so sizing a field of the
+        // second while the first is on the stack answers `{8,8}`.
+        std::string cn = concrete_struct_name(tv);
+        if (!seen.insert(cn).second) return {8, 8};
+        struct Pop { logos::compiler::StrSet& s; const std::string& k;
+                     ~Pop() { s.erase(k); } } pop{seen, cn};
+        // PKG-QUALIFIED and pub-check-FREE: visibility is irrelevant to a
+        // layout question, and the pub-checking bare-name lookup answered
+        // "unknown" — i.e. the `{8,8}` default — for every foreign package's
+        // private type, while aliasing two same-named types onto whichever
+        // registered first.
+        SemaStructInfo* ssi = find_struct_repr_(tv.pkg_name(), tv.struct_name());
+        if (!ssi) ssi = find_datatype_repr_(tv.pkg_name(), tv.struct_name());
         if (!ssi) return {8, 8};  // unknown — assume pointer size
-        seen.insert(sn);
-        SemaLayoutAgg agg;
-        for (auto& f : ssi->fields) { auto l = sema_abi_layout(f.type, seen); agg.push(l.size, l.align); }
-        seen.erase(sn);
-        return { agg.size(), agg.align };
+        SemaSubst sub = layout_subst(*ssi, tv);
+        auto fl = [&](TypeRef ft) {
+            return sema_abi_layout(sub.empty() ? ft : subst_type_sema(ft, sub), seen);
+        };
+        AbiLayout out;
+        if (ssi->repr_transparent && ssi->fields.size() == 1) {
+            // `#[repr(transparent)]` — the wrapper IS its field, no aggregate
+            // rounding. mlir-gen has had this branch; sema did not, so a
+            // transparent wrapper of an i128 was sized by the aggregate rule.
+            out = fl(ssi->fields[0].type);
+        } else if (ssi->is_union) {
+            lay::Uni u;
+            for (auto& f : ssi->fields) u.push(fl(f.type));
+            out = u.finish();
+        } else {
+            lay::Agg agg;
+            for (auto& f : ssi->fields) agg.push(fl(f.type));
+            out = agg.finish();
+        }
+        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), cn), out);
+        return out;
     }
     case K::Enum: {
-        // `{ i32 disc, <aligned payload blob> }` — mirrors mlir-gen's
-        // layout_of(Enum): the payload starts at its own alignment, not at 4.
-        auto [epkg, esi] = find_enum_by_name(std::string(tv.enum_name()));
+        SemaEnumInfo* esi = find_enum_repr_(tv.pkg_name(), tv.enum_name());
         if (!esi) return {8, 8};
-        uint64_t max_payload = 0, payload_align = 1;
+        SemaSubst sub = layout_subst(*esi, tv);
+        // Payload types SUBSTITUTED: the whole point. `Option<i32>`'s Some arm
+        // is `T` in the declaration; unsubstituted it is a TypeVar and falls to
+        // `{8,8}`, which is how every `Option<_>` was 16 bytes.
+        std::vector<lay::VariantDesc> vds;
+        vds.reserve(esi->variants.size());
+        lay::L payload{0, 1};
         for (auto& v : esi->variants) {
-            SemaLayoutAgg pv;
-            for (auto& pt : v.payload_types) {
-                if (TypeRef(pt).kind() == K::Void) continue;
-                auto pl0 = sema_abi_layout(pt, seen);
-                pv.push(pl0.size, pl0.align);
+            lay::Agg pv;
+            lay::VariantDesc vd;
+            vd.disc = v.value;
+            TypeRef sole{nullptr};
+            for (auto& pt0 : v.payload_types) {
+                if (TypeRef(pt0).kind() == K::Void) continue;   // `()` — no field
+                TypeRef pt = sub.empty() ? TypeRef(pt0) : subst_type_sema(pt0, sub);
+                pv.push(sema_abi_layout(pt, seen));
+                ++vd.n_payload;
+                sole = pt;
             }
-            if (pv.size()  > max_payload)   max_payload   = pv.size();
-            if (pv.align > payload_align) payload_align = pv.align;
+            if (vd.n_payload == 1) vd.arm = sema_niche_arm(sole, seen);
+            vds.push_back(vd);
+            auto pl = pv.finish();
+            if (pl.size  > payload.size)  payload.size  = pl.size;
+            if (pl.align > payload.align) payload.align = pl.align;
         }
-        SemaLayoutAgg agg;
-        agg.push(4, 4);
-        agg.push(max_payload, payload_align);
-        return { agg.size(), agg.align };
+        // A C-LIKE enum (no variant carries a payload) is its DISCRIMINANT,
+        // sized by its backing type — `#[repr(u8)]` is one byte, not four. The
+        // tagged rule would answer {4,4} for every one of them.
+        bool has_payload = false;
+        for (auto& vd : vds) if (vd.n_payload) { has_payload = true; break; }
+        if (!has_payload) {
+            if (esi->backing_type) {
+                auto bl = LogosType::scalar_layout(TypeRef(esi->backing_type).kind());
+                if (bl.align != 0) return { bl.size, bl.align };
+            }
+            return { 4, 4 };   // default discriminant is i32
+        }
+        auto niche = lay::classify_niche(esi->zoned2, vds);
+        return niche.packed ? lay::niche_enum(payload) : lay::tagged_enum(payload);
     }
     default: return {8, 8};
     }

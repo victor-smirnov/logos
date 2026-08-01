@@ -17,7 +17,6 @@
 #include "mlir_gen_impl.hpp"
 
 #include <mlir/IR/Location.h>
-#include <mlir/Interfaces/DataLayoutInterfaces.h>
 
 #include <llvm/Support/Path.h>
 
@@ -237,11 +236,14 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
     }
 
     llvm::SmallVector<mlir::LLVM::DINodeAttr> members;
-    uint64_t off = 0;
+    // The DWARF member offsets are the SAME walk as the struct's size — asked
+    // of the one accumulator (layout_law.hpp) rather than re-derived here, so a
+    // debugger and a `getelementptr` cannot disagree about where a field is.
+    logos::compiler::layout::Agg dagg;
     for (auto& f : sit->second.fields) {
         uint64_t fbits = mlir_abi_size(f.type) * 8;
         uint64_t falign = mlir_abi_align(f.type);                     // bytes (x86-64)
-        off = layout_align_up(off, falign * 8);
+        uint64_t off = dagg.place({ mlir_abi_size(f.type), falign }) * 8;
         mlir::LLVM::DITypeAttr base;
         if (auto lit = logos_fields.find(f.name);
             lit != logos_fields.end() && lit->second)
@@ -251,7 +253,6 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_struct_type(TypeRef t) {
             ctx, DW_TAG_member, mlir::StringAttr::get(ctx, f.name),
             base, fbits, /*alignInBits=*/(uint32_t)(falign * 8),
             /*offsetInBits=*/off, std::nullopt, mlir::LLVM::DINodeAttr{}));
-        off += fbits;
     }
     uint64_t total = mlir_abi_size(sit->second.llvm_type) * 8;
     di_struct_inprogress_.erase(key);
@@ -487,8 +488,9 @@ void MLIRGenImpl::collect_enum_meta(TypeRef t) {
         }
     } else if (te) {
         uint64_t pa = te->payload_align ? te->payload_align : 1;
-        uint64_t payload_off = layout_align_up(4, pa);
-        if (payload_off < 4) payload_off = 4;
+        // Where the payload starts is the enum rule, not a local `align_up(4,…)`.
+        uint64_t payload_off =
+            logos::compiler::layout::tagged_enum_payload_offset(pa);
         rec = "{\"kind\":\"tagged\",\"disc_off\":0,\"disc_size\":4,\"payload_off\":" +
               std::to_string(payload_off) + ",\"variants\":[";
         bool first = true;

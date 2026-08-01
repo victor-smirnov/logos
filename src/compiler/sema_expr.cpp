@@ -10334,21 +10334,19 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                                                 : subst_type_sema(pssi->fields.back().type, sub);
                 if (post_tail && TypeRef(post_tail).kind() == LogosType::Kind::UnsizedSlice) {
                     TypeRef elem = TypeRef(post_tail).elem();
-                    // Prefix-size walk (identical to the DstRef tail path → matches codegen).
-                    uint64_t off = 0;
+                    // Prefix-size walk: THE accumulator (layout_law.hpp), so the
+                    // tail offset is a read of the same walk that sizes the
+                    // struct — not a second copy of the padding arithmetic.
+                    logos::compiler::layout::Agg agg;
                     for (size_t i = 0; i + 1 < pssi->fields.size(); ++i) {
                         TypeRef ft = sub.empty() ? TypeRef(pssi->fields[i].type)
                                                  : subst_type_sema(pssi->fields[i].type, sub);
                         logos::compiler::StrSet seen;
-                        auto fl = sema_abi_layout(ft, seen);
-                        uint64_t esz = fl.size, align = fl.align;
-                        if (align > 1) off = (off + align - 1) & ~(align - 1);
-                        off += esz;
+                        agg.push(sema_abi_layout(ft, seen));
                     }
-                    uint64_t tail_align;
-                    { logos::compiler::StrSet seen;
-                      tail_align = sema_abi_layout(elem, seen).align; }
-                    if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
+                    logos::compiler::layout::L tail_l;
+                    { logos::compiler::StrSet seen; tail_l = sema_abi_layout(elem, seen); }
+                    uint64_t off = agg.next_offset({0, tail_l.align});
                     std::string cname = concrete_struct_name(sd_pointee);
                     TypeRef self_cptr = make_ptr(false, sd_pointee);
                     auto* fit = find_func_by_base_and_signature(cname + "__dst_len", {self_cptr}, false);
@@ -10460,17 +10458,13 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 // tuples, arrays, enums recursively, with alignment
                 // padding. The tail starts at the aligned offset after
                 // the last sized field.
-                uint64_t off = 0, max_align = 1;
+                logos::compiler::layout::Agg agg;
                 for (size_t i = 0; i + 1 < ssi_dst->fields.size(); ++i) {
                     auto& f = ssi_dst->fields[i];
                     TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
                                                    : subst_type_sema(f.type, dst_subst);
                     logos::compiler::StrSet seen;
-                    auto fl = sema_abi_layout(ft, seen);
-                    uint64_t esz = fl.size, align = fl.align;
-                    if (align > 1) off = (off + align - 1) & ~(align - 1);
-                    off += esz;
-                    if (align > max_align) max_align = align;
+                    agg.push(sema_abi_layout(ft, seen));
                 }
                 // Tail begins at the offset aligned to its natural alignment.
                 // For `[T]` tail, align to size_of(T); for a `dyn` tail the
@@ -10482,9 +10476,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                     logos::compiler::StrSet seen;
                     tail_align = sema_abi_layout(tail_elem_t, seen).align;
                 }
-                if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
-                prefix_byte_size = off;
-                (void)max_align;
+                prefix_byte_size = agg.next_offset({0, tail_align});
             }
         }
         if (is_tail_access && tail_post_ &&
@@ -10544,6 +10536,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // Mirrors the tail-slice synth — every field is reached off the fat
         // pointer's data half. Works uniformly for generic and non-generic DST.
         if (ssi_dst && !ssi_dst->fields.empty()) {
+            logos::compiler::layout::Agg agg;
             uint64_t off = 0;
             TypeRef fld_type;
             bool found_fld = false;
@@ -10552,11 +10545,8 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
                                                : subst_type_sema(f.type, dst_subst);
                 logos::compiler::StrSet seen;
-                auto fl = sema_abi_layout(ft, seen);
-                uint64_t esz = fl.size, align = fl.align;
-                if (align > 1) off = (off + align - 1) & ~(align - 1);
+                off = agg.place(sema_abi_layout(ft, seen));
                 if (f.name == field_name) { fld_type = ft; found_fld = true; break; }
-                off += esz;
             }
             if (found_fld && fld_type) {
                 auto data_ptr = builder().slice_ptr(std::move(recv),
@@ -19259,20 +19249,20 @@ lir::LExprPtr SemaChecker::lower_offset_of(TinyMapView node) {
         for (size_t i = 0; i < ssi->type_params.size() && i < args.size(); ++i)
             subst[ssi->type_params[i].name] = args[i];
     }
-    uint64_t off = 0;
+    // `offset_of!` is a READ of the accumulator, not a fourth walk. A union's
+    // fields are all at 0 — the accumulator would sum them, so the union case
+    // is answered by the rule that owns unions.
+    logos::compiler::layout::Agg agg;
     for (auto& f : ssi->fields) {
         TypeRef ft = subst.empty() ? TypeRef(f.type) : subst_type_sema(f.type, subst);
         logos::compiler::StrSet seen;
         // One law for a field's {size, align} — including the unsized tails
         // (`[T]` aligns as T, `dyn` as a pointer). This walk used to re-derive
         // alignment as min(size,8) and special-case the two tails inline.
-        auto fl = sema_abi_layout(ft, seen);
-        uint64_t esz = fl.size, align = fl.align;
-        if (align > 1) off = (off + align - 1) & ~(align - 1);
+        uint64_t off = ssi->is_union ? 0 : agg.place(sema_abi_layout(ft, seen));
         if (f.name == field)
             return builder().lit_int(static_cast<int64_t>(off),
                                      prim(LogosType::Kind::I64));
-        off += esz;
     }
     error(std::format("offset_of!: struct `{}` has no field `{}`", sn, field));
     return error_expr();

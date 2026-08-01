@@ -13,6 +13,7 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
+#include "layout_law.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -905,11 +906,10 @@ private:
     // is package-agnostic — see mono.cpp's "<Struct>__<method>" pattern) and
     // as a back-compat alias key in struct_types_.
     static std::string qualify_pkg(std::string_view pkg, std::string_view name) {
-        if (pkg.empty()) return std::string(name);
-        std::string r;
-        r.reserve(pkg.size() + 1 + name.size());
-        r.append(pkg); r.push_back('.'); r.append(name);
-        return r;
+        // ONE spelling of a type's key, shared with the ledger the early
+        // engines record into (layout_law.hpp) — a key that differs by a
+        // separator would make every cross-engine entry silently "unmatched".
+        return logos::compiler::layout::type_key(pkg, name);
     }
     static std::string_view strip_struct_pkg(std::string_view qualified) {
         // Inverse of qualify_pkg: split at the last '.'. Struct base names
@@ -1020,7 +1020,10 @@ private:
     // inline-copy strides all DERIVE from this — add a type kind to the one
     // switch and every size/align query follows.
 public:
-    struct Layout { uint64_t size = 0; uint64_t align = 1; };
+    // ONE {size, align} type across the engines — `layout::L` — so a layout
+    // crosses an engine boundary without a conversion that could reorder or
+    // drop a field. The composition rules that build it live in layout_law.hpp.
+    using Layout = logos::compiler::layout::L;
 private:
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
@@ -1059,6 +1062,11 @@ private:
     // {size, align} of one variant's payload (struct/tuple of its fields) —
     // both the enum's payload_bytes and payload_align derive from this.
     Layout variant_payload_layout(lir_view::EnumVariantView v);
+    // Describe ONE enum-variant payload type for `layout::classify_niche`.
+    // The engine answers only what is representation-specific (is this a
+    // `#[non_null]` 8-byte wrapper? what does its pointee align to?); the
+    // eligibility DECISION is the shared law's.
+    logos::compiler::layout::ArmDesc niche_arm_desc(TypeRef t);
 
     // ── RefRepr — reference-representation registry (Phase 0 scaffold) ────────
     // Consolidates the ~50 per-kind switches that hardcode how a reference-like

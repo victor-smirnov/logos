@@ -11,6 +11,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/str_map.hpp>
 
+#include "layout_law.hpp"
 #include "trait_engine.hpp"
 
 #include <cstdlib>
@@ -252,8 +253,18 @@ private:
     // {size, align} form — the actual computation; mono_abi_size is the
     // size-only view. Leaf kinds come from LogosType::scalar_layout, so mono
     // cannot disagree with sema or mlir-gen about a primitive's footprint.
-    struct AbiLayout { uint64_t size; uint64_t align; };
+    using AbiLayout = logos::compiler::layout::L;
     AbiLayout mono_abi_layout(TypeRef t);
+    // Enum layout — payload = max over variants, then the shared enum rule
+    // (disc word, or none when `layout::classify_niche` says it packs). Mono
+    // had NO enum case at all: every enum was the `default: {8,8}`.
+    AbiLayout mono_enum_layout(TypeRef t);
+    // A struct's layout from its DEFINITION under a substitution — the
+    // Struct case's body, callable with a StructView directly.
+    AbiLayout struct_view_layout(lir_view::StructView sv, const SubstMap& m,
+                                 std::string key);
+    // Mono's half of the niche rule (see SemaChecker::sema_niche_arm).
+    logos::compiler::layout::ArmDesc mono_niche_arm(TypeRef t);
     bool mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                uint64_t& off_out, TypeRef& ftype_out);
     // True when the let-binding `var`'s initializer is an owned DST-tail dyn

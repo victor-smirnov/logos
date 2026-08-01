@@ -3,6 +3,8 @@
 // mlir_gen_types.cpp — Type conversion, struct/enum/class registration.
 
 #include "mlir_gen_impl.hpp"
+#include <set>
+#include <map>
 #include "mono_impl.hpp"
 #include "compile_pipeline.hpp"
 
@@ -439,22 +441,11 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
 
 // Compute ABI byte size from LogosType — avoids MLIR opaque struct problem.
 // Used to size enum payload slots correctly before MLIR struct bodies are set.
-// Aggregate (struct / tuple / enum) layout accumulator: appends fields in
-// declaration order, inserting natural alignment padding, then rounds the
-// total to the aggregate's own alignment. Matches LLVM's non-packed C layout.
-namespace {
-struct LayoutAgg {
-    uint64_t offset = 0, align = 1;
-    void push(MLIRGenImpl::Layout f) {
-        if (f.align > 1) offset = (offset + f.align - 1) & ~(f.align - 1);
-        offset += f.size;
-        if (f.align > align) align = f.align;
-    }
-    MLIRGenImpl::Layout finish() const {
-        return { (offset + align - 1) & ~(align - 1), align };
-    }
-};
-}  // namespace
+// The aggregate accumulator, the union rule and the enum rule are ONE copy, in
+// layout_law.hpp, asked here and by sema and by mono. This engine used to own
+// the only correct version of all three; the other two were missing branches.
+namespace lay = logos::compiler::layout;
+using LayoutAgg = lay::Agg;
 
 MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
         TypeRef m, std::unordered_set<std::string>& seen) {
@@ -484,16 +475,9 @@ MLIRGenImpl::Layout MLIRGenImpl::struct_def_layout(
     if (sv.repr_transparent() && sv_fields.size() == 1)
         return aggregate_member_layout(sv_fields[0].type(lo_pool), seen);
     if (sv.is_union()) {
-        // §6.1: union layout per Rust spec
-        // `items.union.common-storage` — size = max(field
-        // sizes), align = max(field aligns), rounded up.
-        uint64_t max_sz = 0, max_al = 1;
-        for (auto f : sv_fields) {
-            auto fl = aggregate_member_layout(f.type(lo_pool), seen);
-            if (fl.size > max_sz) max_sz = fl.size;
-            if (fl.align > max_al) max_al = fl.align;
-        }
-        return { (max_sz + max_al - 1) & ~(max_al - 1), max_al };
+        lay::Uni u;
+        for (auto f : sv_fields) u.push(aggregate_member_layout(f.type(lo_pool), seen));
+        return u.finish();
     }
     LayoutAgg agg;
     for (auto f : sv_fields) agg.push(aggregate_member_layout(f.type(lo_pool), seen));
@@ -579,13 +563,9 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         // instantiation so nested generics (Option<Option<i64>>) size their
         // full inline footprint.
         if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
-            // Phase 3.5: a niche-packed enum is just its payload (no disc word).
-            if (te->niche.packed)
-                return { te->payload_bytes, te->payload_align };
-            LayoutAgg agg;
-            agg.push({4, 4});                                   // discriminant
-            agg.push({te->payload_bytes, te->payload_align});   // aligned payload
-            return agg.finish();
+            lay::L payload{ te->payload_bytes, te->payload_align };
+            return te->niche.packed ? lay::niche_enum(payload)
+                                    : lay::tagged_enum(payload);
         }
         // C-like enum — backing-type-sized discriminant. `(bits + 7) / 8` is the
         // STORE size and would give a `#[repr(u24)]` enum {3,3}: a size that is
@@ -856,6 +836,26 @@ uint64_t MLIRGenImpl::variant_payload_bytes(lir_view::EnumVariantView v) {
     return variant_payload_layout(v).size;
 }
 
+// The engine's half of the niche rule: resolve the two registry-dependent
+// facts (`#[non_null]` 8-byte wrapper; a reference's pointee alignment) and
+// hand the rest to `layout::arm_desc_of_kind`.
+lay::ArmDesc MLIRGenImpl::niche_arm_desc(TypeRef t) {
+    using K = LogosType::Kind;
+    auto k = TypeRef(t).kind();
+    uint64_t pointee_align = 0;
+    if ((k == K::Ref || k == K::MutRef) && TypeRef(t).pointee())
+        pointee_align = layout_of(TypeRef(t).pointee()).align;
+    bool nonnull_wrapper = false;
+    if (k == K::Struct || k == K::ZonedStruct) {
+        auto it = find_struct_def_it(t);   // pkg-qualified-first
+        if (it != all_struct_defs_.end() && it->second.valid() && it->second.non_null()) {
+            std::unordered_set<std::string> seen;
+            nonnull_wrapper = logos_abi_byte_size(t, seen) == 8;
+        }
+    }
+    return lay::arm_desc_of_kind(k, pointee_align, nonnull_wrapper);
+}
+
 void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
     // Skip if fully populated already (variants filled in). Stub entries
     // (pre-registered by mlir_gen.cpp's two-pass loop) have empty variants
@@ -884,102 +884,41 @@ void MLIRGenImpl::register_tagged_enum(lir_view::EnumView ed) {
     });
     info.payload_bytes = max_bytes;
     info.payload_align = max_align;
-    // Phase 3.5 — null-pointer niche eligibility (Option<&T>-shape): exactly two
-    // variants, one fieldless (the niche/`none` variant) and one with a single
-    // non-null pointer field (`&T`/`&mut T`). The discriminant is then encoded
-    // as null vs non-null in that pointer — no separate disc word, so the enum
-    // is pointer-sized (sizeof(Option<&T>) == 8). Only `&`/`&mut` are
-    // guaranteed-non-null today; Box/Rc/NonZero niches can follow.
-    if (info.variants.size() == 2) {
-        using K = LogosType::Kind;
-        const TaggedEnumInfo::VariantPayload* none_v = nullptr;
-        const TaggedEnumInfo::VariantPayload* some_v = nullptr;
+    // Niche eligibility — whether the enum packs its discriminant into the
+    // payload's spare values instead of carrying a disc word. That is a
+    // LAYOUT question (`sizeof(Option<&T>) == 8`, not 16), so the rule is in
+    // layout_law.hpp with the accumulation rules and sema asks the same one.
+    // The engine supplies only the per-arm description; `classify_niche`
+    // decides.
+    {
+        std::vector<lay::VariantDesc> vds;
+        vds.reserve(info.variants.size());
         for (auto& vp : info.variants) {
-            if (vp.field_types.empty()) none_v = &vp;
-            else if (vp.logos_types.size() == 1) some_v = &vp;
+            lay::VariantDesc vd;
+            vd.disc = vp.disc;
+            vd.n_payload = static_cast<unsigned>(vp.logos_types.size());
+            if (vd.n_payload == 1) vd.arm = niche_arm_desc(vp.logos_types[0]);
+            vds.push_back(vd);
         }
-        // (1) Null-pointer niche — Option<&T>-shape (one fieldless + one single
-        //     non-null-pointer payload). Two payload shapes qualify:
-        //       (a) `&T`/`&mut T`               — references are always non-null;
-        //       (b) a `#[non_null]` struct that is a single 8-byte pointer wrapper
-        //           (Box/Rc/Arc) — the wrapper's invariant guarantees offset-0 ≠ 0.
-        //     Either way the disc is encoded as null vs non-null at offset 0, no
-        //     separate disc word, so the enum is pointer-sized.
-        if (none_v && some_v) {
-            TypeRef pt = some_v->logos_types[0];
-            auto k = TypeRef(pt).kind();
-            bool eligible = (k == K::Ref || k == K::MutRef);
-            if (!eligible && (k == K::Struct || k == K::ZonedStruct)) {
-                auto it = find_struct_def_it(pt);  // pkg-qualified-first
-                if (it != all_struct_defs_.end() && it->second.valid() && it->second.non_null()) {
-                    std::unordered_set<std::string> seen;
-                    if (logos_abi_byte_size(pt, seen) == 8) eligible = true;
-                }
-            }
-            if (eligible) {
-                info.niche.kind      = TaggedEnumInfo::Niche::NullPtr;
-                info.niche.packed    = true;
-                info.niche.none_disc = none_v->disc;
-                info.niche.some_disc = some_v->disc;
-            }
-        }
-        // (2) Low-bit niche — two single-field data arms, one a pointer to an
-        // align≥2 pointee (low bit always 0), one a ≤63-bit integer (stored
-        // low-bit-1 via a compiler tag). Packs into ONE word; disc = the low bit.
-        auto int_arm_bits = [](TypeRef t, uint32_t& bits, bool& sgn) -> bool {
-            switch (TypeRef(t).kind()) {
-                case K::Bool: bits=1;  sgn=false; return true;
-                case K::I8:   bits=8;  sgn=true;  return true;
-                case K::U8:   bits=8;  sgn=false; return true;
-                case K::I16:  bits=16; sgn=true;  return true;
-                case K::U16:  bits=16; sgn=false; return true;
-                case K::I24:  bits=24; sgn=true;  return true;
-                case K::U24:  bits=24; sgn=false; return true;
-                case K::I32:  bits=32; sgn=true;  return true;
-                case K::U32:  bits=32; sgn=false; return true;
-                case K::I56:  bits=56; sgn=true;  return true;
-                // 64-bit arms pack ONLY in a `#[zoned2]` raw niche (no shift — the
-                // producer bakes the low-bit-1 tag in); excluded otherwise.
-                case K::I64:  bits=64; sgn=true;  return true;
-                case K::U64:  bits=64; sgn=false; return true;
-                default: return false;
-            }
-        };
-        if (!info.niche.packed) {
-            const TaggedEnumInfo::VariantPayload* ptr_arm = nullptr;
-            const TaggedEnumInfo::VariantPayload* val_arm = nullptr;
-            uint32_t vbits = 0; bool vsigned = false; bool ok = true;
-            for (auto& vp : info.variants) {
-                if (vp.logos_types.size() != 1) { ok = false; break; }
-                TypeRef ft = vp.logos_types[0];
-                auto k = TypeRef(ft).kind();
-                // Pointer arm: `&T`/`&mut T` to an align≥2 pointee guarantees low
-                // bit 0. A `#[zoned2]` enum additionally TRUSTS a raw `*T` (its Ref
-                // invariant — Writ zone objects are ≥2-aligned by the allocator),
-                // so WAny's type-erased `*u8` Ref qualifies despite u8's align 1.
-                bool is_ptr = ((k == K::Ref || k == K::MutRef) &&
-                               TypeRef(ft).pointee() &&
-                               layout_of(TypeRef(ft).pointee()).align >= 2)
-                           || (info.zoned && (k == K::Ptr || k == K::Ref || k == K::MutRef));
-                uint32_t b = 0; bool s = false;
-                bool int_ok = int_arm_bits(ft, b, s);
-                // Value arm: a ≤56-bit int packs SHIFTED `(v<<1)|1`. A `#[zoned2]`
-                // enum also accepts a RAW 64-bit `u64`/`i64` word (WAny's Pod =
-                // `(value<<8)|(code<<1)|1`, low-bit-1 baked in by the producer).
-                bool is_val = int_ok && (b <= 56 || (b == 64 && info.zoned));
-                if (is_ptr && !ptr_arm)      ptr_arm = &vp;
-                else if (is_val && !val_arm) { val_arm = &vp; vbits = b; vsigned = s; }
-                else { ok = false; break; }
-            }
-            if (ok && ptr_arm && val_arm) {
-                info.niche.kind       = TaggedEnumInfo::Niche::LowBit;
-                info.niche.packed     = true;
-                info.niche.ptr_disc   = ptr_arm->disc;
-                info.niche.val_disc   = val_arm->disc;
-                info.niche.val_bits   = vbits;
-                info.niche.val_signed = vsigned;
-                info.niche.val_raw    = (vbits == 64);  // raw word, no <<1 shift
-            }
+        auto n = lay::classify_niche(info.zoned, vds);
+        info.niche.packed = n.packed;
+        switch (n.kind) {
+        case lay::NicheKind::None:
+            info.niche.kind = TaggedEnumInfo::Niche::NoNiche;
+            break;
+        case lay::NicheKind::NullPtr:
+            info.niche.kind      = TaggedEnumInfo::Niche::NullPtr;
+            info.niche.none_disc = n.none_disc;
+            info.niche.some_disc = n.some_disc;
+            break;
+        case lay::NicheKind::LowBit:
+            info.niche.kind       = TaggedEnumInfo::Niche::LowBit;
+            info.niche.ptr_disc   = n.ptr_disc;
+            info.niche.val_disc   = n.val_disc;
+            info.niche.val_bits   = n.val_bits;
+            info.niche.val_signed = n.val_signed;
+            info.niche.val_raw    = n.val_raw;
+            break;
         }
     }
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
@@ -1163,6 +1102,9 @@ void MLIRGenImpl::verify_layout_engines() {
 
     uint64_t n_types = 0, n_fields = 0, n_defs = 0;
     std::vector<std::string> bad;
+    // What `llvm::DataLayout` says, keyed the way every engine names a type —
+    // the oracle the early engines' recorded answers are checked against.
+    std::unordered_map<std::string, Layout> truth;
 
     auto note = [&](std::string_view what, std::string_view name,
                     std::string_view lhs_engine, uint64_t lhs,
@@ -1237,14 +1179,54 @@ void MLIRGenImpl::verify_layout_engines() {
             note("size", info->name, "layout_of", a.size, "llvm::DataLayout", c_size);
         if (a.align != c_align)
             note("align", info->name, "layout_of", a.align, "llvm::DataLayout", c_align);
+        truth[info->name] = Layout{ c_size, c_align };
     }
 
-    if (std::getenv("LOGOS_VERIFY_LAYOUT"))
+    // ── D, E vs C: the engines that ran BEFORE this one ─────────────────────
+    // Sema and mono answer the same question earlier, over their own type
+    // registries, and their answers are byte OFFSETS — where a custom DST's
+    // `[T]` tail starts, where `offset_of!` points. They are not reachable from
+    // here, so they RECORD what they answered (layout_law.cpp's ledger) and the
+    // record is checked against `llvm::DataLayout` — the layout the object file
+    // is emitted with — right here, keyed by `concrete_struct_name`, the same
+    // function both sides use to name a type.
+    //
+    // A ledger entry whose key this compile never registered is COUNTED, not
+    // dropped: `n_unmatched` is reported, so "sema was checked" is a number the
+    // gate can put a floor under rather than an assumption.
+    uint64_t n_unmatched = 0;
+    std::map<std::string, uint64_t> per_engine;   // engine → types CHECKED
+    {
+        std::set<std::pair<std::string, std::string>> done;   // (engine, key)
+        for (auto& e : layout::ledger()) {
+            if (!done.emplace(e.engine, e.key).second) continue;
+            auto tit = truth.find(e.key);
+            if (tit == truth.end()) { ++n_unmatched; continue; }
+            ++per_engine[e.engine];
+            if (e.answer.size != tit->second.size)
+                note("size", e.key, e.engine, e.answer.size,
+                     "llvm::DataLayout", tit->second.size);
+            if (e.answer.align != tit->second.align)
+                note("align", e.key, e.engine, e.answer.align,
+                     "llvm::DataLayout", tit->second.align);
+        }
+    }
+
+    if (std::getenv("LOGOS_VERIFY_LAYOUT")) {
+        // PER ENGINE, not a total: a total lets one engine go silent while the
+        // other carries the number. Every engine that answers must appear here
+        // with its own count, and the gate floors each one separately.
+        std::string per;
+        for (auto& [eng, n] : per_engine)
+            per += ", " + eng + " " + std::to_string(n);
         std::fprintf(stderr,
-                     "layout-verify: %llu struct types, %llu fields, %llu defs, "
-                     "%llu disagreements\n",
+                     "layout-verify: %llu struct types, %llu fields, %llu defs%s, "
+                     "%llu unmatched, %llu disagreements\n",
                      (unsigned long long)n_types, (unsigned long long)n_fields,
-                     (unsigned long long)n_defs, (unsigned long long)bad.size());
+                     (unsigned long long)n_defs, per.c_str(),
+                     (unsigned long long)n_unmatched,
+                     (unsigned long long)bad.size());
+    }
 
     if (!bad.empty()) {
         std::string msg = "the compiler's layout engines disagree — a value would "

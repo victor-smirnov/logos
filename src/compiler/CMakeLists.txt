@@ -93,6 +93,7 @@ add_executable(logosc
     module_manifest.cpp
     lir_mirror.cpp
     lir_builder.cpp
+    layout_law.cpp
     mono.cpp
     mono_subst.cpp
     mono_clone.cpp
