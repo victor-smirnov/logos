@@ -4326,6 +4326,17 @@ lay::ArmDesc SemaChecker::sema_niche_arm(TypeRef t, logos::compiler::StrSet& see
     return lay::arm_desc_of_kind(k, pointee_align, nonnull_wrapper);
 }
 
+// ONE spelling of an enum's identity for the cross-engine ledger — the same
+// `base + module-suffix + $G<n>$<args>` shape a struct gets, so `Option<i64>`
+// and `Option<i32>` are two rows and not one. Non-generic enums (which is every
+// C-LIKE enum) come out as the bare name, which is what mlir-gen registers them
+// under, so those rows MATCH across all three engines.
+static std::string sema_enum_key(TypeRef tv) {
+    std::vector<TypeRef> args;
+    for (auto a : TypeRef(tv).type_args()) args.push_back(a);
+    return concrete_struct_name_raw(TypeRef(tv).enum_name(), args, TypeRef(tv).pkg_name());
+}
+
 SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
                                                     logos::compiler::StrSet& seen) {
     using K = LogosType::Kind;
@@ -4369,23 +4380,17 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         auto fl = [&](TypeRef ft) {
             return sema_abi_layout(sub.empty() ? ft : subst_type_sema(ft, sub), seen);
         };
-        AbiLayout out;
-        if (ssi->repr_transparent && ssi->fields.size() == 1) {
-            // `#[repr(transparent)]` — the wrapper IS its field, no aggregate
-            // rounding. mlir-gen has had this branch; sema did not, so a
-            // transparent wrapper of an i128 was sized by the aggregate rule.
-            out = fl(ssi->fields[0].type);
-        } else if (ssi->is_union) {
-            lay::Uni u;
-            for (auto& f : ssi->fields) u.push(fl(f.type));
-            out = u.finish();
-        } else {
-            lay::Agg agg;
-            for (auto& f : ssi->fields) agg.push(fl(f.type));
-            out = agg.finish();
-        }
-        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), cn), out);
-        return out;
+        // THE LAW DECIDES WHICH SHAPE THIS IS. Sema hands over the three facts
+        // (`#[repr(transparent)]`, `union`, how many members) and the member
+        // layouts; the transparent/union/product branch is not written here any
+        // more, so it cannot be missing here.
+        std::vector<lay::L> ml;
+        ml.reserve(ssi->fields.size());
+        for (auto& f : ssi->fields) ml.push_back(fl(f.type));
+        auto ans = lay::aggregate_layout(
+            lay::agg_shape(ssi->repr_transparent, ssi->is_union, ssi->fields.size()), ml);
+        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), cn), ans);
+        return { ans.layout.size, ans.layout.align };
     }
     case K::Enum: {
         SemaEnumInfo* esi = find_enum_repr_(tv.pkg_name(), tv.enum_name());
@@ -4415,20 +4420,20 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
             if (pl.size  > payload.size)  payload.size  = pl.size;
             if (pl.align > payload.align) payload.align = pl.align;
         }
-        // A C-LIKE enum (no variant carries a payload) is its DISCRIMINANT,
-        // sized by its backing type — `#[repr(u8)]` is one byte, not four. The
-        // tagged rule would answer {4,4} for every one of them.
-        bool has_payload = false;
-        for (auto& vd : vds) if (vd.n_payload) { has_payload = true; break; }
-        if (!has_payload) {
-            if (esi->backing_type) {
-                auto bl = LogosType::scalar_layout(TypeRef(esi->backing_type).kind());
-                if (bl.align != 0) return { bl.size, bl.align };
-            }
-            return { 4, 4 };   // default discriminant is i32
-        }
-        auto niche = lay::classify_niche(esi->zoned2, vds);
-        return niche.packed ? lay::niche_enum(payload) : lay::tagged_enum(payload);
+        // ONE call, four facts. The C-like / niche / tagged branch is the law's,
+        // not sema's — the same call mono and mlir-gen make, so "sema has the
+        // backing-type branch and mono does not" is no longer a sentence that
+        // can be true.
+        auto ans = lay::enum_layout(
+            lay::any_payload(vds),
+            lay::classify_niche(esi->zoned2, vds).packed,
+            payload,
+            esi->backing_type
+                ? lay::backing_layout(TypeRef(esi->backing_type).kind())
+                : std::nullopt);
+        lay::record("sema_abi_layout",
+                    lay::type_key(tv.pkg_name(), sema_enum_key(tv)), ans);
+        return { ans.layout.size, ans.layout.align };
     }
     default: return {8, 8};
     }

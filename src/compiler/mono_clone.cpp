@@ -427,20 +427,14 @@ Mono::AbiLayout Mono::struct_view_layout(lir_view::StructView sv, const SubstMap
         return mono_abi_layout(m.empty() ? fty : subst_type(fty, m));
     };
     auto fields = sv.fields();
-    AbiLayout out;
-    if (sv.repr_transparent() && fields.size() == 1) {
-        out = fl(fields[0]);
-    } else if (sv.is_union()) {
-        lay::Uni u;
-        for (auto f : fields) u.push(fl(f));
-        out = u.finish();
-    } else {
-        lay::Agg agg;
-        for (auto f : fields) agg.push(fl(f));
-        out = agg.finish();
-    }
-    lay::record("mono_abi_layout", std::move(key), out);
-    return out;
+    // THE LAW DECIDES WHICH SHAPE THIS IS — see `agg_shape` in layout_law.hpp.
+    std::vector<lay::L> ml;
+    ml.reserve(fields.size());
+    for (auto f : fields) ml.push_back(fl(f));
+    auto ans = lay::aggregate_layout(
+        lay::agg_shape(sv.repr_transparent(), sv.is_union(), fields.size()), ml);
+    lay::record("mono_abi_layout", std::move(key), ans);
+    return { ans.layout.size, ans.layout.align };
 }
 
 // One enum's layout, in mono's terms: payload = max over variants of the
@@ -485,8 +479,26 @@ Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
         if (pl.size  > payload.size)  payload.size  = pl.size;
         if (pl.align > payload.align) payload.align = pl.align;
     });
-    auto niche = lay::classify_niche(ed.zoned2(), vds);
-    return niche.packed ? lay::niche_enum(payload) : lay::tagged_enum(payload);
+    // ONE call, four facts — the same call sema and mlir-gen make. THE BUG THIS
+    // SHAPE EXISTS TO PREVENT WAS HERE: mono ran payload → classify → tagged
+    // unconditionally, so `enum B : u64` answered {4,4}, and this number is the
+    // byte offset of a DstRef prefix field. `backing` is now an argument mono
+    // has to produce; it cannot be a branch mono does not have.
+    TypeRef bt = ed.backing_type(p);
+    auto ans = lay::enum_layout(
+        lay::any_payload(vds),
+        lay::classify_niche(ed.zoned2(), vds).packed,
+        payload,
+        bt ? lay::backing_layout(TypeRef(bt).kind()) : std::nullopt);
+    // Keyed by the MONO INSTANCE spelling (`Base__arg__arg`) — the one
+    // `record_needed_enum` mints and the one mlir-gen registers the instance
+    // under — so a generic enum's row really lands in the cross-engine
+    // comparison instead of in `n_unmatched`. A non-generic enum is its bare
+    // name in all three engines, which is why the C-LIKE cells match at all.
+    std::string ekey = ename;
+    for (auto a : t.type_args()) { ekey += "__"; ekey += mangle_type(a); }
+    lay::record("mono_abi_layout", lay::type_key(t.pkg_name(), ekey), ans);
+    return { ans.layout.size, ans.layout.align };
 }
 
 lay::ArmDesc Mono::mono_niche_arm(TypeRef t) {
@@ -532,14 +544,28 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
     auto sit = resolve_struct_layout(dstref, m);
     if (!sit.valid() || sit.fields().empty()) return false;
     const TypePoolImpl* mdpf_pool = out_.type_pool.impl();
-    // Field offsets from THE accumulator — the same walk that answers the
-    // struct's size, so a prefix offset and a size cannot drift apart.
-    lay::Agg agg;
-    for (auto f : sit.fields()) {
+    // Field offsets from THE LAW — the same call that answers the struct's
+    // size, with the same SHAPE, so a prefix offset and a size cannot drift
+    // apart and a union-shaped prefix cannot be summed.
+    auto sit_fields = sit.fields();
+    std::vector<lay::L>   ml;
+    std::vector<TypeRef>  fts;
+    ml.reserve(sit_fields.size());
+    fts.reserve(sit_fields.size());
+    for (auto f : sit_fields) {
         TypeRef fty = f.type(mdpf_pool);
         TypeRef ft = m.empty() ? fty : subst_type(fty, m);
-        auto fl = mono_abi_layout(ft);
-        uint64_t off = agg.place(fl);
+        fts.push_back(ft);
+        ml.push_back(mono_abi_layout(ft));
+    }
+    std::vector<uint64_t> offs(ml.size(), 0);
+    lay::aggregate_layout(
+        lay::agg_shape(sit.repr_transparent(), sit.is_union(), ml.size()), ml, offs);
+    size_t fi = 0;
+    for (auto f : sit_fields) {
+        uint64_t off = offs[fi];
+        TypeRef ft = fts[fi];
+        ++fi;
         if (f.name() == field) {
             // Returns the field's byte offset + (substituted) type. The caller
             // branches on the kind: a sized PREFIX field → offset deref; the
@@ -5899,6 +5925,15 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
     if (tmpl.zoned2())           nd.flag(stk::ZONED2, true);           // Writ: auto-relative ptr-field marker preserved.
     if (tmpl.non_null())         nd.flag(stk::NON_NULL, true);         // #[non_null]: Option<T> NullPtr-niche marker preserved.
     if (tmpl.is_union())         nd.flag(stk::IS_UNION, true);         // §6.1: preserved through mono clone.
+    // `#[repr(transparent)]`: preserved. It was the ONE layout marker missing
+    // from this list, so every generic instance (`UnsafeCell<i32>`) reached
+    // mlir-gen as a plain product while sema and mono — which resolve the
+    // TEMPLATE and substitute — still read it as transparent. Reported by the
+    // ENGINE × SHAPE matrix as a shape disagreement, not by any byte count:
+    // a one-member product and a transparent wrapper weigh the same, so the
+    // divergence was invisible to a size comparison and would have surfaced the
+    // first time transparency meant something other than size.
+    if (tmpl.repr_transparent()) nd.flag(stk::REPR_TRANSPARENT, true);
     // is_data_plain defaults true on the (now-deleted) Draft → ALWAYS emitted.
     nd.bool_always(stk::IS_DATA_PLAIN, true);
     // type_params cleared: result is monomorphic.
@@ -6519,13 +6554,27 @@ lir_view::EnumView Mono::clone_enum_def(lir_view::EnumView tmpl,
     // template payloads through out_'s live pool handle.
     auto* pool = out_.type_pool.impl();
     // Stage E direct-build: build the substituted enum mirror STRAIGHT into out_.
-    // Only name/pkg/zoned2/variants are carried (type_params / backing_type /
-    // borrow_carrying / doc are intentionally dropped on instances, as before).
+    // type_params / borrow_carrying / doc are dropped on instances: an instance
+    // is monomorphic, and neither of the others is layout.
+    //
+    // ⚠ BACKING_TYPE IS NOT IN THAT LIST AND USED TO BE. `enum GT<T> : u64` lost
+    // its backing type at instantiation, so every post-mono engine sized
+    // `GT<i32>` as the default i32 discriminant. MEASURED, before the fix:
+    // `sizeof::<GT<i32>>()` = 4 for an eight-byte type, and in
+    // `struct Holder<T> { h: GT<T>, k: u8, v: i64 }` the GEP wrote `k` at byte 4
+    // while `offset_of!` — sema, which resolves the TEMPLATE and still saw the
+    // backing type — claimed 8. Two numbers for one field, four bytes apart,
+    // and `malloc(sizeof)` short by four.
+    //
+    // The backing type IS the C-like enum's layout. Dropping it here is the same
+    // defect as mono not reading it in `mono_enum_layout`, one phase earlier:
+    // the law can only be as complete as what the engine was handed.
     DeclBuilder nd(out_, lir_schema::decl::Code::Enum, /*cap=*/16);
     nd.str_always(dk::NAME, new_name);
     nd.str(dk::PKG, tmpl.pkg());
     if (tmpl.is_pub()) nd.flag(dk::IS_PUB, true);   // ABI pub-scoping — mirrors clone_fn.
     if (tmpl.zoned2()) nd.flag(dk::ZONED2, true);   // F3: preserve niche enum's at-rest-relative marker
+    if (auto bt = tmpl.backing_type(pool)) nd.type(dk::BACKING_TYPE, bt);
     auto va = nd.array(dk::VARIANTS);
     tmpl.each_variant([&](lir_view::EnumVariantView v) {
         std::vector<TypeRef> payloads;

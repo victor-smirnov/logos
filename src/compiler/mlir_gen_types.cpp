@@ -78,7 +78,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Enum: {
         if (resolve_tagged_enum(std::string(tv.enum_name()), tv))
             return cache_ret(ptr_type());
-        return cache_ret(enum_disc_mlir(std::string(tv.enum_name())));
+        return cache_ret(enum_disc_mlir(std::string(tv.enum_name()), tv));
     }
     case LogosType::Kind::Ptr:    return cache_ret(ptr_type());
     case LogosType::Kind::Ref:    return cache_ret(ptr_type());
@@ -467,22 +467,17 @@ MLIRGenImpl::Layout MLIRGenImpl::struct_def_layout(
         lir_view::StructView sv, std::unordered_set<std::string>& seen) {
     const TypePoolImpl* lo_pool = pool_impl();
     auto sv_fields = sv.fields();
-    // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper
-    // inherits its field's layout exactly (no aggregate padding).
-    // `NonZeroI64`-style wrappers at FFI boundaries depend on this.
-    // The single-field invariant is enforced by sema_collect at
-    // collect time (errors on multi-field `#[repr(transparent)]`),
-    // so we can trust fields.size() == 1 here.
-    if (sv.repr_transparent() && sv_fields.size() == 1)
-        return aggregate_member_layout(sv_fields[0].type(lo_pool), seen);
-    if (sv.is_union()) {
-        lay::Uni u;
-        for (auto f : sv_fields) u.push(aggregate_member_layout(f.type(lo_pool), seen));
-        return u.finish();
-    }
-    LayoutAgg agg;
-    for (auto f : sv_fields) agg.push(aggregate_member_layout(f.type(lo_pool), seen));
-    return agg.finish();
+    // THE LAW DECIDES WHICH SHAPE THIS IS. `#[repr(transparent)]`'s
+    // single-field invariant is enforced by sema_collect at collect time, and
+    // `agg_shape` re-states it as a condition rather than as an assumption.
+    std::vector<lay::L> ml;
+    ml.reserve(sv_fields.size());
+    for (auto f : sv_fields) ml.push_back(aggregate_member_layout(f.type(lo_pool), seen));
+    auto ans = lay::aggregate_layout(
+        lay::agg_shape(sv.repr_transparent(), sv.is_union(), sv_fields.size()), ml);
+    if (layout_ledger_open_)
+        lay::record("layout_of", lay::type_key(sv.pkg(), sv.name()), ans);
+    return { ans.layout.size, ans.layout.align };
 }
 
 // Is this struct UNSIZED — does it carry an `[T]` / `dyn` tail, at any depth?
@@ -506,6 +501,40 @@ bool MLIRGenImpl::struct_is_unsized(lir_view::StructView sv,
         }
     }
     return false;
+}
+
+// The layout of an ENUM from its declaration. Split out of `layout_of`'s Enum
+// case for the same reason `struct_def_layout` was split out of the Struct
+// case: `verify_layout_engines` asks this engine, by registry name, at the
+// moment every registry is complete.
+MLIRGenImpl::Layout MLIRGenImpl::enum_def_layout(const std::string& ename,
+                                                 TypeRef t) {
+    // ONE call, four facts — the same call sema and mono make.
+    // `register_tagged_enum` is gated on `ed.has_payload()`, so `te == nullptr`
+    // IS "C-like" and needs no second test. The backing type comes from the
+    // DECLARATION here, through `backing_layout`, instead of the old round trip
+    // (backing TypeRef → mlir::Type → getWidth → int_layout): three engines
+    // reaching one number by three routes is how they drift, even when all
+    // three routes currently agree.
+    auto* te = resolve_tagged_enum(ename, t);
+    lay::L payload = te ? lay::L{ te->payload_bytes, te->payload_align }
+                        : lay::L{ 0, 1 };
+    std::string ekey = te ? te->name : ename;
+    std::string_view epkg;
+    std::optional<lay::L> backing;
+    // The DECLARATION, resolved the one way — instance name included, so a
+    // generic C-like enum does not silently become the default i32 disc.
+    if (auto* ev = find_enum_decl(ekey, t)) {
+        epkg = ev->pkg();
+        ekey = ev->name();
+        if (auto bt = ev->backing_type(pool_impl()))
+            backing = lay::backing_layout(TypeRef(bt).kind());
+    }
+    auto ans = lay::enum_layout(te != nullptr, te && te->niche.packed,
+                                payload, backing);
+    if (layout_ledger_open_)
+        lay::record("layout_of", lay::type_key(epkg, ekey), ans);
+    return { ans.layout.size, ans.layout.align };
 }
 
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
@@ -558,23 +587,8 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         seen.erase(cname);
         return r;
     }
-    case K::Enum: {
-        // Tagged enum value-repr = `{ i32 disc, <aligned payload blob> }` —
-        // payload at offset round(4, payload_align). Resolve the CONCRETE
-        // instantiation so nested generics (Option<Option<i64>>) size their
-        // full inline footprint.
-        if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
-            lay::L payload{ te->payload_bytes, te->payload_align };
-            return te->niche.packed ? lay::niche_enum(payload)
-                                    : lay::tagged_enum(payload);
-        }
-        // C-like enum — backing-type-sized discriminant. `(bits + 7) / 8` is the
-        // STORE size and would give a `#[repr(u24)]` enum {3,3}: a size that is
-        // not its own multiple and an alignment the backend never uses. The
-        // discriminant is an integer, so it is sized by the integer rule.
-        auto dl = LogosType::int_layout(enum_disc_bits(std::string(tv.enum_name())));
-        return { dl.size, dl.align };
-    }
+    case K::Enum:
+        return enum_def_layout(std::string(tv.enum_name()), t);
     default: return {8, 8};
     }
 }
@@ -955,6 +969,23 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
     return nullptr;
 }
 
+const lir_view::EnumView* MLIRGenImpl::find_enum_decl(std::string_view name,
+                                                      TypeRef type) {
+    if (auto it = enum_types_.find(std::string(name)); it != enum_types_.end())
+        return &it->second;
+    if (type && TypeRef(type).kind() == LogosType::Kind::Enum &&
+        !TypeRef(type).type_args().empty()) {
+        std::string cname(name);
+        for (auto a : TypeRef(type).type_args()) {
+            cname += "__";
+            cname += Mono::mangle_type(a);
+        }
+        if (auto it = enum_types_.find(cname); it != enum_types_.end())
+            return &it->second;
+    }
+    return nullptr;
+}
+
 mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
     // Deref a `&(T,U)` / `&mut (T,U)` / `*(T,U)` to the inner tuple so a tuple
     // pattern over a ref scrutinee resolves the layout (default binding modes).
@@ -1097,12 +1128,28 @@ void MLIRGenImpl::verify_layout_engines() {
     // is the correct outcome for "could not look".
     std::string dl_str = target_data_layout_string(target_cpu_);
     if (dl_str.empty()) return;
+    // From here on `layout_of` writes what it answers to the cross-engine
+    // ledger — see `layout_ledger_open_`. Every registry is complete, so an
+    // answer given now is the answer this engine stands behind.
+    layout_ledger_open_ = true;
+    struct CloseLedger {
+        bool& f;
+        ~CloseLedger() { f = false; }
+    } close_ledger{ layout_ledger_open_ };
     llvm::DataLayout DL(dl_str);
     llvm::LLVMContext ctx;
     llvm::DenseMap<mlir::Type, llvm::Type*> memo;
 
     uint64_t n_types = 0, n_fields = 0, n_defs = 0;
-    std::vector<std::string> bad;
+    // (bucket, row). The bucket is the SHAPE the row is about, and it exists
+    // because the row list is BOUNDED when printed: an engine off by one byte
+    // produces thousands of rows, and showing the first N of a name-sorted list
+    // showed N rows of whichever shape sorts first — every other shape was
+    // invisible in the diagnostic even though it was counted. The report now
+    // shows a few of EACH, which is what makes "named by engine and by shape"
+    // true of the output and not only of the census.
+    std::vector<std::pair<std::string, std::string>> bad;
+    std::string bucket = "emitted";   // A/B vs C, over the emitted MLIR type
     // What `llvm::DataLayout` says, keyed the way every engine names a type —
     // the oracle the early engines' recorded answers are checked against.
     std::unordered_map<std::string, Layout> truth;
@@ -1110,9 +1157,10 @@ void MLIRGenImpl::verify_layout_engines() {
     auto note = [&](std::string_view what, std::string_view name,
                     std::string_view lhs_engine, uint64_t lhs,
                     std::string_view rhs_engine, uint64_t rhs) {
-        bad.push_back(std::string(name) + ": " + std::string(what) + " — " +
+        bad.push_back({ bucket,
+                      std::string(name) + ": " + std::string(what) + " — " +
                       std::string(lhs_engine) + " says " + std::to_string(lhs) +
-                      ", " + std::string(rhs_engine) + " says " + std::to_string(rhs));
+                      ", " + std::string(rhs_engine) + " says " + std::to_string(rhs) });
     };
 
     // Deterministic order: the diagnostic must not depend on hash iteration.
@@ -1181,13 +1229,19 @@ void MLIRGenImpl::verify_layout_engines() {
         // make exactly these types reappear and nothing else.
         auto dit = all_struct_defs_.find(info->name);
         if (dit == all_struct_defs_.end()) continue;
+        // ASK THIS ENGINE FIRST, EXCLUDE SECOND. The two exclusions below are
+        // about what `llvm::DataLayout` can be compared to — they are NOT
+        // reasons to leave a union or a custom DST out of the LEDGER, which is
+        // where the cross-ENGINE comparison happens and which is the only
+        // authority those two shapes have. Asking before the `continue` is what
+        // keeps the `union` cell of the matrix non-empty.
+        std::unordered_set<std::string> seen;
+        Layout a = struct_def_layout(dit->second, seen);
         if (dit->second.is_union()) continue;
         {
             std::unordered_set<std::string> dseen;
             if (struct_is_unsized(dit->second, dseen)) continue;
         }
-        std::unordered_set<std::string> seen;
-        Layout a = struct_def_layout(dit->second, seen);
         ++n_defs;
         if (canary_a && n_defs == 1) a.size += 1;
         if (a.size != c_size)
@@ -1195,6 +1249,47 @@ void MLIRGenImpl::verify_layout_engines() {
         if (a.align != c_align)
             note("align", info->name, "layout_of", a.align, "llvm::DataLayout", c_align);
         truth[info->name] = Layout{ c_size, c_align };
+    }
+
+    // ── ENUMS: THE KIND THE STRUCT LOOP CANNOT SEE ──────────────────────────
+    // `truth` was built from `struct_types_` alone, so an enum's layout entered
+    // the comparison only when some struct happened to have a field of it. That
+    // is why mono answering {4,4} for `enum B : u64` survived: no row of this
+    // table was ever about an enum, and the enum's own bytes are what a DstRef
+    // prefix offset is measured from.
+    //
+    // A payload enum's emitted type is a struct; a C-LIKE enum's is an INTEGER,
+    // and `llvm::DataLayout` sizes both. Same oracle, same `truth` map, same
+    // comparison below.
+    uint64_t n_enum_types = 0;
+    {
+        std::vector<std::string> enames;
+        enames.reserve(enum_types_.size());
+        for (auto& kv : enum_types_) enames.push_back(kv.first);
+        std::sort(enames.begin(), enames.end());
+        for (auto& en : enames) {
+            auto evit = enum_types_.find(en);
+            std::string key = layout::type_key(evit->second.pkg(), en);
+            mlir::Type mt;
+            if (auto tit = tagged_enums_.find(en); tit != tagged_enums_.end()) {
+                auto st = tit->second.llvm_type;
+                if (!st || (st.isIdentified() && !st.isInitialized())) continue;
+                mt = st;
+            } else {
+                // C-like — the value IS the discriminant.
+                mt = enum_disc_mlir(en);
+            }
+            if (!mt) continue;
+            auto* lt = mirror_to_llvm(mt, ctx, memo);
+            if (!lt) continue;
+            truth[key] = Layout{ DL.getTypeAllocSize(lt).getFixedValue(),
+                                 DL.getABITypeAlign(lt).value() };
+            // Ask the TypeRef engine about the same enum, by registry name, so
+            // its answer lands in the ledger alongside sema's and mono's and
+            // the enum cells of the matrix have a `layout_of` row at all.
+            (void)enum_def_layout(en, TypeRef(nullptr));
+            ++n_enum_types;
+        }
     }
 
     // ── D, E vs C: the engines that ran BEFORE this one ─────────────────────
@@ -1209,21 +1304,68 @@ void MLIRGenImpl::verify_layout_engines() {
     // A ledger entry whose key this compile never registered is COUNTED, not
     // dropped: `n_unmatched` is reported, so "sema was checked" is a number the
     // gate can put a floor under rather than an assumption.
+    //
+    // ⚠ AND THE COMPARISON IS A MATRIX, NOT A TOTAL — ENGINE × SHAPE.
+    //
+    // A per-engine total says an engine was checked. It does not say WHICH
+    // BRANCHES of it were checked, and a missing branch is exactly a branch
+    // nothing exercised. So every ledger entry carries the `Shape` the LAW
+    // applied (not the one the engine believed), and the cells are counted
+    // separately: `mono_abi_layout` × `c-like` at ZERO is the report that would
+    // have named this arc's bug before a program was miscompiled.
+    //
+    // TWO authorities, because one of them cannot see every shape:
+    //   * `llvm::DataLayout` — for every key it has an opinion about. It has
+    //     none about a UNION (its LLVM type is the field list in sequence, so C
+    //     is a sum where the law is a max) or a custom DST (its stand-in
+    //     carries a placeholder tail), which is precisely why those cells need
+    //     the second authority and not an exclusion;
+    //   * EVERY OTHER ENGINE that answered the same key. All of them now call
+    //     ONE law, so a difference is a difference in what an engine SUPPLIED —
+    //     which member list, which shape, which backing type. Including the
+    //     shape itself: two engines applying two different branches to one type
+    //     is reported as a shape disagreement even when the bytes coincide.
     uint64_t n_unmatched = 0;
     std::map<std::string, uint64_t> per_engine;   // engine → types CHECKED
+    std::map<std::string, std::array<uint64_t, layout::kShapeCount>> cells;
     {
-        std::set<std::pair<std::string, std::string>> done;   // (engine, key)
-        for (auto& e : layout::ledger()) {
-            if (!done.emplace(e.engine, e.key).second) continue;
-            auto tit = truth.find(e.key);
-            if (tit == truth.end()) { ++n_unmatched; continue; }
-            ++per_engine[e.engine];
-            if (e.answer.size != tit->second.size)
-                note("size", e.key, e.engine, e.answer.size,
-                     "llvm::DataLayout", tit->second.size);
-            if (e.answer.align != tit->second.align)
-                note("align", e.key, e.engine, e.answer.align,
-                     "llvm::DataLayout", tit->second.align);
+        // key → engine → first answer (dedup on (engine, key), as before).
+        std::map<std::string, std::map<std::string, layout::LedgerEntry>> by_key;
+        for (auto& e : layout::ledger())
+            by_key[e.key].emplace(e.engine, e);
+        for (auto& [key, ans] : by_key) {
+            auto tit = truth.find(key);
+            const bool has_truth = tit != truth.end();
+            const bool cross     = ans.size() >= 2;
+            if (!has_truth && !cross) { n_unmatched += ans.size(); continue; }
+            bucket = std::string(layout::shape_name(ans.begin()->second.shape));
+            for (auto& [eng, e] : ans) {
+                ++per_engine[eng];
+                ++cells[eng][static_cast<size_t>(e.shape)];
+                if (!has_truth) continue;
+                if (e.answer.size != tit->second.size)
+                    note("size", key, eng, e.answer.size,
+                         "llvm::DataLayout", tit->second.size);
+                if (e.answer.align != tit->second.align)
+                    note("align", key, eng, e.answer.align,
+                         "llvm::DataLayout", tit->second.align);
+            }
+            if (!cross) continue;
+            auto ref = ans.begin();
+            for (auto it = std::next(ref); it != ans.end(); ++it) {
+                if (it->second.answer.size != ref->second.answer.size)
+                    note("size", key, ref->first, ref->second.answer.size,
+                         it->first, it->second.answer.size);
+                if (it->second.answer.align != ref->second.answer.align)
+                    note("align", key, ref->first, ref->second.answer.align,
+                         it->first, it->second.answer.align);
+                if (it->second.shape != ref->second.shape)
+                    bad.push_back({ bucket,
+                        key + ": SHAPE — " + ref->first + " applied '" +
+                        std::string(layout::shape_name(ref->second.shape)) +
+                        "', " + it->first + " applied '" +
+                        std::string(layout::shape_name(it->second.shape)) + "'" });
+            }
         }
     }
 
@@ -1235,24 +1377,49 @@ void MLIRGenImpl::verify_layout_engines() {
         for (auto& [eng, n] : per_engine)
             per += ", " + eng + " " + std::to_string(n);
         std::fprintf(stderr,
-                     "layout-verify: %llu struct types, %llu fields, %llu defs%s, "
-                     "%llu unmatched, %llu disagreements\n",
+                     "layout-verify: %llu struct types, %llu fields, %llu defs, "
+                     "%llu enum types%s, %llu unmatched, %llu disagreements\n",
                      (unsigned long long)n_types, (unsigned long long)n_fields,
-                     (unsigned long long)n_defs, per.c_str(),
+                     (unsigned long long)n_defs,
+                     (unsigned long long)n_enum_types, per.c_str(),
                      (unsigned long long)n_unmatched,
                      (unsigned long long)bad.size());
+        // THE MATRIX, one row per engine. Every cell is a COUNT OF CHECKED
+        // ANSWERS of that shape — not a claim that the shape exists. The gate
+        // floors each cell, so a branch that stops being reached goes red where
+        // it is, named by engine and by shape, instead of two months later as a
+        // wrong program.
+        for (auto& [eng, row] : cells) {
+            std::string line = "layout-matrix: " + eng;
+            for (size_t i = 0; i < layout::kShapeCount; ++i) {
+                line += " ";
+                line += layout::shape_name(static_cast<layout::Shape>(i));
+                line += "=" + std::to_string(row[i]);
+            }
+            std::fprintf(stderr, "%s\n", line.c_str());
+        }
     }
 
     if (!bad.empty()) {
         std::string msg = "the compiler's layout engines disagree — a value would "
                           "be written at one stride and read at another:\n";
-        // Bounded: a whole engine off by one byte (the canary does exactly that)
-        // would otherwise print thousands of rows and bury the count. The COUNT
-        // is on the census line above and is what the gate reads.
-        constexpr size_t kMaxShown = 24;
-        for (size_t i = 0; i < bad.size() && i < kMaxShown; ++i) msg += "  " + bad[i] + "\n";
-        if (bad.size() > kMaxShown)
-            msg += "  … and " + std::to_string(bad.size() - kMaxShown) + " more\n";
+        // Bounded PER SHAPE: a whole engine off by one byte (the canary does
+        // exactly that) would otherwise print thousands of rows and bury the
+        // count — and a flat first-N of a name-sorted list buries every shape
+        // but one, which made the report say less than the census did. The
+        // COUNT is on the census line above and is what the gate reads.
+        constexpr size_t kMaxPerShape = 6;
+        std::map<std::string, size_t> shown;
+        size_t total_shown = 0;
+        for (auto& [b, row] : bad) {
+            if (shown[b]++ >= kMaxPerShape) continue;
+            msg += "  [" + b + "] " + row + "\n";
+            ++total_shown;
+        }
+        if (bad.size() > total_shown)
+            msg += "  … and " + std::to_string(bad.size() - total_shown) +
+                   " more (at most " + std::to_string(kMaxPerShape) +
+                   " shown per shape)\n";
         llvm::report_fatal_error(llvm::StringRef(msg));
     }
 }

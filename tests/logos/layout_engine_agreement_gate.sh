@@ -60,6 +60,33 @@
 #                            program with the first probe's  compile, the LINK,
 #                            comparison INVERTED             the run, the `rc`
 #                                                            read
+#   the ENUM rows of the      `LOGOS_LAYOUT_CANARY=mono_…`    the enum arm of
+#   comparison (new)          on the lattice MUST report a    `truth`, the enum
+#                             row naming an `EB_*`/`GB_*`     ledger keys, the
+#                             C-like enum BY NAME             per-shape bounded
+#                                                             report
+#   the rule-selector scan    a planted TU that names         the same grep, the
+#   (new)                     `lay::Uni` and chooses between  same allowlist
+#                             `niche_enum`/`tagged_enum`
+#
+# ⚠⚠ AND WHY THERE IS NOW A MATRIX. The previous form floored a per-engine
+# TOTAL. A total says the engine was checked; it does not say WHICH BRANCHES
+# were, and a missing branch is exactly a branch nothing exercised. mono shipped
+# with NO C-LIKE ENUM BRANCH behind a green total of 2114, because the only
+# C-like enum in the corpus was `enum EC { X, Y, Z }` — the DEFAULT i32 backing,
+# the one width at which having the branch and not having it give the same four
+# bytes. One value of an axis is not an axis.
+#
+# So the law now NAMES the branch it took (`layout::Shape`), that name rides
+# every ledger entry, and the compiler prints an ENGINE × SHAPE matrix:
+#
+#   layout-matrix: mono_abi_layout product=… union=… transparent=… c-like=…
+#                                  tagged=… niche=…
+#
+# Every one of the 18 cells is floored SEPARATELY at a measured value. A cell at
+# ZERO is an engine that never took that branch on the whole lattice — which is
+# either a missing branch (the bug) or a shape the corpus stopped having (the
+# same blindness one level up). Both are red, and both are named.
 #
 # WHAT THE CANARIES DO NOT COVER, said plainly:
 #   * the engine canary proves the comparison is live for the engine it names.
@@ -109,6 +136,35 @@
 #     and the RUN oracle catches it: "FAIL: oracle exited 1". The two nets are
 #     complementary and both are required.
 #
+# MUTATION PROOFS RUN 2026-08-01, on THIS form of the gate:
+#
+#   * mono loses its C-LIKE BACKING branch (`enum B : u64` sized {4,4}) — THE
+#     DEFECT THIS ROUND FIXED. 80 disagreements, named by engine AND shape:
+#       "[c-like] layout_gate_lattice.EB_i16: size — mono_abi_layout says 4,
+#        llvm::DataLayout says 2"
+#       "[product] layout_gate_lattice.C_eb_i64_post: size — layout_of says 24,
+#        mono_abi_layout says 16"
+#     ⚠ Against the PREVIOUS corpus this mutation was GREEN: `EC`'s backing type
+#     is the default i32, so mono's missing branch and mono's correct branch
+#     agreed. The `BACKINGS` axis is what makes this red.
+#   * `clone_enum_def` drops BACKING_TYPE on instances (`GB_u64<i32>` weighs 4):
+#       "[c-like] layout_gate_lattice.GB_i16__i32: size — mono_abi_layout says 2,
+#        llvm::DataLayout says 4"  — 48 rows.
+#   * `clone_struct_def` drops REPR_TRANSPARENT on instances:
+#       "[product] logos.lang.cell.UnsafeCell$G1$i32: SHAPE — layout_of applied
+#        'product', mono_abi_layout applied 'transparent'"
+#     ⚠ CAUGHT BY THE SHAPE COLUMN ALONE. Every byte count agrees — a one-member
+#     product and a transparent wrapper weigh the same — so a size comparison is
+#     blind to it, and the `layout_of × transparent` cell drops to 0. This is the
+#     row that shows why the matrix reports the BRANCH and not just the number.
+#   * `mono_dst_prefix_field`'s projection offset moves by ONE BYTE, and nothing
+#     else: the compile-time verifier stays FULLY GREEN — all 18 cells at their
+#     floors, 0 disagreements — and the RUN ORACLE catches it, "FAIL: oracle
+#     exited 225" (the u8-backed DstRef row: the same field written through the
+#     sized and through the `dyn` instantiation landed on different bytes). That
+#     offset is not any registry's struct size, so the verifier CANNOT see it.
+#     The two nets are complementary and both are required.
+#
 # Measured by an earlier round, on the same verifier:
 #   * restoring `dl.getTypeSize` at the array-literal element memcpy → red,
 #     naming `{i56,i8,i64}`-shaped types, "mlir_abi_size says 16,
@@ -122,14 +178,16 @@ LIB_DIR="${2:?lib dir}"
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # ── FLOORS: MEASURED VALUES, WITH THE MEASUREMENT ────────────────────────────
-# All read off this gate on 2026-07-31 at `62835ad3`, x86_64-linux, from the
+# All read off this gate on 2026-08-01 at `af6cdd93`+fix, x86_64-linux, from the
 # lines this script prints. Written as `>=` because the stdlib grows; a DROP is
 # a real event and must be looked at, not absorbed.
 #
 #   [layout-gate] baseline: 3676 struct types, 9810 fields, 3676 defs
-#   [layout-gate] lattice: 4236 struct types (560 more than the baseline), 11256 fields
-#   [layout-gate] early engines … : sema 272, mono 2114
-#   [layout-gate] run oracle generated: 34 DST prefix shapes, 29 offset_of shapes, 124 codes
+#   [layout-gate] lattice: 4336 struct types (660 more than the baseline), 11506 fields
+#   [layout-gate] early engines … : sema 343, mono 2235
+#   [layout-gate] run oracle generated: 59 DST prefix shapes, 54 offset_of shapes,
+#                 12 DstRef-projection widths, 272 codes
+#   [layout-gate] all 18 cells at or above their measured floors, 91 enum types
 MIN_BASELINE_TYPES=3676
 MIN_BASELINE_FIELDS=9810
 # `defs` is the A-vs-C arm's own population — the types on which `layout_of` was
@@ -140,16 +198,38 @@ MIN_BASELINE_DEFS=3676
 # cross-check below, not the floor: it shrinks when a shape is deleted, so using
 # it as the floor is exactly the "half the measured value" hole — two of the six
 # composition shapes could be removed and this stayed green at 560 >= 202.
-MIN_LATTICE_DELTA=560
-MIN_GENERATED_TYPES=202
+MIN_LATTICE_DELTA=660
+MIN_GENERATED_TYPES=252
 # PER-ENGINE, on the lattice. There is deliberately NO total: a total lets one
 # engine hide behind another's number.
-MIN_SEMA_CHECKED=272
-MIN_MONO_CHECKED=2114
+MIN_SEMA_CHECKED=343
+MIN_MONO_CHECKED=2235
 # The RUN oracle's own population, read back from the generator.
-MIN_ORACLE_PREFIXES=34
-MIN_ORACLE_OFFSETS=29
-MIN_ORACLE_CODES=124
+MIN_ORACLE_PREFIXES=59
+MIN_ORACLE_OFFSETS=54
+MIN_ORACLE_CODES=272
+# Backing widths whose DstRef PROJECTION the oracle measures by writing the same
+# field through the sized and the `dyn` instantiation and scanning for it. This
+# is the ONLY net for `mono_dst_prefix_field`: that offset is not any registry's
+# struct size, so the compile-time verifier cannot see it.
+MIN_ORACLE_DSTREF=12
+# ── THE ENGINE × SHAPE MATRIX ────────────────────────────────────────────────
+# Read off `layout-matrix:` on the lattice, 2026-08-01, x86_64-linux:
+#   layout_of       product=2162 union=3 transparent=2 c-like=31 tagged=55 niche=5
+#   mono_abi_layout product=2163 union=3 transparent=2 c-like=27 tagged=36 niche=4
+#   sema_abi_layout product=321  union=3 transparent=2 c-like=15 tagged=1  niche=1
+# ⚠ sema's TAGGED and NICHE cells are small because sema names a generic enum
+# BEFORE mono renames it (`Option$G1$i64` vs `Option__i64`), so only NON-GENERIC
+# enums of sema's share a key with the other two. That is why the lattice now
+# carries `E2` and `ORef` — an authored tagged enum and an authored niche enum
+# with no type parameters. Their cells are 1 each and a 1 is a floor.
+MIN_LO_PRODUCT=2162 ; MIN_LO_UNION=3 ; MIN_LO_TRANSPARENT=2
+MIN_LO_CLIKE=31     ; MIN_LO_TAGGED=55 ; MIN_LO_NICHE=5
+MIN_MO_PRODUCT=2163 ; MIN_MO_UNION=3 ; MIN_MO_TRANSPARENT=2
+MIN_MO_CLIKE=27     ; MIN_MO_TAGGED=36 ; MIN_MO_NICHE=4
+MIN_SE_PRODUCT=321  ; MIN_SE_UNION=3 ; MIN_SE_TRANSPARENT=2
+MIN_SE_CLIKE=15     ; MIN_SE_TAGGED=1  ; MIN_SE_NICHE=1
+MIN_ENUM_TYPES=91
 # Exactly these TUs may see a DataLayout — an EQUALITY, checked in both
 # directions. The old form only checked the complement, so a `grep` that matched
 # NOTHING (a broken root, a typo in the pattern) read as "nobody includes one".
@@ -195,6 +275,25 @@ census_raw() {   # census_raw <src> [canary-engine]; sets RC / N_TYPES / N_FIELD
     # recorded nothing — absent must read as 0, never as "not measured".
     N_SEMA=$(sed -E 's/.*, sema_abi_layout ([0-9]+).*/\1/;t;s/.*/0/'   <<<"$LINE")
     N_MONO=$(sed -E 's/.*, mono_abi_layout ([0-9]+).*/\1/;t;s/.*/0/'   <<<"$LINE")
+    N_ENUMS=$(sed -E 's/.*, ([0-9]+) enum types.*/\1/;t;s/.*/0/'       <<<"$LINE")
+}
+
+# ── THE ENGINE × SHAPE MATRIX ────────────────────────────────────────────────
+# `cell <engine> <shape>` reads one cell out of the compiler's own
+# `layout-matrix:` lines. A cell is the number of answers OF THAT SHAPE, FROM
+# THAT ENGINE, that were checked — against `llvm::DataLayout` where it has an
+# opinion and against every other engine that answered the same key.
+#
+# ⚠ WHY A MATRIX AND NOT A TOTAL. A per-engine total says the engine was
+# checked; it does not say WHICH BRANCHES were, and a missing branch is exactly
+# a branch nothing exercised. mono ran with NO C-LIKE branch behind a green
+# per-engine total of 2114, because the only C-like enum in the corpus had the
+# DEFAULT i32 backing — the one width at which having the branch and not having
+# it give the same four bytes. A zero cell is the report that was missing.
+# (No shape name is a substring of another, so a bare `<shape>=` match is
+# unambiguous; each shape appears once per row.)
+cell() {   # cell <engine> <shape>; prints the count, EMPTY if the row is absent
+    sed -nE "s/^layout-matrix: $1 .*$2=([0-9]+).*/\1/p" "$TMPD/err" | head -1
 }
 
 census() {   # the REAL path: compiles, census present, ZERO disagreements
@@ -351,6 +450,82 @@ if [ -n "$BAD" ]; then
     exit 1
 fi
 
+# ── 0b. NO ENGINE DECIDES ITS OWN AGGREGATE SHAPE ────────────────────────────
+# The previous round put the aggregate RULE in one header and left each engine
+# to decide WHICH RULE APPLIED — a three-way if/else on `repr_transparent` /
+# `is_union` written out once per engine. A law with five askers can still be
+# asked incompletely: mono's enum decision read as a complete thought and was
+# missing the C-like branch, and nothing in mono pointed at the question it
+# never asked.
+#
+# So the discriminator is now obtained ONLY from `layout::agg_shape(transparent,
+# union, n)` — three positional, undefaulted arguments — and `aggregate_layout`
+# switches on it. This arm asserts that on the SOURCE: in the engine TUs, every
+# line that reads one of those two properties must be the `agg_shape` call
+# itself. A hand-rolled branch is then a gate failure, not a latent asymmetry.
+# Asserted by NAME, not by call spelling of the property reads: an engine reads
+# `is_union()` for plenty of non-layout reasons (a union field write needs
+# `unsafe`, a union literal takes one initialiser, the emitted LLVM type is the
+# field list in sequence). What it may NOT do is SELECT A RULE. The three
+# selectors are `Uni` (the union rule), `niche_enum(` and `tagged_enum(`; if no
+# TU outside the law can name them, no TU outside the law can choose between
+# them, under any spelling, through any alias. `tagged_enum_payload_offset(`,
+# `resolve_tagged_enum(` and `register_tagged_enum(` are different identifiers
+# and are not matched (the `[^_]` guard).
+SEL_RE='(^|[^_[:alnum:]])(niche_enum|tagged_enum)\(|(lay|layout)::Uni[^a-zA-Z_]'
+shape_scan() {   # shape_scan <root>...; prints offending "file:line: text"
+    { grep -rnE "$SEL_RE" "$@" --include=*.cpp --include=*.hpp 2>/dev/null || true; } \
+    | while IFS= read -r hit; do
+        [ -n "$hit" ] || continue
+        b=$(basename "${hit%%:*}")
+        [ "$b" != "layout_law.hpp" ] || continue   # the law itself
+        # A comment quoting a rule name is prose, not a call.
+        case "$hit" in
+            *:[0-9]*:*"//"*) continue ;;
+            *:[0-9]*:*" * "*) continue ;;
+        esac
+        printf '%s\n' "$hit"
+    done
+}
+BAD_SHAPE=$(shape_scan "$SRC_ROOT")
+if [ -n "$BAD_SHAPE" ]; then
+    echo "FAIL: a TU outside the law SELECTS a layout rule for itself:"
+    echo "$BAD_SHAPE"
+    echo "       The rule selectors (Uni / niche_enum / tagged_enum) belong to"
+    echo "       layout_law.hpp. An engine supplies FACTS —"
+    echo "       agg_shape(transparent, union, n), enum_layout(has_payload,"
+    echo "       packed, payload, backing) — and the law takes the branch."
+    echo "       A branch written here is a branch that can be MISSING here, and"
+    echo "       a missing branch reads as a complete thought from the inside."
+    exit 1
+fi
+# ⚠ CANARY: a planted TU with exactly the hand-rolled branch this arm forbids,
+# scanned by the SAME function, must come back flagged.
+mkdir -p "$TMPD/shapecanary"
+cat >"$TMPD/shapecanary/canary_engine_shape.cpp" <<'EOF'
+// canary — a fifth engine selecting the rule itself; the gate's own scan must
+// flag both selectors below.
+Layout bad_engine(StructView sv, bool packed, L payload) {
+    lay::Uni u;
+    for (auto f : sv.fields()) u.push(member(f));
+    return packed ? niche_enum(payload) : tagged_enum(payload);
+}
+EOF
+SHAPE_HIT=$(shape_scan "$SRC_ROOT" "$TMPD/shapecanary")
+if ! grep -q 'canary_engine_shape\.cpp' <<<"$SHAPE_HIT"; then
+    echo "FAIL (CANARY 'rule-selector scan' NOT CAUGHT): a planted TU that names"
+    echo "      lay::Uni and chooses between niche_enum and tagged_enum was NOT"
+    echo "      reported by the same scan that just said the tree is clean."
+    echo "      THE GATE IS BROKEN, not the tree. scan returned: '${SHAPE_HIT}'"
+    exit 1
+fi
+if [ "$(grep -c 'canary_engine_shape' <<<"$SHAPE_HIT")" -ne "$(grep -c . <<<"$SHAPE_HIT")" ]; then
+    echo "FAIL (CANARY): the rule-selector scan flagged something other than the"
+    echo "      planted file:"; echo "$SHAPE_HIT"; exit 1
+fi
+echo "[layout-gate] the rule selectors (Uni / niche_enum / tagged_enum) are named"
+echo "              ONLY by layout_law.hpp; canary caught the planted fifth engine"
+
 # ── 1. the baseline: a program with no structs of its own ────────────────────
 cat >"$TMPD/base.logos" <<'EOF'
 package layout_gate_base;
@@ -361,7 +536,7 @@ BASE_TYPES=$N_TYPES; BASE_FIELDS=$N_FIELDS; BASE_DEFS=$N_DEFS
 echo "[layout-gate] baseline: $BASE_TYPES struct types, $BASE_FIELDS fields, $BASE_DEFS defs"
 floor() {   # floor <what> <got> <want>
     if [ "$2" -lt "$3" ]; then
-        echo "FAIL: $1 — observed $2, floor $3 (MEASURED 2026-07-31 at 62835ad3)."
+        echo "FAIL: $1 — observed $2, floor $3 (MEASURED 2026-08-01)."
         echo "       A floor here is the value this gate actually saw, not a"
         echo "       fraction of it. If the drop is deliberate, edit the floor and"
         echo "       put its ground in the commit message."
@@ -414,6 +589,97 @@ fi
 LAT_SEMA=$N_SEMA
 LAT_MONO=$N_MONO
 
+# ── 2b. THE ENGINE × SHAPE MATRIX, CELL BY CELL ──────────────────────────────
+# EVERY cell of EVERY engine, floored at the value MEASURED on this lattice.
+# There is no aggregate here on purpose: an aggregate lets a branch stop being
+# reached while another cell grows over it, which is precisely the shape of the
+# defect that started this arc.
+echo "[layout-gate] ENGINE × SHAPE — answers of each shape checked against"
+echo "              llvm::DataLayout and against the other engines:"
+MATRIX_ROWS=0
+for eng in layout_of mono_abi_layout sema_abi_layout; do
+    row=$(sed -nE "s/^layout-matrix: $eng (.*)$/\1/p" "$TMPD/err" | head -1)
+    if [ -z "$row" ]; then
+        echo "FAIL: no 'layout-matrix' row for '$eng'. The matrix this gate reads"
+        echo "      does not exist for that engine, so every cell floor below is a"
+        echo "      statement about nothing."
+        exit 1
+    fi
+    printf '              %-18s %s\n' "$eng" "$row"
+    MATRIX_ROWS=$((MATRIX_ROWS + 1))
+done
+floor "engines with a matrix row" "$MATRIX_ROWS" 3
+
+matrix_cell() {   # matrix_cell <engine> <shape> <floor>
+    local got; got=$(cell "$1" "$2")
+    if [ -z "$got" ]; then
+        echo "FAIL: the matrix has no '$2' cell for '$1' — the compiler's row does"
+        echo "      not carry that shape at all. The gate cannot floor a column"
+        echo "      that is not printed."
+        exit 1
+    fi
+    if [ "$got" -lt "$3" ]; then
+        echo "FAIL: $1 × $2 — $got answers checked, floor $3."
+        if [ "$got" = "0" ]; then
+            echo "       A ZERO CELL IS A MISSING BRANCH OR A MISSING SHAPE IN THE"
+            echo "       CORPUS. This engine never took the '$2' branch on the whole"
+            echo "       lattice: either it does not have it (which is the bug this"
+            echo "       matrix exists to name) or nothing in the corpus has that"
+            echo "       shape any more (which is the same blindness one level up)."
+        else
+            echo "       Fewer answers of this shape reached the comparison than the"
+            echo "       measurement this floor was read from. Something stopped"
+            echo "       being asked; find out what before lowering the number."
+        fi
+        exit 1
+    fi
+}
+#            engine            shape        floor  (MEASURED — see the header)
+matrix_cell layout_of        product      "$MIN_LO_PRODUCT"
+matrix_cell layout_of        union        "$MIN_LO_UNION"
+matrix_cell layout_of        transparent  "$MIN_LO_TRANSPARENT"
+matrix_cell layout_of        c-like       "$MIN_LO_CLIKE"
+matrix_cell layout_of        tagged       "$MIN_LO_TAGGED"
+matrix_cell layout_of        niche        "$MIN_LO_NICHE"
+matrix_cell mono_abi_layout  product      "$MIN_MO_PRODUCT"
+matrix_cell mono_abi_layout  union        "$MIN_MO_UNION"
+matrix_cell mono_abi_layout  transparent  "$MIN_MO_TRANSPARENT"
+matrix_cell mono_abi_layout  c-like       "$MIN_MO_CLIKE"
+matrix_cell mono_abi_layout  tagged       "$MIN_MO_TAGGED"
+matrix_cell mono_abi_layout  niche        "$MIN_MO_NICHE"
+matrix_cell sema_abi_layout  product      "$MIN_SE_PRODUCT"
+matrix_cell sema_abi_layout  union        "$MIN_SE_UNION"
+matrix_cell sema_abi_layout  transparent  "$MIN_SE_TRANSPARENT"
+matrix_cell sema_abi_layout  c-like       "$MIN_SE_CLIKE"
+matrix_cell sema_abi_layout  tagged       "$MIN_SE_TAGGED"
+matrix_cell sema_abi_layout  niche        "$MIN_SE_NICHE"
+floor "enum types the verifier sized with llvm::DataLayout" "$N_ENUMS" "$MIN_ENUM_TYPES"
+echo "[layout-gate] all 18 cells at or above their measured floors,"
+echo "              $N_ENUMS enum types sized by llvm::DataLayout"
+
+# ⚠ CANARY FOR THE ENUM ARM SPECIFICALLY. The four-engine canary above proves
+# the comparison is live for an engine; it does not prove the ENUM rows reach
+# it, and enum rows are new — `truth` used to be built from `struct_types_`
+# alone, so an enum entered the comparison only when some struct happened to
+# have a field of it. Corrupt mono and demand that a reported row names a
+# C-LIKE ENUM of the lattice by name.
+census_raw "$TMPD/lattice.logos" mono_abi_layout
+if [ "$N_BAD" -lt 1 ]; then
+    echo "FAIL (CANARY 'enum arm'): mono was told to answer one byte wrong and the"
+    echo "      verifier reported $N_BAD disagreements."
+    exit 1
+fi
+if ! grep -qE 'layout_gate_lattice\.(EB_|GB_)[a-z0-9]+:' "$TMPD/err"; then
+    echo "FAIL (CANARY 'enum arm' NOT CAUGHT): $N_BAD disagreements were reported"
+    echo "      and NOT ONE of them names a C-like enum of the lattice"
+    echo "      (layout_gate_lattice.EB_* / GB_*). The enum rows are not reaching"
+    echo "      the comparison, so the 'c-like' cells above are counting answers"
+    echo "      that nothing checks. THE GATE IS BROKEN, not the tree."
+    grep -m5 'says' "$TMPD/err" || true
+    exit 1
+fi
+echo "[layout-gate] canary 'enum rows reach the comparison': caught — e.g. $(grep -m1 -E 'layout_gate_lattice\.(EB_|GB_)' "$TMPD/err" | sed 's/^ *//')"
+
 # ── 3. the RUN oracle: measured tail offsets and measured field offsets ──────
 # `size_of` is a CLAIM. Where the tail lands is a FACT: the program writes
 # through the fat pointer and scans the allocation for the byte it wrote.
@@ -448,9 +714,13 @@ grep -v '^ORACLE_' "$TMPD/or.count" || true
 OR_PREFIXES=$(sed -nE 's/^ORACLE_PREFIXES=([0-9]+)$/\1/p' "$TMPD/or.count")
 OR_OFFSETS=$(sed -nE 's/^ORACLE_OFFSETS=([0-9]+)$/\1/p'   "$TMPD/or.count")
 OR_CODES=$(sed -nE 's/^ORACLE_CODES=([0-9]+)$/\1/p'       "$TMPD/or.count")
-if [ -z "$OR_PREFIXES" ] || [ -z "$OR_OFFSETS" ] || [ -z "$OR_CODES" ]; then
+OR_DSTREF=$(sed -nE 's/^ORACLE_DSTREF=([0-9]+)$/\1/p'     "$TMPD/or.count")
+if [ -z "$OR_PREFIXES" ] || [ -z "$OR_OFFSETS" ] || [ -z "$OR_CODES" ] \
+   || [ -z "$OR_DSTREF" ]; then
     echo "FAIL: the oracle generator did not report its population."; exit 1
 fi
+floor "backing widths whose DstRef projection the oracle measures" \
+      "$OR_DSTREF" "$MIN_ORACLE_DSTREF"
 # These three were PRINTED and never asserted, so the oracle could shrink to one
 # probe and the gate would still say "every measured offset matched".
 floor "DST prefix shapes the oracle measures"  "$OR_PREFIXES" "$MIN_ORACLE_PREFIXES"
@@ -485,7 +755,7 @@ echo "[layout-gate] canary 'run oracle first probe inverted': caught — exit $R
 # ── 4. the authored fixtures compile, run, and exit 0 ────────────────────────
 NFIX=0
 for f in layout_adjacent_narrow_fields layout_zero_size_enum_payload \
-         layout_dst_prefix_and_offset_of; do
+         layout_dst_prefix_and_offset_of layout_clike_enum_backing; do
     src="$HERE/pass/$f.logos"
     [ -f "$src" ] || { echo "FAIL: missing fixture $src"; exit 1; }
     census "$src"
@@ -493,11 +763,14 @@ for f in layout_adjacent_narrow_fields layout_zero_size_enum_payload \
     NFIX=$((NFIX + 1))
     echo "[layout-gate] $f: exit 0, $N_TYPES struct types verified"
 done
-floor "authored layout fixtures run" "$NFIX" 3
+floor "authored layout fixtures run" "$NFIX" 4
 
 echo "[layout-gate] OK — baseline $BASE_TYPES/$BASE_FIELDS/$BASE_DEFS, lattice +$DELTA"
 echo "              (generator emitted $GEN_TYPES shapes), on the lattice: sema"
 echo "              $LAT_SEMA / mono $LAT_MONO early-engine answers checked against"
-echo "              llvm::DataLayout, 0 disagreements — and SIX canaries caught:"
-echo "              layout_of, mlir_abi_size, sema_abi_layout, mono_abi_layout,"
-echo "              the planted DataLayout TU, the inverted run-oracle probe."
+echo "              llvm::DataLayout, 0 disagreements, all 18 ENGINE × SHAPE"
+echo "              cells at or above their measured floors — and EIGHT canaries"
+echo "              caught: layout_of, mlir_abi_size, sema_abi_layout,"
+echo "              mono_abi_layout, the planted DataLayout TU, the planted"
+echo "              rule-selecting fifth engine, the enum rows of the"
+echo "              comparison, the inverted run-oracle probe."

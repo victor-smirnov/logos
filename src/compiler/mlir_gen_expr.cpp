@@ -544,7 +544,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
     }
     // C-style enum: just the discriminant, sized per backing type.
     return builder_.create<mlir::arith::ConstantIntOp>(
-        loc_, disc, enum_disc_bits(enum_name));
+        loc_, disc, enum_disc_bits(enum_name, type));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef type) {

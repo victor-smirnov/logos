@@ -40,7 +40,7 @@ const char* canary_engine() noexcept {
     return e;
 }
 
-void record(const char* engine, std::string key, L answer) noexcept {
+void record(const char* engine, std::string key, Answer answer) noexcept {
     if (!recording_enabled()) return;
     if (key.empty()) return;
     // ⚠ THE CANARY LIES ON THE WAY IN, not at the comparison. Everything the
@@ -57,8 +57,9 @@ void record(const char* engine, std::string key, L answer) noexcept {
     // whole engine is deterministic: if ANY of its answers is checked at all,
     // the canary is caught.
     if (const char* ce = canary_engine())
-        if (std::strcmp(engine, ce) == 0) answer.size += 1;
-    ledger().push_back(LedgerEntry{ engine, std::move(key), answer });
+        if (std::strcmp(engine, ce) == 0) answer.layout.size += 1;
+    ledger().push_back(
+        LedgerEntry{ engine, std::move(key), answer.layout, answer.shape });
 }
 
 }  // namespace logos::compiler::layout

@@ -881,20 +881,35 @@ private:
         return logos_to_mlir(ret_t);
     }
 
+    // ONE resolution of an enum DECLARATION from a TypeRef — bare name first,
+    // then the mono instance name, exactly the two steps `resolve_tagged_enum`
+    // takes. It has to be both: after mono the generic TEMPLATE is gone and only
+    // `GT__i32` is in `enum_types_`, while the TypeRef still spells the base
+    // `GT` with its args. A bare-name-only lookup therefore MISSED for every
+    // generic enum and fell back to the default i32 discriminant.
+    //
+    // MEASURED before this existed, with `enum GT<T> : u64 { A, B }`:
+    // `sizeof::<GT<i32>>()` = 4 for an eight-byte type, and in
+    // `struct Holder<T> { h: GT<T>, k: u8, v: i64 }` the GEP wrote `k` at byte
+    // 4 while `offset_of!` — sema, which resolves the TEMPLATE and still saw
+    // the backing type — claimed 8. Two numbers for one field, and a `malloc`
+    // sized off `sizeof` short by four bytes.
+    const lir_view::EnumView* find_enum_decl(std::string_view name, TypeRef type);
+
     // MLIR type for a C-style enum's discriminant.  Uses the enum's
     // explicit backing type if declared (`enum Foo : u64 {}`), else i32.
-    mlir::Type enum_disc_mlir(const std::string& enum_name) {
-        auto it = enum_types_.find(enum_name);
-        if (it != enum_types_.end()) {
-            if (auto bt = it->second.backing_type(pool_impl())) {
-                auto t = logos_to_mlir(bt);
-                if (t) return t;
-            }
-        }
+    // `type` is the TypeRef the name came from, so a GENERIC enum resolves to
+    // its instance; passing none is the non-generic case.
+    mlir::Type enum_disc_mlir(const std::string& enum_name,
+                              TypeRef type = TypeRef(nullptr)) {
+        if (auto* ev = find_enum_decl(enum_name, type))
+            if (auto bt = ev->backing_type(pool_impl()))
+                if (auto t = logos_to_mlir(bt)) return t;
         return builder_.getI32Type();
     }
-    unsigned enum_disc_bits(const std::string& enum_name) {
-        auto t = enum_disc_mlir(enum_name);
+    unsigned enum_disc_bits(const std::string& enum_name,
+                            TypeRef type = TypeRef(nullptr)) {
+        auto t = enum_disc_mlir(enum_name, type);
         if (auto it = mlir::dyn_cast<mlir::IntegerType>(t)) return it.getWidth();
         return 32;
     }
@@ -1032,6 +1047,25 @@ private:
     // struct without synthesising a TypeRef for it.
     Layout struct_def_layout(lir_view::StructView sv,
                              std::unordered_set<std::string>& seen);
+    // `layout_of`'s Enum case, split out for the same reason — and so the ONE
+    // decision (`layout::enum_layout`) has ONE caller in this engine.
+    Layout enum_def_layout(const std::string& ename, TypeRef t);
+    // ⚠ WHEN `layout_of` MAY WRITE ITS ANSWER TO THE CROSS-ENGINE LEDGER.
+    //
+    // sema and mono have FINISHED when they answer, so every answer they give
+    // is an answer the compiler acted on. `layout_of` is different: it is asked
+    // DURING registration, and Pass 0 registers structs before enums on
+    // purpose (`register_tagged_enum` needs the struct table), so a struct field
+    // of type `Option<i64>` is sized while `tagged_enums_` is still empty and
+    // gets the C-like fallback. That answer is discarded — the enum bodies are
+    // set afterwards and the struct bodies rebuilt — but it is still an ANSWER,
+    // and a ledger that keeps the first one per key would compare a number the
+    // compiler never used and report a disagreement about nothing.
+    //
+    // So this engine's row is measured at ONE defined moment: inside
+    // `verify_layout_engines`, when every registry is complete — which is the
+    // same moment, and the same call, the A-vs-C arm has always used.
+    bool layout_ledger_open_ = false;
     // Does this struct carry an `[T]` / `dyn` tail at any depth? Such a type has
     // no static size, so `layout_of` (the sized PREFIX) and the LLVM stand-in
     // aggregate answer different questions and are not comparable.

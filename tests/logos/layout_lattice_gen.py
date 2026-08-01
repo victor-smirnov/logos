@@ -27,6 +27,15 @@ SCALARS = ["i8", "u8", "i16", "u16", "i24", "u24", "i32", "u32", "i56", "u56",
            "bool", "char"]
 SHAPES = ["iso", "adj", "nnw", "tail", "nest", "narrow"]
 
+# EVERY BACKING WIDTH A C-LIKE ENUM CAN DECLARE. This axis did not exist, and
+# that is the whole reason a compiler shipped with `enum B : u64` weighing four
+# bytes to mono: the only C-like enum in the lattice was `enum EC { X, Y, Z }`,
+# whose backing type is the DEFAULT i32 — the one width at which a missing
+# backing branch and a correct one give the same answer. One value of an axis is
+# not an axis.
+BACKINGS = ["u8", "i8", "u16", "i16", "u24", "i24",
+            "u32", "i32", "u56", "i56", "u64", "i64"]
+
 # Composition axes. Each entry is (tag, type-expression, initialiser-expression).
 # The initialiser is what makes the type REACHABLE, which is what makes it
 # REGISTERED, which is what makes the verifier see it.
@@ -50,6 +59,27 @@ def composition_axes():
     # whose size is its discriminant.
     axes.append(("e_two", "E2", "E2::B(5i64)"))
     axes.append(("e_clike", "EC", "EC::Y"))
+    # A NON-GENERIC niche-packed enum. `Option<&i64>` covers the niche RULE, but
+    # it is generic, and sema names a generic enum before mono renames it — so
+    # sema's niche answers never matched a key the verifier had. Measured: the
+    # `sema_abi_layout × niche` cell of the ENGINE × SHAPE matrix was at ZERO.
+    axes.append(("e_niche", "ORef", "ORef::S(&NINE)"))
+    # C-LIKE AT EVERY BACKING WIDTH — the axis whose absence hid the bug.
+    for w in BACKINGS:
+        axes.append((f"eb_{w}", f"EB_{w}", f"EB_{w}::Y"))
+    # …and GENERIC at every backing width: an instance has to CARRY its backing
+    # type through monomorphisation. `clone_enum_def` used to drop it, so
+    # `GB_u64<i32>` weighed four bytes where `EB_u64` weighed eight — the same
+    # wrong number, one phase further down, reached by a different route.
+    for w in BACKINGS:
+        # NOTE the spelling: `GB_u8::Y`, not `GB_u8::<i32>::Y`. The turbofish
+        # form of a payload-LESS variant of a generic enum is lowered as an
+        # enum literal WITH data and mlir-gen rejects it ("unknown tagged enum
+        # 'GB_u8__i32'"), then DROPS the statement and still exits 0. That is a
+        # separate defect, in expression lowering rather than in layout; it is
+        # written down here so the spelling is a known constraint and not a
+        # coincidence somebody later "cleans up".
+        axes.append((f"gb_{w}", f"GB_{w}<i32>", f"GB_{w}::Y"))
     # UNIONS — where the accumulation rule INVERTS (sum becomes max).
     axes.append(("u_big", "UBig", "UBig { big: 7i64 }"))
     axes.append(("u_narrow", "UNarrow", "UNarrow { x: 3i32 }"))
@@ -87,6 +117,9 @@ USES = "use logos.lang.option;"
 PRELUDE = """struct Zst {}
 enum E2 { A(i32), B(i64) }
 enum EC { X, Y, Z }
+enum ORef { N, S(&i64) }
+""" + "".join(f"enum EB_{w} : {w} {{ X, Y, Z }}\n" for w in BACKINGS) \
+    + "".join(f"enum GB_{w}<T> : {w} {{ X, Y, Z }}\n" for w in BACKINGS) + """
 union UBig { bytes: [u8; 12], big: i64 }
 union UNarrow { x: i32, y: u8 }
 union UAlign { w: i128, b: [u8; 4] }
@@ -214,6 +247,68 @@ def gen_oracle(path, canary=False):
     for sn, ty, init in off_structs:
         out.append(f"struct {sn} {{ pub a: u8, pub c: {ty}, pub z: i64 }}")
 
+    # ── THE DstRef PREFIX PROBE — THE ONLY NET FOR MONO'S PROJECTION ────────
+    # A generic `?Sized` method on a smart-pointer shape is lowered ONCE by sema
+    # with the inner pointer THIN, and mono RE-LOWERS it per instantiation into a
+    # byte-offset projection off the fat pointer's data half. That offset comes
+    # from `mono_abi_layout`, and NOTHING ELSE reads it: it is not a struct size
+    # any registry holds, so the compile-time verifier cannot see it. Only a
+    # running program can.
+    #
+    # The oracle is a comparison between TWO WRITES TO THE SAME FIELD, one
+    # through the sized instantiation and one through the `dyn` one, each
+    # located by scanning its own zeroed buffer for the byte that changed. No
+    # engine is consulted for either number. `offset_of!` is then checked as a
+    # third, CLAIMED, value — so a compiler that got both projections equally
+    # wrong is still caught.
+    out.append("""
+trait QTr { fn v(&self) -> i64; }
+struct QA { x: i64 }
+impl QTr for QA { fn v(&self) -> i64 { return self.x; } }
+unsafe fn qzero(n: i64) -> *mut u8 {
+    let raw: *mut u8 = malloc(n);
+    let mut i: i64 = 0;
+    while i < n { *(raw.add(i)) = 0u8; i = i + 1; }
+    return raw;
+}
+unsafe fn qscan(raw: *mut u8, n: i64) -> i64 {
+    let mut i: i64 = 0;
+    while i < n { if *(raw.add(i)) == 171u8 { return i; } i = i + 1; }
+    return -1;
+}""")
+    for w in BACKINGS:
+        out.append(f"""struct QI_{w}<T: ?Sized> {{ h: EB_{w}, k: u8, val: T }}
+struct QR_{w}<T: ?Sized> {{ inner: *mut QI_{w}<T> }}
+impl<T: ?Sized> QR_{w}<T> {{
+    fn setk(&mut self, v: u8) {{ unsafe {{ self.inner.k = v; }} }}
+}}
+// Through the SIZED instantiation.
+unsafe fn qk_sized_{w}() -> i64 {{
+    let raw: *mut u8 = qzero(128i64);
+    let p: *mut QI_{w}<QA> = raw as *mut QI_{w}<QA>;
+    let mut rs: QR_{w}<QA> = QR_{w}::<QA> {{ inner: p }};
+    rs.setk(171u8);
+    return qscan(raw, 128i64);
+}}
+// Through the `dyn` instantiation — mono's DstRef re-lowering. Same field, same
+// declaration, a DIFFERENT code path for its offset.
+unsafe fn qk_dyn_{w}() -> i64 {{
+    let raw: *mut u8 = qzero(128i64);
+    let p: *mut QI_{w}<QA> = raw as *mut QI_{w}<QA>;
+    let rs: QR_{w}<QA> = QR_{w}::<QA> {{ inner: p }};
+    let mut rd: QR_{w}<dyn QTr> = rs as QR_{w}<dyn QTr>;
+    rd.setk(171u8);
+    return qscan(raw, 128i64);
+}}
+// A GENERIC C-like enum's backing width has to survive monomorphisation.
+struct GH_{w}<T> {{ pub h: GB_{w}<T>, pub k: u8, pub v: i64 }}
+unsafe fn gk_{w}() -> i64 {{
+    let raw: *mut u8 = qzero(128i64);
+    let p: *mut GH_{w}<i32> = raw as *mut GH_{w}<i32>;
+    p.k = 171u8;
+    return qscan(raw, 128i64);
+}}""")
+
     out.append("")
     out.append("unsafe fn main() -> i32 {")
     code = 1
@@ -251,17 +346,38 @@ def gen_oracle(path, canary=False):
         if ((&u.big) as *const i64 as *const u8) as i64 - base != 0i64 { return %di32; }
     }""" % (code, code + 1, code + 2))
     code += 3
+    # THE DstRef PREFIX ROWS. Three facts per backing width, each a distinct
+    # code so the failure names the width and which of the three broke.
+    for w in BACKINGS:
+        out.append(f"""    {{
+        let s: i64 = qk_sized_{w}();
+        let d: i64 = qk_dyn_{w}();
+        // (1) TWO MEASUREMENTS, NO ENGINE. The same field written through the
+        //     sized and the `dyn` instantiation must land on the same byte.
+        if s != d {{ return {code}i32; }}
+        // (2) …and where the compiler CLAIMS it is.
+        if d != offset_of!(QI_{w}<QA>, k) as i64 {{ return {code + 1}i32; }}
+        // (3) a generic C-like enum weighs what its backing type weighs, and
+        //     the field after it lands accordingly.
+        if gk_{w}() != offset_of!(GH_{w}<i32>, k) as i64 {{ return {code + 2}i32; }}
+        if sizeof::<GB_{w}<i32>>() as i64 != sizeof::<EB_{w}>() as i64 {{
+            return {code + 3}i32;
+        }}
+    }}""")
+        code += 4
     out.append("    return 0i32;")
     out.append("}")
     open(path, "w").write("\n".join(out) + "\n")
     what = "run oracle CANARY" if canary else "run oracle"
     sys.stderr.write(f"[layout-gate] {what} generated: {len(prefixes)} DST prefix "
                      f"shapes, {len(off_structs)} offset_of shapes, "
+                     f"{len(BACKINGS)} DstRef-projection widths, "
                      f"{code - 1} distinct failure codes\n")
     # The counts are the gate's floors, read back from the loop that emitted
     # them rather than maintained by hand.
     sys.stderr.write(f"ORACLE_PREFIXES={len(prefixes)}\n"
                      f"ORACLE_OFFSETS={len(off_structs)}\n"
+                     f"ORACLE_DSTREF={len(BACKINGS)}\n"
                      f"ORACLE_CODES={code - 1}\n")
 
 

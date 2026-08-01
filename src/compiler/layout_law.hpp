@@ -26,6 +26,38 @@
 // supplies only the two things that are genuinely representation-specific: how
 // to enumerate an aggregate's members, and what a member's own layout is.
 //
+// ⚠⚠ AND THAT WAS STILL NOT ENOUGH — WHY THIS HEADER DRIVES INSTEAD OF ANSWERS.
+//
+// One header, five askers, and mono was still missing a branch: `enum B : u64`
+// is its DISCRIMINANT, eight bytes wide, and mono ran payload → `classify_niche`
+// → `tagged_enum` unconditionally and answered {4,4}. Sema and mlir-gen had the
+// branch. mono's number is the byte offset of a custom DST's PREFIX field at the
+// DstRef re-lowering site, so with `struct I<T:?Sized>{h:B64,k:u8,val:T}` the
+// generic `?Sized` method wrote `k` at offset 4 — INSIDE the discriminant —
+// while the sized instantiation wrote it at 8. MEASURED, by scanning the
+// allocation for the byte that changed, not by asking a compiler.
+//
+// The defect was invisible because mono's copy READ COMPLETE. `payload →
+// classify → tagged` is a whole thought; nothing in it points at the question it
+// never asked. That is the same shape as the 26 hand-written unsigned-ness lists
+// and the 15 accumulation walks: a supplier that DRIVES the decision cannot see
+// the branch it does not have.
+//
+// So the engines no longer drive. `aggregate_layout` and `enum_layout` below are
+// the whole decision, and every input to it is a POSITIONAL, UNDEFAULTED
+// parameter. An engine cannot reach `tagged_enum` without also having answered
+// "and what is this enum's backing type?" — there is a parameter there and the
+// compiler demands a value for it. A missing branch is now a missing ARGUMENT,
+// which does not compile, instead of an absent thought, which does.
+//
+// And because the law takes the branch, the law can NAME it: both entry points
+// return the `Shape` they applied, and that name is what goes into the ledger.
+// `verify_layout_engines` therefore reports an ENGINE × SHAPE matrix — how many
+// answers of each shape each engine had checked against `llvm::DataLayout`. A
+// branch an engine does not have shows up as a cell at ZERO, before it shows up
+// as a corrupted program. `enum_layout`'s own `EnumCLike` cell was empty for
+// mono; that is the report this arc exists to make possible.
+//
 // NOTHING in this header may include a DataLayout — not `llvm::DataLayout`, not
 // `mlir::DataLayout`. The law is the answer; a second oracle in scope is how a
 // fourth engine gets written. `tests/logos/layout_engine_agreement_gate.sh`
@@ -35,8 +67,10 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <logos/compiler/sema.hpp>   // LogosType::Kind / scalar_layout / int_layout
@@ -60,6 +94,13 @@ constexpr uint64_t align_up(uint64_t v, uint64_t a) noexcept {
 // rounded to the aggregate's own alignment. Matches LLVM's non-packed C layout,
 // which is what `llvm::StructLayout` — the layout the object file is emitted
 // with — computes.
+//
+// `Agg` and `Uni` stay public for the walks whose shape is fixed by the
+// LANGUAGE and cannot be anything else — a tuple is always a product, a
+// variant's payload list is always a product. A walk over a DECLARATION, where
+// `union` / `#[repr(transparent)]` are things the source can say, must go
+// through `agg_shape` + `aggregate_layout` instead; the gate asserts that no
+// engine reads `is_union()` or `repr_transparent` anywhere else.
 //
 // `place()` returns the member's BYTE OFFSET. That is the whole point of it
 // being here: the four bare offset walks (a DST prefix in sema, the same in
@@ -105,6 +146,102 @@ public:
     }
     constexpr L finish() const noexcept { return { align_up(size_, align_), align_ }; }
 };
+
+// ── THE SHAPES THE LAW CAN APPLY ────────────────────────────────────────────
+// Six, and they are closed. Every `switch` over this enum in this header is
+// written WITHOUT a `default:` on purpose: adding a shape is then a compile
+// error at every place that decides, instead of a silent fall-through to
+// somebody's idea of a reasonable default. That is the enforcement the engines
+// no longer have to remember.
+enum class Shape : uint8_t {
+    Product,      // struct / tuple — members accumulate
+    Union,        // members overlap at 0 — the rule INVERTS (sum → max)
+    Transparent,  // `#[repr(transparent)]` single member — IS its member
+    EnumCLike,    // no variant carries a payload — the value IS the discriminant
+    EnumTagged,   // `{ i32 disc, payload }`
+    EnumNiche,    // the disc lives in the payload's spare values — no disc word
+};
+inline constexpr size_t kShapeCount = 6;
+
+constexpr std::string_view shape_name(Shape s) noexcept {
+    switch (s) {
+    case Shape::Product:     return "product";
+    case Shape::Union:       return "union";
+    case Shape::Transparent: return "transparent";
+    case Shape::EnumCLike:   return "c-like";
+    case Shape::EnumTagged:  return "tagged";
+    case Shape::EnumNiche:   return "niche";
+    }
+    return "?";
+}
+
+// What the law answered AND which branch it took. The engine never names the
+// branch — it could only name the branch it thought about — so the ledger's
+// shape column is the branch that RAN.
+struct Answer {
+    L     layout{};
+    Shape shape = Shape::Product;
+};
+
+// ── THE aggregate ENTRY POINT ───────────────────────────────────────────────
+// The three-way decision (transparent / union / product) was written out once
+// per engine — sema, mono, mlir-gen — as an if/else each of them owned. Here it
+// is once, and `agg_shape` is the only way to obtain the discriminator, so an
+// engine that forgets `is_union()` is an engine that did not pass its second
+// argument.
+constexpr Shape agg_shape(bool repr_transparent, bool is_union,
+                          size_t n_members) noexcept {
+    // The single-member invariant of `#[repr(transparent)]` is enforced at
+    // collect time; a multi-field one is laid out as the product it is, rather
+    // than silently taking its first field's layout.
+    if (repr_transparent && n_members == 1) return Shape::Transparent;
+    return is_union ? Shape::Union : Shape::Product;
+}
+
+// `offsets_out`, when non-empty, receives each member's BYTE OFFSET (it may be
+// shorter than `members`; entries past its end are simply not written). A size
+// and an offset are then two reads of ONE walk FOR EVERY SHAPE — including the
+// union, whose members are all at 0 and which the bare accumulator would sum.
+inline Answer aggregate_layout(Shape shape, std::span<const L> members,
+                               std::span<uint64_t> offsets_out = {}) noexcept {
+    auto put = [&](size_t i, uint64_t o) {
+        if (i < offsets_out.size()) offsets_out[i] = o;
+    };
+    switch (shape) {
+    case Shape::Transparent:
+        put(0, 0);
+        return { members.empty() ? L{0, 1} : members[0], shape };
+    case Shape::Union: {
+        Uni u;
+        for (size_t i = 0; i < members.size(); ++i) { u.push(members[i]); put(i, 0); }
+        return { u.finish(), shape };
+    }
+    case Shape::Product: {
+        Agg a;
+        for (size_t i = 0; i < members.size(); ++i) put(i, a.place(members[i]));
+        return { a.finish(), shape };
+    }
+    // The enum shapes are not aggregate shapes; `enum_layout` owns them. Listed
+    // so this switch stays exhaustive and a seventh shape breaks the build here.
+    case Shape::EnumCLike:
+    case Shape::EnumTagged:
+    case Shape::EnumNiche:
+        break;
+    }
+    return { L{0, 1}, shape };
+}
+
+// Where a member of layout `m` lands AFTER `members` — the custom-DST tail
+// question, the one offset that is not a declared member's. It contributes no
+// bytes but does force alignment. Same shape switch, so a union-shaped or
+// transparent prefix answers 0 rather than a summed offset.
+inline uint64_t member_offset_after(Shape shape, std::span<const L> members,
+                                    L m) noexcept {
+    if (shape != Shape::Product) return 0;
+    Agg a;
+    for (auto& x : members) a.push(x);
+    return a.next_offset(m);
+}
 
 // ── THE tagged-enum rule ────────────────────────────────────────────────────
 // Value repr is `{ i32 disc, <payload blob at its own alignment> }`. The
@@ -263,6 +400,52 @@ inline ArmDesc arm_desc_of_kind(LogosType::Kind k, uint64_t pointee_align,
     return a;
 }
 
+// ── THE C-LIKE DISCRIMINANT'S LAYOUT, FROM ITS DECLARED BACKING KIND ────────
+// `enum E : u24` weighs what a `u24` weighs — {4,4}, the INTEGER rule, not
+// `(24+7)/8` = a 3-byte type whose size is not a multiple of its own alignment.
+// One function so the three engines cannot reach that number by three routes:
+// mlir-gen used to go the long way round (backing TypeRef → mlir::Type →
+// getWidth → int_layout) and arrive at the same answer by luck of the table.
+// An unmappable kind answers `nullopt`, which the law reads as "no backing
+// declared" — the default `i32` discriminant.
+inline std::optional<L> backing_layout(LogosType::Kind k) noexcept {
+    auto sl = LogosType::scalar_layout(k);
+    if (sl.align == 0) return std::nullopt;
+    return L{ sl.size, sl.align };
+}
+
+// ── THE enum ENTRY POINT — THE WHOLE DECISION, IN ONE PLACE ─────────────────
+// FOUR positional, undefaulted arguments. This signature is the point of the
+// reshape: an engine that has never heard of a C-like enum's backing type
+// cannot call this at all, because `backing` is a parameter and there is no
+// default for it. The branch mono was missing is now a value mono must produce.
+//
+//   has_payload — does ANY variant carry a payload? If not, the enum HAS no
+//                 payload and no disc word: the value IS the discriminant.
+//   packed      — `classify_niche(...).packed`, the law's own classifier.
+//   payload     — max over variants of that variant's payload aggregate.
+//   backing     — `backing_layout(declared backing kind)`; `nullopt` ⇒ i32.
+//
+// `packed` and `payload` are ignored on the C-like path and `backing` on the
+// others: that is deliberate. Every engine computes all four, so the CALL SITES
+// stay identical and a reader comparing two engines is comparing four
+// expressions, not two control-flow graphs.
+inline Answer enum_layout(bool has_payload, bool packed, L payload,
+                          std::optional<L> backing) noexcept {
+    if (!has_payload)
+        return { backing ? *backing : kDisc, Shape::EnumCLike };
+    return packed ? Answer{ niche_enum(payload),  Shape::EnumNiche }
+                  : Answer{ tagged_enum(payload), Shape::EnumTagged };
+}
+
+// Does ANY variant carry a payload? The `has_payload` argument above, computed
+// from the same `VariantDesc` list the niche classifier reads, so the two
+// cannot disagree about which variants have fields.
+inline bool any_payload(std::span<const VariantDesc> vs) noexcept {
+    for (auto& v : vs) if (v.n_payload) return true;
+    return false;
+}
+
 // ── THE cross-engine ledger ─────────────────────────────────────────────────
 // `verify_layout_engines()` can compare the two mlir-gen engines with
 // `llvm::DataLayout` because all three are reachable from one translation unit
@@ -286,16 +469,25 @@ inline std::string type_key(std::string_view pkg, std::string_view concrete_name
 }
 
 struct LedgerEntry {
-    const char* engine;   // "sema_abi_layout" / "mono_abi_layout"
+    const char* engine;   // "sema_abi_layout" / "mono_abi_layout" / "layout_of"
     std::string key;      // the type as that engine named it
     L           answer;
+    // THE BRANCH THAT RAN, named by the law rather than by the engine — an
+    // engine can only name a branch it thought of. This is the second axis of
+    // the ENGINE × SHAPE matrix the verifier prints: a shape an engine never
+    // reaches is a cell at zero, which is what mono's missing C-like branch
+    // looked like for as long as nobody had a column for it.
+    Shape       shape = Shape::Product;
 };
 
 // Not thread-safe by construction: logosc compiles one unit per process, and a
 // silent partial ledger would be the failure mode we are removing. The floor
 // the gate asserts on the recorded count is what makes an empty ledger red.
 std::vector<LedgerEntry>& ledger() noexcept;
-void record(const char* engine, std::string key, L answer) noexcept;
+// The `Answer` — layout AND shape — goes in as one value, straight from the
+// law's own return. There is no overload that takes a bare `L`: a caller cannot
+// record an answer while inventing its own name for the branch.
+void record(const char* engine, std::string key, Answer answer) noexcept;
 bool recording_enabled() noexcept;
 
 // ⚠ THE CANARY — FAULT INJECTION SO A GATE CAN PROVE ITS INSTRUMENT IS LIVE.

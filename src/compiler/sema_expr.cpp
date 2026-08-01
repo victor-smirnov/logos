@@ -10334,19 +10334,23 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                                                 : subst_type_sema(pssi->fields.back().type, sub);
                 if (post_tail && TypeRef(post_tail).kind() == LogosType::Kind::UnsizedSlice) {
                     TypeRef elem = TypeRef(post_tail).elem();
-                    // Prefix-size walk: THE accumulator (layout_law.hpp), so the
-                    // tail offset is a read of the same walk that sizes the
-                    // struct — not a second copy of the padding arithmetic.
-                    logos::compiler::layout::Agg agg;
+                    // Prefix walk: THE LAW, with the struct's SHAPE, so the tail
+                    // offset is a read of the same walk that sizes the struct —
+                    // not a second copy of the padding arithmetic, and not an
+                    // accumulation over a shape that does not accumulate.
+                    std::vector<logos::compiler::layout::L> pml;
                     for (size_t i = 0; i + 1 < pssi->fields.size(); ++i) {
                         TypeRef ft = sub.empty() ? TypeRef(pssi->fields[i].type)
                                                  : subst_type_sema(pssi->fields[i].type, sub);
                         logos::compiler::StrSet seen;
-                        agg.push(sema_abi_layout(ft, seen));
+                        pml.push_back(sema_abi_layout(ft, seen));
                     }
                     logos::compiler::layout::L tail_l;
                     { logos::compiler::StrSet seen; tail_l = sema_abi_layout(elem, seen); }
-                    uint64_t off = agg.next_offset({0, tail_l.align});
+                    uint64_t off = logos::compiler::layout::member_offset_after(
+                        logos::compiler::layout::agg_shape(
+                            pssi->repr_transparent, pssi->is_union, pssi->fields.size()),
+                        pml, {0, tail_l.align});
                     std::string cname = concrete_struct_name(sd_pointee);
                     TypeRef self_cptr = make_ptr(false, sd_pointee);
                     auto* fit = find_func_by_base_and_signature(cname + "__dst_len", {self_cptr}, false);
@@ -10458,13 +10462,13 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 // tuples, arrays, enums recursively, with alignment
                 // padding. The tail starts at the aligned offset after
                 // the last sized field.
-                logos::compiler::layout::Agg agg;
+                std::vector<logos::compiler::layout::L> pml;
                 for (size_t i = 0; i + 1 < ssi_dst->fields.size(); ++i) {
                     auto& f = ssi_dst->fields[i];
                     TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
                                                    : subst_type_sema(f.type, dst_subst);
                     logos::compiler::StrSet seen;
-                    agg.push(sema_abi_layout(ft, seen));
+                    pml.push_back(sema_abi_layout(ft, seen));
                 }
                 // Tail begins at the offset aligned to its natural alignment.
                 // For `[T]` tail, align to size_of(T); for a `dyn` tail the
@@ -10476,7 +10480,11 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                     logos::compiler::StrSet seen;
                     tail_align = sema_abi_layout(tail_elem_t, seen).align;
                 }
-                prefix_byte_size = agg.next_offset({0, tail_align});
+                prefix_byte_size = logos::compiler::layout::member_offset_after(
+                    logos::compiler::layout::agg_shape(
+                        ssi_dst->repr_transparent, ssi_dst->is_union,
+                        ssi_dst->fields.size()),
+                    pml, {0, tail_align});
             }
         }
         if (is_tail_access && tail_post_ &&
@@ -10536,17 +10544,27 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // Mirrors the tail-slice synth — every field is reached off the fat
         // pointer's data half. Works uniformly for generic and non-generic DST.
         if (ssi_dst && !ssi_dst->fields.empty()) {
-            logos::compiler::layout::Agg agg;
+            std::vector<logos::compiler::layout::L> pml;
+            std::vector<TypeRef> pft;
+            for (auto& f : ssi_dst->fields) {
+                TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
+                                               : subst_type_sema(f.type, dst_subst);
+                logos::compiler::StrSet seen;
+                pft.push_back(ft);
+                pml.push_back(sema_abi_layout(ft, seen));
+            }
+            std::vector<uint64_t> poffs(pml.size(), 0);
+            logos::compiler::layout::aggregate_layout(
+                logos::compiler::layout::agg_shape(
+                    ssi_dst->repr_transparent, ssi_dst->is_union, pml.size()),
+                pml, poffs);
             uint64_t off = 0;
             TypeRef fld_type;
             bool found_fld = false;
             for (size_t i = 0; i < ssi_dst->fields.size(); ++i) {
-                auto& f = ssi_dst->fields[i];
-                TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
-                                               : subst_type_sema(f.type, dst_subst);
-                logos::compiler::StrSet seen;
-                off = agg.place(sema_abi_layout(ft, seen));
-                if (f.name == field_name) { fld_type = ft; found_fld = true; break; }
+                if (ssi_dst->fields[i].name != field_name) continue;
+                off = poffs[i]; fld_type = pft[i]; found_fld = true;
+                break;
             }
             if (found_fld && fld_type) {
                 auto data_ptr = builder().slice_ptr(std::move(recv),
@@ -19249,20 +19267,28 @@ lir::LExprPtr SemaChecker::lower_offset_of(TinyMapView node) {
         for (size_t i = 0; i < ssi->type_params.size() && i < args.size(); ++i)
             subst[ssi->type_params[i].name] = args[i];
     }
-    // `offset_of!` is a READ of the accumulator, not a fourth walk. A union's
-    // fields are all at 0 — the accumulator would sum them, so the union case
-    // is answered by the rule that owns unions.
-    logos::compiler::layout::Agg agg;
+    // `offset_of!` is a READ of the law's own walk, not a fourth one — the
+    // SHAPE decides (a union's fields are all at 0, an accumulator would sum
+    // them), and it decides in `aggregate_layout` rather than in a ternary
+    // here that has to remember which shapes exist.
+    std::vector<logos::compiler::layout::L> oml;
     for (auto& f : ssi->fields) {
         TypeRef ft = subst.empty() ? TypeRef(f.type) : subst_type_sema(f.type, subst);
         logos::compiler::StrSet seen;
         // One law for a field's {size, align} — including the unsized tails
         // (`[T]` aligns as T, `dyn` as a pointer). This walk used to re-derive
         // alignment as min(size,8) and special-case the two tails inline.
-        uint64_t off = ssi->is_union ? 0 : agg.place(sema_abi_layout(ft, seen));
-        if (f.name == field)
-            return builder().lit_int(static_cast<int64_t>(off),
-                                     prim(LogosType::Kind::I64));
+        oml.push_back(sema_abi_layout(ft, seen));
+    }
+    std::vector<uint64_t> ooffs(oml.size(), 0);
+    logos::compiler::layout::aggregate_layout(
+        logos::compiler::layout::agg_shape(ssi->repr_transparent, ssi->is_union,
+                                           oml.size()),
+        oml, ooffs);
+    for (size_t i = 0; i < ssi->fields.size(); ++i) {
+        if (ssi->fields[i].name != field) continue;
+        return builder().lit_int(static_cast<int64_t>(ooffs[i]),
+                                 prim(LogosType::Kind::I64));
     }
     error(std::format("offset_of!: struct `{}` has no field `{}`", sn, field));
     return error_expr();
