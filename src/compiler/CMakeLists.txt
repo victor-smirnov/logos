@@ -200,15 +200,23 @@ target_compile_options(logosc PRIVATE -fno-rtti)
 set_target_properties(logosc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Keep an RPATH to the LLVM/MLIR lib dir in the INSTALLED binary ONLY when that
-# dir is non-standard. On Debian the distro's libMLIR.so lives under the
-# private /usr/lib/llvm-NN/lib (not a default loader path), so without this the
-# installed/packaged logosc fails at startup with "libMLIR.so.NN: cannot open
-# shared object file". On Fedora the libs are on the standard /usr/lib64 — the
-# RPATH is both unnecessary AND trips rpmbuild's check-rpaths QA gate, so skip
-# it for standard loader paths.
+# Keep an RPATH to the LLVM/MLIR lib dir in BOTH the build-tree and the
+# INSTALLED binary, and only when that dir is non-standard. On Debian the
+# distro's libMLIR.so lives under the private /usr/lib/llvm-NN/lib (not a
+# default loader path), so without this logosc fails at startup with
+# "libMLIR.so.NN: cannot open shared object file". On Fedora the libs are on
+# the standard /usr/lib64 — the RPATH is both unnecessary AND trips rpmbuild's
+# check-rpaths QA gate, so skip it for standard loader paths.
+#
+# BUILD_RPATH is not a nicety: the build ITSELF runs build/bin/logosc to compile
+# the stdlib layers (`--emit-module`), so a build-tree binary the loader cannot
+# start stops the build at the first stdlib layer — measured on a box whose
+# LLVM came from apt.llvm.org rather than the distro. Setting INSTALL_RPATH
+# alone made the condition right and its scope wrong: the run that needs the
+# path first is the one inside the build.
 if (LLVM_LIBRARY_DIR AND NOT LLVM_LIBRARY_DIR MATCHES "^(/usr/lib|/usr/lib64|/lib|/lib64)$")
     set_target_properties(logosc PROPERTIES
+        BUILD_RPATH   "${LLVM_LIBRARY_DIR}"
         INSTALL_RPATH "${LLVM_LIBRARY_DIR}")
 endif()
 
