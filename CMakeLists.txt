@@ -120,10 +120,12 @@ include(GNUInstallDirs)
 # ── LLVM / MLIR toolchain discovery ──────────────────────────────────────
 #
 # Logos builds against the distribution's STOCK LLVM/MLIR dev packages —
-# on Ubuntu 24.04 that is `llvm-20-dev` + `libmlir-20-dev` + `mlir-20-tools`
-# (or the 19 series), installed straight from the distro repos, no
-# apt.llvm.org and no Jenny fork. We auto-discover the newest stock series
-# present under /usr/lib/llvm-NN. Override for a custom toolchain with:
+# on Ubuntu 24.04 that is `llvm-20-dev` + `libmlir-20-dev` + `mlir-20-tools` +
+# `clang-20`, installed straight from the distro repos, no apt.llvm.org and no
+# Jenny fork. Selection prefers a CERTIFIED series and announces what it took —
+# see the block below; it is no longer "the newest one present". Pin one with
+#   -DLOGOS_LLVM_SERIES=20
+# or point at a toolchain outside /usr/lib/llvm-NN entirely with:
 #   -DLOGOS_LLVM_DIR=/path/to/lib/cmake/llvm -DLOGOS_MLIR_DIR=/path/to/lib/cmake/mlir
 # Optimization level for Logos library/package archives built via
 # `logosc --emit-module` (stdlib layers, peg_gen_logos, …). The emit-module
@@ -137,17 +139,129 @@ set(LOGOS_LIB_OPT "-O2" CACHE STRING "logosc -O level for --emit-module library 
 set(LOGOS_LLVM_DIR  "" CACHE PATH "LLVM cmake dir (empty = auto-discover stock)")
 set(LOGOS_MLIR_DIR  "" CACHE PATH "MLIR cmake dir (empty = auto-discover stock)")
 set(LOGOS_CLANG_DIR "" CACHE PATH "Clang cmake dir (empty = auto-discover stock)")
+
+# ── WHICH series, and how loudly ─────────────────────────────────────────
+#
+# "Newest present wins" was the old rule, and it is the wrong rule: it makes the
+# compiler we build with a function of whatever happens to be installed, and it
+# picks silently. A toolchain nobody gated is a variable nobody is watching.
+#
+# CERTIFIED is the list the test suite is actually run against, in preference
+# order — CI (.github/workflows/abi.yml) and docker/Dockerfile.builder both pin
+# 20, and the full 6808-test suite passes on it. Anything outside the list still
+# builds, but says so.
+#
+# KNOWN_BAD carries a MEASURED miscompile, not a suspicion. Series 21 at -O2
+# drops the presence-bit update of one TinyObjectMap key: the value reaches the
+# element buffer but `has_key()` reads false, so a Writ field silently vanishes
+# for its reader. Bracketed A-B-A and sized by a differential build with dead-
+# store elimination disabled — across the whole suite it costs exactly
+# tests/logos/fail/deem_diag_located.logos, but the blast radius is only bounded
+# BELOW: a dropped field nobody asserts on stays invisible. clang-19, clang-20
+# and g++-14 are all clean at -O2, so it is specific to that series. Refused by
+# default rather than warned about, because the failure mode is silence.
+set(LOGOS_LLVM_SERIES_CERTIFIED "20" CACHE STRING
+    "LLVM/MLIR major series the gate set runs against, in preference order")
+set(LOGOS_LLVM_SERIES_FALLBACK "22;19;18" CACHE STRING
+    "Ungated series to fall back on, in preference order (used with a warning)")
+set(LOGOS_LLVM_SERIES_KNOWN_BAD "21" CACHE STRING
+    "Series with a measured miscompile — refused unless LOGOS_LLVM_ALLOW_KNOWN_BAD")
+set(LOGOS_LLVM_SERIES "" CACHE STRING
+    "Pin exactly one LLVM/MLIR major series (empty = pick a certified one, then a fallback)")
+option(LOGOS_LLVM_ALLOW_KNOWN_BAD
+       "Build against a series with a measured miscompile anyway" OFF)
+
+# A series is a CANDIDATE only when every cmake package we go on to consume is
+# there — llvm AND mlir AND clang. Testing LLVMConfig.cmake alone accepted a
+# half-installed series and failed much later with an unrelated-looking error:
+# measured on a box carrying llvm-19 with no MLIR beside llvm-21 with no LLVM.
+function(_logos_series_complete _v _out)
+    if(EXISTS "/usr/lib/llvm-${_v}/lib/cmake/llvm/LLVMConfig.cmake"
+       AND IS_DIRECTORY "/usr/lib/llvm-${_v}/lib/cmake/mlir"
+       AND IS_DIRECTORY "/usr/lib/llvm-${_v}/lib/cmake/clang")
+        set(${_out} TRUE PARENT_SCOPE)
+    else()
+        set(${_out} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 if(NOT LOGOS_LLVM_DIR)
-    foreach(_v 22 21 20 19 18)
-        if(EXISTS "/usr/lib/llvm-${_v}/lib/cmake/llvm/LLVMConfig.cmake")
-            set(LOGOS_LLVM_DIR  "/usr/lib/llvm-${_v}/lib/cmake/llvm"  CACHE PATH "" FORCE)
-            set(LOGOS_MLIR_DIR  "/usr/lib/llvm-${_v}/lib/cmake/mlir"  CACHE PATH "" FORCE)
-            set(LOGOS_CLANG_DIR "/usr/lib/llvm-${_v}/lib/cmake/clang" CACHE PATH "" FORCE)
-            set(LOGOS_LLVM_MAJOR "${_v}" CACHE STRING "Discovered stock LLVM major" FORCE)
-            message(STATUS "logos: auto-discovered stock LLVM/MLIR series ${_v} at /usr/lib/llvm-${_v}")
-            break()
+    set(_logos_pick "")
+    set(_logos_standing "")
+    if(LOGOS_LLVM_SERIES)
+        # Explicit pin: no searching, and no silent substitution if it is absent.
+        _logos_series_complete("${LOGOS_LLVM_SERIES}" _ok)
+        if(NOT _ok)
+            message(FATAL_ERROR
+                "logos: LOGOS_LLVM_SERIES=${LOGOS_LLVM_SERIES} was pinned, but "
+                "/usr/lib/llvm-${LOGOS_LLVM_SERIES} does not carry all three cmake "
+                "packages (llvm, mlir, clang). Install "
+                "llvm-${LOGOS_LLVM_SERIES}-dev libmlir-${LOGOS_LLVM_SERIES}-dev "
+                "mlir-${LOGOS_LLVM_SERIES}-tools clang-${LOGOS_LLVM_SERIES}, or "
+                "point -DLOGOS_LLVM_DIR at a toolchain yourself.")
         endif()
-    endforeach()
+        set(_logos_pick "${LOGOS_LLVM_SERIES}")
+        set(_logos_standing "pinned")
+    else()
+        foreach(_v IN LISTS LOGOS_LLVM_SERIES_CERTIFIED)
+            _logos_series_complete("${_v}" _ok)
+            if(_ok)
+                set(_logos_pick "${_v}")
+                set(_logos_standing "certified")
+                break()
+            endif()
+        endforeach()
+        if(NOT _logos_pick)
+            foreach(_v IN LISTS LOGOS_LLVM_SERIES_FALLBACK)
+                _logos_series_complete("${_v}" _ok)
+                if(_ok)
+                    set(_logos_pick "${_v}")
+                    set(_logos_standing "ungated")
+                    break()
+                endif()
+            endforeach()
+        endif()
+    endif()
+
+    if(NOT _logos_pick)
+        message(FATAL_ERROR
+            "logos: no complete stock LLVM/MLIR series found under /usr/lib/llvm-NN "
+            "(searched certified [${LOGOS_LLVM_SERIES_CERTIFIED}] then fallback "
+            "[${LOGOS_LLVM_SERIES_FALLBACK}]; each needs the llvm, mlir AND clang "
+            "cmake packages). On Ubuntu: apt install clang-20 lld-20 llvm-20-dev "
+            "libmlir-20-dev mlir-20-tools.")
+    endif()
+
+    if(_logos_pick IN_LIST LOGOS_LLVM_SERIES_KNOWN_BAD AND NOT LOGOS_LLVM_ALLOW_KNOWN_BAD)
+        message(FATAL_ERROR
+            "logos: LLVM/MLIR series ${_logos_pick} carries a MEASURED miscompile "
+            "(-O2 drops a TinyObjectMap presence-bit update; a Writ field silently "
+            "disappears for its reader — see tests/logos/fail/deem_diag_located.logos). "
+            "Build against a certified series [${LOGOS_LLVM_SERIES_CERTIFIED}] instead, "
+            "or pass -DLOGOS_LLVM_ALLOW_KNOWN_BAD=ON to accept silently-wrong output.")
+    endif()
+
+    set(LOGOS_LLVM_DIR  "/usr/lib/llvm-${_logos_pick}/lib/cmake/llvm"  CACHE PATH "" FORCE)
+    set(LOGOS_MLIR_DIR  "/usr/lib/llvm-${_logos_pick}/lib/cmake/mlir"  CACHE PATH "" FORCE)
+    set(LOGOS_CLANG_DIR "/usr/lib/llvm-${_logos_pick}/lib/cmake/clang" CACHE PATH "" FORCE)
+    set(LOGOS_LLVM_MAJOR "${_logos_pick}" CACHE STRING "Selected stock LLVM major" FORCE)
+
+    # The choice is announced in every case — a build must never leave the reader
+    # guessing which compiler produced it.
+    if(_logos_pick IN_LIST LOGOS_LLVM_SERIES_KNOWN_BAD)
+        message(WARNING
+            "logos: building against KNOWN-BAD LLVM/MLIR series ${_logos_pick} "
+            "(LOGOS_LLVM_ALLOW_KNOWN_BAD=ON). Output may be silently wrong.")
+    elseif(_logos_standing STREQUAL "ungated")
+        message(WARNING
+            "logos: LLVM/MLIR series ${_logos_pick} is NOT in the certified list "
+            "[${LOGOS_LLVM_SERIES_CERTIFIED}] — the gate set has not been run against "
+            "it. Treat a failure here as a toolchain suspect before a code suspect.")
+    else()
+        message(STATUS
+            "logos: LLVM/MLIR series ${_logos_pick} (${_logos_standing}) "
+            "at /usr/lib/llvm-${_logos_pick}")
+    endif()
 endif()
 # Fallback: recover the major from an explicitly-set (Debian-layout) cmake dir.
 if(NOT DEFINED LOGOS_LLVM_MAJOR AND LOGOS_LLVM_DIR MATCHES "llvm-([0-9]+)")
