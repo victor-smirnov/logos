@@ -1,0 +1,13 @@
+// SEPARATOR CLASS — the `__g__` half of sep_method_dunder_f. The emitted symbol
+// TEXT is the claim here (`logos_00_sep_symbol_shape` asserts it): this program
+// can run correctly with a WRONG symbol, because the definition and the call
+// agree on the same wrong spelling — an exit-code-only gate is blind to it.
+package tr;
+struct w2<T> { v: T }
+impl<T> w2<T> {
+    fn a__g__b(&self) -> i64 { return 4i64; }
+}
+fn main() -> i32 {
+    let s = w2::<i64> { v: 1i64 };
+    return s.a__g__b() as i32;
+}

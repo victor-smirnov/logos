@@ -1,0 +1,27 @@
+// SEPARATOR CLASS — the `$where` bound fingerprint, on a struct whose base
+// name ENDS IN '_'. Two bound-discriminated impls of `arr_` declare the same
+// method with the same structural signature; only the bound sets differ, so
+// the mangler appends a sorted bound fingerprint to keep them distinct.
+//
+// TWO cuts were wrong here. The fingerprint's scope test asked
+// `struct_has_bounded_spec(base_name.substr(0, base_name.find("__")))` —
+// `arr`, which does not exist — so the suffix was never appended and the two
+// impls mangled IDENTICALLY (`error [fn arr___pick]: duplicate function`).
+// And the instance's method rename composed `new_name + mn.substr(mn.find("__"))`
+// = `arr_$G1$i64` + `___pick` — one underscore too many.
+// MEASURED before the second fix: `nm` showed
+// `tr.arr_$G1$i64___pick__g__…` (THREE underscores), `main` held no call to
+// it, compile exit 0, and the program SIGSEGV'd.
+package tr;
+struct arr_<T: ?Sized> { v: i64 }
+struct arr_<T: Copy> { v: i64 }
+impl<T: Copy> arr_<T> {
+    fn pick(&self) -> i64 { return self.v + 100i64; }
+}
+impl<T: ?Sized> arr_<T> {
+    fn pick(&self) -> i64 { return self.v + 200i64; }
+}
+fn main() -> i32 {
+    let a = arr_::<i64> { v: 7i64 };
+    return (a.pick() - 107i64) as i32;
+}

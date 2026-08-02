@@ -438,10 +438,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v) {
     size_t pre_misses = method_lower_misses_;
     auto val = gen_expr(v.expr());
     if (!val && logos_to_mlir(ety) && !is_terminated(builder_.getBlock())) {
-        std::fprintf(stderr,
-            "mlir_gen: internal: value-typed expression statement lowered to no "
-            "value and did not terminate — its effects were silently dropped\n");
-        std::abort();
+        // R2: was std::abort(). CI reads a SIGABRT as a crash; the sink gives
+        // a clean exit 1 with the whole list. LOGOS_MLIRGEN_ABORT_ON_BUG=1
+        // restores the stack trace.
+        bug_raw("value-typed expression statement lowered to no value and did "
+                "not terminate — its effects were silently dropped");
     }
     // A void call statement that lowered to NO value AND swallowed a
     // method-lowering miss on the way is a dropped effect, not a dead
@@ -452,12 +453,9 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v) {
         auto k = v.expr().kind();
         if (k == lir_schema::expr::Code::Call ||
             k == lir_schema::expr::Code::MethodCall) {
-            std::fprintf(stderr,
-                "mlir_gen: internal: void call statement DROPPED — the method "
-                "'%s' had no instantiation, so the whole call was silently "
-                "discarded (mono never demanded the callee)\n",
-                last_method_miss_.c_str());
-            std::abort();
+            bug("void call statement DROPPED — the method '{}' had no "
+                "instantiation, so the whole call was silently discarded "
+                "(mono never demanded the callee)", last_method_miss_);
         }
     }
 }
@@ -479,22 +477,34 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     //   • temporary lifetime extension → `{ let __lit_temp_0 = rv;
     //     let p = &__lit_temp_0; }` — the temp's SDrop sits at the ENCLOSING
     //     scope end; erasing it skipped the drop (spec region_3 check 6).
-    // The discriminator is the CLASS marker — a synthetic `__` first-let —
-    // not a producer list (that list drifted twice already). For these, skip
-    // the scope-restore entirely: sema already scoped the contents, and the
-    // synthetic temps are unique names never re-bound.
-    {
-        bool first = true, is_transparent = false;
+    // ⚠ SEPARATOR CLASS. The discriminator used to be a NAME test — "the
+    // block's first `let` is spelled `__…`". That is a fact about the PRODUCER
+    // read off a SPELLING, and a user is free to write `let __x` as a block's
+    // first statement: measured, the block then lost its scope restore and an
+    // inner shadowing `let v` leaked out, so the outer `v` read the inner
+    // value — wrong answer, no diagnostic, exit 0.
+    // The producer states it now (stmt_keys::TRANSPARENT, set at every
+    // synthesizing site in sema_stmt.cpp and carried through mono's clone).
+    // For these, skip the scope-restore entirely: sema already scoped the
+    // contents, and the synthetic temps are unique names never re-bound.
+    if (v.transparent()) { gen_block(v.body()); return; }
+    if (transparent_audit_) {
+        // AUDIT INSTRUMENT (LOGOS_TRANSPARENT_AUDIT=1, off by default): report
+        // where the retired NAME heuristic and the carried flag disagree, so a
+        // producer that forgot to state the fact is found by MEASUREMENT rather
+        // than by a miscompile downstream.
+        bool first = true, heur = false;
         v.body().each_stmt([&](lir_view::StmtRef s) {
             if (!first) return;
             first = false;
-            if (s.kind() == lir_schema::stmt::Code::Let) {
-                std::string n(lir_view::SLetView{s}.name());
-                if (n.rfind("__", 0) == 0)
-                    is_transparent = true;
-            }
+            if (s.kind() == lir_schema::stmt::Code::Let)
+                heur = std::string(lir_view::SLetView{s}.name()).rfind("__", 0) == 0;
         });
-        if (is_transparent) { gen_block(v.body()); return; }
+        if (heur)
+            std::fprintf(stderr,
+                "mlir_gen: transparent-audit: block in '%s' matches the retired "
+                "NAME heuristic but carries no TRANSPARENT flag\n",
+                cur_fn_name_.c_str());
     }
     // Sprint 3.1 / gap C: a real `{ }` block is its own lexical scope. Exact
     // snapshot/restore (same mechanism as gen_if): re-instates shadowed outer
@@ -1441,30 +1451,31 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     // `_` discards are legal no-binds and stay quiet. (Shadowing re-lets of
     // an already-bound name are a known false-negative — acceptable for a
     // canary.)
+    // A DIVERGING initializer (`let x = { return 1; };`, `panic()`, a `?` that
+    // returns) terminates the block: control never reaches the binding, so
+    // "no value" is CORRECT and nothing was dropped. That is a property of the
+    // emitted block, not of the name — measured on
+    // terminate-in-initializer-b154 / return-in-block-tuple /
+    // return_in_subexpression, which the un-narrowed canary called a
+    // malfunction. This narrows the PREDICATE; it does not soften the check.
     std::string let_nm(v.name());
-    if (v.value() && !let_nm.empty() && let_nm != "_" && !scope_.count(let_nm)) {
+    if (v.value() && !let_nm.empty() && let_nm != "_" && !scope_.count(let_nm) &&
+        !is_terminated(builder_.getBlock())) {
         TypeRef lty = v.type(pool_impl());
-        auto lk = lty ? TypeRef(lty).kind() : LogosType::Kind::Void;
-        if (lk != LogosType::Kind::Void && lk != LogosType::Kind::Never) {
+        // ⚠ The exclusion used to be a KIND LIST (`Void`, `Never`), and a list
+        // drifts: `()` is a zero-arity Tuple, an empty struct is a Struct, and
+        // BOTH are zero-width — they have no value representation, so "produced
+        // no value" is CORRECT for them and nothing was dropped. The sibling
+        // guard in SExprStmt already states the rule structurally
+        // (`logos_to_mlir(ty)` non-null); state it the same way here.
+        // Measured: `let (a, ()) = …` and `let ai: () = x as ()` were reported
+        // as malfunctions while compiling correctly.
+        if (lty && logos_to_mlir(lty)) {
             // Name the failing initializer: for a call, WHICH callee — the
             // difference between a compiler-bug report someone can act on and
             // a shrug. (assertion-as-diagnostic class.)
-            std::string what;
-            {
-                auto er = v.value();
-                auto ek = er.kind();
-                what = std::format(" (init kind {})", static_cast<int>(ek));
-                if (ek == lir_schema::expr::Code::Call) {
-                    lir_view::ECallView cv{er};
-                    what = std::format(" (call to '{}')",
-                                       std::string(cv.callee()));
-                }
-            }
-            std::fprintf(stderr,
-                         "mlir_gen: `let %s` initializer produced no value%s — "
-                         "statement DROPPED (compiler bug; dependents will "
-                         "vanish too)\n",
-                         let_nm.c_str(), what.c_str());
+            bug("`let {}` initializer produced no value{} — statement DROPPED "
+                "(dependents will vanish too)", let_nm, describe_expr(v.value()));
         }
     }
     // -g: after the binding's slot is set in scope_, attach DWARF local-var info.
@@ -2251,13 +2262,33 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
     }
     if (val_er) {
         TypeRef s_val_ty = val_er.type(pool_impl());
+        // R2 — the RETURN position of the silent-drop guard that SExprStmt and
+        // SLet already carry. Every `if (!val) return;` below drops the whole
+        // `return` on the floor: the function then falls off its end and hands
+        // back whatever is in the result register. Measured: a generic method
+        // whose owner's name ends in `_` was never specialised, the call
+        // lowered to nothing, `return b.pick()` vanished, and the program
+        // returned 48 instead of 3 — compile exit 0, stderr empty.
+        // A VOID / Never / zero-width value is legitimately value-less, and a
+        // block already terminated by a diverging initializer never reaches
+        // the return, so both are excluded — this narrows the PREDICATE, it
+        // does not soften the check.
+        auto ret_dropped = [&](const char* what) {
+            if (!s_val_ty || !logos_to_mlir(s_val_ty)) return;
+            if (is_terminated(builder_.getBlock())) return;
+            if (cur_fn_has_residue_) return;   // template residue, see gen_fn_body
+            bug("`return` value lowered to no value ({}){} in '{}' at line {} "
+                "— the RETURN was silently discarded and the function falls "
+                "off its end",
+                what, describe_expr(val_er), cur_fn_name_, v.self.line());
+        };
         // Box<dyn Trait> / &dyn Trait return: coerce concrete type to heap fat pointer.
         if (cur_fn_ret_logos_type_ &&
             TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::TraitObject &&
             s_val_ty &&
             TypeRef(s_val_ty).kind() != LogosType::Kind::TraitObject) {
             auto val = gen_expr(val_er);
-            if (!val) return;
+            if (!val) { ret_dropped("dyn coercion source"); return; }
             TypeRef src_lt = s_val_ty;
             // Strip the indirection: source may be `&T`/`&mut T`/`*const T`/
             // `*mut T` over a concrete struct. vtable is keyed on the bare
@@ -2279,7 +2310,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             auto fat_ptr = coerce_to_dyn(val,
                 std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()),
                 type_str(src_lt));
-            if (!fat_ptr) return;
+            if (!fat_ptr) { ret_dropped("dyn coercion"); return; }
             auto dyn_struct = dyn_llvm_type();
             auto fat_val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, fat_ptr);
             if (in_llvm_func_)
@@ -2296,7 +2327,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             s_val_ty &&
             TypeRef(s_val_ty).kind() == LogosType::Kind::TraitObject) {
             auto val = gen_expr(val_er);
-            if (!val) return;
+            if (!val) { ret_dropped("already-dyn value"); return; }
             auto dyn_struct = dyn_llvm_type();
             if (val.getType() == ptr_type())
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, val);
@@ -2308,7 +2339,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
         }
 
         auto val = gen_expr(val_er);
-        if (!val) return;
+        if (!val) { ret_dropped("value"); return; }
         // Slice/str fat-pair return BY VALUE (mirror the TraitObject path above):
         // the fn MLIR return type is the 16-byte {ptr,len} (llvm_fn_ret_type).
         // A slice value is normally a pointer-to-stack-storage (ESliceLit alloca,

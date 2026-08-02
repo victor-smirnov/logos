@@ -1721,9 +1721,12 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     // only the bound sets differ. Suffix the sig with the sorted bound
     // fingerprint so the two coexist as distinct symbols. Scoped to methods
     // of structs that HAVE a bounded spec (zero symbol churn elsewhere).
-    if (auto us = std::string_view(base_name).find("__");
-        us != std::string_view::npos && !info.type_params.empty()) {
-        std::string_view owner = std::string_view(base_name).substr(0, us);
+    // SEPARATOR CLASS: the owner is CARRIED (`info.owner_struct`, written at
+    // collect_fn from `struct_ctx`). Cutting `base_name` at the first `__`
+    // named `arr` for `struct arr_<T>`, so two bound-discriminated impls of
+    // `arr_` mangled IDENTICALLY and one silently won.
+    if (info.is_method && !info.owner_struct.empty() && !info.type_params.empty()) {
+        std::string_view owner = info.owner_struct;
         bool any_b = false;
         for (auto& tp : info.type_params)
             if (!tp.bounds.empty()) { any_b = true; break; }
@@ -1738,7 +1741,11 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
         }
     }
     s.is_generic = !info.type_params.empty();
-    s.is_method  = base_name.find("__") != std::string_view::npos;
+    // SEPARATOR CLASS: "is this a method" is a FACT the collector holds, not a
+    // property of the spelling. `base_name.find("__")` said YES for the legal
+    // free fn `fn a__b(...)`, which then collided with `impl a { fn b }` and
+    // was rejected as a "duplicate function" (measured: exit 1 on legal code).
+    s.is_method  = info.is_method;
     s.is_extern  = info.is_extern;
     return sym::mangle(s);
 }
@@ -8357,16 +8364,40 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
             if (sd.type_params_empty()) continue;
             templates_by_name[std::string(sd.name())].push_back(&sd);
         }
-        auto is_impl_method_shape = [](std::string_view nm) -> std::string_view {
+        // SEPARATOR CLASS. The owner is recovered by ANCHORING on the method's
+        // own CARRIED name (dk::METHOD_BASE, written by sema's lower_fn): the
+        // owner is exactly what precedes `"__" <method_base> ("__f__"|"__g__")`.
+        // `nm.find("__")` was a guess that named `a` for `a_`'s methods and cut
+        // inside any method name containing `__`.
+        // Returns a view INTO `nm` (which must outlive the result — see the
+        // dangling-view note at the call site).
+        auto is_impl_method_shape = [](lir_view::FunctionView fpv) -> std::string_view {
+            std::string_view nm = fpv.name();
             if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
                 nm.remove_prefix(dot + 1);
+            std::string_view mb = fpv.method_base();
+            if (!mb.empty()) {
+                for (size_t p = nm.find(mb); p != std::string_view::npos;
+                     p = nm.find(mb, p + 1)) {
+                    if (p < 2 || nm.compare(p - 2, 2, "__") != 0) continue;
+                    size_t after = p + mb.size();
+                    if (after + 5 > nm.size()) continue;
+                    if (nm.compare(after, 5, "__f__") != 0 &&
+                        nm.compare(after, 5, "__g__") != 0) continue;
+                    auto owner = nm.substr(0, p - 2);
+                    if (owner.empty() || owner[0] == '$') return {};
+                    return owner;
+                }
+                // METHOD_BASE present but the name is NOT that composition:
+                // that is a fact (a free fn, a synthetic), not a licence to
+                // guess a boundary. Fail closed, as this predicate always did.
+                return {};
+            }
+            // No carried method base (older mirrors / synthesised decls):
+            // the legacy anchored scan, kept only as the fallback.
             auto sep = nm.find("__");
             if (sep == std::string_view::npos) return {};
-            // Require __f__ or __g__ further along — distinguishes impl
-            // methods from coincidentally-named free fns.
-            if (nm.find("__f__", sep) == std::string_view::npos &&
-                nm.find("__g__", sep) == std::string_view::npos)
-                return {};
+            if (mname::sig_boundary(nm, sep) == std::string_view::npos) return {};
             auto base = nm.substr(0, sep);
             if (base.empty() || base[0] == '$') return {};
             return base;
@@ -8381,7 +8412,7 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
             // temporary: usually-still-intact freed heap, occasionally
             // reused → garbage lookups (once-per-thousands flaky tests,
             // and a latent mis-hosting/miscompile channel).
-            auto base = is_impl_method_shape(fp.name());
+            auto base = is_impl_method_shape(fp);
             lir_view::StructView* host = nullptr;
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));

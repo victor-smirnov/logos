@@ -313,6 +313,7 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
         }
     }
     lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
+    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
@@ -385,6 +386,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
                     blk.push_back(std::move(*drop));
                     lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
+                    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
                     return make_stmt_emit(node_line_, std::move(sb));
                 }
             }
@@ -941,6 +943,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
                        "binding", "let (...) destructure");
 
     lir::SBlock sb;
+    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
@@ -1118,6 +1121,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
     }
 
     lir::SBlock sb;
+    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
@@ -1301,6 +1305,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
         sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
@@ -1405,6 +1410,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             }
         }
         lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
         sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
@@ -1490,6 +1496,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 "tuple-struct pattern '{}': expected {} fields, got {}",
                 sname, tsi_let->fields.size(), arg_n));
         lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
         sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
@@ -1660,6 +1667,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     // scope-exit Drop is suppressed; the field bindings own + drop the data).
     if (is_move_type(rhs_type)) mark_moved(tmp);
     lir::SBlock sb;
+    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
     sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
@@ -1996,7 +2004,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         hint_expected_type_    = saved_expected;
                     hint_closure_formal_ = saved_closure_hint;
                     hint_tuple_type_ = saved_tuple_hint;
-                    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)});
+                    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
                 }
             }
         }
@@ -7012,7 +7020,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         outer_block.push_back(make_stmt_emit(node_line_, std::move(sl)));
 
         // Wrap in a block statement
-        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer_block)});
+        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer_block), /*transparent=*/true});
     }
 
     return builder().stmt_break(nullptr, "", node_line_);
@@ -7380,7 +7388,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     inner.push_back(make_stmt_emit(node_line_, std::move(let_s)));
     inner.push_back(make_stmt_emit(node_line_, std::move(dfw)));
     return make_stmt_emit(node_line_,
-        lir::SBlock{lir_mirror_block(*cur_prog_, inner)});
+        lir::SBlock{lir_mirror_block(*cur_prog_, inner), /*transparent=*/true});
 }
 
 // ADR 0011 — schema field WRITE: `p.field = v` ⇒ `(&mut* p.m).set(KEY, WAny::from(v))`.
@@ -8624,7 +8632,7 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
         else_blk = std::move(chain);
     }
     if (else_blk) for (auto s : *else_blk) outer.push_back(s);
-    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer)});
+    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer), /*transparent=*/true});
 }
 
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
@@ -8704,7 +8712,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         blk.push_back(std::move(temp_scrut_let));
         blk.push_back(std::move(stmt));
         for (auto& d : ft_drops) blk.push_back(std::move(d));
-        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)});
+        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
     };
 
     // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
@@ -9302,7 +9310,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         blk.push_back(std::move(hoist_let_root));
         blk.push_back(std::move(hoist_let_base));
         blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
-        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
+        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true}));
     }
     // G172-1: wrap the str-pattern match in a block that first hoists the
     // scrutinee into `__smatch`, which each arm's `str_eq(__smatch, …)` guard
@@ -9311,7 +9319,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         std::vector<lir_view::StmtRef> blk;
         blk.push_back(std::move(str_hoist_let));
         blk.push_back(make_stmt_emit(match_line, std::move(smatch)));
-        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
+        return finalize(make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true}));
     }
     return finalize(make_stmt_emit(match_line, std::move(smatch)));
 }

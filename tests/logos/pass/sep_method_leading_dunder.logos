@@ -1,0 +1,14 @@
+// SEPARATOR CLASS — a method whose name STARTS with `__` (the
+// `__drop_in_place` shape the legacy anchored scan was written for). A naive
+// `find("__", start)` returns `start` itself and truncates the short name to
+// empty; the carried METHOD_BASE has no such failure mode.
+package tr;
+struct w4<T> { v: T }
+impl<T> w4<T> {
+    fn __hidden_helper(&self) -> i64 { return 5i64; }
+    fn visible(&self) -> i64 { return self.__hidden_helper() + 1i64; }
+}
+fn main() -> i32 {
+    let s = w4::<i64> { v: 1i64 };
+    return s.visible() as i32;
+}

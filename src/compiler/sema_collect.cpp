@@ -5360,6 +5360,8 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& p : w) info.lifetime_outlives.push_back(std::move(p));
     }
     info.base_name = base_name;
+    info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
+    info.is_method    = !struct_ctx.empty();
     info.source_file = file_;
     info.package = cur_package_;
     info.module_id = cur_module_id_;

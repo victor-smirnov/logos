@@ -1,0 +1,17 @@
+// SEPARATOR CLASS — two type-vars in one scope where one name is a PREFIX of
+// the other (`T` and `T_`). The callee `T___mk` is prefixed by BOTH; the
+// first-`__` cut picks `T` (bound to B here), so the rewritten callee names
+// B's trait method instead of A's. The substitution map is the registry: the
+// LONGEST bound type-var that prefixes the callee is the one that composed it.
+// Measured on the baseline compiler: `'tr.B___mk' does not reference a valid
+// function` — and in the shape where B does define it, the program silently
+// returns 86 instead of 3 with the compiler exiting 0.
+package tr;
+trait Mk  { fn mk() -> i64; }
+trait Mk2 { fn mk2() -> i64; }
+struct A {}
+struct B {}
+impl Mk  for A { fn mk()  -> i64 { return 3i64; } }
+impl Mk2 for B { fn mk2() -> i64 { return 86i64; } }
+fn go<T: Mk2, T_: Mk>() -> i64 { return T_::mk(); }
+fn main() -> i32 { return go::<B, A>() as i32; }

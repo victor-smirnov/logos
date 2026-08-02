@@ -1,0 +1,12 @@
+// SEPARATOR CLASS — a TYPE-VAR whose name ends in '_'. A trait-static call
+// through it lowers to the callee `T___mk` (`T_` + `__` + `mk`); mono rewrote
+// the receiver prefix by cutting at the FIRST `__`, which names `T` — unbound
+// — so no rewrite happened. Measured on the baseline compiler:
+// `error: 'func.call' op 'T___mk' does not reference a valid function`,
+// exit 1, on legal code.
+package tr;
+trait Mk { fn mk() -> i64; }
+struct A {}
+impl Mk for A { fn mk() -> i64 { return 3i64; } }
+fn go<T_: Mk>() -> i64 { return T_::mk(); }
+fn main() -> i32 { return go::<A>() as i32; }

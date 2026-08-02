@@ -1,0 +1,17 @@
+// SEPARATOR CLASS — a FREE function legally named `a__b` whose signature is
+// the SAME as the method `b` of `struct a` (which mangles to `a__b` too).
+// The only thing that distinguishes them is the FACT "was this collected
+// inside an impl block"; a classifier that asks `name.find("__")` instead
+// answers YES for the free fn, both mangle as methods, and they collide.
+// Measured on the baseline compiler: `error [fn a__b]: duplicate function
+// 'a__b'`, exit 1, on legal code.
+package tr;
+struct a { v: i64 }
+impl a {
+    fn b(&self, x: i64) -> i64 { return self.v + x; }
+}
+fn a__b(s: &a, x: i64, y: i64) -> i64 { return s.v * x + y; }
+fn main() -> i32 {
+    let s = a { v: 3i64 };
+    return (s.b(1i64) + a__b(&s, 2i64, 0i64)) as i32;
+}

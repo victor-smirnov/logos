@@ -1,0 +1,14 @@
+// SEPARATOR CLASS — a METHOD whose own name contains `__f__`, on a GENERIC
+// struct. The emitted method name is `[pkg.]<Owner>__<method>__f__<sig>`, so a
+// consumer that recovered the short name by cutting at the first `__f__` got
+// `a` instead of `a__f__b`. Measured on the baseline compiler: no method symbol
+// emitted at all, the call's `let` DROPPED with "(compiler bug)", exit 0.
+package tr;
+struct w<T> { v: T }
+impl<T> w<T> {
+    fn a__f__b(&self) -> i64 { return 3i64; }
+}
+fn main() -> i32 {
+    let s = w::<i64> { v: 1i64 };
+    return s.a__f__b() as i32;
+}

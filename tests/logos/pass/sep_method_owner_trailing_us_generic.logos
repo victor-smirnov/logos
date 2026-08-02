@@ -1,0 +1,22 @@
+// SEPARATOR CLASS — a method-generic method on an owner whose name ends in
+// '_', reached from a GENERIC fn.
+//
+// The trait-default / generic-fn rewrite recovered the owner from the
+// resolved template symbol as `rs_tail.substr(0, rs_tail.find("__"))`: for
+// `arr___pick__g__…` that names `arr`, not `arr_`. The template lookup missed
+// and the specialisation was skipped in SILENCE.
+// MEASURED before: `logosc: wrote …`, exit 0, ZERO stderr, `nm` showed only
+// `main` and the generic fn — no method symbol at all — and the program
+// returned 48 instead of 3.
+package tr;
+struct arr_<T> { v: T }
+impl<T> arr_<T> {
+    fn pick<U>(&self, u: U) -> i64 { return 3i64; }
+}
+fn use_it<X>(b: &arr_<X>) -> i64 { return b.pick::<i32>(1i32); }
+fn main() -> i32 {
+    let b = arr_::<i64> { v: 1i64 };
+    if use_it::<i64>(&b) != 3i64 { return 1i32; }
+    if b.pick::<i32>(1i32) != 3i64 { return 2i32; }
+    return 0i32;
+}

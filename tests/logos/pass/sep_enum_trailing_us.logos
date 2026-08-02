@@ -1,0 +1,12 @@
+// SEPARATOR CLASS — a generic enum whose BASE NAME ends in '_'.
+// `record_needed_enum` composes the instance name as <base>"__"<arg>, so
+// `foo_<i64>` becomes `foo___i64`. A consumer that recovered the base by
+// cutting at the FIRST "__" got `foo`, found no template, emitted nothing,
+// and mlir-gen then dropped the `let` — with exit code 0. Measured: this
+// program returned 48 (the dropped-init garbage) instead of 0.
+package tr;
+enum foo_<T> { a_, b_(T) }
+fn main() -> i32 {
+    let x: foo_<i64> = foo_::b_(7i64);
+    match x { foo_::b_(v) => { return (v - 7i64) as i32; }, foo_::a_ => { return 5i32; } }
+}

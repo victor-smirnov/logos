@@ -1,0 +1,34 @@
+// SEPARATOR CLASS — the mangled TYPE ARGUMENT, not the owner.
+//
+// A concrete generic owner is spelled `<base>$G<N>$<args>`, and the vtable /
+// drop-glue index recovered it from a method symbol as
+// `name.substr(0, name.find("__", g_pos))`. That cut lands INSIDE the type
+// ARGUMENT whenever the argument's own name ends in `_` or contains `__`:
+// `box_$G1$k___s__g__…` yielded the owner `box_$G1$k`, so NO vtable and NO
+// drop glue were emitted for `box_<k_>`.
+// MEASURED before: compile exit 0 with ZERO stderr, `nm` showed no
+// `__logos_vtable__Sp__box_$G1$k_`, and the program SIGSEGV'd on the first
+// `&dyn` call. The OWNER's spelling was irrelevant; the ARGUMENT's decided.
+package tr;
+trait Sp { fn s(&self) -> i64; }
+struct k_ {}
+struct k__j {}
+struct k {}
+struct box_<T> { v: i64 }
+struct b__x<T> { v: i64 }
+impl<T> Sp for box_<T> { fn s(&self) -> i64 { return self.v; } }
+impl<T> Sp for b__x<T> { fn s(&self) -> i64 { return self.v + 1i64; } }
+fn via(d: &dyn Sp) -> i64 { return d.s(); }
+fn main() -> i32 {
+    let a = box_::<k_> { v: 5i64 };
+    if via(&a) != 5i64 { return 1i32; }
+    let b = box_::<k__j> { v: 6i64 };
+    if via(&b) != 6i64 { return 2i32; }
+    let c = box_::<k> { v: 7i64 };
+    if via(&c) != 7i64 { return 3i32; }
+    let d = b__x::<k_> { v: 8i64 };
+    if via(&d) != 9i64 { return 4i32; }
+    let e = b__x::<k__j> { v: 9i64 };
+    if via(&e) != 10i64 { return 5i32; }
+    return 0i32;
+}

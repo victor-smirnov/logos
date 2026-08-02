@@ -1,0 +1,12 @@
+// CONTROL for sep_method_dunder_f: the identical program on a NON-generic
+// struct. It passes on the baseline compiler, which is the point — without it
+// the pair does not localize the loss to mono's generic-method index.
+package tr;
+struct w3 { v: i64 }
+impl w3 {
+    fn a__f__b(&self) -> i64 { return 3i64; }
+}
+fn main() -> i32 {
+    let s = w3 { v: 1i64 };
+    return s.a__f__b() as i32;
+}

@@ -14,6 +14,12 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include "layout_law.hpp"
+#include "mangled_name.hpp"
+
+#include <cstdlib>
+#include <format>
+#include <string>
+#include <vector>
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -213,6 +219,18 @@ public:
     {}
 
     mlir::OwningOpRef<mlir::ModuleOp> generate(const LProgram& prog);
+
+    // ── R2: the self-diagnosed-malfunction channel ───────────────────────
+    // A message the compiler emits ABOUT ITSELF ("compiler bug", "unknown",
+    // "unhandled", "DROPPED", "should have been expanded by") must make the
+    // compile FAIL. mlir-gen had no diagnostic channel at all: it printed to
+    // stderr, dropped the statement, wrote the object file and returned 0 —
+    // so a test could "pass" while a WRITE had silently vanished.
+    //
+    // Enforced ONCE, at the single exit of generate(); never at the call
+    // site. The three shapes exist only so a call site keeps its return type
+    // — they are the SAME sink.
+    size_t bug_count() const noexcept { return bugs_; }
 
     // -g: enable DWARF debug-info emission. Set before generate().
     void set_debug_info(bool v) { debug_info_ = v; }
@@ -1015,15 +1033,138 @@ private:
 
     std::string link_name_str(const std::string& callee) const {
         if (!prog_ || callee.find("..") != std::string::npos) return callee;
-        auto us = callee.find("__");
-        if (us == std::string::npos) return callee;
-        auto dot = callee.rfind('.', us);
-        if (dot == std::string::npos) return callee;
-        std::string pkg = callee.substr(0, dot);
-        std::string_view mid = prog_->pkg_module_ids.get_str(pkg);
+        // ⚠ SEPARATOR CLASS. The package head used to be "the last `.` BEFORE
+        // the first `__`" — but `__` is legal inside a package SEGMENT
+        // (`pkg.a__b.w__m`), and that cut then names the package `pkg` and
+        // prefixes the wrong module id. `pkg_module_ids` IS the registry of
+        // declared packages: take the LONGEST dotted prefix it knows.
+        auto known = [&](std::string_view p) {
+            return !prog_->pkg_module_ids.get_str(std::string(p)).empty();
+        };
+        auto pkg_sv = mname::package_prefix(callee, known);
+        if (!pkg_sv) return callee;
+        std::string_view mid = prog_->pkg_module_ids.get_str(std::string(*pkg_sv));
         if (mid.empty()) return callee;
         return std::string(mid) + ".." + callee;
     }
+    // AUDIT INSTRUMENT for the retired "first `let` is spelled `__…` ⇒ the
+    // block is sema-synthesized" heuristic — the way to find a NEW SBlock
+    // producer that forgot to state stmt_keys::TRANSPARENT. Off unless
+    // LOGOS_TRANSPARENT_AUDIT=1; it is NOT a gate (it fires on the legal user
+    // program `{ let __x = …; … }`, which is exactly the case the flag exists
+    // to get right). MEASURED 2026-08-02 over all 5554 registered pass
+    // programs: ZERO disagreements. See gen_stmt_kind(SBlockView).
+    const bool transparent_audit_ = [] {
+        const char* e = std::getenv("LOGOS_TRANSPARENT_AUDIT");
+        return e && e[0] && e[0] != '0';
+    }();
+    // Name a failing sub-expression in an R2 report: for a call, WHICH callee
+    // — the difference between a compiler-bug report someone can act on and a
+    // shrug. (assertion-as-diagnostic class.)  ONE home, so the `let`, the
+    // expression-statement and the `return` guards all report alike.
+    static std::string describe_expr(lir_view::ExprRef er) {
+        if (!er) return " (no expression)";
+        auto ek = er.kind();
+        if (ek == lir_schema::expr::Code::Call)
+            return std::format(" (call to '{}')",
+                               std::string(lir_view::ECallView{er}.callee()));
+        if (ek == lir_schema::expr::Code::MethodCall)
+            return std::format(" (method call '{}' resolved to '{}')",
+                               std::string(lir_view::EMethodCallView{er}.method()),
+                               std::string(lir_view::EMethodCallView{er}.resolved_symbol()));
+        return std::format(" (expr kind {})", static_cast<int>(ek));
+    }
+    // ── R2 sink state (see bug_count() above) ───────────────────────────
+    static constexpr size_t kBugLogMax = 64;
+    // `mutable` because several lowering helpers that can only report a
+    // malfunction (logos_to_mlir, link resolution) are const members. The
+    // channel is a property of the COMPILE, not of the object's logical state.
+    mutable size_t                   bugs_ = 0;
+    mutable std::vector<std::string> bug_log_;
+    void bug_raw(std::string msg) const {
+        ++bugs_;
+        std::fprintf(stderr, "mlir_gen: internal: %s\n", msg.c_str());
+        if (bug_log_.size() < kBugLogMax) bug_log_.push_back(std::move(msg));
+        // OPT-IN debugging aid for a stack trace. The CHECK is never opt-in.
+        if (const char* e = std::getenv("LOGOS_MLIRGEN_ABORT_ON_BUG");
+            e && e[0] && e[0] != '0')
+            std::abort();
+    }
+    template <class... A>
+    void bug(std::format_string<A...> f, A&&... a) const {
+        bug_raw(std::format(f, std::forward<A>(a)...));
+    }
+    template <class... A>
+    std::nullptr_t bug_null(std::format_string<A...> f, A&&... a) const {
+        bug_raw(std::format(f, std::forward<A>(a)...));
+        return nullptr;
+    }
+    template <class... A>
+    bool bug_false(std::format_string<A...> f, A&&... a) const {
+        bug_raw(std::format(f, std::forward<A>(a)...));
+        return false;
+    }
+    template <class... A>
+    mlir::Value bug_value(std::format_string<A...> f, A&&... a) const {
+        bug_raw(std::format(f, std::forward<A>(a)...));
+        return {};
+    }
+
+    // Is the program being compiled RIGHT NOW listed in the R2 ledger?
+    //
+    // `LOGOS_MLIRGEN_BUG_LEDGER` names the ledger FILE; it does not grant an
+    // excuse. That distinction is the whole point: a boolean env var is a
+    // global off-switch, and it also forces the excused set to be hand-listed
+    // wherever the variable is set — a second copy of a population that already
+    // exists as an artifact. Here the artifact decides, so exporting the
+    // variable buys nothing for a program the ledger does not name.
+    //
+    // Ledger row: `<test-base> <count> <repo-relative path, no .logos>`; `#`
+    // starts a comment. Only column 3 is read — the count is re-measured by
+    // logos_00_mlir_gen_bug_ledger, which is where a count belongs.
+    bool bug_ledgered_here() const {
+        const char* lp = std::getenv("LOGOS_MLIRGEN_BUG_LEDGER");
+        if (!lp || !lp[0] || main_source_.empty()) return false;
+        std::FILE* f = std::fopen(lp, "r");
+        if (!f) {
+            // A named-but-unreadable ledger is a broken invocation, not a
+            // licence: say so and fail closed.
+            std::fprintf(stderr,
+                "mlir_gen: LOGOS_MLIRGEN_BUG_LEDGER='%s' cannot be opened —"
+                " the exclusion is REFUSED\n", lp);
+            return false;
+        }
+        bool hit = false;
+        char line[1024];
+        while (!hit && std::fgets(line, sizeof line, f)) {
+            std::string_view sv(line);
+            if (auto h = sv.find('#'); h != std::string_view::npos) sv = sv.substr(0, h);
+            // third whitespace-separated column
+            size_t col = 0, i = 0;
+            std::string_view path;
+            while (i < sv.size()) {
+                while (i < sv.size() && std::isspace(static_cast<unsigned char>(sv[i]))) ++i;
+                size_t b = i;
+                while (i < sv.size() && !std::isspace(static_cast<unsigned char>(sv[i]))) ++i;
+                if (i > b && ++col == 3) { path = sv.substr(b, i - b); break; }
+            }
+            if (path.empty()) continue;
+            // The ledger stores a repo-relative path with no extension; the
+            // compiler is handed whatever the caller typed. Suffix-match on
+            // "<path>.logos" so both an absolute and a relative invocation
+            // resolve, and a shorter path can never match a longer one by
+            // accident (the '/' before the match is required).
+            std::string want = std::string(path) + ".logos";
+            if (main_source_.size() >= want.size() &&
+                main_source_.compare(main_source_.size() - want.size(), want.size(), want) == 0 &&
+                (main_source_.size() == want.size() ||
+                 main_source_[main_source_.size() - want.size() - 1] == '/'))
+                hit = true;
+        }
+        std::fclose(f);
+        return hit;
+    }
+
     bool register_struct(lir_view::StructView sd);
     void register_tagged_enum(lir_view::EnumView ed);
     uint64_t variant_payload_bytes(lir_view::EnumVariantView v);
@@ -1045,6 +1186,11 @@ private:
     // by construction, so "no definition registered" means something different
     // about it than it does about a concrete one — see `layout_of`'s Struct case.
     bool type_has_unresolved_residue(TypeRef t, int depth = 0);
+    bool type_mentions_never(TypeRef t, int depth = 0);
+    // True while lowering a body whose own signature carries unresolved
+    // residue (TypeVar / Error / AssocType) — see gen_fn_body. Template
+    // residue, not an instance; the R2 silent-drop guards do not apply.
+    bool cur_fn_has_residue_ = false;
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
     // `layout_of`'s Struct case, keyed by the DEFINITION instead of a TypeRef —

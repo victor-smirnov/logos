@@ -242,7 +242,7 @@ mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     case C::PtrDiff:    return gen_expr_kind(lir_view::EPtrDiffView{er},    ty);
     case C::ReflectOf:  return gen_expr_kind(lir_view::EReflectOfView{er},  ty);
     }
-    std::fprintf(stderr, "mlir_gen: unhandled expr code %d\n", int(er.kind()));
+    bug("unhandled expr code {} — the expression lowers to no value", int(er.kind()));
     return nullptr;
 }
 
@@ -554,8 +554,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     v.each_payload([&](lir_view::ExprRef pr){ payload.push_back(pr); });
 
     auto* te = resolve_tagged_enum(enum_name, type);
+    if (!te && payload.empty()) {
+        // A BRACE-EMPTY variant (`E::Empty4 {}`) carries no data, so an enum
+        // whose variants are all like that is a plain C-style enum and has no
+        // tagged representation to resolve. The SYNTAX said "data variant"; the
+        // FACT is the payload, and the payload is empty. Lower it exactly as
+        // `E::Empty5` lowers — the discriminant constant.
+        // Measured before: `unknown tagged enum 'E'`, the literal lowered to
+        // nothing, and the `classify(E::Empty4 {})` call vanished.
+        return builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, disc, enum_disc_bits(enum_name, type));
+    }
     if (!te) {
-        std::fprintf(stderr, "mlir_gen: unknown tagged enum '%s'\n", enum_name.c_str());
+        bug("unknown tagged enum '{}' — the enum instance was never emitted, so "
+            "every use of it lowers to nothing", enum_name);
         return nullptr;
     }
     auto& info = *te;
@@ -2420,6 +2432,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 }
             }
         }
+        // ── SEPARATOR CLASS, JOIN DIRECTION — ambiguous, and knowingly kept ──
+        // These three fallbacks match a CANDIDATE against emitted function
+        // names by composing `callee + "__…"`. That is the join half of the
+        // class the split sites belong to: because `__` is legal inside an
+        // identifier, `callee` "foo" is a prefix of every method of an owner
+        // spelled "foo_", so a miss on `foo` can land on `foo_`'s function.
+        // (A lint cannot flag this — recomposing from carried parts and
+        // comparing is spelled identically and IS the sound pattern. What makes
+        // a join probe safe is that the candidate cannot be a proper prefix of
+        // another declared name, which is a fact about the registry, not the
+        // text. See tests/logos/separator_split_lint.sh, which says so.)
+        //
+        // They survive because every exact, registry-anchored path is tried
+        // FIRST and these run only after all of them missed — at which point
+        // the alternative is not a correct answer but a hard failure. The
+        // right end state is to delete them and let the miss reach the R2 sink;
+        // that is a behaviour change on programs that today link by luck, so it
+        // is its own arc, not a rider on this one. Until then this comment is
+        // the classification the site was missing.
         if (!callee_fn) {
             std::string generic_prefix = callee + "__g__";
             std::string fn_prefix      = callee + "__f__";
@@ -2454,6 +2485,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (::getenv("LOGOS_TRACE_CALL_MISS")) {
             std::fprintf(stderr, "[call-miss] '%s' — near-name FuncOps:\n",
                          callee.c_str());
+            // ── SEPARATOR CLASS: AMBIGUOUS, BUT BENIGN BY PURPOSE ────────
+            // This fragment is never used to resolve, name or emit anything;
+            // it only widens/narrows a set of candidate names PRINTED under an
+            // env-gated trace. A truncated fragment prints a SUPERSET — the
+            // harmless direction. Do NOT "fix" this into a narrower filter.
             std::string frag = callee.substr(callee.rfind('$') + 1);
             if (auto us = frag.find("__"); us != std::string::npos)
                 frag = frag.substr(0, us);
@@ -2695,14 +2731,32 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     // `&self` shape. Used by sema-time chain expansion for variadic-
     // tuple impls (Phase 3 of `[[baghunt-variadic-tuple-impl]]`).
     if (!resolved_symbol.empty() && recv_t) {
+        // ⚠ This gate is the COMPLEMENT of what `gen_recv_struct` can name,
+        // written as a list — and a list drifts. `usize` / `isize` are DISTINCT
+        // kinds from u64/i64 and were missing, so `(str, usize)`'s Debug chain
+        // lost its `usize` element call and the enclosing `return` with it
+        // (tests/logos/pass/deem_rel_col_hashable, silent, exit 0). Write the
+        // predicate as the complement it actually is, so a NEW scalar kind is
+        // covered the day it is added; and the fall-through below now REPORTS
+        // rather than returning null, so a kind this still misses is a red
+        // compile and not a vanished call.
         auto k = recv_t.kind();
+        using K = LogosType::Kind;
         bool primitive_recv =
-            k == LogosType::Kind::I8  || k == LogosType::Kind::I16 ||
-            k == LogosType::Kind::I32 || k == LogosType::Kind::I64 ||
-            k == LogosType::Kind::U8  || k == LogosType::Kind::U16 ||
-            k == LogosType::Kind::U32 || k == LogosType::Kind::U64 ||
-            k == LogosType::Kind::F32 || k == LogosType::Kind::F64 ||
-            k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+            !(k == K::Struct || k == K::ZonedStruct || k == K::TraitObject ||
+              k == K::TaggedPtr || k == K::DstRef || k == K::Ref ||
+              k == K::MutRef || k == K::Ptr || k == K::Enum ||
+              k == K::TypeVar || k == K::AssocType || k == K::Error ||
+              k == K::ImplTrait || k == K::ConstVar || k == K::CfgSlotType ||
+              k == K::Never || k == K::Void);
+        // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`
+        // below returns an empty type name and the whole method call lowers to
+        // NOTHING, silently. Measured: `fmt_debug_to_string::<(i64,str,i64)>`
+        // SIGSEGV'd, because the synthesized tuple-Debug chain's `str` element
+        // call vanished and took the enclosing `return` with it — in the
+        // SHIPPED stdlib archive, at compile exit 0. The gate here was a
+        // hand-maintained LIST OF KINDS; the real condition is "the receiver is
+        // not a struct and `resolved_symbol` names the exact callee".
         if (primitive_recv) {
             auto parent_mod = builder_.getBlock()->getParent()
                               ->getParentOfType<mlir::ModuleOp>();
@@ -2710,14 +2764,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             if (callee_fn) {
                 auto recv_val = gen_expr(recv_ref);
                 if (!recv_val) return nullptr;
-                // Auto-ref: spill scalar to alloca + pass alloca ptr.
-                // Mirrors the gen_expr_kind(EAddrOfTempView) scalar path.
-                auto recv_t_mlir = logos_to_mlir(recv_t);
-                if (!recv_t_mlir) recv_t_mlir = builder_.getI32Type();
-                auto recv_slot = create_entry_alloca(recv_t_mlir);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, recv_val, recv_slot);
+                // The self-argument's SHAPE is read off the CALLEE's signature,
+                // never assumed: `impl Debug for i64` takes `&self` as a
+                // pointer (spill the scalar), `impl Debug for str` takes it as
+                // the 16-byte fat slice BY VALUE (load it). Deriving this from
+                // the callee is what keeps a new receiver kind from silently
+                // producing a shape mismatch.
+                auto fnty = callee_fn.getFunctionType();
+                mlir::Type p0 = fnty.getNumInputs() ? fnty.getInput(0) : mlir::Type{};
+                mlir::Value self_arg = recv_val;
+                if (p0 && recv_val.getType() != p0) {
+                    if (p0 == ptr_type()) {
+                        // Auto-ref: spill scalar to alloca + pass alloca ptr.
+                        // Mirrors the gen_expr_kind(EAddrOfTempView) scalar path.
+                        auto recv_t_mlir = logos_to_mlir(recv_t);
+                        if (!recv_t_mlir) recv_t_mlir = recv_val.getType();
+                        auto recv_slot = create_entry_alloca(recv_t_mlir);
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, recv_val, recv_slot);
+                        self_arg = recv_slot;
+                    } else if (recv_val.getType() == ptr_type()) {
+                        // The receiver is a pointer to its storage and the
+                        // callee wants the value (fat slice / small aggregate).
+                        self_arg = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, p0, recv_val);
+                    }
+                }
                 llvm::SmallVector<mlir::Value> all_args;
-                all_args.push_back(recv_slot);
+                all_args.push_back(self_arg);
                 for (auto& le : arg_les) {
                     auto av = gen_expr(le);
                     if (!av) return nullptr;
@@ -5468,7 +5541,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFormatCallView v, TypeRef) {
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
-    std::fprintf(stderr, "mlir_gen: unexpected EPackExpand (should be expanded by mono)\n");
+    bug_raw("unexpected EPackExpand (should have been expanded by mono)");
     return nullptr;
 }
 

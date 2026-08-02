@@ -1,0 +1,7 @@
+// SEPARATOR CLASS — the separator `__` occurring INSIDE the enum base name.
+package tr;
+enum foo__bar<T> { none__, some__(T) }
+fn main() -> i32 {
+    let x: foo__bar<i64> = foo__bar::some__(11i64);
+    match x { foo__bar::some__(v) => { return (v - 8i64) as i32; }, foo__bar::none__ => { return 5i32; } }
+}

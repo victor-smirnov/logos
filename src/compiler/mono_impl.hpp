@@ -12,6 +12,7 @@
 #include <logos/compiler/str_map.hpp>
 
 #include "layout_law.hpp"
+#include "mangled_name.hpp"
 #include "trait_engine.hpp"
 
 #include <cstdlib>
@@ -300,6 +301,13 @@ private:
     // full string first; on miss with a dot present, retries with the
     // tail after the last dot. Mirrors find_struct_method_templates_
     // unguarded's semantics for the per-struct map.
+    // ── SEPARATOR CLASS: CLASSIFIED SAFE BY CONSTRUCTION ─────────────────
+    // Splitting `pkg.Name` at the LAST `.` is exact: a package path contains
+    // dots, a struct/enum NAME cannot (the `.` IS the package separator in the
+    // Logos path model), so the last `.` is always the boundary the composer
+    // wrote. This site is the demonstration that a separator OUTSIDE the
+    // identifier alphabet cannot be mis-parsed — contrast every `__` split,
+    // where the separator is legal inside BOTH operands.
     lir_view::StructView
     find_struct_template_unguarded(std::string_view qkey) const noexcept {
         if (auto it = struct_templates_.find(std::string(qkey));
@@ -337,12 +345,17 @@ private:
     StrMap<std::vector<lir_view::StructView>> struct_specs_;
     StrMap<std::pair<TypeRef, int>> needed_struct_insts_;
     StrSet struct_done_;
+    // Declared package names (see mono.cpp) — the registry that tells a
+    // package `$` boundary from a `$` that is part of a mangled base name.
+    StrSet pkg_names_;
+    bool is_known_pkg(std::string_view p) const noexcept {
+        return !p.empty() && pkg_names_.count(std::string(p)) != 0;
+    }
     StrMap<lir_view::EnumView>     enum_templates_;   // Stage E: decl mirrors
-    // M2: enum_templates_ is currently bare-keyed only (mono.cpp:192).
-    // The single lookup site (mono_clone.cpp:4048) takes a bare base
-    // extracted from a mangled cname. Helper wraps the direct .find for
-    // call-site symmetry with struct_template helpers; M3 can swap the
-    // backing store without touching the call site.
+    // Keyed BOTH bare (last-wins, back-compat) and `pkg.Name`, mirroring
+    // struct_templates_. The pkg-qualified index forecloses the
+    // same-bare-name-in-two-packages collision that `templates_by_name`
+    // already guards for structs (sema.cpp).
     std::optional<lir_view::EnumView>
     find_enum_template_bare(std::string_view base) const noexcept {
         if (auto it = enum_templates_.find(std::string(base));
@@ -350,7 +363,30 @@ private:
             return it->second;
         return std::nullopt;
     }
-    StrMap<std::pair<std::vector<TypeRef>, int>> needed_enum_insts_;
+    // NOT PROVIDED: a `find_enum_template_pkg_first(pkg, base)`.
+    // MEASURED (tests/logos/pass/for_in_iter.logos): the package carried on an
+    // enum TypeRef is NOT the declaring package of the enum the program is
+    // actually using. That file declares its own `enum Option<T> { None, Some(T) }`
+    // in package `for_in_iter`, yet every demand for it arrives with
+    // pkg_name() == "logos.lang.option" (the prelude's `Option`, whose variant
+    // ORDER is the opposite). Selecting by that package clones the stdlib
+    // template against sema's user-enum discriminants and the program silently
+    // returns 0 instead of 6. Until the declaring package is CARRIED rather
+    // than attributed by name resolution, a pkg-keyed enum lookup is a guess
+    // dressed as a fact — which is the very class this file is being fixed for.
+    // The base name of a demanded generic-enum instance is a FACT the recorder
+    // holds (`tr.enum_name()`); recovering it later by splitting `cname` at the
+    // first "__" cuts INSIDE any base ending in '_' (`foo_<i64>` → cname
+    // `foo___i64` → guessed base `foo`), so the template lookup misses and the
+    // instance is never emitted (measured: exit-0 compile, dropped statement;
+    // with `foo` also declared, the WRONG template is cloned). Carry the parts.
+    struct EnumInst {
+        std::string          base;   // tr.enum_name()  — CARRIED, never re-derived
+        std::string          pkg;    // tr.pkg_name()   — CARRIED
+        std::vector<TypeRef> args;
+        int                  depth;
+    };
+    StrMap<EnumInst> needed_enum_insts_;
     StrSet enum_done_;
     StrSet done_;
     StrMap<TypeRef> assoc_impls_;
@@ -513,6 +549,25 @@ private:
                 return &it->second;
         }
         return nullptr;
+    }
+
+    // ── the ONE registry-anchored owner/method split ────────────────────────
+    // `<owner>__<method>` is a COMPOSITION and `__` is legal inside BOTH
+    // parts, so `name.find("__")` is a guess: for `arr___pick__g__…` it names
+    // the owner `arr` (which does not exist), the template is never found, and
+    // the specialisation is SILENTLY skipped — measured: no symbol emitted, the
+    // compile exits 0, the program returns garbage. The declared owners are the
+    // only boundary that exists; ask them, longest-first.
+    // nullopt is a FACT — never a licence to fall back to a raw split.
+    bool is_declared_owner(std::string_view c) const noexcept {
+        return find_struct_method_templates_unguarded(c) != nullptr ||
+               concrete_struct_types_.count(std::string(c)) != 0 ||
+               struct_templates_.count(std::string(c)) != 0;
+    }
+    std::optional<mname::OwnerMethod>
+    split_owner_method(std::string_view name) const noexcept {
+        return mname::split_by_registry(
+            name, [this](std::string_view c) { return is_declared_owner(c); });
     }
 
     struct MethodWorkItem {
@@ -770,8 +825,7 @@ private:
         // Phase 1: recursive TypeVar check (was shallow per-arg).
         for (auto a : tr.type_args())
             if (contains_typevar(a)) return;
-        std::string cname = std::string(tr.enum_name());
-        for (auto a : tr.type_args()) { cname += "__"; cname += mangle_type(a); }
+        std::string cname = enum_instance_name(tr);
         if (!enum_done_.count(cname)) {
             if (depth_ >= max_depth_) {
                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
@@ -779,7 +833,9 @@ private:
                                 max_depth_, cname), {}, 0});
                 return;
             }
-            needed_enum_insts_[cname] = {tr.type_args(), depth_ + 1};
+            needed_enum_insts_[cname] = EnumInst{std::string(tr.enum_name()),
+                                                 std::string(tr.pkg_name()),
+                                                 tr.type_args(), depth_ + 1};
         }
     }
 
@@ -796,6 +852,29 @@ private:
 
     // ── Mangling (static — inline) ────────────────────────────────────────
 public:
+    // THE ONE composer of a generic enum INSTANCE name. Every producer and
+    // every consumer of that spelling calls this — mono records instances
+    // under it, clone_enum_def names the emitted def with it, mlir-gen
+    // resolves tagged enums by it. Do NOT hand-roll `base + "__" +
+    // mangle_type(arg)` anywhere: a spelling composed in six places is six
+    // chances for a producer and a consumer to disagree.
+    //
+    // NOTE (measured divergence, deliberately preserved for now): this
+    // composer does NOT fold `type_module_suffix` into the base, while
+    // `mangle_type`'s Enum case DOES. Two spellings of one instance therefore
+    // exist by construction today. Naming them separately makes the gap
+    // visible; merging them is a symbol-TEXT change and belongs with
+    // abi-check (design Step 8, PAIR-gated).
+    static std::string enum_instance_name(std::string_view base,
+                                          const std::vector<TypeRef>& args) {
+        std::string cname(base);
+        for (auto a : args) { cname += "__"; cname += mangle_type(a); }
+        return cname;
+    }
+    static std::string enum_instance_name(TypeRef tr) {
+        return enum_instance_name(TypeRef(tr).enum_name(), TypeRef(tr).type_args());
+    }
+
     static std::string mangle_type(TypeRef tr) {
         if (!tr) return "null";
         switch (tr.kind()) {
@@ -828,6 +907,15 @@ public:
             };
             // Coexistence + G156-1: fold module_id (and package, for ambiguous
             // names) into the enum identity — byte-identical to sema.
+            //
+            // MEASURED DIVERGENCE (recorded, not fixed here): this case folds
+            // `type_module_suffix(esuf)` into the enum identity;
+            // `enum_instance_name` (the composer `record_needed_enum` /
+            // `clone_enum_def` / mlir-gen's `resolve_tagged_enum` use) does
+            // NOT. Two spellings of ONE instance exist by construction. That
+            // is a real coexistence/G156-1 hazard, but unifying them changes
+            // emitted symbol TEXT and must ride with an ABI bump — design
+            // Step 8, PAIR-gated. Do not "simplify" the two into one here.
             std::string esuf = type_module_suffix(tr.enum_name(), tr.pkg_name());
             for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name()) + esuf;
             std::string r = std::string(tr.enum_name()) + esuf;

@@ -177,6 +177,15 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     }
     case LogosType::Kind::TaggedPtr:    return cache_ret(ptr_type());
     case LogosType::Kind::TraitObject:  return cache_ret(ptr_type());
+    // ── NOT routed through the R2 sink, and the reason is measured ───────
+    // `logos_to_mlir` is a TOTAL QUERY, not a lowering step: callers use its
+    // nullptr as an ANSWER (`if (!val && logos_to_mlir(ety) && …)` at
+    // gen_stmt's expression-statement check is a predicate on "does this type
+    // have an MLIR representation"). Making a null answer fatal turned 12
+    // CORRECT programs red (the hrtb-* family and 5 spec tests) — they ask
+    // about a quantified TypeVar in a position where "no MLIR type" is the
+    // right answer and nothing is dropped. A malfunction here is a property of
+    // the CALLER that needed a type and got none; it belongs at that caller.
     case LogosType::Kind::TypeVar:
         std::fprintf(stderr, "mlir_gen: unresolved TypeVar '%s' — mono_pass required\n",
                      std::string(tv.type_var_name()).c_str());
@@ -189,7 +198,8 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         std::string base_s = tv.assoc_base() ? type_str(tv.assoc_base()) : "<null>";
         std::fprintf(stderr,
                      "mlir_gen: unresolved AssocType '%s::%s::%s' — mono_pass required\n",
-                     base_s.c_str(), std::string(tv.trait_name()).c_str(), std::string(tv.assoc_type_name()).c_str());
+                     base_s.c_str(), std::string(tv.trait_name()).c_str(),
+                     std::string(tv.assoc_type_name()).c_str());
         return nullptr;
     }
     case LogosType::Kind::InferredType:
@@ -552,6 +562,28 @@ MLIRGenImpl::Layout MLIRGenImpl::enum_def_layout(const std::string& ename,
 // that gate `record_needed_struct`. A type this answers TRUE for has no
 // instance ANYWHERE by construction, so a missing definition for it is a
 // different fact from a demand that was missed.
+// An UNINHABITED signature: `!` occurs somewhere in it. No value of `!` exists,
+// so no call to such a function can ever be constructed — mono emits the
+// instance (`Option<!>::replace`) but deliberately skips its callees, and the
+// body is dead by construction. Distinct from `type_has_unresolved_residue`:
+// `!` IS resolved, it simply has no inhabitants. The R2 silent-drop guards
+// scope themselves off for these bodies; nothing else consults it.
+bool MLIRGenImpl::type_mentions_never(TypeRef t, int depth) {
+    using K = LogosType::Kind;
+    if (!t || depth > 16) return false;
+    TypeRef tv{t};
+    if (tv.kind() == K::Never) return true;
+    for (auto a : tv.type_args())
+        if (type_mentions_never(a, depth + 1)) return true;
+    if (auto p = tv.pointee(); p && p != t)
+        if (type_mentions_never(p, depth + 1)) return true;
+    if (auto e = tv.elem(); e && e != t)
+        if (type_mentions_never(e, depth + 1)) return true;
+    for (auto e : tv.tuple_elems())
+        if (type_mentions_never(e, depth + 1)) return true;
+    return false;
+}
+
 bool MLIRGenImpl::type_has_unresolved_residue(TypeRef t, int depth) {
     using K = LogosType::Kind;
     if (!t || depth > 16) return false;
@@ -1063,8 +1095,8 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
     // Must match the mangling used by mono's record_needed_enum:
     // struct/datatype args use concrete_struct_name(), others use type_str().
     if (type && TypeRef(type).kind() == LogosType::Kind::Enum && !TypeRef(type).type_args().empty()) {
-        std::string cname = std::string(TypeRef(type).enum_name());
-        for (auto a : TypeRef(type).type_args()) { cname += "__"; cname += Mono::mangle_type(a); }
+        // THE ONE composer — the same call mono's record_needed_enum makes.
+        std::string cname = Mono::enum_instance_name(type);
         tit = tagged_enums_.find(cname);
         if (tit != tagged_enums_.end()) return &tit->second;
     }
@@ -1077,11 +1109,10 @@ const lir_view::EnumView* MLIRGenImpl::find_enum_decl(std::string_view name,
         return &it->second;
     if (type && TypeRef(type).kind() == LogosType::Kind::Enum &&
         !TypeRef(type).type_args().empty()) {
-        std::string cname(name);
-        for (auto a : TypeRef(type).type_args()) {
-            cname += "__";
-            cname += Mono::mangle_type(a);
-        }
+        // `name` is the BASE the caller carried in (it may or may not equal
+        // the type's own enum_name — e.g. an alias spelling), so compose from
+        // it rather than from the TypeRef. THE ONE composer either way.
+        std::string cname = Mono::enum_instance_name(name, TypeRef(type).type_args());
         if (auto it = enum_types_.find(cname); it != enum_types_.end())
             return &it->second;
     }

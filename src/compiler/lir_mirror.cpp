@@ -854,10 +854,13 @@ public:
         return map_off;
     }
     const uint8_t* emit_block_stmt_direct(uint32_t line,
-                                                   lir_view::BlockRef body) {
+                                                   lir_view::BlockRef body,
+                                                   bool transparent) {
         auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
         auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Block));
         put(map_off, sk::BODY, body_av);
+        // Carried, never re-derived — see stmt_keys::TRANSPARENT.
+        if (transparent) put(map_off, sk::TRANSPARENT, put_bool(true));
         put_line(map_off, line);
         return map_off;
     }
@@ -2283,10 +2286,10 @@ const uint8_t* lir_mirror_emit_continue(lir::LProgram& prog, uint32_t line, std:
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_continue_direct(line, label);
 }
-const uint8_t* lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, lir_view::BlockRef body) {
+const uint8_t* lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, bool transparent) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_block_stmt_direct(line, body);
+    return em.emit_block_stmt_direct(line, body, transparent);
 }
 const uint8_t* lir_mirror_emit_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef value) {
     auto& ctr = prog.type_pool.ctr_or_init();

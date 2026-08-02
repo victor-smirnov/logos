@@ -365,6 +365,15 @@ inline constexpr Key EXTRA_MIDS        {"EXTRA_MIDS",      35};   // Array<Varch
 inline constexpr Key MOVED_FIELDS      {"MOVED_FIELDS",    36};   // Array<Varchar> — SDrop: field names of `var_name` that were moved out and must not be auto-dropped
 inline constexpr Key DROP_OLD          {"DROP_OLD",        39};   // u8 — SAssign: drop the LHS's old value before storing (B8 drop-before-replace)
 inline constexpr Key VAR_SLOT          {"VAR_SLOT",        40};   // Int — SLet/SFor binding's dense var slot (see expr_keys::VAR_SLOT). Absent ⇒ no slot.
+// SBlock: this block is SEMA-SYNTHESIZED and TRANSPARENT — its bindings must
+// leak into the enclosing scope (destructure spill, statement temp-hoist,
+// temporary lifetime extension). It is a fact about the PRODUCER, so the
+// producer states it. It used to be re-derived in mlir-gen by testing whether
+// the first `let`'s NAME started with `__`, which made a user-written
+// `let __x` as a block's first statement disable scope restore — measured: an
+// inner shadowing binding leaked out and the outer variable read the inner
+// value, silently, at exit 0.
+inline constexpr Key TRANSPARENT       {"TRANSPARENT",     41};   // u8 — SBlock
 
 // Multi-arena IR: dedicated per-element export ID. Stamped onto the
 // TinyObjectMap of every externally-referenceable element (the published

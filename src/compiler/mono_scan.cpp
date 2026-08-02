@@ -187,15 +187,40 @@ void Mono::scan_expr(lir_view::ExprRef e) {
             // `[pkg.]<Concrete>__<method>[__f__|__g__sig]`. Recover the
             // (concrete struct, method short-name) pair and enqueue.
             std::string callee{v.callee()};
-            if (auto sep = callee.find("__"); sep != std::string::npos) {
-                std::string concrete = callee.substr(0, sep);
-                std::string method_part = callee.substr(sep + 2);
-                // Strip `__f__sig` / `__g__sig` to get the user-facing short name.
+            // REGISTRY-ANCHORED, longest match. `concrete_struct_types_` is
+            // the registry of declared concrete owners; the boundary is the
+            // longest declared prefix, NOT the first `__` (which cuts inside
+            // any owner ending in `_` or containing `__`). A `$G` instance
+            // name that is not yet registered still has to be deferred, so
+            // the fallback below keeps the anchored-first-`__` cut for THAT
+            // case only — and only when the prefix is visibly a `$G` spelling.
+            std::string concrete, method_part;
+            bool have_owner = false;
+            if (auto om = mname::split_by_registry(
+                    callee, [&](std::string_view c) {
+                        return concrete_struct_types_.count(std::string(c)) != 0;
+                    })) {
+                // Keep the pkg-qualified spelling the registry also keys, so
+                // two packages sharing a bare cname stay distinguishable.
+                concrete = om->pkg.empty()
+                             ? std::string(om->owner)
+                             : std::string(om->pkg) + "." + std::string(om->owner);
+                method_part = std::string(om->method);
+                have_owner  = true;
+            } else if (auto sep = callee.find("__"); sep != std::string::npos) {
+                concrete    = callee.substr(0, sep);
+                method_part = callee.substr(sep + 2);
                 if (auto sig = method_part.find("__f__"); sig != std::string::npos)
                     method_part.resize(sig);
                 else if (auto sig = method_part.find("__g__"); sig != std::string::npos)
                     method_part.resize(sig);
+                have_owner = true;
+            }
+            if (have_owner) {
                 auto cit = concrete_struct_types_.find(concrete);
+                if (cit == concrete_struct_types_.end())
+                    if (auto d = concrete.rfind('.'); d != std::string::npos)
+                        cit = concrete_struct_types_.find(concrete.substr(d + 1));
                 if (cit != concrete_struct_types_.end())
                     enqueue_method_inst(cit->second, method_part);
                 else if (concrete.find("$G") != std::string::npos) {
@@ -461,12 +486,23 @@ lir_view::FunctionView Mono::find_best_spec(
         // generic templates carry pkg + `__g__sig`. The fallback unifies
         // the two namespaces for spec lookup.
         std::string raw = base_name;
-        if (auto p = raw.find("__g__"); p != std::string::npos)
+        if (auto p = mname::sig_boundary(raw, 0); p != std::string::npos)
             raw.resize(p);
-        else if (auto p = raw.find("__f__"); p != std::string::npos)
-            raw.resize(p);
-        if (auto d = raw.rfind('$'); d != std::string::npos)
-            raw = raw.substr(d + 1);
+        // `rfind('$')` was WRONG here: `$` is legal INSIDE a base name — it is
+        // the separator `concrete_struct_name` composes (`Foo$G1$i32`), and
+        // `$where$` / `$M<hex>` appear too. The ONE `$` that is a package
+        // boundary is the one `sym::mangle` composed as
+        // `[<module_id>.]<pkg>$<base>`, so strip it only when the head really
+        // IS a declared package (registry-anchored, not positional).
+        if (auto d = raw.find('$'); d != std::string::npos) {
+            std::string head = raw.substr(0, d);
+            bool is_pkg = is_known_pkg(head);
+            // `sym::mangle` may prepend `<module_id>.` to the package segment.
+            if (!is_pkg)
+                if (auto dot = head.find('.'); dot != std::string::npos)
+                    is_pkg = is_known_pkg(head.substr(dot + 1));
+            if (is_pkg) raw = raw.substr(d + 1);
+        }
         sit = specs_.find(raw);
     }
     if (sit == specs_.end()) return {};
@@ -539,22 +575,89 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
     // through a dedicated method-level enqueue here so the right specialisation
     // gets cloned.
     if (orig_name.empty()) {
-        // Split mangled_callee at the first `__` to find Struct + method-tail.
-        auto sep = mangled_callee.find("__");
-        if (sep != std::string::npos) {
-            std::string struct_part = mangled_callee.substr(0, sep);
+        // REGISTRY-ANCHORED (longest match) over the declared struct owners.
+        // `mangled_callee.find("__")` is a GUESS: it cuts inside any owner
+        // ending in `_` or containing `__`, and inside any method name that
+        // does. `struct_method_templates_` / `concrete_struct_types_` are the
+        // registry of owners that actually exist.
+        std::string struct_part, method_name;
+        bool split_ok = false;
+        if (auto om = split_owner_method(mangled_callee)) {
+            struct_part = om->pkg.empty()
+                            ? std::string(om->owner)
+                            : std::string(om->pkg) + "." + std::string(om->owner);
+            // ⚠ THE MARKER IS NOT A BOUNDARY. `__f__`/`__g__` are legal inside
+            // a method's own name, so the cut `split_owner_method` performed at
+            // the FIRST marker is a GUESS, not a decomposition: `fn a__f__b<U>`
+            // composes to `Owner__a__f__b__g__<sig>` and the guess yields method
+            // `a`, tail `__f__b__g__<sig>`. This code used to assert in a
+            // comment that a present marker made `om->method` exact; a two-line
+            // program refutes that (the call was emitted with no definition →
+            // MLIR verifier error). So the marker branch gets the SAME treatment
+            // the no-marker branch already had: the owner's method table is the
+            // registry of method names, and the registry decides.
+            //
+            // `rest` is therefore the WHOLE remainder after `Owner__`, marker
+            // and all — reassembled from the guess rather than trusted as one.
+            const std::string rest_s = std::string(om->method) + std::string(om->tail);
+            std::string_view rest = rest_s;
+            // Take the longest declared method name the remainder starts with.
+            // A key may itself carry a `__g__` tail (overloaded generic methods
+            // are keyed by their full signature), so a key whose SHORT half
+            // matches counts too.
+            if (auto* smt = find_struct_method_templates_unguarded(struct_part)) {
+                size_t best = 0;
+                for (auto& [k, _] : *smt) {
+                    // (a) the key is a prefix of the remainder, and what follows
+                    // is a composed separator (or nothing) …
+                    if (k.size() > best && rest.size() >= k.size() &&
+                        rest.compare(0, k.size(), k) == 0 &&
+                        (rest.size() == k.size() ||
+                         rest.compare(k.size(), 2, "__") == 0)) {
+                        best = k.size();
+                        continue;
+                    }
+                    // (b) … or the key is exactly the remainder followed by a
+                    // `__g__` signature (RECOMPOSE-AND-COMPARE, no boundary
+                    // guessed): overloaded generic methods are keyed by their
+                    // full signature, so `rest` is their short half.
+                    if (rest.size() > best && k.size() >= rest.size() + 5 &&
+                        k.compare(0, rest.size(), rest) == 0 &&
+                        k.compare(rest.size(), 5, "__g__") == 0)
+                        best = rest.size();
+                }
+                if (best) method_name = std::string(rest.substr(0, best));
+            }
+            if (method_name.empty()) {
+                // No declared method of this owner is a prefix — the registry
+                // answered "I do not know this name", which is a FACT about the
+                // callee, not a licence to guess harder. The anchored marker cut
+                // is kept only as the pre-registry behaviour for owners whose
+                // table is not populated at this point; it is a guess and is
+                // labelled as one.
+                method_name = std::string(rest);
+                if (auto p = mname::sig_boundary(method_name, 0); p != std::string::npos)
+                    method_name.resize(p);
+                else if (auto p = method_name.find("__"); p != std::string::npos)
+                    method_name.resize(p);
+            }
+            split_ok = true;
+        } else if (auto sep = mangled_callee.find("__"); sep != std::string::npos) {
+            // No declared owner is a prefix. That is a FACT (the callee is not
+            // an owner-method composition this round — e.g. a `$blanket$`
+            // template or a spec fn), not a licence to guess; the legacy cut
+            // is kept only so the pre-existing best-effort path survives, and
+            // it is anchored on `sig_boundary` rather than a bare `__`.
+            struct_part = mangled_callee.substr(0, sep);
             std::string method_tail = mangled_callee.substr(sep + 2);
-            // Strip `__g__sig` / `__f__sig` suffix and the trailing
-            // mangled type-args (`__i32__...`) to reach the method short name.
-            // We don't know the suffix length exactly here, but the
-            // struct_method_templates lookup is by short name only.
-            std::string method_name = method_tail;
-            if (auto p = method_name.find("__g__"); p != std::string::npos)
-                method_name.resize(p);
-            else if (auto p = method_name.find("__f__"); p != std::string::npos)
+            method_name = method_tail;
+            if (auto p = mname::sig_boundary(method_name, 0); p != std::string::npos)
                 method_name.resize(p);
             else if (auto p = method_name.find("__"); p != std::string::npos)
                 method_name.resize(p);
+            split_ok = true;
+        }
+        if (split_ok) {
             // Pkg-qualified struct (e.g. `std.lang.iter.SliceIter`): the call
             // emit may carry only the bare struct name. struct_method_templates_
             // keys both pkg-qualified and bare.
@@ -1008,25 +1111,25 @@ void Mono::drain_method_worklist() {
         std::string sig;
         {
             std::string tn = std::string(tmpl.name());
-            // Pkg may have inner dots; split at LAST dot.
-            if (auto dot = tn.rfind('.'); dot != std::string::npos)
-                tn = tn.substr(dot + 1);
-            auto sep1 = tn.find("__");
-            if (sep1 != std::string::npos) {
-                // Method names may themselves start with `__` (e.g.
-                // `__drop_in_place`). Walk to the actual signature boundary —
-                // `__f__` (free fn / by-value self) or `__g__` (generic /
-                // ref self) — instead of grabbing the next `__`, which would
-                // otherwise cut into the method name.
-                auto pf = tn.find("__f__", sep1 + 2);
-                auto pg = tn.find("__g__", sep1 + 2);
-                size_t sep2 = std::string::npos;
-                if (pf != std::string::npos && pg != std::string::npos)
-                    sep2 = std::min(pf, pg);
-                else if (pf != std::string::npos) sep2 = pf;
-                else if (pg != std::string::npos) sep2 = pg;
-                else                              sep2 = tn.find("__", sep1 + 2);
-                if (sep2 != std::string::npos) sig = tn.substr(sep2);
+            // BOTH parts are carried by the worklist item: the template's
+            // owner (`base_struct`) and the method key (`method_name`).
+            // Recompose-and-compare instead of cutting `tn` at a `__` — that
+            // cut lands inside any method name containing `__` and produced a
+            // DOUBLED signature (`…a__f__b` + `__f__b__f__sig`), nm-verified.
+            if (auto tail = mname::sig_of(tn, item.base_struct, item.method_name)) {
+                sig = std::string(*tail);
+            } else {
+                // Legacy anchored scan — reached when the template's name is
+                // not that composition (blanket/spec re-hosting). It is a
+                // GUESS; keep it only as the fallback.
+                if (auto dot = tn.rfind('.'); dot != std::string::npos)
+                    tn = tn.substr(dot + 1);
+                auto sep1 = tn.find("__");
+                if (sep1 != std::string::npos) {
+                    auto sep2 = mname::sig_boundary(tn, sep1 + 2);
+                    if (sep2 == std::string::npos) sep2 = tn.find("__", sep1 + 2);
+                    if (sep2 != std::string::npos) sig = tn.substr(sep2);
+                }
             }
         }
         std::string bare_dest = item.concrete_struct + "__" + item.method_name + sig;

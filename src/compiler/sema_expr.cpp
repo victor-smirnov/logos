@@ -8597,10 +8597,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // try the base name (`SliceIter`) — trait-default-cloned methods
         // register under the base.
         if (cands.empty()) {
-            if (auto dollar = lookup_name.find('$'); dollar != std::string::npos) {
-                std::string base = lookup_name.substr(0, dollar);
-                if (auto under = lookup_name.rfind("__"); under != std::string::npos)
-                    base += lookup_name.substr(under);
+            // SEPARATOR CLASS: `lookup_name` was COMPOSED 15 lines above from
+            // two parts that are still in scope. Re-composing it from those
+            // parts is exact; re-PARSING it (`rfind("__")` to find where the
+            // method starts) is a guess that lands inside any method name
+            // containing `__`.
+            if (auto dollar = sname.find('$'); !sname.empty() &&
+                                               dollar != std::string::npos) {
+                std::string base = sname.substr(0, dollar) + "__" +
+                                   std::string(method_name);
                 cands = find_func_candidates(base);
             }
         }
@@ -14414,6 +14419,10 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     synth.is_unsafe = m->is_unsafe;
     synth.impl_target_pattern = nullptr;
     synth.body_always_diverges = false;
+    // The composed base below is `<cname>__<mname>`; carry both parts so no
+    // consumer has to recover them by cutting at a `__`.
+    synth.owner_struct = cname;
+    synth.is_method    = true;
     return finish_generic_call(cname + "__" + mname, synth,
                                std::move(explicit_targs), std::move(arg_exprs));
 }

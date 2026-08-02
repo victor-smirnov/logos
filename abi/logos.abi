@@ -11890,11 +11890,6 @@ sym	logos_mem.logos.std.compiler.metaprog$view_of_str__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$view_of_string__f__ref_String
 sym	logos_mem.logos.std.compiler.tokens$span_unknown__f__void
 sym	logos_mem.logos.std.compiler.tokens$token_stream_new__f__void
-sym	logos_std..logos.std.fmt.__fmt_eprint__f__slice_u8
-sym	logos_std..logos.std.fmt.__fmt_eprintln__f__slice_u8
-sym	logos_std..logos.std.fmt.__fmt_panic__f__slice_u8
-sym	logos_std..logos.std.fmt.__fmt_print__f__slice_u8
-sym	logos_std..logos.std.fmt.__fmt_println__f__slice_u8
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__close__g__refmut_BufReader$G1$R
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__read__g__refmut_BufReader$G1$R__pmut_u8__i64
 sym	logos_std..logos.std.io.buffered.BufReader$G1$AsyncTcpStream__read_bytes__g__refmut_BufReader$G1$R__pmut_u8__i64
@@ -12093,6 +12088,11 @@ sym	logos_std.logos.std.env$var__f__pcst_u8
 sym	logos_std.logos.std.env$var__f__slice_u8
 sym	logos_std.logos.std.env$var_is_set__f__pcst_u8
 sym	logos_std.logos.std.env$var_is_set__f__slice_u8
+sym	logos_std.logos.std.fmt$__fmt_eprint__f__slice_u8
+sym	logos_std.logos.std.fmt$__fmt_eprintln__f__slice_u8
+sym	logos_std.logos.std.fmt$__fmt_panic__f__slice_u8
+sym	logos_std.logos.std.fmt$__fmt_print__f__slice_u8
+sym	logos_std.logos.std.fmt$__fmt_println__f__slice_u8
 sym	logos_std.logos.std.io$eprint__f__slice_u8
 sym	logos_std.logos.std.io$eprint_string__f__ref_String
 sym	logos_std.logos.std.io$eprintln__f__slice_u8

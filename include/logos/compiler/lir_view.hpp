@@ -2904,6 +2904,9 @@ struct SLoopView {
 struct SBlockView {
     StmtRef self;
     BlockRef body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
+    // Sema-synthesized transparent wrapper — a CARRIED fact, see
+    // stmt_keys::TRANSPARENT. Absent ⇒ false ⇒ a real lexical scope.
+    bool transparent() const noexcept { return detail::read_bool(self, sk::TRANSPARENT.code); }
 };
 
 struct SForEachView {

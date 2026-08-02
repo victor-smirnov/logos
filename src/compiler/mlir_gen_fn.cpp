@@ -528,6 +528,21 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn_ret;
+    // A body whose own SIGNATURE still carries a TypeVar / Error / AssocType
+    // is TEMPLATE RESIDUE — no instance of it exists, so nothing in it can be
+    // "dropped" in the sense the R2 silent-drop guards mean. The residue is
+    // mono's arc (`$tuple$variadic__fmt__g__ref_tup$1$A…` in logos.mem.fmt is
+    // the live example), so the guards below are scoped OFF for it rather than
+    // softened. This is a STRUCTURAL fact read off the types, not a name test.
+    // …and an UNINHABITED signature (`!` anywhere in it) is dead by
+    // construction for the same reason — `Option<!>::replace` in logos.lang.
+    auto sig_dead = [&](TypeRef t) {
+        return type_has_unresolved_residue(t) || type_mentions_never(t);
+    };
+    cur_fn_has_residue_ = sig_dead(fn_ret);
+    if (!cur_fn_has_residue_)
+        for (auto& p : fn.params())
+            if (sig_dead(p.type(gfb_pool))) { cur_fn_has_residue_ = true; break; }
     cur_fn_name_ = link_name(fn);
     cur_fn_pkg_  = std::string(fn.package());   // G156-1: pkg-scoped const resolution
 

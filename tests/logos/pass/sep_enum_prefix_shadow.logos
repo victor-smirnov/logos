@@ -1,0 +1,18 @@
+// SEPARATOR CLASS — one enum base name is a PREFIX of another (`foo` / `foo_`),
+// both instantiated at the same type argument. The mangled instance name of
+// `foo_<i64>` is `foo___i64`; a base recovered by cutting at the FIRST "__"
+// yields `foo`, so the WRONG template is cloned under that name. The two enums
+// here have deliberately DIFFERENT variant sets, so the mis-clone cannot
+// accidentally agree: measured on the baseline compiler this returned 0
+// (`unknown tagged enum` + a dropped `let`, exit-0 compile).
+package tr;
+enum foo<T>  { only_one(T) }
+enum foo_<T> { r, s(T) }
+fn main() -> i32 {
+    let a: foo<i64>  = foo::only_one(10i64);
+    let b: foo_<i64> = foo_::s(7i64);
+    let mut acc: i64 = 0i64;
+    match a { foo::only_one(v) => { acc = acc + v; } }
+    match b { foo_::s(v) => { acc = acc - v; }, foo_::r => { acc = acc + 200i64; } }
+    return acc as i32;
+}

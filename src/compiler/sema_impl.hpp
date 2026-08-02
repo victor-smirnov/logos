@@ -20,6 +20,7 @@
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/subtype.hpp>
 #include "layout_law.hpp"
+#include "mangled_name.hpp"
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
@@ -1151,7 +1152,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SContinue>) {
                 s.mirror_ptr_ = lir_mirror_emit_continue(p, line, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SBlock>) {
-                s.mirror_ptr_ = lir_mirror_emit_block_stmt(p, line, k.body);
+                s.mirror_ptr_ = lir_mirror_emit_block_stmt(p, line, k.body, k.transparent);
             } else if constexpr (std::is_same_v<KT, lir::SFieldWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_field_write(p, line, k.receiver, k.field, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SIndexWrite>) {
@@ -2749,6 +2750,16 @@ private:
                             bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
                             bool is_token_macro = false; // #[token_macro] callee (str RAW_TEXT)
                             std::string base_name;
+                            // SEPARATOR CLASS — the two facts every consumer
+                            // used to re-derive from `base_name.find("__")`.
+                            // A free fn may legally be named `a__b`, and a
+                            // method `b` on struct `a` mangles to the SAME
+                            // `a__b`; the string cannot tell them apart, and
+                            // asking it produced a wrong "duplicate function"
+                            // rejection of legal code (measured). Both are
+                            // known at collect_fn/lower_fn — carry them.
+                            std::string owner_struct;   // == struct_ctx; "" for a free fn
+                            bool        is_method = false;   // the FACT, not a spelling
                             std::string signature_key;
                             std::string symbol_name;
                             std::string source_file; std::string package;

@@ -508,8 +508,7 @@ Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
     // under — so a generic enum's row really lands in the cross-engine
     // comparison instead of in `n_unmatched`. A non-generic enum is its bare
     // name in all three engines, which is why the C-LIKE cells match at all.
-    std::string ekey = ename;
-    for (auto a : t.type_args()) { ekey += "__"; ekey += mangle_type(a); }
+    std::string ekey = enum_instance_name(ename, t.type_args());
     lay::record("mono_abi_layout", lay::type_key(t.pkg_name(), ekey), ans);
     return { ans.layout.size, ans.layout.align };
 }
@@ -2739,7 +2738,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string prefix = base + "__f__";
                     auto has = [&](const std::string& full) {
                         size_t p = full.find(prefix);
-                        return p != std::string::npos && (p == 0 || full[p - 1] == '.');
+                        // ⚠ SEPARATOR CLASS. The head boundary was tested as
+                        // `full[p-1] == '.'` alone — but a FREE fn's link name
+                        // is composed by `sym::mangle` as `<pkg>$<base>`, not
+                        // `<pkg>.<base>`. So `fmt_seq` NEVER resolved: the
+                        // expansion emitted a call to the bare fallback name,
+                        // mlir-gen found no such function, and the whole
+                        // `return tuple_each_field_debug…` chain lowered to
+                        // NOTHING — an 8-tuple's Debug::fmt fell off its end
+                        // and returned garbage, in the SHIPPED stdlib archive,
+                        // with the compile at exit 0. Both composed separators
+                        // are boundaries; neither alone is.
+                        return p != std::string::npos &&
+                               (p == 0 || full[p - 1] == '.' || full[p - 1] == '$');
                     };
                     for (auto& fn : out_.functions) if (has(std::string(fn.name()))) return std::string(fn.name());
                     for (auto& fn : in_.functions)  if (has(std::string(fn.name()))) return std::string(fn.name());
@@ -2757,7 +2768,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         std::string prefix = en + infix;
                         auto has = [&](const std::string& full) {
                             size_t p = full.find(prefix);
-                            return p != std::string::npos && (p == 0 || full[p - 1] == '.');
+                            // `$` is a composed head boundary too — see
+                            // resolve_fn above.
+                            return p != std::string::npos &&
+                                   (p == 0 || full[p - 1] == '.' || full[p - 1] == '$');
                         };
                         for (auto& fn : out_.functions) if (has(std::string(fn.name()))) return std::string(fn.name());
                         for (auto& fn : in_.functions)  if (has(std::string(fn.name()))) return std::string(fn.name());
@@ -3056,7 +3070,39 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     callee_pkg = callee_body.substr(0, dot);
                     callee_body = callee_body.substr(dot + 1);
                 }
-                auto sep = callee_body.find("__");
+                // SEPARATOR CLASS — the substitution map IS the registry, so
+                // the boundary is the longest bound type-var that prefixes the
+                // callee, not the first `__`. Measured with `fn go<T_: Mk>()`:
+                // the first-`__` cut named `T`, nothing was bound, the callee
+                // stayed `T___mk` and the compile hard-errored on legal code;
+                // with BOTH `T` and `T_` in scope it named the WRONG one and
+                // the program silently returned the other trait's value.
+                size_t sep = std::string::npos;
+                {
+                    std::vector<size_t> bounds;
+                    for (size_t p = callee_body.find("__");
+                         p != std::string::npos; p = callee_body.find("__", p + 1))
+                        if (p > 0) bounds.push_back(p);
+                    std::vector<size_t> hits;
+                    for (auto it2 = bounds.rbegin(); it2 != bounds.rend(); ++it2)
+                        if (s.count(callee_body.substr(0, *it2))) hits.push_back(*it2);
+                    if (hits.size() == 1) {
+                        sep = hits.front();
+                    } else if (hits.size() > 1) {
+                        // Two bound type-vars both prefix this callee. The name
+                        // cannot say which one composed it; guessing is what
+                        // this whole arc is about. Longest wins (it is the one
+                        // whose remainder is a method name rather than a name
+                        // fragment), and the ambiguity is REPORTED.
+                        sep = hits.front();
+                        in_.diags.diags.push_back({Diag::Level::Warning, "mono",
+                            std::format("callee '{}' is prefixed by {} bound type-vars "
+                                        "('{}' and '{}'); taking the longest",
+                                        callee_body, hits.size(),
+                                        callee_body.substr(0, hits[0]),
+                                        callee_body.substr(0, hits[1])), {}, 0});
+                    }
+                }
                 if (sep != std::string::npos) {
                     std::string prefix = callee_body.substr(0, sep);
                     auto it = s.find(prefix);
@@ -3073,12 +3119,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // `<base>__<arg1>__<arg2>...` mirroring
                             // record_needed_enum's mangling so the rewritten
                             // callee matches the spec produced by
-                            // instantiate_enum_templates.
-                            cname = std::string(TypeRef(t).enum_name());
-                            for (auto a : TypeRef(t).type_args()) {
-                                cname += "__";
-                                cname += mangle_type(a);
-                            }
+                            // instantiate_enum_templates. Composed through THE
+                            // ONE composer (Mono::enum_instance_name) so a
+                            // producer and this consumer cannot drift apart.
+                            cname = enum_instance_name(t);
                         } else if (TypeRef(t).kind() == LogosType::Kind::Ref ||
                                    TypeRef(t).kind() == LogosType::Kind::MutRef) {
                             // Trait-static dispatch through a `&T`/`&mut T` tparam
@@ -3513,7 +3557,30 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // Rewrite callee if it's a generic call already instantiated.
             if (!nc.type_args.empty()) {
                 bool rewritten_as_struct_method = false;
-                auto sep = nc.callee.find("__");
+                // ⚠ SEPARATOR CLASS. `nc.callee.find("__")` names `w` for
+                // `w_`'s methods and cuts inside any method name containing
+                // `__`; the struct-template lookup then misses and the rewrite
+                // is skipped in SILENCE. The declared struct templates ARE the
+                // registry, and the lookup itself is the membership test —
+                // walk the candidate boundaries LONGEST-FIRST and take the
+                // first prefix that actually resolves.
+                size_t sep = std::string::npos;
+                {
+                    std::vector<size_t> bounds;
+                    for (size_t p = nc.callee.find("__"); p != std::string::npos;
+                         p = nc.callee.find("__", p + 1))
+                        if (p > 0) bounds.push_back(p);
+                    for (auto it2 = bounds.rbegin(); it2 != bounds.rend(); ++it2)
+                        if (find_struct_template_unguarded(nc.callee.substr(0, *it2)).valid())
+                            { sep = *it2; break; }
+                    // No declared struct template is a prefix. That is a FACT
+                    // (this callee is not a struct-method composition), not a
+                    // licence to guess — but keep the legacy first-`__` cut so
+                    // the pre-existing best-effort path survives for callees
+                    // whose owner is not yet registered.
+                    if (sep == std::string::npos && !bounds.empty())
+                        sep = bounds.front();
+                }
                 if (sep != std::string::npos) {
                     std::string struct_part = nc.callee.substr(0, sep);
                     std::string method_part = nc.callee.substr(sep);
@@ -3821,9 +3888,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // instead of the bare-template `Result__dbg__...` name.
                 auto enum_cname = [&](TypeRef et) -> std::string {
                     if (!et || et.kind() != LogosType::Kind::Enum) return {};
-                    std::string n(et.enum_name());
-                    for (auto a : et.type_args()) { n += "__"; n += mangle_type(a); }
-                    return n;
+                    return enum_instance_name(et);   // THE ONE composer
                 };
                 if (TypeRef(rt).kind() == LogosType::Kind::Struct ||
                     TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
@@ -4508,15 +4573,30 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 for (auto ta : nm.type_args)
                     if (!ta || TypeRef(ta).kind() == LogosType::Kind::TypeVar)
                         { all_concrete = false; break; }
-                std::string rs_tail = resolved_symbol;
-                if (auto dot = rs_tail.rfind('.'); dot != std::string::npos)
-                    rs_tail = rs_tail.substr(dot + 1);
+                // ⚠ SEPARATOR CLASS — registry-anchored, longest match. The
+                // owner used to be `rs_tail.substr(0, rs_tail.find("__"))`,
+                // which for `arr___pick__g__…` names `arr` and not `arr_`:
+                // the template lookup missed, the specialisation was skipped
+                // in SILENCE, logosc exited 0 and the program returned
+                // garbage. `split_owner_method` asks the declared owners.
                 std::string rs_struct, rs_method;
-                if (auto sep = rs_tail.find("__"); sep != std::string::npos) {
-                    rs_struct = rs_tail.substr(0, sep);
-                    std::string mt = rs_tail.substr(sep + 2);
-                    if (auto g = mt.find("__g__"); g != std::string::npos)
-                        rs_method = mt.substr(0, g);
+                if (auto om = split_owner_method(resolved_symbol)) {
+                    // ⚠ `om->method` is the cut at the FIRST `__f__`/`__g__`,
+                    // and that marker is legal INSIDE a method name — so this
+                    // is a guess whenever the method's own name contains one
+                    // (`fn a__f__b<U>`). It is used here only to seed
+                    // `rs_struct`/`rs_method`, and every consumer below looks
+                    // the result up in a template table that fails closed: a
+                    // wrong short name finds nothing and the path is abandoned,
+                    // it does not produce a wrong instantiation. The sound form
+                    // is the registry match in mono_scan.cpp (the owner's method
+                    // table decides); this site does not have that table in
+                    // hand. Do NOT promote this to "exact" — an earlier comment
+                    // did, and a two-line program refuted it.
+                    if (!om->tail.empty()) {
+                        rs_struct = std::string(om->owner);
+                        rs_method = std::string(om->method);
+                    }
                 }
                 lir_view::FunctionView tmpl;
                 if (all_concrete && !rs_struct.empty() && !rs_method.empty()) {
@@ -4873,8 +4953,11 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     case SCode::Block: {
         lir_view::SBlockView v{sref};
         auto blk = subst_child_block(v.body());
+        // Carry the TRANSPARENT marker through the clone: dropping it would
+        // make a monomorphized copy of a synthetic block re-acquire a lexical
+        // scope its bindings must escape.
         ns.mirror_ptr_ = lir_mirror_emit_block_stmt(
-            out_, ns.line, blk);
+            out_, ns.line, blk, v.transparent());
         break;
     }
     case SCode::Break: {
@@ -5348,6 +5431,14 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
 void Mono::populate_trait_engine_() {
     trait_engine_ = trait_engine::TraitEngine{};   // fresh
     // (D) direct impls — concrete_impls_ keys are "trait::type".
+    // ── SEPARATOR CLASS: CLASSIFIED SAFE BY CONSTRUCTION ─────────────────
+    // `::` is not a legal identifier character, and the left operand is a bare
+    // `impl.trait_name()` (never path-qualified) — so the FIRST `::` is always
+    // the one composed at mono.cpp's concrete_impls_ insert. `find` (not
+    // `rfind`) is REQUIRED because the RIGHT operand may itself contain `::`
+    // (an AssocType target mangles `Base::Name`). The optional trait-arg
+    // suffix is sanitized to `[A-Za-z0-9_]` at the compose site and cannot
+    // inject a `::`. Do not "harden" this into a registry match.
     for (auto& k : concrete_impls_) {
         auto pos = k.find("::");
         if (pos == std::string::npos) continue;
@@ -6064,9 +6155,39 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
                 mn_pkg = mn.substr(0, dot);
                 mn = mn.substr(dot + 1);
             }
-            auto sep = mn.find("__");
-            if (sep != std::string::npos) {
-                std::string rest = mn.substr(sep);
+            // ⚠ SEPARATOR CLASS. `rest = mn.substr(mn.find("__"))` re-derives
+            // the owner/method boundary from the spelling. For a template
+            // whose name ends in `_` the first `__` falls INSIDE the owner:
+            // `arr___pick` → rest `___pick`, and the instance was emitted as
+            // `arr_$G1$i64___pick` — one underscore too many, so nothing ever
+            // called it (measured: SIGSEGV, compile exit 0). BOTH parts are
+            // carried here: `tmpl.name()` is the owner and `m.method_base()`
+            // is the method. Recompose and compare.
+            std::string_view mb = m.method_base();
+            std::string rest;
+            bool composed = false;
+            std::string_view own_bare = mname::split_pkg(tmpl.name()).second;
+            if (!mb.empty()) {
+                if (auto tail = mname::sig_of(mn, own_bare, mb)) {
+                    rest = "__" + std::string(mb) + std::string(*tail);
+                    composed = true;
+                } else if (auto om = mname::split_by_method(mn, mb)) {
+                    // The symbol's owner is not the template's own name (a
+                    // blanket-impl host, a re-hosted spec fn). The METHOD is
+                    // still carried, so the boundary is still not guessed.
+                    rest = "__" + std::string(om->method) + std::string(om->tail);
+                    composed = true;
+                }
+            }
+            if (!composed) {
+                // No METHOD_BASE at all. Anchored fallback — a GUESS, kept only
+                // so pre-existing best-effort behaviour survives.
+                if (auto sep = mn.find("__"); sep != std::string::npos) {
+                    rest = mn.substr(sep);
+                    composed = true;
+                }
+            }
+            if (composed) {
                 std::string new_bare = new_name + rest;
                 final_name = mn_pkg.empty() ? new_bare : mn_pkg + "." + new_bare;
             }
@@ -6777,7 +6898,7 @@ void Mono::instantiate_enum_templates() {
     // Instantiate generic enums that were recorded during function cloning.
     // Simple approach: iterate until no more needed (fixed-point).
     while (true) {
-        std::vector<std::pair<std::string, std::pair<std::vector<TypeRef>, int>>> todo;
+        std::vector<std::pair<std::string, EnumInst>> todo;
         for (auto& [cname, info] : needed_enum_insts_) {
             if (enum_done_.count(cname)) continue;
             todo.push_back({cname, info});
@@ -6785,15 +6906,24 @@ void Mono::instantiate_enum_templates() {
         if (todo.empty()) break;
         for (auto& [cname, info] : todo) {
             enum_done_.insert(cname);
-            const auto& args = info.first;
-            depth_ = info.second;
-            // Find the template
-            // Extract base name from cname (before first __)
-            std::string base = cname;
-            auto pos = base.find("__");
-            if (pos != std::string::npos) base = base.substr(0, pos);
+            const auto& args = info.args;
+            depth_ = info.depth;
+            // The base is CARRIED by the demand (record_needed_enum stored
+            // `tr.enum_name()`), never re-derived by splitting `cname` at the
+            // first "__" — that cut lands INSIDE any base ending in '_'.
+            const std::string& base = info.base;
             auto tmpl = find_enum_template_bare(base);
-            if (!tmpl) continue;
+            if (!tmpl) {
+                // R2: a demanded instance with no template is a malfunction,
+                // not an input shape — silently `continue`ing here is exactly
+                // what let a `let` statement vanish behind a green gate.
+                in_.diags.diags.push_back({Diag::Level::Error, "mono",
+                    std::format("no template for generic enum '{}' (pkg '{}') demanded as "
+                                "instance '{}' with {} type-arg(s) — the instance would be "
+                                "silently absent and every use of it dropped at mlir-gen",
+                                base, info.pkg, cname, args.size()), {}, 0});
+                continue;
+            }
             // Materialize the template's type-params (name + is_variadic) so the
             // positional substitution below can index them like the old vector.
             std::vector<std::pair<std::string, bool>> tps;

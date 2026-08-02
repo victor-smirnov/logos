@@ -73,6 +73,22 @@ The checklist exists because the [bag-hunt](baghunt/README.md) found ~122 bugs t
 - [ ] **Bare `concrete_struct_name(t)` for method symbol mangling** — strip pkg via `strip_struct_pkg` before constructing `Foo__method`.
 - [ ] **AnyVal special-case** — `type_str(t) == "AnyVal"` checks must wrap with `strip_struct_pkg` if the input is a qualified key.
 - [ ] **No mlir-gen errors on user-input that sema accepted.** If you find one, file a sema bug, not a mlir-gen workaround.
+- [ ] **A message about the COMPILER goes through the sink, never `fprintf(stderr, ...)`.** "mlir-gen has no diagnostic channel" was true, and it is the reason a `let` could vanish behind a green gate: mlir-gen printed `statement DROPPED (compiler bug)`, wrote the object file and returned 0, so `run_test.sh` pass mode ("logosc succeeded") saw nothing. The channel is `MLIRGenImpl::bug` / `bug_null` / `bug_false` / `bug_raw`; the check is ONE `if (bugs_)` at the single exit of `generate()`. `LOGOS_MLIRGEN_ABORT_ON_BUG=1` restores a stack trace — the *check* is never opt-in. The one exclusion is `tests/logos/mlir_gen_bug.ledger`, by name, re-measured in both directions by `logos_00_mlir_gen_bug_ledger`.
+- [ ] **`logos_to_mlir` returning null is an ANSWER, not a malfunction** — callers use it as a predicate ("does this type have an MLIR representation"). Report at the caller that needed a type and got none.
+
+## When composing or reading a MANGLED NAME (any phase)
+
+- [ ] **`__` is legal inside an identifier, so `name.find("__")` is a GUESS, not a boundary.** A name is composed from parts; carry the parts to every consumer. Measured failures from re-deriving them: `enum foo_<T>` never instantiated (exit-0 compile, dropped `let`), a `fn a__f__b` method never emitted (SIGSEGV), a doubled `__g__b__g__b` symbol, `fn a__b` rejected as a duplicate of `impl a { fn b }`, `T_::mk` unresolvable, and a type-var shadow returning the wrong trait's value.
+- [ ] **Use `src/compiler/mangled_name.hpp`.** `sig_of(name, owner, method)` recomposes-and-compares (strongest); `split_known_owner` anchors on a carried owner; `split_by_registry` matches a declared-name set longest-first. Every one returns `std::optional` — there is deliberately no guessing overload, and `nullopt` is a FACT to report.
+- [ ] **Carried facts already available:** `dk::METHOD_BASE` (a method's unmangled source name, `lir_view::method_base()`), `SemaFuncInfo::owner_struct` / `::is_method`, `Mono::EnumInst::base`/`::pkg`, `MethodWorkItem::base_struct`/`::method_name`.
+- [ ] **A separator that must survive into a link symbol belongs OUTSIDE the identifier alphabet** — `concrete_struct_name`'s `$G<n>$` form is the proof; `record_needed_enum`'s `__` is the counter-example.
+- [ ] **The mangled TYPE ARGUMENT is part of the name too.** `box_$G1$k___s` is `box_<k_>::s`, and cutting at the first `__` after `$G` lands inside the ARGUMENT: measured, no vtable and no drop glue were emitted for `box_<k_>`, compile exit 0 with empty stderr, program SIGSEGV. The owner's spelling was irrelevant; the argument's decided.
+- [ ] **Both `.` and `$` are composed head boundaries.** A METHOD's link name joins with `.`, a FREE fn's with `$` (`sym::mangle`). A lookup that accepts only one silently misses the other — `resolve_fn("fmt_seq")` never resolved, so the whole variadic-tuple `Debug` chain lowered to nothing in the SHIPPED stdlib archive.
+
+## When a fact about a NODE is needed downstream
+
+- [ ] **State it, do not spell it.** If a consumer needs to know *why* a node exists (synthesized vs user-written), that is the producer's fact — give it a schema key and carry it. Measured: mlir-gen decided "is this block a sema-synthesized transparent wrapper" by testing whether its first `let` was named `__…`, so the legal user program `{ let __x = 9; let v = 100; }` lost its scope restore and the outer `v` read the inner value, silently, at exit 0. Now `stmt_keys::TRANSPARENT`, set at every producer in `sema_stmt.cpp` and carried through `mono_clone`. `LOGOS_TRANSPARENT_AUDIT=1` reports a producer that forgot.
+- [ ] **A predicate written as a LIST OF KINDS drifts.** Prefer the structural question. `logos_to_mlir(t) == null` *is* "zero-width"; a hand-listed `{Void, Never}` missed `()` (a zero-arity Tuple) and an empty struct. A hand-listed `{i8..u64, f32, f64, bool, char}` missed `usize`, `isize` and `str` and dropped their method calls entirely.
 
 ## When changing mono
 

@@ -1,0 +1,24 @@
+// Variadic tuple Debug over NON-primitive and pointer-sized elements.
+//
+// The expansion emits a per-element `fmt` call resolved to the element type's
+// `Debug::fmt` symbol, and mlir-gen's non-struct-receiver fast path was gated
+// by a hand-maintained LIST OF KINDS (i8..u64, f32/f64, bool, char). `str`
+// (== `[u8]`) and `usize`/`isize` are NOT in that list and are not structs
+// either, so the element call lowered to NOTHING and took the enclosing
+// `return` of the whole chain with it.
+// MEASURED before: `fmt_debug_to_string::<(i64,str,i64)>` SIGSEGV'd and the
+// stdlib archive shipped a `$tuple$variadic__fmt` instance that fell off its
+// end — compile exit 0, stderr empty. The head boundary of the helper lookup
+// (`fmt_seq`) was equally wrong: a free fn's link name is composed
+// `<pkg>$<base>`, and only `.` was accepted as the boundary.
+package fmt_tuple_debug_mixed_elems;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+fn main() -> i32 {
+    if !str_eq(fmt_debug_to_string::<(i64,str,i64)>(&(1i64,"ab",2i64)).as_str(), "(1, \"ab\", 2)") { return 1i32; }
+    if !str_eq(fmt_debug_to_string::<(str,usize)>(&("q",3usize)).as_str(), "(\"q\", 3)") { return 2i32; }
+    if !str_eq(fmt_debug_to_string::<(usize,isize)>(&(4usize,5isize)).as_str(), "(4, 5)") { return 3i32; }
+    if !str_eq(fmt_debug_to_string::<(str,)>(&("z",)).as_str(), "(\"z\",)") { return 4i32; }
+    return 0i32;
+}

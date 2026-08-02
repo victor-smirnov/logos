@@ -727,6 +727,15 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     if (MODE STREQUAL pass AND NOT BASE IN_LIST LAYOUT_DECLINE_LEDGER)
         list(APPEND _env "LOGOS_VERIFY_LAYOUT=1")
     endif()
+    # The one exclusion from R2 (mlir-gen's self-diagnosis = compile failure).
+    # The variable NAMES THE LEDGER; it does not grant the excuse — logosc asks
+    # whether the program it is compiling is listed, so this can be handed to
+    # EVERY test unconditionally. That is deliberate: the previous boolean form
+    # made the excused set a hand-written list right here, i.e. a second copy of
+    # a population that already exists as an artifact, and the copies drifted
+    # (see the spec-corpus loop below, which measured exactly that). Population
+    # derived from the artifact, not from whoever remembered to add a name.
+    list(APPEND _env "LOGOS_MLIRGEN_BUG_LEDGER=${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug.ledger")
 
     add_test(
         NAME  ${_test_name}
@@ -810,6 +819,83 @@ set_tests_properties(logos_00_gate_lint PROPERTIES
 #     (`HRel` is one `i64`), which is why nothing had ever noticed; it is not
 #     right in general, so the decline stays until mono substitutes the GAT.
 set(LAYOUT_DECLINE_LEDGER zone_zvec_two_zones)
+
+# ── THE OPEN mlir-gen SELF-DIAGNOSES — A LEDGER THAT CAN ONLY SHRINK ─────────
+#
+# R2: a message mlir-gen emits ABOUT ITSELF ("statement DROPPED", "unknown
+# tagged enum") must make the compile FAIL. Before that rule mlir-gen had NO
+# diagnostic channel: it printed to stderr, dropped the statement, wrote the
+# object file and returned 0 — so `run_test.sh`'s pass-mode check ("logosc
+# succeeded") was blind to a vanished WRITE, and a test passed while its
+# program was being miscompiled.
+#
+# MEASURED when the rule landed: 7 corpus programs tripped it. Every one was
+# ALREADY miscompiled and passing. THREE have since been FIXED and their rows
+# deleted (empty-struct-braces-b151, core_1_adv_unit_field,
+# irrefutable-unit-b142 — see mlir_gen_bug.ledger for each cause); the
+# remaining FOUR are a mono instantiation that never happened (a type-arg that
+# stayed `<error>` / an unsubstituted fn-type param) and a generic
+# struct-pattern binding. Each is excluded with its ground written in
+# tests/logos/mlir_gen_bug.ledger, and held in BOTH directions by
+# `logos_00_mlir_gen_bug_ledger`: a program that stops tripping is as red as
+# one that starts.
+#
+# THE EXCLUDED SET LIVES IN THE LEDGER AND NOWHERE ELSE. It used to be repeated
+# here as a CMake list, which made the excuse a property of who remembered to
+# add a name rather than of the artifact — and the copies drifted: `pat_6`
+# stayed red on the full suite while its ledger row was green, because only one
+# of the two registration loops consulted the list. Every test is now handed
+# the ledger PATH unconditionally and logosc asks whether the program it is
+# compiling is named in it.
+
+# ── THE SEPARATOR-CLASS CLAIMS AN EXIT CODE CANNOT SEE ──────────────────────
+# Three separator fixtures run CORRECTLY on a compiler that emits the wrong
+# symbol (definition and call agree on the same wrong spelling), so the pass
+# harness is blind to them by construction. This gate asserts the emitted TEXT,
+# and pairs every claim with the exact spelling the defect produced.
+add_test(
+    NAME logos_00_sep_symbol_shape
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/sep_symbol_shape_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_00_sep_symbol_shape PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+add_test(
+    NAME logos_00_mlir_gen_bug_ledger
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug_ledger_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug.ledger
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ── THE SEPARATOR CLASS CANNOT REGROW SILENTLY ──────────────────────────────
+# The fix carried the parts and put the surviving splits behind mangled_name.hpp,
+# but nothing stopped the NEXT `find("__")` from being written tomorrow — and a
+# lesson that is not mechanized gets re-learned. This lint counts raw separator
+# splits per file (comments stripped, so documenting the class is not an offence)
+# and holds the census against a ledger in BOTH directions. It carries two
+# canaries of its own: a planted split must be seen, and a split inside a comment
+# must not be — a lint that matches nothing certifies nothing.
+add_test(
+    NAME logos_00_separator_split_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/separator_split_lint.sh
+            ${CMAKE_SOURCE_DIR}/src/compiler
+            ${CMAKE_CURRENT_SOURCE_DIR}/separator_split.ledger
+)
+set_tests_properties(logos_00_separator_split_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint"
+)
 
 add_test(
     NAME logos_00_layout_decline_ledger
@@ -942,11 +1028,18 @@ foreach(EXP_FILE IN LISTS SPEC_PASS_EXPECTED)
         continue()
     endif()
     set(_test_name "logos_25_spec_pass_${BASE}")
+    # The spec corpus is registered HERE, not through logos_add_grouped_test,
+    # so the R2 ledger exclusion has to be applied here too — a ledger that
+    # covers only the tests one registration path happens to reach is the same
+    # blindness it exists to remove. (MEASURED: pat_6 stayed red on the full
+    # suite while its ledger row was green, because this loop did not set it.)
+    set(_spec_env "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
+    list(APPEND _spec_env "LOGOS_MLIRGEN_BUG_LEDGER=${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug.ledger")
     add_test(NAME ${_test_name}
         COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
     set_tests_properties(${_test_name} PROPERTIES
         TIMEOUT 30 LABELS "logos;pass;suite_spec"
-        ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
+        ENVIRONMENT "${_spec_env}")
 endforeach()
 
 foreach(EXP_FILE IN LISTS SPEC_FAIL_EXPECTED)

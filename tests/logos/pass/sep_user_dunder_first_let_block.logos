@@ -1,0 +1,28 @@
+// SEPARATOR CLASS, in the SCOPE plane. Sema synthesizes TRANSPARENT blocks
+// whose bindings must leak into the enclosing scope; mlir-gen decided whether
+// a block was one of those by testing whether its FIRST `let` was spelled
+// `__…`. That is a fact about the PRODUCER read off a SPELLING, and `__x` is a
+// legal user identifier.
+// MEASURED before: this program returned 99 — the inner `let v` leaked out and
+// the outer `v` read 100 — with no diagnostic and compile exit 0. The control
+// (same program, first binding named `x`) returned 0.
+// The producer now STATES the fact (stmt_keys::TRANSPARENT).
+package tr;
+fn main() -> i32 {
+    let v: i64 = 1i64;
+    {
+        let __x: i64 = 9i64;
+        let v: i64 = 100i64;
+        if v != 100i64 { return 91i32; }
+        if __x != 9i64 { return 92i32; }
+    }
+    if v != 1i64 { return 93i32; }
+    {
+        let x: i64 = 9i64;
+        let v: i64 = 100i64;
+        if v != 100i64 { return 94i32; }
+        if x != 9i64 { return 95i32; }
+    }
+    if v != 1i64 { return 96i32; }
+    return 0i32;
+}

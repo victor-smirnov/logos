@@ -527,7 +527,10 @@ struct SLoop {
 };
 struct SBreak     { lir_view::ExprRef value; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
-struct SBlock     { LBlockPtr body = {}; };  // scoping block statement
+// Scoping block statement. `transparent` = sema-synthesized wrapper whose
+// bindings LEAK into the enclosing scope (see stmt_keys::TRANSPARENT). A block
+// the USER wrote is never transparent.
+struct SBlock     { LBlockPtr body = {}; bool transparent = false; };
 
 struct SFieldWrite {
     std::string receiver;

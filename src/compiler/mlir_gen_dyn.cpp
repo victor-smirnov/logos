@@ -3,10 +3,12 @@
 // mlir_gen_dyn.cpp — Vtable emission, &dyn Trait coercion, dyn dispatch, closures.
 
 #include "mlir_gen_impl.hpp"
+#include "mangled_name.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <map>
 #include <set>
+#include <unordered_set>
 
 namespace logos::compiler {
 
@@ -294,10 +296,25 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     auto i64_t = builder_.getI64Type();
 
     struct Entry { uint64_t type_code; std::string fn_symbol; };
-    std::map<std::string, std::vector<Entry>> tier1_tables;
-    std::map<std::string, std::vector<Entry>> tier2_tables;
+    // SEPARATOR CLASS — the table key is the THREE PARTS, carried. It used to
+    // be the joined string `<sys>__<trait>__<method>`, and every consumer
+    // recovered `sys` by cutting at the first `__` — which for a tag system
+    // named `Sys_` yields `Sys`. The emitted ctor was then named
+    // `__logos_tag_dispatch_init__Sys` while the reference stayed
+    // `…__Sys_`, so the failure was DEFERRED TO THE LINKER (measured:
+    // undefined symbol). With two systems `A` and `A_`, the split also MERGED
+    // them into one `std::set` element and one system's ctor vanished.
+    struct TableKey {
+        std::string sys, trait, method;
+        auto operator<=>(const TableKey&) const = default;
+        std::string join()  const { return sys + "__" + trait + "__" + method; }
+        std::string t1sym() const { return "__logos_tag_dispatch__" + join(); }
+        std::string t2sym() const { return "__logos_tier2__" + join(); }
+    };
+    std::map<TableKey, std::vector<Entry>> tier1_tables;
+    std::map<TableKey, std::vector<Entry>> tier2_tables;
     // Bug fix: store valid tier-2 entries for Pass D to avoid size mismatch.
-    std::map<std::string, std::vector<Entry>> tier2_valid_entries;
+    std::map<TableKey, std::vector<Entry>> tier2_valid_entries;
 
     for (auto& de : prog.dispatch_entries) {
         std::string ts(de.tag_system());
@@ -306,17 +323,14 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         // type_code == 0 is unset (no impl registered yet); skip.
         // Codes 1-127 are valid for inline AnyVal slots; 128-255 for tier-1 zone types.
         if (de.type_code() == 0) continue;
-        // Use "__" as separator to avoid ambiguity when tag_system or trait_name
-        // contains a single underscore (e.g. "My_System__Trait__method" is
-        // unambiguous; "My_System_Trait_method" is not).
-        auto base = ts + "__" + std::string(de.trait_name()) + "__" + std::string(de.method_name());
+        TableKey key{ts, std::string(de.trait_name()), std::string(de.method_name())};
         // Module system: dispatch entry stores a bare-module method symbol;
         // qualify it to the emitted link name so the table references resolve.
         auto fsym = link_name_str(std::string(de.fn_symbol()));
         if (de.type_code() < static_cast<uint64_t>(kTier1Size)) {
-            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code(), fsym});
+            tier1_tables[key].push_back({de.type_code(), fsym});
         } else {
-            tier2_tables["__logos_tier2__" + base].push_back({de.type_code(), fsym});
+            tier2_tables[key].push_back({de.type_code(), fsym});
         }
     }
     if (tier1_tables.empty() && tier2_tables.empty()) return;
@@ -358,7 +372,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // ── Pass B: emit zero-initialized [223 x ptr] globals for tier-1 ─────
     // Use Weak linkage when the table already exists in a binary archive so the
     // linker deduplicates rather than flagging a duplicate-definition error.
-    for (auto& [table_name, _entries] : tier1_tables) {
+    for (auto& [t1key, _entries] : tier1_tables) {
+        const std::string table_name = t1key.t1sym();
         if (mod.lookupSymbol(table_name)) continue;
         bool in_binary = prog.binary_symbols.has(table_name) > 0;
         auto linkage = in_binary ? mlir::LLVM::Linkage::Weak
@@ -374,7 +389,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     }
 
     // ── Pass C: emit tier-2 data globals + binary-search lookup functions ─
-    for (auto& [t2key, entries] : tier2_tables) {
+    for (auto& [t2k, entries] : tier2_tables) {
+        const std::string t2key = t2k.t2sym();
         // Bug fix: filter entries to only include those with valid callees.
         // This avoids creating sparse arrays with zeros that break binary search.
         std::vector<Entry> valid_entries;
@@ -388,7 +404,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
                   [](const Entry& a, const Entry& b){ return a.type_code < b.type_code; });
 
         // Bug fix: store valid_entries for Pass D to use.
-        tier2_valid_entries[t2key] = valid_entries;
+        tier2_valid_entries[t2k] = valid_entries;
         int64_t n = static_cast<int64_t>(valid_entries.size());
 
         bool t2_in_binary = prog.binary_symbols.has(t2key + "_codes") > 0;
@@ -436,22 +452,8 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // the stdlib archive already provides its own init function.
     // Collect tag systems that have tables to initialize.
     std::set<std::string> active_systems;
-    for (auto& [tname, _] : tier1_tables) {
-        // table_name is "__logos_tag_dispatch__<sys>__<trait>__<method>"
-        // extract sys: strip prefix, then take up to second "__"
-        std::string_view sv(tname);
-        sv.remove_prefix(sizeof("__logos_tag_dispatch__") - 1);
-        auto p = sv.find("__");
-        if (p != std::string_view::npos)
-            active_systems.insert(std::string(sv.substr(0, p)));
-    }
-    for (auto& [tname, _] : tier2_valid_entries) {
-        std::string_view sv(tname);
-        sv.remove_prefix(sizeof("__logos_tier2__") - 1);
-        auto p = sv.find("__");
-        if (p != std::string_view::npos)
-            active_systems.insert(std::string(sv.substr(0, p)));
-    }
+    for (auto& [k, _] : tier1_tables)       active_systems.insert(k.sys);
+    for (auto& [k, _] : tier2_valid_entries) active_systems.insert(k.sys);
 
     for (const auto& sys : active_systems) {
         auto ctor_name = "__logos_tag_dispatch_init__" + sys;
@@ -465,11 +467,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         builder_.setInsertionPointToStart(ctor_block);
 
         // Fill tier-1 tables for this tag system.
-        for (auto& [table_name, entries] : tier1_tables) {
-            std::string_view sv(table_name);
-            sv.remove_prefix(sizeof("__logos_tag_dispatch__") - 1);
-            auto p = sv.find("__");
-            if (p == std::string_view::npos || sv.substr(0, p) != sys) continue;
+        for (auto& [t1key, entries] : tier1_tables) {
+            if (t1key.sys != sys) continue;      // a FIELD comparison, not a split
+            const std::string table_name = t1key.t1sym();
             auto table_addr = builder_.create<mlir::LLVM::AddressOfOp>(
                 loc_, ptr_t, table_name);
             for (auto& e : entries) {
@@ -491,11 +491,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         }
 
         // Fill tier-2 for this tag system.
-        for (auto& [t2key, entries] : tier2_valid_entries) {
-            std::string_view sv(t2key);
-            sv.remove_prefix(sizeof("__logos_tier2__") - 1);
-            auto p = sv.find("__");
-            if (p == std::string_view::npos || sv.substr(0, p) != sys) continue;
+        for (auto& [t2k, entries] : tier2_valid_entries) {
+            if (t2k.sys != sys) continue;        // a FIELD comparison, not a split
+            const std::string t2key = t2k.t2sym();
             int64_t n = static_cast<int64_t>(entries.size());
             auto codes_arr_type = mlir::LLVM::LLVMArrayType::get(i64_t, n);
             auto fns_arr_type   = mlir::LLVM::LLVMArrayType::get(ptr_t, n);
@@ -544,24 +542,19 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     // call this to expose `writ_fn_<trait>_<method>(code)` as a registry API
     // for reflection / deferred invocation.
     {
-        std::set<std::string> all_bases;
-        for (auto& [tkey, _] : tier1_tables) {
-            // tkey = "__logos_tag_dispatch__<base>"
-            all_bases.insert(tkey.substr(std::string("__logos_tag_dispatch__").size()));
-        }
-        for (auto& [tkey, _] : tier2_valid_entries) {
-            // tkey = "__logos_tier2__<base>"
-            all_bases.insert(tkey.substr(std::string("__logos_tier2__").size()));
-        }
+        std::set<TableKey> all_keys;
+        for (auto& [k, _] : tier1_tables)        all_keys.insert(k);
+        for (auto& [k, _] : tier2_valid_entries) all_keys.insert(k);
 
         auto lookup_ret_type = ptr_t;
         auto lookup_fn_type = mlir::FunctionType::get(
             builder_.getContext(), {i64_t}, {lookup_ret_type});
 
-        for (auto& base : all_bases) {
+        for (auto& key : all_keys) {
+            const std::string base = key.join();
             auto lookup_sym = "__logos_dispatch_lookup__" + base;
-            bool has_t1 = tier1_tables.count("__logos_tag_dispatch__" + base) > 0;
-            bool has_t2 = tier2_valid_entries.count("__logos_tier2__" + base) > 0;
+            bool has_t1 = tier1_tables.count(key) > 0;
+            bool has_t2 = tier2_valid_entries.count(key) > 0;
             if (!has_t1 && !has_t2) continue;
 
             // If stdlib declared this symbol `extern fn` (empty-body FuncOp),
@@ -791,20 +784,49 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     std::unordered_map<std::string, std::set<std::string>>
         concrete_targets_by_base;
     {
-        auto scan = [&](std::string_view name) {
-            if (auto dot = name.rfind('.'); dot != std::string_view::npos)
-                name = name.substr(dot + 1);
-            auto g_pos = name.find("$G");
+        // ⚠ SEPARATOR CLASS. This used to cut the concrete owner out of a
+        // method symbol as `name.substr(0, name.find("__", g_pos))` — a GUESS
+        // that lands INSIDE the mangled TYPE ARGUMENT whenever the argument's
+        // own name ends in `_` or contains `__`: `box_$G1$k___s__g__…` yielded
+        // the owner `box_$G1$k`, so NO vtable and NO drop glue were emitted for
+        // `box_<k_>`, the compile exited 0 with no diagnostic, and the program
+        // SIGSEGV'd on the first `&dyn` call. The owner is a CARRIED fact —
+        // `sd.name()` for a method, and a REGISTRY match for a free fn.
+        auto record = [&](std::string_view concrete) {
+            auto g_pos = concrete.find("$G");
             if (g_pos == std::string_view::npos) return;
-            auto end = name.find("__", g_pos);
-            if (end == std::string_view::npos) return;
-            std::string base{name.substr(0, g_pos)};
-            std::string concrete{name.substr(0, end)};
-            concrete_targets_by_base[std::move(base)].insert(std::move(concrete));
+            concrete_targets_by_base[std::string(concrete.substr(0, g_pos))]
+                .insert(std::string(concrete));
         };
-        for (auto& fp : prog.functions) if (fp) scan(fp.name());
+        auto bare = [](std::string_view n) {
+            if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+                n = n.substr(dot + 1);
+            return n;
+        };
+        // The registry of declared concrete owners: every struct in the
+        // program, by its own name. `$` and `__` are both legal INSIDE these
+        // names, so only the registry can say where one ends.
+        std::unordered_set<std::string> owner_reg;
+        for (auto& sd : prog.structs) {
+            auto n = bare(sd.name());
+            owner_reg.insert(std::string(n));
+            record(n);                      // the owner, carried — no split
+        }
+        auto reg_scan = [&](std::string_view name) {
+            auto n = bare(name);
+            if (n.find("$G") == std::string_view::npos) return;
+            if (auto om = mname::split_by_registry(
+                    n, [&](std::string_view c) {
+                        return owner_reg.count(std::string(c)) != 0;
+                    }))
+                record(om->owner);
+        };
+        for (auto& fp : prog.functions) if (fp) reg_scan(fp.name());
+        // A method may be HOSTED on a struct while naming a different concrete
+        // owner (blanket-impl re-hosting); resolve those through the registry
+        // too rather than assuming the host.
         for (auto& sd : prog.structs)
-            for (auto& mp : sd.methods()) if (mp) scan(mp.name());
+            for (auto& mp : sd.methods()) if (mp) reg_scan(mp.name());
     }
     auto collect_concrete_targets = [&](const std::string& target_base)
         -> const std::set<std::string>& {
@@ -1229,6 +1251,18 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
         auto vp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), dyn_struct, alloca, idx1);
         builder_.create<mlir::LLVM::StoreOp>(loc_, vtable, vp);
+    } else {
+        // R2. A `&dyn Trait` whose vtable half is left UNINITIALISED is not a
+        // degraded answer, it is a loaded gun: the first dispatch reads stack
+        // garbage as a function pointer. This used to be a silent `if (vtable)`
+        // with no else — measured: `box_<k_>` reached `&dyn Sp` with no vtable
+        // emitted, logosc exited 0 with ZERO stderr, and the program SIGSEGV'd.
+        // The malfunction is mlir-gen's own, so it goes through mlir-gen's sink
+        // and FAILS the compile.
+        bug("no vtable for '{}' as '&dyn {}' — the fat pointer's vtable half "
+            "would be left uninitialised and the first dispatch would jump "
+            "through stack garbage",
+            src_type_name, trait_name);
     }
     return alloca;
 }

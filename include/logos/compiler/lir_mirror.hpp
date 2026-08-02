@@ -250,7 +250,7 @@ const uint8_t* lir_mirror_emit_for               (lir::LProgram& prog, uint32_t 
 const uint8_t* lir_mirror_emit_loop              (lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, std::string_view label, std::string_view break_slot, TypeRef result_type);
 const uint8_t* lir_mirror_emit_break             (lir::LProgram& prog, uint32_t line, lir_view::ExprRef value, std::string_view label);
 const uint8_t* lir_mirror_emit_continue          (lir::LProgram& prog, uint32_t line, std::string_view label);
-const uint8_t* lir_mirror_emit_block_stmt        (lir::LProgram& prog, uint32_t line, lir_view::BlockRef body);
+const uint8_t* lir_mirror_emit_block_stmt        (lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, bool transparent);
 const uint8_t* lir_mirror_emit_field_write       (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_index_write       (lir::LProgram& prog, uint32_t line, std::string_view arr, lir_view::ExprRef index, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_field_index_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef index, lir_view::ExprRef value);

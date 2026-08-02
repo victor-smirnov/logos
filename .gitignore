@@ -47,3 +47,11 @@ __pycache__
 #cmake-build-*
 .claude/scheduled_tasks.lock
 scratchpad/
+
+# mlir-gen writes this dump into the CWD whenever the MLIR verifier fails
+# (src/compiler/mlir_gen.cpp). It is a DEBUG ARTIFACT of one failed compile —
+# ~14 MB, rewritten by any probe that trips the verifier. It was tracked, so a
+# single failing experiment produced a 50 000-line diff that rode into an
+# unrelated commit without being noticed. Generated output does not belong in
+# the tree.
+logos-mlir-verify-fail.mlir

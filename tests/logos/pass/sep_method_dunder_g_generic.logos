@@ -1,0 +1,23 @@
+// SEPARATOR CLASS — a METHOD-GENERIC method whose own name contains `__`,
+// on a GENERIC struct, reached both directly and through a generic fn.
+//
+// The callee is emitted in template form `w__a__b__g__<sig>`. Recovering the
+// method half meant cutting the remainder at a bare `__`, which renamed
+// `a__b` to `a`: the method template was never found, the SPECIALISATION was
+// never cloned, and mlir-gen emitted the CALL with no DEFINITION.
+// MEASURED before: `error: 'func.call' op 'tr.w__a__b__g__ref_w$G1$T__U__i64__i32'
+// does not reference a valid function` / `mlir_gen: module verification failed`.
+// The `__f__`/`__g__` marker IS a composed boundary, so the method name it
+// terminates is exact and must not be cut again.
+package tr;
+struct w<T> { v: T }
+impl<T> w<T> {
+    fn a__b<U>(&self, u: U) -> i64 { return 6i64; }
+}
+fn thru<X>(s: &w<X>) -> i64 { return s.a__b::<i32>(1i32); }
+fn main() -> i32 {
+    let s = w::<i64> { v: 1i64 };
+    if s.a__b::<i32>(1i32) != 6i64 { return 1i32; }
+    if thru::<i64>(&s) != 6i64 { return 2i32; }
+    return 0i32;
+}

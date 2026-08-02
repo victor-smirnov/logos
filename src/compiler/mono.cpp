@@ -337,6 +337,36 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         sd.each_method([&](lir_view::FunctionView m) {
             std::string m_name(m.name());
             std::string short_name;
+            // ── The method's own short name is a CARRIED FACT ────────────
+            // sema writes the unmangled source name into dk::METHOD_BASE
+            // (sema_decl.cpp) and mono_clone copies it onto every clone. Use
+            // it. Re-deriving it by cutting `m_name` at a `__` boundary is a
+            // guess that lands INSIDE any method name containing `__`
+            // (`fn a__f__b` on a generic struct: measured — no symbol emitted
+            // at all, the call's `let` DROPPED, exit 0, run SIGSEGV).
+            std::string_view mb = m.method_base();
+            if (!mb.empty()) {
+                // RECOMPOSE AND COMPARE: does `[pkg.]<sd_name>__<mb><tail>`
+                // reproduce the emitted name? If yes, every part is a fact.
+                if (auto tail = mname::sig_of(m_name, sd_name, mb)) {
+                    // Overloaded GENERIC methods keep the full tail as the
+                    // key: a short-name key is one slot and silently drops
+                    // all but the last overload (Pin<&T>::new vs
+                    // Pin<&mut T>::new vs Pin<Box<T>>::new). Every lookup
+                    // site already prefix-matches `<short>__g__*`.
+                    short_name = tail->starts_with("__g__")
+                                 ? std::string(mb) + std::string(*tail)
+                                 : std::string(mb);
+                    if (!sd_pkg.empty())
+                        struct_method_templates_[sd_pkg + "." + sd_name][short_name] = m;
+                    struct_method_templates_[sd_name][short_name] = m;
+                    return;
+                }
+            }
+            // No METHOD_BASE, or the name is not that composition (a blanket
+            // template, a spec fn re-hosted as a method, …). Fall through to
+            // the legacy anchored scan — which is a GUESS, and is why the
+            // carried-parts path above exists.
             auto p = m_name.find(prefix);
             if (p != std::string::npos) {
                 size_t start = p + prefix.size();
@@ -399,6 +429,10 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& ed : in_.enums) {
         std::string ed_name(ed.name()), ed_pkg(ed.pkg());
         if (!ed.type_params_empty()) {
+            // Bare, last-wins. A pkg-qualified index is deliberately NOT added
+            // — see the recorded measurement at mono_impl.hpp's
+            // find_enum_template_bare: an enum TypeRef's pkg_name() is not the
+            // declaring package, so keying by it selects the wrong template.
             enum_templates_[ed_name] = ed;
         } else {
             if (has_prev_out_) {
@@ -414,6 +448,18 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         if (!fn.type_params_empty())
             templates_[std::string(fn.name())] = fn;
     }
+
+    // REGISTRY of declared package names. `$` is legal INSIDE a base name
+    // (`Foo$G1$i32`, `$where$`, `$M<hex>`), so the ONE `$` that is the package
+    // boundary composed by `sym::mangle` can only be identified by asking
+    // whether the head really IS a package. Nothing else in the compiler holds
+    // that set — pkg_module_ids covers only packages that have a module id.
+    for (auto& fn : in_.functions)
+        if (!fn.package().empty()) pkg_names_.insert(std::string(fn.package()));
+    for (auto& sd : in_.structs)
+        if (!sd.pkg().empty()) pkg_names_.insert(std::string(sd.pkg()));
+    for (auto& ed : in_.enums)
+        if (!ed.pkg().empty()) pkg_names_.insert(std::string(ed.pkg()));
 
     // Eagerly instantiate blanket-impl methods for every concrete type that
     // satisfies the blanket's bound.  Each clone produces a function named

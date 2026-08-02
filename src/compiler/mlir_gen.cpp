@@ -716,6 +716,56 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     verify_layout_engines();
     pt.tick("verify layout engines");
 
+    // ── R2 ENFORCED, ONCE ────────────────────────────────────────────────
+    // Every `bug*()` call above printed a line marked `internal:` and counted
+    // itself. A self-diagnosed malfunction is not a warning: whatever it named
+    // is a statement, a store or a call the backend did NOT emit. Returning
+    // nullptr propagates to compile_pipeline (`return 1`) → main (`return rc`),
+    // so no object file is written and every pass-mode corpus test becomes an
+    // oracle for the silent-drop class.
+    // The gate's instrument-liveness canary: one injected malfunction must be
+    // visible on the same channel the real ones use. Whatever blinds the real
+    // measurement blinds this too, because it IS the same measurement.
+    if (const char* e = std::getenv("LOGOS_MLIRGEN_CANARY"); e && e[0] && e[0] != '0')
+        bug_raw("<fault-injected> canary");
+    if (bugs_) {
+        std::fprintf(stderr,
+            "mlir_gen: %zu self-diagnosed malfunction(s) — COMPILE FAILED\n"
+            "  (each line above marked 'internal:' is a statement, store or call\n"
+            "   the backend did not emit; the object file is NOT written)\n",
+            bugs_);
+        for (auto& m : bug_log_) std::fprintf(stderr, "  - %s\n", m.c_str());
+        if (bugs_ > bug_log_.size())
+            std::fprintf(stderr, "  ... and %zu more\n", bugs_ - bug_log_.size());
+        // ── THE ONE EXCLUSION: THE LEDGER DECIDES, NOT THE ENVIRONMENT ────
+        // A program listed in tests/logos/mlir_gen_bug.ledger compiles anyway,
+        // because the malfunction it trips is REAL and its cause is in another
+        // phase (mono never emitted an enum instance; a pattern binding never
+        // lowered). The exclusion is only honest because
+        // `logos_00_mlir_gen_bug_ledger` re-measures every entry: a program
+        // that stops tripping is as red as one that starts. The object file is
+        // still written, so the test's own exit/stdout assertion still holds —
+        // the ledger suspends the FAIL, never the measurement.
+        //
+        // ⚠ THE VARIABLE NAMES THE LEDGER; IT DOES NOT GRANT THE EXCUSE. It
+        // used to be a boolean, and a boolean is a GLOBAL OFF-SWITCH: one
+        // `export LOGOS_MLIRGEN_BUG_LEDGERED=1` in a shell silenced this rule
+        // for every program the developer compiled thereafter, which is the
+        // shape of a gate that lies. It also forced the excused population to
+        // be hand-listed in tests/logos/CMakeLists.txt — a SECOND copy of the
+        // ledger, and the copies had already drifted once (a spec-corpus entry
+        // stayed red because only one of the two registration loops set the
+        // variable). Now the population is DERIVED from the artifact: the
+        // caller points at the ledger file, the compiler asks whether the input
+        // IT IS COMPILING is listed there, and a program absent from the ledger
+        // fails no matter what the environment says.
+        if (!bug_ledgered_here()) return nullptr;
+        std::fprintf(stderr,
+            "mlir_gen: LEDGERED (%s) — compile CONTINUES; the ledger suspends"
+            " the failure, never the measurement\n",
+            main_source_.c_str());
+    }
+
     if (mlir::failed(mlir::verify(mod))) {
         // The module goes to a FILE, not to stderr. Dumping it inline buries
         // the diagnostics that precede it — a real failure prints its cause on
@@ -1065,6 +1115,23 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         // Find field metadata.
         const FieldInfo* fi = nullptr;
         for (auto& f : info.fields) if (f.name == fname) { fi = &f; break; }
+
+        // A ZERO-WIDTH field (`u: ()`) has NO slot in the LLVM struct, so
+        // `gep_field` cannot name one. That is not a failure — there is
+        // nothing to store. Before this, `gep_field` returned null, the whole
+        // struct literal lowered to nothing, and the `let` that consumed it was
+        // DROPPED along with every dependent statement (measured on
+        // tests/logos/pass/core_1_adv_unit_field: exit 0, wrong program).
+        // The initializer is still evaluated: a void-typed initialiser may
+        // carry effects, and dropping those is the same class of defect.
+        if (fval) {
+            TypeRef zw_ty = fval.type(pool_impl());
+            if (zw_ty && !logos_to_mlir(zw_ty) &&
+                TypeRef(zw_ty).kind() != LogosType::Kind::Never) {
+                gen_expr(fval);   // effects only; there is no value and no slot
+                return;
+            }
+        }
 
         auto gep = gep_field(alloca, info, fname);
         if (!gep) { ok = false; return; }

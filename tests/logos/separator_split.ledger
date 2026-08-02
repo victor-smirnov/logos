@@ -1,0 +1,24 @@
+# separator_split.ledger — raw `__` splits still living in src/compiler,
+# counted per file with comments stripped. Held in BOTH directions by
+# logos_00_separator_split_lint: a file that gains a split is red, and a file
+# that loses one is red too, so this file can only move by being edited.
+#
+# WHY A LEDGER AND NOT ZERO. `__` is legal inside an identifier and is also the
+# separator composed names are built with, so every one of these cuts is a GUESS
+# about where a boundary fell. The fix carried the parts wherever a caller had
+# them and moved the rest behind src/compiler/mangled_name.hpp (registry-anchored
+# longest match, or recompose-and-compare). What remains are POST-REGISTRY
+# FALLBACKS: reached only after an exact lookup missed, and each one's result is
+# handed straight back to a table lookup that FAILS CLOSED — a wrong short name
+# finds nothing and the path is abandoned. A guess that cannot produce a wrong
+# answer, only a missed one, is a different animal from a guess that names the
+# wrong template.
+#
+# A NEW ENTRY IS NOT A FORMALITY. Adding one means arguing, at the site, why the
+# guess cannot yield a wrong answer. If it can, carry the parts instead.
+#
+# Format: <basename><TAB><count>
+mlir_gen_expr.cpp	1
+mono_clone.cpp	3
+mono_scan.cpp	5
+sema.cpp	1
