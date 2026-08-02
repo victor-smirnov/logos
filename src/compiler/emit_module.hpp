@@ -9,6 +9,11 @@ namespace logos::compiler {
 namespace lir { struct LProgram; }
 
 struct EmitModuleOptions {
+    // --stats. It used to be accepted and silently ignored on this path (main
+    // returns at the --emit-module branch, long before the stats block), so the
+    // ONE build that takes minutes had no phase breakdown at all.
+    bool stats = false;
+
     std::vector<std::string> extra_search_paths;  // -I flags
     bool emit_mlir = false;
     bool emit_llvm = false;

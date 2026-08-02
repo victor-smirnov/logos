@@ -69,6 +69,7 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
+#include <llvm/Config/llvm-config.h>
 // LLVM new pass manager (optimization pipeline)
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
@@ -3904,6 +3905,10 @@ int run_metaprog_dispatch(
                              std::string(t.trigger()).c_str());
         }
 
+        // The cursors left two UNTIMED gaps in this loop, and a gap is where a
+        // cost hides from the person reading the table: `--stats` looked
+        // complete while 68% of a stdlib build sat outside every label.
+        stat_step(_t, "drain+site scan", iter);
         auto _t2 = std::chrono::steady_clock::now();
         // Reuse the `prog` we already lowered at the top of this iter:
         // the second sema_lower below would do identical work (same asts,
@@ -4021,6 +4026,7 @@ int run_metaprog_dispatch(
         // prior iters' addModule calls) and resolve through ORC's
         // existing JITDylib at link time.
         for (auto& n : m6_prev_emitted_fns) logos::compiler::lir_mirror_map_put_null(meta_prog, meta_prog.binary_symbols, n);
+        stat_step(_t2, "meta item-sites + re-sema", iter);
         auto _t3 = std::chrono::steady_clock::now();
         meta_prog = reflection_emit(std::move(meta_prog));
         stat_step(_t3, "reflection", iter);
@@ -4103,6 +4109,42 @@ int run_metaprog_dispatch(
         // declared symbols resolve against prior iters' modules via ORC.
         if (!m6_meta_jit) {
             m6_meta_jit = std::make_unique<logos::jit::Jit>();
+            // ── PERSISTENT OBJECT CACHE ──────────────────────────────────────
+            // The first lookup in this JIT compiles the WHOLE metaprog module
+            // (ORC is lazy, but at module granularity) — measured at 243 s for
+            // the stdlib `mem` layer, 68% of that layer's entire build, for a
+            // metaprogram whose own execution takes 0 ms. That machine code is
+            // discarded at process exit and recompiled next build, and since any
+            // logosc edit invalidates every stdlib archive, "next build" is the
+            // normal case.
+            //
+            // THE SALT IS THE SAFETY PROPERTY. The key is a hash of the module's
+            // bitcode plus everything that changes generated code without being
+            // in the module: the LLVM version, the target CPU, the optimisation
+            // level, and logosc's own version (which moves on every commit, so a
+            // compiler change can never be served pre-change objects). A wrong
+            // key here does not yield a slow build — it yields silently stale
+            // machine code, so the key errs toward MISSING rather than sharing.
+            if (const char* off = std::getenv("LOGOS_JIT_CACHE");
+                !(off && off[0] == '0')) {
+                std::string dir;
+                if (const char* d = std::getenv("LOGOS_JIT_CACHE_DIR")) dir = d;
+                else if (const char* x = std::getenv("XDG_CACHE_HOME")) dir = std::string(x) + "/logos/jit";
+                else if (const char* h = std::getenv("HOME")) dir = std::string(h) + "/.cache/logos/jit";
+                if (!dir.empty()) {
+                    std::string salt = std::string("logosc=") + LOGOS_VERSION_FULL
+                                     + ";llvm=" + LLVM_VERSION_STRING
+                                     // The JIT targets the HOST, not the AOT
+                                     // target, so the host CPU is the honest
+                                     // component here.
+                                     + ";cpu=" + std::string(llvm::sys::getHostCPUName())
+                                     + ";meta=1";
+                    if (!m6_meta_jit->enable_object_cache(dir, salt) &&
+                        (opts.trace || std::getenv("LOGOS_TRACE_DISPATCH")))
+                        std::fprintf(stderr, "logosc: jit object cache disabled: %s\n",
+                                     m6_meta_jit->error_str().c_str());
+                }
+            }
             if (!m6_meta_jit->init()) {
                 std::fprintf(stderr, "logosc-metaprog: jit init: %s\n",
                              m6_meta_jit->error_str().c_str());
@@ -4127,12 +4169,29 @@ int run_metaprog_dispatch(
             // the rule-IR handoff.
             if (!bind_metaprog_host_externs(*m6_meta_jit, "meta_jit")) return 1;
         }
+        // WHAT is about to be compiled. ORC's LLJIT adds a module as ONE
+        // materialization unit, so the first lookup of ANY symbol compiles the
+        // WHOLE module — single-threaded, because LLJITBuilder is created with
+        // defaults and nothing calls setNumCompileThreads. These two counts say
+        // whether the 4 minutes are "a huge module" or "a small module compiled
+        // pathologically", and those have opposite fixes.
+        if (stats) {
+            int64_t fns = 0, defs = 0, bbs = 0;
+            for (auto& F : *meta_llvm) {
+                ++fns;
+                if (!F.isDeclaration()) { ++defs; bbs += (int64_t)F.size(); }
+            }
+            stats->add("  meta module: fns", fns, iter);
+            stats->add("  meta module: DEFINED fns", defs, iter);
+            stats->add("  meta module: basic blocks", bbs, iter);
+        }
         if (!m6_meta_jit->add_module(std::move(meta_llvm), std::move(meta_llvm_ctx_ptr))) {
             std::fprintf(stderr, "logosc-metaprog: jit add_module: %s\n",
                          m6_meta_jit->error_str().c_str());
             return 1;
         }
         stat_step(_t3, "jit_build", iter);
+
         report("metaprog jit");
 
         bool any_emitted = false;
@@ -4225,10 +4284,43 @@ int run_metaprog_dispatch(
             // the dispatch loop, exactly like the macro-arg blobs.
             ~M6MacroArgsGuard() { g_macro_args = nullptr; logos::compiler::rule_ir::clear(); }
         } m6_macro_args_guard;
+        // ⚠ THE LAST UNTIMED STRETCH, and it holds most of the build. Each ITEM
+        // site is a container / mapping / fn-macro declaration; the lookup below
+        // is what MATERIALIZES its thunk in the ORC JIT — compilation there is
+        // LAZY, so `jit_build` measuring 8 ms says nothing about the cost of
+        // actually running these, and measuring the constructor measured
+        // nothing while looking convincing. Timed as one phase PLUS a site
+        // count, because "many sites" and "slow sites" are different problems
+        // with different fixes and a duration alone cannot tell them apart.
+        auto _t_items = std::chrono::steady_clock::now();
+        int64_t _n_item_sites = 0;
         for (const auto& site : meta_item_sites) {
+            ++_n_item_sites;
             if (site.thunk_source.empty()) continue;
             if (site.ast_idx >= asts.size()) continue;
+            // Split the two halves: ORC materialization (compiling whatever the
+            // thunk transitively reaches, which for a stdlib-spanning metaprog
+            // module can be almost everything) versus the metaprogram's own
+            // execution. They are adjacent and were being reported as one
+            // number, and they have completely different fixes — one is a
+            // caching/scoping problem, the other is generated-code speed.
+            auto _t_lookup = std::chrono::steady_clock::now();
             auto* sym = meta_jit->lookup(std::string(site.thunk_name));
+            if (stats)
+                stats->add(std::string("    lookup: ") + std::string(site.callee_name),
+                           std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - _t_lookup).count(), iter);
+            auto _t_run = std::chrono::steady_clock::now();
+            struct RunTimer {
+                logos::compiler::CompileStats* st; std::string label; int it;
+                std::chrono::steady_clock::time_point t0;
+                ~RunTimer() {
+                    if (!st) return;
+                    st->add(label, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::steady_clock::now() - t0).count(), it);
+                }
+            } _run_timer{stats, std::string("    run:    ") + std::string(site.callee_name),
+                         iter, _t_run};
             if (!sym) {
                 // Sites are re-collected by THIS iteration's sema, so the
                 // thunk must be in this iteration's JIT module — a lookup
@@ -4302,6 +4394,20 @@ int run_metaprog_dispatch(
                 return 1;
             }
         }
+        stat_step(_t_items, "item-site JIT+run", iter);
+        if (stats) {
+            // ⚠ SAMPLED AFTER THE LOOKUPS, not at jit_build. The first placement
+            // read the counters BEFORE anything had been looked up and printed
+            // 0/0 — a plausible-looking number for a cold cache, which is
+            // exactly why it would have survived review. A cache nobody can
+            // measure is a cache nobody can tell from a no-op, and "it got
+            // faster" is not evidence that THIS is why.
+            auto cs = m6_meta_jit->cache_stats();
+            stats->add("  jit cache: HITS", cs.hits, iter);
+            stats->add("  jit cache: misses", cs.misses, iter);
+            stats->add("  jit cache: stores", cs.stores, iter);
+        }
+        if (stats) stats->add("  (item-site COUNT)", _n_item_sites, iter);
         // Raw-text item-macro thunks (#[token_macro] — wql!/trama!) report
         // diagnostics through the same `error()` channel as metaprog hooks;
         // hook_diags was drained (and required empty) after the hook loop
@@ -4983,6 +5089,7 @@ int main(int argc, char** argv) {
         mopts.emit_llvm = emit_llvm;
         mopts.emit_docs = emit_docs_flag;
         mopts.only_file = only_file;
+        mopts.stats = stats_flag;
         mopts.extra_lib_files = explicit_lib_files;
         mopts.opt_level = opt_level;
         mopts.overflow_checks = overflow_checks;

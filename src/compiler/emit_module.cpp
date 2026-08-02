@@ -5,6 +5,11 @@
 //   NAME.o       — compiled non-generic code for the whole module
 //   NAME.writ0 — binary AST dump (for sema on client side)
 
+#include <algorithm>
+#include <map>
+#include <chrono>
+#include <optional>
+#include <utility>
 #include "emit_module.hpp"
 #include "compile_pipeline.hpp"
 #include "metaprog_dispatch.hpp"
@@ -576,6 +581,37 @@ static void emit_docs_facts(lir::LProgram& prog,
     df << out;
 }
 
+
+// ── --stats on the MODULE path ───────────────────────────────────────────────
+// `--stats` was accepted and silently did nothing here: main returns at the
+// `--emit-module` branch, hundreds of lines before the stats block it shares
+// with the single-file path. So the one build that takes minutes — the stdlib
+// layers — was the one build with no phase breakdown, and any parallelisation
+// plan for it would have been a guess. A flag that is parsed and ignored is
+// worse than an absent one: it answers "I measured" with silence.
+//
+// File-static rather than threaded through two long parameter lists: this is
+// instrumentation, it is written once at entry, and the compile path is
+// single-threaded (which is the very fact being measured).
+static bool                                 g_emit_stats = false;
+static std::vector<std::pair<std::string, int64_t>> g_emit_phases;
+static CompileStats                          g_dispatch_stats;
+
+namespace {
+struct PhaseTimer {
+    const char* label;
+    std::chrono::steady_clock::time_point t0;
+    explicit PhaseTimer(const char* l)
+        : label(l), t0(std::chrono::steady_clock::now()) {}
+    ~PhaseTimer() {
+        if (!g_emit_stats) return;
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - t0).count();
+        g_emit_phases.emplace_back(label, ms);
+    }
+};
+}  // namespace
+
 static bool compile_to_object(std::vector<writ::Writ>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
@@ -597,6 +633,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                const std::string& target_cpu = "generic",
                                std::vector<std::optional<EmitProvenance>>*
                                    provenance_out = nullptr) {
+    std::optional<PhaseTimer> _pt_meta;
+    _pt_meta.emplace("pre-dispatch prep");
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -749,8 +787,24 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // free-fn bodies in whichever ast happened to load last —
         // typically std.time.logos — corrupting metaprog mlir gen.)
         size_t entry_idx = static_cast<size_t>(-1);
-        if (run_metaprog_dispatch(asts, filenames, from_binary, entry_idx, mopts) != 0)
-            return false;
+        // The dispatch loop ALREADY samples every phase per iteration; it just
+        // was never handed a sink on this path, so the 72%% of a stdlib build
+        // that happens inside it was invisible. Same shape as `--stats` itself
+        // being ignored here: the instrument existed, the path did not reach it.
+        if (g_emit_stats) mopts.stats_out = &g_dispatch_stats;
+        // ⚠ MEASURE THE CALL, NOT ITS NEIGHBOURHOOD. The first cut of this
+        // instrumentation timed everything from function entry to the final
+        // sema under one label, "metaprog discovery" — but ~200 lines of
+        // dep-archive scanning and symbol collection sit inside that stretch,
+        // so a cost that belongs elsewhere was about to be attributed to the
+        // dispatch loop. Watching a proxy for the work instead of the work is
+        // exactly how a measurement lies while looking precise.
+        _pt_meta.reset();
+        {
+            PhaseTimer _pt_dispatch("dispatch loop");
+            if (run_metaprog_dispatch(asts, filenames, from_binary, entry_idx, mopts) != 0)
+                return false;
+        }
     }
     // Re-stamp from_binary: ast_only files become "binary" so the
     // post-dispatch sema/mono/mlir-gen pass treats them as already-
@@ -795,7 +849,10 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         for (auto& pn : dep_exports.all_struct_decls) dnd.push_back(pn);
         for (auto& pn : dep_exports.all_enum_decls)   dnd.push_back(pn);
     }
+    std::optional<PhaseTimer> _pt;
+    _pt.emplace("sema+lower");
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
+    _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
@@ -1008,12 +1065,16 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // downstream/user compiles skip from_binary_module fns (borrow_check) and need
     // not re-check them. THIS layer's own generics carry from_binary_module=false,
     // so they ARE checked; lower-layer deps are skipped (already checked at theirs).
+    _pt.emplace("borrow_check");
     prog = borrow_check(std::move(prog), /*generic_templates_only=*/true);
+    _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
     // Mono (also emits L-IR Writ mirror; borrow_check reads via mirror)
+    _pt.emplace("mono");
     prog = mono_pass(std::move(prog));
+    _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
@@ -1315,6 +1376,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     lopts.overflow_checks = overflow_checks;  // honor -C overflow-checks=off
     lopts.target_cpu = target_cpu;            // honor -C target-cpu=
     lopts.function_sections = true; // per-fn sections for --gc-sections
+    PhaseTimer _pt_codegen("mlir+llvm+object");
     return lower_and_emit_object(prog, obj_path, lopts) == 0;
 }
 
@@ -1361,10 +1423,64 @@ resolve_manifest_depends(const ModuleManifest& manifest,
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
+// RAII so the summary is printed on EVERY exit of emit_module, including the
+// early `return false` paths. A breakdown you only get on success is a
+// breakdown you cannot use while diagnosing the slow failure.
+namespace {
+struct EmitStatsReport {
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    ~EmitStatsReport() {
+        if (!g_emit_stats) return;
+        auto total = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - t0).count();
+        int64_t named = 0;
+        for (auto& [l, ms] : g_emit_phases) named += ms;
+        std::fprintf(stderr, "\n=== emit-module phase timings ===\n");
+        for (auto& [l, ms] : g_emit_phases)
+            std::fprintf(stderr, "  %-22s %8lld ms  %5.1f%%\n", l.c_str(),
+                         (long long)ms, total ? 100.0 * double(ms) / double(total) : 0.0);
+        // The residue is named, not hidden: sidecars, archive assembly and
+        // everything between the timed phases. An unlabelled remainder is where
+        // a cost hides from the person reading the table.
+        std::fprintf(stderr, "  %-22s %8lld ms  %5.1f%%\n", "(untimed residue)",
+                     (long long)(total - named),
+                     total ? 100.0 * double(total - named) / double(total) : 0.0);
+        std::fprintf(stderr, "  %-22s %8lld ms\n", "TOTAL", (long long)total);
+        if (!g_dispatch_stats.samples.empty()) {
+            // Inside "metaprog discovery": per-LABEL totals and the iteration
+            // count. Rendered as a SUBSET, not added to the total — these
+            // samples are nested inside a phase already counted above, and a
+            // table whose rows sum past 100%% is a table nobody trusts.
+            std::map<std::string, int64_t> by_label;
+            std::map<std::string, int>     hits;
+            int max_iter = -1;
+            for (auto& sm : g_dispatch_stats.samples) {
+                by_label[sm.label] += sm.ms;
+                ++hits[sm.label];
+                if (sm.iter > max_iter) max_iter = sm.iter;
+            }
+            std::fprintf(stderr,
+                "  -- inside 'metaprog discovery' (%d iteration(s)), a SUBSET of the above --\n",
+                max_iter + 1);
+            std::vector<std::pair<std::string, int64_t>> rows(by_label.begin(), by_label.end());
+            std::sort(rows.begin(), rows.end(),
+                      [](auto& a, auto& b) { return a.second > b.second; });
+            for (auto& [l, ms] : rows)
+                std::fprintf(stderr, "     %-19s %8lld ms  x%-4d %5.1f%% of total\n",
+                             l.c_str(), (long long)ms, hits[l],
+                             total ? 100.0 * double(ms) / double(total) : 0.0);
+        }
+    }
+};
+}  // namespace
+
 bool emit_module(const ModuleManifest& manifest,
                  const std::string& output_path,
                  const EmitModuleOptions& opts)
 {
+    g_emit_stats = opts.stats;
+    g_emit_phases.clear();
+    EmitStatsReport _stats_report;
     // Progress output is noisy on every build; gate it behind LOGOS_EMIT_VERBOSE=1.
     bool verbose = false;
     if (const char* v = std::getenv("LOGOS_EMIT_VERBOSE")) {
@@ -1456,6 +1572,7 @@ bool emit_module(const ModuleManifest& manifest,
     // in the codegen bucket first.
     std::vector<ParsedModule> modules;
     {
+        PhaseTimer _pt_parse("parse (load_modules)");
         std::unordered_set<std::string> seen;
         auto load_bucket = [&](const std::vector<std::string>& bucket) {
             for (auto& file : bucket) {
