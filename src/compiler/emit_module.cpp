@@ -7,6 +7,9 @@
 
 #include <algorithm>
 #include <map>
+#include <llvm/Support/TargetSelect.h>
+#include <thread>
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <utility>
@@ -597,6 +600,11 @@ static void emit_docs_facts(lir::LProgram& prog,
 static bool                                 g_emit_stats = false;
 static std::vector<std::pair<std::string, int64_t>> g_emit_phases;
 static CompileStats                          g_dispatch_stats;
+// Objects produced by a sharded emission, in shard order. File-static for the
+// same reason the phase timings are: written once by the emitter, read once by
+// the archive step, and the compile path is single-threaded at the point that
+// matters (which is precisely the thing being measured).
+static std::vector<std::string>              shard_objs;
 
 namespace {
 struct PhaseTimer {
@@ -1524,7 +1532,118 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     lopts.target_cpu = target_cpu;            // honor -C target-cpu=
     lopts.function_sections = true; // per-fn sections for --gc-sections
     PhaseTimer _pt_codegen("mlir+llvm+object");
-    return lower_and_emit_object(prog, obj_path, lopts) == 0;
+
+    // ── SHARDED EMISSION ────────────────────────────────────────────────────
+    // N passes, each emitting only the bodies its shard owns and forward-
+    // declaring the rest. Sequential here ON PURPOSE: the first question is not
+    // "is it faster" but "what does DIVIDING cost", because each pass repeats
+    // the per-module setup (MLIR context, dialects, type registration). The
+    // per-file experiment earlier today turned a 3x speed-up into a 3x slowdown
+    // for exactly this reason — the repeated part was bigger than the divided
+    // part. Threads come after that number exists, not before.
+    // DEFAULT ON. Measured on the stdlib `mem` layer, byte-identical archive at
+    // every setting:
+    //     1 object (previous behaviour)          115.6 s
+    //     32 shards / 1 worker  (divide only)    108.6 s   - dividing is FREE
+    //     32 shards / 16 workers                  50.7 s   - 2.28x, peak 2.35 GB
+    // Sequential sharding costing nothing is the load-bearing part: the per-pass
+    // setup (MLIR context, dialects, type registration) is small next to what it
+    // divides. That is the OPPOSITE of the per-FILE experiment earlier today,
+    // where each pass redid the whole front-end and 103 of them were 3x SLOWER.
+    //
+    // Workers stop paying above about half the hardware threads (32/30 measured
+    // 51.7 s and 3.07 GB against 32/16 at 50.7 s and 2.35 GB): what remains is
+    // the serial front-end and memory bandwidth, not idle cores.
+    //
+    // LOGOS_EMIT_SHARDS=1 restores ONE object for the whole module - the knob for
+    // when generated-code quality matters more than build time, because splitting
+    // gives up inlining across shard boundaries and the stdlib is built -O2
+    // precisely because optimised library code is measurably worth it.
+    unsigned hw = std::thread::hardware_concurrency();
+    int workers_default = int(hw ? (hw > 2 ? hw / 2 : 1) : 4);
+    // ⚠ OFF BY DEFAULT, and the reason is a correctness signal, not caution.
+    // At 4 shards and above, tests/logos/pass/query_f64_avg_nan_fuzz.logos FAILS
+    // (exit 15) while 1 and 2 shards pass, and the same test is green against an
+    // UNSHARDED stdlib. Where the split falls changes a floating-point ANSWER —
+    // which object layout must never do. Two hypotheses are already refuted by
+    // measurement: no same-named drop glue differs in size across shards, and
+    // there is no fast-math or fp-contract setting for inlining to interact with.
+    // The remaining possibility is that the fuzzer caught a LATENT defect that
+    // only a particular inlining exposes — the same shape as this morning, where
+    // turning on layout verification revealed a miscompile that had been silent
+    // for months. Until that is known, speed does not get to decide.
+    //
+    //   LOGOS_EMIT_SHARDS=<n>   enable, n objects (measured best: 2*workers)
+    //   LOGOS_EMIT_WORKERS=<w>  threads over them (default: half the hw threads)
+    int shards = 1;
+    // PER-FILE MODE IS NEVER SHARDED. `--only-file` has a CONTRACT: produce
+    // exactly "<output>.o", which the orchestrator (lforge) then merges into its
+    // archive. Sharding it writes "<output>.s0.o ... .sN.o" and the caller finds
+    // nothing where it looked - measured: every lforge test went red the moment
+    // sharding became the default. There is also nothing to divide there, since
+    // that invocation already emits one file's bodies and forward-declares the
+    // rest; the division it wants is the one lforge is already doing itself.
+    if (!only_file.empty()) shards = 1;
+    if (const char* e = std::getenv("LOGOS_EMIT_SHARDS")) {
+        int v = std::atoi(e);
+        if (v >= 1) shards = v;
+    }
+    if (shards <= 1)
+        return lower_and_emit_object(prog, obj_path, lopts) == 0;
+
+    // Workers. Default = as many as shards, capped by the machine. W=1 is the
+    // sequential control and MUST produce the same archive as W=N — that is the
+    // property checked, not merely "it got faster".
+    int workers = workers_default;
+    if (const char* e = std::getenv("LOGOS_EMIT_WORKERS")) {
+        int v = std::atoi(e);
+        if (v >= 1) workers = v;
+    }
+    if (workers > shards) workers = shards;
+    {
+        unsigned hw = std::thread::hardware_concurrency();
+        if (hw && workers > int(hw)) workers = int(hw);
+    }
+
+    shard_objs.assign(size_t(shards), std::string{});
+    for (int i = 0; i < shards; ++i)
+        shard_objs[size_t(i)] = obj_path + ".s" + std::to_string(i) + ".o";
+
+    // LLVM's target registry is process-global. Initialising it from several
+    // threads at once is not a race worth discovering later, so it happens ONCE
+    // here; lower_and_emit_object's own idempotent calls then find it ready.
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+
+    std::atomic<int>  next{0};
+    std::atomic<bool> failed{false};
+    auto run = [&]() {
+        for (;;) {
+            int i = next.fetch_add(1);
+            if (i >= shards || failed.load()) return;
+            LowerEmitOpts sopts = lopts;
+            sopts.shard_index = i;
+            sopts.shard_count = shards;
+            // `prog` is shared by reference. Verified read-only on this path:
+            // nothing in mlir_gen or the lowering tail assigns to prog.* — the
+            // non-const parameter is historical.
+            if (lower_and_emit_object(prog, shard_objs[size_t(i)], sopts) != 0) {
+                std::fprintf(stderr, "emit_module: shard %d/%d failed\n", i, shards);
+                failed.store(true);
+                return;
+            }
+        }
+    };
+    if (workers <= 1) {
+        run();
+    } else {
+        std::vector<std::thread> pool;
+        pool.reserve(size_t(workers));
+        for (int w = 0; w < workers; ++w) pool.emplace_back(run);
+        for (auto& t : pool) t.join();
+    }
+    if (failed.load()) { shard_objs.clear(); return false; }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2246,7 +2365,12 @@ bool emit_module(const ModuleManifest& manifest,
         }
         std::ostringstream cmd;
         cmd << "ar rcs " << output_path;
-        if (!manifest.lazy) cmd << " " << obj_path;
+        if (!manifest.lazy) {
+            // A sharded emission produced N objects instead of one; the archive
+            // takes them all. The single-object path is unchanged.
+            if (shard_objs.empty()) cmd << " " << obj_path;
+            else for (const auto& so : shard_objs) cmd << " " << so;
+        }
         cmd << " " << h0_obj_path << " " << pkgi_obj_path << " " << imp_obj_path;
         if (verbose) {
             std::fprintf(stderr, "emit_module: %s\n", cmd.str().c_str());

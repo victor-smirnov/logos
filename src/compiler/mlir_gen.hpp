@@ -33,6 +33,8 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             std::string_view main_source = {},
                                             bool overflow_checks = true,
                                             bool target_has_bmi2 = false,
-                                            std::string_view target_cpu = {}) noexcept;
+                                            std::string_view target_cpu = {},
+                                            int shard_index = -1,
+                                            int shard_count = 1) noexcept;
 
 } // namespace logos::compiler

@@ -40,6 +40,21 @@ struct LowerEmitOpts {
     // --dump-metaprog snapshots: when non-empty, write _global_post_mono.mlir
     // and _global_post_mlirgen.ll under this dir.
     std::string dump_metaprog_dir;
+    // ── SHARDING ────────────────────────────────────────────────────────────
+    // Emit only the function bodies belonging to shard `shard_index` of
+    // `shard_count`; every other body becomes a forward declaration, exactly as
+    // a dependency-archive symbol already does. shard_index < 0 = emit
+    // everything (today's behaviour, and the only behaviour when count == 1).
+    //
+    // WHY AN ARBITRARY SPLIT IS SOUND: an ordinary call between two units is
+    // resolved by the LINKER and imposes no build order. Measured on
+    // liblogos-mem.a: 5 785 defined symbols, ALL external, ZERO internal — so
+    // no body can become unreachable by landing in a different object.
+    // Semantic ownership is needed only where an ORDER constraint exists (a
+    // metafunction's provider before its consumer), which is one edge in the
+    // whole stdlib. Everything else only needs BALANCE.
+    int shard_index = -1;
+    int shard_count = 1;
 };
 
 // Resolve `-C target-cpu=` to the concrete backend CPU name: "" → "generic",

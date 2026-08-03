@@ -104,7 +104,8 @@ int lower_and_emit_object(lir::LProgram& prog,
     auto mlir_module = mlir_gen(mlir_ctx, prog, opts.debug_info, opts.source_path,
                                 opts.overflow_checks,
                                 target_cpu_has_bmi2(opts.target_cpu),
-                                opts.target_cpu);
+                                opts.target_cpu,
+                                opts.shard_index, opts.shard_count);
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
     if (!mlir_module) {
         std::fprintf(stderr, "logosc: MLIR generation failed\n");
@@ -245,6 +246,29 @@ int lower_and_emit_object(lir::LProgram& prog,
             std::fwrite(ll_text.data(), 1, ll_text.size(), f);
             std::fclose(f);
         }
+    }
+
+    // ── SHARDING: compiler-synthesised glue is emitted PER OBJECT ───────────
+    // `__drop_in_place__<T>` is created on demand while lowering, so every shard
+    // that drops a T emits its own copy. Measured: sharding mem into 8 produced
+    // two extra definitions (`__drop_in_place__String`,
+    // `__drop_in_place__MemorySnapshot`) — strong, external, in one archive,
+    // which is a duplicate-symbol link error waiting for a consumer that pulls
+    // both objects.
+    //
+    // Internal linkage would NOT do: a vtable stores a pointer to the glue in
+    // slot 0, and the vtable can land in a different shard than the glue, so the
+    // reference has to cross the object boundary. LinkOnceODR is the shape that
+    // fits — every shard may emit it, the linker keeps one, and cross-shard
+    // references still resolve. Same reasoning (and same wording) as the WeakODR
+    // already used for the reflection arrays in mlir_gen.
+    //
+    // Applied only when sharding, so the single-object path stays byte-identical
+    // and the ABI spec does not move for a change that is about object layout.
+    if (opts.shard_count > 1) {
+        for (auto& F : *llvm_module)
+            if (!F.isDeclaration() && F.getName().starts_with("__drop_in_place__"))
+                F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
     }
 
     logos::compat::set_default_target_triple(*llvm_module);

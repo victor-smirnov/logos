@@ -270,7 +270,19 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // compiled, so we use binary_symbols rather than the
     // from_binary_module flag (mono erases the flag during clone).
     auto is_binary_skip = [&prog, this](lir_view::FunctionView fn) -> bool {
-        if (fn.is_extern() || prog.binary_symbols.empty()) return false;
+        if (fn.is_extern()) return false;
+        // SHARDING: a body outside this shard is forward-declared, exactly like
+        // a dependency-archive symbol. The selector is a stable hash of the LINK
+        // name so the partition is a pure function of the program — it cannot
+        // depend on iteration order, on scheduling, or on how many workers ran.
+        // Reproducibility is the property; balance is the goal.
+        if (shard_count_ > 1 && shard_index_ >= 0) {
+            std::string ln = link_name(fn);
+            uint64_t h = 1469598103934665603ull;           // FNV-1a
+            for (unsigned char c : ln) { h ^= c; h *= 1099511628211ull; }
+            if (int(h % uint64_t(shard_count_)) != shard_index_) return true;
+        }
+        if (prog.binary_symbols.empty()) return false;
         // Module system: archive nm carries QUALIFIED link symbols → match on link_name.
         return prog.binary_symbols.has(link_name(fn)) > 0;
     };
@@ -1554,7 +1566,9 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             std::string_view main_source,
                                             bool overflow_checks,
                                             bool target_has_bmi2,
-                                            std::string_view target_cpu) noexcept
+                                            std::string_view target_cpu,
+                                            int shard_index,
+                                            int shard_count) noexcept
 {
     auto t0 = std::chrono::steady_clock::now();
     MLIRGenImpl gen(ctx);
@@ -1563,6 +1577,7 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
     gen.set_target_bmi2(target_has_bmi2);
     gen.set_target_cpu(target_cpu);
     gen.set_main_source(main_source);
+    gen.set_shard(shard_index, shard_count);
     auto t_ctor = std::chrono::steady_clock::now();
     auto mod = gen.generate(prog);
     auto t_gen = std::chrono::steady_clock::now();

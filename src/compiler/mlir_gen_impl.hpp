@@ -248,6 +248,7 @@ public:
     void set_target_cpu(std::string_view s) { target_cpu_.assign(s); }
     // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
     void set_main_source(std::string_view s) { main_source_.assign(s); }
+    void set_shard(int idx, int cnt) { shard_index_ = idx; shard_count_ = cnt; }
 
 private:
     mlir::OpBuilder builder_;
@@ -298,6 +299,8 @@ private:
     bool                              overflow_checks_ = true;  // trap on int +/-/* overflow (off = wrapping)
     bool                              target_has_bmi2_ = false; // target cpu has BMI2 (pdep/pext inline)
     std::string                       main_source_;      // primary input path (CU file + fallback)
+    int                               shard_index_ = -1;  // <0 = emit every body
+    int                               shard_count_ = 1;
     mlir::LLVM::DICompileUnitAttr     di_cu_;            // one per module (lazy)
     mlir::LLVM::DISubprogramAttr      di_subprogram_;    // current fn (null outside a body)
     mlir::LLVM::DIFileAttr            di_file_;          // current fn's file
