@@ -281,6 +281,23 @@ public:
         size_t largest_unit_fns = 0;
         // Reach of the §1.3 derivation walk — see assign_ownership.
         size_t bodies_walked = 0, callee_hits = 0, callee_misses = 0;
+        // ── COULD `source_file` BE AN OWNER? ─────────────────────────────
+        // The measured shape of a LIBRARY: most of its functions are referenced
+        // by nobody INSIDE it — the public surface is called by consumers — so
+        // the referrer rule leaves them ownerless and they all fall into
+        // Common. On lcm that is 9 065 of 13 447, and Common holding 99% is
+        // what caps the achievable parallelism at 1.17x. The Source node kind
+        // exists and is never used as an owner.
+        //
+        // These counters answer whether it COULD be, over exactly the
+        // population that lands in Common today. A prior survey measured that
+        // `source_file` attributes only ~10% of a GENERATED family correctly,
+        // so the answer is expected to differ sharply between ordinary and
+        // generated code — which is why the split is counted, not the total.
+        size_t unref_src_module = 0;   // source_file names a Source unit of THIS module
+        size_t unref_src_other  = 0;   // non-empty but not one of this module's files
+        size_t unref_src_empty  = 0;   // no source_file at all
+        size_t unref_src_files  = 0;   // DISTINCT module files they would spread over
         // Provenance of the ORDER — see UnitOrderFacts. `order_established`
         // false means levels() is the safe total order, not a derived one.
         bool   order_established = false;

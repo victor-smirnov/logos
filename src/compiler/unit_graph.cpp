@@ -585,6 +585,7 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
     }
 
     stats_ = Census{};
+    std::set<std::string> unref_files;
     stats_.bodies_walked = bodies_walked;
     stats_.callee_hits = callee_hits;
     stats_.callee_misses = callee_misses;
@@ -595,6 +596,22 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
             else                      ++stats_.fns_declared;
         } else if (u == UNSET) {
             ++stats_.fns_unreferenced;   // undeclared AND never referenced
+            // Would `source_file` give this function an owner? Counted over
+            // exactly the population that Common swallows today.
+            auto bit = by_name.find(nm);
+            std::string_view sf = (bit != by_name.end()) ? bit->second.source_file()
+                                                         : std::string_view{};
+            if (sf.empty()) ++stats_.unref_src_empty;
+            else {
+                std::string key(sf);
+                bool is_module_src = false;
+                for (const auto& un : units_)
+                    if (un.kind == UnitId::Kind::Source && un.key == key) {
+                        is_module_src = true; break;
+                    }
+                if (is_module_src) { ++stats_.unref_src_module; unref_files.insert(key); }
+                else               ++stats_.unref_src_other;
+            }
         } else {
             ++stats_.fns_derived;
         }
@@ -603,6 +620,7 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
         owner_[link] = u;
         if (u < unit_fn_count_.size()) ++unit_fn_count_[u];
     }
+    stats_.unref_src_files = unref_files.size();
 }
 
 UnitGraph::Census UnitGraph::census() const {
@@ -761,6 +779,12 @@ void UnitGraph::write_sidecar(const std::string& path,
            ", fns_derived: " + std::to_string(c.fns_derived) +
            ", fns_unreferenced: " + std::to_string(c.fns_unreferenced) +
            ", fns_non_common: " + std::to_string(c.fns_non_common) +
+           // Could source_file own the population Common swallows today?
+           // Written next to fns_unreferenced so the two are read together.
+           ", unref_src_module: " + std::to_string(c.unref_src_module) +
+           ", unref_src_other: "  + std::to_string(c.unref_src_other) +
+           ", unref_src_empty: "  + std::to_string(c.unref_src_empty) +
+           ", unref_src_files: "  + std::to_string(c.unref_src_files) +
            // The complement, and what it COSTS. Written next to the
            // attribution rate so the two can never be read apart.
            ", fns_common: " + std::to_string(c.fns_common()) +
