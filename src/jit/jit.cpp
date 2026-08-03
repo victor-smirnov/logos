@@ -15,140 +15,18 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
-#include <llvm/ExecutionEngine/ObjectCache.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/Support/MemoryBuffer.h>
-#include <llvm/Support/SHA256.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
 
-#include <atomic>
-#include <mutex>
-#include <unordered_map>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 
 namespace logos::jit {
 
-// ── Persistent object cache ─────────────────────────────────────────────────
-//
-// The key is a SHA-256 over (module bitcode || salt). Hashing the bitcode costs
-// a serialisation of the module on every build, hit or miss — paid deliberately,
-// because the alternative keys are all unsound: the module's identifier is not
-// unique, a source mtime says nothing about a module synthesised in memory, and
-// a "did anything change" heuristic is exactly how a cache serves stale code.
-// The one thing this must never do is return an object for a module it was not
-// compiled from.
-namespace {
-class LogosObjectCache final : public llvm::ObjectCache {
-public:
-    LogosObjectCache(std::string dir, std::string salt)
-        : dir_(std::move(dir)), salt_(std::move(salt)) {}
-
-    void notifyObjectCompiled(const llvm::Module* M, llvm::MemoryBufferRef Obj) override {
-        if (!M) return;
-        // ⚠ THE KEY IS CARRIED FROM getObject, NOT RECOMPUTED HERE.
-        // MEASURED: hashing the module at this point yields a DIFFERENT key than
-        // the lookup did moments earlier — 4 595 272 bytes of bitcode on the way
-        // in, 4 507 340 on the way out. The codegen pipeline MUTATES the module
-        // it is handed, so a key derived from the post-compile module names an
-        // object nobody will ever ask for: every build stored a 6 MB file and
-        // every build missed. The cache "worked" — it wrote, the directory
-        // filled, the run took exactly as long as before.
-        //
-        // This is the same defect class the compiler itself keeps meeting: a
-        // fact re-derived from a representation that has since changed, instead
-        // of carried from where it was known.
-        std::string path;
-        {
-            std::lock_guard<std::mutex> g(mu_);
-            if (auto it = pending_.find(M); it != pending_.end()) {
-                path = it->second;
-                pending_.erase(it);
-            }
-        }
-        if (path.empty()) {
-            // No pending key means getObject was never called for this module —
-            // the compile did not go through the path this cache observes. Do
-            // NOT invent a key from the mutated module: an entry under a key
-            // that can never be recomputed is indistinguishable from a leak.
-            ++orphans_;
-            return;
-        }
-        // Write to a unique temp then rename: two builds may race on the same
-        // key, and a half-written object read as complete is a crash with no
-        // explanation. rename(2) within a directory is atomic.
-        std::error_code ec;
-        llvm::SmallString<256> tmp(path);
-        tmp += ".tmp.";
-        tmp += std::to_string(::getpid());
-        {
-            llvm::raw_fd_ostream out(tmp, ec, llvm::sys::fs::OF_None);
-            if (ec) return;
-            out << Obj.getBuffer();
-            out.flush();
-            if (out.has_error()) { out.clear_error(); llvm::sys::fs::remove(tmp); return; }
-        }
-        if (llvm::sys::fs::rename(tmp, path)) llvm::sys::fs::remove(tmp);
-        else ++stores_;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> getObject(const llvm::Module* M) override {
-        if (!M) return nullptr;
-        // The key is computed HERE, from the module as the compiler received it,
-        // and remembered for the notify that follows.
-        auto path = path_for(*M);
-        if (path.empty()) return nullptr;
-        {
-            std::lock_guard<std::mutex> g(mu_);
-            pending_[M] = path;
-        }
-        auto buf = llvm::MemoryBuffer::getFile(path, /*IsText=*/false);
-        if (!buf) { ++misses_; return nullptr; }
-        ++hits_;
-        return std::move(*buf);
-    }
-
-    long hits() const { return hits_; }
-    long orphans() const { return orphans_; }
-    long misses() const { return misses_; }
-    long stores() const { return stores_; }
-
-private:
-    std::string path_for(const llvm::Module& M) const {
-        std::string bc;
-        {
-            llvm::raw_string_ostream os(bc);
-            llvm::WriteBitcodeToFile(M, os);
-        }
-        llvm::SHA256 h;
-        h.update(llvm::StringRef(salt_));
-        h.update(llvm::StringRef(bc));
-        auto digest = h.final();
-        std::string hex;
-        hex.reserve(64);
-        static const char* kHex = "0123456789abcdef";
-        for (uint8_t b : digest) { hex.push_back(kHex[b >> 4]); hex.push_back(kHex[b & 15]); }
-        // The key is printed on demand because "the cache did not help" has two
-        // very different causes — the object is never consulted, or the key
-        // differs between runs — and only the key itself tells them apart.
-        if (const char* t = std::getenv("LOGOS_TRACE_JIT_CACHE"); t && t[0] && t[0] != '0')
-            std::fprintf(stderr, "jit-cache: key=%s bitcode=%zu bytes module='%s'\n",
-                         hex.c_str(), bc.size(), M.getModuleIdentifier().c_str());
-        return dir_ + "/" + hex + ".o";
-    }
-    std::string dir_, salt_;
-    mutable std::mutex mu_;
-    std::unordered_map<const llvm::Module*, std::string> pending_;
-    mutable std::atomic<long> hits_{0}, misses_{0}, stores_{0}, orphans_{0};
-};
-}  // namespace
 
 struct Jit::Impl {
     std::unique_ptr<llvm::orc::LLJIT> lljit;
-    std::unique_ptr<LogosObjectCache> cache;
 };
 
 Jit::Jit() : impl_(std::make_unique<Impl>()) {}
@@ -172,15 +50,13 @@ bool Jit::init() {
 
     llvm::orc::LLJITBuilder builder;
     {
-        // The compiler is ALWAYS replaced, not only when a cache is present.
-        // It carried two settings and one of them was gated on the cache by
-        // accident: with `LOGOS_JIT_CACHE=0` the codegen level silently
-        // reverted to the default, which is the -O2-equivalent this exists to
-        // avoid. A knob that turns off an unrelated thing is a trap, and it
-        // fooled the measurement that found it.
-        auto* cache = impl_->cache.get();   // may be null — the cache is optional
+        // The compiler is replaced UNCONDITIONALLY. It used to be installed only
+        // alongside an object cache, so disabling the cache silently restored
+        // the default -O2-equivalent codegen level — and the measurement meant
+        // to prove the level mattered used exactly that flag to "clean" the
+        // conditions, saw no change, and was believed for a round.
         builder.setCompileFunctionCreator(
-            [cache](llvm::orc::JITTargetMachineBuilder JTMB)
+            [](llvm::orc::JITTargetMachineBuilder JTMB)
                 -> llvm::Expected<std::unique_ptr<llvm::orc::IRCompileLayer::IRCompiler>> {
                 // ⚠ THE METAPROGRAM RUNS ONCE, FOR 0 ms. MEASURED.
                 // LLJIT defaults to the TargetMachine's -O2-equivalent codegen,
@@ -200,7 +76,7 @@ bool Jit::init() {
                 auto tm = JTMB.createTargetMachine();
                 if (!tm) return tm.takeError();
                 return std::make_unique<llvm::orc::TMOwningSimpleCompiler>(
-                    std::move(*tm), cache);
+                    std::move(*tm));
             });
     }
     auto jit = builder.create();
@@ -210,24 +86,6 @@ bool Jit::init() {
     }
     impl_->lljit = std::move(*jit);
     return true;
-}
-
-bool Jit::enable_object_cache(std::string_view cache_dir, std::string_view key_salt) {
-    if (cache_dir.empty()) return false;
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(std::string(cache_dir)), ec);
-    if (ec) {
-        last_err_ = "object cache: cannot create '" + std::string(cache_dir) + "': " + ec.message();
-        return false;
-    }
-    impl_->cache = std::make_unique<LogosObjectCache>(std::string(cache_dir),
-                                                      std::string(key_salt));
-    return true;
-}
-
-Jit::CacheStats Jit::cache_stats() const noexcept {
-    if (!impl_->cache) return {};
-    return {impl_->cache->hits(), impl_->cache->misses(), impl_->cache->stores()};
 }
 
 bool Jit::add_module(std::unique_ptr<llvm::Module>      mod,

@@ -28,35 +28,6 @@ public:
     Jit(const Jit&)            = delete;
     Jit& operator=(const Jit&) = delete;
 
-    // Persistent object cache for JIT-compiled modules.
-    //
-    // MEASURED 2026-08-02: building the stdlib `mem` layer spends 243 s — 68% of
-    // the whole layer — inside ONE `lookup()`. ORC compiles lazily but at MODULE
-    // granularity, so the first lookup of any symbol compiles all 5 758 defined
-    // functions / 49 793 basic blocks, single-threaded, and the machine code is
-    // thrown away when the process exits. The very same module is recompiled on
-    // the next build even when nothing about it changed — and today ANY logosc
-    // edit rebuilds every stdlib layer, so that is the common case, not the rare
-    // one.
-    //
-    // `cache_dir` is where compiled objects live. `key_salt` MUST carry every
-    // input that changes generated code but is not in the module itself — LLVM
-    // version, target triple/CPU, optimisation level, and the compiler's own
-    // version. The cache key is a strong hash of the module's bitcode PLUS this
-    // salt. Getting the key wrong does not produce a slow build, it produces
-    // silently stale machine code, which is the one failure mode worth more care
-    // than the speed-up is worth.
-    //
-    // Call BEFORE init(); returns false (and does not enable the cache) if the
-    // directory cannot be created.
-    bool enable_object_cache(std::string_view cache_dir, std::string_view key_salt);
-
-    // Cache statistics for --stats: how many modules were served from disk and
-    // how many had to be compiled. A cache nobody can measure is a cache nobody
-    // can tell from a no-op.
-    struct CacheStats { long hits = 0; long misses = 0; long stores = 0; };
-    CacheStats cache_stats() const noexcept;
-
     // Build the underlying LLJIT. Must be called once before use.
     // Returns true on success; on failure, error_str() carries details.
     bool init();

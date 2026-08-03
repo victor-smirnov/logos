@@ -4111,42 +4111,6 @@ int run_metaprog_dispatch(
         // declared symbols resolve against prior iters' modules via ORC.
         if (!m6_meta_jit) {
             m6_meta_jit = std::make_unique<logos::jit::Jit>();
-            // ── PERSISTENT OBJECT CACHE ──────────────────────────────────────
-            // The first lookup in this JIT compiles the WHOLE metaprog module
-            // (ORC is lazy, but at module granularity) — measured at 243 s for
-            // the stdlib `mem` layer, 68% of that layer's entire build, for a
-            // metaprogram whose own execution takes 0 ms. That machine code is
-            // discarded at process exit and recompiled next build, and since any
-            // logosc edit invalidates every stdlib archive, "next build" is the
-            // normal case.
-            //
-            // THE SALT IS THE SAFETY PROPERTY. The key is a hash of the module's
-            // bitcode plus everything that changes generated code without being
-            // in the module: the LLVM version, the target CPU, the optimisation
-            // level, and logosc's own version (which moves on every commit, so a
-            // compiler change can never be served pre-change objects). A wrong
-            // key here does not yield a slow build — it yields silently stale
-            // machine code, so the key errs toward MISSING rather than sharing.
-            if (const char* off = std::getenv("LOGOS_JIT_CACHE");
-                !(off && off[0] == '0')) {
-                std::string dir;
-                if (const char* d = std::getenv("LOGOS_JIT_CACHE_DIR")) dir = d;
-                else if (const char* x = std::getenv("XDG_CACHE_HOME")) dir = std::string(x) + "/logos/jit";
-                else if (const char* h = std::getenv("HOME")) dir = std::string(h) + "/.cache/logos/jit";
-                if (!dir.empty()) {
-                    std::string salt = std::string("logosc=") + LOGOS_VERSION_FULL
-                                     + ";llvm=" + LLVM_VERSION_STRING
-                                     // The JIT targets the HOST, not the AOT
-                                     // target, so the host CPU is the honest
-                                     // component here.
-                                     + ";cpu=" + std::string(llvm::sys::getHostCPUName())
-                                     + ";meta=1";
-                    if (!m6_meta_jit->enable_object_cache(dir, salt) &&
-                        (opts.trace || std::getenv("LOGOS_TRACE_DISPATCH")))
-                        std::fprintf(stderr, "logosc: jit object cache disabled: %s\n",
-                                     m6_meta_jit->error_str().c_str());
-                }
-            }
             if (!m6_meta_jit->init()) {
                 std::fprintf(stderr, "logosc-metaprog: jit init: %s\n",
                              m6_meta_jit->error_str().c_str());
@@ -4464,18 +4428,6 @@ int run_metaprog_dispatch(
             }
         }
         stat_step(_t_items, "item-site JIT+run", iter);
-        if (stats) {
-            // ⚠ SAMPLED AFTER THE LOOKUPS, not at jit_build. The first placement
-            // read the counters BEFORE anything had been looked up and printed
-            // 0/0 — a plausible-looking number for a cold cache, which is
-            // exactly why it would have survived review. A cache nobody can
-            // measure is a cache nobody can tell from a no-op, and "it got
-            // faster" is not evidence that THIS is why.
-            auto cs = m6_meta_jit->cache_stats();
-            stats->add("  jit cache: HITS", cs.hits, iter);
-            stats->add("  jit cache: misses", cs.misses, iter);
-            stats->add("  jit cache: stores", cs.stores, iter);
-        }
         if (stats) stats->add("  (item-site COUNT)", _n_item_sites, iter);
         // Raw-text item-macro thunks (#[token_macro] — wql!/trama!) report
         // diagnostics through the same `error()` channel as metaprog hooks;
