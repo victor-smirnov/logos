@@ -68,6 +68,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
+#include <llvm/IR/InstrTypes.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/Config/llvm-config.h>
 // LLVM new pass manager (optimization pipeline)
@@ -95,6 +96,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 #include <vector>
 
 // Phase 7 slice 1+2: AST-emit seam for metaprog hooks.
@@ -4168,6 +4170,73 @@ int run_metaprog_dispatch(
             // (g_macro_args is set around the item-thunk loop below) and
             // the rule-IR handoff.
             if (!bind_metaprog_host_externs(*m6_meta_jit, "meta_jit")) return 1;
+        }
+        // ── ONLY WHAT THE METAPROGRAMS CAN REACH ─────────────────────────
+        // MEASURED: of 5 758 defined functions in this module, the thunks and
+        // hooks can reach 473 — 8.2%. ORC compiles a module as ONE unit, so
+        // "lazy" here means "once, but all of it": the other 91.8% were compiled
+        // to machine code that nothing could ever call, and that was 68% of the
+        // whole stdlib `mem` build. It is also why the JIT's symbol set matched
+        // the AOT archive's exactly — both were handed the same program, because
+        // neither was ever narrowed.
+        //
+        // The closure is deliberately an OVER-approximation. Direct calls, any
+        // Function appearing as an instruction operand (fn pointers, trait
+        // objects), and any Function reachable through a GLOBAL INITIALIZER —
+        // that last one is what a vtable looks like at this level, and missing
+        // it would turn a dispatch into "symbol not found" at run time. An
+        // over-approximation costs compile time; an under-approximation is a
+        // failure, so the bias is not symmetric and neither is the rule.
+        {
+            std::unordered_set<const llvm::Function*> reach;
+            std::vector<const llvm::Function*> work;
+            std::function<void(const llvm::Constant*)> scan_const =
+                [&](const llvm::Constant* C) {
+                    if (!C) return;
+                    if (auto* F = llvm::dyn_cast<llvm::Function>(C)) {
+                        if (!F->isDeclaration() && reach.insert(F).second) work.push_back(F);
+                        return;
+                    }
+                    for (const llvm::Use& U : C->operands())
+                        if (auto* K = llvm::dyn_cast<llvm::Constant>(U.get())) scan_const(K);
+                };
+            auto push_named = [&](const std::string& n) {
+                if (n.empty()) return;
+                if (auto* F = meta_llvm->getFunction(n)) { scan_const(F); return; }
+                for (auto& F : *meta_llvm)
+                    if (!F.isDeclaration() && F.getName().contains(n)) { scan_const(&F); return; }
+            };
+            for (const auto& site : meta_item_sites) push_named(std::string(site.thunk_name));
+            for (const auto& mh : saved_handlers)   push_named(mh.hook_fn);
+            const int64_t roots = (int64_t)reach.size();
+            // Every global's initializer is scanned up front: a vtable entry is
+            // reachable the moment the global is, and proving WHICH globals the
+            // closure touches costs more than scanning them all.
+            for (auto& G : meta_llvm->globals())
+                if (G.hasInitializer()) scan_const(G.getInitializer());
+            while (!work.empty()) {
+                const llvm::Function* F = work.back(); work.pop_back();
+                for (auto& BB : *F)
+                    for (auto& I : BB)
+                        for (auto& Op : I.operands())
+                            if (auto* K = llvm::dyn_cast<llvm::Constant>(Op.get())) scan_const(K);
+            }
+            int64_t defined = 0, pruned = 0;
+            for (auto& F : *meta_llvm) if (!F.isDeclaration()) ++defined;
+            // Drop the BODY, keep the declaration. If the closure were ever
+            // wrong, the failure is a loud "symbol not found" at lookup, not a
+            // silently different answer — the honest direction for a guess.
+            if (const char* off = std::getenv("LOGOS_METAJIT_NO_PRUNE");
+                !(off && off[0] && off[0] != '0')) {
+                for (auto& F : *meta_llvm)
+                    if (!F.isDeclaration() && !reach.count(&F)) { F.deleteBody(); ++pruned; }
+            }
+            if (stats) {
+                stats->add("  metajit: defined fns", defined, iter);
+                stats->add("  metajit: REACHABLE", (int64_t)reach.size(), iter);
+                stats->add("  metajit: roots", roots, iter);
+                stats->add("  metajit: PRUNED bodies", pruned, iter);
+            }
         }
         // WHAT is about to be compiled. ORC's LLJIT adds a module as ONE
         // materialization unit, so the first lookup of ANY symbol compiles the

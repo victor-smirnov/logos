@@ -13,6 +13,7 @@
 #include <llvm/Support/DynamicLibrary.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/CodeGen.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/ObjectCache.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -170,13 +171,32 @@ bool Jit::init() {
     llvm::InitializeNativeTargetAsmPrinter();
 
     llvm::orc::LLJITBuilder builder;
-    if (impl_->cache) {
-        // The cache lives in the IR compiler, so it must be installed while the
-        // LLJIT is being built — after create() the compile layer is fixed.
-        auto* cache = impl_->cache.get();
+    {
+        // The compiler is ALWAYS replaced, not only when a cache is present.
+        // It carried two settings and one of them was gated on the cache by
+        // accident: with `LOGOS_JIT_CACHE=0` the codegen level silently
+        // reverted to the default, which is the -O2-equivalent this exists to
+        // avoid. A knob that turns off an unrelated thing is a trap, and it
+        // fooled the measurement that found it.
+        auto* cache = impl_->cache.get();   // may be null — the cache is optional
         builder.setCompileFunctionCreator(
             [cache](llvm::orc::JITTargetMachineBuilder JTMB)
                 -> llvm::Expected<std::unique_ptr<llvm::orc::IRCompileLayer::IRCompiler>> {
+                // ⚠ THE METAPROGRAM RUNS ONCE, FOR 0 ms. MEASURED.
+                // LLJIT defaults to the TargetMachine's -O2-equivalent codegen,
+                // and this module's cost is concentrated in a few ENORMOUS
+                // generated functions — one 71 KB table constructor, one 54 KB
+                // renderer, one 21 KB params builder are together half of all
+                // the code the closure contains. Optimising them is spending
+                // minutes to make something faster that executes for zero
+                // milliseconds and is then thrown away. Compile-time is the only
+                // thing that matters for a compile-time-only module, so the
+                // codegen level is set accordingly.
+                if (const char* o = std::getenv("LOGOS_METAJIT_OPT");
+                    o && o[0] == '2')
+                    JTMB.setCodeGenOptLevel(llvm::CodeGenOptLevel::Default);
+                else
+                    JTMB.setCodeGenOptLevel(llvm::CodeGenOptLevel::None);
                 auto tm = JTMB.createTargetMachine();
                 if (!tm) return tm.takeError();
                 return std::make_unique<llvm::orc::TMOwningSimpleCompiler>(
