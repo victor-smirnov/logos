@@ -1,0 +1,23 @@
+// CROSS-MODULE case (1): the metafunction lives in ANOTHER MODULE's archive.
+// This is the boundary lforge actually crosses — it calls logosc per MODULE, so
+// every case-1 edge it will ever schedule is module-to-module.
+//
+// It regressed twice over, and both causes are asserted by unit_graph_gate.sh:
+//   * the synthesized thunk did not import the callee's package, so the thunk
+//     body never resolved (the driver then reported the THUNK missing);
+//   * `__metacall_thunk_<site_id>` is emitted with external linkage and its id
+//     is hash(ast_idx, expr_offset) — it collided with the provider module's
+//     own thunk, so skeleton-skip suppressed this module's body.
+package unit_xmod_consumer.main;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use unit_order.provider;
+
+emit_gamma!{}
+
+pub fn use_gamma_xmod() -> i32 {
+    let g: Gamma = Gamma { g: 13i32 };
+    return g.g;
+}

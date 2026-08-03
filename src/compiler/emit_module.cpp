@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <logos/compiler/borrow_check.hpp>
+#include <logos/compiler/unit_graph.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/sema.hpp>   // type_str (ABI layout sidecar)
 #include <logos/compiler/lir_mirror.hpp>
@@ -632,7 +633,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                                bool overflow_checks = true,
                                const std::string& target_cpu = "generic",
                                std::vector<std::optional<EmitProvenance>>*
-                                   provenance_out = nullptr) {
+                                   provenance_out = nullptr,
+                               const std::string& units_path = "") {
     std::optional<PhaseTimer> _pt_meta;
     _pt_meta.emplace("pre-dispatch prep");
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
@@ -662,6 +664,16 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // grows `asts` and the dispatcher appends matching ids (the own module_id)
     // so this stays parallel to `asts` for the final sema pass below.
     std::vector<std::string> module_ids = per_ast_module_ids;
+    // UnitGraph §1.2: the FIFTH parallel array. Starts empty (= every existing
+    // AST is keyed by its own filename) and grows in lockstep with `asts` as
+    // metaprog hooks emit; entries an emitter DECLARED carry that emitter's
+    // family key. Owned here because it must outlive dispatch and be handed to
+    // the final sema pass.
+    std::vector<std::string> ast_unit_key(asts.size());
+    // UnitGraph §1.4: the ORDER-edge source, accumulated across dispatch
+    // rounds. Declared here (not next to the build) because the rounds that
+    // hold the facts run below and the graph is built after they are gone.
+    UnitOrderFacts unit_order_facts;
 
     // Collect the `nm --defined-only` symbol set of the dependency archives
     // ONCE, up front. It's the skeleton-skip gate (sema skips lowering bodies
@@ -696,7 +708,26 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             std::string_view sv(line);
             while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                 sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/')
+            // ⚠ A METACALL THUNK IS NOT AN ABI SYMBOL, AND ITS NAME IS NOT
+            // UNIQUE ACROSS MODULES. `__metacall_thunk_<site_id>` is compile-
+            // time-only scaffolding; the site id is hash(ast_idx, expr_offset),
+            // deliberately round-independent — which also makes it collide the
+            // moment two modules have a metacall at the same ast index and
+            // offset. It is nonetheless emitted with external linkage into the
+            // archive, so a consumer that loads that archive finds the name in
+            // binary_symbols, skeleton-skip fires, and the consumer's OWN thunk
+            // body is never emitted. The metaprog JIT then reports
+            //     item-thunk lookup '__metacall_thunk_…': Symbols not found
+            // MEASURED: this is why EVERY cross-MODULE metafunction call failed
+            // (`use other.pkg;` + `emit!{}`), which is exactly the boundary
+            // lforge crosses for every module it builds.
+            //
+            // Skipping a thunk's body is never right: it belongs to THIS
+            // compile's JIT and nothing links it. Excluding the name here fixes
+            // both consumers of the set at once (sema's skel_skip_body and
+            // mlir_gen's is_binary_skip read the same one).
+            if (!sv.empty() && sv.front() != '/'
+                && sv.find("__metacall_thunk_") == std::string_view::npos)
                 dep_symbols.emplace(sv);
         }
         ::pclose(pipe);
@@ -706,6 +737,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         MetaprogDispatchOpts mopts;
         mopts.binary_symbols = dep_symbols;  // skeleton-skip gate for dispatch sema
         mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        mopts.ast_unit_key   = &ast_unit_key; // UnitGraph §1.2: ditto, fifth array
+        mopts.order_facts    = &unit_order_facts; // §1.4: edge source, per round
         mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
         mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         mopts.provenance_out = provenance_out;  // synth-chunk → source-file attribution
@@ -835,6 +868,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     SemaOptions sema_opts;
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
+    sema_opts.ast_unit_key   = ast_unit_key; // UnitGraph §1.2 — stamped onto every lowered fn
     sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
     // G156-1: load ALL nominal decls (struct+enum) exported by the dependency
     // archives' v3 trailer — including packages whose ASTs are loaded lazily (or
@@ -855,6 +889,27 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // ── UnitGraph phase A (§1.4) ────────────────────────────────────────────
+    // Nodes + ORDER edges, from the post-sema program: metacall_sites and
+    // metaprog_targets both live here and both now carry the provider's
+    // definition file. Nothing consumes this for a decision in slice 1 — it is
+    // built, measured and written out so the partition can be checked against
+    // an independent derivation BEFORE any behaviour depends on it.
+    // The final program is noted too — a site that survived every round is as
+    // real as one that was drained — but it is NOT the source: see
+    // UnitOrderFacts. On a module that compiled successfully it contributes
+    // zero, and that is the normal case, not a warning sign.
+    unit_order_facts.note_program(prog);
+    UnitGraph unit_graph =
+        UnitGraph::build(prog, filenames, ast_unit_key, from_binary, unit_order_facts);
+    if (std::getenv("LOGOS_TRACE_PHASES"))
+        std::fprintf(stderr,
+            "unit_graph: edge sources — accumulated rounds=%zu facts=%zu | "
+            "THIS program: metacall_sites=%zu metaprog_targets=%zu handlers=%zu\n",
+            unit_order_facts.rounds(), unit_order_facts.facts().size(),
+            prog.metacall_sites.size(), prog.metaprog_targets.size(),
+            prog.metaprog_handlers.size());
 
     // ── ABI layout sidecar (cat-2 type layouts + cat-3 vtables) ──────────────
     // sema_lower gives prog.structs/enums/traits as decl views right here. Emit
@@ -1082,6 +1137,78 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     prog = borrow_check(std::move(prog));
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
+
+    // ── UnitGraph phase B (§1.3) ────────────────────────────────────────────
+    // fn → unit, over the POST-MONO program: mono clones instances no emitter
+    // declared, and their owner is derived from their referrers. Same object,
+    // a second fill — not a second graph.
+    {
+        std::optional<PhaseTimer> _pt_ug;
+        _pt_ug.emplace("unit_graph");
+        unit_graph.assign_ownership(prog);
+        _pt_ug.reset();
+
+        // Canary (§6.1). Two independent derivations of one fact: the key the
+        // emitter DECLARED, and the family hash tag the mangler independently
+        // baked into the link name (BOTH spellings). Off by default because it
+        // walks every function; the gate turns it on.
+        if (const char* v = std::getenv("LOGOS_VERIFY_UNITS"); v && v[0] && v[0] != '0') {
+            std::vector<std::string> msgs;
+            auto vr = unit_graph.verify_against_mangled_tags(prog, msgs);
+            for (auto& m : msgs) std::fprintf(stderr, "%s\n", m.c_str());
+            // tags_seen is printed so "0 mismatches" can never be read as a
+            // pass when the check examined nothing.
+            std::fprintf(stderr,
+                "unit-verify: tags=%zu tagged_fns=%zu in_common=%zu split=%zu merged=%zu\n",
+                vr.tags_seen, vr.fns_tagged, vr.tagged_in_common,
+                vr.split_families, vr.merged_units);
+            if (vr.bad()) {
+                std::fprintf(stderr,
+                    "logosc: LOGOS_VERIFY_UNITS: the DECLARED unit partition and the "
+                    "family tag in the mangled link name disagree. One of the two is "
+                    "wrong and both are used; refusing to continue.\n");
+                return false;
+            }
+        }
+        if (!units_path.empty()) {
+            // slice 1 drives nothing, so the used-order is empty. From slice 3
+            // the driver records what it actually walked and the gate compares
+            // it to flatten(levels()).
+            unit_graph.write_sidecar(units_path, {});
+        }
+        if (const char* tp = std::getenv("LOGOS_TRACE_PHASES"); (tp && tp[0]) || !units_path.empty()) {
+            auto c = unit_graph.census();
+            std::fprintf(stderr,
+                "unit_graph: units=%zu edges=%zu levels=%zu max_level_width=%zu "
+                "bootstrap_cycles=%zu | "
+                "order=%s (rounds=%zu facts=%zu unresolved=%zu external=%zu) | "
+                "fns=%zu dep=%zu module=%zu | declared=%zu derived=%zu unreferenced=%zu | "
+                "non_common=%zu of module (%.1f%%) largest_unit=%zu\n",
+                c.units, c.edges, c.levels, c.max_level_width, c.bootstrap_cycles,
+                c.order_established ? "DERIVED" : "TOTAL-ORDER-FALLBACK",
+                c.order_rounds, c.order_facts, c.unresolved_providers,
+                c.external_providers,
+                c.fns_total, c.fns_dependency, c.fns_module(),
+                c.fns_declared, c.fns_derived, c.fns_unreferenced,
+                c.fns_non_common,
+                c.fns_module() ? 100.0 * (double)c.fns_non_common / (double)c.fns_module() : 0.0,
+                c.largest_unit_fns);
+        // ⚠ THE NUMBER THAT DECIDES WHETHER ANY OF THIS PAYS. The attribution
+        // rate above says how much was NAMED; this says what a per-unit
+        // parallel backend could do with it, and the two are not close. Printed
+        // ADJACENT to the attribution rate on purpose: reported apart, the
+        // first gets read as if it were the second (24% attributed reads as a
+        // win; the bound over that same partition is 1.27x).
+        std::fprintf(stderr,
+            "unit_graph: parallel bound = %.2fx  (largest unit %zu fns of %zu "
+            "total; Common holds %zu = %.1f%%)\n",
+            c.parallel_bound(), c.largest_unit_fns, c.fns_total, c.fns_common(),
+            c.fns_total ? 100.0 * (double)c.fns_common() / (double)c.fns_total : 0.0);
+        std::fprintf(stderr,
+            "unit_graph: derivation reach — bodies=%zu callee_hits=%zu callee_misses=%zu\n",
+            c.bodies_walked, c.callee_hits, c.callee_misses);
+        }
+    }
 
     // ── ABI PUBLIC-symbol allowlist sidecar (`.abi-pub`) ─────────────────────
     // `logosc --emit-abi` records EVERY external stdlib symbol as a `sym` line,
@@ -1369,6 +1496,26 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // now loads all layers) finds the body elsewhere. dep_symbols was already
     // collected up front (it doubles as the sema skeleton-skip gate).
     for (auto& __s : dep_symbols) lir_mirror_map_put_null(prog, prog.binary_symbols, __s);
+
+    // SURVEY-A instrumentation (temporary, env-gated): dump every fn the
+    // backend is about to consider, with the source_file it is attributed to
+    // and whether binary_symbols will body-skip it. Answers "how would a
+    // per-source-file split divide the emitted work". Writes a TSV; absent
+    // env var = zero cost.
+    if (const char* dump = std::getenv("LOGOS_DUMP_FN_FILES")) {
+        std::ofstream df(dump);
+        auto row = [&](lir_view::FunctionView fn, const char* owner) {
+            if (!fn) return;
+            if (fn.is_extern()) return;
+            std::string ln = sym::link_name(fn, prog.pkg_module_ids);
+            bool skipped = prog.binary_symbols.has(ln) > 0;
+            df << ln << '\t' << fn.source_file() << '\t'
+               << (skipped ? "skip" : "emit") << '\t' << owner << '\n';
+        };
+        for (auto& fn : prog.functions) row(fn, "free");
+        for (auto& sd : prog.structs)
+            sd.each_method([&](lir_view::FunctionView m) { row(m, "method"); });
+    }
 
     // Shared lowering tail (mlir_gen → MLIR→LLVM → object).
     LowerEmitOpts lopts;
@@ -1725,7 +1872,12 @@ bool emit_module(const ModuleManifest& manifest,
                                /*opt_level=*/opts.opt_level,
                                /*overflow_checks=*/opts.overflow_checks,
                                /*target_cpu=*/opts.target_cpu,
-                               /*provenance_out=*/&synth_prov)) {
+                               /*provenance_out=*/&synth_prov,
+                               /*units_path=*/opts.emit_units
+                                   ? (opts.emit_units_path.empty()
+                                          ? (std::string(output_path) + ".units")
+                                          : opts.emit_units_path)
+                                   : std::string{})) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

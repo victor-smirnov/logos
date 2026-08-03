@@ -1,0 +1,25 @@
+// UNIT-ORDER FIXTURE, case (2): a genuine BOOTSTRAP CYCLE. left defines a
+// metafunction right uses, and uses one right defines. Neither TU can be
+// object code before the other, so no AOT order exists and the pair must be
+// JIT-compiled together — which the graph states by putting both units in ONE
+// SCC, i.e. ONE work group.
+package unit_cycle.left;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use unit_cycle.right;
+
+#[fn_macro]
+pub fn emit_left(args: Vec<ExprBlob>) -> ItemList {
+    let mut o: ItemList = item_list_new();
+    let s: str = "LeftOut";
+    let id: Ident = Ident::new(s);
+    let bb: QuoteItemBlob = quote_item! { pub struct #id { pub l: i32 } };
+    o.blobs.push(bb);
+    return o;
+}
+
+emit_right!{}
+
+pub fn use_right() -> i32 { let r: RightOut = RightOut { r: 1i32 }; return r.r; }

@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include "module_loader.hpp"
 #include <logos/compiler/borrow_check.hpp>
+#include <logos/compiler/unit_graph.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
@@ -123,6 +124,45 @@ std::vector<bool>*                   g_from_binary = nullptr;
 // they're stamped with g_self_module_id (empty for a plain user program).
 std::vector<std::string>*            g_module_ids  = nullptr;
 std::string                          g_self_module_id;
+// UnitGraph §1.2: per-AST compile-unit key, parallel to g_filenames. The FIFTH
+// parallel array. An emitter that knows which family it is producing declares
+// that key here (see logos_emit_item_blob_subst_in); everything else pushes ""
+// and keys on its filename. This is the MECHANISM by which a generated chunk's
+// owner is known — the `Hs<hex>` tag in the mangled symbol is the CANARY that
+// checks it (LOGOS_VERIFY_UNITS=1), never the source of truth.
+std::vector<std::string>*            g_ast_unit_key = nullptr;
+// The key the CURRENT emit declares. Set either for the duration of one
+// `_subst_in` call, or across a whole generation run by the unit SCOPE below.
+std::string                          g_emit_unit_key;
+// The scope stack behind logos_emit_unit_push/pop. A generator emits its family
+// from dozens of call sites spread across a call tree
+// (stdlib/lcm/canon/container_item.logos has 36); making each one carry the key
+// means each one can FORGET it, and a forgotten key is a silently mis-scheduled
+// object rather than an error. Declaring the family ONCE around the run cannot
+// be forgotten site-by-site.
+//
+// The stack is nested (a generator may drive another generator) and the
+// dispatcher CLEARS it around every hook/thunk invocation, so an unbalanced
+// push — a metaprogram that returns early — cannot leak a family key onto the
+// NEXT metaprogram's items. That bound is what makes the non-RAII API safe.
+std::vector<std::string>             g_emit_unit_stack;
+
+// UnitGraph §1.2 — append this emit's unit key, keeping the fifth array in
+// lockstep with the other four.
+//
+// It RE-SYNCS before pushing, and that is not defensive padding: `logos_emit_
+// source` is also called from main()'s own scope (the factory drain chunk),
+// where g_ast_unit_key is null because run_metaprog_dispatch restored it on
+// exit. Such an append grows `filenames` and not this array, and every
+// subsequent push would then land one index EARLY — silently attributing one
+// family's items to the document before it. Index-parallel arrays with two
+// writers need the invariant enforced at the write, not assumed.
+static void push_ast_unit_key() {
+    if (!g_ast_unit_key || !g_filenames) return;
+    if (g_filenames->empty()) return;
+    g_ast_unit_key->resize(g_filenames->size() - 1);
+    g_ast_unit_key->push_back(g_emit_unit_key);
+}
 size_t                               g_user_root_idx = 0;
 // Phase 7 diagnostics: hooks call logos_metaprog_error(msg) to push
 // a structured error. The driver drains this after each hook and
@@ -628,6 +668,7 @@ static int32_t emit_source_tagged(const char* src, const char* filename) {
     g_filenames->emplace_back(filename);
     g_from_binary->push_back(false);
     if (g_module_ids) g_module_ids->push_back(g_self_module_id);
+    push_ast_unit_key();  // UnitGraph §1.2 — fifth array, RE-SYNCED then pushed
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -827,6 +868,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     g_filenames->emplace_back("<metaprog-blob>");
     g_from_binary->push_back(false);
     if (g_module_ids) g_module_ids->push_back(g_self_module_id);
+    push_ast_unit_key();  // UnitGraph §1.2 — fifth array, RE-SYNCED then pushed
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -847,9 +889,61 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
 // IdentPod.ptr is absolute and points into the same blob's byte section.
 // Built by `qib_pack_idents` in the metaprog stdlib; lifetime owned by
 // the calling thunk (freed via `qib_free_idents` after splice).
+// UnitGraph §1.2 — declare the compile UNIT that every item emitted until the
+// matching pop belongs to. `stdlib/lcm/canon/container_item.logos` computes
+// exactly this string (`fam.push_str("Hs"); fam.push_str(hash_hex)`) and used
+// to throw it away; passing it here is what lets one container FAMILY become
+// one object file, cacheable on its own content hash.
+
+extern "C" void logos_emit_unit_push(const char* key) {
+    g_emit_unit_stack.push_back(g_emit_unit_key);
+    g_emit_unit_key = (key && *key) ? std::string(key) : std::string();
+}
+extern "C" void logos_emit_unit_pop() {
+    // A pop with nothing pushed is a metaprogram bug, not a reason to crash the
+    // compiler: the dispatcher re-clears the stack per invocation anyway, so
+    // the blast radius is one hook.
+    if (g_emit_unit_stack.empty()) { g_emit_unit_key.clear(); return; }
+    g_emit_unit_key = std::move(g_emit_unit_stack.back());
+    g_emit_unit_stack.pop_back();
+}
+
+// UnitGraph §1.2 — the DECLARING form. `unit_key` names the compile unit the
+// emitted items belong to; an emitter that already computed a family identity
+// (stdlib/lcm/canon/container_item.logos builds exactly this string) passes it
+// instead of throwing it away and letting a later pass re-derive the partition
+// by parsing mangled symbols. Empty/null → the items are unattributed and land
+// in Common, which is the pre-existing behaviour.
+extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
+                                                 const char* unit_key);
+// The historical symbol, kept verbatim so stdlib callers that do not know
+// their unit keep working: _subst(b) == _subst_in(b, "").
 extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
+    return logos_emit_item_blob_subst_in(blob_ptr, nullptr);
+}
+
+extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
+                                                 const char* unit_key) {
     if (!g_any_emitted || !g_asts || !g_filenames || !g_from_binary
         || !blob_ptr) return 0;
+    // Scoped so every `return 0;` below restores it — a leaked key would stamp
+    // the NEXT emitter's items with this family and silently mis-partition them.
+    //
+    // A NULL/empty `unit_key` means "inherit the ambient scope", NOT "clear it".
+    // The difference is load-bearing: the historical `_subst` symbol forwards
+    // here with no key, and clearing on that path cancelled every declaration
+    // made by logos_emit_unit_push — measured as 0 of 415 documents attributed
+    // while the emitter was demonstrably calling push. An override has to be
+    // something the caller asked for.
+    struct UnitKeyScope {
+        std::string prev;
+        bool        active;
+        explicit UnitKeyScope(const char* k)
+            : prev(g_emit_unit_key), active(k && *k) {
+            if (active) g_emit_unit_key = std::string(k);
+        }
+        ~UnitKeyScope() { if (active) g_emit_unit_key = std::move(prev); }
+    } _uk_scope{unit_key};
 
     namespace la = logos::compiler::ast;
     using logos::writ::AnyVal;
@@ -2209,6 +2303,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     g_filenames->emplace_back(std::move(synth_name));
     g_from_binary->push_back(false);
     if (g_module_ids) g_module_ids->push_back(g_self_module_id);
+    push_ast_unit_key();  // UnitGraph §1.2 — fifth array, RE-SYNCED then pushed
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -3490,6 +3585,18 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
 // the wql cone, whose plan lowering references logos_rule_ir), a missing
 // binding fails WHOLE-UNIT materialization even when the thunk never calls
 // the extern. Binding the full set in both JITs removes the drift class.
+// UnitGraph §1.2: the unit scope is per-INVOCATION. Clearing it before every
+// hook/thunk bounds an unbalanced push (a metaprogram that returned early) to
+// the metaprogram that made it — it can mis-attribute its OWN items, never the
+// next one's. This is what lets the push/pop pair be an ordinary extern instead
+// of needing RAII inside Logos.
+namespace {
+struct UnitScopeReset {
+    UnitScopeReset()  { g_emit_unit_key.clear(); g_emit_unit_stack.clear(); }
+    ~UnitScopeReset() { g_emit_unit_key.clear(); g_emit_unit_stack.clear(); }
+};
+} // namespace
+
 static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
     auto bind = [&](const char* name, void* fn) -> bool {
         if (jit.define_symbol(name, fn)) return true;
@@ -3500,6 +3607,9 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
     return bind("logos_emit_source",               reinterpret_cast<void*>(&logos_emit_source))
         && bind("logos_emit_item_blob",            reinterpret_cast<void*>(&logos_emit_item_blob))
         && bind("logos_emit_item_blob_subst",      reinterpret_cast<void*>(&logos_emit_item_blob_subst))
+        && bind("logos_emit_item_blob_subst_in",   reinterpret_cast<void*>(&logos_emit_item_blob_subst_in))
+        && bind("logos_emit_unit_push",            reinterpret_cast<void*>(&logos_emit_unit_push))
+        && bind("logos_emit_unit_pop",             reinterpret_cast<void*>(&logos_emit_unit_pop))
         && bind("logos_parse_as",                  reinterpret_cast<void*>(&logos_parse_as))
         && bind("logos_qib_pack_idents",           reinterpret_cast<void*>(&logos_qib_pack_idents))
         && bind("logos_qib_free_idents",           reinterpret_cast<void*>(&logos_qib_free_idents))
@@ -3671,10 +3781,19 @@ int run_metaprog_dispatch(
     struct ModIdRestore {
         std::vector<std::string>* prev_mids;
         std::string               prev_self;
-        ~ModIdRestore() { g_module_ids = prev_mids; g_self_module_id = std::move(prev_self); }
-    } _mid_restore{ g_module_ids, g_self_module_id };
+        std::vector<std::string>* prev_uk;
+        std::string               prev_emit_uk;
+        ~ModIdRestore() {
+            g_module_ids = prev_mids; g_self_module_id = std::move(prev_self);
+            g_ast_unit_key = prev_uk; g_emit_unit_key = std::move(prev_emit_uk);
+        }
+    } _mid_restore{ g_module_ids, g_self_module_id, g_ast_unit_key, g_emit_unit_key };
     g_module_ids     = opts.module_ids;
     g_self_module_id = opts.self_module_id;
+    // UnitGraph §1.2 — the fifth parallel array, restored on exit alongside the
+    // other four so a nested dispatch cannot leak a family key.
+    g_ast_unit_key   = opts.ast_unit_key;
+    g_emit_unit_key.clear();
     // logos_emit_source()/_blob() push NEW asts onto this vector from INSIDE a
     // metaprog handler running mid-sema_lower — which holds a `Writ&` into `asts`.
     // A vector realloc there moves that element (Writ move nulls the source), so the
@@ -3756,6 +3875,29 @@ int run_metaprog_dispatch(
     // (without re-emitting the body), then accumulated as new
     // emissions are observed.
     StrSet m6_prev_emitted_fns;
+    // ⚠ THE OTHER HALF OF M6.3, without which it silently returns wrong output.
+    //
+    // m6_prev_emitted_fns says "a function of this LINK NAME was emitted into
+    // the shared meta-JIT by an earlier round, so this round's mlir_gen may
+    // forward-declare it and skip the body". That is true for a function whose
+    // body was FINAL when it was emitted. It is false for a metaprog STUB: the
+    // discovery pass lowers a body-less placeholder (poisoned to a trap), the
+    // name is recorded exactly like a real one, and when a LATER round lowers
+    // the same function for real, the real body is skipped and every call in
+    // the meta-JIT still lands on round N's placeholder.
+    //
+    // MEASURED (the fixture is tests/logos/unit_chain): a metafunction emitting
+    // a call to a metafunction that was stubbed in round 0 compiled with exit 0,
+    // no diagnostic, and the emitted item simply ABSENT from the archive — the
+    // placeholder returned an empty ItemList and "nothing was emitted" is
+    // indistinguishable from "the metaprogram chose to emit nothing". Under the
+    // metajit closure prune the same program fails loudly instead (the
+    // placeholder body is deleted, so the symbol is missing) — an unrelated
+    // optimisation was the only thing standing between this and silence.
+    //
+    // So the stub-emitted names are tracked APART, and a round that lowers one
+    // of them for real and is about to CALL it refuses. See the check below.
+    StrSet m6_prev_stub_fns;
 
     lir::LProgram prog;
     // ADR 0020 wave-0: the previous iteration DEFERRED a language-item site
@@ -3792,8 +3934,16 @@ int run_metaprog_dispatch(
         // Phase 6: metaprog dispatch loop doesn't currently thread is_lazy
         // through (no use case yet — metaprog handlers + their callees stay
         // eager regardless). Pass {} to keep the existing behaviour.
+        // UnitGraph §1.2: refreshed per call, NOT copied once into meta_opts —
+        // hooks append asts (and keys) between iterations, so a stale snapshot
+        // would leave the newest generated chunks unattributed.
+        if (opts.ast_unit_key) opts_iter.ast_unit_key = *opts.ast_unit_key;
         prog = sema_lower(asts, filenames, from_binary, opts_iter, {},
                           opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
+        // UnitGraph §1.4: note the round's edge sources BEFORE the loop drains
+        // them. This is the only program in which this round's metacall sites
+        // are visible; the next sema sees the spliced items instead.
+        if (opts.order_facts) opts.order_facts->note_program(prog);
         stat_step(_t, "sema_lower", iter);
         retry_deferred = retry_deferred || prog.has_pending() || prog.deferred_plan_work;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");
@@ -3887,8 +4037,48 @@ int run_metaprog_dispatch(
             if (drained_now) continue;
         }
 
+        // ⚠ THE DIAGNOSTIC MUST NAME THE CAUSE, NOT THE CASUALTY.
+        //
+        // Every fixpoint round requires the WHOLE program to type-check. So a
+        // consumer of an item that needs TWO metaprogram rounds hard-errors
+        // here, in round 0, before round 0's own emitted metacall has been
+        // dispatched — and the error it prints is about the consumer:
+        //
+        //     chain.logos:32: error [fn use_beta]: unknown struct 'Beta'
+        //
+        // which is true and useless. `Beta` is unknown because `emit_beta!{}`
+        // has not run, and nothing in that message says a metacall is pending.
+        // The reader is pointed at the one item in the file that is CORRECT.
+        //
+        // The round's own worklist is right here, so the note is derivable, not
+        // guessed. It is attached to the FAILURE only — a round that succeeds
+        // says nothing, and the pending sites are the normal state mid-fixpoint.
+        auto report_unexpanded = [&](const lir::LProgram& p) {
+            using RT = lir::MetacallRetTag;
+            size_t n = 0;
+            for (const auto& s : p.metacall_sites) {
+                if (s.ret_tag() != RT::ItemBlob) continue;
+                if (n == 0)
+                    std::fprintf(stderr,
+                        "note: the errors above were produced while %d metaprogram "
+                        "round(s) had already run and the program still holds "
+                        "UNEXPANDED item-position metacalls. An item one of these "
+                        "would emit does not exist yet, so a use of it reads as an "
+                        "unknown name. The pending call is the cause; the error "
+                        "names its consumer.\n", iter + 1);
+                ++n;
+                std::string file = s.ast_idx() < filenames.size()
+                                 ? filenames[s.ast_idx()] : std::string("<unknown>");
+                std::fprintf(stderr, "note:   unexpanded: %s!{...} in %s\n",
+                             std::string(s.callee_name()).c_str(), file.c_str());
+                if (n >= 20) {
+                    std::fprintf(stderr, "note:   … and more\n");
+                    break;
+                }
+            }
+        };
         prog.print_diags(stderr);
-        if (!prog.ok()) return 1;
+        if (!prog.ok()) { report_unexpanded(prog); return 1; }
 
         bool has_pending_item_mc = false;
         {
@@ -3945,7 +4135,11 @@ int run_metaprog_dispatch(
         prog.metaprog_handlers.clear();
         auto meta_prog      = std::move(prog);
         stat_step(_t2, "meta_sema_lower", iter);
-        if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+        if (!meta_prog.ok()) {
+            meta_prog.print_diags(stderr);
+            report_unexpanded(meta_prog);   // name the cause, not the casualty
+            return 1;
+        }
 
         std::vector<OwnedItemSite> meta_item_sites;
         {
@@ -3985,9 +4179,17 @@ int run_metaprog_dispatch(
                 resema_opts.cache = nullptr;
                 resema_opts.delta_start_idx = 0;
             }
+            if (opts.ast_unit_key) resema_opts.ast_unit_key = *opts.ast_unit_key;  // §1.2
             meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {},
                                    opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
-            if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
+            // §1.4 — the re-sema lowers the callee bodies REAL, so its sites
+            // carry a def_source_file the stubbed iter-top sema could not.
+            if (opts.order_facts) opts.order_facts->note_program(meta_prog);
+            if (!meta_prog.ok()) {
+                meta_prog.print_diags(stderr);
+                report_unexpanded(meta_prog);   // name the cause, not the casualty
+                return 1;
+            }
             retry_deferred = retry_deferred || meta_prog.has_pending();
         }
         // WQL/Trama raw-text item macros: a #[token_macro] `(str) -> ItemList`
@@ -4008,10 +4210,57 @@ int run_metaprog_dispatch(
         // would abort rather than silently do nothing.
         // GENERIC stubs still go: mono instantiates from the body, and an
         // empty one has nothing to clone.
+        // ── M6.3 SOUNDNESS CHECK (see m6_prev_stub_fns) ────────────────────
+        // Before this round trusts "already emitted", ask the only question
+        // that matters: is the compiler about to CALL a function whose body the
+        // meta-JIT holds only as an earlier round's placeholder?
+        //
+        // Scoped to the callees actually being invoked — the item-site callees
+        // and the handler hooks — deliberately. A stub that nothing calls is
+        // harmless and common (a stdlib round stubs hundreds); refusing on
+        // those would report a defect where there is none. What must never
+        // happen is calling one.
+        {
+            StrSet about_to_call;
+            for (const auto& s : meta_item_sites)
+                if (!s.callee_name.empty()) about_to_call.insert(s.callee_name);
+            for (const auto& h : saved_handlers)
+                if (!h.hook_fn.empty()) about_to_call.insert(h.hook_fn);
+            for (auto& f : meta_prog.functions) {
+                if (!f || f.is_metaprog_stub()) continue;
+                auto ln = sym::link_name(f, meta_prog.pkg_module_ids);
+                if (!m6_prev_stub_fns.count(ln)) continue;
+                if (!about_to_call.count(std::string(bare_fn_name(f.name())))) continue;
+                std::fprintf(stderr,
+                    "logosc: metaprog round %d lowered '%s' with a real body, but an "
+                    "earlier round emitted it into the shared metaprog JIT as a "
+                    "PLACEHOLDER (its body was skipped by discovery) and a JITDylib "
+                    "cannot redefine a symbol. Calling it now would run the "
+                    "placeholder — which returns nothing — and the items this "
+                    "metafunction emits would be MISSING from the output with no "
+                    "diagnostic.\n"
+                    "  link name: %s\n"
+                    "  This is the metafunction-emits-a-metacall chain (a provider "
+                    "reached only in a later round). It is not supported yet; the "
+                    "compile is refused rather than silently producing different "
+                    "output. Define the provider so the FIRST round that lowers it "
+                    "sees a use of it (e.g. call it from source), or split it into "
+                    "its own module built first.\n",
+                    iter, std::string(bare_fn_name(f.name())).c_str(), ln.c_str());
+                return 1;
+            }
+        }
         for (auto& f : meta_prog.functions)
             if (f && f.is_metaprog_stub() && f.type_params().empty())
                 meta_prog.poisoned_fns.insert(
                     sym::link_name(f, meta_prog.pkg_module_ids));
+        // Record the placeholders THIS round is about to publish, so a later
+        // round can tell "already emitted, body final" from "already emitted,
+        // body was a placeholder". Recorded here, at the poisoning site, rather
+        // than after mono: post-mono clones do not carry IS_METAPROG_STUB, so
+        // reading it there would find nothing and the check would be a no-op
+        // that looks like a pass.
+        for (const auto& n : meta_prog.poisoned_fns) m6_prev_stub_fns.insert(n);
         meta_prog.functions.erase(
             std::remove_if(meta_prog.functions.begin(), meta_prog.functions.end(),
                 [](const auto& f) {
@@ -4267,6 +4516,7 @@ int run_metaprog_dispatch(
                     return 1;
                 }
                 g_current_hook_name = mh_hook_fn.c_str();
+                UnitScopeReset _unit_scope;   // UnitGraph §1.2
                 {
                     int line = 0;
                     std::string target_name;
@@ -4344,6 +4594,7 @@ int run_metaprog_dispatch(
                            std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::steady_clock::now() - _t_lookup).count(), iter);
             auto _t_run = std::chrono::steady_clock::now();
+            UnitScopeReset _unit_scope;   // UnitGraph §1.2
             struct RunTimer {
                 logos::compiler::CompileStats* st; std::string label; int it;
                 std::chrono::steady_clock::time_point t0;
@@ -4789,6 +5040,8 @@ int main(int argc, char** argv) {
     const char* emit_module_manifest = nullptr;  // --emit-module <manifest>
     bool        emit_abi_flag = false;            // --emit-abi: dump ABI surface spec
     bool        emit_docs_flag = false;           // --emit-docs: modifier on --emit-module; also writes <out>.docwr doc facts (ADR 0014)
+    bool        emit_units_flag = false;          // --emit-units: writes the UnitGraph sidecar (Writ-SDN)
+    std::string emit_units_path;                  // --emit-units=<path>; empty + flag → "<output>.units"
     bool        print_prefix  = false;            // --print-prefix:  this version's tree root
     bool        print_lib_dir = false;            // --print-lib-dir: this version's stdlib dir
     bool        print_metadata = false;           // --print-metadata: all of the above as a Writ doc
@@ -4926,6 +5179,11 @@ int main(int argc, char** argv) {
             g_gen_dir = std::string(arg.substr(std::string("--gen-dir=").size()));
         }
         else if (arg == "--emit-docs") { emit_docs_flag = true; }
+        else if (arg == "--emit-units") { emit_units_flag = true; }
+        else if (arg.rfind("--emit-units=", 0) == 0) {
+            emit_units_flag = true;
+            emit_units_path = std::string(arg.substr(std::string_view("--emit-units=").size()));
+        }
         else if (arg == "--print-prefix")  { print_prefix  = true; }
         else if (arg == "--print-lib-dir") { print_lib_dir = true; }
         else if (arg == "--print-metadata") { print_metadata = true; }
@@ -5109,6 +5367,8 @@ int main(int argc, char** argv) {
         mopts.emit_mlir = emit_mlir;
         mopts.emit_llvm = emit_llvm;
         mopts.emit_docs = emit_docs_flag;
+        mopts.emit_units = emit_units_flag;
+        mopts.emit_units_path = emit_units_path;
         mopts.only_file = only_file;
         mopts.stats = stats_flag;
         mopts.extra_lib_files = explicit_lib_files;
@@ -5273,7 +5533,14 @@ int main(int argc, char** argv) {
             std::string_view sv(line);
             while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                 sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/') {
+            // ⚠ A METACALL THUNK IS NOT AN ABI SYMBOL — see the same guard in
+            // emit_module.cpp for the measurement. `__metacall_thunk_<site_id>`
+            // is compile-time scaffolding whose id is hash(ast_idx, expr_offset)
+            // and therefore collides across modules; treating an archive's copy
+            // as "already compiled" suppresses THIS compile's own thunk body and
+            // the metaprog JIT then cannot find the symbol it is about to call.
+            if (!sv.empty() && sv.front() != '/'
+                && sv.find("__metacall_thunk_") == std::string_view::npos) {
                 binary_symbols.emplace(sv);
                 // Module system: a METHOD symbol is emitted module-qualified as
                 // `<module>..<pkg>.<rest>` (mlir-gen link_name), but mono's
@@ -5509,6 +5776,17 @@ int main(int argc, char** argv) {
     // visible. No back-step needed.
     size_t pre_dispatch_entry_idx = asts.empty() ? 0 : asts.size() - 1;
 
+    // UnitGraph §1.2: the FIFTH parallel array (asts / filenames / from_binary /
+    // module_ids / ast_unit_key). Empty entries mean "key on the filename";
+    // metaprog emitters that know which family they are producing declare it.
+    std::vector<std::string> ast_unit_key(asts.size());
+    // UnitGraph §1.4: the ORDER-edge source. metacall_sites is a worklist that
+    // BOTH the dispatch loop and the drain loop below empty, so the facts have
+    // to be collected as each round's program is produced. Declared next to
+    // ast_unit_key because it has the same lifetime and the same job: carry a
+    // fact from where it exists to where it is needed.
+    logos::compiler::UnitOrderFacts unit_order_facts;
+
     // M5: one SemaCache shared by every sema_lower invocation in this
     // compile session. Holds the TypePool alive across the 5+ calls so
     // cached TypeRefs (Step 3b+) stay valid.
@@ -5532,6 +5810,8 @@ int main(int argc, char** argv) {
         o.sema_cache     = &sema_cache;
         o.implicit_prelude = implicit_prelude_pkg;
         o.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        o.ast_unit_key   = &ast_unit_key; // UnitGraph §1.2: fifth parallel array
+        o.order_facts    = &unit_order_facts; // §1.4: edge source, per round
         o.self_module_id = "";           // a plain user program is in the global module (no id)
         o.module_name_to_id = module_name_to_id;      // §B-coex: `use … from` in discovery
         return o;
@@ -5719,7 +5999,13 @@ int main(int argc, char** argv) {
     default_opts.dep_nominal_decls = dep_nominal_decls;  // G156-1 ambiguity universe
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
     default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
+    default_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
+    // UnitGraph §1.4 — every program the driver lowers is noted, because
+    // metacall_sites is a WORKLIST the loops below drain: a site is visible in
+    // exactly the round that dispatches it. Noting only the last program finds
+    // an emptied worklist and calls it "no dependencies".
+    unit_order_facts.note_program(prog);
 
     // ── deem PLANS meet their families ──────────────────────────────────────
     // A `deem` whose source binds a container CLASS is not a function but a
@@ -5763,6 +6049,7 @@ int main(int argc, char** argv) {
             g_emit_seen = &emit_seen;
             g_asts = &asts; g_filenames = &filenames; g_from_binary = &from_binary;
             g_any_emitted = &plan_any_emitted;
+            default_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
             prog = logos::compiler::sema_lower(asts, filenames, from_binary,
                                                default_opts, is_lazy, module_ids);
             return 1;
@@ -5814,7 +6101,9 @@ int main(int argc, char** argv) {
             if (emitted_any_thunk) {
                 // Re-sema so the JIT module below picks up the new thunks.
                 auto _t_resema = std::chrono::steady_clock::now();
+                default_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
                 prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
+                unit_order_facts.note_program(prog);   // §1.4
                 mc_stat_step(_t_resema, "resema_after_emit", mi);
                 prog.print_diags(stderr);
                 if (!prog.ok()) return 1;
@@ -5965,6 +6254,7 @@ int main(int argc, char** argv) {
                 if (site.thunk_source().empty()) continue;
                 if (site.ast_idx() >= asts.size()) continue;
                 auto* sym = mc_jit->lookup(std::string(site.thunk_name()));
+                UnitScopeReset _unit_scope;   // UnitGraph §1.2
                 if (!sym) {
                     std::fprintf(stderr, "logosc: metacall thunk lookup '%s': %s\n",
                                  std::string(site.thunk_name()).c_str(), mc_jit->error_str().c_str());
@@ -6190,7 +6480,9 @@ int main(int argc, char** argv) {
             // Loop continues only if new sites somehow appeared.
             (void)any_spliced;
             auto _mc_t_resema = std::chrono::steady_clock::now();
+            default_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
             prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
+            unit_order_facts.note_program(prog);   // §1.4
             mc_stat_step(_mc_t_resema, "resema_after_splice", mi);
             prog.print_diags(stderr);
             if (!prog.ok()) return 1;
@@ -6333,7 +6625,9 @@ int main(int argc, char** argv) {
         g_user_root_idx = asts.size() - 1;
         logos::compiler::SemaOptions runner_opts;
         runner_opts.cfg_flags = cfg_flags;
+        runner_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
         prog = logos::compiler::sema_lower(asts, filenames, from_binary, runner_opts, is_lazy, module_ids);
+        unit_order_facts.note_program(prog);   // §1.4
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
         if (!prog.metacall_sites.empty()) {
@@ -6536,7 +6830,33 @@ int main(int argc, char** argv) {
     // config → hard error instead of a silent create_ctr resolution failure.
     std::unordered_set<uint64_t>& drained_factory_hashes = g_early_drained_hashes;
     constexpr int kMaxFactoryDrainRounds = 3;
+    // UnitGraph §1.4 phase A. Rebuilt from the post-sema program at the top of
+    // EVERY drain round, because a round emits new families and the graph must
+    // see them; the last round's build is the one the backend would consume.
+    // Built here rather than after mono because metacall_sites — the Metacall
+    // edges — do not survive mono.
+    logos::compiler::UnitGraph unit_graph =
+        logos::compiler::UnitGraph::build(prog, filenames, ast_unit_key, from_binary,
+                                          unit_order_facts);
     for (int drain_round = 0; ; ++drain_round) {
+    // §1.4: the accumulated facts, not this program's metacall_sites — the
+    // drain loops above emptied those, which is why the graph used to report
+    // every unit independent on a module built entirely out of case-1 edges.
+    unit_order_facts.note_program(prog);
+    unit_graph = logos::compiler::UnitGraph::build(prog, filenames, ast_unit_key,
+                                                   from_binary, unit_order_facts);
+    if (std::getenv("LOGOS_TRACE_PHASES")) {
+        size_t declared_asts = 0;
+        for (auto& k : ast_unit_key) if (!k.empty()) ++declared_asts;
+        auto _ugc = unit_graph.census();
+        std::fprintf(stderr,
+            "unit_graph: asts=%zu unit_key_array=%zu emitter-DECLARED=%zu | "
+            "order=%s rounds=%zu facts=%zu edges=%zu unresolved=%zu external=%zu\n",
+            asts.size(), ast_unit_key.size(), declared_asts,
+            _ugc.order_established ? "DERIVED" : "TOTAL-ORDER-FALLBACK",
+            _ugc.order_rounds, _ugc.order_facts, _ugc.edges,
+            _ugc.unresolved_providers, _ugc.external_providers);
+    }
 
     // Factory availability, probed on the post-sema (pre-mono/prune) program:
     // an emitted `use` cannot LOAD a module, so the drain chunk's
@@ -6596,6 +6916,65 @@ int main(int argc, char** argv) {
     if (!prog.ok()) return 1;
     report("mono");
 
+    // ── UnitGraph §1.3 phase B ───────────────────────────────────
+    // fn → unit over the post-mono program. Re-filled each round for the same
+    // reason phase A is rebuilt; the final round leaves the graph the backend
+    // would use. Slice 1 consumes it for NOTHING — it is measured and written.
+    unit_graph.assign_ownership(prog);
+    // `--emit-units` with no explicit path derives one from -o, resolved HERE
+    // because -o may be parsed after the flag.
+    const std::string units_out =
+        !emit_units_flag ? std::string{}
+        : emit_units_path.empty() ? std::string(output_path) + ".units"
+                                  : emit_units_path;
+    if (!units_out.empty()) unit_graph.write_sidecar(units_out, {});
+    if (!units_out.empty() || std::getenv("LOGOS_TRACE_PHASES")) {
+        auto c = unit_graph.census();
+        // Same fields, same order, same spelling as emit_module's line: two
+        // drivers printing "the same" census two ways is how the two answers
+        // start disagreeing without anyone noticing.
+        std::fprintf(stderr,
+            "unit_graph: units=%zu edges=%zu levels=%zu max_level_width=%zu "
+            "bootstrap_cycles=%zu | order=%s (rounds=%zu facts=%zu unresolved=%zu "
+            "external=%zu) | "
+            "fns=%zu dep=%zu module=%zu | declared=%zu derived=%zu unreferenced=%zu | "
+            "non_common=%zu of module (%.1f%%) largest_unit=%zu\n",
+            c.units, c.edges, c.levels, c.max_level_width, c.bootstrap_cycles,
+            c.order_established ? "DERIVED" : "TOTAL-ORDER-FALLBACK",
+            c.order_rounds, c.order_facts, c.unresolved_providers,
+            c.external_providers,
+            c.fns_total, c.fns_dependency, c.fns_module(),
+            c.fns_declared, c.fns_derived, c.fns_unreferenced,
+            c.fns_non_common,
+            c.fns_module() ? 100.0 * (double)c.fns_non_common / (double)c.fns_module() : 0.0,
+            c.largest_unit_fns);
+        // The bound, next to the attribution rate — see the emit_module copy.
+        std::fprintf(stderr,
+            "unit_graph: parallel bound = %.2fx  (largest unit %zu fns of %zu "
+            "total; Common holds %zu = %.1f%%)\n",
+            c.parallel_bound(), c.largest_unit_fns, c.fns_total, c.fns_common(),
+            c.fns_total ? 100.0 * (double)c.fns_common() / (double)c.fns_total : 0.0);
+        std::fprintf(stderr,
+            "unit_graph: derivation reach — bodies=%zu callee_hits=%zu callee_misses=%zu\n",
+            c.bodies_walked, c.callee_hits, c.callee_misses);
+    }
+
+    if (const char* v = std::getenv("LOGOS_VERIFY_UNITS"); v && v[0] && v[0] != '0') {
+        std::vector<std::string> msgs;
+        auto vr = unit_graph.verify_against_mangled_tags(prog, msgs);
+        for (auto& m : msgs) std::fprintf(stderr, "%s\n", m.c_str());
+        std::fprintf(stderr,
+            "unit-verify: tags=%zu tagged_fns=%zu in_common=%zu split=%zu merged=%zu\n",
+            vr.tags_seen, vr.fns_tagged, vr.tagged_in_common,
+                vr.split_families, vr.merged_units);
+        if (vr.bad()) {
+            std::fprintf(stderr,
+                "logosc: LOGOS_VERIFY_UNITS: the DECLARED unit partition and the "
+                "family tag in the mangled link names disagree. One of the two is "
+                "wrong and both are used; refusing to continue.\n");
+            return 1;
+        }
+    }
     // ── Drain decision ───────────────────────────────────────────
     if (prog.factory_demands.empty()) break;
 
@@ -6747,8 +7126,10 @@ int main(int argc, char** argv) {
             drain_opts = logos::compiler::SemaOptions{};
             drain_opts.cfg_flags = cfg_flags;
         }
+        drain_opts.ast_unit_key = ast_unit_key;   // UnitGraph §1.2 — refreshed; the array GROWS
         prog = logos::compiler::sema_lower(asts, filenames, from_binary,
                                            drain_opts, is_lazy, module_ids);
+        unit_order_facts.note_program(prog);   // §1.4
     }
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;

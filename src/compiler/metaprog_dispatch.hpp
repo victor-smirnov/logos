@@ -11,6 +11,7 @@
 
 #include <logos/writ/compat.hpp>  // writ::Writ (= Own<WritView>)
 #include <logos/compiler/str_map.hpp>
+#include <logos/compiler/unit_graph.hpp>  // UnitOrderFacts — the edge SOURCE
 
 namespace logos::compiler {
 
@@ -86,6 +87,19 @@ struct MetaprogDispatchOpts {
     // hook-appended asts (they belong to the module being compiled).
     std::vector<std::string>* module_ids = nullptr;
     std::string               self_module_id;
+    // UnitGraph §1.2: per-AST compile-unit key, parallel to module_ids. A
+    // POINTER for the same reason module_ids is: hooks GROW asts mid-dispatch
+    // and the dispatcher must append the key the emitter declared. Null
+    // disables unit attribution (every fn lands in Common — the pre-arc
+    // behaviour, which is why slice 1 changes nothing).
+    std::vector<std::string>* ast_unit_key = nullptr;
+    // UnitGraph §1.4: WHERE THE ORDER EDGES COME FROM. metacall_sites is a
+    // WORKLIST this loop drains — a case-1 site exists only in the round that
+    // dispatched it, and the final post-sema program has none. Handing the
+    // accumulator in is how the facts survive the drain. Null = the caller
+    // does not build a unit graph; a caller that DOES and forgets this gets an
+    // order marked unestablished (total order), never a silent "no edges".
+    logos::compiler::UnitOrderFacts* order_facts = nullptr;
     // §3/§B-coex: module canonical-NAME → id, for resolving `use pkg from <name>`
     // during the discovery passes (else cross-module same-name types mis-resolve).
     std::unordered_map<std::string, std::string> module_name_to_id;

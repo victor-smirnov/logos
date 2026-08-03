@@ -1287,6 +1287,15 @@ struct SemaOptions {
     // cross-module same-name clash (e.g. std's fs.DirEntry vs mem's
     // memstore.DirEntry) that would otherwise be invisible. Owned by the caller.
     std::vector<std::pair<std::string, std::string>> dep_nominal_decls;
+
+    // UnitGraph §1.2: per-AST compile-unit key, parallel to asts/filenames.
+    // Non-empty entries are DECLARED by the emitter that produced that AST (a
+    // container family key, e.g. "ctr:Hs6b2e7f08e6a89698"); empty entries mean
+    // "this AST is an ordinary source file, key on its path". A short vector is
+    // padded conceptually — indices past the end read as empty. Every
+    // sema-lowered function is stamped with the resulting key, so the partition
+    // is CARRIED from the producer rather than recovered from mangled names.
+    std::vector<std::string> ast_unit_key;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

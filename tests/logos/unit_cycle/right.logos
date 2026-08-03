@@ -1,0 +1,22 @@
+// UNIT-ORDER FIXTURE, case (2): the other half of the bootstrap cycle. See
+// left.logos.
+package unit_cycle.right;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use unit_cycle.left;
+
+#[fn_macro]
+pub fn emit_right(args: Vec<ExprBlob>) -> ItemList {
+    let mut o: ItemList = item_list_new();
+    let s: str = "RightOut";
+    let id: Ident = Ident::new(s);
+    let bb: QuoteItemBlob = quote_item! { pub struct #id { pub r: i32 } };
+    o.blobs.push(bb);
+    return o;
+}
+
+emit_left!{}
+
+pub fn use_left() -> i32 { let l: LeftOut = LeftOut { l: 2i32 }; return l.l; }

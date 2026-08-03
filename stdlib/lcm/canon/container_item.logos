@@ -2946,6 +2946,22 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         }
         sp.push_str("|pkg=logos.gen");
     }
+    // ── UnitGraph §1.2: declare the compile UNIT for this whole family ──────
+    // `fam` is already the family's content-hash identity (`Hs<hex>`); the same
+    // hash the mangler bakes into every symbol of the family. Declaring it here
+    // is what makes ONE FAMILY = ONE OBJECT FILE possible: the build system can
+    // then schedule families in parallel and cache each on its own hash. The
+    // compiler-side canary (LOGOS_VERIFY_UNITS=1) checks this declaration
+    // against the tag in the mangled link names, so a drift between the two is
+    // an error rather than a silently smaller partition.
+    //
+    // PAIRED with the pop below; between them there is no early return.
+    let mut ukey: String = String::new();
+    ukey.push_str("ctr:");
+    ukey.push_str(fam.as_str());
+    ukey.push_u8(0u8);
+    unsafe { logos_emit_unit_push(ukey.as_ptr() as *const u8); }
+
     container_item_run(fam.as_str(), sp.as_str(), false, cfg_src);
 
     // ── satisfaction marker + Phase 4a surface: the full CtrFamily impl ────
@@ -2989,6 +3005,7 @@ pub fn __container_factory(hash_hex: str, cfg_src: str) -> ItemList {
         }
     };
     unsafe { logos_emit_item_blob_subst(&b); }
+    unsafe { logos_emit_unit_pop(); }   // UnitGraph §1.2 — pairs with the push above
     return out;
 }
 
@@ -3002,7 +3019,17 @@ pub fn __container_item(name: str, spec: str) -> ItemList {
         error("container item: empty container name (compiler seam regression?)");
         return out;
     }
+    // UnitGraph §1.2 — the `container` item seam names its family directly, so
+    // the declaration is the name itself. Same key shape as the factory path
+    // (`ctr:<family>`) so both produce ONE unit per family and the canary can
+    // check either against the mangled tag.
+    let mut ukey: String = String::new();
+    ukey.push_str("ctr:");
+    ukey.push_str(name);
+    ukey.push_u8(0u8);
+    unsafe { logos_emit_unit_push(ukey.as_ptr() as *const u8); }
     container_item_run(name, spec, true, "");
+    unsafe { logos_emit_unit_pop(); }
     return out;
 }
 

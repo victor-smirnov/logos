@@ -34,6 +34,19 @@ extern fn logos_emit_item_blob(data: *const u8, size: u64) -> i32;
 // regular item-blob path.
 extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;
 
+// UnitGraph §1.2 — declare which compile UNIT the items emitted from here on
+// belong to. A generator that knows it is producing ONE container family says
+// so once, around its whole run; the build system then gets one object file per
+// family, schedulable in parallel and cacheable on the family's own content
+// hash. Without the declaration the items are unattributed and land in the
+// module's Common unit — correct, just not independently schedulable.
+//
+// PAIRED. Push/pop nest, and the compiler clears the stack around every hook
+// invocation, so a metaprogram that returns between them mis-attributes only
+// its OWN items. `key` must be NUL-terminated (`String::c_str()`).
+extern fn logos_emit_unit_push(key: *const u8);
+extern fn logos_emit_unit_pop();
+
 // QIB ident-blob lifecycle. `qib_pack_idents` snapshots the stack-local
 // `[*const Ident; N]` array into a single owned heap allocation that
 // travels with the QuoteItemBlob (so the QIB is safe to return through

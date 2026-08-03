@@ -529,6 +529,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+        cur_unit_key_ = unit_key_for_ast(ai);   // UnitGraph §1.2 — moves WITH file_
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
         cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
@@ -557,6 +558,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
         cur_ast_idx_ = ai;
         holder_ = asts[ai].holder();
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
+        cur_unit_key_ = unit_key_for_ast(ai);   // UnitGraph §1.2 — moves WITH file_
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
         cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
@@ -1996,7 +1998,12 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     }
                     metaprog_handlers_.push_back({
                         std::move(trigger),
-                        std::string(str_of(item.get(la::NAME.code)))
+                        std::string(str_of(item.get(la::NAME.code))),
+                        // UnitGraph §1.4: the definition site, carried instead
+                        // of discarded. cur_ast_idx_/file_ are already set for
+                        // the ast being collected.
+                        (int64_t)cur_ast_idx_,
+                        file_
                     });
                     break;
                 }
@@ -5365,6 +5372,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.source_file = file_;
     info.package = cur_package_;
     info.module_id = cur_module_id_;
+    info.unit_key = cur_unit_key_;   // UnitGraph §1.2 — declared, not derived
     // B-gn-05: warn when a type-param shadows a known type/trait — this
     // currently breaks fn-name resolution at the call site, surfacing as
     // a misleading "undefined function" error.  Use the qualified

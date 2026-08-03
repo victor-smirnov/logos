@@ -162,12 +162,39 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             stdlib_exports_->concrete_impls.size());
     }
 
+    // ── M6.2's PRECONDITION, CHECKED ────────────────────────────────────────
+    // The incremental path is sound only while `in_` and `prev_out_` share ONE
+    // TypePool: every FunctionView in prev_out_ is an offset into that pool's
+    // arena, and line ~213 below overwrites out_.type_pool with in_'s. If the
+    // two pools differ, that assignment drops the LAST reference to prev_out_'s
+    // arena and every view seeded from it dangles — the seeding loop right
+    // after reads fp.name() out of freed memory.
+    //
+    // The precondition does not always hold, and the driver cannot see it: the
+    // M6.1 cache-bypass re-sema (`resema_opts.cache = nullptr`, taken whenever a
+    // round has item-position metacall sites) hands mono a program with its OWN
+    // fresh pool while m6_prev_mono_out still holds the previous round's.
+    // MEASURED: `logosc <file>` on a metafunction that emits the DEFINITION of
+    // another metafunction plus a call to it SIGSEGVs here, and did so at HEAD.
+    //
+    // So the assumption becomes a test, and failing it costs only speed: drop
+    // prev_out_ and take the full path, which is always correct. A crash is
+    // never the right answer to "these two arenas are not the same one".
+    if (has_prev_out_ && prev_out_.type_pool.impl() != in_.type_pool.impl()) {
+        if (std::getenv("LOGOS_TRACE_PHASES"))
+            std::fprintf(stderr,
+                "[trace] mono: prev_out belongs to a DIFFERENT TypePool than the "
+                "input program — incremental clone disabled for this round "
+                "(full clone instead)\n");
+        prev_out_ = lir::LProgram{};
+        has_prev_out_ = false;
+    }
     if (has_prev_out_) {
         // M6.2 incremental: seed out_ with prev iter's mono output so
         // its cloned generic instances + passthrough non-generics are
         // preserved. prev_out_.mirror_table / type_pool / pools are
-        // moved over too (same shared_ptrs as in_'s thanks to the
-        // SemaCache, so refcount semantics are preserved when in_'s
+        // moved over too (same shared_ptrs as in_'s — CHECKED just above,
+        // not assumed — so refcount semantics are preserved when in_'s
         // pools also move in below).
         out_ = std::move(prev_out_);
     } else {

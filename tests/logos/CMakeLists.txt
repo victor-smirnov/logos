@@ -1702,6 +1702,31 @@ set_tests_properties(logos_09_layout_engine_agreement PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# The compile-UNIT partition and the ORDER it derives (unit_graph.cpp). Before
+# this test the suite could not see either: `ctest -N` reported the same total
+# with and without unit_graph.cpp, so a green run said exactly nothing about
+# the artifact — and a MEASURED false claim of independence on the canonical
+# case-1 shape lived behind that green. See unit_graph_gate.sh for the seven
+# assertions and what each one caught, including its own negative control
+# (LOGOS_UNITS_NO_ORDER_FACTS=1 must turn every positive result off).
+#
+# Its fixtures (unit_order / unit_cycle / unit_xmod_consumer / unit_chain) are
+# module builds, so it is a plain add_test with no sampled label — the L1-L3
+# samplers enumerate `.logos` files under pass/fail and cannot reach it.
+add_test(
+    NAME logos_09_unit_graph
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/unit_graph_gate.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}/unit_graph_gate
+)
+set_tests_properties(logos_09_unit_graph PROPERTIES
+    TIMEOUT 900
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── THE ENUMERATOR (tests/exhaustive) ────────────────────────────────────────
 #
 # `tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and

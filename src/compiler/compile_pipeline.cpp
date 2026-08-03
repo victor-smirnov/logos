@@ -328,6 +328,24 @@ int lower_and_emit_object(lir::LProgram& prog,
     // --emit-llvm; with -O2/-O3 it shows the inlined/optimized result.
     if (opts.emit_llvm_opt) { llvm_module->print(llvm::outs(), nullptr); return 0; }
 
+    // SURVEY-A instrumentation (temporary, env-gated): per-LLVM-function
+    // instruction count AFTER the opt pipeline — the closest cheap proxy for
+    // "how much object code does this function cost". Joined offline with
+    // LOGOS_DUMP_FN_FILES (symbol → source_file) to see how a per-source-file
+    // split would divide the backend's work.
+    if (const char* dump = std::getenv("LOGOS_DUMP_FN_SIZES")) {
+        std::error_code dec;
+        llvm::raw_fd_ostream df(dump, dec, llvm::sys::fs::OF_Text);
+        if (!dec) {
+            for (auto& f : *llvm_module) {
+                if (f.isDeclaration()) continue;
+                size_t n = 0;
+                for (auto& bb : f) n += bb.size();
+                df << f.getName() << "\t" << n << "\n";
+            }
+        }
+    }
+
     std::error_code ec;
     llvm::raw_fd_ostream out(output_path, ec, llvm::sys::fs::OF_None);
     if (ec) {

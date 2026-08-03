@@ -155,6 +155,29 @@ int32_t logos_emit_item_blob_subst(const void* blob) {
 }
 
 __attribute__((weak))
+int32_t logos_emit_item_blob_subst_in(const void* blob, const char* unit_key) {
+    (void)blob; (void)unit_key;
+    metaprog_unavailable("logos_emit_item_blob_subst_in");
+}
+
+// UnitGraph §1.2 unit-scope declaration. Same reason as every stub above:
+// `__container_factory` / `__container_item` call these, their bodies land in
+// liblogos-lcm.a as dead code, and a user binary that links the stdlib must
+// still resolve the symbol. Caught by logos_15_doc_json, which links docgen
+// against the stdlib archives — the shims are JIT-bound in the compiler and
+// have no definition anywhere else.
+__attribute__((weak))
+void logos_emit_unit_push(const char* key) {
+    (void)key;
+    metaprog_unavailable("logos_emit_unit_push");
+}
+
+__attribute__((weak))
+void logos_emit_unit_pop(void) {
+    metaprog_unavailable("logos_emit_unit_pop");
+}
+
+__attribute__((weak))
 const uint8_t* logos_qib_pack_cursors(const void* const* arr, uint64_t n) {
     (void)arr; (void)n;
     metaprog_unavailable("logos_qib_pack_cursors");

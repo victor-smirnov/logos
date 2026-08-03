@@ -418,6 +418,11 @@ enum class Code : int32_t {
 namespace mp_handler_keys {
 inline constexpr Key TRIGGER {"TRIGGER", 1};  // Varchar
 inline constexpr Key HOOK_FN {"HOOK_FN", 2};  // Varchar
+// UnitGraph §1.4: WHERE the hook is DEFINED. Both facts are in hand at the
+// collect site (cur_ast_idx_ / file_) and were being discarded; the provider
+// side of a Trigger edge cannot be resolved without them.
+inline constexpr Key DEF_AST_IDX     {"DEF_AST_IDX",     3};  // i64 (sparse: -1 = unknown)
+inline constexpr Key DEF_SOURCE_FILE {"DEF_SOURCE_FILE", 4};  // Varchar
 } // namespace mp_handler_keys
 
 // ── MetaprogTarget (Code::MetaprogTarget) decl keys — OWN key space ──────────
@@ -435,6 +440,11 @@ inline constexpr Key THUNK_NAME   {"THUNK_NAME",   3};  // Varchar
 inline constexpr Key THUNK_SOURCE {"THUNK_SOURCE", 4};  // Varchar
 inline constexpr Key RET_TAG      {"RET_TAG",      5};  // i64
 inline constexpr Key CALLEE_NAME  {"CALLEE_NAME",  6};  // Varchar
+// UnitGraph §1.4: WHERE the callee is DEFINED. The resolution site holds the
+// callee's SemaFuncInfo and read only `.base_name` off it; `.source_file` was
+// right there. Without it the provider side of a Metacall edge is unknown.
+inline constexpr Key DEF_AST_IDX     {"DEF_AST_IDX",     7};  // i64 (sparse: -1 = unknown)
+inline constexpr Key DEF_SOURCE_FILE {"DEF_SOURCE_FILE", 8};  // Varchar
 } // namespace metacall_keys
 
 // ── ModuleInnerDoc (Code::ModuleInnerDoc) decl keys — OWN key space ──────────
@@ -513,6 +523,14 @@ inline constexpr Key IGNORED            {"IGNORED",            35}; // bool (spa
 inline constexpr Key SHOULD_PANIC_MSG   {"SHOULD_PANIC_MSG",   36}; // Varchar
 inline constexpr Key BODY_EXTERNAL_REF  {"BODY_EXTERNAL_REF",  37}; // ExternalRef Pod niche (sparse: omit when invalid)
 inline constexpr Key IS_MACRO_HOOK      {"IS_MACRO_HOOK",      38}; // bool (sparse) — #[fn_macro]/#[token_macro] compiler-invoked hook; excluded from ABI-pub surface
+// UnitGraph §1.2: the compile UNIT this function was DECLARED into, carried
+// from the emitter (or, for an ordinary source fn, from its file). Sparse and
+// DELIBERATELY NOT COPIED BY MONO: presence == "an emitter/source declared this
+// function's owner", absence == "a mono clone, whose owner is DERIVED from its
+// referrers" (§1.3). That absence is the mechanism, not an omission — it is how
+// a declared function is told apart from a synthesized instance without parsing
+// a mangled name. See unit_graph.hpp.
+inline constexpr Key UNIT_KEY           {"UNIT_KEY",           39}; // Varchar (sparse)
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).

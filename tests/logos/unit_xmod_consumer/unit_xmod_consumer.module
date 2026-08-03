@@ -1,0 +1,4 @@
+module unit_xmod_consumer
+version 0.1
+root tests/logos/unit_xmod_consumer/
+depends unit_order

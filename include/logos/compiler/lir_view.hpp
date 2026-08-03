@@ -722,6 +722,14 @@ struct FunctionView {
     std::string_view source_file() const noexcept {
         return detail::read_string(self, lir_schema::decl_keys::SOURCE_FILE.code);
     }
+    // UnitGraph §1.2. EMPTY means UNDECLARED — a mono clone or a dependency
+    // body — and that is a load-bearing distinction, not a missing value: an
+    // undeclared function's owner is DERIVED from its referrers (§1.3). Sema
+    // never writes an empty key (an ast with no file and no emitter key gets
+    // the literal `<common>`), so empty ⟺ undeclared with no third case.
+    std::string_view unit_key() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::UNIT_KEY.code);
+    }
     std::string_view should_panic_expected_msg() const noexcept {
         return detail::read_string(self, lir_schema::decl_keys::SHOULD_PANIC_MSG.code);
     }
@@ -1480,6 +1488,14 @@ struct MetaprogHandlerView {
     std::string_view hook_fn() const noexcept {
         return detail::read_string(self, lir_schema::mp_handler_keys::HOOK_FN.code);
     }
+    // UnitGraph §1.4 — the PROVIDER side of a Trigger edge.
+    int64_t def_ast_idx() const noexcept {
+        auto v = detail::read_i64_opt(self, lir_schema::mp_handler_keys::DEF_AST_IDX.code);
+        return v ? *v : -1;
+    }
+    std::string_view def_source_file() const noexcept {
+        return detail::read_string(self, lir_schema::mp_handler_keys::DEF_SOURCE_FILE.code);
+    }
 };
 
 // MetaprogTarget { ast_idx, item_offset: i64; trigger: Varchar }.
@@ -1518,6 +1534,14 @@ struct MetacallSiteView {
     }
     std::string_view callee_name() const noexcept {
         return detail::read_string(self, lir_schema::metacall_keys::CALLEE_NAME.code);
+    }
+    // UnitGraph §1.4 — the PROVIDER side of a Metacall edge.
+    int64_t def_ast_idx() const noexcept {
+        auto v = detail::read_i64_opt(self, lir_schema::metacall_keys::DEF_AST_IDX.code);
+        return v ? *v : -1;
+    }
+    std::string_view def_source_file() const noexcept {
+        return detail::read_string(self, lir_schema::metacall_keys::DEF_SOURCE_FILE.code);
     }
 };
 

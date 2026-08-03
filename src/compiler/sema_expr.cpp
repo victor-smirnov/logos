@@ -47,6 +47,12 @@ struct MetacallSiteStage {
     std::string thunk_source;
     lir::MetacallRetTag ret_tag = lir::MetacallRetTag::I64;
     std::string callee_name;
+    // UnitGraph §1.4: WHERE the callee is defined. The resolution site already
+    // holds the callee's SemaFuncInfo and used to read only `.base_name` off
+    // it; `.source_file` was in the same struct. Without it a Metacall edge has
+    // a consumer and no provider, and case (1) ordering cannot be derived.
+    int64_t     def_ast_idx = -1;
+    std::string def_source_file;
 };
 // Stable, round-independent metacall/macro site id. The multi-round metacall
 // driver (main.cpp) re-runs sema_lower each round, rebuilding a fresh
@@ -61,15 +67,42 @@ static inline uint64_t metacall_site_id(size_t ast_idx, uint32_t expr_offset) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(ast_idx)) << 32)
          | static_cast<uint64_t>(expr_offset);
 }
+// ── A THUNK IS A SYNTHESIZED MODULE, AND IT NEEDS ITS CALLEE'S IMPORT ───────
+// The thunk is emitted with the package of its CALL SITE. Inside one module
+// that is enough: every own-module function is in scope regardless of package.
+// A callee that lives in a BINARY module is not — it becomes visible only
+// through a `use`, and the thunk has none.
+//
+// MEASURED: every cross-MODULE metafunction call failed this way. Sema resolved
+// the call at the SITE (a metacall site and a thunk were produced), then failed
+// to resolve the same name inside the thunk, so the thunk fn was never lowered,
+// mlir_gen never emitted it, and the driver reported
+//     metaprog item-thunk lookup '__metacall_thunk_…': Symbols not found
+// naming the thunk — the one thing that was not missing. lforge crosses exactly
+// this boundary for every module it builds, so every case-1 edge it will ever
+// schedule went through here.
+//
+// The callee's package is already on the SemaFuncInfo the site resolved; this
+// carries it the last inch. Same-package (and empty) yields nothing, so no
+// self-import warning is introduced.
+static std::string thunk_callee_use(std::string_view callee_pkg,
+                                    std::string_view site_pkg) {
+    if (callee_pkg.empty() || callee_pkg == site_pkg) return {};
+    return std::string("use ") + std::string(callee_pkg) + ";\n";
+}
+
 static void push_metacall_site(lir::LProgram& prog, const MetacallSiteStage& s) {
     namespace mck = lir_schema::metacall_keys;
-    DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/8);
+    DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/10);
     b.i64(mck::AST_IDX, (int64_t)s.ast_idx);
     b.i64(mck::EXPR_OFFSET, (int64_t)s.expr_offset);
     b.str(mck::THUNK_NAME, s.thunk_name);
     b.str(mck::THUNK_SOURCE, s.thunk_source);
     b.i64(mck::RET_TAG, (int64_t)(int32_t)s.ret_tag);
     b.str(mck::CALLEE_NAME, s.callee_name);
+    // UnitGraph §1.4 — provider side of a Metacall edge.
+    if (s.def_ast_idx >= 0) b.i64(mck::DEF_AST_IDX, s.def_ast_idx);
+    if (!s.def_source_file.empty()) b.str(mck::DEF_SOURCE_FILE, s.def_source_file);
     prog.metacall_sites.push_back(b.view<lir_view::MetacallSiteView>());
 }
 
@@ -20232,6 +20265,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         site.thunk_source = std::move(thunk_src);
         site.ret_tag = lir::MetacallRetTag::ExprBlob;
         site.callee_name = macro_info->base_name;
+        // UnitGraph §1.4: the provider's definition site, already in hand.
+        site.def_source_file = macro_info->source_file;
         push_metacall_site(*cur_prog_, site);
 
         lir::EWritLit lit;
@@ -20703,18 +20738,21 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     //   single-arg: pass ExprBlob directly.
     //   Vec form: vec_new::<ExprBlob>() + N v.push(...) + return callee(v).
     std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+    // The callee's own package — see thunk_callee_use.
+    std::string cu = thunk_callee_use(macro_info->package, pkg);
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
     std::string thunk_src;
     if (sig_single) {
         thunk_src = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.writ.view;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
             "    return {}(e0);\n"
             "}}\n",
-            pkg, thunk_name, site_id, macro_info->base_name);
+            pkg, cu, thunk_name, site_id, macro_info->base_name);
     } else {
         std::string body;
         for (size_t i = 0; i < arg_avs.size(); ++i) {
@@ -20724,6 +20762,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         }
         thunk_src = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.writ.view;\n"
             "use logos.mem.collections.vec;\n"
@@ -20732,7 +20771,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             "{}"
             "    return {}(v);\n"
             "}}\n",
-            pkg, thunk_name, body, macro_info->base_name);
+            pkg, cu, thunk_name, body, macro_info->base_name);
     }
 
     MetacallSiteStage site;
@@ -20742,6 +20781,8 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     site.thunk_source = std::move(thunk_src);
     site.ret_tag = lir::MetacallRetTag::ExprBlob;
     site.callee_name = macro_info->base_name;
+    // UnitGraph §1.4: the provider's definition site, already in hand.
+    site.def_source_file = macro_info->source_file;
     push_metacall_site(*cur_prog_, site);
 
     // Pass-through placeholder typed as the callee's ret (ExprBlob) — the
@@ -20892,6 +20933,8 @@ void SemaChecker::emit_token_macro_item_site(
 
         std::string pkg = cur_package_.empty() ? "__metacall_thunks"
                                                : cur_package_;
+        // The callee's own package — see thunk_callee_use.
+        std::string cu = thunk_callee_use(macro_info->package, pkg);
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
@@ -20990,6 +21033,7 @@ void SemaChecker::emit_token_macro_item_site(
         if (rt_is_il) {
             thunk_src = std::format(
                 "package {};\n"
+                "{}"
                 "use logos.std.compiler.metaprog;\n"
                 "use logos.mem.collections.vec;\n"
                 "use logos.mem.writ.view;\n"
@@ -21015,10 +21059,11 @@ void SemaChecker::emit_token_macro_item_site(
                 "    }}\n"
                 "    return;\n"
                 "}}\n",
-                pkg, thunk_name, call_text);
+                pkg, cu, thunk_name, call_text);
         } else {
             thunk_src = std::format(
                 "package {};\n"
+                "{}"
                 "use logos.std.compiler.metaprog;\n"
                 "use logos.mem.collections.vec;\n"
                 "use logos.mem.writ.view;\n"
@@ -21036,7 +21081,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
                 "    return;\n"
                 "}}\n",
-                pkg, thunk_name, call_text);
+                pkg, cu, thunk_name, call_text);
         }
         MetacallSiteStage site;
         site.ast_idx = cur_ast_idx_;
@@ -21045,6 +21090,8 @@ void SemaChecker::emit_token_macro_item_site(
         site.thunk_source = std::move(thunk_src);
         site.ret_tag = lir::MetacallRetTag::ItemBlob;
         site.callee_name = macro_info->base_name;
+        // UnitGraph §1.4: the provider's definition site, already in hand.
+        site.def_source_file = macro_info->source_file;
         push_metacall_site(prog, site);
 }
 
@@ -23191,6 +23238,9 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     //   let __r = callee(<args reconstituted>);
     //   for each item in __r → emit via logos_emit_item_blob_subst.
     std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
+    // The callee's own package — see thunk_callee_use. THIS is the site every
+    // cross-module `emit!{}` goes through.
+    std::string cu = thunk_callee_use(macro_info->package, pkg);
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
     std::string call_text;
     if (sig_zero) {
@@ -23216,6 +23266,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     if (rt_is_il) {
         thunk_src = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
@@ -23240,10 +23291,11 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "    }}\n"
             "    return;\n"
             "}}\n",
-            pkg, thunk_name, call_text);
+            pkg, cu, thunk_name, call_text);
     } else {
         thunk_src = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
@@ -23260,7 +23312,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
             "    return;\n"
             "}}\n",
-            pkg, thunk_name, call_text);
+            pkg, cu, thunk_name, call_text);
     }
 
     MetacallSiteStage site;
@@ -23270,6 +23322,8 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     site.thunk_source = std::move(thunk_src);
     site.ret_tag = lir::MetacallRetTag::ItemBlob;
     site.callee_name = macro_info->base_name;
+    // UnitGraph §1.4: the provider's definition site, already in hand.
+    site.def_source_file = macro_info->source_file;
     push_metacall_site(prog, site);
 }
 
@@ -23497,6 +23551,30 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     site.ret_tag = lir::MetacallRetTag::ItemBlob;
     if (ic == la::CALL || ic == la::GENERIC_CALL) {
         site.callee_name = std::string(str_of(inner.get(la::CALLEE.code)));
+        // UnitGraph §1.4: unlike the `name!(...)` paths this site never held a
+        // SemaFuncInfo — the callee is a bare AST name — so resolve it through
+        // the overload tables the same way a call would. An UNRESOLVED callee
+        // leaves def_source_file empty, which UnitGraph reads as "provider
+        // unknown" and reports; it is NOT silently treated as same-unit.
+        auto def_file_of = [&](const std::string& base) -> std::string {
+            auto pick = [&](const logos::compiler::StrMap<std::vector<std::string>>& ov,
+                            const logos::compiler::StrMap<SemaFuncInfo>& tbl) -> std::string {
+                auto it = ov.find(base);
+                if (it == ov.end() || it->second.empty()) return {};
+                // Every overload of a metafunction lives in one file in every
+                // measured case; if they ever diverge, the ambiguity is real
+                // and reporting the first is no worse than guessing.
+                auto fi = tbl.find(it->second.front());
+                return fi == tbl.end() ? std::string{} : fi->second.source_file;
+            };
+            if (auto f = pick(func_overloads_, funcs_); !f.empty()) return f;
+            if (auto f = pick(generic_overloads_, generic_funcs_); !f.empty()) return f;
+            if (auto it = funcs_.find(base); it != funcs_.end()) return it->second.source_file;
+            if (auto it = generic_funcs_.find(base); it != generic_funcs_.end())
+                return it->second.source_file;
+            return {};
+        };
+        site.def_source_file = def_file_of(site.callee_name);
     }
     // STATIC_CALL: callee is a method on a type; no separate keep-name needed
     // (the surrounding impl block isn't body-stubbed by metaprog_mode).

@@ -19,6 +19,7 @@
 #include <logos/compiler/variance.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/subtype.hpp>
+#include <logos/compiler/unit_graph.hpp>   // THE unit-key rule (§1.1)
 #include "layout_law.hpp"
 #include "mangled_name.hpp"
 #include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
@@ -126,7 +127,11 @@ class SemaCheckerSnapshot;
 // collecting handlers/targets (no LProgram host handy at collection time); the
 // views are direct-built at the move-into-prog point. These PODs are
 // sema-internal scaffolding, not part of LProgram.
-struct MetaprogHandlerStage { std::string trigger; std::string hook_fn; };
+// UnitGraph §1.4: def_ast_idx/def_source_file record WHERE the hook is defined.
+// Both are in hand at the collect site; without them a Trigger edge has a
+// consumer and no provider.
+struct MetaprogHandlerStage { std::string trigger; std::string hook_fn;
+                              int64_t def_ast_idx = -1; std::string def_source_file; };
 struct MetaprogTargetStage  { size_t ast_idx; uint32_t item_offset; std::string trigger; };
 
 class SemaChecker {
@@ -178,6 +183,10 @@ public:
     // the vector alive across run(). Null/empty or a per-index empty string
     // → no module-qualified mangling for that AST (plain user program).
     void set_module_ids(const std::vector<std::string>* v) { module_ids_ = v; }
+    // UnitGraph §1.2: per-AST compile-unit key, parallel to filenames_. Set by
+    // the EMITTER for a generated doc; empty for an ordinary source file, which
+    // then keys on its own path. Lifetime-borrowed like the others.
+    void set_ast_unit_key(const std::vector<std::string>* v) { ast_unit_key_ = v; }
     void set_module_name_to_id(const std::unordered_map<std::string, std::string>* m) { module_name_to_id_ = m; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
@@ -1233,6 +1242,8 @@ private:
     // into the symbol mangle so same-named packages from different modules
     // (or versions) get distinct symbols (C++ module-linkage model).
     const std::vector<std::string>* module_ids_   = nullptr;
+    // UnitGraph §1.2: per-AST compile-unit key, parallel to filenames_.
+    const std::vector<std::string>* ast_unit_key_ = nullptr;
     // Module system: package dotted-name → owning-module id, accumulated across
     // all files (own + binary). Copied into LProgram::pkg_module_ids so mono
     // can module-qualify synthesised method-call symbols. One package maps to
@@ -1252,6 +1263,21 @@ private:
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
     bool         cur_from_binary_ = false;   // current file is from a binary module
     std::string  cur_module_id_;             // owning-module id of the current file (mangle key)
+    // UnitGraph §1.2: compile-unit key of the current file. Kept in lockstep
+    // with file_ at every place file_ is assigned — a fn stamped with a stale
+    // key would be scheduled into the wrong object, so the two move together.
+    std::string  cur_unit_key_;
+    // The unit key for ast index `ai`. Delegates to THE rule in unit_graph.hpp
+    // — sema stamps functions with it and UnitGraph::build creates nodes with
+    // it, so a function can never be stamped into a unit the graph never made.
+    // Sema never stamps an empty key, so an EMPTY UNIT_KEY on a function means
+    // exactly "undeclared, owner derived" (mono clone / dependency body).
+    std::string unit_key_for_ast(size_t ai) const {
+        static const std::vector<std::string> kEmpty;
+        return logos::compiler::unit_key_for_ast(filenames_ ? *filenames_ : kEmpty,
+                                                 ast_unit_key_ ? *ast_unit_key_ : kEmpty,
+                                                 ai);
+    }
     bool         cur_from_lazy_   = false;   // current file is from a lazy archive
     uint32_t     node_line_ = 0;
 
@@ -2763,6 +2789,12 @@ private:
                             std::string signature_key;
                             std::string symbol_name;
                             std::string source_file; std::string package;
+                            // UnitGraph §1.2: the compile UNIT this fn was
+                            // DECLARED into — the emitter's key for a generated
+                            // chunk, the file for an ordinary source fn. Never
+                            // empty for a sema-lowered fn; mono clones do not
+                            // inherit it (absence ⟺ derived owner).
+                            std::string unit_key;
                             std::string module_id;  // owning-module id (mangle key); empty = no module
                             std::string doc;     // outer `///` doc-comment
                             // Trait-aware method mangling: the trait this

@@ -511,6 +511,7 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     fn.str(dk::METHOD_BASE, std::string(raw_name));
     fn.str(dk::PKG, fi_ptr->package);
     fn.str(dk::SOURCE_FILE, fi_ptr->source_file);
+    fn.str(dk::UNIT_KEY, fi_ptr->unit_key);   // UnitGraph §1.2
     // Working type_params: read by check_unique_names + compute_fn_lifetime_
     // outlives + pop_type_params below + (impl-method) caller filtering.
     std::vector<TypeParam> type_params = fi_ptr->type_params;
@@ -982,7 +983,24 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                && struct_ctx.find("$blanket$") == std::string::npos
                                && !find_struct_by_name(struct_ctx).second
                                && !find_datatype_by_name(struct_ctx).second;
+    // ⚠ THE THUNK IS THE MECHANISM, SO IT CAN NEVER BE STUBBED.
+    // A `<metaprog-thunk>` chunk exists for exactly one purpose: to be
+    // JIT-compiled and called so a pending item metacall can be dispatched.
+    // Stubbing its body does not defer work — it makes the fixpoint UNABLE to
+    // advance: the item stays pending forever and the round after reports the
+    // emitted item's consumers as unknown names.
+    //
+    // The comment above already states the intent ("Don't stub metacall
+    // thunks"), but it was expressed only by is_synth_blob not matching
+    // `<metaprog-thunk>` — and `cur_ast_has_pending_item_mc_` overrides that
+    // the moment the thunk imports a package that has a pending item metacall,
+    // which is exactly what a thunk for a cross-package callee does. MEASURED:
+    // the two halves of a bootstrap cycle stopped compiling the moment the
+    // thunk carried its callee's `use`. An intent expressed only as an absence
+    // is not a rule; this is the rule.
+    bool is_thunk_chunk = (file_ == "<metaprog-thunk>");
     bool skip_body = metaprog_mode_
+                  && !is_thunk_chunk
                   && (cur_ast_idx_ == metaprog_entry_ast_idx_ || is_synth_blob
                       || cur_ast_has_pending_item_mc_)
                   // Methods too when the impl lives in a SYNTH chunk: a later
@@ -2503,6 +2521,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                             : (val ? expr_type(val) : void_t()));
                     acc.flag(dk::IS_PUB, true);
                     acc.str(dk::SOURCE_FILE, file_);
+                    acc.str(dk::UNIT_KEY, cur_unit_key_);   // UnitGraph §1.2
                     {
                         std::vector<lir_view::StmtRef> acc_body;
                         acc_body.push_back(builder().stmt_return(val, 0));

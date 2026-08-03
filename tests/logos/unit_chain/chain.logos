@@ -1,0 +1,44 @@
+// THE CHAIN SHAPE, which must FAIL LOUDLY.
+//
+// `emit_a` emits the TEXT of a call to `emit_b`. So `emit_b` is a metafunction
+// the compiler is asked to run in round 1, having lowered it as a discovery
+// PLACEHOLDER in round 0 — and the shared metaprog JIT already published that
+// placeholder's symbol, which a JITDylib cannot redefine.
+//
+// MEASURED before the guard existed: exit 0, no diagnostic, and the item
+// `emit_b` emits simply ABSENT from the archive. The placeholder returned an
+// empty ItemList and "emitted nothing" is indistinguishable from "chose to emit
+// nothing". Under the metajit closure prune the same program failed loudly
+// instead — an unrelated optimisation was the only thing standing between this
+// and silent wrong output.
+//
+// The fixture therefore asserts a REFUSAL, not a success. When the chain is
+// made to work, this file is the test that says so; until then it pins that the
+// compiler never silently drops the item. See unit_graph_gate.sh.
+package unit_chain.chain;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+
+#[fn_macro]
+pub fn emit_b(args: Vec<ExprBlob>) -> ItemList {
+    let mut o: ItemList = item_list_new();
+    let bb: QuoteItemBlob = quote_item! { pub fn beta_marker_fn() -> i32 { return 99i32; } };
+    o.blobs.push(bb);
+    return o;
+}
+
+#[fn_macro]
+pub fn emit_a(args: Vec<ExprBlob>) -> ItemList {
+    let mut em: Emitter = Emitter::new();
+    em.emit_into("unit_chain.chain");
+    em.emit_raw("emit_b!{}");
+    em.commit();
+    let out: ItemList = item_list_new();
+    return out;
+}
+
+emit_a!{}
+
+pub fn nothing() -> i32 { return 0i32; }

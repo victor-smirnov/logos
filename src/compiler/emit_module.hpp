@@ -23,6 +23,20 @@ struct EmitModuleOptions {
     // EDB. Sibling of the .abi-layout sidecar; reads the `.doc()` accessors that
     // sema already populates from /// //! /** */ comments (ADR 0014).
     bool emit_docs = false;
+    // --emit-units: write <output_path>.units — the UnitGraph as Writ-SDN
+    // (nodes, order edges with provenance, SCC ids, levels, the order the
+    // driver actually walked, and a census). The graph is BUILT regardless;
+    // this only decides whether it is written where a gate can read it, and it
+    // changes no compilation decision.
+    bool emit_units = false;
+    // ⚠ The PATH was missing, so `--emit-units=<path>` was accepted on the
+    // command line and then silently ignored on this route: only the bool
+    // crossed the boundary and the sidecar always landed at
+    // "<output_path>.units". Measured: `--emit-units=.../mem.units.sdn`
+    // produced `det.A.a.units`. A flag parsed and dropped is worse than an
+    // absent one — it answers "I wrote it where you asked" with silence.
+    // Empty + emit_units → the derived "<output_path>.units" default.
+    std::string emit_units_path;
     // Per-file emit mode (B1.7). When non-empty, emit_module produces only
     // the artifacts for THIS source file:
     //   <output_path>.o       — object code with body emission filtered to

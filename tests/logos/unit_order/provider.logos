@@ -1,0 +1,21 @@
+// UNIT-ORDER FIXTURE, case (1): the metafunction lives in its OWN TU.
+//
+// The consumer TU calls `emit_gamma!{}`. The compiler process must be able to
+// CALL emit_gamma before it can finish consumer.logos, so provider.logos must
+// be object code first — one cross-unit edge, two levels. See
+// unit_graph_gate.sh for what is asserted about it.
+package unit_order.provider;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+
+#[fn_macro]
+pub fn emit_gamma(args: Vec<ExprBlob>) -> ItemList {
+    let mut o: ItemList = item_list_new();
+    let s: str = "Gamma";
+    let id: Ident = Ident::new(s);
+    let bb: QuoteItemBlob = quote_item! { pub struct #id { pub g: i32 } };
+    o.blobs.push(bb);
+    return o;
+}

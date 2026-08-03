@@ -2798,9 +2798,12 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     prog.metaprog_handlers.reserve(metaprog_handlers_.size());
     for (const auto& mh : metaprog_handlers_) {
         namespace mhk = lir_schema::mp_handler_keys;
-        DeclBuilder b(prog, lir_schema::decl::Code::MetaprogHandler, /*cap=*/4);
+        DeclBuilder b(prog, lir_schema::decl::Code::MetaprogHandler, /*cap=*/6);
         b.str(mhk::TRIGGER, mh.trigger);
         b.str(mhk::HOOK_FN, mh.hook_fn);
+        // UnitGraph §1.4 — provider side of a Trigger edge.
+        if (mh.def_ast_idx >= 0) b.i64(mhk::DEF_AST_IDX, mh.def_ast_idx);
+        if (!mh.def_source_file.empty()) b.str(mhk::DEF_SOURCE_FILE, mh.def_source_file);
         prog.metaprog_handlers.push_back(b.view<lir_view::MetaprogHandlerView>());
     }
     prog.metaprog_targets.clear();
@@ -8115,6 +8118,7 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
         cur_ast_idx_ = i;
         holder_ = asts[i].holder();
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
+        cur_unit_key_ = unit_key_for_ast(i);   // UnitGraph §1.2 — moves WITH file_
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
         cur_from_lazy_   = (is_lazy_     && i < is_lazy_->size())     ? (*is_lazy_)[i]     : false;
         cur_module_id_   = (module_ids_  && i < module_ids_->size())  ? (*module_ids_)[i] : std::string{};
@@ -9911,6 +9915,9 @@ lir::LProgram sema_lower(const std::vector<logos::writ::Writ>& asts,
     // Empty default → module_ids_ stays effectively unused (inert) and the
     // mangle is identical to the pre-module-system output.
     checker.set_module_ids(&module_ids);
+    // UnitGraph §1.2: per-AST compile-unit key. `opts` is a by-value parameter
+    // that outlives run(), so borrowing its vector is safe.
+    checker.set_ast_unit_key(&opts.ast_unit_key);
     // §3: module NAME→id map for resolving `use pkg from <name>` clauses.
     checker.set_module_name_to_id(&opts.module_name_to_id);
     auto prog = checker.run(asts, filenames, from_binary);

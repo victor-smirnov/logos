@@ -89,6 +89,7 @@ add_executable(logosc
     mlir_gen_debug.cpp
     compile_pipeline.cpp
     emit_module.cpp
+    unit_graph.cpp
     module_loader.cpp
     module_manifest.cpp
     lir_mirror.cpp

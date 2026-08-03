@@ -5255,6 +5255,16 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s,
     // DWARF: the instance keeps its template's file — without this every
     // mono'd fn loses SOURCE_FILE and debug info collapses to main_source_.
     nf.str(dk::SOURCE_FILE,         fn.source_file());
+    // UnitGraph §1.2/§1.3. clone_fn is ALSO the verbatim-copy path (empty
+    // SubstMap), so "the key is gone after mono" would have meant EVERY
+    // function, not just synthesized instances — and the whole partition would
+    // silently collapse into Common. (It did: measured 0 of 10748 attributed.)
+    //
+    // The distinction mono actually holds is the SubstMap: empty = this is the
+    // same declared function, carried through, so its declared owner carries
+    // with it. Non-empty = a synthesized INSTANCE nobody declared, whose owner
+    // must be derived from its referrers. Dropping the key is how it says so.
+    if (s.empty())        nf.str(dk::UNIT_KEY, fn.unit_key());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     // Propagate visibility onto the instance: a `pub` template's instantiation
     // is itself part of the public ABI surface. Nothing in codegen keys on this
@@ -5377,6 +5387,16 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     // DWARF: the instance keeps its template's file — without this every
     // mono'd fn loses SOURCE_FILE and debug info collapses to main_source_.
     nf.str(dk::SOURCE_FILE,         fn.source_file());
+    // UnitGraph §1.2/§1.3. clone_fn is ALSO the verbatim-copy path (empty
+    // SubstMap), so "the key is gone after mono" would have meant EVERY
+    // function, not just synthesized instances — and the whole partition would
+    // silently collapse into Common. (It did: measured 0 of 10748 attributed.)
+    //
+    // The distinction mono actually holds is the SubstMap: empty = this is the
+    // same declared function, carried through, so its declared owner carries
+    // with it. Non-empty = a synthesized INSTANCE nobody declared, whose owner
+    // must be derived from its referrers. Dropping the key is how it says so.
+    if (s.empty())        nf.str(dk::UNIT_KEY, fn.unit_key());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     if (fn.is_pub())      nf.flag(dk::IS_PUB, true);  // ABI pub-allowlist — see clone_fn.
     if (fn.is_macro_hook()) nf.flag(dk::IS_MACRO_HOOK, true);  // ABI pub-allowlist — see clone_fn.

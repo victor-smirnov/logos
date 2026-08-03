@@ -1,0 +1,17 @@
+// UNIT-ORDER FIXTURE, case (1): the consumer TU. It uses a metafunction
+// DEFINED IN ANOTHER TU of the same module, and then uses the struct that
+// metafunction emitted — so the dependency is real in both directions a
+// compiler cares about: order (the call) and types (the emitted item).
+package unit_order.consumer;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.writ.wstatic;
+use unit_order.provider;
+
+emit_gamma!{}
+
+pub fn use_gamma() -> i32 {
+    let g: Gamma = Gamma { g: 11i32 };
+    return g.g;
+}
