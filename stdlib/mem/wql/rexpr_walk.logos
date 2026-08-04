@@ -269,7 +269,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
             use logos.std.wql.join_cost;
-            // `f64_total_key` / `f32_total_key` — the sort's comparator for a
+            // `f64_data_key` / `f32_data_key` — the sort's comparator for a
             // float key (see key_ord_frag). A spliced item is its own AST doc
             // and inherits none of the trigger module's imports.
             use logos.lang.num.float;
@@ -284,7 +284,7 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             use logos.mem.collections.btree; use logos.lang.result;
             use logos.std.wql.el; use logos.lang.writ.container;
             use logos.std.wql.join_cost;
-            // `f64_total_key` / `f32_total_key` — the sort's comparator for a
+            // `f64_data_key` / `f32_data_key` — the sort's comparator for a
             // float key (see key_ord_frag). A spliced item is its own AST doc
             // and inherits none of the trigger module's imports.
             use logos.lang.num.float;
@@ -1377,22 +1377,28 @@ fn key_norm_body(body: str, tn: str, kv: str) -> String {
 // redefinition of `>`: it is an algorithm that is only DEFINED over a total
 // order, and choosing which one is the sort's own job.
 //
-// So a float key is compared through `f64_total_key` / `f32_total_key` (IEEE
-// 754 totalOrder, the construction of Rust's `f64::total_cmp`), which agrees
-// with `<` on every pair of non-NaN values, orders −0.0 before +0.0, and puts
-// −NaN first / +NaN last. Every other key type compares with its own `<`, which
-// is already total. `order by` on a float is now a permutation whose keys read
-// back monotone — the property the enumerating harness checks, and the one the
-// old fixture could not see because its oracle was a sort written beside the
-// emitter with the same partial comparator.
+// So a float key is compared through `f64_data_key` / `f32_data_key` — the
+// order over VALUES, which is PostgreSQL's for a float column: all NaNs equal
+// and sorting LAST, −0.0 equal to +0.0, IEEE order everywhere else. Every other
+// key type compares with its own `<`, which is already total. `order by` on a
+// float is now a permutation whose keys read back monotone — the property the
+// enumerating harness checks, and the one the old fixture could not see because
+// its oracle was a sort written beside the emitter with the same partial
+// comparator.
+//
+// ⚠ NOT `f64_total_key`, which is the faithful IEEE primitive and distinguishes
+// every bit pattern. Two rows holding −0.0 and +0.0 are `==` and must not land
+// in different groups; and the sign of a NaN PRODUCED BY ARITHMETIC is chosen by
+// the optimiser, so keying on it lets the inliner move rows. Both reasons are
+// spelled out at `f64_data_key` in `logos.lang.num.float`.
 //
 // ⚠ The reorder LICENCE (`el::el_order_faithful`, refused at `join_order` C1)
 // is NOT widened here. It denies a second nest over a float key, and that
 // denial now costs only an optimization rather than covering a wrong answer;
 // widening it is a decision about the plan, taken where the plan is decided.
 fn key_ord_frag(key_ty: str, e: ExprBlob) -> ExprBlob {
-    if str_eq(key_ty, "f64") { return quote_expr! { f64_total_key(#(e)) }; }
-    if str_eq(key_ty, "f32") { return quote_expr! { f32_total_key(#(e)) }; }
+    if str_eq(key_ty, "f64") { return quote_expr! { f64_data_key(#(e)) }; }
+    if str_eq(key_ty, "f32") { return quote_expr! { f32_data_key(#(e)) }; }
     return e;
 }
 

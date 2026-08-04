@@ -12,8 +12,8 @@ package query_order_by_float_static_vs_dynamic;
 // `<`/`>` on f64 is sorting with a PARTIAL order. A NaN is neither `<`, `>` nor
 // `==` anything, so the comparator answers "equal" for every pair involving
 // one, the inner loop never shifts a row past it, and the output comes back in
-// COLLECTION order. The static emitter was moved to `f64_total_key` (IEEE 754
-// totalOrder, = Rust `f64::total_cmp`) — `rexpr_walk.logos` `key_ord_frag`.
+// COLLECTION order. The static emitter was moved to a KEY — today
+// `f64_data_key`, the order over VALUES — in `rexpr_walk.logos` `key_ord_frag`.
 //
 // The DYNAMIC engine kept the defect. Its comparator, `rt_cmp` in
 // `exec.logos`, still fell through to `if lf < rf … if lf > rf …`. Nothing
@@ -31,14 +31,20 @@ package query_order_by_float_static_vs_dynamic;
 // INPUT, unsorted and unflagged. The first needs no NaN at all — `-0.0 < 0.0`
 // is false, so the two zeros compared equal and kept their input order.
 //
+// ⚠ The FIRST row's expected answer has since changed, and not because the
+// defect changed: under the data order the two zeros are ONE value, so the
+// right answer to `[+0.0, -0.0]` is the input order — the same list the broken
+// comparator returned, for an entirely different reason. Group 4 therefore
+// asserts BOTH input orders; a fixed rank and a tie only differ on one of them.
+//
 // ⚠ THE ORACLE IS WRITTEN OUT, NOT COMPUTED — the discipline
 // wql_order_by_float_is_a_total_order_e2e records. Asserting only
 // "static == dynamic" would pass with both engines wrong, which is precisely
 // how this survived; and an oracle sort written here with the same comparator
 // would reproduce the defect and compare the implementation with itself. So
-// group 1 asserts a CONSTANT id sequence derived from IEEE 754 totalOrder by
-// hand, and group 3's fuzz oracle sorts on `f64_total_key` — a key, not a
-// float comparison, so it cannot inherit a partial-order bug.
+// group 1 asserts a CONSTANT id sequence derived BY HAND from the data order,
+// and group 3's fuzz oracle sorts on `f64_data_key` — a key, not a float
+// comparison, so it cannot inherit a partial-order bug.
 //
 // exit 0 = static, dynamic and the hand oracle all agree.
 use logos.lang.writ.container;
@@ -66,7 +72,18 @@ pub deem q_desc(ss: &[S]) { from ss s select s.id order by s.k desc : i64 }
 //   key      -inf  -2.5  -0.0   0.0   1.0   3.0  +inf   NaN
 //   id          4     7     1     5     3     0     6     2
 //
-// and `desc` is its exact reverse (no two keys are totalOrder-equal here).
+// ⚠ `desc` is NOT the exact reverse, and that is the point of the fixture.
+// Under the DATA order (`f64_data_key`, PostgreSQL's) −0.0 and +0.0 are the
+// SAME key, so ids 1 and 5 TIE. A tie is broken by the source row index
+// ASCENDING — the static emitter does it explicitly (`ix_lex_gt_frag`), the
+// dynamic engine gets it from a stable insertion sort — and the tie-break does
+// NOT flip with `desc`. So the tied pair reads 1,5 in both directions:
+//
+//   asc    4  7  [1 5]  3  0  6  2
+//   desc   2  6  0  3  [1 5]  7  4
+//                       ^^^^^ same order as asc, not reversed
+//
+// Hand-derived from the two rules, not read off a run.
 fn nan_()  -> f64 { return f64_from_bits(0x7FF8000000000000u64); }
 fn pinf_() -> f64 { return f64_from_bits(0x7FF0000000000000u64); }
 fn ninf_() -> f64 { return f64_from_bits(0xFFF0000000000000u64); }
@@ -128,9 +145,10 @@ fn v8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64) -> Vec<i64
     return v;
 }
 
-// ── the independent oracle: a STABLE sort on the totalOrder KEY ──────────────
+// ── the independent oracle: a STABLE sort on the DATA KEY ────────────────────
 // It compares i64 keys, never floats, so it cannot reproduce a partial-order
-// comparator by construction.
+// comparator by construction. Stable, so equal keys keep row order — which is
+// the tie-break both engines implement, and the pool below is full of ties.
 fn oracle_ids(ss: &Vec<S>, desc: bool) -> Vec<i64> {
     let n: i64 = ss.len();
     let mut ord: Vec<i64> = vec_new::<i64>();
@@ -139,8 +157,8 @@ fn oracle_ids(ss: &Vec<S>, desc: bool) -> Vec<i64> {
         ord.push(i);
         let mut j: i64 = ord.len() - 1i64;
         while j > 0i64 {
-            let ka: i64 = f64_total_key(ss.get(ord.get(j)).k);
-            let kb: i64 = f64_total_key(ss.get(ord.get(j - 1i64)).k);
+            let ka: i64 = f64_data_key(ss.get(ord.get(j)).k);
+            let kb: i64 = f64_data_key(ss.get(ord.get(j - 1i64)).k);
             let swap: bool = if desc { ka > kb } else { ka < kb };
             if !swap { break; }
             ord.swap(j, j - 1i64);
@@ -162,9 +180,13 @@ impl Rng {
     }
     fn upto(self: &mut Rng, n: i64) -> i64 { return (self.next() % (n as u64)) as i64; }
 }
-// The pool is the point: signed zeros, both NaN SIGNS (totalOrder puts a -NaN
-// FIRST, before -inf, and a +NaN LAST), both infinities, and duplicates so the
-// sort's STABILITY is exercised too.
+// The pool is the point: signed zeros, both NaN SIGNS, both infinities, and a
+// duplicate. Under the DATA order three of these collapse into ties — +0.0,
+// −0.0 and the duplicate 0.0 are ONE key, and the two NaN signs are ONE key
+// that sorts LAST — so the fuzz exercises the tie-break hard, which is exactly
+// where the two engines could still disagree. Both NaN signs are kept in the
+// pool deliberately: under the OLD totalOrder key they sat at opposite ends of
+// the result, so if the data key ever regressed to it, this pool would say so.
 fn poolf(i: i64) -> f64 {
     if i == 0i64 { return 0.0f64; }
     if i == 1i64 { return nzero_(); }
@@ -191,19 +213,19 @@ fn main() -> i32 {
     if !eq_v(&dyn_asc, &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 10i32; }
 
     let dyn_desc: Vec<i64> = dyn_ids("from ss s select s.id order by s.k desc", &c, &env);
-    if !eq_v(&dyn_desc, &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 11i32; }
+    if !eq_v(&dyn_desc, &v8(2i64, 6i64, 0i64, 3i64, 1i64, 5i64, 7i64, 4i64)) { return 11i32; }
 
     // ── 2. the STATIC engine against the same constant, and the two agree ────
     let st_asc: Vec<i64> = q_asc(ss.as_slice()).unwrap();
     if !eq_v(&st_asc, &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 12i32; }
     let st_desc: Vec<i64> = q_desc(ss.as_slice()).unwrap();
-    if !eq_v(&st_desc, &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 13i32; }
+    if !eq_v(&st_desc, &v8(2i64, 6i64, 0i64, 3i64, 1i64, 5i64, 7i64, 4i64)) { return 13i32; }
     if !eq_v(&st_asc, &dyn_asc)   { return 14i32; }
     if !eq_v(&st_desc, &dyn_desc) { return 15i32; }
 
     // the oracle reproduces the hand table — if it does not, group 3 is junk
     if !eq_v(&oracle_ids(&ss, false), &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 16i32; }
-    if !eq_v(&oracle_ids(&ss, true),  &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 17i32; }
+    if !eq_v(&oracle_ids(&ss, true),  &v8(2i64, 6i64, 0i64, 3i64, 1i64, 5i64, 7i64, 4i64)) { return 17i32; }
 
     // ── 3. THREE-WAY fuzz: static, dynamic and the key-sorted oracle ─────────
     let mut rng: Rng = Rng { s: 0x51DEB00BF10A7C0Du64 };
@@ -233,16 +255,35 @@ fn main() -> i32 {
     }
 
     // ── 4. the two hand-decidable minima, through both engines ──────────────
-    // [ +0.0, -0.0 ]: no NaN needed — `-0.0 < 0.0` is false.
+    // [ +0.0, -0.0 ]: no NaN needed. The two zeros are the SAME VALUE, so this
+    // is a pure TIE — and a tie is broken by row index, leaving them as given.
+    // ⚠ Both a wrong answer and the OTHER order would be [1, 0]: the IEEE
+    // totalOrder key sorts −0.0 first, and the old partial `<` comparator left
+    // the input alone. Only the data key returns the input order BY RULE, so
+    // this pair is asserted on both engines rather than on one.
     let mut z: Vec<S> = vec_new::<S>();
     z.push(S { k: 0.0f64, id: 0i64 });
     z.push(S { k: nzero_(), id: 1i64 });
     let dz: Writ = writ_new(4096i64);
     let mut ez: QEnv = QEnv::new();
     ez.bind_source("ss", wsrc(&dz, &z));
-    let mut want_z: Vec<i64> = vec_new::<i64>(); want_z.push(1i64); want_z.push(0i64);
+    let mut want_z: Vec<i64> = vec_new::<i64>(); want_z.push(0i64); want_z.push(1i64);
     if !eq_v(&dyn_ids("from ss s select s.id order by s.k", &c, &ez), &want_z) { return 30i32; }
     if !eq_v(&q_asc(z.as_slice()).unwrap(), &want_z) { return 31i32; }
+
+    // …and the SAME two rows given in the other order must come back in THAT
+    // order. This is the assertion the totalOrder key fails: it would answer
+    // [1, 0] for both inputs, because it ranks −0.0 below +0.0 unconditionally.
+    // One direction alone cannot see that — a tie and a fixed rank agree on
+    // whichever input happens to already be sorted.
+    let mut z2: Vec<S> = vec_new::<S>();
+    z2.push(S { k: nzero_(), id: 0i64 });
+    z2.push(S { k: 0.0f64,   id: 1i64 });
+    let dz2: Writ = writ_new(4096i64);
+    let mut ez2: QEnv = QEnv::new();
+    ez2.bind_source("ss", wsrc(&dz2, &z2));
+    if !eq_v(&dyn_ids("from ss s select s.id order by s.k", &c, &ez2), &want_z) { return 34i32; }
+    if !eq_v(&q_asc(z2.as_slice()).unwrap(), &want_z) { return 35i32; }
 
     // [ 1.0, NaN, 0.0 ]: the dynamic engine used to return this list unchanged.
     let mut w: Vec<S> = vec_new::<S>();

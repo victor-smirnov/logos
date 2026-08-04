@@ -27,8 +27,8 @@
 // ⚠⚠⚠ AND WHAT CHANGED UNDER IT SINCE. The premise above — "on a NaN key both
 // `prev > cur` and `prev == cur` are false" — was a fact about THE COMPARATOR THE
 // EMITTER CHOSE, not about `order by`. A sort is only defined over a TOTAL order,
-// and choosing one is the sort's own job: the emitted comparison is IEEE 754
-// totalOrder (`f64_total_key`) now, so an f64 `order by` is a permutation whose
+// and choosing one is the sort's own job: the emitted comparison is
+// the DATA order (`f64_data_key`) now, so an f64 `order by` is a permutation whose
 // keys read back monotone with the NaN at the end, for every nest. The reorder
 // LICENCE is deliberately NOT widened to match — claims 1 and 4 still assert
 // `considered() == 0` and the refusal's ground — because widening it is a
@@ -77,7 +77,7 @@ package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.option;
-use logos.lang.num.float; // f64_total_key — the ORACLE's comparator, deliberately not the emitter's `>`
+use logos.lang.num.float; // f64_data_key — the ORACLE's comparator, deliberately not the emitter's `>`
 use logos.lang.str;      // str_contains — the refusal's ground is asserted, not just its verdict
 
 struct A { pub k: i64, pub v: i64, pub f: f64, pub s: str, pub g: i64 }
@@ -176,7 +176,18 @@ fn oracle_join(as_: &[A], bs: &[B], cs: &[C], ks: &mut Vec<f64>, out: &mut Vec<i
 // Insertion sort with the STRICT comparison only: equal keys keep the order they
 // arrived in. No tiebreak, because in query order there is nothing to break.
 //
-// ⚠ THE COMPARISON HERE IS `f64_total_key`, NOT `>` ON f64, AND THAT IS THE POINT.
+// ⚠ THE COMPARISON HERE IS A KEY, NOT `>` ON f64, AND THAT IS THE POINT.
+//
+// ⚠⚠ It is `f64_data_key` and NOT `f64_total_key`, and the difference is not
+// cosmetic here. This fixture's NaN is COMPUTED — `0.0f64 / 0.0f64` — and the
+// SIGN of a NaN produced by arithmetic is unspecified: x86 division yields the
+// negative indefinite `0xFFF8…`, while the same expression constant-folded by
+// APFloat yields the positive `0x7FF8…`. Under `f64_total_key` the sign is the
+// key's top bit, so the oracle would place that row FIRST or LAST depending on
+// whether the optimiser folded the division — and the fixture would agree with
+// the emitter only by luck. `f64_data_key` is the order the emitter actually
+// implements (PostgreSQL's: every NaN one value, sorting last), so the oracle
+// and the subject now agree by construction rather than by coincidence.
 // This oracle used to compare with the same partial `>` the emitter emitted, so
 // on a NaN key it stopped shifting in exactly the same place and produced exactly
 // the wrong answer the emitter produced — the assertion compared the
@@ -191,7 +202,7 @@ fn stable_sort_by_f64(ks: &mut Vec<f64>, vs: &mut Vec<i64>) {
         let kv: f64 = ks.get(a);
         let vv: i64 = vs.get(a);
         let mut b: i64 = a;
-        while b > 0i64 && f64_total_key(ks.get(b - 1i64)) > f64_total_key(kv) {
+        while b > 0i64 && f64_data_key(ks.get(b - 1i64)) > f64_data_key(kv) {
             ks.set(b, ks.get(b - 1i64));
             vs.set(b, vs.get(b - 1i64));
             b = b - 1i64;

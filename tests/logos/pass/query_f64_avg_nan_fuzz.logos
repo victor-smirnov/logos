@@ -3,10 +3,13 @@
 // engine. Data columns: g:i64 (group/join key), v:f64 drawn from an adversarial
 // pool { +0.0, -0.0, 1.0, 2.0, NaN, 0.5, -1.0, 3.0 } so every iteration mixes
 // signed zeros, NaN, and dyadic values. f64 results are compared BIT-EXACT
-// (f64_to_bits multiset) — NaN==NaN is false, so a value compare would be
+// (multiset of keys) — NaN==NaN is false, so a value compare would be
 // meaningless; the engine and the oracle must agree on the exact bit pattern,
-// accumulating avg/sum in the SAME (input) order. Exit 0 iff all three agree
-// every iteration; nonzero code = failing shape (+ side).
+// accumulating avg/sum in the SAME (input) order. The ONE exception is the
+// payload of a NaN, which the source does not determine — see `f_bits`, which
+// is where that is argued and where the measurement behind it is recorded.
+// Exit 0 iff all three agree every iteration; nonzero code = failing shape
+// (+ side).
 package test;
 
 use logos.lang.writ.container;
@@ -112,11 +115,38 @@ fn ieq3(a: &mut Vec<i64>, b: &mut Vec<i64>, c: &mut Vec<i64>) -> bool {
     return ieq(a, b) && ieq(b, c);
 }
 
-// f64 Vec -> bits Vec
+// f64 -> comparison key. Bit-exact, with EXACTLY ONE collapse: every NaN maps
+// to one key.
+//
+// ⚠ This is not a loosening, it is the assertion matching what the source
+// determines. The sign and payload of a NaN PRODUCED BY ARITHMETIC are left
+// unspecified by IEEE 754 and by LLVM, so they are a function of the OPTIMISER,
+// not of the program: `fadd` is commutable and x86 ADDSD returns the
+// DESTINATION operand's NaN, so which of two NaNs survives `a + b` depends on
+// register allocation — i.e. on whether a callee was inlined. MEASURED
+// 2026-08-03: emitting the stdlib in 3+ objects stopped `rt_f` being inlined
+// into the aggregate loop and flipped the sign of this test's `avg`, at shape 3,
+// iteration 3927, on the group { +inf, 1.0, -inf, NaN, -0.0 }. Both answers are
+// correct; a test that demands one of them is testing the inliner.
+//
+// Everything else stays EXACT, deliberately:
+//   * −0.0 and +0.0 keep DIFFERENT keys — IEEE fully determines the sign of a
+//     zero sum, so the three engines must agree on it and this test still says
+//     so. (`order by` treats them as one VALUE — that is the data order,
+//     `f64_data_key`, and a different question from "did we compute the same
+//     number".)
+//   * every finite value, both infinities and every rounding stay bit-exact.
+//   * a NaN on one side and a number on the other still fails, because the
+//     canonical NaN key equals no ordinary bit pattern.
 fn f_bits(v: &Vec<f64>) -> Vec<u64> {
     let mut o: Vec<u64> = vec_new::<u64>();
     let mut i: i64 = 0i64;
-    while i < v.len() { o.push(f64_to_bits(v.get(i))); i = i + 1i64; }
+    while i < v.len() {
+        let x: f64 = v.get(i);
+        if x != x { o.push(0x7ff8000000000000u64); }   // `x != x` IS the NaN test
+        else      { o.push(f64_to_bits(x)); }
+        i = i + 1i64;
+    }
     return o;
 }
 

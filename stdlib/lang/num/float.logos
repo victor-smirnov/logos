@@ -94,6 +94,65 @@ pub fn f32_total_key(x: f32) -> i64 {
     return (b ^ m) as i64;
 }
 
+// ── Data order (a float as a stored VALUE, not as an IEEE datum) ─────────
+//
+// `*_total_key` above is the faithful IEEE primitive: it distinguishes every
+// bit pattern, so −NaN sorts first, +NaN last, and −0.0 sorts before +0.0.
+// That is the right answer for a numerics library and the WRONG one for a
+// column of data, for two separate reasons.
+//
+//   * −0.0 and +0.0 are the SAME NUMBER. `-0.0 == 0.0` is true, so a key that
+//     separates them makes `order by` and `group by` disagree with `==` —
+//     two rows compare equal and land in different groups.
+//   * The sign and payload of a NaN PRODUCED BY ARITHMETIC are unspecified by
+//     IEEE 754, and LLVM inherits that freedom. MEASURED 2026-08-03: `fadd` is
+//     commutable and x86 ADDSD returns the DESTINATION operand's NaN, so which
+//     of two NaNs survives `a + b` is decided by the register allocator — i.e.
+//     by whether a callee was inlined. Splitting the stdlib into 3+ objects
+//     stopped `rt_f` being inlined into Deem's aggregate loop and flipped the
+//     sign of an `avg` result. Under `*_total_key` the sign is the key's top
+//     bit, so that flip MOVES ROWS: the same query over the same data returns a
+//     different order depending on how the compiler was invoked. A stored value
+//     must not be observable through the optimiser.
+//
+// `*_data_key` is the ORDER OVER VALUES, and it is PostgreSQL's, chosen so that
+// a float column behaves the way every SQL user already expects (PostgreSQL
+// `float8`: "treats NaN values as equal, and greater than all non-NaN values"):
+//
+//   * every NaN — any sign, any payload — maps to ONE key, so all NaNs are
+//     equal to each other and to nothing else;
+//   * that key is greater than every non-NaN key, so NaN sorts LAST ascending;
+//   * −0.0 and +0.0 map to the same key;
+//   * everywhere else it IS `*_total_key`, hence IEEE `<` on ordinary values.
+//
+// It is a total order and it is injective on distinct VALUES, so it serves as
+// the equality/hash key as well as the sort key — join, `distinct` and
+// `group by` key through it for the same reason `order by` does.
+//
+// Cost is two compares on key extraction and NOTHING on arithmetic: the
+// alternative — canonicalising the NaN that every `+ - * / %` produces —
+// was implemented and measured at +40% on an f64 dependency chain and +117%
+// on independent multiplies, to buy a property only the key path needs.
+
+/// The `i64` key of `x` as a DATA value (PostgreSQL float semantics): all NaNs
+/// equal and greater than everything, `-0.0 == 0.0`, IEEE order otherwise.
+/// A total order and injective on values — sort key and equality key both.
+pub fn f64_data_key(x: f64) -> i64 {
+    // `x != x` is the IEEE NaN test and needs no bit inspection.
+    if x != x { return 0x7FF8000000000000i64; }   // > f64_total_key(+inf)
+    if x == 0.0f64 { return 0i64; }               // catches BOTH zeros
+    return f64_total_key(x);
+}
+
+/// The `i64` key of `x` as a DATA value (PostgreSQL float semantics), for `f32`.
+/// Keys are widened to `i64` so an `f32` and an `f64` column sort by the same
+/// comparator; they are NOT comparable to `f64_data_key` values.
+pub fn f32_data_key(x: f32) -> i64 {
+    if x != x { return 0x7FC00000i64; }           // > f32_total_key(+inf)
+    if x == 0.0f32 { return 0i64; }
+    return f32_total_key(x);
+}
+
 // ── Classification ───────────────────────────────────────────────────────
 //
 // IEEE 754 bit layout:

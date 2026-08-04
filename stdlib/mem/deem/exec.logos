@@ -376,7 +376,7 @@ fn rs_push_row(dst: &mut RowSet, l: &RowSet, r: i64, rt: &RowSet, j: i64) {
 // ── RtVal ordering (sort keys) + hashing (join/distinct keys) ────────────────
 // Compare mirrors the eval `<`-family: str via str_cmp, int exactly, else f64.
 //
-// ⚠ The float arm compares through `f64_total_key` (IEEE 754 totalOrder), NOT
+// ⚠ The float arm compares through `f64_data_key`, NOT
 // through `<`/`>`. This is the SORT comparator — its only caller is the
 // `RExpr::Sort` insertion sort below — and `<` is a PARTIAL order, so using it
 // here is not a lenience, it is a wrong answer:
@@ -386,20 +386,21 @@ fn rs_push_row(dst: &mut RowSet, l: &RowSet, r: i64, rt: &RowSet, j: i64) {
 //     3-row table [1.0, NaN, 0.0]: the dynamic engine returned [1.0, NaN, 0.0]
 //     — not sorted at all — where the static deem! query returned
 //     [0.0, 1.0, NaN].
-//   * `-0.0 < 0.0` is false, so the two zeros also compared "equal". MEASURED on
-//     [+0.0, -0.0]: dynamic kept the input order, static returned [-0.0, +0.0].
-//     No NaN is needed to see this one.
-// The STATIC emitter has always keyed a float sort through `f64_total_key`
-// (`rexpr_walk.logos` `key_ord_frag`, pinned by
-// wql_order_by_float_is_a_total_order_e2e), so this is the dynamic engine being
-// brought to the same order the static one already implements — the two are a
-// differential pair and an `order by` on a float column is the one shape where
-// they disagreed. Pinned by query_order_by_float_static_vs_dynamic.
+//   * `-0.0 < 0.0` is false, so the two zeros also compared "equal" — which is
+//     the RIGHT answer for a data column (they are the same number) but was
+//     reached by accident, not by rule: the same "equal" that mis-sorted NaN.
+//     MEASURED on [+0.0, -0.0]: dynamic kept the input order.
+// The STATIC emitter has always keyed a float sort through `key_ord_frag`
+// (`rexpr_walk.logos`, pinned by wql_order_by_float_is_a_total_order_e2e), so
+// this is the dynamic engine being brought to the same order the static one
+// already implements — the two are a differential pair and an `order by` on a
+// float column is the one shape where they disagreed. Pinned by
+// query_order_by_float_static_vs_dynamic.
 //
-// `f64_total_key` agrees with `<` on every pair where neither side is NaN, so
+// `f64_data_key` agrees with `<` on every pair where neither side is NaN, so
 // nothing about ordinary values moves. The non-numeric kinds reach this arm via
 // `rt_f`'s 0.0 default and keep comparing equal to each other exactly as before
-// (`f64_total_key(0.0) == 0`).
+// (`f64_data_key(0.0) == 0`).
 fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
     if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 { return str_cmp(rt_s(l), rt_s(r)) as i64; }
     if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
@@ -409,8 +410,8 @@ fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
         if a > b { return 1i64; }
         return 0i64;
     }
-    let lk: i64 = f64_total_key(rt_f(l));
-    let rk: i64 = f64_total_key(rt_f(r));
+    let lk: i64 = f64_data_key(rt_f(l));
+    let rk: i64 = f64_data_key(rt_f(r));
     if lk < rk { return -1i64; }
     if lk > rk { return 1i64; }
     return 0i64;
@@ -531,8 +532,19 @@ fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: 
     // which payload is meaningful. Null payloads made rows that don't inhabit
     // the typed relation (fusion exposed it: a typed rel column rightly
     // refused them), and nullable columns re-open the "Null == Null?" hole
-    // set-dedup cannot afford. f64 rides as IEEE bits, same as the static
-    // vocabulary (bit identity IS the honest Eq for floats).
+    // set-dedup cannot afford. f64 rides as IEEE BITS, same as the static
+    // vocabulary (`writ_graph.logos` wg_walk) — vi is the VALUE, and the
+    // consumer reinterprets it with `f64_from_bits`, so it must not be keyed
+    // through `f64_data_key`: that would silently turn a stored −0.0 into +0.0.
+    //
+    // ⚠ KNOWN GAP, deliberate and NOT closed here. Because this column is both
+    // the value and the Eq/Hash key of the set vocabulary, `distinct`/join over
+    // a float column separates −0.0 from +0.0 and separates two NaNs of
+    // different payload — where PostgreSQL (the semantics `f64_data_key` gives
+    // `order by`) says all three are one value. Closing it needs the value and
+    // the key to stop being the same column; that is an arc, not an edit here.
+    // Unlike the ordering defect this one is DETERMINISTIC — it does not move
+    // with the optimiser — so it is a semantics gap, not a correctness hazard.
     match cv {
         RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
         RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }

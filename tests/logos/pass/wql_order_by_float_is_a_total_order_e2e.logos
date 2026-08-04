@@ -14,12 +14,25 @@ package wql_order_by_float_is_a_total_order_e2e;
 // `stable_sort_by_f64`, an insertion sort written in the same file with the
 // SAME `>` — so the oracle reproduced the defect and the assertion compared the
 // implementation with itself. Here the expected id sequence is a constant,
-// derived from IEEE 754 totalOrder by hand:
+// derived by hand from the DATA order (`f64_data_key` — PostgreSQL's order for
+// a float column: all NaNs equal and LAST, −0.0 equal to +0.0, IEEE order
+// otherwise):
 //
-//   key      -inf  -2.5  -0.0   0.0   1.0   3.0  +inf   NaN
-//   id          4     7     1     5     3     0     6     2
+//   key      -inf  -2.5   -0.0 = 0.0   1.0   3.0  +inf   NaN
+//   id          4     7      1     5     3     0     6     2
 //
-// and `desc` is its exact reverse (no two keys are totalOrder-equal here).
+// ⚠ `desc` is NOT the exact reverse. Ids 1 and 5 hold −0.0 and +0.0, which are
+// the SAME key, and a tie is broken by the source row index ASCENDING —
+// `ix_lex_gt_frag` in the static emitter, a stable insertion sort in the
+// dynamic one. That tie-break does not flip with `desc`, so the pair reads 1,5
+// in both directions:
+//
+//   asc    4  7  [1 5]  3  0  6  2
+//   desc   2  6  0  3  [1 5]  7  4
+//
+// The pair is kept tied ON PURPOSE. `f64_total_key`, the IEEE primitive this
+// used to sort by, separates the two zeros — so if the emitter ever went back
+// to it, these two positions would swap in `desc` and this test would say so.
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.num.float;
@@ -64,7 +77,7 @@ fn main() -> i32 {
     if !eq(&asc, &want_asc[..]) { return 10i32; }
 
     let desc: Vec<i64> = q_desc(&ss[..]).unwrap();
-    let want_desc: [i64; 8] = [2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64];
+    let want_desc: [i64; 8] = [2i64, 6i64, 0i64, 3i64, 1i64, 5i64, 7i64, 4i64];
     if !eq(&desc, &want_desc[..]) { return 11i32; }
 
     // `k != 1.0` — every row but id 3, INCLUDING the NaN (id 2). It used to be
@@ -96,7 +109,35 @@ fn main() -> i32 {
     let nanf: f32 = f32_from_bits(0x7FC00000u32);
     if !(nanf != 1.0f32) { return 35i32; }
 
-    // totalOrder itself: the key that makes the sort well-defined.
+    // The DATA key — what `order by` actually sorts on. Three laws, each stated
+    // as an equality or a strict inequality, none of them read off a run.
+    let nnan: f64 = f64_from_bits(0xFFF8000000000000u64);          // −NaN
+    let onan: f64 = f64_from_bits(0x7FF8DEADBEEF0000u64);          // other payload
+    let nzero2: f64 = f64_from_bits(0x8000000000000000u64);
+    // 1. every NaN is ONE value — sign and payload both irrelevant.
+    if f64_data_key(nan) != f64_data_key(nnan) { return 50i32; }
+    if f64_data_key(nan) != f64_data_key(onan) { return 51i32; }
+    // 2. that value is GREATER than every non-NaN, so NaN sorts last ascending.
+    if f64_data_key(f64_from_bits(0x7FF0000000000000u64)) >= f64_data_key(nan) { return 52i32; }
+    if f64_data_key(nnan) <= f64_data_key(f64_from_bits(0x7FF0000000000000u64)) { return 53i32; }
+    // 3. the two zeros are ONE value — `-0.0 == 0.0` is true, so a key that
+    //    split them would make `order by` disagree with `==`.
+    if f64_data_key(nzero2) != f64_data_key(0.0f64) { return 54i32; }
+    // …and everywhere else it is IEEE order.
+    if f64_data_key(f64_from_bits(0xFFF0000000000000u64)) >= f64_data_key(-2.5f64) { return 55i32; }
+    if f64_data_key(-2.5f64) >= f64_data_key(0.0f64) { return 56i32; }
+    if f64_data_key(0.0f64) >= f64_data_key(1.0f64)  { return 57i32; }
+    if f64_data_key(1.0f64) >= f64_data_key(f64_from_bits(0x7FF0000000000000u64)) { return 58i32; }
+    // f32 carries the same three laws.
+    if f32_data_key(nanf) != f32_data_key(f32_from_bits(0xFFC00000u32)) { return 60i32; }
+    if f32_data_key(f32_from_bits(0x7F800000u32)) >= f32_data_key(nanf) { return 61i32; }
+    if f32_data_key(f32_from_bits(0x80000000u32)) != f32_data_key(0.0f32) { return 62i32; }
+    if f32_data_key(-1.0f32) >= f32_data_key(1.0f32) { return 63i32; }
+
+    // totalOrder itself: the IEEE primitive, UNCHANGED and still exact — it is
+    // the honest `f64::total_cmp` and separates everything the data key merges.
+    // Kept asserted here so the two orders cannot silently become one.
+    if f64_total_key(f64_from_bits(0x8000000000000000u64)) == f64_total_key(0.0f64) { return 47i32; }
     if f64_total_key(f64_from_bits(0xFFF0000000000000u64)) >= f64_total_key(-2.5f64) { return 40i32; }
     if f64_total_key(-2.5f64) >= f64_total_key(f64_from_bits(0x8000000000000000u64)) { return 41i32; }
     if f64_total_key(f64_from_bits(0x8000000000000000u64)) >= f64_total_key(0.0f64)  { return 42i32; }

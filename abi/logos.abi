@@ -9919,6 +9919,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__u8
 sym	logos_lang.logos.lang.mem$swap__g__pmut_T__pmut_T__Arc$G1$udyn_BTreeNode
 sym	logos_lang.logos.lang.mem$zero_bytes__f__pmut_u8__i64
 sym	logos_lang.logos.lang.num.float$f32_classify__f__f32
+sym	logos_lang.logos.lang.num.float$f32_data_key__f__f32
 sym	logos_lang.logos.lang.num.float$f32_from_bits__f__u32
 sym	logos_lang.logos.lang.num.float$f32_is_finite__f__f32
 sym	logos_lang.logos.lang.num.float$f32_is_infinite__f__f32
@@ -9927,6 +9928,7 @@ sym	logos_lang.logos.lang.num.float$f32_is_normal__f__f32
 sym	logos_lang.logos.lang.num.float$f32_to_bits__f__f32
 sym	logos_lang.logos.lang.num.float$f32_total_key__f__f32
 sym	logos_lang.logos.lang.num.float$f64_classify__f__f64
+sym	logos_lang.logos.lang.num.float$f64_data_key__f__f64
 sym	logos_lang.logos.lang.num.float$f64_from_bits__f__u64
 sym	logos_lang.logos.lang.num.float$f64_is_finite__f__f64
 sym	logos_lang.logos.lang.num.float$f64_is_infinite__f__f64
