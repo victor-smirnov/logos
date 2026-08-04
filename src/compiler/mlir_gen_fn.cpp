@@ -156,6 +156,20 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //   &mut T        → + noalias                     (borrow-checker exclusivity)
 //   &T, T Freeze  → + noalias, readonly    (rule type.shared-ref.write-through-derived-ub)
 //
+// ⚠ THE `@claim … @endclaim` BLOCKS BELOW ARE MECHANIZED.
+// A ruling that lives only in prose gets re-written, and this comment is the
+// proof: the freeze bullet once read "DEFERRED … unsound until we can prove T
+// has no interior mutability (UnsafeCell AND atomics, which are NOT
+// UnsafeCell-wrapped in our stdlib)" and every clause of it was false by the
+// next commit, while every gate stayed green for months.
+// tests/logos/shared_ref_ub_lint.sh hashes each delimited block against
+// tests/logos/shared_ref_ub_claims.ledger. PROSE OUTSIDE A BLOCK IS FREE TO
+// IMPROVE — that is the whole reason the blocks are narrow rather than the file
+// being hashed whole; hashing everything makes each honest edit a re-bless, and
+// a gate that fires on honest edits gets deleted. Inside a block, a reworded
+// claim is a deliberate re-bless and a REVERSED one is caught by the same
+// mechanism, because no reader can tell those two apart.
+//
 // Soundness gates (see project_rustc_parity_type_attrs / the audit roadmap):
 //   • Kind ∈ {Ref, MutRef} AND ref_repr_of == ThinPtr. This self-excludes raw
 //     *T / fn-ptr (wrong Kind) and every FAT repr (FatSlice/FatDyn/FatClosure/
@@ -166,6 +180,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     &mut param is exclusive for the call (verified across two-&mut, split
 //     borrows, two-phase, closures). raw-ptr-aliased &mut is caller UB, same
 //     as rustc.
+//   @claim guard.freeze-gated
 //   • noalias+readonly on a shared &T is gated on `type_is_freeze(pointee)`
 //     (mlir_gen_types.cpp): no UnsafeCell reachable through the pointee's own
 //     inline bytes — struct fields, enum payloads, tuple/array elements, and
@@ -174,7 +189,12 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     own provenance and is not derived from this argument). The predicate is
 //     conservative in the safe direction — unknown/unresolvable shape → NOT
 //     Freeze — so a case it misses costs an optimization, never soundness.
+//     @endclaim
+//     Its arms are pinned one-for-one by tests/logos/ir/param_attrs_freeze_lattice
+//     and the coverage is held by tests/logos/freeze_arm_coverage.py, which
+//     derives the arm population from this predicate rather than from a list.
 //
+//     @claim history.deferred-bullet-was-false
 //     ⚠ THIS BULLET USED TO READ "DEFERRED (slice C, blocked on a freeze
 //     predicate) … unsound until we can prove T has no interior mutability
 //     (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our
@@ -187,7 +207,13 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     ended one commit later is not a caveat, it is a wrong answer that
 //     reads as a considered one — which is why the note stays here instead
 //     of being quietly deleted.
+//     @endclaim
+//     The 12/Mutex/RwLock/Writ population in that paragraph is no longer a hand
+//     count either: it is 19 roots derived over the whole of stdlib by
+//     tests/logos/shared_ref_ub_lint.sh and checked against the emitted IR by
+//     tests/logos/ir/param_attrs_freeze_interior.
 //
+//   @claim rule.unsafecell-is-not-a-writer
 //   • WHAT LICENSES THE ATTRIBUTE — SETTLED, and it is a LANGUAGE rule, not a
 //     codegen one. `readonly` says the callee performs no write through this
 //     argument or anything derived from it. UnsafeCell is not a privileged
@@ -197,14 +223,18 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     `NonNull::from_ref(&T) -> NonNull<T>` (stdlib/lang/ptr/ptr.logos:241)
 //     ships that laundering as a stdlib API. So the attribute cannot rest on
 //     "nobody can make such a pointer" — it rests on a rule about the PROGRAM:
+//     @endclaim
 //
+//     @claim rule.derived-write-ub
 //       RULE type.shared-ref.write-through-derived-ub (tools/spec-extract/
 //       rules/codegen/mlir_gen_fn/logos.json). Given `r: &T` with T Freeze, the
 //       referent is IMMUTABLE for r's lifetime, and a write through any pointer
 //       whose provenance chain is rooted at `r` is UNDEFINED.
 //       EXCEPTION: a pointer VALUE loaded OUT of the referent carries its own
 //       provenance and is NOT derived from `r`; writing through it is defined.
+//     @endclaim
 //
+//     @claim rule.loaded-pointer-exception
 //     THE EXCEPTION IS NOT A TECHNICALITY — IT IS WHY THE RULE IS LIVABLE.
 //     `Rc<T> { inner: *mut RcInner<T> }` is Freeze exactly because the Freeze
 //     recursion stops at the indirection, so `&Rc<T>` really does carry
@@ -214,12 +244,16 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     Rc/Arc::downgrade — all correct today. The mechanical guard on the
 //     exception is tests/logos/ir/param_attrs_freeze_lattice's `axis_ptr_field`
 //     line: it goes red the moment the recursion stops stopping at a pointer.
+//     @endclaim
 //
+//     @claim rule.rustc-parity-not-divergence
 //     THIS IS RUSTC PARITY, NOT A DIVERGENCE — rustc emits the identical
 //     noalias+readonly on &T and rests on exactly this rule. It therefore
 //     belongs in the SPEC, and NOT in DIVERGENCES.md.
+//     @endclaim
 //
 //     MEASURED 2026-08-04, so the exposure is known rather than guessed:
+//         @claim exposure.confined-to-unsafe
 //       – THE EXPOSURE IS CONFINED TO `unsafe`. The cast itself is safe (it
 //         only makes a pointer), but the write is not: dropping the unsafe
 //         block off a cast-then-write repro fails the compile with "write
@@ -227,6 +261,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //         raw pointer requires unsafe context" (logosc rc=1). So no SAFE Logos
 //         program can reach the rule, and it binds exactly where an obligation
 //         already sits (spec `stmt.deref-write.raw-ptr-unsafe`).
+//         @endclaim
 //       – ⚠ AN EARLIER NOTE HERE CLAIMED the synthetic cast-then-write "returns
 //         the right value at -O0 and the stale pre-call one at -O1/-O2/-O3".
 //         RE-MEASURED and it does NOT reproduce in that shape: a single-file
@@ -241,6 +276,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //         recorded in tests/logos/pass/interior_mut_freeze_canary.logos.
 //         Recorded rather than quietly corrected, because "measured" was doing
 //         the work of "true" in a claim nothing re-ran.
+//         @claim exposure.no-stdlib-instance
 //       – No stdlib instance of the prohibited shape. Every `as *const X as
 //         *mut X` site was read: each is either behind a `&mut self` (fabric
 //         push/set/insert/erase), a by-value `self` (Vec::into_iter,
@@ -251,12 +287,15 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //         read of ONE syntactic form; it is evidence, not a proof of absence,
 //         which is why tests/logos/shared_ref_ub_lint.sh now holds the census
 //         against a ledger instead of leaving it to the next hand read.
+//         @endclaim
 //
+//     @claim status.write-detection-unenforced
 //     STILL UNENFORCED, stated so the rule is not mistaken for a check: nothing
 //     DETECTS a user program that takes the cast and writes. A real detector
 //     must model the PROVENANCE CHAIN rather than the syntax, because the
 //     exception above is the common and correct stdlib shape and a syntactic
 //     matcher would fire on every Rc/Arc/Weak method in the tree.
+//     @endclaim
 //
 //   • The arg-index walk MIRRORS make_fn_type's slot-push order exactly: anyval
 //     → one i32 slot; Array → one ptr slot; a param whose logos_to_mlir is null

@@ -974,21 +974,54 @@ set_tests_properties(logos_00_separator_split_lint PROPERTIES
 # prose the bullet describing it drifted into a wrong answer that read like a
 # considered caveat and survived every green gate for months.
 #
-# This lint holds four mechanical facts instead of any wording: the readonly
-# write happens exactly once and inside the type_is_freeze block; the rule id
-# joins the emission site to the rule corpus; every `pub struct Atomic*` really
-# is UnsafeCell-wrapped (the clause that silently went false last time); and the
-# const->mut laundering census matches the ledger in both directions. It carries
-# six self-canaries through the same readers — including one that must NOT fire
-# on a commented-out emission, because mlir_gen_fn.cpp quotes the old wrong
+# This lint holds five mechanical facts instead of any wording: the readonly
+# write happens exactly once and is CONTAINED IN a type_is_freeze-implying block
+# (by brace matching, so the hoisted-bool refactor is not a false alarm); the
+# rule id joins the emission site to the rule corpus; the interior-mutability
+# ROOT population is derived over ALL of stdlib and held both ways, together with
+# the transitive layer and the axis joint into the IR snapshot; the const->mut
+# laundering census matches the ledger in both directions; and every delimited
+# `@claim … @endclaim` block is hashed against shared_ref_ub_claims.ledger.
+#
+# ⚠ THE THREE DEFECTS THAT MOTIVATED THE REWRITE WERE EACH REPRODUCED FIRST:
+# pasting the false DEFERRED bullet back over the settled rule exited 0 (the id
+# string was untouched); hoisting the predicate into a named bool exited 1 though
+# it is semantics-identical; and stripping UnsafeCell out of Mutex/RwLock exited 0
+# because the census read one hardcoded file. Twelve self-canaries now run every
+# fact through the same readers on planted input — including one that must NOT
+# fire on a commented-out emission, because mlir_gen_fn.cpp quotes the old wrong
 # wording verbatim and the lint has to survive its own documentation.
 add_test(
     NAME logos_00_shared_ref_ub_lint
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh
             ${CMAKE_SOURCE_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub.ledger
+            ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_claims.ledger
 )
 set_tests_properties(logos_00_shared_ref_ub_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint"
+)
+
+# ── THE FREEZE LATTICE'S AXIS POPULATION IS DERIVED FROM THE PREDICATE ───────
+# `type_is_freeze` makes SEVENTEEN separate verdicts and its IR gate pinned FIVE
+# axes. MEASURED, not supposed: replace the element recursion in the TUPLE arm
+# with `return true` and `&(Cell<i64>, i64)` moves to `noalias readonly` — a real
+# noalias on an interior-mutable pointee — with all five axes green and L2 at
+# 1881/1881. Writing a longer list of axes would have been the same defect again,
+# so this gate derives both populations from the artifacts: the Kind enumerators
+# from sema.hpp (50 = 40 named + 10 defaulted, held as arithmetic) and the verdict
+# sites from the predicate's own body, each of which must name an `; AXIS` marker
+# in the lattice .check or be recorded NO-AXIS with a stated reason. It carries
+# five self-canaries through the same readers.
+add_test(
+    NAME logos_00_freeze_arm_coverage
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/freeze_arm_coverage.py
+            ${CMAKE_SOURCE_DIR}
+            --ledger ${CMAKE_CURRENT_SOURCE_DIR}/freeze_arms.ledger
+            --check  ${CMAKE_CURRENT_SOURCE_DIR}/ir/param_attrs_freeze_lattice.check
+)
+set_tests_properties(logos_00_freeze_arm_coverage PROPERTIES
     TIMEOUT 60
     LABELS  "logos;lint;suite_lint"
 )
@@ -1067,10 +1100,56 @@ endforeach()
 # .check spec. Goal: catch monomorphization / codegen regressions on hot
 # paths without needing full golden IR diffs.
 
-find_program(FILECHECK_BIN
-    NAMES FileCheck FileCheck-19 FileCheck-18
-    PATHS /usr/lib/llvm-19/bin /usr/lib/llvm-18/bin
-    DOC "LLVM FileCheck for IR snapshot tests")
+# ⚠ THE FIFTH WAY A GATE LIES: A WHOLE SUITE THAT VANISHES AND READS AS GREEN.
+# This block used to search `NAMES FileCheck FileCheck-19 FileCheck-18` under
+# `PATHS /usr/lib/llvm-19/bin /usr/lib/llvm-18/bin` and, finding nothing, print
+# `message(STATUS "skipping IR snapshot suite")`. On any box off those two series
+# ELEVEN tests silently stopped existing — and nothing pins the total, since
+# ctest-summary.sh requires only that a pass/fail SUMMARY LINE exist, never an
+# absolute count. A suite short eleven tests reported green. Worse, on THIS box
+# the block was live but WRONG-VERSIONED: it resolved llvm-19's FileCheck while
+# the compiler was built against LLVM 20.
+#
+# TWO CHANGES, and the second is the one that matters:
+#   1. DERIVE THE TOOL FROM THE TOOLCHAIN ACTUALLY SELECTED. LOGOS_LLVM_MAJOR is
+#      already computed at the top level (either from the stock-series pick or
+#      from the Debian-layout LOGOS_LLVM_DIR), so the search follows the compiler
+#      instead of a hand-maintained pair of series numbers. Adding a name to a
+#      list is what this repo keeps learning not to do.
+#   2. ABSENCE IS RED. If FileCheck cannot be found, the suite does not shrink —
+#      it registers logos_07_ir_snapshot_UNAVAILABLE, which fails. A box that
+#      cannot run eleven tests must SAY it could not run them.
+#      ⚠ THIS IS A DELIBERATE BEHAVIOUR CHANGE for a box that legitimately has no
+#      FileCheck (a bare packaging box): it used to get a silent skip and now gets
+#      a failing test. Set LOGOS_ALLOW_NO_FILECHECK=ON to opt out — that turns the
+#      absence into a recorded, deliberate decision instead of a quiet one, which
+#      is the whole distinction being drawn here.
+#
+# A NEW cache variable name is used on purpose: FILECHECK_BIN is already cached
+# as an llvm-19 path in every existing build tree, and find_program does not
+# re-search a cached hit — the stale entry would outlive the fix.
+unset(FILECHECK_BIN CACHE)   # evict the old, possibly wrong-series, cached hit
+find_program(LOGOS_FILECHECK_BIN
+    NAMES FileCheck-${LOGOS_LLVM_MAJOR} FileCheck
+    HINTS ${LOGOS_LLVM_DIR}/../../../bin
+          /usr/lib/llvm-${LOGOS_LLVM_MAJOR}/bin
+    DOC "LLVM FileCheck for IR snapshot tests (must match LOGOS_LLVM_MAJOR)")
+set(FILECHECK_BIN "${LOGOS_FILECHECK_BIN}")
+
+# The version is CHECKED, not assumed: a FileCheck picked up off PATH from
+# another series is exactly the state this box was in.
+if (FILECHECK_BIN)
+    execute_process(COMMAND ${FILECHECK_BIN} --version
+                    OUTPUT_VARIABLE _fc_ver ERROR_QUIET
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if (NOT _fc_ver MATCHES "version ${LOGOS_LLVM_MAJOR}\\.")
+        message(WARNING
+            "logos tests: ${FILECHECK_BIN} does not report LLVM ${LOGOS_LLVM_MAJOR} "
+            "(got: ${_fc_ver}). The IR snapshot suite will run under a different "
+            "series than the compiler was built against; treat an IR failure as a "
+            "toolchain suspect before a codegen suspect.")
+    endif()
+endif()
 
 if (FILECHECK_BIN)
     set(IR_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/ir/run_ir_snapshot.sh)
@@ -1100,8 +1179,33 @@ if (FILECHECK_BIN)
             ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
         )
     endforeach()
+elseif (LOGOS_ALLOW_NO_FILECHECK)
+    message(WARNING
+        "logos tests: FileCheck not found and LOGOS_ALLOW_NO_FILECHECK=ON — the IR "
+        "snapshot suite is DELIBERATELY absent from this build. The suite total is "
+        "smaller than a full box's by the number of tests/logos/ir/*.check files; "
+        "do not read a green run here as covering codegen.")
 else()
-    message(STATUS "logos tests: FileCheck not found — skipping IR snapshot suite")
+    # The suite does not shrink; it says it could not run. `cmake -E false` exits
+    # 1 unconditionally, so this is a plain red test with an explanation attached.
+    file(GLOB _ir_missing CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ir/*.check)
+    list(LENGTH _ir_missing _ir_missing_n)
+    add_test(
+        NAME logos_07_ir_snapshot_UNAVAILABLE
+        COMMAND ${CMAKE_COMMAND} -E env
+                LOGOS_IR_TESTS_MISSING=${_ir_missing_n}
+                ${CMAKE_COMMAND} -E false
+    )
+    set_tests_properties(logos_07_ir_snapshot_UNAVAILABLE PROPERTIES
+        TIMEOUT 30
+        LABELS  "logos;ir_snapshot;suite_ir"
+    )
+    message(WARNING
+        "logos tests: no FileCheck for LLVM ${LOGOS_LLVM_MAJOR} — ${_ir_missing_n} IR "
+        "snapshot tests CANNOT RUN. Registering logos_07_ir_snapshot_UNAVAILABLE as a "
+        "failing test rather than shrinking the suite: a gate that disappears reads as "
+        "a pass, and nothing else pins the suite total. Install FileCheck, or pass "
+        "-DLOGOS_ALLOW_NO_FILECHECK=ON to record the absence as deliberate.")
 endif()
 
 # ── Spec conformance tests ────────────────────────────────────────────────────

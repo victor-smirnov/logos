@@ -1,11 +1,18 @@
-; FileCheck spec for param_attrs_freeze_lattice.logos — the five axes of the
-; Freeze lattice plus the unresolved-residue path.
+; FileCheck spec for param_attrs_freeze_lattice.logos — the axes of the Freeze
+; lattice plus the unresolved-residue path.
 ;
 ; EACH PARAMETER LIST IS PINNED LITERALLY AND EXACTLY, in the same idiom as
 ; param_attrs_freeze.check: the `{{[^(]*}}` wildcards around the symbol name
 ; cannot cross a `(`, so they can never absorb an attribute. Every line is
 ; therefore two-directional — an attribute appearing where it must not, and one
 ; vanishing where it must be, break the match equally.
+;
+; ⚠ THE `; AXIS <id>` MARKERS ARE MACHINE-READ. tests/logos/freeze_arm_coverage.py
+; derives the VERDICT SITES of `type_is_freeze` from the C++ and requires every
+; one of them to name an axis that has a marker here; and every marker here to be
+; claimed by a site (or by the EXTRA_AXES section of the ledger). Renaming a
+; marker, deleting a CHECK line under one, or adding an arm to the predicate with
+; no axis is red by arithmetic, not by anybody remembering to update a list.
 ;
 ; LAYOUTS, HAND-DERIVED (all confirmed against the emitted IR afterwards):
 ;   [Cell<i64>; 4] / [i64; 4]  = 32/8   (Cell<i64> is transparent over
@@ -15,16 +22,27 @@
 ;   Box2<i64> / Box2<Cell<i64>>  = 8/8
 ;   Option<i64> / Option<Cell<i64>> = 16/8 (i32 tag padded to the payload's
 ;                                        align 8, plus the 8-byte payload)
+;   (Cell<i64>, i64) / (i64, i64) = 16/8
+;   ((Cell<i64>, i64), i64)       = 24/8
+;   TupField / TupFieldPlain      = 16/8
+;   CLike                         = 4/4  (bare i32 discriminant)
+;   SelfCell / SelfPlain          = 16/8 (ptr + 8-byte field)
+;   i64                           = 8/8
+;   UnsafeCell<i64>               = 8/8
+;   AnyVal{raw: i64}              = 4/4  — the is_anyval short-circuit lowers it
+;                                         as an i32; 8/8 by every other route
 
 ; ── AXIS 1: ARRAY ELEMENT RECURSION ────────────────────────────────────────
 ; The two pointees have the IDENTICAL 32/8 layout and differ only in the
 ; element type, so the aliasing pair moving between these two lines can only
 ; mean the predicate stopped (or started) descending into `[T; N]`.
+; AXIS axis_array
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_array_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(32) %0)
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_array_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(32) %0)
 
 ; ── AXIS 2: DEPTH-2 STRUCT NESTING ─────────────────────────────────────────
 ; One peel is not a fixpoint. The Cell sits two struct levels down.
+; AXIS axis_nested2
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_nested2{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
 
 ; ── AXIS 3: RECURSION STOPS AT AN INDIRECTION ──────────────────────────────
@@ -33,6 +51,7 @@
 ; and it is what keeps Rc/Arc — whose refcount lives behind a pointer they LOAD
 ; — optimizable. If this line ever loses the pair, the exception clause of the
 ; rule has collapsed and Rc::clone's soundness argument goes with it.
+; AXIS axis_ptr_field
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_ptr_field{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
 
 ; ── AXIS 4: PER-INSTANCE, NOT PER-DEFINITION ───────────────────────────────
@@ -47,24 +66,97 @@
 ; QUOTE-WRAPPED in the IR (`@"…__i64"(ptr …)`), so the parameter list does not
 ; follow the name directly. The wildcard still cannot cross a `(`, so it absorbs
 ; the closing quote and nothing else — the parameter list stays pinned exactly.
+; AXIS axis_generic
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_generic{{[^(]*}}Box2{{[^(]*}}T__i64{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_generic{{[^(]*}}Box2{{[^(]*}}T__Cell{{[^(]*}}i64{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
 
 ; ── AXIS 5: TWO ENUM INSTANCES COEXISTING ──────────────────────────────────
 ; Both are `Option`, both 16/8; the answer must be keyed on the instance, not
 ; cached on the enum name.
+; AXIS axis_opt_plain
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+; AXIS axis_opt_cell
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+
+; ── AXIS 6: TUPLE ELEMENT RECURSION ────────────────────────────────────────
+; THE MEASURED ONE. Replace the element loop with `case K::Tuple: return true;`
+; and axis_tuple_cell moves from `ptr noundef align 8` to `ptr noalias noundef
+; readonly align 8` — a noalias+readonly on a pointee holding a Cell — while the
+; five axes above and L2 (1881/1881) stay green. The control has the IDENTICAL
+; 16/8 layout, so nothing but the element type can be blamed.
+; AXIS axis_tuple_cell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_tuple_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_tuple_plain
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_tuple_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+
+; ── AXIS 7: THE TUPLE RECURSION IS A FIXPOINT ──────────────────────────────
+; A tuple inside a tuple: 24/8, and the Cell is two tuple levels down.
+; AXIS axis_tuple_nested
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_tuple_nested{{[^(]*}}(ptr noundef align 8 dereferenceable(24) %0)
+
+; ── AXIS 8: STRUCT → TUPLE, THE OTHER EDGE ─────────────────────────────────
+; Tuple-of-struct is axis 6; this is struct-of-tuple. The struct arm must
+; descend into a tuple-typed FIELD, which is a different call edge.
+; AXIS axis_tuple_field
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_tuple_field{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_tuple_field_plain
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_tuple_field_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+
+; ── AXIS 9: THE C-LIKE ENUM FALLBACK ───────────────────────────────────────
+; `resolve_tagged_enum` returns null for a payload-free enum (register_tagged_enum
+; runs only under `ed.has_payload()`), and the arm answers `true` on that resolve
+; FAILURE — the one non-conservative answer in a predicate whose stated discipline
+; is conservative-in-the-safe-direction. The 4/4 here is the load-bearing part: it
+; says the pointee really is the bare discriminant scalar the arm assumes, so
+; there is no payload for a cell to hide in.
+; AXIS axis_clike
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_clike{{[^(]*}}(ptr noalias noundef readonly align 4 dereferenceable(4) %0)
+
+; ── AXIS 10: A SELF-REFERENTIAL STRUCT ─────────────────────────────────────
+; Identical 16/8 layouts; only the second field's type moves. Note what this
+; does NOT pin: the `seen` cycle branch. A Logos struct cannot contain itself by
+; value, so every self-reference goes through an indirection and the indirection
+; arm returns before `seen` is consulted. The ledger records that branch as
+; UNPINNABLE rather than crediting it to these two lines.
+; AXIS axis_selfref_cell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_selfref_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_selfref_plain
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_selfref_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+
+; ── AXIS 11: A BARE SCALAR POINTEE ─────────────────────────────────────────
+; The scalar arm is the control for every other axis and was pinned by nothing
+; of its own.
+; AXIS axis_scalar
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_scalar{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
+
+; ── AXIS 12: THE UnsafeCell LANG ITEM, DIRECTLY ────────────────────────────
+; Every other axis reaches this arm by field recursion. Here the pointee IS the
+; lang item, so the pkg-qualified-name arm is what answers. If that arm ever
+; loses its `pkg_name() == "logos.lang.cell"` guard — or gains a wrong one — this
+; line moves and nothing else in the file does.
+; AXIS axis_unsafecell_item
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_unsafecell_item{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+
+; ── AXIS 13: THE `is_anyval` SHORT-CIRCUIT ─────────────────────────────────
+; `is_anyval` matches any struct NAMED AnyVal in any package and lowers it as an
+; i32, so `{ raw: i64 }` is 4/4 here and 8/8 by every other route — that is what
+; makes this line evidence the pre-switch arm fired at all.
+; ⚠ It pins the ANSWER, not the arm's existence: delete the arm and the Struct
+; arm answers Freeze for `{ raw: i64 }` too. Stated in the ledger, not implied.
+; AXIS axis_anyval
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_anyval{{[^(]*}}(ptr noalias noundef readonly align 4 dereferenceable(4) %0)
 
 ; ── RESIDUE: CONSERVATIVE ON AN UNRESOLVABLE POINTEE ────────────────────────
 ; `Id::call`'s second parameter is the HRTB binder's `&'a T` — a bare TypeVar,
 ; no instance of which exists. `align`/`dereferenceable` are a LAYOUT CLAIM and
 ; must be OMITTED rather than guessed (a declined `layout_of` used to return
 ; `{8,8}`, and that guess was written into the object file). `noalias`/
-; `readonly` are absent too, because nothing is known about the pointee.
+; `readonly` are absent too, because nothing is known about the pointee — this
+; is the `default:` arm of the predicate, the conservative-on-unknown one.
 ;
 ; ⚠ THIS LINE IS THE STRICTEST IN THE FILE AND MUST STAY THAT WAY. It pins the
 ; WHOLE parameter list including the leading by-value `self`, so an `align` or
 ; `dereferenceable` reappearing on a residue param — the exact regression that
 ; wrote a guessed alignment into an object file — cannot hide behind a wildcard.
+; AXIS axis_residue
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}Id__call{{[^(]*}}(ptr %0, ptr noundef %1)

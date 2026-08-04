@@ -33,6 +33,14 @@
 # Set LOGOS_NO_EXHAUSTIVE=1 to skip it — for BISECTING a corpus failure, not for
 # making a commit green.
 #
+# THE GATES: the same blindness, one layer over. The samplers enumerate .logos
+# files under tests/{imported,logos}/{pass,fail}; the lints are not .logos and
+# tests/logos/ir/ is not one of those directories, so logos_00_* and
+# logos_07_ir_snapshot_* were unreachable from every level — including the whole
+# argument for noalias+readonly on a shared &T. They are now named explicitly at
+# L1-L3, ahead of the sampled corpus, at a measured cost of ~10-13 s. Set
+# LOGOS_NO_GATES=1 to skip, under the same caveat as above.
+#
 # Examples:
 #   bash ../tests/logos/test-levels.sh L0 nested-by-ref-b167
 #   bash ../tests/logos/test-levels.sh L1            # default variant 1, core only
@@ -114,6 +122,49 @@ if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
     # the flag and 8 with it.
     if ! ctest --no-tests=error --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
         EXH_FAIL=1
+    fi
+fi
+
+# ── THE GATES TIER — every level L1-L3, ahead of the sampled corpus ─────────
+# SAME REASON AS THE ENUMERATOR ABOVE, and the same shape of blindness. The
+# samplers below enumerate `.logos` files under tests/imported/{pass,fail}/*/ and
+# tests/logos/{pass,fail}/, then select by an anchored `-R _(name…)$`. NOTHING
+# ELSE CAN EVER BE SELECTED — not tests/logos/ir/*.logos (wrong directory), not
+# the lint scripts (not .logos at all). They carry ctest LABELS ("logos;lint",
+# "logos;ir_snapshot;suite_ir") but this script never reads labels, so labelling
+# alone could not pull them in either.
+#
+# The consequence was concrete: the whole argument for `noalias`+`readonly` on a
+# shared `&T` — the lint that holds its claims and censuses, and the IR snapshots
+# that pin the emission — sat OFF the per-commit path, alongside the sibling
+# separator-split lint. A tier that runs the corpus but not the gates is a tier
+# that cannot see a soundness ruling being edited.
+#
+# WHAT IS PULLED IN: all of logos_00_* (the whole gate family — running three of
+# them per commit would be the same defect one level up) and all of
+# logos_07_ir_snapshot_*. 21 tests today: 9 + 12.
+#
+# THE ACCEPTED COST, MEASURED HERE RATHER THAN ESTIMATED: 9.0 s of ctest wall,
+# three consecutive runs at 8.98 / 9.01 / 9.00 s (-j12, 32-core box at load ~6).
+# ⚠ THE SAME COMMAND MEASURED 21.1 s ON THE SAME TREE at load ~50 with a sibling
+# worktree running its own suite — so this number is a property of an idle box,
+# and a slow gates tier is evidence about the machine before it is evidence about
+# the gates. The tier is dominated by logos_00_mlir_gen_bug_ledger (8.7 s) and
+# logos_00_sep_symbol_shape (6.3 s), which run in parallel with everything else;
+# the two freeze snapshots this arc added cost 5.5 s and 3.0 s and overlap them.
+# Against the ~65 s L2 quoted at HEAD that is roughly +14%, paid on every commit,
+# to put the soundness argument for noalias+readonly on the per-commit path.
+#
+# ⚠ `--no-tests=error`. `ctest -R` that matches NOTHING exits 0, so a renamed
+# gate family would make this block print nothing and pass — the exact failure
+# the enumerator block above already documents. Its failure is the level's
+# failure, like EXH_FAIL.
+GATE_FAIL=0
+if [ "${LOGOS_NO_GATES:-0}" != "1" ]; then
+    echo "[test-levels] gates — logos_00_* and logos_07_ir_snapshot_*"
+    if ! ctest --no-tests=error -j12 --output-on-failure \
+               -R '^logos_00_|^logos_07_ir_snapshot_'; then
+        GATE_FAIL=1
     fi
 fi
 
@@ -253,8 +304,9 @@ if [ "$tot_run" -lt "$COUNT" ]; then
     echo "  in no suite. This level cannot report on tests it never observed."
     had_fail=1
 fi
-[ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && echo "(none)"
+[ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && [ "$GATE_FAIL" -eq 0 ] && echo "(none)"
 [ "$EXH_FAIL" -ne 0 ] && echo "logos_26_exhaustive_smoke ***Failed (see above)"
+[ "$GATE_FAIL" -ne 0 ] && echo "the gates tier (logos_00_* / logos_07_ir_snapshot_*) ***Failed (see above)"
 echo
 echo "=== Pass/fail ==="
 echo "$(( tot_run - tot_fail ))/$tot_run tests passed, $tot_fail failed  (level $LEVEL.$VARIANT)"
@@ -268,6 +320,15 @@ elif [ "$EXH_FAIL" -ne 0 ]; then
 else
     echo "PLUS: the enumerator's smoke tier passed (12 684 generated cases)"
 fi
+# The gates are counted separately for the same reason as the enumerator: they
+# are not among the $tot_run, and folding them in would misreport both.
+if [ "${LOGOS_NO_GATES:-0}" = "1" ]; then
+    echo "PLUS: the gates tier was SKIPPED (LOGOS_NO_GATES=1)"
+elif [ "$GATE_FAIL" -ne 0 ]; then
+    echo "PLUS: the gates tier FAILED (logos_00_* / logos_07_ir_snapshot_*)"
+else
+    echo "PLUS: the gates tier passed (logos_00_* / logos_07_ir_snapshot_*)"
+fi
 # ⚠ `had_fail` IS PART OF THE EXIT STATUS. It used to be equivalent to
 # `tot_fail > 0` — the only thing that set it — and the two checks above set it
 # for failures that produce NO failed-test count at all: a chunk that reported no
@@ -275,4 +336,4 @@ fi
 # does not know. Both print `***Failed` and both would have left `tot_fail` at 0,
 # so the script would have printed the failure and exited 0. A message on stdout
 # is not a verdict; the exit code is.
-[ "$tot_fail" -eq 0 ] && [ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ]
+[ "$tot_fail" -eq 0 ] && [ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && [ "$GATE_FAIL" -eq 0 ]

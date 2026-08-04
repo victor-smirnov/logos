@@ -1,0 +1,59 @@
+# THE CLAIM LEDGER — the load-bearing sentences of the shared-&T ruling, hashed.
+#
+# WHY A HASH AND NOT A GREP. The old lint checked that the STRING
+# `type.shared-ref.write-through-derived-ub` appeared in src/compiler/mlir_gen_fn.cpp.
+# MEASURED: replace the 105-line settled-rule comment with the false DEFERRED
+# bullet it was written to correct — "unsound until we can prove T has no interior
+# mutability (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our
+# stdlib)" — leave the rule-id string alone, and the lint exits 0. It fires only
+# when the id is ALSO stripped, i.e. it checks a label, not a claim.
+#
+# WHY NARROW BLOCKS AND NOT THE WHOLE FILE. Hashing the whole comment makes every
+# honest edit a re-bless, and a gate that fires on honest edits is a gate someone
+# deletes — the same defect one level up. So only the CLAIM SENTENCES are
+# delimited in the source with `@claim <id>` … `@endclaim`. Everything outside a
+# block — cross-references, measurement notes, the reasons a thing is written
+# down — stays free to improve without touching this file.
+#
+# WHAT A MISMATCH MEANS. Not "you did something wrong": a claim's wording may
+# well need improving. It means NO READER CAN TELL A REWORDING FROM A REVERSAL,
+# so the change has to be stated. Re-hash, put the new value here, and say in the
+# commit message which claim moved and why. That is the entire cost, and it is
+# paid once per claim edit rather than once per comment edit.
+#
+# HASH: sha256 of the block body with `//` markers stripped and all whitespace
+# runs collapsed to one space, first 16 hex digits. Re-wrapping a paragraph to a
+# different column is therefore FREE; changing a word is not.
+#
+# Regenerate a value with:
+#   python3 tests/logos/shared_ref_ub_readers.py claims src/compiler/mlir_gen_fn.cpp
+#
+# FORMAT: `<claim id>\t<sha256-16>`
+#
+# ── WHAT EACH CLAIM CARRIES ──────────────────────────────────────────────────
+# guard.freeze-gated              the attribute is gated on type_is_freeze, and
+#                                 the predicate is conservative on unknowns.
+#                                 THE CLAUSE THE DEFERRED BULLET GOT WRONG.
+# history.deferred-bullet-was-false  the record of that wrong answer, kept so it
+#                                 cannot be pasted back as a fresh caveat.
+# rule.unsafecell-is-not-a-writer the attribute does NOT rest on "nobody can make
+#                                 such a pointer" — the cast is legal on every
+#                                 type and ships as a stdlib API.
+# rule.derived-write-ub           the rule itself, with its exception.
+# rule.loaded-pointer-exception   why the exception is not optional: without it
+#                                 the rule condemns Rc/Arc::clone.
+# rule.rustc-parity-not-divergence  it belongs in the SPEC, not DIVERGENCES.md.
+# exposure.confined-to-unsafe     no SAFE program can reach the rule (measured).
+# exposure.no-stdlib-instance     the hand audit of the laundering sites, stated
+#                                 as evidence rather than as proof of absence.
+# status.write-detection-unenforced  nothing detects the prohibited shape in user
+#                                 code. Stated so the rule is not read as a check.
+exposure.confined-to-unsafe	d060c27b43734cb9
+exposure.no-stdlib-instance	8749498221e0b1ea
+guard.freeze-gated	a7869c0710d500bb
+history.deferred-bullet-was-false	4cfc2275410c4858
+rule.derived-write-ub	e82f52fbdf310339
+rule.loaded-pointer-exception	851fcb9130810790
+rule.rustc-parity-not-divergence	d797bcdcf15304c9
+rule.unsafecell-is-not-a-writer	eb5e4ad70f26956e
+status.write-detection-unenforced	8f5a7d74849d5531

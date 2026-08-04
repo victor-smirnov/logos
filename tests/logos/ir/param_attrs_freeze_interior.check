@@ -1,0 +1,70 @@
+; FileCheck spec for param_attrs_freeze_interior.logos — the interior-mutability
+; POPULATION, asked of the compiler.
+;
+; EVERY LINE HERE MUST SHOW THE ABSENCE OF `noalias` AND `readonly`. Each is
+; pinned as a literal, whole parameter list in the param_attrs_freeze idiom: the
+; `{{[^(]*}}` wildcards cannot cross a `(`, so an attribute appearing where it
+; must not is exactly as red as one vanishing where it must be. That two-
+; directionality is the whole point — the failure mode being guarded against is
+; an attribute APPEARING.
+;
+; ⚠ `; AXIS <id>` markers are machine-read: tests/logos/shared_ref_ub_lint.sh
+; requires every ledger row that claims an axis to have one here, and every
+; marker here to be claimed by a ledger row. A ledger row cannot quietly stop
+; being checked against the artifact.
+;
+; LAYOUTS, HAND-DERIVED (all confirmed against the emitted IR afterwards):
+;   Cell<i64>        {UnsafeCell<i64>}                            =  8/8
+;   RefCell<i64>     {UnsafeCell<i32>, UnsafeCell<i64>}           = 16/8
+;                    (4 + 4 pad + 8; align 8 from the i64)
+;   OnceCell<i64>    {UnsafeCell<i64>, UnsafeCell<bool>}          = 16/8
+;                    (8 + 1, tail-padded to align 8)
+;   UnsafeCell<i64>  #[repr(transparent)] over i64                =  8/8
+;   LazyCell<i64>    {OnceCell<i64>, fn() -> i64}                 = 24/8
+;   AtomicI64        {UnsafeCell<i64>}                            =  8/8
+;   Writ             {UnsafeCell<Allocator>, UnsafeCell<i64>}     = 32/8
+;                    (Allocator = {*mut Segment, *mut Segment, i64} = 24/8)
+;   Mutex<i64>       {UnsafeCell<i64>, *mut u8}                   = 16/8
+;   RwLock<i64>      {UnsafeCell<i64>, *mut u8}                   = 16/8
+
+; ── THE CELL FAMILY ────────────────────────────────────────────────────────
+; AXIS axis_cell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+; AXIS axis_refcell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_refcell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_oncecell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_oncecell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_unsafecell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_unsafecell{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+
+; ── THE TRANSITIVE LAYER ───────────────────────────────────────────────────
+; LazyCell has NO UnsafeCell of its own. It is non-Freeze only because the
+; recursion descends into its OnceCell field. This line is the one that catches
+; a field recursion that stops one level too early — which is the same failure
+; shape as the tuple arm that was MEASURED to hand out a wrong noalias.
+; AXIS axis_lazycell
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_lazycell{{[^(]*}}(ptr noundef align 8 dereferenceable(24) %0)
+
+; ── ONE REPRESENTATIVE ATOMIC ──────────────────────────────────────────────
+; The clause that silently went false last time was about the atomics; the other
+; eleven are ledger rows, deliberately marked `-` rather than assumed covered.
+; AXIS axis_atomic_i64
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_atomic_i64{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+
+; ── THE NAMED LOAD-BEARING TYPES ───────────────────────────────────────────
+; `Writ` is the live one: 367 `&Writ`/`&mut Writ` parameter occurrences in
+; stdlib, every one of which would be told to LLVM as never-written if the arena
+; and root ever lost their UnsafeCell wrappers.
+; AXIS axis_writ
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_writ{{[^(]*}}(ptr noundef align 8 dereferenceable(32) %0)
+;
+; Mutex and RwLock have NO `&T` call site in the tree today — every method takes
+; `self: *mut Mutex<T>`. These two lines are the standing gate for the day one
+; appears. Note the layouts: stripping `UnsafeCell` off `data` leaves
+; `{ i64, *mut u8 }`, still 16/8, so the SIZE does not move and only the aliasing
+; pair does — a clean one-variable axis for exactly the edit that was measured to
+; leave the old census exiting 0.
+; AXIS axis_mutex
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_mutex{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; AXIS axis_rwlock
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_rwlock{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)

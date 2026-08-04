@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shared_ref_ub_lint.sh REPO_ROOT LEDGER
+# shared_ref_ub_lint.sh REPO_ROOT LEDGER CLAIMS_LEDGER
 #
 # THE RULING THAT LICENSES `noalias`+`readonly` ON A SHARED `&T` IS PROSE, AND
 # PROSE THAT IS NOT MECHANIZED GETS RE-WRITTEN.
@@ -14,52 +14,75 @@
 # "DEFERRED … unsound until we can prove T has no interior mutability
 # (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our stdlib)".
 # Every clause of it was false by the next commit, and every gate stayed green
-# for months while it sat there reading like a considered caveat. Re-writing it
-# back to that costs nothing today unless something checks.
+# for months while it sat there reading like a considered caveat.
+#
+# ── WHAT THE PREVIOUS VERSION OF THIS FILE GOT WRONG ────────────────────────
+# Commissioned against exactly that regression and blind to it. All three
+# defects were REPRODUCED before being fixed, and each is now a canary:
+#
+#   1. FALSE NEGATIVE ON THE CLAIM. Pasting the false DEFERRED bullet back over
+#      the whole 105-line settled-rule comment, leaving the rule-id string
+#      alone, exited 0. It checked a LABEL, not a claim. → FACT 5.
+#   2. FALSE POSITIVE ON THE GUARD. Hoisting the predicate into a named bool —
+#      `const bool pointee_is_freeze = type_is_freeze(…); if (pointee_is_freeze)`,
+#      semantics-identical — exited 1, because the reader matched the literal
+#      text `if (type_is_freeze(` on a whitespace-flattened file. A lint that
+#      cries wolf on an honest refactor gets disabled, which is the same defect
+#      one level up. → FACT 1, now brace-matching containment.
+#   3. THE CENSUS WAS ONE FILE. It read stdlib/lang/atomic/atomic.logos and
+#      printed "12 interior-mutability primitives, all UnsafeCell-wrapped",
+#      which reads as a total. It is 19. Stripping UnsafeCell out of Mutex<T>
+#      and RwLock<T> made both Freeze — every `&Mutex<T>` in the tree would earn
+#      noalias+readonly — and this lint exited 0. → FACT 3, now derived over all
+#      of stdlib.
 #
 # ── WHAT THIS LINT ASSERTS: CLAIMS, NOT WORDING ──────────────────────────────
-# A lint that greps for sentences is a spell-checker, and it goes red on every
-# honest edit until someone deletes it. So this one checks four MECHANICAL
-# facts, each of which has been false-by-drift or could silently become so:
-#
 #   FACT 1  THE GUARD. `llvm.readonly` is written in exactly ONE place in the
-#           whole compiler, and that write sits INSIDE an `if (type_is_freeze(
-#           …))` block. This is precisely the clause the DEFERRED comment got
-#           wrong — it claimed there was no predicate — so it is checked
-#           against the CODE, not against the comment describing the code.
+#           whole compiler, and that write is CONTAINED IN a block whose
+#           condition implies `type_is_freeze(…)`. Containment is computed by
+#           brace matching, and a condition that is a single local bool is
+#           resolved through its (unique) assignment — so the hoisted form reads
+#           as guarded, while `||`, negation and reassignment do not.
 #
 #   FACT 2  THE RULE ID IS THE JOINT. `type.shared-ref.write-through-derived-ub`
-#           must appear BOTH at the emission site and in the rule corpus. That
-#           is what stops the code, the comment and the spec from drifting into
-#           three different stories: rename or delete either end and this fails.
+#           must appear BOTH at the emission site and in the rule corpus, so the
+#           code, the comment and the spec cannot drift into three stories.
 #
-#   FACT 3  THE UNSAFECELL DISCIPLINE. The soundness argument rests entirely on
-#           "every interior-mutability primitive in the tree is UnsafeCell-
-#           wrapped, so type_is_freeze sees it". Every `pub struct Atomic*` must
-#           actually contain an UnsafeCell, and the count is held against the
-#           ledger in BOTH directions. THIS IS THE CLAUSE THAT SILENTLY WENT
-#           FALSE LAST TIME ("atomics are NOT UnsafeCell-wrapped in our
-#           stdlib"), which is why it is a census and not a sentence.
+#   FACT 3  THE INTERIOR-MUTABILITY POPULATION, DERIVED. Every declaration in
+#           ALL of stdlib carrying a direct `UnsafeCell` field is censused and
+#           held against the ledger in both directions, plus the TRANSITIVE
+#           layer — types that are non-Freeze only through a root, computed with
+#           the same indirection stop the predicate uses, so Rc/Arc do not
+#           wrongly appear. The population is "every type `type_is_freeze` must
+#           answer false for", and it is derived, not listed.
 #
 #   FACT 4  THE LAUNDERING CENSUS. `&x as *const T as *mut T` is the shape the
 #           rule declares undefined. It is legal, it is used, and each use is
-#           sound for a REASON THAT IS NOT VISIBLE IN THE TEXT (a `&mut self`
-#           receiver, a by-value self, a non-Freeze pointee, a read-only use, or
-#           the loaded-pointer exception). No lint can decide that. What a lint
-#           CAN do is make a new site impossible to add unreviewed: the per-file
-#           census is held against the ledger in both directions, so the number
-#           moves only by someone editing it deliberately.
+#           sound for a REASON THAT IS NOT VISIBLE IN THE TEXT. No lint can
+#           decide that. What a lint CAN do is make a new site impossible to add
+#           unreviewed: the per-file census is held in both directions.
+#
+#   FACT 5  THE CLAIMS. Each `@claim <id>` … `@endclaim` block in the emission
+#           site is hashed and held against shared_ref_ub_claims.ledger. Prose
+#           OUTSIDE a block is free to improve; a claim cannot be reversed,
+#           deleted or reworded silently, because no reader can tell a reversal
+#           from a rewording.
 #
 # ── WHAT THIS LINT DOES NOT COVER, stated so the ledger is not over-read ─────
 #   * It does NOT detect the prohibited shape in USER code. Nothing does; a real
 #     detector has to model the provenance chain, because the loaded-pointer
 #     exception is the common and correct stdlib shape and a syntactic matcher
-#     would fire on every Rc/Arc/Weak method in the tree. That is an open fork,
-#     not an oversight.
+#     would fire on every Rc/Arc/Weak method in the tree. Open fork, not an
+#     oversight — and `status.write-detection-unenforced` says so in the source.
 #   * FACT 2 checks the code and the rule CORPUS. It deliberately does NOT check
 #     docs/spec/*.md: those are generated by a model workflow, the rule has not
 #     been assembled into them yet, and asserting something false would make
 #     this gate a liar on its first run.
+#   * FACT 3's TRANSITIVE section walks struct/enum FIELDS only. It does not
+#     model generics, so `Vec<Cell<i64>>` is not reported as infected by its
+#     element type — correctly, since the element lives behind Vec's pointer,
+#     but the reader gets that right for the wrong reason (it never looks). The
+#     ROOT section is the load-bearing one: everything non-Freeze reaches a root.
 #   * Only `//` comments are stripped. A match inside a /* … */ block counts as
 #     live code — the safe direction (over-count, never under-count).
 #
@@ -70,13 +93,16 @@
 # defect one level up.
 set -u
 
-ROOT=${1:?usage: shared_ref_ub_lint.sh <repo root> <ledger>}
-LEDGER=${2:?usage: shared_ref_ub_lint.sh <repo root> <ledger>}
+ROOT=${1:?usage: shared_ref_ub_lint.sh <repo root> <ledger> <claims ledger>}
+LEDGER=${2:?usage: shared_ref_ub_lint.sh <repo root> <ledger> <claims ledger>}
+CLAIMS_LEDGER=${3:?usage: shared_ref_ub_lint.sh <repo root> <ledger> <claims ledger>}
 
 RULE_ID='type.shared-ref.write-through-derived-ub'
 EMIT_SRC="$ROOT/src/compiler/mlir_gen_fn.cpp"
 CORPUS="$ROOT/tools/spec-extract/rules/codegen/mlir_gen_fn/logos.json"
-ATOMIC_SRC="$ROOT/stdlib/lang/atomic/atomic.logos"
+IR_CHECK="$ROOT/tests/logos/ir/param_attrs_freeze_interior.check"
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+READERS="$SELF_DIR/shared_ref_ub_readers.py"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -85,6 +111,10 @@ fail=0
 note() { echo "FAIL: $*"; fail=1; }
 broken() { echo "GATE BROKEN: $*"; exit 4; }
 
+[ -f "$READERS" ] || broken "the readers module $READERS is missing."
+command -v python3 >/dev/null || broken "python3 is not available; the guard,
+  claim and census readers all need it."
+
 # ── READERS ──────────────────────────────────────────────────────────────────
 # Every one of these is used BOTH on the tree and on a planted canary. They are
 # the only place that reads source, on purpose.
@@ -92,49 +122,15 @@ broken() { echo "GATE BROKEN: $*"; exit 4; }
 strip_comments() { sed 's://.*::' "$1"; }
 
 # FACT 1 reader. Prints one of: OK | NO-SITE | MULTI-SITE | UNGUARDED.
-#
-# ⚠ WHITESPACE-NORMALISED, NOT LINE-BASED. Asserting "the guard is 2 lines
-# above" would go red on a reformat, and a lint that cries wolf on innocent
-# edits gets deleted — which is the failure mode this whole file exists to
-# prevent. The CLAIM is containment, so that is what is measured: the readonly
-# write must occur after an `if (type_is_freeze(` with no closing brace between
-# them, i.e. still inside that block.
-guard_state() {
-    local src="$1" flat n_ro
-    flat=$(strip_comments "$src" | tr '\n' ' ' | tr -s ' ')
-    n_ro=$(printf '%s' "$flat" | grep -o '"llvm\.readonly"' | grep -c .)
-    if [ "$n_ro" -eq 0 ]; then echo NO-SITE; return; fi
-    if [ "$n_ro" -gt 1 ]; then echo MULTI-SITE; return; fi
-    # Text between the LAST `if (type_is_freeze(` and the readonly write.
-    local between
-    between=$(printf '%s' "$flat" \
-        | sed 's/.*if (type_is_freeze(/@@@/' \
-        | sed 's/"llvm\.readonly".*//')
-    case "$between" in
-        @@@*) ;;                       # a guard was found before the write
-        *) echo UNGUARDED; return ;;
-    esac
-    case "$between" in
-        *"}"*) echo UNGUARDED; return ;;  # block closed before the write
-    esac
-    echo OK
-}
+# CONTAINMENT BY BRACE MATCHING, not by matching literal text — see the header.
+guard_state() { python3 "$READERS" guard "$1"; }
 
-# FACT 3 reader. Prints `<StructName> <yes|no>` per `pub struct Atomic*`,
-# sorted — `yes` iff an UnsafeCell appears in that struct's declaration body.
-atomic_census() {
-    local src="$1"
-    strip_comments "$src" | awk '
-        /^pub struct Atomic/ {
-            name = $3; sub(/[<{].*/, "", name);
-            body = $0; depth = gsub(/{/, "{", $0) - gsub(/}/, "}", $0);
-            while (depth > 0 && (getline line) > 0) {
-                body = body line;
-                depth += gsub(/{/, "{", line) - gsub(/}/, "}", line);
-            }
-            print name, (body ~ /UnsafeCell/ ? "yes" : "no");
-        }' | sort
-}
+# FACT 5 reader. `<claim id>\t<sha256-16>` per delimited block, sorted.
+claim_hashes() { python3 "$READERS" claims "$1"; }
+
+# FACT 3 readers. `<repo-relative path>\t<Name>` per declaration, sorted.
+interior_census()   { python3 "$READERS" interior   "$1" "$2"; }
+transitive_census() { python3 "$READERS" transitive "$1" "$2"; }
 
 # FACT 4 reader. Prints `<repo-relative path>\t<count>` for every stdlib file
 # holding at least one const->mut laundering, sorted. Comments stripped, so a
@@ -151,101 +147,215 @@ launder_census() {
     done < <(find "$dir" -name '*.logos' -type f | sort)
 }
 
+# The `; AXIS <id>` markers of an IR .check file, sorted — the joint between a
+# ledger row and the EMITTED ARTIFACT.
+check_axes() { sed -nE 's/^[[:space:]]*;[[:space:]]*AXIS[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' "$1" | sort; }
+
 # ── SELF-CANARIES: the instrument, on inputs whose answer is known ───────────
 # These run FIRST. If the readers are dead, this file must report ITSELF broken
 # rather than report the tree clean.
 
 # C1 — the guard reader must SEE a guarded site.
-cat > "$TMPD/c1_ok.cpp" <<'EOF'
-void f() {
-    if (type_is_freeze(pt.pointee())) {
-        f.setArgAttr(arg, "llvm.noalias", unit);
-        f.setArgAttr(arg, "llvm.readonly", unit);
-    }
-}
-EOF
-[ "$(guard_state "$TMPD/c1_ok.cpp")" = OK ] || \
+mkdir -p "$TMPD/c"
+{
+  echo 'void f() {'
+  echo '    if (type_is_freeze(pt.pointee())) {'
+  echo '        f.setArgAttr(arg, "llvm.noalias", unit);'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c1_ok.cpp"
+[ "$(guard_state "$TMPD/c/c1_ok.cpp")" = OK ] || \
     broken "the guard reader cannot recognise a correctly guarded emission.
-  It returned '$(guard_state "$TMPD/c1_ok.cpp")' for a planted site that IS
+  It returned '$(guard_state "$TMPD/c/c1_ok.cpp")' for a planted site that IS
   guarded, so its verdict on the real tree means nothing."
 
 # C2 — and it must FLAG the same site with the guard removed. This is the exact
 # regression the DEFERRED comment described: an emission with no predicate.
-cat > "$TMPD/c2_unguarded.cpp" <<'EOF'
-void f() {
-    {
-        f.setArgAttr(arg, "llvm.noalias", unit);
-        f.setArgAttr(arg, "llvm.readonly", unit);
-    }
-}
-EOF
-[ "$(guard_state "$TMPD/c2_unguarded.cpp")" = UNGUARDED ] || \
+{
+  echo 'void f() {'
+  echo '    {'
+  echo '        f.setArgAttr(arg, "llvm.noalias", unit);'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c2_unguarded.cpp"
+[ "$(guard_state "$TMPD/c/c2_unguarded.cpp")" = UNGUARDED ] || \
     broken "the guard reader did NOT flag an UNGUARDED readonly emission
-  (got '$(guard_state "$TMPD/c2_unguarded.cpp")'). It would pass a compiler that
+  (got '$(guard_state "$TMPD/c/c2_unguarded.cpp")'). It would pass a compiler that
   puts noalias+readonly on every shared &T, which is the unsoundness this
   whole rule exists to exclude."
 
 # C3 — a readonly write that escapes the block must be flagged too, or
 # "containment" is not what is being measured.
-cat > "$TMPD/c3_escaped.cpp" <<'EOF'
-void f() {
-    if (type_is_freeze(pt.pointee())) {
-        f.setArgAttr(arg, "llvm.noalias", unit);
-    }
-    f.setArgAttr(arg, "llvm.readonly", unit);
-}
-EOF
-[ "$(guard_state "$TMPD/c3_escaped.cpp")" = UNGUARDED ] || \
+{
+  echo 'void f() {'
+  echo '    if (type_is_freeze(pt.pointee())) {'
+  echo '        f.setArgAttr(arg, "llvm.noalias", unit);'
+  echo '    }'
+  echo '    f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '}'
+} > "$TMPD/c/c3_escaped.cpp"
+[ "$(guard_state "$TMPD/c/c3_escaped.cpp")" = UNGUARDED ] || \
     broken "the guard reader accepted a readonly write that sits AFTER the
-  guard block closed (got '$(guard_state "$TMPD/c3_escaped.cpp")'). It is
+  guard block closed (got '$(guard_state "$TMPD/c/c3_escaped.cpp")'). It is
   matching proximity, not containment."
 
 # C4 — COMMENTS ARE NOT CODE, and this tree is the reason. mlir_gen_fn.cpp
 # quotes the old DEFERRED wording verbatim in its anti-regression note, so a
 # naive reader fires on the documentation of the defect as though it were the
 # defect. The lint must survive its own subject matter.
-cat > "$TMPD/c4_comment.cpp" <<'EOF'
-void f() {
-    // once we wrote f.setArgAttr(arg, "llvm.readonly", unit); with no guard
-    // at all, and nothing noticed.
-    if (type_is_freeze(pt.pointee())) {
-        f.setArgAttr(arg, "llvm.readonly", unit);
-    }
-}
-EOF
-[ "$(guard_state "$TMPD/c4_comment.cpp")" = OK ] || \
+{
+  echo 'void f() {'
+  echo '    // once we wrote f.setArgAttr(arg, "llvm.readonly", unit); with no guard'
+  echo '    // at all, and nothing noticed.'
+  echo '    if (type_is_freeze(pt.pointee())) {'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c4_comment.cpp"
+[ "$(guard_state "$TMPD/c/c4_comment.cpp")" = OK ] || \
     broken "the guard reader counts COMMENTED-OUT emissions as real ones
-  (got '$(guard_state "$TMPD/c4_comment.cpp")'). Every site that explains this
+  (got '$(guard_state "$TMPD/c/c4_comment.cpp")'). Every site that explains this
   class would read as a violation of it."
 
-# C5 — the atomic census must FLAG a primitive that is not UnsafeCell-wrapped.
-# This is the clause that went false silently last time.
-cat > "$TMPD/c5_atomic.logos" <<'EOF'
-pub struct AtomicGood {
-    val: UnsafeCell<i64>,
-}
-
-pub struct AtomicBad {
-    val: i64,
-}
-EOF
-c5=$(atomic_census "$TMPD/c5_atomic.logos")
-[ "$c5" = "$(printf 'AtomicBad no\nAtomicGood yes')" ] || \
-    broken "the UnsafeCell census misread a planted pair. Expected
-  'AtomicBad no' + 'AtomicGood yes', got:
+# C5 — the interior census must FLAG a primitive that is not UnsafeCell-wrapped,
+# ANYWHERE UNDER THE ROOT. This is defect 3 from the header: the old census read
+# one hardcoded file, so a root in another file was invisible. The planted tree
+# puts the unwrapped one in a DIFFERENT directory from the wrapped one.
+mkdir -p "$TMPD/c5/lang/atomic" "$TMPD/c5/lcm/sync"
+{
+  echo 'pub struct AtomicGood {'
+  echo '    val: UnsafeCell<i64>,'
+  echo '}'
+} > "$TMPD/c5/lang/atomic/atomic.logos"
+{
+  echo 'pub struct MutexBad {'
+  echo '    data: T,'
+  echo '    raw: *mut u8,'
+  echo '}'
+  echo 'pub struct MutexGood {'
+  echo '    data: UnsafeCell<T>,'
+  echo '}'
+} > "$TMPD/c5/lcm/sync/sync.logos"
+c5=$(interior_census "$TMPD/c5" "$TMPD")
+c5_want=$(printf 'c5/lang/atomic/atomic.logos\tAtomicGood\nc5/lcm/sync/sync.logos\tMutexGood')
+[ "$c5" = "$c5_want" ] || \
+    broken "the interior-mutability census misread a planted tree. Expected
+  AtomicGood + MutexGood across TWO directories, got:
 $c5
-  It cannot tell a wrapped primitive from an unwrapped one, so its verdict on
-  stdlib/lang/atomic/atomic.logos is not a measurement."
+  Either it cannot tell a wrapped primitive from an unwrapped one, or it is
+  reading one file again — the defect this replaced."
 
 # C6 — the laundering counter must see a real site and must NOT see a commented
 # one, through the same counter used on the tree.
-printf 'fn f() { let p = &x as *const T as *mut T; }\n' > "$TMPD/c6_live.logos"
-[ "$(launder_count_file "$TMPD/c6_live.logos")" = 1 ] || \
+printf 'fn f() { let p = &x as *const T as *mut T; }\n' > "$TMPD/c/c6_live.logos"
+[ "$(launder_count_file "$TMPD/c/c6_live.logos")" = 1 ] || \
     broken "the laundering counter does not see a planted \`as *const T as
   *mut T\`. The census below would read as a pass for any tree."
-printf '// let p = &x as *const T as *mut T;\nfn f() { }\n' > "$TMPD/c6_cmt.logos"
-[ "$(launder_count_file "$TMPD/c6_cmt.logos")" = 0 ] || \
+printf '// let p = &x as *const T as *mut T;\nfn f() { }\n' > "$TMPD/c/c6_cmt.logos"
+[ "$(launder_count_file "$TMPD/c/c6_cmt.logos")" = 0 ] || \
     broken "the laundering counter counts COMMENTS as code."
+
+# C7 — A NEGATED CLAIM MUST MOVE THE HASH. This is the fix for defect 1: the old
+# lint could not see a claim reversed under an unchanged rule id.
+{
+  echo '// @claim x.y'
+  echo '// the pointee is Freeze, so the write is undefined.'
+  echo '// @endclaim'
+} > "$TMPD/c/c7_a.cpp"
+{
+  echo '// @claim x.y'
+  echo '// the pointee is Freeze, so the write is DEFINED.'
+  echo '// @endclaim'
+} > "$TMPD/c/c7_b.cpp"
+if [ "$(claim_hashes "$TMPD/c/c7_a.cpp")" = "$(claim_hashes "$TMPD/c/c7_b.cpp")" ]; then
+    broken "the claim reader gives a NEGATED claim the same hash as the original.
+  Reversing a sentence inside a claim block would be invisible, which is the
+  exact regression FACT 5 exists to catch."
+fi
+
+# C8 — AND A NON-CLAIM EDIT MUST NOT MOVE IT. Prose has to stay free to improve,
+# or the gate gets deleted for crying wolf — the same defect one level up.
+{
+  echo '// a completely different opening paragraph, rewritten today.'
+  echo '// @claim x.y'
+  echo '// the pointee is Freeze, so the write is undefined.'
+  echo '// @endclaim'
+  echo '// and some new trailing commentary nobody hashed.'
+} > "$TMPD/c/c8.cpp"
+[ "$(claim_hashes "$TMPD/c/c8.cpp")" = "$(claim_hashes "$TMPD/c/c7_a.cpp")" ] || \
+    broken "the claim reader hashed prose OUTSIDE the claim block. Every honest
+  comment edit would demand a re-bless, and a gate with that friction is one
+  somebody switches off."
+
+# C9 — re-wrapping a claim to a different column must be free, for the same
+# reason; the hash is over normalised whitespace.
+{
+  echo '// @claim x.y'
+  echo '//     the pointee is Freeze,'
+  echo '//     so the write is undefined.'
+  echo '// @endclaim'
+} > "$TMPD/c/c9.cpp"
+[ "$(claim_hashes "$TMPD/c/c9.cpp")" = "$(claim_hashes "$TMPD/c/c7_a.cpp")" ] || \
+    broken "the claim reader is sensitive to line wrapping. Re-flowing a
+  paragraph would read as a changed claim."
+
+# C10 — THE HOISTED-BOOL FORM MUST READ AS GUARDED. Defect 2, verbatim: this
+# refactor is semantics-identical and the old reader called it UNGUARDED.
+{
+  echo 'void f() {'
+  echo '    const bool pointee_is_freeze = type_is_freeze(pt.pointee());'
+  echo '    if (pointee_is_freeze) {'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c10_hoist.cpp"
+[ "$(guard_state "$TMPD/c/c10_hoist.cpp")" = OK ] || \
+    broken "the guard reader calls the HOISTED-BOOL form unguarded
+  (got '$(guard_state "$TMPD/c/c10_hoist.cpp")'). It is semantics-identical to the
+  inline predicate; a lint that goes red on an honest refactor is one that gets
+  disabled, and then nothing checks the guard at all."
+
+# C11 — but a WEAKENED condition must not. `||` and negation are not
+# containment, and a bool reassigned after its freeze assignment is not either.
+{
+  echo 'void f() {'
+  echo '    if (type_is_freeze(pt.pointee()) || force_it) {'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c11_or.cpp"
+[ "$(guard_state "$TMPD/c/c11_or.cpp")" = UNGUARDED ] || \
+    broken "the guard reader accepted a DISJUNCTION with type_is_freeze
+  (got '$(guard_state "$TMPD/c/c11_or.cpp")'). \`freeze || anything\` is weaker than
+  freeze, so the attribute would be emitted for non-Freeze pointees."
+{
+  echo 'void f() {'
+  echo '    bool ok = type_is_freeze(pt.pointee());'
+  echo '    ok = true;'
+  echo '    if (ok) {'
+  echo '        f.setArgAttr(arg, "llvm.readonly", unit);'
+  echo '    }'
+  echo '}'
+} > "$TMPD/c/c11_reassign.cpp"
+[ "$(guard_state "$TMPD/c/c11_reassign.cpp")" = UNGUARDED ] || \
+    broken "the guard reader resolved a bool that is assigned TWICE
+  (got '$(guard_state "$TMPD/c/c11_reassign.cpp")'). Single assignment is the only
+  case it can reason about; anything else must read as unguarded."
+
+# C12 — a DELETED claim id must be visible as an absence, not as a pass.
+{
+  echo '// @claim x.y'
+  echo '// the pointee is Freeze, so the write is undefined.'
+  echo '// @endclaim'
+  echo '// @claim x.z'
+  echo '// and a second one.'
+  echo '// @endclaim'
+} > "$TMPD/c/c12.cpp"
+[ "$(claim_hashes "$TMPD/c/c12.cpp" | grep -c .)" = 2 ] || \
+    broken "the claim reader does not see two claims in a planted two-claim
+  file. A deleted claim would be indistinguishable from a present one."
 
 # ── FACT 1: the guard ────────────────────────────────────────────────────────
 [ -f "$EMIT_SRC" ] || broken "$EMIT_SRC does not exist."
@@ -262,12 +372,15 @@ case "$gs" in
       $(basename "$EMIT_SRC"). The soundness argument covers exactly one site,
       the Freeze-gated one; a second site is unreviewed by construction." ;;
     UNGUARDED)
-        note "the \`llvm.readonly\` parameter attribute is NOT inside an
-      \`if (type_is_freeze(...))\` block.
+        note "the \`llvm.readonly\` parameter attribute is NOT contained in a
+      block whose condition implies \`type_is_freeze(...)\`.
       This is the original defect verbatim: a shared \`&T\` would be told to
       LLVM as never-written even when its pointee has interior mutability, so
       \`&Cell\`, \`&Mutex\`, \`&RwLock\` and every atomic become miscompilable.
-      Rule $RULE_ID licenses the attribute ONLY for a Freeze pointee." ;;
+      Rule $RULE_ID licenses the attribute ONLY for a Freeze pointee.
+      (If the guard IS there and was refactored: the reader resolves a single
+      local bool through its one assignment, but not a reassigned one, a
+      disjunction or a negation — those are genuinely weaker.)" ;;
     *) broken "guard_state returned an unknown verdict '$gs'." ;;
 esac
 
@@ -287,51 +400,118 @@ else
     note "the rule corpus $CORPUS is missing."
 fi
 
+# ── FACT 5: the claims ───────────────────────────────────────────────────────
+[ -f "$CLAIMS_LEDGER" ] || broken "claims ledger $CLAIMS_LEDGER does not exist."
+got_claims=$(claim_hashes "$EMIT_SRC") || \
+    broken "the claim reader could not parse $(basename "$EMIT_SRC") — see the
+  READER-ERROR above. An unclosed or malformed \`@claim\` block means the gate
+  cannot see the claims at all, which must not read as a pass."
+want_claims=$(grep -vE '^\s*(#|$)' "$CLAIMS_LEDGER")
+if [ "$got_claims" != "$want_claims" ]; then
+    note "the CLAIM blocks in $(basename "$EMIT_SRC") do not match
+      $(basename "$CLAIMS_LEDGER")."
+    echo
+    echo "  A claim is a load-bearing sentence of the ruling, delimited in the"
+    echo "  source with \`@claim <id>\` … \`@endclaim\`. THE HASH MOVING IS NOT AN"
+    echo "  ACCUSATION — the wording may well need improving. It means no reader"
+    echo "  can tell a rewording from a REVERSAL, and the last time this comment"
+    echo "  was only prose the freeze bullet drifted into a wrong answer that read"
+    echo "  like a considered caveat and survived every gate for months."
+    echo "  If the change is deliberate: re-run"
+    echo "    python3 tests/logos/shared_ref_ub_readers.py claims src/compiler/mlir_gen_fn.cpp"
+    echo "  put the new hash here, and say in the commit which claim moved and why."
+    echo "  A claim id that VANISHED is red too — that is the shape of pasting the"
+    echo "  old DEFERRED bullet back over the settled rule."
+    echo
+    diff <(printf '%s\n' "$want_claims") <(printf '%s\n' "$got_claims") \
+        | sed 's/^</  ledger only: /; s/^>/  source only: /' \
+        | grep -E 'ledger only|source only'
+fi
+
 # ── FACT 3 + FACT 4: the censuses, against the ledger, in BOTH directions ────
 [ -f "$LEDGER" ] || broken "ledger $LEDGER does not exist."
 
-got_atomic=$(atomic_census "$ATOMIC_SRC")
+got_interior=$(interior_census "$ROOT/stdlib" "$ROOT")
+got_transitive=$(transitive_census "$ROOT/stdlib" "$ROOT")
 got_launder=$(launder_census "$ROOT/stdlib")
-got=$(printf 'ATOMIC\n%s\nLAUNDER\n%s\n' "$got_atomic" "$got_launder")
-want=$(grep -vE '^\s*(#|$)' "$LEDGER")
+[ -n "$got_interior" ] || broken "the interior census found ZERO roots in
+  $ROOT/stdlib. A tree with no UnsafeCell anywhere is not a tree this rule
+  applies to; far more likely the reader or the path is wrong."
 
-# An interior-mutability primitive that is NOT wrapped is a soundness fact, not
-# a bookkeeping one — it is reported on its own terms even if the ledger were
-# somehow edited to expect it.
-unwrapped=$(printf '%s\n' "$got_atomic" | awk '$2 == "no" { print $1 }')
-if [ -n "$unwrapped" ]; then
-    note "these interior-mutability primitives are NOT UnsafeCell-wrapped:
-$(printf '%s\n' "$unwrapped" | sed 's/^/        /')
-      \`type_is_freeze\` recognises interior mutability ONLY by finding an
-      UnsafeCell in the pointee's inline bytes. A primitive that mutates through
-      \`&self\` without one is classified Freeze, earns noalias+readonly, and is
-      miscompiled at -O1 and above. This is the exact claim the old DEFERRED
-      comment made about our atomics, and it was false then; it must stay false."
-fi
-
-if [ "$got" != "$want" ]; then
-    note "the UnsafeCell / laundering census does not match $(basename "$LEDGER")."
+# The ledger's INTERIOR rows carry a third column: an axis id in
+# tests/logos/ir/param_attrs_freeze_interior.check, or `-`. That is the joint
+# between the SOURCE census and the EMITTED ARTIFACT — a census held only
+# against text is still just a claim about text.
+led_body=$(grep -vE '^\s*(#|$)' "$LEDGER")
+want_interior=$(printf '%s\n' "$led_body" | awk -F'\t' '
+    /^[A-Z]+$/ { sec = $0; print; next }
+    sec == "INTERIOR" || sec == "TRANSITIVE" { print $1 "\t" $2; next }
+    { print }')
+got=$(printf 'INTERIOR\n%s\nTRANSITIVE\n%s\nLAUNDER\n%s\n' \
+      "$got_interior" "$got_transitive" "$got_launder")
+if [ "$got" != "$want_interior" ]; then
+    note "the interior-mutability / laundering census does not match $(basename "$LEDGER")."
     echo
-    echo "  A NEW laundering site is not automatically wrong — the rule permits"
-    echo "  the shape and every existing site is sound for a reason the text does"
-    echo "  not show (a \`&mut self\` receiver, a by-value self, a non-Freeze"
-    echo "  pointee, a read-only use, or the loaded-pointer exception that keeps"
-    echo "  Rc/Arc sound). It is wrong UNREVIEWED. Add the line and say which."
-    echo "  A REMOVED site is red too, so the number can only move deliberately."
+    echo "  SECTION INTERIOR is every declaration in stdlib with a DIRECT UnsafeCell"
+    echo "  field — the population \`type_is_freeze\` detects by construction, since it"
+    echo "  answers non-Freeze only by finding one. A row APPEARING is a new interior-"
+    echo "  mutability primitive that must be reviewed; a row DISAPPEARING is a type"
+    echo "  that just became Freeze, and every \`&T\` to it in the tree just earned"
+    echo "  noalias+readonly. That second direction is the one that was measured to"
+    echo "  slip past silently: strip UnsafeCell from Mutex/RwLock and the old lint"
+    echo "  exited 0."
+    echo "  SECTION TRANSITIVE is types that reach a root only through fields, with"
+    echo "  the same indirection stop the predicate uses (so Rc/Arc are correctly"
+    echo "  absent — their inner lives behind a pointer)."
+    echo "  SECTION LAUNDER: a NEW site is not automatically wrong — the rule permits"
+    echo "  the shape and every existing site is sound for a reason the text does not"
+    echo "  show. It is wrong UNREVIEWED. Add the line and say which."
     echo
-    diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") \
+    diff <(printf '%s\n' "$want_interior") <(printf '%s\n' "$got") \
         | sed 's/^</  ledger only: /; s/^>/  tree only:   /' \
         | grep -E 'ledger only|tree only'
 fi
 
+# ── FACT 3b: every claimed axis exists in the IR check, and vice versa ───────
+if [ -f "$IR_CHECK" ]; then
+    led_axes=$(printf '%s\n' "$led_body" | awk -F'\t' '
+        /^[A-Z]+$/ { sec = $0; next }
+        sec == "INTERIOR" || sec == "TRANSITIVE" { if (NF >= 3 && $3 != "-") print $3 }' \
+        | sort -u)
+    ir_axes=$(check_axes "$IR_CHECK")
+    if [ "$led_axes" != "$ir_axes" ]; then
+        note "the ledger's INTERIOR axis column and the \`; AXIS\` markers in
+      $(basename "$IR_CHECK") disagree."
+        echo
+        echo "  A ledger row claiming an axis that does not exist is a row nobody is"
+        echo "  checking against the compiler. An axis marker no row claims is one a"
+        echo "  rename detached from the type it was written for: it still passes, and"
+        echo "  it no longer means anything."
+        echo
+        diff <(printf '%s\n' "$led_axes") <(printf '%s\n' "$ir_axes") \
+            | sed 's/^</  ledger only: /; s/^>/  ir check only: /' \
+            | grep -E 'ledger only|ir check only'
+    fi
+else
+    note "$IR_CHECK is missing — the INTERIOR census has nothing to be held
+      against except source text, and a census of text is a claim about text."
+fi
+
 [ "$fail" -ne 0 ] && exit 1
 
-n_atomic=$(printf '%s\n' "$got_atomic" | grep -c .)
+n_interior=$(printf '%s\n' "$got_interior" | grep -c .)
+n_transitive=$(printf '%s\n' "$got_transitive" | grep -c .)
+n_claims=$(printf '%s\n' "$got_claims" | grep -c .)
+n_axes=$(printf '%s\n' "$led_axes" | grep -c .)
 n_launder_files=$(printf '%s\n' "$got_launder" | grep -c .)
 n_launder=$(printf '%s\n' "$got_launder" | awk -F'\t' '{s+=$2} END {print s+0}')
-echo "shared-ref-UB lint: guard held (readonly written once, inside the"
-echo "  type_is_freeze block); rule $RULE_ID present in both the emission site"
-echo "  and the rule corpus; $n_atomic interior-mutability primitives, all"
-echo "  UnsafeCell-wrapped; $n_launder laundering site(s) across"
-echo "  $n_launder_files file(s), matching the ledger. Six self-canaries live."
+echo "shared-ref-UB lint: guard held (readonly written once, contained in a"
+echo "  type_is_freeze-implying block); rule $RULE_ID present in both the"
+echo "  emission site and the rule corpus; $n_claims claim blocks hash-matched;"
+echo "  $n_interior interior-mutability ROOTS across all of stdlib (every"
+echo "  declaration with a direct UnsafeCell field — NOT a per-file count), plus"
+echo "  $n_transitive types non-Freeze only through a root; $n_axes of those held"
+echo "  against the emitted IR by $(basename "$IR_CHECK");"
+echo "  $n_launder laundering site(s) across $n_launder_files file(s), matching"
+echo "  the ledger. Twelve self-canaries live."
 exit 0

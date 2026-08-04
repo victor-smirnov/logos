@@ -1,0 +1,67 @@
+// IR snapshot for THE INTERIOR-MUTABILITY POPULATION — the types
+// `type_is_freeze` must answer FALSE for, asked of the COMPILER rather than of
+// the source text.
+//
+// WHY THIS FILE EXISTS SEPARATELY FROM param_attrs_freeze_lattice. That file
+// pins the predicate's ARMS: one axis per decision the predicate makes. This
+// one pins its POPULATION: the concrete stdlib types whose interior mutability
+// the whole `noalias`+`readonly` argument depends on being seen.
+//
+// THE DEFECT IT ANSWERS, measured, not supposed. `tests/logos/shared_ref_ub_lint.sh`
+// used to census exactly ONE file — stdlib/lang/atomic/atomic.logos — and print
+// "12 interior-mutability primitives, all UnsafeCell-wrapped", which reads as a
+// total. The real root population is 19. Strip `UnsafeCell` out of `Mutex<T>`
+// and `RwLock<T>` in stdlib/lcm/sync/sync.logos and both become Freeze — every
+// `&Mutex<T>` in the tree would earn noalias+readonly — and that lint exited 0.
+// The lint now derives the population from the whole of stdlib; this file is the
+// other half of the answer, because a census held against SOURCE TEXT is still
+// only a claim about text. Here the compiler is asked directly.
+//
+// ⚠ WHAT THE ROW COUNT DOES AND DOES NOT MEAN. The ledger
+// (tests/logos/shared_ref_ub.ledger, section INTERIOR) carries all 19 roots; this
+// file carries an axis for the ones the soundness argument NAMES — Mutex, RwLock
+// and the Writ arena are cited by name in src/compiler/mlir_gen_fn.cpp — plus one
+// representative atomic. Twelve near-identical Atomic* axes would be noise, so
+// the ledger marks the other eleven `-` explicitly rather than leaving anyone to
+// assume they are covered. The lint holds THAT mapping in both directions too.
+//
+// ⚠ `&Mutex<T>` AND `&RwLock<T>` HAVE NO CALL SITE IN THE TREE TODAY: every
+// method on them takes `self: *mut Mutex<T>`, which is Kind::Ptr and never gets
+// the attribute bundle. The axes are here anyway, because the day somebody
+// writes `fn f(m: &Mutex<T>)` the gate must already be standing. `&Writ` is the
+// live one — 367 `&Writ`/`&mut Writ` parameter occurrences in stdlib.
+//
+// EVERY EXPECTATION BELOW WAS DERIVED BY HAND FROM THE DECLARATIONS AND THE
+// LAYOUT RULES FIRST, then confirmed against the emitted IR. All nine matched on
+// the first comparison.
+package param_attrs_freeze_interior;
+
+use logos.lang.cell;
+use logos.lang.atomic;
+use logos.lang.writ.container;
+use logos.lcm.sync;
+
+// The three cell shapes: one UnsafeCell, two UnsafeCells, and the lang item.
+fn axis_cell(c: &Cell<i64>) -> i64 { return 0i64; }
+fn axis_refcell(c: &RefCell<i64>) -> i64 { return 0i64; }
+fn axis_oncecell(c: &OnceCell<i64>) -> i64 { return 0i64; }
+fn axis_unsafecell(c: &UnsafeCell<i64>) -> i64 { return 0i64; }
+
+// THE TRANSITIVE LAYER. `LazyCell<T>` holds NO UnsafeCell of its own — it is
+// `{ cell: OnceCell<T>, init: fn() -> T }` — so it is non-Freeze only because
+// the recursion reaches OnceCell's. A root census alone would never name it,
+// which is why the ledger reports the transitive layer separately and why this
+// axis is here: it is the one that goes red if the field recursion stops.
+fn axis_lazycell(c: &LazyCell<i64>) -> i64 { return 0i64; }
+
+// One representative atomic. The other eleven are ledger rows marked `-`.
+fn axis_atomic_i64(a: &AtomicI64) -> i64 { return 0i64; }
+
+// The load-bearing named types from the soundness comment in mlir_gen_fn.cpp.
+fn axis_writ(w: &Writ) -> i64 { return 0i64; }
+fn axis_mutex(m: &Mutex<i64>) -> i64 { return 0i64; }
+fn axis_rwlock(r: &RwLock<i64>) -> i64 { return 0i64; }
+
+fn main() -> i32 {
+    return 0;
+}

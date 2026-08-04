@@ -13,40 +13,112 @@
 # move by somebody editing this file on purpose, which is the whole point — a
 # census that drifts on its own is a measurement nobody is reading.
 #
-# ⚠ WHY A CENSUS AND NOT AN ASSERTION. Neither section below can be decided by
-# reading text. Whether a given laundering site is sound depends on the receiver,
-# the pointee's Freeze-ness, and whether the write lands in the referent's own
-# bytes or behind a loaded pointer — none of which is visible in the shape. So
-# the lint does not judge; it makes the population impossible to change quietly,
-# and leaves the judging to the reviewer who adds the line.
+# ⚠ WHY A CENSUS AND NOT AN ASSERTION. Neither the LAUNDER section nor the
+# INTERIOR one can be decided by reading text. Whether a given laundering site is
+# sound depends on the receiver, the pointee's Freeze-ness, and whether the write
+# lands in the referent's own bytes or behind a loaded pointer — none of which is
+# visible in the shape. So the lint does not judge; it makes the population
+# impossible to change quietly, and leaves the judging to the reviewer who adds
+# the line.
 #
-# ── SECTION `ATOMIC` ─────────────────────────────────────────────────────────
-# Every `pub struct Atomic*` in stdlib/lang/atomic/atomic.logos, and whether its
-# declaration contains an `UnsafeCell`.
+# ── SECTION `INTERIOR` ───────────────────────────────────────────────────────
+# EVERY declaration in ALL of stdlib carrying a DIRECT `UnsafeCell` field, plus
+# the lang item itself. This is the population `type_is_freeze` detects BY
+# CONSTRUCTION: it answers non-Freeze only by finding an UnsafeCell in the
+# pointee's inline bytes (or by recognising the lang item by qualified name), so
+# every other non-Freeze type in the tree is non-Freeze because it reaches one of
+# these.
 #
-# THIS IS THE CLAUSE THAT WENT SILENTLY FALSE LAST TIME. The comment in
-# mlir_gen_fn.cpp asserted for months that atomics "are NOT UnsafeCell-wrapped
-# in our stdlib" — it had been false since the commit after it was written, and
-# nothing re-measured it. `type_is_freeze` recognises interior mutability ONLY
-# by finding an UnsafeCell in the pointee's inline bytes, so a primitive that
-# mutates through `&self` without one is classified Freeze, earns
-# noalias+readonly, and is miscompiled from -O1 up. A `no` in this column is a
-# soundness bug, and the lint reports it on its own terms, not just as a diff.
+# ⚠ THIS SECTION USED TO BE CALLED `ATOMIC` AND IT USED TO BE WRONG. It listed
+# the 12 `pub struct Atomic*` from stdlib/lang/atomic/atomic.logos — the one file
+# the reader looked at — and the lint's closing line printed "12 interior-
+# mutability primitives, all UnsafeCell-wrapped", which reads as a total. It is
+# 19. MEASURED: replace `data: UnsafeCell<T>` with `data: T` in Mutex<T> and
+# RwLock<T> (stdlib/lcm/sync/sync.logos), and both become Freeze — every
+# `&Mutex<T>` in the tree would earn noalias+readonly — and the lint exited 0
+# and still printed "12 … all UnsafeCell-wrapped". A census pointed at one file
+# certifies one file.
 #
-# FORMAT: `<StructName> <yes|no>`
-ATOMIC
-AtomicBool yes
-AtomicI16 yes
-AtomicI32 yes
-AtomicI64 yes
-AtomicI8 yes
-AtomicIsize yes
-AtomicPtr yes
-AtomicU16 yes
-AtomicU32 yes
-AtomicU64 yes
-AtomicU8 yes
-AtomicUsize yes
+# THE THIRD COLUMN is an `; AXIS <id>` marker in
+# tests/logos/ir/param_attrs_freeze_interior.check, or `-`. It is the joint
+# between this census and the EMITTED ARTIFACT: a census held only against
+# source text is still a claim about text. The axes cover the types the
+# soundness comment in src/compiler/mlir_gen_fn.cpp NAMES — Mutex, RwLock, the
+# Writ arena — plus the cell family and ONE representative atomic. The other
+# eleven atomics are `-` DELIBERATELY, so nobody reads them as covered: twelve
+# near-identical axes would be noise, and the row is what makes the population
+# unable to move quietly, not the axis.
+#
+# ⚠ `&Mutex<T>` and `&RwLock<T>` have NO call site in the tree today — every
+# method on them takes `self: *mut Mutex<T>`, which is Kind::Ptr and never gets
+# the attribute bundle. Their axes are standing gates, not live coverage. The
+# live one is `Writ`: 367 `&Writ`/`&mut Writ` parameter occurrences in stdlib.
+#
+# FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
+INTERIOR
+stdlib/lang/atomic/atomic.logos	AtomicBool	-
+stdlib/lang/atomic/atomic.logos	AtomicI16	-
+stdlib/lang/atomic/atomic.logos	AtomicI32	-
+stdlib/lang/atomic/atomic.logos	AtomicI64	axis_atomic_i64
+stdlib/lang/atomic/atomic.logos	AtomicI8	-
+stdlib/lang/atomic/atomic.logos	AtomicIsize	-
+stdlib/lang/atomic/atomic.logos	AtomicPtr	-
+stdlib/lang/atomic/atomic.logos	AtomicU16	-
+stdlib/lang/atomic/atomic.logos	AtomicU32	-
+stdlib/lang/atomic/atomic.logos	AtomicU64	-
+stdlib/lang/atomic/atomic.logos	AtomicU8	-
+stdlib/lang/atomic/atomic.logos	AtomicUsize	-
+stdlib/lang/cell/cell.logos	Cell	axis_cell
+stdlib/lang/cell/cell.logos	OnceCell	axis_oncecell
+stdlib/lang/cell/cell.logos	RefCell	axis_refcell
+stdlib/lang/cell/cell.logos	UnsafeCell	axis_unsafecell
+stdlib/lang/writ/container.logos	Writ	axis_writ
+stdlib/lcm/sync/sync.logos	Mutex	axis_mutex
+stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
+#
+# ── SECTION `TRANSITIVE` ─────────────────────────────────────────────────────
+# Types that are non-Freeze ONLY because the field recursion reaches a root
+# above. `LazyCell<T>` is the reason this section exists: it is
+# `{ cell: OnceCell<T>, init: fn() -> T }` and has no UnsafeCell of its own, so a
+# root census alone never names it — and `axis_lazycell` in
+# param_attrs_freeze_interior.check is what goes red if the recursion ever stops
+# one level early, which is exactly the shape of the tuple-arm defect that WAS
+# measured to hand out a wrong noalias.
+#
+# ⚠ COMPUTED WITH THE PREDICATE'S OWN INDIRECTION STOP. A field behind `*`, `&`
+# or `fn(` does not infect its container, because `type_is_freeze` stops there.
+# That is why `Rc` and `Arc` are correctly ABSENT while `ArcInner` is present:
+# the refcount lives behind a pointer Arc LOADS, which is the whole loaded-
+# pointer exception. A syntactic closure without the stop would list Rc, Arc and
+# every handle type in the tree — the opposite of the truth, and it would drown
+# the row that matters.
+#
+# ⚠ WHAT IT DOES NOT MODEL: generics. `Vec<Cell<i64>>` is not reported infected
+# by its element type. That happens to be correct (the elements live behind
+# Vec's pointer) but the reader gets it right by never looking, so do not read
+# this section as a decision procedure. The INTERIOR section is the load-bearing
+# one; this is the reachability report.
+#
+# FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
+TRANSITIVE
+stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
+stdlib/lang/fabric/fabric.logos	Buffer	-
+stdlib/lcm/deem/data/bt/cow.logos	LeafDirNode	-
+stdlib/lcm/deem/data/bt/cow.logos	LeafNode	-
+stdlib/lcm/deem/data/bt/cow.logos	LeafNodeForBranch	-
+stdlib/lcm/deem/data/handle.logos	Snap	-
+stdlib/lcm/deem/data/handle.logos	Store	-
+stdlib/lcm/deem/data/store.logos	LockingStore	-
+stdlib/lcm/deem/facthistory.logos	FactHistory	-
+stdlib/mem/bt/memstore.logos	SnapDesc	-
+stdlib/mem/deem/eval.logos	Tpl	-
+stdlib/mem/deem/incr.logos	FactStore	-
+stdlib/mem/deem/incr.logos	IncrJoin	-
+stdlib/mem/deem/incr_rec.logos	IncrRec	-
+stdlib/mem/deem/query.logos	QRows	-
+stdlib/mem/deem/query.logos	Query	-
+stdlib/mem/sync/arc.logos	ArcInner	-
+stdlib/std/io/bytes/bytes.logos	BytesInner	-
 #
 # ── SECTION `LAUNDER` ────────────────────────────────────────────────────────
 # Per-file count of the const->mut laundering shape in stdlib — the shape the

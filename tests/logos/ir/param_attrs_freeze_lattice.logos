@@ -1,7 +1,16 @@
-// IR snapshot for the FREEZE LATTICE — the five axes along which
-// `type_is_freeze` (src/compiler/mlir_gen_types.cpp) either keeps recursing or
-// stops, plus the unresolved-residue path that the whole soundness argument
-// leans on.
+// IR snapshot for the FREEZE LATTICE — the axes along which `type_is_freeze`
+// (src/compiler/mlir_gen_types.cpp) either keeps recursing or stops, plus the
+// unresolved-residue path that the whole soundness argument leans on.
+//
+// ⚠ THE AXIS POPULATION IS NOT A LIST SOMEBODY WROTE. It is held against the
+// predicate's own VERDICT SITES by tests/logos/freeze_arm_coverage.py, which
+// derives them from the C++ (every `return …` and every assignment to the
+// result bool inside `type_is_freeze`) and from the Kind enum in sema.hpp, and
+// goes red when a site appears with no axis. The five axes this file started
+// with pinned five of seventeen verdict sites; deleting the element recursion
+// in the TUPLE arm moved `&(Cell<i64>, i64)` to noalias+readonly — a real
+// noalias on an interior-mutable pointee — with all five green and L2 green.
+// A longer hand-written list would have been the same defect again.
 //
 // Rule: `type.shared-ref.write-through-derived-ub`. A shared `&T` earns
 // `noalias`+`readonly` exactly when no UnsafeCell is reachable through the
@@ -29,9 +38,28 @@
 //      This is the conservative-on-unknown direction: a missed case costs an
 //      optimization, never soundness.
 //
+//   6. TUPLE ELEMENTS       — the arm whose deletion was MEASURED to hand
+//      `&(Cell<i64>, i64)` a noalias+readonly it must never have. Its control
+//      `&(i64, i64)` has the identical 16/8 layout.
+//   7. TUPLE NESTING        — the tuple recursion must be a fixpoint too.
+//   8. A TUPLE AS A FIELD   — the struct arm must descend INTO a tuple field;
+//      struct-of-tuple and tuple-of-struct are different edges of the lattice.
+//   9. C-LIKE ENUM          — the `resolve_tagged_enum == null` fallback, the
+//      one arm that answers `true` on a resolve failure. Pinned as the
+//      4/4-discriminant shape its comment claims it is.
+//  10. SELF-REFERENTIAL STRUCT — the `seen` cycle guard. See the note on the
+//      declarations below: the pair pins the ANSWER, not the cycle branch.
+//  11. A BARE SCALAR        — the arm the other axes only ever use as a control.
+//  12. THE UnsafeCell LANG ITEM ITSELF — the by-qualified-name arm, distinct
+//      from the field recursion that reaches it in every other axis.
+//  13. ANYVAL               — the pre-switch `is_anyval` short-circuit. The 4/4
+//      layout is what proves that path fired: a `{ raw: i64 }` struct is 8/8
+//      through every other route.
+//
 // EVERY EXPECTATION IN THE .check WAS DERIVED BY HAND FROM THE PREDICATE AND
 // THE LAYOUTS FIRST, then confirmed against the emitted IR — not read off a
-// run. All nine matched on the first comparison.
+// run. All nine original lines matched on the first comparison, and so did all
+// eleven added ones.
 package param_attrs_freeze_lattice;
 
 use logos.lang.cell;
@@ -62,6 +90,61 @@ fn axis_generic<T>(b: &Box2<T>) -> i64 { return 0i64; }
 fn axis_opt_plain(o: &Option<i64>) -> i64 { return 0i64; }
 fn axis_opt_cell(o: &Option<Cell<i64>>) -> i64 { return 0i64; }
 
+// ── AXIS 6: tuple element recursion. Both pointees are 16 bytes, align 8. ───
+//    THIS IS THE MEASURED ONE: with `case K::Tuple: return true;` in place of
+//    the element loop, axis_tuple_cell gained `noalias readonly` and the five
+//    original axes plus L2 (1881/1881) all stayed green.
+fn axis_tuple_cell(t: &(Cell<i64>, i64)) -> i64 { return 0i64; }
+fn axis_tuple_plain(t: &(i64, i64)) -> i64 { return 0i64; }
+
+// ── AXIS 7: tuple inside tuple — the tuple recursion is a fixpoint. ────────
+fn axis_tuple_nested(t: &((Cell<i64>, i64), i64)) -> i64 { return 0i64; }
+
+// ── AXIS 8: a tuple as a STRUCT FIELD — the struct arm must descend into it.
+struct TupField { t: (Cell<i64>, i64) }
+struct TupFieldPlain { t: (i64, i64) }
+fn axis_tuple_field(s: &TupField) -> i64 { return 0i64; }
+fn axis_tuple_field_plain(s: &TupFieldPlain) -> i64 { return 0i64; }
+
+// ── AXIS 9: a C-LIKE enum — no payload, so `resolve_tagged_enum` returns null
+//    (register_tagged_enum runs only under `ed.has_payload()`) and the arm
+//    answers `true` on a resolve FAILURE. The 4/4 layout in the .check is what
+//    says this really is the bare-discriminant shape the arm assumes. ───────
+enum CLike { A, B, C }
+fn axis_clike(e: &CLike) -> i64 { return 0i64; }
+
+// ── AXIS 10: a SELF-REFERENTIAL struct. ────────────────────────────────────
+//    ⚠ HONEST LIMIT, stated rather than implied: this pair pins the ANSWER for
+//    a recursive shape, NOT the `seen` cycle branch. Every self-reference in
+//    Logos must pass through an indirection (a struct cannot contain itself by
+//    value), and the indirection arm returns before `seen` is consulted — so
+//    the cycle branch is defensive and no source program reaches it. The arm
+//    ledger records it as UNPINNABLE with that reason instead of letting this
+//    pair pretend to cover it.
+struct SelfCell { next: *mut SelfCell, c: Cell<i64> }
+struct SelfPlain { next: *mut SelfPlain, v: i64 }
+fn axis_selfref_cell(n: &SelfCell) -> i64 { return 0i64; }
+fn axis_selfref_plain(n: &SelfPlain) -> i64 { return 0i64; }
+
+// ── AXIS 11: a bare scalar pointee. ────────────────────────────────────────
+fn axis_scalar(x: &i64) -> i64 { return *x; }
+
+// ── AXIS 12: the UnsafeCell LANG ITEM, reached directly rather than through a
+//    field. This is the pkg-qualified-name arm — `Cell` and every other axis
+//    reaches it by recursion, so nothing pinned the arm itself. ────────────
+fn axis_unsafecell_item(u: &UnsafeCell<i64>) -> i64 { return 0i64; }
+
+// ── AXIS 13: the pre-switch `is_anyval` short-circuit. ─────────────────────
+//    `is_anyval` matches ANY struct named `AnyVal`, in any package, and lowers
+//    it as an i32 everywhere — so a local declaration reaches the arm. The 4/4
+//    in the .check is the discriminator: `{ raw: i64 }` is 8/8 by every other
+//    route, so `align 4 dereferenceable(4)` can only mean the anyval path fired.
+//    ⚠ HONEST LIMIT: DELETING this arm would not move the line — the Struct arm
+//    answers Freeze for `{ raw: i64 }` too. The line pins the ANSWER and the
+//    layout, not the arm's existence; the ledger says so.
+struct AnyVal { raw: i64 }
+fn axis_anyval(a: &AnyVal) -> i64 { return 0i64; }
+
 // ── RESIDUE: the HRTB binder shape (mirrors tests/imported/pass/closures/
 //    hrtb-nested-binder). `Id::call` keeps a bare TypeVar `&'a T` in its
 //    signature; no instance of that type exists anywhere. ─────────────────
@@ -88,10 +171,29 @@ fn main() -> i32 {
     let oi: Option<i64> = Option::Some(7i64);
     let oc: Option<Cell<i64>> = Option::Some(Cell::new(8i64));
 
+    let tc: (Cell<i64>, i64) = (Cell::new(0i64), 0i64);
+    let tp: (i64, i64) = (0i64, 0i64);
+    let tn: ((Cell<i64>, i64), i64) = ((Cell::new(0i64), 0i64), 0i64);
+    let tf: TupField = TupField { t: (Cell::new(0i64), 0i64) };
+    let tfp: TupFieldPlain = TupFieldPlain { t: (0i64, 0i64) };
+    let ck: CLike = CLike::B;
+    let mut sc: SelfCell = SelfCell { next: 0 as *mut SelfCell, c: Cell::new(0i64) };
+    let mut sp: SelfPlain = SelfPlain { next: 0 as *mut SelfPlain, v: 0i64 };
+    let sx: i64 = 0i64;
+    let uc: UnsafeCell<i64> = UnsafeCell::new(0i64);
+    let av: AnyVal = AnyVal { raw: 0i64 };
+
     let acc: i64 = axis_array_cell(&ac) + axis_array_plain(&ap) + axis_nested2(&o)
                  + axis_ptr_field(&pf) + axis_generic::<i64>(&bi)
                  + axis_generic::<Cell<i64>>(&bc)
-                 + axis_opt_plain(&oi) + axis_opt_cell(&oc);
+                 + axis_opt_plain(&oi) + axis_opt_cell(&oc)
+                 + axis_tuple_cell(&tc) + axis_tuple_plain(&tp)
+                 + axis_tuple_nested(&tn)
+                 + axis_tuple_field(&tf) + axis_tuple_field_plain(&tfp)
+                 + axis_clike(&ck)
+                 + axis_selfref_cell(&sc) + axis_selfref_plain(&sp)
+                 + axis_scalar(&sx) + axis_unsafecell_item(&uc)
+                 + axis_anyval(&av);
     if acc != 0i64 { return 1; }
     return run::<Id>(Id { _x: 0i32 });
 }

@@ -1,0 +1,134 @@
+# THE FREEZE-ARM LEDGER — every decision `type_is_freeze` makes, and the axis
+# that pins it.
+#
+# `type_is_freeze` (src/compiler/mlir_gen_types.cpp) is the entire soundness
+# argument for `noalias`+`readonly` on a shared `&T`. Its IR gate pinned FIVE
+# axes against a predicate that makes SEVENTEEN verdicts, and that gap was
+# MEASURED, not supposed: replacing the element recursion in the TUPLE arm with
+# `return true` moved `&(Cell<i64>, i64)` from `ptr noundef align 8` to
+# `ptr noalias noundef readonly align 8` — a real noalias+readonly on a pointee
+# holding a Cell — with all five axes green and L2 at 1881/1881.
+#
+# THIS FILE IS NOT THE POPULATION. `freeze_arm_coverage.py` DERIVES the
+# population from the artifacts — the Kind enumerators from
+# include/logos/compiler/sema.hpp, the verdict sites from the predicate's own
+# body — and holds it against these rows in both directions. A new Kind, a new
+# arm, an axis renamed out from under a row: each is red by arithmetic. Writing
+# a longer list here fixes nothing; the list is the thing being checked.
+#
+# ── SECTION `KINDS_TOTAL` ────────────────────────────────────────────────────
+# How many enumerators `enum class Kind` declares. Named + defaulted must equal
+# it exactly, so a Kind cannot arrive without somebody deciding which arm it
+# belongs to.
+KINDS_TOTAL
+50
+#
+# ── SECTION `DEFAULTED` ──────────────────────────────────────────────────────
+# The Kinds with no `case` label, which reach `default: return false`. That
+# answer is CONSERVATIVE — a non-Freeze verdict costs an optimization and never
+# soundness — so this is the safe place for a Kind to land. It is still a
+# decision, and moving one out of here changes the compiler's answer for every
+# value of that kind.
+#
+# `TypeVar` is the live one: it is what the HRTB residue axis exercises.
+DEFAULTED
+AssocType
+CfgSlotType
+ConstVar
+Error
+FnItem
+Generic
+ImplTrait
+InferredType
+TypeVar
+WStaticLit
+#
+# ── SECTION `NAMED` ──────────────────────────────────────────────────────────
+# `<Kind>\t<arm ordinal>` — which verdict site each explicitly-cased Kind
+# reaches first. The ordinal is the site's position in the ARMS section below.
+#
+# NOTE ON `Struct`/`ZonedStruct` = 8 and `Enum` = 14: the ordinal is the FIRST
+# verdict inside the block the case label opens (the UnsafeCell lang-item test
+# and the payload-loop rejection respectively), not the block's final answer.
+# That is the mechanical rule — first verdict at or after the label — and it is
+# what makes the mapping derivable instead of judged.
+NAMED
+Array	5
+Bool	3
+Char	3
+Closure	4
+DstRef	4
+Enum	14
+F32	3
+F64	3
+FloatLit	3
+FnPtr	4
+I128	3
+I16	3
+I24	3
+I32	3
+I56	3
+I64	3
+I8	3
+IntLit	3
+Isize	3
+MutRef	4
+Never	3
+Ptr	4
+Ref	4
+Slice	4
+Struct	8
+TaggedPtr	4
+TraitObject	4
+Tuple	6
+U128	3
+U16	3
+U24	3
+U32	3
+U56	3
+U64	3
+U8	3
+UnsizedDyn	4
+UnsizedSlice	4
+Usize	3
+Void	3
+ZonedStruct	8
+#
+# ── SECTION `ARMS` ───────────────────────────────────────────────────────────
+# `<ordinal>\t<arm id>\t<axis[,axis…] | NO-AXIS:<reason>>\t<verdict text>`
+#
+# The verdict text is whitespace-normalised source, NOT a line number — a
+# reformat must not go red, an added decision must. Ordinals are positions in
+# the predicate's body, so inserting an arm shifts the ones after it and the
+# diff names the insertion.
+#
+# An axis id must have an `; AXIS <id>` marker with at least one CHECK line in
+# tests/logos/ir/param_attrs_freeze_lattice.check. `NO-AXIS:` needs a reason,
+# and the gate PRINTS every one of them on a green run, so the coverage number
+# cannot be read as total.
+ARMS
+1	null-typeref	NO-AXIS:a null TypeRef is internal compiler state; no source program produces one, and the answer (false) is the conservative direction	return false;
+2	anyval-shortcircuit	axis_anyval	return true;
+3	scalar-kinds	axis_scalar	return true;
+4	indirection-stop	axis_ptr_field	return true;
+5	array-elements	axis_array	return !tv.elem() ? true : type_is_freeze(tv.elem(), seen);
+6	tuple-element-nonfreeze	axis_tuple_cell,axis_tuple_nested	return false;
+7	tuple-all-freeze	axis_tuple_plain	return true;
+8	unsafecell-lang-item	axis_unsafecell_item	return false;
+9	struct-cycle-guard	NO-AXIS:unreachable from source — a Logos struct cannot contain itself by value, so every self-reference passes through an indirection and arm 4 returns before `seen` is consulted; axis_selfref_cell/plain pin the ANSWER for a recursive shape but not this branch	return true;
+10	struct-init	axis_selfref_plain	bool frozen = true;
+11	struct-unresolved	NO-AXIS:UNPROBED, not proven unreachable — no source shape has been found that reaches `find_struct_def_it == end()` for a Kind::Struct; the answer (false) is conservative, so a miss here costs an optimization, never soundness	frozen = false;
+12	struct-field-nonfreeze	axis_nested2,axis_selfref_cell,axis_tuple_field	frozen = false;
+13	struct-verdict	axis_tuple_field_plain	return frozen;
+14	enum-payload-nonfreeze	axis_opt_cell	return false;
+15	enum-payload-freeze	axis_opt_plain	return true;
+16	enum-clike-fallback	axis_clike	return true;
+17	default-unknown-kind	axis_residue	return false;
+#
+# ── SECTION `EXTRA_AXES` ─────────────────────────────────────────────────────
+# Axes that pin a PROPERTY of the predicate rather than one verdict site. They
+# are listed so the reverse direction still closes: every `; AXIS` marker in the
+# .check is claimed by exactly one row, here or above, and an axis orphaned by a
+# rename is red.
+EXTRA_AXES
+axis_generic	the answer is keyed on the INSTANCE, not the definition: one generic, two monomorphisations, opposite answers. Not a single site — every arm below it is reached per-instance.
