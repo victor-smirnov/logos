@@ -3794,7 +3794,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda, &mut agg_body) { return false; }
+    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda,
+                           &agg_flt, &agg_cast, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
     let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -3925,8 +3926,13 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         } else if fnid == AGG_SUM() && !agg_flt[gd] {
             // i64 `sum` ACCUMULATOR is error-returning: a running-total overflow
             // becomes Err(ElError) via el_add(…)?, never a trap — the sibling of
-            // EL scalar arithmetic (the arg is already checked) and of the
-            // dynamic/incremental sum accumulators.
+            // EL scalar arithmetic and of the dynamic/incremental sum
+            // accumulators.
+            //
+            // ⚠ THE ARG IS CHECKED — by `check_agg_operand`, in
+            // `compute_agg_bodies`. This comment used to say "the arg is already
+            // checked" and nothing checked it: `el_add(acc, (s.v))` over a `u64`
+            // column reached the host compiler as `arg 2: expected i64, got u64`.
             folds.push(quote_block! { #n_ga.set(__gi, el_add(#n_ga.get(__gi), (#(arg_f)))?); });
         } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
             if agg_cast[gd] {
@@ -4237,12 +4243,20 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
 }
 
 // Validate each aggregate spec (known fn / resolved UDA, arg presence, arg-
-// expression calls) and emit its ARG expression text. False (error surfaced)
-// on a bad spec. `uda` marks the specs `resolve_aggs` accepted as user
-// aggregates (a UDA REQUIRES an argument — the zero-arg `m = myagg()` form is
-// out of scope and diagnosed via the shared arg-presence error).
+// expression calls, and THE ARGUMENT'S ROUTE INTO THE ACCUMULATOR) and emit its
+// ARG expression text. False (error surfaced) on a bad spec. `uda` marks the
+// specs `resolve_aggs` accepted as user aggregates (a UDA REQUIRES an argument —
+// the zero-arg `m = myagg()` form is out of scope and diagnosed via the shared
+// arg-presence error).
+//
+// ⚠ THE LAST OF THOSE IS WHY `agg_flt` / `agg_cast` ARE PARAMETERS. The emitted
+// text lands in an accumulator whose type this function does not otherwise need
+// to know (`Vec<i64>` / `Vec<f64>`, decided by `compute_agg_reprs`), and the
+// only thing that ever checked the two agreed was the HOST COMPILER, reporting
+// from a generated line. See `check_agg_operand`.
 fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
-                      uda: &[bool; 8], agg_body: &mut [String; 8]) -> bool {
+                      uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
+                      agg_body: &mut [String; 8]) -> bool {
     let mut ai: i64 = 0i64;
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
@@ -4253,6 +4267,17 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             if !reject_tuple(a.arg_expr(), "wql!: `aggregate`") { return false; }
             if !check_calls(a.arg_expr(), t, "wql!: `aggregate`") { return false; }
             let ae_opt: SExpr = simplify_sexpr(a.arg_expr(), h).any().view::<SExpr>();
+            // THE ARGUMENT MUST REACH THE ACCUMULATOR (`check_agg_operand`), and
+            // the simplified form is what is asked because that is what is
+            // emitted one line below. Two spec shapes are exempt and both are
+            // exempt BY THEIR EMITTER: a UDA's argument is printed into the
+            // user's `_step`, whose declared T is the contract, and `avg` over an
+            // INT argument (`agg_cast`) is wrapped in `as f64` by the fold
+            // emitter itself.
+            if !uda[ai] && !agg_cast[ai] {
+                let want: str = if agg_flt[ai] { "f64" } else { "i64" };
+                if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }
+            }
             emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
         }
         ai = ai + 1i64;

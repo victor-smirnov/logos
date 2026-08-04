@@ -1,0 +1,34 @@
+// WQL — A `u64` AGGREGATE ARGUMENT IS REFUSED WITH THE SAME GROUND AS EVERY
+// OTHER SITE THAT NORMALIZES INTO THE EL's i64 TOWER.
+//
+// `wql_arith_wide_int_fail` pins this refusal for an arithmetic OPERAND and
+// `wql_udf_wide_int_ret_fail` for a UDF RESULT; the aggregate argument is the
+// third site the same `as i64` is reached from, and it had no check at all.
+// MEASURED at the parent commit (6440e565), this file:
+//   <metaprog-blob-subst>: error [fn q_run]: call to 'el_add' arg 2:
+//     expected i64, got u64
+// and `min`/`max` over the same column: `let '__v': type mismatch — expected
+// i64, got u64`.
+//
+// ⚠ THE GROUND IS SHARED, NOT RE-WORDED. `el_order_why` renders it once, for
+// all three sites; a second copy of those sentences is a second thing to drift.
+// The same applies to `usize`, `u128` and `i128`.
+//
+// ⚠ AND `avg` OVER THIS COLUMN STILL COMPILES, which is not an inconsistency:
+// its fold emitter writes `((s.v) as f64)` itself, so the argument never meets
+// the i64 tower. The check is skipped exactly there (`agg_cast`), because the
+// question is whether the value reaches the ACCUMULATOR — and for that shape it
+// does.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: u64 }
+
+pub deem totals(src: &[Rec]) { from src s
+      group by s.k
+      aggregate t = sum(s.v)
+      select t : i64 }
+
+fn main() -> i32 { return 0i32; }

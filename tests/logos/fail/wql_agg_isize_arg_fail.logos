@@ -1,0 +1,33 @@
+// WQL — AN `isize` AGGREGATE ARGUMENT, THE CELL NOBODY PREDICTED.
+//
+// `isize` is 64-bit and SIGNED, so every one of its values survives the EL's
+// `as i64` normalization: `el_arith_ok("isize")` is TRUE, `s.v + 1` over an
+// isize column compiles, an isize sort key is admitted. The aggregate seam
+// still could not carry it, because it emits the argument VERBATIM and the host
+// widens an integer only from a NARROWER width — `isize` and `i64` are two
+// 64-bit types with nothing to widen between them.
+//
+// ⚠ THIS IS THE CELL THAT SHOWS THE TWO QUESTIONS ARE DIFFERENT. "Does every
+// value survive the conversion" (`ElTy.fits`) and "does the host perform the
+// conversion unwritten" (`el_host_carries`) had been conflated at this seam;
+// `isize` separates them, and `f32` separates them the other way round (a float
+// is never widened implicitly at all). MEASURED at the parent commit
+// (6440e565), this file:
+//   <metaprog-blob-subst>: error [fn q_run]: call to 'el_add' arg 2:
+//     expected i64, got isize
+//
+// The `sum` fold's own comment said "the arg is already checked" while nothing
+// checked it. It now names the function that does.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: isize }
+
+pub deem totals(src: &[Rec]) { from src s
+      group by s.k
+      aggregate t = sum(s.v)
+      select t : i64 }
+
+fn main() -> i32 { return 0i32; }

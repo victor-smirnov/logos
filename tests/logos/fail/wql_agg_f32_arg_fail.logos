@@ -1,0 +1,46 @@
+// WQL — AN `f32` AGGREGATE ARGUMENT IS REFUSED BY NAME, NOT BY THE HOST
+// COMPILER FROM INSIDE A GENERATED LINE.
+//
+// The aggregate argument is the FIFTH EL operand position and the only one that
+// implements neither half of the lattice's three-outcome rule: `compute_agg_
+// bodies` prints the argument VERBATIM into `let __v: f64 = …` / `acc + …`,
+// while arithmetic operands, sort keys, UDF results and UDA finalizers each
+// normalize what survives and refuse what does not.
+//
+// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
+// parent commit (6440e565), this exact file:
+//   <metaprog-blob-subst>:3935: error [fn q_run]: operator '+':
+//     type mismatch (f64 vs f32)
+// and `min`/`max` over the same column:
+//   <metaprog-blob-subst>:3949: error [fn q_run]: let '__v':
+//     type mismatch — expected f64, got f32
+// — a line number in a chunk nobody wrote, naming neither the column, nor the
+// aggregate, nor the restriction. The limitation was folklore: three separate
+// comments in the tree asserted this site was already covered.
+//
+// ⚠ THE MESSAGE SAYS WHOSE RESTRICTION IT IS. `f32` is ADMITTED by the lattice
+// (el.logos:387, cls=EL_TY_FLT), every f32 value survives the conversion into
+// f64 (`el_ty_complete`: "f32 → f64 is exact", fits=true), `el_norm_cast("f32")`
+// answers `f64`, and an f32 SORT KEY is already accepted by exactly that rule
+// (`key_norm_ok`). So the refusal here is this emit position's, and it says so
+// rather than claiming the type is unsupported. WHETHER to normalize and admit
+// it instead is a decision about what the language accepts (and about the
+// dynamic engine's value domain, whose `RtVal` has one float arm) — it belongs
+// to Victor, and the diagnostic does not preempt it.
+//
+// The remedy the message names is MEASURED, not asserted:
+// wql_agg_arg_seam_e2e aggregates `s.v * 1.0f64` over this same column type and
+// checks the answer.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: f32 }
+
+pub deem totals(src: &[Rec]) { from src s
+      group by s.k
+      aggregate t = sum(s.v)
+      select t : f64 }
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,30 @@
+// WQL — A NON-NUMERIC AGGREGATE ARGUMENT (`min` over a `bool` column).
+//
+// The third ground of the same refusal: the value does not merely fail to be
+// carried into the accumulator, there is no conversion into it in the first
+// place. `sum`/`min`/`max` fold in the EL's i64 (or f64 for a float argument)
+// and a `bool` — or a `str`, or a `String` — has no route there.
+//
+// MEASURED at the parent commit (6440e565), this file failed as a host type
+// error inside a generated line (`let '__v': type mismatch — expected i64, got
+// bool`), i.e. the same anti-pattern as the f32 and u64 cells: a diagnostic
+// naming a chunk line and not the clause.
+//
+// ⚠ THE THREE GROUNDS ARE ONE CHECK, NOT THREE. `check_agg_operand` asks ONE
+// question — does the argument's EMITTED type reach the accumulator's type
+// (`el_host_carries`) — and only the WORDING of the ground branches, on facts
+// the lattice already carries (`ElTy.cls`, `ElTy.fits`). A per-type list here
+// is exactly what the lattice replaced.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: bool }
+
+pub deem lows(src: &[Rec]) { from src s
+      group by s.k
+      aggregate t = min(s.v)
+      select t : i64 }
+
+fn main() -> i32 { return 0i32; }

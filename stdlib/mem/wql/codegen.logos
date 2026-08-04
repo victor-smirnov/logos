@@ -530,6 +530,81 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
     return false;
 }
 
+/// THE AGGREGATE ARGUMENT IS THE FIFTH EL OPERAND POSITION, and it is the one
+/// that implements NEITHER half of the lattice's three-outcome rule. The other
+/// four — arithmetic operands (`check_arith_operand` + `emit_norm_operand`), UDF
+/// results (`check_calls` + `emit_udf_call`), sort keys (`key_norm_ok` +
+/// `key_ord_frag`) and UDA finalizers (`uda_fin_cast`) — each normalize what
+/// survives and refuse what does not. `compute_agg_bodies` prints the argument
+/// VERBATIM into `let __v: i64 = …` / `el_add(acc, …)` / `acc + …`, so the host
+/// compiler is the only thing that ever checked it.
+///
+/// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
+/// parent commit, `aggregate t = sum(s.v)` over an `f32` column:
+///   <metaprog-blob-subst>:3935: error [fn q_run]: operator '+':
+///     type mismatch (f64 vs f32)
+/// — a generated line, naming neither the column, nor the aggregate, nor the
+/// reason. `u64`/`usize`/`u128`/`i128` produced `call to 'el_add' arg 2:
+/// expected i64, got u64` at the same seam, and `isize` — a type whose values
+/// the lattice admits into i64 without moving one — produced it too.
+///
+/// ⚠ IT ASKS `infer_emit_ty`, THE SAME QUESTION `emit_norm_operand` ASKS, and
+/// not `infer_ty_name`: the fact needed here is what the emitted TEXT's type is,
+/// and a nested arithmetic node has already normalized at its own site. Asking
+/// the query's name instead would refuse `sum(s.a + s.b)` over two f32 columns —
+/// which compiles today and answers in f64, because the arithmetic seam does its
+/// half of the rule.
+///
+/// ⚠ THIS REFUSES; IT DOES NOT NORMALIZE. Emitting `el_norm_cast`'s conversion
+/// here would ADMIT `f32` and `isize` aggregates, which is a change to what the
+/// language accepts and belongs to Victor, not to this check. The message says
+/// so, so that the restriction is legible as this position's rather than the
+/// type's.
+///
+/// `want` is the accumulator's type (`i64` / `f64`), `fname` the aggregate's
+/// name. NOT called for a UDA (its argument goes to a user `_step` whose
+/// declared T is the contract) nor for the `avg`-over-an-int form (whose emitter
+/// writes the `as f64` itself).
+pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str) -> bool {
+    let et: str = infer_emit_ty(e, t);
+    let ty: ElTy = el_ty(et);
+    // Lenient on an out-of-lattice name, exactly as `el_arith_ok` is: nothing is
+    // known about it, and the host compiler is the documented oracle there.
+    if ty.cls < 0i32 { return true; }
+    if el_host_carries(et, want) { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": `");
+    m.push_str(fname);
+    m.push_str("` over a value of type `");
+    m.push_str(et);
+    m.push_str("` — the aggregate accumulates in `");
+    m.push_str(want);
+    m.push_str("` and the argument is emitted into that accumulator VERBATIM, with no normalizing conversion — ");
+    if ty.cls != EL_TY_INT() && ty.cls != EL_TY_FLT() {
+        m.push_str("and this type is not numeric, so there is no conversion into the accumulator at all. The remedy is a numeric argument");
+    } else if !ty.fits {
+        // The SHARED ground, rendered once for all three sites that normalize
+        // into the i64 tower (arithmetic operand, UDF result, aggregate
+        // argument). A second copy of those sentences is a second thing to drift.
+        m.push_str(el_order_why(et));
+    } else {
+        m.push_str("every value of `");
+        m.push_str(et);
+        m.push_str("` DOES survive the normalization into `");
+        m.push_str(want);
+        m.push_str("` (`el_norm_cast` gives `as ");
+        m.push_str(want);
+        m.push_str("`), and the arithmetic operands, the sort keys and the UDF results all apply it — this emit position does not. So the restriction is this position's, not the type's. The remedy is a column of type `");
+        m.push_str(want);
+        m.push_str("`, or an argument expression that already computes in `");
+        m.push_str(want);
+        m.push_str("`");
+    }
+    error(string_as_str(&m));
+    return false;
+}
+
 /// Emit one operand of an arithmetic node into the EL's computation type `want`
 /// (`i64` / `f64`), parenthesized, with the normalizing cast when the operand's
 /// EMITTED type is not already that type.

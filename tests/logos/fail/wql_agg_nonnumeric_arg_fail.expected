@@ -1,0 +1,1 @@
+wql!: `aggregate`: `min` over a value of type `bool` — the aggregate accumulates in `i64` and the argument is emitted into that accumulator VERBATIM, with no normalizing conversion — and this type is not numeric, so there is no conversion into the accumulator at all. The remedy is a numeric argument

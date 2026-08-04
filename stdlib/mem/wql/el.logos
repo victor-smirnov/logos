@@ -508,6 +508,39 @@ pub fn el_norm_cast(name: str) -> str {
     return t.repr;
 }
 
+/// Does the HOST LANGUAGE carry a value of type `name` into a position that
+/// expects `want` with NO written conversion? THE antecedent of every emit
+/// position that prints a sub-expression VERBATIM into a typed slot — a `let` of
+/// the accumulator's type, an argument of `el_add`, an infix against an f64.
+///
+/// ⚠ THIS IS A CLAIM ABOUT THE HOST COMPILER, NOT ABOUT THE VALUE. `ElTy.fits`
+/// answers "does every value survive the conversion into `repr`" — a fact about
+/// arithmetic, and it says YES for `isize` and for `f32`. Neither of those is
+/// carried: the host widens an integer only from a NARROWER width, and it widens
+/// no float at all. The two questions were conflated at exactly one seam (the
+/// aggregate argument), where "the arg is already checked" was written in a
+/// comment and `sum(s.v)` over an `f32` column failed as `operator '+': type
+/// mismatch (f64 vs f32)` inside a generated line.
+///
+/// ⚠ AND IT IS MEASURED, NOT ASSERTED — the same discipline as `self_ord` /
+/// `self_ident`: a claim about what the backend accepts is stored where it is
+/// used and pinned by a gate that asks the LANGUAGE. `wql_agg_arg_seam_e2e`
+/// aggregates a column of every width below 64 bits (the true half) and
+/// `wql_agg_*_arg_fail` pin the refusals (the false half). If the host's implicit
+/// coercions change — the open blocklist→allowlist arc would change them — one
+/// side or the other goes red instead of a query silently changing meaning.
+pub fn el_host_carries(name: str, want: str) -> bool {
+    if str_eq(name, want) { return true; }
+    let t: ElTy = el_ty(name);
+    if t.cls != EL_TY_INT() { return false; }        // no float is widened
+    if !str_eq(want, "i64") { return false; }
+    // Value-preserving INTEGER widening, and the width is the whole of it:
+    // i8..i32 / u8..u32 / i24 / u24 / i56 / u56 reach i64, while `isize`,
+    // `usize` and `u64` are 64-bit types with nothing to widen and `i128` /
+    // `u128` are wider than the destination.
+    return t.bits < 64i64;
+}
+
 // ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────
 // A `rel` is a SET: rows are deduplicated, so a column type needs an identity;
 // and the row is stored as a NATIVE tuple of the DECLARED types while the EL

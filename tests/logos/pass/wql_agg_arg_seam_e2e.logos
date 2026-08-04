@@ -1,0 +1,126 @@
+package wql_agg_arg_seam_e2e;
+// THE AGGREGATE ARGUMENT SEAM — THE ADMITTED HALF, MEASURED AGAINST THE
+// LATTICE'S OWN POPULATION.
+//
+// `check_agg_operand` refuses an aggregate argument whose EMITTED type does not
+// reach the accumulator's type, and the predicate it asks — `el_host_carries` —
+// rests on a claim about THE HOST COMPILER: that an integer narrower than 64
+// bits is carried into an `i64` slot with no written cast, and that no float is
+// carried into an `f64` one. That is not a property of the lattice's arithmetic,
+// it is a property of the language, and the house rule for such a claim is that
+// it is MEASURED where it is used (the same discipline as `ElTy.self_ord` /
+// `self_ident`, which are stored precisely because no other property entails
+// them).
+//
+// So this file is the TRUE half of that predicate and the fail tests are the
+// false half:
+//   • every `el_ty_stored` INT row with bits < 64 — i8/i16/i32, u8/u16/u32,
+//     i24/u24, i56/u56 — aggregated and ANSWERED, one deem each;
+//   • both canonical representatives, i64 and f64;
+//   • the remedy the f32 diagnostic names — an argument expression that already
+//     computes in f64 — so that the message is not asserting something no gate
+//     has run.
+// The population is the lattice's rows, not the types someone remembered:
+// wql_narrow_and_f32_columns_e2e closed this same class for `where` / `order by`
+// / `select` and had no `aggregate` clause at all, which is exactly how the
+// aggregate argument stayed the one unchecked EL operand position.
+//
+// ⚠ IF THE HOST'S IMPLICIT COERCIONS CHANGE — the open blocklist→allowlist and
+// "coercions in ALL positions" arcs would change them — one side or the other of
+// that pair goes RED. It cannot silently change what a query means.
+//
+// ONE GROUP, three rows: the claim is the argument's route into the
+// accumulator, and group formation has its own tests. Values 10 / 20 / 40 fit
+// every width above, including i8.
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R {
+    pub k: i64,
+    pub a8: i8,  pub a16: i16, pub a32: i32,
+    pub b8: u8,  pub b16: u16, pub b32: u32,
+    pub c24: i24, pub d24: u24,
+    pub c56: i56, pub d56: u56,
+    pub e64: i64, pub f64c: f64, pub g32: f32,
+}
+
+pub deem s_a8(rs: &[R])  { from rs s group by s.k aggregate t = sum(s.a8)  select t : i64 }
+pub deem s_a16(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.a16) select t : i64 }
+pub deem s_b8(rs: &[R])  { from rs s group by s.k aggregate t = sum(s.b8)  select t : i64 }
+pub deem s_b16(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.b16) select t : i64 }
+pub deem s_b32(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.b32) select t : i64 }
+pub deem s_c24(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.c24) select t : i64 }
+pub deem s_d24(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.d24) select t : i64 }
+pub deem s_c56(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.c56) select t : i64 }
+pub deem s_d56(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.d56) select t : i64 }
+pub deem s_e64(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.e64) select t : i64 }
+
+// `min` / `max` reach the accumulator through `let __v: i64 = …` rather than
+// through `el_add`, so the i32 row carries all three folds at once.
+pub deem m_a32(rs: &[R]) { from rs s
+      group by s.k
+      aggregate t = sum(s.a32) , lo = min(s.a32) , hi = max(s.a32)
+      select t * 10000 + lo * 100 + hi : i64 }
+
+// The f64 canon: no conversion anywhere on the route.
+pub deem s_f64(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.f64c) select t : f64 }
+
+// THE REMEDY THE f32 DIAGNOSTIC NAMES. `s.g32 * 1.0f64` is an arithmetic node,
+// so the ARITHMETIC seam normalizes its operands (`emit_norm_operand`) and the
+// text that reaches the accumulator is already f64. Multiplying by 1.0 is exact
+// and 1.5 / 2.5 / 4.0 are exactly representable in both widths, so a difference
+// here would be a misread, not a rounding artefact.
+pub deem s_g32(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.g32 * 1.0f64) select t : f64 }
+pub deem n_g32(rs: &[R]) { from rs s group by s.k aggregate t = min(s.g32 * 1.0f64) select t : f64 }
+
+fn main() -> i32 {
+    // Written as TYPED LITERALS rather than through a cast helper: a cast is
+    // the very thing under test at this seam, and a fixture that used one would
+    // be asking the question with the answer in it.
+    let rs: [R; 3] = [
+        R { k: 7i64, a8: 10i8, a16: 10i16, a32: 10i32,
+            b8: 10u8, b16: 10u16, b32: 10u32, c24: 10i24, d24: 10u24,
+            c56: 10i56, d56: 10u56, e64: 10i64, f64c: 1.5f64, g32: 1.5f32 },
+        R { k: 7i64, a8: 20i8, a16: 20i16, a32: 20i32,
+            b8: 20u8, b16: 20u16, b32: 20u32, c24: 20i24, d24: 20u24,
+            c56: 20i56, d56: 20u56, e64: 20i64, f64c: 2.5f64, g32: 2.5f32 },
+        R { k: 7i64, a8: 40i8, a16: 40i16, a32: 40i32,
+            b8: 40u8, b16: 40u16, b32: 40u32, c24: 40i24, d24: 40u24,
+            c56: 40i56, d56: 40u56, e64: 40i64, f64c: 4.0f64, g32: 4.0f32 }];
+
+    // 10 + 20 + 40 = 70, in every width the lattice admits below 64 bits.
+    let v1: Vec<i64> = s_a8(&rs[..]).unwrap();
+    if v1.len() != 1i64 || v1.get(0i64) != 70i64 { return 10i32; }
+    let v2: Vec<i64> = s_a16(&rs[..]).unwrap();
+    if v2.len() != 1i64 || v2.get(0i64) != 70i64 { return 11i32; }
+    let v3: Vec<i64> = s_b8(&rs[..]).unwrap();
+    if v3.len() != 1i64 || v3.get(0i64) != 70i64 { return 12i32; }
+    let v4: Vec<i64> = s_b16(&rs[..]).unwrap();
+    if v4.len() != 1i64 || v4.get(0i64) != 70i64 { return 13i32; }
+    let v5: Vec<i64> = s_b32(&rs[..]).unwrap();
+    if v5.len() != 1i64 || v5.get(0i64) != 70i64 { return 14i32; }
+    let v6: Vec<i64> = s_c24(&rs[..]).unwrap();
+    if v6.len() != 1i64 || v6.get(0i64) != 70i64 { return 15i32; }
+    let v7: Vec<i64> = s_d24(&rs[..]).unwrap();
+    if v7.len() != 1i64 || v7.get(0i64) != 70i64 { return 16i32; }
+    let v8: Vec<i64> = s_c56(&rs[..]).unwrap();
+    if v8.len() != 1i64 || v8.get(0i64) != 70i64 { return 17i32; }
+    let v9: Vec<i64> = s_d56(&rs[..]).unwrap();
+    if v9.len() != 1i64 || v9.get(0i64) != 70i64 { return 18i32; }
+    let v10: Vec<i64> = s_e64(&rs[..]).unwrap();
+    if v10.len() != 1i64 || v10.get(0i64) != 70i64 { return 19i32; }
+
+    // sum 70, min 10, max 40 → 70*10000 + 10*100 + 40 = 701040
+    let v11: Vec<i64> = m_a32(&rs[..]).unwrap();
+    if v11.len() != 1i64 || v11.get(0i64) != 701040i64 { return 20i32; }
+
+    // 1.5 + 2.5 + 4.0 = 8.0, exactly, in both widths.
+    let v12: Vec<f64> = s_f64(&rs[..]).unwrap();
+    if v12.len() != 1i64 || v12.get(0i64) != 8.0f64 { return 21i32; }
+    let v13: Vec<f64> = s_g32(&rs[..]).unwrap();
+    if v13.len() != 1i64 || v13.get(0i64) != 8.0f64 { return 22i32; }
+    let v14: Vec<f64> = n_g32(&rs[..]).unwrap();
+    if v14.len() != 1i64 || v14.get(0i64) != 1.5f64 { return 23i32; }
+
+    return 0i32;
+}
