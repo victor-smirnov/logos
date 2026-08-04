@@ -1,48 +1,76 @@
-// Regression guard for the type-driven `readonly`/`noalias` on shared `&T`
-// (rustc-parity Slice C). A type with interior mutability (UnsafeCell, directly
-// or transitively) must NOT be classified Freeze — else the optimizer may treat
-// `&Cell` as readonly and fold the post-mutation read back to the pre-mutation
-// value. Each `observe_*` reads, mutates THROUGH the shared `&`, and reads again
-// across the opaque `set` call; a wrongly-emitted readonly yields the STALE
-// value and the asserts below return non-zero (test fails).
+// BEHAVIOURAL guard for the Freeze predicate that gates `noalias`+`readonly`
+// on a shared `&T` (rule `type.shared-ref.write-through-derived-ub`,
+// src/compiler/mlir_gen_fn.cpp). A type with interior mutability (UnsafeCell,
+// directly or transitively) must NOT be classified Freeze — otherwise the
+// optimizer is told the callee never writes through the reference, and the
+// read after the mutation folds back to the pre-mutation value.
 //
-// ⚠ THIS TEST IS NOT THE GUARD — tests/logos/ir/param_attrs_freeze IS.
-// MEASURED 2026-08-04 with the Freeze gate forced open in the compiler
+// ── WHY THIS FILE LOOKS THE WAY IT DOES ─────────────────────────────────────
+// It used to hold the `observe_*` functions ITSELF, and it asserted nothing.
+// MEASURED 2026-08-04: with the Freeze gate forced open in the compiler
 // (`if (true || type_is_freeze(...))`, so `&Cell<i64>` and `&Wrap` WRONGLY
-// carry noalias+readonly, confirmed in the emitted IR): this file still exits
-// 0 at -O0, -O1, -O2 AND -O3, because Cell::get/set inline into the caller and
-// LLVM sees the real stores. The reasoning in the paragraph above is sound but
-// the optimizer declines to take the bait, so a green here distinguishes
-// nothing. It is kept as a behavioural smoke test of Cell itself; the
-// attribute claim is asserted on the EMITTED IR, which shares no code with
-// `type_is_freeze` and which the control revert makes fail in both directions.
+// carry noalias+readonly — confirmed in the emitted IR), the old file still
+// exited 0 at -O0, -O1, -O2 AND -O3. The reasoning was sound; the test was
+// not. A parameter attribute is a claim made TO LLVM, and LLVM can only act on
+// it while the call is still a call: in one translation unit `observe_cell`
+// inlines into `main`, the parameter and its attributes disappear, and the
+// optimizer simply sees the real stores.
+//
+// So the mutators moved ACROSS AN ARCHIVE BOUNDARY. They now live in
+// tests/logos/ub_boundary/, which is compiled separately into libub_boundary.a
+// AT -O2 (tests/logos/CMakeLists.txt). The read → mutate → read sequence has to
+// survive optimization inside that archive, with the attribute still attached
+// to a real definition, before this file ever links against it.
+//
+// CONTROL REVERT, both exit codes observed directly:
+//   * HEAD                        → exit 0 (ctest green)
+//   * Freeze gate forced open     → exit 1, i.e. ctest RED: the `observe_cell`
+//                                   probe returns the STALE pre-mutation value.
+//     The `observe_wrap` probe was proved to bite ON ITS OWN in a separate run
+//     — a consumer holding only that probe exited 3 under the same revert, and
+//     under the WEAKER condition of a stdlib still built by the good compiler.
+//     So neither probe is carried by the other.
+//   * gate restored               → exit 0
+// The CONTROL (`bump_plain`, exit 5) stayed green through all of that, which is
+// what makes the reds above mean "the predicate broke" rather than "the archive
+// or the boundary broke".
+// Note the bite does NOT depend on the -O level of THIS file: the miscompile is
+// baked into the archive, so it fires at -O0 too. That is deliberate — the
+// corpus compiles at logosc's default -O0.
 package canary_interior_mut;
 
 use logos.lang.cell;
-
-// &Cell<i64>: Cell mutates through &self via UnsafeCell.
-fn observe_cell(c: &Cell<i64>) -> i64 {
-    let before: i64 = c.get();
-    c.set(before + 100i64);
-    return c.get();            // MUST be before+100, not before
-}
-
-struct Wrap { inner: Cell<i64>, tag: i64 }
-
-// Transitive: a plain struct that CONTAINS a Cell must also be non-Freeze.
-fn observe_wrap(w: &Wrap) -> i64 {
-    let before: i64 = w.inner.get();
-    w.inner.set(before + 7i64);
-    return w.inner.get();      // MUST be before+7
-}
+use ub_boundary;
 
 fn main() -> i32 {
+    // ── THE CONTROL RUNS FIRST, and it must, or a green below could mean
+    //    "the archive was never reached" instead of "the predicate is right".
+    //    `&mut Counter` on a Freeze pointee takes the OTHER branch of the same
+    //    emission (noalias from borrow-checker exclusivity, never readonly), so
+    //    it exercises the identical cross-archive read → mutate → read at -O2
+    //    while being untouched by the Freeze gate in either direction. If the
+    //    boundary or the mutation path were dead, this fails too and the
+    //    diagnosis is unambiguous.
+    //
+    //    ⚠ MEASURED, and it is why this is a Counter and not a Cell. The first
+    //    version used `&mut Cell<i64>` — and it FIRED (exit 5) on the very
+    //    revert the probes are supposed to catch, because `Cell::set` takes a
+    //    SHARED `&self` and so the "control" ran straight through the branch it
+    //    was controlling for. A control that shares the mechanism with its
+    //    subject is not a control.
+    let mut m: Counter = Counter { n: 1i64 };
+    if bump_plain(&mut m) != 2i64 { return 5; }
+
+    // ── PROBE 1: &Cell<i64>. UnsafeCell is the pointee's own struct.
     let c: Cell<i64> = Cell::new(5i64);
     if observe_cell(&c) != 105i64 { return 1; }
     if c.get() != 105i64 { return 2; }
 
+    // ── PROBE 2: &Wrap. UnsafeCell reached through a plain struct FIELD —
+    //    the transitive half of the predicate.
     let w: Wrap = Wrap { inner: Cell::new(10i64), tag: 0i64 };
     if observe_wrap(&w) != 17i64 { return 3; }
     if w.inner.get() != 17i64 { return 4; }
+
     return 0;
 }

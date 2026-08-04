@@ -1,0 +1,70 @@
+; FileCheck spec for param_attrs_freeze_lattice.logos — the five axes of the
+; Freeze lattice plus the unresolved-residue path.
+;
+; EACH PARAMETER LIST IS PINNED LITERALLY AND EXACTLY, in the same idiom as
+; param_attrs_freeze.check: the `{{[^(]*}}` wildcards around the symbol name
+; cannot cross a `(`, so they can never absorb an attribute. Every line is
+; therefore two-directional — an attribute appearing where it must not, and one
+; vanishing where it must be, break the match equally.
+;
+; LAYOUTS, HAND-DERIVED (all confirmed against the emitted IR afterwards):
+;   [Cell<i64>; 4] / [i64; 4]  = 32/8   (Cell<i64> is transparent over
+;                                        UnsafeCell<i64> over i64 = 8/8)
+;   Outer{Inner{Cell<i64>}, i64} = 16/8
+;   PtrField{*mut Cell<i64>}     = 8/8
+;   Box2<i64> / Box2<Cell<i64>>  = 8/8
+;   Option<i64> / Option<Cell<i64>> = 16/8 (i32 tag padded to the payload's
+;                                        align 8, plus the 8-byte payload)
+
+; ── AXIS 1: ARRAY ELEMENT RECURSION ────────────────────────────────────────
+; The two pointees have the IDENTICAL 32/8 layout and differ only in the
+; element type, so the aliasing pair moving between these two lines can only
+; mean the predicate stopped (or started) descending into `[T; N]`.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_array_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(32) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_array_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(32) %0)
+
+; ── AXIS 2: DEPTH-2 STRUCT NESTING ─────────────────────────────────────────
+; One peel is not a fixpoint. The Cell sits two struct levels down.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_nested2{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+
+; ── AXIS 3: RECURSION STOPS AT AN INDIRECTION ──────────────────────────────
+; `*mut Cell<i64>` is a POINTER field: the Cell is not among PtrField's own
+; inline bytes, so PtrField IS Freeze and earns the pair. This is rustc parity
+; and it is what keeps Rc/Arc — whose refcount lives behind a pointer they LOAD
+; — optimizable. If this line ever loses the pair, the exception clause of the
+; rule has collapsed and Rc::clone's soundness argument goes with it.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_ptr_field{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
+
+; ── AXIS 4: PER-INSTANCE, NOT PER-DEFINITION ───────────────────────────────
+; ONE generic function, two monomorphisations, opposite answers. The concrete
+; type argument is a trailing segment of the mangled name (`…Box2$G1$T__i64`
+; versus `…Box2$G1$T__Cell$G1$i64`), which is what makes these two lines
+; addressable apart. `T__i64` is pinned rather than a bare `i64`, because a bare
+; `i64` also occurs inside the Cell mangling and the two patterns would then be
+; free to bind to each other's symbol.
+;
+; ⚠ Note the `{{[^(]*}}` between the name and the `(`: these symbols are
+; QUOTE-WRAPPED in the IR (`@"…__i64"(ptr …)`), so the parameter list does not
+; follow the name directly. The wildcard still cannot cross a `(`, so it absorbs
+; the closing quote and nothing else — the parameter list stays pinned exactly.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_generic{{[^(]*}}Box2{{[^(]*}}T__i64{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_generic{{[^(]*}}Box2{{[^(]*}}T__Cell{{[^(]*}}i64{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+
+; ── AXIS 5: TWO ENUM INSTANCES COEXISTING ──────────────────────────────────
+; Both are `Option`, both 16/8; the answer must be keyed on the instance, not
+; cached on the enum name.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_plain{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_opt_cell{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+
+; ── RESIDUE: CONSERVATIVE ON AN UNRESOLVABLE POINTEE ────────────────────────
+; `Id::call`'s second parameter is the HRTB binder's `&'a T` — a bare TypeVar,
+; no instance of which exists. `align`/`dereferenceable` are a LAYOUT CLAIM and
+; must be OMITTED rather than guessed (a declined `layout_of` used to return
+; `{8,8}`, and that guess was written into the object file). `noalias`/
+; `readonly` are absent too, because nothing is known about the pointee.
+;
+; ⚠ THIS LINE IS THE STRICTEST IN THE FILE AND MUST STAY THAT WAY. It pins the
+; WHOLE parameter list including the leading by-value `self`, so an `align` or
+; `dereferenceable` reappearing on a residue param — the exact regression that
+; wrote a guessed alignment into an object file — cannot hide behind a wildcard.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}Id__call{{[^(]*}}(ptr %0, ptr noundef %1)

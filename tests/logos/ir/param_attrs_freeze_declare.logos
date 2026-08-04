@@ -1,0 +1,47 @@
+// IR snapshot for THE DECLARE SURFACE — by far the larger half of the
+// parameter-attribute bundle, and until now the unasserted one.
+//
+// `apply_param_attrs` has exactly ONE call site: `forward_declare`
+// (src/compiler/mlir_gen_fn.cpp). Pass 1 of mlir_gen forward-declares EVERY
+// non-lazy function in the program, so the bundle lands on every `declare`, not
+// only on the definitions this compilation owns. MEASURED 2026-08-04 on the
+// sibling test param_attrs_freeze.logos: 16178 lines of IR, 5978 `declare`
+// against 64 `define`, of which 489 declares carry `noalias noundef readonly`.
+// The unasserted surface was roughly 93x the asserted one, and it is exactly
+// the path where IMPORTED pointees live — types this compilation never sees a
+// definition for.
+//
+// That matters for soundness, not just coverage. A `readonly` on an imported
+// `&T` is a claim about a callee in ANOTHER archive. If the Freeze predicate
+// answered differently across a module boundary — the same type judged Freeze
+// here and not-Freeze where the body was compiled — the two would disagree
+// about whether the callee may write, and only the declare side is visible
+// here. So the declare path is held in BOTH directions, like the define path.
+//
+// Rule: `type.shared-ref.write-through-derived-ub`.
+package param_attrs_freeze_declare;
+
+use logos.lang.cmp;
+use logos.lang.cell;
+
+fn main() -> i32 {
+    // ── FREEZE, IMPORTED. `logos.lang.cmp.i64::cmp(&i64, &i64)` is a
+    //    non-generic stdlib function: its body lives in liblogos-lang.a and
+    //    this compilation only ever sees the declaration. i64 is Freeze, so
+    //    BOTH parameters must carry the full bundle.
+    let a: i64 = 3i64;
+    let b: i64 = 4i64;
+    let o: i32 = i64::cmp(&a, &b);
+
+    // ── NON-FREEZE, IMPORTED. `UnsafeCell<i64>::get(&self)` is the primitive
+    //    the entire interior-mutability discipline is built on. Its receiver
+    //    is the one pointee that must NEVER be judged Freeze, and it is
+    //    reached here across the same import boundary as the case above —
+    //    same path, opposite answer.
+    let u: UnsafeCell<i64> = UnsafeCell::new(9i64);
+    let p: *mut i64 = u.get();
+    unsafe { if (*p) != 9i64 { return 2; } }
+
+    if o == 99i32 { return 1; }
+    return 0;
+}

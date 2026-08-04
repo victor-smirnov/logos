@@ -1,0 +1,28 @@
+; FileCheck spec for param_attrs_freeze_declare.logos — the DECLARE half of the
+; parameter-attribute bundle.
+;
+; The sibling param_attrs_freeze.check pins `define` lines. This file pins
+; `declare` lines, which is where imported and cross-archive pointees live and
+; which outnumber the definitions ~93:1 in a small program.
+;
+; Both lines are matched on `declare`, not `define`, ON PURPOSE: if these
+; symbols ever start being emitted as definitions in the consuming TU, the
+; import boundary this test is about has gone away and the test must say so
+; rather than quietly keep passing on a `define`.
+;
+; LAYOUTS, HAND-DERIVED: i64 = 8/8; UnsafeCell<i64> is transparent over i64 =
+; 8/8. The two pointees are byte-identical in layout and differ ONLY in
+; interior mutability — which is precisely what makes the pair of lines below a
+; controlled comparison rather than two unrelated snapshots.
+
+; ── FREEZE across an import boundary: the full bundle on BOTH parameters. ───
+; The mangled name is pinned as far as `i64__cmp`, so the line cannot drift
+; onto some other comparison function.
+; CHECK-DAG: declare {{.*}}@{{[^(]*}}logos.lang.cmp.i64__cmp{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8), ptr noalias noundef readonly align 8 dereferenceable(8))
+
+; ── NON-FREEZE across the SAME import boundary: the layout half survives
+;    (noundef/align/dereferenceable are orthogonal to interior mutability),
+;    the aliasing pair must be absent. UnsafeCell is the root of the whole
+;    discipline — if ITS receiver is ever judged Freeze, every Cell, atomic,
+;    Mutex and RwLock in the tree silently follows it.
+; CHECK-DAG: declare {{.*}}@{{[^(]*}}UnsafeCell{{[^(]*}}__get{{[^(]*}}(ptr noundef align 8 dereferenceable(8))

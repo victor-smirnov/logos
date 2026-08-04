@@ -1,0 +1,108 @@
+# THE SHARED-&T UB LEDGER — the standing facts that rule
+# `type.shared-ref.write-through-derived-ub` rests on.
+#
+# The rule: given `r: &T` with T Freeze, the referent is immutable for r's
+# lifetime and a write through a pointer DERIVED FROM `r` is undefined. The
+# exception that makes it livable: a pointer VALUE loaded OUT of the referent
+# carries its own provenance, is not derived from `r`, and may be written
+# through — which is exactly what Rc::clone, Arc::clone, Weak::upgrade and
+# Rc/Arc::downgrade do.
+#
+# `shared_ref_ub_lint.sh` holds this file in BOTH directions: an entry that
+# appears, disappears, or changes count is RED either way. The number can only
+# move by somebody editing this file on purpose, which is the whole point — a
+# census that drifts on its own is a measurement nobody is reading.
+#
+# ⚠ WHY A CENSUS AND NOT AN ASSERTION. Neither section below can be decided by
+# reading text. Whether a given laundering site is sound depends on the receiver,
+# the pointee's Freeze-ness, and whether the write lands in the referent's own
+# bytes or behind a loaded pointer — none of which is visible in the shape. So
+# the lint does not judge; it makes the population impossible to change quietly,
+# and leaves the judging to the reviewer who adds the line.
+#
+# ── SECTION `ATOMIC` ─────────────────────────────────────────────────────────
+# Every `pub struct Atomic*` in stdlib/lang/atomic/atomic.logos, and whether its
+# declaration contains an `UnsafeCell`.
+#
+# THIS IS THE CLAUSE THAT WENT SILENTLY FALSE LAST TIME. The comment in
+# mlir_gen_fn.cpp asserted for months that atomics "are NOT UnsafeCell-wrapped
+# in our stdlib" — it had been false since the commit after it was written, and
+# nothing re-measured it. `type_is_freeze` recognises interior mutability ONLY
+# by finding an UnsafeCell in the pointee's inline bytes, so a primitive that
+# mutates through `&self` without one is classified Freeze, earns
+# noalias+readonly, and is miscompiled from -O1 up. A `no` in this column is a
+# soundness bug, and the lint reports it on its own terms, not just as a diff.
+#
+# FORMAT: `<StructName> <yes|no>`
+ATOMIC
+AtomicBool yes
+AtomicI16 yes
+AtomicI32 yes
+AtomicI64 yes
+AtomicI8 yes
+AtomicIsize yes
+AtomicPtr yes
+AtomicU16 yes
+AtomicU32 yes
+AtomicU64 yes
+AtomicU8 yes
+AtomicUsize yes
+#
+# ── SECTION `LAUNDER` ────────────────────────────────────────────────────────
+# Per-file count of the const->mut laundering shape in stdlib — the shape the
+# rule declares undefined to write through.
+#
+# PATTERN: `as \*const [^;]* as \*mut ` on `//`-comment-stripped lines. It is
+# DELIBERATELY BROADER than "same type on both sides": it also catches
+# `as *const A as *mut B`, which launders just as well. Over-count, never
+# under-count. Comments are stripped because this rule is the most heavily
+# documented thing in the tree and a site that EXPLAINS the class must not read
+# as an instance of it — otherwise the incentive becomes "document less".
+#
+# ⚠ WHAT A ROW DOES NOT MEAN. A row is not an accusation. Every site here was
+# read and is sound for one of five reasons, none of them textual: a `&mut self`
+# receiver (fabric push/set/insert/erase), a by-value `self` (Vec::into_iter,
+# PrimVec::drop), a non-Freeze pointee (every writ site — Writ holds UnsafeCell),
+# a cast used only to reach a `*mut`-receiver method for a READ (http types /
+# serialize / parse, hashmap_at, deem/incr, node_arc_data_ptr), or THE
+# LOADED-POINTER EXCEPTION (rc.logos, arc.logos — the refcount lives behind
+# `self.inner`, which is loaded, so the write is not derived from the shared
+# reference). That audit is a hand read of one syntactic form: it is evidence,
+# not a proof of absence, which is precisely why the population is pinned here
+# rather than re-derived by hand the next time somebody asks.
+#
+# ⚠ AND WHAT THIS SECTION CANNOT DO: it says nothing about USER code. Nothing in
+# the tree detects the prohibited shape outside stdlib; a real detector must
+# model the provenance chain, because a syntactic matcher would fire on every
+# Rc/Arc/Weak method above. That is an open question, not an oversight.
+#
+# FORMAT: `<repo-relative path>\t<count>`  (TAB-separated)
+LAUNDER
+stdlib/lang/atomic/atomic.logos	2
+stdlib/lang/cell/cell.logos	2
+stdlib/lang/fabric/fabric.logos	6
+stdlib/lang/ptr/ptr.logos	1
+stdlib/lang/rc/rc.logos	7
+stdlib/lang/writ/array.logos	2
+stdlib/lang/writ/decimal.logos	1
+stdlib/lang/writ/parameter.logos	1
+stdlib/lang/writ/tmpl.logos	1
+stdlib/lang/writ/typed_arr.logos	2
+stdlib/lang/writ/typed_value.logos	1
+stdlib/lang/writ/wmap.logos	4
+stdlib/lang/writ/wstring.logos	1
+stdlib/lcm/deem/data/bt/node.logos	1
+stdlib/mem/collections/hashmap/hashmap.logos	1
+stdlib/mem/collections/vec/vec.logos	1
+stdlib/mem/deem/incr.logos	5
+stdlib/mem/sync/arc.logos	7
+stdlib/mem/wql/plan.logos	8
+stdlib/mem/writ/clone.logos	1
+stdlib/mem/writ/parser.logos	1
+stdlib/mem/writ/wbs.logos	2
+stdlib/std/io/http/parse.logos	1
+stdlib/std/io/http/serialize.logos	1
+stdlib/std/io/http/types.logos	5
+stdlib/std/os/unix/signal/signal.logos	2
+stdlib/std/rt/fiber/thread.logos	1
+stdlib/std/time/time.logos	1

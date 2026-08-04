@@ -104,6 +104,44 @@ add_custom_command(
 )
 add_custom_target(pub_lib_binary ALL DEPENDS ${PUB_LIB_BIN})
 
+# ── libub_boundary.a — THE ARCHIVE BOUNDARY THAT MAKES THE FREEZE CANARY BITE ─
+# `noalias`/`readonly` on a parameter is a claim made TO LLVM, and LLVM can only
+# act on it while the call is still a call. In ONE translation unit the mutator
+# inlines into its caller, the parameter and its attributes vanish, and the
+# optimizer sees the real stores — which is why the old single-file
+# interior_mut_freeze_canary stayed green at -O0..-O3 even with the Freeze gate
+# forced open (MEASURED 2026-08-04). Compiling the mutators separately keeps the
+# call a call.
+#
+# ⚠ THE `-O2` IS THE TEST, NOT A SETTING. The read → mutate → read sequence has
+# to survive optimization INSIDE this archive with the attribute still attached;
+# at -O0 nothing consults it and the fixture asserts nothing. Because the
+# miscompile is baked in HERE, the consuming test bites at logosc's default -O0,
+# which is what the corpus compiles at. Control revert, both codes observed:
+# gate forced open -> the consumer exits 1 (and 3 with probe 1 removed); gate
+# restored -> exits 0.
+#
+# ⚠ NO `depends` LINE IN THE MANIFEST, deliberately, matching pub_lib: the
+# warning logosc prints says dependency bodies are RECOMPILED from their
+# archived ASTs rather than linked, and that is precisely what this fixture
+# needs — Cell::get/set must be monomorphised and inlined into THIS archive at
+# -O2 for the fold to be reachable at all.
+set(UB_BOUNDARY_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/ub_boundary)
+set(UB_BOUNDARY_MANIFEST ${UB_BOUNDARY_DIR}/ub_boundary.module)
+set(UB_BOUNDARY_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libub_boundary.a)
+file(GLOB UB_BOUNDARY_SOURCES ${UB_BOUNDARY_DIR}/*.logos)
+add_custom_command(
+    OUTPUT  ${UB_BOUNDARY_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${UB_BOUNDARY_MANIFEST} -O2 -L ${STDLIB_BIN_DIR}
+            -o ${UB_BOUNDARY_BIN}
+    DEPENDS logosc ${UB_BOUNDARY_MANIFEST} ${UB_BOUNDARY_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libub_boundary.a (-O2, Freeze-predicate boundary)"
+)
+add_custom_target(ub_boundary_binary ALL DEPENDS ${UB_BOUNDARY_BIN})
+
 # ADR 0016 cross-module mapping fixture: a `pub mapping` published from a
 # binary module; consumers fuse its rules from the archived AST (the
 # MAPPING_DEF_DONE nodes keep their identity through the emit's thunk flip).
@@ -551,6 +589,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # Phase 1 of three-layer stdlib split: consumer pulls hi (which
     # depends mid + low via manifest, both resolved by emit_module).
     set(LOCAL_THREE_LAYER_USERS three_layer_chain)
+    # The Freeze-predicate behavioural guard. Its mutators live in
+    # libub_boundary.a (built at -O2) because a parameter attribute only has
+    # teeth while the call is still a call — see the fixture's comment above.
+    set(LOCAL_UB_BOUNDARY_USERS interior_mut_freeze_canary)
     set(LOCAL_METAPROG_PUBLIB_USERS metacall_item_use_inherit)
     # Tests that use std.compiler.metaprog (excluded from binary stdlib;
     # metaprog_stubs in libstdlib_rt.a satisfies the link).
@@ -583,6 +625,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
+    elseif (BASE IN_LIST LOCAL_UB_BOUNDARY_USERS)
+        set(_extra -l ${UB_BOUNDARY_BIN})
     elseif (BASE IN_LIST LOCAL_WQLMAP_USERS)
         set(_extra -l ${WQL_MAP_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
@@ -919,6 +963,32 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/separator_split.ledger
 )
 set_tests_properties(logos_00_separator_split_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint"
+)
+
+# ── THE SHARED-&T UB RULING CANNOT DRIFT BACK INTO PROSE ────────────────────
+# `noalias`+`readonly` on a shared `&T` is licensed by a LANGUAGE rule
+# (type.shared-ref.write-through-derived-ub), not by the optimizer. The emission
+# is pinned by IR snapshots; the argument was not, and the last time it was only
+# prose the bullet describing it drifted into a wrong answer that read like a
+# considered caveat and survived every green gate for months.
+#
+# This lint holds four mechanical facts instead of any wording: the readonly
+# write happens exactly once and inside the type_is_freeze block; the rule id
+# joins the emission site to the rule corpus; every `pub struct Atomic*` really
+# is UnsafeCell-wrapped (the clause that silently went false last time); and the
+# const->mut laundering census matches the ledger in both directions. It carries
+# six self-canaries through the same readers — including one that must NOT fire
+# on a commented-out emission, because mlir_gen_fn.cpp quotes the old wrong
+# wording verbatim and the lint has to survive its own documentation.
+add_test(
+    NAME logos_00_shared_ref_ub_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub.ledger
+)
+set_tests_properties(logos_00_shared_ref_ub_lint PROPERTIES
     TIMEOUT 60
     LABELS  "logos;lint;suite_lint"
 )

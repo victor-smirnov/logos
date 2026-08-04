@@ -1,0 +1,61 @@
+// ub_boundary — the fixture archive for the Freeze-predicate BEHAVIOURAL guard.
+//
+// WHY AN ARCHIVE AND NOT A FILE. `noalias`/`readonly` on a parameter is a claim
+// made TO LLVM, and LLVM can only act on it while the call is still a call. In a
+// single translation unit these `observe_*` bodies inline into their caller, the
+// parameter (and its attributes) vanish, and the optimizer sees the real stores
+// — which is exactly why the old single-file canary stayed green at -O0..-O3
+// even with the Freeze gate forced open (MEASURED 2026-08-04).
+//
+// This package is compiled SEPARATELY into libub_boundary.a AT -O2 (see
+// tests/logos/CMakeLists.txt). The read → mutate → read sequence therefore has
+// to survive optimization INSIDE this archive, with the parameter attribute
+// still attached to a real function definition, before the caller ever sees it.
+// If `type_is_freeze` wrongly reports `Cell<i64>` (or a struct containing one)
+// as Freeze, these functions carry `readonly` and the trailing read may be
+// folded back to the pre-mutation value — which is observable as a wrong return.
+package ub_boundary;
+
+use logos.lang.cell;
+
+// A plain struct that CONTAINS a Cell: the struct-field recursion of the
+// Freeze predicate, held across the same boundary as the direct case.
+pub struct Wrap { pub inner: Cell<i64>, pub tag: i64 }
+
+// &Cell<i64> — Cell mutates through &self via UnsafeCell, so Cell<i64> is NOT
+// Freeze and this parameter must carry NEITHER noalias NOR readonly.
+pub fn observe_cell(c: &Cell<i64>) -> i64 {
+    let before: i64 = c.get();
+    c.set(before + 100i64);
+    return c.get();            // MUST be before+100
+}
+
+// &Wrap — reached through a struct FIELD; same obligation.
+pub fn observe_wrap(w: &Wrap) -> i64 {
+    let before: i64 = w.inner.get();
+    w.inner.set(before + 7i64);
+    return w.inner.get();      // MUST be before+7
+}
+
+// THE CONTROL, and it is not decoration. If the two probes above ever pass
+// because the archive stopped being built, stopped being linked, or stopped
+// being optimized, this function passing proves the boundary is live and the
+// cross-archive read → mutate → read at -O2 works — so a green above means
+// "the predicate is right", not "nothing ran".
+//
+// ⚠ IT WRITES A PLAIN FIELD THROUGH `&mut`, AND THAT SHAPE IS LOAD-BEARING.
+// The first version of this control took `&mut Cell<i64>` and went through
+// Cell::get/set — which was WRONG, and measurably so: `Cell::set` takes a
+// SHARED `&self`, so the control routed through the very branch it was meant
+// to be independent of, and it fired (exit 5) on the same revert as the probes.
+// A control that shares the mechanism with the thing it controls for is not a
+// control. `&mut Counter` on a Freeze pointee takes the OTHER branch of the
+// emission — noalias from borrow-checker exclusivity, never readonly — so it
+// is untouched whether the Freeze gate is forced open or forced shut.
+pub struct Counter { pub n: i64 }
+
+pub fn bump_plain(c: &mut Counter) -> i64 {
+    let before: i64 = c.n;
+    c.n = before + 1i64;
+    return c.n;                // MUST be before+1
+}

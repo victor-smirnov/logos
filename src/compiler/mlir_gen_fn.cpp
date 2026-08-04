@@ -154,7 +154,7 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 // Emits, on a THIN ptr param only:
 //   &T / &mut T   → noundef, align(N), dereferenceable(size>0)
 //   &mut T        → + noalias                     (borrow-checker exclusivity)
-//   &T, T Freeze  → + noalias, readonly           (see the OPEN QUESTION below)
+//   &T, T Freeze  → + noalias, readonly    (rule type.shared-ref.write-through-derived-ub)
 //
 // Soundness gates (see project_rustc_parity_type_attrs / the audit roadmap):
 //   • Kind ∈ {Ref, MutRef} AND ref_repr_of == ThinPtr. This self-excludes raw
@@ -188,47 +188,75 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     reads as a considered one — which is why the note stays here instead
 //     of being quietly deleted.
 //
-//   • OPEN QUESTION, NOT SETTLED HERE — and it is a LANGUAGE question, not a
+//   • WHAT LICENSES THE ATTRIBUTE — SETTLED, and it is a LANGUAGE rule, not a
 //     codegen one. `readonly` says the callee performs no write through this
 //     argument or anything derived from it. UnsafeCell is not a privileged
 //     writer in Logos; it is only a MARKER that turns the predicate off. The
 //     `&x as *const T as *mut T` cast is permitted on EVERY type in an unsafe
 //     block, by explicit design (stdlib/lang/cell/cell.logos:15-16), and
 //     `NonNull::from_ref(&T) -> NonNull<T>` (stdlib/lang/ptr/ptr.logos:241)
-//     ships that laundering as a stdlib API. In rustc the subsequent write is
-//     UB, and THAT is what makes rustc's noalias+readonly on a shared &T
-//     sound. Logos inherited the attribute; it has not yet written down the
-//     rule that licenses it — cell.logos:22-24 says the borrow checker "does not
-//     yet model interior-mutability aliasing". Until Victor rules on whether
-//     that write is UB, the emission stands on rustc parity ALONE and this
-//     comment claims nothing more.
+//     ships that laundering as a stdlib API. So the attribute cannot rest on
+//     "nobody can make such a pointer" — it rests on a rule about the PROGRAM:
+//
+//       RULE type.shared-ref.write-through-derived-ub (tools/spec-extract/
+//       rules/codegen/mlir_gen_fn/logos.json). Given `r: &T` with T Freeze, the
+//       referent is IMMUTABLE for r's lifetime, and a write through any pointer
+//       whose provenance chain is rooted at `r` is UNDEFINED.
+//       EXCEPTION: a pointer VALUE loaded OUT of the referent carries its own
+//       provenance and is NOT derived from `r`; writing through it is defined.
+//
+//     THE EXCEPTION IS NOT A TECHNICALITY — IT IS WHY THE RULE IS LIVABLE.
+//     `Rc<T> { inner: *mut RcInner<T> }` is Freeze exactly because the Freeze
+//     recursion stops at the indirection, so `&Rc<T>` really does carry
+//     noalias+readonly; and `Rc::clone` bumps a refcount reached by LOADING
+//     `self.inner`, never by writing into the referent's own bytes. Drop the
+//     exception and this rule condemns Rc::clone, Arc::clone, Weak::upgrade and
+//     Rc/Arc::downgrade — all correct today. The mechanical guard on the
+//     exception is tests/logos/ir/param_attrs_freeze_lattice's `axis_ptr_field`
+//     line: it goes red the moment the recursion stops stopping at a pointer.
+//
+//     THIS IS RUSTC PARITY, NOT A DIVERGENCE — rustc emits the identical
+//     noalias+readonly on &T and rests on exactly this rule. It therefore
+//     belongs in the SPEC, and NOT in DIVERGENCES.md.
+//
 //     MEASURED 2026-08-04, so the exposure is known rather than guessed:
 //       – THE EXPOSURE IS CONFINED TO `unsafe`. The cast itself is safe (it
 //         only makes a pointer), but the write is not: dropping the unsafe
-//         block off the repro below fails the compile with "write through raw
-//         pointer field requires unsafe context" + "dereference of raw pointer
-//         requires unsafe context" (logosc rc=1). So no SAFE Logos program can
-//         reach the divergence, and a "this write is UB" rule would bind
-//         exactly where the obligation already sits. That is the strongest
-//         argument for parity with rustc — but it is still a ruling to make,
-//         not one to infer here.
-//       – A synthetic program that takes the cast and writes DOES diverge:
-//         `fn bump(c: &Counter)` writing through the cast returns the right
-//         value at -O0 and the stale pre-call one at -O1/-O2/-O3. Toggling
-//         ONLY the two setArgAttr lines below makes it agree again at every
-//         level, so the attribute is the cause and nothing else is.
-//       – No stdlib instance. Every `as *const X as *mut X` site was read:
-//         each is either behind a `&mut self` (fabric push/set/insert/erase),
-//         a by-value `self` (Vec::into_iter, PrimVec::drop), a non-Freeze
-//         pointee (every writ site — Writ holds UnsafeCell), or a cast used
-//         only to reach a `*mut`-receiver method for a READ (http types /
-//         serialize / parse, hashmap_at, deem/incr, node_arc_data_ptr).
-//         That audit is a hand read of ONE syntactic form; it is evidence,
-//         not a proof of absence.
-//     If the ruling is "defined, not UB", the two setArgAttr lines below are
-//     what comes out, and the optimization cost must be measured before the
-//     trade is judged. If it is "UB", this bullet becomes the argument and
-//     the cast-then-write shape wants a detector — nothing detects it today.
+//         block off a cast-then-write repro fails the compile with "write
+//         through raw pointer field requires unsafe context" + "dereference of
+//         raw pointer requires unsafe context" (logosc rc=1). So no SAFE Logos
+//         program can reach the rule, and it binds exactly where an obligation
+//         already sits (spec `stmt.deref-write.raw-ptr-unsafe`).
+//       – ⚠ AN EARLIER NOTE HERE CLAIMED the synthetic cast-then-write "returns
+//         the right value at -O0 and the stale pre-call one at -O1/-O2/-O3".
+//         RE-MEASURED and it does NOT reproduce in that shape: a single-file
+//         `fn bump(c: &Counter)` doing read → cast-write → read exits 0 at ALL
+//         FOUR levels, even though the emitted IR shows `bump` carrying
+//         `ptr noalias noundef readonly`. The reason is the same one that made
+//         the old behavioural canary useless: `bump` INLINES into `main`, and
+//         inlining drops the parameter attributes before any pass can act on
+//         them. A parameter attribute only has teeth while the call is still a
+//         call. Cross an archive boundary and it bites immediately — see
+//         tests/logos/ub_boundary/ (built at -O2) and the control revert
+//         recorded in tests/logos/pass/interior_mut_freeze_canary.logos.
+//         Recorded rather than quietly corrected, because "measured" was doing
+//         the work of "true" in a claim nothing re-ran.
+//       – No stdlib instance of the prohibited shape. Every `as *const X as
+//         *mut X` site was read: each is either behind a `&mut self` (fabric
+//         push/set/insert/erase), a by-value `self` (Vec::into_iter,
+//         PrimVec::drop), a non-Freeze pointee (every writ site — Writ holds
+//         UnsafeCell), a READ through a `*mut`-receiver method (http types /
+//         serialize / parse, hashmap_at, deem/incr, node_arc_data_ptr), or the
+//         LOADED-POINTER EXCEPTION (rc.logos, arc.logos). That audit is a hand
+//         read of ONE syntactic form; it is evidence, not a proof of absence,
+//         which is why tests/logos/shared_ref_ub_lint.sh now holds the census
+//         against a ledger instead of leaving it to the next hand read.
+//
+//     STILL UNENFORCED, stated so the rule is not mistaken for a check: nothing
+//     DETECTS a user program that takes the cast and writes. A real detector
+//     must model the PROVENANCE CHAIN rather than the syntax, because the
+//     exception above is the common and correct stdlib shape and a syntactic
+//     matcher would fire on every Rc/Arc/Weak method in the tree.
 //
 //   • The arg-index walk MIRRORS make_fn_type's slot-push order exactly: anyval
 //     → one i32 slot; Array → one ptr slot; a param whose logos_to_mlir is null
@@ -279,16 +307,28 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
                 // Shared &T: noalias + readonly ONLY when T is Freeze. The
                 // UnsafeCell discipline is what makes a non-Freeze pointee
                 // (Cell/atomic/Mutex/…) keep NEITHER, so mutation through a
-                // coexisting interior-mut path is not mis-assumed away. That
-                // is necessary, and — see the OPEN QUESTION in the header —
-                // it is not by itself the whole soundness argument, because
-                // the const→mut cast is legal on a Freeze T too.
+                // coexisting interior-mut path is not mis-assumed away.
                 //
-                // THE TWO LINES BELOW ARE WHAT A RULING OF "not UB" REMOVES.
-                // They are pinned by tests/logos/ir/param_attrs_freeze in BOTH
-                // directions; the behavioural canary tests/logos/pass/
-                // interior_mut_freeze_canary is NOT sufficient — MEASURED, it
-                // stays green at -O0..-O3 with this gate forced open.
+                // WHAT MAKES THESE TWO LINES SOUND is not the predicate alone —
+                // the const→mut cast is legal on a Freeze T too — but the
+                // language rule that the header states in full:
+                //   type.shared-ref.write-through-derived-ub
+                // a write through a pointer DERIVED FROM a shared &T with a
+                // Freeze pointee is UNDEFINED, while a write through a pointer
+                // LOADED FROM the referent is not derived from it and stays
+                // defined (that clause is what keeps Rc/Arc sound). Rustc
+                // parity; spec rule, not a divergence.
+                //
+                // PINNED IN BOTH DIRECTIONS by tests/logos/ir/
+                // param_attrs_freeze (definitions), _declare (the far larger
+                // imported-declaration surface) and _lattice (the predicate's
+                // five axes, incl. the indirection stop the exception needs).
+                // The behavioural guard tests/logos/pass/
+                // interior_mut_freeze_canary only bites because its mutators
+                // live ACROSS AN ARCHIVE BOUNDARY (tests/logos/ub_boundary,
+                // built at -O2): in one TU they inline and the attribute is
+                // gone before any pass sees it. MEASURED — as a single file it
+                // stayed green at -O0..-O3 with this gate forced open.
                 if (type_is_freeze(pt.pointee())) {
                     f.setArgAttr(arg, "llvm.noalias", unit);
                     f.setArgAttr(arg, "llvm.readonly", unit);
