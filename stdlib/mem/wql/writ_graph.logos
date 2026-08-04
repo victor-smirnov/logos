@@ -91,10 +91,22 @@ fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
     if child.is_int()       { vi = child.as_i64(); }
     else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
     // f64 leaf: vi carries the IEEE-754 BIT PATTERN (kind == "f64" tells the
-    // consumer to reinterpret via f64_from_bits). Bit identity is exact and
-    // Hash/Eq-sound — the honest set semantics for floats (NaN payloads and
-    // ±0.0 stay distinct); the VALUE itself cannot be a rel column (not Eq).
+    // consumer to reinterpret via f64_from_bits) — vi is the VALUE, and it is
+    // bit-exact, so a stored −0.0 reads back as −0.0. It must NOT be keyed
+    // through `f64_data_key`: that would turn the stored −0.0 into +0.0.
     // Before this, an f64 leaf was VISIBLE but its value silently dropped.
+    //
+    // ⚠ KNOWN GAP, the same one `deem/exec.logos` ts_walk records — see the
+    // comment there, which is the canonical statement of it. This column is
+    // BOTH the value and the Eq/Hash key of the set vocabulary, so `distinct`
+    // and join over a float column separate −0.0 from +0.0 and separate two
+    // NaNs of different payload, where the semantics `f64_data_key` gives
+    // `order by` (PostgreSQL's, `lang/num/float.logos`) says all three are one
+    // value. `order by e.vi` is i64 order over those bits, so negative floats
+    // come back reversed. Closing it needs the value and the key to stop being
+    // the same column; that is an arc, not an edit here. It is DETERMINISTIC —
+    // it does not move with the optimiser — so it is a semantics gap, not a
+    // correctness hazard.
     else if child.is_float() { vi = f64_to_bits(child.as_f64()) as i64; }
     out.push((parent.raw() as i64, key, idx, cid, wg_kind(child),
               child.type_code() as i64, vi, child.as_wstr()));
@@ -165,9 +177,16 @@ pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
     // their anchor (`parent == 0`) without threading root handles through
     // params. 0 is reserved: no real node handle is 0.
     let rid: i64 = if wg_is_container(rv) { rv.raw() as i64 } else { wg_fnv2(0i64, 0i64) };
+    // vi0 follows wg_emit's canonical fillers EXACTLY — the root edge is a row
+    // of the same relation, so it must fill the same columns from the same
+    // value. The float arm was missing here while wg_emit and the dynamic twin
+    // (`deem/exec.logos` ts_scan) both had one, so a float-ROOTED document read
+    // back with vi == 0: the value was dropped, and 0 is a legal f64 bit
+    // pattern (+0.0), so nothing downstream could tell it from a real answer.
     let mut vi0: i64 = 0i64;
-    if rv.is_int()       { vi0 = rv.as_i64(); }
-    else if rv.is_bool() { vi0 = if rv.as_bool() { 1i64 } else { 0i64 }; }
+    if rv.is_int()        { vi0 = rv.as_i64(); }
+    else if rv.is_bool()  { vi0 = if rv.as_bool() { 1i64 } else { 0i64 }; }
+    else if rv.is_float() { vi0 = f64_to_bits(rv.as_f64()) as i64; }
     out.push((0i64, "", 0i64 - 1i64, rid, wg_kind(rv), rv.type_code() as i64, vi0, rv.as_wstr()));
     let mut seen: Vec<u64> = vec_new::<u64>();
     seen.push(rv.raw() as u64);

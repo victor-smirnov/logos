@@ -1,0 +1,116 @@
+// wql_graph_float_root_vi — the VIRTUAL ROOT EDGE of a document whose root is
+// a bare f64. The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs)
+// is declared ONE vocabulary across binding times: the static walker
+// (logos.std.wql.writ_graph::writ_graph_edges) and the dynamic walker
+// (logos.mem.deem::ts_scan) must emit the SAME row for the SAME document. For
+// every non-root float both walkers put the IEEE-754 bit pattern in `vi`
+// (kind == "f64" tells the consumer to reinterpret it with f64_from_bits);
+// on the ROOT edge the static walker filled `vi` for is_int/is_bool only, so a
+// float-rooted document lost its value and read back as 0 — the exact defect
+// its own leaf emitter's comment says was closed for leaves.
+//
+// THE ORACLE IS A HAND-DERIVED CONSTANT, NOT AGREEMENT BETWEEN THE ENGINES.
+// Both walkers implement the same vocabulary, so "static == dynamic" certifies
+// a shared fold, not a correct one. The expected bits are derived here from
+// IEEE 754 by hand and written as literals:
+//
+//   2.5  = +1.25 x 2^1 -> sign 0, exp 1023+1 = 1024 = 0x400,
+//          mantissa .25 = 0b01 in the top two bits = 0x4_0000_0000_0000
+//          => 0x4004_0000_0000_0000 = 4612811918334230528
+//   -0.0 -> sign 1, exp 0, mantissa 0
+//          => 0x8000_0000_0000_0000 = i64 MIN
+//
+// -0.0 is also the witness for "the stored value stays bit-exact": a negative
+// zero SELECTed back must still be a negative zero, whatever a future
+// key/dedup rule decides about GROUPING it with +0.0.
+//
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+// The root edge is the one with parent == 0 (0 is reserved: no real node
+// handle is 0), so these select exactly the virtual root row.
+pub deem root_vi(g: &Writ)   { from g e where e.parent == 0 select e.vi }
+pub deem root_kind(g: &Writ) { from g e where e.parent == 0 select e.kind : str }
+
+// The same vi query, run by the DYNAMIC engine over the same document.
+// Returns an empty Vec on any engine error; the caller distinguishes that
+// from a legitimately empty answer by the row-count assertion.
+fn dyn_root_vi(root: WAny) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", root);
+    let q: Query = match Query::compile("from g e where e.parent == 0 select e.vi", &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    let bits_2p5:  i64 = 0x4004000000000000i64;          // hand-derived, see header
+    let bits_neg0: i64 = (0x8000000000000000u64) as i64; // hand-derived, see header
+
+    // ── (1) root = 2.5 ──────────────────────────────────────────────────────
+    let d: Writ = writ_new(65536i64);
+    let fv: WAny = d.float(2.5f64);
+    if !fv.is_float() { return 90i32; }                  // setup, not the subject
+    d.set_root(fv);
+
+    let sv: Vec<i64> = match root_vi(&d)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if sv.len() != 1i64 { return 2i32; }
+    if sv.get(0i64) != bits_2p5 { return 3i32; }
+    if f64_from_bits(sv.get(0i64) as u64) != 2.5f64 { return 4i32; }
+
+    let dv: Vec<i64> = dyn_root_vi(fv);
+    if dv.len() != 1i64 { return 5i32; }
+    if dv.get(0i64) != bits_2p5 { return 6i32; }
+
+    // ── (2) root = -0.0: the stored value must come back BIT-EXACT ─────────
+    let d2: Writ = writ_new(65536i64);
+    let nz: WAny = d2.float(f64_from_bits(0x8000000000000000u64));
+    if !nz.is_float() { return 91i32; }
+    if (f64_to_bits(nz.as_f64()) as i64) != bits_neg0 { return 92i32; }   // setup
+
+    d2.set_root(nz);
+
+    let sv2: Vec<i64> = match root_vi(&d2)
+    { Result::Ok(v) => { v } Result::Err(_e3) => { return 7i32; } };
+    if sv2.len() != 1i64 { return 8i32; }
+    if sv2.get(0i64) != bits_neg0 { return 9i32; }
+    // it is a zero ...
+    if f64_from_bits(sv2.get(0i64) as u64) != 0.0f64 { return 10i32; }
+    // ... and specifically a NEGATIVE zero, not the +0.0 a dropped value gives
+    if (f64_to_bits(f64_from_bits(sv2.get(0i64) as u64)) as i64) != bits_neg0 { return 11i32; }
+
+    let dv2: Vec<i64> = dyn_root_vi(nz);
+    if dv2.len() != 1i64 { return 12i32; }
+    if dv2.get(0i64) != bits_neg0 { return 13i32; }
+
+    // ── (3) `kind` still names the payload the consumer must reinterpret ────
+    let sk: Vec<str> = match root_kind(&d)
+    { Result::Ok(v) => { v } Result::Err(_e4) => { return 14i32; } };
+    if sk.len() != 1i64 { return 15i32; }
+    if !str_eq(sk.get(0i64), "f64") { return 16i32; }
+
+    return 0i32;
+}
