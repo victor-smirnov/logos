@@ -29,17 +29,23 @@
 // is `EL_TY_STR`, whose members are exactly `str` and `String` (el.logos rows 17
 // and 18). This file is `str`; `wql_agg_avg_string_arg_fail` is `String`.
 //
-// ⚠⚠ IT IS NOT CLOSED OVER ARGUMENT TYPES, and an earlier version of this
-// comment said "there is no third" without that qualifier. `el_ty_of_name`
-// launders every unknown type name to `EL_TY_INT` — the same laundering this
-// commit removed one level down — so a STRUCT-typed column reaches the rule
-// table spelled INT, `agg_cast` comes out true, and `check_agg_operand` is
-// skipped exactly there. MEASURED: `struct Inner` with `avg(s.v)` gives
-// `<metaprog-blob-subst>: error [fn means_run]: cannot cast 'Inner' to 'f64'`,
-// rc=1, no object written — so it is refused, loudly and safely, but by the HOST
-// COMPILER inside a generated blob rather than by the front end naming the
-// clause, the aggregate and the column type. That is the half of the ruling this
-// file cannot claim. Pinned as current behaviour by wql_agg_avg_struct_arg_fail.
+// ⚠⚠ IT IS CLOSED OVER ARGUMENT TYPES TOO — SINCE, NOT WHEN THIS FILE WAS
+// WRITTEN. An earlier version of this paragraph recorded the gap: `el_ty_of_name`
+// launders every unknown type name to `EL_TY_INT`, so a STRUCT-typed column
+// reached the rule table spelled INT, `agg_cast` came out true, and
+// `check_agg_operand` was skipped exactly there — `struct Inner` with `avg(s.v)`
+// gave `<metaprog-blob-subst>: error [fn means_run]: cannot cast 'Inner' to
+// 'f64'`, rc=1, no object: refused loudly and safely, but by the HOST COMPILER
+// from inside a generated blob. It is now refused by `check_agg_arg_in_lattice`
+// (codegen.logos), which asks `infer_ty_name` — the question whose unresolvable
+// answer stays unresolvable — BEFORE the rule table is consulted, and names the
+// clause, the aggregate and the type. See wql_agg_avg_struct_arg_fail, and its
+// sibling wql_agg_sum_struct_arg_fail for the SECOND laundering site
+// (`infer_emit_ty`) that the skip route hid.
+//
+// ⚠ WHAT IS STILL OPEN HERE IS THE UDA ARGUMENT, and it is a different seam: a
+// UDA's argument is printed into the user's `_step`, whose declared T nothing in
+// the front end reads. Pinned as current behaviour by wql_agg_uda_f32_arg_fail.
 package test;
 
 use logos.std.wql.wql;

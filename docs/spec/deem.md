@@ -628,6 +628,14 @@ By default every dynamic source is declared with a schema code and `e.field` res
 
 *Evidence:* ADR 0012-queue2 §4/§4a (the Null propagation table); `stdlib/std/deem/deem.logos#L572-L590` (`bind_node_erased`/`bind_source_erased`), `L1666-L1671` (comparison/equality Null rules), `L1690-L1725` (arithmetic/negation → Null), `L1738-L1763` (builtins on non-string → Null), erased field read `L1589-L1600`
 
+### `deem.exec.lenient-bool-one` — a bool is worth ONE wherever a lenient value is read as a number
+
+A runtime `bool` reached through a lenient (`dyn`) path is worth `1`/`0` in EVERY numeric spelling: `rt_i` reads it as `1i64`/`0i64`, `rt_f` as `1.0f64`/`0.0f64`, and the two therefore agree. This governs lenient arithmetic (`e.meta + 1.0` over a `WAny` field holding `true` is `2.0`), the `avg`/`sum` accumulators (a bool addend contributes one), and the public `QRows::get_f64` accessor (a bool cell reads as `1.0`/`0.0`). It is one rule with one value, not a per-site convention — `check_expr` waives the numeric-operand refusal for `ct_is_open(t)` (`CT_UNKNOWN`/`CT_DYN`), so a `WAny` cell holding a bool is `CT_DYN` at check time and `RtVal::B` at run time and reaches every one of these sites.
+
+*Divergence:* EXTENSION — CEL has no bool→number coercion at all; Deem's lenient tier admits it and fixes the value at one, matching the earlier ruling that `avg` admits `bool` with `true` worth `1.0`. The STRICT tier is unaffected: there a bool operand is typed and refused where the EL's rule table refuses it.
+
+*Evidence:* `stdlib/mem/deem/deem.logos` (`rt_i` / `rt_f` `B` arms — `rt_i`'s dates to c00b2888 2026-07-02, `rt_f`'s to ce973c17); the shared rule table `agg_result_ty` admitting BOOL; pinned end-to-end by `tests/logos/pass/query_dyn_bool_arith_pinned`
+
 ### `deem.exec.dyn-cascade` — per-run join cascade from checked types
 
 The dynamic join cascade is decided at `Query::compile` from the checked key types (hash for I/S/B, loop tier for F), not per-row — the SAME cascade rules as the static surface, re-hosted to the interpreter.

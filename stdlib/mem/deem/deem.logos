@@ -873,11 +873,17 @@ fn rt_i(v: RtVal) -> i64 {
 // 2.0 with this arm, 1.0 without it.
 //
 // So lenient arithmetic changed its answer, and Victor's ruling did not cover
-// that path — it covered `avg`. The new value is the consistent one (`rt_i` has
-// always answered 1 for a bool, so the two spellings now agree), but consistency
-// is an argument, not a ruling. PINNED by query_dyn_bool_arith_pinned so it
-// cannot drift a third time while the question is open. Pinning is not
-// ratifying; the fixture says so in its own header.
+// that path — it covered `avg`. RATIFIED SINCE: a bool is worth ONE in every
+// numeric spelling of a lenient value, which is now a stated rule
+// (`deem.exec.lenient-bool-one`, docs/spec/deem.md) and not merely the
+// behaviour a fixture happened to record. The grounds: `rt_i` has answered 1
+// for a bool since c00b2888 (2026-07-02, the original queue-2 slice — a month
+// older than this arm), so the two spellings agree rather than one conceding to
+// the other; ratifying preserves every program that works today, the express
+// ground the `avg` ruling gave; and a value that differs by which accessor
+// reads it is not a value. `query_dyn_bool_arith_pinned` remains the end-to-end
+// pin — it is now the rule's TEST rather than the rule's only record, and its
+// numbers did not move, because the numbers were what got ratified.
 //
 // ⚠⚠⚠ METHOD, because this cost an hour and nearly entered the record inverted:
 // the first attempt to check the two statements above ran `ctest` after editing

@@ -487,15 +487,22 @@ fn arr_new(var: str) -> Arr {
 // cleanly on re-appearance.
 //   keyv   — group key RtVal per slot (string keys interned into the out arena)
 //   gcount — Σw = count() value AND the avg denominator per slot
-//   gsum   — stride agg_n: Σ(w·rt_i(arg)) per agg slot (i64 → exact inverse, no
-//            float drift; matches the slice-1 i64-value constraint). count slots
-//            carry an unused 0; avg slots carry the numerator Σ(w·arg).
+//   gsum   — stride agg_n: Σ(w·rt_i(arg)) per agg slot for an INTEGER-argument
+//            sum/avg (i64 → exact inverse, no float drift; matches the slice-1
+//            i64-value constraint). count slots carry an unused 0; avg slots
+//            carry the numerator Σ(w·arg).
+//   gsumf  — stride agg_n: the same running total for a FLOAT-argument sum/avg,
+//            Σ(w·rt_f(arg)). Exactly one of gsum/gsumf is live per agg slot,
+//            selected ONCE at construction by `agg_argf` (below) from the
+//            argument's CHECKED type — never per row, never from the value tag.
 //   live   — gcount>0 (the group currently has an emitted output row)
 //   idx    — rt_key_hash(key) -> slots (rt_eq verify on collision), the group
 //            probe index (mirrors zout's bucket+verify pattern).
 //   vbest  — stride agg_n: cached extremum per (slot,agg) for SEMILATTICE
-//            min/max columns (fnid 3/4). A placeholder 0 while the slot's
-//            vmap is empty (never read then); the first live insert sets it.
+//            min/max columns (fnid 3/4), as a VALUE for an integer argument and
+//            as the argument's IEEE BIT PATTERN for a float one. A placeholder 0
+//            while the slot's vmap is empty (never read then); the first live
+//            insert sets it.
 //   vmap   — stride agg_n: value→live-multiplicity map per (slot,agg) for
 //            min/max columns. `vmap[v] = Σw` of live rows carrying value `v`
 //            in that group; a key is dropped when its count reaches 0. On
@@ -503,10 +510,47 @@ fn arr_new(var: str) -> Arr {
 //            keys (only) for the next extremum (ADR 0013 §3.1, slice-4).
 //            INVARIANT: gcount>0 ⇔ vmap non-empty ⇔ vbest valid (for min/max
 //            columns); gcount is the single liveness/empty driver for all algebras.
+//
+// ⚠ THE FLOAT HALF IS NOT A WIDENING — ITS ABSENCE WAS A SILENT WRONG ANSWER.
+// Every accumulator here used to be `i64` and every argument entered through
+// `rt_i`, which for a float is `x as i64`. So the third engine TRUNCATED every
+// f64 addend while engines 1 and 2 were exact: `avg` over { 0.5, 1.5 } answered
+// 0.5 instead of 1.0, and `QRows::col_ty` said `f64` on both sides. For min/max
+// it was worse than truncation — the multiplicity map is KEYED on the
+// accumulated value, so 0.25 and 0.75 collided onto the single key 0 with count
+// 2, and retracting either would have retracted the other's multiplicity. That
+// is identity loss, not rounding. Pinned by query_incr_f64_agg_three_engines.
+//
+// ⚠ min/max KEY ON THE BIT PATTERN AND ORDER ON `f64_data_key`, WHICH ARE TWO
+// DIFFERENT QUESTIONS. Identity must be exact and INVERTIBLE — the emitted cell
+// is the argument's own value, so −0.0 must not come back as +0.0 and a NaN
+// payload must survive — and `f64_data_key` is neither (it maps both zeros and
+// every NaN onto one key). Order must be TOTAL — `<` is partial, so `max` over
+// { NaN, 1.0 } would answer 1.0 where the order says NaN is greatest — and the
+// bit pattern is not an order. So the map key is `f64_to_bits`, the comparator
+// is `f64_data_key`, and `agg_ord_key` below is the single place that says so.
+// This matches the batch engine, which compares min/max through `f64_data_key`
+// too (deem/exec.logos, `exec_aggr`).
+//
+// ⚠⚠ FORK, OPEN, AND DELIBERATELY NOT DECIDED HERE: `gsumf` IS NOT AN EXACT
+// ABELIAN GROUP. Retraction is `sum += w·arg` with w = −1, so the design rests
+// on (S + x) − x == S, which holds in i64 (with the checked overflow latch) and
+// does NOT hold in f64. The BASE EPOCH is exact-as-the-batch-engine either way
+// — it is the same left-to-right fold over the same row order — but an
+// f64-argument sum/avg can DRIFT from a batch recomputation after retractions.
+// The alternatives (a compensated accumulator, which reduces drift without
+// removing it; an exact re-fold over a retained multiset, which surrenders the
+// O(1) inverse that is the point of the DBSP design; or refusing an f64
+// argument to an incremental sum/avg outright, which withdraws a capability
+// that compiles today) are Victor's to choose. What is NOT open is the status
+// quo: it answered a WRONG number, exactly and repeatably, with no drift at all.
+// min/max carry no such caveat — a semilattice with a rescan-on-retract is exact
+// under either representation.
 pub struct AggState {
     keyv:   Vec<RtVal>,
     gcount: Vec<i64>,
     gsum:   Vec<i64>,
+    gsumf:  Vec<f64>,
     live:   Vec<bool>,
     idx:    HashMap<u64, Vec<i64>>,
     vbest:  Vec<i64>,
@@ -515,9 +559,30 @@ pub struct AggState {
 fn aggstate_new() -> AggState {
     return AggState {
         keyv: vec_new::<RtVal>(), gcount: vec_new::<i64>(), gsum: vec_new::<i64>(),
+        gsumf: vec_new::<f64>(),
         live: vec_new::<bool>(), idx: hashmap_new::<u64, Vec<i64>>(),
         vbest: vec_new::<i64>(), vmap: vec_new::<HashMap<i64, i64>>(),
     };
+}
+
+// The SEMILATTICE map key of a min/max argument: the value itself for an
+// integer column, the IEEE bit pattern for a float one (injective on values,
+// and invertible — see the ⚠ at `AggState`).
+fn agg_val_key(v: RtVal, isf: bool) -> i64 {
+    if isf { return f64_to_bits(rt_f(v)) as i64; }
+    return rt_i(v);
+}
+// The ORDER key of a stored min/max map key — identity for an integer column,
+// `f64_data_key` (total: all NaNs one value and greatest, −0.0 == 0.0) for a
+// float one. Every min/max comparison in this file goes through here.
+fn agg_ord_key(k: i64, isf: bool) -> i64 {
+    if isf { return f64_data_key(f64_from_bits(k as u64)); }
+    return k;
+}
+// The RtVal a stored min/max map key emits as.
+fn agg_val_of_key(k: i64, isf: bool) -> RtVal {
+    if isf { return RtVal::F(f64_from_bits(k as u64)); }
+    return RtVal::I(k);
 }
 // Group slot of key `k`, or -1 (rt_key_hash bucket + rt_eq verify).
 fn aggstate_find(agg: &AggState, k: RtVal) -> i64 {
@@ -558,6 +623,7 @@ fn aggstate_ensure(agg: &mut AggState, k: RtVal, n: i64, arena: &Writ) -> i64 {
     let mut i: i64 = 0i64;
     while i < n {
         agg.gsum.push(0i64);
+        agg.gsumf.push(0.0f64);
         agg.vbest.push(0i64);                        // placeholder (unread while vmap empty)
         agg.vmap.push(hashmap_new::<i64, i64>());    // SEMILATTICE value→live-count map
         i = i + 1i64;
@@ -978,6 +1044,13 @@ pub struct IncrJoin {
     agg_n:     i64,          // number of aggregate columns
     agg_fnid:  [i32; 8],     // AGG_* id per column (1 count / 2 sum / 5 avg — GROUP)
     agg_arg_w: [i64; 8],     // raw SExpr of each agg's arg (0 for count / has_arg=false)
+    // The argument of this agg column is FLOAT-classed (QPlan.agg_argt ==
+    // CT_FLT), decided ONCE from the checked type at construction. It selects
+    // the accumulator half — `gsumf` vs `gsum`, bit-keyed vs value-keyed
+    // min/max — and nothing else in this file may re-derive it, least of all
+    // from a per-row `RtVal` tag: a query's answer must not depend on which row
+    // arrived first. See the ⚠ block at `AggState`.
+    agg_argf:  [bool; 8],
     agg_out:   [str; 8],     // bound out-name of each agg column (projection reads it)
     key_w:     i64,          // raw SExpr of the group key (evaluated per scan row)
     agg:       AggState,     // the maintained per-group accumulators (a/b unused here)
@@ -1183,7 +1256,8 @@ impl IncrJoin {
         let mut seen:   Vec<bool> = vec_new::<bool>();
         let mut old_gc: Vec<i64>  = vec_new::<i64>();
         let mut old_lv: Vec<bool> = vec_new::<bool>();
-        let mut old_gs: Vec<i64>  = vec_new::<i64>();   // stride n (GROUP accumulator)
+        let mut old_gs: Vec<i64>  = vec_new::<i64>();   // stride n (GROUP accumulator, int arg)
+        let mut old_gsf: Vec<f64> = vec_new::<f64>();   // stride n (GROUP accumulator, float arg)
         let mut old_best: Vec<i64> = vec_new::<i64>();  // stride n (SEMILATTICE pre-epoch best)
         let mut touched: Vec<i64> = vec_new::<i64>();
 
@@ -1205,7 +1279,7 @@ impl IncrJoin {
                     old_gc.push(0i64);
                     old_lv.push(false);
                     let mut gi: i64 = 0i64;
-                    while gi < n { old_gs.push(0i64); old_best.push(0i64); gi = gi + 1i64; }
+                    while gi < n { old_gs.push(0i64); old_gsf.push(0.0f64); old_best.push(0i64); gi = gi + 1i64; }
                 }
                 if !seen.get(slot) {
                     seen.set(slot, true);
@@ -1215,6 +1289,7 @@ impl IncrJoin {
                     let mut gi2: i64 = 0i64;
                     while gi2 < n {
                         old_gs.set(slot * n + gi2, self.agg.gsum.get(slot * n + gi2));
+                        old_gsf.set(slot * n + gi2, self.agg.gsumf.get(slot * n + gi2));
                         old_best.set(slot * n + gi2, self.agg.vbest.get(slot * n + gi2));
                         gi2 = gi2 + 1i64;
                     }
@@ -1224,20 +1299,39 @@ impl IncrJoin {
                 let mut ai: i64 = 0i64;
                 while ai < n {
                     let fnid: i32 = self.agg_fnid[ai];
+                    let isf: bool = self.agg_argf[ai];
                     if fnid == 2i32 || fnid == 5i32 {
                         let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
                         if rt_is_err(av) { unsafe { *mep = true; } }
-                        let cur: i64 = self.agg.gsum.get(slot * n + ai);
-                        // checked accumulation: a running-total overflow latches
-                        // math_err (surfaced via had_error()), not a trap.
-                        let prod: i64 = match w.checked_mul(rt_i(av)) { Option::Some(p) => { p } Option::None => { unsafe { *mep = true; } 0i64 } };
-                        let tot:  i64 = match cur.checked_add(prod)   { Option::Some(t) => { t } Option::None => { unsafe { *mep = true; } cur } };
-                        self.agg.gsum.set(slot * n + ai, tot);
+                        if isf {
+                            // FLOAT argument: accumulate in f64 and do NOT round
+                            // through i64. There is no checked form here and none
+                            // is wanted — IEEE addition saturates to ±inf rather
+                            // than wrapping, so there is no overflow to latch;
+                            // the batch engine's f64 arm (exec.logos `exec_aggr`)
+                            // does the same and this is the seam where the two
+                            // must agree.
+                            let curf: f64 = self.agg.gsumf.get(slot * n + ai);
+                            self.agg.gsumf.set(slot * n + ai, curf + (w as f64) * rt_f(av));
+                        } else {
+                            let cur: i64 = self.agg.gsum.get(slot * n + ai);
+                            // checked accumulation: a running-total overflow latches
+                            // math_err (surfaced via had_error()), not a trap.
+                            let prod: i64 = match w.checked_mul(rt_i(av)) { Option::Some(p) => { p } Option::None => { unsafe { *mep = true; } 0i64 } };
+                            let tot:  i64 = match cur.checked_add(prod)   { Option::Some(t) => { t } Option::None => { unsafe { *mep = true; } cur } };
+                            self.agg.gsum.set(slot * n + ai, tot);
+                        }
                     } else if fnid == 3i32 || fnid == 4i32 {
                         // SEMILATTICE min/max (ADR 0013 §3.1, slice-4): maintain a
                         // value→live-multiplicity map + cached best; O(1) improve on
                         // insert, rescan this group's live keys on best-retraction.
-                        let av: i64 = rt_i(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch));
+                        // The map KEY: the value for an int column, the IEEE bit
+                        // pattern for a float one (injective on values AND
+                        // invertible — `f64_data_key` is neither, and keying on
+                        // `rt_i` collided 0.25 and 0.75 onto 0). Every ORDER
+                        // question below asks `agg_ord_key`, never `<` on this.
+                        let av: i64 = agg_val_key(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch), isf);
+                        let avo: i64 = agg_ord_key(av, isf);
                         let mp: *mut HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) };
                         let cp: *const i64 = unsafe { mp.get(&av) };
                         let cur: i64 = if (cp as i64) == 0i64 { 0i64 } else { unsafe { *cp } };
@@ -1255,8 +1349,8 @@ impl IncrJoin {
                             let mlen: i64 = unsafe { (&*(mp as *const HashMap<i64, i64>)).len() };
                             if mlen == 1i64 {
                                 self.agg.vbest.set(slot * n + ai, av);       // first live value = best
-                            } else if (fnid == 3i32 && av < self.agg.vbest.get(slot * n + ai))
-                                   || (fnid == 4i32 && av > self.agg.vbest.get(slot * n + ai)) {
+                            } else if (fnid == 3i32 && avo < agg_ord_key(self.agg.vbest.get(slot * n + ai), isf))
+                                   || (fnid == 4i32 && avo > agg_ord_key(self.agg.vbest.get(slot * n + ai), isf)) {
                                 self.agg.vbest.set(slot * n + ai, av);       // O(1) improve (meet/join)
                             }
                         }
@@ -1269,14 +1363,23 @@ impl IncrJoin {
                             //    O(log n) rescan — not built now (correctness-first).
                             let mpc: *const HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) } as *const HashMap<i64, i64>;
                             if unsafe { (&*mpc).len() } > 0i64 {
-                                let mut nb: i64 = if fnid == 3i32 { 9223372036854775807i64 } else { -9223372036854775807i64 - 1i64 };
+                                // SEED-FREE: the first live key IS the running
+                                // best. A ±i64 sentinel is only sound when the
+                                // sentinel is outside the key range, which was
+                                // true of raw i64 values and is NOT a property
+                                // anyone should have to re-check per key space.
+                                let mut nb:  i64  = 0i64;   // best raw map key
+                                let mut nbo: i64  = 0i64;   // its order key
+                                let mut first: bool = true;
                                 let mut kit: HashMapKeys<i64, i64> = unsafe { mpc.keys() };
                                 loop {
                                     match kit.next() {
                                         Option::Some(kp) => {
                                             let kv: i64 = *kp;
-                                            if fnid == 3i32 { if kv < nb { nb = kv; } }
-                                            else            { if kv > nb { nb = kv; } }
+                                            let ko: i64 = agg_ord_key(kv, isf);
+                                            if first { nb = kv; nbo = ko; first = false; }
+                                            else if fnid == 3i32 { if ko < nbo { nb = kv; nbo = ko; } }
+                                            else                 { if ko > nbo { nb = kv; nbo = ko; } }
                                         }
                                         Option::None => { break; }
                                     }
@@ -1302,12 +1405,17 @@ impl IncrJoin {
                 let mut oi: i64 = 0i64;
                 while oi < n {
                     let fnid: i32 = self.agg_fnid[oi];
+                    let isf: bool = self.agg_argf[oi];
                     if fnid == 1i32 {
                         oldvals.push(RtVal::I(old_gc.get(slot)));
                     } else if fnid == 5i32 {
-                        oldvals.push(RtVal::F((old_gs.get(slot * n + oi) as f64) / (old_gc.get(slot) as f64)));
+                        let num: f64 = if isf { old_gsf.get(slot * n + oi) }
+                                       else   { old_gs.get(slot * n + oi) as f64 };
+                        oldvals.push(RtVal::F(num / (old_gc.get(slot) as f64)));
                     } else if fnid == 3i32 || fnid == 4i32 {
-                        oldvals.push(RtVal::I(old_best.get(slot * n + oi)));   // pre-epoch extremum
+                        oldvals.push(agg_val_of_key(old_best.get(slot * n + oi), isf));   // pre-epoch extremum
+                    } else if isf {
+                        oldvals.push(RtVal::F(old_gsf.get(slot * n + oi)));
                     } else {
                         oldvals.push(RtVal::I(old_gs.get(slot * n + oi)));
                     }
@@ -1322,12 +1430,17 @@ impl IncrJoin {
                 let mut ni: i64 = 0i64;
                 while ni < n {
                     let fnid: i32 = self.agg_fnid[ni];
+                    let isf: bool = self.agg_argf[ni];
                     if fnid == 1i32 {
                         newvals.push(RtVal::I(newc));
                     } else if fnid == 5i32 {
-                        newvals.push(RtVal::F((self.agg.gsum.get(slot * n + ni) as f64) / (newc as f64)));
+                        let num: f64 = if isf { self.agg.gsumf.get(slot * n + ni) }
+                                       else   { self.agg.gsum.get(slot * n + ni) as f64 };
+                        newvals.push(RtVal::F(num / (newc as f64)));
                     } else if fnid == 3i32 || fnid == 4i32 {
-                        newvals.push(RtVal::I(self.agg.vbest.get(slot * n + ni)));   // post-epoch extremum
+                        newvals.push(agg_val_of_key(self.agg.vbest.get(slot * n + ni), isf));   // post-epoch extremum
+                    } else if isf {
+                        newvals.push(RtVal::F(self.agg.gsumf.get(slot * n + ni)));
                     } else {
                         newvals.push(RtVal::I(self.agg.gsum.get(slot * n + ni)));
                     }
@@ -1513,12 +1626,17 @@ impl Query {
                 // capture the group key + per-agg fnid / arg-expr / out-name
                 let mut afnid: [i32; 8] = [0i32; 8];
                 let mut aargw: [i64; 8] = [0i64; 8];
+                let mut aargf: [bool; 8] = [false; 8];
                 let mut aout:  [str; 8] = [""; 8];
                 let aggs: RAggArr = g.aggs_arr();
                 let mut ci2: i64 = 0i64;
                 while ci2 < an {
                     let ag: RAgg = aggs.agg_at(ci2);
                     afnid[ci2] = aqp.agg_fnid[ci2];
+                    // THE ARGUMENT's checked type, not the column's result type:
+                    // `avg` returns f64 over an i64 column too, and reading the
+                    // result type here is what truncated the float case.
+                    aargf[ci2] = aqp.agg_argt[ci2] == CT_FLT;
                     aout[ci2]  = ag.out;
                     if ag.has_arg { aargw[ci2] = ag.arg.any().raw(); }
                     ci2 = ci2 + 1i64;
@@ -1548,6 +1666,7 @@ impl Query {
                     is_anti: false,
                     ncols: ancols, ckind: ackind,
                     is_aggr: true, agg_n: an, agg_fnid: afnid, agg_arg_w: aargw,
+                    agg_argf: aargf,
                     agg_out: aout, key_w: akey_w, agg: aggstate_new(),
                     math_err: false,
                 };
@@ -1614,6 +1733,7 @@ impl Query {
             is_anti: is_anti,
             ncols: ncols, ckind: ckind,
             is_aggr: false, agg_n: 0i64, agg_fnid: [0i32; 8], agg_arg_w: [0i64; 8],
+            agg_argf: [false; 8],
             agg_out: [""; 8], key_w: 0i64, agg: aggstate_new(),
             math_err: false,
         };

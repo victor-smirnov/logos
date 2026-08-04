@@ -1,24 +1,39 @@
-// `avg` over a STRUCT-typed column: refused, but by the HOST COMPILER inside a
-// generated blob, not by the front end.
+// `avg` OVER A STRUCT-TYPED COLUMN IS REFUSED AT THE FRONT END.
 //
-// This pins a HOLE, not a virtue. `check_agg_operand` refuses a non-numeric
-// aggregate argument and names the clause, the aggregate and the column type —
-// see wql_agg_avg_str_arg_fail. It never runs for this shape. `el_ty_of_name`
-// launders every unknown type NAME to `EL_TY_INT`, which is the same laundering
-// removed one level down in the same commit, so a struct-typed column reaches the
-// rule table spelled INT, `agg_cast` comes out true, and the check is skipped
-// exactly where it is needed.
+// ⚠ THIS FILE PREVIOUSLY PINNED A HOLE, AND ITS OWN HEADER SAID SO. Until
+// 7f12908d it expected `cannot cast 'Inner' to 'f64'` — the HOST COMPILER,
+// reporting from `<metaprog-blob-subst>:3939` inside a generated blob, naming
+// neither the clause nor the aggregate nor the column. The program was refused
+// and no object was written, so nothing unsound ever shipped; the cost was
+// entirely the diagnostic. That header said the expectation WAS the defect and
+// that closing the hole meant rewriting this file. This is that rewrite.
 //
-// The program is still refused and no object is written, so nothing unsound
-// ships — the cost is the diagnostic. A user meeting this is told to look at
-// `<metaprog-blob-subst>` and at a function name the query never mentions.
+// THE HOLE. `el_ty_of_name` (el.logos) launders every unknown type NAME to
+// `EL_TY_INT` — the default arm of a 4-valued lattice. So a struct-typed column
+// reached the shared rule table spelled INT, `agg_result_ty("avg", INT)`
+// answered FLT, `agg_cast` came out true, and `compute_agg_bodies` skips
+// `check_agg_operand` exactly on `agg_cast`. The argument was never asked about.
 //
-// ⚠ THIS EXPECTATION IS THE DEFECT, NOT THE RULE. When `el_ty_of_name` stops
-// laundering — or when `check_agg_operand` learns to refuse an argument whose
-// type is outside the EL lattice before the rule table is consulted — this file
-// must be rewritten to expect the front-end message, and that rewrite is the
-// point. It is here so the hole cannot be closed by accident and go unnoticed,
-// and so it cannot widen unnoticed either.
+// ⚠ AND THE HOLE WAS WIDER THAN THE `agg_cast` SKIP — TWO LAUNDERING SITES, ONE
+// CLASS. `sum`/`min`/`max` are NOT skipped: they reach `check_agg_operand`, and
+// it passed them anyway, because it asks `infer_emit_ty` and `infer_emit_ty`
+// launders too (codegen.logos — an out-of-lattice NAME falls back to
+// `el_class_repr(infer_ty(…))`, which is `i64`). Measured on this same struct:
+// `sum` gave `call to 'el_add' arg 2: expected i64, got Inner`, `min`/`max` gave
+// `let '__v': type mismatch — expected i64, got Inner`. Two mechanisms reaching
+// one wrong outcome, which is why the fix is a check on the ARGUMENT'S NAME
+// (`infer_ty_name`, the question that stays unresolvable) placed BEFORE both,
+// and why `wql_agg_sum_struct_arg_fail` exists as its sibling: closing only the
+// skip would have left the other half green and unnoticed.
+//
+// ⚠ WHAT WAS NOT WEAKENED. `check_agg_operand`'s own lenient `ty.cls < 0`
+// early-return is untouched, and so is `el_ty_of_name`'s INT default — the
+// documented lenient policy for arithmetic operands, where the host compiler is
+// the stated oracle, still holds. The new refusal is narrow by construction: it
+// fires only on an aggregate ARGUMENT, only when the argument does not compute
+// in the EL's own representation (so `sum(s.a + s.b)` over two f32 columns still
+// compiles and answers in f64 — the arithmetic seam does its half), and only
+// when the query NAMED a type the lattice has no class for.
 package test;
 
 use logos.std.wql.wql;

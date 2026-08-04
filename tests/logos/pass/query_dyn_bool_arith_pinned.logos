@@ -1,5 +1,6 @@
-// A bool reaching LENIENT arithmetic is worth one — pinned PENDING A RULING,
-// not because a ruling settled it.
+// A bool reaching LENIENT arithmetic is worth ONE — RATIFIED, and now stated
+// where the language states rules: `deem.exec.lenient-bool-one` in
+// docs/spec/deem.md.
 //
 // Victor ruled that `avg` admits bool with true worth 1.0. Implementing that
 // gave `rt_f` (deem.logos) a `B` arm. The commit disclosed one consequence —
@@ -15,20 +16,27 @@
 // with the arm and 1.0 without; `e.meta` read through `get_f64` answers 1.0 with
 // and 0.0 without.
 //
-// ⚠ WHAT THIS FILE IS FOR. The ruling covered `avg`. It did not say what a bool
-// is worth in lenient arithmetic, and three answers are defensible: ratify one
-// (it agrees with `rt_i`, which has always answered 1 for a bool, so the two
-// spellings of "what is a bool worth" finally agree); refuse a bool operand in
-// lenient arithmetic outright; or leave the path untyped. Pinning is NOT
-// ratifying — it stops the answer drifting a third time while the question is
-// open. Whoever settles it changes this file and says so in the commit.
+// ⚠ WHAT CHANGED, AND WHAT DID NOT. This file used to say it pinned the numbers
+// PENDING a ruling, and listed three defensible answers (ratify one; refuse a
+// bool operand in lenient arithmetic; leave the path untyped). The ruling is
+// now RATIFY ONE, on three grounds: it agrees with `rt_i`, which has answered 1
+// for a bool since c00b2888 (2026-07-02, the original queue-2 slice — a month
+// before `rt_f`'s arm), so the two spellings of "what is a bool worth" finally
+// agree; it is the current behaviour, so it preserves every program that works
+// today, which is the express ground the `avg` ruling itself gave; and a value
+// that differs by which accessor you read it through is not a value.
+// NOT ONE NUMBER IN THIS FILE MOVED — the numbers were the behaviour and the
+// behaviour is what was ratified. What moved is the rule's home: a rule
+// asserted only by a test is a rule nobody can look up, so it is written in the
+// spec and this file is now its end-to-end pin rather than its only record.
 //
 // ⚠⚠ METHOD. The first attempt to check the two statements above ran `ctest`
 // after editing but BEFORE rebuilding the stdlib. ctest runs PREBUILT archives,
 // so both probes measured a tree without the arm and both came back "measured
 // false" — the correct conclusion inverted by a stale build. Edit, BUILD, run.
 //
-// exit 0 = a bool is worth one in every numeric spelling reachable from here.
+// exit 0 = a bool is worth one in every numeric spelling reachable from here,
+//          which is `deem.exec.lenient-bool-one` end to end.
 package test;
 
 use logos.lang.writ.container;

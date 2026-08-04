@@ -565,6 +565,65 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
 /// name. NOT called for a UDA (its argument goes to a user `_step` whose
 /// declared T is the contract) nor for the `avg`-over-an-int form (whose emitter
 /// writes the `as f64` itself).
+/// Refuse an aggregate ARGUMENT whose declared type is outside the EL's value
+/// lattice, BEFORE the shared rule table is consulted. `fname` is the
+/// aggregate's name, `ctx` the clause. True = admitted.
+///
+/// ⚠ IT ASKS `infer_ty_name`, AND THAT IS THE WHOLE DESIGN. `infer_emit_ty` —
+/// the question `check_agg_operand` and `emit_norm_operand` ask — LAUNDERS an
+/// out-of-lattice name into the class representative (`i64`), because "what do I
+/// write in the generated source" is a question with a lenient documented
+/// answer. That leniency is right at those sites and it is exactly the hole
+/// here: it cannot report a defect it is part of. `infer_ty_name` answers "what
+/// type did the query give this expression" and an unresolvable answer STAYS
+/// unresolvable — the same reason the reorder licence denies on it.
+///
+/// ⚠ THE HOLE WAS TWO SITES REACHING ONE OUTCOME, WHICH IS WHY THE CHECK SITS
+/// ABOVE BOTH. `el_ty_of_name` launders an unknown NAME to `EL_TY_INT`, so a
+/// struct-typed column reached `agg_result_ty` spelled INT; `avg` answered FLT,
+/// `agg_cast` came out true, and `compute_agg_bodies` SKIPPED
+/// `check_agg_operand` entirely. `sum`/`min`/`max` were not skipped and passed
+/// anyway, through `infer_emit_ty`'s fallback. MEASURED on `struct Inner`:
+/// `avg` → `cannot cast 'Inner' to 'f64'`; `sum` → `call to 'el_add' arg 2:
+/// expected i64, got Inner`; `min`/`max` → `let '__v': type mismatch — expected
+/// i64, got Inner` — all rc=1 with no object written, all from
+/// `<metaprog-blob-subst>` inside a generated blob. Safe, and the wrong
+/// diagnostic. Pinned by wql_agg_avg_struct_arg_fail (the skip route) and
+/// wql_agg_sum_struct_arg_fail (the laundering route).
+///
+/// ⚠ IT IS NARROW ON PURPOSE, AND THE TWO GUARDS ARE NOT DECORATION.
+/// `el_computes_in_repr` exempts the arithmetic nodes: those normalize into the
+/// EL's own i64/f64 tower at their own site, so `sum(s.a + s.b)` over two f32
+/// columns compiles today and must keep compiling — asking the query's NAME
+/// there would refuse it. An EMPTY name exempts too: nothing was resolved, so
+/// nothing is known, and the lenient policy stands. `check_agg_operand`'s own
+/// `ty.cls < 0` early-return and `el_ty_of_name`'s INT default are both
+/// UNTOUCHED — this adds a refusal at one position, it does not tighten the
+/// lattice.
+///
+/// ⚠ NOT CALLED FOR A UDA. A UDA's argument is printed into the user's `_step`,
+/// whose declared T is the contract, and nothing here reads `_step`. That is a
+/// separate open seam with its own bad diagnostic, pinned by
+/// `wql_agg_uda_f32_arg_fail`; closing it needs a reflected parameter type and a
+/// ruling on whether the check may refuse programs the host accepts.
+pub fn check_agg_arg_in_lattice(e: SExpr, t: &ElTypes, fname: str, ctx: str) -> bool {
+    if el_computes_in_repr(e) { return true; }
+    let n: str = infer_ty_name(e, t);
+    if n.len() == 0i64 { return true; }
+    if el_class_lookup(n) >= 0i32 { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": `");
+    m.push_str(fname);
+    m.push_str("` over a value of type `");
+    m.push_str(n);
+    m.push_str("` — an aggregate argument must be a value the EL's type lattice admits (the integer family, `f64`/`f32`, `bool`, `str`/`String`), and `");
+    m.push_str(n);
+    m.push_str("` is outside it, so there is no accumulator for the value to reach. The remedy is a numeric column, or an argument expression that computes one");
+    error(string_as_str(&m));
+    return false;
+}
+
 pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str) -> bool {
     let et: str = infer_emit_ty(e, t);
     let ty: ElTy = el_ty(et);

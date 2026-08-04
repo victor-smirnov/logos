@@ -1,0 +1,44 @@
+// `sum` OVER A STRUCT-TYPED COLUMN IS REFUSED AT THE FRONT END — AND IT REACHES
+// THAT REFUSAL BY A DIFFERENT ROUTE THAN `wql_agg_avg_struct_arg_fail`.
+//
+// ⚠ WHY THIS IS NOT A SECOND COPY OF THE avg FILE. The two aggregates fail the
+// same way TODAY and failed the same way BEFORE the fix — a host-compiler error
+// from inside a generated blob — but for two different reasons, and a single
+// fixture would have pinned only one of them:
+//
+//   • `avg` never reached `check_agg_operand` at all. `el_ty_of_name` launders
+//     an unknown type NAME to `EL_TY_INT`, the rule table answered
+//     Quot(INT) = FLT, `agg_cast` came out true, and `compute_agg_bodies` skips
+//     the check exactly on `agg_cast`.
+//   • `sum` DID reach `check_agg_operand`, which returned TRUE anyway. Not via
+//     its documented lenient `ty.cls < 0` path — via a SECOND laundering site:
+//     `check_agg_operand` asks `infer_emit_ty`, and `infer_emit_ty` falls back
+//     to `el_class_repr(infer_ty(…))` = `i64` for an out-of-lattice name. So the
+//     check asked "does `i64` reach an `i64` accumulator" about a struct.
+//
+// MEASURED at 7f12908d on exactly this program: `<metaprog-blob-subst>:NNNN:
+// error [fn total_run]: call to 'el_add' arg 2: expected i64, got Inner`, rc=1,
+// no object file. (`min`/`max` over the same column gave `let '__v': type
+// mismatch — expected i64, got Inner`, the same class through the same second
+// site.) Refused, safely — but by the host compiler, from a generated line.
+//
+// ⚠ SO THE FIX COULD NOT BE "STOP SKIPPING THE CHECK", AND THAT IS WHAT THIS
+// FILE GUARDS. Deleting the `agg_cast` exemption would have closed the `avg`
+// route and left this one open, green, and looking covered. The check that
+// closes both asks `infer_ty_name` — the question whose answer STAYS
+// unresolvable — rather than `infer_emit_ty`, which is one of the two things
+// being fixed and cannot report the defect it is part of.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Inner { pub a: i64 }
+struct Rec { pub k: i64, pub v: Inner }
+
+pub deem total(src: &[Rec]) { from src s
+      group by s.k
+      aggregate a = sum(s.v)
+      select a : i64 }
+
+fn main() -> i32 { return 0i32; }

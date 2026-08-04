@@ -1,1 +1,1 @@
-cannot cast 'Inner' to 'f64'
+wql!: `aggregate`: `avg` over a value of type `Inner` — an aggregate argument must be a value the EL's type lattice admits

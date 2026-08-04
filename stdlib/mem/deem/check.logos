@@ -678,6 +678,18 @@ struct QPlan {
     agg_fnid: [i32; 8],  // 1..5 builtin, 0 = UDA
     agg_uda:  [i64; 8],  // UDA registry index (fnid 0)
     agg_ret:  [i32; 8],  // column result tag (CT_* scalar tier)
+    // The ARGUMENT's checked type tag (CT_* scalar tier), CT_UNKNOWN for
+    // `count()` (nullary) and for an argument the check could not type.
+    //
+    // ⚠ IT IS NOT DERIVABLE FROM `agg_ret`, AND THAT IS THE WHOLE POINT.
+    // `agg_ret` is what the SHARED rule table answers, and for `avg` the table
+    // answers Quot(T) = FLT for every admitted T — so `agg_ret == CT_FLT` says
+    // nothing about whether `avg` ranged over an i64 column or an f64 one.
+    // `sum`/`min`/`max` return their argument's type and do not need this; `avg`
+    // does, and the incremental engine's accumulator layout is chosen from it
+    // (deem/incr.logos, `AggState`). Reading `agg_ret` there is what silently
+    // truncated every f64 addend.
+    agg_argt: [i32; 8],
     // projection
     ncols: i64,
     ckind: [i32; 8],
@@ -688,6 +700,7 @@ fn qplan_new() -> QPlan {
         jw: [0i64; 24], jtier: [0i32; 24], jequi: [0i64; 24],
         jbuild: [0i64; 24], jprobe: [0i64; 24], jn: 0i64,
         agg_n: 0i64, agg_fnid: [0i32; 8], agg_uda: [0i64; 8], agg_ret: [0i32; 8],
+        agg_argt: [CT_UNKNOWN; 8],
         ncols: 0i64, ckind: [0i32; 8],
     };
 }
@@ -955,6 +968,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 let a: RAgg = aggs.agg_at(ci);
                 let fnid: i32 = qagg_id(a.fn_name);
                 let mut rett: i32 = CT_UNKNOWN;
+                let mut argt: i32 = CT_UNKNOWN;
                 let mut uidx: i64 = -1i64;
                 if fnid == 1i32 {
                     if a.has_arg {
@@ -969,6 +983,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     }
                     let at: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
                     if chk.failed { return; }
+                    argt = at.t;
                     if at.t == CT_DYN {
                         // The accumulator layout is chosen from the CHECKED
                         // type — a runtime-typed lenient value has none.
@@ -999,6 +1014,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                         }
                         let at2: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
                         if chk.failed { return; }
+                        argt = at2.t;
                         if !ct_is_open(at2.t) && at2.t != env.a_argty[uidx] {
                             chk_fail(chk, "argument type mismatch for aggregate '",
                                      a.fn_name, "' — the registered signature differs", "", "");
@@ -1016,6 +1032,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 qp.agg_fnid[ci] = fnid;
                 qp.agg_uda[ci]  = uidx;
                 qp.agg_ret[ci]  = rett;
+                qp.agg_argt[ci] = argt;
                 ci = ci + 1i64;
             }
             qp.agg_n = ci;

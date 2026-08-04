@@ -4321,6 +4321,21 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // is pinned as such by `wql_agg_uda_f32_arg_fail`. Closing it needs
             // a reflected `fn_param_type_name` and a ruling on whether this
             // check may refuse programs the host accepts today.
+            // ⚠ AND THE ARGUMENT'S TYPE MUST BE IN THE LATTICE AT ALL, ASKED
+            // FIRST AND SEPARATELY. Both branches below consult a rule table or
+            // an emitted-type inference, and BOTH of those launder an unknown
+            // type NAME into `EL_TY_INT` / `i64` before anyone can refuse it —
+            // `el_ty_of_name`'s default arm and `infer_emit_ty`'s fallback. So a
+            // struct-typed column arrived spelled `i64` at whichever of the two
+            // it reached, and the only thing that refused it was the HOST
+            // COMPILER, from a line inside the generated blob. `check_agg_arg_
+            // in_lattice` asks `infer_ty_name`, whose unresolvable answer stays
+            // unresolvable, and it runs ABOVE both routes because the defect was
+            // in both. See wql_agg_avg_struct_arg_fail (skip route) and
+            // wql_agg_sum_struct_arg_fail (laundering route).
+            if !uda[ai] {
+                if !check_agg_arg_in_lattice(ae_opt, t, a.fn_name, "wql!: `aggregate`") { return false; }
+            }
             if !uda[ai] && !agg_cast[ai] {
                 let want: str = if agg_flt[ai] { "f64" } else { "i64" };
                 if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }
