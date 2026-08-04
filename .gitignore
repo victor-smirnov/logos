@@ -55,3 +55,8 @@ scratchpad/
 # unrelated commit without being noticed. Generated output does not belong in
 # the tree.
 logos-mlir-verify-fail.mlir
+
+# Agent worktrees created by the Workflow tool. Ephemeral, and LARGE — 6.4 GB of
+# build trees after one four-item run. Never part of a commit; `git add -A` has
+# swept a big untracked artifact into a commit here before.
+.claude/worktrees/
