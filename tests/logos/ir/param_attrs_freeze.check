@@ -1,0 +1,43 @@
+; FileCheck spec for param_attrs_freeze.logos — the LLVM parameter-attribute
+; bundle `MLIRGenImpl::apply_param_attrs` writes on a THIN `&T` / `&mut T`.
+;
+; EACH PARAMETER LIST IS PINNED LITERALLY AND EXACTLY. Everything between the
+; opening `(` and the `%0` is verbatim text, and the two `{{[^(]*}}` wildcards
+; around the function name cannot cross a `(`, so they can never absorb an
+; attribute. That makes every line below a TWO-DIRECTIONAL assertion: an
+; attribute that appears where it must not, and one that vanishes where it
+; must be, break the match equally. `CHECK-DAG` because the emission order of
+; function definitions is not part of the contract.
+;
+; The four claims, and where each comes from:
+;   noundef                 — Logos has no undef value form (MaybeUninit is
+;                             zeroed, codegen emits no poison).
+;   align(N)/dereferenceable(N) — layout_of(pointee). HAND-DERIVED, not read
+;                             off a run: Point{x:i64,y:i64} = 16/8; i64 = 8/8;
+;                             Cell<i64> is #[repr(transparent)] over
+;                             UnsafeCell<i64> over i64 = 8/8; Wrap{Cell<i64>,
+;                             i64} = 16/8; HasOpt{Option<Cell<i64>>} = 16/8
+;                             (i32 discriminant padded to the payload's align 8,
+;                             plus the 8-byte payload).
+;   noalias on &mut T       — borrow-checker exclusivity.
+;   noalias+readonly on &T  — ONLY when type_is_freeze(pointee), i.e. no
+;                             UnsafeCell reachable through the pointee's own
+;                             inline bytes.
+;
+; ── FREEZE pointee: shared &T carries BOTH noalias and readonly ──────────────
+; CHECK-DAG: define {{.*}}@{{[^(]*}}freeze_struct{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(16) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}freeze_scalar{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
+
+; ── &mut T: noalias from exclusivity, and NEVER readonly (it is written) ─────
+; CHECK-DAG: define {{.*}}@{{[^(]*}}exclusive_mut{{[^(]*}}(ptr noalias noundef align 8 dereferenceable(16) %0)
+
+; ── NON-FREEZE pointee: NEITHER noalias NOR readonly. The layout half of the
+;    bundle is orthogonal to interior mutability and must survive intact —
+;    which is why these lines pin align/dereferenceable too, and not just the
+;    absence of the aliasing pair.
+;    interior_direct : UnsafeCell is the pointee's own struct (via Cell).
+;    interior_field  : reached through a plain struct FIELD.
+;    interior_payload: reached through an enum variant PAYLOAD.
+; CHECK-DAG: define {{.*}}@{{[^(]*}}interior_direct{{[^(]*}}(ptr noundef align 8 dereferenceable(8) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}interior_field{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}interior_payload{{[^(]*}}(ptr noundef align 8 dereferenceable(16) %0)

@@ -794,6 +794,13 @@ bool MLIRGenImpl::type_is_freeze(TypeRef t,
                     if (!type_is_freeze(ft, seen)) return false;
             return true;
         }
+        // `true` here READS LIKE the "unknown → conservative false" rule being
+        // broken, and it is not: `register_tagged_enum` is called only under
+        // `ed.has_payload()` (mlir_gen.cpp:159), so a null resolve IS "C-like",
+        // i.e. a bare discriminant scalar with no payload to hide a cell in.
+        // enum_def_layout leans on the identical invariant and says so at
+        // mlir_gen_types.cpp:524-525. Stated here because the asymmetry is the
+        // first thing a reader auditing this predicate flags.
         return true;   // C-like enum (no payload) — just a discriminant scalar
     }
     default: return false;                       // unknown kind → conservative

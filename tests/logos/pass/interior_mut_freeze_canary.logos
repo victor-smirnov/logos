@@ -5,6 +5,17 @@
 // value. Each `observe_*` reads, mutates THROUGH the shared `&`, and reads again
 // across the opaque `set` call; a wrongly-emitted readonly yields the STALE
 // value and the asserts below return non-zero (test fails).
+//
+// ⚠ THIS TEST IS NOT THE GUARD — tests/logos/ir/param_attrs_freeze IS.
+// MEASURED 2026-08-04 with the Freeze gate forced open in the compiler
+// (`if (true || type_is_freeze(...))`, so `&Cell<i64>` and `&Wrap` WRONGLY
+// carry noalias+readonly, confirmed in the emitted IR): this file still exits
+// 0 at -O0, -O1, -O2 AND -O3, because Cell::get/set inline into the caller and
+// LLVM sees the real stores. The reasoning in the paragraph above is sound but
+// the optimizer declines to take the bait, so a green here distinguishes
+// nothing. It is kept as a behavioural smoke test of Cell itself; the
+// attribute claim is asserted on the EMITTED IR, which shares no code with
+// `type_is_freeze` and which the control revert makes fail in both directions.
 package canary_interior_mut;
 
 use logos.lang.cell;

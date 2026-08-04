@@ -151,9 +151,10 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 // ---------------------------------------------------------------------------
 // Type-derived LLVM parameter attributes (rustc-parity, slice 1)
 //
-// Emits the always-sound reference bundle + noalias-on-&mut:
-//   &T / &mut T (THIN ptr only) → noundef, align(N), dereferenceable(size>0)
-//   &mut T (THIN)               → + noalias   (borrow-checker exclusivity)
+// Emits, on a THIN ptr param only:
+//   &T / &mut T   → noundef, align(N), dereferenceable(size>0)
+//   &mut T        → + noalias                     (borrow-checker exclusivity)
+//   &T, T Freeze  → + noalias, readonly           (see the OPEN QUESTION below)
 //
 // Soundness gates (see project_rustc_parity_type_attrs / the audit roadmap):
 //   • Kind ∈ {Ref, MutRef} AND ref_repr_of == ThinPtr. This self-excludes raw
@@ -165,9 +166,70 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(lir_view::FunctionView fn) {
 //     &mut param is exclusive for the call (verified across two-&mut, split
 //     borrows, two-phase, closures). raw-ptr-aliased &mut is caller UB, same
 //     as rustc.
-//   • DEFERRED (slice C, blocked on a freeze predicate): noalias+readonly on
-//     shared &T — unsound until we can prove T has no interior mutability
-//     (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our stdlib).
+//   • noalias+readonly on a shared &T is gated on `type_is_freeze(pointee)`
+//     (mlir_gen_types.cpp): no UnsafeCell reachable through the pointee's own
+//     inline bytes — struct fields, enum payloads, tuple/array elements, and
+//     NOT across an indirection (so Rc/Arc/&Cell stay Freeze, matching rustc:
+//     the count they bump lives behind a pointer they LOAD, which carries its
+//     own provenance and is not derived from this argument). The predicate is
+//     conservative in the safe direction — unknown/unresolvable shape → NOT
+//     Freeze — so a case it misses costs an optimization, never soundness.
+//
+//     ⚠ THIS BULLET USED TO READ "DEFERRED (slice C, blocked on a freeze
+//     predicate) … unsound until we can prove T has no interior mutability
+//     (UnsafeCell AND atomics, which are NOT UnsafeCell-wrapped in our
+//     stdlib)". Every clause of that was false by the NEXT commit: e23c099a
+//     landed the predicate right after 31b57f6a wrote the bullet and did not
+//     come back for it, and all 12 Atomic* types are `{ val: UnsafeCell<…> }`
+//     today (stdlib/lang/atomic/atomic.logos), as are Mutex/RwLock data
+//     (lcm/sync/sync.logos:49,124) and the Writ arena+root
+//     (lang/writ/container.logos:40,45). A comment describing a world that
+//     ended one commit later is not a caveat, it is a wrong answer that
+//     reads as a considered one — which is why the note stays here instead
+//     of being quietly deleted.
+//
+//   • OPEN QUESTION, NOT SETTLED HERE — and it is a LANGUAGE question, not a
+//     codegen one. `readonly` says the callee performs no write through this
+//     argument or anything derived from it. UnsafeCell is not a privileged
+//     writer in Logos; it is only a MARKER that turns the predicate off. The
+//     `&x as *const T as *mut T` cast is permitted on EVERY type in an unsafe
+//     block, by explicit design (stdlib/lang/cell/cell.logos:15-16), and
+//     `NonNull::from_ref(&T) -> NonNull<T>` (stdlib/lang/ptr/ptr.logos:241)
+//     ships that laundering as a stdlib API. In rustc the subsequent write is
+//     UB, and THAT is what makes rustc's noalias+readonly on a shared &T
+//     sound. Logos inherited the attribute; it has not yet written down the
+//     rule that licenses it — cell.logos:22-24 says the borrow checker "does not
+//     yet model interior-mutability aliasing". Until Victor rules on whether
+//     that write is UB, the emission stands on rustc parity ALONE and this
+//     comment claims nothing more.
+//     MEASURED 2026-08-04, so the exposure is known rather than guessed:
+//       – THE EXPOSURE IS CONFINED TO `unsafe`. The cast itself is safe (it
+//         only makes a pointer), but the write is not: dropping the unsafe
+//         block off the repro below fails the compile with "write through raw
+//         pointer field requires unsafe context" + "dereference of raw pointer
+//         requires unsafe context" (logosc rc=1). So no SAFE Logos program can
+//         reach the divergence, and a "this write is UB" rule would bind
+//         exactly where the obligation already sits. That is the strongest
+//         argument for parity with rustc — but it is still a ruling to make,
+//         not one to infer here.
+//       – A synthetic program that takes the cast and writes DOES diverge:
+//         `fn bump(c: &Counter)` writing through the cast returns the right
+//         value at -O0 and the stale pre-call one at -O1/-O2/-O3. Toggling
+//         ONLY the two setArgAttr lines below makes it agree again at every
+//         level, so the attribute is the cause and nothing else is.
+//       – No stdlib instance. Every `as *const X as *mut X` site was read:
+//         each is either behind a `&mut self` (fabric push/set/insert/erase),
+//         a by-value `self` (Vec::into_iter, PrimVec::drop), a non-Freeze
+//         pointee (every writ site — Writ holds UnsafeCell), or a cast used
+//         only to reach a `*mut`-receiver method for a READ (http types /
+//         serialize / parse, hashmap_at, deem/incr, node_arc_data_ptr).
+//         That audit is a hand read of ONE syntactic form; it is evidence,
+//         not a proof of absence.
+//     If the ruling is "defined, not UB", the two setArgAttr lines below are
+//     what comes out, and the optimization cost must be measured before the
+//     trade is judged. If it is "UB", this bullet becomes the argument and
+//     the cast-then-write shape wants a detector — nothing detects it today.
+//
 //   • The arg-index walk MIRRORS make_fn_type's slot-push order exactly: anyval
 //     → one i32 slot; Array → one ptr slot; a param whose logos_to_mlir is null
 //     (Void/Never) pushes NO slot and must not advance the index.
@@ -214,12 +276,19 @@ void MLIRGenImpl::apply_param_attrs(mlir::func::FuncOp f, lir_view::FunctionView
                 // &mut T is exclusive (borrow checker) → noalias.
                 f.setArgAttr(arg, "llvm.noalias", unit);
             } else {
-                // Shared &T: noalias + readonly ONLY when T is Freeze (no
-                // interior mutability). UnsafeCell-discipline makes this sound —
-                // a non-Freeze pointee (Cell/atomic/Mutex/…) keeps NEITHER, so
-                // mutation through a coexisting interior-mut path is not
-                // mis-assumed away. type_is_freeze is conservative (unknown →
-                // not-Freeze), so a missed case only costs an optimization.
+                // Shared &T: noalias + readonly ONLY when T is Freeze. The
+                // UnsafeCell discipline is what makes a non-Freeze pointee
+                // (Cell/atomic/Mutex/…) keep NEITHER, so mutation through a
+                // coexisting interior-mut path is not mis-assumed away. That
+                // is necessary, and — see the OPEN QUESTION in the header —
+                // it is not by itself the whole soundness argument, because
+                // the const→mut cast is legal on a Freeze T too.
+                //
+                // THE TWO LINES BELOW ARE WHAT A RULING OF "not UB" REMOVES.
+                // They are pinned by tests/logos/ir/param_attrs_freeze in BOTH
+                // directions; the behavioural canary tests/logos/pass/
+                // interior_mut_freeze_canary is NOT sufficient — MEASURED, it
+                // stays green at -O0..-O3 with this gate forced open.
                 if (type_is_freeze(pt.pointee())) {
                     f.setArgAttr(arg, "llvm.noalias", unit);
                     f.setArgAttr(arg, "llvm.readonly", unit);

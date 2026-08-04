@@ -1,0 +1,67 @@
+// IR snapshot for the type-derived LLVM PARAMETER ATTRIBUTE BUNDLE that
+// `MLIRGenImpl::apply_param_attrs` (src/compiler/mlir_gen_fn.cpp) writes on a
+// THIN `&T` / `&mut T`: noundef, align(N), dereferenceable(size), the
+// exclusivity `noalias` on `&mut T`, and the Freeze-gated `noalias`+`readonly`
+// on a shared `&T`.
+//
+// WHY AN IR SNAPSHOT AND NOT A BEHAVIOURAL TEST. These attributes are claims
+// made TO LLVM; nothing below -O1 consults them, and the whole registered
+// corpus compiles at logosc's default -O0 (src/compiler/main.cpp: `int
+// opt_level = 0`; tests/logos/CMakeLists.txt passes no -O anywhere). The one
+// pre-existing guard, tests/logos/pass/interior_mut_freeze_canary, is
+// behavioural: MEASURED 2026-08-04 with the Freeze gate forced open
+// (`if (true || type_is_freeze(...))`, so `&Cell<i64>` wrongly carries
+// readonly) it still exits 0 at -O0, -O1, -O2 AND -O3, because Cell::get/set
+// inline into the caller and LLVM sees the real stores. A behavioural probe
+// therefore cannot distinguish a correct predicate from a broken one. The
+// EMITTED ARTIFACT can, and it shares no code with `type_is_freeze`.
+//
+// The .check file pins each parameter list LITERALLY and EXACTLY, so this
+// snapshot bites in BOTH directions: an attribute that appears where it must
+// not, and one that disappears where it must be, both break the match.
+package param_attrs_freeze;
+
+use logos.lang.cell;
+use logos.lang.option;
+
+struct Point { x: i64, y: i64 }
+
+// A plain struct that CONTAINS a Cell — the struct-field recursion of the
+// Freeze predicate.
+struct Wrap { inner: Cell<i64>, tag: i64 }
+
+// A plain struct whose field is an enum whose PAYLOAD is a Cell — the enum
+// variant-payload recursion.
+struct HasOpt { o: Option<Cell<i64>> }
+
+// ── FREEZE pointees: shared &T earns noalias + readonly ────────────────────
+fn freeze_struct(p: &Point) -> i64 { return p.x + p.y; }
+fn freeze_scalar(n: &i64) -> i64 { return *n; }
+
+// ── &mut T: noalias from borrow-checker exclusivity, NEVER readonly ────────
+fn exclusive_mut(p: &mut Point) -> i64 { p.x = p.x + 1i64; return p.x; }
+
+// ── NON-FREEZE pointees: NEITHER noalias NOR readonly (the layout half of
+//    the bundle — noundef/align/dereferenceable — is unaffected and stays) ──
+fn interior_direct(c: &Cell<i64>) -> i64 { return c.get(); }
+fn interior_field(w: &Wrap) -> i64 { return w.inner.get() + w.tag; }
+fn interior_payload(h: &HasOpt) -> i64 {
+    match h.o {
+        Option::Some(c) => { return c.get(); }
+        Option::None => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let pt: Point = Point { x: 3i64, y: 4i64 };
+    let mut pm: Point = Point { x: 1i64, y: 2i64 };
+    let n: i64 = 11i64;
+    let c: Cell<i64> = Cell::new(5i64);
+    let w: Wrap = Wrap { inner: Cell::new(6i64), tag: 1i64 };
+    let h: HasOpt = HasOpt { o: Option::Some(Cell::new(7i64)) };
+
+    let acc: i64 = freeze_struct(&pt) + freeze_scalar(&n) + exclusive_mut(&mut pm)
+                 + interior_direct(&c) + interior_field(&w) + interior_payload(&h);
+    if acc == 0i64 { return 1; }
+    return 0;
+}
