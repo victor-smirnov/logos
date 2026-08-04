@@ -1,0 +1,2 @@
+# root_coord.ledger — root-coordinate literals per file, held in BOTH directions.
+# See root_coord_lint.sh for what is counted and what is deliberately not.

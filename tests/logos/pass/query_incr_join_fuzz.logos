@@ -261,7 +261,13 @@ fn main() -> i32 {
     if r10 != 0i32 { return 1000i32 + r10; }
     let r11: i32 = run_variant("from emps e group by e.dept aggregate s = sum(e.dept) select (key, s)", &c, &doc, &eh, &dh);
     if r11 != 0i32 { return 1100i32 + r11; }
-    // avg — the f64-column variant (bit-exact == vs the batch oracle).
+    // avg over an INTEGER column. ⚠ This line used to read "the f64-column
+    // variant", and `e.dept` is `i64` (see the schema at the top of this file).
+    // avg's RESULT is f64, its ADDEND here is not, so nothing about the f64
+    // fold was covered — and the incremental engine truncated every f64 addend
+    // through `as i64` for six months behind that false label. The f64 addend
+    // is covered by query_incr_f64_agg_three_engines; this line covers the
+    // integer path, which is what it always covered.
     let r12: i32 = run_variant("from emps e group by e.dept aggregate a = avg(e.dept) select (key, a)", &c, &doc, &eh, &dh);
     if r12 != 0i32 { return 1200i32 + r12; }
     // multi-aggregate (≤ the batch limit).

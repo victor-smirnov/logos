@@ -60,3 +60,6 @@ logos-mlir-verify-fail.mlir
 # build trees after one four-item run. Never part of a commit; `git add -A` has
 # swept a big untracked artifact into a commit here before.
 .claude/worktrees/
+
+# Agent worktree scratch (TMPDIR routed inside the worktree by the workflow brief).
+.tmp/

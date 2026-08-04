@@ -967,6 +967,26 @@ set_tests_properties(logos_00_separator_split_lint PROPERTIES
     LABELS  "logos;lint;suite_lint"
 )
 
+# ── THE ROOT COORDINATE HAS ONE DEFINITION, AND ONE MEMBERSHIP ─────────────
+# WG_ROOT_PARENT/KEY/IDX/ORD collapsed four hand-written spellings of the
+# virtual-root coordinate into one definition. That closed the VALUE axis. It
+# left the MEMBERSHIP open: nothing stopped a fifth producer, or a second
+# reader, from open-coding `0i64, "", -1i64` again, and the failure is silent —
+# a producer and the reader disagreeing by one literal makes `from g .field ...`
+# compile and answer ZERO ROWS, with nothing to compare against.
+# The site set was a four-bullet PROSE COMMENT, and prose does not fail a build.
+# Ledgered in both directions, with two self-canaries. Predicate narrowed to the
+# COORDINATE (the adjacent triple), not to `-1i64`, which is also the not-found
+# sentinel: a lint that cries wolf gets disabled, which is the defect one level up.
+add_test(
+    NAME logos_00_root_coord_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/root_coord_lint.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_root_coord_lint PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;lint;suite_lint"
+)
+
 # ── THE SHARED-&T UB RULING CANNOT DRIFT BACK INTO PROSE ────────────────────
 # `noalias`+`readonly` on a shared `&T` is licensed by a LANGUAGE rule
 # (type.shared-ref.write-through-derived-ub), not by the optimizer. The emission
