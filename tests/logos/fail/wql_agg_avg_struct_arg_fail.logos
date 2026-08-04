@@ -1,0 +1,35 @@
+// `avg` over a STRUCT-typed column: refused, but by the HOST COMPILER inside a
+// generated blob, not by the front end.
+//
+// This pins a HOLE, not a virtue. `check_agg_operand` refuses a non-numeric
+// aggregate argument and names the clause, the aggregate and the column type —
+// see wql_agg_avg_str_arg_fail. It never runs for this shape. `el_ty_of_name`
+// launders every unknown type NAME to `EL_TY_INT`, which is the same laundering
+// removed one level down in the same commit, so a struct-typed column reaches the
+// rule table spelled INT, `agg_cast` comes out true, and the check is skipped
+// exactly where it is needed.
+//
+// The program is still refused and no object is written, so nothing unsound
+// ships — the cost is the diagnostic. A user meeting this is told to look at
+// `<metaprog-blob-subst>` and at a function name the query never mentions.
+//
+// ⚠ THIS EXPECTATION IS THE DEFECT, NOT THE RULE. When `el_ty_of_name` stops
+// laundering — or when `check_agg_operand` learns to refuse an argument whose
+// type is outside the EL lattice before the rule table is consulted — this file
+// must be rewritten to expect the front-end message, and that rewrite is the
+// point. It is here so the hole cannot be closed by accident and go unnoticed,
+// and so it cannot widen unnoticed either.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Inner { pub a: i64 }
+struct Rec { pub k: i64, pub v: Inner }
+
+pub deem means(src: &[Rec]) { from src s
+      group by s.k
+      aggregate a = avg(s.v)
+      select a : f64 }
+
+fn main() -> i32 { return 0i32; }

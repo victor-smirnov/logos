@@ -24,10 +24,22 @@
 // `bool` column too, which the ruling admits. The class fix is to stop
 // fabricating the class: both tiers now ask the same table the same question.
 //
-// ⚠ THE REFUSED POPULATION IS CLOSED, AND IT IS THIS. After the ruling admits
-// `bool`, the EL lattice's only remaining non-numeric class is `EL_TY_STR`,
-// whose members are exactly `str` and `String` (el.logos rows 17 and 18). This
-// file is `str`; `wql_agg_avg_string_arg_fail` is `String`. There is no third.
+// ⚠ THE REFUSED POPULATION IS CLOSED **IN THE EL LATTICE**, AND IT IS THIS.
+// After the ruling admits `bool`, the lattice's only remaining non-numeric class
+// is `EL_TY_STR`, whose members are exactly `str` and `String` (el.logos rows 17
+// and 18). This file is `str`; `wql_agg_avg_string_arg_fail` is `String`.
+//
+// ⚠⚠ IT IS NOT CLOSED OVER ARGUMENT TYPES, and an earlier version of this
+// comment said "there is no third" without that qualifier. `el_ty_of_name`
+// launders every unknown type name to `EL_TY_INT` — the same laundering this
+// commit removed one level down — so a STRUCT-typed column reaches the rule
+// table spelled INT, `agg_cast` comes out true, and `check_agg_operand` is
+// skipped exactly there. MEASURED: `struct Inner` with `avg(s.v)` gives
+// `<metaprog-blob-subst>: error [fn means_run]: cannot cast 'Inner' to 'f64'`,
+// rc=1, no object written — so it is refused, loudly and safely, but by the HOST
+// COMPILER inside a generated blob rather than by the front end naming the
+// clause, the aggregate and the column type. That is the half of the ruling this
+// file cannot claim. Pinned as current behaviour by wql_agg_avg_struct_arg_fail.
 package test;
 
 use logos.std.wql.wql;

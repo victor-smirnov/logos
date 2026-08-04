@@ -859,9 +859,31 @@ fn rt_i(v: RtVal) -> i64 {
 // produced this arc.
 //
 // ⚠ IT IS VISIBLE THROUGH `QRows::get_f64` (query.logos), the public accessor:
-// a bool cell read as f64 answered 0.0 and now answers 1.0/0.0. Every other
-// caller is EL arithmetic over operands `check_expr` has already typed as
-// numeric, so a bool cannot reach them.
+// a bool cell read as f64 answered 0.0 and now answers 1.0/0.0. Confirmed by
+// control revert.
+//
+// ⚠⚠ AND THROUGH LENIENT ARITHMETIC — which an earlier version of this comment
+// DENIED, on the ground that every other caller is EL arithmetic over operands
+// `check_expr` has already typed as numeric, "so a bool cannot reach them".
+// That denial is FALSE. `ct_is_open(t)` is `t == CT_UNKNOWN || t == CT_DYN`
+// (below) and check.logos uses it to WAIVE the numeric-operand refusal for
+// exactly the types that were not typed as numeric. An FK_ANY cell holding a
+// bool is CT_DYN at check time and `RtVal::B` at run time, so it reaches here.
+// MEASURED on `from rows e select (e.meta + 1.0)` with `meta = WAny::from(true)`:
+// 2.0 with this arm, 1.0 without it.
+//
+// So lenient arithmetic changed its answer, and Victor's ruling did not cover
+// that path — it covered `avg`. The new value is the consistent one (`rt_i` has
+// always answered 1 for a bool, so the two spellings now agree), but consistency
+// is an argument, not a ruling. PINNED by query_dyn_bool_arith_pinned so it
+// cannot drift a third time while the question is open. Pinning is not
+// ratifying; the fixture says so in its own header.
+//
+// ⚠⚠⚠ METHOD, because this cost an hour and nearly entered the record inverted:
+// the first attempt to check the two statements above ran `ctest` after editing
+// but BEFORE rebuilding the stdlib. ctest runs PREBUILT archives, so both probes
+// measured a tree without the arm and both statements came back "measured
+// false". Edit, BUILD, then run — every time.
 fn rt_f(v: RtVal) -> f64 {
     match v {
         RtVal::I(x) => { return x as f64; }
