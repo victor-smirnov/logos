@@ -1566,17 +1566,42 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // precisely because optimised library code is measurably worth it.
     unsigned hw = std::thread::hardware_concurrency();
     int workers_default = int(hw ? (hw > 2 ? hw / 2 : 1) : 4);
-    // ⚠ OFF BY DEFAULT, and the reason is a correctness signal, not caution.
-    // At 4 shards and above, tests/logos/pass/query_f64_avg_nan_fuzz.logos FAILS
-    // (exit 15) while 1 and 2 shards pass, and the same test is green against an
-    // UNSHARDED stdlib. Where the split falls changes a floating-point ANSWER —
-    // which object layout must never do. Two hypotheses are already refuted by
-    // measurement: no same-named drop glue differs in size across shards, and
-    // there is no fast-math or fp-contract setting for inlining to interact with.
-    // The remaining possibility is that the fuzzer caught a LATENT defect that
-    // only a particular inlining exposes — the same shape as this morning, where
-    // turning on layout verification revealed a miscompile that had been silent
-    // for months. Until that is known, speed does not get to decide.
+    // ⚠ OFF BY DEFAULT. It used to be off for a CORRECTNESS signal; that signal
+    // was chased down and is gone. It is off now for a PRICE, and the price has
+    // been measured rather than suspected.
+    //
+    // The old signal, for the record: at 3+ shards query_f64_avg_nan_fuzz FAILED
+    // while 1 and 2 passed. Sharding was the SENSOR, not the cause — it moved
+    // the inlining, and the answer was already a function of the optimiser. Two
+    // latent defects, both fixed and pinned (`6346fb4d`, `8372381b`): a dynamic
+    // sort comparator built from partial `<`, and a NaN bit pattern reaching a
+    // sort key. All four float tests now pass at 1, 2, 4 and 32 shards, and the
+    // FULL suite has been run against a 4-shard stdlib: 6828/6830, zero new
+    // failures.
+    //
+    // The price. Splitting gives up inlining ACROSS shard boundaries, and the
+    // stdlib is built -O2 precisely because optimised library code is measurably
+    // worth it. MEASURED 2026-08-04 on the dynamic Deem aggregate loop — the
+    // exact seam the f64 defect ran through, so the worst case by construction
+    // and chosen deliberately. 2000 runs of `group by … aggregate avg`, the
+    // query compiled ONCE outside the loop so this times execution and not the
+    // WQL parser; four binaries differing ONLY in the stdlib archive; runs
+    // interleaved, 3 reps each, all within 0.06 s:
+    //     unsharded  1.52 s          (the default)
+    //     2 shards   2.26 s   +48%
+    //     4 shards   2.74 s   +80%
+    //    32 shards   3.16 s  +107%
+    // Monotone in the shard count, which is what losing inlining predicts.
+    // Against that, 32 shards take the `mem` layer 115.6 s -> 49.9 s and the
+    // whole stdlib 170 s -> 103 s.
+    //
+    // So sharding buys BUILD time and sells RUN time, roughly one for one, and
+    // the run time is what we ship. It is an opt-in for iteration, not a default
+    // for any artifact that gets measured or shipped.
+    //
+    // ⚠ One thing still unpinned: NOTHING in the corpus sets LOGOS_EMIT_SHARDS.
+    // The sweeps above were run by hand, so a regression in sharded emission is
+    // invisible to every tier. Pin it before anyone leans on this path.
     //
     //   LOGOS_EMIT_SHARDS=<n>   enable, n objects (measured best: 2*workers)
     //   LOGOS_EMIT_WORKERS=<w>  threads over them (default: half the hw threads)
