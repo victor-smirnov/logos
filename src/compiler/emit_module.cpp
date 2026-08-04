@@ -1541,8 +1541,13 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // per-file experiment earlier today turned a 3x speed-up into a 3x slowdown
     // for exactly this reason — the repeated part was bigger than the divided
     // part. Threads come after that number exists, not before.
-    // DEFAULT ON. Measured on the stdlib `mem` layer, byte-identical archive at
-    // every setting:
+    // OFF by default — see the `int shards` line below and the ⚠ note on it.
+    // Measured on the stdlib `mem` layer. The archive is byte-identical across
+    // WORKER counts at a fixed shard count (verified W=1 vs W=8), because the
+    // partition is a pure function of the link names. It is NOT byte-identical
+    // across SHARD counts, and an earlier version of this comment claimed it
+    // was: a different split means different private-symbol numbering. Only the
+    // function BODIES are invariant.
     //     1 object (previous behaviour)          115.6 s
     //     32 shards / 1 worker  (divide only)    108.6 s   - dividing is FREE
     //     32 shards / 16 workers                  50.7 s   - 2.28x, peak 2.35 GB

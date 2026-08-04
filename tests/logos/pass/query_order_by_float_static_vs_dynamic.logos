@@ -1,0 +1,260 @@
+package query_order_by_float_static_vs_dynamic;
+// `order by <f64 key>` must give the SAME row order whichever engine runs it.
+//
+// Deem has two: the STATIC `deem!` emitter, which compiles a query to Logos
+// source at build time, and the DYNAMIC `Query::compile`/`run` interpreter,
+// which walks the same algebra at run time. They are a differential pair — the
+// same query text, the same rows, so the same answer — and on a float sort key
+// they did not agree.
+//
+// wql_order_by_float_is_a_total_order_e2e found this defect on the STATIC side
+// and pinned it there: an insertion sort whose comparator is the language's
+// `<`/`>` on f64 is sorting with a PARTIAL order. A NaN is neither `<`, `>` nor
+// `==` anything, so the comparator answers "equal" for every pair involving
+// one, the inner loop never shifts a row past it, and the output comes back in
+// COLLECTION order. The static emitter was moved to `f64_total_key` (IEEE 754
+// totalOrder, = Rust `f64::total_cmp`) — `rexpr_walk.logos` `key_ord_frag`.
+//
+// The DYNAMIC engine kept the defect. Its comparator, `rt_cmp` in
+// `exec.logos`, still fell through to `if lf < rf … if lf > rf …`. Nothing
+// covered it: every test that ran a dynamic `order by` sorted on a `str` or an
+// `i64` key (query_diff_str_adv, query_incr_guard, query_interp_smoke,
+// query_tail_order_adv, query_tree_source_graph_e2e, query_parser_robust_adv*),
+// and query_f64_avg_nan_fuzz — the one test that does compare the two engines
+// on f64 — sorts BOTH sides before comparing, so it is blind to order by
+// construction.
+//
+// MEASURED at the previous HEAD, on tables small enough to decide by hand:
+//   rows [ +0.0, -0.0 ]      static [ -0.0, +0.0 ]   dynamic [ +0.0, -0.0 ]
+//   rows [ 1.0, NaN, 0.0 ]   static [ 0.0, 1.0, NaN ] dynamic [ 1.0, NaN, 0.0 ]
+// The second is the whole failure in three rows: the dynamic answer is the
+// INPUT, unsorted and unflagged. The first needs no NaN at all — `-0.0 < 0.0`
+// is false, so the two zeros compared equal and kept their input order.
+//
+// ⚠ THE ORACLE IS WRITTEN OUT, NOT COMPUTED — the discipline
+// wql_order_by_float_is_a_total_order_e2e records. Asserting only
+// "static == dynamic" would pass with both engines wrong, which is precisely
+// how this survived; and an oracle sort written here with the same comparator
+// would reproduce the defect and compare the implementation with itself. So
+// group 1 asserts a CONSTANT id sequence derived from IEEE 754 totalOrder by
+// hand, and group 3's fuzz oracle sorts on `f64_total_key` — a key, not a
+// float comparison, so it cannot inherit a partial-order bug.
+//
+// exit 0 = static, dynamic and the hand oracle all agree.
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct S { pub k: f64, pub id: i64 }
+pub schema SR : code(0x0DFB_0000_0000_0021) { k: f64 = 0, id: i64 = 1 }
+resource cat = schema_catalog!{ SR };
+
+pub deem q_asc(ss: &[S])  { from ss s select s.id order by s.k : i64 }
+pub deem q_desc(ss: &[S]) { from ss s select s.id order by s.k desc : i64 }
+
+// ── the fixed table: the same eight rows the static test pins ────────────────
+//
+//   key      -inf  -2.5  -0.0   0.0   1.0   3.0  +inf   NaN
+//   id          4     7     1     5     3     0     6     2
+//
+// and `desc` is its exact reverse (no two keys are totalOrder-equal here).
+fn nan_()  -> f64 { return f64_from_bits(0x7FF8000000000000u64); }
+fn pinf_() -> f64 { return f64_from_bits(0x7FF0000000000000u64); }
+fn ninf_() -> f64 { return f64_from_bits(0xFFF0000000000000u64); }
+fn nzero_() -> f64 { return f64_from_bits(0x8000000000000000u64); }
+
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { k: 3.0f64,   id: 0i64 });
+    v.push(S { k: nzero_(), id: 1i64 });
+    v.push(S { k: nan_(),   id: 2i64 });
+    v.push(S { k: 1.0f64,   id: 3i64 });
+    v.push(S { k: ninf_(),  id: 4i64 });
+    v.push(S { k: 0.0f64,   id: 5i64 });
+    v.push(S { k: pinf_(),  id: 6i64 });
+    v.push(S { k: -2.5f64,  id: 7i64 });
+    return v;
+}
+
+// ── plumbing: the same rows as a Writ source for the dynamic engine ──────────
+fn mkR(d: &Writ, k: f64, id: i64) -> WAny {
+    let r: SR = d.make::<SR>(); r.k = k; r.id = id;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn wsrc(d: &Writ, ss: &Vec<S>) -> WAny {
+    let n: i64 = ss.len(); let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(mkR(d, ss.get(i).k, ss.get(i).id)); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+// -1 marks "the query did not run": a compile or run error must FAIL the test,
+// never read as an empty result that trivially matches a short expectation.
+fn dyn_ids(qt: str, c: &SchemaCatalog, env: &QEnv) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    match Query::compile(qt, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(r) => {
+                    let nr: i64 = r.row_count();
+                    let mut i: i64 = 0i64;
+                    while i < nr { out.push(r.get_i64(i, 0i64)); i = i + 1i64; }
+                }
+                Result::Err(_e2) => { out.push(-1i64); }
+            }
+        }
+        Result::Err(_e) => { out.push(-1i64); }
+    }
+    return out;
+}
+
+fn eq_v(got: &Vec<i64>, want: &Vec<i64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < want.len() { if got.get(i) != want.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+fn v8(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64) -> Vec<i64> {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(a); v.push(b); v.push(c); v.push(d); v.push(e); v.push(f); v.push(g); v.push(h);
+    return v;
+}
+
+// ── the independent oracle: a STABLE sort on the totalOrder KEY ──────────────
+// It compares i64 keys, never floats, so it cannot reproduce a partial-order
+// comparator by construction.
+fn oracle_ids(ss: &Vec<S>, desc: bool) -> Vec<i64> {
+    let n: i64 = ss.len();
+    let mut ord: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < n {
+        ord.push(i);
+        let mut j: i64 = ord.len() - 1i64;
+        while j > 0i64 {
+            let ka: i64 = f64_total_key(ss.get(ord.get(j)).k);
+            let kb: i64 = f64_total_key(ss.get(ord.get(j - 1i64)).k);
+            let swap: bool = if desc { ka > kb } else { ka < kb };
+            if !swap { break; }
+            ord.swap(j, j - 1i64);
+            j = j - 1i64;
+        }
+        i = i + 1i64;
+    }
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let mut k: i64 = 0i64;
+    while k < ord.len() { out.push(ss.get(ord.get(k)).id); k = k + 1i64; }
+    return out;
+}
+
+struct Rng { s: u64 }
+impl Rng {
+    fn next(self: &mut Rng) -> u64 {
+        self.s = wrapping_add(wrapping_mul(self.s, 6364136223846793005u64), 1442695040888963407u64);
+        return self.s >> 33u64;
+    }
+    fn upto(self: &mut Rng, n: i64) -> i64 { return (self.next() % (n as u64)) as i64; }
+}
+// The pool is the point: signed zeros, both NaN SIGNS (totalOrder puts a -NaN
+// FIRST, before -inf, and a +NaN LAST), both infinities, and duplicates so the
+// sort's STABILITY is exercised too.
+fn poolf(i: i64) -> f64 {
+    if i == 0i64 { return 0.0f64; }
+    if i == 1i64 { return nzero_(); }
+    if i == 2i64 { return 1.0f64; }
+    if i == 3i64 { return -1.0f64; }
+    if i == 4i64 { return nan_(); }
+    if i == 5i64 { return f64_from_bits(0xFFF8000000000000u64); }   // -NaN
+    if i == 6i64 { return pinf_(); }
+    if i == 7i64 { return ninf_(); }
+    if i == 8i64 { return 2.5f64; }
+    return 0.0f64;                                                  // duplicate of 0
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let ss: Vec<S> = rows();
+
+    // ── 1. the DYNAMIC engine against the hand-written constant ─────────────
+    let d: Writ = writ_new(16384i64);
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("ss", wsrc(&d, &ss));
+
+    let dyn_asc: Vec<i64> = dyn_ids("from ss s select s.id order by s.k", &c, &env);
+    if !eq_v(&dyn_asc, &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 10i32; }
+
+    let dyn_desc: Vec<i64> = dyn_ids("from ss s select s.id order by s.k desc", &c, &env);
+    if !eq_v(&dyn_desc, &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 11i32; }
+
+    // ── 2. the STATIC engine against the same constant, and the two agree ────
+    let st_asc: Vec<i64> = q_asc(ss.as_slice()).unwrap();
+    if !eq_v(&st_asc, &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 12i32; }
+    let st_desc: Vec<i64> = q_desc(ss.as_slice()).unwrap();
+    if !eq_v(&st_desc, &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 13i32; }
+    if !eq_v(&st_asc, &dyn_asc)   { return 14i32; }
+    if !eq_v(&st_desc, &dyn_desc) { return 15i32; }
+
+    // the oracle reproduces the hand table — if it does not, group 3 is junk
+    if !eq_v(&oracle_ids(&ss, false), &v8(4i64, 7i64, 1i64, 5i64, 3i64, 0i64, 6i64, 2i64)) { return 16i32; }
+    if !eq_v(&oracle_ids(&ss, true),  &v8(2i64, 6i64, 0i64, 3i64, 5i64, 1i64, 7i64, 4i64)) { return 17i32; }
+
+    // ── 3. THREE-WAY fuzz: static, dynamic and the key-sorted oracle ─────────
+    let mut rng: Rng = Rng { s: 0x51DEB00BF10A7C0Du64 };
+    let mut it: i64 = 0i64;
+    while it < 300i64 {
+        let n: i64 = 1i64 + rng.upto(7i64);
+        let mut tb: Vec<S> = vec_new::<S>();
+        let mut r0: i64 = 0i64;
+        while r0 < n { tb.push(S { k: poolf(rng.upto(10i64)), id: r0 }); r0 = r0 + 1i64; }
+
+        let dd: Writ = writ_new(16384i64);
+        let mut e2: QEnv = QEnv::new();
+        e2.bind_source("ss", wsrc(&dd, &tb));
+
+        let o_a: Vec<i64> = oracle_ids(&tb, false);
+        let o_d: Vec<i64> = oracle_ids(&tb, true);
+        let s_a: Vec<i64> = q_asc(tb.as_slice()).unwrap();
+        let s_d: Vec<i64> = q_desc(tb.as_slice()).unwrap();
+        let y_a: Vec<i64> = dyn_ids("from ss s select s.id order by s.k", &c, &e2);
+        let y_d: Vec<i64> = dyn_ids("from ss s select s.id order by s.k desc", &c, &e2);
+
+        if !eq_v(&s_a, &o_a) { return 20i32; }   // static  vs oracle, asc
+        if !eq_v(&y_a, &o_a) { return 21i32; }   // dynamic vs oracle, asc
+        if !eq_v(&s_d, &o_d) { return 22i32; }   // static  vs oracle, desc
+        if !eq_v(&y_d, &o_d) { return 23i32; }   // dynamic vs oracle, desc
+        it = it + 1i64;
+    }
+
+    // ── 4. the two hand-decidable minima, through both engines ──────────────
+    // [ +0.0, -0.0 ]: no NaN needed — `-0.0 < 0.0` is false.
+    let mut z: Vec<S> = vec_new::<S>();
+    z.push(S { k: 0.0f64, id: 0i64 });
+    z.push(S { k: nzero_(), id: 1i64 });
+    let dz: Writ = writ_new(4096i64);
+    let mut ez: QEnv = QEnv::new();
+    ez.bind_source("ss", wsrc(&dz, &z));
+    let mut want_z: Vec<i64> = vec_new::<i64>(); want_z.push(1i64); want_z.push(0i64);
+    if !eq_v(&dyn_ids("from ss s select s.id order by s.k", &c, &ez), &want_z) { return 30i32; }
+    if !eq_v(&q_asc(z.as_slice()).unwrap(), &want_z) { return 31i32; }
+
+    // [ 1.0, NaN, 0.0 ]: the dynamic engine used to return this list unchanged.
+    let mut w: Vec<S> = vec_new::<S>();
+    w.push(S { k: 1.0f64, id: 0i64 });
+    w.push(S { k: nan_(),  id: 1i64 });
+    w.push(S { k: 0.0f64, id: 2i64 });
+    let dw: Writ = writ_new(4096i64);
+    let mut ew: QEnv = QEnv::new();
+    ew.bind_source("ss", wsrc(&dw, &w));
+    let mut want_w: Vec<i64> = vec_new::<i64>(); want_w.push(2i64); want_w.push(0i64); want_w.push(1i64);
+    if !eq_v(&dyn_ids("from ss s select s.id order by s.k", &c, &ew), &want_w) { return 32i32; }
+    if !eq_v(&q_asc(w.as_slice()).unwrap(), &want_w) { return 33i32; }
+
+    return 0i32;
+}

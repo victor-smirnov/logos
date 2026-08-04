@@ -117,6 +117,17 @@ for a in "$LIB_DIR"/liblogos-lang.a "$LIB_DIR"/liblogos-mem.a \
     if [ "$LOGOSC" -nt "$a" ]; then
         echo "::error:: $a is older than $LOGOSC — the spec would describe the"
         echo "          previous surface. Rebuild (ninja / cmake --build) first."
+        # ⚠ AND IF THAT SAYS "no work to do", THE REMEDY ABOVE IS A NO-OP.
+        # This test is mtime; ninja's is its own dep log, and the two can
+        # disagree — anything that touches these files from outside ninja (a
+        # revert/restore, a manual copy, a parallel agent in the same build
+        # dir) skews the mtimes without dirtying the dep log. MEASURED: a red
+        # gate here, `cmake --build` answering "no work to do" in 0.07 s, and
+        # the gate still red; only deleting the archives cleared it. So say the
+        # command that actually works rather than leaving the reader to loop.
+        echo "          If that reports 'no work to do' and this error persists,"
+        echo "          ninja's dep log disagrees with this mtime test. Force it:"
+        echo "              rm -f $LIB_DIR/liblogos-*.a && cmake --build <builddir>"
         exit 1
     fi
 done

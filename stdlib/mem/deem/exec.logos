@@ -375,6 +375,31 @@ fn rs_push_row(dst: &mut RowSet, l: &RowSet, r: i64, rt: &RowSet, j: i64) {
 
 // ── RtVal ordering (sort keys) + hashing (join/distinct keys) ────────────────
 // Compare mirrors the eval `<`-family: str via str_cmp, int exactly, else f64.
+//
+// ⚠ The float arm compares through `f64_total_key` (IEEE 754 totalOrder), NOT
+// through `<`/`>`. This is the SORT comparator — its only caller is the
+// `RExpr::Sort` insertion sort below — and `<` is a PARTIAL order, so using it
+// here is not a lenience, it is a wrong answer:
+//   * a NaN is neither `<` nor `>` anything, so `<`-compare answered "equal" for
+//     every pair involving one. The insertion sort then never shifts a row past
+//     a NaN, and `order by` returned rows in INPUT order. MEASURED on the
+//     3-row table [1.0, NaN, 0.0]: the dynamic engine returned [1.0, NaN, 0.0]
+//     — not sorted at all — where the static deem! query returned
+//     [0.0, 1.0, NaN].
+//   * `-0.0 < 0.0` is false, so the two zeros also compared "equal". MEASURED on
+//     [+0.0, -0.0]: dynamic kept the input order, static returned [-0.0, +0.0].
+//     No NaN is needed to see this one.
+// The STATIC emitter has always keyed a float sort through `f64_total_key`
+// (`rexpr_walk.logos` `key_ord_frag`, pinned by
+// wql_order_by_float_is_a_total_order_e2e), so this is the dynamic engine being
+// brought to the same order the static one already implements — the two are a
+// differential pair and an `order by` on a float column is the one shape where
+// they disagreed. Pinned by query_order_by_float_static_vs_dynamic.
+//
+// `f64_total_key` agrees with `<` on every pair where neither side is NaN, so
+// nothing about ordinary values moves. The non-numeric kinds reach this arm via
+// `rt_f`'s 0.0 default and keep comparing equal to each other exactly as before
+// (`f64_total_key(0.0) == 0`).
 fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
     if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 { return str_cmp(rt_s(l), rt_s(r)) as i64; }
     if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
@@ -384,10 +409,10 @@ fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
         if a > b { return 1i64; }
         return 0i64;
     }
-    let lf: f64 = rt_f(l);
-    let rf: f64 = rt_f(r);
-    if lf < rf { return -1i64; }
-    if lf > rf { return 1i64; }
+    let lk: i64 = f64_total_key(rt_f(l));
+    let rk: i64 = f64_total_key(rt_f(r));
+    if lk < rk { return -1i64; }
+    if lk > rk { return 1i64; }
     return 0i64;
 }
 
