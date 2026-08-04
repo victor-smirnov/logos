@@ -1,0 +1,80 @@
+// SHARD-GATE FIXTURE — the SUBJECT of tests/logos/emit_shards_gate.sh.
+//
+// This module exists to be emitted twice, once as ONE object and once as FOUR,
+// and to have the two artifacts compared symbol by symbol. Everything about its
+// shape is chosen for that comparison; nothing here is an interesting program.
+//
+// WHY 32 FUNCTIONS. The shard selector (mlir_gen.cpp, `is_binary_skip`) is
+// `FNV-1a(link_name) % shard_count`. At 4 shards, 32 bodies make every shard
+// non-empty with overwhelming probability and — measured at HEAD — actually
+// non-empty. A fixture small enough for a shard to come out bodyless would make
+// the "every shard object holds bodies" reading of the gate accidental.
+//
+// WHY TWO CONCRETE TYPES, BOTH CARRYING A `String`. `__drop_in_place__A` and
+// `__drop_in_place__B` are compiler-SYNTHESISED and created on demand while
+// lowering, so every shard that drops an A emits its own copy (see the
+// `if (opts.shard_count > 1)` relinkage in compile_pipeline.cpp). That
+// duplication is the reason the glue is forced to LinkOnceODR under sharding,
+// and it is the assertion the gate makes. With one concrete type the
+// duplication would depend on how the hash split the 32 bodies; with A and B
+// interleaved across the whole range, every shard drops both.
+// MEASURED at HEAD, 4 shards: all four of `__drop_in_place__A/B` and
+// `__logos_vtable__Sp__A/B` appear in ALL FOUR shard objects (6386 defined
+// globals summed over the shards against 6374 distinct — exactly 4 names x 3
+// extra copies). So the duplicate always reaches the linker and the assertion
+// is hash-luck-free rather than hash-lucky. The `String` field is what makes
+// the glue non-trivial and therefore emitted at all.
+//
+// WHY `Box<dyn Sp>`. It forces a vtable (`__logos_vtable__Sp__A/B`) whose slot 0
+// points at the drop glue. The vtable can land in a different shard than the
+// glue, which is precisely why internal linkage would NOT do — the reference has
+// to cross the object boundary. So this shape exercises the cross-shard
+// reference, not just the duplicate definition.
+package shardgate;
+
+use logos.mem.boxed;
+use logos.mem.string;
+
+pub trait Sp { fn v(&self) -> i64; }
+
+pub struct A { pub name: String, pub x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+pub struct B { pub tag: String, pub y: i64 }
+impl Sp for B { fn v(&self) -> i64 { return self.y; } }
+
+// 16 A-bodies: dyn_a_<i> yields i.
+pub fn dyn_a_0() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a0"), x: 0i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_1() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a1"), x: 1i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_2() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a2"), x: 2i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_3() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a3"), x: 3i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_4() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a4"), x: 4i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_5() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a5"), x: 5i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_6() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a6"), x: 6i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_7() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a7"), x: 7i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_8() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a8"), x: 8i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_9() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a9"), x: 9i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_10() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a10"), x: 10i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_11() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a11"), x: 11i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_12() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a12"), x: 12i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_13() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a13"), x: 13i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_14() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a14"), x: 14i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_a_15() -> i64 { let b: Box<dyn Sp> = box_new(A { name: String::from("a15"), x: 15i64 }) as Box<dyn Sp>; return b.v(); }
+
+// 16 B-bodies: dyn_b_<i> yields 2*i.
+pub fn dyn_b_0() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b0"), y: 0i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_1() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b1"), y: 2i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_2() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b2"), y: 4i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_3() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b3"), y: 6i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_4() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b4"), y: 8i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_5() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b5"), y: 10i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_6() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b6"), y: 12i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_7() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b7"), y: 14i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_8() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b8"), y: 16i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_9() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b9"), y: 18i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_10() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b10"), y: 20i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_11() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b11"), y: 22i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_12() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b12"), y: 24i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_13() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b13"), y: 26i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_14() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b14"), y: 28i64 }) as Box<dyn Sp>; return b.v(); }
+pub fn dyn_b_15() -> i64 { let b: Box<dyn Sp> = box_new(B { tag: String::from("b15"), y: 30i64 }) as Box<dyn Sp>; return b.v(); }

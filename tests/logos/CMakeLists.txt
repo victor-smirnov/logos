@@ -1727,6 +1727,46 @@ set_tests_properties(logos_09_unit_graph PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# SHARDED EMISSION (LOGOS_EMIT_SHARDS / LOGOS_EMIT_WORKERS). MEASURED 2026-08-04:
+# repo-wide, three occurrences of `LOGOS_EMIT_SHARDS`, all three in
+# src/compiler/emit_module.cpp (two comments and the getenv). Nothing under
+# tests/, scripts/, tools/ or any CMakeLists set it, so every shard sweep in that
+# arc was run BY HAND and a regression on that path was invisible at every tier —
+# a behaviour-changing knob no test enters is indistinguishable from a passing
+# one, which is the same defect class as a test missing from the suite. The
+# source comment at the shards default asks for exactly this ("Pin it before
+# anyone leans on this path").
+#
+# The gate compares two EMITTED ARCHIVES of one fixture module (one object vs
+# four) symbol by symbol, plus the W=1 sequential control against W=4. It does
+# NOT stand on the consumer running: MEASURED, with the shard predicate forced to
+# skip every body, all four shard objects were valid and defined ZERO globals,
+# and the consumer still linked and still printed the right answer, because the
+# archive's `.wr0` carries the AST and logosc recompiles what it cannot find.
+# See emit_shards_gate.sh for each assertion and the deliberate break it caught.
+#
+# ⚠ Cost 20.1 s measured through ctest on a quiet box (37.9 s with three sibling
+# builds running), and it is a plain add_test with no sampled label: its
+# fixture is a module build, and the L1-L3 samplers enumerate `.logos` files
+# under pass/ and fail/ and cannot reach it. L4 runs it with everything else,
+# where it is off the critical path. Deliberately NOT wired into test-levels.sh
+# L2 — that is +40% on a 65 s tier for a knob that is off by default and, by the
+# 2026-08-04 price measurement (sharding buys build time and sells run time about
+# one for one), stays off for anything shipped or measured.
+add_test(
+    NAME logos_09_emit_shards
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/emit_shards_gate.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}/emit_shards_gate
+)
+set_tests_properties(logos_09_emit_shards PROPERTIES
+    TIMEOUT 600
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── THE ENUMERATOR (tests/exhaustive) ────────────────────────────────────────
 #
 # `tests/logos/{pass,fail}` holds AUTHORED fixtures: a person chose the case and

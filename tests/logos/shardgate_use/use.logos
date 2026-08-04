@@ -1,0 +1,66 @@
+// CONSUMER for the shard-gate fixture — linked against libshardgate.a by
+// tests/logos/emit_shards_gate.sh, once against the 1-shard archive and once
+// against the 4-shard one.
+//
+// WHAT THIS FILE IS NOT. It is NOT the shard-gate's detector, and reading it as
+// one is the exact mistake this arc is about. MEASURED: with the shard
+// predicate forced to skip EVERY body, all four shard objects came out valid,
+// 496 bytes each, holding ZERO defined globals against 6374 at one shard — and
+// this consumer still compiled, still linked, and still printed SUM=360,
+// because the archive's `.wr0` member carries the AST and logosc recompiles
+// locally what it cannot find in the archive (it even says so: "dependency
+// bodies will be RECOMPILED from their archived ASTs instead of linked"). An
+// end-to-end run measures the compiler's FALLBACK, not the emitted artifact.
+// That is why the gate stands on `nm` over the archive members, and why this
+// program is kept only as the LINK check: the duplicate-symbol breaks (an
+// inverted shard predicate; drop glue left strong under sharding) surface HERE
+// as `multiple definition`, and are invisible in the symbol SETS.
+//
+// THE ANSWER IS DERIVED BY HAND, not read off a run:
+//   dyn_a_<i> yields i     -> sum over i in 0..=15 = 15*16/2 = 120
+//   dyn_b_<i> yields 2*i   -> 2 * (15*16/2)                  = 240
+//   SUM                                                      = 360
+// It is PRINTED, not returned: a process exit status is eight bits and 360
+// would come back as 104 (gate_lint R1).
+package shardgate_use;
+use shardgate;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    let mut s: i64 = 0i64;
+    s = s + dyn_a_0();
+    s = s + dyn_a_1();
+    s = s + dyn_a_2();
+    s = s + dyn_a_3();
+    s = s + dyn_a_4();
+    s = s + dyn_a_5();
+    s = s + dyn_a_6();
+    s = s + dyn_a_7();
+    s = s + dyn_a_8();
+    s = s + dyn_a_9();
+    s = s + dyn_a_10();
+    s = s + dyn_a_11();
+    s = s + dyn_a_12();
+    s = s + dyn_a_13();
+    s = s + dyn_a_14();
+    s = s + dyn_a_15();
+    s = s + dyn_b_0();
+    s = s + dyn_b_1();
+    s = s + dyn_b_2();
+    s = s + dyn_b_3();
+    s = s + dyn_b_4();
+    s = s + dyn_b_5();
+    s = s + dyn_b_6();
+    s = s + dyn_b_7();
+    s = s + dyn_b_8();
+    s = s + dyn_b_9();
+    s = s + dyn_b_10();
+    s = s + dyn_b_11();
+    s = s + dyn_b_12();
+    s = s + dyn_b_13();
+    s = s + dyn_b_14();
+    s = s + dyn_b_15();
+    unsafe { printf("SUM=%lld\n".as_ptr(), s); }
+    return 0i32;
+}

@@ -1,0 +1,4 @@
+module shardgate
+id shardgate_fixture
+version 0.1
+root tests/logos/shardgate/
