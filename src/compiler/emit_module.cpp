@@ -1648,6 +1648,34 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         for (auto& t : pool) t.join();
     }
     if (failed.load()) { shard_objs.clear(); return false; }
+
+    // ⚠ A ZERO return from the emitter is NOT evidence that an object was
+    // written. OBSERVED ONCE, 2026-08-03, at 4 shards: two of the four objects
+    // came out zero bytes, every emitter call returned 0, this function returned
+    // true, `ar` archived the empty members without complaint, and the archive
+    // held 4606 defined symbols where it should have held 9383. Half a module
+    // vanished and the build was green; it surfaced far downstream as a bogus
+    // SEMA error in a consumer, which is the most expensive shape a defect can
+    // take. Not reproduced in four retries and NOT diagnosed — so this does not
+    // pretend to fix it, it makes it impossible to MISS.
+    //
+    // The check is existence and a floor: an ELF64 file header alone is 64
+    // bytes, so anything under that is not an object file whatever else it is.
+    // A shard that legitimately received no functions still emits a valid
+    // (non-empty) object, so this cannot fire on an uneven hash split.
+    for (int i = 0; i < shards; ++i) {
+        std::error_code ec;
+        auto sz = fs::file_size(shard_objs[size_t(i)], ec);
+        if (ec || sz < 64) {
+            std::fprintf(stderr,
+                "emit_module: shard %d/%d reported success but produced %s: %s — "
+                "refusing to archive a truncated module\n",
+                i, shards, ec ? "no file" : "a file too small to be an object",
+                shard_objs[size_t(i)].c_str());
+            shard_objs.clear();
+            return false;
+        }
+    }
     return true;
 }
 
