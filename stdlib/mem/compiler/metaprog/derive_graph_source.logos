@@ -217,6 +217,17 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
     // antiquote, which puts the materializer's computed name in a structured
     // slot rather than between two hand-written spaces.
     //
+    // ⚠ THE ROOT CALL'S COORDINATES ARE NOT LITERALS. `#wnm(root,
+    // WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, …)` names the constants
+    // logos.std.wql.writ_graph declares — the same three the static Writ walker
+    // emits, the same three deem's ts_scan emits, and the same parent word
+    // logos.std.wql.lower's graph-path anchor compares against. They resolve in
+    // the USER'S module through the `use logos.std.wql.writ_graph;` this quote
+    // already emits for WritEdgeRow and the GraphSource trait, so the collapse
+    // costs no new import. This was the third hand-written copy of the triple;
+    // a literal here compiles and then answers zero rows for every `from g
+    // .field …` path, which is the failure a shared constant makes impossible.
+    //
     // ⚠ The walker fn has NO return type, deliberately: `#(body)` is only
     // grammatical after `-> T` (the `block_body` slot rides the ARROW alts), but
     // nothing here needs it — the body is a LITERAL block whose only runtime
@@ -234,7 +245,7 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
         }
         pub fn #enm(root: &#tnm) -> Vec<WritEdgeRow> {
             let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
-            #wnm(root, 0i64, "", -1i64, &mut out);
+            #wnm(root, WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, &mut out);
             return out;
         }
         impl GraphSource for #tnm { rel edge = #enm; }

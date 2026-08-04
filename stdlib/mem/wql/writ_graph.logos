@@ -49,6 +49,39 @@ use logos.mem.collections.vec;
 // One graph edge row (the shared vocabulary; see the module doc).
 pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
 
+// ── THE VIRTUAL ROOT EDGE'S COORDINATES — one convention, four sites ────────
+// A document's root has no incoming edge, so the relation gives it a VIRTUAL
+// one whose coordinates are fixed by RULING and not read off the document.
+// These constants ARE that ruling, and they are `pub` because the convention
+// has four sites in three packages:
+//
+//   • writ_graph_edges, below                  — the STATIC Writ walker;
+//   • logos.mem.deem's ts_scan                 — the DYNAMIC Writ walker;
+//   • logos.mem.compiler.metaprog.derive_graph_source, INSIDE ITS QUOTE — the
+//     #[derive_graph_source] materializer for native structs, which emits the
+//     coordinates into the user's module;
+//   • logos.std.wql.lower's gp_build           — THE READER. Every graph path
+//     anchors on `__ga.parent == WG_ROOT_PARENT`, so a producer and the reader
+//     disagreeing by one literal makes every `from g .field …` answer nothing.
+//
+// The row EMITTER was collapsed once already (the root row is a row of the same
+// relation and fills its columns by the same wg_node_id / wg_kind / wg_vi as
+// the walk), which is what stopped the value-axis drift — a lost f64 `vi` arm,
+// then a `child` id spelled `1`. What an emitter cannot absorb is the
+// COORDINATE: a producer passes it in and the reader compares against it. Three
+// hand-written triples and a hand-written anchor were what remained, and this
+// names them. A fifth site is now a `use`, not a fourth guess.
+//
+// WHY 0 IS AVAILABLE AS "no parent node": no real node id is 0 — a Writ
+// container id is a live handle and a derived struct id is its address.
+pub const WG_ROOT_PARENT: i64 = 0i64;
+pub const WG_ROOT_KEY:    str = "";
+pub const WG_ROOT_IDX:    i64 = 0i64 - 1i64;
+// The root edge's ORDINAL among the (absent) parent's children — the second
+// word the synthetic-leaf id rule hashes. Only the two producers that COMPUTE
+// an id consume it; a derived struct's id is its address, not a fold.
+pub const WG_ROOT_ORD:    i64 = 0i64;
+
 // ── The source trait (ADR 0016 §6) ──────────────────────────────────────────
 // THE canonical registration of Writ as a deem! source: a `g: &Writ` param
 // carries this one-rel vocabulary, addressable as the param itself
@@ -221,8 +254,11 @@ pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
     // The columns come from the SAME wg_node_id / wg_vi the walk uses — the
     // root edge is a row of the same relation, so it must fill the same
     // columns by the same rule. Open-coding them here is what let this row
-    // drift twice (a missing f64 `vi` arm, then this early return).
-    out.push((0i64, "", 0i64 - 1i64, wg_node_id(0i64, rv, 0i64), wg_kind(rv),
+    // drift twice (a missing f64 `vi` arm, then this early return). The
+    // COORDINATES come from the WG_ROOT_* constants above, which the other two
+    // producers and the graph-path reader consume as well.
+    out.push((WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX,
+              wg_node_id(WG_ROOT_PARENT, rv, WG_ROOT_ORD), wg_kind(rv),
               rv.type_code() as i64, wg_vi(rv), rv.as_wstr()));
     let mut seen: Vec<u64> = vec_new::<u64>();
     seen.push(rv.raw() as u64);

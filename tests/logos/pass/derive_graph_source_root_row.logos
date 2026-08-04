@@ -1,0 +1,221 @@
+// derive_graph_source_root_row — THE VIRTUAL ROOT EDGE'S COORDINATE TRIPLE IS
+// ONE CONVENTION WITH THREE PRODUCERS AND ONE CONSUMER, AND THIS IS THE ONE
+// PLACE ALL FOUR ARE READ AT ONCE.
+//
+// The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) says every
+// document's root is a row of the relation, reached by a VIRTUAL edge that has
+// no real parent node. That virtual edge's COORDINATES are fixed:
+//
+//     parent = 0      the reserved non-handle (no real node handle is 0), so
+//                     `parent == 0` names the root without threading a root
+//                     handle through params;
+//     key    = ""     a virtual edge carries no map key;
+//     idx    = -1     the not-an-array-position filler.
+//
+// THREE emitters produce a root row and must agree on that triple:
+//
+//   1. logos.std.wql.writ_graph::writ_graph_edges  — the STATIC Writ walker;
+//   2. logos.mem.deem::ts_scan                     — the DYNAMIC Writ walker;
+//   3. the #[derive_graph_source] materializer      — NATIVE structs, whose
+//      generated __gs_edges_<T> calls __gs_walk_<T>(root, <parent>, <key>,
+//      <idx>, &mut out) with the same triple written a third time.
+//
+// And ONE consumer reads it: logos.std.wql.lower's graph-path builder anchors
+// every `from g …` path on `__ga.parent == 0`. A ledger of the convention that
+// omits its only reader is where the next drift lands, so leg (D) below drives
+// a gpath through the DERIVE source — the anchor and the emitted parent word
+// have to be the same number or the query answers nothing.
+//
+// WHAT WAS UNGATED BEFORE THIS FILE. wql_graph_null_root_row pins all eight
+// columns of the root row on producers 1 and 2. On producer 3, wql_native_
+// graph_e2e and derive_graph_source_field_classes_e2e reach the root row only
+// through gpaths, which desugar through the `parent == 0` anchor and the
+// `v.parent == prev.child` step — so `parent` and `child` were indirectly held
+// and the other SIX columns (key, idx, kind, tag, vi, vs) were held by nothing
+// at all. The derive could have emitted key "root", idx 0, kind "obj" and every
+// test in the corpus would still have been green.
+//
+// THE ORACLE IS HAND-DERIVED, NOT AGREEMENT BETWEEN PRODUCERS. Leg (A) writes
+// the eight expected values as literals, derived here:
+//
+//   parent = 0, key = "", idx = -1   the triple above, by the ruling.
+//   child  = the STRUCT'S OWN ADDRESS. A native struct has no Writ handle, so
+//            the derive uses `(v as *const T) as i64` for every struct node,
+//            root included. `addr_of` below recomputes that from the same `&c`
+//            the materializer was handed — an address the test owns, not a
+//            value copied off a run.
+//   kind   = "struct"  the derive's node class (wg_kind's nine arms are Writ
+//            tag arms and never produce it; a native object is not a Writ node).
+//   tag    = 0, vi = 0, vs = ""   canonical fillers: a native object carries no
+//            Writ type code, no scalar payload and no string payload. These are
+//            LITERALS in the emitter precisely because there is nothing to read.
+//   ROW ORDER: the root row is row 0. The walker pushes its own row before it
+//            descends, so preorder puts the root first — and legs (B)/(C) read
+//            row 0 of the other two producers on the same ground.
+//
+// ⚠ WHY `child` IS NOT COMPARED ACROSS PRODUCERS, and this is a real asymmetry:
+// the triple is shared, the CHILD ID RULE IS NOT. A Writ root that is not a
+// container takes the synthetic FNV(0, 0) = 590684067820433389; a derive root
+// takes its address. Leg (E) asserts they DIFFER and states the argument for
+// why that holds today rather than by luck: FNV(0,0) ≈ 5.9e17, while an x86-64
+// user-space address is < 2^47 ≈ 1.4e14 (< 1.4e17 even with 5-level paging), so
+// no struct address can land on it. That is machine-dependent, not a proof, and
+// it is asserted here so the day it stops being true is a red test and not a
+// silently merged pair of nodes. (#[derive_graph_source] only reads
+// ast_struct_field_count, so the id is always an address — there is no arm that
+// could produce a synthetic id.)
+//
+// Exit 0 iff every assertion holds. Codes: 1x leg A (x = the column ordinal in
+// (parent, key, idx, child, kind, tag, vi, vs)), 2x leg B, 3x leg C, 4x leg D,
+// 5x leg E, 9x setup.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.std.wql.wql;
+use logos.std.wql.writ_graph;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.mem.deem;
+
+#[derive_graph_source]
+pub struct Cfg { pub n: i64 }
+
+// Leg D — the CONSUMER. `.n` is a graph path, so it lowers to the `__ga.parent
+// == 0` anchor plus one join step `x.parent == __ga.child`: the query answers
+// only if the anchor's literal and the emitted parent word are the same number.
+pub deem cfg_n(g: &Cfg) {
+    from g .n x select x.vi
+}
+
+// The whole Writ relation, unfiltered — `len()` is its cardinality.
+pub deem w_all(g: &Writ) {
+    from g e select e.parent
+}
+
+// The materializer's own address rule, recomputed from the same borrow the
+// materializer was handed. `&c` is the argument in both cases.
+fn addr_of(v: &Cfg) -> i64 {
+    return (v as *const Cfg) as i64;
+}
+
+// The dynamic engine, one i64 column, over a bound tree. An engine error comes
+// back as an empty Vec; the row-count assertions tell that apart from a real
+// empty answer.
+fn dyn_i64(qs: str, root: WAny) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", root);
+    let q: Query = match Query::compile(qs, &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn dyn_str(qs: str, root: WAny) -> Vec<str> {
+    let mut out: Vec<str> = vec_new::<str>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", root);
+    let q: Query = match Query::compile(qs, &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_str(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    let c: Cfg = Cfg { n: 42i64 };
+
+    // ── leg A: the derive's root row, all EIGHT columns, hand-derived ───────
+    let rows: Vec<WritEdgeRow> = __gs_edges_Cfg(&c);
+    // one struct node + one i64 field: two rows, so "row 0" is not a guess
+    // about which of many rows the root is.
+    if rows.len() != 2i64 { return 90i32; }
+
+    let r: WritEdgeRow = rows.get(0i64);
+    if r.0 != 0i64                  { return 10i32; }   // parent
+    if !str_eq(r.1, "")             { return 11i32; }   // key
+    if r.2 != 0i64 - 1i64           { return 12i32; }   // idx
+    if r.3 != addr_of(&c)           { return 13i32; }   // child
+    if !str_eq(r.4, "struct")       { return 14i32; }   // kind
+    if r.5 != 0i64                  { return 15i32; }   // tag
+    if r.6 != 0i64                  { return 16i32; }   // vi
+    if !str_eq(r.7, "")             { return 17i32; }   // vs
+
+    // the field row hangs off the root's child id — the parent word the walker
+    // threads down is the id it just emitted, which is what makes leg D work.
+    let f: WritEdgeRow = rows.get(1i64);
+    if f.0 != addr_of(&c)           { return 91i32; }
+    if !str_eq(f.1, "n")            { return 92i32; }
+    if f.6 != 42i64                 { return 93i32; }
+
+    // ── leg B: producer 1 (the STATIC Writ walker) — same triple ────────────
+    // A scalar-rooted document, so its whole relation is the root row.
+    let d: Writ = writ_new(65536i64);
+    let iv: WAny = d.int(7i64);
+    if !iv.is_int() { return 94i32; }
+    d.set_root(iv);
+
+    let wrows: Vec<WritEdgeRow> = writ_graph_edges(&d);
+    if wrows.len() != 1i64 { return 95i32; }
+    let w: WritEdgeRow = wrows.get(0i64);
+    if w.0 != 0i64        { return 20i32; }
+    if !str_eq(w.1, "")   { return 21i32; }
+    if w.2 != 0i64 - 1i64 { return 22i32; }
+
+    // and the deem! path over the same walker sees the same parent word
+    let wp: Vec<i64> = match w_all(&d) { Result::Ok(v) => { v } Result::Err(_a) => { return 96i32; } };
+    if wp.len() != 1i64   { return 96i32; }
+    if wp.get(0i64) != 0i64 { return 23i32; }
+
+    // ── leg C: producer 2 (the DYNAMIC Writ walker) — same triple ───────────
+    let cp: Vec<i64> = dyn_i64("from g e select e.parent", iv);
+    if cp.len() != 1i64 { return 97i32; }
+    if cp.get(0i64) != 0i64 { return 30i32; }
+
+    let ck: Vec<str> = dyn_str("from g e select e.key", iv);
+    if ck.len() != 1i64 { return 97i32; }
+    if !str_eq(ck.get(0i64), "") { return 31i32; }
+
+    let ci: Vec<i64> = dyn_i64("from g e select e.idx", iv);
+    if ci.len() != 1i64 { return 97i32; }
+    if ci.get(0i64) != 0i64 - 1i64 { return 32i32; }
+
+    // ── leg D: the CONSUMER — the gpath anchor over the DERIVE source ───────
+    // `from g .n x` = (__ga.parent == 0) ∧ (x.parent == __ga.child). If the
+    // anchor's literal and the derive's emitted parent word ever disagree, this
+    // answers zero rows.
+    let dn: Vec<i64> = match cfg_n(&c) { Result::Ok(v) => { v } Result::Err(_b) => { return 40i32; } };
+    if dn.len() != 1i64 { return 41i32; }
+    if dn.get(0i64) != 42i64 { return 42i32; }
+
+    // ── leg E: the two CHILD-ID rules stay apart ───────────────────────────
+    // A non-container Writ root's synthetic id, hand-folded (FNV-1a over the
+    // two words 0, 0: 14695981039346656037 → 12638153115695167455 →
+    // 590684067820433389, all mod 2^64, the last < 2^63).
+    let synth: i64 = 590684067820433389i64;
+    if w.3 != synth        { return 50i32; }   // the Writ side does take it
+    if r.3 == synth        { return 51i32; }   // the derive side cannot reach it
+    if f.3 == synth        { return 52i32; }
+    // the argument, asserted rather than assumed: a user-space address is far
+    // below the synthetic id, so the two id spaces cannot meet on this machine.
+    if r.3 <= 0i64         { return 53i32; }
+    if r.3 >= synth        { return 54i32; }
+
+    return 0i32;
+}

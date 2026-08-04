@@ -19,6 +19,8 @@ use logos.lang.mem;               // replace — FactStore::take_delta move-out
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.writ_graph;     // WG_ROOT_* — THE virtual root edge's coordinates,
+                                  // shared with the static walker, the derive and gp_build
 use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
 use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
 use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
@@ -666,7 +668,11 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     // UNCONDITIONAL, including a NULL root — this side never had a guard, and
     // the static twin's has been removed, so the relation's CARDINALITY is now
     // binding-time independent for an empty document as well.
-    ts_edge_row(&mut out, 0i64, "", 0i64 - 1i64, root, 0i64);
+    //
+    // The COORDINATES are not written here either: WG_ROOT_* (writ_graph) is
+    // the one spelling, shared with the static walker, the
+    // #[derive_graph_source] materializer and gp_build's `parent ==` anchor.
+    ts_edge_row(&mut out, WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, root, WG_ROOT_ORD);
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
     let sp: *mut HashMap<u64, i64> = &mut seen;
     unsafe { let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64); }

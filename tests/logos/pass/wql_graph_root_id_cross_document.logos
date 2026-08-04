@@ -1,0 +1,177 @@
+// wql_graph_root_id_cross_document — ⚠ THIS FILE RECORDS AN OPEN DEFECT. IT IS
+// A TRIPWIRE, NOT A RULING. EVERY ASSERTION BELOW ENCODES BEHAVIOUR THAT IS
+// WRONG AND MEASURED, SO THAT THE DECISION TO CHANGE IT HAS A REPRO AND SO THAT
+// CHANGING IT CANNOT HAPPEN SILENTLY.
+//
+// THE DEFECT. A node id in the graph vocabulary is supposed to identify a node.
+// Container nodes get their Writ handle; scalar leaves get the synthetic
+// FNV(parent handle, edge ordinal), which is unique because the parent handle
+// is. The VIRTUAL ROOT EDGE has no parent node, so it passes the reserved
+// parent word 0 and ordinal 0 — and therefore EVERY null-rooted or
+// scalar-rooted document, on every binding time, gets the SAME root child id:
+//
+//     FNV-1a(0, 0) = 590684067820433389
+//
+// It is the only id in the whole vocabulary that does not depend on the
+// document. Two unrelated documents that happen to have non-container roots are
+// indistinguishable by `child`, so a join on `child` across two sources matches
+// rows that name different nodes of different documents. Below: two documents
+// whose roots are the integers 7 and 99 — different values, different
+// documents, unrelated in every way — join on `child` and produce ONE row. The
+// answer a correct id space gives is ZERO.
+//
+// PRE-EXISTING ON BOTH SIDES, and not created by the a5ce4915 alignment: the
+// static walker already folded FNV(0,0), and the dynamic walker's earlier
+// hand-written literal `1i64` was equally document-independent. Aligning them
+// made one wrong value out of two; it did not introduce the collision.
+//
+// REACHABILITY, measured rather than assumed. The `**` reach relation and the
+// gpath steps in logos.std.wql.lower join on `child` at four places, and ALL
+// FOUR ARE SINGLE-SOURCE (`gp_reach_rel` builds `__reach_<src>` from one `src`,
+// and the gpath step carries `src_name = src` on both sides), so no collision
+// can arise there. Within one document none can arise either — every non-root
+// leaf id is salted by a real parent handle, and handle 0 is reserved. The
+// reachable surface is exactly a USER-WRITTEN cross-source join on `child`,
+// which is the shape this file writes, and which the corpus already exercises
+// in its non-colliding form (wql_writ_graph_e2e's `both_engines`, and
+// query_gpath_e2e's two-tree `bind_source_tree` join).
+//
+// WHY THE FIX IS NOT IN THIS COMMIT. Both options the arc was handed turn out
+// not to hold, and the third one is a RULING:
+//
+//   (a) mix a document handle into the root id — NOT SYMMETRICALLY
+//       IMPLEMENTABLE. The static side has a document (`&Writ`); the dynamic
+//       side has none, because `QEnv::bind_source_tree` stores `root.raw()` and
+//       for a non-container root that word IS the value — two documents rooted
+//       at 7 bind byte-identically. Making it coherent means a new document
+//       identity in the public bind API.
+//   (b) declare root ids document-scoped and refuse a cross-document join on
+//       `child` — ENFORCEABLE ONLY AT THE DIRECT SITE. A rel column launders
+//       the provenance (`rel r(a: i64) { from g e select e.child }`, then join
+//       `g2` against `r.a`, which is a plain i64), and the rule would have to be
+//       written twice because the static (`wql!` → codegen) and dynamic
+//       (check.logos) checkers are separate. A gate that refuses the obvious
+//       spelling and admits the laundered one is worse than a recorded gap: it
+//       looks closed.
+//   (c) salt the root id with the MATERIALIZATION's identity, so no id in the
+//       vocabulary is reproducible across runs — symmetric, cheap, and it
+//       retires the hand-derived literal that wql_graph_null_root_row pins and
+//       the ruling in docs/spec/deem.md that fixes the value at every binding
+//       time. That is a ruling, and rulings are not made inside a repair.
+//
+// WHEN THE RULING COMES, THIS FILE GOES RED. That is its job. The correct
+// response is to REWRITE it against the new rule (the two documents' root ids
+// DIFFER; the cross-document join answers 0 rows) — never to relax an
+// assertion, and never to delete the file without replacing what it measures.
+//
+// Exit 0 iff the collision is still exactly as measured. Codes: 1x the static
+// ids, 2x the static cross-document join, 3x the dynamic ids, 4x the dynamic
+// cross-document join, 5x the within-document control, 9x setup.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.ir;
+use logos.std.wql.wql;
+use logos.std.wql.writ_graph;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+// The whole relation of one document — for a scalar root that is the root row
+// alone, so `child` here IS the root id.
+pub deem child_ids(g: &Writ) {
+    from g e select e.child
+}
+
+// THE COLLISION, statically: two unrelated documents joined on a column that is
+// supposed to identify a node. `select a.vi` proves which document the surviving
+// row came from.
+pub deem cross_child(a: &Writ, b: &Writ) {
+    from a e1 join b e2 on e2.child == e1.child select e1.vi
+}
+
+// The CONTROL, same shape, a column with no identity claim: joining on `kind`
+// is *supposed* to match across documents, so a spurious row there would mean
+// the join machinery is matching everything and the leg above proves nothing.
+pub deem cross_kind(a: &Writ, b: &Writ) {
+    from a e1 join b e2 on e2.kind == e1.kind select e1.vi
+}
+
+fn dyn2_i64(qs: str, ra: WAny, rb: WAny) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", ra);
+    env.bind_source_tree("g2", rb);
+    let q: Query = match Query::compile(qs, &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    // hand-folded, see the header and wql_graph_null_root_row
+    let synth: i64 = 590684067820433389i64;
+
+    // two documents, unrelated: roots 7 and 99
+    let da: Writ = writ_new(65536i64);
+    let av: WAny = da.int(7i64);
+    if !av.is_int() { return 90i32; }
+    da.set_root(av);
+
+    let db: Writ = writ_new(65536i64);
+    let bv: WAny = db.int(99i64);
+    if !bv.is_int() { return 91i32; }
+    db.set_root(bv);
+
+    // the two Writs are genuinely different documents
+    if (&da as *const Writ) as i64 == (&db as *const Writ) as i64 { return 92i32; }
+
+    // ── leg 1: the two root ids are EQUAL, and equal to the fold ────────────
+    let ia: Vec<i64> = match child_ids(&da) { Result::Ok(v) => { v } Result::Err(_a) => { return 93i32; } };
+    if ia.len() != 1i64 { return 93i32; }
+    let ib: Vec<i64> = match child_ids(&db) { Result::Ok(v) => { v } Result::Err(_b) => { return 94i32; } };
+    if ib.len() != 1i64 { return 94i32; }
+
+    if ia.get(0i64) != synth { return 10i32; }
+    if ib.get(0i64) != synth { return 11i32; }
+    // ⚠ THE DEFECT, stated positively: two documents, one node id.
+    if ia.get(0i64) != ib.get(0i64) { return 12i32; }
+
+    // ── leg 2: a cross-document join on `child` answers 1 where 0 is right ──
+    let x: Vec<i64> = match cross_child(&da, &db) { Result::Ok(v) => { v } Result::Err(_c) => { return 95i32; } };
+    if x.len() != 1i64 { return 20i32; }        // ⚠ the correct answer is 0
+    if x.get(0i64) != 7i64 { return 21i32; }    // and the row is doc A's root
+
+    // ── leg 5: the control — the join machinery is not matching everything ──
+    // `kind` carries no identity, so a match there is legitimate and tells the
+    // reader that leg 2's single row is about `child` and not about the join.
+    let k: Vec<i64> = match cross_kind(&da, &db) { Result::Ok(v) => { v } Result::Err(_d) => { return 96i32; } };
+    if k.len() != 1i64 { return 50i32; }
+    if k.get(0i64) != 7i64 { return 51i32; }
+
+    // ── legs 3 and 4: the DYNAMIC engine, same two documents ───────────────
+    // Same defect at the other binding time — the vocabulary is one vocabulary,
+    // and so is its hole.
+    let ya: Vec<i64> = dyn2_i64("from g e select e.child", av, bv);
+    if ya.len() != 1i64 { return 97i32; }
+    if ya.get(0i64) != synth { return 30i32; }
+
+    let yb: Vec<i64> = dyn2_i64("from g2 e select e.child", av, bv);
+    if yb.len() != 1i64 { return 98i32; }
+    if yb.get(0i64) != synth { return 31i32; }
+
+    let y: Vec<i64> = dyn2_i64("from g e join g2 e2 on e2.child == e.child select e.vi", av, bv);
+    if y.len() != 1i64 { return 40i32; }        // ⚠ the correct answer is 0
+    if y.get(0i64) != 7i64 { return 41i32; }
+
+    return 0i32;
+}

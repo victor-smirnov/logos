@@ -21,6 +21,8 @@ use logos.std.wql.ir;
 use logos.std.wql.plan;
 use logos.std.wql.el;         // OP_* ids — graph-path predicate synthesis
 use logos.std.wql.optimize;   // make_int_lit — graph-path residuals
+use logos.std.wql.writ_graph; // WG_ROOT_PARENT — the graph-path anchor compares
+                              // against the coordinate the producers emit
 use logos.lang.writ.wstring;  // h.wstring — string-literal synthesis
 use logos.mem.string;
 
@@ -482,9 +484,13 @@ fn gp_build(src: str, gp: RQGStepArr, h: &Writ, starr: &mut RQJoinStepArr,
             prog_root: WAny) -> GpRes {
     let n: i64 = gp.len();
     if n < 1i64 { return gp_fail("wql!: a graph path needs at least one step"); }
-    // anchor: the virtual root edge
+    // anchor: the virtual root edge. THE ONLY READER of the root coordinate —
+    // the three producers (writ_graph_edges, deem's ts_scan, the
+    // #[derive_graph_source] materializer) all emit WG_ROOT_PARENT, and this
+    // compares against it. A literal here is the same drift one step later: the
+    // query would compile and answer zero rows.
     let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(),
-        gp_field(h, "__ga", "parent"), make_int_lit(h, 0i64));
+        gp_field(h, "__ga", "parent"), make_int_lit(h, WG_ROOT_PARENT));
     let mut prev: str = "__ga";
     let mut hop: str = "";             // pending ** reach var ("" = none)
     let mut last_user: bool = false;   // the current row var is user-named
