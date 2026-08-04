@@ -1,0 +1,158 @@
+// `min`/`max` over an f64 column must return A VALUE FROM THE GROUP.
+//
+// They did not. Both engines seeded the accumulator at ±1.7976931348623157e308
+// — `f64::MAX`, which is NOT the extremum of f64: ±inf and NaN all lie beyond
+// it — and folded with the language's `<`/`>`, a PARTIAL order. Two failures
+// fall out, and MEASURED at the previous HEAD both engines produced both:
+//
+//   group          asked   answered            should be
+//   { +inf }       min     1.797…e308 (MAX)    +inf
+//   { -inf }       max     -1.797…e308         -inf
+//   { NaN }        min     1.797…e308          NaN      — a pure sentinel leak:
+//   { NaN }        max     -1.797…e308         NaN        the answer is a value
+//                                                         present in NO row
+//   { NaN, 1.0 }   max     1.0                 NaN      — NaN is the greatest
+//
+// ⚠ INVISIBLE TO EVERY DIFFERENTIAL, which is why it survived: the static
+// emitter and the dynamic engine implement the IDENTICAL wrong thing, so
+// static-vs-dynamic agrees perfectly and says nothing. The same blind spot hid
+// the `rt_cmp` partial-order bug. Hence the expectations below are written-out
+// CONSTANTS, checked against both engines separately — an oracle that computed
+// them by folding would just reproduce whichever fold it was written with.
+//
+// The rule is PostgreSQL's, and it is not a separate rule: `min`/`max` are the
+// extremes under the SAME order `order by` uses (`f64_data_key`), so all NaNs
+// are one value that is greater than everything, -0.0 equals +0.0, and IEEE
+// order holds elsewhere. The seed is the order's own extremum and is always
+// displaced by an actual row value.
+//
+// exit 0 = static and dynamic both answer what PostgreSQL answers.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub v: f64 }
+pub schema SR : code(0x0DFB_0000_0000_0041) { g: i64 = 0, v: f64 = 1 }
+resource cat = schema_catalog!{ SR };
+
+pub deem q_min(ss: &[S]) { from ss s group by s.g aggregate lo = min(s.v) select lo : f64 }
+pub deem q_max(ss: &[S]) { from ss s group by s.g aggregate hi = max(s.v) select hi : f64 }
+
+fn nan_()  -> f64 { return f64_from_bits(0x7FF8000000000000u64); }
+fn pinf_() -> f64 { return f64_from_bits(0x7FF0000000000000u64); }
+fn ninf_() -> f64 { return f64_from_bits(0xFFF0000000000000u64); }
+
+// Four groups, each hand-decidable, in first-occurrence order:
+//   g=0 { +inf }        g=1 { -inf }        g=2 { NaN }        g=3 { NaN, 1.0 }
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, v: pinf_() });
+    v.push(S { g: 1i64, v: ninf_() });
+    v.push(S { g: 2i64, v: nan_()  });
+    v.push(S { g: 3i64, v: nan_()  });
+    v.push(S { g: 3i64, v: 1.0f64  });
+    return v;
+}
+
+fn mkR(d: &Writ, g: i64, v: f64) -> WAny {
+    let r: SR = d.make::<SR>(); r.g = g; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn wsrc(d: &Writ, ss: &Vec<S>) -> WAny {
+    let n: i64 = ss.len(); let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(mkR(d, ss.get(i).g, ss.get(i).v)); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+// An empty result must FAIL, never read as "matched a short expectation".
+fn dyn_f(qt: str, c: &SchemaCatalog, env: &QEnv) -> Vec<f64> {
+    let mut out: Vec<f64> = vec_new::<f64>();
+    match Query::compile(qt, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(r) => {
+                    let nr: i64 = r.row_count();
+                    let mut i: i64 = 0i64;
+                    while i < nr { out.push(r.get_f64(i, 0i64)); i = i + 1i64; }
+                }
+                Result::Err(_e2) => { out.push(-777.0f64); }
+            }
+        }
+        Result::Err(_e) => { out.push(-777.0f64); }
+    }
+    return out;
+}
+
+// Compared through the DATA key, so "all NaNs are one value" is the assertion
+// rather than a payload accident — but every non-NaN is still pinned exactly,
+// because the data key is injective on values.
+fn same(got: &Vec<f64>, want: &Vec<f64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if f64_data_key(got.get(i)) != f64_data_key(want.get(i)) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+fn v4(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+    let mut v: Vec<f64> = vec_new::<f64>();
+    v.push(a); v.push(b); v.push(c); v.push(d);
+    return v;
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let ss: Vec<S> = rows();
+    let d: Writ = writ_new(4096i64);
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", wsrc(&d, &ss));
+
+    // group order is first-occurrence in both engines: g = 0, 1, 2, 3.
+    //   min: +inf, -inf, NaN, 1.0      (NaN is the greatest, so 1.0 wins in g=3)
+    //   max: +inf, -inf, NaN, NaN      (NaN is the greatest, so it wins in g=3)
+    let want_min: Vec<f64> = v4(pinf_(), ninf_(), nan_(), 1.0f64);
+    let want_max: Vec<f64> = v4(pinf_(), ninf_(), nan_(), nan_());
+
+    if !same(&q_min(ss.as_slice()).unwrap(), &want_min) { return 10i32; }
+    if !same(&q_max(ss.as_slice()).unwrap(), &want_max) { return 11i32; }
+
+    let dmin: Vec<f64> = dyn_f("from ss s group by s.g aggregate lo = min(s.v) select lo", &c, &e);
+    if !same(&dmin, &want_min) { return 12i32; }
+    let dmax: Vec<f64> = dyn_f("from ss s group by s.g aggregate hi = max(s.v) select hi", &c, &e);
+    if !same(&dmax, &want_max) { return 13i32; }
+
+    // ⚠ The sentinel itself, asserted directly: f64::MAX must not appear in any
+    // answer. This is the assertion that fails loudest if a seed ever leaks
+    // again — it names the wrong value rather than only the right one.
+    let mx: f64 = 1.7976931348623157e308f64;
+    let mut i: i64 = 0i64;
+    while i < 4i64 {
+        if dmin.get(i) == mx || dmin.get(i) == -mx { return 20i32; }
+        if dmax.get(i) == mx || dmax.get(i) == -mx { return 21i32; }
+        i = i + 1i64;
+    }
+
+    // …and f64::MAX as an actual DATUM must still come back: the fix must make
+    // the sentinel unreachable, not make the value unrepresentable.
+    let mut t: Vec<S> = vec_new::<S>();
+    t.push(S { g: 0i64, v: mx });
+    t.push(S { g: 0i64, v: -mx });
+    let mut w2: Vec<f64> = vec_new::<f64>(); w2.push(-mx);
+    if !same(&q_min(t.as_slice()).unwrap(), &w2) { return 30i32; }
+    let mut w3: Vec<f64> = vec_new::<f64>(); w3.push(mx);
+    if !same(&q_max(t.as_slice()).unwrap(), &w3) { return 31i32; }
+
+    return 0i32;
+}

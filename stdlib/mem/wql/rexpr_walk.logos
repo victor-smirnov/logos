@@ -3889,10 +3889,19 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             let n_init: Ident = Ident::new(string_as_str(&s_init));
             seeds.push(quote_block! { #n_ga.push(#n_init()); });
         } else if agg_flt[gd] {
+            // ⚠ The seed is the DATA ORDER's own extremum, not `f64::MAX`.
+            // `f64::MAX` is not the largest f64 — ±inf and NaN all lie beyond
+            // it — so seeding there made `min` over `{ +inf }` answer
+            // 1.797…e308, a value present in NO row. Under `f64_data_key`
+            // (PostgreSQL's order: all NaNs one value and the greatest) the top
+            // is the canonical NaN and the bottom is −inf, so any row value
+            // displaces the seed — a group in `group by` is never empty.
+            // `f64::MAX` as a datum answers normally again: it is a value, not
+            // a marker.
             if fnid == AGG_MIN() {
-                seeds.push(quote_block! { #n_ga.push(1.7976931348623157e308f64); });
+                seeds.push(quote_block! { #n_ga.push(f64_from_bits(0x7FF8000000000000u64)); });
             } else if fnid == AGG_MAX() {
-                seeds.push(quote_block! { #n_ga.push(-1.7976931348623157e308f64); });
+                seeds.push(quote_block! { #n_ga.push(f64_from_bits(0xFFF0000000000000u64)); });
             } else {
                 seeds.push(quote_block! { #n_ga.push(0.0f64); });
             }
@@ -3926,9 +3935,18 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                 folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + (#(arg_f))); });
             }
         } else if fnid == AGG_MIN() {
+            // ⚠ f64 folds through `f64_data_key`, not `<`. `<` is PARTIAL: a NaN
+            // is neither less nor greater than anything, so `max` over
+            // { NaN, 1.0 } answered 1.0 where the order says NaN is the greatest.
+            // The comparison is STRICT, so among values with the same key the
+            // FIRST in row order wins. The seed therefore survives only when the
+            // whole group is NaN — and then the answer is the canonical NaN,
+            // which under this order IS the value the group holds: all NaNs are
+            // one value. The i64 arms keep `<`/`>` — that order is already total
+            // and i64::MAX/MIN really are its extrema.
             if agg_flt[gd] {
                 folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
                 });
             } else {
                 folds.push(quote_block! {
@@ -3938,7 +3956,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         } else {
             if agg_flt[gd] {
                 folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) > f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
                 });
             } else {
                 folds.push(quote_block! {

@@ -340,8 +340,6 @@ fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
     while ki < keys.len() {
         let k: i64 = keys.get(ki);
         let mut acc: f64 = 0.0f64;
-        if fnid == 3i64 { acc = 1.7976931348623157e308f64; }
-        if fnid == 4i64 { acc = -1.7976931348623157e308f64; }
         let mut cnt: i64 = 0i64;
         let mut r2: i64 = 0i64;
         while r2 < n {
@@ -350,10 +348,37 @@ fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
                 cnt = cnt + 1i64;
                 if fnid == 2i64 { acc = acc + x; }
                 else if fnid == 5i64 { acc = acc + x; }
-                else if fnid == 3i64 { if x < acc { acc = x; } }
-                else if fnid == 4i64 { if x > acc { acc = x; } }
             }
             r2 = r2 + 1i64;
+        }
+        // ⚠ min/max are computed by a DIFFERENT ALGORITHM from the fold both
+        // engines run — two passes (find the extreme KEY, then take the FIRST
+        // value carrying it) instead of one accumulate. This oracle used to be
+        // the fold, seed and all: `acc = ±1.797…e308` then `if x < acc`. That is
+        // why this fuzz never caught the seed leak — the oracle WAS the
+        // implementation, so all three sides agreed on the same wrong answer
+        // (min over { +inf } = f64::MAX, a value in no row). An oracle that
+        // shares the algorithm under test is not an oracle.
+        if fnid == 3i64 || fnid == 4i64 {
+            let mut bk: i64 = 0i64; let mut have: bool = false;
+            let mut r3: i64 = 0i64;
+            while r3 < n {
+                if gs.get(r3) == k {
+                    let ky: i64 = f64_data_key(poolf(vi.get(r3)));
+                    if !have { bk = ky; have = true; }
+                    else if fnid == 3i64 { if ky < bk { bk = ky; } }
+                    else                 { if ky > bk { bk = ky; } }
+                }
+                r3 = r3 + 1i64;
+            }
+            let mut r4: i64 = 0i64;
+            while r4 < n {
+                if gs.get(r4) == k {
+                    let x2: f64 = poolf(vi.get(r4));
+                    if f64_data_key(x2) == bk { acc = x2; break; }
+                }
+                r4 = r4 + 1i64;
+            }
         }
         if fnid == 5i64 { out.push(if cnt > 0i64 { acc / (cnt as f64) } else { 0.0f64 }); }
         else { out.push(acc); }
