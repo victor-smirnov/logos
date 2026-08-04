@@ -1,0 +1,49 @@
+// mlir-gen's "unsupported cast" IS A SELF-DIAGNOSED MALFUNCTION AND MUST FAIL
+// THE COMPILE.
+//
+// MEASURED at the parent commit (0fb56500), verbatim, on exactly this program:
+//   logosc rc = 0
+//   mlir_gen: unsupported cast
+//   logosc: wrote <obj>            ← 1288 bytes ON DISK
+// The assignment `a = s as f64;` lowered to NOTHING, `a` kept its previous
+// value, and the compiler reported success. A compiler that prints an error and
+// returns 0 is a gate that lies, and every `pass` test downstream of one is
+// certifying a program it never compiled.
+//
+// ⚠ THE OLD BEHAVIOUR WAS NOT EVEN CONSISTENTLY WRONG, WHICH IS WHY IT SURVIVED.
+// `coerce_to` returned a bare nullptr, so whether the compile failed depended on
+// WHO CONSUMED IT: measured at the same commit,
+//   fn f(s: str) -> f64 { return s as f64; }   → rc 1, no object
+// because the `return` statement has its own R2 report, while the assignment
+// above → rc 0, object written. Same malfunction, opposite verdicts, decided by
+// the syntactic context. The fix reports at the SITE, so the consumer no longer
+// decides.
+//
+// ⚠ THE ASSERTION HERE IS THE MESSAGE; THE EXIT CODE IS ASSERTED SEPARATELY, and
+// it has to be. `run_test.sh`'s fail mode runs logosc under `|| true` and greps
+// only stderr — it CANNOT distinguish rc 0 from rc 1, so a fail test alone would
+// have passed at the parent commit too, i.e. it would be decoration. The rc and
+// the absent object file are pinned by `logos_00_mlir_gen_exit_code`
+// (mlir_gen_exit_code_gate.sh), which compiles THIS FILE and asserts both.
+//
+// ⚠ WHY A `str as f64` AND NOT THE `avg(str)` THAT FOUND THIS. The wql front end
+// now refuses `avg` over a non-numeric column (`wql_agg_avg_str_arg_fail`), so
+// that program never reaches mlir-gen again — a fixture routed through it would
+// stop measuring the backend the moment the front end was fixed. This program
+// depends on nothing but the cast.
+//
+// ⚠ IT IS ALSO NOT THE ROOT. `str as f64` should not survive SEMA at all; that
+// is the open cast blocklist→allowlist arc (sema_expr.cpp, where the
+// float↔pointer instance of the same class was already closed one type at a
+// time). When sema learns to refuse it, THIS expectation changes to sema's
+// diagnostic and the gate needs a different unsupported cast — which is the
+// correct outcome, not a regression.
+package test;
+
+fn main() -> i32 {
+    let s: str = "x";
+    let mut a: f64 = 1.0f64;
+    a = s as f64;
+    if a > 0.0f64 { return 1i32; }
+    return 0i32;
+}

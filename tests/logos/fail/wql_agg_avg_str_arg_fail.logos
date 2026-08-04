@@ -1,0 +1,43 @@
+// WQL — `avg` OVER A `str` COLUMN IS REFUSED AT THE FRONT END.
+//
+// THE HOLE THIS CLOSES. `check_agg_operand` — the check that asks whether an
+// aggregate's argument reaches its accumulator — was SKIPPED whenever
+// `agg_cast` was set, and `agg_cast` was keyed on the argument being NOT FLOAT
+// rather than on its being NUMERIC. `avg` over ANY non-float column therefore
+// went unchecked, `str` included.
+//
+// MEASURED at the parent commit (0fb56500), verbatim, on exactly this program:
+//   logosc rc = 0
+//   mlir_gen: unsupported cast
+//   logosc: wrote <obj>            ← 75360 bytes ON DISK
+// — a compiler that printed an error, returned success and emitted an object
+// file. Two defects in one line: the front end admitted a query it cannot
+// compile, and the backend's report did not reach the exit code. This file pins
+// the FIRST; `mlir_gen_exit_code_fail` pins the second, and it needs its own
+// program precisely because this one no longer reaches mlir-gen at all.
+//
+// ⚠ THE ROOT WAS THE LAUNDERING, NOT THE EXEMPTION. `compute_agg_reprs` used to
+// compute `let aty = if arg_is_flt { FLT } else { INT }` and hand THAT to the
+// shared rule table — so the table was asked a question whose answer had already
+// been decided, and could never return -1 on the static side for any argument
+// type whatever. Deleting the exemption alone would have refused `avg` over a
+// `bool` column too, which the ruling admits. The class fix is to stop
+// fabricating the class: both tiers now ask the same table the same question.
+//
+// ⚠ THE REFUSED POPULATION IS CLOSED, AND IT IS THIS. After the ruling admits
+// `bool`, the EL lattice's only remaining non-numeric class is `EL_TY_STR`,
+// whose members are exactly `str` and `String` (el.logos rows 17 and 18). This
+// file is `str`; `wql_agg_avg_string_arg_fail` is `String`. There is no third.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: str }
+
+pub deem means(src: &[Rec]) { from src s
+      group by s.k
+      aggregate a = avg(s.v)
+      select a : f64 }
+
+fn main() -> i32 { return 0i32; }

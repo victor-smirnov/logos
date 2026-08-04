@@ -1,0 +1,27 @@
+// WQL — `avg` OVER A `String` COLUMN IS REFUSED AT THE FRONT END.
+//
+// The second and LAST member of the refused population. `EL_TY_STR` is the only
+// non-numeric class the lattice still holds once the ruling admits `bool` for
+// `avg`, and it is populated by exactly two spellings — `str` (row 17) and
+// `String` (row 18). Both are here so the refusal is pinned over the CLASS and
+// not over one name: they differ in the lattice (`String` is not Copy and has no
+// comparison order), and a check that keyed on the spelling rather than on
+// `ElTy.cls` would hold for one and miss the other.
+//
+// The diagnostic differs from its `str` sibling in exactly one place — the type
+// it names — because ONE check produces both. That is the assertion: the ground
+// is shared (`check_agg_operand`), only the rendered type varies.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.string;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: String }
+
+pub deem means(src: &[Rec]) { from src s
+      group by s.k
+      aggregate a = avg(s.v)
+      select a : f64 }
+
+fn main() -> i32 { return 0i32; }

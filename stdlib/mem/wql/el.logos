@@ -950,17 +950,43 @@ pub fn el_eq_hash(ty: i32) -> bool {
 //   sum   : T   → T          (numeric T)
 //   min   : T   → T          (numeric T)
 //   max   : T   → T          (numeric T)
-//   avg   : T   → Quot(T)    (Quot(INT) = Quot(FLT) = FLT under the current
-//                             numeric tower — the exact mean, f64 division)
+//   avg   : T   → Quot(T)    (Quot(INT) = Quot(FLT) = Quot(BOOL) = FLT under
+//                             the current numeric tower — the exact mean, f64
+//                             division)
 // Lives HERE (metaprog-free, IR-level shared code) so the DYNAMIC interpreter
 // (logos.std.deem) consults it now and the STATIC emitter (rexpr_walk's
 // agg_flt/act computation) MIGRATES to consult the same table later — one
 // rule source, two consumers.
 
-// Quot(T) — the quotient type of the aggregate mean. INT/FLT → FLT; anything
-// else is out of the numeric tower (-1).
+// Quot(T) — the quotient type of the aggregate mean. INT/FLT/BOOL → FLT;
+// anything else is out of the numeric tower (-1).
+//
+// ⚠ `bool` IS ADMITTED HERE AND NOWHERE ELSE (Victor's ruling, option (c) of
+// three). `avg` over a bool column is the FRACTION TRUE, under the value rule
+// true→1.0 / false→0.0; `sum`/`min`/`max` keep refusing bool below, so this is
+// "avg admits bool", NOT "bool is numeric". `wql_agg_nonnumeric_arg_fail`
+// (`min` over a bool column) is the load-bearing check that the two did not get
+// conflated: it must stay red-on-compile.
+//
+// ⚠ THE VALUE RULE IS NOT INVENTED HERE — IT IS WHAT `as f64` ALREADY MEANS.
+// mlir-gen zero-extends i1 before the conversion deliberately (`sitofp(i1(1))`
+// = -1.0 is wrong, `uitofp(i1(1))` = 1.0 is right), the static fold emitter
+// writes exactly that `as f64`, and the incremental tier already folds a bool
+// through `rt_i`, which maps true→1. What this line changes is only what the
+// FRONT END admits; the arithmetic underneath was already the ruling's.
+//
+// ⚠ THE OTHER TWO OPTIONS AND WHY THEY LOST: refusing bool as well breaks
+// programs that compile and answer today; leaving the rule alone lets
+// `avg(str)` keep compiling (it did — rc=0, with the backend printing
+// "unsupported cast" and the object file written anyway).
+//
+// THE OTHER DIRECTION IS THE POINT OF THIS FILE: three tiers read this one
+// table — the static `deem!` emitter (rexpr_walk::compute_agg_reprs), the
+// dynamic `Query::compile` checker (deem/check.logos) and, through the same
+// `check_rexpr`, the incremental engine (deem/incr.logos). One edit moves all
+// three, which is why `wql_agg_avg_bool_three_engines` asserts all three.
 pub fn el_quot_ty(t: i32) -> i32 {
-    if t == EL_TY_INT() || t == EL_TY_FLT() { return EL_TY_FLT(); }
+    if t == EL_TY_INT() || t == EL_TY_FLT() || t == EL_TY_BOOL() { return EL_TY_FLT(); }
     return -1i32;
 }
 

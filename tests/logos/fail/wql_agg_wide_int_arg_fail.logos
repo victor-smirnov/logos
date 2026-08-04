@@ -17,8 +17,19 @@
 // ⚠ AND `avg` OVER THIS COLUMN STILL COMPILES, which is not an inconsistency:
 // its fold emitter writes `((s.v) as f64)` itself, so the argument never meets
 // the i64 tower. The check is skipped exactly there (`agg_cast`), because the
-// question is whether the value reaches the ACCUMULATOR — and for that shape it
-// does.
+// question is whether the value reaches the ACCUMULATOR — and for a NUMERIC
+// argument it does.
+//
+// ⚠ THAT LAST WORD WAS MISSING, AND ITS ABSENCE WAS A DEFECT. The sentence
+// above justified the exemption for every shape `agg_cast` covered, and
+// `agg_cast` was keyed on the argument being NOT A FLOAT rather than on its
+// being numeric — so `avg` over a `str` column was exempted by this same
+// reasoning, and it is false there: `(s.v) as f64` over a `str` is not a
+// conversion, it is the "unsupported cast" mlir-gen printed while returning 0
+// and writing the object file. The claim is sound for `u64` and every other
+// integer width; it was being used far outside them. See
+// `wql_agg_avg_str_arg_fail` for the refusal and `compute_agg_reprs` for the
+// fabricated argument class that was the root.
 package test;
 
 use logos.std.wql.wql;

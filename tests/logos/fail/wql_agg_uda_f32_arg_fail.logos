@@ -1,0 +1,56 @@
+// WQL — A USER-AGGREGATE ARGUMENT IS CHECKED BY THE HOST COMPILER, AND THE
+// DIAGNOSTIC NAMES A GENERATED LINE. THIS FILE PINS THAT, ON PURPOSE.
+//
+// `compute_agg_bodies` exempts a UDA's argument from `check_agg_operand`: the
+// value is not emitted into an EL accumulator at all, it is printed into the
+// user's `X_step`, whose declared T is the contract. But NOTHING READS THAT T.
+// `resolve_aggs` checks `fn_param_count(d_step) != 2` and never asks
+// `_step`'s param-1 TYPE, so the only thing that ever compares the column to the
+// step's parameter is the host compiler, reporting from inside a metaprog blob.
+//
+// MEASURED at 0fb56500 on exactly this program, verbatim:
+//   logosc rc = 1
+//   <metaprog-blob-subst>:3922: error [fn q_run]: call to 'myag_step' arg 2:
+//     expected i64, got f32
+//   no object file
+//
+// ⚠ THIS IS A BAD DIAGNOSTIC, NOT A SOUNDNESS OR EXIT-CODE DEFECT, and the
+// distinction is the reason this is a pin and not a fix. The mandate grouped it
+// with `avg(str)`, which compiled rc=0 and WROTE AN OBJECT FILE; the measurement
+// separates them. Nothing unsound compiles here. What is wrong is that the
+// message names `<metaprog-blob-subst>:3922` and `myag_step`'s parameter instead
+// of the `aggregate` clause, the aggregate and the column type — the same
+// anti-pattern `check_agg_operand` was written to replace at the builtin sites.
+//
+// ⚠ AND CLOSING IT IS A RULING, NOT A REFACTOR. It needs a reflected
+// `fn_param_type_name(view, decl, idx)` (~12 lines, mirroring `fn_param_count`
+// in reflect.logos) plus routing `_step`'s declared param-1 type into
+// `check_agg_operand` as `want`. That makes the wql handler the gatekeeper where
+// the host compiler is the documented oracle today, and it can refuse programs
+// that compile NOW — a `_step` taking `u8` against an `i8` column, say, which
+// the host accepts by implicit widening and `el_host_carries` does not. The
+// mitigation (apply the check only when `_step`'s T is IN the EL lattice, host
+// as oracle otherwise) is a choice about what the language accepts, so it is
+// Victor's.
+//
+// The assertion below deliberately omits the blob LINE NUMBER: the number moves
+// with any change to the generated preamble, and pinning it would make this a
+// test about the emitter's line count. When the diagnostic is fixed, this file's
+// expectation is replaced by the clause-naming one — the pin is what makes that
+// replacement a decision rather than a discovery.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub k: i64, pub v: f32 }
+
+fn myag_init() -> i64 { return 0i64; }
+fn myag_step(acc: i64, x: i64) -> i64 { return acc + x; }
+
+pub deem q(src: &[Rec]) { from src s
+      group by s.k
+      aggregate m = myag(s.v)
+      select m : i64 }
+
+fn main() -> i32 { return 0i32; }

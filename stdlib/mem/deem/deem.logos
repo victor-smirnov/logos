@@ -850,10 +850,23 @@ fn rt_i(v: RtVal) -> i64 {
         _ => { return 0i64; }
     }
 }
+// ⚠ THE `B` ARM IS NOT A SPECIAL CASE — ITS ABSENCE WAS THE ASYMMETRY. `rt_i`
+// directly above already maps true→1 / false→0, so the SAME RtVal read as an
+// integer answered 1 and read as a float answered 0.0, and nothing named which
+// of the two a bool is worth. Under Victor's ruling (`avg` admits bool, true is
+// 1.0) it is worth one, and it is worth one in BOTH spellings — a second answer
+// living in the avg fold alone is the "two spellings of one rule" shape that
+// produced this arc.
+//
+// ⚠ IT IS VISIBLE THROUGH `QRows::get_f64` (query.logos), the public accessor:
+// a bool cell read as f64 answered 0.0 and now answers 1.0/0.0. Every other
+// caller is EL arithmetic over operands `check_expr` has already typed as
+// numeric, so a bool cannot reach them.
 fn rt_f(v: RtVal) -> f64 {
     match v {
         RtVal::I(x) => { return x as f64; }
         RtVal::F(x) => { return x; }
+        RtVal::B(b) => { if b { return 1.0f64; } return 0.0f64; }
         _ => { return 0.0f64; }
     }
 }

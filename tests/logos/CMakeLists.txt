@@ -865,6 +865,32 @@ set_tests_properties(logos_00_sep_symbol_shape PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── R2's VERDICT MUST REACH THE EXIT CODE, AND NO fail TEST CAN SEE THAT ────
+# `run_test.sh`'s fail mode runs logosc under `|| true` and greps stderr, so it
+# passes identically on rc 0 and rc 1: the property "a self-diagnosed
+# malfunction fails the compile" is unexpressible in the corpus. MEASURED at
+# 0fb56500, `a = s as f64;` (s: str) printed "mlir_gen: unsupported cast",
+# exited 0 and wrote a 1288-byte object with the assignment silently gone —
+# because `coerce_to` returned a bare nullptr and whether the compile failed was
+# decided by WHO CONSUMED IT (a `return` reports, an assignment did not). This
+# gate asserts the rc, the absent object file and that the report went through
+# the R2 sink; it carries its own instrument canary (a control program with a
+# SUPPORTED cast must compile and leave an object), so a dead harness reports
+# itself broken instead of reporting the compiler clean. It is a separate file
+# rather than a run_test.sh mode so that pinning this costs the rest of the fail
+# corpus nothing.
+add_test(
+    NAME logos_00_mlir_gen_exit_code
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_exit_code_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/fail
+)
+set_tests_properties(logos_00_mlir_gen_exit_code PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;fail;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 add_test(
     NAME logos_00_mlir_gen_bug_ledger
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug_ledger_gate.sh

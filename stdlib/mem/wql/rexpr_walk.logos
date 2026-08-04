@@ -4189,33 +4189,61 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
 // Per-aggregate OUTPUT value-type + accumulator width:
 //   • count → INT (always an i64 row count);
 //   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
-//             integer truncation), for BOTH int and float arguments;
+//             integer truncation), for EVERY argument class the rule table
+//             admits: int, float and — under Victor's ruling — bool;
 //   • sum/min/max → the ARGUMENT's type: an f64-typed arg gets an f64
 //             accumulator + f64 result column, an int arg stays i64.
 // `agg_flt[i]`  — this aggregate's accumulator/result is f64;
-// `agg_cast[i]` — the fold step must cast the (INT-typed) arg to f64 (only
-//                 avg over an int argument). Row-field types are already
-//                 stamped (schema + scalar params), so the arg infer here is
-//                 well-typed.
+// `agg_cast[i]` — the fold step must cast the arg to f64 ITSELF (only avg over
+//                 an ADMITTED non-float argument: int, or — under the ruling —
+//                 bool). Row-field types are already stamped (schema + scalar
+//                 params), so the arg infer here is well-typed.
+//
+// ⚠ IT HANDS THE TABLE THE ARGUMENT'S REAL CLASS. It used to compute
+// `let aty = if arg_is_flt { FLT } else { INT }` and ask `agg_result_ty` about
+// THAT — a question whose answer had already been decided. The shared rule table
+// was therefore structurally unable to refuse anything on the static side: BOOL
+// and STR arrived at it spelled INT, `avg` answered FLT for both, `agg_cast`
+// came out true, and `compute_agg_bodies` skips `check_agg_operand` exactly
+// there. MEASURED at the parent commit: `avg` over a `str` column compiled
+// rc=0 while mlir-gen printed "unsupported cast", and the object file was
+// written. The exemption at the call site was the symptom; the fabricated class
+// was the defect, and only the class fix generalizes — a future non-numeric EL
+// class is refused here without anyone remembering this arc.
+//
+// ⚠ AND `agg_cast` NOW KEYS ON "THE TABLE ADMITTED THE ARGUMENT", NOT ON "THE
+// ARGUMENT IS NOT A FLOAT". Those coincide for every numeric argument (an int
+// column of any width, `avg` included, still skips the check because
+// `((s.v) as f64)` is what the fold emitter writes) and differ for exactly the
+// arguments the table refuses — which is the whole of the hole.
 fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
                      agg_flt: &mut [bool; 8], agg_cast: &mut [bool; 8]) {
     let mut ki: i64 = 0i64;
     while ki < acount {
         let ka: RAgg = aggs.agg_at(ki);
         let kfn: i32 = agg_of_name(ka.fn_name);
-        let mut arg_is_flt: bool = false;
-        if ka.has_arg {
-            if infer_ty(ka.arg_expr(), t) == EL_TY_FLT() { arg_is_flt = true; }
-        }
+        // `count` is nullary and the table ignores `arg_ty` for it; INT is the
+        // documented "pass anything" placeholder.
+        let acls: i32 = if ka.has_arg { infer_ty(ka.arg_expr(), t) } else { EL_TY_INT() };
+        let arg_is_flt: bool = acls == EL_TY_FLT();
         // THE SHARED RULE TABLE (el::agg_result_ty — one source for static +
         // dynamic tiers): FLT result ⇔ f64 accumulator/column. count → INT,
-        // sum/min/max → arg type, avg → Quot(T) = FLT; UDA / out-of-domain
-        // names return -1 (their repr is decided by the UDA machinery).
-        let aty: i32 = if arg_is_flt { EL_TY_FLT() } else { EL_TY_INT() };
-        let is_f: bool = agg_result_ty(ka.fn_name, aty) == EL_TY_FLT();
+        // sum/min/max → arg type, avg → Quot(T) = FLT (T ∈ {INT, FLT, BOOL});
+        // an argument outside the rule's domain, and every UDA / unknown name,
+        // returns -1 (a UDA's repr is decided by the UDA machinery).
+        let rty: i32 = agg_result_ty(ka.fn_name, acls);
+        let admitted: bool = rty >= 0i32;
+        // The accumulator must still be NAMED when the argument is refused —
+        // `check_agg_operand`'s diagnostic says which accumulator the value
+        // failed to reach. So ask the SAME table what this aggregate would
+        // accumulate in for an argument it does admit (INT, the tower's base):
+        // `avg` answers FLT unconditionally, `sum`/`min`/`max` answer INT, and a
+        // UDA still answers -1, which keeps its repr where it belongs.
+        let is_f: bool = if admitted { rty == EL_TY_FLT() }
+                         else { agg_result_ty(ka.fn_name, EL_TY_INT()) == EL_TY_FLT() };
         if ki < 8i64 {
             agg_flt[ki]  = is_f;
-            agg_cast[ki] = is_f && !arg_is_flt && kfn != AGG_COUNT();
+            agg_cast[ki] = admitted && is_f && !arg_is_flt && kfn != AGG_COUNT();
         }
         ki = ki + 1i64;
     }
@@ -4272,8 +4300,27 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // emitted one line below. Two spec shapes are exempt and both are
             // exempt BY THEIR EMITTER: a UDA's argument is printed into the
             // user's `_step`, whose declared T is the contract, and `avg` over an
-            // INT argument (`agg_cast`) is wrapped in `as f64` by the fold
-            // emitter itself.
+            // argument THE RULE TABLE ADMITS but that is not already f64
+            // (`agg_cast` — an int of any width, or a bool) is wrapped in
+            // `as f64` by the fold emitter itself.
+            //
+            // ⚠ THE SECOND EXEMPTION IS ONLY SOUND BECAUSE `agg_cast` ASKS THE
+            // TABLE. It used to mean "the argument is not a float", which is a
+            // different set: it included `str`, for which the fold emitter's
+            // `as f64` is not a conversion but the "unsupported cast" the
+            // backend printed while returning 0. See `compute_agg_reprs`.
+            //
+            // ⚠ THE UDA EXEMPTION IS STILL UNCHECKED, AND IT IS NOT THE SAME
+            // SEAM. Its argument is not emitted into an EL accumulator at all —
+            // it is printed into the user's `_step`, and nothing here reads
+            // `_step`'s declared param-1 type. MEASURED: an f32 argument against
+            // an `i64` step reports `<metaprog-blob-subst>:NNNN: error [fn
+            // q_run]: call to 'myag_step' arg 2: expected i64, got f32` — the
+            // host compiler, from a generated line, rc=1, no object file. So it
+            // is a BAD DIAGNOSTIC, not a soundness or exit-code defect, and it
+            // is pinned as such by `wql_agg_uda_f32_arg_fail`. Closing it needs
+            // a reflected `fn_param_type_name` and a ruling on whether this
+            // check may refuse programs the host accepts today.
             if !uda[ai] && !agg_cast[ai] {
                 let want: str = if agg_flt[ai] { "f64" } else { "i64" };
                 if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }

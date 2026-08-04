@@ -3883,8 +3883,33 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (val.getType() == ptr_type() && mlir::dyn_cast<mlir::IntegerType>(target))
         return builder_.create<mlir::LLVM::PtrToIntOp>(loc_, target, val);
 
-    std::fprintf(stderr, "mlir_gen: unsupported cast\n");
-    return nullptr;
+    // ── R2: A REPORT THE EXIT CODE DOES NOT CONSULT IS A GATE THAT LIES ──────
+    // This used to be a raw `fprintf` + `return nullptr`. The nullptr's fate
+    // then depended entirely on WHO CONSUMED IT: a `return` statement has its
+    // own R2 report, so `fn f(s: str) -> f64 { return s as f64; }` failed the
+    // compile — while `a = s as f64;` in a statement position did NOT, and
+    // MEASURED at the parent commit that program printed "mlir_gen: unsupported
+    // cast", exited 0 and wrote a 1288-byte object file with the assignment
+    // silently gone. Whether the compiler told the truth about its own
+    // malfunction was decided by the syntactic context of the cast.
+    //
+    // The channel to say it on already existed (`bugs_`/`bug_null`, enforced at
+    // generate()'s single exit, ledgered and canaried); this site simply did not
+    // use it. Routing it here reports at the SITE OF THE MALFUNCTION, so the
+    // verdict no longer depends on the consumer — and it names both types, which
+    // the old line did not.
+    //
+    // ⚠ THIS CLOSES ONE SITE, NOT THE CLASS OF RAW REPORTS. 44 other
+    // `fprintf(stderr, "mlir_gen: ...")` sites still bypass `bugs_`; each is its
+    // own arc. Nor does it fix the reason `str as f64` reaches mlir-gen at all —
+    // that is sema's cast blocklist→allowlist arc (see sema_expr.cpp, where the
+    // float↔pointer instance of the same class was closed one type at a time).
+    std::string from_s, to_s;
+    { llvm::raw_string_ostream os(from_s); val.getType().print(os); }
+    { llvm::raw_string_ostream os(to_s);   target.print(os); }
+    return bug_null("unsupported cast: no lowering from '{}' to '{}' — the cast "
+                    "produced no value, so whatever consumed it was not emitted",
+                    from_s, to_s);
 }
 
 // ---------------------------------------------------------------------------

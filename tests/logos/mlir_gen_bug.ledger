@@ -12,7 +12,14 @@
 # `count` is the number of `mlir_gen: internal:` lines the program emits.
 # Held in BOTH directions by logos_00_mlir_gen_bug_ledger: a program that stops
 # tripping, trips fewer times, or trips more times is RED. A fixed defect must
-# DELETE its row here and from MLIRGEN_BUG_LEDGER in tests/logos/CMakeLists.txt.
+# DELETE its row here — THIS FILE IS THE ONLY PLACE THE EXCLUDED SET IS NAMED.
+# (This line used to say "and from MLIRGEN_BUG_LEDGER in
+# tests/logos/CMakeLists.txt". That list is gone: the population is derived from
+# this artifact and every test is handed the ledger's PATH unconditionally, so
+# logosc asks whether the program it is compiling is listed. The sentence was
+# the last surviving reference to the second copy whose drift caused `pat_6` to
+# be red on the full suite while its ledger row was green — i.e. this line was
+# itself an instance of the defect the CMake comment records.)
 #
 # ── the cause, per entry ────────────────────────────────────────────────────
 # issue-41888-b170 / nested-tuple-in-variant-payload-b170
@@ -27,6 +34,27 @@
 #   struct (`GPair<u8,u16>`) binds fields whose initialisers lower to nothing,
 #   so the bound names are unbound and every dependent statement vanishes.
 #   A generic struct-pattern binding arc, not a naming one.
+# intrinsic_2
+#   `unsupported cast: no lowering from 'i32' to '!llvm.array<0 x Type>'` at
+#   line 95: `if args_of::<Plain>() != [] as [Type; 0] { return 28; }`. An EMPTY
+#   ARRAY LITERAL has no element type — sema says so out loud one line earlier
+#   ("warning: empty array literal: element type unknown") and lowers it as a
+#   placeholder i32, which no cast can turn into a zero-length aggregate. So the
+#   comparison lowered to nothing and the `@rule intrinsic.reflect.args-of`
+#   assertion "non-generic => empty" HAS NEVER BEEN EVALUATED, on any compiler,
+#   since it was written. An EMPTY-ARRAY-LITERAL TYPING arc (the element type
+#   must come from the cast/annotation before mlir-gen, not from a cast after
+#   it), not a cast-lowering one — teaching `coerce_to` to answer here would be
+#   inventing a value for an expression sema declined to type.
+#
+#   ⚠ THIS ROW IS NOT A REGRESSION AND NOT A NEW DEFECT. It is the R2 channel
+#   finally SEEING a miscompile that has always been there: the raw `fprintf` at
+#   the unsupported-cast site never reached the exit code, so the program
+#   compiled, ran, and passed with the assertion silently absent. Routing that
+#   site through `bug_null` is what made it visible, exactly as turning the rule
+#   on originally made seven others visible. The generated object is byte-for-
+#   byte what it was — this row restores the STATUS QUO of the artifact while
+#   putting the defect under re-measurement.
 #
 # ── CLOSED SINCE, rows DELETED (each now compiles clean and RUNS correctly) ──
 # empty-struct-braces-b151  — `E::Empty4 {}` is a BRACE-EMPTY variant: no
@@ -45,3 +73,4 @@ issue-41888-b170                     1 tests/imported/pass/match/issue-41888-b17
 nested-tuple-in-variant-payload-b170 1 tests/imported/pass/match/nested-tuple-in-variant-payload-b170
 res-and-or-comb-or                   4 tests/imported/pass/option-result/res-and-or-comb-or
 pat_6                                4 tests/spec/pass/pat_6
+intrinsic_2                          1 tests/spec/pass/intrinsic_2
