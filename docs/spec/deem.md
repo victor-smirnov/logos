@@ -310,13 +310,17 @@ One shared `agg_result_ty(fn, arg_ty) -> ty` table maps `count:()→INT`, `sum/m
 
 Every graph-shaped source materializes as ONE relation `edge(parent: i64, key: str, idx: i64, child: i64, kind: str, tag: i64, vi: i64, vs: str)`: container nodes carry structure (ids = handles/addresses; `key` = field/map key, `idx` = array position, −1 otherwise), leaves carry the value in the TYPED payload columns `vi`/`vs` with `kind` as the discriminator. Payload columns are TOTAL — canonical fillers `0`/`""`, never Null (rel rows are set-deduplicated; two-valued Eq only). `bool` rides `vi` as 0/1; `f64` rides `vi` as its IEEE-754 BITS (`kind == "f64"`; bit identity is the honest Eq for floats — NaN payloads and ±0.0 stay distinct; recover via `f64_from_bits`). ONE vocabulary across all producers and binding times: the Writ walker, the native derive, and the runtime tree scan.
 
-*Evidence:* `stdlib/std/wql/writ_graph.logos` (wg_emit), `stdlib/std/deem/exec.logos` (ts_scan/ts_walk/es_scan), `tests/logos/pass/wql_native_graph_e2e.logos` (f64 bits, executed)
+A NON-CONTAINER node's `child` id is not its value word (equal ints share a Pod word; equal strings may intern) but the synthetic FNV-1a of two 64-bit words — the parent's word and the edge's ordinal within that parent — folded from offset basis `14695981039346656037` with prime `1099511628211`. The virtual root edge is a row of this same relation, so it takes the same rule at its own coordinates (parent word `0`, ordinal `0`): a null/scalar/string root has `child == FNV(0, 0) == 590684067820433389` at EVERY binding time. This is a derived value, not a per-engine choice. *Known gap, recorded not closed:* being folded from the reserved parent `0`, that id is the one node id in the vocabulary that is document-INDEPENDENT, so two non-container-rooted documents joined on `child` match spuriously.
+
+*Evidence:* `stdlib/std/wql/writ_graph.logos` (wg_emit), `stdlib/std/deem/exec.logos` (ts_scan/ts_walk/es_scan), `tests/logos/pass/wql_native_graph_e2e.logos` (f64 bits, executed), `tests/logos/pass/wql_graph_null_root_row.logos` (root id, both engines, hand-derived)
 
 ### `deem.graph.writ-param` — `g: &Writ` is a graph source
 
 A deem param typed `&Writ` registers the edge relation under the param's own name; the document is scanned edge-per-row (expansion-once: DAG/cycle-safe), with a VIRTUAL ROOT EDGE (`parent == 0`) making the root queryable. No materialized copy of the document exists — the document IS the fact base.
 
-*Evidence:* `stdlib/std/wql/writ_graph.logos`, `tests/logos/pass/wql_writ_graph_e2e.logos`
+The root edge is UNCONDITIONAL: EVERY document is a row of the relation, including a null-rooted (empty) one, whose whole relation is that single row (`kind == "null"`, `tag == 0`, canonical payload fillers `0`/`""`). The relation's CARDINALITY is therefore binding-time independent — the static walker and the runtime tree scan return the same count for the same document. An empty document does not have an empty graph; it has a one-row graph.
+
+*Evidence:* `stdlib/std/wql/writ_graph.logos`, `tests/logos/pass/wql_writ_graph_e2e.logos`, `tests/logos/pass/wql_graph_null_root_row.logos` (null root, both engines, all eight columns)
 
 ### `deem.graph.path-sugar` — `from g .key [*] * {kind} ** v` graph paths
 

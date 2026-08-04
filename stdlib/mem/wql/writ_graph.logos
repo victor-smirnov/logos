@@ -5,13 +5,24 @@
 // The STATIC twin of the runtime engine's virtual scan (bind_source_tree,
 // std.deem exec): identical vocabulary and identical graph discipline —
 //   • one row per EDGE, preorder from the document root;
+//   • the VIRTUAL ROOT EDGE (parent = 0) is UNCONDITIONAL — every document is
+//     a row, INCLUDING a null-rooted (empty) one, whose whole relation is that
+//     one row. The relation's CARDINALITY is therefore binding-time
+//     independent: this walker and the dynamic ts_scan answer the same count
+//     for the same document. An `if root.is_null() { return }` here made an
+//     empty document have no graph statically and a one-row graph
+//     dynamically — one vocabulary cannot have two cardinalities;
 //   • every edge emits (a shared child appears once per incoming edge);
 //   • a container's children EXPAND exactly once (visited set on handles) —
 //     DAGs don't duplicate subtrees, cycles terminate;
 //   • container child ids are the Writ node handles (stable, resolvable);
 //     scalar-leaf ids are synthetic FNV(parent handle, edge ordinal) — a
 //     leaf's VALUE word is not an identity (equal ints share a Pod word,
-//     equal strings may intern);
+//     equal strings may intern). The virtual root edge is a row of the SAME
+//     relation and takes the SAME rule at its own coordinates: parent word 0
+//     (the reserved non-handle), ordinal 0. So a non-container root — null,
+//     i64, bool, f64, str alike — has child id FNV(0, 0), and that is not a
+//     free choice for either binding time;
 //   • TOM rows (schema'd tiny object maps) expand with idx = the 6-bit field
 //     key code; other ref tags surface as kind "obj" (open world — visible
 //     and joinable, expanded once the per-tag traverse protocol lands).
@@ -83,10 +94,24 @@ fn wg_seen_has(seen: &Vec<u64>, h: u64) -> bool {
     return false;
 }
 
-fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
-           child: WAny, ord: i64) {
-    let cid: i64 = if wg_is_container(child) { child.raw() as i64 }
-                   else { wg_fnv2(parent.raw() as i64, ord) };
+// THE node-id rule, ONE spelling for every row of the relation: container ⇒
+// the real Writ handle; anything else ⇒ the synthetic FNV(parent word, edge
+// ordinal). `parent_word` is a WORD, not a WAny, because the VIRTUAL ROOT EDGE
+// has no parent node — it passes the reserved 0 (see writ_graph_edges).
+//
+// It is a FUNCTION and not two copies on purpose. The root row and the walk
+// rows are rows of one relation, and every time the rule has been written
+// twice the copies have drifted: the root row lost its f64 `vi` arm once
+// (fixed 9dcf2b3c) and its very EXISTENCE for a null root once. A second
+// spelling is the defect, not the risk of one.
+fn wg_node_id(parent_word: i64, child: WAny, ord: i64) -> i64 {
+    if wg_is_container(child) { return child.raw() as i64; }
+    return wg_fnv2(parent_word, ord);
+}
+
+// THE `vi` rule, likewise one spelling: the TOTAL typed i64 payload column,
+// canonical filler 0 for everything that is not int/bool/float.
+fn wg_vi(child: WAny) -> i64 {
     let mut vi: i64 = 0i64;
     if child.is_int()       { vi = child.as_i64(); }
     else if child.is_bool() { vi = if child.as_bool() { 1i64 } else { 0i64 }; }
@@ -108,8 +133,14 @@ fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
     // it does not move with the optimiser — so it is a semantics gap, not a
     // correctness hazard.
     else if child.is_float() { vi = f64_to_bits(child.as_f64()) as i64; }
-    out.push((parent.raw() as i64, key, idx, cid, wg_kind(child),
-              child.type_code() as i64, vi, child.as_wstr()));
+    return vi;
+}
+
+fn wg_emit(out: &mut Vec<WritEdgeRow>, parent: WAny, key: str, idx: i64,
+           child: WAny, ord: i64) {
+    out.push((parent.raw() as i64, key, idx,
+              wg_node_id(parent.raw() as i64, child, ord), wg_kind(child),
+              child.type_code() as i64, wg_vi(child), child.as_wstr()));
 }
 
 fn wg_descend(child: WAny, out: &mut Vec<WritEdgeRow>, seen: &mut Vec<u64>) {
@@ -171,23 +202,28 @@ fn wg_walk(v: WAny, out: &mut Vec<WritEdgeRow>, seen: &mut Vec<u64>) {
 pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
     let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
     let rv: WAny = root.root();
-    if rv.is_null() { return out; }
     // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
     // itself queryable (it has no real incoming edge) and gives graph paths
     // their anchor (`parent == 0`) without threading root handles through
     // params. 0 is reserved: no real node handle is 0.
-    let rid: i64 = if wg_is_container(rv) { rv.raw() as i64 } else { wg_fnv2(0i64, 0i64) };
-    // vi0 follows wg_emit's canonical fillers EXACTLY — the root edge is a row
-    // of the same relation, so it must fill the same columns from the same
-    // value. The float arm was missing here while wg_emit and the dynamic twin
-    // (`deem/exec.logos` ts_scan) both had one, so a float-ROOTED document read
-    // back with vi == 0: the value was dropped, and 0 is a legal f64 bit
-    // pattern (+0.0), so nothing downstream could tell it from a real answer.
-    let mut vi0: i64 = 0i64;
-    if rv.is_int()        { vi0 = rv.as_i64(); }
-    else if rv.is_bool()  { vi0 = if rv.as_bool() { 1i64 } else { 0i64 }; }
-    else if rv.is_float() { vi0 = f64_to_bits(rv.as_f64()) as i64; }
-    out.push((0i64, "", 0i64 - 1i64, rid, wg_kind(rv), rv.type_code() as i64, vi0, rv.as_wstr()));
+    //
+    // UNCONDITIONAL — a NULL root gets this row too. It is the root of the
+    // document the same way any other value is, and the relation's cardinality
+    // must not depend on the binding time: the dynamic twin (`deem/exec.logos`
+    // ts_scan) has never had a null guard, so an early return here made one
+    // vocabulary answer 0 rows statically and 1 row dynamically for the same
+    // empty document. A null root is not a container, so wg_node_id gives it
+    // the synthetic FNV(0, 0); wg_kind says "null", type_code() says 0,
+    // wg_vi's cascade leaves the canonical 0, and as_wstr guards on is_string
+    // and yields "". wg_walk over a null is a no-op, so the row is the whole
+    // relation.
+    //
+    // The columns come from the SAME wg_node_id / wg_vi the walk uses — the
+    // root edge is a row of the same relation, so it must fill the same
+    // columns by the same rule. Open-coding them here is what let this row
+    // drift twice (a missing f64 `vi` arm, then this early return).
+    out.push((0i64, "", 0i64 - 1i64, wg_node_id(0i64, rv, 0i64), wg_kind(rv),
+              rv.type_code() as i64, wg_vi(rv), rv.as_wstr()));
     let mut seen: Vec<u64> = vec_new::<u64>();
     seen.push(rv.raw() as u64);
     wg_walk(rv, &mut out, &mut seen);

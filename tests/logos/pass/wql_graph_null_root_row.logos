@@ -1,0 +1,279 @@
+// wql_graph_null_root_row — THE ROOT OF A DOCUMENT IS ALWAYS A ROW OF THE
+// GRAPH RELATION, INCLUDING A NULL ROOT.
+//
+// The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is declared
+// ONE vocabulary across binding times: the static walker
+// (logos.std.wql.writ_graph::writ_graph_edges) and the dynamic walker
+// (logos.mem.deem::ts_scan) must emit the SAME rows for the SAME document. Two
+// hand-written copies of one rule had drifted on two different axes, and no
+// fixture in the corpus bound a null root through either engine:
+//
+//   • EXISTENCE. writ_graph_edges opened with `if rv.is_null() { return out; }`,
+//     so a null-rooted document had ZERO rows statically and ONE dynamically —
+//     a CARDINALITY divergence in a relation whose own module doc calls itself
+//     one vocabulary across binding times. RULING: the early return goes; the
+//     root row is emitted unconditionally, with the canonical fillers.
+//   • VALUE. ts_scan spelled the root row's synthetic child id as the literal
+//     `1i64` where the rule (its own ts_row, and wg_emit/writ_graph_edges) says
+//     FNV(parent word, edge ordinal) at parent = 0, ord = 0. That is drift, not
+//     a free choice: the rule already picks a value. It affects EVERY
+//     non-container root — null, i64, bool, f64, str — not only a null one,
+//     which is why this file pins a SCALAR-rooted document as well.
+//
+// THE ORACLE IS HAND-DERIVED, NOT AGREEMENT BETWEEN THE ENGINES. Both walkers
+// implement the same vocabulary, so "static == dynamic" certifies a shared
+// fold, not a correct one. Every expectation below is derived here and written
+// as a literal:
+//
+//   parent = 0     — the virtual root edge's reserved parent (no real node
+//                    handle is 0), so the root is queryable and graph paths
+//                    have their anchor.
+//   key    = ""    — a virtual edge carries no map key.
+//   idx    = -1    — the not-an-array-position filler (what wg_emit uses for a
+//                    child reached under a map).
+//   child  = 590684067820433389
+//                    a non-container root takes the SYNTHETIC leaf id
+//                    FNV-1a(parent word, ordinal) over the two 64-bit words,
+//                    at parent = 0, ord = 0. Folded by hand from the two
+//                    constants both engines assert (offset basis
+//                    14695981039346656037, prime 1099511628211), mod 2^64:
+//                      h0 =                     14695981039346656037
+//                      h1 = (h0 XOR 0) * prime = 12638153115695167455
+//                      h2 = (h1 XOR 0) * prime =   590684067820433389
+//                    h2 < 2^63, so it is that same value read as a positive
+//                    i64. (It is document-INDEPENDENT — the one id in the
+//                    vocabulary that is, since every other leaf id is salted
+//                    by a real parent handle. Recorded, not litigated here.)
+//   kind   = "null" / "i64"   — the is_null / is_int arm of wg_kind / ts_kind.
+//   tag    = 0     — WAny::type_code returns 0 for null (anyval.logos:266).
+//          = 1     — a root of `d.int(7)` fits i56, so it is an inline Pod
+//                    tagged WA_I56 = 1 (anyval.logos:127), and type_code of a
+//                    Pod is its pod_code.
+//   vi     = 0     — canonical filler; null is not int/bool/float.
+//          = 7     — the i64 leaf value itself.
+//   vs     = ""    — canonical filler; as_wstr / the RtVal::S arm guard on
+//                    is_string, and neither root is a string.
+//   ROW COUNT = 1 in every case, on BOTH engines: a null root has no children,
+//   and neither does a scalar one, so the virtual root edge is the whole
+//   relation. This is the cardinality the ruling makes binding-time
+//   independent.
+//
+// Exit 0 iff every assertion holds. A nonzero code names the side, the
+// document and the column: 1x = doc1 static count, 2x = doc1 static value,
+// 3x = doc1 dynamic count, 4x = doc1 dynamic value, and 5x/6x/7x/8x the same
+// four for doc2, where x is the column's ordinal in
+// (parent, key, idx, child, kind, tag, vi, vs).
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.std.wql.ir;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+// Unfiltered: the WHOLE relation, so `len()` is the relation's cardinality and
+// not the cardinality of a filtered slice.
+pub deem g_parent(g: &Writ) { from g e select e.parent }
+pub deem g_key(g: &Writ)    { from g e select e.key : str }
+pub deem g_idx(g: &Writ)    { from g e select e.idx }
+pub deem g_child(g: &Writ)  { from g e select e.child }
+pub deem g_kind(g: &Writ)   { from g e select e.kind : str }
+pub deem g_tag(g: &Writ)    { from g e select e.tag }
+pub deem g_vi(g: &Writ)     { from g e select e.vi }
+pub deem g_vs(g: &Writ)     { from g e select e.vs : str }
+
+// The same queries, run by the DYNAMIC engine over the same document. Returns
+// an empty Vec on any engine error; the caller distinguishes that from a
+// legitimately empty answer by the row-count assertion (which wants 1).
+fn dyn_i64(qs: str, root: WAny) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", root);
+    let q: Query = match Query::compile(qs, &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn dyn_str(qs: str, root: WAny) -> Vec<str> {
+    let mut out: Vec<str> = vec_new::<str>();
+    let c: SchemaCatalog = SchemaCatalog::new();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source_tree("g", root);
+    let q: Query = match Query::compile(qs, &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
+    match q.run(&env) {
+        Result::Ok(rows) => {
+            let mut i: i64 = 0i64;
+            while i < rows.row_count() { out.push(rows.get_str(i, 0i64)); i = i + 1i64; }
+        }
+        Result::Err(_e2) => { }
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    // Hand-derived, see the header. Written once, used by both documents:
+    // the synthetic root id does not depend on the document.
+    let root_id: i64 = 590684067820433389i64;
+
+    // ── document 1: the root is NEVER SET, so it is null ────────────────────
+    let d: Writ = writ_new(65536i64);
+    if !d.root().is_null() { return 90i32; }             // setup, not the subject
+
+    // static, doc1 ─────────────────────────────────────────────────────────
+    let s0: Vec<i64> = match g_parent(&d) { Result::Ok(v) => { v } Result::Err(_a) => { return 10i32; } };
+    if s0.len() != 1i64 { return 10i32; }
+    if s0.get(0i64) != 0i64 { return 20i32; }
+
+    let s1: Vec<str> = match g_key(&d) { Result::Ok(v) => { v } Result::Err(_b) => { return 11i32; } };
+    if s1.len() != 1i64 { return 11i32; }
+    if !str_eq(s1.get(0i64), "") { return 21i32; }
+
+    let s2: Vec<i64> = match g_idx(&d) { Result::Ok(v) => { v } Result::Err(_c) => { return 12i32; } };
+    if s2.len() != 1i64 { return 12i32; }
+    if s2.get(0i64) != 0i64 - 1i64 { return 22i32; }
+
+    let s3: Vec<i64> = match g_child(&d) { Result::Ok(v) => { v } Result::Err(_d) => { return 13i32; } };
+    if s3.len() != 1i64 { return 13i32; }
+    if s3.get(0i64) != root_id { return 23i32; }
+
+    let s4: Vec<str> = match g_kind(&d) { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if s4.len() != 1i64 { return 14i32; }
+    if !str_eq(s4.get(0i64), "null") { return 24i32; }
+
+    let s5: Vec<i64> = match g_tag(&d) { Result::Ok(v) => { v } Result::Err(_f) => { return 15i32; } };
+    if s5.len() != 1i64 { return 15i32; }
+    if s5.get(0i64) != 0i64 { return 25i32; }
+
+    let s6: Vec<i64> = match g_vi(&d) { Result::Ok(v) => { v } Result::Err(_g) => { return 16i32; } };
+    if s6.len() != 1i64 { return 16i32; }
+    if s6.get(0i64) != 0i64 { return 26i32; }
+
+    let s7: Vec<str> = match g_vs(&d) { Result::Ok(v) => { v } Result::Err(_h) => { return 17i32; } };
+    if s7.len() != 1i64 { return 17i32; }
+    if !str_eq(s7.get(0i64), "") { return 27i32; }
+
+    // dynamic, doc1 ────────────────────────────────────────────────────────
+    let nul: WAny = d.root();
+
+    let y0: Vec<i64> = dyn_i64("from g e select e.parent", nul);
+    if y0.len() != 1i64 { return 30i32; }
+    if y0.get(0i64) != 0i64 { return 40i32; }
+
+    let y1: Vec<str> = dyn_str("from g e select e.key", nul);
+    if y1.len() != 1i64 { return 31i32; }
+    if !str_eq(y1.get(0i64), "") { return 41i32; }
+
+    let y2: Vec<i64> = dyn_i64("from g e select e.idx", nul);
+    if y2.len() != 1i64 { return 32i32; }
+    if y2.get(0i64) != 0i64 - 1i64 { return 42i32; }
+
+    let y3: Vec<i64> = dyn_i64("from g e select e.child", nul);
+    if y3.len() != 1i64 { return 33i32; }
+    if y3.get(0i64) != root_id { return 43i32; }
+
+    let y4: Vec<str> = dyn_str("from g e select e.kind", nul);
+    if y4.len() != 1i64 { return 34i32; }
+    if !str_eq(y4.get(0i64), "null") { return 44i32; }
+
+    let y5: Vec<i64> = dyn_i64("from g e select e.tag", nul);
+    if y5.len() != 1i64 { return 35i32; }
+    if y5.get(0i64) != 0i64 { return 45i32; }
+
+    let y6: Vec<i64> = dyn_i64("from g e select e.vi", nul);
+    if y6.len() != 1i64 { return 36i32; }
+    if y6.get(0i64) != 0i64 { return 46i32; }
+
+    let y7: Vec<str> = dyn_str("from g e select e.vs", nul);
+    if y7.len() != 1i64 { return 37i32; }
+    if !str_eq(y7.get(0i64), "") { return 47i32; }
+
+    // ── document 2: the root is a SCALAR i64 (7) ───────────────────────────
+    // Same rule, same (parent = 0, ord = 0), so the same synthetic child id —
+    // this is where the `1i64` drift was widest, and where it is observable
+    // without the ruling's cardinality change.
+    let d2: Writ = writ_new(65536i64);
+    let iv: WAny = d2.int(7i64);
+    if !iv.is_int() { return 91i32; }                    // setup, not the subject
+    d2.set_root(iv);
+
+    let t0: Vec<i64> = match g_parent(&d2) { Result::Ok(v) => { v } Result::Err(_i) => { return 50i32; } };
+    if t0.len() != 1i64 { return 50i32; }
+    if t0.get(0i64) != 0i64 { return 60i32; }
+
+    let t1: Vec<str> = match g_key(&d2) { Result::Ok(v) => { v } Result::Err(_j) => { return 51i32; } };
+    if t1.len() != 1i64 { return 51i32; }
+    if !str_eq(t1.get(0i64), "") { return 61i32; }
+
+    let t2: Vec<i64> = match g_idx(&d2) { Result::Ok(v) => { v } Result::Err(_k) => { return 52i32; } };
+    if t2.len() != 1i64 { return 52i32; }
+    if t2.get(0i64) != 0i64 - 1i64 { return 62i32; }
+
+    let t3: Vec<i64> = match g_child(&d2) { Result::Ok(v) => { v } Result::Err(_l) => { return 53i32; } };
+    if t3.len() != 1i64 { return 53i32; }
+    if t3.get(0i64) != root_id { return 63i32; }
+
+    let t4: Vec<str> = match g_kind(&d2) { Result::Ok(v) => { v } Result::Err(_m) => { return 54i32; } };
+    if t4.len() != 1i64 { return 54i32; }
+    if !str_eq(t4.get(0i64), "i64") { return 64i32; }
+
+    let t5: Vec<i64> = match g_tag(&d2) { Result::Ok(v) => { v } Result::Err(_n) => { return 55i32; } };
+    if t5.len() != 1i64 { return 55i32; }
+    if t5.get(0i64) != 1i64 { return 65i32; }
+
+    let t6: Vec<i64> = match g_vi(&d2) { Result::Ok(v) => { v } Result::Err(_o) => { return 56i32; } };
+    if t6.len() != 1i64 { return 56i32; }
+    if t6.get(0i64) != 7i64 { return 66i32; }
+
+    let t7: Vec<str> = match g_vs(&d2) { Result::Ok(v) => { v } Result::Err(_p) => { return 57i32; } };
+    if t7.len() != 1i64 { return 57i32; }
+    if !str_eq(t7.get(0i64), "") { return 67i32; }
+
+    let z0: Vec<i64> = dyn_i64("from g e select e.parent", iv);
+    if z0.len() != 1i64 { return 70i32; }
+    if z0.get(0i64) != 0i64 { return 80i32; }
+
+    let z1: Vec<str> = dyn_str("from g e select e.key", iv);
+    if z1.len() != 1i64 { return 71i32; }
+    if !str_eq(z1.get(0i64), "") { return 81i32; }
+
+    let z2: Vec<i64> = dyn_i64("from g e select e.idx", iv);
+    if z2.len() != 1i64 { return 72i32; }
+    if z2.get(0i64) != 0i64 - 1i64 { return 82i32; }
+
+    let z3: Vec<i64> = dyn_i64("from g e select e.child", iv);
+    if z3.len() != 1i64 { return 73i32; }
+    if z3.get(0i64) != root_id { return 83i32; }
+
+    let z4: Vec<str> = dyn_str("from g e select e.kind", iv);
+    if z4.len() != 1i64 { return 74i32; }
+    if !str_eq(z4.get(0i64), "i64") { return 84i32; }
+
+    let z5: Vec<i64> = dyn_i64("from g e select e.tag", iv);
+    if z5.len() != 1i64 { return 75i32; }
+    if z5.get(0i64) != 1i64 { return 85i32; }
+
+    let z6: Vec<i64> = dyn_i64("from g e select e.vi", iv);
+    if z6.len() != 1i64 { return 76i32; }
+    if z6.get(0i64) != 7i64 { return 86i32; }
+
+    let z7: Vec<str> = dyn_str("from g e select e.vs", iv);
+    if z7.len() != 1i64 { return 77i32; }
+    if !str_eq(z7.get(0i64), "") { return 87i32; }
+
+    return 0i32;
+}

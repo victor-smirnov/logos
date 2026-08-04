@@ -510,17 +510,29 @@ fn ts_kind(v: WAny) -> str {
 
 // Emit one edge row (TS_NCOLS cells, the fixed column order above).
 // `ord` — the edge's ordinal within its parent (leaf-id salt).
-fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: i64) {
-    out.cells.push(RtVal::I(parent.raw() as i64));
+//
+// THE ONLY emitter of a row of this relation: the walk and the VIRTUAL ROOT
+// EDGE both come here. `parent_word` is a WORD and not a WAny because the root
+// edge has no parent NODE — it passes the reserved 0 (see ts_scan). ts_scan
+// used to open-code its own eight pushes, and the copy drifted: it spelled the
+// synthetic child id as the literal `1i64` where this cascade — and both
+// static walkers — say FNV(parent word, ordinal), so every non-container root
+// (null, i64, bool, f64, str) answered `child == 1` dynamically and
+// FNV(0, 0) == 590684067820433389 statically. One relation, one emitter.
+fn ts_edge_row(out: &mut RowSet, parent_word: i64, key: str, idx: i64,
+               child: WAny, ord: i64) {
+    out.cells.push(RtVal::I(parent_word));
     out.cells.push(RtVal::S(key));
     out.cells.push(RtVal::I(idx));
-    // container ⇒ the real handle; leaf ⇒ synthetic FNV(parent, ordinal)
-    // (deterministic across re-scans of the same document).
+    // container ⇒ the real handle; leaf ⇒ synthetic FNV(parent word, ordinal)
+    // (deterministic across re-scans of the same document). Byte-for-byte the
+    // static walkers' `wg_fnv2` — same offset basis, same prime, same two
+    // steps — because it is the same rule, not a similar one.
     if ts_is_container(child) {
         out.cells.push(RtVal::I(child.raw() as i64));
     } else {
         let mut hh: u64 = 14695981039346656037u64;
-        hh = h_step(hh, parent.raw() as u64);
+        hh = h_step(hh, parent_word as u64);
         hh = h_step(hh, ord as u64);
         out.cells.push(RtVal::I(hh as i64));
     }
@@ -556,6 +568,11 @@ fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: 
         _            => { out.cells.push(RtVal::S("")); }
     }
     out.nrows = out.nrows + 1i64;
+}
+
+// The walk's edge: the parent is a real node, so its handle is the salt.
+fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: i64) {
+    ts_edge_row(out, parent.raw() as i64, key, idx, child, ord);
 }
 
 // Expand `child` unless it was already expanded (graph discipline: edges
@@ -640,26 +657,16 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
     // itself queryable (it has no real incoming edge) and anchors graph
     // paths (`parent == 0`) with no root-handle plumbing. 0 is reserved: no
-    // real node handle is 0. Same contract as writ_graph_edges (static twin).
-    out.cells.push(RtVal::I(0i64));
-    out.cells.push(RtVal::S(""));
-    out.cells.push(RtVal::I(0i64 - 1i64));
-    out.cells.push(RtVal::I(if ts_is_container(root) { root.raw() as i64 } else { 1i64 }));
-    out.cells.push(RtVal::S(ts_kind(root)));
-    out.cells.push(RtVal::I(root.type_code() as i64));
-    let rv0: RtVal = wany_to_rt(root);
-    // same canonical-filler contract as ts_walk (see there).
-    match rv0 {
-        RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
-        RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }
-        RtVal::B(x)  => { out.cells.push(RtVal::I(if x { 1i64 } else { 0i64 })); }
-        _            => { out.cells.push(RtVal::I(0i64)); }
-    }
-    match rv0 {
-        RtVal::S(s3) => { out.cells.push(RtVal::S(s3)); }
-        _            => { out.cells.push(RtVal::S("")); }
-    }
-    out.nrows = out.nrows + 1i64;
+    // real node handle is 0. Same contract as writ_graph_edges (static twin),
+    // and now the same EMITTER as the walk: it is a row of this relation, so
+    // every column is filled by the relation's own rule at the root's own
+    // coordinates (parent word 0, ordinal 0). Emitting it by hand here is what
+    // let the child id drift to a literal `1`.
+    //
+    // UNCONDITIONAL, including a NULL root — this side never had a guard, and
+    // the static twin's has been removed, so the relation's CARDINALITY is now
+    // binding-time independent for an empty document as well.
+    ts_edge_row(&mut out, 0i64, "", 0i64 - 1i64, root, 0i64);
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
     let sp: *mut HashMap<u64, i64> = &mut seen;
     unsafe { let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64); }
