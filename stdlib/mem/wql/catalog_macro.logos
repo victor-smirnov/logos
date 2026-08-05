@@ -17,12 +17,21 @@
 //   { "v": 1, "entries": [
 //       { "kind": "schema", "name": "Emp", "code": <u64>, "fields": [
 //           { "name": "age",  "key": 1, "ty": "i64" },
+//           { "name": "cap",  "key": 3, "ty": "i64", "src": "u64" },
 //           { "name": "emps", "key": 2, "ty": "edge", "target": "Emp" } ] } ] }
 //
 // Field TYPE classification (catalog value-type names):
 //   integer family (i8…i64/u8…u64/i56/u56/usize/isize) → "i64"
 //   f64/f32 → "f64" · bool → "bool" · str/String → "str"
 //   WRef<T> → "edge" + target T · anything else (incl. WAny) → "any" (erased)
+//
+// ⚠ AND THE FIELD'S OWN TYPE NAME BESIDE IT, in "src", when the class
+// representative is not it. The classification above is a COLLAPSE — it is what
+// the EL computes in — and the facts it discards are real: `u64` and `i64` map to
+// one name and their ORDERS differ above 2^63, which is how the runtime tiers
+// came to sort a u64 column as a signed one while the static tier, whose emitted
+// key vector keeps the declared type, did not. "src" is the carrier; what is
+// DERIVED from it lives with the lattice (`ElTy.ord`), not here.
 //
 // VISIBILITY (I1 MVP): reflection sees the TRIGGER module's AST only — the
 // schemas must be declared in the module invoking `schema_catalog!`. Schemas
@@ -98,11 +107,24 @@ fn is_int_family(name: str) -> bool {
 
 // The catalog value-type name of a field's TYPE node; edges report "edge" and
 // fill `target` (the WRef<T> type-arg name) into `tgt`.
-struct FieldTy { ty: str, target: str }
+//
+// ⚠ `ty` IS THE CLASS REPRESENTATIVE AND `src` IS THE FIELD'S OWN TYPE NAME, and
+// they are two entries because they answer two questions. `ty` is what the EL
+// COMPUTES IN — every consumer downstream (the FK_SCALAR/FK_ANY decision, the
+// CT_* tag, the accumulator layout) is built on it and must keep reading it.
+// `src` is what the column IS, and it is the only place the facts that the class
+// collapses — width, SIGNEDNESS — still exist. A `u64` column emitted only as
+// `"ty":"i64"` destroyed its signedness one step before any runtime tier could
+// see it, which is why the two runtime engines ordered it as a signed value
+// while the static tier, whose emitted key vector keeps the declared type, did
+// not. `src` is emitted only when it DIFFERS from `ty` (a blob written before
+// this existed, or by hand, reads back as "" and every derived fact defaults to
+// the class's — i.e. to exactly the old behaviour).
+struct FieldTy { ty: str, target: str, src: str }
 
 fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
     let tynode: WAny = view.ast_type_child(fld);
-    if tynode.is_null() { return FieldTy { ty: "any", target: "" }; }
+    if tynode.is_null() { return FieldTy { ty: "any", target: "", src: "" }; }
     let code: u64 = view.ast_node_code(tynode) & (0xFFFF as u64);
     if code == CM_GENERIC_INST() {
         if str_eq(sv_str(view.ast_node_name(tynode)), "WRef") {
@@ -110,18 +132,18 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
             if !args.is_null() && view.array_len(args) == (1 as u64) {
                 let a0: WAny = view.array_get(args, 0 as u64);
                 let tn: str = sv_str(view.ast_node_name(a0));
-                if tn.len() > 0i64 { return FieldTy { ty: "edge", target: tn }; }
+                if tn.len() > 0i64 { return FieldTy { ty: "edge", target: tn, src: "" }; }
             }
         }
-        return FieldTy { ty: "any", target: "" };
+        return FieldTy { ty: "any", target: "", src: "" };
     }
     let name: str = sv_str(view.ast_node_name(tynode));
     // ONE classification table (logos.std.wql.el), one representative per
     // class. The catalog's own copy of it had drifted — it knew `i56`/`u56`
     // and the canonical one did not.
     let cls: i32 = el_class_lookup(name);
-    if cls >= 0i32 { return FieldTy { ty: el_class_repr(cls), target: "" }; }
-    return FieldTy { ty: "any", target: "" };
+    if cls >= 0i32 { return FieldTy { ty: el_class_repr(cls), target: "", src: name }; }
+    return FieldTy { ty: "any", target: "", src: "" };
 }
 
 // ── Requested-schema list (idents in the macro body) ───────────────────────
@@ -229,6 +251,14 @@ fn emit_schema_entry(buf: &mut String, view: &OView, nm: str) -> bool {
         if str_eq(ft.ty, "edge") {
             buf.push_str(", \"target\": \"");
             buf.push_str(ft.target);
+            buf.push_str("\"");
+        }
+        // The field's OWN type name, when the class representative is not it.
+        // See `FieldTy`: this is the only surviving carrier of the width and
+        // the signedness the class collapses.
+        if ft.src.len() > 0i64 && !str_eq(ft.src, ft.ty) {
+            buf.push_str(", \"src\": \"");
+            buf.push_str(ft.src);
             buf.push_str("\"");
         }
         buf.push_str("}");

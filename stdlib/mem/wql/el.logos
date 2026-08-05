@@ -714,6 +714,61 @@ pub fn el_order_why(name: str) -> str {
     return el_ord_why_code(el_order_fidelity(name));
 }
 
+// ══ THE REMEDY FOR `EL_ORD_WRAP`, WRITTEN ONCE ════════════════════════════
+//
+// `EL_ORD_WRAP` names one specific failure and no other: the value reached the
+// EL's `i64` INTACT (the conversion is a bijection — `ElTy.ident` is `EL_ID_OK`
+// for every integer of ≤ 64 bits) and only the ORDER moved, because the top bit
+// that was a magnitude bit in the source type is the SIGN bit in `i64`. A
+// failure that precise has an exact inverse, and this is it: flipping that one
+// bit maps the unsigned order onto the signed order, monotonically and
+// bijectively, so for u64 values a,b — `a <ᵤ b` ⟺ `key(a) <ₛ key(b)`.
+//
+// ⚠ THIS IS A KEY, NOT A CONVERSION, and the distinction is the same one
+// `f64_data_key` makes (`stdlib/lang/num/float.logos`, and the arc that put it
+// at the comparison seams is the model for this one): the key is for COMPARING,
+// never for storing or emitting. The cell a query hands back is the argument's
+// own `i64` — the bits are the bits — so nothing here may reach a value the
+// caller reads back. `agg_val_key` in `deem/incr.logos` keys min/max IDENTITY on
+// the raw value for exactly the same reason.
+//
+// ⚠ WHY IT LIVES HERE AND NOT AT THE THREE COMPARISON SITES. `el` is where the
+// fact "this type's order moved" is DERIVED (`el_ord_of`), so it is where its
+// inverse belongs; a copy at each site is the shape this file's own header calls
+// out — five tables answering questions about one type, each free to drift.
+// Consumers: `rt_cmp` and the min/max fold in `deem/exec.logos`, `agg_ord_key`
+// in `deem/incr.logos`. The STATIC tier needs none of it: its key vector is
+// typed with the key's OWN type (`Vec<u64>`), so the language lowers `<` to
+// `ult` and no normalization ever happens — which is why the static tier was
+// already right, and why `key_ord_frag` is untouched by this.
+pub fn el_wrap_ord_key(x: i64) -> i64 { return x ^ (-9223372036854775807i64 - 1i64); }
+
+/// Does a value of type `name` need `el_wrap_ord_key` before an ORDERED
+/// comparison in the EL's `i64`? The type's own `ord`, asked rather than a list
+/// of spellings: true for `u64`/`usize` and for any unsigned 64-bit type added
+/// later, false for every width that fits (u8..u32/u24/u56 arrive non-negative
+/// and their order survives) and for `i128`/`u128`, whose failure is TRUNC — bits
+/// dropped, no key can repair that, and their refusal is a different site's job.
+pub fn el_ord_wraps(name: str) -> bool { return el_ty(name).ord == EL_ORD_WRAP(); }
+
+// The two EXTREMA of the wrapped order, as RAW `i64` payloads — the seeds a
+// fold over an `EL_ORD_WRAP` column must use, DERIVED here rather than restated
+// at each fold. `el_wrap_ord_key` is `x ^ i64::MIN`, so it attains its minimum
+// at raw 0 and its maximum at raw −1: read as u64 those are 0 and 2^64−1, the
+// identity elements of `max` and `min` over an unsigned column.
+//
+// ⚠ THE SIGNED SEEDS ARE WRONG HERE AND THE FAILURE IS THE ONE `6440e565` FIXED
+// FOR f64: seeding `max` with `i64::MIN` puts the seed's KEY in the MIDDLE of
+// the wrapped order — key(i64::MIN) = 0, an interior key — so `max` over a
+// single row holding 5 would answer i64::MIN, i.e. u64 2^63, A VALUE PRESENT IN
+// NO ROW, because key(5) = i64::MIN+5 is LESS than 0. MEASURED: with the compare
+// fixed and the signed seeds left in place, `wql_domain_u64_order_seams` exits
+// 25 on exactly that arm while every end-to-end fixture stays green. A seed is
+// only sound when it is outside the key range, and that is a property of the
+// KEY, not of the payload type.
+pub fn el_wrap_ord_least()    -> i64 { return 0i64; }
+pub fn el_wrap_ord_greatest() -> i64 { return -1i64; }
+
 /// The ground for an `EL_ORD_*` CODE — ONE renderer, because the same four
 /// failures are reached from two questions now (the value's normalization at a
 /// call site, and the key vector's element type at a sort site) and a second copy

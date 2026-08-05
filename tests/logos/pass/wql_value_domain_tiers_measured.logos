@@ -12,19 +12,21 @@
 // every number in it was produced by running this program. Nothing here is
 // inferred from a table.
 //
-// ⚠ PARTLY CLOSED 2026-08-04. Every f32 arm here has been rewritten to its OUGHT
-// value: slice A taught `WAny::as_f64` to ask the Ref's own type code, and each
-// OUGHT — recorded before the fix existed — was reproduced bit-for-bit. What
-// remains KNOWN-WRONG is the u64/usize family, which slice A does not touch.
+// ⚠ CLOSED 2026-08-04 (f32) AND 2026-08-05 (u64 `order by`). NO ARM IN THIS FILE
+// ASSERTS A WRONG ANSWER ANY MORE. Every one of them was written as "what the
+// engine DOES, beside the value it OUGHT to produce", the OUGHT recorded before
+// any fix existed; each fix then made this file RED at exactly the arm it fixed
+// and reproduced the recorded OUGHT, and the arm was rewritten to it. That is
+// the whole discipline and it is why the numbers below are evidence rather than
+// a transcript: nothing here was re-read off a run.
 //
-// ⚠ THIS FILE PINS WRONG ANSWERS ON PURPOSE. Arms marked `KNOWN-WRONG` assert
-// what the engines DO, beside the value they OUGHT to produce, written out. That
-// is deliberate and it is the only honest shape for a measurement fixture: the
-// alternative — asserting the right answer — leaves a red test in the corpus,
-// and asserting nothing lets the number drift silently the way it has. A FIX
-// makes this test RED at the arm it fixed; that is the point. When an arm goes
-// red because it was fixed, move it into the CORRECT block above and delete the
-// `ought` line.
+// ⚠ THE ROOTS WERE NOT `RtVal`, EITHER TIME. f32 was one accessor reading eight
+// bytes out of a four-byte box. u64 was a CATALOG that emitted the column as
+// `"ty":"i64"`, destroying its signedness before any comparison site could ask —
+// so the comparator had two `RtVal::I` and no type, and adding an `RtVal` arm
+// would have closed neither. The remedy is the column's own type name on the
+// blob, `ElTy.ord` derived from it once, and `el_wrap_ord_key` consumed at the
+// comparison seams.
 //
 // ── WHAT WAS MEASURED (1066 TYPE x POSITION x TIER cells, each a compile and,
 //    where it compiled, a run) ────────────────────────────────────────────────
@@ -37,9 +39,13 @@
 //     `t == EL_TY_FLT()`, a class tag that cannot tell 32 from 64), so every f32
 //     answer in the dynamic AND incremental tiers is silently garbage.
 //   • u64/usize above 2^63 arrive as NEGATIVE i64 in the dynamic and incremental
-//     tiers (`WAny::as_i64` → `RtVal::I`), so `order by` ranks them below zero and
-//     `max` answers the SMALLER value. The STATIC emitter gets the same query
-//     RIGHT, and refuses the aggregate positions outright with a diagnostic.
+//     tiers (`WAny::as_i64` → `RtVal::I`) — that much is unchanged and is the
+//     reason the read-back path still spells 2^64-1 as -1. What WAS wrong and is
+//     now fixed is every ORDERED comparison built on it: `order by` ranked such a
+//     value below zero and `max` answered the smaller value. The STATIC emitter
+//     always got the same query right, and still refuses the aggregate positions
+//     outright with a diagnostic — that refusal is NOT on this axis and did not
+//     move (`sum` over u64 is a separate, untaken semantics decision).
 //   • The incremental engine REFUSES an equi-join on an f32 or f64 key that the
 //     dynamic engine ACCEPTS (the LOOP tier).
 package test;
@@ -140,17 +146,20 @@ fn main() -> i32 {
     e.bind_source("hs", WAny::ref_to(ha as *const WArray<WAny> as *const u8));
     e.bind_source("ht", WAny::ref_to(hb as *const WArray<WAny> as *const u8));
 
-    // KNOWN-WRONG — u64 `order by` in the interpreter ranks by the SIGNED
-    // reinterpretation.  ought: ids 0, 2, 1 (as the static emitter answers above)
-    //                     is  : ids 2, 1, 0 (i64::MIN < -1 < 5)
+    // ✅ CLOSED 2026-08-05 — u64 `order by` in the interpreter. It ranked by the
+    // SIGNED reinterpretation (ids 2, 1, 0: i64::MIN < -1 < 5) while the STATIC
+    // emitter twenty lines above answered ids 0, 2, 1 over the same three values.
+    // The OUGHT asserted here is that same static answer, which is why this is a
+    // DIFFERENTIAL and not a second opinion: the two tiers now agree, and the
+    // static block above is the independent oracle for it.
     let qo: Query = match Query::compile("from us s select s.id order by s.x", &c) {
         Result::Ok(v) => { v } Result::Err(_e1) => { return 30i32; } };
     let ro: QRows = match qo.run(&e) {
         Result::Ok(v) => { v } Result::Err(_e2) => { return 31i32; } };
     if ro.row_count() != 3i64        { return 32i32; }
-    if ro.get_i64(0i64, 0i64) != 2i64 { return 33i32; }
-    if ro.get_i64(1i64, 0i64) != 1i64 { return 34i32; }
-    if ro.get_i64(2i64, 0i64) != 0i64 { return 35i32; }
+    if ro.get_i64(0i64, 0i64) != 0i64 { return 33i32; }   // 5
+    if ro.get_i64(1i64, 0i64) != 2i64 { return 34i32; }   // 2^63
+    if ro.get_i64(2i64, 0i64) != 1i64 { return 35i32; }   // 2^64-1
 
     // ✅ CLOSED 2026-08-04 (slice A) — `sum` over an f32 column, dynamic tier.
     // It used to add two denormals and answer 0x000000007F800000 = 2139095040.
@@ -162,10 +171,18 @@ fn main() -> i32 {
     if f64_to_bits(rs.get_f64(0i64, 0i64)) != 4613937818241073152u64 { return 43i32; }
 
     // ══ 4. THE INCREMENTAL ENGINE ═════════════════════════════════════════════
-    // KNOWN-WRONG — `max` over { 5, 2^64-1 } answers the SMALLER value, because
-    // 2^64-1 entered the fold as -1.
-    //   ought: 18446744073709551615 (which the read-back API cannot express)
-    //   is   : 5
+    // ⚠ THIS BLOCK NEVER MEASURED A CROSS-ROW `max` AND ITS OLD LABEL SAID IT
+    // DID. `group by s.id` over three rows with three distinct ids gives THREE
+    // ONE-ROW GROUPS, so each group's `max` is that row's own value and no
+    // comparison between 5 and 2^64-1 ever happened here — the block was green
+    // before the 2026-08-05 fix and is green after it, and the "answers the
+    // SMALLER value" caption belonged to `wql_domain_incr_disagreement` block 1,
+    // which really does put both values in one group. What this block DOES pin is
+    // worth keeping and is now stated correctly: a one-row group's `max` is that
+    // row's value for every value, INCLUDING 2^64-1, which reads back as -1. That
+    // is the SEED canary — a min/max seed outside the order the fold compares in
+    // would win against the single row and answer a value present in no row (the
+    // f64 half of exactly this defect is on record at `exec.logos`'s seed block).
     let qm: Query = match Query::compile(
         "from us s group by s.id aggregate a = max(s.x) select (key, a)", &c) {
         Result::Ok(v) => { v } Result::Err(_e5) => { return 50i32; } };

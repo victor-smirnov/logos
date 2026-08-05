@@ -1,38 +1,54 @@
-// THE INCREMENTAL TIER, AND THE THREE PLACES IT DISAGREES WITH THE OTHER TWO —
-// PINNED AS CURRENT BEHAVIOUR, TWO OF THE FIVE ANSWERS WRONG ON PURPOSE.
+// THE INCREMENTAL TIER, AND THE THREE PLACES IT DISAGREED WITH THE OTHER TWO —
+// PINNED AS CURRENT BEHAVIOUR. TWO OF THE THREE HAVE CLOSED; ONE IS STILL WRONG
+// ON PURPOSE.
 //
-// ⚠⚠ READ THIS BEFORE CHANGING ANY EXPECTATION IN THIS FILE. Two of the blocks
-// below assert an answer that IS WRONG, and one asserts a REFUSAL that ought
-// not to be a refusal. They are marked `⚠ KNOWN-WRONG` and each carries the
-// answer it OUGHT to give. THE EXPECTATION IS THE DEFECT. When the arc that
-// owns this — the query compiler's value domain becoming Logos's type system —
-// closes any of them, THIS FILE MUST GO RED AND BE REWRITTEN. A red here from a
-// fix is the file doing its job; do not "repair" it by re-reading the answer off
-// a run. Same idiom, same reason, as
-// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`.
+// ⚠⚠ READ THIS BEFORE CHANGING ANY EXPECTATION IN THIS FILE. ONE block below
+// still asserts a REFUSAL that ought not to be a refusal (block 3b, the f64 join
+// key). It is marked `⚠ KNOWN-WRONG` and carries the answer it OUGHT to give.
+// THE EXPECTATION IS THE DEFECT. When the arc that owns this — the query
+// compiler's value domain becoming Logos's type system — closes it, THIS FILE
+// MUST GO RED AND BE REWRITTEN. A red here from a fix is the file doing its job;
+// do not "repair" it by re-reading the answer off a run. Same idiom, same reason,
+// as `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`. The two blocks that
+// HAVE closed (sum over f32, 2026-08-04; max over u64, 2026-08-05) each did so
+// by reproducing the OUGHT this file had been carrying, and were rewritten to it.
 //
 // ⚠ EVERY BLOCK CARRIES ITS OWN IN-RUN CONTROL, and that is not decoration. The
 // three surveys behind this file each recorded the same lesson: a control that
 // changes nothing is evidence about the STAND, not about the code. So each
-// wrong answer sits beside the SAME question asked of a type that works, in the
-// same program, over the same rows, through the same engine:
-//   • `max` over u64 is wrong  — `max` over i64 in the same query is right;
-//   • `sum` over f32 is wrong  — `sum` over f64 over the same magnitudes is right;
+// answer sits beside the SAME question asked of a type that works, in the
+// same program, over the same rows, through the same engine — and after a fix
+// the control is what proves the fix did not simply move everything:
+//   • `max` over u64 was wrong — `max` over i64 in the same query was and REMAINS
+//     right, which is the whole assertion that the remedy is keyed on the
+//     column's derived order fidelity and not applied to the integer class;
+//   • `sum` over f32 was wrong — `sum` over f64 over the same magnitudes is right;
 //   • an equi-join on an f64 key is REFUSED — an equi-join on an i64 key over
 //     the same two sources is ACCEPTED, so the refusal is about the KEY TYPE and
 //     not about the join shape, which is the only thing that makes it a finding.
 // If a control ever goes red the file says nothing about the defect it was
 // written for, and the exit code says which half broke.
 //
-// ── 1. `max` OVER `u64` ANSWERS THE SMALLER VALUE, IN BOTH RUNTIME TIERS ─────
-// `wany_to_rt` (stdlib/mem/deem/deem.logos:779) has ONE integer arm,
-// `RtVal::I(i64)`. Over the group {1u64, 18446744073709551615u64} the two values
-// arrive as 1 and -1, so `max` answers 1 — the SMALLER of the two. Pinned here
-// as 1. It OUGHT to answer 18446744073709551615, which `QRows::get_i64` cannot
-// even spell (the five getters at stdlib/mem/deem/query.logos:68-78 are
-// i64/f64/bool/str/node, none unsigned); the nearest honest statement of the
-// right answer is "the bits -1". So when this is fixed BOTH the value and the
-// read-back path have to move, and both lines here go red.
+// ── 1. `max` OVER `u64` ANSWERED THE SMALLER VALUE, IN BOTH RUNTIME TIERS ────
+// ── CLOSED 2026-08-05 ───────────────────────────────────────────────────────
+// `wany_to_rt` (stdlib/mem/deem/deem.logos) has ONE integer arm, `RtVal::I(i64)`.
+// Over the group {1u64, 18446744073709551615u64} the two values arrive as 1 and
+// -1, so a SIGNED compare made `max` answer 1 — the SMALLER of the two.
+//
+// ⚠ THE ARM WAS NOT WHERE THE DEFECT WAS, AND WIDENING `RtVal` WOULD HAVE CLOSED
+// NOTHING. The values arrive intact — the u64 → i64 conversion is a BIJECTION,
+// which is exactly why `group by`, `distinct` and every equi-join over this same
+// column were right all along. Only the ORDER moved, and the reason no comparison
+// site could repair it is that `schema_catalog!` emitted the column as
+// `"ty":"i64"`: the type's signedness was destroyed one step before the runtime
+// ever saw a value. The fix carries the column's own type name on the catalog
+// blob, derives `ElTy.ord == EL_ORD_WRAP` from it once, and consumes that one bit
+// at the two fold sites and the sort comparator through `el_wrap_ord_key`.
+//
+// The read-back path did NOT move and is not on this axis: `QRows::get_i64` is
+// still the only integer getter (the five at stdlib/mem/deem/query.logos:68-78
+// are i64/f64/bool/str/node, none unsigned), so 18446744073709551615 is still
+// spelled here as "the bits -1". An unsigned getter is a separate question.
 //
 // ── 2. `sum` OVER `f32` ADDS TWO DENORMALS, IN BOTH RUNTIME TIERS ────────────
 // `WAny::as_f64` (stdlib/lang/writ/anyval.logos:329) dereferences the boxed
@@ -55,8 +71,8 @@
 // over the same two sources is accepted by the incremental engine in this same
 // program. ⚠ WHERE the incremental engine refuses this was NOT established by
 // the survey that measured it: `incremental()` returns Err with no message
-// reaching the caller, and `agg_val_key`/`agg_ord_key` (stdlib/mem/deem/incr.logos:572-585)
-// are float-aware for min/max, so the join path has a separate rule nobody has
+// reaching the caller, and `agg_val_key`/`agg_ord_key` (stdlib/mem/deem/incr.logos)
+// are type-aware for min/max, so the join path has a separate rule nobody has
 // located. This fixture pins THAT THE DISAGREEMENT EXISTS; it does not claim to
 // know its cause, and a fix must rewrite block 3.
 //
@@ -81,8 +97,9 @@
 // tier at the same extremes) and `wql_domain_runtime_extremes` (the dynamic
 // tier, 18 types); the refusal-plus-LAYER halves live in `wql_domain_layer_*_fail`.
 //
-// exit 0 = the incremental tier is exactly as measured on 2026-08-03,
-//          disagreements included.
+// exit 0 = the incremental tier is exactly as measured on 2026-08-03, with the
+//          two closed cells (sum/f32, max/u64) at their OUGHT and the remaining
+//          disagreement (the f64 join key) still pinned as a disagreement.
 package test;
 
 use logos.lang.writ.container;
@@ -132,8 +149,15 @@ fn main() -> i32 {
     e.bind_source("ss", WAny::ref_to(a as *const WArray<WAny> as *const u8));
     e.bind_source("ts", WAny::ref_to(b as *const WArray<WAny> as *const u8));
 
-    // ── 1. max(u64) — INCREMENTAL. ⚠ KNOWN-WRONG: answers 1, the SMALLER of
-    //      {1, 2^64-1}. OUGHT to answer 2^64-1, whose i64 bits are -1.
+    // ── 1. max(u64) — INCREMENTAL. ✅ CLOSED 2026-08-05 (the compare seam). It
+    //      answered 1, the SMALLER of {1, 2^64-1}, because 2^64-1 entered the
+    //      semilattice fold as -1 and `agg_ord_key` was the identity on integers.
+    //      The OUGHT recorded here before any fix existed — 2^64-1, which
+    //      `get_i64` can only spell as the bits -1 — is exactly what the fix
+    //      produced. `agg_ord_key` now keys an EL_ORD_WRAP column through
+    //      `el_wrap_ord_key`; `agg_val_key` is deliberately unchanged, because
+    //      IDENTITY was never wrong here (the i64 conversion is a bijection) and
+    //      the emitted cell must stay the argument's own value.
     //      CONTROL in the same query: max(i64) over {1, 2} must answer 2.
     let q1: Query = match Query::compile(
         "from ss s group by s.g aggregate m = max(s.x_u64), n = max(s.x_i64) select (key, m, n)", &c) {
@@ -144,13 +168,17 @@ fn main() -> i32 {
     let s1: QRows = g1.snapshot();
     if s1.row_count() != 1i64 { return 13i32; }
     if s1.get_i64(0i64, 2i64) != 2i64 { return 14i32; }   // CONTROL: max(i64) = 2
-    // OUGHT: 18446744073709551615, whose bits read back through get_i64 are -1.
-    // Reaching this arm means the defect CLOSED — rewrite the block, do not
-    // re-read the number off a run.
-    if s1.get_i64(0i64, 1i64) == -1i64 { return 15i32; }
-    if s1.get_i64(0i64, 1i64) != 1i64 { return 16i32; }   // ⚠ KNOWN-WRONG: the SMALLER value
+    // 18446744073709551615, whose bits read back through get_i64 are -1. This is
+    // the number the block carried as its OUGHT while it was pinned wrong; exit
+    // code 15 was the arm that fired when it came true.
+    if s1.get_i64(0i64, 1i64) != -1i64 { return 15i32; }
 
-    // ── 1b. the SAME question of the DYNAMIC engine — it agrees, wrongly.
+    // ── 1b. the SAME question of the DYNAMIC engine — it agreed WRONGLY before
+    //      2026-08-05 and agrees RIGHTLY after it. The two engines reach the
+    //      answer by different routes (a semilattice map with a rescan vs. a
+    //      seeded left fold) and consume the SAME one bit off the plan, which is
+    //      why one fix moved both — and why the two halves of this block are a
+    //      differential rather than one measurement written twice.
     let q2: Query = match Query::compile(
         "from ss s group by s.g aggregate m = max(s.x_u64), n = max(s.x_i64) select (m, n)", &c) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
@@ -158,9 +186,8 @@ fn main() -> i32 {
         Result::Ok(v) => { v } Result::Err(_e) => { return 21i32; } };
     if r2.row_count() != 1i64 { return 22i32; }
     if r2.get_i64(0i64, 1i64) != 2i64 { return 23i32; }   // CONTROL: max(i64) = 2
-    // OUGHT: 18446744073709551615 — bits -1 through get_i64. See block 1.
-    if r2.get_i64(0i64, 0i64) == -1i64 { return 24i32; }
-    if r2.get_i64(0i64, 0i64) != 1i64 { return 25i32; }   // ⚠ KNOWN-WRONG: the SMALLER value
+    // 18446744073709551615 — bits -1 through get_i64. See block 1.
+    if r2.get_i64(0i64, 0i64) != -1i64 { return 24i32; }
 
     // ── 2. sum(f32) — INCREMENTAL. ✅ CLOSED 2026-08-04 (slice A). It used to
     //      add two subnormals and answer bits 2139095040; the OUGHT recorded

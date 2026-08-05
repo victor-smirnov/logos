@@ -1,15 +1,14 @@
 // THE DYNAMIC TIER'S VALUE ROUND TRIP AT THE EXTREMES — 18 TYPES, AND ONE OF
 // THEM IS PINNED WRONG ON PURPOSE.
 //
-// ⚠⚠ READ THIS BEFORE CHANGING ANY EXPECTATION IN THIS FILE. The `f32` block
-// asserts values that ARE WRONG. It is marked `⚠ KNOWN-WRONG` and carries the
-// four values it OUGHT to produce, each as its own early-exit arm. THE
-// EXPECTATION IS THE DEFECT. When the arc that owns this — the query compiler's
-// value domain becoming Logos's type system — closes it, THIS FILE MUST GO RED
-// AND BE REWRITTEN. A red here from a fix is the file doing its job; do not
-// "repair" it by re-reading the answer off a run. The idiom is
-// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`, which pinned a hole for
-// months with its own header saying so and was rewritten when the hole closed.
+// ⚠⚠ READ THIS BEFORE CHANGING ANY EXPECTATION IN THIS FILE. NO BLOCK HERE
+// ASSERTS A WRONG VALUE ANY MORE — the `f32` block did, carrying the four values
+// it OUGHT to produce as its own early-exit arms, and it closed on 2026-08-04 by
+// reproducing all four bit-for-bit. Keep the idiom for the next one: pin the
+// wrong answer AND the OUGHT, so a fix makes the file go RED at the arm it fixed
+// and announces itself; never "repair" a red by re-reading the answer off a run.
+// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos` pinned a hole for months
+// with its own header saying so and was rewritten when the hole closed.
 //
 // ── WHAT IS PINNED ──────────────────────────────────────────────────────────
 // That each of the eighteen types is ADMITTED by the dynamic engine at all — a
@@ -31,8 +30,8 @@
 // ── WHY THE EXTREMES RATHER THAN 42 ─────────────────────────────────────────
 // A type that is ADMITTED but whose value does not survive is the defect this
 // arc exists to end, and it is invisible at small magnitudes — the u64 order
-// defect pinned by `wql_domain_runtime_order_c` is exactly correct for every
-// value below 2^63. So every row set straddles the boundary that can break it:
+// defect that `wql_domain_runtime_order_c` pinned (and that closed on
+// 2026-08-05) was exactly correct for every value below 2^63. So every row set straddles the boundary that can break it:
 // every signed type at its own MIN and MAX; every unsigned type at 0, 2^(w-1)
 // and 2^w-1; `f32` at 0.1f32 (destroyed by a round trip through an f64 arm read
 // as raw bits) and ±2^20+0.5 (exact in both widths); `f64` at ±1.0e300, outside
@@ -60,7 +59,10 @@
 // `sum` in both runtime engines.
 //
 // ── `u64` AND `usize`: THE WEAKEST HONEST QUESTION, LABELLED AS SUCH ────────
-// This is NOT a defect pinned wrong; it is a limit of what the API can ask.
+// This is NOT a defect pinned wrong; it is a limit of what the API can ask, and
+// the 2026-08-05 order fix does not touch it: that fix moved COMPARISONS, never
+// a value, so these four cells asserted the same bits before and after it and
+// stayed green throughout. A read-back path for 2^64-1 remains absent.
 // `QRows` has exactly five getters — get_i64/get_f64/get_bool/get_str/get_node
 // (stdlib/mem/deem/query.logos:68-78) — and none is unsigned, so there is NO
 // expression in the dynamic API for the value 2^64-1. What is pinned is that the
@@ -335,7 +337,8 @@ fn main() -> i32 {
     if r1.get_i64(0i64, 5i64) != 36028797018963968i64 { return 88i32; }
     if r1.get_i64(3i64, 5i64) != 1i64 { return 89i32; }
 
-    // ── u64 ── query 2 column 0, codes 92..96   ⚠ KNOWN-WRONG, see the header
+    // ── u64 ── query 2 column 0, codes 92..96   ⚠ A LIMIT OF THE API, NOT A
+    //   WRONG ANSWER — see the header. Untouched by the 2026-08-05 order fix.
     // ⚠ NO fixed signature here: `QRows` has no unsigned getter, so the
     //   value 2^64-1 has no expression at all and the only honest question
     //   is whether the BITS survived. `wql_domain_runtime_order_c` carries
@@ -345,7 +348,8 @@ fn main() -> i32 {
     if r2.get_i64(0i64, 0i64) != -9223372036854775808i64 { return 94i32; }
     if r2.get_i64(3i64, 0i64) != 1i64 { return 95i32; }
 
-    // ── usize ── query 2 column 1, codes 98..102   ⚠ KNOWN-WRONG, see the header
+    // ── usize ── query 2 column 1, codes 98..102   ⚠ A LIMIT OF THE API, NOT A
+    //   WRONG ANSWER — see the header. Untouched by the 2026-08-05 order fix.
     // ⚠ NO fixed signature here: `QRows` has no unsigned getter, so the
     //   value 2^64-1 has no expression at all and the only honest question
     //   is whether the BITS survived. `wql_domain_runtime_order_c` carries

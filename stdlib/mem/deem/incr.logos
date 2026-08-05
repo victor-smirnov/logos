@@ -572,11 +572,27 @@ fn agg_val_key(v: RtVal, isf: bool) -> i64 {
     if isf { return f64_to_bits(rt_f(v)) as i64; }
     return rt_i(v);
 }
-// The ORDER key of a stored min/max map key — identity for an integer column,
-// `f64_data_key` (total: all NaNs one value and greatest, −0.0 == 0.0) for a
-// float one. Every min/max comparison in this file goes through here.
-fn agg_ord_key(k: i64, isf: bool) -> i64 {
+// The ORDER key of a stored min/max map key — `f64_data_key` (total: all NaNs
+// one value and greatest, −0.0 == 0.0) for a float column, `el_wrap_ord_key` for
+// an integer column whose order MOVED when its value was normalized into i64
+// (`ElTy.ord == EL_ORD_WRAP` — u64/usize), identity for every other integer.
+// Every min/max comparison in this file goes through here.
+//
+// ⚠ THE SECOND ARM IS THE SAME DISTINCTION THE FIRST ONE MAKES, one type family
+// over: IDENTITY and ORDER are two questions, `agg_val_key` answers the first
+// and this answers the second. For u64 they diverge in the opposite direction to
+// f64 — the raw value IS injective (the i64 conversion is a bijection, so the
+// map key needs no repair at all) while `<` on it is the WRONG ORDER above 2^63.
+// So `agg_val_key` is deliberately NOT given an `ordw` arm: keying identity on
+// the wrapped key would be a second, redundant bijection whose only effect would
+// be to make the emitted cell need an inverse.
+//
+// `ordw` is decided ONCE at construction from `QPlan.agg_argu` — the checked
+// type of THE ARGUMENT — for the same reason `isf` is: a query's answer must not
+// depend on which row arrived first. See the ⚠ block at `AggState`.
+fn agg_ord_key(k: i64, isf: bool, ordw: bool) -> i64 {
     if isf { return f64_data_key(f64_from_bits(k as u64)); }
+    if ordw { return el_wrap_ord_key(k); }
     return k;
 }
 // The RtVal a stored min/max map key emits as.
@@ -1051,6 +1067,11 @@ pub struct IncrJoin {
     // from a per-row `RtVal` tag: a query's answer must not depend on which row
     // arrived first. See the ⚠ block at `AggState`.
     agg_argf:  [bool; 8],
+    // The argument's order fact (`QPlan.agg_argu` — `ElTy.ord == EL_ORD_WRAP`,
+    // i.e. u64/usize). Selects the min/max ORDER through `agg_ord_key` and
+    // nothing else: the map key, the accumulator half and the emitted cell are
+    // all unmoved by it. Same construction-time discipline as `agg_argf`.
+    agg_argu:  [bool; 8],
     agg_out:   [str; 8],     // bound out-name of each agg column (projection reads it)
     key_w:     i64,          // raw SExpr of the group key (evaluated per scan row)
     agg:       AggState,     // the maintained per-group accumulators (a/b unused here)
@@ -1300,6 +1321,7 @@ impl IncrJoin {
                 while ai < n {
                     let fnid: i32 = self.agg_fnid[ai];
                     let isf: bool = self.agg_argf[ai];
+                    let ordw: bool = self.agg_argu[ai];
                     if fnid == 2i32 || fnid == 5i32 {
                         let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
                         if rt_is_err(av) { unsafe { *mep = true; } }
@@ -1331,7 +1353,7 @@ impl IncrJoin {
                         // `rt_i` collided 0.25 and 0.75 onto 0). Every ORDER
                         // question below asks `agg_ord_key`, never `<` on this.
                         let av: i64 = agg_val_key(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch), isf);
-                        let avo: i64 = agg_ord_key(av, isf);
+                        let avo: i64 = agg_ord_key(av, isf, ordw);
                         let mp: *mut HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) };
                         let cp: *const i64 = unsafe { mp.get(&av) };
                         let cur: i64 = if (cp as i64) == 0i64 { 0i64 } else { unsafe { *cp } };
@@ -1349,8 +1371,8 @@ impl IncrJoin {
                             let mlen: i64 = unsafe { (&*(mp as *const HashMap<i64, i64>)).len() };
                             if mlen == 1i64 {
                                 self.agg.vbest.set(slot * n + ai, av);       // first live value = best
-                            } else if (fnid == 3i32 && avo < agg_ord_key(self.agg.vbest.get(slot * n + ai), isf))
-                                   || (fnid == 4i32 && avo > agg_ord_key(self.agg.vbest.get(slot * n + ai), isf)) {
+                            } else if (fnid == 3i32 && avo < agg_ord_key(self.agg.vbest.get(slot * n + ai), isf, ordw))
+                                   || (fnid == 4i32 && avo > agg_ord_key(self.agg.vbest.get(slot * n + ai), isf, ordw)) {
                                 self.agg.vbest.set(slot * n + ai, av);       // O(1) improve (meet/join)
                             }
                         }
@@ -1376,7 +1398,7 @@ impl IncrJoin {
                                     match kit.next() {
                                         Option::Some(kp) => {
                                             let kv: i64 = *kp;
-                                            let ko: i64 = agg_ord_key(kv, isf);
+                                            let ko: i64 = agg_ord_key(kv, isf, ordw);
                                             if first { nb = kv; nbo = ko; first = false; }
                                             else if fnid == 3i32 { if ko < nbo { nb = kv; nbo = ko; } }
                                             else                 { if ko > nbo { nb = kv; nbo = ko; } }
@@ -1627,6 +1649,7 @@ impl Query {
                 let mut afnid: [i32; 8] = [0i32; 8];
                 let mut aargw: [i64; 8] = [0i64; 8];
                 let mut aargf: [bool; 8] = [false; 8];
+                let mut aargu: [bool; 8] = [false; 8];
                 let mut aout:  [str; 8] = [""; 8];
                 let aggs: RAggArr = g.aggs_arr();
                 let mut ci2: i64 = 0i64;
@@ -1637,6 +1660,7 @@ impl Query {
                     // `avg` returns f64 over an i64 column too, and reading the
                     // result type here is what truncated the float case.
                     aargf[ci2] = aqp.agg_argt[ci2] == CT_FLT;
+                    aargu[ci2] = aqp.agg_argu[ci2];
                     aout[ci2]  = ag.out;
                     if ag.has_arg { aargw[ci2] = ag.arg.any().raw(); }
                     ci2 = ci2 + 1i64;
@@ -1666,7 +1690,7 @@ impl Query {
                     is_anti: false,
                     ncols: ancols, ckind: ackind,
                     is_aggr: true, agg_n: an, agg_fnid: afnid, agg_arg_w: aargw,
-                    agg_argf: aargf,
+                    agg_argf: aargf, agg_argu: aargu,
                     agg_out: aout, key_w: akey_w, agg: aggstate_new(),
                     math_err: false,
                 };
@@ -1733,7 +1757,7 @@ impl Query {
             is_anti: is_anti,
             ncols: ncols, ckind: ckind,
             is_aggr: false, agg_n: 0i64, agg_fnid: [0i32; 8], agg_arg_w: [0i64; 8],
-            agg_argf: [false; 8],
+            agg_argf: [false; 8], agg_argu: [false; 8],
             agg_out: [""; 8], key_w: 0i64, agg: aggstate_new(),
             math_err: false,
         };

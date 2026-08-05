@@ -10940,8 +10940,10 @@ sym	logos_mem..logos.mem.deem.Query__incremental_rec__f__ref_Query__ref_QEnv
 sym	logos_mem..logos.mem.deem.Query__run__f__ref_Query__ref_QEnv
 sym	logos_mem..logos.mem.deem.SchemaCatalog__add_edge__f__refmut_SchemaCatalog__slice_u8__slice_u8__i64__slice_u8
 sym	logos_mem..logos.mem.deem.SchemaCatalog__add_field__f__refmut_SchemaCatalog__slice_u8__slice_u8__i64__slice_u8
+sym	logos_mem..logos.mem.deem.SchemaCatalog__add_field_src__f__refmut_SchemaCatalog__slice_u8__slice_u8__i64__slice_u8__slice_u8
 sym	logos_mem..logos.mem.deem.SchemaCatalog__add_schema__f__refmut_SchemaCatalog__slice_u8__u64
 sym	logos_mem..logos.mem.deem.SchemaCatalog__field_key__f__ref_SchemaCatalog__slice_u8__slice_u8
+sym	logos_mem..logos.mem.deem.SchemaCatalog__field_ord_wrap__f__ref_SchemaCatalog__slice_u8__slice_u8
 sym	logos_mem..logos.mem.deem.SchemaCatalog__field_ty__f__ref_SchemaCatalog__slice_u8__slice_u8
 sym	logos_mem..logos.mem.deem.SchemaCatalog__from_static__f__WritStatic
 sym	logos_mem..logos.mem.deem.SchemaCatalog__merge_static__f__refmut_SchemaCatalog__WritStatic
@@ -12635,7 +12637,7 @@ type	logos.mem.deem.QEnv	fields=[names:[&[u8]; 24],kinds:[i32; 24],ivals:[i64; 2
 type	logos.mem.deem.QError	fields=[msg:String]
 type	logos.mem.deem.QRows	fields=[arena:Writ,ncols:i64,kinds:[i32; 8],cells:Vec<RtVal>,nrows:i64]
 type	logos.mem.deem.Query	fields=[doc:Writ,root:i64,empty:bool,sel_mode:i32,cat:SchemaCatalog,reg:QRelReg,bodies:QBodyTab]
-type	logos.mem.deem.SchemaCatalog	fields=[s_names:Vec<&[u8]>,s_codes:Vec<u64>,s_n:i64,f_owner:Vec<i64>,f_names:Vec<&[u8]>,f_keys:Vec<i64>,f_tys:Vec<i64>,f_kinds:Vec<i64>,f_targets:Vec<u64>,f_tnames:Vec<&[u8]>,f_n:i64]
+type	logos.mem.deem.SchemaCatalog	fields=[s_names:Vec<&[u8]>,s_codes:Vec<u64>,s_n:i64,f_owner:Vec<i64>,f_names:Vec<&[u8]>,f_keys:Vec<i64>,f_tys:Vec<i64>,f_kinds:Vec<i64>,f_targets:Vec<u64>,f_tnames:Vec<&[u8]>,f_ordw:Vec<bool>,f_n:i64]
 type	logos.mem.encoding.csv.CsvReader	fields=[src:*const u8,pos:i64,end:i64]
 type	logos.mem.encoding.json.Json	variants=[Null,Bool(bool),Number(f64),Str(String),Array(Vec<Json>),Object(Vec<JsonField>)]
 type	logos.mem.encoding.json.JsonError	fields=[offset:i64,message:String]

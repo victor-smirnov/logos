@@ -1,0 +1,279 @@
+// THE `u64` ORDER FIX, ASKED AT EACH OF ITS OWN SEAMS — the three questions the
+// four fixtures it closed do NOT ask, plus the controls that make each one a
+// finding rather than a coincidence.
+//
+// `wql_domain_runtime_order_c`, `wql_value_domain_tiers_measured` and
+// `wql_domain_incr_disagreement` each pin an END-TO-END answer of a query over a
+// `u64` column. All three go green if the answer is right FOR ANY REASON. This
+// file pins the three intermediate facts the remedy actually consists of, so
+// that a later change breaking one of them says WHICH one:
+//
+//   1. THE PLUMB — the catalog carries "this column's order moved". A `u64`
+//      column's declared type name reaches `SchemaCatalog` at all. Before the
+//      fix nothing did: `classify_field_type` wrote the class REPRESENTATIVE
+//      (`"ty":"i64"`) into the blob and the field's own name was gone before the
+//      blob existed, so no comparison site downstream could have asked. Asserted
+//      through `field_ord_wrap`, which reads the catalog and nothing else — the
+//      plumb fails here even if every comparison site is perfect.
+//   2. THE SEEDS — `min`/`max` over a group of ONE row answer that row's value,
+//      for every value. This is the arm the accumulator SEEDS control and the
+//      only one that can catch them: with more than one row a wrong seed is
+//      usually displaced by some row and the answer comes out right anyway.
+//   3. THE COMPARE — `min`/`max`/`order by` over a group of three rows that
+//      straddle 2^63.
+//
+// ── WHY (2) IS ITS OWN QUESTION, AND THE ARITHMETIC THAT SAYS SO ────────────
+// The remedy compares through `el_wrap_ord_key(x) = x ^ i64::MIN`, so the SEEDS
+// must be that key's extrema, not the signed order's. They are not the same
+// numbers and they are not close:
+//     key(i64::MIN) = i64::MIN ^ i64::MIN = 0            ← an INTERIOR key
+//     key(i64::MAX) = i64::MAX ^ i64::MIN = -1           ← an INTERIOR key
+//     key(0)        = i64::MIN                           ← the LEAST key
+//     key(-1)       = i64::MAX                           ← the GREATEST key
+// So `max` must seed RAW 0 and `min` must seed RAW -1 (u64 0 and u64 2^64-1 —
+// the identity elements of max and min over an unsigned column). Had the signed
+// seeds been left in place under the new compare, `max` over the single row
+// {5u64} would answer i64::MIN — u64 2^63, A VALUE PRESENT IN NO ROW — because
+// key(5) = i64::MIN+5 is LESS than key(i64::MIN) = 0. That is the exact defect
+// `6440e565` fixed for f64 (`min` over {+inf} answering 1.797e308), reappearing
+// in another type family the moment its comparator moved. Block 2 is the arm
+// that would catch it: it asserts 5, not 2^63.
+//
+// ⚠ EVERY NUMBER BELOW IS HAND-DERIVED FROM THE UNSIGNED ORDER AND THE
+// TWO'S-COMPLEMENT READING, never read off a run, and nothing here asks `el_ty`,
+// `ElTy.ord` or `el_wrap_ord_key` what the answer is — an oracle that shares its
+// rule with the code under test agrees with itself by construction
+// (`feedback_oracle_must_be_independent`). The three rows are
+//     id 0: 5                     — u64 5,                     i64 5
+//     id 1: 9223372036854775808   — u64 2^63,                  i64 -9223372036854775808
+//     id 2: 18446744073709551615  — u64 2^64-1,                i64 -1
+// Unsigned ascending is ids 0, 1, 2. SIGNED ascending is ids 1, 2, 0 — a
+// DIFFERENT permutation of the same three rows, which is what makes the order
+// blocks able to fail rather than merely to agree.
+//
+// ── THE CONTROLS, AND WHAT EACH ONE RULES OUT ───────────────────────────────
+//   • an `i64` column in the SAME schema, over the SAME kind of extremes: if the
+//     key were applied to the integer CLASS rather than to the derived
+//     order-fidelity of each type, this column would move and it must not;
+//   • a `u32` column, which is unsigned and whose order was NEVER wrong (every
+//     value is non-negative in i64). `ElTy.ord` says WRAP only when the value
+//     does not fit, so u32 must report `field_ord_wrap == false` — the fix keyed
+//     on "is it unsigned" instead would flip this and change nothing observable,
+//     which is precisely why the assertion is on the CATALOG BIT and not only on
+//     an answer;
+//   • `sum` over the u64 column, which is NOT on this axis and must not move.
+//     5 + 2^63 + (2^64-1) = 27670116110564327428; modulo 2^64 that is
+//     9223372036854775812, which read as i64 is -9223372036854775804. Whether an
+//     unsigned `sum` should wrap, trap or widen is an OPEN semantics decision;
+//     what this pins is that the order fix did not silently answer it.
+//
+// EXIT CODES: 10s = the plumb, 20s = the seeds (dynamic), 30s = the seeds
+// (incremental), 40s = the compare over three rows (dynamic), 50s = the compare
+// (incremental), 60s = `order by`, 70s = the controls.
+//
+// exit 0 = each seam of the u64 order fix holds independently.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema W : code(0x0E68_0000_0000_0001) {
+    id: i64 = 0,
+    g:  i64 = 1,
+    x_u64:   u64   = 2,
+    x_usize: usize = 3,
+    x_u32:   u32   = 4,
+    x_i64:   i64   = 5
+}
+resource cat = schema_catalog!{ W };
+
+fn mkw(d: &Writ, id: i64, g: i64, xu: u64, xs: usize, x3: u32, xi: i64) -> WAny {
+    let r: W = d.make::<W>();
+    r.id = id; r.g = g; r.x_u64 = xu; r.x_usize = xs; r.x_u32 = x3; r.x_i64 = xi;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+
+    // ══ 1. THE PLUMB — the catalog knows which columns' orders moved ══════════
+    // No query, no engine: this is the fact reaching the runtime at all.
+    if !c.field_ord_wrap("W", "x_u64")   { return 10i32; }
+    if !c.field_ord_wrap("W", "x_usize") { return 11i32; }
+    // and the columns whose order did NOT move must say so. u32 is the sharp one:
+    // unsigned, but every value fits i64 non-negative, so the signed compare was
+    // already this column's own order and keying it would be a change with no
+    // defect behind it.
+    if c.field_ord_wrap("W", "x_u32")    { return 12i32; }
+    if c.field_ord_wrap("W", "x_i64")    { return 13i32; }
+    if c.field_ord_wrap("W", "id")       { return 14i32; }
+    // an unknown field is not a licence to guess
+    if c.field_ord_wrap("W", "nope")     { return 15i32; }
+    if c.field_ord_wrap("Nope", "x_u64") { return 16i32; }
+
+    // three rows straddling 2^63, each its OWN group in `g` for the seed blocks
+    let a: &mut WArray<WAny> = d.array(4i64);
+    a.push(mkw(&d, 0i64, 100i64, 5u64,                    5usize,                    5u32,   5i64));
+    a.push(mkw(&d, 1i64, 101i64, 9223372036854775808u64,  9223372036854775808usize,  70000u32, -9223372036854775808i64));
+    a.push(mkw(&d, 2i64, 102i64, 18446744073709551615u64, 18446744073709551615usize, 4294967295u32, -1i64));
+    // the SAME three rows again, all in ONE group, for the compare blocks
+    let b: &mut WArray<WAny> = d.array(4i64);
+    b.push(mkw(&d, 0i64, 7i64, 5u64,                    5usize,                    5u32,   5i64));
+    b.push(mkw(&d, 1i64, 7i64, 9223372036854775808u64,  9223372036854775808usize,  70000u32, -9223372036854775808i64));
+    b.push(mkw(&d, 2i64, 7i64, 18446744073709551615u64, 18446744073709551615usize, 4294967295u32, -1i64));
+
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(a as *const WArray<WAny> as *const u8));
+    e.bind_source("ts", WAny::ref_to(b as *const WArray<WAny> as *const u8));
+
+    // ══ 2. THE SEEDS — ONE-ROW GROUPS, DYNAMIC ════════════════════════════════
+    // For a group of one row, `min` and `max` are both that row's value. A seed
+    // that is not an extremum of the compared order wins against the row and
+    // answers a value present in no row — see the arithmetic in the header.
+    let q1: Query = match Query::compile(
+        "from ss s group by s.g aggregate lo = min(s.x_u64), hi = max(s.x_u64) select (key, lo, hi)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    let r1: QRows = match q1.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 21i32; } };
+    if r1.row_count() != 3i64 { return 22i32; }
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let k: i64 = r1.get_i64(i, 0i64);
+        // the row value this group holds, as i64 bits: 5 / i64::MIN / -1
+        let mut want: i64 = 0i64;
+        if k == 100i64      { want = 5i64; }
+        else if k == 101i64 { want = -9223372036854775808i64; }
+        else if k == 102i64 { want = -1i64; }
+        else                { return 23i32; }
+        if r1.get_i64(i, 1i64) != want { return 24i32; }   // min of a one-row group
+        if r1.get_i64(i, 2i64) != want { return 25i32; }   // max of a one-row group
+        i = i + 1i64;
+    }
+
+    // ══ 3. THE SEEDS — ONE-ROW GROUPS, INCREMENTAL ════════════════════════════
+    // The incremental engine's min/max rescan is SEED-FREE by construction (the
+    // first live map key IS the running best), so this block is not a second copy
+    // of block 2: it asks whether the OTHER engine reaches the same answers by
+    // its own route. A disagreement here would be an engine disagreement, which
+    // is the class this whole family exists to catch.
+    let q2: Query = match Query::compile(
+        "from ss s group by s.g aggregate lo = min(s.x_u64), hi = max(s.x_u64) select (key, lo, hi)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    let g2: IncrJoin = match q2.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 31i32; } };
+    if g2.had_error() { return 32i32; }
+    let s2: QRows = g2.snapshot();
+    if s2.row_count() != 3i64 { return 33i32; }
+    let mut j: i64 = 0i64;
+    while j < 3i64 {
+        let k2: i64 = s2.get_i64(j, 0i64);
+        let mut want2: i64 = 0i64;
+        if k2 == 100i64      { want2 = 5i64; }
+        else if k2 == 101i64 { want2 = -9223372036854775808i64; }
+        else if k2 == 102i64 { want2 = -1i64; }
+        else                 { return 34i32; }
+        if s2.get_i64(j, 1i64) != want2 { return 35i32; }
+        if s2.get_i64(j, 2i64) != want2 { return 36i32; }
+        j = j + 1i64;
+    }
+
+    // ══ 4. THE COMPARE — ONE GROUP OF THREE, DYNAMIC ══════════════════════════
+    // min = 5 (u64 5), max = 2^64-1 (i64 bits -1). Under the SIGNED order the
+    // same three rows give min = 2^63 (i64::MIN) and max = 5, so a regression
+    // here cannot look like a rounding difference.
+    // `usize` rides the same query to pin that it is not a separate rule.
+    let q3: Query = match Query::compile(
+        "from ts s group by s.g aggregate lo = min(s.x_u64), hi = max(s.x_u64), ls = min(s.x_usize), hs = max(s.x_usize) select (lo, hi, ls, hs)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; } };
+    let r3: QRows = match q3.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 41i32; } };
+    if r3.row_count() != 1i64 { return 42i32; }
+    if r3.get_i64(0i64, 0i64) != 5i64  { return 43i32; }
+    if r3.get_i64(0i64, 1i64) != -1i64 { return 44i32; }
+    if r3.get_i64(0i64, 2i64) != 5i64  { return 45i32; }
+    if r3.get_i64(0i64, 3i64) != -1i64 { return 46i32; }
+
+    // ══ 5. THE COMPARE — ONE GROUP OF THREE, INCREMENTAL ══════════════════════
+    let q4: Query = match Query::compile(
+        "from ts s group by s.g aggregate lo = min(s.x_u64), hi = max(s.x_u64) select (lo, hi)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    let g4: IncrJoin = match q4.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 51i32; } };
+    if g4.had_error() { return 52i32; }
+    let s4: QRows = g4.snapshot();
+    if s4.row_count() != 1i64 { return 53i32; }
+    if s4.get_i64(0i64, 0i64) != 5i64  { return 54i32; }
+    if s4.get_i64(0i64, 1i64) != -1i64 { return 55i32; }
+
+    // ══ 6. `order by` OVER THE SAME THREE ROWS, DYNAMIC ═══════════════════════
+    // unsigned ascending = ids 0, 1, 2; signed ascending = ids 1, 2, 0.
+    let q5: Query = match Query::compile("from ts s select s.id order by s.x_u64", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    let r5: QRows = match q5.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 61i32; } };
+    if r5.row_count() != 3i64 { return 62i32; }
+    if r5.get_i64(0i64, 0i64) != 0i64 { return 63i32; }
+    if r5.get_i64(1i64, 0i64) != 1i64 { return 64i32; }
+    if r5.get_i64(2i64, 0i64) != 2i64 { return 65i32; }
+
+    // ══ 7. THE CONTROLS ═══════════════════════════════════════════════════════
+    // (a) the i64 column over the same extremes — the SIGNED order is this
+    //     column's own order and must be untouched: min = i64::MIN, max = 5,
+    //     ascending ids 1, 2, 0. If the key were applied by CLASS these would
+    //     become 5 / -1 / 0,1,2, i.e. exactly the u64 answers above.
+    let q6: Query = match Query::compile(
+        "from ts s group by s.g aggregate lo = min(s.x_i64), hi = max(s.x_i64) select (lo, hi)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 70i32; } };
+    let r6: QRows = match q6.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 71i32; } };
+    if r6.row_count() != 1i64 { return 72i32; }
+    if r6.get_i64(0i64, 0i64) != -9223372036854775808i64 { return 73i32; }
+    if r6.get_i64(0i64, 1i64) != 5i64                    { return 74i32; }
+
+    let q7: Query = match Query::compile("from ts s select s.id order by s.x_i64", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 75i32; } };
+    let r7: QRows = match q7.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; } };
+    if r7.row_count() != 3i64 { return 77i32; }
+    if r7.get_i64(0i64, 0i64) != 1i64 { return 78i32; }
+    if r7.get_i64(1i64, 0i64) != 2i64 { return 79i32; }
+    if r7.get_i64(2i64, 0i64) != 0i64 { return 80i32; }
+
+    // (b) the u32 column — unsigned, order never moved. Values 5 / 70000 /
+    //     4294967295 ascend as ids 0, 1, 2 under BOTH orders, so this block
+    //     cannot distinguish them and does not claim to; what it pins is that a
+    //     column the catalog reports as non-wrapping still sorts, i.e. that the
+    //     bit is consulted rather than assumed.
+    let q8: Query = match Query::compile("from ts s select s.id order by s.x_u32", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 81i32; } };
+    let r8: QRows = match q8.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 82i32; } };
+    if r8.row_count() != 3i64 { return 83i32; }
+    if r8.get_i64(0i64, 0i64) != 0i64 { return 84i32; }
+    if r8.get_i64(1i64, 0i64) != 1i64 { return 85i32; }
+    if r8.get_i64(2i64, 0i64) != 2i64 { return 86i32; }
+
+    // (c) `sum` over the u64 column — NOT on this axis and must not have moved.
+    //     5 + 2^63 + (2^64-1) = 27670116110564327428; − 2^64 = 9223372036854775812,
+    //     which read as i64 is −9223372036854775804. That is the WRAPPING answer
+    //     both runtime tiers give today and the static tier refuses; whether it
+    //     is the RIGHT semantics is an open decision this fix does not take.
+    let q9: Query = match Query::compile(
+        "from ts s group by s.g aggregate t = sum(s.x_u64) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 87i32; } };
+    let r9: QRows = match q9.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 88i32; } };
+    if r9.row_count() != 1i64 { return 89i32; }
+    if r9.get_i64(0i64, 0i64) != -9223372036854775804i64 { return 90i32; }
+
+    return 0i32;
+}

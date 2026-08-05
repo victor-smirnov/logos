@@ -403,11 +403,24 @@ fn rs_push_row(dst: &mut RowSet, l: &RowSet, r: i64, rt: &RowSet, j: i64) {
 // nothing about ordinary values moves. The non-numeric kinds reach this arm via
 // `rt_f`'s 0.0 default and keep comparing equal to each other exactly as before
 // (`f64_data_key(0.0) == 0`).
-fn rt_cmp(l: RtVal, r: RtVal) -> i64 {
+//
+// ⚠ THE INTEGER ARM ASKS THE COLUMN'S TYPE, NOT THE PAYLOAD'S SIGN BIT, and
+// `ordw` is that question's whole answer: the key's checked type said its order
+// MOVED when the value was normalized into `RtVal::I(i64)` (`ElTy.ord ==
+// EL_ORD_WRAP` — u64/usize). The payload cannot be asked instead: `RtVal::I(-1)`
+// is `u64::MAX` under one column and `-1` under another, and nothing about the
+// bits distinguishes them. It arrives from `QPlan.sordw`, recorded against this
+// Sort node by the checker — the same shape as the join tier decisions, and for
+// the same reason: decided ONCE from checked types, never per row.
+//
+// This is the integer half of the arc whose float half is the `f64_data_key`
+// note above, and the remedy has the same shape: a KEY that knows the type,
+// defined once (`el_wrap_ord_key`) and consumed at the comparison seams.
+fn rt_cmp(l: RtVal, r: RtVal, ordw: bool) -> i64 {
     if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 { return str_cmp(rt_s(l), rt_s(r)) as i64; }
     if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
-        let a: i64 = rt_i(l);
-        let b: i64 = rt_i(r);
+        let a: i64 = if ordw { el_wrap_ord_key(rt_i(l)) } else { rt_i(l) };
+        let b: i64 = if ordw { el_wrap_ord_key(rt_i(r)) } else { rt_i(r) };
         if a < b { return -1i64; }
         if a > b { return 1i64; }
         return 0i64;
@@ -816,6 +829,8 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             if chk_bad(chk) { return rs_new(); }
             // per-row keys, then a STABLE O(n²) insertion sort over indices
             // (the static emitter's MVP discipline, re-hosted).
+            // the key's order fact, decided by the checker for THIS node
+            let sordw: bool = qp_sordw(qp, s.as_ref().raw());
             let mut b: RBinds = rs_binds(&input);
             let bp: *mut RBinds = &mut b;
             let mut keys: Vec<RtVal> = vec_new::<RtVal>();
@@ -831,7 +846,7 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                 order.push(i);
                 let mut j: i64 = order.len() - 1i64;
                 while j > 0i64 {
-                    let c: i64 = rt_cmp(keys.get(order.get(j)), keys.get(order.get(j - 1i64)));
+                    let c: i64 = rt_cmp(keys.get(order.get(j)), keys.get(order.get(j - 1i64)), sordw);
                     let swap: bool = if s.desc { c > 0i64 } else { c < 0i64 };
                     if !swap { break; }
                     order.swap(j, j - 1i64);
@@ -1135,17 +1150,29 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             while c0 < an {
                 let fnid: i32 = qp.agg_fnid[c0];
                 let isf: bool = qp.agg_ret[c0] == CT_FLT;
+                let isu: bool = qp.agg_argu[c0];
                 if fnid == 1i32      { gacc.push(RtVal::I(0i64)); }
                 else if fnid == 2i32 { if isf { gacc.push(RtVal::F(0.0f64)); } else { gacc.push(RtVal::I(0i64)); } }
-                // ⚠ The f64 min/max seeds are the DATA ORDER's extrema, not
-                // `±f64::MAX` — which is not the extremum of f64, since ±inf and
-                // NaN lie beyond it. Seeding there made `min` over `{ +inf }`
-                // answer 1.797…e308, a value present in NO row. Top of the order
-                // is the canonical NaN, bottom is −inf, so any row value
-                // displaces the seed. The i64 arms are unchanged: that order is
-                // total and i64::MAX/MIN really are its extrema.
-                else if fnid == 3i32 { if isf { gacc.push(RtVal::F(f64_from_bits(0x7FF8000000000000u64))); } else { gacc.push(RtVal::I(9223372036854775807i64)); } }
-                else if fnid == 4i32 { if isf { gacc.push(RtVal::F(f64_from_bits(0xFFF0000000000000u64))); } else { gacc.push(RtVal::I(-9223372036854775807i64 - 1i64)); } }
+                // ⚠ A min/max SEED IS SOUND ONLY WHEN IT IS AN EXTREMUM OF THE
+                // ORDER THE FOLD COMPARES IN, and that order is a property of the
+                // KEY, not of the payload type. The f64 seeds are the DATA
+                // ORDER's extrema, not `±f64::MAX` — which is not the extremum of
+                // f64, since ±inf and NaN lie beyond it. Seeding there made `min`
+                // over `{ +inf }` answer 1.797…e308, a value present in NO row.
+                //
+                // ⚠ THE SAME FAILURE RETURNS ON THE INTEGER ARM THE MOMENT THE
+                // COMPARE MOVES, and it takes BOTH seeds with it. i64::MAX/MIN are
+                // the extrema of the SIGNED order, and under `el_wrap_ord_key`
+                // they sit in the MIDDLE: key(i64::MIN) = 0 and key(i64::MAX) =
+                // −1, both ordinary interior keys. `max` over a single row
+                // holding 2^63 would answer i64::MIN — u64 2^63, a value present
+                // in no row — exactly the f64 defect in the other family. The
+                // extrema of the wrapped order are RAW 0 and RAW −1, which read
+                // as u64 are 0 and 2^64−1: the identity elements of `max` and
+                // `min` over an unsigned column. `el_wrap_ord_least`/`_greatest`
+                // are those two, derived beside the key rather than restated here.
+                else if fnid == 3i32 { if isf { gacc.push(RtVal::F(f64_from_bits(0x7FF8000000000000u64))); } else if isu { gacc.push(RtVal::I(el_wrap_ord_greatest())); } else { gacc.push(RtVal::I(9223372036854775807i64)); } }
+                else if fnid == 4i32 { if isf { gacc.push(RtVal::F(f64_from_bits(0xFFF0000000000000u64))); } else if isu { gacc.push(RtVal::I(el_wrap_ord_least())); } else { gacc.push(RtVal::I(-9223372036854775807i64 - 1i64)); } }
                 else if fnid == 5i32 { gacc.push(RtVal::F(0.0f64)); }
                 else {
                     let init: QAggInit = env.a_init[qp.agg_uda[c0]];
@@ -1160,6 +1187,7 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             let a: RAgg = aggs.agg_at(c);
             let fnid2: i32 = qp.agg_fnid[c];
             let isf2: bool = qp.agg_ret[c] == CT_FLT;
+            let isu2: bool = qp.agg_argu[c];
             let cur: RtVal = gacc.get(gi * an + c);
             let mut nv: RtVal = cur;
             if fnid2 == 1i32 {
@@ -1182,10 +1210,18 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                     // value in row order wins a tie; the seed survives only for
                     // an all-NaN group, where the canonical NaN IS the value the
                     // group holds (all NaNs are one value under this order).
+                    //
+                    // The integer arm keys through `el_wrap_ord_key` for the same
+                    // reason one level over: `<` on the normalized i64 is the
+                    // SIGNED order, which is not this column's order when the
+                    // column is u64/usize. The EMITTED value is `rt_i(av)` either
+                    // way — the key compares, it never stores.
                     if isf2 { if f64_data_key(rt_f(av)) < f64_data_key(rt_f(cur)) { nv = RtVal::F(rt_f(av)); } }
+                    else if isu2 { if el_wrap_ord_key(rt_i(av)) < el_wrap_ord_key(rt_i(cur)) { nv = RtVal::I(rt_i(av)); } }
                     else    { if rt_i(av) < rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
                 } else if fnid2 == 4i32 {
                     if isf2 { if f64_data_key(rt_f(av)) > f64_data_key(rt_f(cur)) { nv = RtVal::F(rt_f(av)); } }
+                    else if isu2 { if el_wrap_ord_key(rt_i(av)) > el_wrap_ord_key(rt_i(cur)) { nv = RtVal::I(rt_i(av)); } }
                     else    { if rt_i(av) > rt_i(cur) { nv = RtVal::I(rt_i(av)); } }
                 } else if fnid2 == 5i32 {
                     nv = RtVal::F(rt_f(cur) + rt_f(av));

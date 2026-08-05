@@ -1,12 +1,14 @@
 // `order by` IN THE DYNAMIC TIER — PART c OF THREE: u64, usize, f32, f64, bool, str.
 //
-// ⚠⚠ SOME BLOCKS IN THIS FAMILY ASSERT AN ORDER THAT IS WRONG. They are marked
-// `⚠ KNOWN-WRONG` and each carries a FIXED SIGNATURE arm that fires with its own
-// exit code the moment the column starts sorting by its own order. THE
-// EXPECTATION IS THE DEFECT. When the arc that owns this — the query compiler's
-// value domain becoming Logos's type system — closes one, THE FILE MUST GO RED
-// AND BE REWRITTEN. A red here from a fix is the file working; do not "repair"
-// it by re-reading the answer off a run. Same idiom, same reason, as
+// ⚠⚠ NO BLOCK IN THIS FILE ASSERTS A WRONG ORDER ANY MORE — and the shape that
+// got them all closed is worth keeping, because the next defect in this family
+// will be pinned the same way. Each wrong cell was asserted AS WRONG beside a
+// FIXED SIGNATURE arm holding the order it OUGHT to produce, with its own exit
+// code, so that a fix announced itself as a fix rather than as a generic
+// mismatch. Both of this file's defects then closed by REPRODUCING the recorded
+// signature exactly: f32 on 2026-08-04 (exit 104's block) and u64/usize on
+// 2026-08-05 (exit codes 93 and 99 fired, position for position). Nothing below
+// was ever re-read off a run. Same idiom, same reason, as
 // `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`.
 //
 // ── THE EXPERIMENT ──────────────────────────────────────────────────────────
@@ -19,21 +21,33 @@
 // refusing. `bool` has only two distinct values, so the id order within a tie is
 // not a fact this fixture may assert; the two groups are.
 //
-// ── THE TWO DEFECTS THIS FAMILY CARRIES ─────────────────────────────────────
-//  • `u64` and `usize` (part c). `wany_to_rt` (stdlib/mem/deem/deem.logos:779)
-//    has ONE integer arm, `RtVal::I(i64)`, so every value at or above 2^63
-//    arrives negative and `order by` answers the SIGNED order: ids 0, 2, 1, 3
-//    over rows {2^63, 0, 2^64-1, 1}, i.e. 2^63 < 2^64-1 < 0 < 1. ⚠ AND THE
-//    STATIC TIER ANSWERS THE SAME QUERY CORRECTLY — `wql_domain_static_extremes`
-//    pins ids 1, 3, 0, 2 over the same four values. Two engines, one query,
-//    opposite answers, and the wrong one is silent. That disagreement is the
-//    whole reason this family exists.
-//  • `f32` (part c). `WAny::as_f64` (stdlib/lang/writ/anyval.logos:329) reads the
-//    boxed payload as `*const f64` without consulting the Ref's type code, so
-//    every f32 arrives as its own 32 bits zero-extended into an f64 — four
-//    positive denormals whose order is the order of those bit patterns, ids
-//    0, 2, 3, 1. `wql_domain_runtime_extremes` pins the same defect on the
-//    values themselves.
+// ── THE TWO DEFECTS THIS FAMILY CARRIED, BOTH NOW CLOSED ────────────────────
+//  • `u64` and `usize` (part c) — CLOSED 2026-08-05. `wany_to_rt`
+//    (stdlib/mem/deem/deem.logos) has ONE integer arm, `RtVal::I(i64)`, so every
+//    value at or above 2^63 arrives NEGATIVE; `order by` then answered the SIGNED
+//    order, ids 0, 2, 1, 3 over rows {2^63, 0, 2^64-1, 1}. ⚠ THE ROOT WAS NOT
+//    `RtVal`, AND WIDENING IT WAS NOT THE FIX. The static tier answered the same
+//    query correctly all along (`wql_domain_static_extremes` pins ids 1, 3, 0, 2
+//    over the same four values) because its emitted key vector is typed with the
+//    key's OWN type — `Vec<u64>`, so the language lowers `<` to `ult`. The
+//    runtime tiers had no such carrier: `schema_catalog!` emitted a `u64` column
+//    as `"ty":"i64"`, and the signedness was destroyed one step before any
+//    comparison site could ask for it. The remedy carries the column's own type
+//    NAME on the blob (`"src"`), derives `ElTy.ord == EL_ORD_WRAP` from it once,
+//    and consumes that one bit at the comparison seams through
+//    `el_wrap_ord_key` — the same shape as the float arc's `f64_data_key`.
+//  • `f32` (part c) — CLOSED 2026-08-04. `WAny::as_f64` read the boxed payload as
+//    `*const f64` without consulting the Ref's type code, so every f32 arrived as
+//    its own 32 bits zero-extended into an f64 — four positive denormals whose
+//    order is the order of those bit patterns, ids 0, 2, 3, 1.
+//    `wql_domain_runtime_extremes` pins the same accessor on the values.
+//
+// ⚠ WHAT IS STILL A DIFFERENTIAL AND MUST STAY ONE: parts a and b of this family
+// carry u8/u16/u24/u32/u56, whose orders were NEVER wrong (every value is
+// non-negative in i64, so the signed compare already agreed) and which the
+// remedy leaves alone — it asks each type's own `ord`, not its signedness. Those
+// green blocks are the control on this fix: if the key were applied by class
+// rather than by derived order fidelity, they would move.
 //
 // ── WHY THREE FILES ─────────────────────────────────────────────────────────
 // An `order by` cannot be shared across columns, so eighteen columns need
@@ -49,11 +63,11 @@
 // EXIT CODES: base = 20 + 6*i for the i-th COLUMN OF THE EIGHTEEN (so the codes
 // identify the column across all three files and do not collide), with +0 any
 // failure of that column's order — compile Err, run Err, row count or
-// permutation — and +1, on KNOWN-WRONG columns only, ⚠ THE DEFECT CLOSED: the
-// column now sorts by its own order, so a fix reports itself as a fix rather
-// than as a generic mismatch. All codes are ≤ 123; the exit status is 8-bit.
+// permutation. The +1 codes (93 for u64, 99 for usize) were the DEFECT-CLOSED
+// arms; both fired on 2026-08-05 and their blocks were rewritten to the OUGHT
+// they had been carrying. All codes are ≤ 123; the exit status is 8-bit.
 //
-// exit 0 = these six columns order exactly as measured on 2026-08-03.
+// exit 0 = these six columns each order by their OWN order.
 package test;
 
 use logos.lang.writ.container;
@@ -198,37 +212,43 @@ fn main() -> i32 {
     let mut e: QEnv = QEnv::new();
     e.bind_source("ss", WAny::ref_to(a as *const WArray<WAny> as *const u8));
 
-    // ── u64 ── codes 92..93   ⚠ KNOWN-WRONG, see the header
+    // ── u64 ── code 92   ✅ CLOSED 2026-08-05 (the compare seam)
+    // The permutation below is the FIXED SIGNATURE this block carried while it
+    // was pinned wrong — the column's own ascending order, written as the OUGHT
+    // before any fix existed. It fired on exit code 93, exactly as designed, and
+    // the fix reproduced it position for position. The root was never the sort:
+    // the catalog emitted this column as `"ty":"i64"` and its SIGNEDNESS died
+    // there, so the comparator had two `RtVal::I` and no way to ask. The column's
+    // own type name now rides the catalog blob as `"src"`, `ElTy.ord` turns it
+    // into one bit on the plan, and `rt_cmp` keys through `el_wrap_ord_key`.
     let q_u64: Query = match Query::compile("from ss s select s.id order by s.x_u64", &c) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 92i32; } };
     let r_u64: QRows = match q_u64.run(&e) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 92i32; } };
     if r_u64.row_count() != 4i64 { return 92i32; }
-    // ⚠ the FIXED signature: the column's OWN ascending order is 1, 3, 0, 2.
-    if r_u64.get_i64(0i64,0i64) == 1i64 && r_u64.get_i64(1i64,0i64) == 3i64
-       && r_u64.get_i64(2i64,0i64) == 0i64 && r_u64.get_i64(3i64,0i64) == 2i64 {
-        return 93i32;   // the defect CLOSED — rewrite this block
-    }
-    if r_u64.get_i64(0i64, 0i64) != 0i64 { return 92i32; }
-    if r_u64.get_i64(1i64, 0i64) != 2i64 { return 92i32; }
-    if r_u64.get_i64(2i64, 0i64) != 1i64 { return 92i32; }
-    if r_u64.get_i64(3i64, 0i64) != 3i64 { return 92i32; }
+    // the column's OWN ascending order, asserted position by position.
+    if r_u64.get_i64(0i64, 0i64) != 1i64 { return 92i32; }
+    if r_u64.get_i64(1i64, 0i64) != 3i64 { return 92i32; }
+    if r_u64.get_i64(2i64, 0i64) != 0i64 { return 92i32; }
+    if r_u64.get_i64(3i64, 0i64) != 2i64 { return 92i32; }
 
-    // ── usize ── codes 98..99   ⚠ KNOWN-WRONG, see the header
+    // ── usize ── code 98   ✅ CLOSED 2026-08-05 (the compare seam)
+    // Same OUGHT, same fix, and the two columns closing together is the point:
+    // nothing about `usize` is spelled anywhere in the remedy. `ElTy` already
+    // stores that it is a 64-bit unsigned type, `el_ord_of` already derived that
+    // its order does not survive normalization into i64, and the fix consumes
+    // that derivation — so a `u48` added tomorrow needs no edit here, and u8..u56
+    // (whose order DOES survive) are untouched, as their green blocks in parts a
+    // and b of this family say.
     let q_usize: Query = match Query::compile("from ss s select s.id order by s.x_usize", &c) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 98i32; } };
     let r_usize: QRows = match q_usize.run(&e) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 98i32; } };
     if r_usize.row_count() != 4i64 { return 98i32; }
-    // ⚠ the FIXED signature: the column's OWN ascending order is 1, 3, 0, 2.
-    if r_usize.get_i64(0i64,0i64) == 1i64 && r_usize.get_i64(1i64,0i64) == 3i64
-       && r_usize.get_i64(2i64,0i64) == 0i64 && r_usize.get_i64(3i64,0i64) == 2i64 {
-        return 99i32;   // the defect CLOSED — rewrite this block
-    }
-    if r_usize.get_i64(0i64, 0i64) != 0i64 { return 98i32; }
-    if r_usize.get_i64(1i64, 0i64) != 2i64 { return 98i32; }
-    if r_usize.get_i64(2i64, 0i64) != 1i64 { return 98i32; }
-    if r_usize.get_i64(3i64, 0i64) != 3i64 { return 98i32; }
+    if r_usize.get_i64(0i64, 0i64) != 1i64 { return 98i32; }
+    if r_usize.get_i64(1i64, 0i64) != 3i64 { return 98i32; }
+    if r_usize.get_i64(2i64, 0i64) != 0i64 { return 98i32; }
+    if r_usize.get_i64(3i64, 0i64) != 2i64 { return 98i32; }
 
     // ── f32 ── code 104   ✅ CLOSED 2026-08-04 (slice A)
     // The permutation below was written as the OUGHT before any fix existed, and

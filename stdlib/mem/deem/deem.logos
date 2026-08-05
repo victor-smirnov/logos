@@ -180,6 +180,12 @@ pub struct SchemaCatalog {
     f_kinds:   Vec<i64>,   // FK_*
     f_targets: Vec<u64>,   // FK_EDGE: target schema code (0 = unresolved)
     f_tnames:  Vec<str>,   // FK_EDGE: target schema NAME (late resolution)
+    // The one fact `f_tys` cannot hold: this column's ORDER MOVED when its value
+    // was normalized into the EL's i64 (`ElTy.ord == EL_ORD_WRAP` — u64/usize).
+    // Not "is it unsigned": u8..u56 are unsigned and arrive non-negative, so
+    // their order is intact and this is false for them. Derived from the field's
+    // own type name at registration, never re-derived per row.
+    pub f_ordw:    Vec<bool>,
     pub f_n:       i64,
 }
 
@@ -189,7 +195,7 @@ impl SchemaCatalog {
             s_names: vec_new::<str>(), s_codes: vec_new::<u64>(), s_n: 0i64,
             f_owner: vec_new::<i64>(), f_names: vec_new::<str>(), f_keys: vec_new::<i64>(),
             f_tys: vec_new::<i64>(), f_kinds: vec_new::<i64>(), f_targets: vec_new::<u64>(),
-            f_tnames: vec_new::<str>(), f_n: 0i64,
+            f_tnames: vec_new::<str>(), f_ordw: vec_new::<bool>(), f_n: 0i64,
         };
     }
 
@@ -244,6 +250,23 @@ impl SchemaCatalog {
     // (canonical value-type names; the integer/float families are already
     // collapsed by the emitter). Unknown ty names register as erased.
     pub fn add_field(self: &mut SchemaCatalog, sname: str, field: str, key: i64, ty: str) {
+        self.add_field_src(sname, field, key, ty, "");
+    }
+
+    // The same registration, plus the field's OWN declared type name (`src`) —
+    // the entry the emitter writes when the class representative is not it. "" =
+    // not recorded (a hand-built catalog, or a blob written before `src`
+    // existed), and then every fact derived from it takes the class's answer,
+    // which is what this call did before there was a second name to consult.
+    //
+    // ⚠ `ty` STILL DECIDES FK_SCALAR vs FK_ANY, AND `src` DELIBERATELY DOES NOT
+    // TOUCH THAT. `ElTy.canon` on the DECLARED name would be false for `u64`, so
+    // handing the true name to the kind decision would turn every u64 column
+    // erased and refuse aggregates that compile today — a capability withdrawal,
+    // and a decision about the rule `b761b283` landed, not a plumb. What `src`
+    // adds is strictly a fact that had no carrier at all.
+    pub fn add_field_src(self: &mut SchemaCatalog, sname: str, field: str, key: i64,
+                         ty: str, src: str) {
         let si: i64 = self.sidx_of_name(sname);
         if si < 0i64 { return; }
         if self.f_n >= CAT_FIELDS { return; }
@@ -263,6 +286,7 @@ impl SchemaCatalog {
         self.f_kinds.push(k as i64);
         self.f_targets.push(0u64);
         self.f_tnames.push("");
+        self.f_ordw.push(if src.len() > 0i64 { el_ord_wraps(src) } else { false });
         self.f_n = self.f_n + 1i64;
     }
 
@@ -290,6 +314,10 @@ impl SchemaCatalog {
             self.f_kinds.push(FK_EARR as i64);
             self.f_targets.push(0u64);
             self.f_tnames.push(target);
+            // The ELEMENT type's own order fidelity — a `WRef<u64>` scalar array
+            // is the same question one level down, and `target` IS the declared
+            // element type name, so it is asked here rather than defaulted.
+            self.f_ordw.push(el_ord_wraps(target));
             self.f_n = self.f_n + 1i64;
             return;
         }
@@ -302,6 +330,7 @@ impl SchemaCatalog {
         self.f_kinds.push(FK_EDGE as i64);
         self.f_targets.push(tcode);
         self.f_tnames.push(target);
+        self.f_ordw.push(false);   // an object edge is not an ordered scalar
         self.f_n = self.f_n + 1i64;
     }
 
@@ -313,9 +342,18 @@ impl SchemaCatalog {
     //   { "v": 1, "entries": [
     //       { "kind": "schema", "name": "Emp", "code": <u64>,
     //         "fields": [ { "name": "age", "key": 1, "ty": "i64" },
+    //                     { "name": "cap", "key": 3, "ty": "i64", "src": "u64" },
     //                     { "name": "emps", "key": 2, "ty": "edge", "target": "Emp" } ] },
     //       …                                    // "fn" entries etc. ride the
     //   ] }                                      // same array in later slices
+    //
+    // ⚠ "ty" IS THE CLASS REPRESENTATIVE AND "src" IS THE FIELD'S OWN TYPE NAME.
+    // "src" is present only when the two differ, and it exists because the class
+    // collapses facts that some consumers need and cannot recover: `u64` and
+    // `i64` are one class whose ORDERS differ above 2^63. It is OPTIONAL by
+    // construction — a blob without it (hand-built, or written before it existed)
+    // registers exactly as it did before, with every fact derived from it taking
+    // the class's answer.
     //
     // and this ctor INDEXES it (two passes: schemas, then fields — edge
     // targets resolve by name against pass 1). The `str` views point INTO the
@@ -365,7 +403,15 @@ impl SchemaCatalog {
                         c.add_edge(sname, fname, key,
                                    sview2_str(vw.get_str_view(vw.map_get(f, "target"))));
                     } else {
-                        c.add_field(sname, fname, key, ty);
+                        // "src" — the field's OWN type name, present only when
+                        // the class representative in "ty" is not it. ABSENT is
+                        // a legal blob (anything written before this entry
+                        // existed) and reads as "", so the derived facts fall
+                        // back to the class's exactly as they did.
+                        let srcw: WAny = vw.map_get(f, "src");
+                        let src: str = if srcw.is_null() { "" }
+                                       else { sview2_str(vw.get_str_view(srcw)) };
+                        c.add_field_src(sname, fname, key, ty, src);
                     }
                     k = k + 1u64;
                 }
@@ -380,6 +426,18 @@ impl SchemaCatalog {
         let si: i64 = self.sidx_of_name(name);
         if si < 0i64 { return 0u64; }
         return self.s_codes.get(si);
+    }
+    // Did `schema.field`'s ORDER move when its value was normalized into the
+    // EL's i64 (`ElTy.ord == EL_ORD_WRAP` — u64/usize)? False for an unknown
+    // field and for every type whose order survived. Public so a fixture can
+    // pin that the fact REACHED the runtime catalog, separately from anything
+    // that consumes it — the plumb and its consumers fail independently.
+    pub fn field_ord_wrap(self: &SchemaCatalog, sname: str, field: str) -> bool {
+        let si: i64 = self.sidx_of_name(sname);
+        if si < 0i64 { return false; }
+        let fi: i64 = self.fidx(si, field);
+        if fi < 0i64 { return false; }
+        return self.f_ordw.get(fi);
     }
     // The TOM key of `schema.field` (-1 = unknown).
     pub fn field_key(self: &SchemaCatalog, sname: str, field: str) -> i64 {
@@ -434,6 +492,7 @@ fn catalog_clone(src: &SchemaCatalog) -> SchemaCatalog {
         c.f_kinds.push(src.f_kinds.get(j));
         c.f_targets.push(src.f_targets.get(j));
         c.f_tnames.push(src.f_tnames.get(j));
+        c.f_ordw.push(src.f_ordw.get(j));
         j = j + 1i64;
     }
     c.f_n = src.f_n;
@@ -992,10 +1051,19 @@ const CT_TREEROW: i32 = 18i32;   // a tree-source row var: fixed columns
                                  // (parent/child/idx: i64 · key/kind: str ·
                                  // vi/vs: dyn) — typed by the checker table.
 
-struct CTy { t: i32, code: u64 }
+// ⚠ `ordw` IS NOT A SECOND TAG, it is the one property of the checked value that
+// CT_INT cannot hold. The whole integer family is CT_INT, so the tag says
+// nothing about whether an ORDERED comparison of this value in i64 realizes its
+// own order — and for a `u64`/`usize` column it does not. It is carried ONLY
+// where a checked type comes straight off a catalog column: an arithmetic result
+// deliberately does NOT inherit it, because "what is the signedness of
+// `u64 + i64`" is a semantics question the EL's i64 tower has no answer to and
+// nobody has decided. A false here is the pre-existing behaviour, so every
+// position that does not propagate it stays exactly as it was.
+struct CTy { t: i32, code: u64, ordw: bool }
 impl Copy for CTy {}
 
-fn ct(t: i32) -> CTy { return CTy { t: t, code: 0u64 }; }
+fn ct(t: i32) -> CTy { return CTy { t: t, code: 0u64, ordw: false }; }
 fn ct_is_num(t: i32) -> bool { return t == CT_INT || t == CT_FLT; }
 fn ct_is_obj(t: i32) -> bool {
     return t == CT_NODE || t == CT_ARR || t == CT_SARR

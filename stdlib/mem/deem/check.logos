@@ -74,17 +74,28 @@ struct CBinds {
     names: [str; 40],
     tags:  [i32; 40],
     codes: [u64; 40],
+    // `CTy.ordw` for the bound value — see the ⚠ at `CTy`. A row variable over a
+    // SCALAR-element array of `u64`, and the `key` of a group by a `u64` column,
+    // are both ordered values whose tag is CT_INT and whose order moved; without
+    // this the bit dies at the binding and an `order by` over either falls back
+    // to the signed compare.
+    ordws: [bool; 40],
     n:     i64,
 }
 fn cbinds_new() -> CBinds {
-    return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40], n: 0i64 };
+    return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40],
+                    ordws: [false; 40], n: 0i64 };
 }
 impl CBinds {
     fn bind(self: &mut CBinds, name: str, tag: i32, code: u64) {
+        self.bind_o(name, tag, code, false);
+    }
+    fn bind_o(self: &mut CBinds, name: str, tag: i32, code: u64, ordw: bool) {
         if self.n >= CB_CAP { return; }
         self.names[self.n] = name;
         self.tags[self.n]  = tag;
         self.codes[self.n] = code;
+        self.ordws[self.n] = ordw;
         self.n = self.n + 1i64;
     }
     fn find(self: &CBinds, name: str) -> i64 {
@@ -117,15 +128,15 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
                      "", "");
             return ct(CT_UNKNOWN);
         }
-        return CTy { t: CT_ARR, code: code };
+        return CTy { t: CT_ARR, code: code, ordw: false };
     }
     // Scalar elements: type off the first element's value shape.
     let ev: RtVal = wany_to_rt(e0);
     match ev {
-        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64 }; }
-        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64 }; }
-        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64 }; }
-        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64 }; }
+        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64, ordw: false }; }
+        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64, ordw: false }; }
+        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64, ordw: false }; }
+        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64, ordw: false }; }
         _ => {
             chk_fail(chk, "source '", name,
                      "' elements are not schema'd Writ objects", "", "");
@@ -140,7 +151,7 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
 fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
     let li: i64 = lb.find(name);
-    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li] }; }
+    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li], ordw: lb.ordws[li] }; }
     let dot: i64 = dotted_at(name);
     if dot > 0i64 {
         let root: str = str_prefix(name, dot);
@@ -178,7 +189,7 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                          "", "");
                 return ct(CT_UNKNOWN);
             }
-            return CTy { t: CT_NODE, code: env.codes[ei] };
+            return CTy { t: CT_NODE, code: env.codes[ei], ordw: false };
         }
         if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
         if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
@@ -237,19 +248,25 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                  "' targets a schema missing from the catalog", "", "");
                         return ct(CT_UNKNOWN);
                     }
-                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi) };
+                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi), ordw: false };
                 }
                 if cat.f_kinds.get(fi) == (FK_EARR as i64) {
                     // scalar-element array edge — CT tags equal EL tags on the
                     // scalar tier, so the catalog EL type maps across directly.
-                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64 };
+                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64, ordw: cat.f_ordw.get(fi) };
                 }
                 if cat.f_kinds.get(fi) == (FK_ANY as i64) {
                     // WAny-typed field on a STRICT schema: resolves LENIENTLY
                     // (ADR §4) — value shape decided at runtime, may be Null.
                     return ct(CT_DYN);
                 }
-                return ct(cat.f_tys.get(fi) as i32);
+                // THE SCALAR COLUMN READ — the one place a checked type comes
+                // straight off a declared column, so the one place `ordw` enters
+                // the checker at all. Everything downstream of here either
+                // carries it (an ident binding, the group key, the aggregate
+                // argument, the sort key) or deliberately drops it (arithmetic).
+                return CTy { t: cat.f_tys.get(fi) as i32, code: 0u64,
+                             ordw: cat.f_ordw.get(fi) };
             }
             if bt.t == CT_DYN {
                 // Lenient base: the field resolves at RUNTIME by name
@@ -402,7 +419,7 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 chk_fail(chk, "unary '-' needs a numeric operand", "", "", "", "");
                 return ct(CT_UNKNOWN);
             }
-            return CTy { t: at.t, code: 0u64 };
+            return CTy { t: at.t, code: 0u64, ordw: false };
         }
         SExpr::Cond(c) => {
             let cc: CTy = check_expr(c.cond_expr(), cat, env, strict, lb, chk, reg);
@@ -536,7 +553,7 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                         lb.bind(f.var, CT_NODE, it.code);
                     } else if it.t == CT_SARR {
                         // scalar-element array: the loop var binds the SCALAR
-                        lb.bind(f.var, it.code as i32, 0u64);
+                        lb.bind_o(f.var, it.code as i32, 0u64, it.ordw);
                     } else if it.t == CT_DYNSRC || it.t == CT_DYN {
                         // lenient collection: elements type at runtime; a
                         // non-array value iterates as an EMPTY loop (ADR §4)
@@ -559,7 +576,7 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     if ct_is_obj(t2.t) {
                         chk_fail(chk, "'{% set %}' of an object is not supported", "", "", "", "");
                     } else {
-                        lb.bind(s.var, t2.t, t2.code);
+                        lb.bind_o(s.var, t2.t, t2.code, t2.ordw);
                     }
                 }
             }
@@ -690,6 +707,20 @@ struct QPlan {
     // (deem/incr.logos, `AggState`). Reading `agg_ret` there is what silently
     // truncated every f64 addend.
     agg_argt: [i32; 8],
+    // The ARGUMENT's `CTy.ordw` — this aggregate ranges over a column whose
+    // order moved under the EL's i64 normalization (u64/usize). `min`/`max` are
+    // the only readers: their COMPARISON and their SEEDS both depend on it, and
+    // `agg_argt` cannot answer it because the whole integer family is CT_INT.
+    // `sum`/`avg` deliberately ignore it — the arithmetic is not on this axis.
+    agg_argu: [bool; 8],
+    // ── `order by` decisions, keyed by node word (the `jw`/`jtier` shape) ──
+    // ⚠ THERE WAS NO SORT TABLE AT ALL. The checker computed the sort key's
+    // type and threw it away, so the executor's comparator had two RtVals and
+    // nothing else — no plan, no catalog, no type — and its integer arm could
+    // only compare `rt_i` directly. This is that fact given somewhere to live.
+    sw:     [i64; 8],
+    sordw:  [bool; 8],
+    sn:     i64,
     // projection
     ncols: i64,
     ckind: [i32; 8],
@@ -700,7 +731,8 @@ fn qplan_new() -> QPlan {
         jw: [0i64; 24], jtier: [0i32; 24], jequi: [0i64; 24],
         jbuild: [0i64; 24], jprobe: [0i64; 24], jn: 0i64,
         agg_n: 0i64, agg_fnid: [0i32; 8], agg_uda: [0i64; 8], agg_ret: [0i32; 8],
-        agg_argt: [CT_UNKNOWN; 8],
+        agg_argt: [CT_UNKNOWN; 8], agg_argu: [false; 8],
+        sw: [0i64; 8], sordw: [false; 8], sn: 0i64,
         ncols: 0i64, ckind: [0i32; 8],
     };
 }
@@ -712,6 +744,19 @@ fn qp_jfind(qp: &QPlan, w: i64) -> i64 {
         i = i + 1i64;
     }
     return -1i64;
+}
+
+// The recorded `order by` decision for the Sort node at word `w`: does its key
+// need `el_wrap_ord_key` before an ordered compare? A node the checker never
+// reached (or one past the table's capacity) answers false, which is the signed
+// compare — the behaviour before this table existed.
+fn qp_sordw(qp: &QPlan, w: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < qp.sn {
+        if qp.sw[i] == w { return qp.sordw[i]; }
+        i = i + 1i64;
+    }
+    return false;
 }
 
 // ── Path splitting (REdge `path` — "a.b.c" → segments) ──────────────────────
@@ -767,7 +812,7 @@ fn resolve_source(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
 // Bind a scan/traversal row var from its collection type.
 fn bind_row_var(lb: &mut CBinds, var: str, coll: CTy) {
     if coll.t == CT_ARR          { lb.bind(var, CT_NODE, coll.code); }
-    else if coll.t == CT_SARR    { lb.bind(var, coll.code as i32, 0u64); }
+    else if coll.t == CT_SARR    { lb.bind_o(var, coll.code as i32, 0u64, coll.ordw); }
     else if coll.t == CT_DYNSRC  { lb.bind(var, CT_DYN, 0u64); }     // lenient row
     else if coll.t == CT_TREESRC { lb.bind(var, CT_TREEROW, 0u64); } // edge row
     else                         { lb.bind(var, CT_UNKNOWN, 0u64); }
@@ -809,6 +854,24 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             if !chk.failed && ct_is_obj(kt.t) {
                 chk_fail(chk, "an `order by` key must be a scalar", "", "", "", "");
             }
+            // Record the key's order fact against this node, for `rt_cmp`. The
+            // compile phase walks first and the strict phase re-walks the same
+            // nodes, so the table is keyed by node word and UPDATED in place
+            // rather than appended twice.
+            if !chk.failed {
+                let sw0: i64 = s.as_ref().raw();
+                let mut si0: i64 = 0i64;
+                let mut hit: bool = false;
+                while si0 < qp.sn {
+                    if qp.sw[si0] == sw0 { qp.sordw[si0] = kt.ordw; hit = true; break; }
+                    si0 = si0 + 1i64;
+                }
+                if !hit && qp.sn < 8i64 {
+                    qp.sw[qp.sn] = sw0;
+                    qp.sordw[qp.sn] = kt.ordw;
+                    qp.sn = qp.sn + 1i64;
+                }
+            }
         }
         RExpr::Edge(ed) => {
             check_rexpr(ed.input_expr(), cat, env, strict, lb, chk, qp, reg);
@@ -816,7 +879,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // base var → path walk over the catalog
             let bi: i64 = lb.find(ed.base_var);
             let mut cur: CTy = ct(CT_UNKNOWN);
-            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi] }; }
+            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi], ordw: false }; }
             else if strict {
                 chk_fail(chk, "unknown traversal base '", ed.base_var,
                          "' — it must be a row variable bound earlier in the chain", "", "");
@@ -864,7 +927,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                  "' must be an edge field", "", "");
                         break;
                     }
-                    cur = CTy { t: CT_NODE, code: cat.f_targets.get(fi) };
+                    cur = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false };
                 } else {
                     if cat.f_kinds.get(fi) == (FK_EDGE as i64) {
                         if cat.f_targets.get(fi) == 0u64 {
@@ -872,9 +935,9 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                      "' targets a schema missing from the catalog", "", "");
                             break;
                         }
-                        vt = CTy { t: CT_NODE, code: cat.f_targets.get(fi) };
+                        vt = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false };
                     } else if cat.f_kinds.get(fi) == (FK_EARR as i64) {
-                        vt = CTy { t: cat.f_tys.get(fi) as i32, code: 0u64 };
+                        vt = CTy { t: cat.f_tys.get(fi) as i32, code: 0u64, ordw: cat.f_ordw.get(fi) };
                     } else {
                         chk_fail(chk, "traversal path must end at an edge field '",
                                  ps.segs[i], "' (a collection or single-node edge)", "", "");
@@ -885,7 +948,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             }
             if chk.failed { return; }
             let mark: i64 = lb.n;
-            lb.bind(ed.var_name, vt.t, vt.code);
+            lb.bind_o(ed.var_name, vt.t, vt.code, vt.ordw);
             if ed.has_on {
                 let ot: CTy = check_expr(ed.on_expr(), cat, env, strict, lb, chk, reg);
                 if !chk.failed && ot.t != CT_BOOL && !ct_is_open(ot.t) {
@@ -969,6 +1032,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 let fnid: i32 = qagg_id(a.fn_name);
                 let mut rett: i32 = CT_UNKNOWN;
                 let mut argt: i32 = CT_UNKNOWN;
+                let mut argu: bool = false;
                 let mut uidx: i64 = -1i64;
                 if fnid == 1i32 {
                     if a.has_arg {
@@ -984,6 +1048,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     let at: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
                     if chk.failed { return; }
                     argt = at.t;
+                    argu = at.ordw;
                     if at.t == CT_DYN {
                         // The accumulator layout is chosen from the CHECKED
                         // type — a runtime-typed lenient value has none.
@@ -1015,6 +1080,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                         let at2: CTy = check_expr(a.arg_expr(), cat, env, strict, lb, chk, reg);
                         if chk.failed { return; }
                         argt = at2.t;
+                        argu = at2.ordw;
                         if !ct_is_open(at2.t) && at2.t != env.a_argty[uidx] {
                             chk_fail(chk, "argument type mismatch for aggregate '",
                                      a.fn_name, "' — the registered signature differs", "", "");
@@ -1033,12 +1099,13 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 qp.agg_uda[ci]  = uidx;
                 qp.agg_ret[ci]  = rett;
                 qp.agg_argt[ci] = argt;
+                qp.agg_argu[ci] = argu;
                 ci = ci + 1i64;
             }
             qp.agg_n = ci;
             // Above the aggregate only (key + outputs) are visible.
             lb.n = mark;
-            lb.bind("key", kt.t, kt.code);
+            lb.bind_o("key", kt.t, kt.code, kt.ordw);
             let mut co: i64 = 0i64;
             while co < ci {
                 let a2: RAgg = aggs.agg_at(co);
