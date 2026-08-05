@@ -1510,6 +1510,31 @@ set_tests_properties(logos_09_join_order_key_fidelity PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# HASHABLE-KEY AGREEMENT (ADR 0024 S6 — the value domain, tier 1 vs tier 2).
+#
+# "May this type be a hash key" is decided twice, by two different KINDS of
+# artifact: the rel column asks the LANGUAGE (`impl Hash`, sema_collect.cpp
+# `check_rel_column_types`), and the EL lattice answers from a hand-written
+# 21-row table plus a width heuristic (`el_index_key_ok`). MEASURED 2026-08-04:
+# the two populations agree member for member — 12 admitted, 9 refused. That
+# agreement is a measurement, and either side can move alone and silently:
+# `impl Hash for i56` flips tier 1 while 56 stays a non-power-of-two for tier 2.
+#
+# The gate's population comes out of a RUN of `el_ty_at(0..el_ty_arity())`, so a
+# row added to the lattice is covered without editing the gate, and it proves its
+# own comparator on a planted flip before it reports anything.
+add_test(
+    NAME logos_09_el_hashable_agreement
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/el_hashable_agreement_gate.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_09_el_hashable_agreement PROPERTIES
+    TIMEOUT 180
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # SHADOWED-COLUMN gate (ADR 0024 S3/S6 + S4k C1): a column's type is a fact about a
 # BINDING (row var, column), not about the spelling of a field. The flat name
 # dictionary let two joined sources declaring the same column name overwrite each
