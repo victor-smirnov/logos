@@ -1972,6 +1972,31 @@ set_tests_properties(logos_09_unit_graph PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# THE DYNAMIC/INCREMENTAL VALUE DOMAIN (`RtVal`). Three facts, MEASURED
+# 2026-08-04 by a control build that added one arm to the real enum:
+#   • the widening broke exactly THREE matches (rt_kind / rt_truthy /
+#     RBinds__set_val) and nothing else — the other 24 match sites end in `_`
+#     and absorbed it silently, which for a value type means a wrong answer;
+#   • `logosc --emit-abi` produced a BYTE-IDENTICAL spec and `--abi-diff`
+#     answered "ADDED: 0 record(s) / VERDICT: ABI-PRESERVING", because
+#     `is_deem_api_type` (emit_module.cpp) keeps `RtVal` out of the spec even
+#     though the public UDF signature is `fn(&[RtVal]) -> RtVal`;
+#   • so `scripts/abi-check.sh` is blind here BY CONSTRUCTION, and the three
+#     exhaustive matches are the only tripwire the widening has.
+# The gate pins all three so none of them can be retired by accident. It is
+# static analysis over the sources plus the committed spec — no build needed,
+# which is why it carries no logosc dependency and no library environment.
+add_test(
+    NAME logos_09_rtval_domain
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/rtval_domain_gate.sh
+            ${CMAKE_SOURCE_DIR}/stdlib/mem/deem
+            ${CMAKE_SOURCE_DIR}/abi/logos.abi
+)
+set_tests_properties(logos_09_rtval_domain PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+)
+
 # SHARDED EMISSION (LOGOS_EMIT_SHARDS / LOGOS_EMIT_WORKERS). MEASURED 2026-08-04:
 # repo-wide, three occurrences of `LOGOS_EMIT_SHARDS`, all three in
 # src/compiler/emit_module.cpp (two comments and the getenv). Nothing under
