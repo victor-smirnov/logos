@@ -8,26 +8,35 @@
 #            asks the LANGUAGE: `sema_has_impl_recursive("Hash", <declared spelling>)`.
 #            A user type joins by gaining the impl. DERIVED.
 #   TIER 2 — the EL lattice. `logos.std.wql.el::el_index_key_ok` answers from a
-#            21-row hand-written table plus a WIDTH HEURISTIC: the class clauses
-#            plus `(bits & (bits-1)) == 0 && bits <= 64`. LISTED.
+#            21-row hand-written table: the class clauses, and every INT row.
+#            LISTED.
 #
 # Tier 2's own doc-comment (stdlib/mem/wql/el.logos, above `el_index_key_ok`) says
 # what it is: "THE ONE ROW THAT IS ALLOWED TO BE A LIST — it is a list of impls
 # that exist, read off the two files that declare them, and a type gains its entry
-# by gaining the impl." It is a list of impls written as an arithmetic predicate.
-# Nothing has ever checked that the predicate still names the impls.
+# by gaining the impl." Nothing has ever checked that the list still names the
+# impls.
 #
 # MEASURED 2026-08-04, all 21 lattice rows, on this box at a968bc3c: the two
-# populations agree member for member —
+# populations agreed member for member —
 #
 #   admitted by both (12): i8 i16 i32 i64 u8 u16 u32 u64 isize usize bool str
 #   refused  by both  (9): i128 u128 i56 u56 f32 f64 String i24 u24
 #
-# That agreement is a MEASUREMENT, not a theorem, and either side can move it
-# alone: `impl Hash for i56` in logos.lang.hash would flip tier 1 and leave the
-# width heuristic (56 is not a power of two) refusing; a row added to the lattice
-# with a power-of-two width would flip tier 2 with no impl behind it. Both are
-# exactly the drift the ADR 0024 S6 arc exists to close, and both are silent.
+# RE-MEASURED 2026-08-05 after the six missing instances landed — the exception
+# that kept i128/u128/i56/u56/i24/u24 out cited a SIGSEGV in `impl Eq for u128`
+# that does not reproduce, and the packed-width exception cited a `HashMap` that
+# cannot be instantiated over them, which is also false. Both sides moved TOGETHER
+# and the populations agree again:
+#
+#   admitted by both (18): the 12 above + i128 u128 i56 u56 i24 u24
+#   refused  by both  (3): f32 f64 String
+#
+# That agreement is a MEASUREMENT, not a theorem, and either side can still move
+# alone: deleting `impl Hash for i56` would flip tier 1 while the lattice's INT
+# clause keeps admitting it, and a non-INT row gaining an impl would flip tier 1
+# with nothing on the lattice side. Both are exactly the drift the ADR 0024 S6 arc
+# exists to close, and both are silent without this gate.
 #
 # ⚠ THE POPULATION IS DERIVED FROM THE ARTIFACT, NEVER LISTED HERE. The names come
 # out of a RUN of `el_ty_at(0 .. el_ty_arity())`, so a row added to the lattice is
@@ -182,6 +191,9 @@ N_FOUND=$(wc -l < "$TMPD/found.txt")
 # real comparison found four, the canary run found five, and the gate reported
 # "THE GATE is broken" over a tree that was exactly as broken as it said. A
 # self-check whose answer depends on the subject cannot separate the two.
+# (That deliberate break is the MIRROR of the 2026-08-05 widening, and the
+# difference is the whole rule: it admitted the widths with no impls behind them;
+# the widening wrote the impls first and moved the lattice second.)
 #
 # So the canary flips a row the real comparison AGREED on, and asserts the
 # difference: that row, and only that row, is added to the findings.
@@ -211,7 +223,7 @@ if [ "$N_FOUND" -ne 0 ]; then
     echo "FAIL: $N_FOUND of $N_ROWS lattice types are hashable in one tier and not the other."
     echo ""
     echo "  tier1 = the language (\`impl Hash\`, via the rel-column check)"
-    echo "  tier2 = \`logos.std.wql.el::el_index_key_ok\` (the lattice's width heuristic)"
+    echo "  tier2 = \`logos.std.wql.el::el_index_key_ok\` (the lattice's own admission)"
     echo ""
     cat "$TMPD/found.txt"
     echo ""

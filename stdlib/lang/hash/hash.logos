@@ -115,13 +115,50 @@ impl Hash for u16 {
 impl Hash for isize {
     fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
 }
-// ⚠ NO `Hash for i128`/`u128` HERE, AND THE REASON IS NOT THE HASH. Both impls
-// were written and measured correct in isolation; what a `HashMap<u128, V>` needs
-// beside them is `Eq`, and `impl Eq for u128 { *self == *other }` SIGSEGVs on
-// call — a 128-bit `==` through a trait method with a `&Self` receiver, while the
-// same comparison written inline is fine. Adding the Hash half alone would be an
-// impl nothing can use; adding both would make the segfault reachable from a
-// query. See el.logos::el_index_key_ok, which refuses a 128-bit index key.
+// ── THE 128-BIT AND PACKED WIDTHS ───────────────────────────────────────────
+// These six were held out by a comment on this line claiming `impl Eq for u128`
+// SIGSEGVs on call. RE-MEASURED 2026-08-05 at c6c212c7 and the claim does not
+// reproduce, including its own stated probe; the paragraph was a name list
+// wearing a reason. `logos.lang.cmp` carries the `Eq` half now, and
+// `el::el_index_key_ok` admits all six as index keys.
+//
+// ⚠ A 128-BIT VALUE MUST FEED BOTH HALVES, AND THAT IS NOT A CORRECTNESS FACT —
+// which is exactly why it needs its own assertion. `Hasher` has no `write_u128`,
+// so `state.write_u64(*self as u64)` alone would hash only the low 64 bits; two
+// values differing above bit 63 would then land in the same bucket and the map
+// would still separate them by `Eq`, so every ANSWER stays right and a
+// `HashMap<u128, V>` degrades to a linear scan on exactly the keys a 128-bit
+// column exists for. No row-level test can see that. `wql_join_wide_key_e2e`
+// asserts it directly instead — `hv(&0u128) != hv(&(1u128 << 64))`, a pair that
+// differs ONLY above bit 63, and likewise for `i128`.
+impl Hash for u128 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(*self as u64);
+        state.write_u64((*self >> 64u128) as u64);
+    }
+}
+impl Hash for i128 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(*self as u64);
+        state.write_u64((*self >> 64i128) as u64);
+    }
+}
+// The packed widths are Writ storage encodings, and they are also ordinary
+// Logos integer types: `u56`/`u24` zero-extend into u64 and `i56`/`i24`
+// sign-extend into i64, both bijectively, so the hash of the widened value is
+// the hash of the value.
+impl Hash for u56 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
+}
+impl Hash for i56 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
+}
+impl Hash for u24 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_u64(*self as u64); }
+}
+impl Hash for i24 {
+    fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
+}
 // Tuple Hash — per-arity generic impls (arities 2..8), Rust-parity: hash each
 // component in order (no length prefix — the arity is part of the type). The
 // per-arity form is the pattern tuple Eq used before its variadic rewrite; a

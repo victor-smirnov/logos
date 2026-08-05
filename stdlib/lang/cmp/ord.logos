@@ -124,6 +124,17 @@ impl Ord for u32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other {
 impl Ord for u64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for usize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for isize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+// The 128-bit and packed widths. `<` / `>` on all six realize the TYPE'S OWN
+// order — the signed widths compare signed, the unsigned ones unsigned, and both
+// halves of a 128-bit value participate — measured over each type's own
+// {MIN, 0, MAX} ladder by `wql_el_cmp_measured`, which is also what pins the
+// lattice's `self_ord` row for them.
+impl Ord for u128 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i128 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u56  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i56  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for u24  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for i24  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for bool {
     fn cmp(&self, other: &Self) -> Ordering {
         // false < true

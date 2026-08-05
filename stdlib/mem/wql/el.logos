@@ -855,17 +855,28 @@ pub fn el_vec_key_ok(name: str) -> bool {
 // the mistake this table was built to stop: a claim about the emitted code
 // inferred from a property of the type.
 //
-// The instances, as of `logos.lang.hash` + `logos.lang.cmp`: i8/i16/i32/i64,
-// u8/u16/u32/u64, isize/usize, bool, str.
+// The instances, as of `logos.lang.hash` + `logos.lang.cmp`: EVERY INTEGER TYPE
+// THE LATTICE ENUMERATES — i8/i16/i32/i64, u8/u16/u32/u64, isize/usize, the
+// packed i24/u24/i56/u56, the 128-bit i128/u128 — plus bool and str.
 //
-// ⚠ 128-BIT IS EXCLUDED AND THE REASON IS A MEASURED SIGSEGV, not a missing impl.
-// `impl Hash for u128` was written and verified in isolation; the `Eq` half it
-// needs — `impl Eq for u128 { *self == *other }` — SEGFAULTS AT THE CALL, while
-// the same `==` written inline is correct (probe: a `Vec<u128>` sort compares and
-// orders u128::MAX correctly, and `w.eq(&w)` on the same value dies). So a
-// 128-bit key sorts and GROUPS (both go through the language's own `==`/`<` on a
-// `Vec<u128>`, no trait call) and cannot be INDEXED. That asymmetry is exactly why
-// this is its own conjunct and not folded into `self_ident`.
+// ⚠ THE 128-BIT AND PACKED EXCLUSIONS ARE GONE AND SO ARE THE TWO REASONS THAT
+// KEPT THEM. This function used to say "128-bit is excluded and the reason is a
+// MEASURED SIGSEGV" (`impl Eq for u128` dying at the call) and, on the width
+// heuristic below, "Writ's packed widths are a storage encoding, not a Logos
+// type a `HashMap` can be instantiated over". RE-MEASURED 2026-08-05 at c6c212c7,
+// before any impl was written: neither reproduces. The claimed segfault does not
+// fire — not user-placed, not stdlib-placed, and not from the probe the comment
+// itself named — and `HashMap<u56, i64>` / `<i24, i64>` / `<u128, i64>` all
+// instantiate, deduplicate on overwrite and retrieve at the width extremes. Two
+// independent name lists, each wearing a reason that did not hold.
+//
+// ⚠ AND THE PREDICATE IS NO LONGER A WIDTH HEURISTIC. It asked
+// `(bits & (bits-1)) == 0 && bits <= 64`, which is an arithmetic re-derivation of
+// a list of impls — precisely the shape this table exists to refuse. It asks the
+// lattice's own class rows now, so nothing here can drift from the impls except
+// by an impl being deleted, and `logos_09_el_hashable_agreement` (tier 1 = the
+// LANGUAGE, via the rel-column check; tier 2 = this function) fails naming the
+// type on the next run if one is.
 //
 // ⚠ THE FLOATS GET NO CLAUSE OF THEIR OWN HERE, and the comment that used to sit
 // on this line said they were "not excluded", which the code below contradicts:
@@ -883,17 +894,24 @@ pub fn el_vec_key_ok(name: str) -> bool {
 // equi-key falls to the LOOP tier, where the comparison is `String == String`
 // through `impl Eq for String` and is exact. No index, correct answer, and the
 // cascade says which capability was missing.
+//
+// ⚠ WHAT WOULD DELETE THESE TWO REFUSALS, stated because a refusal that cannot
+// say that is a name list again — which is what the 128-bit and packed rows had
+// become. `f32`/`f64`: an `impl Hash`/`impl Eq` for a float, which cannot be
+// written while `NaN != NaN` (their ground is in `self_ident`, not here).
+// `String`: an index that OWNS its keys, at which point the E0597 above stops
+// being a fact about the emitted shape. Both are EXERCISED, not merely asserted —
+// `logos_09_el_hashable_agreement` asks the LANGUAGE for a `rel` column of each
+// name on every run, and fails naming the type the moment either side moves.
 pub fn el_index_key_ok(name: str) -> bool {
     let t: ElTy = el_ty(name);
     if t.cls == EL_TY_BOOL() { return true; }
     if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String` — see above
-    if t.cls != EL_TY_INT()  { return false; }
-    // Writ's PACKED widths (24 and 56) are a storage encoding, not a Logos type
-    // a `HashMap` can be instantiated over. Asked as "is the width a power of
-    // two" rather than as a list of names, so the 24-bit pair could not be
-    // admitted here by being added to the lattice without anyone noticing.
-    if (t.bits & (t.bits - 1i64)) != 0i64 { return false; }
-    return t.bits <= 64i64;
+    // EVERY INTEGER ROW. `logos.lang.hash` + `logos.lang.cmp` carry `Hash`/`Eq`
+    // for all of them, so there is no width test left to write: a new integer
+    // row added to the lattice without its impls is caught by the agreement gate
+    // rather than by an arithmetic guess made here.
+    return t.cls == EL_TY_INT();
 }
 
 // ── MAY THE EL COMPUTE ARITHMETIC IN THIS TYPE? ───────────────────────────

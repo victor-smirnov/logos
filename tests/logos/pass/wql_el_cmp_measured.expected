@@ -3,22 +3,22 @@ i8 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 i16 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 i32 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 i64 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
-i128 self_ord=OK self_ident=OK ord=TRUNC ident=NO_INJ fits=n index=n
+i128 self_ord=OK self_ident=OK ord=TRUNC ident=NO_INJ fits=n index=y
 u8 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 u16 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 u32 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 u64 self_ord=OK self_ident=OK ord=WRAP ident=OK fits=n index=y
-u128 self_ord=OK self_ident=OK ord=TRUNC ident=NO_INJ fits=n index=n
+u128 self_ord=OK self_ident=OK ord=TRUNC ident=NO_INJ fits=n index=y
 isize self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 usize self_ord=OK self_ident=OK ord=WRAP ident=OK fits=n index=y
-i56 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
-u56 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
+i56 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
+u56 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 f32 self_ord=PARTIAL self_ident=NO_EQ ord=PARTIAL ident=NO_EQ fits=y index=n
 f64 self_ord=PARTIAL self_ident=NO_EQ ord=PARTIAL ident=NO_EQ fits=y index=n
 bool self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 str self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 String self_ord=NO_CMP self_ident=OK ord=OK ident=OK fits=y index=n
-i24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
-u24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=n
+i24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
+u24 self_ord=OK self_ident=OK ord=OK ident=OK fits=y index=y
 arity=21 last_admitted=y past_end_denied=y name_scan_agrees=y
 mismatches=0

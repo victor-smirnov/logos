@@ -23,10 +23,17 @@
 //      (`.as_str().to_string()`) rather than moved out of the borrow;
 //   5. an equi-join on a `u64` key: a `HashMap<u64, …>` index — the HASH tier,
 //      because u64's `==` is exact and the stdlib has its `Hash`/`Eq` instances;
-//   6. an equi-join on a `u128` key: the LOOP tier. Not a refusal and not a hash —
-//      u128's equality is exact, and what is missing is the stdlib instance pair
-//      (`impl Eq for u128` SIGSEGVs on call today), so the cascade falls to the
-//      tier that needs no index and the answer is still right;
+//   6. an equi-join on a `u128` key: the HASH tier, and it was the LOOP tier when
+//      this fixture was written. The line here used to say the stdlib instance
+//      pair was missing because "`impl Eq for u128` SIGSEGVs on call today"; that
+//      was re-measured on 2026-08-05 and did not reproduce — not user-placed, not
+//      stdlib-placed, and not from the probe the claim itself named — so
+//      `logos.lang.hash`/`logos.lang.cmp` carry the instances and
+//      `el_index_key_ok` admits the key. WHAT IS ASSERTED BELOW DID NOT CHANGE:
+//      the rows, over a self-join on a unique key. That is the point — a correct
+//      hash join and a loop join return the same pairs, so this fixture is blind
+//      to the tier and the tier is gated where it is visible
+//      (`wide_key_index_tier_gate.sh`, off `LOGOS_TRACE_PLAN`);
 //   7. an equi-join on a `String` key: the LOOP tier for the same shape of reason
 //      (an index would have to own its keys), comparing through `impl Eq for
 //      String`;
@@ -36,9 +43,11 @@
 //      claims they are indexable — so the claim is exercised here rather than
 //      asserted in a comment.
 //
-// ⚠ 5/6/7 ARE THREE DIFFERENT TIERS FOR THREE DIFFERENT MISSING CAPABILITIES, and
-// each is on the plan trace with the capability named. A single "is this class
-// hashable" tag answered `true` for all three.
+// ⚠ 5/6/7 WERE THREE DIFFERENT TIERS FOR THREE DIFFERENT MISSING CAPABILITIES,
+// and each is on the plan trace with the capability named. A single "is this class
+// hashable" tag answered `true` for all three. Two of them are the hash tier now
+// (6 gained its instances); 7 is not, and its ground — an index would have to OWN
+// each key — is the one that did not move.
 package test;
 
 use logos.std.wql.wql;

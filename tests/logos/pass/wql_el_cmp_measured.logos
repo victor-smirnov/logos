@@ -231,10 +231,11 @@ fn m_i128() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_i128(0i64)) && hv(&hi) == hv(&k_i128(2i64))
+                && eqv(&hi, &k_i128(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as i128) == lo) && ((nmd as i128) == md) && ((nhi as i128) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 fn m_u8() -> Meas {
     let lo: u8 = k_u8(0i64); let md: u8 = k_u8(1i64); let hi: u8 = k_u8(2i64);
@@ -300,10 +301,11 @@ fn m_u128() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_u128(0i64)) && hv(&hi) == hv(&k_u128(2i64))
+                && eqv(&hi, &k_u128(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as u128) == lo) && ((nmd as u128) == md) && ((nhi as u128) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 fn m_isize() -> Meas {
     let lo: isize = k_isize(0i64); let md: isize = k_isize(1i64); let hi: isize = k_isize(2i64);
@@ -341,10 +343,11 @@ fn m_i56() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_i56(0i64)) && hv(&hi) == hv(&k_i56(2i64))
+                && eqv(&hi, &k_i56(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as i56) == lo) && ((nmd as i56) == md) && ((nhi as i56) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 fn m_i24() -> Meas {
     let lo: i24 = k_i24(0i64); let md: i24 = k_i24(1i64); let hi: i24 = k_i24(2i64);
@@ -354,10 +357,11 @@ fn m_i24() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_i24(0i64)) && hv(&hi) == hv(&k_i24(2i64))
+                && eqv(&hi, &k_i24(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as i24) == lo) && ((nmd as i24) == md) && ((nhi as i24) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 fn m_u24() -> Meas {
     let lo: u24 = k_u24(0i64); let md: u24 = k_u24(1i64); let hi: u24 = k_u24(2i64);
@@ -367,10 +371,11 @@ fn m_u24() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_u24(0i64)) && hv(&hi) == hv(&k_u24(2i64))
+                && eqv(&hi, &k_u24(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as u24) == lo) && ((nmd as u24) == md) && ((nhi as u24) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 fn m_u56() -> Meas {
     let lo: u56 = k_u56(0i64); let md: u56 = k_u56(1i64); let hi: u56 = k_u56(2i64);
@@ -380,10 +385,11 @@ fn m_u56() -> Meas {
               !(hi < hi) && !(hi > hi) && (hi == hi) && (lo == lo) && (md == md),
               (lo < md) || (lo == md) || (lo > md),
               !(lo == md) && !(md == hi) && !(lo == hi),
-              true,
+              hv(&lo) == hv(&k_u56(0i64)) && hv(&hi) == hv(&k_u56(2i64))
+                && eqv(&hi, &k_u56(2i64)) && !eqv(&lo, &hi),
               (nlo != nmd) && (nmd != nhi) && (nlo != nhi)
                 && ((nlo as u56) == lo) && ((nmd as u56) == md) && ((nhi as u56) == hi),
-              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), false);
+              (nlo < nmd) && (nmd < nhi) && (nlo < nhi), true);
 }
 // The float probes ask the SAME questions, and the reflexivity witness is a NaN
 // rather than the ladder's top: that is the whole difference between this class

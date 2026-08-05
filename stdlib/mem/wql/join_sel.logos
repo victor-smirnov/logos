@@ -94,13 +94,26 @@ pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 // type travels on `StepKey` now (`ktn`), so the capability row is the type's own:
 // `hash` is `self_ident` (the map is keyed IN this type — `==` there is the type's
 // own equality) AND the backend having a `Hash`/`Eq` instance for it; `ord` is
-// `self_ord`; `eq` is admission to the lattice.
+// `self_ord` AND THE SAME SECOND CONJUNCT; `eq` is admission to the lattice.
 //
-// ⚠ `hash` HAS TWO CONJUNCTS AND THE SECOND IS NOT ABOUT THE TYPE'S SEMANTICS. A
-// `u128` key's equality is exact — it is the STDLIB that has no `impl Hash for
-// u128` to build the index with. Keeping that as its own conjunct is what lets the
-// cascade fall to the ORD tier instead of refusing, and what makes adding the impl
-// a one-line widening rather than a re-derivation.
+// ⚠ `hash` HAS TWO CONJUNCTS AND THE SECOND IS NOT ABOUT THE TYPE'S SEMANTICS —
+// it is what the stdlib provides. Keeping it as its own conjunct is what lets the
+// cascade fall to a lower tier instead of refusing, and what made admitting the
+// 128-bit and packed widths (2026-08-05, once their `Hash`/`Eq`/`Ord` impls
+// landed) a widening of `el_index_key_ok` rather than a re-derivation here.
+//
+// ⚠ `ord` CARRIES THAT SECOND CONJUNCT TOO, AND THE LINE ABOVE USED TO DENY IT.
+// It read "`ord` is `self_ord`" while the code has always been
+// `self_ord && el_index_key_ok(name)` — so a widening of a predicate documented
+// as "does the stdlib have Hash+Eq" also admits the ORD tier. Nothing has ever
+// caught the mismatch because the two populations coincide over the lattice:
+// every row `el_index_key_ok` admits also has an `Ord` instance, before this
+// change (12 rows) and after it (18). WHETHER THE TWO SHOULD BE ONE PREDICATE
+// IS OPEN — an
+// Ord-key predicate and a Hash-key predicate are different questions and would
+// diverge the moment a type gains one instance without the other. Recorded here
+// as a mismatch now REMOVED FROM THE COMMENT rather than silently kept; splitting
+// them is a design decision, not a bug fix.
 pub fn join_key_caps_named(name: str) -> KeyCaps {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32 {

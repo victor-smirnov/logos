@@ -10,6 +10,15 @@
 // The widening is checked across the width family, and a user type joins by
 // gaining Hash — hand-written here, DERIVED in `deem_rel_col_derived`. Both are
 // the extension path the universal query compiler is built around.
+//
+// ⚠ THE FAMILY NOW INCLUDES THE 128-BIT AND PACKED WIDTHS, and this is where the
+// end of that arc is shown rather than asserted. `check_rel_column_types` asks
+// `sema_has_impl_recursive("Hash", <spelling>)` — the LANGUAGE, not a list — so
+// the six columns below compile for exactly one reason: `logos.lang.hash` gained
+// `impl Hash for {u128,i128,u56,i56,u24,i24}` (2026-08-05), after the comment
+// that had held them out — a claimed SIGSEGV in `impl Eq for u128` — was
+// re-measured and did not reproduce. REVERT those impls and these six lines are
+// six compile errors, one per column, each naming the type.
 package test;
 
 use logos.std.wql.wql;
@@ -27,6 +36,12 @@ pub trait WideSource {
     rel small(k: u8, ok: bool);
     rel named(who: str, n: usize);
     rel derived(t: Tag, n: i64);
+    rel wide128(k: u128, n: i64);
+    rel wide128s(k: i128, n: i64);
+    rel packed56(k: u56, n: i64);
+    rel packed56s(k: i56, n: i64);
+    rel packed24(k: u24, n: i64);
+    rel packed24s(k: i24, n: i64);
 }
 
 struct Ledger { pub xs: Vec<(u64, u32)> }
@@ -35,12 +50,29 @@ pub fn led_entry(l: &Ledger)  -> Vec<(u64, u32)>  { return vec_new::<(u64, u32)>
 pub fn led_small(l: &Ledger)  -> Vec<(u8, bool)>  { return vec_new::<(u8, bool)>(); }
 pub fn led_named(l: &Ledger)  -> Vec<(str, usize)>{ return vec_new::<(str, usize)>(); }
 pub fn led_tagged(l: &Ledger) -> Vec<(Tag, i64)>  { return vec_new::<(Tag, i64)>(); }
+// ⚠ THE PRODUCERS ARE HERE FOR THE SIX TOO, AND THEY ARE NOT CEREMONY. A column
+// declaration is checked by sema; a producer makes the row TUPLE real — the
+// `(u128, i64)` and `(u24, i64)` element types have to be laid out, and the tuple
+// `Hash`/`Eq` impls have to instantiate over them. Declaring without producing
+// would have shown that the CHECK widened and nothing else.
+pub fn led_w128(l: &Ledger)   -> Vec<(u128, i64)> { return vec_new::<(u128, i64)>(); }
+pub fn led_w128s(l: &Ledger)  -> Vec<(i128, i64)> { return vec_new::<(i128, i64)>(); }
+pub fn led_p56(l: &Ledger)    -> Vec<(u56, i64)>  { return vec_new::<(u56, i64)>(); }
+pub fn led_p56s(l: &Ledger)   -> Vec<(i56, i64)>  { return vec_new::<(i56, i64)>(); }
+pub fn led_p24(l: &Ledger)    -> Vec<(u24, i64)>  { return vec_new::<(u24, i64)>(); }
+pub fn led_p24s(l: &Ledger)   -> Vec<(i24, i64)>  { return vec_new::<(i24, i64)>(); }
 
 impl WideSource for Ledger {
     rel entry  = led_entry;
     rel small  = led_small;
     rel named  = led_named;
     rel derived = led_tagged;
+    rel wide128   = led_w128;
+    rel wide128s  = led_w128s;
+    rel packed56  = led_p56;
+    rel packed56s = led_p56s;
+    rel packed24  = led_p24;
+    rel packed24s = led_p24s;
 }
 
 fn main() -> i32 { return 0i32; }

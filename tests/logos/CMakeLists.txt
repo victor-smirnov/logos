@@ -1515,10 +1515,13 @@ set_tests_properties(logos_09_join_order_key_fidelity PROPERTIES
 # "May this type be a hash key" is decided twice, by two different KINDS of
 # artifact: the rel column asks the LANGUAGE (`impl Hash`, sema_collect.cpp
 # `check_rel_column_types`), and the EL lattice answers from a hand-written
-# 21-row table plus a width heuristic (`el_index_key_ok`). MEASURED 2026-08-04:
-# the two populations agree member for member — 12 admitted, 9 refused. That
-# agreement is a measurement, and either side can move alone and silently:
-# `impl Hash for i56` flips tier 1 while 56 stays a non-power-of-two for tier 2.
+# 21-row table (`el_index_key_ok`). MEASURED 2026-08-04: the two populations
+# agreed member for member — 12 admitted, 9 refused. RE-MEASURED 2026-08-05,
+# after the 128-bit and packed widths gained their `Hash`/`Eq`/`Ord` instances
+# and the lattice's width heuristic was replaced by its INT clause: 18 admitted,
+# 3 refused (f32 f64 String), agreeing again. That agreement is a measurement,
+# and either side can still move alone and silently — deleting `impl Hash for
+# i56` flips tier 1 while the lattice keeps admitting it.
 #
 # The gate's population comes out of a RUN of `el_ty_at(0..el_ty_arity())`, so a
 # row added to the lattice is covered without editing the gate, and it proves its
@@ -1531,6 +1534,29 @@ add_test(
 )
 set_tests_properties(logos_09_el_hashable_agreement PROPERTIES
     TIMEOUT 180
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# WIDE-KEY INDEX TIER (ADR 0024 S6 — the value domain, the decision side).
+#
+# The agreement gate above pins that the two "may this type be a hash key"
+# artifacts answer the same SET. This one pins what that answer BUYS: the six
+# widened types (u128 i128 u56 i56 u24 i24) reach the join cascade's HASH tier,
+# keyed in their own type and not in the class representative — which for a
+# 128-bit key would drop the high bits. Read off `LOGOS_TRACE_PLAN`, over the same
+# fixture whose rows `pass/wql_join_wide_key_e2e.logos` asserts; that fixture
+# passed before the widening too, because a loop join returns the same pairs. A `String`
+# step on the same run must still report `loop join`, so a trace that admitted
+# everything cannot satisfy this.
+add_test(
+    NAME logos_09_wide_key_index_tier
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/wide_key_index_tier_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_join_wide_key_e2e.logos
+)
+set_tests_properties(logos_09_wide_key_index_tier PROPERTIES
+    TIMEOUT 120
     LABELS  "logos;pass;suite_semantic_core"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )

@@ -602,6 +602,9 @@ sym	logos_lang..logos.lang.cmp.f32__eq__f__ref_f32__ref_f32
 sym	logos_lang..logos.lang.cmp.f32__ne__f__ref_f32__ref_f32
 sym	logos_lang..logos.lang.cmp.f64__eq__f__ref_f64__ref_f64
 sym	logos_lang..logos.lang.cmp.f64__ne__f__ref_f64__ref_f64
+sym	logos_lang..logos.lang.cmp.i128__cmp__f__ref_i128__ref_i128
+sym	logos_lang..logos.lang.cmp.i128__eq__f__ref_i128__ref_i128
+sym	logos_lang..logos.lang.cmp.i128__ne__f__ref_i128__ref_i128
 sym	logos_lang..logos.lang.cmp.i16__cmp__f__ref_i16__ref_i16
 sym	logos_lang..logos.lang.cmp.i16__eq__f__ref_i16__ref_i16
 sym	logos_lang..logos.lang.cmp.i16__ne__f__ref_i16__ref_i16
@@ -609,6 +612,9 @@ sym	logos_lang..logos.lang.cmp.i16__wrapping_add__f__i16__i16
 sym	logos_lang..logos.lang.cmp.i16__wrapping_mul__f__i16__i16
 sym	logos_lang..logos.lang.cmp.i16__wrapping_neg__f__i16
 sym	logos_lang..logos.lang.cmp.i16__wrapping_sub__f__i16__i16
+sym	logos_lang..logos.lang.cmp.i24__cmp__f__ref_i24__ref_i24
+sym	logos_lang..logos.lang.cmp.i24__eq__f__ref_i24__ref_i24
+sym	logos_lang..logos.lang.cmp.i24__ne__f__ref_i24__ref_i24
 sym	logos_lang..logos.lang.cmp.i32__abs__f__i32
 sym	logos_lang..logos.lang.cmp.i32__checked_abs__f__i32
 sym	logos_lang..logos.lang.cmp.i32__checked_add__f__i32__i32
@@ -653,6 +659,9 @@ sym	logos_lang..logos.lang.cmp.i32__wrapping_add__f__i32__i32
 sym	logos_lang..logos.lang.cmp.i32__wrapping_mul__f__i32__i32
 sym	logos_lang..logos.lang.cmp.i32__wrapping_neg__f__i32
 sym	logos_lang..logos.lang.cmp.i32__wrapping_sub__f__i32__i32
+sym	logos_lang..logos.lang.cmp.i56__cmp__f__ref_i56__ref_i56
+sym	logos_lang..logos.lang.cmp.i56__eq__f__ref_i56__ref_i56
+sym	logos_lang..logos.lang.cmp.i56__ne__f__ref_i56__ref_i56
 sym	logos_lang..logos.lang.cmp.i64__abs__f__i64
 sym	logos_lang..logos.lang.cmp.i64__checked_abs__f__i64
 sym	logos_lang..logos.lang.cmp.i64__checked_add__f__i64__i64
@@ -717,6 +726,9 @@ sym	logos_lang..logos.lang.cmp.isize__signum__f__isize
 sym	logos_lang..logos.lang.cmp.str__cmp__f__slice_u8__slice_u8
 sym	logos_lang..logos.lang.cmp.str__eq__f__slice_u8__slice_u8
 sym	logos_lang..logos.lang.cmp.str__ne__f__slice_u8__slice_u8
+sym	logos_lang..logos.lang.cmp.u128__cmp__f__ref_u128__ref_u128
+sym	logos_lang..logos.lang.cmp.u128__eq__f__ref_u128__ref_u128
+sym	logos_lang..logos.lang.cmp.u128__ne__f__ref_u128__ref_u128
 sym	logos_lang..logos.lang.cmp.u16__cmp__f__ref_u16__ref_u16
 sym	logos_lang..logos.lang.cmp.u16__eq__f__ref_u16__ref_u16
 sym	logos_lang..logos.lang.cmp.u16__ne__f__ref_u16__ref_u16
@@ -724,6 +736,9 @@ sym	logos_lang..logos.lang.cmp.u16__wrapping_add__f__u16__u16
 sym	logos_lang..logos.lang.cmp.u16__wrapping_mul__f__u16__u16
 sym	logos_lang..logos.lang.cmp.u16__wrapping_neg__f__u16
 sym	logos_lang..logos.lang.cmp.u16__wrapping_sub__f__u16__u16
+sym	logos_lang..logos.lang.cmp.u24__cmp__f__ref_u24__ref_u24
+sym	logos_lang..logos.lang.cmp.u24__eq__f__ref_u24__ref_u24
+sym	logos_lang..logos.lang.cmp.u24__ne__f__ref_u24__ref_u24
 sym	logos_lang..logos.lang.cmp.u32__checked_add__f__u32__u32
 sym	logos_lang..logos.lang.cmp.u32__checked_div__f__u32__u32
 sym	logos_lang..logos.lang.cmp.u32__checked_mul__f__u32__u32
@@ -757,6 +772,9 @@ sym	logos_lang..logos.lang.cmp.u32__wrapping_add__f__u32__u32
 sym	logos_lang..logos.lang.cmp.u32__wrapping_mul__f__u32__u32
 sym	logos_lang..logos.lang.cmp.u32__wrapping_neg__f__u32
 sym	logos_lang..logos.lang.cmp.u32__wrapping_sub__f__u32__u32
+sym	logos_lang..logos.lang.cmp.u56__cmp__f__ref_u56__ref_u56
+sym	logos_lang..logos.lang.cmp.u56__eq__f__ref_u56__ref_u56
+sym	logos_lang..logos.lang.cmp.u56__ne__f__ref_u56__ref_u56
 sym	logos_lang..logos.lang.cmp.u64__checked_add__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__checked_div__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__checked_mul__f__u64__u64

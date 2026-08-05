@@ -1,0 +1,193 @@
+// WQL — THE 128-BIT AND PACKED WIDTHS AS EQUI-JOIN KEYS, AND THE KEYS ARE
+// CHOSEN SO THAT A TRUNCATING INDEX ANSWERS DIFFERENTLY.
+//
+// These six types reach the HASH tier for the first time (2026-08-05): the
+// cascade's `hash` conjunct is `self_ident == EL_ID_OK && el_index_key_ok(name)`,
+// and `el_index_key_ok` refused them until `logos.lang.hash` / `logos.lang.cmp`
+// gained their `Hash`/`Eq` instances. Before that they took the LOOP tier and the
+// answers below were already right — so this fixture is NOT a repro of a wrong
+// answer. It is the guard on the new path, and it guards the one way the new path
+// can be wrong.
+//
+// ⚠ THE RISK THE WIDENING CARRIES IS A KEY NORMALIZED BEFORE IT IS HASHED. The
+// EL's own arithmetic computes in i64, and `ElTy.ident` for i128/u128 is
+// EL_ID_NO_INJ *for the normalized reading* — the high bits are dropped, so two
+// distinct rows arrive equal. A join index keyed in the type's OWN type
+// (`StepKey.ktn` = `infer_emit_ty`) is exactly right; an index that normalized to
+// `el_class_repr` first would be exactly wrong, and BOTH produce the same answers
+// on ordinary data. So every key here is picked to make the difference visible:
+//
+//   u128  0, 2^64, 1, 2^64+1        — low-64 readings 0, 0, 1, 1
+//   i128  MIN, 2^64, 0, -1          — low-64 readings 0, 0, 0, -1
+//
+// A low-64 (or `as i64`) index matches FOUR pairs where two are correct on the
+// u128 side and SIX where two are correct on the i128 side. The packed widths
+// cannot truncate — u56/u24 zero-extend and i56/i24 sign-extend into 64 bits
+// bijectively — so theirs are the width EXTREMES instead, which is where a
+// mis-sized load or a sign-extension bug shows.
+//
+// ⚠ THE TIER ITSELF IS NOT ASSERTABLE FROM IN HERE. A correct hash join and a
+// loop join return the same rows by construction; which one was emitted is a
+// property of the DECISION, and it is gated separately by
+// `wide_key_index_tier_gate.sh` over this same file, off the one decision
+// channel (`LOGOS_TRACE_PLAN`). Answers here, shape there.
+//
+// ⚠ AND EVERY ASSERTION IS ORDER-INDEPENDENT. A hash join and a loop join emit
+// matching pairs in different orders, so a positional expectation would pin the
+// tier by accident and go red the moment the cascade moved for a good reason.
+// Each check is a count plus a sum over `a.id * 1000 + b.id`, which is a multiset
+// fingerprint: it separates the correct pairs from every extra pair a truncating
+// index would add.
+//
+// ⚠ THE `String` KEY IS THE CONTROL AND IT IS NOT DECORATION. Every assertion in
+// the tier gate is "a trace line matched", and a gate that matched everything
+// would report the same thing. `String` is refused by `el_index_key_ok` for a
+// ground that did NOT move (an index would have to own its keys — E0597 on the
+// borrow), so it must still say `loop join` on the same run, from the same
+// channel, in the same file. One widening, one non-widening, one trace.
+//
+// ⚠ ONE THING HERE IS NOT A JOIN, AND IT IS THE ONE FACT ROWS CANNOT CARRY.
+// `Hasher` has no `write_u128`, so `impl Hash for u128` feeds the low half and
+// then the high half. Hashing only the low half would keep every answer below
+// RIGHT — the map separates a bucket's occupants by `Eq` — and turn a
+// `HashMap<u128, V>` into a linear scan on exactly the keys a 128-bit column
+// exists for. So the high half's participation is asserted on the hash itself,
+// over a pair that differs ONLY above bit 63.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.hash;
+use logos.lang.str;
+
+struct W128 { pub id: i64, pub k: u128 }
+struct P128 { pub id: i64, pub k: i128 }
+struct W56  { pub id: i64, pub k: u56 }
+struct P56  { pub id: i64, pub k: i56 }
+struct W24  { pub id: i64, pub k: u24 }
+struct P24  { pub id: i64, pub k: i24 }
+struct SKey { pub id: i64, pub k: String }
+
+pub deem ju128(xs: &[W128], ys: &[W128]) { from xs a join ys b on a.k == b.k select a.id * 1000 + b.id }
+pub deem ji128(xs: &[P128], ys: &[P128]) { from xs c join ys d on c.k == d.k select c.id * 1000 + d.id }
+pub deem ju56(xs: &[W56], ys: &[W56])    { from xs e join ys f on e.k == f.k select e.id * 1000 + f.id }
+pub deem ji56(xs: &[P56], ys: &[P56])    { from xs g join ys h on g.k == h.k select g.id * 1000 + h.id }
+pub deem ju24(xs: &[W24], ys: &[W24])    { from xs i join ys j on i.k == j.k select i.id * 1000 + j.id }
+pub deem ji24(xs: &[P24], ys: &[P24])    { from xs m join ys n on m.k == n.k select m.id * 1000 + n.id }
+// The control — refused for a ground that did not move, so still the LOOP tier.
+pub deem jstr(xs: &[SKey], ys: &[SKey])  { from xs p join ys q on p.k == q.k select p.id * 1000 + q.id }
+
+fn mk(s: str) -> String { let mut a: String = String::new(); a.push_str(s); return a; }
+
+/// The hash the backend emits for this type, through the same `Hasher` a
+/// `HashMap` uses. Generic, so it can only reach the value by the trait method.
+fn hv<K: Hash>(k: &K) -> u64 {
+    let mut s: FxHasher = fx_hasher_new();
+    k.hash(&mut s);
+    return s.finish();
+}
+// The values come from calls, never from a literal inside the comparison, so
+// nothing under test can be folded before the hash is emitted.
+fn u128_lo() -> u128 { return 0u128; }
+fn u128_hi() -> u128 { return 18446744073709551616u128; }   // 1 << 64
+fn i128_lo() -> i128 { return 0i128; }
+fn i128_hi() -> i128 { return 18446744073709551616i128; }   // 1 << 64
+
+// The multiset fingerprint: how many pairs, and their sum. Two numbers, both
+// independent of the order the tier happens to emit.
+fn fingerprint(v: &Vec<i64>) -> i64 {
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.len() { s = s + v.get(i); i = i + 1i64; }
+    return s;
+}
+
+fn main() -> i32 {
+    // ── u128: 0 and 2^64 share a low-64 reading, as do 1 and 2^64+1 ──────────
+    let xs128: [W128; 4] = [ W128 { id: 1i64, k: 0u128 },
+                             W128 { id: 2i64, k: 18446744073709551616u128 },
+                             W128 { id: 3i64, k: 1u128 },
+                             W128 { id: 4i64, k: 18446744073709551617u128 } ];
+    let ys128: [W128; 2] = [ W128 { id: 10i64, k: 0u128 },
+                             W128 { id: 20i64, k: 18446744073709551617u128 } ];
+    // Correct: 1↔10 and 4↔20. A low-64 index also matches 2↔10 and 3↔20.
+    let r1: Vec<i64> = ju128(&xs128[..], &ys128[..]).unwrap();
+    if r1.len() != 2i64                     { return 1i32; }
+    if fingerprint(&r1) != 1010i64 + 4020i64 { return 2i32; }
+
+    // ── i128: MIN, 2^64 and 0 all read as 0 in the low 64 bits ───────────────
+    let xs_s128: [P128; 4] = [ P128 { id: 1i64, k: (-170141183460469231731687303715884105727i128) - 1i128 },
+                               P128 { id: 2i64, k: 18446744073709551616i128 },
+                               P128 { id: 3i64, k: 0i128 },
+                               P128 { id: 4i64, k: -1i128 } ];
+    let ys_s128: [P128; 2] = [ P128 { id: 10i64, k: 0i128 },
+                               P128 { id: 20i64, k: (-170141183460469231731687303715884105727i128) - 1i128 } ];
+    // Correct: 3↔10 and 1↔20. A low-64 index matches six pairs.
+    let r2: Vec<i64> = ji128(&xs_s128[..], &ys_s128[..]).unwrap();
+    if r2.len() != 2i64                      { return 3i32; }
+    if fingerprint(&r2) != 3010i64 + 1020i64 { return 4i32; }
+
+    // ── u56 at 0 and 2^56-1 ──────────────────────────────────────────────────
+    let xs56: [W56; 3] = [ W56 { id: 1i64, k: 0u56 },
+                           W56 { id: 2i64, k: 72057594037927935u56 },
+                           W56 { id: 3i64, k: 1u56 } ];
+    let ys56: [W56; 2] = [ W56 { id: 10i64, k: 72057594037927935u56 },
+                           W56 { id: 20i64, k: 0u56 } ];
+    let r3: Vec<i64> = ju56(&xs56[..], &ys56[..]).unwrap();
+    if r3.len() != 2i64                      { return 5i32; }
+    if fingerprint(&r3) != 2010i64 + 1020i64 { return 6i32; }
+
+    // ── i56 at MIN and MAX — a sign-extension bug puts MIN with -1 ───────────
+    let xs_s56: [P56; 3] = [ P56 { id: 1i64, k: -36028797018963968i56 },
+                             P56 { id: 2i64, k: 36028797018963967i56 },
+                             P56 { id: 3i64, k: -1i56 } ];
+    let ys_s56: [P56; 2] = [ P56 { id: 10i64, k: -36028797018963968i56 },
+                             P56 { id: 20i64, k: 36028797018963967i56 } ];
+    let r4: Vec<i64> = ji56(&xs_s56[..], &ys_s56[..]).unwrap();
+    if r4.len() != 2i64                      { return 7i32; }
+    if fingerprint(&r4) != 1010i64 + 2020i64 { return 8i32; }
+
+    // ── u24 at 0 and 2^24-1 ──────────────────────────────────────────────────
+    let xs24: [W24; 3] = [ W24 { id: 1i64, k: 0u24 },
+                           W24 { id: 2i64, k: 16777215u24 },
+                           W24 { id: 3i64, k: 255u24 } ];
+    let ys24: [W24; 2] = [ W24 { id: 10i64, k: 16777215u24 },
+                           W24 { id: 20i64, k: 255u24 } ];
+    let r5: Vec<i64> = ju24(&xs24[..], &ys24[..]).unwrap();
+    if r5.len() != 2i64                      { return 9i32; }
+    if fingerprint(&r5) != 2010i64 + 3020i64 { return 10i32; }
+
+    // ── i24 at MIN and MAX ───────────────────────────────────────────────────
+    let xs_s24: [P24; 3] = [ P24 { id: 1i64, k: -8388608i24 },
+                             P24 { id: 2i64, k: 8388607i24 },
+                             P24 { id: 3i64, k: -1i24 } ];
+    let ys_s24: [P24; 2] = [ P24 { id: 10i64, k: -8388608i24 },
+                             P24 { id: 20i64, k: -1i24 } ];
+    let r6: Vec<i64> = ji24(&xs_s24[..], &ys_s24[..]).unwrap();
+    if r6.len() != 2i64                      { return 11i32; }
+    if fingerprint(&r6) != 1010i64 + 3020i64 { return 12i32; }
+
+    // ── the control: a String key, still the LOOP tier, still exact ──────────
+    let xs_str: [SKey; 3] = [ SKey { id: 1i64, k: mk("alpha") },
+                              SKey { id: 2i64, k: mk("zeta") },
+                              SKey { id: 3i64, k: mk("alpha") } ];
+    let ys_str: [SKey; 2] = [ SKey { id: 10i64, k: mk("alpha") },
+                              SKey { id: 20i64, k: mk("nope") } ];
+    let r7: Vec<i64> = jstr(&xs_str[..], &ys_str[..]).unwrap();
+    if r7.len() != 2i64                      { return 13i32; }
+    if fingerprint(&r7) != 1010i64 + 3010i64 { return 14i32; }
+
+    // ── the high half participates in the hash ───────────────────────────────
+    // 0 and 1<<64 are equal in their low 64 bits and nowhere else. A `Hash` impl
+    // that fed only `*self as u64` returns the same value for both, and every
+    // assertion above would still pass.
+    if hv(&u128_lo()) == hv(&u128_hi()) { return 15i32; }
+    if hv(&i128_lo()) == hv(&i128_hi()) { return 16i32; }
+    // …and the same value hashes the same, which is the half that must not break
+    // while the other is being asserted.
+    if hv(&u128_hi()) != hv(&u128_hi()) { return 17i32; }
+    if hv(&i128_hi()) != hv(&i128_hi()) { return 18i32; }
+
+    return 0i32;
+}

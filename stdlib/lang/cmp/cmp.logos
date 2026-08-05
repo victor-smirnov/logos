@@ -66,6 +66,20 @@ impl Eq for i16  { fn eq(&self, other: &Self) -> bool { return *self == *other; 
 impl Eq for bool { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for usize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for isize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+// THE 128-BIT AND PACKED WIDTHS. These were held out by a comment claiming that
+// `impl Eq for u128 { *self == *other }` SEGFAULTS AT THE CALL. It does not, and
+// it is not clear it ever did on this tree: re-measured 2026-08-05 at c6c212c7,
+// user-placed AND stdlib-placed, the claim's own probe (a `Vec<u128>` sorted
+// through the language's `<`, then `w.eq(&w)` on the sorted maximum) returns
+// true and exits 0. The exercise is `wql_el_cmp_measured` — it calls `eqv::<K>`,
+// a generic that can only reach the value through the trait method, on every
+// lattice type including these six, and it is where a real one would surface.
+impl Eq for u128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u56  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i56  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u24  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i24  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for char  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for str   {
     fn eq(&self, other: &Self) -> bool {
