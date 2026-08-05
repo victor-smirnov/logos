@@ -1,0 +1,62 @@
+// THE BOUNDARY OF THE COLUMN-DECLARATION ADMITTED SET, PINNED FROM THE GREEN
+// SIDE: a FIELDLESS enum column is ADMITTED, and it ANSWERS CORRECTLY.
+//
+// ⚠ THIS EXISTS BECAUSE THE BRIEF FOR THE REFUSAL PRESUMED THE OPPOSITE. The
+// written premise was that a fieldless enum "passes `order by` and `group by`
+// through the lenient default with no capability checked at all" — true as
+// literally written — inside a framing that called it one of three MEASURED
+// WRONG ANSWERS. It is not one. Measured, on this shape and on a variant with
+// explicit non-contiguous discriminants (`E{A=100,B=5,C=50}` projects 100,5,50
+// and orders 5,50,100): `select`, `select distinct`, `order by` and `group by`
+// all answer correctly. Refusing it would have turned correct programs into
+// refused ones to buy a capability check.
+//
+// ⚠ THE GROUND, and it is why this is not luck. A fieldless enum's VALUE IS ITS
+// DISCRIMINANT — there is no tag-plus-payload box — so the eight bytes the EL's
+// `Vec<i64>` key reads off it are the whole value. That is exactly the property
+// a payload-carrying enum lacks, which is why `reflect::column_decl_admit` asks
+// `ast_variant_arity` of every variant rather than asking whether the item is an
+// `enum`. The refused companions are fail/wql_column_decl_data_enum_col_fail
+// (one payload variant, same file shape, two groups where three are right) and
+// fail/wql_column_decl_option_col_fail.
+//
+// ⚠ WHAT IS STILL WRONG HERE AND IS NOT THIS FILE'S CLAIM: `select s.e` yields
+// `Vec<i64>`, not `Vec<E>`. That is the type-PRESERVATION gap
+// wql_domain_static_extremes pins for the twenty lattice types and pins for
+// nothing outside them — a different defect, in a different file, and not a
+// wrong answer.
+//
+// The `i64` control column in the same struct answers the same count, so a
+// regression that broke enum grouping while leaving i64 grouping alone is
+// distinguishable from one that broke both.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+enum E { A, B, C }
+
+struct Row { pub e: E, pub c: i64, pub id: i64 }
+
+pub deem by_enum(rs: &[Row]) { from rs r group by r.e aggregate n = count() select n }
+pub deem by_int(rs: &[Row])  { from rs r group by r.c aggregate n = count() select n }
+
+fn main() -> i32 {
+    // Four rows, three distinct enum values {C, A, A, B} and three distinct
+    // i64 values {30, 10, 10, 20} lined up with them.
+    let rows: [Row; 4] = [
+        Row { e: E::C, c: 30i64, id: 0i64 },
+        Row { e: E::A, c: 10i64, id: 1i64 },
+        Row { e: E::A, c: 10i64, id: 2i64 },
+        Row { e: E::B, c: 20i64, id: 3i64 },
+    ];
+    let ge: Vec<i64> = by_enum(&rows[..]).unwrap();
+    let gi: Vec<i64> = by_int(&rows[..]).unwrap();
+    if ge.len() != 3i64 { return 1i32; }
+    if gi.len() != 3i64 { return 2i32; }
+    // Group sizes, in first-occurrence order: C=1, A=2, B=1.
+    if ge.get(0i64) != 1i64 { return 3i32; }
+    if ge.get(1i64) != 2i64 { return 4i32; }
+    if ge.get(2i64) != 1i64 { return 5i32; }
+    return 0i32;
+}

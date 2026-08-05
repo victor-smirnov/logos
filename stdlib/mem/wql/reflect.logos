@@ -353,6 +353,250 @@ pub fn field_traversal_elem(view: &OView, decl: WAny, field_name: str) -> str {
     return "";
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ── THE COLUMN DECLARATION SITE: WHAT MAY BE A COLUMN AT ALL ───────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// ⚠⚠ REVERTING THIS SECTION IS THE MOST EXPENSIVE UNDO IN THE VALUE-DOMAIN ARC,
+// AND IT IS NOT A PLAIN ONE. A plain revert restores a refusal. This one
+// restores programs that COMPILE, RUN, EXIT ZERO AND ANSWER WRONGLY: with the
+// checks below removed, `group by` over an `Option<i64>` column returns ONE
+// GROUP PER VARIANT while an `i64` control column in the same program returns
+// the right count and nothing is reported, and `select distinct` over the same
+// column returns raw stack addresses as query results. Both MEASURED. So the
+// cost of taking this out is not "a program stops building" — it is "a wrong
+// answer stops being visible", and there is no gate downstream that catches it.
+//
+// ── THE MECHANISM, WHICH IS ONE ACCESSOR AND ONE DEFAULT ────────────────────
+// `el::el_ty_of_name` LAUNDERS every type name the EL lattice does not admit to
+// `EL_TY_INT` — deliberately, and for a stated ground that is real: an unknown
+// FIELD name is usually a nested struct the EL never reads a scalar from, and a
+// generic alias to its own parameter (`type El<T> = T`, pinned by
+// wql_key_spelling_e2e) cannot be resolved at that layer at all. That default
+// cannot be killed where it lives: `el_ty_of_name` is handed a NAME and nothing
+// else, so it cannot tell the legitimate unknowns from the wrong ones.
+//
+// What it CAN be told apart from is HERE, where the column's declared TYPE NODE
+// is in hand. INT is not a harmless default for every unknown: the key vector
+// and the projection vector the emitter builds are `Vec<i64>`, so a column
+// spelled INT is READ AS THE FIRST EIGHT BYTES OF THE VALUE. For a tagged enum
+// box — `(i32 tag, array<1 x i64> payload)`, which is the MLIR type the verifier
+// printed for `Option<i64>` — those eight bytes are the DISCRIMINANT. For a
+// tuple they are a POINTER, which is how `where x < …` over a `(i64, str)`
+// column reached `arith.cmpi` on an `!llvm.ptr` and was refused by the MLIR
+// verifier naming nothing the user wrote.
+//
+// ── THE CHECK READS THE TYPE NODE, NOT THE TYPE NAME, AND THAT IS MEASURED ──
+// A name-keyed version of this check was built as a throwaway control and swept
+// over the corpus: a TUPLE field has NO type name at all (`ast_field_type_name`
+// reads NAME(1) off the TYPE node, and TUPLE_TYPE carries none), so it compiled
+// straight past the control and still died in the generated blob. One of the
+// three shapes this exists to refuse is INVISIBLE to a name-keyed check. Hence
+// `column_decl_admit` keys on `ast_node_code` of the field's TYPE(3) child.
+//
+// ── THE ADMITTED SET IS DERIVED FROM POSITIVE EVIDENCE, NEVER LISTED ────────
+// Each admitted class is admitted because something was READ that says the EL
+// will not spell this column INT and then read eight bytes:
+//   • the slice/array family and `Vec<T>` — a TRAVERSAL EDGE, consumed by the
+//     edge-step emitter and never read as a scalar (`field_traversal_kind`).
+//     The wql_edge_* family depends on this;
+//   • a name in the EL lattice — a scalar column, the ordinary case;
+//   • a name this module declares as a `struct`/`schema` — a NESTED-PATH BASE,
+//     which `stamp_schema_by_type` already walks so `a.b.c` resolves
+//     (wql_shadowed_column_e2e, wql_join_order_key_fidelity_e2e);
+//   • a name this module declares as a `type` alias that `resolve_alias_name`
+//     deliberately left unresolved (`type El<T> = T`) — this is the MEASURED,
+//     fixture-pinned ground of the lenient default (rexpr_walk.logos ~1306,
+//     wql_key_spelling_e2e claim 5);
+//   • a plain NAME node that names nothing THIS MODULE declares — lenient,
+//     because `find_decl_by_name` walks only the current module's ITEMS and so
+//     cannot tell an imported struct from an imported enum. Refusing on
+//     ignorance would refuse every imported nested-path base;
+//   • a locally-declared FIELDLESS enum — because it is NOT a wrong answer.
+//     MEASURED: `select`, `select distinct`, `order by` and `group by` over a
+//     fieldless enum column all answer CORRECTLY, including with explicit
+//     non-contiguous discriminants (`E{A=100,B=5,C=50}` sorts 5,50,100). Its
+//     only defect is that `select s.e` yields `Vec<i64>` rather than `Vec<E>`,
+//     which is a TYPE-PRESERVATION gap and not a wrong answer. Refusing it
+//     would break correct programs to buy a capability check, and whether the
+//     lattice should instead gain a DERIVED row for it is Victor's call, not
+//     this check's.
+//
+// ── WHAT IS REFUSED IS WHAT WAS POSITIVELY SEEN AND MEASURED WRONG ──────────
+//   • a TUPLE type node;
+//   • a GENERIC INSTANTIATION whose head is none of the above — `Option<T>` is
+//     the measured case;
+//   • a locally-declared enum with a PAYLOAD-CARRYING variant — the same
+//     eight-byte read as `Option<T>`, stated as the CLASS rather than as the
+//     instance. Refusing `Option` and admitting a hand-written `enum M { S(i64),
+//     N }` would be refusing a spelling.
+//
+// ── THE RESIDUE, STATED SO NOBODY READS THIS AS MORE THAN IT IS ─────────────
+// NESTED-FIELD LAUNDERING IS UNTOUCHED. `ElTypes::ty_of` still calls
+// `el_ty_of_name`, and `stamp_schema_by_type` — the walk over a nested struct's
+// own fields — does NOT run this check: only the fields of the schema bound
+// directly at a source do. An `Option` field one level down still launders. And
+// an IMPORTED enum or an imported non-`Vec` generic stays lenient for the
+// module-local reflection reason above.
+
+// `(A, B)` in type position — la::Code 100. ITEMS(2) holds the component type
+// nodes; the node carries NO NAME(1), which is why a name-keyed check is blind
+// to it.
+fn LA_TUPLE_TYPE() -> u64 { return 100 as u64; }
+// `enum E { … }` — la::Code 80.
+fn LA_ENUM() -> u64 { return 80 as u64; }
+
+/// Verdicts of `column_decl_admit`. The code NAMES THE FAILED ANTECEDENT so the
+/// caller reports a ground and a remedy rather than a bare refusal — the shape
+/// `el::el_set_col_admit` established for rel columns.
+pub fn CD_OK()         -> i32 { return 0i32; }
+pub fn CD_TUPLE()      -> i32 { return 1i32; }   // a tuple has no scalar reading
+pub fn CD_OPAQUE_GEN() -> i32 { return 2i32; }   // `Option<T>` and its kin
+pub fn CD_DATA_ENUM()  -> i32 { return 3i32; }   // a payload-carrying enum
+
+/// Does enum declaration `decl` carry a PAYLOAD on any variant? The question
+/// that separates the measured-correct fieldless enum from the measured-wrong
+/// tagged box, asked of the declaration rather than guessed from the name.
+fn enum_carries_payload(view: &OView, decl: WAny) -> bool {
+    let nv: u64 = view.ast_enum_variant_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nv {
+        if view.ast_variant_arity(view.ast_enum_variant(decl, i)) > (0 as u64) {
+            return true;
+        }
+        i = i + (1 as u64);
+    }
+    return false;
+}
+
+/// May the field-def node `fld` be a COLUMN of a query source? See the section
+/// header for the ground of every arm. Answers `CD_OK` for everything this
+/// module cannot positively see — the refusals are evidence, not ignorance.
+pub fn column_decl_admit(view: &OView, fld: WAny) -> i32 {
+    let tynode: WAny = view.ast_type_child(fld);          // TYPE(3)
+    if tynode.is_null() { return CD_OK(); }
+    let code: u64 = view.ast_node_code(tynode) & (0xFFFF as u64);
+    // A traversal EDGE: the slice/array family. Never read as a scalar.
+    if is_collection_type_code(code) { return CD_OK(); }
+    if code == LA_TUPLE_TYPE() { return CD_TUPLE(); }
+    let base: str = sview_str(view.ast_node_name(tynode));
+    // `&T`, a fn pointer, a bare `[T; N]` behind an alias — no name, no code
+    // this check knows. Nothing was seen, so nothing is claimed.
+    if base.len() == 0i64 { return CD_OK(); }
+    let generic: bool = code == LA_GENERIC_INST();
+    if generic && str_eq(base, "Vec") { return CD_OK(); }  // the other edge form
+    let r: str = resolve_alias_name(view, base);
+    if el_class_lookup(r) >= 0i32 { return CD_OK(); }      // a scalar column
+    let decl: WAny = find_decl_by_name(view, r);
+    if decl.is_null() {
+        // Outside this module's ITEMS. A plain name is leniently admitted (it
+        // may be an imported nested-path base); a generic instantiation is not,
+        // because `Option<T>` is exactly this shape and it is the measured
+        // silent wrong answer.
+        if generic { return CD_OPAQUE_GEN(); }
+        return CD_OK();
+    }
+    let dc: u64 = view.ast_node_code(decl) & (0xFFFF as u64);
+    if dc == LA_STRUCT() || dc == LA_SCHEMA_DEF() { return CD_OK(); }  // nested base
+    if dc == LA_TYPE_ALIAS() { return CD_OK(); }                       // `type El<T> = T`
+    if dc == LA_ENUM() {
+        if enum_carries_payload(view, decl) { return CD_DATA_ENUM(); }
+        return CD_OK();
+    }
+    if generic { return CD_OPAQUE_GEN(); }
+    return CD_OK();
+}
+
+/// The leaf spelling of a type node for a diagnostic: its NAME, or a shape
+/// marker when it has none. One level only — the message names the column's
+/// type as the author WROTE it, and a nested compound is not worth a recursion
+/// this module would then have to bound.
+fn type_leaf_text(view: &OView, ty: WAny) -> str {
+    if ty.is_null() { return "?"; }
+    let n: str = sview_str(view.ast_node_name(ty));
+    if n.len() > 0i64 { return n; }
+    let c: u64 = view.ast_node_code(ty) & (0xFFFF as u64);
+    if c == LA_TUPLE_TYPE()          { return "(...)"; }
+    if c == LA_SLICE_TYPE()          { return "&[...]"; }
+    if c == LA_UNSIZED_SLICE_TYPE()  { return "[...]"; }
+    if c == LA_ARR_TYPE()            { return "[...; N]"; }
+    return "...";
+}
+
+/// The column's declared type rendered back the way it was written — `(i64,
+/// str)`, `Option<i64>`, `MyOpt`. A refusal that cannot quote the type it
+/// refused is a refusal the author has to guess at, which is the very failure
+/// the MLIR-verifier message here already is.
+fn column_type_text(view: &OView, ty: WAny) -> String {
+    let mut s: String = String::new();
+    if ty.is_null() { s.push_str("?"); return s; }
+    let c: u64 = view.ast_node_code(ty) & (0xFFFF as u64);
+    let tuple: bool = c == LA_TUPLE_TYPE();
+    let generic: bool = c == LA_GENERIC_INST();
+    if !tuple && !generic { s.push_str(type_leaf_text(view, ty)); return s; }
+    if generic { s.push_str(sview_str(view.ast_node_name(ty))); s.push_str("<"); }
+    else       { s.push_str("("); }
+    let items: WAny = view.tiny_map_get(ty, 2 as u8);      // ITEMS = 2
+    if !items.is_null() {
+        let n: u64 = view.array_len(items);
+        let mut i: u64 = 0 as u64;
+        while i < n {
+            if i > (0 as u64) { s.push_str(", "); }
+            s.push_str(type_leaf_text(view, view.array_get(items, i)));
+            i = i + (1 as u64);
+        }
+    }
+    if generic { s.push_str(">"); } else { s.push_str(")"); }
+    return s;
+}
+
+/// The GROUND for a refused column — the failed antecedent in its own
+/// vocabulary, with a remedy. ONE antecedent per ground (`el_set_col_why`'s
+/// rule: prose that names two ways to fail and leaves the reader to pick is a
+/// report composed at report time).
+fn column_decl_why(v: i32) -> str {
+    if v == CD_TUPLE() {
+        return "a TUPLE has no scalar reading at all — the EL's key and projection vectors are `Vec<i64>`, and `el_ty_of_name` spells every type outside its lattice `i64`, so the eight bytes this column contributes to a comparison are the tuple's ADDRESS. MEASURED: `where` over such a column emitted `arith.cmpi` on an `!llvm.ptr` and was refused by the MLIR verifier, which names nothing you wrote. The remedy is one column per component";
+    }
+    if v == CD_OPAQUE_GEN() {
+        return "this type is outside the EL scalar lattice and is not a shape this layer can see through — it is neither `Vec<T>` (a traversal edge) nor a struct, schema or `type` alias this module declares — so `el_ty_of_name` spells it `i64` and the emitted key reads the FIRST EIGHT BYTES of the value. For a tagged enum box such as `Option<T>` (an i32 discriminant followed by the payload) those bytes are the DISCRIMINANT: MEASURED, `group by` over an `Option<i64>` column returned one group per VARIANT with no diagnostic while an `i64` control column in the same program answered correctly, and `select distinct` returned raw stack addresses as query results. The remedy is to project the payload into its own column of an admitted scalar type";
+    }
+    if v == CD_DATA_ENUM() {
+        return "this enum carries a PAYLOAD on at least one variant, so its value is a tagged box (a discriminant followed by the payload) and the EL's `Vec<i64>` key reads the first eight bytes of it — the DISCRIMINANT. MEASURED on `Option<i64>`, which is this same shape: `group by` returned one group per VARIANT with no diagnostic. A FIELDLESS enum is admitted and is not this case — its value IS its discriminant, and it answers correctly. The remedy is to project the payload into its own column of an admitted scalar type";
+    }
+    return "";
+}
+
+/// Turn a refused column into ONE diagnostic naming the source, the binding,
+/// the column, its declared type AS WRITTEN, and the ground.
+///
+/// ⚠ IT NAMES THE BINDING, NOT ONLY THE STRUCT, and that is what makes a second
+/// copy meaningful rather than noise: a module with two queries over the same
+/// source gets one message per query, each naming the row var whose answer
+/// would be wrong. A struct that is declared but never bound at a source gets
+/// none — this runs at the stamp, and the stamp runs per bound source.
+fn report_column_refusal(view: &OView, struct_name: str, row_var: str, fnm: str,
+                         tynode: WAny, v: i32) {
+    let tt: String = column_type_text(view, tynode);
+    let mut m: String = String::new();
+    m.push_str("wql!: source `");
+    m.push_str(struct_name);
+    m.push_str("`");
+    if row_var.len() > 0i64 {
+        m.push_str(" bound as `");
+        m.push_str(row_var);
+        m.push_str("`");
+    }
+    m.push_str(" declares column `");
+    m.push_str(fnm);
+    m.push_str(": ");
+    m.push_str(unsafe { str_from_raw(tt.as_ptr(), tt.len()) });
+    m.push_str("` — ");
+    m.push_str(column_decl_why(v));
+    m.push_str(". Refused HERE, at the source's declaration where the column's TYPE is in hand, and not at the clause that reads it: one layer down `el::el_ty_of_name` is handed a NAME and nothing else, so it cannot tell this column from the nested struct or the generic alias it must stay lenient about");
+    error(unsafe { str_from_raw(m.as_ptr(), m.len()) });
+}
+
 // ── FN-declaration reflection (UDF / UDA — ADR 0012 user functions) ─────────
 // The wql!/trama! EL resolves non-builtin call names against the TRIGGER
 // module's top-level `fn` items. These readers mirror the struct walk above:
@@ -455,6 +699,16 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str,
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
         let fnm: str = sview_str(view.ast_field_name(fld));
+        // ⚠ THE ADMISSION QUESTION IS ASKED BEFORE THE TYPE IS RECORDED, and it
+        // is asked of the type NODE. See the section above `column_decl_admit`:
+        // the alternative — refusing where the name is looked up — is not
+        // available (only a name is there), and a name-keyed version of THIS
+        // check is blind to a tuple column, which has no type name at all.
+        let adm: i32 = column_decl_admit(view, fld);
+        if adm != CD_OK() && fnm.len() > 0i64 {
+            report_column_refusal(view, struct_name, row_var, fnm,
+                                  view.ast_type_child(fld), adm);
+        }
         // The DECLARED name resolved through the module's aliases: a `u64` field
         // must not come back out of the emitter as `i64` (ADR 0024 S3), and a
         // `Score` field must not be a type nothing is known about when `Score` IS

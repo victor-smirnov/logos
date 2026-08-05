@@ -1,0 +1,33 @@
+// THE COLUMN DECLARATION SITE — THE REFUSED THING IS THE CLASS, NOT `Option`.
+//
+// ⚠ MEASURED ON THIS EXACT SOURCE BEFORE THE REFUSAL EXISTED: compiled rc 0,
+// ran rc 0, and `group by s.m` over four rows carrying three distinct values
+// answered TWO groups — one per VARIANT — while the `i64` control column `c` in
+// the same struct answered three. Byte for byte the `Option<i64>` result in
+// wql_column_decl_option_col_fail, from a hand-written enum that shares no name
+// with it. So the defect is a property of PAYLOAD-CARRYING TAGGED VALUES, and a
+// check that refused the spelling `Option` would be refusing a spelling.
+//
+// ⚠ AND THE COMPANION FACT, WHICH IS WHY THE CHECK ASKS THE VARIANTS RATHER
+// THAN THE KIND: a FIELDLESS enum column is NOT this defect. Measured — select,
+// select distinct, order by and group by all answer correctly over one,
+// including with explicit non-contiguous discriminants — and it is admitted,
+// pinned by pass/wql_column_decl_fieldless_enum_e2e. `enum` is not the
+// antecedent; a variant with a payload is.
+//
+// The mechanism is the one in wql_column_decl_option_col_fail: the EL's key
+// vector is `Vec<i64>`, an out-of-lattice column is spelled `i64` by
+// `el::el_ty_of_name`, and the eight bytes read off a tagged box are its
+// discriminant.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+enum M { S(i64), N }
+
+struct Row { pub m: M, pub c: i64, pub id: i64 }
+
+pub deem qm(rs: &[Row]) { from rs r group by r.m aggregate n = count() select n }
+
+fn main() -> i32 { return 0i32; }

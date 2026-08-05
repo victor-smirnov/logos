@@ -1,0 +1,1 @@
+declares column `o: Option<i64>` — this type is outside the EL scalar lattice and is not a shape this layer can see through

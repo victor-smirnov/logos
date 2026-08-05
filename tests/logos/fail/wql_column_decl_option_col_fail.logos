@@ -1,0 +1,40 @@
+// THE COLUMN DECLARATION SITE — an `Option<i64>` COLUMN IS REFUSED, AND WHAT
+// THIS FIXTURE PINS IS THE DIAGNOSTIC, NOT THE REFUSAL.
+//
+// ⚠ WHAT THIS PROGRAM DID BEFORE THE REFUSAL EXISTED, MEASURED ON THIS EXACT
+// SOURCE. It COMPILED (rc 0), RAN (rc 0), and `group by s.o` answered TWO
+// groups over four rows carrying THREE distinct values, while the `i64` control
+// column `c` in the SAME struct and the SAME program answered three. Nothing
+// was reported at any layer. That is the whole ground for refusing here: the
+// cost of the old behaviour was not a bad build, it was a wrong answer with no
+// symptom.
+//
+// THE MECHANISM. `el::el_ty_of_name` launders every type name outside the EL
+// lattice to `EL_TY_INT`, and the key vector the group-by emitter builds is a
+// `Vec<i64>`. So the eight bytes read for the key are the first eight of the
+// value — and the MLIR type the verifier printed for this column is
+// `!llvm.struct<"enum.Option__i64", (i32, array<1 x i64>)>`, whose first eight
+// bytes are the DISCRIMINANT. Hence exactly one group per VARIANT: `Some` and
+// `None`, two groups, regardless of the payloads.
+//
+// ⚠ WHY NOT AT `el_ty_of_name`. Only a NAME reaches that function, and its
+// leniency is load-bearing there: an unknown field name is a nested struct the
+// EL never reads a scalar from, or a generic alias to its own parameter
+// (`type El<T> = T`, pinned by wql_key_spelling_e2e). Refusing there would
+// refuse those. The type NODE is in hand one layer up, at the source's own
+// field list, and that is where this fires — `reflect::column_decl_admit`.
+//
+// ⚠ THE REFUSAL IS ABOUT THE SOURCE'S DECLARATION, NOT ABOUT THIS CLAUSE. A
+// query that binds this struct and never mentions `o` is refused too. That is
+// the stated cost of the declaration-site variant and it is deliberate: the
+// column's type is known there and nowhere earlier.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct S { pub o: Option<i64>, pub c: i64, pub id: i64 }
+
+pub deem qo(ss: &[S]) { from ss s group by s.o aggregate n = count() select n }
+
+fn main() -> i32 { return 0i32; }

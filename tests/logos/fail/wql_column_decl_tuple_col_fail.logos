@@ -1,0 +1,40 @@
+// THE COLUMN DECLARATION SITE — A TUPLE COLUMN, AND THE SHAPE A NAME-KEYED
+// CHECK CANNOT SEE AT ALL.
+//
+// ⚠ THIS IS THE FIXTURE THAT FORCED THE CHECK TO READ THE TYPE NODE. A
+// name-keyed version of the declaration-site refusal — one that asks
+// `ast_field_type_name` and refuses every resolved name outside the lattice —
+// was built as a throwaway control and swept over the corpus. THIS SHAPE
+// COMPILED STRAIGHT PAST IT: `ast_field_type_name` reads NAME(1) off the field's
+// TYPE node, and a `TUPLE_TYPE` node carries no NAME, so the field is never
+// stamped and never checked. One of the three shapes the refusal exists for was
+// invisible to the obvious implementation of it. `column_decl_admit` keys on
+// `ast_node_code` instead.
+//
+// ⚠ WHAT THIS PROGRAM DID BEFORE, MEASURED, AT TWO DIFFERENT LAYERS depending
+// on the clause — and neither of them names anything the author wrote:
+//   • `select s.x` / `order by s.x` / `group by s.x` — refused inside a
+//     GENERATED BLOB: `<metaprog-blob-subst>:NNNN: error [fn q_run]: method
+//     'Vec__push' arg 1: expected i64, got (i64, &[u8])`;
+//   • `where s.x < (2i64, "b")` — reached the MLIR VERIFIER: `'arith.cmpi' op
+//     operand #0 must be signless-integer-like, but got '!llvm.ptr'`, which is
+//     the compiler reporting a type-system violation about ITSELF, with a
+//     ~21 000-line `logos-mlir-verify-fail.mlir` beside it. That cell is
+//     fail/wql_domain_layer_mlir_tuple_col_fail, rewritten in the same commit
+//     as this file was added.
+// Nothing unsound shipped in either case — no object is written — so the entire
+// cost was the diagnostic, and the entire fix is the diagnostic.
+//
+// ⚠ A REFUSAL THAT MOVES FROM HERE INTO A BLOB OR INTO MLIR IS A REGRESSION
+// EVEN THOUGH BOTH ARE RED. What is asserted below is the FRONT-END message and
+// the fact that it quotes the tuple back as `(i64, str)`.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct S { pub x: (i64, str), pub id: i64 }
+
+pub deem q(ss: &[S]) { from ss s select s.x }
+
+fn main() -> i32 { return 0i32; }

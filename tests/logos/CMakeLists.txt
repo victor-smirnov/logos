@@ -1558,6 +1558,26 @@ set_tests_properties(logos_09_wql_shadowed_column PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# COLUMN-DECLARATION LAYER gate (the value-domain arc, D2). `run_test.sh`
+# asserts CONTAINMENT and has no way to assert that a string is ABSENT — so the
+# four column-declaration fail fixtures cannot themselves tell "refused by the
+# front end, naming the column the author wrote" from "refused eventually, by
+# the MLIR verifier or inside a generated blob", which is what all four did
+# before the refusal existed. Both of those are red; only one of them is a
+# diagnostic. This asserts the LAYER, and reads the mlir-gen dump file from the
+# filesystem so a reworded message cannot silence it.
+add_test(
+    NAME logos_09_wql_column_decl_layer
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/wql_column_decl_layer_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/fail
+)
+set_tests_properties(logos_09_wql_column_decl_layer PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
 # and the trait-object / type-argument degradations all reparse into something
 # ELSE (`impl Fam<dyn Tag>` → `impl Fam<Tag>`). Assert the rendered text.

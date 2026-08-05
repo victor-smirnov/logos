@@ -815,9 +815,21 @@ f64 lacks Hash+Eq, so it cannot be a rel column, a `group by`/join hash key, or 
 
 *Evidence:* `stdlib/std/wql/plan_walker.logos#L721-L741`; `stdlib/std/wql/el.logos#L182-L185`; ADR 0012-queue2 §4a (join keys / rel columns)
 
+### `el.restrict.column-decl` — what may be a COLUMN is decided at the source's declaration
+
+A field of a struct/schema BOUND AT A SOURCE is admitted as a column only on positive evidence read off its declared type NODE (`reflect::column_decl_admit`): an EL-lattice scalar; a traversal edge (`[T;N]`/`&[T]`/`[T]`/`Vec<T>`); a struct/schema this module declares (a nested-path base); a `type` alias this module declares (incl. `type El<T> = T`, which stays unresolved by design); a FIELDLESS enum; or any plain type name this module does not declare (the reflection view is module-local, so an imported name is admitted on ignorance, not on evidence). REFUSED with a named front-end error: a TUPLE type; a generic instantiation whose head is none of the above (`Option<T>`); a locally-declared enum with a payload-carrying variant.
+
+*Ground:* `el_ty_of_name` launders every out-of-lattice type NAME to `EL_TY_INT` and the EL's key/projection vectors are `Vec<i64>`, so a laundered column is READ AS ITS FIRST EIGHT BYTES. For a tagged box those bytes are the DISCRIMINANT — measured, `group by` over an `Option<i64>` column returned one group per VARIANT (2 where 3 was right) with rc 0 and no diagnostic, and `select distinct` returned raw stack addresses; for a tuple they are a POINTER, reaching `arith.cmpi` on an `!llvm.ptr`. The name lookup cannot make this distinction (it is handed a name and nothing else, and its leniency is load-bearing for nested structs and generic aliases); the declaration site has the type node.
+
+*Divergence:* RESTRICTION — narrower than SQL, which has no analogue of the eight-byte reading. The refusal is about the SOURCE'S DECLARATION, not about a clause: a query that binds such a struct and never mentions the column is refused too.
+
+*Evidence:* `stdlib/mem/wql/reflect.logos` (`column_decl_admit`, `column_decl_why`); `tests/logos/fail/wql_column_decl_{option,data_enum,tuple}_col_fail`; `tests/logos/fail/wql_domain_layer_mlir_tuple_col_fail`; admitted side `tests/logos/pass/wql_column_decl_fieldless_enum_e2e`
+
 ### `el.restrict.strict-optionality` — no `has()` / no `?.`
 
 EL has no CEL `has()` macro and no safe-navigation `?.` — under the static/strict surface everything is mandatory by schema and optionality is expressed only via `Option`-typed schema fields (D4 strict); lenient `null` exists only for explicitly-erased dynamic bindings (`deem.exec.lenient-null`).
+
+⚠ **The `Option`-typed schema field half of that sentence is a D4 RULING WITH NO WORKING ARTIFACT BEHIND IT, and is now REFUSED rather than silently wrong.** Measured: an `Option<i64>` column compiled, ran, and answered ONE GROUP PER VARIANT under `group by` while an `i64` control column in the same program answered correctly — see `el.restrict.column-decl`. Making an `Option` column WORK (read as its payload, with a stated null ordering/grouping rule) is an open capability decision, not a defect fix; until it is taken, optionality on a strict source is expressed by a sentinel scalar column or by splitting the payload out.
 
 *Divergence:* RESTRICTION vs CEL (which has `has()` and dynamic missing-key `null`); Deem/EL makes the strict case total and pushes leniency into an opt-in dynamic mode.
 
