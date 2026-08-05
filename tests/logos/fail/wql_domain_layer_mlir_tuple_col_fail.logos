@@ -1,0 +1,49 @@
+// ⚠ THE EXPECTATION IN THIS FILE IS THE DEFECT, AND IT IS THE WORST REFUSAL IN
+// THE MATRIX. A TUPLE-TYPED COLUMN COMPARED WITH `<` REACHES MLIR, WHERE THE
+// QUERY COMPILER HAS EMITTED `arith.cmpi` ON A POINTER AND THE MODULE DOES NOT
+// VERIFY.
+//
+// ⚠⚠ WHEN THIS IS FIXED THIS FILE GOES RED AND MUST BE REWRITTEN, NOT DELETED.
+// Nothing unsound ships — the module is refused and no object is written — so
+// the whole cost is the diagnostic, and the diagnostic is a type-system
+// invariant violation reported by the compiler about ITSELF. No layer between
+// the `where` clause and `arith.cmpi` asks whether the column has an order.
+//
+// THE MECHANISM. `el_ty_of_name` (stdlib/mem/wql/el.logos:174-181) launders any
+// name the 21-row lattice does not admit to `EL_TY_INT`, so `(i64, str)` is
+// spelled INT by the time the relational operator is emitted, and INT's own `<`
+// is an integer compare. The value at that point is a pointer. This is the same
+// laundering as `wql_domain_layer_blob_struct_col_fail`; the difference is only
+// how far the wrong spelling travels before something notices — one clause
+// later, and nothing does.
+//
+// ⚠ THE GENERAL FORM, AND WHY THE LATTICE'S DEFAULT-DENY NEVER REACHES IT.
+// `EL_ORD_NO_CMP` exists as a row in the lattice for `String`, whose `<` the
+// backend does not emit. But `String` is only ONE named member of an UNBOUNDED
+// class — every type whose `<` mlir-gen does not lower — and the INT laundering
+// happens one step EARLIER than the row is consulted. So a table with one row
+// stands for a class with no bound, and this file is a witness from outside the
+// table's population.
+//
+// ⚠ THIS TEST HAS A SIDE EFFECT, AND IT IS THE COMPILER'S, NOT THE TEST'S. On
+// module-verification failure mlir-gen writes `logos-mlir-verify-fail.mlir` into
+// the working directory — ~21 000 lines here. It is overwritten, not appended,
+// and its own banner says the cause is in the diagnostics rather than in the
+// dump. This is the first fail fixture in the corpus to pin an MLIR verification
+// failure; if that dump ever becomes a problem, the fix is in mlir-gen, and
+// silencing this test would only hide the defect it exists to record.
+//
+// WHAT IS ASSERTED is the MLIR verifier's own words. They name the layer with no
+// ambiguity at all — no front end and no metaprog blob mentions `arith.cmpi` —
+// so unlike its blob siblings this cell needs no argument about how the layer is
+// identified.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct S { pub x: (i64, str), pub id: i64 }
+
+pub deem q(ss: &[S]) { from ss s where s.x < (2i64, "b") select s.id }
+
+fn main() -> i32 { return 0i32; }

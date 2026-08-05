@@ -1,0 +1,48 @@
+// ⚠ THE EXPECTATION IN THIS FILE IS THE DEFECT. `s.x + s.x` OVER A `str` COLUMN
+// IS REFUSED BY THE HOST COMPILER INSIDE A GENERATED BLOB, WHILE THE SAME
+// NON-NUMERIC QUESTION ASKED ONE CLAUSE AWAY GETS A DEEM DIAGNOSTIC.
+//
+// ⚠⚠ WHEN THIS IS FIXED THIS FILE GOES RED AND MUST BE REWRITTEN, NOT DELETED.
+// The refusal is correct; the LAYER is not.
+//
+// TWO POSITIONS, ONE TIER, TWO ENTIRELY DIFFERENT QUALITIES OF REFUSAL —
+// measured 2026-08-03 and both still true at this commit:
+//   • `aggregate a = sum(s.x)` over a `bool` column is refused by Deem's front
+//     end with a paragraph ("this type is not numeric, so there is no conversion
+//     into the accumulator at all") — see `wql_agg_nonnumeric_arg_fail`;
+//   • `select s.x + s.x` over a `str` column falls all the way through to the
+//     host compiler type-checking generated source, which reports
+//     `operator '+': left must be numeric, got &[u8]` twice, once per operand,
+//     against a function named `q_run` that the user never wrote.
+// The static tier has an argument check on aggregates and NO front-end check on
+// `+`. Its apparent strictness at this position is an accident of the generated
+// source not type-checking, not a Deem rule — which is why the DYNAMIC tier,
+// running the same shape through the interpreter instead of through generated
+// Logos, ACCEPTS `str` `+` and answers.
+//
+// ⚠ THE LINE NUMBER IS PART OF THE ASSERTION HERE, AND ONLY HERE. This
+// diagnostic carries `<metaprog-blob-subst>:1:` — column one of the substituted
+// blob, a position that is stable because it is degenerate: the emitter has no
+// source location for this expression at all, so it reports the beginning of the
+// blob. That makes it the one cell in this set where the LAYER PREFIX itself can
+// be asserted contiguously, and it is. Its siblings
+// (`wql_domain_layer_blob_struct_col_fail`) must settle for `[fn q_run]`,
+// because their line numbers move with the blob.
+//
+// ⚠ AND `&[u8]` RATHER THAN `str` IS ITS OWN SMALL FINDING, PINNED HERE BY
+// ACCIDENT OF WORDING. The user wrote `str`; the message says `&[u8]`. The same
+// spelling gap is what makes mono's trait query answer `has_trait(str, Hash) = 0`
+// while sema's answers yes (it looks up `Hash::&[u8]`, the impl table holds
+// `Hash::str`). If the diagnostic ever says `str`, that gap moved and this
+// expectation must be re-derived rather than patched.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct S { pub x: str, pub id: i64 }
+
+pub deem q(ss: &[S]) { from ss s select s.x + s.x }
+
+fn main() -> i32 { return 0i32; }

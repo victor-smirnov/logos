@@ -1,0 +1,59 @@
+// ⚠ THE EXPECTATION IN THIS FILE IS THE DEFECT. A `#[derive_hash]` STRUCT IS A
+// LEGAL `rel` COLUMN AND IS REFUSED IN AN EXPRESSION BY THE HOST COMPILER, FROM
+// INSIDE GENERATED CODE, NAMING A FUNCTION NOBODY WROTE.
+//
+// ⚠⚠ WHEN THIS IS FIXED THIS FILE GOES RED AND MUST BE REWRITTEN, NOT DELETED.
+// The refusal is correct; the LAYER is not. What a fix looks like is a Deem
+// front-end diagnostic naming the deem, the clause, the column and the missing
+// capability — at which point the string below stops matching and this file
+// should assert the new one. That is exactly what happened to
+// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`, whose own header pinned
+// a `<metaprog-blob-subst>` message for months and said so.
+//
+// THE MECHANISM, MEASURED. `el_ty_of_name` (stdlib/mem/wql/el.logos:174-181)
+// launders every name the 21-row lattice does not admit to `EL_TY_INT` — the
+// documented lenient default. So a struct-typed column reaches emission spelled
+// INT, the emitter builds `Vec<i64>` for the projection, and the type error
+// surfaces where the generated `push` is type-checked. Nothing between the
+// `deem` and that push asks whether the column has the capability the clause
+// needs.
+//
+// ⚠ AND THE SAME LAUNDERING IS SILENT WHEN THE SHAPE HAPPENS TO FIT. Measured
+// in the same survey: a FIELDLESS ENUM column passes `group by` and `order by`
+// in this tier and answers, purely through the i64 default; an `Option<i64>`
+// column compiles through `group by` and `join` and returns the WRONG ROW COUNT.
+// So this red is the lucky case — the class also contains cells that are green
+// and wrong.
+//
+// ⚠ THE LAYER IS PINNED BY THE MESSAGE, NOT BY THE FILE PREFIX, AND THAT IS A
+// COMPROMISE. The full diagnostic reads
+//     <metaprog-blob-subst>:1201: error [fn q_run]: method 'Vec__push' arg 1: …
+// and `1201` is a line number inside a generated blob — it moves whenever the
+// blob moves, so it cannot be asserted. `grep -F` takes one contiguous
+// substring, so the prefix cannot be kept while the line number is dropped. What
+// IS asserted names the layer just as surely: `[fn q_run]` is a function the
+// user never wrote, and no front-end refusal in this compiler names one. If this
+// message ever appears with a user's own function in it, the layer moved.
+//
+// THE DISAGREEMENT THIS BELONGS TO. `DH` IS admitted where a capability is
+// actually asked: `deem_rel_col_hashable` pins a user struct with `Hash` as a
+// legal `rel` column, and the survey confirmed `DH` passes that position. The
+// one surface that asks a capability question has a population disjoint from the
+// one that asks a name question — i24/i56/f32/f64/String/i128/u128 are refused
+// as `rel` columns while `DH` passes, and `DH` then fails every expression
+// position in every tier. That is the arc in one sentence.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.std.compiler.metaprog;
+use logos.lang.hash;
+
+#[derive_hash]
+pub struct DH { pub a: i64 }
+
+struct S { pub x: DH, pub id: i64 }
+
+pub deem q(ss: &[S]) { from ss s select s.x }
+
+fn main() -> i32 { return 0i32; }

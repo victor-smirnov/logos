@@ -1,0 +1,49 @@
+// AN `i128` COLUMN IS A WORKING STATIC-TIER COLUMN AND CANNOT BE A RUNTIME ROW
+// AT ALL — REFUSED BY WRIT, AT THE USER'S OWN LINE, BEFORE DEEM IS CONSULTED.
+//
+// WHAT IS PINNED, AND WHY THE LAYER IS HALF OF IT. `wql_domain_static_extremes`
+// runs `select s.x` and `order by s.x` over an `i128` column at ±2^127 and both
+// answer correctly, so the static tier admits the type. The dynamic and
+// incremental tiers cannot see it: a schema field of type `i128` is not a
+// `WritField` — the population at stdlib/lang/writ/wmap.logos:481-517, nineteen
+// hand-written impls — so there is no T→WAny conversion and the program does not
+// compile. The same refusal covers i128, u128, `String`, every user struct
+// (with or without Hash), a fieldless enum, `(i64, str)` and `Option<i64>`: 220
+// of the 1066 cells of the 2026-08-03 survey are this one sentence.
+//
+// ⚠ THIS IS THE GOOD SHAPE OF REFUSAL, AND THAT IS THE POINT OF PINNING THE
+// LAYER RATHER THAN ONLY THE REDNESS. The diagnostic names the user's own file
+// and line, the user's own function, the field by path (`r.x`), the type, and
+// the missing capability by name. Compare its three siblings in this set —
+// `wql_domain_layer_blob_struct_col_fail`, `..._blob_str_plus_fail` and
+// `..._mlir_tuple_col_fail` — where the same class of question is refused from
+// inside generated code or from inside MLIR, naming a function nobody wrote. A
+// refusal that MOVES from here into one of those is a regression even though
+// both are red, and only an assertion on the message can tell them apart.
+//
+// ⚠ THE EXPECTATION IS NOT THE DEFECT HERE — the refusal is correct as a
+// refusal. What the survey calls a defect is the DISAGREEMENT it belongs to: one
+// value domain admits i128 and another cannot represent it, so the same column
+// is a first-class type to one engine and does not exist to the other two. When
+// the value domain becomes the type system, this file's premise changes and the
+// file should be rewritten to say what the new boundary is — not deleted.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+
+pub schema R : code(0x0E68_0000_0000_0001) { id: i64 = 0, x: i128 = 1 }
+resource cat = schema_catalog!{ R };
+
+fn mkr(d: &Writ, id: i64, xv: i128) -> WAny {
+    let r: R = d.make::<R>(); r.id = id; r.x = xv;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 { return 0i32; }

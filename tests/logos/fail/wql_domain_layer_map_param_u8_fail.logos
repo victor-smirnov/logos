@@ -1,0 +1,49 @@
+// `u8` IS A FULLY WORKING COLUMN AND IS REFUSED AS A MAPPING PARAMETER — ONE
+// TIER DISAGREEING WITH ITSELF, BY A FOUR-NAME LIST IN THE C++ FRONT END.
+//
+// WHAT IS PINNED. `wql_domain_static_extremes` runs `select s.x` and
+// `order by s.x` over a `u8` column at 0, 128 and 255 and both answer
+// correctly; `wql_domain_runtime_extremes` does the same through the dynamic
+// engine. The 2026-08-03 survey found `u8` green at select, `where <`,
+// `order by`, `group by`, `distinct` and `join` in the static tier. The same
+// type, in the same tier, as a mapping scalar parameter, is refused against a
+// list of four names written in `src/compiler/sema_expr.cpp` — "params after the
+// source must be scalars (i64/f64/str/bool)".
+//
+// THE POPULATION THAT DISAGREES IS NOT SMALL. Every type outside those four
+// names is in it: i8, i16, i32, i128, u8, u16, u32, u64, u128, isize, usize,
+// i24, u24, i56, u56, f32 and every user type. That is the FIFTH of the seven
+// places the value domain is written down, and the only one that lives in C++.
+// The others are the `rel` column's `Hash` query, the 21-row `el_ty_stored`
+// table, `enum RtVal` with `QRows`' five getters, `impl WritField` (nineteen
+// types), `el_ty_of_name`'s lenient INT default, and `agg_result_ty`/`el_quot_ty`
+// returning a class rather than a type.
+//
+// ⚠ THE EXPECTATION IS NOT THE DEFECT — THE DISAGREEMENT IS. The refusal is
+// well-formed: it names the mapping, the parameter, its type and the admitted
+// set, at the user's own line. What it may not do is disagree with the column
+// rule one syntactic position away. When the value domain becomes the type
+// system this list stops being a list, this file goes red, and it should be
+// rewritten to state whatever the derived rule then admits.
+//
+// ⚠ ONE THING THIS FILE DOES NOT ASSERT, ON PURPOSE. The full diagnostic carries
+// a context tag `[fn Arc__deref_mut]` — a function that has nothing to do with
+// the mapping and comes from wherever the diagnostic sink happened to be. It is
+// left out of the expectation because asserting it would pin a bug in the
+// diagnostic machinery as though it were the message, and because the message
+// itself is what identifies the layer.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+mapping M(g: &Writ, floor: u8) {
+    pub rel over(key: str, v: i64) {
+        from g ** x {i64} where x.vi >= floor select (x.key, x.vi);
+    }
+}
+
+fn main() -> i32 { return 0i32; }

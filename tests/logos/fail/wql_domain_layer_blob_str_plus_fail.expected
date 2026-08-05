@@ -1,0 +1,1 @@
+<metaprog-blob-subst>:1: error [fn q_run]: operator '+': left must be numeric, got &[u8]

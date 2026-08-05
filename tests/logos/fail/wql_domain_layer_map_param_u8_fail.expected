@@ -1,0 +1,1 @@
+mapping 'M': parameter 'floor' has type `u8` — params after the source must be scalars (i64/f64/str/bool)

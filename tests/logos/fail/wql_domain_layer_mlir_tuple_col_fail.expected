@@ -1,0 +1,1 @@
+error: 'arith.cmpi' op operand #0 must be signless-integer-like, but got '!llvm.ptr'

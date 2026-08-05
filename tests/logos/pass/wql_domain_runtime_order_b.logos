@@ -1,0 +1,267 @@
+// `order by` IN THE DYNAMIC TIER — PART b OF THREE: i56, u8, u16, u32, u24, u56.
+//
+// ⚠⚠ SOME BLOCKS IN THIS FAMILY ASSERT AN ORDER THAT IS WRONG. They are marked
+// `⚠ KNOWN-WRONG` and each carries a FIXED SIGNATURE arm that fires with its own
+// exit code the moment the column starts sorting by its own order. THE
+// EXPECTATION IS THE DEFECT. When the arc that owns this — the query compiler's
+// value domain becoming Logos's type system — closes one, THE FILE MUST GO RED
+// AND BE REWRITTEN. A red here from a fix is the file working; do not "repair"
+// it by re-reading the answer off a run. Same idiom, same reason, as
+// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`.
+//
+// ── THE EXPERIMENT ──────────────────────────────────────────────────────────
+// One schema, eighteen typed columns, four rows, one placement for every column:
+// row 0 holds the column's third-largest value, row 1 its SMALLEST, row 2 its
+// LARGEST, row 3 its second-smallest. So sorting by the column's own order must
+// hand back the ids 1, 3, 0, 2 — the same four numbers for every type — and a
+// tier that sorted by anything else (a SIGNED compare at 64 bits over `u64`
+// gives 0, 2, 1, 3) says so by producing a DIFFERENT sequence rather than by
+// refusing. `bool` has only two distinct values, so the id order within a tie is
+// not a fact this fixture may assert; the two groups are.
+//
+// ── THE TWO DEFECTS THIS FAMILY CARRIES ─────────────────────────────────────
+//  • `u64` and `usize` (part c). `wany_to_rt` (stdlib/mem/deem/deem.logos:779)
+//    has ONE integer arm, `RtVal::I(i64)`, so every value at or above 2^63
+//    arrives negative and `order by` answers the SIGNED order: ids 0, 2, 1, 3
+//    over rows {2^63, 0, 2^64-1, 1}, i.e. 2^63 < 2^64-1 < 0 < 1. ⚠ AND THE
+//    STATIC TIER ANSWERS THE SAME QUERY CORRECTLY — `wql_domain_static_extremes`
+//    pins ids 1, 3, 0, 2 over the same four values. Two engines, one query,
+//    opposite answers, and the wrong one is silent. That disagreement is the
+//    whole reason this family exists.
+//  • `f32` (part c). `WAny::as_f64` (stdlib/lang/writ/anyval.logos:329) reads the
+//    boxed payload as `*const f64` without consulting the Ref's type code, so
+//    every f32 arrives as its own 32 bits zero-extended into an f64 — four
+//    positive denormals whose order is the order of those bit patterns, ids
+//    0, 2, 3, 1. `wql_domain_runtime_extremes` pins the same defect on the
+//    values themselves.
+//
+// ── WHY THREE FILES ─────────────────────────────────────────────────────────
+// An `order by` cannot be shared across columns, so eighteen columns need
+// eighteen queries. Measured on this box, logosc costs ~2.1 s per compile/run
+// site in this shape; the pass-test timeout is 30 s
+// (tests/logos/CMakeLists.txt:701) and the single-file draft TIMED OUT solo,
+// before any suite contention. Six columns per file keeps each near 6 s.
+//
+// ⚠ THE EXPECTATIONS ARE HAND-DERIVED CONSTANTS. Nothing here asks `el_ty`,
+// `RtVal` or any survey artifact what the answer is
+// (`feedback_oracle_must_be_independent`).
+//
+// EXIT CODES: base = 20 + 6*i for the i-th COLUMN OF THE EIGHTEEN (so the codes
+// identify the column across all three files and do not collide), with +0 any
+// failure of that column's order — compile Err, run Err, row count or
+// permutation — and +1, on KNOWN-WRONG columns only, ⚠ THE DEFECT CLOSED: the
+// column now sorts by its own order, so a fix reports itself as a fix rather
+// than as a generic mismatch. All codes are ≤ 123; the exit status is 8-bit.
+//
+// exit 0 = these six columns order exactly as measured on 2026-08-03.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.lang.num.float;
+use logos.mem.collections.vec;
+
+pub schema R : code(0x0E66_0000_0000_0003) {
+    id: i64 = 0,
+    x_i8: i8 = 1,
+    x_i16: i16 = 2,
+    x_i32: i32 = 3,
+    x_i64: i64 = 4,
+    x_isize: isize = 5,
+    x_i24: i24 = 6,
+    x_i56: i56 = 7,
+    x_u8: u8 = 8,
+    x_u16: u16 = 9,
+    x_u32: u32 = 10,
+    x_u24: u24 = 11,
+    x_u56: u56 = 12,
+    x_u64: u64 = 13,
+    x_usize: usize = 14,
+    x_f32: f32 = 15,
+    x_f64: f64 = 16,
+    x_bool: bool = 17,
+    x_str: str = 18
+}
+resource cat = schema_catalog!{ R };
+
+fn mkr(d: &Writ, id: i64, v_i8: i8, v_i16: i16, v_i32: i32, v_i64: i64, v_isize: isize, v_i24: i24, v_i56: i56, v_u8: u8, v_u16: u16, v_u32: u32, v_u24: u24, v_u56: u56, v_u64: u64, v_usize: usize, v_f32: f32, v_f64: f64, v_bool: bool, v_str: str) -> WAny {
+    let r: R = d.make::<R>();
+    r.id = id;
+    r.x_i8 = v_i8;
+    r.x_i16 = v_i16;
+    r.x_i32 = v_i32;
+    r.x_i64 = v_i64;
+    r.x_isize = v_isize;
+    r.x_i24 = v_i24;
+    r.x_i56 = v_i56;
+    r.x_u8 = v_u8;
+    r.x_u16 = v_u16;
+    r.x_u32 = v_u32;
+    r.x_u24 = v_u24;
+    r.x_u56 = v_u56;
+    r.x_u64 = v_u64;
+    r.x_usize = v_usize;
+    r.x_f32 = v_f32;
+    r.x_f64 = v_f64;
+    r.x_bool = v_bool;
+    r.x_str = v_str;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+    let a: &mut WArray<WAny> = d.array(5i64);
+    a.push(mkr(&d, 0i64,
+              1i8,
+              1i16,
+              1i32,
+              1i64,
+              1isize,
+              1i24,
+              1i56,
+              128u8,
+              32768u16,
+              2147483648u32,
+              8388608u24,
+              36028797018963968u56,
+              9223372036854775808u64,
+              9223372036854775808usize,
+              0.1f32,
+              0.1f64,
+              true,
+              "ccc"));
+    a.push(mkr(&d, 1i64,
+              -128i8,
+              -32768i16,
+              -2147483648i32,
+              -9223372036854775808i64,
+              -9223372036854775808isize,
+              -8388608i24,
+              -36028797018963968i56,
+              0u8,
+              0u16,
+              0u32,
+              0u24,
+              0u56,
+              0u64,
+              0usize,
+              -1048576.5f32,
+              -1.0e300f64,
+              false,
+              "aaa"));
+    a.push(mkr(&d, 2i64,
+              127i8,
+              32767i16,
+              2147483647i32,
+              9223372036854775807i64,
+              9223372036854775807isize,
+              8388607i24,
+              36028797018963967i56,
+              255u8,
+              65535u16,
+              4294967295u32,
+              16777215u24,
+              72057594037927935u56,
+              18446744073709551615u64,
+              18446744073709551615usize,
+              1048576.5f32,
+              1.0e300f64,
+              true,
+              "ddd"));
+    a.push(mkr(&d, 3i64,
+              -1i8,
+              -1i16,
+              -1i32,
+              -1i64,
+              -1isize,
+              -1i24,
+              -1i56,
+              1u8,
+              1u16,
+              1u32,
+              1u24,
+              1u56,
+              1u64,
+              1usize,
+              -1.5f32,
+              -1.5f64,
+              false,
+              "bbb"));
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(a as *const WArray<WAny> as *const u8));
+
+    // ── i56 ── codes 56..56
+    let q_i56: Query = match Query::compile("from ss s select s.id order by s.x_i56", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 56i32; } };
+    let r_i56: QRows = match q_i56.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 56i32; } };
+    if r_i56.row_count() != 4i64 { return 56i32; }
+    if r_i56.get_i64(0i64, 0i64) != 1i64 { return 56i32; }
+    if r_i56.get_i64(1i64, 0i64) != 3i64 { return 56i32; }
+    if r_i56.get_i64(2i64, 0i64) != 0i64 { return 56i32; }
+    if r_i56.get_i64(3i64, 0i64) != 2i64 { return 56i32; }
+
+    // ── u8 ── codes 62..62
+    let q_u8: Query = match Query::compile("from ss s select s.id order by s.x_u8", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 62i32; } };
+    let r_u8: QRows = match q_u8.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 62i32; } };
+    if r_u8.row_count() != 4i64 { return 62i32; }
+    if r_u8.get_i64(0i64, 0i64) != 1i64 { return 62i32; }
+    if r_u8.get_i64(1i64, 0i64) != 3i64 { return 62i32; }
+    if r_u8.get_i64(2i64, 0i64) != 0i64 { return 62i32; }
+    if r_u8.get_i64(3i64, 0i64) != 2i64 { return 62i32; }
+
+    // ── u16 ── codes 68..68
+    let q_u16: Query = match Query::compile("from ss s select s.id order by s.x_u16", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 68i32; } };
+    let r_u16: QRows = match q_u16.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 68i32; } };
+    if r_u16.row_count() != 4i64 { return 68i32; }
+    if r_u16.get_i64(0i64, 0i64) != 1i64 { return 68i32; }
+    if r_u16.get_i64(1i64, 0i64) != 3i64 { return 68i32; }
+    if r_u16.get_i64(2i64, 0i64) != 0i64 { return 68i32; }
+    if r_u16.get_i64(3i64, 0i64) != 2i64 { return 68i32; }
+
+    // ── u32 ── codes 74..74
+    let q_u32: Query = match Query::compile("from ss s select s.id order by s.x_u32", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 74i32; } };
+    let r_u32: QRows = match q_u32.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 74i32; } };
+    if r_u32.row_count() != 4i64 { return 74i32; }
+    if r_u32.get_i64(0i64, 0i64) != 1i64 { return 74i32; }
+    if r_u32.get_i64(1i64, 0i64) != 3i64 { return 74i32; }
+    if r_u32.get_i64(2i64, 0i64) != 0i64 { return 74i32; }
+    if r_u32.get_i64(3i64, 0i64) != 2i64 { return 74i32; }
+
+    // ── u24 ── codes 80..80
+    let q_u24: Query = match Query::compile("from ss s select s.id order by s.x_u24", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
+    let r_u24: QRows = match q_u24.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
+    if r_u24.row_count() != 4i64 { return 80i32; }
+    if r_u24.get_i64(0i64, 0i64) != 1i64 { return 80i32; }
+    if r_u24.get_i64(1i64, 0i64) != 3i64 { return 80i32; }
+    if r_u24.get_i64(2i64, 0i64) != 0i64 { return 80i32; }
+    if r_u24.get_i64(3i64, 0i64) != 2i64 { return 80i32; }
+
+    // ── u56 ── codes 86..86
+    let q_u56: Query = match Query::compile("from ss s select s.id order by s.x_u56", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 86i32; } };
+    let r_u56: QRows = match q_u56.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 86i32; } };
+    if r_u56.row_count() != 4i64 { return 86i32; }
+    if r_u56.get_i64(0i64, 0i64) != 1i64 { return 86i32; }
+    if r_u56.get_i64(1i64, 0i64) != 3i64 { return 86i32; }
+    if r_u56.get_i64(2i64, 0i64) != 0i64 { return 86i32; }
+    if r_u56.get_i64(3i64, 0i64) != 2i64 { return 86i32; }
+    return 0i32;
+}

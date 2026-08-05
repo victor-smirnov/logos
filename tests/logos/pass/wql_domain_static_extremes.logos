@@ -1,0 +1,548 @@
+// THE STATIC TIER'S COLUMN DOMAIN, PINNED AT THE EXTREMES — 20 TYPES × 2
+// POSITIONS, ADMISSION AND VALUE TOGETHER.
+//
+// WHY THIS FILE EXISTS. A 1066-cell survey (2026-08-03) measured what each of
+// the three Deem tiers admits, refuses and answers, per type and per position.
+// NONE of it was pinned by the corpus: the 21-row lattice in
+// `stdlib/mem/wql/el.logos` could gain or lose a row, a tier could start or
+// stop admitting a type, and a value could stop surviving its round trip, with
+// every gate green. That is the population-listed-not-derived defect this
+// codebase spent two days closing everywhere else, and a survey that is not a
+// fixture decays into a paragraph in a report nobody re-runs.
+//
+// ⚠ WHAT IS AND IS NOT AN ORACLE HERE. Every value below and every expected
+// permutation is a CONSTANT written by hand. This file never asks `el_ty`,
+// `el_ty_at` or `el_ty_arity` what the lattice holds and never folds an answer
+// with the same arithmetic the query compiler folds it with — an oracle that
+// shares the algorithm with the code under test agrees with itself by
+// construction, which is on file here twice (`feedback_oracle_must_be_independent`,
+// and the header of `wql_agg_avg_bool_three_engines`).
+//
+// ⚠ AND WHY THE EXTREMES RATHER THAN 42. A type that is ADMITTED but whose
+// value does not survive is the defect this arc exists to end, and it is
+// invisible at small magnitudes: the measured `u64`/`usize` defect in the
+// DYNAMIC tier — `order by` answering 2^63 < 2^64-1 < 5 — is exactly correct
+// for every value below 2^63 and wrong for every value at or above it. So each
+// row set here straddles the boundary that can break it:
+//   • every signed type at its own MIN and MAX (i64::MIN is the value whose
+//     negation does not exist);
+//   • every unsigned type at 0, at 2^(w-1) and at 2^w-1, so a signed compare
+//     and an unsigned one give DIFFERENT permutations rather than the same one;
+//   • `f32` at 0.1f32, the value that is destroyed by a round trip through an
+//     f64 arm read as raw bits, and at ±2^20+0.5, exact in both widths;
+//   • `f64` at ±1.0e300, outside f32 entirely.
+//
+// WHAT IS PINNED, per type: that `select s.x` COMPILES (so the static tier
+// admits the type as a column), that it yields `Vec<T>` and not `Vec<i64>` (so
+// the column type is preserved rather than collapsed to the class
+// representative), that all four values come back bit-identical, and that
+// `order by s.x` sorts by the type's OWN order. The row placement is one
+// permutation for every type — row 0 = v2, row 1 = v0, row 2 = v3, row 3 = v1 —
+// so the ascending answer is the id sequence 1, 3, 0, 2 in all 19 non-bool
+// cases, and a tier that sorted by anything other than the column's own `<`
+// (e.g. signed at 64 bits over `u64`, which gives 0, 2, 1, 3) says so by
+// producing a different sequence, not by refusing.
+//
+// EXIT CODES: base = 20 + 6*i for the i-th type in declaration order, and
+//   +0 `select` returned Err          +3 the HIGH extreme did not survive
+//   +1 wrong row count                +4 an interior value did not survive
+//   +2 the LOW extreme did not survive +5 `order by` Err/count/permutation
+// so a red names the (type, question) cell directly. All codes are ≤ 139: the
+// exit status is 8-bit and a code above 255 comes back as its residue.
+//
+// ⚠ WHAT THIS FILE DELIBERATELY DOES NOT PIN. It moves no boundary: every cell
+// asserted here was measured GREEN, so nothing about what the tier ACCEPTS
+// changes. The static tier's REFUSALS live in `fail/` fixtures, because a
+// program that does not compile cannot be a pass test — see
+// `wql_domain_layer_*_fail` for the refusal-plus-layer half, and
+// `wql_domain_runtime_extremes` for the same 20 types put to the dynamic and
+// incremental engines, where 6 of these cells answer differently.
+//
+// exit 0 = all 20 types admitted, all 80 values survived, all 20 orders correct.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.str;
+
+struct S_i8 { pub x: i8, pub id: i64 }
+pub deem sel_i8(ss: &[S_i8]) { from ss s select s.x }
+pub deem ord_i8(ss: &[S_i8]) { from ss s select s.id order by s.x }
+
+struct S_i16 { pub x: i16, pub id: i64 }
+pub deem sel_i16(ss: &[S_i16]) { from ss s select s.x }
+pub deem ord_i16(ss: &[S_i16]) { from ss s select s.id order by s.x }
+
+struct S_i32 { pub x: i32, pub id: i64 }
+pub deem sel_i32(ss: &[S_i32]) { from ss s select s.x }
+pub deem ord_i32(ss: &[S_i32]) { from ss s select s.id order by s.x }
+
+struct S_i64 { pub x: i64, pub id: i64 }
+pub deem sel_i64(ss: &[S_i64]) { from ss s select s.x }
+pub deem ord_i64(ss: &[S_i64]) { from ss s select s.id order by s.x }
+
+struct S_i128 { pub x: i128, pub id: i64 }
+pub deem sel_i128(ss: &[S_i128]) { from ss s select s.x }
+pub deem ord_i128(ss: &[S_i128]) { from ss s select s.id order by s.x }
+
+struct S_isize { pub x: isize, pub id: i64 }
+pub deem sel_isize(ss: &[S_isize]) { from ss s select s.x }
+pub deem ord_isize(ss: &[S_isize]) { from ss s select s.id order by s.x }
+
+struct S_i24 { pub x: i24, pub id: i64 }
+pub deem sel_i24(ss: &[S_i24]) { from ss s select s.x }
+pub deem ord_i24(ss: &[S_i24]) { from ss s select s.id order by s.x }
+
+struct S_i56 { pub x: i56, pub id: i64 }
+pub deem sel_i56(ss: &[S_i56]) { from ss s select s.x }
+pub deem ord_i56(ss: &[S_i56]) { from ss s select s.id order by s.x }
+
+struct S_u8 { pub x: u8, pub id: i64 }
+pub deem sel_u8(ss: &[S_u8]) { from ss s select s.x }
+pub deem ord_u8(ss: &[S_u8]) { from ss s select s.id order by s.x }
+
+struct S_u16 { pub x: u16, pub id: i64 }
+pub deem sel_u16(ss: &[S_u16]) { from ss s select s.x }
+pub deem ord_u16(ss: &[S_u16]) { from ss s select s.id order by s.x }
+
+struct S_u32 { pub x: u32, pub id: i64 }
+pub deem sel_u32(ss: &[S_u32]) { from ss s select s.x }
+pub deem ord_u32(ss: &[S_u32]) { from ss s select s.id order by s.x }
+
+struct S_u64 { pub x: u64, pub id: i64 }
+pub deem sel_u64(ss: &[S_u64]) { from ss s select s.x }
+pub deem ord_u64(ss: &[S_u64]) { from ss s select s.id order by s.x }
+
+struct S_u128 { pub x: u128, pub id: i64 }
+pub deem sel_u128(ss: &[S_u128]) { from ss s select s.x }
+pub deem ord_u128(ss: &[S_u128]) { from ss s select s.id order by s.x }
+
+struct S_usize { pub x: usize, pub id: i64 }
+pub deem sel_usize(ss: &[S_usize]) { from ss s select s.x }
+pub deem ord_usize(ss: &[S_usize]) { from ss s select s.id order by s.x }
+
+struct S_u24 { pub x: u24, pub id: i64 }
+pub deem sel_u24(ss: &[S_u24]) { from ss s select s.x }
+pub deem ord_u24(ss: &[S_u24]) { from ss s select s.id order by s.x }
+
+struct S_u56 { pub x: u56, pub id: i64 }
+pub deem sel_u56(ss: &[S_u56]) { from ss s select s.x }
+pub deem ord_u56(ss: &[S_u56]) { from ss s select s.id order by s.x }
+
+struct S_f32 { pub x: f32, pub id: i64 }
+pub deem sel_f32(ss: &[S_f32]) { from ss s select s.x }
+pub deem ord_f32(ss: &[S_f32]) { from ss s select s.id order by s.x }
+
+struct S_f64 { pub x: f64, pub id: i64 }
+pub deem sel_f64(ss: &[S_f64]) { from ss s select s.x }
+pub deem ord_f64(ss: &[S_f64]) { from ss s select s.id order by s.x }
+
+struct S_str { pub x: str, pub id: i64 }
+pub deem sel_str(ss: &[S_str]) { from ss s select s.x }
+pub deem ord_str(ss: &[S_str]) { from ss s select s.id order by s.x }
+
+struct S_bool { pub x: bool, pub id: i64 }
+pub deem sel_bool(ss: &[S_bool]) { from ss s select s.x }
+pub deem ord_bool(ss: &[S_bool]) { from ss s select s.id order by s.x }
+
+fn main() -> i32 {
+    // ── i8 ── codes 20..25
+    let rows_i8: [S_i8; 4] = [S_i8 { x: 1i8, id: 0i64 },
+                              S_i8 { x: -128i8, id: 1i64 },
+                              S_i8 { x: 127i8, id: 2i64 },
+                              S_i8 { x: -1i8, id: 3i64 }];
+    let v_i8: Vec<i8> = match sel_i8(&rows_i8[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if v_i8.len() != 4i64 { return 21i32; }
+    if v_i8.get(1i64) != -128i8 { return 22i32; }
+    if v_i8.get(2i64) != 127i8 { return 23i32; }
+    if v_i8.get(0i64) != 1i8 { return 24i32; }
+    if v_i8.get(3i64) != -1i8 { return 24i32; }
+    let o_i8: Vec<i64> = match ord_i8(&rows_i8[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 25i32; } };
+    if o_i8.len() != 4i64 { return 25i32; }
+    if o_i8.get(0i64) != 1i64 { return 25i32; }
+    if o_i8.get(1i64) != 3i64 { return 25i32; }
+    if o_i8.get(2i64) != 0i64 { return 25i32; }
+    if o_i8.get(3i64) != 2i64 { return 25i32; }
+
+    // ── i16 ── codes 26..31
+    let rows_i16: [S_i16; 4] = [S_i16 { x: 1i16, id: 0i64 },
+                                S_i16 { x: -32768i16, id: 1i64 },
+                                S_i16 { x: 32767i16, id: 2i64 },
+                                S_i16 { x: -1i16, id: 3i64 }];
+    let v_i16: Vec<i16> = match sel_i16(&rows_i16[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 26i32; } };
+    if v_i16.len() != 4i64 { return 27i32; }
+    if v_i16.get(1i64) != -32768i16 { return 28i32; }
+    if v_i16.get(2i64) != 32767i16 { return 29i32; }
+    if v_i16.get(0i64) != 1i16 { return 30i32; }
+    if v_i16.get(3i64) != -1i16 { return 30i32; }
+    let o_i16: Vec<i64> = match ord_i16(&rows_i16[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 31i32; } };
+    if o_i16.len() != 4i64 { return 31i32; }
+    if o_i16.get(0i64) != 1i64 { return 31i32; }
+    if o_i16.get(1i64) != 3i64 { return 31i32; }
+    if o_i16.get(2i64) != 0i64 { return 31i32; }
+    if o_i16.get(3i64) != 2i64 { return 31i32; }
+
+    // ── i32 ── codes 32..37
+    let rows_i32: [S_i32; 4] = [S_i32 { x: 1i32, id: 0i64 },
+                                S_i32 { x: -2147483648i32, id: 1i64 },
+                                S_i32 { x: 2147483647i32, id: 2i64 },
+                                S_i32 { x: -1i32, id: 3i64 }];
+    let v_i32: Vec<i32> = match sel_i32(&rows_i32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 32i32; } };
+    if v_i32.len() != 4i64 { return 33i32; }
+    if v_i32.get(1i64) != -2147483648i32 { return 34i32; }
+    if v_i32.get(2i64) != 2147483647i32 { return 35i32; }
+    if v_i32.get(0i64) != 1i32 { return 36i32; }
+    if v_i32.get(3i64) != -1i32 { return 36i32; }
+    let o_i32: Vec<i64> = match ord_i32(&rows_i32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 37i32; } };
+    if o_i32.len() != 4i64 { return 37i32; }
+    if o_i32.get(0i64) != 1i64 { return 37i32; }
+    if o_i32.get(1i64) != 3i64 { return 37i32; }
+    if o_i32.get(2i64) != 0i64 { return 37i32; }
+    if o_i32.get(3i64) != 2i64 { return 37i32; }
+
+    // ── i64 ── codes 38..43
+    let rows_i64: [S_i64; 4] = [S_i64 { x: 1i64, id: 0i64 },
+                                S_i64 { x: -9223372036854775808i64, id: 1i64 },
+                                S_i64 { x: 9223372036854775807i64, id: 2i64 },
+                                S_i64 { x: -1i64, id: 3i64 }];
+    let v_i64: Vec<i64> = match sel_i64(&rows_i64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 38i32; } };
+    if v_i64.len() != 4i64 { return 39i32; }
+    if v_i64.get(1i64) != -9223372036854775808i64 { return 40i32; }
+    if v_i64.get(2i64) != 9223372036854775807i64 { return 41i32; }
+    if v_i64.get(0i64) != 1i64 { return 42i32; }
+    if v_i64.get(3i64) != -1i64 { return 42i32; }
+    let o_i64: Vec<i64> = match ord_i64(&rows_i64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 43i32; } };
+    if o_i64.len() != 4i64 { return 43i32; }
+    if o_i64.get(0i64) != 1i64 { return 43i32; }
+    if o_i64.get(1i64) != 3i64 { return 43i32; }
+    if o_i64.get(2i64) != 0i64 { return 43i32; }
+    if o_i64.get(3i64) != 2i64 { return 43i32; }
+
+    // ── i128 ── codes 44..49
+    let rows_i128: [S_i128; 4] = [S_i128 { x: 1i128, id: 0i64 },
+                                  S_i128 { x: -170141183460469231731687303715884105728i128, id: 1i64 },
+                                  S_i128 { x: 170141183460469231731687303715884105727i128, id: 2i64 },
+                                  S_i128 { x: -1i128, id: 3i64 }];
+    let v_i128: Vec<i128> = match sel_i128(&rows_i128[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 44i32; } };
+    if v_i128.len() != 4i64 { return 45i32; }
+    if v_i128.get(1i64) != -170141183460469231731687303715884105728i128 { return 46i32; }
+    if v_i128.get(2i64) != 170141183460469231731687303715884105727i128 { return 47i32; }
+    if v_i128.get(0i64) != 1i128 { return 48i32; }
+    if v_i128.get(3i64) != -1i128 { return 48i32; }
+    let o_i128: Vec<i64> = match ord_i128(&rows_i128[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 49i32; } };
+    if o_i128.len() != 4i64 { return 49i32; }
+    if o_i128.get(0i64) != 1i64 { return 49i32; }
+    if o_i128.get(1i64) != 3i64 { return 49i32; }
+    if o_i128.get(2i64) != 0i64 { return 49i32; }
+    if o_i128.get(3i64) != 2i64 { return 49i32; }
+
+    // ── isize ── codes 50..55
+    let rows_isize: [S_isize; 4] = [S_isize { x: 1isize, id: 0i64 },
+                                    S_isize { x: -9223372036854775808isize, id: 1i64 },
+                                    S_isize { x: 9223372036854775807isize, id: 2i64 },
+                                    S_isize { x: -1isize, id: 3i64 }];
+    let v_isize: Vec<isize> = match sel_isize(&rows_isize[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    if v_isize.len() != 4i64 { return 51i32; }
+    if v_isize.get(1i64) != -9223372036854775808isize { return 52i32; }
+    if v_isize.get(2i64) != 9223372036854775807isize { return 53i32; }
+    if v_isize.get(0i64) != 1isize { return 54i32; }
+    if v_isize.get(3i64) != -1isize { return 54i32; }
+    let o_isize: Vec<i64> = match ord_isize(&rows_isize[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 55i32; } };
+    if o_isize.len() != 4i64 { return 55i32; }
+    if o_isize.get(0i64) != 1i64 { return 55i32; }
+    if o_isize.get(1i64) != 3i64 { return 55i32; }
+    if o_isize.get(2i64) != 0i64 { return 55i32; }
+    if o_isize.get(3i64) != 2i64 { return 55i32; }
+
+    // ── i24 ── codes 56..61
+    let rows_i24: [S_i24; 4] = [S_i24 { x: 1i24, id: 0i64 },
+                                S_i24 { x: -8388608i24, id: 1i64 },
+                                S_i24 { x: 8388607i24, id: 2i64 },
+                                S_i24 { x: -1i24, id: 3i64 }];
+    let v_i24: Vec<i24> = match sel_i24(&rows_i24[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 56i32; } };
+    if v_i24.len() != 4i64 { return 57i32; }
+    if v_i24.get(1i64) != -8388608i24 { return 58i32; }
+    if v_i24.get(2i64) != 8388607i24 { return 59i32; }
+    if v_i24.get(0i64) != 1i24 { return 60i32; }
+    if v_i24.get(3i64) != -1i24 { return 60i32; }
+    let o_i24: Vec<i64> = match ord_i24(&rows_i24[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 61i32; } };
+    if o_i24.len() != 4i64 { return 61i32; }
+    if o_i24.get(0i64) != 1i64 { return 61i32; }
+    if o_i24.get(1i64) != 3i64 { return 61i32; }
+    if o_i24.get(2i64) != 0i64 { return 61i32; }
+    if o_i24.get(3i64) != 2i64 { return 61i32; }
+
+    // ── i56 ── codes 62..67
+    let rows_i56: [S_i56; 4] = [S_i56 { x: 1i56, id: 0i64 },
+                                S_i56 { x: -36028797018963968i56, id: 1i64 },
+                                S_i56 { x: 36028797018963967i56, id: 2i64 },
+                                S_i56 { x: -1i56, id: 3i64 }];
+    let v_i56: Vec<i56> = match sel_i56(&rows_i56[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 62i32; } };
+    if v_i56.len() != 4i64 { return 63i32; }
+    if v_i56.get(1i64) != -36028797018963968i56 { return 64i32; }
+    if v_i56.get(2i64) != 36028797018963967i56 { return 65i32; }
+    if v_i56.get(0i64) != 1i56 { return 66i32; }
+    if v_i56.get(3i64) != -1i56 { return 66i32; }
+    let o_i56: Vec<i64> = match ord_i56(&rows_i56[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 67i32; } };
+    if o_i56.len() != 4i64 { return 67i32; }
+    if o_i56.get(0i64) != 1i64 { return 67i32; }
+    if o_i56.get(1i64) != 3i64 { return 67i32; }
+    if o_i56.get(2i64) != 0i64 { return 67i32; }
+    if o_i56.get(3i64) != 2i64 { return 67i32; }
+
+    // ── u8 ── codes 68..73
+    let rows_u8: [S_u8; 4] = [S_u8 { x: 128u8, id: 0i64 },
+                              S_u8 { x: 0u8, id: 1i64 },
+                              S_u8 { x: 255u8, id: 2i64 },
+                              S_u8 { x: 1u8, id: 3i64 }];
+    let v_u8: Vec<u8> = match sel_u8(&rows_u8[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 68i32; } };
+    if v_u8.len() != 4i64 { return 69i32; }
+    if v_u8.get(1i64) != 0u8 { return 70i32; }
+    if v_u8.get(2i64) != 255u8 { return 71i32; }
+    if v_u8.get(0i64) != 128u8 { return 72i32; }
+    if v_u8.get(3i64) != 1u8 { return 72i32; }
+    let o_u8: Vec<i64> = match ord_u8(&rows_u8[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 73i32; } };
+    if o_u8.len() != 4i64 { return 73i32; }
+    if o_u8.get(0i64) != 1i64 { return 73i32; }
+    if o_u8.get(1i64) != 3i64 { return 73i32; }
+    if o_u8.get(2i64) != 0i64 { return 73i32; }
+    if o_u8.get(3i64) != 2i64 { return 73i32; }
+
+    // ── u16 ── codes 74..79
+    let rows_u16: [S_u16; 4] = [S_u16 { x: 32768u16, id: 0i64 },
+                                S_u16 { x: 0u16, id: 1i64 },
+                                S_u16 { x: 65535u16, id: 2i64 },
+                                S_u16 { x: 1u16, id: 3i64 }];
+    let v_u16: Vec<u16> = match sel_u16(&rows_u16[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 74i32; } };
+    if v_u16.len() != 4i64 { return 75i32; }
+    if v_u16.get(1i64) != 0u16 { return 76i32; }
+    if v_u16.get(2i64) != 65535u16 { return 77i32; }
+    if v_u16.get(0i64) != 32768u16 { return 78i32; }
+    if v_u16.get(3i64) != 1u16 { return 78i32; }
+    let o_u16: Vec<i64> = match ord_u16(&rows_u16[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 79i32; } };
+    if o_u16.len() != 4i64 { return 79i32; }
+    if o_u16.get(0i64) != 1i64 { return 79i32; }
+    if o_u16.get(1i64) != 3i64 { return 79i32; }
+    if o_u16.get(2i64) != 0i64 { return 79i32; }
+    if o_u16.get(3i64) != 2i64 { return 79i32; }
+
+    // ── u32 ── codes 80..85
+    let rows_u32: [S_u32; 4] = [S_u32 { x: 2147483648u32, id: 0i64 },
+                                S_u32 { x: 0u32, id: 1i64 },
+                                S_u32 { x: 4294967295u32, id: 2i64 },
+                                S_u32 { x: 1u32, id: 3i64 }];
+    let v_u32: Vec<u32> = match sel_u32(&rows_u32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
+    if v_u32.len() != 4i64 { return 81i32; }
+    if v_u32.get(1i64) != 0u32 { return 82i32; }
+    if v_u32.get(2i64) != 4294967295u32 { return 83i32; }
+    if v_u32.get(0i64) != 2147483648u32 { return 84i32; }
+    if v_u32.get(3i64) != 1u32 { return 84i32; }
+    let o_u32: Vec<i64> = match ord_u32(&rows_u32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 85i32; } };
+    if o_u32.len() != 4i64 { return 85i32; }
+    if o_u32.get(0i64) != 1i64 { return 85i32; }
+    if o_u32.get(1i64) != 3i64 { return 85i32; }
+    if o_u32.get(2i64) != 0i64 { return 85i32; }
+    if o_u32.get(3i64) != 2i64 { return 85i32; }
+
+    // ── u64 ── codes 86..91
+    let rows_u64: [S_u64; 4] = [S_u64 { x: 9223372036854775808u64, id: 0i64 },
+                                S_u64 { x: 0u64, id: 1i64 },
+                                S_u64 { x: 18446744073709551615u64, id: 2i64 },
+                                S_u64 { x: 1u64, id: 3i64 }];
+    let v_u64: Vec<u64> = match sel_u64(&rows_u64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 86i32; } };
+    if v_u64.len() != 4i64 { return 87i32; }
+    if v_u64.get(1i64) != 0u64 { return 88i32; }
+    if v_u64.get(2i64) != 18446744073709551615u64 { return 89i32; }
+    if v_u64.get(0i64) != 9223372036854775808u64 { return 90i32; }
+    if v_u64.get(3i64) != 1u64 { return 90i32; }
+    let o_u64: Vec<i64> = match ord_u64(&rows_u64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 91i32; } };
+    if o_u64.len() != 4i64 { return 91i32; }
+    if o_u64.get(0i64) != 1i64 { return 91i32; }
+    if o_u64.get(1i64) != 3i64 { return 91i32; }
+    if o_u64.get(2i64) != 0i64 { return 91i32; }
+    if o_u64.get(3i64) != 2i64 { return 91i32; }
+
+    // ── u128 ── codes 92..97
+    let rows_u128: [S_u128; 4] = [S_u128 { x: 170141183460469231731687303715884105728u128, id: 0i64 },
+                                  S_u128 { x: 0u128, id: 1i64 },
+                                  S_u128 { x: 340282366920938463463374607431768211455u128, id: 2i64 },
+                                  S_u128 { x: 1u128, id: 3i64 }];
+    let v_u128: Vec<u128> = match sel_u128(&rows_u128[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 92i32; } };
+    if v_u128.len() != 4i64 { return 93i32; }
+    if v_u128.get(1i64) != 0u128 { return 94i32; }
+    if v_u128.get(2i64) != 340282366920938463463374607431768211455u128 { return 95i32; }
+    if v_u128.get(0i64) != 170141183460469231731687303715884105728u128 { return 96i32; }
+    if v_u128.get(3i64) != 1u128 { return 96i32; }
+    let o_u128: Vec<i64> = match ord_u128(&rows_u128[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 97i32; } };
+    if o_u128.len() != 4i64 { return 97i32; }
+    if o_u128.get(0i64) != 1i64 { return 97i32; }
+    if o_u128.get(1i64) != 3i64 { return 97i32; }
+    if o_u128.get(2i64) != 0i64 { return 97i32; }
+    if o_u128.get(3i64) != 2i64 { return 97i32; }
+
+    // ── usize ── codes 98..103
+    let rows_usize: [S_usize; 4] = [S_usize { x: 9223372036854775808usize, id: 0i64 },
+                                    S_usize { x: 0usize, id: 1i64 },
+                                    S_usize { x: 18446744073709551615usize, id: 2i64 },
+                                    S_usize { x: 1usize, id: 3i64 }];
+    let v_usize: Vec<usize> = match sel_usize(&rows_usize[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 98i32; } };
+    if v_usize.len() != 4i64 { return 99i32; }
+    if v_usize.get(1i64) != 0usize { return 100i32; }
+    if v_usize.get(2i64) != 18446744073709551615usize { return 101i32; }
+    if v_usize.get(0i64) != 9223372036854775808usize { return 102i32; }
+    if v_usize.get(3i64) != 1usize { return 102i32; }
+    let o_usize: Vec<i64> = match ord_usize(&rows_usize[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 103i32; } };
+    if o_usize.len() != 4i64 { return 103i32; }
+    if o_usize.get(0i64) != 1i64 { return 103i32; }
+    if o_usize.get(1i64) != 3i64 { return 103i32; }
+    if o_usize.get(2i64) != 0i64 { return 103i32; }
+    if o_usize.get(3i64) != 2i64 { return 103i32; }
+
+    // ── u24 ── codes 104..109
+    let rows_u24: [S_u24; 4] = [S_u24 { x: 8388608u24, id: 0i64 },
+                                S_u24 { x: 0u24, id: 1i64 },
+                                S_u24 { x: 16777215u24, id: 2i64 },
+                                S_u24 { x: 1u24, id: 3i64 }];
+    let v_u24: Vec<u24> = match sel_u24(&rows_u24[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 104i32; } };
+    if v_u24.len() != 4i64 { return 105i32; }
+    if v_u24.get(1i64) != 0u24 { return 106i32; }
+    if v_u24.get(2i64) != 16777215u24 { return 107i32; }
+    if v_u24.get(0i64) != 8388608u24 { return 108i32; }
+    if v_u24.get(3i64) != 1u24 { return 108i32; }
+    let o_u24: Vec<i64> = match ord_u24(&rows_u24[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 109i32; } };
+    if o_u24.len() != 4i64 { return 109i32; }
+    if o_u24.get(0i64) != 1i64 { return 109i32; }
+    if o_u24.get(1i64) != 3i64 { return 109i32; }
+    if o_u24.get(2i64) != 0i64 { return 109i32; }
+    if o_u24.get(3i64) != 2i64 { return 109i32; }
+
+    // ── u56 ── codes 110..115
+    let rows_u56: [S_u56; 4] = [S_u56 { x: 36028797018963968u56, id: 0i64 },
+                                S_u56 { x: 0u56, id: 1i64 },
+                                S_u56 { x: 72057594037927935u56, id: 2i64 },
+                                S_u56 { x: 1u56, id: 3i64 }];
+    let v_u56: Vec<u56> = match sel_u56(&rows_u56[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 110i32; } };
+    if v_u56.len() != 4i64 { return 111i32; }
+    if v_u56.get(1i64) != 0u56 { return 112i32; }
+    if v_u56.get(2i64) != 72057594037927935u56 { return 113i32; }
+    if v_u56.get(0i64) != 36028797018963968u56 { return 114i32; }
+    if v_u56.get(3i64) != 1u56 { return 114i32; }
+    let o_u56: Vec<i64> = match ord_u56(&rows_u56[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 115i32; } };
+    if o_u56.len() != 4i64 { return 115i32; }
+    if o_u56.get(0i64) != 1i64 { return 115i32; }
+    if o_u56.get(1i64) != 3i64 { return 115i32; }
+    if o_u56.get(2i64) != 0i64 { return 115i32; }
+    if o_u56.get(3i64) != 2i64 { return 115i32; }
+
+    // ── f32 ── codes 116..121
+    let rows_f32: [S_f32; 4] = [S_f32 { x: 0.1f32, id: 0i64 },
+                                S_f32 { x: -1048576.5f32, id: 1i64 },
+                                S_f32 { x: 1048576.5f32, id: 2i64 },
+                                S_f32 { x: -1.5f32, id: 3i64 }];
+    let v_f32: Vec<f32> = match sel_f32(&rows_f32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 116i32; } };
+    if v_f32.len() != 4i64 { return 117i32; }
+    if v_f32.get(1i64) != -1048576.5f32 { return 118i32; }
+    if v_f32.get(2i64) != 1048576.5f32 { return 119i32; }
+    if v_f32.get(0i64) != 0.1f32 { return 120i32; }
+    if v_f32.get(3i64) != -1.5f32 { return 120i32; }
+    let o_f32: Vec<i64> = match ord_f32(&rows_f32[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 121i32; } };
+    if o_f32.len() != 4i64 { return 121i32; }
+    if o_f32.get(0i64) != 1i64 { return 121i32; }
+    if o_f32.get(1i64) != 3i64 { return 121i32; }
+    if o_f32.get(2i64) != 0i64 { return 121i32; }
+    if o_f32.get(3i64) != 2i64 { return 121i32; }
+
+    // ── f64 ── codes 122..127
+    let rows_f64: [S_f64; 4] = [S_f64 { x: 0.1f64, id: 0i64 },
+                                S_f64 { x: -1.0e300f64, id: 1i64 },
+                                S_f64 { x: 1.0e300f64, id: 2i64 },
+                                S_f64 { x: -1.5f64, id: 3i64 }];
+    let v_f64: Vec<f64> = match sel_f64(&rows_f64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 122i32; } };
+    if v_f64.len() != 4i64 { return 123i32; }
+    if v_f64.get(1i64) != -1.0e300f64 { return 124i32; }
+    if v_f64.get(2i64) != 1.0e300f64 { return 125i32; }
+    if v_f64.get(0i64) != 0.1f64 { return 126i32; }
+    if v_f64.get(3i64) != -1.5f64 { return 126i32; }
+    let o_f64: Vec<i64> = match ord_f64(&rows_f64[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 127i32; } };
+    if o_f64.len() != 4i64 { return 127i32; }
+    if o_f64.get(0i64) != 1i64 { return 127i32; }
+    if o_f64.get(1i64) != 3i64 { return 127i32; }
+    if o_f64.get(2i64) != 0i64 { return 127i32; }
+    if o_f64.get(3i64) != 2i64 { return 127i32; }
+
+    // ── str ── codes 128..133
+    let rows_str: [S_str; 4] = [S_str { x: "ccc", id: 0i64 },
+                                S_str { x: "aaa", id: 1i64 },
+                                S_str { x: "ddd", id: 2i64 },
+                                S_str { x: "bbb", id: 3i64 }];
+    let v_str: Vec<str> = match sel_str(&rows_str[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 128i32; } };
+    if v_str.len() != 4i64 { return 129i32; }
+    if !str_eq(v_str.get(1i64), "aaa") { return 130i32; }
+    if !str_eq(v_str.get(2i64), "ddd") { return 131i32; }
+    if !str_eq(v_str.get(0i64), "ccc") { return 132i32; }
+    if !str_eq(v_str.get(3i64), "bbb") { return 132i32; }
+    let o_str: Vec<i64> = match ord_str(&rows_str[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 133i32; } };
+    if o_str.len() != 4i64 { return 133i32; }
+    if o_str.get(0i64) != 1i64 { return 133i32; }
+    if o_str.get(1i64) != 3i64 { return 133i32; }
+    if o_str.get(2i64) != 0i64 { return 133i32; }
+    if o_str.get(3i64) != 2i64 { return 133i32; }
+
+    // ── bool ── codes 134..139
+    let rows_bool: [S_bool; 4] = [S_bool { x: true, id: 0i64 },
+                                  S_bool { x: false, id: 1i64 },
+                                  S_bool { x: true, id: 2i64 },
+                                  S_bool { x: false, id: 3i64 }];
+    let v_bool: Vec<bool> = match sel_bool(&rows_bool[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 134i32; } };
+    if v_bool.len() != 4i64 { return 135i32; }
+    if v_bool.get(1i64) != false { return 136i32; }
+    if v_bool.get(0i64) != true  { return 137i32; }
+    if v_bool.get(2i64) != true  { return 138i32; }
+    if v_bool.get(3i64) != false { return 138i32; }
+    let o_bool: Vec<i64> = match ord_bool(&rows_bool[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 139i32; } };
+    if o_bool.len() != 4i64 { return 139i32; }
+    if o_bool.get(0i64) + o_bool.get(1i64) != 4i64 { return 139i32; }
+    if o_bool.get(2i64) + o_bool.get(3i64) != 2i64 { return 139i32; }
+    return 0i32;
+}

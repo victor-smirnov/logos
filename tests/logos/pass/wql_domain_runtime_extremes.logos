@@ -1,0 +1,391 @@
+// THE DYNAMIC TIER'S VALUE ROUND TRIP AT THE EXTREMES — 18 TYPES, AND ONE OF
+// THEM IS PINNED WRONG ON PURPOSE.
+//
+// ⚠⚠ READ THIS BEFORE CHANGING ANY EXPECTATION IN THIS FILE. The `f32` block
+// asserts values that ARE WRONG. It is marked `⚠ KNOWN-WRONG` and carries the
+// four values it OUGHT to produce, each as its own early-exit arm. THE
+// EXPECTATION IS THE DEFECT. When the arc that owns this — the query compiler's
+// value domain becoming Logos's type system — closes it, THIS FILE MUST GO RED
+// AND BE REWRITTEN. A red here from a fix is the file doing its job; do not
+// "repair" it by re-reading the answer off a run. The idiom is
+// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`, which pinned a hole for
+// months with its own header saying so and was rewritten when the hole closed.
+//
+// ── WHAT IS PINNED ──────────────────────────────────────────────────────────
+// That each of the eighteen types is ADMITTED by the dynamic engine at all — a
+// schema field of that type is a `WritField`, the query compiles, `run()`
+// returns Ok — and that all four of its values come back through `QRows` at the
+// extremes. All eighteen columns live in ONE schema over ONE four-row source, so
+// every type sees the same rows and the same placement: a difference between two
+// columns is a difference between two TYPES, not between two setups.
+//
+// ⚠ THREE PROJECTIONS OF SIX COLUMNS, NOT ONE OF EIGHTEEN, AND THE REASON IS A
+// MEASURED SILENT TRUNCATION. A projection is capped at EIGHT columns
+// (`ckind: [i32; 8]`, stdlib/mem/deem/check.logos:704) and a wider one is dropped
+// WITHOUT a diagnostic: measured, a 9-column `select` compiles, runs, and hands
+// back a QRows whose `col_count()` is 8. The eighteen-column draft of this
+// fixture died on exactly that, which is why every query here asserts its own
+// `col_count()` as well as its row count — a truncation that silent must be
+// caught by the fixture that would otherwise be built on top of it.
+//
+// ── WHY THE EXTREMES RATHER THAN 42 ─────────────────────────────────────────
+// A type that is ADMITTED but whose value does not survive is the defect this
+// arc exists to end, and it is invisible at small magnitudes — the u64 order
+// defect pinned by `wql_domain_runtime_order_c` is exactly correct for every
+// value below 2^63. So every row set straddles the boundary that can break it:
+// every signed type at its own MIN and MAX; every unsigned type at 0, 2^(w-1)
+// and 2^w-1; `f32` at 0.1f32 (destroyed by a round trip through an f64 arm read
+// as raw bits) and ±2^20+0.5 (exact in both widths); `f64` at ±1.0e300, outside
+// f32 entirely.
+//
+// ── THE ONE PINNED WRONG: `f32` ─────────────────────────────────────────────
+// `WAny::as_f64` (stdlib/lang/writ/anyval.logos:329) dereferences the boxed
+// payload as `*const f64` without consulting the Ref's own type code, which
+// distinguishes W_F32=30 from W_F64=31 and which `is_float()` at :303-307 DOES
+// read. So an f32 arrives as its own 32 bits ZERO-EXTENDED into an f64 — a
+// positive denormal near 5e-315. Asserted as exact bit patterns rather than as
+// f64 values, because a denormal compared with `==` is not a legible assertion:
+//     0.1f32       reads back as bits 1036831949  (0x3DCCCCCD, the f32 word)
+//                  OUGHT to read back as bits 4591870180174331904
+//    -1048576.5f32 reads back as bits 3380609028
+//                  OUGHT to read back as bits 13920626450349686784
+//     1048576.5f32 reads back as bits 1233125380
+//                  OUGHT to read back as bits 4697254413494910976
+//    -1.5f32       reads back as bits 3217031168
+//                  OUGHT to read back as bits 13832806255468478464
+// THE NUMBERS ARE DERIVED FROM THE MECHANISM, not read off a run: they are
+// `f32_to_bits(v)` widened to 64 by zero-extension, which is what "read the
+// 4-byte payload as 8 bytes, high half zero" means. If the mechanism claim were
+// wrong the numbers would not match, and that disagreement would itself be the
+// finding. `wql_domain_incr_disagreement` pins the same one line's effect on
+// `sum` in both runtime engines.
+//
+// ── `u64` AND `usize`: THE WEAKEST HONEST QUESTION, LABELLED AS SUCH ────────
+// This is NOT a defect pinned wrong; it is a limit of what the API can ask.
+// `QRows` has exactly five getters — get_i64/get_f64/get_bool/get_str/get_node
+// (stdlib/mem/deem/query.logos:68-78) — and none is unsigned, so there is NO
+// expression in the dynamic API for the value 2^64-1. What is pinned is that the
+// BITS survived: 2^63 comes back as i64::MIN and 2^64-1 as -1. A green cell for
+// those two types means the bits survived, NOT that the value has a read-back
+// path. A design that fixes the domain has to fix the getter set, and when it
+// does, those lines become wrong too.
+//
+// ── WHAT IS ABSENT FROM THIS FILE IS A FACT TOO ─────────────────────────────
+// Nine types the STATIC tier admits as a column cannot appear here at all: i128,
+// u128, String, a `#[derive_hash]` struct, a hand-written Hash+Eq+Ord struct, a
+// struct with neither, a fieldless enum, `(i64, str)` and `Option<i64>`. They are
+// refused before Deem is ever consulted, by WRIT, at the schema declaration —
+// pinned with its layer by `wql_domain_layer_writ_i128_fail`, because a program
+// that does not compile cannot be a pass test.
+//
+// ── WHY THE `order by` HALF LIVES IN THREE OTHER FILES ──────────────────────
+// An `order by` cannot be shared across columns, so eighteen columns need
+// eighteen queries. Measured on this box, logosc costs ~2.1 s per compile/run
+// site in this shape (2 types = 3.0 s, 18 types × 2 queries = 37.4 s), the
+// pass-test timeout is 30 s (tests/logos/CMakeLists.txt:701), and the single-file
+// draft of this fixture TIMED OUT — solo, before any suite contention.
+// `wql_domain_runtime_order_{a,b,c}` take six columns each; every file in this
+// family now runs in about 4 s, roughly 6x under the cap.
+//
+// ⚠ THE EXPECTATIONS ARE HAND-DERIVED CONSTANTS. Nothing here asks `el_ty`,
+// `RtVal` or any survey artifact what the answer is; nothing folds a value with
+// the arithmetic the engine folds it with. An oracle that shares the algorithm
+// with the code under test agrees with itself by construction
+// (`feedback_oracle_must_be_independent`).
+//
+// EXIT CODES: 10/11/12, 13/14/15 and 16/17/18 are compile Err / run Err / row-
+// or column-count for the three projections; then
+// base = 20 + 6*i for the i-th column, with +0 the LOW extreme, +1 the HIGH
+// extreme, +2 and +3 the two interior values, and +4 (KNOWN-WRONG blocks only)
+// ⚠ THE DEFECT CLOSED — this column now reads back CORRECTLY, so a fix reports
+// itself as a fix rather than as a generic mismatch. All codes are ≤ 122; the
+// exit status is 8-bit, so a code above 255 would name the wrong cell.
+//
+// exit 0 = the domain is exactly as measured on 2026-08-03, defects included.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.lang.num.float;
+use logos.mem.collections.vec;
+
+pub schema R : code(0x0E66_0000_0000_0001) {
+    id: i64 = 0,
+    x_i8: i8 = 1,
+    x_i16: i16 = 2,
+    x_i32: i32 = 3,
+    x_i64: i64 = 4,
+    x_isize: isize = 5,
+    x_i24: i24 = 6,
+    x_i56: i56 = 7,
+    x_u8: u8 = 8,
+    x_u16: u16 = 9,
+    x_u32: u32 = 10,
+    x_u24: u24 = 11,
+    x_u56: u56 = 12,
+    x_u64: u64 = 13,
+    x_usize: usize = 14,
+    x_f32: f32 = 15,
+    x_f64: f64 = 16,
+    x_bool: bool = 17,
+    x_str: str = 18
+}
+resource cat = schema_catalog!{ R };
+
+fn mkr(d: &Writ, id: i64, v_i8: i8, v_i16: i16, v_i32: i32, v_i64: i64, v_isize: isize, v_i24: i24, v_i56: i56, v_u8: u8, v_u16: u16, v_u32: u32, v_u24: u24, v_u56: u56, v_u64: u64, v_usize: usize, v_f32: f32, v_f64: f64, v_bool: bool, v_str: str) -> WAny {
+    let r: R = d.make::<R>();
+    r.id = id;
+    r.x_i8 = v_i8;
+    r.x_i16 = v_i16;
+    r.x_i32 = v_i32;
+    r.x_i64 = v_i64;
+    r.x_isize = v_isize;
+    r.x_i24 = v_i24;
+    r.x_i56 = v_i56;
+    r.x_u8 = v_u8;
+    r.x_u16 = v_u16;
+    r.x_u32 = v_u32;
+    r.x_u24 = v_u24;
+    r.x_u56 = v_u56;
+    r.x_u64 = v_u64;
+    r.x_usize = v_usize;
+    r.x_f32 = v_f32;
+    r.x_f64 = v_f64;
+    r.x_bool = v_bool;
+    r.x_str = v_str;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+    let a: &mut WArray<WAny> = d.array(5i64);
+    a.push(mkr(&d, 0i64,
+              1i8,
+              1i16,
+              1i32,
+              1i64,
+              1isize,
+              1i24,
+              1i56,
+              128u8,
+              32768u16,
+              2147483648u32,
+              8388608u24,
+              36028797018963968u56,
+              9223372036854775808u64,
+              9223372036854775808usize,
+              0.1f32,
+              0.1f64,
+              true,
+              "ccc"));
+    a.push(mkr(&d, 1i64,
+              -128i8,
+              -32768i16,
+              -2147483648i32,
+              -9223372036854775808i64,
+              -9223372036854775808isize,
+              -8388608i24,
+              -36028797018963968i56,
+              0u8,
+              0u16,
+              0u32,
+              0u24,
+              0u56,
+              0u64,
+              0usize,
+              -1048576.5f32,
+              -1.0e300f64,
+              false,
+              "aaa"));
+    a.push(mkr(&d, 2i64,
+              127i8,
+              32767i16,
+              2147483647i32,
+              9223372036854775807i64,
+              9223372036854775807isize,
+              8388607i24,
+              36028797018963967i56,
+              255u8,
+              65535u16,
+              4294967295u32,
+              16777215u24,
+              72057594037927935u56,
+              18446744073709551615u64,
+              18446744073709551615usize,
+              1048576.5f32,
+              1.0e300f64,
+              true,
+              "ddd"));
+    a.push(mkr(&d, 3i64,
+              -1i8,
+              -1i16,
+              -1i32,
+              -1i64,
+              -1isize,
+              -1i24,
+              -1i56,
+              1u8,
+              1u16,
+              1u32,
+              1u24,
+              1u56,
+              1u64,
+              1usize,
+              -1.5f32,
+              -1.5f64,
+              false,
+              "bbb"));
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(a as *const WArray<WAny> as *const u8));
+
+    let q0: Query = match Query::compile("from ss s select (s.x_i8, s.x_i16, s.x_i32, s.x_i64, s.x_isize, s.x_i24)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    let r0: QRows = match q0.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if r0.row_count() != 4i64 || r0.col_count() != 6i64 { return 12i32; }
+
+    let q1: Query = match Query::compile("from ss s select (s.x_i56, s.x_u8, s.x_u16, s.x_u32, s.x_u24, s.x_u56)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    let r1: QRows = match q1.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if r1.row_count() != 4i64 || r1.col_count() != 6i64 { return 15i32; }
+
+    let q2: Query = match Query::compile("from ss s select (s.x_u64, s.x_usize, s.x_f32, s.x_f64, s.x_bool, s.x_str)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 16i32; } };
+    let r2: QRows = match q2.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 17i32; } };
+    if r2.row_count() != 4i64 || r2.col_count() != 6i64 { return 18i32; }
+
+    // ── i8 ── query 0 column 0, codes 20..23
+    if r0.get_i64(1i64, 0i64) != -128i64 { return 20i32; }
+    if r0.get_i64(2i64, 0i64) != 127i64 { return 21i32; }
+    if r0.get_i64(0i64, 0i64) != 1i64 { return 22i32; }
+    if r0.get_i64(3i64, 0i64) != -1i64 { return 23i32; }
+
+    // ── i16 ── query 0 column 1, codes 26..29
+    if r0.get_i64(1i64, 1i64) != -32768i64 { return 26i32; }
+    if r0.get_i64(2i64, 1i64) != 32767i64 { return 27i32; }
+    if r0.get_i64(0i64, 1i64) != 1i64 { return 28i32; }
+    if r0.get_i64(3i64, 1i64) != -1i64 { return 29i32; }
+
+    // ── i32 ── query 0 column 2, codes 32..35
+    if r0.get_i64(1i64, 2i64) != -2147483648i64 { return 32i32; }
+    if r0.get_i64(2i64, 2i64) != 2147483647i64 { return 33i32; }
+    if r0.get_i64(0i64, 2i64) != 1i64 { return 34i32; }
+    if r0.get_i64(3i64, 2i64) != -1i64 { return 35i32; }
+
+    // ── i64 ── query 0 column 3, codes 38..41
+    if r0.get_i64(1i64, 3i64) != -9223372036854775808i64 { return 38i32; }
+    if r0.get_i64(2i64, 3i64) != 9223372036854775807i64 { return 39i32; }
+    if r0.get_i64(0i64, 3i64) != 1i64 { return 40i32; }
+    if r0.get_i64(3i64, 3i64) != -1i64 { return 41i32; }
+
+    // ── isize ── query 0 column 4, codes 44..47
+    if r0.get_i64(1i64, 4i64) != -9223372036854775808i64 { return 44i32; }
+    if r0.get_i64(2i64, 4i64) != 9223372036854775807i64 { return 45i32; }
+    if r0.get_i64(0i64, 4i64) != 1i64 { return 46i32; }
+    if r0.get_i64(3i64, 4i64) != -1i64 { return 47i32; }
+
+    // ── i24 ── query 0 column 5, codes 50..53
+    if r0.get_i64(1i64, 5i64) != -8388608i64 { return 50i32; }
+    if r0.get_i64(2i64, 5i64) != 8388607i64 { return 51i32; }
+    if r0.get_i64(0i64, 5i64) != 1i64 { return 52i32; }
+    if r0.get_i64(3i64, 5i64) != -1i64 { return 53i32; }
+
+    // ── i56 ── query 1 column 0, codes 56..59
+    if r1.get_i64(1i64, 0i64) != -36028797018963968i64 { return 56i32; }
+    if r1.get_i64(2i64, 0i64) != 36028797018963967i64 { return 57i32; }
+    if r1.get_i64(0i64, 0i64) != 1i64 { return 58i32; }
+    if r1.get_i64(3i64, 0i64) != -1i64 { return 59i32; }
+
+    // ── u8 ── query 1 column 1, codes 62..65
+    if r1.get_i64(1i64, 1i64) != 0i64 { return 62i32; }
+    if r1.get_i64(2i64, 1i64) != 255i64 { return 63i32; }
+    if r1.get_i64(0i64, 1i64) != 128i64 { return 64i32; }
+    if r1.get_i64(3i64, 1i64) != 1i64 { return 65i32; }
+
+    // ── u16 ── query 1 column 2, codes 68..71
+    if r1.get_i64(1i64, 2i64) != 0i64 { return 68i32; }
+    if r1.get_i64(2i64, 2i64) != 65535i64 { return 69i32; }
+    if r1.get_i64(0i64, 2i64) != 32768i64 { return 70i32; }
+    if r1.get_i64(3i64, 2i64) != 1i64 { return 71i32; }
+
+    // ── u32 ── query 1 column 3, codes 74..77
+    if r1.get_i64(1i64, 3i64) != 0i64 { return 74i32; }
+    if r1.get_i64(2i64, 3i64) != 4294967295i64 { return 75i32; }
+    if r1.get_i64(0i64, 3i64) != 2147483648i64 { return 76i32; }
+    if r1.get_i64(3i64, 3i64) != 1i64 { return 77i32; }
+
+    // ── u24 ── query 1 column 4, codes 80..83
+    if r1.get_i64(1i64, 4i64) != 0i64 { return 80i32; }
+    if r1.get_i64(2i64, 4i64) != 16777215i64 { return 81i32; }
+    if r1.get_i64(0i64, 4i64) != 8388608i64 { return 82i32; }
+    if r1.get_i64(3i64, 4i64) != 1i64 { return 83i32; }
+
+    // ── u56 ── query 1 column 5, codes 86..89
+    if r1.get_i64(1i64, 5i64) != 0i64 { return 86i32; }
+    if r1.get_i64(2i64, 5i64) != 72057594037927935i64 { return 87i32; }
+    if r1.get_i64(0i64, 5i64) != 36028797018963968i64 { return 88i32; }
+    if r1.get_i64(3i64, 5i64) != 1i64 { return 89i32; }
+
+    // ── u64 ── query 2 column 0, codes 92..96   ⚠ KNOWN-WRONG, see the header
+    // ⚠ NO fixed signature here: `QRows` has no unsigned getter, so the
+    //   value 2^64-1 has no expression at all and the only honest question
+    //   is whether the BITS survived. `wql_domain_runtime_order_c` carries
+    //   the fixed signature, because an ORDER is expressible.
+    if r2.get_i64(1i64, 0i64) != 0i64 { return 92i32; }
+    if r2.get_i64(2i64, 0i64) != -1i64 { return 93i32; }
+    if r2.get_i64(0i64, 0i64) != -9223372036854775808i64 { return 94i32; }
+    if r2.get_i64(3i64, 0i64) != 1i64 { return 95i32; }
+
+    // ── usize ── query 2 column 1, codes 98..102   ⚠ KNOWN-WRONG, see the header
+    // ⚠ NO fixed signature here: `QRows` has no unsigned getter, so the
+    //   value 2^64-1 has no expression at all and the only honest question
+    //   is whether the BITS survived. `wql_domain_runtime_order_c` carries
+    //   the fixed signature, because an ORDER is expressible.
+    if r2.get_i64(1i64, 1i64) != 0i64 { return 98i32; }
+    if r2.get_i64(2i64, 1i64) != -1i64 { return 99i32; }
+    if r2.get_i64(0i64, 1i64) != -9223372036854775808i64 { return 100i32; }
+    if r2.get_i64(3i64, 1i64) != 1i64 { return 101i32; }
+
+    // ── f32 ── query 2 column 2, codes 104..108   ⚠ KNOWN-WRONG, see the header
+    if f64_to_bits(r2.get_f64(0i64, 2i64)) == 4591870180174331904u64 { return 108i32; }
+    if f64_to_bits(r2.get_f64(1i64, 2i64)) == 13920626450349686784u64 { return 108i32; }
+    if f64_to_bits(r2.get_f64(2i64, 2i64)) == 4697254413494910976u64 { return 108i32; }
+    if f64_to_bits(r2.get_f64(3i64, 2i64)) == 13832806255468478464u64 { return 108i32; }
+    //    ^ each of those four IS the value this column OUGHT to read
+    //      back. Reaching one means `WAny::as_f64` learned to ask the
+    //      Ref's own type code — rewrite this block; do not re-read the
+    //      numbers off a run.
+    if f64_to_bits(r2.get_f64(1i64, 2i64)) != 3380609028u64 { return 104i32; }
+    if f64_to_bits(r2.get_f64(2i64, 2i64)) != 1233125380u64 { return 105i32; }
+    if f64_to_bits(r2.get_f64(0i64, 2i64)) != 1036831949u64 { return 106i32; }
+    if f64_to_bits(r2.get_f64(3i64, 2i64)) != 3217031168u64 { return 107i32; }
+
+    // ── f64 ── query 2 column 3, codes 110..113
+    if r2.get_f64(1i64, 3i64) != -1.0e300f64 { return 110i32; }
+    if r2.get_f64(2i64, 3i64) != 1.0e300f64 { return 111i32; }
+    if r2.get_f64(0i64, 3i64) != 0.1f64 { return 112i32; }
+    if r2.get_f64(3i64, 3i64) != -1.5f64 { return 113i32; }
+
+    // ── bool ── query 2 column 4, codes 116..119
+    if r2.get_bool(1i64, 4i64) != false { return 116i32; }
+    if r2.get_bool(2i64, 4i64) != true { return 117i32; }
+    if r2.get_bool(0i64, 4i64) != true { return 118i32; }
+    if r2.get_bool(3i64, 4i64) != false { return 119i32; }
+
+    // ── str ── query 2 column 5, codes 122..125
+    if !str_eq(r2.get_str(1i64, 5i64), "aaa") { return 122i32; }
+    if !str_eq(r2.get_str(2i64, 5i64), "ddd") { return 123i32; }
+    if !str_eq(r2.get_str(0i64, 5i64), "ccc") { return 124i32; }
+    if !str_eq(r2.get_str(3i64, 5i64), "bbb") { return 125i32; }
+    return 0i32;
+}
