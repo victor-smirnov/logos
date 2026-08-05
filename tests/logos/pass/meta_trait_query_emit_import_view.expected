@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+iv_with_yes=1
+iv_with_no=0
+iv_without_yes=1
+iv_without_no=0

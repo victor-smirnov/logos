@@ -948,6 +948,36 @@ set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── `type_apply` — THE ONLY name→Type BRIDGE, AND IT ABORTS ─────────────────
+# A metaprog handler holds its target's name as a runtime `str` read off the
+# AST. `type_apply` takes a name only as a source literal and calls
+# `std::abort()` in mono on anything else — no file, no line, a core dump. That
+# is the whole wall between a handler and a capability question about the type
+# it was handed, and it is what prices the value-domain derivation, so it is
+# MEASURED rather than argued.
+#
+# Neither row can be a corpus test. `run_test.sh` fail-mode asserts "non-zero
+# and stderr contains X", which cannot tell a SIGABRT from a clean refusal — and
+# that difference IS the finding. Pass-mode compares the binary's exit code,
+# which turns "the compiler approved a program whose instance is a trap" into
+# "the program returned 132". The exit codes are the measurement, so the gate
+# reads them directly; it carries three canaries (reader, matcher, comparator)
+# because a gate whose instrument has died reports a clean ledger exactly like a
+# clean one.
+add_test(
+    NAME logos_00_type_apply_trap_ledger
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/type_apply_trap_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/type_apply_trap.ledger
+            ${CMAKE_CURRENT_SOURCE_DIR}/type_apply_trap
+            ${LOGOS_BUILD_LIB_DIR}
+)
+set_tests_properties(logos_00_type_apply_trap_ledger PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── THE SEPARATOR CLASS CANNOT REGROW SILENTLY ──────────────────────────────
 # The fix carried the parts and put the surviving splits behind mangled_name.hpp,
 # but nothing stopped the NEXT `find("__")` from being written tomorrow — and a

@@ -1,0 +1,75 @@
+// A HANDLER CANNOT ANSWER A CAPABILITY QUESTION ABOUT ITS OWN TARGET, BUT IT
+// CAN DEFER ONE — AND THE DEFERRED QUESTION DISCRIMINATES.
+//
+// This is the mechanism the value-domain derivation would actually be built on,
+// so it is pinned rather than assumed.
+//
+// The handler holds its target as RUNTIME TEXT: `ast_node_name` gives an
+// `SView` into the AST, and no runtime text can become a `Type` — `type_apply`
+// is the only name→`Type` bridge and it aborts on a non-literal (measured in
+// tests/logos/type_apply_trap/). So the handler cannot ask `has_trait` about
+// the thing it was handed.
+//
+// What it CAN do is interpolate that name into emitted SOURCE, where it is a
+// literal again, and let a later round ask. Two targets go through the same
+// handler and the same emitted shape: `AlphaHas` implements `Clone`,
+// `BetaLacks` does not. `cap_AlphaHas()` answers 1 and `cap_BetaLacks()`
+// answers 0 — the deferral did not flatten the question.
+//
+// ⚠ WHAT THIS DOES NOT SHOW, and the difference decides how the arc is priced.
+// The handler defers the question; it does not learn the answer. It cannot
+// branch on capability while deciding WHAT TO EMIT — there is no
+// `#[cfg(has_trait(T, Tr))]` and no conditional-impl form, so a derivation can
+// choose different EXPRESSIONS (the query folds to a literal at mono and the
+// dead branch goes away) but not a different SET OF ITEMS. If a derivation ever
+// needs to emit an `impl` conditionally, this path does not reach it and the
+// language needs a construct it does not have.
+package meta_handler_defers_trait_query;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+#[metaprog_handler("mhdtq")]
+fn mhdtq_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    // The handler holds the target's name as RUNTIME TEXT and nothing else.
+    // It emits a query about that name rather than performing one.
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("use logos.lang.clone; pub fn cap_");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str("() -> i32 { if has_trait::<");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str(", Clone>() { return 1i32; } return 0i32; }");
+    em.commit();
+    return;
+}
+
+#[mhdtq]
+pub struct AlphaHas { pub a: i32, }
+impl Clone for AlphaHas { fn clone(&self) -> AlphaHas { return AlphaHas { a: self.a }; } }
+
+// Same handler, same emitted shape, no `impl Clone`. This is the row that makes
+// the other one mean something.
+#[mhdtq]
+pub struct BetaLacks { pub a: i32, }
+
+unsafe fn main() -> i32 {
+    printi("cap_AlphaHas=%d\n",  cap_AlphaHas());
+    printi("cap_BetaLacks=%d\n", cap_BetaLacks());
+
+    if cap_AlphaHas()  != 1i32 { return 41; }
+    if cap_BetaLacks() != 0i32 { return 42; }
+    return 0i32;
+}

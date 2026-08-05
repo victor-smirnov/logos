@@ -1,0 +1,29 @@
+// FIXTURE for type_apply_trap_gate.sh — NOT a corpus test, and it must not
+// become one: the compiler CRASHES on it, and `run_test.sh` fail-mode cannot
+// tell a crash from a diagnostic.
+//
+// `type_apply` is the only name→`Type` bridge in the language, and it accepts a
+// name only as a SOURCE LITERAL. This is exactly the shape a metaprog handler
+// is in: the handler holds its target's name as a runtime `str` read off the
+// AST, never as a literal in its own source. Feeding that string here is the
+// whole of the wall between a handler and a capability question about the type
+// it was handed.
+//
+// What the compiler does today: prints one line to stderr and calls
+// `std::abort()` — src/compiler/mono_clone.cpp, `__type_apply__`. Sema forwards
+// both arguments unchecked (src/compiler/sema_expr.cpp), so nothing between the
+// parser and mono has an opinion. That makes it a compiler crash on ordinary
+// user input, not a refusal.
+package type_apply_nonliteral;
+
+use logos.std.compiler.metaprog;
+
+pub struct Pair<A, B> { pub a: A, pub b: B, }
+
+fn nm() -> str { return "Pair"; }
+
+unsafe fn main() -> i32 {
+    let t = type_apply(nm(), [type_of::<i32>(), type_of::<bool>()]);
+    if t.uid == (0 as u64) { return 1i32; }
+    return 0i32;
+}

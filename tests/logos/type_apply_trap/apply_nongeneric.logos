@@ -1,0 +1,34 @@
+// FIXTURE for type_apply_trap_gate.sh — NOT a corpus test, and it must not
+// become one: this program COMPILES WITH EXIT CODE 0 and the binary traps,
+// which is the one outcome `run_test.sh` pass-mode would report as an ordinary
+// wrong exit code, losing both facts that matter.
+//
+// `Marked` takes NO type parameters. `type_apply("Marked", [type_of::<i32>()])`
+// applies one type argument to it. Nothing checks arity — not the parser, not
+// sema, not mono — so the compile succeeds, the object file is written, and the
+// program dies on SIGILL when it reaches the result.
+//
+// ⚠ THE COMPILER IS NOT SILENT, AND SAYING SO WOULD BE OVERSTATING IT. It
+// prints, on stderr, with exit code 0:
+//     mono: note: 2 unresolved struct template(s)/name(s) (awaiting metaprog
+//     emission?); 1 fn(s) demoted to trap stubs
+// A `note`, with no source location, naming no name, phrased as a wait rather
+// than a refusal — and the trap stub it mentions IS the SIGILL. So the
+// diagnostic exists and carries the wrong register: an unsatisfiable demand is
+// reported in the same words as a demand that a later emission round will
+// satisfy, and the exit code cannot tell them apart.
+//
+// It is the same missing check as `apply_nonliteral`, one argument to the
+// right: `__type_apply__` validates the SHAPE of its first argument by aborting
+// and does not validate the second at all.
+package type_apply_nongeneric;
+
+use logos.std.compiler.metaprog;
+
+pub struct Marked { pub a: i32, }
+
+unsafe fn main() -> i32 {
+    let t = type_apply("Marked", [type_of::<i32>()]);
+    if t.uid == (0 as u64) { return 1i32; }
+    return 0i32;
+}

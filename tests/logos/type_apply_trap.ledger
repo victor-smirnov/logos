@@ -1,0 +1,70 @@
+# type_apply_trap.ledger — the measured behaviour of `type_apply` on inputs it
+# does not accept. EVERY ROW IS A DEFECT. The file records what the compiler
+# DOES, so that changing it is a deliberate act with a message attached.
+#
+# WHY A LEDGER AND NOT SIX PASS TESTS. Neither outcome below fits the corpus
+# harness. `run_test.sh` fail-mode asserts only that logosc exited non-zero and
+# printed a string — a SIGABRT and a clean refusal are the same test to it, and
+# the difference is the entire finding. Pass-mode runs the binary and compares
+# an exit code — a compiler that emitted an object file whose only content is a
+# trap looks like a program that returned 132.
+#
+# WHY THESE TWO PROGRAMS EXIST AT ALL. `type_apply` is the only name→`Type`
+# bridge in the language, so it is the only thing that could let a metaprog
+# handler ask a capability question about THE TYPE IT WAS HANDED — a handler
+# holds that type as a runtime `str` read off the AST. Row 1 is that exact
+# shape, and it is why a handler cannot do it. Row 2 is what the same intrinsic
+# does when it is fed a name it accepts and arguments it should not.
+#
+# FORMAT (`|`-separated, four fields):
+#   <fixture> | <compile_rc> | <run_rc or -> | <stderr substring, verbatim>
+# `run_rc` is `-` when the compile did not produce a binary to run. The stderr
+# substring is required to APPEAR in the compiler's stderr; it is the part of
+# the message that carries the finding, not the whole line.
+#
+# HELD IN BOTH DIRECTIONS by logos_00_type_apply_trap_ledger. A row whose
+# numbers no longer match is RED whichever way it moved:
+#   * a defect that got FIXED must DELETE its row and land the new behaviour as
+#     an ordinary corpus test (a refusal → tests/logos/fail/ with its
+#     diagnostic; an accepted program → tests/logos/pass/);
+#   * a defect that got WORSE is a fresh measurement, not a stale expectation.
+# The population is derived from tests/logos/type_apply_trap/*.logos, so a
+# fixture with no row and a row with no fixture are both RED.
+#
+# ── the cause, per row ──────────────────────────────────────────────────────
+# apply_nonliteral
+#   `__type_apply__` (src/compiler/mono_clone.cpp) reads its first argument and,
+#   if it is not a `LitStr` in the LIR, does `fprintf(stderr, …); std::abort()`.
+#   Sema forwards both arguments unchecked (src/compiler/sema_expr.cpp), so no
+#   phase between the parser and mono has an opinion, and the user sees a core
+#   dump with no file, no line and no span. ⚠ NOT AN INSTANCE: `grep -c
+#   'std::abort()' src/compiler/mono_clone.cpp` answered 20 on 2026-08-05 —
+#   an observation NOTHING BELOW PINS, stated with its date so a reader does not
+#   mistake it for a gated number. This row is what was measured; the class is
+#   "mono diagnoses by aborting", and closing it is a sweep, not a patch.
+# apply_nongeneric
+#   No arity check anywhere. `Marked` takes no type parameters and is handed
+#   one. The compile succeeds — exit code 0, object file written — and the
+#   demanded instance becomes a trap stub, which is the SIGILL. The compiler
+#   does print a `mono: note:` about "unresolved struct template(s)" and
+#   "fn(s) demoted to trap stubs", so this is a WRONG-REGISTER diagnostic
+#   rather than an absent one: an unsatisfiable demand is worded exactly like a
+#   demand a later metaprog emission round will satisfy, and the exit code
+#   cannot separate them.
+# tuple_apply_hop_cliff
+#   THE DIVERGENCE ROW, and the reason this ledger is worth reading next to
+#   tests/logos/pass/meta_trait_query_blind_hops.logos. The spec's shared
+#   `type-producer-recover` protocol chases `Type`-valued `let` aliases up to 8
+#   hops and, on failure, "aborts compilation with a diagnostic". At ten hops it
+#   does exactly that — SIGABRT, `arg[0] not a Type producer`. `__has_trait_of__`
+#   reimplements the same 8-hop chase privately in the same file and, on the
+#   same failure, returns `false` with exit code 0 and no message. So the fact
+#   "the chase ran out" IS computed at the point where the capability query
+#   discards it, and closing the silent-false defect does not need a new fact —
+#   only a way to say the one that already exists. ⚠ Neither arm is right:
+#   `std::abort()` is not a diagnostic either. Control, 2026-08-05: the same
+#   program at SEVEN hops compiles and runs clean, so the abort is the bound.
+#
+apply_nonliteral     | 134 | -   | mono.__type_apply__: name must be a string literal
+apply_nongeneric     | 0   | 132 | demoted to trap stubs
+tuple_apply_hop_cliff | 134 | -  | mono.__tuple_type_apply__: arg[0] not a Type producer

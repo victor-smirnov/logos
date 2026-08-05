@@ -1,0 +1,105 @@
+// A METAPROG HANDLER CAN ASK THE TRAIT QUERY, AND IT GETS THE RIGHT ANSWER.
+//
+// This pins the capability that decides how the value-domain derivation is
+// priced. The prior reading of the evidence was that a handler CANNOT reach the
+// trait engine at all — inferred from three true facts (schema reflection is
+// keyed on a runtime name; `type_apply` aborts on a non-literal; `has_trait_of`
+// answers false when its VarRef chase fails). The inference did not follow: the
+// metaprog JIT compiles the whole program, so the impl table is fully populated
+// by the time a handler runs, and a handler that names a type LITERALLY gets
+// exactly the answer ordinary code gets.
+//
+// The handler asks four capability questions at COMPILE TIME and bakes its
+// answers into emitted `h_*` functions. `main` asks the identical four from
+// ordinary code as `m_*`. Every h/m pair must agree, INCLUDING THE NEGATIVE:
+// `Plain` has no `impl Clone`, and a handler that could not see the impl table
+// at all would answer 0 to everything and look "correct" on three rows out of
+// four. `h_kwneg` is what separates seeing from not looking.
+//
+// The test is also self-controlling on the handler firing: if the trigger never
+// ran, `h_kw` would not exist and the compile would fail on an undefined name.
+//
+// What this does NOT claim: a handler cannot ask about THE TYPE IT WAS HANDED.
+// The target arrives as runtime text and no runtime text can become a `Type` —
+// see tests/logos/type_apply_trap/ for that wall, measured.
+package meta_handler_trait_query;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub struct Marked { pub a: i32, }
+impl Clone for Marked {
+    fn clone(&self) -> Marked { return Marked { a: self.a }; }
+}
+
+// Deliberately NO `impl Clone`: this is the row that proves the handler is
+// reading the impl table rather than answering from nothing.
+pub struct Plain { pub a: i32, }
+
+#[metaprog_handler("mhtq")]
+fn mhtq_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    // ── THE QUESTION, ASKED FROM INSIDE A HANDLER ──────────────────────────
+    let kw: i32    = if has_trait::<Marked, Clone>() { 1i32 } else { 0i32 };
+    let kwneg: i32 = if has_trait::<Plain, Clone>()  { 1i32 } else { 0i32 };
+    let lit: i32   = if has_trait_of::<Clone>(type_of::<Marked>()) { 1i32 } else { 0i32 };
+    let tl: Type   = type_of::<Marked>();
+    let vlet: i32  = if has_trait_of::<Clone>(tl) { 1i32 } else { 0i32 };
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub fn h_kw() -> i32 { return ");
+    em.buf.push_u64(kw as u64);
+    em.buf.push_str("i32; } pub fn h_kwneg() -> i32 { return ");
+    em.buf.push_u64(kwneg as u64);
+    em.buf.push_str("i32; } pub fn h_lit() -> i32 { return ");
+    em.buf.push_u64(lit as u64);
+    em.buf.push_str("i32; } pub fn h_let() -> i32 { return ");
+    em.buf.push_u64(vlet as u64);
+    em.buf.push_str("i32; }");
+    em.commit();
+    return;
+}
+
+// The trigger sits on a type that is NOT the query subject, so the handler is
+// not asking about the item it is mid-way through processing.
+#[mhtq]
+pub struct Anchor { pub z: i32, }
+
+unsafe fn main() -> i32 {
+    let m_kw: i32    = if has_trait::<Marked, Clone>() { 1i32 } else { 0i32 };
+    let m_kwneg: i32 = if has_trait::<Plain, Clone>()  { 1i32 } else { 0i32 };
+    let m_lit: i32   = if has_trait_of::<Clone>(type_of::<Marked>()) { 1i32 } else { 0i32 };
+    let tl: Type     = type_of::<Marked>();
+    let m_let: i32   = if has_trait_of::<Clone>(tl) { 1i32 } else { 0i32 };
+
+    printi("h_kw=%d\n",    h_kw());
+    printi("h_kwneg=%d\n", h_kwneg());
+    printi("h_lit=%d\n",   h_lit());
+    printi("h_let=%d\n",   h_let());
+    printi("m_kw=%d\n",    m_kw);
+    printi("m_kwneg=%d\n", m_kwneg);
+    printi("m_lit=%d\n",   m_lit);
+    printi("m_let=%d\n",   m_let);
+
+    // The agreement is the assertion; stdout above is the evidence.
+    if h_kw()    != m_kw    { return 41; }
+    if h_kwneg() != m_kwneg { return 42; }
+    if h_lit()   != m_lit   { return 43; }
+    if h_let()   != m_let   { return 44; }
+    // …and agreement with a blind handler would be agreement on nothing.
+    if h_kw()    != 1i32 { return 51; }
+    if h_kwneg() != 0i32 { return 52; }
+    return 0i32;
+}

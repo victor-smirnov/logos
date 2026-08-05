@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+direct=1
+let=1
+fnret=0
+kw=1

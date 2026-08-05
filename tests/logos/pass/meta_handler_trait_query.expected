@@ -1,0 +1,10 @@
+exit: 0
+stdout:
+h_kw=1
+h_kwneg=0
+h_lit=1
+h_let=1
+m_kw=1
+m_kwneg=0
+m_lit=1
+m_let=1

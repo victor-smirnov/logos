@@ -1,0 +1,95 @@
+// ⚠⚠ THIS FILE PINS A DEFECT. THE ANSWER IT ASSERTS IS THE WRONG ONE. ⚠⚠
+//
+// THE CLIFF HAS A NUMBER, AND THE NUMBER IS 8.
+//
+// `has_trait_of::<Tr>(t: Type)` recovers the concrete type by walking
+// `Type`-valued `let` aliases back to a `type_of` literal. The walk is bounded:
+//
+//     for (int hops = 0; hops < 8 && er && er.kind() == …::VarRef; ++hops)
+//         — src/compiler/mono_clone.cpp, the `chase` lambda inside the
+//           `__has_trait_of__` arm (line wrapping and the namespace on the
+//           enumerator elided; the bound is verbatim)
+//
+// and when it runs out it does not say so. `Marked` implements `Clone`. Seven
+// aliases deep the answer is 1. EIGHT aliases deep it is 0 — one extra `let`,
+// written by someone who has never heard of this loop, silently flips a
+// capability answer from yes to no with exit code 0 and no diagnostic.
+//
+// THE CORRECT ANSWER ON EVERY ROW BELOW IS 1.
+//
+// ⚠ AND THE COMPILER ALREADY KNOWS. `docs/spec/metaprogramming.md` specifies
+// ONE recovery protocol (`metaprog.type-intrinsic.type-producer-recover`,
+// shared by `__apply_generic__`/`__tuple_type_apply__`/`__array_type_apply__`)
+// with the SAME 8-hop bound, and on failure it "aborts compilation with a
+// diagnostic". MEASURED 2026-08-05: `quote_ty! { ($h10, $tb) }` at ten hops
+// exits 134 saying `arg[0] not a Type producer`; the identical program at seven
+// hops compiles and runs clean. `__has_trait_of__` has a PRIVATE copy of that
+// chase, in the same source file, and where the shared one abandons the compile
+// it returns `false`. The fact "the chase ran out" is computed and then thrown
+// away — so making this query honest needs a way to SAY something the compiler
+// already knows, not a new analysis. (Neither arm is right: `std::abort()` is
+// not a diagnostic either. The other arm is pinned in
+// tests/logos/type_apply_trap/tuple_apply_hop_cliff.logos.)
+//
+// This is the same defect as `meta_trait_query_blind_fnret` seen from the other
+// side: that file shows the chase failing on a shape it cannot follow, this one
+// shows it failing on a shape it CAN follow but is not allowed to follow far
+// enough. Both are the missing "could not look" answer. They are separate files
+// because the fixes are separable — a deeper bound would close this one and
+// leave the other exactly as it is — and a red test should name one fact.
+//
+// ⚠ IF THIS TEST GOES RED, READ THE STDOUT BEFORE TOUCHING THE FILE.
+//   All rows 1 → the defect is fixed: delete this file, assert `all == 1` as an
+//   ordinary pass test. The cliff moved to a different depth → the bound
+//   changed and this file must be re-measured, not re-pointed. Rows below the
+//   cliff turned 0 → that is a NEW and much worse defect.
+package meta_trait_query_blind_hops;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub struct Marked { pub a: i32, }
+impl Clone for Marked { fn clone(&self) -> Marked { return Marked { a: self.a }; } }
+
+unsafe fn main() -> i32 {
+    let h0: Type = type_of::<Marked>();
+    let h1: Type = h0;  let h2: Type = h1;  let h3: Type = h2;
+    let h4: Type = h3;  let h5: Type = h4;  let h6: Type = h5;
+    let h7: Type = h6;  let h8: Type = h7;  let h9: Type = h8;
+    let h10: Type = h9;
+
+    let a0:  i32 = if has_trait_of::<Clone>(h0)  { 1i32 } else { 0i32 };
+    let a1:  i32 = if has_trait_of::<Clone>(h1)  { 1i32 } else { 0i32 };
+    let a4:  i32 = if has_trait_of::<Clone>(h4)  { 1i32 } else { 0i32 };
+    let a6:  i32 = if has_trait_of::<Clone>(h6)  { 1i32 } else { 0i32 };
+    let a7:  i32 = if has_trait_of::<Clone>(h7)  { 1i32 } else { 0i32 };
+    let a8:  i32 = if has_trait_of::<Clone>(h8)  { 1i32 } else { 0i32 };
+    let a9:  i32 = if has_trait_of::<Clone>(h9)  { 1i32 } else { 0i32 };
+    let a10: i32 = if has_trait_of::<Clone>(h10) { 1i32 } else { 0i32 };
+
+    printi("hop0=%d\n",  a0);
+    printi("hop1=%d\n",  a1);
+    printi("hop4=%d\n",  a4);
+    printi("hop6=%d\n",  a6);
+    printi("hop7=%d\n",  a7);
+    printi("hop8=%d\n",  a8);
+    printi("hop9=%d\n",  a9);
+    printi("hop10=%d\n", a10);
+
+    // Ground truth: `Marked` implements `Clone`, so every row SHOULD be 1.
+    if has_trait::<Marked, Clone>() != true { return 41; }
+    // Below the cliff — correct, and the control that keeps the rest meaningful.
+    if a0 != 1i32 { return 42; }
+    if a1 != 1i32 { return 43; }
+    if a4 != 1i32 { return 44; }
+    if a6 != 1i32 { return 45; }
+    if a7 != 1i32 { return 46; }
+    // THE DEFECT, RECORDED. Correct value on each of these: 1.
+    if a8  != 0i32 { return 47; }
+    if a9  != 0i32 { return 48; }
+    if a10 != 0i32 { return 49; }
+    return 0i32;
+}

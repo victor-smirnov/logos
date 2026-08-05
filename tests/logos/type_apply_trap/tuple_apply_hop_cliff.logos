@@ -1,0 +1,47 @@
+// FIXTURE for type_apply_trap_gate.sh — NOT a corpus test: the compiler
+// aborts, and `run_test.sh` fail-mode cannot tell a SIGABRT from a refusal.
+//
+// THE SAME CLIFF, IN THE SAME FILE, WITH TWO DIFFERENT ANSWERS.
+//
+// docs/spec/metaprogramming.md specifies ONE recovery protocol —
+// `metaprog.type-intrinsic.type-producer-recover`, shared by
+// `__apply_generic__` / `__tuple_type_apply__` / `__array_type_apply__` —
+// which chases `Type`-valued `let` aliases "up to 8 hops" and, when recovery
+// fails, "aborts compilation with a diagnostic".
+//
+// This program is that protocol at TEN hops: `quote_ty! { ($h10, $tb) }`, where
+// `$h10` is ten `let` aliases away from its `type_of`. It is measured here
+// because of what it says about its NEIGHBOUR: `__has_trait_of__` reimplements
+// the same 8-hop chase privately, and where this one abandons the compile,
+// that one returns `false` with exit code 0 and no message
+// (tests/logos/pass/meta_trait_query_blind_hops.logos).
+//
+// So the compiler ALREADY notices that a chase ran out — the fact exists at
+// exactly the point where `has_trait_of` throws it away. Whatever a capability
+// query should say when it could not look, "silently no" is not the house
+// style; it is one arm of a divergence inside a single source file.
+//
+// ⚠ NEITHER ARM IS RIGHT. `std::abort()` is not "a diagnostic": no file, no
+// line, no span, a core dump. This row records the louder wrong answer, and
+// the corpus test named above records the quieter one.
+//
+// CONTROL, checked when this fixture was written (2026-08-05): the identical
+// program at SEVEN hops compiles (rc 0), links and runs (rc 0) with the tuple
+// type recovered correctly, so the abort is the bound and not the shape.
+package tuple_apply_hop_cliff;
+
+use logos.std.compiler.metaprog;
+
+unsafe fn main() -> i32 {
+    let h0: Type = type_of::<i32>();
+    let h1: Type = h0;  let h2: Type = h1;  let h3: Type = h2;
+    let h4: Type = h3;  let h5: Type = h4;  let h6: Type = h5;
+    let h7: Type = h6;  let h8: Type = h7;  let h9: Type = h8;
+    let h10: Type = h9;
+    let tb: Type = type_of::<bool>();
+
+    let p = quote_ty! { ($h10, $tb) };
+    let direct = type_of::<(i32, bool)>();
+    if p.uid != direct.uid { return 1; }
+    return 0;
+}

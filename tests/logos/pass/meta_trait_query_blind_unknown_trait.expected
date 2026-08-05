@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+i64_Hash=1
+i64_Bogus=0

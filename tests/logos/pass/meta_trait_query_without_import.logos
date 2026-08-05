@@ -1,0 +1,33 @@
+// THE OTHER HALF OF IMPORT-INVARIANCE: a hand-written module that does NOT
+// import the trait's package gets the same answers as one that does.
+//
+// `meta_trait_query_emit_import_view` pins the emitted-chunk case, where one
+// handler controls both import views. This pins the plain case, which is the
+// one every other trait-query test in the corpus silently assumes away: they
+// all `use` the trait's package, so none of them can tell whether the impl
+// table is global or scoped.
+//
+// NOTE THE ABSENT LINE. There is deliberately no `use logos.lang.hash;` here.
+// If someone adds one, this file stops testing anything and becomes a duplicate
+// of `meta_has_trait`.
+//
+// The `NoHash` row is the control: a module that could not see the impl table
+// would answer 0 to both, which looks correct on the second row alone.
+package meta_trait_query_without_import;
+
+pub struct NoHash { pub a: i32, }
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    // stdlib type, stdlib trait, trait package NOT imported here.
+    let a: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+    // CONTROL: local type with no impl — must be NO, or the probe is blind.
+    let b: i32 = if has_trait::<NoHash, Hash>() { 1i32 } else { 0i32 };
+    printi("i64_Hash=%d\n", a);
+    printi("NoHash_Hash=%d\n", b);
+    if a != 1i32 { return 41; }
+    if b != 0i32 { return 42; }
+    return 0i32;
+}

@@ -1,0 +1,73 @@
+// CAPABILITY IS A PROPERTY OF THE TYPE, NOT OF THE IMPORT GRAPH.
+//
+// Every trait query reads an impl table populated from what the program
+// imported. If the answer depended on the ASKER's import view, a derivation
+// running inside a handler — which controls the import view of the code it
+// emits — could be handed a different truth than the program it emits into,
+// and no derivation over capability would be sound.
+//
+// This asks the question in the form that actually matters: ONE handler emits
+// TWO chunks into the same package, one of which imports `logos.lang.clone`
+// and one of which does not. Both chunks ask the identical two questions about
+// the identical two types.
+//
+// The `_no` rows are the control. If the emitted chunk that lacks the import
+// answered 0 to everything, the `_yes`/`_no` split would be indistinguishable
+// from import-sensitivity; requiring `Marked` to answer 1 and `Plain` to answer
+// 0 in BOTH chunks pins that both chunks are reading the same impl table.
+package meta_trait_query_emit_import_view;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub struct Marked { pub a: i32, }
+impl Clone for Marked { fn clone(&self) -> Marked { return Marked { a: self.a }; } }
+
+pub struct Plain { pub a: i32, }
+
+#[metaprog_handler("mtqiv")]
+fn mtqiv_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    // CHUNK A — the emitted module DOES import the trait.
+    let mut ea: Emitter = Emitter::new();
+    ea.emit_target_pkg(&view);
+    ea.buf.push_str("use logos.lang.clone; ");
+    ea.buf.push_str("pub fn iv_with_yes() -> i32 { if has_trait::<Marked, Clone>() { return 1i32; } return 0i32; } ");
+    ea.buf.push_str("pub fn iv_with_no() -> i32 { if has_trait::<Plain, Clone>() { return 1i32; } return 0i32; }");
+    ea.commit();
+
+    // CHUNK B — the emitted module does NOT import the trait. Same questions.
+    let mut eb: Emitter = Emitter::new();
+    eb.emit_target_pkg(&view);
+    eb.buf.push_str("pub fn iv_without_yes() -> i32 { if has_trait::<Marked, Clone>() { return 1i32; } return 0i32; } ");
+    eb.buf.push_str("pub fn iv_without_no() -> i32 { if has_trait::<Plain, Clone>() { return 1i32; } return 0i32; }");
+    eb.commit();
+    return;
+}
+
+#[mtqiv]
+pub struct Anchor { pub z: i32, }
+
+unsafe fn main() -> i32 {
+    printi("iv_with_yes=%d\n",    iv_with_yes());
+    printi("iv_with_no=%d\n",     iv_with_no());
+    printi("iv_without_yes=%d\n", iv_without_yes());
+    printi("iv_without_no=%d\n",  iv_without_no());
+
+    if iv_with_yes()    != iv_without_yes() { return 41; }
+    if iv_with_no()     != iv_without_no()  { return 42; }
+    if iv_with_yes()    != 1i32 { return 51; }
+    if iv_with_no()     != 0i32 { return 52; }
+    return 0i32;
+}

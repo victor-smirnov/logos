@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+cap_AlphaHas=1
+cap_BetaLacks=0

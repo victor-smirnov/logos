@@ -1,0 +1,68 @@
+// ⚠⚠ THIS FILE PINS A DEFECT. THE ANSWER IT ASSERTS IS THE WRONG ONE. ⚠⚠
+//
+// `has_trait_of::<Tr>(t: Type)` answers FALSE, with no diagnostic and exit
+// code 0, whenever mono cannot chase the `Type` value back to a `type_of`
+// literal. `Boxed` has an `impl Clone`. Asked directly the answer is 1; asked
+// through one `let` it is 1; asked about the value a FUNCTION RETURNED it is 0.
+// Same type, same trait, same program, same compilation.
+//
+// THE CORRECT ANSWER ON EVERY ROW BELOW IS 1. The recorded row is
+// `fnret=0`, and the test exits 0 on the RECORDED answer, not the correct one.
+//
+// WHY PIN IT AT ALL. A capability query that says "no" when it means "I could
+// not look" is the one shape a derivation over capability cannot survive:
+// nothing distinguishes an absent impl from an unchaseable expression, so a
+// refactor that moves a `type_of` behind a function call silently changes what
+// gets derived. The recovery is at src/compiler/mono_clone.cpp — the chase in
+// `__has_trait_of__` falls through to `bool answer = false;` with no branch for
+// "T was never recovered". Until that becomes a diagnostic or a three-valued
+// answer, this is what the compiler does, and a written note that nothing
+// re-measures gets re-discovered instead of fixed.
+//
+// ⚠ IF THIS TEST GOES RED BECAUSE `fnret` NOW READS 1, THE DEFECT IS FIXED.
+//   Do not "restore" it. Delete this file and add the correct assertion —
+//   `fnret == direct == let == kw == 1` — as an ordinary pass test.
+//   If it goes red any OTHER way, the blindness has moved, and the new shape
+//   is a fresh measurement, not a stale expectation.
+package meta_trait_query_blind_fnret;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub struct Boxed { pub a: i32, pub b: i64, }
+
+impl Clone for Boxed {
+    fn clone(&self) -> Boxed { return Boxed { a: self.a, b: self.b }; }
+}
+
+fn give_type() -> Type { return type_of::<Boxed>(); }
+
+unsafe fn main() -> i32 {
+    // (1) direct literal
+    let direct: i32 = if has_trait_of::<Clone>(type_of::<Boxed>()) { 1i32 } else { 0i32 };
+    // (2) through ONE let hop
+    let tlet: Type = type_of::<Boxed>();
+    let vlet: i32 = if has_trait_of::<Clone>(tlet) { 1i32 } else { 0i32 };
+    // (3) through a fn RETURN — same type, same trait, same program
+    let tret: Type = give_type();
+    let vret: i32 = if has_trait_of::<Clone>(tret) { 1i32 } else { 0i32 };
+    // (4) the keyword form, as ground truth: `Boxed` DOES implement `Clone`.
+    let kw: i32 = if has_trait::<Boxed, Clone>() { 1i32 } else { 0i32 };
+
+    printi("direct=%d\n", direct);
+    printi("let=%d\n",    vlet);
+    printi("fnret=%d\n",  vret);
+    printi("kw=%d\n",     kw);
+
+    // Ground truth first: if THIS moves, the fixture stopped describing a
+    // type that implements the trait and every row below is meaningless.
+    if kw     != 1i32 { return 41; }
+    if direct != 1i32 { return 42; }
+    if vlet   != 1i32 { return 43; }
+    // THE DEFECT, RECORDED. Correct value: 1.
+    if vret   != 0i32 { return 44; }
+    return 0i32;
+}

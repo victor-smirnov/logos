@@ -1,0 +1,48 @@
+// ⚠⚠ THIS FILE PINS A DEFECT. THE ANSWER IT ASSERTS IS THE WRONG ONE. ⚠⚠
+//
+// A TRAIT NAME THAT EXISTS NOWHERE ANSWERS "no", SILENTLY.
+//
+// `has_trait::<T, Tr>()` matches the trait by name — the spec says "identified
+// by name only" — and nothing anywhere checks that the name denotes a trait.
+// `has_trait::<i64, NoSuchTraitAnywhere>()` compiles with exit code 0, emits no
+// diagnostic, and folds to `false`. So a TYPO in a trait name is
+// indistinguishable from a genuine absence of the impl, and the capability
+// derivation that reads it will quietly take the negative branch forever.
+//
+// THE CORRECT BEHAVIOUR IS A DIAGNOSTIC, not an answer. Unlike the two
+// `blind_*` files next to this one, this case is knowable at sema time: the set
+// of trait names in scope is a thing the compiler HAS, whereas "which type did
+// this `Type` value come from" is a thing it was trying to reconstruct. That
+// makes this the cheapest of the three to close and the only one that needs no
+// design decision about what a three-valued answer looks like — but it is a
+// behaviour change to a public intrinsic, so it is recorded here rather than
+// changed in passing.
+//
+// The `Hash` row is the control: if it stopped reading 1, the fixture would be
+// measuring a compiler that answers "no" to everything, and the bogus row would
+// prove nothing.
+//
+// ⚠ IF THIS TEST GOES RED: a bogus trait name now produces a compile error —
+//   correct. Delete this file and move the case to tests/logos/fail/ with the
+//   diagnostic as its expectation.
+package meta_trait_query_blind_unknown_trait;
+
+use logos.lang.hash;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    // CONTROL: a real trait, really implemented.
+    let real: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+    // THE DEFECT: a name that is not a trait anywhere in the program or stdlib.
+    let bogus: i32 = if has_trait::<i64, NoSuchTraitAnywhere>() { 1i32 } else { 0i32 };
+
+    printi("i64_Hash=%d\n",  real);
+    printi("i64_Bogus=%d\n", bogus);
+
+    if real != 1i32 { return 41; }
+    // RECORDED. The correct behaviour is that this program does not compile.
+    if bogus != 0i32 { return 42; }
+    return 0i32;
+}
