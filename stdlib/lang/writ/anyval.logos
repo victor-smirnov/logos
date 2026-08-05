@@ -324,9 +324,41 @@ impl WAny {
     // so a bare null-check would fall through and reinterpret the Pod word as a wild
     // `*f32`/`*f64` pointer → SIGSEGV. `!is_ref()` covers both null and Pod → 0.0.
     /// Returns the boxed `f32` value; null or Pod → `0.0` (floats are never inline).
-    pub fn as_f32(self: &WAny) -> f32 { if !self.is_ref() { return 0.0f32; } return unsafe { *(self.resolve() as *const f32) }; }
-    /// Returns the boxed `f64` value; null or Pod → `0.0`.
-    pub fn as_f64(self: &WAny) -> f64 { if !self.is_ref() { return 0.0f64; } return unsafe { *(self.resolve() as *const f64) }; }
+    pub fn as_f32(self: &WAny) -> f32 {
+        if !self.is_ref() { return 0.0f32; }
+        // A W_F64 box holds EIGHT bytes; reading four of them as an f32 is the
+        // mirror of the defect fixed in `as_f64` below, and it is the same fix.
+        if unsafe { w_type_code(self.resolve()) } == W_F64 {
+            return unsafe { *(self.resolve() as *const f64) } as f32;
+        }
+        return unsafe { *(self.resolve() as *const f32) };
+    }
+    /// Returns the boxed `f64` value; null or Pod → `0.0`. A boxed `f32` WIDENS.
+    ///
+    /// ⚠ IT USED TO READ EIGHT BYTES OUT OF A FOUR-BYTE BOX. `box_f32` writes a
+    /// `W_F32` object of four bytes; this function reinterpreted the pointee as
+    /// `*const f64` whatever the type code said, so an f32 arrived as a denormal
+    /// built from the f32's bits plus four bytes of whatever followed it.
+    ///
+    /// MEASURED, and this one accessor is the ROOT of the f32 defect in BOTH
+    /// runtime tiers, not `RtVal`: ten of thirteen dynamic-engine cells over an
+    /// f32 column answered wrongly — select, `+`, `<`, `order by`, `group by`,
+    /// `distinct`, sum, min, max, avg — and the incremental engine's
+    /// `sum{1.0f32, 2.0f32}` came back as the bit pattern 2139095040. With the
+    /// dispatch below, the same sum is 4613937818241073152, which is 3.0.
+    ///
+    /// ⚠ IT CHANGES BYTES ON DISK. `wbs.logos` serializes through this path, so
+    /// an f32-bearing document now writes the widened value where it wrote the
+    /// denormal. Victor ruled 2026-08-04 that this is a FIX and not a migration:
+    /// nothing correct ever depended on the denormal, and the wire format has one
+    /// float tag with no f32 variant to be compatible with.
+    pub fn as_f64(self: &WAny) -> f64 {
+        if !self.is_ref() { return 0.0f64; }
+        if unsafe { w_type_code(self.resolve()) } == W_F32 {
+            return unsafe { *(self.resolve() as *const f32) } as f64;
+        }
+        return unsafe { *(self.resolve() as *const f64) };
+    }
 }
 
 // ── WAnyMut — the MUTABLE dual of WAny (a fat `&mut` onto an element slot) ─────

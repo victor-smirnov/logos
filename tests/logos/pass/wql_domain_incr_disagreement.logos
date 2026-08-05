@@ -162,8 +162,12 @@ fn main() -> i32 {
     if r2.get_i64(0i64, 0i64) == -1i64 { return 24i32; }
     if r2.get_i64(0i64, 0i64) != 1i64 { return 25i32; }   // ⚠ KNOWN-WRONG: the SMALLER value
 
-    // ── 2. sum(f32) — INCREMENTAL. ⚠ KNOWN-WRONG: adds two subnormals and
-    //      answers bits 2139095040. OUGHT to answer 3.0, bits 4613937818241073152.
+    // ── 2. sum(f32) — INCREMENTAL. ✅ CLOSED 2026-08-04 (slice A). It used to
+    //      add two subnormals and answer bits 2139095040; the OUGHT recorded
+    //      here BEFORE any fix existed was 3.0, bits 4613937818241073152, and
+    //      that is bit-for-bit what the one-line dispatch in `WAny::as_f64`
+    //      produced. The root was never `RtVal`: `as_f64` read EIGHT bytes out
+    //      of a four-byte `W_F32` box whatever the type code said.
     //      CONTROL in the same query: sum(f64) over 1.0 + 2.0 must be exactly 3.0.
     let q3: Query = match Query::compile(
         "from ss s group by s.g aggregate a = sum(s.x_f32), b = sum(s.x_f64) select (key, a, b)", &c) {
@@ -174,13 +178,13 @@ fn main() -> i32 {
     let s3: QRows = g3.snapshot();
     if s3.row_count() != 1i64 { return 33i32; }
     if s3.get_f64(0i64, 2i64) != 3.0f64 { return 34i32; } // CONTROL: sum(f64) = 3.0
-    // OUGHT: 3.0, whose f64 bits are 4613937818241073152 — the same number the
-    // f64 control on the line above produces. Reaching this arm means the defect
-    // CLOSED; rewrite the block.
-    if f64_to_bits(s3.get_f64(0i64, 1i64)) == 4613937818241073152u64 { return 35i32; }
-    if f64_to_bits(s3.get_f64(0i64, 1i64)) != 2139095040u64 { return 36i32; }  // ⚠ KNOWN-WRONG
+    // 3.0 — the same number the f64 control on the line above produces, asserted
+    // on the BITS so a near-miss cannot pass as a rounding difference.
+    if f64_to_bits(s3.get_f64(0i64, 1i64)) != 4613937818241073152u64 { return 35i32; }
 
-    // ── 2b. the SAME question of the DYNAMIC engine — it agrees, wrongly.
+    // ── 2b. the SAME question of the DYNAMIC engine. It agreed WRONGLY before
+    //      slice A and agrees RIGHTLY after it — one accessor served both tiers,
+    //      which is why one line moved both.
     let q4: Query = match Query::compile(
         "from ss s group by s.g aggregate a = sum(s.x_f32), b = sum(s.x_f64) select (a, b)", &c) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; } };
@@ -188,9 +192,7 @@ fn main() -> i32 {
         Result::Ok(v) => { v } Result::Err(_e) => { return 41i32; } };
     if r4.row_count() != 1i64 { return 42i32; }
     if r4.get_f64(0i64, 1i64) != 3.0f64 { return 43i32; } // CONTROL: sum(f64) = 3.0
-    // OUGHT: 3.0, bits 4613937818241073152. See block 2.
-    if f64_to_bits(r4.get_f64(0i64, 0i64)) == 4613937818241073152u64 { return 44i32; }
-    if f64_to_bits(r4.get_f64(0i64, 0i64)) != 2139095040u64 { return 45i32; }  // ⚠ KNOWN-WRONG
+    if f64_to_bits(r4.get_f64(0i64, 0i64)) != 4613937818241073152u64 { return 44i32; }
 
     // ── 3. AN EQUI-JOIN ON AN i64 KEY — the CONTROL. Both engines accept it, so
     //      the join shape itself is an incremental shape over these two sources.

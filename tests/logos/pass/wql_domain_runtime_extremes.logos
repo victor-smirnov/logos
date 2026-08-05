@@ -42,17 +42,16 @@
 // `WAny::as_f64` (stdlib/lang/writ/anyval.logos:329) dereferences the boxed
 // payload as `*const f64` without consulting the Ref's own type code, which
 // distinguishes W_F32=30 from W_F64=31 and which `is_float()` at :303-307 DOES
-// read. So an f32 arrives as its own 32 bits ZERO-EXTENDED into an f64 — a
-// positive denormal near 5e-315. Asserted as exact bit patterns rather than as
-// f64 values, because a denormal compared with `==` is not a legible assertion:
-//     0.1f32       reads back as bits 1036831949  (0x3DCCCCCD, the f32 word)
-//                  OUGHT to read back as bits 4591870180174331904
-//    -1048576.5f32 reads back as bits 3380609028
-//                  OUGHT to read back as bits 13920626450349686784
-//     1048576.5f32 reads back as bits 1233125380
-//                  OUGHT to read back as bits 4697254413494910976
-//    -1.5f32       reads back as bits 3217031168
-//                  OUGHT to read back as bits 13832806255468478464
+// read. So an f32 arrived as its own 32 bits ZERO-EXTENDED into an f64 — a
+// positive denormal near 5e-315. CLOSED 2026-08-04 by slice A: `WAny::as_f64`
+// asks the Ref's own type code and widens a W_F32 box. The four OUGHT values
+// below were recorded BEFORE the fix existed and the fix reproduced all four
+// bit-for-bit. Still asserted as exact bit patterns rather than as f64 values,
+// because the WRONG answers were denormals and `==` cannot legibly reject one:
+//     0.1f32       reads back as bits 4591870180174331904  (was 1036831949)
+//    -1048576.5f32 reads back as bits 13920626450349686784 (was 3380609028)
+//     1048576.5f32 reads back as bits 4697254413494910976  (was 1233125380)
+//    -1.5f32       reads back as bits 13832806255468478464 (was 3217031168)
 // THE NUMBERS ARE DERIVED FROM THE MECHANISM, not read off a run: they are
 // `f32_to_bits(v)` widened to 64 by zero-extension, which is what "read the
 // 4-byte payload as 8 bytes, high half zero" means. If the mechanism claim were
@@ -356,19 +355,17 @@ fn main() -> i32 {
     if r2.get_i64(0i64, 1i64) != -9223372036854775808i64 { return 100i32; }
     if r2.get_i64(3i64, 1i64) != 1i64 { return 101i32; }
 
-    // ── f32 ── query 2 column 2, codes 104..108   ⚠ KNOWN-WRONG, see the header
-    if f64_to_bits(r2.get_f64(0i64, 2i64)) == 4591870180174331904u64 { return 108i32; }
-    if f64_to_bits(r2.get_f64(1i64, 2i64)) == 13920626450349686784u64 { return 108i32; }
-    if f64_to_bits(r2.get_f64(2i64, 2i64)) == 4697254413494910976u64 { return 108i32; }
-    if f64_to_bits(r2.get_f64(3i64, 2i64)) == 13832806255468478464u64 { return 108i32; }
-    //    ^ each of those four IS the value this column OUGHT to read
-    //      back. Reaching one means `WAny::as_f64` learned to ask the
-    //      Ref's own type code — rewrite this block; do not re-read the
-    //      numbers off a run.
-    if f64_to_bits(r2.get_f64(1i64, 2i64)) != 3380609028u64 { return 104i32; }
-    if f64_to_bits(r2.get_f64(2i64, 2i64)) != 1233125380u64 { return 105i32; }
-    if f64_to_bits(r2.get_f64(0i64, 2i64)) != 1036831949u64 { return 106i32; }
-    if f64_to_bits(r2.get_f64(3i64, 2i64)) != 3217031168u64 { return 107i32; }
+    // ── f32 ── query 2 column 2, codes 104..107   ✅ CLOSED 2026-08-04 (slice A)
+    // Each of these four was recorded in the header as the OUGHT, DERIVED from
+    // the mechanism (`f32_to_bits(v)` widened to 64 by zero-extension is what
+    // "read the 4-byte payload as 8 bytes" means) and written before any fix
+    // existed. `WAny::as_f64` now asks the Ref's own type code, and all four came
+    // back bit-for-bit as recorded. Asserted on the BITS, not as f64 values: the
+    // old answers were denormals near 5e-315, which `==` cannot legibly reject.
+    if f64_to_bits(r2.get_f64(0i64, 2i64)) != 4591870180174331904u64 { return 104i32; }
+    if f64_to_bits(r2.get_f64(1i64, 2i64)) != 13920626450349686784u64 { return 105i32; }
+    if f64_to_bits(r2.get_f64(2i64, 2i64)) != 4697254413494910976u64 { return 106i32; }
+    if f64_to_bits(r2.get_f64(3i64, 2i64)) != 13832806255468478464u64 { return 107i32; }
 
     // ── f64 ── query 2 column 3, codes 110..113
     if r2.get_f64(1i64, 3i64) != -1.0e300f64 { return 110i32; }

@@ -12,6 +12,11 @@
 // every number in it was produced by running this program. Nothing here is
 // inferred from a table.
 //
+// ⚠ PARTLY CLOSED 2026-08-04. Every f32 arm here has been rewritten to its OUGHT
+// value: slice A taught `WAny::as_f64` to ask the Ref's own type code, and each
+// OUGHT — recorded before the fix existed — was reproduced bit-for-bit. What
+// remains KNOWN-WRONG is the u64/usize family, which slice A does not touch.
+//
 // ⚠ THIS FILE PINS WRONG ANSWERS ON PURPOSE. Arms marked `KNOWN-WRONG` assert
 // what the engines DO, beside the value they OUGHT to produce, written out. That
 // is deliberate and it is the only honest shape for a measurement fixture: the
@@ -88,10 +93,12 @@ fn main() -> i32 {
     let gv: WAny = gm.get(0u8);
     if !gv.is_float()                                { return 10i32; }  // the code KNOWS it is a float
     if f32_to_bits(gv.as_f32()) != 0x3DCCCCCDu32     { return 11i32; }  // CORRECT: 4-byte read
-    // KNOWN-WRONG — anyval.logos:329 reads 8 bytes and never asks W_F32 vs W_F64.
-    //   ought: f64_to_bits(0.1f32 as f64) == 0x3FB999999A000000 = 4591870180174331904
-    //   is   : the f32 pattern zero-extended = 0x000000003DCCCCCD = 1036831949
-    if f64_to_bits(gv.as_f64()) != 1036831949u64     { return 12i32; }
+    // ✅ CLOSED 2026-08-04 (slice A). `as_f64` used to read 8 bytes and never ask
+    // W_F32 vs W_F64, so this answered the f32 pattern zero-extended,
+    // 0x000000003DCCCCCD = 1036831949 — a denormal. The OUGHT below was written
+    // before any fix existed and is bit-for-bit what the dispatch produced.
+    //   0.1f32 widened = 0x3FB999999A000000 = 4591870180174331904
+    if f64_to_bits(gv.as_f64()) != 4591870180174331904u64 { return 12i32; }
     // and the f64 field beside it is exact, which is why nothing had noticed.
     let hr: H = d.make::<H>(); hr.z = 0.1f64; hr.id = 0i64;
     let hm: &WMap<Wu6, WAny> = unsafe { &*hr.m };
@@ -145,15 +152,14 @@ fn main() -> i32 {
     if ro.get_i64(1i64, 0i64) != 1i64 { return 34i32; }
     if ro.get_i64(2i64, 0i64) != 0i64 { return 35i32; }
 
-    // KNOWN-WRONG — `sum` over an f32 column, dynamic tier.
-    //   ought: 3.0  (bits 0x4008000000000000 = 4613937818241073152)
-    //   is   : the two denormals added = 0x000000007F800000 = 2139095040
+    // ✅ CLOSED 2026-08-04 (slice A) — `sum` over an f32 column, dynamic tier.
+    // It used to add two denormals and answer 0x000000007F800000 = 2139095040.
     let qs: Query = match Query::compile("from gs s group by s.id aggregate a = sum(s.y) select a", &c) {
         Result::Ok(v) => { v } Result::Err(_e3) => { return 40i32; } };
     let rs: QRows = match qs.run(&e) {
         Result::Ok(v) => { v } Result::Err(_e4) => { return 41i32; } };
     if rs.row_count() != 1i64                          { return 42i32; }
-    if f64_to_bits(rs.get_f64(0i64, 0i64)) != 2139095040u64 { return 43i32; }
+    if f64_to_bits(rs.get_f64(0i64, 0i64)) != 4613937818241073152u64 { return 43i32; }
 
     // ══ 4. THE INCREMENTAL ENGINE ═════════════════════════════════════════════
     // KNOWN-WRONG — `max` over { 5, 2^64-1 } answers the SMALLER value, because
