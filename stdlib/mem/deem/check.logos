@@ -203,17 +203,15 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
     return ct(CT_UNKNOWN);
 }
 
-// Is this expression the VALUE ITSELF — a field, a bound name, a parameter —
-// rather than something computed from one? See the sort-key recording site for
-// why that distinction governs whether a key may claim its column's signedness.
-fn sx_is_origin(e: SExpr) -> bool {
-    match e {
-        SExpr::Field(_f) => { return true; }
-        SExpr::Var(_v)   => { return true; }
-        SExpr::Param(_p) => { return true; }
-        _ => { return false; }
-    }
-}
+// ⚠ `sx_is_origin` LIVED HERE AND IS RETIRED. It answered "is this expression
+// the VALUE ITSELF — a field, a bound name, a parameter — rather than something
+// computed from one?", and the sort key used it to refuse a computed key the
+// column's signedness. Its whole ground was that the evaluator computed
+// arithmetic signed everywhere but an aggregate argument, so a computed key
+// could not be ordered under a predicate it had not been computed under. The
+// claim now rides on the expression node itself (`SBin.ordw`), the two agree at
+// every position, and a restriction whose stated retirement condition has
+// arrived is a false comment, not a rule. See the Sort arm of `check_rexpr`.
 
 fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
@@ -342,6 +340,18 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             let op: i32 = b.op;
             let lt: CTy = check_expr(b.lhs_expr(), cat, env, strict, lb, chk, reg);
             let rt: CTy = check_expr(b.rhs_expr(), cat, env, strict, lb, chk, reg);
+            // ⚠ STAMP THE NODE'S OWN CLAIM, AND STAMP IT UNCONDITIONALLY.
+            // `check_expr` runs TWICE over the same IR — a LENIENT compile pass
+            // and a STRICT run pass with the env's bindings visible — and the
+            // strict pass may resolve an operand the lenient one left CT_UNKNOWN.
+            // Writing only the `true` case would leave a stale claim from the
+            // earlier pass whenever the two disagree, so every path through this
+            // arm ends with a write, and this is the one that covers the early
+            // returns below (`chk.failed`, an object operand, a DYN or UNKNOWN
+            // operand): those all mean "no claim", which is `false`.
+            // `WMap<Wu6,_>::set` inserts-or-updates, so re-stamping is idempotent
+            // and does not grow the doc.
+            b.ordw = false;
             if chk.failed { return ct(CT_UNKNOWN); }
             if ct_is_obj(lt.t) || ct_is_obj(rt.t) {
                 chk_fail(chk, "operator '", bin_op_name(op),
@@ -384,6 +394,17 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                         return ct(CT_UNKNOWN);
                     }
                 }
+                // ⚠ THE ORDERED COMPARE IS A POSITION, and until this line it was
+                // the only integer operation in the tree with no carrier at all —
+                // `where s.u > 5` over a u64 column answered NO rows, because
+                // 2^63 reads as the most negative i64 and 2^64−1 as −1. The
+                // node's VALUE is a bool, so `ordw` here is not a claim about the
+                // result: it is the claim that the two OPERANDS are ranked under
+                // the moved order, i.e. keyed through `el_wrap_ord_key`. The rule
+                // is the same one the arithmetic uses — `ct_join_ordw` — because
+                // the antecedent is the same: an unsigned operand and a neutral
+                // literal agree, an unsigned and a signed operand do not.
+                b.ordw = ct_join_ordw(lt, rt);
                 return ct(CT_BOOL);
             }
             if op == OP_ADD() {
@@ -413,9 +434,13 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 // row holding 2^62 was REFUSED (2^63 fits u64; the i64 add
                 // overflows), and `sum(s.u + 1)` at 2^64-1 answered 0 with no
                 // error (the payloads are -1 and 1). The runtime reads this
-                // through `QPlan.agg_argu` (`eval_sexpr`'s `ua`).
+                // OFF THE NODE (`SBin.ordw`) — it used to read it off
+                // `QPlan.agg_argu` through `eval_sexpr`'s `ua` position flag,
+                // which is why one expression had two values depending on where
+                // it sat.
+                b.ordw = ct_join_ordw(lt, rt);
                 return CTy { t: CT_INT, code: 0u64,
-                             ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
+                             ordw: b.ordw, lit: ct_join_lit(lt, rt) };
             }
             // SUB / MUL / DIV / MOD — numeric-only tier.
             if (!ct_is_open(lt.t) && !ct_is_num(lt.t))
@@ -430,14 +455,16 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 }
                 if dyn_op { return ct(CT_DYN); }
                 if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+                b.ordw = ct_join_ordw(lt, rt);
                 return CTy { t: CT_INT, code: 0u64,
-                             ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
+                             ordw: b.ordw, lit: ct_join_lit(lt, rt) };
             }
             if dyn_op { return ct(CT_DYN); }
             if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
             if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
+            b.ordw = ct_join_ordw(lt, rt);
             return CTy { t: CT_INT, code: 0u64,
-                         ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
+                         ordw: b.ordw, lit: ct_join_lit(lt, rt) };
         }
         SExpr::Un(u) => {
             let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);
@@ -932,26 +959,24 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // nodes, so the table is keyed by node word and UPDATED in place
             // rather than appended twice.
             //
-            // ⚠ ONLY A KEY THE EVALUATOR ALSO COMPUTES UNSIGNED MAY CLAIM IT.
-            // `ct_join_ordw` propagates the claim through arithmetic whose
-            // operands agree, and that is right about the TYPE — but the
-            // evaluator honours the claim only where an aggregate argument
-            // carries it, so a COMPUTED key would be ordered under one rule and
-            // computed under another. MEASURED on {5, 2^63, 2^64-1}:
-            // `order by (s.u / 3)` returned a permutation matching NEITHER the
-            // wholly-unsigned order (ids 0,1,2) NOR the wholly-signed one
-            // (1,2,0) — an answer no consistent reading produces, which is
-            // strictly worse than either.
+            // ⚠ `sx_is_origin` USED TO GUARD THIS LINE, AND ITS RETIREMENT
+            // CONDITION IS THIS COMMIT. The guard existed because the evaluator
+            // honoured the claim at ONE position — an aggregate argument — so a
+            // COMPUTED key was ordered under one rule and computed under
+            // another: MEASURED on {5, 2^63, 2^64-1}, `order by (s.u / 3)`
+            // returned a permutation matching NEITHER the wholly-unsigned order
+            // (ids 0,1,2) NOR the wholly-signed one (1,2,0), an answer no
+            // consistent reading produces. Restricting the claim to a key that
+            // IS the value bought consistency at the price of being wrong about
+            // computed keys.
             //
-            // So the claim rides only where the key IS the value: a field or a
-            // bound name. This is the rule already written at the ternary — a
-            // value may claim its type only where its ORIGIN carries it — and
-            // the same argument retires this restriction: when the evaluator
-            // carries the claim into projections, filters and sort keys
-            // together, `key_is_origin` goes away and `kt.ordw` is used
-            // directly. Until then a computed key orders exactly as it did
-            // before any of this, which is the one reading that is not new.
-            let kordw: bool = kt.ordw && sx_is_origin(s.key_expr());
+            // The claim now rides on the EXPRESSION NODE (`SBin.ordw`), so a
+            // computed key is COMPUTED under the same predicate it is ORDERED
+            // under, and the restriction has nothing left to protect: `kt.ordw`
+            // is used directly, exactly as this comment's earlier form promised.
+            // Keeping the guard afterwards would be a false comment on top of a
+            // completed carrier.
+            let kordw: bool = kt.ordw;
             if !chk.failed {
                 let sw0: i64 = s.as_ref().raw();
                 let mut si0: i64 = 0i64;

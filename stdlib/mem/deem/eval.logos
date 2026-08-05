@@ -180,34 +180,40 @@ fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
     return RtVal::I(v.as_i64());
 }
 
-// ── `ua` — THE ARITHMETIC IN THIS POSITION IS OVER AN UNSIGNED 64-BIT COLUMN ──
+// ── THE UNSIGNED CLAIM IS READ OFF THE NODE, NOT PASSED DOWN THE POSITION ────
 //
 // The EL normalizes every integer into `i64`, and for a `u64`/`usize` column
 // that conversion is a bijection: the bits survive, the ORDER moves (repaired
 // at the comparison seams by `el_wrap_ord_key`) and so does the OVERFLOW
-// PREDICATE. The arithmetic tier below is checked — an overflow is a returned
-// `RtVal::Error`, never a trap (A13 in the form Deem's convention requires) —
-// so the predicate is the whole of what `ua` selects. Nothing else changes: a
-// two's-complement add/sub/mul produces the SAME BITS either way.
+// PREDICATE. Both moved functions are selected here by ONE bit, `SBin.ordw`,
+// stamped by `check_expr` as `ct_join_ordw` over the operands.
 //
-// ⚠ THIS IS A POSITION FLAG, NOT A SUBTREE FLAG, and the difference is a
-// defect waiting at every careless reading. It is the exact DUAL of the
-// checker's `ordw` join (`check_expr`, the arithmetic and ternary arms): the
-// checker propagates the claim UP through the operands of an arithmetic node
-// and through a ternary's BRANCHES, and drops it everywhere else, so `ua` is
-// passed DOWN through exactly those positions and `false` through every other
-// one. A ternary's CONDITION, a comparison's operands and a call's arguments
-// get `false` even inside an unsigned expression — otherwise
-// `sum(s.u + (s.v + 1 > 0 ? 1 : 2))` would evaluate the SIGNED `s.v + 1` under
-// the u64 predicate, which is the same class of type loss one level down.
+// ⚠ THIS USED TO BE A `ua: bool` PARAMETER — A POSITION FLAG — AND THAT IS THE
+// DEFECT IT CARRIED. A flag passed in by the caller says "the arithmetic in
+// THIS POSITION is unsigned", and exactly one caller ever passed `true` (the
+// aggregate argument, off `QPlan.agg_argu`). So ONE EXPRESSION HAD TWO VALUES:
+// measured on a row holding 2^64−1, `s.u / 3` answered 6148914691236517205
+// inside `sum(...)` and 0 in a projection, decided by where it sat and not by
+// what it was. The same split reached the group key, both join keys, `having`,
+// a UDF argument, a template interpolation, every ordered comparison — 26
+// positions passing `false` on a value the checker had already typed.
 //
-// ⚠ WHERE IT IS TRUE TODAY: an AGGREGATE ARGUMENT whose checked type claims
-// `ordw` (`QPlan.agg_argu`), in both runtime tiers. A projection, a sort key
-// and a filter predicate still evaluate their arithmetic signed — those
-// positions have no carrier of their own yet, and inventing one here would be
-// a claim the checker never made.
+// A claim about a value belongs to the value. `check_expr` computes it once per
+// node and writes it there; every position reads the same bit, so there is no
+// position left that can disagree with another. The subtlety the old comment
+// was right about survives unchanged and is now automatic: a ternary's
+// CONDITION, a call's arguments and a comparison's operands are separate nodes
+// with separate claims, so `sum(s.u + (s.v + 1 > 0 ? 1 : 2))` still evaluates
+// the signed `s.v + 1` signed — not because a flag stopped, but because that
+// node's own `ct_join_ordw` is false.
+//
+// What is NOT here: the min/max SEED and FOLD, which choose an identity element
+// before any row is seen and so cannot read a per-row node — they keep
+// `QPlan.agg_argu` / `self.agg_argu`; and the sort COMPARATOR, which ranks
+// already-evaluated keys and keeps `QPlan.sordw`. Those are comparisons over
+// values, not evaluations of expressions.
 fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-              scratch: &Writ, ua: bool) -> RtVal {
+              scratch: &Writ) -> RtVal {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -240,7 +246,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 let di: i64 = unsafe { (&*lb).find2(tr_root, f.name) };
                 if di >= 0i64 { return unsafe { (&*lb).val(di) }; }
             }
-            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch, false);
+            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
             match base {
                 RtVal::Node(w) => { return field_read(cat, w, f.name); }
                 _ => { return RtVal::Null; }
@@ -250,30 +256,28 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             let op: i32 = b.op;
             // Short-circuit boolean tier.
             if op == OP_AND() {
-                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, false);
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
                 if rt_is_err(lv) { return RtVal::Error; }
                 if !rt_truthy(lv) { return RtVal::B(false); }
-                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, false);
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
                 if rt_is_err(rv) { return RtVal::Error; }
                 return RtVal::B(rt_truthy(rv));
             }
             if op == OP_OR() {
-                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, false);
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
                 if rt_is_err(lv) { return RtVal::Error; }
                 if rt_truthy(lv) { return RtVal::B(true); }
-                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, false);
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
                 if rt_is_err(rv) { return RtVal::Error; }
                 return RtVal::B(rt_truthy(rv));
             }
-            // The claim reaches the OPERANDS of an arithmetic node and no other
-            // operand position — the dual of the checker's join, stated at the
-            // one place where `op` is known and the operands are not yet
-            // evaluated. A comparison's operands are compared, not computed, so
-            // they take `false`: their own order seam is `rt_cmp`/`qp.sordw`.
-            let aua: bool = ua && (op == OP_ADD() || op == OP_SUB() || op == OP_MUL()
-                                   || op == OP_DIV() || op == OP_MOD());
-            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, aua);
-            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, aua);
+            // THE NODE'S OWN CLAIM. For an arithmetic op it selects the overflow
+            // predicate and — for `/` and `%` — the answer; for an ordered
+            // compare it selects the order. The operands carry their own claims
+            // on their own nodes, so nothing is passed down.
+            let aua: bool = b.ordw;
+            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
             // A math error in either operand propagates (like Null) — the eval
             // boundary (eval_sx) turns it into a QError.
             if rt_is_err(l) || rt_is_err(r) { return RtVal::Error; }
@@ -288,8 +292,19 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 {
                     c = str_cmp(rt_s(l), rt_s(r)) as i64;
                 } else if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
-                    let li2: i64 = rt_i(l);
-                    let ri2: i64 = rt_i(r);
+                    // ⚠ THE ORDERED COMPARE, KEYED. Until the claim reached this
+                    // arm, `where s.u > 5` over a u64 column returned NO rows —
+                    // 2^63 reads as the most negative i64 and 2^64−1 as −1, so
+                    // BOTH extremes failed `> 5` — and the same arm serves
+                    // `having`, every join/edge `on`, a bool projection cell and
+                    // a template `{% if %}`, in both runtime tiers. `aua` is the
+                    // node's `ct_join_ordw`: an unsigned operand beside a neutral
+                    // literal agrees, an unsigned beside a signed does not, and a
+                    // disagreement is DROPPED, which is the signed reading these
+                    // comparisons always had.
+                    let mut li2: i64 = rt_i(l);
+                    let mut ri2: i64 = rt_i(r);
+                    if aua { li2 = el_wrap_ord_key(li2); ri2 = el_wrap_ord_key(ri2); }
                     if li2 < ri2 { c = -1i64; } else if li2 > ri2 { c = 1i64; }
                 } else {
                     let lf: f64 = rt_f(l);
@@ -316,8 +331,8 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 }
                 // Integer tier: error-returning (checked) arithmetic — overflow
                 // yields RtVal::Error instead of trapping (EL-script policy).
-                // `ua` selects WHICH overflow predicate is checked; the bits of
-                // the answer are the same under both.
+                // `aua` (= this node's `ordw`) selects WHICH overflow predicate
+                // is checked; the bits of the answer are the same under both.
                 if aua { match el_wrap_add(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
                 match rt_i(l).checked_add(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
@@ -348,12 +363,11 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             match rt_i(l).checked_rem(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
         }
         SExpr::Un(u) => {
-            // ⚠ `false`, DELIBERATELY. The checker gives a unary minus `ordw:
-            // false` — negating an unsigned value leaves that type's domain, so
-            // there is nothing for the claim to be about — and this is the dual
-            // of that: `ua` stops here in both directions, so an operand under a
-            // `-` is evaluated with the signed predicate exactly as before.
-            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch, false);
+            // The checker gives a unary minus `ordw: false` — negating an
+            // unsigned value leaves that type's domain, so there is nothing for
+            // the claim to be about. Nothing to read here: the operand's own
+            // node carries whatever claim it has, and this node makes none.
+            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch);
             if rt_is_err(a) { return RtVal::Error; }
             if u.op == OP_NOT() { return RtVal::B(!rt_truthy(a)); }
             match a {
@@ -364,15 +378,22 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             }
         }
         SExpr::Cond(c) => {
-            // The CONDITION is a bool and its own subtree is not this value's
-            // origin — `false`. The BRANCHES are: the checker joins their two
-            // claims into the ternary's, so each branch carries `ua`.
-            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch, false);
+            // ⚠ NOTHING IS THREADED THROUGH A TERNARY ANY MORE, AND THAT CLOSES
+            // A HOLE RATHER THAN OPENING ONE. Under the old position flag the
+            // branches inherited the CALLER's claim, so the same branch could be
+            // evaluated unsigned in one position and signed in another. Each
+            // branch is now an expression with its own stamped claim, evaluated
+            // identically wherever the ternary sits. The ternary's own `CTy` —
+            // `ct_join_ordw` over the two branches, which drops the claim when
+            // they disagree — still governs how its VALUE is ordered downstream
+            // (the sort comparator's `qp.sordw`), and that is the rule
+            // `query_u64_ordw_origin` groups 3/3b pin.
+            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch);
             if rt_is_err(cv) { return RtVal::Error; }
             if rt_truthy(cv) {
-                return eval_sexpr(c.then_expr(), cat, env, lb, scratch, ua);
+                return eval_sexpr(c.then_expr(), cat, env, lb, scratch);
             }
-            return eval_sexpr(c.else_expr(), cat, env, lb, scratch, ua);
+            return eval_sexpr(c.else_expr(), cat, env, lb, scratch);
         }
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
@@ -381,11 +402,11 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 // Builtins are STRING functions: any non-string argument —
                 // Null from a lenient miss, or a runtime type surprise —
                 // yields Null (ADR §4; strict mode guarantees string args).
-                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch, false);
+                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch);
                 if rt_kind(a0) != 4i32 { return RtVal::Null; }
                 let mut a1: RtVal = RtVal::S("");
                 if builtin_arity(bfn) > 1i64 {
-                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch, false);
+                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch);
                     if rt_kind(a1) != 4i32 { return RtVal::Null; }
                 }
                 if bfn == BFN_LEN() { return RtVal::I(rt_s(a0).len()); }
@@ -410,7 +431,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 let na: i64 = args.len();
                 let mut k: i64 = 0i64;
                 while k < na && k < 8i64 {
-                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch, false);
+                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch);
                     k = k + 1i64;
                 }
                 let f: QFn = env.f_ptrs[ui];
@@ -458,11 +479,11 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
         match e {
             TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
             TStmt::Var(v) => {
-                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk, false);
+                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk);
                 rt_push(out, val);
             }
             TStmt::If(i) => {
-                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk, false);
+                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk);
                 let mark: i64 = unsafe { (&*lb).n };
                 if rt_truthy(cv) {
                     render_stmts(body_word(&i.body), cat, env, lb, scratch, out, chk);
@@ -476,7 +497,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                 lbm.n = mark;
             }
             TStmt::For(f) => {
-                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk, false);
+                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk);
                 match it {
                     RtVal::Node(w) => {
                         if w.is_array() {
@@ -503,7 +524,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                 }
             }
             TStmt::Set(s) => {
-                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk, false);
+                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk);
                 unsafe { (&mut *lb).bind_val(s.var, sv); }
             }
         }

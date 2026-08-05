@@ -464,7 +464,7 @@ fn eval_on_residual(on_w: i64, equi_w: i64, cat: &SchemaCatalog, env: &QEnv,
     let mut i: i64 = 0i64;
     while i < tl.n {
         if tl.w[i] != equi_w {
-            if !rt_truthy(eval_sexpr(sx_of(tl.w[i]), cat, env, lb, scratch, false)) { return false; }
+            if !rt_truthy(eval_sexpr(sx_of(tl.w[i]), cat, env, lb, scratch)) { return false; }
         }
         i = i + 1i64;
     }
@@ -817,7 +817,7 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             let mut r: i64 = 0i64;
             while r < input.nrows {
                 rs_load(&input, r, bp);
-                if rt_truthy(eval_sx(f.pred_expr(), cat, env, bp, scratch, chk, false)) {
+                if rt_truthy(eval_sx(f.pred_expr(), cat, env, bp, scratch, chk)) {
                     rs_push_ext(&mut out, &input, r, false, RtVal::Null);
                 }
                 r = r + 1i64;
@@ -837,7 +837,7 @@ fn exec_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             let mut r: i64 = 0i64;
             while r < input.nrows {
                 rs_load(&input, r, bp);
-                keys.push(eval_sx(s.key_expr(), cat, env, bp, scratch, chk, false));
+                keys.push(eval_sx(s.key_expr(), cat, env, bp, scratch, chk));
                 r = r + 1i64;
             }
             let mut order: Vec<i64> = vec_new::<i64>();
@@ -964,7 +964,7 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                         unsafe { (&mut *bp).set_val(eslot, ev); }
                         let mut pass: bool = true;
                         if ed.has_on {
-                            pass = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk, false));
+                            pass = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
                         }
                         if pass {
                             matched = true;
@@ -978,7 +978,7 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                     unsafe { (&mut *bp).set_val(eslot, ev1); }
                     let mut pass1: bool = true;
                     if ed.has_on {
-                        pass1 = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk, false));
+                        pass1 = rt_truthy(eval_sx(ed.on_expr(), cat, env, bp, scratch, chk));
                     }
                     if pass1 {
                         matched = true;
@@ -1047,7 +1047,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
             let mut j: i64 = 0i64;
             while j < right.nrows {
                 rs_load(&right, j, rbp);
-                let bk: RtVal = eval_sx(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch, chk, false);
+                let bk: RtVal = eval_sx(sx_of(qp.jbuild[ji]), cat, env, rbp, scratch, chk);
                 rkeys.push(bk);
                 unsafe {
                     let vp: *mut Vec<i64> = mp.get_or_insert(rt_key_hash(bk), vec_new::<i64>());
@@ -1060,7 +1060,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
         let mut r: i64 = 0i64;
         while r < left.nrows {
             rs_load(&left, r, cbp);
-            let pk: RtVal = eval_sx(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch, chk, false);
+            let pk: RtVal = eval_sx(sx_of(qp.jprobe[ji]), cat, env, cbp, scratch, chk);
             let hp: u64 = rt_key_hash(pk);
             let bp2: *const Vec<i64> = unsafe { mp.get(&hp) };
             let mut matched: bool = false;
@@ -1099,7 +1099,7 @@ fn exec_join(left: RowSet, right: RowSet, on_w: i64, node_w: i64, anti: bool,
         let mut j3: i64 = 0i64;
         while j3 < right.nrows {
             rs_load_at(&right, j3, cbp, rslot);
-            if rt_truthy(eval_sx(on_e, cat, env, cbp, scratch, chk, false)) {
+            if rt_truthy(eval_sx(on_e, cat, env, cbp, scratch, chk)) {
                 matched2 = true;
                 if !anti {
                     rs_push_row(&mut out, &left, r2, &right, j3);
@@ -1133,7 +1133,7 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
     let mut r: i64 = 0i64;
     while r < input.nrows {
         rs_load(&input, r, bp);
-        let k: RtVal = eval_sx(g.key_expr(), cat, env, bp, scratch, chk, false);
+        let k: RtVal = eval_sx(g.key_expr(), cat, env, bp, scratch, chk);
         // group lookup by VALUE equality (rt_eq — group counts are small; a
         // keyed index is a later optimization, mirrors the static O(n²) MVP)
         let mut gi: i64 = -1i64;
@@ -1193,14 +1193,15 @@ fn exec_aggr(g: RAggr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             if fnid2 == 1i32 {
                 nv = RtVal::I(rt_i(cur) + 1i64);
             } else {
-                // ⚠ THE ONE BOUNDARY THAT CARRIES THE CLAIM. `isu2` is the
-                // ARGUMENT's checked `ordw`, so an argument that is itself
-                // arithmetic (`sum(s.u + s.u)`) computes under the u64 predicate
-                // rather than under i64's. Passed for EVERY fnid, not only for
-                // `sum`: the argument's type is the argument's, and evaluating it
-                // one way for `sum` and another for `min` or `avg` would put a
-                // disagreement inside a single query.
-                let av: RtVal = eval_sx(a.arg_expr(), cat, env, bp, scratch, chk, isu2);
+                // ⚠ THIS USED TO BE THE ONE BOUNDARY THAT CARRIED THE CLAIM, and
+                // it no longer carries anything: `sum(s.u + s.u)` computes under
+                // the u64 predicate because the `+` NODE says so, in this
+                // position and in every other. `isu2` survives BELOW, where it
+                // is still the only possible carrier — a `min`/`max` SEED is
+                // chosen before any row is seen and the FOLD compares two
+                // already-evaluated values, so neither can read a per-row
+                // expression node.
+                let av: RtVal = eval_sx(a.arg_expr(), cat, env, bp, scratch, chk);
                 if fnid2 == 2i32 {
                     if isf2 { nv = RtVal::F(rt_f(cur) + rt_f(av)); }
                     // ⚠ THE ACCUMULATOR MUST ADD UNDER THE COLUMN'S OWN OVERFLOW
@@ -1306,13 +1307,14 @@ fn ot_new(nc: i64) -> OutTab {
 // render() surface it as a QError, and return Null in its place (the row is
 // then irrelevant — the whole query aborts). Internal (recursive) eval stays on
 // eval_sexpr; only the boundaries convert Error → error.
-// `ua` is the boundary's own claim about the expression it is evaluating (see
-// `eval_sexpr`): true only where the checker typed this position's arithmetic
-// as unsigned. Every boundary but the aggregate argument passes false, because
-// only the aggregate has a carrier for the fact (`QPlan.agg_argu`).
+// ⚠ THE BOUNDARY NO LONGER MAKES A CLAIM. It used to take a `ua: bool` — "the
+// arithmetic in THIS position is unsigned" — and exactly one of the 16 call
+// sites ever passed true, which is why one expression had two values. The claim
+// is a property of the expression and now rides on its nodes (`SBin.ordw`), so
+// every boundary evaluates the same expression the same way.
 fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-           scratch: &Writ, chk: *mut Chk, ua: bool) -> RtVal {
-    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch, ua);
+           scratch: &Writ, chk: *mut Chk) -> RtVal {
+    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
     if rt_is_err(v) {
         chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");
         return RtVal::Null;
@@ -1411,12 +1413,12 @@ fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                         let nn: i64 = items.len();
                         let mut c: i64 = 0i64;
                         while c < nn {
-                            out.cells.push(eval_sx(items.arg_at(c), cat, env, bp, scratch, chk, false));
+                            out.cells.push(eval_sx(items.arg_at(c), cat, env, bp, scratch, chk));
                             c = c + 1i64;
                         }
                     }
                     _ => {
-                        out.cells.push(eval_sx(sel, cat, env, bp, scratch, chk, false));
+                        out.cells.push(eval_sx(sel, cat, env, bp, scratch, chk));
                     }
                 }
                 out.nrows = out.nrows + 1i64;

@@ -144,7 +144,25 @@ pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1 }
 pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
 pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
 pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
-pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2, soff: i64 = 3 }
+// ⚠ `ordw` — THE CLAIM, WRITTEN ON THE NODE THAT CONSUMES IT.
+// "The integer operation this node performs runs in the u64 domain": for an
+// ARITHMETIC op (+ − * / %) the overflow predicate and, for `/` and `%`, the
+// ANSWER; for an ORDERED compare (< <= > >=) the order the two payloads are
+// ranked under. It is the checker's `ct_join_ordw` over the operands' `CTy`,
+// stamped by `check_expr`'s Bin arm — one authority, computed once per compile,
+// read per row with no join and no side table.
+//
+// It lives HERE, and not in a per-position table on `QPlan`, because two
+// measurements say the claim is a property of the EXPRESSION and not of the
+// relational node it sits under: `where s.u > 5 || s.v > 5` is ONE Filter node
+// holding two comparisons whose claims differ, and `select (s.id, s.u/3, s.v/3)`
+// is ONE Proj node whose cells' claims differ. A table keyed by relational node
+// cannot express either; a table keyed by SExpr node has no bound and would
+// degrade silently past its capacity. A schema field has neither problem — an
+// unwritten TOM key reads the WritField default `false`, which is exactly the
+// signed reading every position had before this existed, so a node the checker
+// never reached loses nothing it had.
+pub schema SBin   : code(0x0010_0000_0000_0004) { op: i32 = 0, lhs: WRef<SExpr> = 1, rhs: WRef<SExpr> = 2, soff: i64 = 3, ordw: bool = 4 }
 pub schema SUn    : code(0x0010_0000_0000_0005) { op: i32 = 0, arg: WRef<SExpr> = 1, soff: i64 = 2 }
 pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<SExprArr> = 1, soff: i64 = 2 }     // function/filter call — call NAME
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2, soff: i64 = 3 }  // ternary
