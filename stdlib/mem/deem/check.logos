@@ -203,6 +203,18 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
     return ct(CT_UNKNOWN);
 }
 
+// Is this expression the VALUE ITSELF — a field, a bound name, a parameter —
+// rather than something computed from one? See the sort-key recording site for
+// why that distinction governs whether a key may claim its column's signedness.
+fn sx_is_origin(e: SExpr) -> bool {
+    match e {
+        SExpr::Field(_f) => { return true; }
+        SExpr::Var(_v)   => { return true; }
+        SExpr::Param(_p) => { return true; }
+        _ => { return false; }
+    }
+}
+
 fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
     match e {
@@ -919,17 +931,38 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // compile phase walks first and the strict phase re-walks the same
             // nodes, so the table is keyed by node word and UPDATED in place
             // rather than appended twice.
+            //
+            // ⚠ ONLY A KEY THE EVALUATOR ALSO COMPUTES UNSIGNED MAY CLAIM IT.
+            // `ct_join_ordw` propagates the claim through arithmetic whose
+            // operands agree, and that is right about the TYPE — but the
+            // evaluator honours the claim only where an aggregate argument
+            // carries it, so a COMPUTED key would be ordered under one rule and
+            // computed under another. MEASURED on {5, 2^63, 2^64-1}:
+            // `order by (s.u / 3)` returned a permutation matching NEITHER the
+            // wholly-unsigned order (ids 0,1,2) NOR the wholly-signed one
+            // (1,2,0) — an answer no consistent reading produces, which is
+            // strictly worse than either.
+            //
+            // So the claim rides only where the key IS the value: a field or a
+            // bound name. This is the rule already written at the ternary — a
+            // value may claim its type only where its ORIGIN carries it — and
+            // the same argument retires this restriction: when the evaluator
+            // carries the claim into projections, filters and sort keys
+            // together, `key_is_origin` goes away and `kt.ordw` is used
+            // directly. Until then a computed key orders exactly as it did
+            // before any of this, which is the one reading that is not new.
+            let kordw: bool = kt.ordw && sx_is_origin(s.key_expr());
             if !chk.failed {
                 let sw0: i64 = s.as_ref().raw();
                 let mut si0: i64 = 0i64;
                 let mut hit: bool = false;
                 while si0 < qp.sn {
-                    if qp.sw[si0] == sw0 { qp.sordw[si0] = kt.ordw; hit = true; break; }
+                    if qp.sw[si0] == sw0 { qp.sordw[si0] = kordw; hit = true; break; }
                     si0 = si0 + 1i64;
                 }
                 if !hit && qp.sn < 8i64 {
                     qp.sw[qp.sn] = sw0;
-                    qp.sordw[qp.sn] = kt.ordw;
+                    qp.sordw[qp.sn] = kordw;
                     qp.sn = qp.sn + 1i64;
                 }
             }

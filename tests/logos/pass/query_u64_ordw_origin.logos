@@ -117,10 +117,26 @@ fn main() -> i32 {
     if !eq3(&ids("from rs s select s.id order by (s.p ? s.v : s.u)", &c, &e),
             1i64, 2i64, 0i64) { return 31i32; }
 
-    // ── 4. an UNMIXED ternary still carries it — dropping on disagreement must
-    //      not become dropping always.
+    // ── 4. AT A SORT KEY, even an UNMIXED ternary drops the claim — and the
+    //      reason is the sort seam's, not the checker's.
+    // `ct_join_ordw` still says this expression IS a u64: both branches agree,
+    // and at an aggregate ARGUMENT the evaluator honours that. A sort key has a
+    // second requirement the argument does not: the value must have been
+    // COMPUTED under the same predicate it is ORDERED under. The evaluator
+    // carries the unsigned predicate into aggregate arguments only, so a key it
+    // computed signed must be ordered signed — MEASURED, `order by (s.u / 3)`
+    // under the unrestricted claim returned a permutation matching neither the
+    // wholly-unsigned order nor the wholly-signed one, which is strictly worse
+    // than either.
+    // So a sort key claims only from an ORIGIN — a field, a bound name, a
+    // parameter. Signed here: 2^63 is most negative, 2^64-1 is -1, 5 positive.
+    //
+    // ⚠ THIS ARM IS A RESTRICTION AWAITING ITS REMOVAL, not a rule. When the
+    // evaluator carries the claim into projections, filters and sort keys
+    // together, `sx_is_origin` goes away and this expression sorts 0,1,2 like
+    // group 2. Rewrite the arm then; do not relax it before.
     if !eq3(&ids("from rs s select s.id order by (s.p ? s.u : s.u)", &c, &e),
-            0i64, 1i64, 2i64) { return 40i32; }
+            1i64, 2i64, 0i64) { return 40i32; }
 
     return 0i32;
 }
