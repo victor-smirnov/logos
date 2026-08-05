@@ -1,0 +1,142 @@
+// THE GROUND FOR A LOST VALUE IS A PAIR — THE CODE'S FACT AND THE POSITION'S
+// COST — AND THIS FIXTURE IS WHY THE SECOND COPY OF THE FACT IS SAFE.
+//
+// `el_ord_why_code` used to render ONE sentence per `EL_ORD_*` code, on the
+// stated ground that "a second copy of the four sentences is a second thing to
+// drift". The rule was right and its UNIT was wrong. EL_ORD_WRAP's sentence
+// ended:
+//
+//   "… an `order by` over such a key ranks the largest values below zero with a
+//    comparison that is TOTAL and identical in every nest, so no plan decision
+//    downstream can detect it."
+//
+// and its three renderers — `check_agg_operand`, `check_arith_operand` and
+// `check_calls`, reached through `el_order_why` — are all EMIT positions in the
+// STATIC tier. MEASURED at 85c9433d in that same tier: `order by s.v` over a
+// `u64` column COMPILES and ranks 5, 2^63, 2^64-1 correctly, because the key
+// vector holds the key's own type and compares in it (`el_cmp_fidelity`'s first
+// conjunct; `key_norm_body` emits no cast at all when `tn == kv`). The clause
+// described a static code path retired when key vectors stopped being
+// `Vec<i64>`. It stayed true only of the DYNAMIC tier — which never renders this
+// string. `tests/logos/pass/wql_tier_capability_disagreement` measures the
+// `order by` half; `tests/logos/fail/wql_agg_wide_int_arg_fail` holds the
+// refusal that used to carry the false clause.
+//
+// ── WHAT THIS FILE ASSERTS, AND WHY EACH ARM EXISTS ─────────────────────────
+//   1. THE SPLIT EXISTS. For WRAP and TRUNC — the only two codes a normalizing
+//      position can reach — the NORM and SORT renderings differ.
+//   2. THE FALSE CLAIM IS GONE AND THE TRUE ONE IS KEPT. The SORT rendering
+//      names `order by`; the NORM rendering does not. This is the arm that bites
+//      on the exact regression: a rewrite that re-merges the two arms fails here
+//      whatever else it does.
+//   3. THE DUPLICATION IS WATCHED. Every arm is a string LITERAL, because the
+//      value must outlive the call — `join_order` stores it in `Why.keywhy`, a
+//      `str` field of a record that travels into the plan, so a `String` built
+//      in the renderer and viewed with `string_as_str` would be a borrow of a
+//      dead local. The cost is that the type-level FACT and the REMEDY appear
+//      twice per split code. That cost is MECHANIZED here rather than trusted:
+//      the two renderings must still share a common PREFIX and a common SUFFIX
+//      of exactly the lengths below. Edit one copy alone and both numbers
+//      collapse; edit both consistently and the numbers move by the same amount
+//      and this file must be updated with them — which is the moment a reader is
+//      told there are two.
+//   4. THE OTHER THREE CODES ARE SORT-ONLY, AND SAY THE SAME THING TO BOTH
+//      QUESTIONS. That is not laziness, it is the reachability derivation stated
+//      at `el_ord_why_code`: all three NORM callers refuse on ONE antecedent —
+//      the type is INT-family with `!fits` — and `el_ord_of` maps exactly that to
+//      WRAP (bits ≤ 64) or TRUNC (bits > 64). PARTIAL / UNNAMED / NO_CMP cannot
+//      be reached from a normalizing position, so they have one sentence and it
+//      is the sort's. If a fourth normalizing position ever reaches one of them
+//      it will read wrong, and these arms are where that shows up as a choice
+//      somebody made rather than as a silent inheritance.
+//
+// ⚠ THE LENGTHS ARE DERIVED FROM THE LITERALS, NOT READ OFF A RUN. They are the
+// byte counts of the longest common prefix and the longest common suffix of the
+// two literals as written in stdlib/mem/wql/el.logos, computed over the source
+// text before this program was ever compiled:
+//   WRAP  prefix 230 bytes (the fact, through "… is not the number the type
+//         held — an"), suffix 106 bytes (". The remedy is a value that fits i64
+//         (u32 and narrower widen losslessly), or the i64 it was computed from")
+//   TRUNC prefix 160 bytes (the fact, through "… two different values arrive
+//         EQUAL — an"), suffix 37 bytes (". The remedy is a value that fits
+//         i64")
+// The em dash is three bytes in UTF-8 and the comparison here is bytewise, which
+// is why the prefixes run five bytes past the fact into the shared "an".
+//
+// exit 0 = the two questions are rendered separately and still share their fact.
+package test;
+
+use logos.std.wql.el;
+use logos.lang.str;
+use logos.mem.string;
+
+/// The longest common PREFIX of two `str`s, in bytes. Bytewise on purpose: the
+/// property under test is that two literals were edited together, and a byte is
+/// the unit an edit moves.
+fn lcp(a: str, b: str) -> i64 {
+    let mut n: i64 = 0i64;
+    while n < a.len() && n < b.len() {
+        if str_byte_at(a, n) != str_byte_at(b, n) { return n; }
+        n = n + 1i64;
+    }
+    return n;
+}
+
+/// The longest common SUFFIX of two `str`s, in bytes.
+fn lcs(a: str, b: str) -> i64 {
+    let mut n: i64 = 0i64;
+    while n < a.len() && n < b.len() {
+        if str_byte_at(a, a.len() - 1i64 - n) != str_byte_at(b, b.len() - 1i64 - n) { return n; }
+        n = n + 1i64;
+    }
+    return n;
+}
+
+fn main() -> i32 {
+    // ── EL_ORD_WRAP — u64 / usize. Codes 10-16.
+    let ws: str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_SORT());
+    let wn: str = el_ord_why_code(EL_ORD_WRAP(), EL_WHY_NORM());
+    if str_eq(ws, wn)                  { return 10i32; }   // the split exists
+    if !str_contains(ws, "order by")   { return 11i32; }   // the sort's cost, kept
+    if str_contains(wn, "order by")    { return 12i32; }   // and NOT claimed here
+    if lcp(ws, wn) != 230i64           { return 13i32; }   // the shared fact
+    if lcs(ws, wn) != 106i64           { return 14i32; }   // the shared remedy
+    // and the fact really is the head of both, not an accident of two strings
+    // that happen to start alike: the divergence is strictly inside them.
+    if lcp(ws, wn) + lcs(ws, wn) >= ws.len() { return 15i32; }
+    if lcp(ws, wn) + lcs(ws, wn) >= wn.len() { return 16i32; }
+
+    // ── EL_ORD_TRUNC — u128 / i128. Codes 20-26.
+    let ts: str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_SORT());
+    let tn: str = el_ord_why_code(EL_ORD_TRUNC(), EL_WHY_NORM());
+    if str_eq(ts, tn)                  { return 20i32; }
+    if !str_contains(ts, "order by")   { return 21i32; }
+    if str_contains(tn, "order by")    { return 22i32; }
+    if lcp(ts, tn) != 160i64           { return 23i32; }
+    if lcs(ts, tn) != 37i64            { return 24i32; }
+    if lcp(ts, tn) + lcs(ts, tn) >= ts.len() { return 25i32; }
+    if lcp(ts, tn) + lcs(ts, tn) >= tn.len() { return 26i32; }
+
+    // ── THE SORT-ONLY CODES answer both questions with one sentence. Codes
+    //    30-32. A normalizing position cannot reach any of them; see the
+    //    derivation at `el_ord_why_code`.
+    if !str_eq(el_ord_why_code(EL_ORD_PARTIAL(), EL_WHY_SORT()),
+               el_ord_why_code(EL_ORD_PARTIAL(), EL_WHY_NORM())) { return 30i32; }
+    if !str_eq(el_ord_why_code(EL_ORD_UNNAMED(), EL_WHY_SORT()),
+               el_ord_why_code(EL_ORD_UNNAMED(), EL_WHY_NORM())) { return 31i32; }
+    if !str_eq(el_ord_why_code(EL_ORD_NO_CMP(), EL_WHY_SORT()),
+               el_ord_why_code(EL_ORD_NO_CMP(), EL_WHY_NORM()))  { return 32i32; }
+
+    // ── A FAITHFUL TYPE HAS NO GROUND, FROM EITHER QUESTION. Codes 40-41.
+    if el_ord_why_code(EL_ORD_OK(), EL_WHY_SORT()).len() != 0i64 { return 40i32; }
+    if el_ord_why_code(EL_ORD_OK(), EL_WHY_NORM()).len() != 0i64 { return 41i32; }
+
+    // ── AND THE TWO WRAPPERS ASK THE QUESTION THEY BELONG TO. Codes 50-51.
+    //    `el_order_why` is the normalization question — it is what
+    //    `check_agg_operand` / `check_arith_operand` / `check_calls` render, and
+    //    it must NOT be the sort's sentence. `el_cmp_why` is the sort's.
+    if !str_eq(el_order_why("u64"), wn)          { return 50i32; }
+    if !str_eq(el_cmp_why("u64", "i64"), ws)     { return 51i32; }
+
+    return 0i32;
+}

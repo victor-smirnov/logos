@@ -14,6 +14,28 @@
 // all three sites; a second copy of those sentences is a second thing to drift.
 // The same applies to `usize`, `u128` and `i128`.
 //
+// ⚠ AND THE UNIT OF THAT SHARING WAS WRONG UNTIL 2026-08-05, WHICH IS WHY THE
+// `.expected` BESIDE THIS FILE MOVED. The sentence was shared with the SORT
+// site as well, and it ended by asserting that "an `order by` over such a key
+// ranks the largest values below zero … so no plan decision downstream can
+// detect it". This tier — the one that prints the string — compiles
+// `order by s.v` over a `u64` column and ranks 5, 2^63, 2^64-1 CORRECTLY: the
+// key vector holds the key's own type and compares in it, so the clause
+// described a static code path retired when key vectors stopped being
+// `Vec<i64>`. It was true only of the DYNAMIC tier, which never renders this
+// string. `el_ord_why_code` now takes the QUESTION it is asked from
+// (`EL_WHY_NORM` here, `EL_WHY_SORT` at `el_cmp_why`); the type-level fact and
+// the remedy are unchanged and still shared, and the clause between them is the
+// position's. `tests/logos/pass/wql_el_ord_why_split` is the canary over the
+// duplication that split forced, and
+// `tests/logos/pass/wql_tier_capability_disagreement` pins the `order by`
+// acceptance that made the old clause false.
+//
+// ⚠ THE REFUSAL ITSELF IS UNCHANGED — same antecedent (`el_host_carries`), same
+// position, same types. Only the ground it prints moved. A control revert of the
+// renderer alone leaves this test red on its `.expected` and every other
+// `wql_agg_*_arg_fail` green, which is what says the two are separable.
+//
 // ⚠ AND `avg` OVER THIS COLUMN STILL COMPILES, which is not an inconsistency:
 // its fold emitter writes `((s.v) as f64)` itself, so the argument never meets
 // the i64 tower. The check is skipped exactly there (`agg_cast`), because the

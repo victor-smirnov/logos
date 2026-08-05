@@ -710,8 +710,14 @@ pub fn el_order_faithful(name: str) -> bool {
 /// the failed condition in the vocabulary of the comparison that fails, so a
 /// caller's refusal can name a remedy instead of a verdict. Empty for a faithful
 /// type.
+///
+/// ⚠ THE NORMALIZATION QUESTION, AND ITS THREE CALLERS ARE ALL EMIT POSITIONS:
+/// an arithmetic operand, a UDF result, an aggregate argument. Each has already
+/// established that the value is normalized `as i64` where it stands. It is NOT
+/// the sort's question, and while the two shared one sentence this rendered a
+/// claim about the sort at a site that is not the sort — see `el_ord_why_code`.
 pub fn el_order_why(name: str) -> str {
-    return el_ord_why_code(el_order_fidelity(name));
+    return el_ord_why_code(el_order_fidelity(name), EL_WHY_NORM());
 }
 
 // ══ THE REMEDY FOR `EL_ORD_WRAP`, WRITTEN ONCE ════════════════════════════
@@ -769,19 +775,75 @@ pub fn el_ord_wraps(name: str) -> bool { return el_ty(name).ord == EL_ORD_WRAP()
 pub fn el_wrap_ord_least()    -> i64 { return 0i64; }
 pub fn el_wrap_ord_greatest() -> i64 { return -1i64; }
 
-/// The ground for an `EL_ORD_*` CODE — ONE renderer, because the same four
-/// failures are reached from two questions now (the value's normalization at a
-/// call site, and the key vector's element type at a sort site) and a second copy
-/// of the four sentences is a second thing to drift.
-pub fn el_ord_why_code(f: i32) -> str {
+// ── WHICH QUESTION THE GROUND IS BEING ASKED FROM ────────────────────────────
+// The `EL_ORD_*` code names WHAT the conversion did to the value. What that
+// COSTS is a fact about the position that performs it, and the two positions
+// are different questions with different costs — so the code alone does not
+// determine the sentence, and rendering it as though it did is how one of them
+// came to assert the other's mechanism.
+//
+// ⚠ THIS IS A MEASURED SPLIT, NOT A WORDING CHOICE. EL_ORD_WRAP's single
+// sentence ended "an `order by` over such a key ranks the largest values below
+// zero … so no plan decision downstream can detect it", and it was rendered by
+// `check_agg_operand` / `check_arith_operand` / `check_calls` — all three in the
+// STATIC tier. MEASURED at 85c9433d in that same tier: `order by s.v` over a
+// `u64` column COMPILES and answers 5, 2^63, 2^64-1 in the CORRECT order,
+// because the key vector holds the key's own type and compares in it (the
+// conjunction at `el_cmp_fidelity`, and `key_norm_body` emits no cast at all
+// when `tn == kv`). The clause described a static code path that was retired
+// when key vectors stopped being `Vec<i64>`; it stayed true only of the DYNAMIC
+// tier, which never renders this string. A refusal whose ground names a
+// mechanism that no longer exists teaches the reader a false model of the
+// compiler and is exactly the drift this file's ONE-renderer rule exists to
+// prevent — the rule was right and the unit was wrong: one renderer per (code,
+// QUESTION), not per code.
+pub fn EL_WHY_NORM() -> i32 { return 0i32; }   // a value normalized `as i64` at an emit position
+pub fn EL_WHY_SORT() -> i32 { return 1i32; }   // a key collected into a vector of another type
+
+/// The ground for an `EL_ORD_*` CODE, asked from a named QUESTION — still ONE
+/// renderer, and the unit it renders is a PAIR now: the type-level fact and the
+/// remedy are the code's, the consequence clause between them is the question's.
+///
+/// ⚠ WHY THE PAIR IS SPELLED OUT INSTEAD OF COMPOSED, WHICH IS THE ONE THING A
+/// READER WILL WANT TO CHANGE. Every arm is a STRING LITERAL because the return
+/// value has to outlive the call: `join_order` stores it in `Why.keywhy` (a
+/// `str` field of a record that travels into the plan), so a `String` built here
+/// and viewed with `string_as_str` would be a borrow of a dead local — the
+/// dangling-view defect this codebase has already paid for once. The cost is
+/// that the FACT and the REMEDY appear twice per split code, and that cost is
+/// MECHANIZED rather than trusted: `wql_el_ord_why_split` asserts that the two
+/// renderings of each split code still share a long common prefix and a long
+/// common suffix, so a copy edited alone goes red while the two edited together
+/// stay green.
+///
+/// ⚠ WHICH (code, question) PAIRS ARE REACHABLE, because a pair nobody reaches is
+/// a claim nobody can check — and here the derivation is exact rather than a
+/// survey of callers. All three NORM callers refuse on the same antecedent: the
+/// type is INT-family and `!fits` (`el_arith_ok` returns `t.fits` for INT and
+/// true otherwise; `check_agg_operand` reaches the shared ground only inside
+/// `!ty.fits`, and f32/f64 have `fits == true`; `check_calls` guards on
+/// `EL_TY_INT() && !el_int_fits_i64`). `el_ord_of` maps exactly that antecedent
+/// to WRAP (bits ≤ 64) or TRUNC (bits > 64). So NORM reaches WRAP and TRUNC and
+/// NOTHING ELSE, and PARTIAL / UNNAMED / NO_CMP are SORT-reachable only — their
+/// consequence clauses are the sort's and are written as such. If a fourth
+/// normalization position ever reaches one of them, the sentence it gets is the
+/// sort's and will read wrong; that is the same defect one row over, and the
+/// derivation above is what makes it visible instead of silent.
+pub fn el_ord_why_code(f: i32, q: i32) -> str {
     if f == EL_ORD_PARTIAL() {
         return "an f64/f32 key is only PARTIALLY ordered — a NaN compares false against every value including itself, so on a NaN row BOTH disjuncts of `prev > cur || (prev == cur && tiebreak)` are false and the tiebreak is never reached. The remedy is a key whose comparison is total: an integer within the i64 range, a `str`, or a `bool`";
     }
     if f == EL_ORD_WRAP() {
-        return "a `u64`/`usize` value is normalized to i64 by the EL, and that cast REINTERPRETS rather than converts: every value at or above 2^63 comes back NEGATIVE, so the number the query goes on to use is not the number the type held — an `order by` over such a key ranks the largest values below zero with a comparison that is TOTAL and identical in every nest, so no plan decision downstream can detect it. The remedy is a value that fits i64 (u32 and narrower widen losslessly), or the i64 it was computed from";
+        if q == EL_WHY_SORT() {
+            return "a `u64`/`usize` value is normalized to i64 by the EL, and that cast REINTERPRETS rather than converts: every value at or above 2^63 comes back NEGATIVE, so the number the query goes on to use is not the number the type held — an `order by` over such a key ranks the largest values below zero with a comparison that is TOTAL and identical in every nest, so no plan decision downstream can detect it. The remedy is a value that fits i64 (u32 and narrower widen losslessly), or the i64 it was computed from";
+        }
+        return "a `u64`/`usize` value is normalized to i64 by the EL, and that cast REINTERPRETS rather than converts: every value at or above 2^63 comes back NEGATIVE, so the number the query goes on to use is not the number the type held — and nothing after this position can tell that number from one the column genuinely held: what leaves here is a plain i64 and every later comparison is a total i64 order, so the query does not fail, it answers something else. The COLUMN is not the problem and is refused nowhere else — ordering by it, grouping by it, comparing it and projecting it all carry `u64` itself; it is this position that must make it an i64 and cannot do so faithfully. The remedy is a value that fits i64 (u32 and narrower widen losslessly), or the i64 it was computed from";
     }
     if f == EL_ORD_TRUNC() {
-        return "a `u128`/`i128` value is normalized to i64 by the EL, which DROPS the high bits: the normalization is not injective, so two different values arrive EQUAL — an `order by` then ranks them by the row-index tiebreak and a `group by` puts them in one bucket. The remedy is a value that fits i64";
+        if q == EL_WHY_SORT() {
+            return "a `u128`/`i128` value is normalized to i64 by the EL, which DROPS the high bits: the normalization is not injective, so two different values arrive EQUAL — an `order by` then ranks them by the row-index tiebreak and a `group by` puts them in one bucket. The remedy is a value that fits i64";
+        }
+        return "a `u128`/`i128` value is normalized to i64 by the EL, which DROPS the high bits: the normalization is not injective, so two different values arrive EQUAL — and nothing after this position can tell the two apart: one i64 is what it accumulates, compares and returns, so the query does not fail, it answers something else. The remedy is a value that fits i64";
     }
     if f == EL_ORD_UNNAMED() {
         return "this type is outside the EL scalar lattice (`el_class_lookup`), so nothing is known about the comparison the backend would emit for it — and a type is not assumed to be ordered until it is admitted there. The default is deny, so that a type added later cannot inherit a licence resting on a comparison nobody has checked. The remedy is a key of an admitted scalar type (an integer within the i64 range, `str`, `bool`)";
@@ -848,7 +910,7 @@ pub fn el_cmp_why(named: str, emitted: str) -> str {
     if f == EL_ORD_UNNAMED() && el_ty(named).cls >= 0i32 && el_ty(emitted).cls >= 0i32 {
         return "the key vector the backend emits holds neither this type nor the type the EL normalizes it into, so no conversion this table knows carries the value into the comparison. The remedy is a key whose type IS the emitted element type";
     }
-    return el_ord_why_code(f);
+    return el_ord_why_code(f, EL_WHY_SORT());
 }
 
 /// The ground for a key whose emitted `==` does not realize its equality.
