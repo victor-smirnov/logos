@@ -985,10 +985,29 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     if qp.sw[si0] == sw0 { qp.sordw[si0] = kordw; hit = true; break; }
                     si0 = si0 + 1i64;
                 }
-                if !hit && qp.sn < 8i64 {
-                    qp.sw[qp.sn] = sw0;
-                    qp.sordw[qp.sn] = kordw;
-                    qp.sn = qp.sn + 1i64;
+                if !hit {
+                    if qp.sn < 8i64 {
+                        qp.sw[qp.sn] = sw0;
+                        qp.sordw[qp.sn] = kordw;
+                        qp.sn = qp.sn + 1i64;
+                    }
+                    // ⚠ SLOT 9, AND WHAT HAPPENS THERE IS NOW A REFUSAL RATHER
+                    // THAN A SIGNED COMPARE. This table is keyed by Sort node
+                    // word and capped at 8; past the cap the record was silently
+                    // dropped and `qp_sordw` answered `false`, i.e. the ninth
+                    // `order by` in one plan ranked a u64 key under the signed
+                    // order with no diagnostic at all — the exact "degrades
+                    // silently to signed past capacity" this codebase keeps
+                    // calling out. A dropped record only CHANGES an answer when
+                    // the key actually claims the moved order, so that is the
+                    // condition: a claim that cannot be stored is a refusal, and
+                    // a key with nothing to claim keeps the `false` that was
+                    // always right for it. (Not reachable from today's surface
+                    // grammar — one `order by` per plan level — which is why it
+                    // was survivable, not why it was correct.)
+                    else if kordw {
+                        chk_fail(chk, "too many `order by` keys in one plan (limit 8) for a key whose column's order wraps — the sort plan has no slot left to record it, and ordering it signed would be a wrong answer", "", "", "", "");
+                    }
                 }
             }
         }
