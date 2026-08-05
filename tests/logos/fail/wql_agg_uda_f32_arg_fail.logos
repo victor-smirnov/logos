@@ -33,6 +33,15 @@
 // as oracle otherwise) is a choice about what the language accepts, so it is
 // Victor's.
 //
+// ⚠ AND THIS IS NOW THE ONLY SEAM `el_host_carries` DESCRIBES. On 2026-08-05 the
+// BUILTIN aggregate argument stopped asking it — it asks `el_agg_arg_reaches`
+// and `compute_agg_bodies` writes the cast — precisely because a position that
+// can write a conversion has no business asking what the host carries unwritten.
+// A UDA's argument is the remaining position that genuinely cannot: it is
+// printed into a user's `_step`, and normalizing it there would retype somebody
+// else's parameter. So `el_host_carries` has no caller until this file's defect
+// is closed, and closing it is what gives the predicate one again.
+//
 // The assertion below deliberately omits the blob LINE NUMBER: the number moves
 // with any change to the generated preamble, and pinning it would make this a
 // test about the emitter's line count. When the diagnostic is fixed, this file's

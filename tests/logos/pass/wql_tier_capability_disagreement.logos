@@ -10,6 +10,14 @@
 // `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`, which pinned a hole for
 // months with its own header saying so and was rewritten when the hole closed.
 //
+// ⚠ AND THE FIRST TIME THAT INSTRUCTION CAME DUE, IT DID NOT FIRE. The `isize`
+// cell closed on 2026-08-05 and this file stayed GREEN, because the static
+// refusal it reported was asserted here only in PROSE — the executable pin was
+// `tests/logos/fail/wql_agg_isize_arg_fail`, which is what went red and was
+// rewritten. A capability narrated but not run is not pinned by the file that
+// narrates it. The header is therefore corrected by hand below, and any cell
+// this file claims and does not execute should be read the same way.
+//
 // ── THE MATRIX, MEASURED AT 85c9433d ─────────────────────────────────────────
 // Over a `u64` / `usize` column, per POSITION, per TIER:
 //
@@ -44,52 +52,71 @@
 //
 // ── WHY THE STATIC REFUSAL SURVIVES A COMPARISON-SEAM FIX, DERIVED ──────────
 // The refusal is raised at `wql/codegen.logos::check_agg_operand` (and its
-// arithmetic sibling `check_arith_operand`), whose antecedent is
-// `el_host_carries(et, "i64")` — `el.logos`, and its whole test is `t.bits < 64`.
-// That is a claim about THE HOST LANGUAGE: `compute_agg_bodies` prints the
-// argument VERBATIM into `let __v: i64 = …` / `el_add(acc, …)`, and the host
-// widens an integer only from a NARROWER width, so a 64-bit type — `u64`,
-// `usize` AND `isize` — has nothing to widen and the generated line does not
-// type-check. No comparison is involved in that antecedent at any point, so no
-// change at a comparison site can move it. ⚠ THIS IS A DERIVATION, NOT A
-// MEASUREMENT: at the time this file was written the sibling worktree carrying
-// the comparison-seam fix held no commit, so the post-fix cells could not be
-// run. If the derivation is wrong, THIS file is where it shows up.
+// arithmetic sibling `check_arith_operand`), and NO COMPARISON IS INVOLVED IN
+// ITS ANTECEDENT AT ANY POINT, so no change at a comparison site can move it.
+// ⚠ THAT WAS A DERIVATION, NOT A MEASUREMENT, when this file was written; the
+// antecedent has since been replaced and the derivation held — the u64/usize
+// cells below are unchanged.
+//
+// ⚠ WHAT THE ANTECEDENT WAS, AND WHAT IT IS (2026-08-05). It was
+// `el_host_carries(et, "i64")`, whose whole test is `t.bits < 64` — a claim about
+// THE HOST LANGUAGE, because `compute_agg_bodies` printed the argument VERBATIM
+// into `let __v: i64 = …` / `el_add(acc, …)` and the host widens an integer only
+// from a NARROWER width. It is now `el_agg_arg_reaches(et, "i64")` — `ElTy.fits`
+// composed with `el_norm_cast`, a claim about the VALUE — and the emitter WRITES
+// the cast through `emit_norm_operand`. For `u64`/`usize` the two agree and the
+// answer is still REFUSE, because `fits` is false: the normalization
+// REINTERPRETS. For `isize` they disagree, and that cell is CLOSED — see below.
 //
 // ── WHAT THE REFUSAL DOES *NOT* COVER, WHICH IS THE FINDING ─────────────────
 // It is NOT a class-level over-refusal. `u8`, `u16` and `u32` widen losslessly
-// into i64 (`t.bits < 64`), and every aggregate over them is accepted by all
-// three tiers — blocks C below measure that, and without it "the static tier
-// refuses unsigned aggregates" would be the wrong sentence for the right table.
+// into i64 (`ElTy.fits`, and under the pre-2026-08-05 antecedent `t.bits < 64`
+// as well — the two agree on every width below 64), and every aggregate over
+// them is accepted by all three tiers — blocks C below measure that, and without
+// it "the static tier refuses unsigned aggregates" would be the wrong sentence
+// for the right table.
 // The op dimension is closed BY CONSTRUCTION rather than by enumeration: `min`,
 // `max` and `sum` reach ONE function with ONE antecedent, so per-op variation is
 // not expressible; block C measures the type dimension and one `max` arm
 // measures the construction claim.
 //
-// ── THE TWO CELLS THAT MAKE THIS A DEFECT REPORT AND NOT A LIMITATION ───────
-//   1. POSITION, not TYPE, inside ONE clause of ONE tier. Over the SAME `u64`
-//      column, in the SAME `aggregate` clause, `avg` is ACCEPTED and its answer
-//      is CORRECT while `sum`/`min`/`max` are REFUSED — because `avg`'s fold
-//      emitter writes `((s.x) as f64)` itself and the others emit the argument
-//      verbatim. Block B measures it, and its numbers prove something further:
-//      that `as f64` is an UNSIGNED conversion. 2^64-1 comes back as 2^64 and
-//      2^63 as 2^63, not as -1.0 and -2^63. So the static tier ALREADY HAS a
-//      correct wide-unsigned conversion at one aggregate position while refusing
-//      three others on the ground that it has none.
-//   2. `isize`. It is 64-bit and SIGNED, so every one of its values survives
-//      `as i64` — `el_arith_ok("isize")` is true, an `isize` sort key is
-//      admitted, and BOTH runtime tiers answer `min`/`max` over it CORRECTLY at
-//      i64::MIN and i64::MAX today (block F asserts those values, and they are
-//      immune to any comparison-seam change because a signed comparison is
-//      already the right one for a signed type). The static tier refuses
-//      `sum(isize)` anyway, and `tests/logos/fail/wql_agg_isize_arg_fail.expected`
-//      says so in its own words: "the restriction is this position's, not the
-//      type's". A refusal with no value-domain ground at all.
+// ── THE CELL THAT MAKES THIS A DEFECT REPORT AND NOT A LIMITATION ───────────
+//   POSITION, not TYPE, inside ONE clause of ONE tier. Over the SAME `u64`
+//   column, in the SAME `aggregate` clause, `avg` is ACCEPTED and its answer is
+//   CORRECT while `sum`/`min`/`max` are REFUSED — because `avg`'s fold emitter
+//   writes `((s.x) as f64)` itself and the others emit the argument verbatim.
+//   Block B measures it, and its numbers prove something further: that `as f64`
+//   is an UNSIGNED conversion. 2^64-1 comes back as 2^64 and 2^63 as 2^63, not
+//   as -1.0 and -2^63. So the static tier ALREADY HAS a correct wide-unsigned
+//   conversion at one aggregate position while refusing three others on the
+//   ground that it has none.
+//
+// ── THE SECOND SUCH CELL WAS `isize`, AND IT IS CLOSED (2026-08-05) ─────────
+// `isize` is 64-bit and SIGNED, so every one of its values survives `as i64`:
+// `el_arith_ok("isize")` is true, `s.v + 1` over an isize column compiled, an
+// isize sort key was admitted, and both runtime tiers answered `min`/`max` over
+// it correctly at i64::MIN and i64::MAX (block F, still asserted below). The
+// static tier refused `sum(isize)` anyway, and its own diagnostic said why —
+// "the restriction is this position's, not the type's". A refusal with no
+// value-domain ground is not a conservative choice, and it needed no ruling
+// about the value domain to remove: the seam was made to ask `ElTy.fits` and to
+// WRITE the cast, which is what the other four EL operand positions had always
+// done. `tests/logos/fail/wql_agg_isize_arg_fail` became
+// `tests/logos/pass/wql_agg_isize_arg_e2e`, which asserts the ANSWERS —
+// min/max/sum at isize::MIN and isize::MAX, and the Err at the overflow.
+//
+// ⚠ THAT CLOSURE IS THE MODEL FOR THE REMAINING CELLS AND ALSO THE WARNING. It
+// was available because `isize`'s VALUES were never in question; the u64/usize
+// cells are not, and lifting them by the same move would emit a wrong number
+// rather than a refusal. What the static tier would additionally need is an
+// accumulator typed with the ARGUMENT's own type — `rexpr_walk` hardcodes
+// `Vec<i64>` with signed seeds i64::MAX/i64::MIN and raw `<`/`>`, while its KEY
+// vectors already carry the key's own type, which is why its `order by` was
+// always right and its `max` would not be.
 //
 // ── THE REFUSALS THEMSELVES LIVE IN fail/, BECAUSE A PROGRAM THAT DOES NOT ───
 // ── COMPILE CANNOT BE A PASS TEST ───────────────────────────────────────────
 //   `sum` over `u64`   → tests/logos/fail/wql_agg_wide_int_arg_fail
-//   `sum` over `isize` → tests/logos/fail/wql_agg_isize_arg_fail
 //   `+` over `u64`     → tests/logos/fail/wql_arith_wide_int_fail
 //   a UDF returning `u64` → tests/logos/fail/wql_udf_wide_int_ret_fail
 // Every static ACCEPTANCE claimed in the matrix above is asserted by this file
@@ -320,13 +347,15 @@ fn main() -> i32 {
     match qv.incremental(&e) {
         Result::Ok(_g) => { } Result::Err(_e) => { return 68i32; } }
 
-    // ══ F. `isize` — THE SHARPEST CELL. Codes 70-89. Both runtime tiers give the
-    //       CORRECT extremes here and will keep giving them after any
-    //       comparison-seam change, because a signed comparison is already the
-    //       right comparison for a signed type. The static tier refuses
-    //       `sum(isize)` regardless (`wql_agg_isize_arg_fail`) while accepting an
-    //       `isize` ORDER key — the same split, on a type whose values are not in
-    //       question at all.
+    // ══ F. `isize` — THE CELL THAT CLOSED. Codes 70-89. All three tiers agree
+    //       here now: both runtime tiers give the CORRECT extremes (and will
+    //       keep giving them after any comparison-seam change, because a signed
+    //       comparison is already the right comparison for a signed type), and
+    //       the static tier ANSWERS `sum`/`min`/`max` over an isize column as of
+    //       2026-08-05 — `tests/logos/pass/wql_agg_isize_arg_e2e` holds those
+    //       values, and this block deliberately does not repeat them. What stays
+    //       here is the ORDER key, which was admitted before the closure and is
+    //       the arm that made the refusal legible as the aggregate position's.
     let ps: [S_isize; 3] = [S_isize { x: 5isize,                    id: 0i64 },
                             S_isize { x: -9223372036854775808isize, id: 1i64 },
                             S_isize { x: 9223372036854775807isize,  id: 2i64 }];

@@ -4336,11 +4336,32 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             if !uda[ai] {
                 if !check_agg_arg_in_lattice(ae_opt, t, a.fn_name, "wql!: `aggregate`") { return false; }
             }
+            // ⚠⚠ AND IT IS EMITTED THROUGH THE SAME CAST THE CHECK ADMITTED IT
+            // BY. `check_agg_operand` asks `el_agg_arg_reaches`, which is defined
+            // through `el_norm_cast`; `emit_norm_operand` WRITES `el_norm_cast`'s
+            // conversion. Rule and emitter therefore read one function and cannot
+            // disagree about which conversion exists — which is exactly how the
+            // two used to disagree: the check admitted only what the HOST widens
+            // unwritten (`el_host_carries`, `bits < 64`) because this line wrote
+            // nothing, so `isize` — signed, 64-bit, every value reaching `i64`
+            // unmoved — was refused by a position that could have cast it, and
+            // said so in its own diagnostic. It is `wql_agg_isize_arg_e2e` now.
+            //
+            // ⚠ THE TWO EXEMPT SHAPES KEEP THE VERBATIM EMISSION, AND MUST. A
+            // UDA's argument goes to the user's `_step`, whose declared T is the
+            // contract — normalizing it here would silently retype a user's
+            // parameter. And `avg` over an admitted non-float argument
+            // (`agg_cast`) has its own `as f64` written by the fold emitter; that
+            // one is a GENUINE unsigned conversion for a `u64`/`u128` column and
+            // is the reason `avg` answers correctly at widths `sum` refuses.
+            // Wrapping it in `as i64` first would destroy exactly that.
             if !uda[ai] && !agg_cast[ai] {
                 let want: str = if agg_flt[ai] { "f64" } else { "i64" };
                 if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }
+                emit_norm_operand(&mut agg_body[ai], ae_opt, t, var0, want);
+            } else {
+                emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
             }
-            emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
         }
         ai = ai + 1i64;
     }

@@ -1,11 +1,11 @@
 // WQL — AN `f32` AGGREGATE ARGUMENT IS REFUSED BY NAME, NOT BY THE HOST
 // COMPILER FROM INSIDE A GENERATED LINE.
 //
-// The aggregate argument is the FIFTH EL operand position and the only one that
-// implements neither half of the lattice's three-outcome rule: `compute_agg_
-// bodies` prints the argument VERBATIM into `let __v: f64 = …` / `acc + …`,
-// while arithmetic operands, sort keys, UDF results and UDA finalizers each
-// normalize what survives and refuse what does not.
+// The aggregate argument is the FIFTH EL operand position and was the only one
+// that implemented neither half of the lattice's three-outcome rule:
+// `compute_agg_bodies` printed the argument VERBATIM into `let __v: f64 = …` /
+// `acc + …`, while arithmetic operands, sort keys, UDF results and UDA
+// finalizers each normalize what survives and refuse what does not.
 //
 // ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
 // parent commit (6440e565), this exact file:
@@ -22,11 +22,23 @@
 // (el.logos:387, cls=EL_TY_FLT), every f32 value survives the conversion into
 // f64 (`el_ty_complete`: "f32 → f64 is exact", fits=true), `el_norm_cast("f32")`
 // answers `f64`, and an f32 SORT KEY is already accepted by exactly that rule
-// (`key_norm_ok`). So the refusal here is this emit position's, and it says so
-// rather than claiming the type is unsupported. WHETHER to normalize and admit
-// it instead is a decision about what the language accepts (and about the
-// dynamic engine's value domain, whose `RtVal` has one float arm) — it belongs
-// to Victor, and the diagnostic does not preempt it.
+// (`key_norm_ok`). So the refusal here is NOT the value's. WHETHER to normalize
+// and admit it instead is a decision about what the language accepts (and about
+// the dynamic engine's value domain, whose `RtVal` has one float arm) — it
+// belongs to Victor, and the diagnostic does not preempt it.
+//
+// ⚠⚠ AND ON 2026-08-05 IT STOPPED BEING THIS POSITION'S EITHER, WHICH IS WHY THE
+// `.expected` MOVED. The check now asks `el_agg_arg_reaches` (`ElTy.fits` +
+// `el_norm_cast`) instead of `el_host_carries`, and `compute_agg_bodies` WRITES
+// the cast through `emit_norm_operand` — so the position CAN normalize, and does,
+// for the whole integer family (`tests/logos/pass/wql_agg_isize_arg_e2e` is the
+// cell that closed). It is withheld from a float on a different ground, and the
+// message now states that ground instead of the old "this emit position does
+// not": accumulating a narrower float in a wider one decides what a long `sum`
+// answers, so the accumulator's width stays the argument's. THIS FILE IS THE
+// GATE ON THAT DISTINCTION. If the float half is later admitted, this test goes
+// red and its `.expected` has to be replaced by an ANSWER at f32's extremes —
+// not by a compile.
 //
 // The remedy the message names is MEASURED, not asserted:
 // wql_agg_arg_seam_e2e aggregates `s.v * 1.0f64` over this same column type and

@@ -509,26 +509,40 @@ pub fn el_norm_cast(name: str) -> str {
 }
 
 /// Does the HOST LANGUAGE carry a value of type `name` into a position that
-/// expects `want` with NO written conversion? THE antecedent of every emit
-/// position that prints a sub-expression VERBATIM into a typed slot — a `let` of
-/// the accumulator's type, an argument of `el_add`, an infix against an f64.
+/// expects `want` with NO written conversion? The antecedent of an emit position
+/// that prints a sub-expression VERBATIM into a typed slot.
 ///
-/// ⚠ THIS IS A CLAIM ABOUT THE HOST COMPILER, NOT ABOUT THE VALUE. `ElTy.fits`
-/// answers "does every value survive the conversion into `repr`" — a fact about
-/// arithmetic, and it says YES for `isize` and for `f32`. Neither of those is
-/// carried: the host widens an integer only from a NARROWER width, and it widens
-/// no float at all. The two questions were conflated at exactly one seam (the
-/// aggregate argument), where "the arg is already checked" was written in a
-/// comment and `sum(s.v)` over an `f32` column failed as `operator '+': type
-/// mismatch (f64 vs f32)` inside a generated line.
+/// ⚠ THIS IS A CLAIM ABOUT THE HOST COMPILER, NOT ABOUT THE VALUE, and that is
+/// the whole reason it is a separate function. `ElTy.fits` answers "does every
+/// value survive the conversion into `repr`" — a fact about arithmetic, and it
+/// says YES for `isize` and for `f32`. Neither of those is carried: the host
+/// widens an integer only from a NARROWER width, and it widens no float at all.
 ///
-/// ⚠ AND IT IS MEASURED, NOT ASSERTED — the same discipline as `self_ord` /
-/// `self_ident`: a claim about what the backend accepts is stored where it is
-/// used and pinned by a gate that asks the LANGUAGE. `wql_agg_arg_seam_e2e`
-/// aggregates a column of every width below 64 bits (the true half) and
-/// `wql_agg_*_arg_fail` pin the refusals (the false half). If the host's implicit
-/// coercions change — the open blocklist→allowlist arc would change them — one
-/// side or the other goes red instead of a query silently changing meaning.
+/// ⚠⚠ IT IS NO LONGER THE AGGREGATE ARGUMENT'S ANTECEDENT, AND THE MOVE IS THE
+/// POINT. The two questions were conflated at exactly that seam, which asked
+/// THIS one and then printed the argument verbatim — so `isize`, a signed 64-bit
+/// type every one of whose values reaches `i64` unmoved, was refused because the
+/// HOST would not widen it, at a position that could simply have written the
+/// cast. `check_agg_operand` now asks `el_agg_arg_reaches` and
+/// `compute_agg_bodies` writes `el_norm_cast`'s conversion through
+/// `emit_norm_operand`, so no admitted aggregate argument rides an implicit
+/// coercion any more.
+///
+/// ⚠ WHAT STILL PRINTS VERBATIM INTO A TYPED SLOT — the seam this predicate is
+/// kept FOR — is a UDA's argument, which `compute_agg_bodies` prints into the
+/// user's `<name>_step` without consulting the declared parameter type at all.
+/// That seam is OPEN and its bad diagnostic is pinned by
+/// `tests/logos/fail/wql_agg_uda_f32_arg_fail`; closing it needs a reflected
+/// `fn_param_type_name`, and this is the question it will have to ask.
+///
+/// ⚠ UNTIL THEN THIS FUNCTION HAS NO CALLER, AND THAT IS RECORDED RATHER THAN
+/// HIDDEN. It is kept because the fact is true and this is the only place in the
+/// tree it is written down; it is NOT kept for ABI reasons — `stdlib/mem/wql` is
+/// metaprogram code and appears nowhere in `abi/logos.abi` (measured: 0 hits for
+/// either predicate, and `scripts/abi-check.sh` reports ADDED 0 across this
+/// change). And with no caller it carries NO GATE: `wql_agg_arg_seam_e2e` used
+/// to be its measurement and now measures `el_agg_arg_reaches` instead. Do not
+/// read this as a measured claim until something asks it again.
 pub fn el_host_carries(name: str, want: str) -> bool {
     if str_eq(name, want) { return true; }
     let t: ElTy = el_ty(name);
@@ -539,6 +553,46 @@ pub fn el_host_carries(name: str, want: str) -> bool {
     // `usize` and `u64` are 64-bit types with nothing to widen and `i128` /
     // `u128` are wider than the destination.
     return t.bits < 64i64;
+}
+
+/// MAY AN AGGREGATE ARGUMENT OF TYPE `name` REACH AN ACCUMULATOR OF TYPE `want`?
+/// The question every OTHER EL operand position asks — arithmetic operands
+/// (`check_arith_operand` + `emit_norm_operand`), UDF results (`check_calls` +
+/// `emit_udf_call`), sort keys (`key_norm_ok` + `key_norm_body`) and UDA
+/// finalizers (`uda_fin_cast`) each admit what SURVIVES the normalization and
+/// WRITE the cast that performs it. The aggregate argument was the one position
+/// that did neither half; it now does both, and this is its half of the rule.
+///
+/// ⚠ IT IS DEFINED THROUGH `el_norm_cast`, NOT BESIDE IT, so the check admits
+/// exactly what the emitter is able to write: `emit_norm_operand` wraps the
+/// argument in `as <el_norm_cast(name)>`, and this returns true only when that
+/// cast's target IS the accumulator and `ElTy.fits` says the value survives it.
+/// A rule and an emitter that read the same function cannot disagree about which
+/// conversion exists.
+///
+/// ⚠ WHAT THIS ADMITS THAT `el_host_carries` DID NOT IS EXACTLY `isize`, and
+/// nothing else, because the integer family's `fits` decides the rest: `u64` and
+/// `usize` REINTERPRET (every value at or above 2^63 arrives negative) and
+/// `u128`/`i128` TRUNCATE, so their refusal is unchanged and rests on the VALUE.
+/// Everything below 64 bits was admitted before and still is — with the cast now
+/// written rather than left to the host, which is the same value by a route the
+/// lattice owns.
+///
+/// ⚠ THE FLOAT SIDE IS WITHHELD ON PURPOSE, AND IT IS NOT AN OVERSIGHT.
+/// `el_norm_cast("f32")` is `f64` and the conversion is exact, so this seam
+/// COULD write it. What it may not do is decide, as a side effect of a type
+/// check, that a float aggregate accumulates in a width other than its
+/// argument's: that changes what a long `sum` answers and the caller cannot undo
+/// it. So a float argument is admitted only when it already IS the accumulator's
+/// type, and `tests/logos/fail/wql_agg_f32_arg_fail` keeps that refusal visible
+/// with a diagnostic that names the remedy (`sum(s.x * 1.0f64)` — the widening
+/// requested by the query, at the arithmetic seam, where it is the query's).
+pub fn el_agg_arg_reaches(name: str, want: str) -> bool {
+    if str_eq(name, want) { return true; }
+    let t: ElTy = el_ty(name);
+    if t.cls != EL_TY_INT() { return false; }
+    if !str_eq(want, el_norm_cast(name)) { return false; }
+    return t.fits;
 }
 
 // ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────

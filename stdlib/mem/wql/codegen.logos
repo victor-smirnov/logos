@@ -530,17 +530,17 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
     return false;
 }
 
-/// THE AGGREGATE ARGUMENT IS THE FIFTH EL OPERAND POSITION, and it is the one
-/// that implements NEITHER half of the lattice's three-outcome rule. The other
-/// four — arithmetic operands (`check_arith_operand` + `emit_norm_operand`), UDF
-/// results (`check_calls` + `emit_udf_call`), sort keys (`key_norm_ok` +
-/// `key_ord_frag`) and UDA finalizers (`uda_fin_cast`) — each normalize what
-/// survives and refuse what does not. `compute_agg_bodies` prints the argument
-/// VERBATIM into `let __v: i64 = …` / `el_add(acc, …)` / `acc + …`, so the host
-/// compiler is the only thing that ever checked it.
+/// THE AGGREGATE ARGUMENT IS THE FIFTH EL OPERAND POSITION, and it is the last
+/// one to implement BOTH halves of the lattice's rule. The other four —
+/// arithmetic operands (`check_arith_operand` + `emit_norm_operand`), UDF results
+/// (`check_calls` + `emit_udf_call`), sort keys (`key_norm_ok` + `key_ord_frag`)
+/// and UDA finalizers (`uda_fin_cast`) — each normalize what survives and refuse
+/// what does not. This one used to do neither: `compute_agg_bodies` printed the
+/// argument VERBATIM into `let __v: i64 = …` / `el_add(acc, …)` / `acc + …`, so
+/// the host compiler was the only thing that ever checked it.
 ///
-/// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
-/// parent commit, `aggregate t = sum(s.v)` over an `f32` column:
+/// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED two
+/// commits back, `aggregate t = sum(s.v)` over an `f32` column:
 ///   <metaprog-blob-subst>:3935: error [fn q_run]: operator '+':
 ///     type mismatch (f64 vs f32)
 /// — a generated line, naming neither the column, nor the aggregate, nor the
@@ -555,11 +555,24 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
 /// which compiles today and answers in f64, because the arithmetic seam does its
 /// half of the rule.
 ///
-/// ⚠ THIS REFUSES; IT DOES NOT NORMALIZE. Emitting `el_norm_cast`'s conversion
-/// here would ADMIT `f32` and `isize` aggregates, which is a change to what the
-/// language accepts and belongs to Victor, not to this check. The message says
-/// so, so that the restriction is legible as this position's rather than the
-/// type's.
+/// ⚠⚠ IT NOW NORMALIZES, AND `el_host_carries` IS NO LONGER ITS ANTECEDENT. The
+/// first version of this check asked "does the HOST widen this into the
+/// accumulator unwritten" (`bits < 64`) and refused everything else — including
+/// `isize`, whose every value reaches `i64` unmoved. Its own diagnostic said so:
+/// "the restriction is this position's, not the type's". A check that documents
+/// its own wrongness is still wrong, and the remedy was not a special case but
+/// the OTHER HALF of the rule — `el_agg_arg_reaches` (`ElTy.fits` +
+/// `el_norm_cast`) here, and the cast actually written by `compute_agg_bodies`
+/// through `emit_norm_operand`. So the admitted set is the LATTICE's and not the
+/// backend's coercion table, and a 64-bit signed row added later is admitted
+/// without anyone remembering this arc.
+///
+/// ⚠ THE UNSIGNED AND OVER-WIDE REFUSALS ARE UNCHANGED, and they are the reason
+/// this is a rule and not a widening: `u64`/`usize` (`fits` false —
+/// REINTERPRETS) and `u128`/`i128` (`fits` false — TRUNCATES) are still refused,
+/// on the VALUE's ground, and their diagnostic is `el_order_why`'s shared text.
+/// `f32` is refused too, and the third branch below says why the reason there is
+/// neither the value nor the position — see `el_agg_arg_reaches`.
 ///
 /// `want` is the accumulator's type (`i64` / `f64`), `fname` the aggregate's
 /// name. NOT called for a UDA (its argument goes to a user `_step` whose
@@ -630,7 +643,7 @@ pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str)
     // Lenient on an out-of-lattice name, exactly as `el_arith_ok` is: nothing is
     // known about it, and the host compiler is the documented oracle there.
     if ty.cls < 0i32 { return true; }
-    if el_host_carries(et, want) { return true; }
+    if el_agg_arg_reaches(et, want) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
     m.push_str(": `");
@@ -639,26 +652,55 @@ pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str)
     m.push_str(et);
     m.push_str("` — the aggregate accumulates in `");
     m.push_str(want);
-    m.push_str("` and the argument is emitted into that accumulator VERBATIM, with no normalizing conversion — ");
+    m.push_str("` and the argument reaches it through the EL's normalizing cast (`el_norm_cast`), the one an arithmetic operand, a sort key and a UDF result each get — ");
     if ty.cls != EL_TY_INT() && ty.cls != EL_TY_FLT() {
-        m.push_str("and this type is not numeric, so there is no conversion into the accumulator at all. The remedy is a numeric argument");
+        m.push_str("and this type is not numeric, so there is no cast into the accumulator at all. The remedy is a numeric argument");
     } else if !ty.fits {
         // The SHARED ground, rendered once for all three sites that normalize
         // into the i64 tower (arithmetic operand, UDF result, aggregate
         // argument). A second copy of those sentences is a second thing to drift.
         m.push_str(el_order_why(et));
-    } else {
+    } else if ty.cls == EL_TY_FLT() {
+        // ONLY A FLOAT REACHES HERE. An integer whose values survive the cast is
+        // admitted above — that is what `el_agg_arg_reaches` added — so what is
+        // left is a float that is not already the accumulator's type, i.e. `f32`
+        // into `f64`. Its cast is exact; the refusal is neither the value's nor
+        // the position's, and the branch says which it is.
+        //
+        // ⚠ THE CLASS TEST IS NOT REDUNDANT, AND A CONTROL REVERT IS WHY IT IS
+        // THERE. With the admission reverted to `el_host_carries`, an `isize`
+        // argument fell into this branch and rendered "accumulating a narrower
+        // float in a wider one … `min(x * 1.0i64)`" — a float's reason and an
+        // impossible remedy, printed with total confidence about an integer.
+        // A branch reachable only by construction must TEST the construction,
+        // or it renders the wrong ground the moment the construction moves.
         m.push_str("every value of `");
         m.push_str(et);
-        m.push_str("` DOES survive the normalization into `");
+        m.push_str("` DOES survive that cast (`el_norm_cast` gives `as ");
         m.push_str(want);
-        m.push_str("` (`el_norm_cast` gives `as ");
+        m.push_str("`), and this position writes exactly that cast for the INTEGER family. It is withheld from a float deliberately, and the reason is not the value: accumulating a narrower float in a wider one decides what a long `sum` answers, and the caller cannot undo it — so the accumulator's width stays the argument's, and a float argument is admitted only when it already IS `");
         m.push_str(want);
-        m.push_str("`), and the arithmetic operands, the sort keys and the UDF results all apply it — this emit position does not. So the restriction is this position's, not the type's. The remedy is a column of type `");
+        m.push_str("`. The remedy is a column of type `");
         m.push_str(want);
         m.push_str("`, or an argument expression that already computes in `");
         m.push_str(want);
-        m.push_str("`");
+        m.push_str("` — `");
+        m.push_str(fname);
+        m.push_str("(x * 1.0");
+        m.push_str(want);
+        m.push_str(")` normalizes at the arithmetic seam, where the widening is the query's own request");
+    } else {
+        // UNREACHABLE BY CONSTRUCTION, AND IT SAYS SO RATHER THAN GUESSING. An
+        // INT whose `fits` is true is admitted by `el_agg_arg_reaches` above, so
+        // arriving here means the admission and the ground disagree — a defect
+        // in the check, not in the query. Reporting that is the whole value of
+        // the arm: the alternative is a confident sentence about the wrong
+        // thing, which is what the control revert produced.
+        m.push_str("every value of `");
+        m.push_str(et);
+        m.push_str("` survives the normalization into `");
+        m.push_str(want);
+        m.push_str("` and this position writes it, so this refusal has no ground — `check_agg_operand` and `el_agg_arg_reaches` disagree about the same type, which is a defect in the compiler and not in the query. Please report it");
     }
     error(string_as_str(&m));
     return false;

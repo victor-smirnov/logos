@@ -31,9 +31,20 @@
 // `tests/logos/pass/wql_tier_capability_disagreement` pins the `order by`
 // acceptance that made the old clause false.
 //
-// ⚠ THE REFUSAL ITSELF IS UNCHANGED — same antecedent (`el_host_carries`), same
-// position, same types. Only the ground it prints moved. A control revert of the
-// renderer alone leaves this test red on its `.expected` and every other
+// ⚠ THE REFUSAL ITSELF IS UNCHANGED, AND ITS ANTECEDENT MOVED UNDER IT WITHOUT
+// TOUCHING IT — which is the strongest thing this file says. The check no longer
+// asks `el_host_carries` ("does the HOST widen this into the accumulator
+// unwritten") but `el_agg_arg_reaches` (`ElTy.fits` + `el_norm_cast`, the
+// question every other EL operand position asks), and `compute_agg_bodies` now
+// WRITES the cast. That admitted `isize` — see `tests/logos/pass/
+// wql_agg_isize_arg_e2e`, which was this file's sibling in `fail/` until
+// 2026-08-05. It does NOT admit `u64`: `fits` is false, the cast REINTERPRETS,
+// and the refusal below rests on the value rather than on what the backend will
+// carry. A widening that reached this cell would have shipped a wrong number,
+// so this test staying RED across that change is the point of it.
+//
+// Only the ground it prints moved before that. A control revert of the renderer
+// alone leaves this test red on its `.expected` and every other
 // `wql_agg_*_arg_fail` green, which is what says the two are separable.
 //
 // ⚠ AND `avg` OVER THIS COLUMN STILL COMPILES, which is not an inconsistency:

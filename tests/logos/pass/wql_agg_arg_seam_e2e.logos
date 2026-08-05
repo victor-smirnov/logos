@@ -3,17 +3,26 @@ package wql_agg_arg_seam_e2e;
 // LATTICE'S OWN POPULATION.
 //
 // `check_agg_operand` refuses an aggregate argument whose EMITTED type does not
-// reach the accumulator's type, and the predicate it asks — `el_host_carries` —
-// rests on a claim about THE HOST COMPILER: that an integer narrower than 64
-// bits is carried into an `i64` slot with no written cast, and that no float is
-// carried into an `f64` one. That is not a property of the lattice's arithmetic,
-// it is a property of the language, and the house rule for such a claim is that
-// it is MEASURED where it is used (the same discipline as `ElTy.self_ord` /
-// `self_ident`, which are stored precisely because no other property entails
-// them).
+// reach the accumulator's type, and the predicate it asks is
+// `el_agg_arg_reaches` — `ElTy.fits` composed with `el_norm_cast`: the value
+// survives the normalization AND the cast's target IS the accumulator. This file
+// is the TRUE half of that predicate and the fail tests are the false half.
 //
-// So this file is the TRUE half of that predicate and the fail tests are the
-// false half:
+// ⚠ THE PREDICATE CHANGED UNDER THIS FILE ON 2026-08-05 AND EVERY ANSWER BELOW
+// STAYED THE SAME, WHICH IS WHAT MAKES IT A CONTROL. It used to be
+// `el_host_carries`, a claim about THE HOST COMPILER — that an integer narrower
+// than 64 bits is carried into an `i64` slot with no written cast — and
+// `compute_agg_bodies` printed the argument verbatim, relying on it. It now
+// WRITES `el_norm_cast`'s conversion through `emit_norm_operand`, so every row
+// below is emitted as `((s.a8) as i64)` rather than as `(s.a8)`. Same values,
+// same sums: an explicit `as i64` from a narrower width is the same widening the
+// host was performing, and if it were not, these arms would move. The reason for
+// the change is the row this file could NOT hold — `isize`, 64-bit and signed,
+// admitted by the lattice and refused by the host's width test; see
+// `tests/logos/pass/wql_agg_isize_arg_e2e`, which was in `fail/` until that
+// commit.
+//
+// The population:
 //   • every `el_ty_stored` INT row with bits < 64 — i8/i16/i32, u8/u16/u32,
 //     i24/u24, i56/u56 — aggregated and ANSWERED, one deem each;
 //   • both canonical representatives, i64 and f64;
@@ -25,9 +34,10 @@ package wql_agg_arg_seam_e2e;
 // / `select` and had no `aggregate` clause at all, which is exactly how the
 // aggregate argument stayed the one unchecked EL operand position.
 //
-// ⚠ IF THE HOST'S IMPLICIT COERCIONS CHANGE — the open blocklist→allowlist and
-// "coercions in ALL positions" arcs would change them — one side or the other of
-// that pair goes RED. It cannot silently change what a query means.
+// ⚠ THE ISIZE ROW IS DELIBERATELY NOT HERE. Its answers are at `isize`'s own
+// extremes, and this file's rows are 10 / 20 / 40 so that one array can carry
+// every narrow width at once — a value pinned twice is a value that has to be
+// rewritten twice.
 //
 // ONE GROUP, three rows: the claim is the argument's route into the
 // accumulator, and group formation has its own tests. Values 10 / 20 / 40 fit

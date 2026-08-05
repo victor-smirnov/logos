@@ -1,0 +1,126 @@
+package wql_agg_isize_arg_e2e;
+// THE AGGREGATE ARGUMENT SEAM CARRIES `isize` — AND IT ANSWERS AT `isize`'s OWN
+// EXTREMES, WHICH IS THE ONLY THING WORTH ASSERTING.
+//
+// This file REPLACES `tests/logos/fail/wql_agg_isize_arg_fail`, whose whole
+// content was that `sum(s.v)` over an `isize` column did not compile. Its
+// `.expected` said, in the compiler's own words, "the restriction is this
+// position's, not the type's" — a check that documents its own wrongness is
+// still wrong, and a refusal is only worth keeping when the VALUE is the
+// problem. `isize` is signed and 64-bit: every one of its values survives the
+// EL's `as i64` normalization (`ElTy.fits` is true), which is why `s.v + 1`
+// over the same column, an `isize` sort key and an `isize` UDF result were all
+// admitted at the parent commit while the aggregate argument alone was not.
+//
+// ⚠ WHAT CHANGED IS THE QUESTION THE SEAM ASKS, NOT A SPECIAL CASE FOR `isize`.
+// `check_agg_operand` used to ask `el_host_carries` — "does the HOST widen this
+// into the accumulator with no written cast", whose whole test is `bits < 64` —
+// and then print the argument VERBATIM. It now asks `el_agg_arg_reaches`
+// (`ElTy.fits` + `el_norm_cast`, the question every other EL operand position
+// asks) and `compute_agg_bodies` WRITES the cast through `emit_norm_operand`,
+// exactly as the arithmetic operands and the sort keys do. So the admitted set
+// is derived from the lattice rather than from the backend's coercions, and a
+// 64-bit signed type added to the lattice later is admitted without anyone
+// remembering this arc.
+//
+// ⚠ WHAT IS *NOT* ADMITTED, AND WHY THAT IS NOT AN OMISSION.
+//   • `u64` / `usize`  — `fits` is FALSE: the normalization REINTERPRETS, and
+//     every value at or above 2^63 arrives negative. Still refused, on the
+//     value's ground, by `tests/logos/fail/wql_agg_wide_int_arg_fail`.
+//   • `u128` / `i128`  — `fits` is FALSE: the normalization TRUNCATES.
+//   • `f32`            — `fits` is TRUE and the cast into `f64` is exact, so
+//     this seam COULD write it. It is withheld: what a float aggregate
+//     accumulates in decides what a long `sum` answers, and that is a decision
+//     about the aggregate, not about this position. Still refused, by
+//     `tests/logos/fail/wql_agg_f32_arg_fail`.
+//
+// ⚠ THE ASSERTIONS ARE ANSWERS AT THE EXTREMES, NOT "IT COMPILES". A refusal
+// replaced by a wrong answer is worse than the refusal, and `isize::MIN` /
+// `isize::MAX` are exactly where a sign-losing normalization would show. The
+// narrow-width half of the same seam is `wql_agg_arg_seam_e2e`; this file is the
+// 64-bit signed row it could not hold.
+//
+// EXIT CODES 10-19 the extremes, 20-29 ordinary values, 30-39 the overflow.
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct R { pub k: i64, pub v: isize }
+
+pub deem min_isize(rs: &[R]) { from rs s group by s.k aggregate t = min(s.v) select t : i64 }
+pub deem max_isize(rs: &[R]) { from rs s group by s.k aggregate t = max(s.v) select t : i64 }
+pub deem sum_isize(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.v) select t : i64 }
+
+fn main() -> i32 {
+    // ══ A. THE EXTREMES. One group, so no group-ordering claim is made.
+    // min = isize::MIN, max = isize::MAX — a normalization that lost the sign
+    // would answer the other way round on these two values.
+    // sum = MIN + MAX = -1, and it is order-INDEPENDENT: 0+MIN then +MAX and
+    // 0+MAX then +MIN both land on -1 without leaving i64, so the arm does not
+    // rest on the fold visiting rows in array order.
+    let ext: [R; 2] = [ R { k: 7i64, v: -9223372036854775808isize },
+                        R { k: 7i64, v:  9223372036854775807isize } ];
+
+    let a1: Vec<i64> = match min_isize(&ext[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if a1.len() != 1i64                          { return 11i32; }
+    if a1.get(0i64) != -9223372036854775808i64   { return 12i32; }
+
+    let a2: Vec<i64> = match max_isize(&ext[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if a2.len() != 1i64                          { return 14i32; }
+    if a2.get(0i64) != 9223372036854775807i64    { return 15i32; }
+
+    let a3: Vec<i64> = match sum_isize(&ext[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 16i32; } };
+    if a3.len() != 1i64        { return 17i32; }
+    if a3.get(0i64) != -1i64   { return 18i32; }
+
+    // ══ B. ORDINARY VALUES, INCLUDING A NEGATIVE ONE. -3 is the arm that would
+    // survive a zero-extending normalization only by accident; it is here so
+    // the extremes are not the only signed evidence.
+    let ord: [R; 3] = [ R { k: 9i64, v:   5isize },
+                        R { k: 9i64, v:  -3isize },
+                        R { k: 9i64, v: 100isize } ];
+
+    let b1: Vec<i64> = match min_isize(&ord[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if b1.len() != 1i64        { return 21i32; }
+    if b1.get(0i64) != -3i64   { return 22i32; }
+
+    let b2: Vec<i64> = match max_isize(&ord[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 23i32; } };
+    if b2.len() != 1i64        { return 24i32; }
+    if b2.get(0i64) != 100i64  { return 25i32; }
+
+    let b3: Vec<i64> = match sum_isize(&ord[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 26i32; } };
+    if b3.len() != 1i64        { return 27i32; }
+    if b3.get(0i64) != 102i64  { return 28i32; }
+
+    // ══ C. THE OVERFLOW IS AN Err, NOT A TRAP AND NOT A WRAP. `sum`'s i64
+    // accumulator is `el_add(…)?` (A13's runtime adaptation: the language traps,
+    // an EL script RETURNS). isize::MAX + 1 leaves i64 in either fold order, so
+    // this arm is order-independent too — and `min`/`max` over the SAME rows
+    // still answer, because they do no arithmetic. That pair is the control that
+    // says the Err below is the ADDITION's and not the argument's route.
+    let ovf: [R; 2] = [ R { k: 3i64, v: 9223372036854775807isize },
+                        R { k: 3i64, v: 1isize } ];
+
+    match sum_isize(&ovf[..]) {
+        Result::Ok(_v)  => { return 30i32; }
+        Result::Err(_e) => { }
+    }
+
+    let c1: Vec<i64> = match max_isize(&ovf[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 31i32; } };
+    if c1.len() != 1i64                          { return 32i32; }
+    if c1.get(0i64) != 9223372036854775807i64    { return 33i32; }
+
+    let c2: Vec<i64> = match min_isize(&ovf[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 34i32; } };
+    if c2.len() != 1i64      { return 35i32; }
+    if c2.get(0i64) != 1i64  { return 36i32; }
+
+    return 0i32;
+}

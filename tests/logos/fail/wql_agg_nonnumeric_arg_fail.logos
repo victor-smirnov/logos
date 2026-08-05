@@ -12,9 +12,18 @@
 //
 // ⚠ THE THREE GROUNDS ARE ONE CHECK, NOT THREE. `check_agg_operand` asks ONE
 // question — does the argument's EMITTED type reach the accumulator's type
-// (`el_host_carries`) — and only the WORDING of the ground branches, on facts
+// (`el_agg_arg_reaches`) — and only the WORDING of the ground branches, on facts
 // the lattice already carries (`ElTy.cls`, `ElTy.fits`). A per-type list here
 // is exactly what the lattice replaced.
+//
+// ⚠ THE QUESTION MOVED ON 2026-08-05 AND THIS CELL DID NOT, WHICH IS THE
+// CONTROL. It used to be `el_host_carries` — "does the HOST widen this into the
+// accumulator with no written cast" — and is now `el_agg_arg_reaches`
+// (`ElTy.fits` + `el_norm_cast`), with `compute_agg_bodies` writing the cast.
+// That admitted `isize` and nothing else. `bool` has no `el_norm_cast` at all
+// (`el_norm_cast` is empty outside the numeric classes), so it is refused by the
+// FIRST branch — the class one — both before and after, and its wording is the
+// only part of this file's `.expected` that changed.
 package test;
 
 use logos.std.wql.wql;
