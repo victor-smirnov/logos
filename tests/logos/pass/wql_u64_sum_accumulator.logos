@@ -1,0 +1,305 @@
+// `sum` OVER A `u64` COLUMN ADDS UNDER THE COLUMN'S OWN OVERFLOW PREDICATE —
+// the accumulator seam of the same type-loss defect `5dc76347` closed at the
+// COMPARISON seam, measured at both of its failure directions.
+//
+// ── WHAT WAS WRONG, AND WHY "WRAPS" IS THE WRONG WORD FOR IT ────────────────
+// The dynamic engine's `sum` accumulator (`deem/exec.logos`) and the
+// incremental one's (`deem/incr.logos`, `gsum`) BOTH already implement A13's
+// discipline in the form Deem's convention requires: `checked_add`, and a
+// QError on overflow rather than a trap, because the caller is a running
+// program and errors here are values. Nothing wraps. The defect is that the
+// addition happens in the WRONG TYPE: a `u64` column's values ride inside the
+// EL's `i64` (the conversion is a bijection — `ElTy.ident == EL_ID_OK` — only
+// the ORDER and the OVERFLOW PREDICATE move), and the accumulator asked the
+// i64 predicate about a u64 sum. Two predicates that disagree produce two
+// error classes, and both are live:
+//
+//   FALSE NEGATIVE — the true u64 sum EXCEEDS u64, the i64 add does not
+//     overflow, and a wrong number comes back with no error at all. Block 1.
+//   FALSE POSITIVE — the true u64 sum FITS u64, the i64 add overflows, and the
+//     engine REFUSES a query whose right answer exists and is representable.
+//     Block 3, and it is the sharper of the two: there is no value to inspect.
+//
+// The two agree everywhere else, and that is not luck: two's-complement
+// addition is the SAME BIT OPERATION signed and unsigned, so whenever the i64
+// add does not overflow the bits are already the u64 answer. Every cell in
+// this file lives at a disagreement between the two predicates or is a control
+// that pins a place where they agree.
+//
+// ── THE RULE THE FIX IMPLEMENTS, AND WHY IT IS NOT "ADD IN THE COLUMN'S TYPE"
+// A literal reading of "add in the column's own type" is REFUTED by block 6:
+// `sum(u8)` over { 200, 100, 0 } answers 300 today, and u8 arithmetic would
+// make that an overflow error. What is right is one step weaker and is exactly
+// the fact the catalog already carries:
+//
+//   ADD UNDER THE COLUMN'S OWN OVERFLOW PREDICATE.
+//
+//   • `el_int_fits_i64` (u8/u16/u32, every signed width) — the value widened
+//     into i64 LOSSLESSLY, so the i64 predicate IS the column's predicate on
+//     the widened value. Unchanged, and blocks 5-6 are what say so.
+//   • `ElTy.ord == EL_ORD_WRAP` (u64/usize) — the value is intact but its
+//     order and its overflow predicate both moved. Accumulate with the u64
+//     checked add over the same 64 bits (`el_wrap_add`, beside the order key
+//     it shares its antecedent with), error-as-value on overflow.
+//
+// This needs no wider accumulator and no new `RtVal` arm: the bits returned
+// are the argument's own bits either way, exactly as `el_wrap_ord_key` is a
+// KEY and never a stored value.
+//
+// ── EVERY NUMBER BELOW IS DERIVED, NEVER READ OFF A RUN ─────────────────────
+//   2^62     = 4611686018427387904        i64  4611686018427387904
+//   2^63     = 9223372036854775808        i64 -9223372036854775808
+//   2^63 - 2 = 9223372036854775806        i64  9223372036854775806
+//   2^64 - 1 = 18446744073709551615       i64 -1
+// A `u64` at or above 2^63 is SPELLED as a negative i64 by `get_i64`, and that
+// is the convention this corpus already accepts (`max(u64) == -1` is pinned as
+// CORRECT in `wql_domain_incr_disagreement`). A negative answer is therefore
+// not by itself evidence of a defect — block 2 is the control that says so.
+//
+// EXIT CODES: 10s block 1 (false negative), 20s block 2 (the negative-spelling
+// control), 30s block 3 (false positive), 40s block 4 (a true u64 overflow),
+// 50s block 5 (the signed controls), 60s block 6 (the widths that fit), 70s
+// block 7 (min/max/count must not move), 80s block 8 (`order by sum(u64)`),
+// The scalar-arithmetic seam one level lower — the SAME two error classes
+// inside an aggregate's ARGUMENT expression rather than in its accumulator —
+// is `wql_u64_sum_scalar_arith`, split out because the two together exceed the
+// 30 s pass-test budget on compile time alone.
+//
+// exit 0 = both runtime tiers add a `u64` sum under the u64 overflow predicate.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema U : code(0x0E68_0000_0000_0002) {
+    id:  i64   = 0,
+    g:   i64   = 1,
+    u:   u64   = 2,
+    v:   i64   = 3,
+    b8:  u8    = 4,
+    b32: u32   = 5
+}
+resource ucat = schema_catalog!{ U };
+
+fn mku(d: &Writ, id: i64, g: i64, u: u64, v: i64, b8: u8, b32: u32) -> WAny {
+    let r: U = d.make::<U>();
+    r.id = id; r.g = g; r.u = u; r.v = v; r.b8 = b8; r.b32 = b32;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = ucat();
+
+    // ── the row sets, one per cell, each a SINGLE group (g = 7) ─────────────
+    // A: 5 + 2^63 + (2^64-1) = 27670116110564327428 > 2^64-1  → OVERFLOW
+    //    (the i64 payloads are 5, -2^63, -1 and their i64 sum is
+    //     -9223372036854775804 with NO i64 overflow — the false negative)
+    let sa: &mut WArray<WAny> = d.array(4i64);
+    sa.push(mku(&d, 0i64, 7i64, 5u64,                    0i64, 0u8, 0u32));
+    sa.push(mku(&d, 1i64, 7i64, 9223372036854775808u64,  0i64, 0u8, 0u32));
+    sa.push(mku(&d, 2i64, 7i64, 18446744073709551615u64, 0i64, 0u8, 0u32));
+    // B: 2^63 + (2^63-2) = 18446744073709551614 = 2^64-2 → FITS, i64 bits -2
+    let sb: &mut WArray<WAny> = d.array(4i64);
+    sb.push(mku(&d, 0i64, 7i64, 9223372036854775808u64, 0i64, 0u8, 0u32));
+    sb.push(mku(&d, 1i64, 7i64, 9223372036854775806u64, 0i64, 0u8, 0u32));
+    // C: 2^62 + 2^62 = 9223372036854775808 = 2^63 → FITS, i64 bits i64::MIN
+    //    (the i64 add DOES overflow here — the false positive)
+    let sc: &mut WArray<WAny> = d.array(4i64);
+    sc.push(mku(&d, 0i64, 7i64, 4611686018427387904u64, 0i64, 0u8, 0u32));
+    sc.push(mku(&d, 1i64, 7i64, 4611686018427387904u64, 0i64, 0u8, 0u32));
+    // D: 2^63 + 2^63 = 2^64 → does NOT fit u64 → OVERFLOW (both predicates
+    //    agree here, which is why D alone cannot tell the fix from the defect)
+    let sd: &mut WArray<WAny> = d.array(4i64);
+    sd.push(mku(&d, 0i64, 7i64, 9223372036854775808u64, 0i64, 0u8, 0u32));
+    sd.push(mku(&d, 1i64, 7i64, 9223372036854775808u64, 0i64, 0u8, 0u32));
+    // E/F: the SIGNED controls — 5e18 + 5e18 = 1e19 > i64::MAX → OVERFLOW;
+    //      10 + 32 = 42.
+    let se: &mut WArray<WAny> = d.array(4i64);
+    se.push(mku(&d, 0i64, 7i64, 0u64, 5000000000000000000i64, 0u8, 0u32));
+    se.push(mku(&d, 1i64, 7i64, 0u64, 5000000000000000000i64, 0u8, 0u32));
+    let sf: &mut WArray<WAny> = d.array(4i64);
+    sf.push(mku(&d, 0i64, 7i64, 0u64, 10i64, 200u8, 4000000000u32));
+    sf.push(mku(&d, 1i64, 7i64, 0u64, 32i64, 100u8, 4000000000u32));
+    sf.push(mku(&d, 2i64, 7i64, 0u64,  0i64,   0u8,          0u32));
+    // R: three SINGLETON groups (sum = identity), keys 10/11/12
+    let sr: &mut WArray<WAny> = d.array(4i64);
+    sr.push(mku(&d, 0i64, 10i64, 5u64,                    0i64, 0u8, 0u32));
+    sr.push(mku(&d, 1i64, 11i64, 9223372036854775808u64,  0i64, 0u8, 0u32));
+    sr.push(mku(&d, 2i64, 12i64, 18446744073709551615u64, 0i64, 0u8, 0u32));
+
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("sa", WAny::ref_to(sa as *const WArray<WAny> as *const u8));
+    e.bind_source("sb", WAny::ref_to(sb as *const WArray<WAny> as *const u8));
+    e.bind_source("sc", WAny::ref_to(sc as *const WArray<WAny> as *const u8));
+    e.bind_source("sd", WAny::ref_to(sd as *const WArray<WAny> as *const u8));
+    e.bind_source("se", WAny::ref_to(se as *const WArray<WAny> as *const u8));
+    e.bind_source("sf", WAny::ref_to(sf as *const WArray<WAny> as *const u8));
+    e.bind_source("sr", WAny::ref_to(sr as *const WArray<WAny> as *const u8));
+
+    // ══ 1. FALSE NEGATIVE — the true sum exceeds u64, the i64 add does not ══
+    // Before the fix BOTH tiers answer -9223372036854775804 with no error, and
+    // that number is not a wrap: it is the i64 sum of the three payloads, a
+    // correct i64 answer to a question nobody asked.
+    let qa: Query = match Query::compile(
+        "from sa s group by s.g aggregate t = sum(s.u) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    match qa.run(&e) {
+        Result::Ok(_v) => { return 11i32; }   // a value where an error is owed
+        Result::Err(_e) => { }
+    }
+    let ga: IncrJoin = match qa.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 12i32; } };
+    if !ga.had_error() { return 13i32; }
+
+    // ══ 2. THE NEGATIVE-SPELLING CONTROL — a right answer above 2^63 ═══════
+    // 2^64-2 is spelled -2 by `get_i64` and that spelling is CORRECT. This
+    // block is what separates "the answer is negative" from "the answer is
+    // wrong", and it is the arm a fix that keys off the SIGN of the running
+    // total (rather than off the column's type) would break.
+    let qb: Query = match Query::compile(
+        "from sb s group by s.g aggregate t = sum(s.u) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    let rb: QRows = match qb.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 21i32; } };
+    if rb.row_count() != 1i64 { return 22i32; }
+    if rb.get_i64(0i64, 0i64) != -2i64 { return 23i32; }
+    let gb: IncrJoin = match qb.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 24i32; } };
+    if gb.had_error() { return 25i32; }
+    let sb2: QRows = gb.snapshot();
+    if sb2.row_count() != 1i64 { return 26i32; }
+    if sb2.get_i64(0i64, 0i64) != -2i64 { return 27i32; }
+
+    // ══ 3. FALSE POSITIVE — a representable answer the engine refused ══════
+    // 2^62 + 2^62 = 2^63, inside u64 by a factor of two, and both tiers raised
+    // an overflow error before the fix because the i64 add overflowed. There
+    // is no wrong value to find here: the query has no answer at all, which is
+    // why this cell is sharper than block 1.
+    let qc: Query = match Query::compile(
+        "from sc s group by s.g aggregate t = sum(s.u) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    let rc: QRows = match qc.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 31i32; } };
+    if rc.row_count() != 1i64 { return 32i32; }
+    if rc.get_i64(0i64, 0i64) != -9223372036854775808i64 { return 33i32; }
+    let gc: IncrJoin = match qc.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 34i32; } };
+    if gc.had_error() { return 35i32; }
+    let sc2: QRows = gc.snapshot();
+    if sc2.row_count() != 1i64 { return 36i32; }
+    if sc2.get_i64(0i64, 0i64) != -9223372036854775808i64 { return 37i32; }
+
+    // ══ 4. A TRUE u64 OVERFLOW — same verdict as before, different reason ═══
+    // 2^63 + 2^63 = 2^64 overflows u64 AND i64, so this cell was already right
+    // and stays right. It is here because a fix that simply stopped checking
+    // would pass blocks 2 and 3 and fail here.
+    let qd: Query = match Query::compile(
+        "from sd s group by s.g aggregate t = sum(s.u) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; } };
+    match qd.run(&e) {
+        Result::Ok(_v) => { return 41i32; }
+        Result::Err(_e) => { }
+    }
+    let gd: IncrJoin = match qd.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 42i32; } };
+    if !gd.had_error() { return 43i32; }
+
+    // ══ 5. THE SIGNED CONTROLS — every signed column must be untouched ══════
+    let qe: Query = match Query::compile(
+        "from se s group by s.g aggregate t = sum(s.v) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    match qe.run(&e) {
+        Result::Ok(_v) => { return 51i32; }
+        Result::Err(_e) => { }
+    }
+    let ge: IncrJoin = match qe.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 52i32; } };
+    if !ge.had_error() { return 53i32; }
+
+    let qf: Query = match Query::compile(
+        "from sf s group by s.g aggregate t = sum(s.v) select t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 54i32; } };
+    let rf: QRows = match qf.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 55i32; } };
+    if rf.row_count() != 1i64 { return 56i32; }
+    if rf.get_i64(0i64, 0i64) != 42i64 { return 57i32; }
+    let gf: IncrJoin = match qf.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 58i32; } };
+    if gf.had_error() { return 59i32; }
+
+    // ══ 6. THE WIDTHS THAT FIT — u8 and u32 must not move ═══════════════════
+    // `el_int_fits_i64` is true for both, so `el_ord_of` never marks them
+    // EL_ORD_WRAP and they are structurally outside a fix keyed on that bit.
+    // 200 + 100 + 0 = 300 — a value outside `u8`, which is a pre-existing
+    // property of `sum`'s result rule and NOT this fix's business: what is
+    // pinned is that it did not become an overflow error.
+    let qg: Query = match Query::compile(
+        "from sf s group by s.g aggregate t = sum(s.b8), w = sum(s.b32) select (t, w)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    let rg: QRows = match qg.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 61i32; } };
+    if rg.row_count() != 1i64 { return 62i32; }
+    if rg.get_i64(0i64, 0i64) != 300i64        { return 63i32; }
+    if rg.get_i64(0i64, 1i64) != 8000000000i64 { return 64i32; }
+    let gg: IncrJoin = match qg.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 65i32; } };
+    if gg.had_error() { return 66i32; }
+    let sg2: QRows = gg.snapshot();
+    if sg2.row_count() != 1i64 { return 67i32; }
+    if sg2.get_i64(0i64, 0i64) != 300i64        { return 68i32; }
+    if sg2.get_i64(0i64, 1i64) != 8000000000i64 { return 69i32; }
+
+    // ══ 7. min/max/count OVER THE SAME ROWS — fixed last round, must hold ═══
+    let qm: Query = match Query::compile(
+        "from sa s group by s.g aggregate lo = min(s.u), hi = max(s.u), n = count() select (lo, hi, n)", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 70i32; } };
+    let rm: QRows = match qm.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 71i32; } };
+    if rm.row_count() != 1i64 { return 72i32; }
+    if rm.get_i64(0i64, 0i64) != 5i64  { return 73i32; }
+    if rm.get_i64(0i64, 1i64) != -1i64 { return 74i32; }
+    if rm.get_i64(0i64, 2i64) != 3i64  { return 75i32; }
+    let gm: IncrJoin = match qm.incremental(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; } };
+    if gm.had_error() { return 77i32; }
+    let sm2: QRows = gm.snapshot();
+    if sm2.row_count() != 1i64 { return 78i32; }
+    if sm2.get_i64(0i64, 0i64) != 5i64  { return 79i32; }
+
+    // ══ 8. `order by sum(u64)` — the OUT-NAME must carry the claim ══════════
+    // Three singleton groups, so `sum` is the identity and the sort ranks the
+    // three column values themselves: unsigned ascending is keys 10, 11, 12;
+    // signed ascending is 11, 12, 10 — a DIFFERENT permutation, so this block
+    // cannot pass by coincidence. The same query with `max` in place of `sum`
+    // already answered 10, 11, 12 before the fix, because `rets_ordw` admitted
+    // fnid 3/4 and not fnid 2: an aggregate that RETURNS its argument's type
+    // must pass the argument's claim on, and `sum` does.
+    let qr: Query = match Query::compile(
+        "from sr s group by s.g aggregate t = sum(s.u) select (key, t) order by t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
+    let rr: QRows = match qr.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 81i32; } };
+    if rr.row_count() != 3i64 { return 82i32; }
+    if rr.get_i64(0i64, 0i64) != 10i64 { return 83i32; }
+    if rr.get_i64(1i64, 0i64) != 11i64 { return 84i32; }
+    if rr.get_i64(2i64, 0i64) != 12i64 { return 85i32; }
+    // the control that makes the block a finding: `max` over the same rows
+    let qr2: Query = match Query::compile(
+        "from sr s group by s.g aggregate t = max(s.u) select (key, t) order by t", &c) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 86i32; } };
+    let rr2: QRows = match qr2.run(&e) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 87i32; } };
+    if rr2.row_count() != 3i64 { return 88i32; }
+    if rr2.get_i64(0i64, 0i64) != 10i64 { return 89i32; }
+
+    return 0i32;
+}

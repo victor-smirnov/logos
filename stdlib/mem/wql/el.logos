@@ -775,6 +775,92 @@ pub fn el_ord_wraps(name: str) -> bool { return el_ty(name).ord == EL_ORD_WRAP()
 pub fn el_wrap_ord_least()    -> i64 { return 0i64; }
 pub fn el_wrap_ord_greatest() -> i64 { return -1i64; }
 
+// ══ THE SAME ANTECEDENT, ASKED OF THE OVERFLOW PREDICATE ══════════════════
+//
+// `EL_ORD_WRAP` moves TWO total functions on the type, not one. The ORDER is
+// the one the key above repairs. The other is the OVERFLOW PREDICATE, and it
+// moved for exactly the same reason and at exactly the same values: a `u64`
+// sum overflows when it passes 2^64−1, an `i64` sum when it passes 2^63−1, and
+// between those two bounds the two predicates disagree in BOTH directions.
+//
+// ⚠ THIS IS NOT "WRAPPING", AND THE WORD MATTERS BECAUSE IT NAMES THE WRONG
+// FIX. Both runtime accumulators already implement A13's discipline in the
+// form Deem's convention requires — `checked_add`, error-as-VALUE, never a
+// trap (`docs/DIVERGENCES.md` A13; the caller is a running program). Nothing
+// wrapped. The addition simply asked the i64 predicate about a u64 sum, and
+// two predicates that disagree produce two failures, not one:
+//
+//   FALSE NEGATIVE  the true u64 sum EXCEEDS u64, the i64 add does not
+//     overflow, and a wrong number is returned with no error at all.
+//     MEASURED: sum over { 5, 2^63, 2^64−1 } = 27670116110564327428, and the
+//     i64 payloads 5 + (−2^63) + (−1) = −9223372036854775804 with no i64
+//     overflow. That number was PINNED as correct by the corpus.
+//   FALSE POSITIVE  the true u64 sum FITS u64, the i64 add overflows, and a
+//     query with a representable right answer is REFUSED. MEASURED: sum over
+//     { 2^62, 2^62 } = 2^63, inside u64 by a factor of two, error in both
+//     tiers. This is the sharper of the two — there is no value to inspect.
+//
+// ⚠ AND THIS IS WHY A NARROWER FIX WOULD LOOK RIGHT. Two's-complement addition
+// is the SAME BIT OPERATION signed and unsigned, so wherever the i64 add does
+// NOT overflow its bits are already the u64 answer — `sum` over
+// { 2^63, 2^63−2 } answers −2, which IS 18446744073709551614, and is correct
+// today. Every defect lives at a disagreement between the two predicates, so
+// only the predicate changes here and never the arithmetic.
+//
+// ⚠ WHY NOT A WIDER ACCUMULATOR. "Widen the integer sum" has no honest reading
+// for a 64-bit unsigned column without a 128-bit carrier, and `RtVal` is not
+// widened (D3, untaken). Nor is it "add in the column's own TYPE": `sum(u8)`
+// over { 200, 100, 0 } answers 300 today and must keep doing so, because a u8
+// widens into i64 LOSSLESSLY and the i64 predicate IS that column's predicate
+// on the widened value. What is right is one step weaker and is exactly the
+// bit the catalog already carries: ADD UNDER THE COLUMN'S OWN OVERFLOW
+// PREDICATE — i64's for every `el_int_fits_i64` width, u64's for EL_ORD_WRAP.
+//
+// ⚠ UNLIKE `el_wrap_ord_key` THESE RETURN A VALUE, NOT A KEY. The key above is
+// for COMPARING and never reaches a cell; these ARE the arithmetic, and their
+// `i64` result is the u64 answer in the same bits the column already used —
+// `get_i64` spells a u64 at or above 2^63 as a negative, which is the
+// convention the corpus already accepts (`max(u64) == −1`).
+//
+// Consumers: the `sum` accumulator in `deem/exec.logos` and `deem/incr.logos`,
+// and the scalar arithmetic tier of `deem/eval.logos` under an aggregate
+// argument the checker typed unsigned.
+pub fn el_wrap_add(a: i64, b: i64) -> Option<i64> {
+    match (a as u64).checked_add(b as u64) {
+        Option::Some(v) => { return Option::Some(v as i64); }
+        Option::None    => { return Option::None; }
+    }
+}
+pub fn el_wrap_sub(a: i64, b: i64) -> Option<i64> {
+    match (a as u64).checked_sub(b as u64) {
+        Option::Some(v) => { return Option::Some(v as i64); }
+        Option::None    => { return Option::None; }
+    }
+}
+pub fn el_wrap_mul(a: i64, b: i64) -> Option<i64> {
+    match (a as u64).checked_mul(b as u64) {
+        Option::Some(v) => { return Option::Some(v as i64); }
+        Option::None    => { return Option::None; }
+    }
+}
+pub fn el_wrap_div(a: i64, b: i64) -> Option<i64> {
+    match (a as u64).checked_div(b as u64) {
+        Option::Some(v) => { return Option::Some(v as i64); }
+        Option::None    => { return Option::None; }
+    }
+}
+pub fn el_wrap_rem(a: i64, b: i64) -> Option<i64> {
+    match (a as u64).checked_rem(b as u64) {
+        Option::Some(v) => { return Option::Some(v as i64); }
+        Option::None    => { return Option::None; }
+    }
+}
+// ⚠ THERE IS NO `el_wrap_neg`, AND ITS ABSENCE IS THE RULE, NOT AN OMISSION.
+// Negating an unsigned value leaves that type's domain — `0 − x` is a u64 only
+// at x = 0 — so the checker gives a unary minus `ordw: false` and the evaluator
+// passes `false` into its operand. A helper here would be a fifth arm nothing
+// calls, i.e. a claim about the semantics that no gate can bite on.
+
 // ── WHICH QUESTION THE GROUND IS BEING ASKED FROM ────────────────────────────
 // The `EL_ORD_*` code names WHAT the conversion did to the value. What that
 // COSTS is a fact about the position that performs it, and the two positions

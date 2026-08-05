@@ -61,11 +61,14 @@
 //     on "is it unsigned" instead would flip this and change nothing observable,
 //     which is precisely why the assertion is on the CATALOG BIT and not only on
 //     an answer;
-//   • `sum` over the u64 column, which is NOT on this axis and must not move.
-//     5 + 2^63 + (2^64-1) = 27670116110564327428; modulo 2^64 that is
-//     9223372036854775812, which read as i64 is -9223372036854775804. Whether an
-//     unsigned `sum` should wrap, trap or widen is an OPEN semantics decision;
-//     what this pins is that the order fix did not silently answer it.
+//   • `sum` over the u64 column, which is a DIFFERENT seam of the same type
+//     loss and which the order fix did not answer. 5 + 2^63 + (2^64-1) =
+//     27670116110564327428 EXCEEDS 2^64-1, so the unsigned answer is an
+//     overflow error; the accumulator now adds under the column's own overflow
+//     predicate and says so. This block was written when that was an open
+//     decision and asserted -9223372036854775804 instead — the i64 sum of the
+//     three payloads, reached with no i64 overflow — which pinned the defect as
+//     correct. What it pins now is that the two seams stay independent.
 //
 // EXIT CODES: 10s = the plumb, 20s = the seeds (dynamic), 30s = the seeds
 // (incremental), 40s = the compare over three rows (dynamic), 50s = the compare
@@ -262,18 +265,28 @@ fn main() -> i32 {
     if r8.get_i64(1i64, 0i64) != 1i64 { return 85i32; }
     if r8.get_i64(2i64, 0i64) != 2i64 { return 86i32; }
 
-    // (c) `sum` over the u64 column — NOT on this axis and must not have moved.
-    //     5 + 2^63 + (2^64-1) = 27670116110564327428; − 2^64 = 9223372036854775812,
-    //     which read as i64 is −9223372036854775804. That is the WRAPPING answer
-    //     both runtime tiers give today and the static tier refuses; whether it
-    //     is the RIGHT semantics is an open decision this fix does not take.
+    // (c) `sum` over the u64 column — a SEPARATE seam of the same type loss,
+    //     and the open decision this file recorded has since been taken.
+    //     5 + 2^63 + (2^64-1) = 27670116110564327428, which EXCEEDS 2^64-1, so
+    //     the honest unsigned answer is an overflow error. What this file used
+    //     to assert here was −9223372036854775804: not a wrap, but the i64 sum
+    //     of the three payloads, arrived at with no i64 overflow at all — the
+    //     accumulator asking the i64 overflow predicate about a u64 sum. That
+    //     assertion pinned the defect as correct, which is what an "open
+    //     decision" costs when it is written into a fixture as a number.
+    //     The accumulator now adds under the column's own predicate
+    //     (`el_wrap_add`); `wql_u64_sum_accumulator` is where that seam is
+    //     asked in both of its failure directions. What is still pinned HERE is
+    //     that the two seams are independent: the ORDER fix above did not
+    //     answer the arithmetic question, and this block would go red if a
+    //     later change made `sum` silent again.
     let q9: Query = match Query::compile(
         "from ts s group by s.g aggregate t = sum(s.x_u64) select t", &c) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 87i32; } };
-    let r9: QRows = match q9.run(&e) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 88i32; } };
-    if r9.row_count() != 1i64 { return 89i32; }
-    if r9.get_i64(0i64, 0i64) != -9223372036854775804i64 { return 90i32; }
+    match q9.run(&e) {
+        Result::Ok(_v) => { return 88i32; }
+        Result::Err(_e) => { }
+    }
 
     return 0i32;
 }

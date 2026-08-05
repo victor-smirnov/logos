@@ -1054,16 +1054,43 @@ const CT_TREEROW: i32 = 18i32;   // a tree-source row var: fixed columns
 // ⚠ `ordw` IS NOT A SECOND TAG, it is the one property of the checked value that
 // CT_INT cannot hold. The whole integer family is CT_INT, so the tag says
 // nothing about whether an ORDERED comparison of this value in i64 realizes its
-// own order — and for a `u64`/`usize` column it does not. It is carried ONLY
-// where a checked type comes straight off a catalog column: an arithmetic result
-// deliberately does NOT inherit it, because "what is the signedness of
-// `u64 + i64`" is a semantics question the EL's i64 tower has no answer to and
-// nobody has decided. A false here is the pre-existing behaviour, so every
-// position that does not propagate it stays exactly as it was.
-struct CTy { t: i32, code: u64, ordw: bool }
+// own order — nor whether an i64 OVERFLOW CHECK on it realizes its own overflow
+// predicate — and for a `u64`/`usize` column neither does. It is carried where a
+// checked type comes straight off a catalog column, and PROPAGATED from there by
+// operations that preserve the value's domain (`ct_join_ordw`).
+//
+// ⚠ `lit` IS THE THIRD STATE THE DOMAIN WAS MISSING, and its absence is what
+// made the propagation rule unwritable. Two defects have now sat at hand-decided
+// `ordw` sites, and the second one's note said why: "where they disagree there is
+// no honest answer in a one-integer-code domain, so the claim is DROPPED". But a
+// non-negative integer LITERAL does not disagree with anything — it is in the
+// domain of every integer type the EL admits, so it is evidence for neither
+// signedness. Without a way to say that, `s.u + 1` had to drop a claim that
+// `s.u + s.u` could keep, which is not a distinction anyone would defend. With
+// it the rule is one formula, shared by the arithmetic tier and the ternary:
+// carry iff SOME operand claims it and NO operand contradicts it.
+//
+// A negative literal is NOT neutral: it is outside an unsigned column's domain,
+// so it is signed evidence and drops the claim — `s.u + (-1)` keeps the reading
+// it has today rather than silently becoming `s.u + (2^64 - 1)`.
+struct CTy { t: i32, code: u64, ordw: bool, lit: bool }
 impl Copy for CTy {}
 
-fn ct(t: i32) -> CTy { return CTy { t: t, code: 0u64, ordw: false }; }
+fn ct(t: i32) -> CTy { return CTy { t: t, code: 0u64, ordw: false, lit: false }; }
+/// A non-negative integer literal: no signedness evidence of its own.
+fn ct_lit(t: i32) -> CTy { return CTy { t: t, code: 0u64, ordw: false, lit: true }; }
+
+/// The `ordw` an operation that PRESERVES its operands' domain hands on: an
+/// arithmetic result, a ternary. Carry iff at least one operand CLAIMS the
+/// moved order/predicate and no operand CONTRADICTS it (a neutral literal
+/// contradicts nothing). Both operands unsigned → true; unsigned + literal →
+/// true; unsigned + signed → false, which is the reading these positions had
+/// before any of this existed; two literals or two signed → false.
+fn ct_join_ordw(a: CTy, b: CTy) -> bool {
+    return (a.ordw || b.ordw) && (a.ordw || a.lit) && (b.ordw || b.lit);
+}
+/// Neutrality survives a fold of two neutrals (`1 + 1`) and nothing else.
+fn ct_join_lit(a: CTy, b: CTy) -> bool { return a.lit && b.lit; }
 fn ct_is_num(t: i32) -> bool { return t == CT_INT || t == CT_FLT; }
 fn ct_is_obj(t: i32) -> bool {
     return t == CT_NODE || t == CT_ARR || t == CT_SARR

@@ -789,7 +789,7 @@ fn ij_key(kexpr_w: i64, var: str, node: WAny, cat: &SchemaCatalog, env: &QEnv,
     let mut b: RBinds = rbinds_new();
     b.bind_val(var, RtVal::Node(node));
     let bp: *const RBinds = &b;
-    return eval_sexpr(sx_of(kexpr_w), cat, env, bp, scratch);
+    return eval_sexpr(sx_of(kexpr_w), cat, env, bp, scratch, false);
 }
 
 // One surviving join pair (aNode ⋈ bNode, weight w) → filter → project →
@@ -805,7 +805,7 @@ fn ij_emit(odp: *mut ZOut, arena: &Writ, a_node: WAny, b_node: WAny, w: i64,
     let cbp: *const RBinds = &cb;
     if !eval_on_residual(on_w, equi_w, cat, env, cbp, scratch) { return; }
     if has_pred {
-        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch, false)) { return; }
     }
     let sel: SExpr = sx_of(sel_w);
     let mut cells: Vec<RtVal> = vec_new::<RtVal>();
@@ -814,9 +814,9 @@ fn ij_emit(odp: *mut ZOut, arena: &Writ, a_node: WAny, b_node: WAny, w: i64,
             let items: SExprArr = tp.items_arr();
             let nn: i64 = items.len();
             let mut c: i64 = 0i64;
-            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch, false)); c = c + 1i64; }
         }
-        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch, false)); }
     }
     zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
@@ -873,7 +873,7 @@ fn ij_anti_emit(odp: *mut ZOut, arena: &Writ, l_node: WAny, w: i64,
     cb.bind_val(lvar, RtVal::Node(l_node));
     let cbp: *const RBinds = &cb;
     if has_pred {
-        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch, false)) { return; }
     }
     let sel: SExpr = sx_of(sel_w);
     let mut cells: Vec<RtVal> = vec_new::<RtVal>();
@@ -882,9 +882,9 @@ fn ij_anti_emit(odp: *mut ZOut, arena: &Writ, l_node: WAny, w: i64,
             let items: SExprArr = tp.items_arr();
             let nn: i64 = items.len();
             let mut c: i64 = 0i64;
-            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch, false)); c = c + 1i64; }
         }
-        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch, false)); }
     }
     zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
@@ -905,7 +905,7 @@ fn ag_emit(odp: *mut ZOut, arena: &Writ, key: RtVal, aggvals: &Vec<RtVal>, an: i
     while i < an { cb.bind_val(agg_out[i], aggvals.get(i)); i = i + 1i64; }
     let cbp: *const RBinds = &cb;
     if has_pred {
-        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch)) { return; }
+        if !rt_truthy(eval_sexpr(sx_of(pred_w), cat, env, cbp, scratch, false)) { return; }
     }
     let sel: SExpr = sx_of(sel_w);
     let mut cells: Vec<RtVal> = vec_new::<RtVal>();
@@ -914,9 +914,9 @@ fn ag_emit(odp: *mut ZOut, arena: &Writ, key: RtVal, aggvals: &Vec<RtVal>, an: i
             let items: SExprArr = tp.items_arr();
             let nn: i64 = items.len();
             let mut c: i64 = 0i64;
-            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch)); c = c + 1i64; }
+            while c < nn { cells.push(eval_sexpr(items.arg_at(c), cat, env, cbp, scratch, false)); c = c + 1i64; }
         }
-        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch)); }
+        _ => { cells.push(eval_sexpr(sel, cat, env, cbp, scratch, false)); }
     }
     zout_note_errs(odp, &cells);
     zout_bump(odp, arena, &cells, 0i64, w);
@@ -1291,7 +1291,7 @@ impl IncrJoin {
                 let mut kb: RBinds = rbinds_new();
                 kb.bind_val(lvar, RtVal::Node(node));
                 let kbp: *const RBinds = &kb;
-                let k: RtVal = eval_sexpr(sx_of(key_w), cat, env, kbp, &scratch);
+                let k: RtVal = eval_sexpr(sx_of(key_w), cat, env, kbp, &scratch, false);
                 if rt_is_err(k) { unsafe { *mep = true; } }
                 let slot: i64 = aggstate_ensure(&mut self.agg, k, n, &self.arena);
                 // grow the OLD/seen scratch to cover `slot`
@@ -1323,7 +1323,13 @@ impl IncrJoin {
                     let isf: bool = self.agg_argf[ai];
                     let ordw: bool = self.agg_argu[ai];
                     if fnid == 2i32 || fnid == 5i32 {
-                        let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch);
+                        // `ordw` — the ARGUMENT's claim, so an argument that is
+                        // itself arithmetic computes under the u64 predicate.
+                        // Passed for `avg` too (this arm serves fnid 2 and 5):
+                        // the argument's type does not depend on which fold
+                        // consumes it, and the batch tier passes it for every
+                        // fnid. Only the ACCUMULATOR below distinguishes them.
+                        let av: RtVal = eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch, ordw);
                         if rt_is_err(av) { unsafe { *mep = true; } }
                         if isf {
                             // FLOAT argument: accumulate in f64 and do NOT round
@@ -1335,6 +1341,39 @@ impl IncrJoin {
                             // must agree.
                             let curf: f64 = self.agg.gsumf.get(slot * n + ai);
                             self.agg.gsumf.set(slot * n + ai, curf + (w as f64) * rt_f(av));
+                        } else if ordw && fnid == 2i32 {
+                            // ⚠ THE u64 ACCUMULATOR, AND `w` IS WHY IT IS NOT A COPY
+                            // OF THE BATCH ONE. The batch engine adds one addend per
+                            // row; this one integrates a DELTA, so each addend
+                            // arrives with a SIGNED multiplicity (a retraction is
+                            // w = −1). `w · av` is therefore not a u64 multiply: the
+                            // magnitude is |w| copies of an unsigned addend, and the
+                            // SIGN of w decides whether they are added to or taken
+                            // out of the running total. A retraction that would take
+                            // the total below zero is a u64 underflow and latches the
+                            // same error channel — for a consistent stream it cannot
+                            // happen, because what is retracted was added first.
+                            //
+                            // ⚠ `fnid == 2i32` AND NOT THE WHOLE `2 || 5` ARM. `avg`
+                            // shares `gsum` with `sum` here and divides at emit,
+                            // while the batch engine gives `avg` its OWN f64 running
+                            // total (exec.logos, fnid 5). Switching the shared
+                            // accumulator on `ordw` alone would move `avg` in THIS
+                            // tier and not in the other one, i.e. would manufacture a
+                            // tier disagreement out of a fix for `sum`. `avg` over an
+                            // unsigned column is wrong on a different axis (`rt_f`
+                            // reads the payload signed) and is a decision of its own.
+                            let cur: i64 = self.agg.gsum.get(slot * n + ai);
+                            let mag: i64 = if w < 0i64 {
+                                match w.checked_neg() { Option::Some(m) => { m } Option::None => { unsafe { *mep = true; } 0i64 } }
+                            } else { w };
+                            let prod: i64 = match el_wrap_mul(mag, rt_i(av)) { Option::Some(p) => { p } Option::None => { unsafe { *mep = true; } 0i64 } };
+                            let tot:  i64 = if w < 0i64 {
+                                match el_wrap_sub(cur, prod) { Option::Some(t) => { t } Option::None => { unsafe { *mep = true; } cur } }
+                            } else {
+                                match el_wrap_add(cur, prod) { Option::Some(t) => { t } Option::None => { unsafe { *mep = true; } cur } }
+                            };
+                            self.agg.gsum.set(slot * n + ai, tot);
                         } else {
                             let cur: i64 = self.agg.gsum.get(slot * n + ai);
                             // checked accumulation: a running-total overflow latches
@@ -1352,7 +1391,7 @@ impl IncrJoin {
                         // invertible — `f64_data_key` is neither, and keying on
                         // `rt_i` collided 0.25 and 0.75 onto 0). Every ORDER
                         // question below asks `agg_ord_key`, never `<` on this.
-                        let av: i64 = agg_val_key(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch), isf);
+                        let av: i64 = agg_val_key(eval_sexpr(sx_of(self.agg_arg_w[ai]), cat, env, kbp, &scratch, ordw), isf);
                         let avo: i64 = agg_ord_key(av, isf, ordw);
                         let mp: *mut HashMap<i64, i64> = unsafe { self.agg.vmap.at(slot * n + ai) };
                         let cp: *const i64 = unsafe { mp.get(&av) };

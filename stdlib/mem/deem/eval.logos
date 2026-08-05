@@ -180,8 +180,34 @@ fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
     return RtVal::I(v.as_i64());
 }
 
+// ── `ua` — THE ARITHMETIC IN THIS POSITION IS OVER AN UNSIGNED 64-BIT COLUMN ──
+//
+// The EL normalizes every integer into `i64`, and for a `u64`/`usize` column
+// that conversion is a bijection: the bits survive, the ORDER moves (repaired
+// at the comparison seams by `el_wrap_ord_key`) and so does the OVERFLOW
+// PREDICATE. The arithmetic tier below is checked — an overflow is a returned
+// `RtVal::Error`, never a trap (A13 in the form Deem's convention requires) —
+// so the predicate is the whole of what `ua` selects. Nothing else changes: a
+// two's-complement add/sub/mul produces the SAME BITS either way.
+//
+// ⚠ THIS IS A POSITION FLAG, NOT A SUBTREE FLAG, and the difference is a
+// defect waiting at every careless reading. It is the exact DUAL of the
+// checker's `ordw` join (`check_expr`, the arithmetic and ternary arms): the
+// checker propagates the claim UP through the operands of an arithmetic node
+// and through a ternary's BRANCHES, and drops it everywhere else, so `ua` is
+// passed DOWN through exactly those positions and `false` through every other
+// one. A ternary's CONDITION, a comparison's operands and a call's arguments
+// get `false` even inside an unsigned expression — otherwise
+// `sum(s.u + (s.v + 1 > 0 ? 1 : 2))` would evaluate the SIGNED `s.v + 1` under
+// the u64 predicate, which is the same class of type loss one level down.
+//
+// ⚠ WHERE IT IS TRUE TODAY: an AGGREGATE ARGUMENT whose checked type claims
+// `ordw` (`QPlan.agg_argu`), in both runtime tiers. A projection, a sort key
+// and a filter predicate still evaluate their arithmetic signed — those
+// positions have no carrier of their own yet, and inventing one here would be
+// a claim the checker never made.
 fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-              scratch: &Writ) -> RtVal {
+              scratch: &Writ, ua: bool) -> RtVal {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
@@ -214,7 +240,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 let di: i64 = unsafe { (&*lb).find2(tr_root, f.name) };
                 if di >= 0i64 { return unsafe { (&*lb).val(di) }; }
             }
-            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
+            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch, false);
             match base {
                 RtVal::Node(w) => { return field_read(cat, w, f.name); }
                 _ => { return RtVal::Null; }
@@ -224,23 +250,30 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             let op: i32 = b.op;
             // Short-circuit boolean tier.
             if op == OP_AND() {
-                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, false);
                 if rt_is_err(lv) { return RtVal::Error; }
                 if !rt_truthy(lv) { return RtVal::B(false); }
-                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, false);
                 if rt_is_err(rv) { return RtVal::Error; }
                 return RtVal::B(rt_truthy(rv));
             }
             if op == OP_OR() {
-                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, false);
                 if rt_is_err(lv) { return RtVal::Error; }
                 if rt_truthy(lv) { return RtVal::B(true); }
-                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, false);
                 if rt_is_err(rv) { return RtVal::Error; }
                 return RtVal::B(rt_truthy(rv));
             }
-            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
-            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+            // The claim reaches the OPERANDS of an arithmetic node and no other
+            // operand position — the dual of the checker's join, stated at the
+            // one place where `op` is known and the operands are not yet
+            // evaluated. A comparison's operands are compared, not computed, so
+            // they take `false`: their own order seam is `rt_cmp`/`qp.sordw`.
+            let aua: bool = ua && (op == OP_ADD() || op == OP_SUB() || op == OP_MUL()
+                                   || op == OP_DIV() || op == OP_MOD());
+            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch, aua);
+            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch, aua);
             // A math error in either operand propagates (like Null) — the eval
             // boundary (eval_sx) turns it into a QError.
             if rt_is_err(l) || rt_is_err(r) { return RtVal::Error; }
@@ -283,27 +316,44 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 }
                 // Integer tier: error-returning (checked) arithmetic — overflow
                 // yields RtVal::Error instead of trapping (EL-script policy).
+                // `ua` selects WHICH overflow predicate is checked; the bits of
+                // the answer are the same under both.
+                if aua { match el_wrap_add(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
                 match rt_i(l).checked_add(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_SUB() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) - rt_f(r)); }
+                if aua { match el_wrap_sub(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
                 match rt_i(l).checked_sub(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_MUL() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) * rt_f(r)); }
+                if aua { match el_wrap_mul(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
                 match rt_i(l).checked_mul(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             if op == OP_DIV() {
                 if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) / rt_f(r)); }
                 // checked_div → None on divide-by-zero AND on i64::MIN / -1.
+                // ⚠ THE UNSIGNED QUOTIENT IS A DIFFERENT NUMBER, not just a
+                // different overflow verdict: (2^64−1)/3 is 6148914691236517205
+                // unsigned and 0 signed, because the i64 division reads the
+                // payload as −1. This arm is the one place where the two
+                // predicates disagree on a VALUE and not only on a refusal.
+                if aua { match el_wrap_div(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
                 match rt_i(l).checked_div(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
             }
             // OP_MOD — integer tier only (checker-enforced). checked_rem → None
             // on rem-by-zero and i64::MIN % -1.
+            if aua { match el_wrap_rem(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
             match rt_i(l).checked_rem(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
         }
         SExpr::Un(u) => {
-            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch);
+            // ⚠ `false`, DELIBERATELY. The checker gives a unary minus `ordw:
+            // false` — negating an unsigned value leaves that type's domain, so
+            // there is nothing for the claim to be about — and this is the dual
+            // of that: `ua` stops here in both directions, so an operand under a
+            // `-` is evaluated with the signed predicate exactly as before.
+            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch, false);
             if rt_is_err(a) { return RtVal::Error; }
             if u.op == OP_NOT() { return RtVal::B(!rt_truthy(a)); }
             match a {
@@ -314,12 +364,15 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             }
         }
         SExpr::Cond(c) => {
-            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch);
+            // The CONDITION is a bool and its own subtree is not this value's
+            // origin — `false`. The BRANCHES are: the checker joins their two
+            // claims into the ternary's, so each branch carries `ua`.
+            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch, false);
             if rt_is_err(cv) { return RtVal::Error; }
             if rt_truthy(cv) {
-                return eval_sexpr(c.then_expr(), cat, env, lb, scratch);
+                return eval_sexpr(c.then_expr(), cat, env, lb, scratch, ua);
             }
-            return eval_sexpr(c.else_expr(), cat, env, lb, scratch);
+            return eval_sexpr(c.else_expr(), cat, env, lb, scratch, ua);
         }
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
@@ -328,11 +381,11 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 // Builtins are STRING functions: any non-string argument —
                 // Null from a lenient miss, or a runtime type surprise —
                 // yields Null (ADR §4; strict mode guarantees string args).
-                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch);
+                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch, false);
                 if rt_kind(a0) != 4i32 { return RtVal::Null; }
                 let mut a1: RtVal = RtVal::S("");
                 if builtin_arity(bfn) > 1i64 {
-                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch);
+                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch, false);
                     if rt_kind(a1) != 4i32 { return RtVal::Null; }
                 }
                 if bfn == BFN_LEN() { return RtVal::I(rt_s(a0).len()); }
@@ -357,7 +410,7 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
                 let na: i64 = args.len();
                 let mut k: i64 = 0i64;
                 while k < na && k < 8i64 {
-                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch);
+                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch, false);
                     k = k + 1i64;
                 }
                 let f: QFn = env.f_ptrs[ui];
@@ -405,11 +458,11 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
         match e {
             TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
             TStmt::Var(v) => {
-                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk);
+                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk, false);
                 rt_push(out, val);
             }
             TStmt::If(i) => {
-                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk);
+                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk, false);
                 let mark: i64 = unsafe { (&*lb).n };
                 if rt_truthy(cv) {
                     render_stmts(body_word(&i.body), cat, env, lb, scratch, out, chk);
@@ -423,7 +476,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                 lbm.n = mark;
             }
             TStmt::For(f) => {
-                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk);
+                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk, false);
                 match it {
                     RtVal::Node(w) => {
                         if w.is_array() {
@@ -450,7 +503,7 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                 }
             }
             TStmt::Set(s) => {
-                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk);
+                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk, false);
                 unsafe { (&mut *lb).bind_val(s.var, sv); }
             }
         }

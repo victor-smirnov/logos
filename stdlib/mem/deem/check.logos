@@ -128,15 +128,15 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
                      "", "");
             return ct(CT_UNKNOWN);
         }
-        return CTy { t: CT_ARR, code: code, ordw: false };
+        return CTy { t: CT_ARR, code: code, ordw: false, lit: false };
     }
     // Scalar elements: type off the first element's value shape.
     let ev: RtVal = wany_to_rt(e0);
     match ev {
-        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64, ordw: false }; }
-        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64, ordw: false }; }
-        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64, ordw: false }; }
-        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64, ordw: false }; }
+        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64, ordw: false, lit: false }; }
+        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64, ordw: false, lit: false }; }
+        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64, ordw: false, lit: false }; }
+        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64, ordw: false, lit: false }; }
         _ => {
             chk_fail(chk, "source '", name,
                      "' elements are not schema'd Writ objects", "", "");
@@ -151,7 +151,7 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
 fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
               lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
     let li: i64 = lb.find(name);
-    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li], ordw: lb.ordws[li] }; }
+    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li], ordw: lb.ordws[li], lit: false }; }
     let dot: i64 = dotted_at(name);
     if dot > 0i64 {
         let root: str = str_prefix(name, dot);
@@ -189,7 +189,7 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                          "", "");
                 return ct(CT_UNKNOWN);
             }
-            return CTy { t: CT_NODE, code: env.codes[ei], ordw: false };
+            return CTy { t: CT_NODE, code: env.codes[ei], ordw: false, lit: false };
         }
         if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
         if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
@@ -218,6 +218,14 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 chk_fail(chk, "integer literal out of range — exceeds i64::MAX (9223372036854775807)", "", "", "", "");
                 return ct(CT_UNKNOWN);
             }
+            // A NON-NEGATIVE integer literal is in the domain of every integer
+            // type the EL admits, so it is evidence for neither signedness and
+            // takes whatever claim its neighbours carry (`ct_join_ordw`). The
+            // tokenizer produces only non-negative literals — `-1` parses as a
+            // unary minus over `1` and that node drops the claim — so the guard
+            // below is about a literal reaching here by another route, not about
+            // a spelling the grammar can produce today.
+            if v.as_i64() >= 0i64 { return ct_lit(CT_INT); }
             return ct(CT_INT);
         }
         SExpr::Param(p) => { return check_root(p.name, cat, env, strict, lb, chk, reg); }
@@ -248,12 +256,12 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                  "' targets a schema missing from the catalog", "", "");
                         return ct(CT_UNKNOWN);
                     }
-                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi), ordw: false };
+                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi), ordw: false, lit: false };
                 }
                 if cat.f_kinds.get(fi) == (FK_EARR as i64) {
                     // scalar-element array edge — CT tags equal EL tags on the
                     // scalar tier, so the catalog EL type maps across directly.
-                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64, ordw: cat.f_ordw.get(fi) };
+                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64, ordw: cat.f_ordw.get(fi), lit: false };
                 }
                 if cat.f_kinds.get(fi) == (FK_ANY as i64) {
                     // WAny-typed field on a STRICT schema: resolves LENIENTLY
@@ -264,9 +272,10 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 // straight off a declared column, so the one place `ordw` enters
                 // the checker at all. Everything downstream of here either
                 // carries it (an ident binding, the group key, the aggregate
-                // argument, the sort key) or deliberately drops it (arithmetic).
+                // argument, the sort key, an arithmetic result whose operands
+                // agree — `ct_join_ordw`) or drops it.
                 return CTy { t: cat.f_tys.get(fi) as i32, code: 0u64,
-                             ordw: cat.f_ordw.get(fi) };
+                             ordw: cat.f_ordw.get(fi), lit: false };
             }
             if bt.t == CT_DYN {
                 // Lenient base: the field resolves at RUNTIME by name
@@ -382,7 +391,19 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 if dyn_op { return ct(CT_DYN); }
                 if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
                 if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
-                return ct(CT_INT);
+                // ⚠ AN INTEGER ARITHMETIC RESULT CARRIES ITS OPERANDS' CLAIM
+                // WHEN THEY AGREE. This used to be an unconditional drop, with
+                // the ground that "what is the signedness of `u64 + i64`" was a
+                // semantics question nobody had decided. The undecided case is
+                // still dropped — that is what `ct_join_ordw` answers false to —
+                // but the DECIDED cases were being dropped with it, and that is
+                // not a deferral, it is an answer: `sum(s.u + s.u)` over a single
+                // row holding 2^62 was REFUSED (2^63 fits u64; the i64 add
+                // overflows), and `sum(s.u + 1)` at 2^64-1 answered 0 with no
+                // error (the payloads are -1 and 1). The runtime reads this
+                // through `QPlan.agg_argu` (`eval_sexpr`'s `ua`).
+                return CTy { t: CT_INT, code: 0u64,
+                             ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
             }
             // SUB / MUL / DIV / MOD — numeric-only tier.
             if (!ct_is_open(lt.t) && !ct_is_num(lt.t))
@@ -397,12 +418,14 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 }
                 if dyn_op { return ct(CT_DYN); }
                 if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
-                return ct(CT_INT);
+                return CTy { t: CT_INT, code: 0u64,
+                             ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
             }
             if dyn_op { return ct(CT_DYN); }
             if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
             if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
-            return ct(CT_INT);
+            return CTy { t: CT_INT, code: 0u64,
+                         ordw: ct_join_ordw(lt, rt), lit: ct_join_lit(lt, rt) };
         }
         SExpr::Un(u) => {
             let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);
@@ -419,7 +442,7 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 chk_fail(chk, "unary '-' needs a numeric operand", "", "", "", "");
                 return ct(CT_UNKNOWN);
             }
-            return CTy { t: at.t, code: 0u64, ordw: false };
+            return CTy { t: at.t, code: 0u64, ordw: false, lit: false };
         }
         SExpr::Cond(c) => {
             let cc: CTy = check_expr(c.cond_expr(), cat, env, strict, lb, chk, reg);
@@ -454,14 +477,21 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // `ordw` sites and the next one will too: a `CTy` may claim `ordw`
             // only where the value's origin is KNOWN to carry it. An operation
             // that PRESERVES one of its inputs may pass it on when every input
-            // agrees; where they disagree there is no honest answer in a
-            // one-integer-code domain, so the claim is DROPPED, which restores
-            // the reading this position had before. Deciding what the type of
-            // `p ? u64 : i64` actually IS belongs with the unsigned-arithmetic
-            // question (D1) and is not settled here.
+            // agrees; where they disagree there is no honest answer, so the
+            // claim is DROPPED, which restores the reading this position had
+            // before. `p ? u64 : i64` is still that case and still drops.
+            //
+            // ⚠ THE RULE IS NO LONGER SPELLED OUT HERE. It used to end "there is
+            // no honest answer in a one-integer-code domain", and that clause was
+            // the diagnosis of a domain that was missing its neutral element:
+            // `p ? s.u : 0` had to drop a claim that `p ? s.u : s.u` could keep,
+            // for no reason anyone would defend. `CTy.lit` supplies the missing
+            // state and `ct_join_ordw` is the rule, shared with the arithmetic
+            // tier so the two cannot drift.
             if tt.t == et.t {
-                if tt.ordw == et.ordw { return tt; }
-                return CTy { t: tt.t, code: tt.code, ordw: false };
+                if tt.ordw == et.ordw && tt.lit == et.lit { return tt; }
+                return CTy { t: tt.t, code: tt.code,
+                             ordw: ct_join_ordw(tt, et), lit: ct_join_lit(tt, et) };
             }
             if ct_is_num(tt.t) && ct_is_num(et.t) { return ct(CT_FLT); }
             chk_fail(chk, "ternary branches have different types", "", "", "", "");
@@ -729,10 +759,20 @@ struct QPlan {
     // truncated every f64 addend.
     agg_argt: [i32; 8],
     // The ARGUMENT's `CTy.ordw` — this aggregate ranges over a column whose
-    // order moved under the EL's i64 normalization (u64/usize). `min`/`max` are
-    // the only readers: their COMPARISON and their SEEDS both depend on it, and
-    // `agg_argt` cannot answer it because the whole integer family is CT_INT.
-    // `sum`/`avg` deliberately ignore it — the arithmetic is not on this axis.
+    // order moved under the EL's i64 normalization (u64/usize). `min`/`max`
+    // read it for their COMPARISON and their SEEDS, and `sum` for its
+    // OVERFLOW PREDICATE; `agg_argt` cannot answer any of them because the
+    // whole integer family is CT_INT.
+    //
+    // ⚠ THIS COMMENT USED TO SAY "`sum`/`avg` deliberately ignore it — the
+    // arithmetic is not on this axis", AND THAT SENTENCE WAS THE DEFECT. The
+    // cast that moves the order moves the OVERFLOW PREDICATE with it, at the
+    // same values and for the same reason: a u64 sum overflows at 2^64−1, an
+    // i64 sum at 2^63−1, and between the two the predicates disagree in both
+    // directions — silently accepting a sum that exceeds u64, and refusing one
+    // that fits. Both were measured; see `el_wrap_add`. `avg` really is off
+    // this axis (it returns an f64 quotient), and it is wrong over an unsigned
+    // column for a different reason — `rt_f` reads the payload signed.
     agg_argu: [bool; 8],
     // ── `order by` decisions, keyed by node word (the `jw`/`jtier` shape) ──
     // ⚠ THERE WAS NO SORT TABLE AT ALL. The checker computed the sort key's
@@ -900,7 +940,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // base var → path walk over the catalog
             let bi: i64 = lb.find(ed.base_var);
             let mut cur: CTy = ct(CT_UNKNOWN);
-            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi], ordw: false }; }
+            if bi >= 0i64 { cur = CTy { t: lb.tags[bi], code: lb.codes[bi], ordw: false, lit: false }; }
             else if strict {
                 chk_fail(chk, "unknown traversal base '", ed.base_var,
                          "' — it must be a row variable bound earlier in the chain", "", "");
@@ -948,7 +988,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                  "' must be an edge field", "", "");
                         break;
                     }
-                    cur = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false };
+                    cur = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false, lit: false };
                 } else {
                     if cat.f_kinds.get(fi) == (FK_EDGE as i64) {
                         if cat.f_targets.get(fi) == 0u64 {
@@ -956,9 +996,9 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                                      "' targets a schema missing from the catalog", "", "");
                             break;
                         }
-                        vt = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false };
+                        vt = CTy { t: CT_NODE, code: cat.f_targets.get(fi), ordw: false, lit: false };
                     } else if cat.f_kinds.get(fi) == (FK_EARR as i64) {
-                        vt = CTy { t: cat.f_tys.get(fi) as i32, code: 0u64, ordw: cat.f_ordw.get(fi) };
+                        vt = CTy { t: cat.f_tys.get(fi) as i32, code: 0u64, ordw: cat.f_ordw.get(fi), lit: false };
                     } else {
                         chk_fail(chk, "traversal path must end at an edge field '",
                                  ps.segs[i], "' (a collection or single-node edge)", "", "");
@@ -1122,7 +1162,19 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     }
                 }
                 rets[ci] = rett;
-                rets_ordw[ci] = argu && (fnid == 3i32 || fnid == 4i32);
+                // ⚠ WHICH AGGREGATES PASS THE ARGUMENT'S CLAIM ON TO THEIR
+                // OUT-NAME, and it is the rule from `5dc76347` applied rather
+                // than a list: an operation that PRESERVES one of its inputs
+                // carries the claim; one that computes a new value in another
+                // domain drops it. `min`/`max` RETURN an input. `sum` returns a
+                // value of the argument's own type and its arithmetic is now in
+                // that type, so it preserves the claim too — before this, an
+                // honest u64 sum was handed downstream stripped of it, and
+                // `order by sum(u64)` over three singleton groups ranked them in
+                // the SIGNED order while the same query with `max` ranked them
+                // correctly. `count` returns a cardinality and `avg` an f64
+                // quotient; neither is on this axis.
+                rets_ordw[ci] = argu && (fnid == 2i32 || fnid == 3i32 || fnid == 4i32);
                 qp.agg_fnid[ci] = fnid;
                 qp.agg_uda[ci]  = uidx;
                 qp.agg_ret[ci]  = rett;
