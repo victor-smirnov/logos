@@ -441,7 +441,28 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             if tt.t == CT_DYN || et.t == CT_DYN { return ct(CT_DYN); }
             if tt.t == CT_UNKNOWN { return et; }
             if et.t == CT_UNKNOWN { return tt; }
-            if tt.t == et.t { return tt; }
+            // ⚠ `ordw` IS A CLAIM ABOUT THE VALUE'S ORIGIN, and a ternary has two.
+            // The whole integer family shares one code (CT_INT), so `tt.t == et.t`
+            // holds for a u64 THEN and an i64 ELSE — and returning THEN verbatim
+            // rode u64-ness onto rows that took the i64 branch. MEASURED both ways
+            // with a rebuild each: `order by (s.p ? s.u : s.v)` over rows that ALL
+            // take the i64 branch answered the WRAPPED order, and swapping the
+            // branches flipped the answer. That is a signed reading that was right
+            // before the plumb existed, so it is a regression and not a gap.
+            //
+            // THE RULE, stated because two defects have now sat at hand-decided
+            // `ordw` sites and the next one will too: a `CTy` may claim `ordw`
+            // only where the value's origin is KNOWN to carry it. An operation
+            // that PRESERVES one of its inputs may pass it on when every input
+            // agrees; where they disagree there is no honest answer in a
+            // one-integer-code domain, so the claim is DROPPED, which restores
+            // the reading this position had before. Deciding what the type of
+            // `p ? u64 : i64` actually IS belongs with the unsigned-arithmetic
+            // question (D1) and is not settled here.
+            if tt.t == et.t {
+                if tt.ordw == et.ordw { return tt; }
+                return CTy { t: tt.t, code: tt.code, ordw: false };
+            }
             if ct_is_num(tt.t) && ct_is_num(et.t) { return ct(CT_FLT); }
             chk_fail(chk, "ternary branches have different types", "", "", "", "");
             return ct(CT_UNKNOWN);
@@ -1026,6 +1047,12 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             let aggs: RAggArr = g.aggs_arr();
             let an2: i64 = aggs.len();
             let mut rets: [i32; 8] = [0i32; 8];
+            // Does the aggregate's RESULT carry the argument's signedness? Only
+            // where the result IS one of the inputs — min and max return a row's
+            // own value, so a u64 column's `max` is a u64. `sum` does not (it
+            // accumulates, and what unsigned accumulation MEANS is the untaken
+            // decision D1), `count` is a cardinality, `avg` is a quotient in f64.
+            let mut rets_ordw: [bool; 8] = [false; 8];
             let mut ci: i64 = 0i64;
             while ci < an2 && ci < 8i64 {
                 let a: RAgg = aggs.agg_at(ci);
@@ -1095,6 +1122,7 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     }
                 }
                 rets[ci] = rett;
+                rets_ordw[ci] = argu && (fnid == 3i32 || fnid == 4i32);
                 qp.agg_fnid[ci] = fnid;
                 qp.agg_uda[ci]  = uidx;
                 qp.agg_ret[ci]  = rett;
@@ -1109,7 +1137,12 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             let mut co: i64 = 0i64;
             while co < ci {
                 let a2: RAgg = aggs.agg_at(co);
-                lb.bind(a2.out, rets[co], 0u64);
+                // ⚠ `bind_o`, not `bind`: an aggregate's OUT-NAME is the column's own
+                // value for min/max, so `order by hi` over `hi = max(s.u)` sorts a
+                // u64. This was the one carrier in CBinds left binding without the
+                // signedness, and it sorted signed — measured over three one-row
+                // groups. Every other carrier here already used bind_o.
+                lb.bind_o(a2.out, rets[co], 0u64, rets_ordw[co]);
                 co = co + 1i64;
             }
         }

@@ -1,0 +1,126 @@
+// `ordw` — the claim "this value's order wrapped" — is a fact about the value's
+// ORIGIN, and this pins the two places that got it wrong in opposite directions.
+//
+// Background: a u64 reaches the runtime engines as `RtVal::I(i64)`, so every
+// value at or above 2^63 reads negative and an ordered comparison ranks it
+// below zero. The fix carries the column's signedness to the comparison seam and
+// keys through `el_wrap_ord_key`. A carrier has two failure modes, and the
+// commit that introduced it had one of each:
+//
+//   UNDER-CARRY — an aggregate's OUT-NAME. `max(s.u)` over a u64 column returns a
+//   row's own value, so it IS a u64; the one carrier in `CBinds` that still bound
+//   without the signedness made `order by hi` sort it signed.
+//
+//   OVER-CARRY, and this one was a REGRESSION — a ternary. The whole integer
+//   family shares one type code, so a u64 THEN branch and an i64 ELSE branch
+//   compare equal and the THEN branch's `CTy` was returned verbatim. Rows that
+//   took the i64 branch were then ordered by the WRAPPED key: a reading that was
+//   correct before the carrier existed.
+//
+// THE RULE both arms assert: a value may claim `ordw` only where its origin is
+// known to carry it. An operation that PRESERVES an input passes it on when
+// every input agrees; where they disagree the claim is DROPPED, because
+// `p ? u64 : i64` has no honest type in a one-integer-code domain — and what
+// that type SHOULD be is the untaken unsigned-arithmetic decision, not this
+// file's business.
+//
+// exit 0 = min/max out-names sort unsigned, and a mixed ternary sorts signed.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+pub schema R : code(0x0B13_0000_0000_0051) {
+    id: i64  = 0,
+    g:  i64  = 1,
+    u:  u64  = 2,   // the unsigned column: its order WRAPS
+    v:  i64  = 3,   // the signed control, same width
+    p:  bool = 4,   // ternary selector
+}
+resource cat = schema_catalog!{ R };
+
+fn mk(d: &Writ, id: i64, g: i64, u: u64, v: i64, p: bool) -> WAny {
+    let r: R = d.make::<R>(); r.id = id; r.g = g; r.u = u; r.v = v; r.p = p;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn ids(qt: str, c: &SchemaCatalog, env: &QEnv) -> Vec<i64> {
+    let mut out: Vec<i64> = vec_new::<i64>();
+    match Query::compile(qt, c) {
+        Result::Ok(q) => {
+            match q.run(env) {
+                Result::Ok(r) => {
+                    let n: i64 = r.row_count();
+                    let mut i: i64 = 0i64;
+                    while i < n { out.push(r.get_i64(i, 0i64)); i = i + 1i64; }
+                }
+                Result::Err(_a) => { out.push(-1i64); }
+            }
+        }
+        Result::Err(_b) => { out.push(-2i64); }
+    }
+    return out;
+}
+fn eq3(v: &Vec<i64>, a: i64, b: i64, c: i64) -> bool {
+    if v.len() != 3i64 { return false; }
+    return v.get(0i64) == a && v.get(1i64) == b && v.get(2i64) == c;
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let d: Writ = writ_new(8192i64);
+    let rows: &mut WArray<WAny> = d.array(8i64);
+    // u: 5, 2^63, 2^64-1 — the three that separate the signed reading from the
+    // unsigned one. v: all take the SAME i64 branch of the ternary below, and
+    // their signed order is deliberately the REVERSE of u's unsigned order, so a
+    // wrapped key applied here cannot pass by coincidence.
+    rows.push(mk(&d, 0i64, 0i64, 5u64,                     30i64, false));
+    rows.push(mk(&d, 1i64, 1i64, 9223372036854775808u64,   20i64, false));
+    rows.push(mk(&d, 2i64, 2i64, 18446744073709551615u64,  10i64, false));
+    let src: WAny = WAny::ref_to(rows as *const WArray<WAny> as *const u8);
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("rs", src);
+
+    // ── 1. the aggregate OUT-NAME carries the column's signedness ──────────
+    // One row per group, so `max` is the identity and the only question is the
+    // ORDER of the outputs. Unsigned: 5 < 2^63 < 2^64-1, so ids 0,1,2.
+    if !eq3(&ids("from rs s group by s.id aggregate hi = max(s.u) select (key, hi) order by hi", &c, &e),
+            0i64, 1i64, 2i64) { return 10i32; }
+    // min is the same claim through the other fold arm.
+    if !eq3(&ids("from rs s group by s.id aggregate lo = min(s.u) select (key, lo) order by lo", &c, &e),
+            0i64, 1i64, 2i64) { return 11i32; }
+
+    // ── 2. a plain u64 column still sorts unsigned — the control that says the
+    //      carrier is alive at all, so a green group 1 cannot mean "no carrier".
+    if !eq3(&ids("from rs s select s.id order by s.u", &c, &e), 0i64, 1i64, 2i64) { return 20i32; }
+
+    // ── 3. a MIXED ternary drops the claim and sorts SIGNED ────────────────
+    // Every row has p == false, so every row takes the i64 branch and the key is
+    // v: 30, 20, 10 → ascending gives ids 2,1,0. Under the over-carry this
+    // answered u's wrapped order, 0,1,2 — the exact inversion.
+    if !eq3(&ids("from rs s select s.id order by (s.p ? s.u : s.v)", &c, &e),
+            2i64, 1i64, 0i64) { return 30i32; }
+    // …and with the branches swapped. ⚠ NOT the same answer, and the difference
+    // is the point: `p` is false on every row, so this expression takes the OTHER
+    // branch and keys on `u` — but the claim was dropped because the branches
+    // disagree, so `u` is read SIGNED. 2^63 is the most negative, 2^64-1 is -1,
+    // 5 is positive: ids 1,2,0. Under the over-carry this answered u's UNSIGNED
+    // order (0,1,2), so an expectation copied from the line above would have
+    // passed for the wrong reason.
+    if !eq3(&ids("from rs s select s.id order by (s.p ? s.v : s.u)", &c, &e),
+            1i64, 2i64, 0i64) { return 31i32; }
+
+    // ── 4. an UNMIXED ternary still carries it — dropping on disagreement must
+    //      not become dropping always.
+    if !eq3(&ids("from rs s select s.id order by (s.p ? s.u : s.u)", &c, &e),
+            0i64, 1i64, 2i64) { return 40i32; }
+
+    return 0i32;
+}
