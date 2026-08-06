@@ -1,0 +1,187 @@
+// WHICH INCREMENTAL QUERIES GAIN A RETRACTION — THE POPULATION, DERIVED.
+//
+// Eligibility for the incremental HANDLE and invertibility of its FOLD are two
+// different questions, and the second one moves the emitted surface: a query
+// whose every aggregate inverts exactly gets `<q>_apply(&mut h, src, w, …)`
+// plus `<q>_epoch` / `<q>_retract` forwarders, and a query with even one
+// non-invertible aggregate keeps the insert-only surface — `<q>_epoch` with no
+// weight and no `<q>_retract` at all.
+//
+// ⚠ THE SHAPE OF THE EMITTED API DEPENDING ON THE AGGREGATE LIST IS THE
+// DELIBERATE PART. The alternative — emit the weight always and return `Err` at
+// run time — makes the same refusal a run-time surprise, and one of the two
+// things being refused is `(S+x)-x` over an f64 accumulator, which is an OPEN
+// decision rather than a bug. A function that is not there cannot answer an open
+// decision by accident; a run-time branch someone forgets to check can.
+//
+// ⚠ THIS FILE IS HALF OF THE ASSERTION AND `incr_retraction_gate.sh` IS THE
+// OTHER HALF, for the same reason the eligibility pair is split that way. What
+// this file pins ON ITS OWN is the POSITIVE direction: the invertible queries'
+// `_apply` and `_retract` EXIST and answer, so an emitter that stopped emitting
+// them makes this file fail to COMPILE. It cannot pin the negative direction —
+// a test cannot name a function that is not there — so the gate reads the
+// decision and its GROUND off `LOGOS_TRACE_PLAN`.
+//
+// ⚠ EVERY QUERY HERE MUST COMPILE, INCLUDING THE NON-INVERTIBLE ONES. Losing
+// the retraction is not losing the handle: the insert-only path is exactly what
+// it was, which is the property that keeps "not invertible" from ever silently
+// meaning "not incremental".
+//
+// ── THE ANSWERS, BY HAND ───────────────────────────────────────────────────
+// rows: (0, 5, 2.5) (1, -2, 0.5) (0, 7, 1.0)
+//   g=0  c=2  sum(v)=12  sum(x)=3.5  avg(v)=6.0  min(v)=5  max(v)=7
+//   g=1  c=1  sum(v)=-2  sum(x)=0.5  avg(v)=-2.0 min(v)=-2 max(v)=-2
+// urows: (0, 4) (0, 6) → sum(u) = 10; retracting (0,4) leaves 6.
+//
+// exit 0 = the invertible queries retract exactly, and every non-invertible one
+//          still compiles, still folds and still answers.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub v: i64, pub x: f64 }
+struct U { pub g: i64, pub u: u64 }
+
+// ── INVERTIBLE — `count` and a NON-float `sum`, the two signed folds ────────
+pub deem inv_count_sum(ss: &[S]) {
+    from ss s group by s.g aggregate c = count(), t = sum(s.v) select (key, c, t)
+}
+pub deem inv_usum(us: &[U]) {
+    from us s group by s.g aggregate t = sum(s.u) select (key, t)
+}
+
+// ── NOT INVERTIBLE, one named ground each ──────────────────────────────────
+// An f64 ACCUMULATOR: `(S+x)-x != S` is an open decision, not this emitter's.
+pub deem no_fsum(ss: &[S]) {
+    from ss s group by s.g aggregate t = sum(s.x) select (key, t)
+}
+// `avg` OVER AN INTEGER COLUMN — the same ground, and the one that is easy to
+// miss: `avg` divides at snapshot out of an f64 running total, so its
+// accumulator is a float whatever the column's type is.
+pub deem no_avg(ss: &[S]) {
+    from ss s group by s.g aggregate a = avg(s.v) select (key, a)
+}
+// `min` / `max`: not invertible from a cached extremum at all.
+pub deem no_min(ss: &[S]) {
+    from ss s group by s.g aggregate lo = min(s.v) select (key, lo)
+}
+pub deem no_max(ss: &[S]) {
+    from ss s group by s.g aggregate hi = max(s.v) select (key, hi)
+}
+
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, v:  5i64, x: 2.5f64 });
+    v.push(S { g: 1i64, v: -2i64, x: 0.5f64 });
+    v.push(S { g: 0i64, v:  7i64, x: 1.0f64 });
+    return v;
+}
+fn urows() -> Vec<U> {
+    let mut v: Vec<U> = vec_new::<U>();
+    v.push(U { g: 0i64, u: 4u64 });
+    v.push(U { g: 0i64, u: 6u64 });
+    return v;
+}
+
+fn main() -> i32 {
+    let ss: Vec<S> = rows();
+    let uu: Vec<U> = urows();
+
+    // ── INVERTIBLE: fold, then take one row back out ───────────────────────
+    let mut h: InvCountSumIncr = inv_count_sum_incremental();
+    match inv_count_sum_epoch(&mut h, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
+    }
+    let a0: Vec<(i64, i64, i64)> = match inv_count_sum_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; }
+    };
+    if a0.len() != 2i64 { return 12i32; }
+    if a0.get(0i64).1 !=  2i64 { return 13i32; }
+    if a0.get(0i64).2 != 12i64 { return 14i32; }
+    if a0.get(1i64).1 !=  1i64 { return 15i32; }
+    if a0.get(1i64).2 != -2i64 { return 16i32; }
+    let one: Vec<S> = { let mut o: Vec<S> = vec_new::<S>();
+                        o.push(S { g: 0i64, v: 7i64, x: 1.0f64 }); o };
+    match inv_count_sum_retract(&mut h, one.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 17i32; }
+    }
+    let a1: Vec<(i64, i64, i64)> = match inv_count_sum_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 18i32; }
+    };
+    if a1.len() != 2i64 { return 19i32; }
+    if a1.get(0i64).1 != 1i64 { return 20i32; }
+    if a1.get(0i64).2 != 5i64 { return 21i32; }
+
+    let mut hu: InvUsumIncr = inv_usum_incremental();
+    match inv_usum_epoch(&mut hu, uu.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 22i32; }
+    }
+    let u0: Vec<(i64, u64)> = match inv_usum_snapshot(&hu) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 23i32; }
+    };
+    if u0.len() != 1i64 { return 24i32; }
+    if u0.get(0i64).1 != 10u64 { return 25i32; }
+    let u4: Vec<U> = { let mut o: Vec<U> = vec_new::<U>();
+                       o.push(U { g: 0i64, u: 4u64 }); o };
+    match inv_usum_retract(&mut hu, u4.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 26i32; }
+    }
+    let u1: Vec<(i64, u64)> = match inv_usum_snapshot(&hu) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 27i32; }
+    };
+    if u1.len() != 1i64 { return 28i32; }
+    if u1.get(0i64).1 != 6u64 { return 29i32; }
+
+    // ── NOT INVERTIBLE: the HANDLE is still there and still folds ──────────
+    // Each of these calls `<q>_epoch` with P1's exact signature. That they
+    // compile at all is the assertion: the insert-only surface did not move.
+    let mut hf: NoFsumIncr = no_fsum_incremental();
+    match no_fsum_epoch(&mut hf, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 30i32; }
+    }
+    let f0: Vec<(i64, f64)> = match no_fsum_snapshot(&hf) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 31i32; }
+    };
+    if f0.len() != 2i64 { return 32i32; }
+    if f0.get(0i64).1 != 3.5f64 { return 33i32; }
+    if f0.get(1i64).1 != 0.5f64 { return 34i32; }
+
+    let mut hv: NoAvgIncr = no_avg_incremental();
+    match no_avg_epoch(&mut hv, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 35i32; }
+    }
+    let v0: Vec<(i64, f64)> = match no_avg_snapshot(&hv) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 36i32; }
+    };
+    if v0.len() != 2i64 { return 37i32; }
+    if v0.get(0i64).1 !=  6.0f64 { return 38i32; }
+    if v0.get(1i64).1 != -2.0f64 { return 39i32; }
+
+    let mut hm: NoMinIncr = no_min_incremental();
+    match no_min_epoch(&mut hm, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 40i32; }
+    }
+    let m0: Vec<(i64, i64)> = match no_min_snapshot(&hm) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 41i32; }
+    };
+    if m0.len() != 2i64 { return 42i32; }
+    if m0.get(0i64).1 !=  5i64 { return 43i32; }
+    if m0.get(1i64).1 != -2i64 { return 44i32; }
+
+    let mut hx: NoMaxIncr = no_max_incremental();
+    match no_max_epoch(&mut hx, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 45i32; }
+    }
+    let x0: Vec<(i64, i64)> = match no_max_snapshot(&hx) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 46i32; }
+    };
+    if x0.len() != 2i64 { return 47i32; }
+    if x0.get(0i64).1 !=  7i64 { return 48i32; }
+    if x0.get(1i64).1 != -2i64 { return 49i32; }
+    return 0i32;
+}

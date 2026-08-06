@@ -1567,6 +1567,26 @@ set_tests_properties(logos_09_incr_eligibility_population PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# INCREMENTAL RETRACTION gate — the same shape, one axis in. Eligibility asks
+# whether a query gets a HANDLE; invertibility asks whether that handle's delta
+# may carry a NEGATIVE weight, and the answer moves the EMITTED SIGNATURE
+# (`<q>_apply` + `<q>_retract`, or P1's insert-only `<q>_epoch` alone). The
+# negative direction has nothing a fixture can name, and one of its two grounds
+# — `(S+x)-x != S` over an f64 accumulator — is an OPEN decision rather than a
+# missing feature: if the refusal ever silently lapsed, the corpus would go on
+# passing and a decision nobody took would have been taken.
+add_test(
+    NAME logos_09_incr_retraction_population
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_retraction_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_retract_matrix.logos
+)
+set_tests_properties(logos_09_incr_retraction_population PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
 # DERIVED SET, not a transposition of the first pair. What the fixture cannot see is
 # everything about the orders that did NOT run: which permutations were considered,

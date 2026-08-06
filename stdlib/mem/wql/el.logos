@@ -94,6 +94,46 @@ pub fn el_addu(a: u64, b: u64) -> Result<u64, ElError> {
     match a.checked_add(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
 }
 
+// ── THE SUBTRACTION SIBLINGS — a RETRACTION's half of the same discipline ──
+//
+// ⚠ THE OVERFLOW PREDICATE CORRECTED AT `752f89af` IS AN *ADD* PREDICATE, AND A
+// RETRACTION SUBTRACTS. `el_addu` was the whole u64 family: `el_add`/`el_sub`/
+// `el_mul` above are i64's complete set, and their u64 counterparts did not
+// exist because nothing emitted ever took an unsigned value AWAY. A weighted
+// delta does, and a u64 running total driven below zero is an UNDERFLOW — the
+// exact mirror of the false-negative that `752f89af` fixed in the other
+// direction, and it must ERR rather than wrap for the same reason: the i64
+// reinterpretation of a u64 total is a different number, and a silent wrap
+// hands a caller that different number as an answer.
+//
+// This is also what the DYNAMIC engine already does, so the two tiers agree by
+// construction rather than by coincidence: `logos.mem.deem.incr`'s ag_run takes
+// `el_wrap_sub(cur, prod)` for `w < 0` over an `agg_argu` column and latches
+// `math_err` on `Option::None`. The static tier's convention is error-as-VALUE,
+// so the same fact comes back as `Err(Overflow)` at the call that caused it.
+pub fn el_subu(a: u64, b: u64) -> Result<u64, ElError> {
+    match a.checked_sub(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_mulu(a: u64, b: u64) -> Result<u64, ElError> {
+    match a.checked_mul(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+
+/// |w| AS A `u64`, TOTAL EXCEPT AT ONE VALUE — the magnitude of a Z-set weight,
+/// for the u64 accumulator that must add or subtract that many copies of an
+/// unsigned addend.
+///
+/// ⚠ IT RETURNS A `Result` BECAUSE `-i64::MIN` IS NOT AN `i64`, and answering
+/// that with a wrap would put 2^63 copies of an addend into a total by way of a
+/// weight nobody could have meant. `checked_neg` is the same guard the dynamic
+/// engine takes at the same point (`incr.logos`, `w.checked_neg()` → latch), so
+/// the two tiers refuse the same weight.
+pub fn el_wmag(w: i64) -> Result<u64, ElError> {
+    if w < 0i64 {
+        match w.checked_neg() { Option::Some(m) => { return Result::Ok(m as u64); } Option::None => { return Result::Err(ElError::Overflow); } }
+    }
+    return Result::Ok(w as u64);
+}
+
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
 // `SCall.fn_name` carries the call NAME directly (self-describing IR); the
 // backends map it to one of these builtin ids. The id table is small + stable;

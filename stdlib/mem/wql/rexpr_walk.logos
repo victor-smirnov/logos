@@ -4284,8 +4284,42 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // addend. With inserts only there is no inverse to take: `min`/`max` is an O(1)
 // improve against one cached extremum and `sum`/`count`/`avg` are a plain
 // monoid, so the whole map disappears and the state is typed SCALARS. That is a
-// real saving and also a warning — P2 (retraction) puts the map back, so this
-// state shape is not final.
+// real saving and also a warning — the map comes back with `min`/`max`
+// retraction, so this state shape is not final.
+//
+// ── P2: THE DELTA CARRIES (SOURCE, WEIGHT, ROWS) ────────────────────────────
+//
+// `<q>_apply(&mut h, __src: i32, __w: i64, <params VERBATIM>)` is now the ONE
+// primitive, and `<q>_epoch` / `<q>_retract` are pure forwarders into it at
+// (0, +1) and (0, −1). Three things about that shape were decided rather than
+// fallen into, and each is a cost paid once:
+//
+// ⚠ THE SOURCE TAG IS IN THE SIGNATURE FROM THE OUTSET THOUGH ONLY ONE SOURCE
+// EXISTS. `incr_eligible` refuses a join chain with the ground "a delta would
+// have to name which source it belongs to" — the tag IS the retirement of that
+// refusal, so it belongs in the signature the moment the refusal is written
+// down and not after. It is the chain POSITION (`JChain`'s base is 0, step i is
+// i+1), which is a number this file already has, so nothing new is derived. A
+// delta tagged with a source this operator does not read contributes NOTHING
+// and returns `Ok(0)` — which is not a silent miss but the correct
+// specialization of the per-relation dispatch the fixpoint needs.
+//
+// ⚠ THE WEIGHT IS A SCALAR PER BATCH, NOT A PARALLEL SLICE, AND THAT LOSES NO
+// EXPRESSIVENESS. A Z-set row of weight k IS k copies of that row, so any
+// mixed-weight bag is one `<q>_apply` call per distinct weight over a
+// sub-batch. A `&[i64]` running alongside the row slice would be a fifth
+// parallel cursor that can fall out of step with the rows — the defect class
+// the four cursors below already carry a warning about — bought for nothing.
+//
+// ⚠ THE SURFACE'S SHAPE DEPENDS ON THE AGGREGATE LIST, AND THAT IS THE POINT.
+// `<q>_retract` and the weight parameter are emitted ONLY for a query whose
+// every aggregate inverts EXACTLY (`incr_invertible`). A query with a float
+// accumulator or a `min`/`max` keeps P1's surface unchanged — `<q>_epoch` with
+// no weight — so a caller cannot express a retraction that the fold cannot
+// answer. The alternative (emit the weight always, `Err` at run time) makes the
+// SAME refusal a run-time surprise, and one of the two things being refused is
+// `(S+x)-x` over floats, which is an OPEN decision (D4) rather than a bug: a
+// compile-time absence cannot answer it by accident, a run-time branch can.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
                     act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
@@ -4320,6 +4354,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut tyb: String = String::new();
     prep_type_name_sfx(bare, "Incr", &mut tyb);
     let tyn: str = string_as_str(&tyb);
+
+    // ⚠ ASKED ONCE, HERE, AND IT DECIDES THREE THINGS AT ONCE: which fold each
+    // aggregate gets, whether `<q>_apply` carries a weight at all, and whether
+    // `<q>_retract` is emitted. One predicate for all three is what stops the
+    // emitted signature and the arithmetic inside it from disagreeing about
+    // what this query can do.
+    let invertible: bool = incr_invertible(aggs, acount, agg_flt, bare);
 
     // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
     // One pass, four parallel cursors, because every one of them is indexed by
@@ -4390,19 +4431,59 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 
         // — the per-row FOLD step —
         if fnid == AGG_COUNT() {
-            folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
+            // ⚠ `count` INTEGRATES THE WEIGHT AND DOES NOT CHECK ITS SIGN, and
+            // that is MEASURED off the dynamic engine rather than chosen: its
+            // `ag_run` does a bare `gcount += w` with no guard, so a multiplicity
+            // driven below zero is not an error there and must not be one here.
+            // What IS checked is the OVERFLOW, because that is the static tier's
+            // convention for every other cell on this path. The two facts are
+            // different and the fixture asserts them separately.
+            if invertible {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), __w)?); });
+            } else {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
+            }
         } else if fnid == AGG_SUM() && !agg_flt[gi] {
             // ⚠ THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE AND BY
             // NOTHING ELSE. `el_add` is i64's, `el_addu` is u64's, and no
             // signedness flag reaches the fold: the dynamic engine's `agg_argu`
             // (and the `el_wrap_add` it guards) exists precisely because its cell
             // cannot answer this question about itself.
+            //
+            // ⚠ AND THE SUBTRACTION SIBLING IS PICKED AT THE SAME SEAM BY THE
+            // SAME RULE. `el_sub`/`el_subu` are not a second decision: a fold
+            // that could take `el_addu` and `el_sub` in one query would be the
+            // `752f89af` defect (one predicate answering about the other's
+            // number) reintroduced on the retraction side.
+            //
+            // i64 needs no branch — `acc + w·arg` is exact for either sign and
+            // `el_mul`/`el_add` check both steps. u64 has no signed product, so
+            // the MAGNITUDE multiplies and the SIGN of `w` picks add or subtract,
+            // which is the same decomposition the dynamic engine makes.
             if str_eq(acct, "u64") {
-                folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                if invertible {
+                    folds.push(quote_block! {
+                        { let __p: u64 = el_mulu(__wm, (#(arg_f)))?;
+                          if __wneg { __h.#n_ga.set(__gi, el_subu(__h.#n_ga.get(__gi), __p)?); }
+                          else      { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), __p)?); } }
+                    });
+                } else {
+                    folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                }
             } else {
-                folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                if invertible {
+                    folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), el_mul(__w, (#(arg_f)))?)?); });
+                } else {
+                    folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                }
             }
         } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
+            // ⚠ UNREACHABLE WITH A WEIGHT, BY CONSTRUCTION. This arm is the f64
+            // accumulator — a float `sum`, and EVERY `avg` including `avg` over
+            // an integer column, whose running total is an f64 the moment it is
+            // divided at snapshot. `incr_invertible` is false for both, so no
+            // `__w` exists in the fn this fold lands in and `(S+x)-x` cannot be
+            // emitted. That is decision D4 left OPEN, not answered.
             if agg_cast[gi] {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + ((#(arg_f)) as f64)); });
             } else {
@@ -4530,7 +4611,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         unsafe { logos_emit_item_blob_subst(&qc2); }
     }
 
-    // ── <q>_epoch(&mut h, …) — fold a delta in ──────────────────────────────
+    // ── <q>_apply(&mut h, src, w, …) — fold a WEIGHTED delta in ────────────
     let pre_f: ExprBlob = prelude_frag(prelude);
     let key_f: ExprBlob = parse_expr(key_body);
     let keyt_f: ExprBlob = parse_type(key_ty);
@@ -4544,40 +4625,135 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // share a bucket rule is a sharper instrument than one between two that do
     // not. Replacing both together is the follow-up, and `K: Eq + Hash` is
     // already the predicate `el_eq_hash` asks of the group key here.
-    let epoch_body: ExprBlob = quote_block! {
-        #(pre_f);
-        let mut __n: i64 = 0i64;
-        let mut __i0: i64 = 0i64;
-        while __i0 < (#(base_src_f)).len() {
-            let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
-            let __k: #(keyt_f) = (#(key_f));
-            let mut __gi: i64 = -1i64;
-            let mut __s: i64 = 0i64;
-            while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-            if __gi < 0i64 {
-                __h.__gk.push(__k);
-                __h.__gc.push(0i64);
-                #( #seeds; )*
-                __gi = __h.__gk.len() - 1i64;
-            }
-            __h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64);
-            #( #folds; )*
-            __n = __n + 1i64;
-            __i0 = __i0 + 1i64;
-        }
-        return Result::Ok(__n);
-    };
+    // ⚠ TWO BODIES AND NOT ONE WITH A SPLICED PRELUDE, and the reason is a
+    // SCOPE rule this file has already been bitten by: `#(frag)` in statement
+    // position splices a BLOCK, so any `let` inside it dies at that block's
+    // closing brace and is invisible to the loop below (which is why
+    // `prelude_frag` carries only items). `__wneg` / `__wm` have to be bindings
+    // of the fn's own body, so the weighted form writes them out itself.
     let mut eps: String = String::new();
-    eps.push_str("__h: &mut ");
-    eps.push_str(tyn);
-    if params_text.len() > 0i64 {
-        eps.push_str(", ");
-        eps.push_str(params_text);
-    }
     let mut enm: String = String::new();
-    prep_derived_name(fn_name, "_epoch", &mut enm);
-    emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
-                       "Result<i64, ElError>", epoch_body, prm);
+    if invertible {
+        // ⚠ THE GROUP IS CREATED FOR A RETRACTION INTO A KEY NEVER SEEN, and
+        // that is the dynamic engine's answer too (`aggstate_ensure` runs before
+        // the sign of `w` is looked at). The group then carries a NEGATIVE
+        // multiplicity and `<q>_snapshot`'s guard keeps it out of the output, so
+        // the two tiers produce the same rows by the same route.
+        let apply_body: ExprBlob = quote_block! {
+            #(pre_f);
+            let mut __n: i64 = 0i64;
+            // A delta for a source this operator does not read contributes
+            // nothing. Today `incr_eligible` admits exactly ONE bare scan, so 0
+            // is the only tag that folds — and an operator over a `rel` block
+            // reading a subset of the relations answers the same way for the
+            // relations outside its subset.
+            if __src != 0i32 { return Result::Ok(__n); }
+            let __wneg: bool = __w < 0i64;
+            let __wm: u64 = el_wmag(__w)?;
+            let mut __i0: i64 = 0i64;
+            while __i0 < (#(base_src_f)).len() {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                let __k: #(keyt_f) = (#(key_f));
+                let mut __gi: i64 = -1i64;
+                let mut __s: i64 = 0i64;
+                while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+                if __gi < 0i64 {
+                    __h.__gk.push(__k);
+                    __h.__gc.push(0i64);
+                    #( #seeds; )*
+                    __gi = __h.__gk.len() - 1i64;
+                }
+                __h.__gc.set(__gi, el_add(__h.__gc.get(__gi), __w)?);
+                #( #folds; )*
+                __n = __n + 1i64;
+                __i0 = __i0 + 1i64;
+            }
+            return Result::Ok(__n);
+        };
+        eps.push_str("__h: &mut ");
+        eps.push_str(tyn);
+        eps.push_str(", __src: i32, __w: i64");
+        if params_text.len() > 0i64 {
+            eps.push_str(", ");
+            eps.push_str(params_text);
+        }
+        prep_derived_name(fn_name, "_apply", &mut enm);
+        emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
+                           "Result<i64, ElError>", apply_body, prm);
+
+        // ── <q>_epoch / <q>_retract — PURE FORWARDERS ──────────────────────
+        // ⚠ `<q>_epoch` KEEPS P1'S SIGNATURE BYTE FOR BYTE, which makes every
+        // P1 fixture a control on this refactor: if forwarding through the
+        // weighted primitive moved any answer, they say so before P2's own
+        // arithmetic is trusted at all.
+        let mut fps: String = String::new();
+        fps.push_str("__h: &mut ");
+        fps.push_str(tyn);
+        if params_text.len() > 0i64 {
+            fps.push_str(", ");
+            fps.push_str(params_text);
+        }
+        let mut applyc: String = String::new();
+        prep_derived_name(bare, "_apply", &mut applyc);
+        let mut epnm: String = String::new();
+        prep_derived_name(fn_name, "_epoch", &mut epnm);
+        let mut rtnm: String = String::new();
+        prep_derived_name(fn_name, "_retract", &mut rtnm);
+        let mut eb: String = String::new();
+        eb.push_str("{\n    return ");
+        eb.push_str(string_as_str(&applyc));
+        eb.push_str("(__h, 0i32, 1i64");
+        if prm.n > 0i64 { eb.push_str(", "); push_param_args(&mut eb, prm); }
+        eb.push_str(");\n}\n");
+        emit_fn_quote_blob(string_as_str(&epnm), string_as_str(&fps), "",
+                           "Result<i64, ElError>", parse_block(string_as_str(&eb)), prm);
+        let mut rb: String = String::new();
+        rb.push_str("{\n    return ");
+        rb.push_str(string_as_str(&applyc));
+        rb.push_str("(__h, 0i32, -1i64");
+        if prm.n > 0i64 { rb.push_str(", "); push_param_args(&mut rb, prm); }
+        rb.push_str(");\n}\n");
+        emit_fn_quote_blob(string_as_str(&rtnm), string_as_str(&fps), "",
+                           "Result<i64, ElError>", parse_block(string_as_str(&rb)), prm);
+    } else {
+        // ── INSERT-ONLY: P1'S SURFACE, UNCHANGED ───────────────────────────
+        // No `__w`, no `__src`, no `<q>_retract`. A caller that reaches for a
+        // retraction on a float-accumulator or `min`/`max` query fails to
+        // COMPILE, which is the honest signal and the one that cannot answer D4
+        // by accident.
+        let epoch_body: ExprBlob = quote_block! {
+            #(pre_f);
+            let mut __n: i64 = 0i64;
+            let mut __i0: i64 = 0i64;
+            while __i0 < (#(base_src_f)).len() {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                let __k: #(keyt_f) = (#(key_f));
+                let mut __gi: i64 = -1i64;
+                let mut __s: i64 = 0i64;
+                while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+                if __gi < 0i64 {
+                    __h.__gk.push(__k);
+                    __h.__gc.push(0i64);
+                    #( #seeds; )*
+                    __gi = __h.__gk.len() - 1i64;
+                }
+                __h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64);
+                #( #folds; )*
+                __n = __n + 1i64;
+                __i0 = __i0 + 1i64;
+            }
+            return Result::Ok(__n);
+        };
+        eps.push_str("__h: &mut ");
+        eps.push_str(tyn);
+        if params_text.len() > 0i64 {
+            eps.push_str(", ");
+            eps.push_str(params_text);
+        }
+        prep_derived_name(fn_name, "_epoch", &mut enm);
+        emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
+                           "Result<i64, ElError>", epoch_body, prm);
+    }
 
     // ── <q>_snapshot(&h) — the group rows, in first-occurrence order ────────
     // ⚠ FIRST-OCCURRENCE ORDER IS THE SAME ORDER `<q>()` PRODUCES, and it is the
@@ -4586,6 +4762,29 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // metamorphic property assertable element-by-element — for any split of one
     // row multiset into epochs, snapshot equals `<q>()` over the concatenation —
     // rather than only as a set.
+    //
+    // ── AN EMPTIED GROUP IS TOMBSTONED, NOT DELETED — AND THAT IS MEASURED ──
+    // The dynamic engine keeps the slot (`keyv`/`gcount`/`gsum`/`vmap` all
+    // persist) and merely sets `live = false` when the multiplicity reaches 0,
+    // so the row leaves the output while first-occurrence order and the slot a
+    // re-inserted key finds are both untouched. The static tier gets the same
+    // behaviour from a GUARD here: `__gk` keeps its entry, `<q>_snapshot` skips
+    // any group whose multiplicity is not positive.
+    //
+    // The two alternatives were priced and both cost a property the harness
+    // rests on. DELETING the `__gk` entry breaks first-occurrence order, so the
+    // metamorphic law stops being assertable element-by-element and becomes a
+    // set comparison. KEEPING AND EMITTING the empty group diverges from batch
+    // recompute, which the harness names as the correctness spec. Tombstoning
+    // satisfies both; its price is that `__gk` grows monotonically under
+    // insert/retract churn with no reclamation, and there is no free compaction
+    // — a pass that removed dead slots would renumber nothing but would break
+    // the order it exists to protect.
+    //
+    // ⚠ THE GUARD IS EMITTED UNCONDITIONALLY, INCLUDING FOR AN INSERT-ONLY
+    // QUERY WHERE IT IS INERT. That is deliberate: under inserts every created
+    // group has multiplicity ≥ 1, so the P1 fixtures prove the guard changes no
+    // answer they already pin, which is what makes them a control on it.
     let elem_f: ExprBlob = parse_type(result_ty);
     let proj_f: ExprBlob = parse_expr(proj_body);
     let mut keep: ExprBlob = quote_block! { __out.push(#(proj_f)); };
@@ -4593,6 +4792,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let hav_f: ExprBlob = parse_expr(having_body);
         keep = quote_block! { if (#(hav_f)) #(keep) };
     }
+    keep = quote_block! { if __h.__gc.get(__r0) > 0i64 #(keep) };
     let snap_body: ExprBlob = quote_block! {
         let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
         let mut __r0: i64 = 0i64;
@@ -4661,10 +4861,13 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                  result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
                  having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
                  prm: &MacroParams, qn: str) -> bool {
-    // ONE bare scan. A join chain would make `<q>_epoch`'s delta ambiguous —
-    // which of the joined sources did the caller just append to? — and answering
-    // it is the DBSP product rule, which is P2/P3's, not this slice's.
-    if ch.n != 0i64 { return incr_decline(qn, "the input is a JOIN CHAIN — a delta would have to name which source it belongs to, and combining per-source deltas is the DBSP product rule (P2/P3)"); }
+    // ONE bare scan. The delta can now NAME its source — `<q>_apply` takes a
+    // chain-position tag — so half of the old ground is retired; what remains is
+    // the other half, which is arithmetic rather than surface: COMBINING
+    // per-source deltas over a join is the DBSP product rule (∆(A⋈B) =
+    // ∆A⋈B + A⋈∆B + ∆A⋈∆B), and that needs the joined side's STATE kept on the
+    // handle, which this state shape does not carry.
+    if ch.n != 0i64 { return incr_decline(qn, "the input is a JOIN CHAIN — the delta can now name its source, but COMBINING per-source deltas is the DBSP product rule and needs the joined side's state on the handle"); }
     // A PRE-GROUP `where` is admissible in principle and is refused here for the
     // same reason the dynamic engine refuses it: it has never been folded through
     // the incremental path, so admitting it would be an untested arm. `having`
@@ -4720,6 +4923,58 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 /// One declined incremental form, traced with its GROUND, then `false`.
 fn incr_decline(qn: str, why: str) -> bool {
     plan_trace("incremental", "declined", qn, why);
+    return false;
+}
+
+// ══ DOES EVERY AGGREGATE OF THIS QUERY INVERT *EXACTLY*? ═══════════════════
+//
+// The question `<q>_retract` rests on, asked of the SAME aggregate array the
+// folds are built from and traced on the SAME channel as every other derived
+// decision — because a query that silently loses its retraction is exactly the
+// unobservable derived decision `incr_eligible`'s header already argues about.
+//
+// EXACTLY is the operative word and it is not a stylistic preference:
+//
+//   `count`   — the multiplicity is an integer and `+w` inverts `+(-w)`.
+//   `sum` over a NON-float accumulator — `i64` and `u64` both invert under
+//               their own checked predicates, with no representable value lost.
+//   `sum`/`avg` over an f64 accumulator — `(S+x)-x != S`. That is decision D4,
+//               it is OPEN, and it is not this emitter's to take. Note this
+//               catches `avg` over an INTEGER column too: `avg` divides at
+//               snapshot out of an f64 running total, so its accumulator is a
+//               float whatever the column is.
+//   `min`/`max` — not invertible from a cached extremum AT ALL. Retracting the
+//               current best leaves a stale value with nothing to recompute it
+//               from; the dynamic engine survives it only because it keeps a
+//               per-(group, column) value→multiplicity map and RE-SCANS. That
+//               map is a third state axis (group × aggregate × value) with no
+//               representation on the typed path, so it is its own slice — and
+//               a fold that quietly accepted `w = -1` here would answer with a
+//               stale extremum, which is worse than refusing.
+fn incr_invertible(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], qn: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
+        // The SAME condition the weighted folds are selected by, written once:
+        // an aggregate is invertible iff the emitter has a signed form for it.
+        let ok: bool = (fnid == AGG_COUNT()) || (fnid == AGG_SUM() && !agg_flt[i]);
+        if !ok {
+            if fnid == AGG_MIN() || fnid == AGG_MAX() {
+                return incr_no_retract(qn, "`min`/`max` cannot be inverted from a cached extremum — retracting the current best leaves it stale, and recomputing needs the per-(group, column) value→multiplicity map the typed handle does not carry");
+            }
+            return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
+        }
+        i = i + 1i64;
+    }
+    plan_trace("retraction", "EMITTED", qn, "every aggregate is `count` or a NON-float `sum` — both invert exactly under their own checked predicate");
+    return true;
+}
+
+/// One query that keeps the INSERT-ONLY surface, traced with its GROUND.
+/// A separate channel name from `incr_decline`'s because it is a different
+/// answer: the query DOES get a handle, it does not get a `<q>_retract`.
+fn incr_no_retract(qn: str, why: str) -> bool {
+    plan_trace("retraction", "declined", qn, why);
     return false;
 }
 
