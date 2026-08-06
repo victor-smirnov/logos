@@ -1,0 +1,49 @@
+# rtval_fallback.ledger — THE SURVIVING `_` ARMS OVER `RtVal`, AND WHY EACH ONE LIVES.
+#
+# Read by `rtval_domain_gate.sh` (logos_09_rtval_domain) and held in BOTH
+# directions: a `_` arm over `RtVal` that is NOT listed here is red, and a line
+# here that no longer matches a `_` arm is red too. There is no third state — a
+# fallback is either loud (an or-pattern naming the variants it answers for, so
+# a new arm fails to COMPILE) or it is written down with its grounds.
+#
+# WHY THE FILE IS EMPTY, WHICH IS THE POINT.
+# MEASURED 2026-08-04: `RtVal` had 27 `match` sites, 24 of them ending in `_`.
+# A control build with an eighth arm (`F32(f32)`) named exactly THREE of them
+# and compiled the other 24 silently — each absorbing the new arm as Null / 0 /
+# 0.0 / "" / a null node, i.e. a wrong answer rather than a diagnostic. All 24
+# have since been expanded to or-patterns over the variants they actually
+# answer for; the bodies are byte-identical, so no behaviour moved, but the SET
+# is now stated and the compiler checks it.
+#
+# ⚠ AN EMPTY LEDGER IS A CLAIM, NOT AN ABSENCE. It says: today nothing about
+# this value domain is decided by a silent default. The gate's canaries prove
+# the file is being read — an unledgered `_` planted in a synthetic source comes
+# back named, and a ledger line pointing at nothing comes back named — so
+# "empty" cannot be confused with "not parsed".
+#
+# ⚠⚠ AND IT DOES NOT COVER EVERYTHING THE VALUE DOMAIN DISPATCHES ON. `rt_eq`
+# (deem.logos) and `rt_cmp` (exec.logos) branch on the i32 CODE that `rt_kind`
+# returns, not on the enum, so no amount of match-exhaustiveness reaches them.
+# That surface is measured and PRINTED by the gate on every green run as the
+# RESIDUE; it is a reported live defect, not a ledger entry, because closing it
+# is a semantics decision (what does comparing a Node to a Null mean?) and not
+# a mechanical one.
+#
+# FORMAT — five TAB-separated fields, and the gate refuses a line missing any:
+#
+#   site        <file>:<fn>          the `_` arm's file and enclosing function
+#   count       <n>                  how many `_` arms that (file, fn) holds
+#   mechanism   <text>               WHAT makes the default correct — the named
+#                                    mechanism, not "it cannot happen"
+#   gate        <test name>          a RUNNING test that exercises that
+#                                    mechanism; a mechanism no test touches is
+#                                    an assertion, and this ledger does not take
+#                                    assertions
+#   deleted-by  <text>               what would make this entry wrong, stated
+#                                    concretely enough that someone can check it
+#
+# Example of a well-formed entry (NOT active — this is documentation):
+#   deem.logos:rt_x<TAB>1<TAB>callers pre-check with rt_kind<TAB>logos_09_x<TAB>a caller that stops pre-checking
+#
+# ── ENTRIES ─────────────────────────────────────────────────────────────────
+# (none)

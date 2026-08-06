@@ -1114,7 +1114,10 @@ impl IncrRec {
                 let v: RtVal = out.cells.get(r * out.ncols + c);
                 match v {
                     RtVal::S(s) => { rows.cells.push(RtVal::S(intern_str(&rows.arena, s))); }
-                    _ => { rows.cells.push(v); }
+                    // only `S` borrows; everything else is self-contained (the
+                    // interning rule — incr.logos `aggstate_ensure`)
+                    RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_)
+                      | RtVal::Null | RtVal::Error => { rows.cells.push(v); }
                 }
                 c = c + 1i64;
             }

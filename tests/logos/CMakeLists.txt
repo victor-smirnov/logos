@@ -2089,25 +2089,53 @@ set_tests_properties(logos_09_unit_graph PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
-# THE DYNAMIC/INCREMENTAL VALUE DOMAIN (`RtVal`). Three facts, MEASURED
-# 2026-08-04 by a control build that added one arm to the real enum:
-#   • the widening broke exactly THREE matches (rt_kind / rt_truthy /
-#     RBinds__set_val) and nothing else — the other 24 match sites end in `_`
-#     and absorbed it silently, which for a value type means a wrong answer;
+# THE DYNAMIC/INCREMENTAL VALUE DOMAIN (`RtVal`), AND THE LEDGER OF ITS `_`
+# ARMS — WHICH IS EMPTY, AND THAT IS THE DELIVERABLE.
+#
+# MEASURED 2026-08-04 by a control build that added one arm (`F32(f32)`) to the
+# real enum: the widening broke exactly THREE matches (rt_kind / rt_truthy /
+# RBinds__set_val) and nothing else, because the other 24 match sites ended in
+# `_` and absorbed the new shape as Null / 0 / 0.0 / "" — for a value type, a
+# wrong answer rather than a compile error. A three-site tripwire in front of a
+# 27-site surface.
+#
+# MEASURED 2026-08-05, after all 24 `_` arms were replaced by or-patterns naming
+# the variants they answer for (same bodies, same variant sets — no behaviour
+# moved): the identical control build names 27 sites. That number, and not the
+# gate alone, is what the slice delivered.
+#
+# The gate therefore no longer pins a hand-written list of exhaustive matches.
+# It derives the exhaustive set as (all match sites) minus (the ledger), and
+# holds `rtval_fallback.ledger` in BOTH directions: a `_` with no ledger line is
+# red, a ledger line matching no `_` is red, and an entry must name the
+# mechanism, a RUNNING gate that exercises it, and what would delete it. Eight
+# canaries run through the same code paths in the same invocation — the ledger's
+# expected content is EMPTY, so "read it, nothing to report" and "never opened
+# it" would otherwise print the same line.
+#
+# TWO THINGS IT STILL CANNOT MAKE LOUD, both PRINTED on every green run rather
+# than left implied:
+#   • `rt_eq` / `rt_cmp` dispatch on the i32 CODE `rt_kind` returns, not on the
+#     enum — 27 call sites that no exhaustiveness check reaches. After a
+#     widening, `rt_eq` answers `false` for two EQUAL values of the new shape
+#     (every row its own group in group-by / distinct / join) and `rt_cmp` sorts
+#     them all at 0.0. A live defect, reported with its measurement, not fixed
+#     here: closing it means deciding what comparing a Node to a Null MEANS.
 #   • `logosc --emit-abi` produced a BYTE-IDENTICAL spec and `--abi-diff`
 #     answered "ADDED: 0 record(s) / VERDICT: ABI-PRESERVING", because
 #     `is_deem_api_type` (emit_module.cpp) keeps `RtVal` out of the spec even
-#     though the public UDF signature is `fn(&[RtVal]) -> RtVal`;
-#   • so `scripts/abi-check.sh` is blind here BY CONSTRUCTION, and the three
-#     exhaustive matches are the only tripwire the widening has.
-# The gate pins all three so none of them can be retired by accident. It is
-# static analysis over the sources plus the committed spec — no build needed,
-# which is why it carries no logosc dependency and no library environment.
+#     though the public UDF signature is `fn(&[RtVal]) -> RtVal`. So
+#     `scripts/abi-check.sh` is blind here BY CONSTRUCTION.
+#
+# Static analysis over the sources, the ledger and the committed spec — no build
+# needed, which is why it carries no logosc dependency and no library
+# environment.
 add_test(
     NAME logos_09_rtval_domain
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/rtval_domain_gate.sh
             ${CMAKE_SOURCE_DIR}/stdlib/mem/deem
             ${CMAKE_SOURCE_DIR}/abi/logos.abi
+            ${CMAKE_CURRENT_SOURCE_DIR}/rtval_fallback.ledger
 )
 set_tests_properties(logos_09_rtval_domain PROPERTIES
     TIMEOUT 60

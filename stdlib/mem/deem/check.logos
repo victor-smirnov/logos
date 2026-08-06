@@ -137,7 +137,10 @@ fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy 
         RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64, ordw: false, lit: false }; }
         RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64, ordw: false, lit: false }; }
         RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64, ordw: false, lit: false }; }
-        _ => {
+        // A scalar-element array whose first element is none of the four scalar
+        // shapes is not a typed source. Node = a Writ object that reached the
+        // scalar branch; Null/Error = no shape to read a column type off.
+        RtVal::Node(_) | RtVal::Null | RtVal::Error => {
             chk_fail(chk, "source '", name,
                      "' elements are not schema'd Writ objects", "", "");
             return ct(CT_UNKNOWN);

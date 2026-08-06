@@ -869,7 +869,43 @@ pub enum RtVal {
     Error,
 }
 impl Copy for RtVal {}
-fn rt_is_err(v: RtVal) -> bool { match v { RtVal::Error => { return true; } _ => { return false; } } }
+
+// ⚠⚠ NO `match` OVER `RtVal` IN THIS SUBSYSTEM ENDS IN `_`, AND THAT IS A RULE,
+// NOT A STYLE. MEASURED 2026-08-04: `RtVal` had 27 match sites, 24 of them
+// ending in a wildcard, and a control build with an eighth arm (`F32(f32)`)
+// named exactly THREE of them — rt_kind, rt_truthy, RBinds::set_val — while the
+// other 24 compiled SILENTLY, each absorbing the new shape as Null / 0 / 0.0 /
+// "" / a null node. A wrong answer, not a compile error, in the value type of
+// BOTH query engines and of the public UDF surface `fn(&[RtVal]) -> RtVal`.
+//
+// So each `_` was replaced by an or-pattern naming the variants that arm
+// actually answers for. The BODIES did not change and neither did the variant
+// sets, so nothing about today's behaviour moved — what moved is that widening
+// the type now fails to COMPILE at every site that has to answer for the new
+// shape (27, not 3). Where a set is genuinely "everything else that exists",
+// spelling it out is the price of the compiler being able to check it.
+//
+// Held by `logos_09_rtval_domain` (tests/logos/rtval_domain_gate.sh) against
+// tests/logos/rtval_fallback.ledger, in both directions: a new `_` here needs a
+// ledger line naming the mechanism, a RUNNING gate that exercises it, and what
+// would delete the entry — and the ledger is empty today.
+//
+// ⚠ WHAT THIS DOES NOT REACH: `rt_eq` (below) and `rt_cmp` (exec.logos) branch
+// on the i32 CODE `rt_kind` returns, not on the enum. Exhaustiveness cannot see
+// an `if rt_kind(l) == 4i32` chain, so a widening still passes through those
+// two silently. The gate PRINTS that surface on every run rather than pretend
+// the ledger covers it.
+//
+// ⚠ SPELLING: a payload binder inside an or-pattern must be bare `_`.
+// `RtVal::F(_x) | RtVal::B(_b)` is rejected (E0408: '_x' is not bound in all
+// alternatives) — a leading-underscore name is still a BINDING.
+fn rt_is_err(v: RtVal) -> bool {
+    match v {
+        RtVal::Error => { return true; }
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Node(_)
+          | RtVal::Null => { return false; }
+    }
+}
 
 // ── UDF/UDA function-pointer shapes (ADR §6, MVP) ───────────────────────────
 // UDF: eval'd args in, one value out. UDA: init() seeds the accumulator,
@@ -906,7 +942,9 @@ fn rt_i(v: RtVal) -> i64 {
         RtVal::I(x) => { return x; }
         RtVal::F(x) => { return x as i64; }
         RtVal::B(b) => { if b { return 1i64; } return 0i64; }
-        _ => { return 0i64; }
+        // Non-numeric shapes read as an integer: 0. Not "cannot happen" — a
+        // lenient (CT_DYN / FK_ANY) cell reaches here holding any of them.
+        RtVal::S(_) | RtVal::Node(_) | RtVal::Null | RtVal::Error => { return 0i64; }
     }
 }
 // ⚠ THE `B` ARM IS NOT A SPECIAL CASE — ITS ABSENCE WAS THE ASYMMETRY. `rt_i`
@@ -954,17 +992,35 @@ fn rt_f(v: RtVal) -> f64 {
         RtVal::I(x) => { return x as f64; }
         RtVal::F(x) => { return x; }
         RtVal::B(b) => { if b { return 1.0f64; } return 0.0f64; }
-        _ => { return 0.0f64; }
+        // ⚠ THIS ARM IS LOAD-BEARING FOR `rt_cmp`, WHICH IS WHY IT IS NAMED
+        // RATHER THAN DEFAULTED. rt_cmp's unguarded fallthrough is
+        // `f64_data_key(rt_f(…))`, so every shape listed here sorts at 0.0 —
+        // mutually equal. That is a live defect (exec.logos, `rt_cmp`), and it
+        // is reachable only through this arm; stating the set is what makes it
+        // visible instead of implied.
+        RtVal::S(_) | RtVal::Node(_) | RtVal::Null | RtVal::Error => { return 0.0f64; }
     }
 }
 fn rt_b(v: RtVal) -> bool {
-    match v { RtVal::B(b) => { return b; } _ => { return false; } }
+    match v {
+        RtVal::B(b) => { return b; }
+        RtVal::I(_) | RtVal::F(_) | RtVal::S(_) | RtVal::Node(_) | RtVal::Null
+          | RtVal::Error => { return false; }
+    }
 }
 fn rt_s(v: RtVal) -> str {
-    match v { RtVal::S(s) => { return s; } _ => { return ""; } }
+    match v {
+        RtVal::S(s) => { return s; }
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_) | RtVal::Null
+          | RtVal::Error => { return ""; }
+    }
 }
 fn rt_node(v: RtVal) -> WAny {
-    match v { RtVal::Node(w) => { return w; } _ => { return WAny::Ref(0i64 as *const u8); } }
+    match v {
+        RtVal::Node(w) => { return w; }
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Null
+          | RtVal::Error => { return WAny::Ref(0i64 as *const u8); }
+    }
 }
 
 // Jinja truthiness (mirrors the static emit_truthy rules).
@@ -1003,7 +1059,11 @@ fn rt_push(out: &mut String, v: RtVal) {
         }
         RtVal::B(b) => { if b { out.push_str("true"); } else { out.push_str("false"); } }
         RtVal::S(s) => { out.push_str(s); }
-        _ => { }   // Node/Null — the checker rejects these in {{ … }}
+        // Node/Null/Error render as nothing — the checker rejects Node and Null
+        // in `{{ … }}`, and an Error has already aborted the render at the eval
+        // boundary. Named, not defaulted: a new shape reaching a template must
+        // say what it prints, and "" is a decision.
+        RtVal::Node(_) | RtVal::Null | RtVal::Error => { }
     }
 }
 

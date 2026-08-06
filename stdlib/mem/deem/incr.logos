@@ -160,7 +160,18 @@ fn fskey_of(v: RtVal) -> FsKey {
         RtVal::B(bb) => { return FsKey { k: 3i32, i: 0i64,  f: 0.0f64, b: bb,    s: String::new() }; }
         RtVal::S(ss) => { let mut t: String = String::new(); t.push_str(ss);
                           return FsKey { k: 4i32, i: 0i64,  f: 0.0f64, b: false, s: t }; }
-        _            => { return FsKey { k: 0i32, i: 0i64,  f: 0.0f64, b: false, s: String::new() }; }
+        // ⚠⚠ THIS ARM IS AN ON-DISK ENCODING, WHICH IS WHY IT IS NAMED RATHER
+        // THAN DEFAULTED. `e.k` is written by `fs_key_enc` (below) as the
+        // LEADING TAG BYTE of a container key — a B+tree key that persists. A
+        // shape that lands here encodes as tag 0, i.e. as NULL, and two
+        // distinct such values become one key. Node has no owned bytes to
+        // carry, and Null/Error are the absent tier, so 0 is right for these
+        // three. It is NOT automatically right for a new one: choosing the tag
+        // a widened RtVal gets on disk is a FORMAT decision (Victor's, the same
+        // shape as the WBS ruling), and stating the set here is what forces the
+        // question at the moment someone widens the type instead of after the
+        // first store has been written.
+        RtVal::Node(_) | RtVal::Null | RtVal::Error => { return FsKey { k: 0i32, i: 0i64,  f: 0.0f64, b: false, s: String::new() }; }
     }
 }
 
@@ -234,7 +245,14 @@ pub fn fs_jn_row_enc(cat: &SchemaCatalog, si: i64, node: WAny, epoch: u64, posit
                     while j < sl { out.push_u8(str_byte_at(v, j)); j = j + 1i64; }
                 }
                 RtVal::Node(_n) => { out.push_u8(5u8); }   // non-scalar: lossy (v0)
-                _ => { out.push_u8(0u8); }                  // null / absent
+                // ⚠⚠ AN ON-DISK ENCODING, same ruling as `fskey_of` above: this
+                // is the ADR-0017-P3 journal row's per-field TAG BYTE. Tag 0 is
+                // "null / absent" and Null/Error both are. A widened RtVal must
+                // be given its own tag by whoever widens it — writing it as 0
+                // makes it indistinguishable from an absent field in every
+                // journal already on disk, which is not a thing this file may
+                // decide silently.
+                RtVal::Null | RtVal::Error => { out.push_u8(0u8); }
             }
         }
         fi = fi + 1i64;
@@ -631,7 +649,13 @@ fn aggstate_ensure(agg: &mut AggState, k: RtVal, n: i64, arena: &Writ) -> i64 {
     }
     let ki: RtVal = match k {
         RtVal::S(s) => { RtVal::S(intern_str(arena, s)) }
-        _ => { k }
+        // ⚠ THE INTERNING RULE, five spellings of it in this subsystem: only
+        // `S` carries a borrowed view, so only `S` has to be copied into the
+        // owning arena. Every other shape is self-contained and passes through
+        // BY VALUE. A new arm carrying a borrow would pass through here too —
+        // and dangle — so the set is stated rather than defaulted.
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_) | RtVal::Null
+          | RtVal::Error => { k }
     };
     agg.keyv.push(ki);
     agg.gcount.push(0i64);
@@ -724,7 +748,10 @@ fn zout_upsert(zp: *mut ZOut, arena: &Writ, cells: &Vec<RtVal>, off: i64) -> i64
         let v: RtVal = cells.get(off + c);
         match v {
             RtVal::S(s) => { z.cells.push(RtVal::S(intern_str(arena, s))); }
-            _ => { z.cells.push(v); }
+            // only `S` borrows; everything else is self-contained (see the
+            // interning rule at `aggstate_ensure`)
+            RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_)
+              | RtVal::Null | RtVal::Error => { z.cells.push(v); }
         }
         c = c + 1i64;
     }
@@ -1568,7 +1595,10 @@ fn ij_push_row(rows: &mut QRows, out: &ZOut, slot: i64, nc: i64) {
                 let iv: str = intern_str(&rows.arena, s);
                 rows.cells.push(RtVal::S(iv));
             }
-            _ => { rows.cells.push(v); }
+            // only `S` borrows; everything else is self-contained (see the
+            // interning rule at `aggstate_ensure`)
+            RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_)
+              | RtVal::Null | RtVal::Error => { rows.cells.push(v); }
         }
         c = c + 1i64;
     }

@@ -249,7 +249,9 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
             match base {
                 RtVal::Node(w) => { return field_read(cat, w, f.name); }
-                _ => { return RtVal::Null; }
+                // a field read off a non-node base is a lenient miss (ADR §4)
+                RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_)
+                  | RtVal::Null | RtVal::Error => { return RtVal::Null; }
             }
         }
         SExpr::Bin(b) => {
@@ -373,8 +375,11 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
             match a {
                 RtVal::F(x) => { return RtVal::F(0.0f64 - x); }
                 RtVal::Null => { return RtVal::Null; }   // -Null → Null (ADR §4)
-                // integer negation is checked (i64::MIN negation overflows)
-                _ => { match rt_i(a).checked_neg() { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+                // integer negation is checked (i64::MIN negation overflows).
+                // B/S/Node/Error go through `rt_i` too — 0 for the last three,
+                // 1/0 for a bool (the lenient-bool-one rule) — so negation of a
+                // non-numeric lenient value is -0 / -1, not a trap.
+                RtVal::I(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Node(_) | RtVal::Error => { match rt_i(a).checked_neg() { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
             }
         }
         SExpr::Cond(c) => {
@@ -520,7 +525,9 @@ fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
                         }
                         // a single (non-array) edge value: nothing to iterate
                     }
-                    _ => { }   // null edge → empty loop
+                    // a non-node edge value is nothing to iterate → empty loop
+                    RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_)
+                      | RtVal::Null | RtVal::Error => { }
                 }
             }
             TStmt::Set(s) => {

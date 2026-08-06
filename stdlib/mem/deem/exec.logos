@@ -449,7 +449,11 @@ fn rt_key_hash(v: RtVal) -> u64 {
             let mut i: i64 = 0i64;
             while i < n { h = h_step(h, str_byte_at(s, i) as u64); i = i + 1i64; }
         }
-        _ => { h = h_step(h, 0u64); }
+        // Everything outside the hashable tier hashes as the bare tag 0 —
+        // NOT a collision hazard (buckets verify with rt_eq) but NOT free
+        // either: an F and a Null share a bucket, and rt_eq then decides. A new
+        // shape must choose a tag rather than inherit Null's.
+        RtVal::F(_) | RtVal::Node(_) | RtVal::Null | RtVal::Error => { h = h_step(h, 0u64); }
     }
     return h;
 }
@@ -576,11 +580,15 @@ fn ts_edge_row(out: &mut RowSet, parent_word: i64, key: str, idx: i64,
         RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
         RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }
         RtVal::B(x)  => { out.cells.push(RtVal::I(if x { 1i64 } else { 0i64 })); }
-        _            => { out.cells.push(RtVal::I(0i64)); }
+        // the numeric half of the edge row: a string/node/absent value has no
+        // scalar to carry, and the string half below carries it instead
+        RtVal::S(_) | RtVal::Node(_) | RtVal::Null | RtVal::Error => { out.cells.push(RtVal::I(0i64)); }
     }
     match cv {
         RtVal::S(s2) => { out.cells.push(RtVal::S(s2)); }
-        _            => { out.cells.push(RtVal::S("")); }
+        // the string half: everything non-S was carried by the numeric half
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_) | RtVal::Null
+          | RtVal::Error => { out.cells.push(RtVal::S("")); }
     }
     out.nrows = out.nrows + 1i64;
 }
@@ -940,7 +948,10 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                     }
                     cur = field_read(cat, w, ps.segs[i]);
                 }
-                _ => { cur = RtVal::Null; }
+                // an intermediate path step off a non-node: lenient miss, and
+                // the remaining segments walk off Null the same way
+                RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_)
+                  | RtVal::Null | RtVal::Error => { cur = RtVal::Null; }
             }
             i = i + 1i64;
         }
@@ -949,7 +960,10 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
             RtVal::Node(w2) => {
                 if !w2.is_array() && ps.n > 0i64 { fin = field_read(cat, w2, ps.segs[ps.n - 1i64]); }
             }
-            _ => { }
+            // final segment off a non-node: `fin` stays the RtVal::Null it was
+            // initialised to, which the iteration below reads as "no elements"
+            RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Null
+              | RtVal::Error => { }
         }
         // iterate the final value's elements (array / single / none)
         let mut matched: bool = false;
@@ -986,7 +1000,10 @@ fn exec_edge(ed: REdge, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
                     }
                 }
             }
-            _ => { }   // null / absent: zero elements
+            // a scalar / null / absent edge value has zero elements to iterate,
+            // so `matched` stays false and the anti-join branch below fires
+            RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Null
+              | RtVal::Error => { }
         }
         if ed.is_anti && !matched {
             rs_push_ext(&mut out, &input, r, false, RtVal::Null);
