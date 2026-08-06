@@ -1,0 +1,822 @@
+// deem_incr_diff_harness — THE DIFFERENTIAL SPINE FOR MOVING INCREMENTAL DEEM
+// FROM THE INTERPRETER TO THE STATIC SIDE (P0 of the P0-P5 arc).
+//
+// ⚠⚠ THIS FILE IS BUILT AROUND ITS OWN DEMOLITION. Read this block before
+// editing anything below it.
+//
+// The interpreter (`exec`+`eval`+`query`+`check`) is being deleted at P5. Until
+// then it is the ORACLE FOR ITS OWN REPLACEMENT: every incremental answer can be
+// checked against it on the same rows. That asset is WASTING — after P5 it is
+// gone and no later slice can be validated this way. So the shape is built now,
+// and it is built so that P5 REMOVES an arm rather than rewrites a harness.
+//
+//   WHAT P5 DELETES FROM THIS FILE, and nothing else:
+//     · `fn arm_dyn` and the three `Q*_TEXT()` query strings it needs
+//     · in `run_spine`: the `q1`/`q2`/`q3` compiles, the `eng_env`, the three
+//       `IncrJoin` locals, their `epoch(...)` pumps, and the `let d2 = arm_dyn`
+//     · in the epoch loop: the `cells_eq(&h, &d2)` and `cells_eq(&s, &d2)`
+//       checks (the `cells_eq(&h, &s)` check is the one that stays)
+//     · in §4: the `dc` and `gc` cells and the two `sc.kind != …` cross-checks
+//     · §5 in full — it is a measurement OF the interpreter
+//   WHAT MUST REMAIN, because it is the SPEC and not the scaffolding:
+//     · `fn arm_hand`   — the hand-derived table. THE SPINE.
+//     · `fn arm_static` — at P0 a `deem!` BATCH RECOMPUTE; at P1-P4 the SAME
+//                         function body is repointed at the static incremental
+//                         engine and NOTHING ELSE IN THIS FILE MOVES.
+//     · `struct Cell` + `cells_eq` — the commensurability layer
+//     · `fn deltas()`   — the epoch/row table
+//   DO NOT RESTRUCTURE AT P5. The safety net is already gone by then.
+//
+// ⚠ WHY THERE ARE THREE ARMS AND NOT TWO. This codebase measured, twice in one
+// week, a differential passing while every side ran the same wrong fold:
+// `query_incr_f64_agg_three_engines` records a three-engine agreement that held
+// for months over `x as i64`, and `wql_domain_incr_disagreement` records
+// `max(u64)` answering the SMALLER of two values in both runtime tiers at once.
+// Two agreeing engines are not evidence. Arm (3) — constants DERIVED FROM THE
+// INPUT ARITHMETIC, computed by hand and written down before any of this ran —
+// is what makes arms (1) and (2) mean anything.
+//
+// ── WHAT SIDE (1) IS AT P0, AND WHY IT IS NOT "THE STATIC INCREMENTAL ANSWER" ─
+// MEASURED at d0105d0a: `grep -n 'incremental|delta|epoch' stdlib/mem/wql/
+// codegen.logos` returns ZERO hits. The static side has no incremental surface
+// at all — incrementality is reachable ONLY through
+// `Query::compile(...).incremental(&env)`, and `deem!` has no incremental form.
+// So at P0 arm (1) is `deem!` recomputing the WHOLE post-epoch row set from
+// scratch. That is not a placeholder: it is the CORRECTNESS SPEC P1-P4 must
+// meet, and `stdlib/mem/deem/incr_rec.logos:58` already states it — "the
+// incremental result equals the batch recompute by construction". When the
+// static incremental engine exists, `arm_static` stops recomputing and starts
+// maintaining, and every expectation in this file stays exactly as written.
+//
+// ── THE FOUR REFUSAL SHAPES, AND WHY ONLY THREE ARE `Cell` KINDS ─────────────
+//   K_VALUE      — an answer.
+//   K_MATH_ERR   — the arithmetic failed. THE THREE TIERS SPELL THIS THREE WAYS
+//                  and the arms normalize all three into this one kind:
+//                  static `Result::Err(ElError)` for the WHOLE call · dynamic
+//                  `QError` from `run` · incremental a per-engine `had_error()`
+//                  latch that survives the epoch. §4 exercises exactly that.
+//   K_BUILD_ERR  — `compile`/`incremental` refused to build the thing at all.
+//   REFUSED-AT-COMPILE — deliberately NOT a `Cell` kind, because it cannot be a
+//                  runtime value: the static tier refuses some of these queries
+//                  at COMPILE time, so the cell cannot even coexist in the same
+//                  file as the runtime arms. Those cells live in `tests/logos/
+//                  fail/` and are named here so a reader of either finds the
+//                  other:
+//                    · `deem_incr_static_minmax_u64_fail` — `min`/`max` over a
+//                      `u64` column: REFUSED by `deem!` (el_agg_arg_reaches,
+//                      stdlib/mem/wql/el.logos:590), ANSWERED — and answered
+//                      CORRECTLY since 2026-08-05 — by the incremental engine.
+//                    · `wql_agg_wide_int_arg_fail` — the same for `sum(u64)`.
+//                    · `wql_agg_f32_arg_fail` — the same for `sum(f32)`, which
+//                      the incremental engine has answered correctly since
+//                      2026-08-04.
+//                  ⚠ THE DIRECTION MATTERS AND IS THE OPPOSITE OF THE OBVIOUS
+//                  ONE: on aggregate ARGUMENTS the static domain is strictly
+//                  NARROWER than the incremental one. P5 is therefore a
+//                  CAPABILITY DELETION unless `el_agg_arg_reaches` is widened
+//                  first. That is a decision about what `deem!` accepts and it
+//                  is not this file's to make; this file only makes it visible.
+//
+// ── WHY EVERY COMPARISON IS ON BITS ─────────────────────────────────────────
+// The three read-back surfaces are NOT commensurable without a bit bridge.
+// `QRows` has five getters and `get_i64` is the only integer one (stdlib/mem/
+// deem/query.logos:68-78), so `u64::MAX` can only be spelled there as the bits
+// −1, while `deem!` returns a real `u64` (`Vec<(u64,i64)>`,
+// tests/logos/pass/wql_key_own_type_e2e.logos:96-98). And a plain `!=` on f64
+// reads −0.0 as equal to +0.0 and a NaN as unequal to itself — which is exactly
+// the identity loss the 2026-08-04 defect was. So every arm normalizes to a
+// 64-bit pattern (f64 via `f64_to_bits`, i64 reinterpreted, count as itself) and
+// the comparator only ever sees `u64`. A near-miss cannot be laundered as
+// rounding, and −0.0 cannot pass for 0.0.
+//
+// ── THE DELTA SEQUENCE IS DATA, AND THAT IS THE ACCEPTANCE CRITERION ────────
+// `fn deltas()` is a TABLE of `(ep, sign, row…)`. The driver that applies it is
+// written ONCE. P2 (retractions) = ADD ROWS WITH `sign = -1`. P3/P4 = ADD ROWS.
+// If any of those has to touch the driver, the comparator, or `struct Cell`,
+// THIS SLICE FAILED AT ITS JOB. `apply_retract` below is already wired into the
+// driver's `sign < 0` branch and is unreached at P0 on purpose — P2 adds table
+// rows, not plumbing.
+//
+// ⚠ THE BASE EPOCH RUNS AT CONSTRUCTION. `Query::incremental` fills the
+// aggregate state from the bound source before it returns (incr.logos:1766-1770),
+// so epoch 0 in the table is the CONSTRUCTION FILL and must not be re-fed to
+// `epoch()`. The driver drains the store's base delta and discards it.
+//
+// ── THE DATA IS EXTREMES, AND THE i64 SET IS A FOLD-ORDER RAZOR ─────────────
+// Over {i64::MIN, −1, 0, 5, i64::MAX} the mathematical sum is 3, but a LEFT fold
+// overflows at the first step (MIN + −1). Whether that cell is an ANSWER or a
+// MATH ERROR is therefore a property of the FOLD ORDER, and a retraction
+// reorders the fold. So the i64 columns are SPLIT: `xi` carries the extremes and
+// is asked only `min`/`max` (exact, order-free, both sides); `xs` carries a
+// non-overflowing set and is asked `count`/`sum`/`avg`; and §4 is one deliberate
+// overflow asserted as the three-shaped error.
+//
+// ── WHAT THIS FILE DOES NOT CLAIM ──────────────────────────────────────────
+//  · Nothing about f64 `sum`/`avg` AFTER A RETRACTION. `gsumf` is not an exact
+//    abelian group (incr.logos:553-566, an OPEN fork with three named
+//    alternatives), so `(S+x)−x == S` can fail. P0 has no retractions; when P2
+//    adds them the f64 sum cell is a MEASUREMENT until that fork is decided.
+//  · Nothing about an f64 JOIN key — the incremental engine refuses it and
+//    `wql_domain_incr_disagreement:239-255` pins that as KNOWN-WRONG. No f64
+//    column is a join key here.
+//  · Nothing about join+aggregate, `order by`, `limit`, `edge`, `fix`, `rel`, or
+//    a standalone `select`/`where`/`distinct`: all are outside the accepted
+//    incremental fragment FOR EVERY TYPE INCLUDING i64, pinned once at
+//    `wql_domain_incr_disagreement:257-273`. Restating it per type would be one
+//    fact wearing type labels.
+//
+// ⚠ EVERY EXPECTATION IN THIS FILE WAS WRITTEN BEFORE IT WAS FIRST RUN, AND
+// EVERY ONE HELD ON THE FIRST RUN — including §5's three mutually incompatible
+// answers, which were derived by reading the three fold sites and not by
+// reading them off a run. That is the only reason the constants are evidence
+// rather than a transcript. If you change a value here, DERIVE the new one; do
+// not paste what the run printed.
+//
+// exit 0 = the three arms agree, cell for cell, on every epoch; the overflow
+//          group errors in all three tiers; and §5's measured disagreement is
+//          still exactly where it was.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.num.float;
+use logos.mem.collections.vec;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE ROW. `struct Row` is what `deem!` folds; `RowF` is the same row as a Writ
+// schema, which is what the dynamic and incremental tiers read. Two spellings of
+// one row is the price of asking three engines the same question — the same
+// price `query_incr_f64_agg_three_engines` pays.
+//   id — content identity for the FactStore (scalar key, see FactStore::new)
+//   g  — the group key. i64 on purpose: a u64 group key is a separate question.
+//   xi — the i64 EXTREMES.  min/max only (see the fold-order razor above).
+//   xs — a non-overflowing i64 set.  count/sum/avg.
+//   xf — f64, including −0.0 and a sum whose value depends on the fold order.
+//   xu — u64 extremes. Carried on the row but NOT in the spine: every aggregate
+//        over it is either refused by `deem!` at compile time (min/max/sum, see
+//        the fail files above) or disagrees between the tiers (avg, §5).
+// ═══════════════════════════════════════════════════════════════════════════
+struct Row { pub id: i64, pub g: i64, pub xi: i64, pub xs: i64, pub xf: f64, pub xu: u64 }
+
+pub schema RowF : code(0x0E4D_0000_0000_0001) {
+    id: i64 = 0,
+    g:  i64 = 1,
+    xi: i64 = 2,
+    xs: i64 = 3,
+    xf: f64 = 4,
+    xu: u64 = 5
+}
+resource cat = schema_catalog!{ RowF };
+
+// i64's endpoints, built rather than spelled (a bare `-9223372036854775808i64`
+// is a negation of a literal one past i64::MAX).
+fn i64_min() -> i64 { return (0i64 - 9223372036854775807i64) - 1i64; }
+fn i64_max() -> i64 { return 9223372036854775807i64; }
+// −0.0 by its bit pattern, because `0.0 - 0.0` is +0.0 and the point of the cell
+// is that the two are different values with the same `==`.
+fn neg_zero() -> f64 { return f64_from_bits(9223372036854775808u64); }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §1  THE DELTA SEQUENCE — DATA. P2 ADDS ROWS HERE, NOT CODE ANYWHERE.
+//
+//   ep    — the epoch this change belongs to. ep 0 is the CONSTRUCTION fill.
+//   sign  — +1 insert, −1 retract. P0 is all +1; the driver already handles −1.
+//
+// THE ROW SET, epoch by epoch (this table IS the derivation input for §2):
+//   ep0  id0 g0  xi=i64::MIN  xs=0   xf= 0.5   xu=0
+//        id1 g0  xi=−1        xs=6   xf=−0.0   xu=5
+//        id2 g1  xi=i64::MAX  xs=2   xf= 1e16  xu=2^63−1
+//        id3 g1  xi=5         xs=4   xf= 1.0   xu=2^63
+//   ep1  id4 g0  xi=0         xs=−3  xf=−0.5   xu=2^64−1
+//   ep2  id5 g1  xi=−1        xs=−3  xf=−1e16  xu=5
+//
+// Chosen so that each epoch moves a DIFFERENT part of the state machine:
+//   ep1 raises g0's `max(xi)` (−1 → 0) and replaces g0's `min(xf)` (−0.0 → −0.5)
+//       — the semilattice O(1) improve path;
+//   ep2 lowers g1's `min(xi)` (5 → −1) and completes the f64 reorder triple.
+// ═══════════════════════════════════════════════════════════════════════════
+struct Delta {
+    pub ep: i64, pub sign: i64,
+    pub id: i64, pub g: i64, pub xi: i64, pub xs: i64, pub xf: f64, pub xu: u64
+}
+
+fn n_epochs() -> i64 { return 3i64; }
+
+fn deltas() -> Vec<Delta> {
+    let mut v: Vec<Delta> = vec_new::<Delta>();
+    v.push(Delta { ep: 0i64, sign: 1i64, id: 0i64, g: 0i64,
+                   xi: i64_min(), xs: 0i64, xf: 0.5f64, xu: 0u64 });
+    v.push(Delta { ep: 0i64, sign: 1i64, id: 1i64, g: 0i64,
+                   xi: 0i64 - 1i64, xs: 6i64, xf: neg_zero(), xu: 5u64 });
+    v.push(Delta { ep: 0i64, sign: 1i64, id: 2i64, g: 1i64,
+                   xi: i64_max(), xs: 2i64, xf: 10000000000000000.0f64,
+                   xu: 9223372036854775807u64 });
+    v.push(Delta { ep: 0i64, sign: 1i64, id: 3i64, g: 1i64,
+                   xi: 5i64, xs: 4i64, xf: 1.0f64, xu: 9223372036854775808u64 });
+    v.push(Delta { ep: 1i64, sign: 1i64, id: 4i64, g: 0i64,
+                   xi: 0i64, xs: 0i64 - 3i64, xf: 0.0f64 - 0.5f64,
+                   xu: 18446744073709551615u64 });
+    v.push(Delta { ep: 2i64, sign: 1i64, id: 5i64, g: 1i64,
+                   xi: 0i64 - 1i64, xs: 0i64 - 3i64,
+                   xf: 0.0f64 - 10000000000000000.0f64, xu: 5u64 });
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §2  THE CELL — the only thing the three arms have in common.
+// A cell is addressed by (group key, slot) and compared on `kind` then `bits`.
+// SLOTS, fixed for the life of this file:
+//   0 min(xi)  1 max(xi)                          — Q1
+//   2 count()  3 sum(xs)  4 avg(xs)               — Q2
+//   5 sum(xf)  6 avg(xf)  7 min(xf)  8 max(xf)    — Q3
+// ═══════════════════════════════════════════════════════════════════════════
+// ── THE EXIT-CODE SPACE, ENUMERATED — because an exit code is 8 bits ────────
+//   1  ..   9   `run_spine` setup (store / compile / incremental refused)
+//  20  .. 199   the spine: base 20 + (ep*3 + which)*CELLS_SPAN, plus cells_eq's
+//               1..19.  which = 0 hand↔static · 1 hand↔interpreter · 2 static↔
+//               interpreter.  Highest reachable: 20 + 8*20 + 19 = 199.
+//  201 .. 209   §4, the three-shaped math error
+//  221 .. 239   §5, the u64 `avg` disagreement
+// Nothing here reaches 256, and no two ranges overlap. Adding an epoch to
+// `deltas()` costs 60 codes and stays inside the budget up to ep 5; past that,
+// widen by shrinking CELLS_SPAN, never by moving a base above 255.
+fn CELLS_SPAN() -> i32 { return 20i32; }
+
+fn K_VALUE()     -> i32 { return 0i32; }
+fn K_MATH_ERR()  -> i32 { return 1i32; }
+fn K_BUILD_ERR() -> i32 { return 2i32; }
+
+struct Cell { pub grp: i64, pub slot: i32, pub kind: i32, pub bits: u64 }
+
+// i64 → its bit pattern (REINTERPRETED, not converted): this is what makes the
+// static tier's real `u64` and `QRows::get_i64`'s signed spelling of the same
+// value compare equal instead of "differing" by 2^64.
+fn ci(grp: i64, slot: i32, v: i64) -> Cell {
+    return Cell { grp: grp, slot: slot, kind: K_VALUE(), bits: v as u64 };
+}
+// f64 → IEEE bits. −0.0 ≠ +0.0 here, and that is the point.
+fn cf(grp: i64, slot: i32, v: f64) -> Cell {
+    return Cell { grp: grp, slot: slot, kind: K_VALUE(), bits: f64_to_bits(v) };
+}
+fn cerr(grp: i64, slot: i32, kind: i32) -> Cell {
+    return Cell { grp: grp, slot: slot, kind: kind, bits: 0u64 };
+}
+
+fn cell_find(v: &Vec<Cell>, grp: i64, slot: i32) -> i64 {
+    let n: i64 = v.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: Cell = v.get(i);
+        if c.grp == grp && c.slot == slot { return i; }
+        i = i + 1i64;
+    }
+    return 0i64 - 1i64;
+}
+
+// 0 = identical. Otherwise 1 + the index in `a` of the first cell that `b` either
+// lacks or answers differently, and 19 for a length mismatch. Not a bool: the
+// exit code has to name the cell.
+//
+// ⚠⚠ AN EXIT CODE IS EIGHT BITS, AND A WRAPPED CODE IS A GATE THAT LIES. Every
+// code this file can return is ≤ 255 AND distinct — see the enumerated space at
+// `CELLS_SPAN` above, which is where the budget is stated and spaced. The
+// first draft of this file used bases 700/800/900 and a control revert came back
+// as exit 189, which is 701 & 0xFF and which COLLIDES with a real code from the
+// static-vs-interpreter comparison (190 + 5). It read as a different failure
+// than the one that happened. That is the ceiling this codebase already has on
+// record as one of the eight ways a gate lies; do not reintroduce it by
+// widening a base. `CELLS_SPAN` is the budget every base is spaced by.
+fn cells_eq(a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
+    if a.len() != b.len() { return 19i64; }
+    let n: i64 = a.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let ca: Cell = a.get(i);
+        let j: i64 = cell_find(b, ca.grp, ca.slot);
+        if j < 0i64 { return 1i64 + i; }
+        let cb: Cell = b.get(j);
+        if ca.kind != cb.kind { return 1i64 + i; }
+        if ca.bits != cb.bits { return 1i64 + i; }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3a  ARM (3) — THE HAND TABLE. THE SPINE. Survives P5 untouched.
+//
+// Every constant below is DERIVED FROM §1's row table by hand and written down
+// before this file was run. Nothing here folds with either engine's arithmetic.
+// ═══════════════════════════════════════════════════════════════════════════
+fn arm_hand(ep: i64) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+
+    // ── Q1  min/max over xi, the i64 EXTREMES ──────────────────────────────
+    // g0 xi: ep0 {MIN, −1}         → min MIN, max −1
+    //        ep1 {MIN, −1, 0}      → min MIN, max  0   (the improve step)
+    // g1 xi: ep0 {MAX, 5}          → min 5,   max MAX
+    //        ep2 {MAX, 5, −1}      → min −1,  max MAX  (the improve step)
+    // min/max never overflow and do not depend on the fold order, which is why
+    // the full extreme set is safe HERE and only here.
+    v.push(ci(0i64, 0i32, i64_min()));
+    if ep == 0i64 { v.push(ci(0i64, 1i32, 0i64 - 1i64)); } else { v.push(ci(0i64, 1i32, 0i64)); }
+    if ep < 2i64  { v.push(ci(1i64, 0i32, 5i64)); }       else { v.push(ci(1i64, 0i32, 0i64 - 1i64)); }
+    v.push(ci(1i64, 1i32, i64_max()));
+
+    // ── Q2  count / sum / avg over xs ──────────────────────────────────────
+    // g0 xs: ep0 {0, 6}     n=2 sum=6 avg=3.0
+    //        ep1 {0, 6, −3} n=3 sum=3 avg=1.0
+    // g1 xs: ep0 {2, 4}     n=2 sum=6 avg=3.0
+    //        ep2 {2, 4, −3} n=3 sum=3 avg=1.0
+    // Each avg is exact in binary f64 (6/2, 3/3, 6/2, 3/3), so `==` on the bits
+    // is the right comparison and a rounding excuse is not available.
+    if ep == 0i64 {
+        v.push(ci(0i64, 2i32, 2i64)); v.push(ci(0i64, 3i32, 6i64)); v.push(cf(0i64, 4i32, 3.0f64));
+    } else {
+        v.push(ci(0i64, 2i32, 3i64)); v.push(ci(0i64, 3i32, 3i64)); v.push(cf(0i64, 4i32, 1.0f64));
+    }
+    if ep < 2i64 {
+        v.push(ci(1i64, 2i32, 2i64)); v.push(ci(1i64, 3i32, 6i64)); v.push(cf(1i64, 4i32, 3.0f64));
+    } else {
+        v.push(ci(1i64, 2i32, 3i64)); v.push(ci(1i64, 3i32, 3i64)); v.push(cf(1i64, 4i32, 1.0f64));
+    }
+
+    // ── Q3  sum / avg / min / max over xf ──────────────────────────────────
+    // g0 xf: ep0 {0.5, −0.0}
+    //          sum: 0.5 + (−0.0) = 0.5        (IEEE: x + (−0.0) = x for x ≠ 0)
+    //          avg: 0.5 / 2      = 0.25
+    //          min: −0.0  ⚠ ASSERTED ON THE BITS 0x8000000000000000. A `!=`
+    //               would accept +0.0 here, and reading back +0.0 for a −0.0
+    //               argument is EXACTLY the identity loss that the 2026-08-04
+    //               f64 defect was. `agg_val_key` keys on `f64_to_bits` and
+    //               orders on `f64_data_key` precisely so this survives
+    //               (incr.logos:542-551).
+    //          max: 0.5
+    //        ep1 {0.5, −0.0, −0.5}
+    //          sum: (0.5 + (−0.0)) + (−0.5) = 0.5 − 0.5 = +0.0
+    //               ⚠ +0.0, NOT −0.0: IEEE round-to-nearest gives x + (−x) = +0.0.
+    //               So this cell and `min` below differ in their sign bit while
+    //               being "equal" under `==`. That is the second half of the same
+    //               assertion.
+    //          avg: +0.0 / 3 = +0.0
+    //          min: −0.5      max: 0.5
+    if ep == 0i64 {
+        v.push(cf(0i64, 5i32, 0.5f64));
+        v.push(cf(0i64, 6i32, 0.25f64));
+        v.push(cf(0i64, 7i32, neg_zero()));
+        v.push(cf(0i64, 8i32, 0.5f64));
+    } else {
+        v.push(cf(0i64, 5i32, 0.0f64));
+        v.push(cf(0i64, 6i32, 0.0f64));
+        v.push(cf(0i64, 7i32, 0.0f64 - 0.5f64));
+        v.push(cf(0i64, 8i32, 0.5f64));
+    }
+    // g1 xf: ep0 {1e16, 1.0} — in the row order id2, id3.
+    //          sum: 1e16 + 1.0 = 1e16.  ⚠ DERIVED, NOT ROUNDED OFF A RUN:
+    //               1e16 = 2·5e15 and 5e15 < 2^53, so 1e16 is exact and its ulp
+    //               is 2. The exact result 10000000000000001 is the midpoint of
+    //               [1e16, 1e16+2], and round-half-to-EVEN takes the even
+    //               significand — 1e16. The 1.0 is annihilated.
+    //          avg: 1e16 / 2 = 5e15 (exact)
+    //          min: 1.0        max: 1e16
+    //        ep2 {1e16, 1.0, −1e16}
+    //          sum: ((1e16 + 1.0) + (−1e16)) = 1e16 − 1e16 = +0.0
+    //               ⚠⚠ THE MATHEMATICAL SUM IS 1.0. Both engines answer +0.0
+    //               because both perform the SAME left-to-right fold, and an f64
+    //               sum is order-dependent by definition — a different order
+    //               (1.0 + (−1e16)) + 1e16 answers 1.0. This cell is the
+    //               fold-order razor, and it is where P2 lands: a RETRACTION
+    //               reorders the fold, and `gsumf`'s inverse (sum += w·arg,
+    //               w = −1) is not exact. Until that fork is decided (incr.logos:
+    //               553-566) a post-retraction value of this cell is a
+    //               MEASUREMENT, not a spec. At P0, with inserts only, it is a
+    //               spec: both folds see the same order.
+    //          avg: +0.0 / 3 = +0.0
+    //          min: −1e16      max: 1e16
+    if ep < 2i64 {
+        v.push(cf(1i64, 5i32, 10000000000000000.0f64));
+        v.push(cf(1i64, 6i32, 5000000000000000.0f64));
+        v.push(cf(1i64, 7i32, 1.0f64));
+        v.push(cf(1i64, 8i32, 10000000000000000.0f64));
+    } else {
+        v.push(cf(1i64, 5i32, 0.0f64));
+        v.push(cf(1i64, 6i32, 0.0f64));
+        v.push(cf(1i64, 7i32, 0.0f64 - 10000000000000000.0f64));
+        v.push(cf(1i64, 8i32, 10000000000000000.0f64));
+    }
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3b  ARM (1) — THE STATIC TIER.
+// AT P0 this is a `deem!` BATCH RECOMPUTE over the row set as of epoch `ep`.
+// AT P1-P4 this function's BODY is repointed at the static incremental engine
+// and its signature, its callers and every expectation stay put. That is the
+// whole reason it is a function taking the current row set and returning cells.
+// ═══════════════════════════════════════════════════════════════════════════
+pub deem q1_iminmax(rs: &[Row]) {
+    from rs s group by s.g aggregate mn = min(s.xi), mx = max(s.xi) select (key, mn, mx)
+}
+pub deem q2_isum(rs: &[Row]) {
+    from rs s group by s.g aggregate n = count(), sm = sum(s.xs), av = avg(s.xs)
+    select (key, n, sm, av)
+}
+pub deem q3_fagg(rs: &[Row]) {
+    from rs s group by s.g
+    aggregate sm = sum(s.xf), av = avg(s.xf), mn = min(s.xf), mx = max(s.xf)
+    select (key, sm, av, mn, mx)
+}
+
+fn arm_static(rows: &Vec<Row>) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    let r1: Vec<(i64, i64, i64)> = match q1_iminmax(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 0i32, K_MATH_ERR())); return v; }
+    };
+    let r2: Vec<(i64, i64, i64, f64)> = match q2_isum(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 2i32, K_MATH_ERR())); return v; }
+    };
+    let r3: Vec<(i64, f64, f64, f64, f64)> = match q3_fagg(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 5i32, K_MATH_ERR())); return v; }
+    };
+    let mut i: i64 = 0i64;
+    while i < r1.len() {
+        let t: (i64, i64, i64) = r1.get(i);
+        v.push(ci(t.0, 0i32, t.1));
+        v.push(ci(t.0, 1i32, t.2));
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < r2.len() {
+        let t: (i64, i64, i64, f64) = r2.get(j);
+        v.push(ci(t.0, 2i32, t.1));
+        v.push(ci(t.0, 3i32, t.2));
+        v.push(cf(t.0, 4i32, t.3));
+        j = j + 1i64;
+    }
+    let mut k: i64 = 0i64;
+    while k < r3.len() {
+        let t: (i64, f64, f64, f64, f64) = r3.get(k);
+        v.push(cf(t.0, 5i32, t.1));
+        v.push(cf(t.0, 6i32, t.2));
+        v.push(cf(t.0, 7i32, t.3));
+        v.push(cf(t.0, 8i32, t.4));
+        k = k + 1i64;
+    }
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3c  ARM (2) — THE INTERPRETER. ⚠ THIS IS THE ONE REMOVABLE ARM. P5 DELETES
+// THIS SECTION AND EVERY CALLER OF IT, AND NOTHING ELSE IN THIS FILE MOVES.
+// ═══════════════════════════════════════════════════════════════════════════
+fn Q1_TEXT() -> str {
+    return "from ss s group by s.g aggregate mn = min(s.xi), mx = max(s.xi) select (key, mn, mx)";
+}
+fn Q2_TEXT() -> str {
+    return "from ss s group by s.g aggregate n = count(), sm = sum(s.xs), av = avg(s.xs) select (key, n, sm, av)";
+}
+fn Q3_TEXT() -> str {
+    return "from ss s group by s.g aggregate sm = sum(s.xf), av = avg(s.xf), mn = min(s.xf), mx = max(s.xf) select (key, sm, av, mn, mx)";
+}
+
+fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    if e1.had_error() || e2.had_error() || e3.had_error() {
+        v.push(cerr(0i64, 0i32, K_MATH_ERR()));
+        return v;
+    }
+    let s1: QRows = e1.snapshot();
+    let mut i: i64 = 0i64;
+    while i < s1.row_count() {
+        let g: i64 = s1.get_i64(i, 0i64);
+        v.push(ci(g, 0i32, s1.get_i64(i, 1i64)));
+        v.push(ci(g, 1i32, s1.get_i64(i, 2i64)));
+        i = i + 1i64;
+    }
+    let s2: QRows = e2.snapshot();
+    let mut j: i64 = 0i64;
+    while j < s2.row_count() {
+        let g: i64 = s2.get_i64(j, 0i64);
+        v.push(ci(g, 2i32, s2.get_i64(j, 1i64)));
+        v.push(ci(g, 3i32, s2.get_i64(j, 2i64)));
+        v.push(cf(g, 4i32, s2.get_f64(j, 3i64)));
+        j = j + 1i64;
+    }
+    let s3: QRows = e3.snapshot();
+    let mut k: i64 = 0i64;
+    while k < s3.row_count() {
+        let g: i64 = s3.get_i64(k, 0i64);
+        v.push(cf(g, 5i32, s3.get_f64(k, 1i64)));
+        v.push(cf(g, 6i32, s3.get_f64(k, 2i64)));
+        v.push(cf(g, 7i32, s3.get_f64(k, 3i64)));
+        v.push(cf(g, 8i32, s3.get_f64(k, 4i64)));
+        k = k + 1i64;
+    }
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3d  THE DRIVER — WRITTEN ONCE. P2/P3/P4 MUST NOT EDIT ANYTHING BELOW HERE.
+// ═══════════════════════════════════════════════════════════════════════════
+fn mk_node(dp: *const Writ, d: Delta) -> WAny {
+    let w: &Writ = unsafe { &*dp };
+    let r: RowF = w.make::<RowF>();
+    r.id = d.id; r.g = d.g; r.xi = d.xi; r.xs = d.xs; r.xf = d.xf; r.xu = d.xu;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn apply_insert(rows: &mut Vec<Row>, d: Delta) {
+    rows.push(Row { id: d.id, g: d.g, xi: d.xi, xs: d.xs, xf: d.xf, xu: d.xu });
+}
+// The `sign < 0` half of the driver. UNREACHED AT P0 BY CONSTRUCTION (the table
+// has no −1 rows); it exists so that P2 adds TABLE ROWS and not plumbing.
+// Removal preserves the relative order of what remains, which is what makes the
+// static batch fold order well defined after a retraction — the very thing the
+// f64 sum cell turns on.
+fn apply_retract(rows: &mut Vec<Row>, d: Delta) {
+    let mut out: Vec<Row> = vec_new::<Row>();
+    let n: i64 = rows.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let r: Row = rows.get(i);
+        if r.id != d.id { out.push(r); }
+        i = i + 1i64;
+    }
+    let m: i64 = out.len();
+    let mut fresh: Vec<Row> = vec_new::<Row>();
+    let mut k: i64 = 0i64;
+    while k < m { fresh.push(out.get(k)); k = k + 1i64; }
+    *rows = fresh;
+}
+
+fn run_spine(c: &SchemaCatalog) -> i32 {
+    let ds: Vec<Delta> = deltas();
+    let kf: [str; 1] = ["id"];
+    let mut store: FactStore = match FactStore::new(c, "RowF", &kf[..], 262144i64) {
+        Result::Ok(s) => { s } Result::Err(_e) => { return 1i32; }
+    };
+    let sp: *const Writ = store.arena_ptr();
+    let mut rows: Vec<Row> = vec_new::<Row>();
+
+    // ── epoch 0: the CONSTRUCTION fill ─────────────────────────────────────
+    let nd: i64 = ds.len();
+    let mut i0: i64 = 0i64;
+    while i0 < nd {
+        let d: Delta = ds.get(i0);
+        if d.ep == 0i64 {
+            if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
+            else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+        }
+        i0 = i0 + 1i64;
+    }
+
+    let q1: Query = match Query::compile(Q1_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 2i32; } };
+    let q2: Query = match Query::compile(Q2_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 3i32; } };
+    let q3: Query = match Query::compile(Q3_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 4i32; } };
+
+    // `eng_env` must OUTLIVE every engine: `incremental()` stores a raw pointer
+    // to it (`envp`) and reads it back on every epoch.
+    let mut eng_env: QEnv = QEnv::new();
+    eng_env.bind_source("ss", store.build_present());
+    let mut e1: IncrJoin = match q1.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
+    let mut e2: IncrJoin = match q2.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
+    let mut e3: IncrJoin = match q3.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 7i32; } };
+    // The base epoch already ran inside `incremental()`; drain the store's
+    // changelog so epoch 1 does not replay it.
+    let _base: ZBatch = store.take_delta();
+
+    let mut ep: i64 = 0i64;
+    while ep < n_epochs() {
+        if ep > 0i64 {
+            let mut ii: i64 = 0i64;
+            while ii < nd {
+                let d: Delta = ds.get(ii);
+                if d.ep == ep {
+                    if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
+                    else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+                }
+                ii = ii + 1i64;
+            }
+            let dz: ZBatch = store.take_delta();
+            let empty: ZBatch = ZBatch::new();
+            e1.epoch(&dz, &empty);
+            e2.epoch(&dz, &empty);
+            e3.epoch(&dz, &empty);
+        }
+
+        let h: Vec<Cell> = arm_hand(ep);
+        let s: Vec<Cell> = arm_static(&rows);
+        let d2: Vec<Cell> = arm_dyn(&e1, &e2, &e3);
+
+        let epb: i32 = 20i32 + (ep as i32) * 3i32 * CELLS_SPAN();
+        // hand vs static — the assertion that OUTLIVES P5.
+        let a: i64 = cells_eq(&h, &s);
+        if a != 0i64 { return epb + (a as i32); }
+        // hand vs interpreter — deleted at P5.
+        let b: i64 = cells_eq(&h, &d2);
+        if b != 0i64 { return epb + CELLS_SPAN() + (b as i32); }
+        // static vs interpreter, asserted DIRECTLY and not inferred from "both
+        // matched the table": a differential that only ever runs through an
+        // expectation table stops being a differential the day the table moves.
+        let cc: i64 = cells_eq(&s, &d2);
+        if cc != 0i64 { return epb + 2i32 * CELLS_SPAN() + (cc as i32); }
+
+        ep = ep + 1i64;
+    }
+    return 0i32;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §4  THE THREE-SHAPED MATH ERROR, NORMALIZED TO ONE `Cell` KIND.
+// One group, {i64::MAX, 1}, whose `sum` overflows in EITHER fold order — so the
+// cell is an error as a fact about the values and not about the traversal.
+// The three tiers spell it three different ways and the arms erase the
+// difference; that erasure is what lets P2's retraction rows say "this cell is
+// a math error at epoch k" without knowing which engine is answering.
+// ⚠ A STATIC INCREMENTAL ENGINE HAS NO PER-CALL IDENTITY to hang `Err` on, so
+// where a math error LATCHES in a maintained static engine is an open semantics
+// question. This cell is what will pin the answer the day it is made.
+// (`tests/logos/pass/query_agg_sum_overflow_e2e` is the same fact stated in the
+// three tiers' own vocabularies rather than in one.)
+// ═══════════════════════════════════════════════════════════════════════════
+pub deem q_ovf(rs: &[Row]) { from rs s group by s.g aggregate sm = sum(s.xs) select (key, sm) }
+
+fn OVF_TEXT() -> str { return "from ss s group by s.g aggregate sm = sum(s.xs) select (key, sm)"; }
+
+fn ovf_rows() -> Vec<Row> {
+    let mut v: Vec<Row> = vec_new::<Row>();
+    v.push(Row { id: 0i64, g: 7i64, xi: 0i64, xs: i64_max(), xf: 0.0f64, xu: 0u64 });
+    v.push(Row { id: 1i64, g: 7i64, xi: 0i64, xs: 1i64,      xf: 0.0f64, xu: 0u64 });
+    return v;
+}
+
+fn ovf_block(c: &SchemaCatalog) -> i32 {
+    let rs: Vec<Row> = ovf_rows();
+
+    // arm (1): the whole CALL returns Err(ElError).
+    let sc: Cell = match q_ovf(rs.as_slice()) {
+        Result::Ok(_v) => { ci(7i64, 3i32, 0i64) } Result::Err(_e) => { cerr(7i64, 3i32, K_MATH_ERR()) }
+    };
+    if sc.kind != K_MATH_ERR() { return 1i32; }
+
+    let d: Writ = writ_new(8192i64);
+    let arr: &mut WArray<WAny> = d.array(4i64);
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: Row = rs.get(i);
+        let n: RowF = d.make::<RowF>();
+        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
+        arr.push(WAny::ref_to((n.m as i64) as *const u8));
+        i = i + 1i64;
+    }
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+
+    let q: Query = match Query::compile(OVF_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 2i32; } };
+    // arm (2a): the dynamic engine fails the RUN.
+    let dc: Cell = match q.run(&e) {
+        Result::Ok(_r) => { ci(7i64, 3i32, 0i64) } Result::Err(_e) => { cerr(7i64, 3i32, K_MATH_ERR()) }
+    };
+    if dc.kind != K_MATH_ERR() { return 3i32; }
+
+    // arm (2b): the incremental engine BUILDS, and LATCHES. Distinguishing that
+    // from a build refusal is the whole reason K_BUILD_ERR is a separate kind.
+    let g: IncrJoin = match q.incremental(&e) {
+        Result::Ok(x) => { x } Result::Err(_e) => { return 4i32; }
+    };
+    let gc: Cell = if g.had_error() { cerr(7i64, 3i32, K_MATH_ERR()) } else { ci(7i64, 3i32, 0i64) };
+    if gc.kind != K_MATH_ERR() { return 5i32; }
+
+    // and the three normalize to ONE cell.
+    if sc.kind != dc.kind { return 6i32; }
+    if sc.kind != gc.kind { return 7i32; }
+    return 0i32;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §5  `avg` OVER A `u64` COLUMN — THE CELL THE SPINE CANNOT HOLD.
+//
+// ⚠ MEASURED DISAGREEMENT, PINNED AS ONE. This is not an assertion that any
+// tier is right; it is an assertion that the three do not agree, so that the
+// disagreement cannot vanish silently while the interpreter is deleted.
+//
+// `min`/`max`/`sum` over `u64` are refused by `deem!` at COMPILE time — see the
+// fail files named in the header — so `avg` is the ONLY aggregate over a `u64`
+// column that all three tiers will even build, and it is the exemption:
+// `agg_cast` (stdlib/mem/wql/rexpr_walk.logos:4246) makes the static fold write
+// `((s.xu) as f64)` itself, so the argument never meets the i64 tower.
+//
+// THE HAND-DERIVED OUGHT, for the group {2^63−1, 2^63}:
+//   the true mean is (2^63−1 + 2^63)/2 = 9223372036854775807.5, whose nearest
+//   f64 is 2^63 = 9223372036854775808.0 (bits 4890909195324358656).
+// THE THREE ROUTES, derived from the code and then measured:
+//   static      — `(x as f64)` per row, UNSIGNED: (2^63 + 2^63)/2 = 2^63. ✓ the OUGHT.
+//   incremental — `avg` shares `sum`'s INTEGER accumulator and the `ordw` arm is
+//                 taken only for fnid 2 (incr.logos:1371-1392, and the comment
+//                 there says so in as many words: "`avg` over an unsigned column
+//                 is wrong on a different axis and is a decision of its own").
+//                 So it adds 9223372036854775807 + (−9223372036854775808) = −1
+//                 and divides by 2: −0.5.
+//   dynamic     — the batch engine gives `avg` its own f64 running total seeded
+//                 at 0.0 (exec.logos:1193) but reads the payload through the
+//                 SIGNED arm, so it adds 2^63 + (−2^63) = 0.0 and divides: 0.0.
+// ⚠ CONTROL, IN THE SAME QUERY, OVER THE SAME ROWS: group {0, 5} — every value
+// below 2^63, where the signed/unsigned distinction cannot bite — must answer
+// 2.5 on ALL THREE. A control that changes nothing is evidence about the stand;
+// this one says the disagreement is about the EXTREME and not about `avg(u64)`.
+//
+// ⚠ IF THIS BLOCK GOES RED BECAUSE THE TIERS NOW AGREE, THAT IS A FIX AND THE
+// BLOCK MUST BE REWRITTEN TO THE OUGHT — not "repaired" by re-reading a run.
+// Same idiom, same reason, as `wql_domain_incr_disagreement`.
+// ═══════════════════════════════════════════════════════════════════════════
+pub deem q_uavg(rs: &[Row]) { from rs s group by s.g aggregate av = avg(s.xu) select (key, av) }
+
+fn UAVG_TEXT() -> str { return "from ss s group by s.g aggregate av = avg(s.xu) select (key, av)"; }
+
+fn uavg_rows() -> Vec<Row> {
+    let mut v: Vec<Row> = vec_new::<Row>();
+    v.push(Row { id: 0i64, g: 0i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 0u64 });
+    v.push(Row { id: 1i64, g: 0i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 5u64 });
+    v.push(Row { id: 2i64, g: 1i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 9223372036854775807u64 });
+    v.push(Row { id: 3i64, g: 1i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 9223372036854775808u64 });
+    return v;
+}
+
+fn find_key(r: &QRows, g: i64) -> i64 {
+    let n: i64 = r.row_count();
+    let mut i: i64 = 0i64;
+    while i < n { if r.get_i64(i, 0i64) == g { return i; } i = i + 1i64; }
+    return 0i64 - 1i64;
+}
+
+fn uavg_block(c: &SchemaCatalog) -> i32 {
+    let rs: Vec<Row> = uavg_rows();
+
+    // ── arm (1), static ────────────────────────────────────────────────────
+    let sv: Vec<(i64, f64)> = match q_uavg(rs.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { return 1i32; }
+    };
+    if sv.len() != 2i64 { return 2i32; }
+    let mut s_ctl: f64 = 0.0f64;
+    let mut s_ext: f64 = 0.0f64;
+    let mut i: i64 = 0i64;
+    while i < sv.len() {
+        let t: (i64, f64) = sv.get(i);
+        if t.0 == 0i64 { s_ctl = t.1; } else { s_ext = t.1; }
+        i = i + 1i64;
+    }
+    if f64_to_bits(s_ctl) != f64_to_bits(2.5f64) { return 3i32; }          // CONTROL
+    if f64_to_bits(s_ext) != 4890909195324358656u64 { return 4i32; }       // = 2^63, the OUGHT
+
+    // ── arms (2), dynamic + incremental, over the same rows ────────────────
+    let d: Writ = writ_new(8192i64);
+    let arr: &mut WArray<WAny> = d.array(8i64);
+    let mut k: i64 = 0i64;
+    while k < rs.len() {
+        let r: Row = rs.get(k);
+        let n: RowF = d.make::<RowF>();
+        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
+        arr.push(WAny::ref_to((n.m as i64) as *const u8));
+        k = k + 1i64;
+    }
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+
+    let q: Query = match Query::compile(UAVG_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
+    let dr: QRows = match q.run(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
+    let dc: i64 = find_key(&dr, 0i64);
+    let de: i64 = find_key(&dr, 1i64);
+    if dc < 0i64 || de < 0i64 { return 7i32; }
+    if f64_to_bits(dr.get_f64(dc, 1i64)) != f64_to_bits(2.5f64) { return 8i32; }   // CONTROL
+    if f64_to_bits(dr.get_f64(de, 1i64)) != f64_to_bits(0.0f64) { return 9i32; }   // ⚠ 0.0, not 2^63
+
+    let g: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 10i32; } };
+    if g.had_error() { return 11i32; }
+    let ir: QRows = g.snapshot();
+    let ic: i64 = find_key(&ir, 0i64);
+    let ie: i64 = find_key(&ir, 1i64);
+    if ic < 0i64 || ie < 0i64 { return 12i32; }
+    if f64_to_bits(ir.get_f64(ic, 1i64)) != f64_to_bits(2.5f64) { return 13i32; }  // CONTROL
+    if f64_to_bits(ir.get_f64(ie, 1i64)) != f64_to_bits(0.0f64 - 0.5f64) { return 14i32; } // ⚠ −0.5
+
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let a: i32 = run_spine(&c);
+    if a != 0i32 { return a; }
+    let b: i32 = ovf_block(&c);
+    if b != 0i32 { return 200i32 + b; }
+    let u: i32 = uavg_block(&c);
+    if u != 0i32 { return 220i32 + u; }
+    return 0i32;
+}
