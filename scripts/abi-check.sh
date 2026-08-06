@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# abi-check — the minor-bump gate. Four checks:
+# abi-check — the minor-bump gate. Five checks:
 #
 #   0. BUILD AGE   — the stdlib archives must not predate logosc. A spec
 #                    regenerated from archives older than the compiler describes
@@ -16,6 +16,11 @@
 #                    (logosc --abi-diff; removals are BREAKING).
 #   3. BUMP GATE   — if the ABI broke, the version (CMakeLists project VERSION)
 #                    must have a higher major or minor than the base; else fail.
+#   4. CLOSURE     — checks 1-3 all read the spec and can only speak about what
+#                    is IN it; none can notice a type it never recorded. Require
+#                    the recorded set to be CLOSED: a type named by a recorded
+#                    field list or enum payload must itself have a record, or an
+#                    exemption stating the reason the emitter derives.
 #
 #   scripts/abi-check.sh [<base-ref>]
 #     base-ref   what to compare against (default: origin/main)
@@ -41,6 +46,11 @@
 #   freshness  the fresh spec with one record moved  the same `diff -q`. Not
 #              must compare UNEQUAL to the spec      `--emit-abi` itself; the
 #                                                    record floor covers that.
+#   closure    a fabricated record naming a type    the same `--abi-closure`.
+#              with no record must come back a       Plus: an exemption that
+#              VIOLATION; and an exemption whose     matches nothing FAILS, so a
+#              reason is mutated must come back      walk that stopped reaching
+#              EXEMPTION-REASON-CHANGED              goes RED, not green.
 #   verdict    (a) base = spec + one real-shaped     the same `--abi-diff`
 #              record the build does not have  ⇒     invocation and the same
 #              MUST come back 1 / BREAKING           `$verdict` reading that
@@ -58,6 +68,7 @@
 set -uo pipefail
 
 SPEC=abi/logos.abi
+EXEMPT_FILE=abi/logos.abi-closure-exempt   # check 4: ABI-closure exemptions
 BASE="${1:-origin/main}"
 
 # ── FLOORS: MEASURED VALUES, WITH THE MEASUREMENT ────────────────────────────
@@ -264,4 +275,32 @@ if [ "$verdict" = 1 ]; then
     exit 1
 fi
 echo "abi-check: ABI preserved (additive or unchanged) — OK."
+
+# ── 4. closure ────────────────────────────────────────────────────────────────
+# ⚠ CHECKS 1-3 ARE ALL ABOUT RECORDS THAT EXIST. Every one of them — freshness,
+# verdict, bump — reads abi/logos.abi and can only ever speak about what is IN
+# it. None can notice a type the spec never recorded, and that is not a corner:
+# `QEnv` was recorded carrying `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]` while `RtVal`
+# — a `pub enum`, the whole UDF/UDA registration surface — had no record at all.
+# MEASURED on this tree, before the fix: an added `F32(f32)` arm on the real
+# RtVal produced a BYTE-IDENTICAL 12881-line spec, and checks 1-3 above all
+# passed, with check 2 printing "VERDICT: ABI-PRESERVING". The gate was blind by
+# construction, and the blindness was in the SHAPE of the spec, not in the
+# differ. Closure is the check that can see it: every type named by a recorded
+# field list or enum payload must itself have a record, or an exemption stating
+# the reason the emitter derives. Same probe after the fix: ABI-BREAKING.
+if [ -x tests/logos/abi_closure_gate.sh ] && [ -f "$EXEMPT_FILE" ]; then
+    if ! tests/logos/abi_closure_gate.sh "$LOGOSC" "$LIB_DIR" "$EXEMPT_FILE"; then
+        echo "::error:: the ABI spec is not CLOSED — see above. A recorded type names a"
+        echo "          type with no record, so a change to that type is invisible to"
+        echo "          checks 1-3."
+        exit 1
+    fi
+else
+    # A skipped check must not read as a passed one.
+    echo "::error:: closure check MISSING (tests/logos/abi_closure_gate.sh or"
+    echo "          $EXEMPT_FILE absent) — checks 1-3 cannot see an unrecorded type,"
+    echo "          so this run has no answer about the spec's closure."
+    exit 1
+fi
 exit 0

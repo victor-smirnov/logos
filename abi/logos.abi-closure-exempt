@@ -1,0 +1,44 @@
+# Logos ABI-closure exemptions — read by `logosc --abi-closure --abi-exempt`.
+#
+# The spec must be CLOSED: every type named by a recorded field list or enum
+# payload must itself have a record. A line here says "this one does not, and
+# here is the reason the EMITTER computes for it". Format:
+#
+#   <fully.qualified.Type>\t<reason>          (TAB-separated; # = comment)
+#
+# ⚠ AN EXEMPTION CANNOT OUTLIVE ITS CAUSE, AND THAT IS MECHANIZED, NOT PROMISED.
+#   • the reason is not asserted here, it is COMPARED against what the emitter
+#     derives this build. If the cause changes — the type becomes `pub`, or the
+#     deem policy stops dropping it — the reasons disagree and the gate FAILS
+#     with EXEMPTION-REASON-CHANGED. Rewriting the reason here to match is a
+#     deliberate act, not a silent drift.
+#   • an exemption that matches no violation FAILS with EXEMPTION-STALE. That is
+#     also the canary for the whole check: if the closure walk ever stops
+#     reaching (the one way this gate could report "closed" while seeing
+#     nothing), every exemption below goes unmatched and the run goes RED
+#     instead of green. A dead check cannot pass here.
+#
+# REASONS THE EMITTER CAN DERIVE:
+#   not-pub                        private type reached BY VALUE from a record.
+#                                  NOT exemptible: it fixes the public record's
+#                                  size, so a consumer that stack-allocates the
+#                                  public type is built against it.
+#   not-pub-behind-indirection     private type reached only through a pointer.
+#   deem-outside-derived-api-closure   in a deem package and not reachable from
+#                                  the dynamic-query API seed.
+#   wql-internal-pkg / canon-internal-pkg   engine-internal package.
+#   unknown-origin                 no declaration seen in any compiled layer.
+#
+# ── the population, as of this commit ────────────────────────────────────────
+# Both entries are the SAME shape and neither has anything to do with the deem
+# policy that motivated this check: a module-private struct reached only through
+# a `*mut` field of a public one. Nothing outside its own module can name the
+# type, so no consumer can be compiled against its shape; and because every edge
+# to it is indirect, the public record's own size does not depend on it. If
+# either becomes `pub`, or is ever embedded by value, the reason the emitter
+# derives changes and this file stops matching.
+#
+# `HashMap.entries: *mut Entry<K, V>` (+ HashMapIter/Keys/Values)
+logos.mem.collections.hashmap.Entry	not-pub-behind-indirection
+# `Bytes.inner: *mut BytesInner` (+ BytesMut)
+logos.std.io.bytes.BytesInner	not-pub-behind-indirection

@@ -1089,6 +1089,47 @@ set_tests_properties(logos_00_layout_decline_ledger PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ── ABI CLOSURE ───────────────────────────────────────────────────────────────
+# The recorded ABI surface must be CLOSED under reachability: a type named by a
+# recorded field list or enum payload must itself have a record. It was not, and
+# the hole was not theoretical — `QEnv` was recorded carrying
+# `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]` while `RtVal`, a `pub enum` and the whole
+# UDF registration surface, had none, so an added arm produced a BYTE-IDENTICAL
+# spec and `--abi-diff` said ABI-PRESERVING (re-measured on this tree before the
+# fix; after it, the same probe reports ABI-BREAKING).
+#
+# ⚠ `logos_00_`, NOT `logos_09_`. MEASURED: the L1/L2 gates tier is
+# `-R '^logos_00_|^logos_07_ir_snapshot_'`, so the whole `logos_09_*` family —
+# including `logos_09_rtval_domain`, written for this very arc — is L4-only and
+# has never run on the commit that would break it. A gate off the per-commit
+# path is the "a test MISSING from the suite" shape one level up.
+#
+# ⚠ NAMED `_abi_reachability`, NOT `_abi_closure`. MEASURED: the L1/L2 corpus
+# sampler selects with `-R '_(<basename>|…)$'` built from the .logos corpus, and
+# `closure` IS a corpus basename — so `logos_00_abi_closure` was captured by the
+# corpus chunk as well as the gates tier, ran twice, and pushed the L2 tally from
+# 1883 to 1884 even though that tally documents itself as EXCLUDING the gates. A
+# gate whose name ends in `_<corpus basename>` is silently double-counted. One
+# such collision already exists at HEAD (`logos_07_ir_snapshot_enum_match` vs the
+# corpus `enum_match`); this arc does not add a second. The general fix — assert
+# the gate set and the corpus selection are disjoint — is a change to what every
+# commit costs and is not this slice's to take.
+#
+# Needs the BUILT stdlib: the check reads the `.abi-closure` sidecars emit_module
+# writes next to the archives, so it depends on logosc AND on the archives being
+# current (same dependency `scripts/abi-check.sh` has).
+add_test(
+    NAME logos_00_abi_reachability
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/abi_closure_gate.sh
+            $<TARGET_FILE:logosc>
+            ${LOGOS_BUILD_LIB_DIR}
+            ${CMAKE_SOURCE_DIR}/abi/logos.abi-closure-exempt
+)
+set_tests_properties(logos_00_abi_reachability PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint"
+)
+
 # ── Pass tests ────────────────────────────────────────────────────────────────
 # Both .logos and .expected live in tests/logos/pass/ (native suite).
 # Imported rust-derived tests live in tests/imported/{pass,fail}/<category>/

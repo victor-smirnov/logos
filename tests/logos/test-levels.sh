@@ -142,7 +142,11 @@ fi
 #
 # WHAT IS PULLED IN: all of logos_00_* (the whole gate family — running three of
 # them per commit would be the same defect one level up) and all of
-# logos_07_ir_snapshot_*. 21 tests today: 9 + 12.
+# logos_07_ir_snapshot_*. 24 tests today: 12 + 12. (The comment said "21: 9 + 12"
+# and had been stale by two since before this arc — a count someone will trust,
+# so it is re-measured here: `grep -c 'NAME logos_00_'` = 12,
+# `ls tests/logos/ir/*.check | wc -l` = 12. The twelfth logos_00_ is
+# `logos_00_abi_reachability`, added with the ABI-closure gate.)
 #
 # THE ACCEPTED COST, MEASURED HERE RATHER THAN ESTIMATED: 9.0 s of ctest wall,
 # three consecutive runs at 8.98 / 9.01 / 9.00 s (-j12, 32-core box at load ~6).

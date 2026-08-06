@@ -4861,6 +4861,205 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     return 0;
 }
 
+// ── ABI closure check (`--abi-closure [--abi-exempt <file>]`) ────────────────
+// THE DEFECT: the recorded set is not CLOSED. `logos.mem.deem.QEnv` is recorded
+// with `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]`, but `RtVal` — a `pub enum`, the
+// entire UDF/UDA registration surface — has no record, because the deem policy
+// admits five names by ALLOWLIST and nothing checks that an admitted type only
+// names admitted types. Consequence, measured: building an extra arm into
+// `RtVal` produced a byte-identical spec and `--abi-diff` answered
+// ABI-PRESERVING. A recorded type may name an unrecorded one and the spec's own
+// gate cannot see it.
+//
+// The check is DERIVED, not listed. emit_module walks the structured TypeRefs
+// each record was built from and writes `ref`/`decl` lines to a `.abi-closure`
+// sidecar; here they are merged — exactly as `--emit-abi` merges `.abi-layout`,
+// and for the same reason: only the merged view knows every record, so only it
+// can say a referenced type has none. Every unrecorded referent is a violation
+// unless an exemption names it AND states the reason the emitter computed. An
+// exemption whose reason no longer matches, or that matches no violation at
+// all, FAILS — so an exemption cannot outlive its cause, and a walk that
+// silently stops reaching (the way this check would otherwise lie) turns every
+// exemption stale and fails loudly instead of passing green.
+//
+// Exit 0 = closed (modulo live exemptions), 1 = violations, 2 = usage/IO error.
+static int abi_closure(const std::vector<std::string>& lib_dirs,
+                       const std::vector<std::string>& lib_files,
+                       const std::string& exempt_path) {
+    struct Ref { std::string referrer, site, target; };
+    std::set<std::string> records;                    // keys with a type/vtable record
+    std::map<std::string, std::string> decl_reason;   // pkg.name -> emitter's reason
+    std::set<std::string> ref_keys;                   // dedup: referrer\tsite\ttarget
+    std::vector<Ref> refs;
+
+    auto slurp = [](const std::string& cmd, const std::function<void(std::string_view)>& on_line) {
+        FILE* pipe = ::popen(cmd.c_str(), "r");
+        if (!pipe) return;
+        char line[8192];
+        while (std::fgets(line, sizeof(line), pipe)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+            if (!sv.empty()) on_line(sv);
+        }
+        ::pclose(pipe);
+    };
+    // Record KEYS come from the same `.abi-layout` sidecars --emit-abi merges,
+    // so "has a record" here means exactly "appears in abi/logos.abi".
+    auto load_layout = [&](const std::string& glob) {
+        slurp("cat " + glob + " 2>/dev/null", [&](std::string_view sv) {
+            size_t t1 = sv.find('\t');
+            if (t1 == std::string_view::npos) return;
+            std::string_view cat = sv.substr(0, t1);
+            if (cat != "type" && cat != "vtable") return;
+            size_t t2 = sv.find('\t', t1 + 1);
+            records.insert(std::string(sv.substr(t1 + 1, t2 == std::string_view::npos
+                                                          ? std::string_view::npos
+                                                          : t2 - t1 - 1)));
+        });
+    };
+    auto load_closure = [&](const std::string& glob) {
+        slurp("cat " + glob + " 2>/dev/null", [&](std::string_view sv) {
+            size_t t1 = sv.find('\t');
+            if (t1 == std::string_view::npos) return;
+            std::string_view cat = sv.substr(0, t1);
+            std::string_view rest = sv.substr(t1 + 1);
+            if (cat == "decl") {
+                size_t t2 = rest.find('\t');
+                if (t2 == std::string_view::npos) return;
+                std::string key(rest.substr(0, t2));
+                std::string reason(rest.substr(t2 + 1));
+                // A type declared in several compiles must not flip reason by
+                // scheduling. "recorded" wins — if ANY module recorded it, the
+                // spec has it; that is the fact the closure asks about.
+                auto it = decl_reason.find(key);
+                if (it == decl_reason.end()) decl_reason.emplace(std::move(key), std::move(reason));
+                else if (reason == "recorded") it->second = reason;
+            } else if (cat == "ref") {
+                size_t t2 = rest.find('\t');
+                if (t2 == std::string_view::npos) return;
+                size_t t3 = rest.find('\t', t2 + 1);
+                if (t3 == std::string_view::npos) return;
+                std::string k(rest);
+                if (!ref_keys.insert(k).second) return;
+                refs.push_back({std::string(rest.substr(0, t2)),
+                                std::string(rest.substr(t2 + 1, t3 - t2 - 1)),
+                                std::string(rest.substr(t3 + 1))});
+            }
+        });
+    };
+    for (const auto& d : lib_dirs) { load_layout(d + "/*.abi-layout"); load_closure(d + "/*.abi-closure"); }
+    for (const auto& f : lib_files) { load_layout(f + ".abi-layout"); load_closure(f + ".abi-closure"); }
+
+    if (records.empty()) {
+        std::fprintf(stderr, "logosc: --abi-closure: no .abi-layout sidecars found "
+                             "(point -L at a built lib dir)\n");
+        return 2;
+    }
+    if (refs.empty()) {
+        // A green run and an unreachable walk print the same "0 violations".
+        // They must not: no refs at all means the emitter never walked.
+        std::fprintf(stderr, "logosc: --abi-closure: %zu record(s) but ZERO reference edges — "
+                             "the closure walk did not run (stale .abi-closure sidecars?)\n",
+                     records.size());
+        return 2;
+    }
+
+    // exemptions: "<pkg.name>\t<reason>" (# comments, blank lines ignored)
+    std::map<std::string, std::string> exempt;
+    std::set<std::string> exempt_used;
+    if (!exempt_path.empty()) {
+        FILE* f = std::fopen(exempt_path.c_str(), "r");
+        if (!f) {
+            std::fprintf(stderr, "logosc: --abi-closure: cannot open exemption file '%s'\n",
+                         exempt_path.c_str());
+            return 2;
+        }
+        char line[2048];
+        while (std::fgets(line, sizeof(line), f)) {
+            std::string_view sv(line);
+            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+            if (sv.empty() || sv.front() == '#') continue;
+            size_t t = sv.find('\t');
+            if (t == std::string_view::npos) {
+                std::fprintf(stderr, "logosc: --abi-closure: malformed exemption line: %.*s\n",
+                             (int)sv.size(), sv.data());
+                std::fclose(f);
+                return 2;
+            }
+            exempt.emplace(std::string(sv.substr(0, t)), std::string(sv.substr(t + 1)));
+        }
+        std::fclose(f);
+    }
+
+    std::map<std::string, std::set<std::string>> violations;   // target -> referrers
+    std::map<std::string, std::string> viol_reason;            // target -> emitter reason
+    std::set<std::string> reason_mismatch;
+    std::map<std::string, std::set<std::string>> unqualified;  // bare target -> referrers
+    // A `not-pub` type is exemptible only where NO edge to it is by value: a
+    // private type embedded by value fixes a public record's SIZE, and there the
+    // absent record is a real hole. Derived from the edges, so the narrowing
+    // cannot be asserted by an exemption — it has to be true.
+    std::set<std::string> reached_byval;
+    for (const auto& r : refs)
+        if (r.site.size() >= 6 && r.site.compare(r.site.size() - 6, 6, "-byval") == 0)
+            reached_byval.insert(r.target);
+    for (const auto& r : refs) {
+        if (records.count(r.target)) continue;
+        // ⚠ NO LAST-COMPONENT FALLBACK. A target the emitter could not qualify
+        // cannot be compared against fully-qualified record keys, and matching
+        // on the short name would re-admit the ambiguity (Weak, Ordering, Ident,
+        // Error, DirEntry, ControlFlow, Bytes are each shared across records) —
+        // i.e. the checker would answer about a type it cannot name. Say so.
+        if (r.target.find('.') == std::string::npos) {
+            unqualified[r.target].insert(r.referrer + " (" + r.site + ")");
+            continue;
+        }
+        auto dr = decl_reason.find(r.target);
+        std::string reason = dr == decl_reason.end() ? std::string("unknown-origin") : dr->second;
+        if (reason == "not-pub" && !reached_byval.count(r.target))
+            reason = "not-pub-behind-indirection";
+        auto ex = exempt.find(r.target);
+        if (ex != exempt.end()) {
+            exempt_used.insert(r.target);
+            if (ex->second != reason) reason_mismatch.insert(r.target + "\t" + ex->second + "\t" + reason);
+            continue;
+        }
+        violations[r.target].insert(r.referrer + " (" + r.site + ")");
+        viol_reason[r.target] = reason;
+    }
+
+    std::printf("abi-closure: %zu record(s), %zu reference edge(s), %zu exemption(s)\n",
+                records.size(), refs.size(), exempt.size());
+    int rc = 0;
+    for (const auto& [target, referrers] : violations) {
+        std::printf("VIOLATION\t%s\treason=%s\treferrers=", target.c_str(),
+                    viol_reason[target].c_str());
+        bool first = true;
+        for (const auto& rr : referrers) { std::printf("%s%s", first ? "" : ",", rr.c_str()); first = false; }
+        std::printf("\n");
+        rc = 1;
+    }
+    for (const auto& [target, referrers] : unqualified) {
+        std::printf("UNQUALIFIED-REF\t%s\treferrers=", target.c_str());
+        bool first = true;
+        for (const auto& rr : referrers) { std::printf("%s%s", first ? "" : ",", rr.c_str()); first = false; }
+        std::printf("\t(no package on the referenced type — cannot be checked against the records)\n");
+        rc = 1;
+    }
+    for (const auto& m : reason_mismatch) {
+        std::printf("EXEMPTION-REASON-CHANGED\t%s\n", m.c_str());
+        rc = 1;
+    }
+    for (const auto& [target, reason] : exempt) {
+        if (exempt_used.count(target)) continue;
+        std::printf("EXEMPTION-STALE\t%s\treason=%s\t(no unrecorded reference to it)\n",
+                    target.c_str(), reason.c_str());
+        rc = 1;
+    }
+    if (rc == 0) std::printf("abi-closure: CLOSED (every referenced type has a record or a live exemption)\n");
+    return rc;
+}
+
 // ── ABI semantic differ (`--abi-diff <old.abi> <new.abi>`) ───────────────────
 // Qualify the change between two ABI specs as ABI-preserving (patchset) or
 // ABI-breaking (minor bump). NOT a raw line diff: pairs records by (category,
@@ -5047,6 +5246,8 @@ int main(int argc, char** argv) {
     bool        print_metadata = false;           // --print-metadata: all of the above as a Writ doc
     const char* abi_diff_old = nullptr;           // --abi-diff <old> <new>: qualify ABI change
     const char* abi_diff_new = nullptr;
+    bool        abi_closure_flag = false;         // --abi-closure: is the recorded set closed under reachability?
+    std::string abi_exempt_path;                  // --abi-exempt <file>: exemptions, "<pkg.name>\t<reason>"
     std::string only_file;                       // --only-file <path>: per-file emit (B1.7)
     std::string dump_metaprog_dir;                // --dump-metaprog <dir>: write metafn-emitted ASTs as Logos source under <dir>/<callee>__<file>_<line>/post_quote.logos
     std::string dump_metaprog_filter;             // --dump-metaprog-filter <pat>: comma-separated patterns (`*` / callee substring / `file:line`); empty or `*` = match all
@@ -5188,6 +5389,8 @@ int main(int argc, char** argv) {
         else if (arg == "--print-lib-dir") { print_lib_dir = true; }
         else if (arg == "--print-metadata") { print_metadata = true; }
         else if (arg == "--abi-diff" && i + 2 < argc) { abi_diff_old = argv[++i]; abi_diff_new = argv[++i]; }
+        else if (arg == "--abi-closure") { abi_closure_flag = true; }
+        else if (arg == "--abi-exempt" && i + 1 < argc) { abi_exempt_path = argv[++i]; }
         else if (arg.rfind("--dump-metaprog=", 0) == 0) {
             std::string_view v = arg;
             v.remove_prefix(16);
@@ -5351,6 +5554,8 @@ int main(int argc, char** argv) {
                                                                        : std::string(output_path);
         return emit_abi_spec(search_paths, explicit_lib_files, abi_out);
     }
+    if (abi_closure_flag)
+        return abi_closure(search_paths, explicit_lib_files, abi_exempt_path);
     if (abi_diff_old && abi_diff_new)
         return abi_diff(abi_diff_old, abi_diff_new);
 

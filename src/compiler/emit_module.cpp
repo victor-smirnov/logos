@@ -43,6 +43,7 @@
 #include <filesystem>
 #include <unordered_set>
 #include <fstream>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -103,11 +104,27 @@ static bool is_canon_internal_pkg(std::string_view pkg) {
 // automatically — the churn never reaches the spec, no per-slice bump. Matched
 // on the exact TYPE name within the deem package (methods emit per-struct, so an
 // excluded type drops its methods wholesale; free helpers are private already).
+//
+// ⚠ THESE FIVE ARE A SEED, NOT THE POPULATION. Listing them and stopping is what
+// left `RtVal` — a `pub enum`, the whole `fn(&[RtVal]) -> RtVal` UDF surface —
+// out of the spec while `QEnv`, which is IN the spec, carries
+// `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]`. A recorded type named an unrecorded one
+// and nothing noticed: an extra arm on RtVal produced a byte-identical spec and
+// `--abi-diff` said ABI-PRESERVING. The fix is NOT a sixth name (that closes one
+// instance of a class this codebase has spent a week closing — a population
+// listed instead of derived). The ABI path takes the REACHABILITY CLOSURE of
+// this seed over the pub deem types the API actually names (see
+// `deem_abi_admitted` in compile_to_object) and admits that. The policy's intent
+// survives exactly: a new engine type nothing in the API names is still excluded
+// automatically. Measured cost of the closure: +3 type, +19 sym records.
 static bool is_deem_api_type(std::string_view name) {
     return name == "Query" || name == "SchemaCatalog" || name == "QEnv" ||
            name == "QRows" || name == "QError";
 }
-static bool is_deem_internal_type(std::string_view pkg, std::string_view name) {
+// `admitted` (when non-null) is the derived closure of the seed above; the docs
+// EDB passes nullptr and keeps the seed-only behaviour it has always had.
+static bool is_deem_internal_type(std::string_view pkg, std::string_view name,
+                                  const std::set<std::string, std::less<>>* admitted = nullptr) {
     // The deem engine/core now lives in logos.mem.deem (mem tier); the history
     // decorator (FactHistory) + Memoria storage stay under logos.std.deem[.data]
     // (lcm-bound). Both trees are heavy-dev internals — exclude either root
@@ -117,7 +134,9 @@ static bool is_deem_internal_type(std::string_view pkg, std::string_view name) {
             (p.size() > root.size() && p.rfind(root, 0) == 0 && p[root.size()] == '.');
     };
     const bool in_deem = under(pkg, "logos.mem.deem") || under(pkg, "logos.lcm.deem");
-    return in_deem && !is_deem_api_type(name);
+    if (!in_deem) return false;
+    if (admitted) return admitted->count(name) == 0;
+    return !is_deem_api_type(name);
 }
 
 // Second leak form the package test can't see: generic INSTANCES parameterized
@@ -147,6 +166,93 @@ static bool mentions_excluded_type(std::string_view sym,
         }
     }
     return false;
+}
+
+// ── ABI CLOSURE: the recorded set must be CLOSED under reachability ─────────
+// A spec that RECORDS a type but not the types that type NAMES is not a spec.
+// Measured: `logos.mem.deem.QEnv` is recorded with
+// `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]` while `RtVal` — a `pub enum`, the whole
+// UDF/UDA registration surface — has NO record, because it is not one of the
+// five names on the `is_deem_api_type` allowlist. Consequence: retyping an
+// RtVal payload produced a BYTE-IDENTICAL spec and `--abi-diff` answered
+// ABI-PRESERVING. Same shape for `QRelReg`/`QBodyTab` (deem policy) and for
+// `Entry`/`BytesInner` (private types reachable through a pub record's
+// `*mut` field — no deem involvement at all, so the class is broader than the
+// allowlist and a sixth name would close none of it).
+//
+// The population is therefore DERIVED, never listed: walk the structured
+// TypeRefs each record was built from and name every nominal head. Deriving
+// from the PRINTED record is the `find("__")`-is-a-guess class (2bdd8f25) one
+// level up — field types print BARE (`cat:SchemaCatalog`) while records are
+// keyed fully-qualified, and 7 short names (Weak, Ordering, Ident, Error,
+// DirEntry, ControlFlow, Bytes) are already ambiguous across records, so a
+// text checker cannot even tell which type a field means.
+//
+// Mirrors `abi_type`'s `#[repr(transparent)]` UnsafeCell unwrap: the record
+// prints the payload, so the closure demands the payload's record, not
+// UnsafeCell's.
+// `indirect` = the path from the record to this head crossed a POINTER. It is
+// the only thing that can narrow an exemption honestly: a private type embedded
+// BY VALUE fixes the public record's size (a consumer that stack-allocates the
+// public type is built against it), while one reached through `*mut` only fixes
+// a heap shape that no consumer can name. ⚠ crossing a FN-POINTER's parameter
+// or return does NOT count as indirect — that is precisely the `QEnv.f_ptrs:
+// [fn(&[RtVal]) -> RtVal; 8]` shape whose retype started this slice: the word
+// stays a word and the CALL ABI changes underneath it. Type ARGUMENTS do not
+// count either (conservative: fewer exemptions, never more).
+static void abi_nominal_heads(
+        TypeRef t,
+        const std::function<void(std::string_view, std::string_view, bool)>& out,
+        int depth = 0, bool indirect = false) {
+    if (!t || depth > 32) return;
+    using K = LogosType::Kind;
+    auto args = [&](TypeRef ty) {
+        for (auto& a : ty.type_args()) abi_nominal_heads(TypeRef(a), out, depth + 1, indirect);
+    };
+    switch (t.kind()) {
+    case K::Struct:
+    case K::ZonedStruct:
+        if (t.struct_name() == "UnsafeCell" && t.pkg_name() == "logos.lang.cell" &&
+            !t.type_args().empty()) {                       // transparent: see abi_type
+            abi_nominal_heads(TypeRef(t.type_args()[0]), out, depth + 1, indirect);
+            break;
+        }
+        out(t.pkg_name(), t.struct_name(), indirect);
+        args(t);
+        break;
+    case K::DstRef:                                          // `&DstStruct` — fat ptr
+        out(t.pkg_name(), t.struct_name(), true);
+        for (auto& a : t.type_args()) abi_nominal_heads(TypeRef(a), out, depth + 1, true);
+        break;
+    case K::Enum:
+        out(t.pkg_name(), t.enum_name(), indirect);
+        args(t);
+        break;
+    case K::TraitObject:
+    case K::TaggedPtr:
+    case K::UnsizedDyn:
+        out(t.pkg_name(), t.trait_name(), true);
+        for (auto& a : t.type_args()) abi_nominal_heads(TypeRef(a), out, depth + 1, true);
+        break;
+    case K::Ptr: case K::Ref: case K::MutRef:
+        abi_nominal_heads(t.pointee(), out, depth + 1, true);
+        break;
+    case K::Slice: case K::UnsizedSlice:
+        abi_nominal_heads(t.elem(), out, depth + 1, true);
+        break;
+    case K::Array:                                           // [T; N] — T is BY VALUE
+        abi_nominal_heads(t.elem(), out, depth + 1, indirect);
+        break;
+    case K::Tuple:
+        for (auto& e : t.tuple_elems()) abi_nominal_heads(TypeRef(e), out, depth + 1, indirect);
+        break;
+    case K::Closure: case K::FnPtr: case K::FnItem:
+        for (auto& p : t.closure_params()) abi_nominal_heads(TypeRef(p), out, depth + 1, false);
+        abi_nominal_heads(t.closure_ret(), out, depth + 1, false);
+        break;
+    default:
+        break;   // primitives, TypeVar/ConstVar, AssocType, ImplTrait, literals
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -945,6 +1051,72 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     auto abi_treat_pub = [&](std::string_view name, bool flag) {
         return flag || abi_pub_type_names.count(abi_bare_template(name)) > 0;
     };
+    // ── The deem ABI population, DERIVED from the seed ───────────────────────
+    // Reachability closure of `is_deem_api_type` over the field/payload types of
+    // the admitted set, restricted to PUB types inside a deem package. This is
+    // the whole point: `RtVal`/`QRelReg`/`QBodyTab` enter because `QEnv`/`QRows`/
+    // `Query` NAME them, not because someone typed their names here. A deem type
+    // no API type names stays excluded, so the policy the allowlist expressed —
+    // engine churn never reaches the spec — is unchanged. A private deem type is
+    // NOT admitted (a consumer cannot name it); it surfaces as a `not-pub`
+    // closure violation instead, where it belongs.
+    std::set<std::string, std::less<>> deem_abi_admitted;
+    {
+        const auto* pool_c = prog.type_pool.impl();
+        auto in_deem_pkg = [](std::string_view p) {
+            auto under = [](std::string_view q, std::string_view root) {
+                return q == root || (q.size() > root.size() && q.rfind(root, 0) == 0 &&
+                                     q[root.size()] == '.');
+            };
+            return under(p, "logos.mem.deem") || under(p, "logos.lcm.deem");
+        };
+        for (auto& sd : prog.structs)
+            if (in_deem_pkg(sd.pkg()) && is_deem_api_type(sd.name())) deem_abi_admitted.insert(std::string(sd.name()));
+        for (auto& ed : prog.enums)
+            if (in_deem_pkg(ed.pkg()) && is_deem_api_type(ed.name())) deem_abi_admitted.insert(std::string(ed.name()));
+        for (auto& td : prog.traits)
+            if (in_deem_pkg(td.pkg()) && is_deem_api_type(td.name())) deem_abi_admitted.insert(std::string(td.name()));
+        // Fixpoint. Bounded by the declaration count, so the loop terminates on
+        // the first round that adds nothing.
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            auto pull = [&](std::string_view pkg, std::string_view name, bool is_pub, TypeRef t) {
+                if (!in_deem_pkg(pkg) || !deem_abi_admitted.count(name)) return;
+                (void)is_pub;
+                abi_nominal_heads(t, [&](std::string_view rp, std::string_view rn, bool) {
+                    if (rn.empty()) return;
+                    if (!rp.empty() && !in_deem_pkg(rp)) return;   // other package: its own policy
+                    if (deem_abi_admitted.count(rn)) return;
+                    // Only PUB deem types join; the referent must actually be
+                    // declared in a deem package here (an empty pkg on the
+                    // TypeRef is resolved against this program's decls).
+                    for (auto& s2 : prog.structs)
+                        if (s2.name() == rn && in_deem_pkg(s2.pkg()) && abi_treat_pub(s2.name(), s2.is_pub())) {
+                            deem_abi_admitted.insert(std::string(rn)); grew = true; return;
+                        }
+                    for (auto& e2 : prog.enums)
+                        if (e2.name() == rn && in_deem_pkg(e2.pkg()) && abi_treat_pub(e2.name(), e2.is_pub())) {
+                            deem_abi_admitted.insert(std::string(rn)); grew = true; return;
+                        }
+                    for (auto& t2 : prog.traits)
+                        if (t2.name() == rn && in_deem_pkg(t2.pkg())) {
+                            deem_abi_admitted.insert(std::string(rn)); grew = true; return;
+                        }
+                });
+            };
+            for (auto& sd : prog.structs)
+                for (auto f : sd.fields()) pull(sd.pkg(), sd.name(), sd.is_pub(), f.type(pool_c));
+            for (auto& ed : prog.enums)
+                ed.each_variant([&](lir_view::EnumVariantView v) {
+                    if (!v.has_payload()) return;
+                    for (auto pt : v.payload_types(pool_c)) pull(ed.pkg(), ed.name(), ed.is_pub(), pt);
+                });
+        }
+    }
+    auto deem_excluded = [&](std::string_view pkg, std::string_view name) {
+        return is_deem_internal_type(pkg, name, &deem_abi_admitted);
+    };
     if (!module_name.empty() && !abi_layout_path.empty()) {
         const auto* pool = prog.type_pool.impl();
         auto qual = [](std::string_view pkg, std::string_view name) {
@@ -967,31 +1139,106 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             return type_str(t);
         };
         std::ofstream af(abi_layout_path);
+        // ── ABI-closure sidecar (`.abi-closure`) ────────────────────────────
+        // Two line kinds, both DERIVED from the same views the records above
+        // are built from (see abi_nominal_heads):
+        //   ref  <referrer>  <site>  <pkg.name>   a nominal head a RECORD names
+        //   decl <pkg.name>  <reason>             a type this module declared,
+        //                                         and why it is / is not recorded
+        // Resolution is deliberately NOT done here: a module sees only its own
+        // declarations, and a referrer in layer N routinely names a type from
+        // layer N-1. `logosc --abi-closure` merges every sidecar and only then
+        // can say whether a referenced type has a record anywhere — the same
+        // reason `--emit-abi` merges rather than emits.
+        std::string closure_path = abi_layout_path;
+        {
+            const std::string sfx = ".abi-layout";
+            if (closure_path.size() >= sfx.size() &&
+                closure_path.compare(closure_path.size() - sfx.size(), sfx.size(), sfx) == 0)
+                closure_path.replace(closure_path.size() - sfx.size(), sfx.size(), ".abi-closure");
+            else
+                closure_path += ".abi-closure";
+        }
+        std::ofstream cf(closure_path);
+        // WHY a type is not recorded — the emitter is the only thing that knows,
+        // and an exemption that cannot state its cause outlives it. Same
+        // predicates, same order, as the three `continue`s on each record loop.
+        auto drop_reason = [&](std::string_view pkg, std::string_view name,
+                               bool is_pub, bool is_trait) -> const char* {
+            if (is_wql_internal_pkg(pkg)) return "wql-internal-pkg";
+            if (is_canon_internal_pkg(pkg)) return "canon-internal-pkg";
+            if (deem_excluded(pkg, name)) return "deem-outside-derived-api-closure";
+            if (!is_trait && !abi_treat_pub(name, is_pub)) return "not-pub";
+            return "recorded";
+        };
+        auto decl = [&](std::string_view pkg, std::string_view name,
+                        bool is_pub, bool is_trait) {
+            cf << "decl\t" << qual(pkg, name) << '\t'
+               << drop_reason(pkg, name, is_pub, is_trait) << '\n';
+        };
+        // ⚠ A TraitObject/TaggedPtr TypeRef carries NO `pkg_name` — `&dyn FmtWrite`
+        // walks out as the bare token `FmtWrite` while every record is keyed
+        // `logos.mem.fmt.FmtWrite`. MEASURED: the first run of this check called
+        // FmtWrite and Resident violations when both have vtable records; a
+        // last-component text match would have "fixed" that by re-introducing
+        // exactly the ambiguity this check exists to avoid (7 short names are
+        // already shared across records). So qualify STRUCTURALLY, from the
+        // program's own declaration tables, and only when the bare name resolves
+        // to exactly ONE declaration — a name with 0 or ≥2 candidates stays bare
+        // and the resolver reports it as unqualified rather than guessing.
+        std::map<std::string, std::string, std::less<>> abi_decl_pkg_of;
+        std::set<std::string, std::less<>> abi_decl_name_ambiguous;
+        auto note_decl_pkg = [&](std::string_view pkg, std::string_view name) {
+            if (name.empty()) return;
+            auto it = abi_decl_pkg_of.find(name);
+            if (it == abi_decl_pkg_of.end()) abi_decl_pkg_of.emplace(std::string(name), std::string(pkg));
+            else if (it->second != pkg) abi_decl_name_ambiguous.insert(std::string(name));
+        };
+        for (auto& sd : prog.structs) note_decl_pkg(sd.pkg(), sd.name());
+        for (auto& ed : prog.enums)   note_decl_pkg(ed.pkg(), ed.name());
+        for (auto& td : prog.traits)  note_decl_pkg(td.pkg(), td.name());
+        auto ref_from = [&](const std::string& referrer, const char* site, TypeRef t) {
+            abi_nominal_heads(t, [&](std::string_view p, std::string_view n, bool indirect) {
+                if (n.empty()) return;
+                std::string_view pkg = p;
+                if (pkg.empty() && !abi_decl_name_ambiguous.count(n)) {
+                    auto it = abi_decl_pkg_of.find(n);
+                    if (it != abi_decl_pkg_of.end()) pkg = it->second;
+                }
+                cf << "ref\t" << referrer << '\t' << site << (indirect ? "-indirect" : "-byval")
+                   << '\t' << qual(pkg, n) << '\n';
+            });
+        };
         // Structs (generic templates INCLUDED): a template's ordered field types
         // — expressed in its type-var names (Vec<T> → ptr:*mut T,len:u64,…) —
         // determine every instantiation's layout, so a reorder/retype of the
         // template is the ABI break at its source. Field offsets need LLVM
         // materialisation, but the field-type list is the layout determinant.
         for (auto& sd : prog.structs) {
+            decl(sd.pkg(), sd.name(), sd.is_pub(), /*is_trait=*/false);
             if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg()))) continue;  // wql engine is internal
-            if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal (only the Query API is contract)
+            if (deem_excluded(sd.pkg(), sd.name())) continue;  // deem engine internal (only the derived Query-API closure is contract)
             if (!abi_treat_pub(sd.name(), sd.is_pub())) continue;  // private type: not consumer ABI
-            std::string rec = "type\t" + qual(sd.pkg(), sd.name()) + "\tfields=[";
+            std::string key = qual(sd.pkg(), sd.name());
+            std::string rec = "type\t" + key + "\tfields=[";
             bool first = true;
             for (auto f : sd.fields()) {
                 if (!first) rec += ",";
                 rec += std::string(f.name()) + ":" + abi_type(f.type(pool));
                 first = false;
+                ref_from(key, "field", f.type(pool));
             }
             af << rec << "]\n";
         }
         // Enums (templates included): variant name + payload types (a payload
         // type change, e.g. Some(i32)→Some(i64), changes the layout).
         for (auto& ed : prog.enums) {
+            decl(ed.pkg(), ed.name(), ed.is_pub(), /*is_trait=*/false);
             if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg()))) continue;  // wql engine is internal
-            if (is_deem_internal_type(ed.pkg(), ed.name())) continue;  // deem engine internal (only the Query API is contract)
+            if (deem_excluded(ed.pkg(), ed.name())) continue;  // deem engine internal (only the derived Query-API closure is contract)
             if (!abi_treat_pub(ed.name(), ed.is_pub())) continue;  // private type: not consumer ABI
-            std::string rec = "type\t" + qual(ed.pkg(), ed.name()) + "\tvariants=[";
+            std::string key = qual(ed.pkg(), ed.name());
+            std::string rec = "type\t" + key + "\tvariants=[";
             bool first = true;
             ed.each_variant([&](lir_view::EnumVariantView v) {
                 if (!first) rec += ",";
@@ -1003,6 +1250,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                         if (!pf) rec += ",";
                         rec += abi_type(pt);
                         pf = false;
+                        ref_from(key, "variant", pt);
                     }
                     rec += ")";
                 }
@@ -1011,8 +1259,9 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             af << rec << "]\n";
         }
         for (auto& td : prog.traits) {
+            decl(td.pkg(), td.name(), /*is_pub=*/true, /*is_trait=*/true);
             if ((is_wql_internal_pkg(td.pkg()) || is_canon_internal_pkg(td.pkg()))) continue;  // wql engine is internal
-            if (is_deem_internal_type(td.pkg(), td.name())) continue;  // deem engine internal (only the Query API is contract)
+            if (deem_excluded(td.pkg(), td.name())) continue;  // deem engine internal (only the derived Query-API closure is contract)
             std::string rec = "vtable\t" + qual(td.pkg(), td.name()) + "\tslots=[";
             bool first = true;
             for (auto& [owner, mname] : td.vtable_method_order()) {
@@ -1254,13 +1503,13 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // must never drop a public type's instantiations.
         std::vector<std::string> excluded_type_names;
         for (auto& sd : prog.structs) {
-            if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg())) || is_deem_internal_type(sd.pkg(), sd.name()))
+            if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg())) || deem_excluded(sd.pkg(), sd.name()))
                 excluded_type_names.emplace_back(sd.name());
             else if (!abi_treat_pub(sd.name(), sd.is_pub()))
                 excluded_type_names.emplace_back(sd.name());
         }
         for (auto& ed : prog.enums) {
-            if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg())) || is_deem_internal_type(ed.pkg(), ed.name()))
+            if ((is_wql_internal_pkg(ed.pkg()) || is_canon_internal_pkg(ed.pkg())) || deem_excluded(ed.pkg(), ed.name()))
                 excluded_type_names.emplace_back(ed.name());
             else if (!abi_treat_pub(ed.name(), ed.is_pub()))
                 excluded_type_names.emplace_back(ed.name());
@@ -1298,7 +1547,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             // methods are excluded wholesale (fixes e.g. the wql
             // <Type>__type_id__g__ref_T blanket-impl instances leaking in).
             if ((is_wql_internal_pkg(sd.pkg()) || is_canon_internal_pkg(sd.pkg()))) continue;
-            if (is_deem_internal_type(sd.pkg(), sd.name())) continue;  // deem engine internal — drop its methods (only the Query API is contract)
+            if (deem_excluded(sd.pkg(), sd.name())) continue;  // deem engine internal — drop its methods (only the derived Query-API closure is contract)
             // A NON-pub struct's methods are not consumer-callable API (the
             // type is unnameable outside its module) — spec noise. Uses the
             // shared abi_treat_pub include-on-ambiguity fallback.
