@@ -593,14 +593,31 @@ if [ "$n_men" -lt 1 ]; then
     echo "          is public; if it stopped being spelled in the spec, either"
     echo "          the surface moved or --emit-abi stopped covering it."
 fi
-if [ "$n_rec" != "0" ]; then
-    say_fail "the ABI spec now carries a \`type logos.mem.deem.RtVal\` record."
-    echo "          GOOD NEWS, and a deliberate change: RtVal's shape becomes"
-    echo "          visible to scripts/abi-check.sh, so a widening can no longer"
-    echo "          answer 'ADDED: 0 record(s) / ABI-PRESERVING' (MEASURED"
-    echo "          2026-08-04 with an F32 arm built into the stdlib). Someone"
-    echo "          added RtVal to \`is_deem_api_type\` in"
-    echo "          src/compiler/emit_module.cpp. Retire this check and say so."
+# ⚠ THIS CHECK WAS INVERTED ON 2026-08-05, WHICH IS WHAT IT ASKED FOR. It used
+# to assert `n_rec == 0` — that the spec carried NO record for RtVal — and its
+# failure text said "GOOD NEWS ... retire this check and say so". The hole is
+# closed, so the check now asserts the OPPOSITE and stays load-bearing instead
+# of being deleted.
+#
+# It was NOT closed the way that text guessed. Nobody added RtVal to
+# `is_deem_api_type` — that list still holds exactly its five original names and
+# `grep -rn '"RtVal"' src/` is empty. It was closed by a DERIVED CLOSURE: every
+# type named in a recorded field list or enum payload must itself have a record.
+# So the population is not a list anyone maintains, and a NEW public type reached
+# from the API gets a record without anyone remembering to ask.
+#
+# MEASURED both before and after, with an F32 arm built into the real enum:
+# before, `--emit-abi` produced a byte-identical spec and abi-check answered
+# "ADDED: 0 record(s) / ABI-PRESERVING"; after, rc 1 and ABI-BREAKING naming the
+# variant list. That blindness is the reason the record has to stay.
+if [ "$n_rec" -lt 1 ]; then
+    say_fail "the ABI spec has NO \`type logos.mem.deem.RtVal\` record."
+    echo "          RtVal is the public UDF/UDA value type, and without a record"
+    echo "          abi-check cannot see its shape change: an added or retyped"
+    echo "          arm answers 'ADDED: 0 record(s) / ABI-PRESERVING' (MEASURED"
+    echo "          2026-08-04, byte-identical spec). If the closure that derives"
+    echo "          this record was narrowed or removed, the gate protecting"
+    echo "          decision D3's representation change is gone with it."
 fi
 
 # ── THE CANARY COUNT IS ACCUMULATED, NOT ASSERTED ────────────────────────────

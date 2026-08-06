@@ -79,7 +79,14 @@ printf 'type\tcanary.pkg.Holder\tfields=[a:Absent]\n' > "$workdir/fake/x.a.abi-l
     printf 'ref\tcanary.pkg.Holder\tfield-byval\tcanary.pkg.Absent\n'
 } > "$workdir/fake/x.a.abi-closure"
 cout="$workdir/canary.txt"
-"$LOGOSC" --abi-closure -L "$workdir/fake" > "$cout" 2>&1
+# ⚠ `--no-system` IS LOAD-BEARING, NOT TIDINESS. main.cpp appends the resolved
+# system lib dir to the search paths AFTER any `-L`, so without it this
+# "fabricated scratch dir" run silently merges the real records and the real
+# edges. MEASURED at the commit that introduced this gate: a fake dir holding
+# ZERO edges still satisfied the assertion below, because two REAL unexempted
+# violations answered it. The canary could not fail — inside an artifact whose
+# own thesis is that a canary which cannot fail is a check that is not looking.
+"$LOGOSC" --abi-closure --no-system -L "$workdir/fake" > "$cout" 2>&1
 crc=$?
 if [ "$crc" -eq 0 ] || ! grep -q '^VIOLATION[[:space:]]canary\.pkg\.Absent' "$cout"; then
     echo "::error:: CANARY 'synthetic violation' NOT CAUGHT — a fabricated record naming"
@@ -98,7 +105,14 @@ printf 'ref\tcanary.pkg.Holder\tfield-indirect\tcanary.pkg.Absent\n' > "$workdir
     printf 'ref\tcanary.pkg.Holder\tfield-indirect\tcanary.pkg.Absent\n'
 } > "$workdir/fake/x.a.abi-closure"
 rm -f "$workdir/fake/x.a.abi-closure.tmp"
-"$LOGOSC" --abi-closure -L "$workdir/fake" > "$cout" 2>&1
+# ⚠ `--no-system` IS LOAD-BEARING, NOT TIDINESS. main.cpp appends the resolved
+# system lib dir to the search paths AFTER any `-L`, so without it this
+# "fabricated scratch dir" run silently merges the real records and the real
+# edges. MEASURED at the commit that introduced this gate: a fake dir holding
+# ZERO edges still satisfied the assertion below, because two REAL unexempted
+# violations answered it. The canary could not fail — inside an artifact whose
+# own thesis is that a canary which cannot fail is a check that is not looking.
+"$LOGOSC" --abi-closure --no-system -L "$workdir/fake" > "$cout" 2>&1
 grep -q 'reason=not-pub-behind-indirection' "$cout" || {
     echo "::error:: CANARY 'indirection narrowing' NOT CAUGHT — a not-pub type reached"
     echo "          only through a pointer did not derive the narrowed reason, so the"
