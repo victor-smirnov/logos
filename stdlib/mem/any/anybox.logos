@@ -1,0 +1,328 @@
+// Logos standard library — logos.mem.any.anybox
+//
+// `AnyBox` — an OWNING type-erased value, and the Writ case of it.
+//
+// ── Why this is a new type and not an extension of something ──────────────────
+// `logos.lang.any` ships the `Any` TRAIT (blanket `impl<T> Any for T`) plus
+// `&dyn Any` downcasting. There is nothing there that HOLDS a value: the owning
+// form is `Box<dyn Any>`, and that is unported — `Box::new(x)` builds and
+// dispatches, but reborrowing it to `&dyn Any` (the only route to
+// `downcast_ref`/`any_is`) is refused by mlir-gen with "no vtable for '&dyn Any'
+// as '&dyn Any' — the fat pointer's vtable half would be left uninitialised".
+// The same gap is recorded at `panic.logos` ("richer Any-based capture waits on a
+// Box<dyn Any> port") and in the any test harness. So the owning container is a
+// concrete type over a CLOSED payload set (the Logos scalars + a Writ document),
+// not a universal `Box<dyn Any>`. When the `&*b` reborrow lands, this becomes a
+// thin specialisation over it rather than a parallel mechanism.
+//
+// ── The Writ case: ownership by owning ────────────────────────────────────────
+// A `WAny` is an 8-byte handle whose Ref arm points INTO a Writ arena; it is not
+// an owner and it is `#[borrow_carrying]`, so it cannot be stored next to the
+// arena it borrows (`struct { arena: Writ, root: WAny }` is rejected: "cannot move
+// 'h' while it is borrowed"). Two live problems follow from that: a `WAny` string
+// is arena-interned and cannot be substituted for a borrowed view, and
+// `WAny::ref_to` on a stack struct compiles while `type_code()` reads whatever
+// byte precedes the value.
+//
+// `AnyBox` answers both by OWNING: it clones the value out of its source arena
+// into a FRESH arena it owns, and the root lives in that arena's own root word
+// (Writ's existing idiom — `set_root`/`root()`), so only the `Writ` is moved and
+// no `#[borrow_carrying]` handle is stored. Lifetime and provenance stop being
+// questions: every reference handed out is `&'a T` tied to `&'a self`.
+//
+// ── THE DESIGN POINT: TypeId reports the PAYLOAD, never the wrapper ───────────
+// An `AnyBox` built from a Writ `i64` must be indistinguishable from one built
+// from a plain `i64` — same `TypeId`, same downcast. If it reported "a Writ
+// container", every consumer would have to know about Writ to get at the value,
+// and the extension would buy nothing.
+//
+// Here that holds BY CONSTRUCTION, not by a `TypeId` coincidence: a Writ SCALAR is
+// NORMALISED at construction — decoded to its native Logos type and stored in the
+// owned inline slot, with the originating Writ code deliberately DISCARDED
+// (`writ_code()` reports 0). The two boxes are byte-identical but for the address
+// of their empty arenas. That is the stronger property, and it is the one the
+// gate asserts.
+//
+// Normalisation is not optional cosmetics. `Writ::int` routes every value fitting
+// 56 bits to a Pod, where the payload lives in bits[63:8] of a word — THERE IS NO
+// NATIVE `i64` IN MEMORY to hand a `&i64` to. Pointing into the arena works only
+// for the BOXED scalars and fails silently for exactly the common case.
+//
+//   Writ code                    → payload type      form
+//   WA_I56 (1), W_I64 (26)       → i64               scalar (normalised)
+//   WA_BOOL (2)                  → bool              scalar
+//   WT_I8/U8/I16/U16/I24/U24     → i8/u8/i16/u16/i24/u24  scalar
+//   W_U64 (27)                   → u64               scalar
+//   W_F32 (30) / W_F64 (31)      → f32 / f64         scalar
+//   W_STRING (130)               → WString           writ (in the owned arena)
+//   W_ARRAY (100)                → WArray<WAny>      writ
+//   W_MAP (101)                  → WMap<WString,WAny> writ
+//   everything else              → WritOpaque        writ
+//
+// ── The aggregate case, and why it is neither per-kind ids nor a refusal ──────
+// A Writ array/map/string HAS a Logos type to name — the view type that already
+// reads it — so it gets that type's real `TypeId` and a real, sound downcast:
+// `downcast_ref::<WArray<WAny>>()` yields a `&WArray<WAny>` into the owned arena,
+// borrow-tied to `&self`. For a typed dense array, an int-keyed dense map, a
+// TypedValue, a decimal or a tiny map there is no such type; those get ONE
+// reserved structural id, `type_id_of::<WritOpaque>()`, and are reached with
+// `as_writ()` + `writ_code()`.
+//
+// REFUSING those was the alternative and it is wrong: it would make `AnyBox`
+// unable to hold most Writ documents, which is the entire point of the exercise.
+// A reserved id per kind was the other alternative and buys nothing — it
+// multiplies ids while still naming no downcastable Logos type, and `writ_code()`
+// already gives the consumer that discrimination exactly and losslessly.
+//
+// ── What it costs ─────────────────────────────────────────────────────────────
+// A scalar `AnyBox` still carries a `Writ` field (the struct has one layout), so
+// it pays one `writ_new(0)` — a single small malloc, freed on drop. It is not
+// null-able without making `allocator_alloc` fault on a future in-place mutation,
+// and correctness beat the malloc.
+//
+// ── WHY THIS IS IN `mem` AND NOT IN `lang.any` ───────────────────────────────
+// On the merits: `logos.lang.any` is Writ-free, and it is the package every user
+// of `Any`/`TypeId` imports; putting a Writ-walking owner in the same archive
+// hands that dependency to all of them. Every other consumer of the Writ walkers
+// (`mem.writ.clone`, `mem.writ.equal`, `mem.writ.stringify`) already lives here.
+//
+// ⚠ BUT THE PLACEMENT IS ALSO LOAD-BEARING FOR THE WRONG REASON, so read this
+// before moving it. Written as `logos.lang.any.anybox` it turned
+// `tests/logos/pass/wany_niche_enum.logos` RED:
+//   mlir-gen: duplicate function body for symbol 'WArray$G1$WAny$M…__push'
+// That test declares its OWN `#[zoned] enum WAny`. A mangled name renders a type
+// ARGUMENT by NAME, and the archived stdlib bodies are re-parsed in the consumer's
+// scope, so `WArray<WAny>` from the stdlib and `WArray<WAny>` over the consumer's
+// enum collapse onto one symbol. MEASURED PRE-EXISTING: the same failure
+// reproduces on the UNMODIFIED main-repo build through the long-shipped
+// `logos.mem.writ.clone::writ_clone`, from any consumer that declares a local
+// `WAny` (probe: /home/logos/sandbox/probe/shadow2.logos). Moving the package to
+// `mem` did NOT fix that — it only changed which consumers reach it; a program
+// that imports THIS package and declares its own `WAny` still fails
+// (probe: shadow.logos). Same class as the 2026-08-05 commit e07fcde4 ("an enum's
+// type arguments are part of its name where the name is re-parsed as source").
+// The fix is in the mangler, not here.
+
+package logos.mem.any.anybox;
+
+use logos.lang.any;               // TypeId, type_id_of
+use logos.lang.num.float;         // f32_to_bits / f64_to_bits
+use logos.lang.option;            // Option
+use logos.lang.result;            // Result
+use logos.lang.writ.container;    // Writ, writ_new
+use logos.lang.writ.anyval;       // WAny, W_* / WA_* / WT_* codes
+use logos.lang.writ.array;        // WArray<WAny>
+use logos.lang.writ.wmap;         // WMap<WString, WAny>
+use logos.lang.writ.wstring;      // WString
+use logos.lang.writ.compactify;   // try_clone, CloneRefusal
+
+/// `AnyBox::form` — the payload is a native Logos scalar in the inline slot.
+pub const ANYBOX_SCALAR: i64 = 0i64;
+/// `AnyBox::form` — the payload is a Writ value living in the box's own arena.
+pub const ANYBOX_WRIT: i64 = 1i64;
+
+/// The reserved payload type for a Writ value no Logos type names — a typed dense
+/// array, an int-keyed dense map, a `TypedValue`, a decimal, a tiny map.
+///
+/// It is a marker: an `AnyBox` reporting `type_id_of::<WritOpaque>()` never
+/// downcasts to a Logos type; read it with `as_writ()` and discriminate on
+/// `writ_code()`, which carries the exact wire code losslessly.
+pub struct WritOpaque { }
+
+/// An owning, type-erased value: a native Logos scalar, or a Writ value cloned into
+/// an arena this box owns.
+///
+/// `type_id()` always names the PAYLOAD's type, never the wrapper's — an `AnyBox`
+/// over a Writ `i64` is indistinguishable from one over a plain `i64`. Every
+/// reference it hands out is borrow-tied to `&self`, so provenance and lifetime are
+/// settled by ownership rather than by convention.
+pub struct AnyBox {
+    // The PAYLOAD's type — i64 for a Writ i56 Pod just as for a plain i64.
+    tid:  TypeId,
+    // ANYBOX_SCALAR | ANYBOX_WRIT.
+    form: i64,
+    // For ANYBOX_WRIT, the originating Writ wire code (the only discriminator for a
+    // WritOpaque payload). DELIBERATELY 0 for a normalised scalar: keeping it would
+    // make a box built from a Writ i64 distinguishable from one built from a plain
+    // i64, which is exactly the property this type exists to provide.
+    code: u64,
+    // The native scalar payload, in the LOW bytes (little-endian): `&bits` is the
+    // `&T` a scalar downcast hands out, so an f32 occupies the low 4 bytes, a bool
+    // the low 1, and an i8 is stored sign-extended.
+    bits: u64,
+    // The owned arena. For ANYBOX_WRIT it holds the cloned value, reachable through
+    // its own root word (`root()`); for ANYBOX_SCALAR it is empty and exists only
+    // because the struct has one layout.
+    arena: Writ,
+}
+
+// Default arena segment size for a Writ payload. Sized so an ordinary document
+// lands in a single segment; `of_writ_in` overrides it.
+const ANYBOX_SEG: i64 = 4096i64;
+
+// ── construction from a native Logos scalar ───────────────────────────────────
+
+fn scalar_box(tid: TypeId, bits: u64) -> AnyBox {
+    return AnyBox { tid: tid, form: ANYBOX_SCALAR, code: 0u64, bits: bits, arena: writ_new(0i64) };
+}
+
+impl AnyBox {
+    /// Boxes a native `i64`. Byte-identical to the box a Writ `WA_I56` Pod or a
+    /// boxed `W_I64` normalises to.
+    pub fn from(v: i64)  -> AnyBox { return scalar_box(type_id_of::<i64>(),  v as u64); }
+    /// Boxes a native `u64` (the payload type a Writ `W_U64` normalises to).
+    pub fn from(v: u64)  -> AnyBox { return scalar_box(type_id_of::<u64>(),  v); }
+    /// Boxes a native `bool` (Writ `WA_BOOL`).
+    pub fn from(v: bool) -> AnyBox { return scalar_box(type_id_of::<bool>(), if v { 1u64 } else { 0u64 }); }
+    /// Boxes a native `f64` (Writ `W_F64`); stored as its IEEE bit pattern.
+    pub fn from(v: f64)  -> AnyBox { return scalar_box(type_id_of::<f64>(),  f64_to_bits(v)); }
+    /// Boxes a native `f32` (Writ `W_F32`); stored as its IEEE bit pattern in the low 4 bytes.
+    pub fn from(v: f32)  -> AnyBox { return scalar_box(type_id_of::<f32>(),  f32_to_bits(v) as u64); }
+    /// Boxes a native `i8` (Writ `WT_I8`), sign-extended into the inline slot.
+    pub fn from(v: i8)   -> AnyBox { return scalar_box(type_id_of::<i8>(),   (v as i64) as u64); }
+    /// Boxes a native `u8` (Writ `WT_U8`).
+    pub fn from(v: u8)   -> AnyBox { return scalar_box(type_id_of::<u8>(),   v as u64); }
+    /// Boxes a native `i16` (Writ `WT_I16`), sign-extended into the inline slot.
+    pub fn from(v: i16)  -> AnyBox { return scalar_box(type_id_of::<i16>(),  (v as i64) as u64); }
+    /// Boxes a native `u16` (Writ `WT_U16`).
+    pub fn from(v: u16)  -> AnyBox { return scalar_box(type_id_of::<u16>(),  v as u64); }
+    /// Boxes a native `i24` (Writ `WT_I24`), sign-extended into the inline slot.
+    pub fn from(v: i24)  -> AnyBox { return scalar_box(type_id_of::<i24>(),  (v as i64) as u64); }
+    /// Boxes a native `u24` (Writ `WT_U24`).
+    pub fn from(v: u24)  -> AnyBox { return scalar_box(type_id_of::<u24>(),  (v as i64) as u64); }
+}
+
+// ── construction from a Writ value ────────────────────────────────────────────
+
+/// Boxes the Writ value `v` by CLONING it out of its source arena into a fresh arena
+/// the box owns — the source may drop immediately after.
+///
+/// A Writ SCALAR is normalised to its native Logos type (the arena is then unused);
+/// anything else is deep-copied and reachable via `as_writ()`. Returns the walker's
+/// [CloneRefusal] verbatim when the value cannot be copied — nesting past
+/// `COMPACTIFY_MAX_DEPTH`, an arena tag the walker does not know, or OOM. It never
+/// answers a silent null: "I could not copy it" and "it was null" are distinct here,
+/// which is why this path uses `try_clone` and not the total-signature `clone`.
+pub fn of_writ(v: WAny) -> Result<AnyBox, CloneRefusal> {
+    return of_writ_in(v, ANYBOX_SEG);
+}
+
+/// [of_writ] with an explicit segment size for the arena the box will own. Use it
+/// when the document's size is known — one segment beats a chain of them.
+pub fn of_writ_in(v: WAny, seg_size: i64) -> Result<AnyBox, CloneRefusal> {
+    let tc: u64 = v.type_code();
+
+    // ── SCALARS: normalise. The Writ code is discarded on purpose — see the header.
+    if v.is_pod() {
+        if tc == (WA_I56 as u64)  { return Result::Ok(AnyBox::from(v.as_i64())); }
+        if tc == (WA_BOOL as u64) { return Result::Ok(AnyBox::from(v.as_bool())); }
+        if tc == (WT_I8 as u64)   { return Result::Ok(AnyBox::from(v.as_i8())); }
+        if tc == (WT_U8 as u64)   { return Result::Ok(AnyBox::from(v.as_u8())); }
+        if tc == (WT_I16 as u64)  { return Result::Ok(AnyBox::from(v.as_i16())); }
+        if tc == (WT_U16 as u64)  { return Result::Ok(AnyBox::from(v.as_u16())); }
+        if tc == (WT_I24 as u64)  { return Result::Ok(AnyBox::from(v.as_i24())); }
+        if tc == (WT_U24 as u64)  { return Result::Ok(AnyBox::from(v.as_u24())); }
+        // An inline Pod carrying a code outside the encoding's own table: refuse
+        // rather than guess a payload type from a tag nothing defines.
+        return Result::Err(CloneRefusal { kind: CLONE_REFUSED_UNKNOWN_TAG, tag: tc });
+    }
+    if tc == W_I64 { return Result::Ok(AnyBox::from(v.as_i64())); }
+    if tc == W_U64 { return Result::Ok(AnyBox::from(v.as_u64())); }
+    if tc == W_F32 { return Result::Ok(AnyBox::from(v.as_f32())); }
+    if tc == W_F64 { return Result::Ok(AnyBox::from(v.as_f64())); }
+
+    // ── AGGREGATES + null: own the arena, own the value.
+    let tid: TypeId = writ_payload_type(tc);
+    let h: Writ = writ_new(seg_size);
+    match try_clone(&h, v) {
+        Result::Ok(c)  => { h.set_root(c); }
+        Result::Err(e) => { return Result::Err(e); }
+    }
+    return Result::Ok(AnyBox { tid: tid, form: ANYBOX_WRIT, code: tc, bits: 0u64, arena: h });
+}
+
+// The payload type for a Writ code that stays in the arena: the view type when one
+// exists, else the reserved structural marker.
+fn writ_payload_type(tc: u64) -> TypeId {
+    if tc == W_STRING { return type_id_of::<WString>(); }
+    if tc == W_ARRAY  { return type_id_of::<WArray<WAny>>(); }
+    if tc == W_MAP    { return type_id_of::<WMap<WString, WAny>>(); }
+    return type_id_of::<WritOpaque>();
+}
+
+// ── the consumer surface ──────────────────────────────────────────────────────
+
+impl AnyBox {
+    /// Returns the `TypeId` of the PAYLOAD — never of the box, and never of a Writ
+    /// wrapper. A box over a Writ `i64` reports `type_id_of::<i64>()`.
+    pub fn type_id(self: &AnyBox) -> TypeId { return self.tid; }
+
+    /// Returns whether the payload is a `_T` — the `(dyn Any).is::<T>()` analogue.
+    pub fn holds<_T>(self: &AnyBox) -> bool {
+        let want: TypeId = type_id_of::<_T>();
+        return self.tid.eq(&want);
+    }
+
+    /// Recovers `&T` when the payload is a `T`, else `None`.
+    ///
+    /// The `&T` is borrow-tied to `&self`: for a scalar it points at the box's own
+    /// inline slot, for a Writ payload at the object inside the arena the box owns.
+    /// Either way it cannot outlive the box, so there is no provenance question.
+    ///
+    /// ⚠ `T` MUST BE SIZED. Instantiating this at a DST — `WString` is the one in
+    /// reach — forms `Option<&WString>`, i.e. an `Option` niche over a FAT pointer,
+    /// and the compiler's layout engines disagree about that type: `layout_of` says
+    /// 16, `mono_abi_layout` says 24, and the verifier aborts the compile ("a value
+    /// would be written at one stride and read at another"), taking 24 iterator
+    /// adaptors over it down with it. MEASURED PRE-EXISTING on the untouched
+    /// main-repo build from a 20-line program that only uses shipped stdlib
+    /// (/home/logos/sandbox/probe/optdst.logos: 24 disagreements; the same program
+    /// with the `Option<&WString>` removed, optdst2.logos: 0). Nothing in this
+    /// package causes it and nothing here can fix it — the DST payload therefore has
+    /// its own accessor, [wstring_ptr], which never forms the broken shape.
+    pub fn downcast_ref<T>(self: &AnyBox) -> Option<&T> {
+        let want: TypeId = type_id_of::<T>();
+        if !self.tid.eq(&want) { return Option::None; }
+        if self.form == ANYBOX_SCALAR {
+            return Option::Some(unsafe { &*(&self.bits as *const u64 as *const T) });
+        }
+        return Option::Some(unsafe { &*(self.arena.root().resolve() as *const T) });
+    }
+
+    /// Returns `true` iff the payload stayed a Writ value (an aggregate or an opaque
+    /// tagged object) rather than normalising to a native scalar.
+    pub fn is_writ(self: &AnyBox) -> bool { return self.form == ANYBOX_WRIT; }
+
+    /// Returns `true` iff the payload is a Writ string.
+    pub fn is_wstring(self: &AnyBox) -> bool {
+        return self.form == ANYBOX_WRIT && self.code == W_STRING;
+    }
+
+    /// Returns a pointer to the `WString` payload inside the box's own arena, or
+    /// NULL when the payload is not a Writ string. Valid while `self` lives.
+    ///
+    /// A raw pointer, not `Option<&WString>`, and not by choice: `WString` is a DST,
+    /// so `Option<&WString>` is an `Option` niche over a fat pointer — the shape the
+    /// layout engines disagree about (see [downcast_ref]). Null-on-mismatch keeps
+    /// the function TOTAL without forming that type. `holds::<WString>()` still
+    /// reports the payload type, so the `TypeId` surface is unaffected.
+    pub fn wstring_ptr(self: &AnyBox) -> *const WString {
+        if !self.is_wstring() { return 0i64 as *const WString; }
+        return self.arena.root().resolve() as *const WString;
+    }
+
+    /// Returns the originating Writ wire code for a Writ payload — the exact
+    /// discriminator for a `WritOpaque` one. 0 for a normalised scalar, whatever
+    /// Writ code it arrived as: the box does not remember, by design.
+    pub fn writ_code(self: &AnyBox) -> u64 { return self.code; }
+
+    /// Returns the Writ payload as a `WAny` rooted in the box's own arena, or the
+    /// null `WAny` for a scalar payload (pair it with [is_writ]).
+    ///
+    /// The handle is only valid while the box lives — it is a borrow of the arena
+    /// the box owns, so do not outlive `self` with it.
+    pub fn as_writ(self: &AnyBox) -> WAny {
+        if self.form != ANYBOX_WRIT { return WAny::null(); }
+        return self.arena.root();
+    }
+}

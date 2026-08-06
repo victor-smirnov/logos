@@ -99,6 +99,13 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 # this section as a decision procedure. The INTERIOR section is the load-bearing
 # one; this is the reachability report.
 #
+# 2026-08-06 — `AnyBox` (logos.mem.any.anybox) APPEARS here: it owns a `Writ`
+# by value, and `Writ` is an INTERIOR root (two UnsafeCell fields), so the field
+# recursion reaches a root and `AnyBox` is correctly non-Freeze. REVIEWED and
+# intended: an `AnyBox` mutates the arena it owns through a shared `&self` — that
+# is the whole ownership design ("the Any owns the arena"), and a `&AnyBox`
+# earning noalias+readonly would be exactly the wrong answer.
+#
 # FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
@@ -110,6 +117,7 @@ stdlib/lcm/deem/data/handle.logos	Snap	-
 stdlib/lcm/deem/data/handle.logos	Store	-
 stdlib/lcm/deem/data/store.logos	LockingStore	-
 stdlib/lcm/deem/facthistory.logos	FactHistory	-
+stdlib/mem/any/anybox.logos	AnyBox	-
 stdlib/mem/bt/memstore.logos	SnapDesc	-
 stdlib/mem/deem/eval.logos	Tpl	-
 stdlib/mem/deem/incr.logos	FactStore	-
@@ -148,6 +156,17 @@ stdlib/std/io/bytes/bytes.logos	BytesInner	-
 # model the provenance chain, because a syntactic matcher would fire on every
 # Rc/Arc/Weak method above. That is an open question, not an oversight.
 #
+# 2026-08-06 — the writ deep-copy walker MOVED, so one row moved with it. The
+# recursive walk that lived in `stdlib/mem/writ/clone.logos` (a second, drifted
+# copy of `logos.lang.writ.compactify`) was folded into the lang one and that
+# file became a two-line delegator; its single `dst as *const Writ as *mut Writ`
+# went with it. REVIEWED: same site, same reason as every other writ row — the
+# pointee is `Writ`, which holds `UnsafeCell`, so it is non-Freeze and a `&Writ`
+# is neither noalias nor readonly. The cast reaches `writ_alloc_bytes`, whose
+# receiver is `*mut Writ` purely to read `.allocator`; the arena mutation goes
+# through the `UnsafeCell` as it always did. Net stdlib count is unchanged (1
+# added under lang/writ, 1 removed under mem/writ) — the walk was not duplicated.
+#
 # FORMAT: `<repo-relative path>\t<count>`  (TAB-separated)
 LAUNDER
 stdlib/lang/atomic/atomic.logos	2
@@ -156,6 +175,7 @@ stdlib/lang/fabric/fabric.logos	6
 stdlib/lang/ptr/ptr.logos	1
 stdlib/lang/rc/rc.logos	7
 stdlib/lang/writ/array.logos	2
+stdlib/lang/writ/compactify.logos	1
 stdlib/lang/writ/decimal.logos	1
 stdlib/lang/writ/parameter.logos	1
 stdlib/lang/writ/tmpl.logos	1
@@ -169,7 +189,6 @@ stdlib/mem/collections/vec/vec.logos	1
 stdlib/mem/deem/incr.logos	5
 stdlib/mem/sync/arc.logos	7
 stdlib/mem/wql/plan.logos	8
-stdlib/mem/writ/clone.logos	1
 stdlib/mem/writ/parser.logos	1
 stdlib/mem/writ/wbs.logos	2
 stdlib/std/io/http/parse.logos	1

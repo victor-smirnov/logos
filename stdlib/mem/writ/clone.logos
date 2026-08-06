@@ -5,186 +5,49 @@
 // writ_clone(v) -> Rc<Writ> with the copy as its root;
 // writ_clone_into(h, v) -> WAny copies into an existing container.
 //
-// Direct-walker foundation (stringify/equal/hashing siblings). Pods copy
-// verbatim (position-independent); strings/arrays/maps/typed payloads
-// re-anchor in the destination zone.
+// ── ONE WALKER (2026-08-06) ───────────────────────────────────────────────────
+// This file used to carry its OWN copy of the recursive walk, a near-duplicate of
+// `logos.lang.writ.compactify`. The two had DRIFTED: this one preserved a boxed
+// wide scalar's tag bit-for-bit and knew the typed-array / int-keyed-map /
+// TypedValue codes; the lang one re-encoded through `as_i64`/`as_f64` (destroying
+// W_U64 and W_F32) and returned THE SOURCE POINTER for anything it did not know,
+// planting a cross-arena alias. Two copies of one walk with divergent
+// unknown-tag behaviour is the defect, not either behaviour.
+//
+// The walk now lives ONCE, in `logos.lang.writ.compactify` — every code this file
+// used to know is handled there, plus a failing form (`try_clone` →
+// `Result<WAny, CloneRefusal>`) so "too deep" and "unknown tag N" are
+// distinguishable facts rather than one silent null. These two functions are thin
+// delegators, kept for their callers and their `Rc<Writ>` convenience; they retain
+// this layer's historical TOTAL signature, so a refusal still reads as null here.
+// Prefer `logos.lang.writ.compactify::try_clone` when the caller can act on why.
 
 package logos.mem.writ.clone;
 
-use logos.lang.writ.anyval;       // WAny, w_type_code
-use logos.lang.writ.allocator;    // Allocator
-use logos.lang.writ.container;    // Writ, writ_rc, alloc_tagged, box_*
-use logos.lang.writ.array;        // WArray<WAny>
-use logos.lang.writ.wmap;         // WMap<WString, WAny>
-use logos.lang.writ.wstring;      // WString, wstring_in_alloc
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.container;    // Writ, writ_rc
+use logos.lang.writ.compactify;   // clone — THE walker
 use logos.lang.rc;                    // Rc
-use logos.lang.str;
-use logos.lang.cell;
-
-// Depth bound for the recursive copy walk — past this we stop and return null
-// rather than overflowing the native C stack on pathologically deep input
-// (mirrors compactify / the parser guard). Realistic docs nest only a few levels.
-const CLONE_MAX_DEPTH: i64 = 4096i64;
 
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.
+/// Deep-copies `v` into container `h`, returning the copy's value-form handle.
+///
+/// Delegates to `logos.lang.writ.compactify::clone`. TOTAL signature: a refusal
+/// (nesting past the depth cap, an arena tag the walker does not know, OOM) reads
+/// back as a NULL `WAny`, indistinguishable from a genuinely null `v` — use
+/// `compactify::try_clone` when that difference matters.
 pub unsafe fn writ_clone_into(h: &Writ, v: WAny) -> WAny {
-    return writ_clone_into_d(h, v, 0i64);
-}
-
-unsafe fn writ_clone_into_d(h: &Writ, v: WAny, depth: i64) -> WAny {
-    if depth > CLONE_MAX_DEPTH { return WAny::Ref(0 as *const u8); }
-    if v.is_null() { return WAny::Ref(0 as *const u8); }
-    if v.is_pod()  { return v; }                       // position-independent
-
-    let hp: *mut Writ = h as *const Writ as *mut Writ;
-    let ap: *mut Allocator = hp.allocator.get();
-    let p: *const u8 = v.resolve();
-    let tc: u64 = w_type_code(p);
-
-    // Boxed wide scalars (8-byte payload after the tag).
-    if tc == W_I64 || tc == W_U64 || tc == W_F32 || tc == W_F64 {
-        let obj: *mut u8 = alloc_tagged(ap, 8, tc);
-        *(obj as *mut u64) = *(p as *const u64);
-        return WAny::ref_to(obj as *const u8);
-    }
-
-    if v.is_string() {
-        let s: &WString = &*(p as *const WString);
-        return WAny::from(&*wstring_in_alloc(ap, s.as_str()));
-    }
-
-    if v.is_array() {
-        let src: &WArray<WAny> = &*(p as *const WArray<WAny>);
-        let n: i64 = src.len();
-        let mut cap: i64 = 8;
-        while cap < n { cap = cap * 2; }
-        let dst: &mut WArray<WAny> = h.array(cap);
-        let mut i: i64 = 0;
-        while i < n {
-            dst.push(writ_clone_into_d(h, src.get(i), depth + 1i64));
-            i = i + 1;
-        }
-        let dp: *const WArray<WAny> = dst as *const WArray<WAny>;
-        return WAny::ref_to(dp as *const u8);
-    }
-
-    if v.is_map() {
-        let src: &WMap<WString, WAny> = &*(p as *const WMap<WString, WAny>);
-        let mut slots: i64 = 8;
-        while slots < src.len() * 2 { slots = slots * 2; }
-        let dst: &mut WMap<WString, WAny> = h.map(slots);
-        let cap: i64 = src.slots();
-        let mut i: i64 = 0;
-        while i < cap {
-            let k: WAny = src.key_at(i);
-            if !k.is_null() {
-                let ks: &WString = &*(k.resolve() as *const WString);
-                dst.set(ks.as_str(), writ_clone_into_d(h, src.val_at(i), depth + 1i64));
-            }
-            i = i + 1;
-        }
-        let dp: *const WMap<WString, WAny> = dst as *const WMap<WString, WAny>;
-        return WAny::ref_to(dp as *const u8);
-    }
-
-    // Typed dense arrays: copy the 24-byte header + raw element buffer.
-    if tc >= 2101u64 && tc <= 2110u64 {
-        let n: u64 = *(p as *const u64);
-        let w: i64 = if tc == 2101u64 || tc == 2105u64 { 1i64 }
-            else if tc == 2102u64 || tc == 2106u64 { 2i64 }
-            else if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { 4i64 }
-            else { 8i64 };
-        let bytes: i64 = (n as i64) * w;
-        let mut buf: *mut u8 = 0 as *mut u8;
-        if bytes > 0 {
-            buf = writ_alloc_bytes(hp, bytes);
-            let sf: i64 = (p as i64) + 16;
-            let selems: i64 = sf + *(sf as *const i64);
-            let mut i: i64 = 0;
-            while i < bytes {
-                *(((buf as i64) + i) as *mut u8) = *((selems + i) as *const u8);
-                i = i + 1;
-            }
-        }
-        let hdr: *mut u8 = alloc_tagged(ap, 24, tc);
-        *(hdr as *mut u64) = n;
-        *(((hdr as i64) + 8) as *mut u64) = n;
-        let df: i64 = (hdr as i64) + 16;
-        if buf == (0 as *mut u8) { *(df as *mut i64) = 0i64; }
-        else { *(df as *mut i64) = (buf as i64) - df; }
-        return WAny::ref_to(hdr as *const u8);
-    }
-
-    // Typed dense maps (3101..3104): keys buffer raw; vals re-anchored at-rest.
-    if tc >= 3101u64 && tc <= 3104u64 {
-        let n: i64 = *(p as *const i64);
-        let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };
-        let mut kbuf: i64 = 0i64;
-        let mut vbuf: i64 = 0i64;
-        if n > 0i64 {
-            kbuf = writ_alloc_bytes(hp, n * kw) as i64;
-            vbuf = writ_alloc_bytes(hp, n * 8i64) as i64;
-            let skf: i64 = (p as i64) + 16i64; let skeys: i64 = skf + *(skf as *const i64);
-            let svf: i64 = (p as i64) + 24i64; let svals: i64 = svf + *(svf as *const i64);
-            let mut i: i64 = 0i64;
-            while i < n * kw {
-                *((kbuf + i) as *mut u8) = *((skeys + i) as *const u8);
-                i = i + 1i64;
-            }
-            i = 0i64;
-            while i < n {
-                let c2: WAny = writ_clone_into_d(h, wc_at(svals + i * 8i64), depth + 1i64);
-                let slot: i64 = vbuf + i * 8i64;
-                let w2: i64 = c2.raw();
-                if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
-                else { *(slot as *mut i64) = w2 - slot; }
-                i = i + 1i64;
-            }
-        }
-        let hdr: *mut u8 = alloc_tagged(ap, 32, tc);
-        *(hdr as *mut i64) = n;
-        *(((hdr as i64) + 8i64) as *mut i64) = n;
-        let kf2: i64 = (hdr as i64) + 16i64;
-        let vf2: i64 = (hdr as i64) + 24i64;
-        if kbuf == 0i64 { *(kf2 as *mut i64) = 0i64; *(vf2 as *mut i64) = 0i64; }
-        else { *(kf2 as *mut i64) = kbuf - kf2; *(vf2 as *mut i64) = vbuf - vf2; }
-        return WAny::ref_to(hdr as *const u8);
-    }
-
-    // TypedValue: 24-byte object of three at-rest fields, each deep-copied.
-    if tc == 4115u64 {
-        let obj: *mut u8 = alloc_tagged(ap, 24, tc);
-        let mut f: i64 = 0;
-        while f < 3 {
-            let src_slot: i64 = (p as i64) + f * 8;
-            let c: WAny = writ_clone_into_d(h, wc_at(src_slot), depth + 1i64);
-            let dst_slot: i64 = (obj as i64) + f * 8;
-            let cw: i64 = c.raw();
-            if cw == 0i64 || (cw & 1i64) == 1i64 { *(dst_slot as *mut i64) = cw; }
-            else { *(dst_slot as *mut i64) = cw - dst_slot; }
-            f = f + 1;
-        }
-        return WAny::ref_to(obj as *const u8);
-    }
-
-    // Unknown tagged object — copy nothing; null result signals "not cloneable".
-    return WAny::Ref(0 as *const u8);
+    return clone(h, v);
 }
 
 // Deep-copy `v` into a fresh right-sized container (the compactify effect:
 // only live objects come along).
+/// Deep-copies `v` into a fresh container whose root is the copy (only the live,
+/// reachable set comes along). See [writ_clone_into] for the refusal-as-null caveat.
 pub unsafe fn writ_clone(v: WAny) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(16384);
     let h: &Writ = &*rc;
-    let c: WAny = writ_clone_into(h, v);
+    let c: WAny = clone(h, v);
     h.set_root(c);
     return rc;
-}
-
-// Materialize the at-rest WAny word at `slot_addr`.
-unsafe fn wc_at(slot_addr: i64) -> WAny {
-    let w: i64 = *(slot_addr as *const i64);
-    if w == 0i64 { return WAny::Ref(0i64 as *const u8); }
-    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
-    return WAny::Ref((slot_addr + w) as *const u8);
 }

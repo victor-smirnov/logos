@@ -1,0 +1,126 @@
+// A DEEP COPY THAT CANNOT SAY "I DID NOT COPY IT" IS NOT A DEEP COPY.
+//
+// `logos.lang.writ.compactify` used to answer every failure with the same word:
+// `WAny::ref_to(0)`. Past COMPACTIFY_MAX_DEPTH — null. Unknown arena tag — the
+// SOURCE pointer (worse: a cross-arena alias). Neither is distinguishable by a
+// caller from a value that genuinely WAS null, and the whole contract of a
+// container built on this (`logos.lang.any.anybox`) is "this holds the value you
+// gave me". So the walk grew a failing form: `try_clone` returns
+// `Result<WAny, CloneRefusal>` and the refusal says WHICH fact it is — "too deep"
+// and "I do not know tag 7301" are different facts to a caller, and collapsing
+// them is how the silent null hid for as long as it did.
+//
+// This test pins all four discriminations:
+//   1. a genuinely null value CLONES to null and is `Ok` — not a refusal;
+//   2. past the depth cap is `Err(is_depth)`;
+//   3. an unknown tag is `Err(is_unknown_tag)` CARRYING the code, and the
+//      total-signature `clone` maps it to null WITHOUT aliasing the source;
+//   4. nesting below the cap is still `Ok` (the guard is far above real docs).
+package writ_clone_refusal;
+use logos.lang.writ.allocator;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.compactify;
+use logos.lang.writ.equal;
+use logos.lang.result;
+
+// A chain of `depth` nested single-element arrays around a 42 leaf, in arena `h`.
+fn build_deep(h: &Writ, depth: i64) -> WAny {
+    let bottom: &mut WArray<WAny> = h.array(1i64);
+    bottom.push(42i64);
+    let mut cur: WAny = WAny::ref_to(&*bottom as *const WArray<WAny> as *const u8);
+    let mut i: i64 = 0i64;
+    while i < depth {
+        let outer: &mut WArray<WAny> = h.array(1i64);
+        outer.push(cur);
+        cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+        i = i + 1i64;
+    }
+    return cur;
+}
+
+unsafe fn main() -> i32 {
+    let src: Writ = writ_new(65536i64);
+    let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+
+    // 1. null is a VALUE, not a failure.
+    {
+        let d: Writ = writ_new(4096i64);
+        match try_clone(&d, WAny::null()) {
+            Result::Ok(w)  => { if !w.is_null() { return 1; } }
+            Result::Err(_) => { return 2; }
+        }
+    }
+
+    // 2. past the depth cap — a DEPTH refusal, not a null value.
+    {
+        let d: Writ = writ_new(65536i64);
+        let deep: WAny = build_deep(&src, 100000i64);
+        match try_clone(&d, deep) {
+            Result::Ok(_)  => { return 3; }
+            Result::Err(e) => {
+                if !e.is_depth() { return 4; }
+                if e.is_unknown_tag() { return 5; }
+                if e.kind != CLONE_REFUSED_DEPTH { return 6; }
+            }
+        }
+        // The total-signature form still answers null (its documented ambiguity).
+        let c: WAny = clone(&d, deep);
+        if !c.is_null() { return 7; }
+    }
+
+    // 3. an arena object whose code the walker does not know — an UNKNOWN_TAG
+    //    refusal carrying the code; and the legacy `clone` must NOT alias it.
+    {
+        let d: Writ = writ_new(4096i64);
+        let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
+        *(obj as *mut u64) = 0xDEADBEEFu64;
+        let v: WAny = WAny::ref_to(obj as *const u8);
+        match try_clone(&d, v) {
+            Result::Ok(_)  => { return 8; }
+            Result::Err(e) => {
+                if !e.is_unknown_tag() { return 9; }
+                if e.is_depth() { return 10; }
+                if e.tag != 7301u64 { return 11; }
+            }
+        }
+        let c: WAny = clone(&d, v);
+        if c.raw() == v.raw() { return 12; }   // the cross-arena alias
+        if !c.is_null() { return 13; }
+    }
+
+    // 3b. an unknown tag NESTED inside an array refuses the whole copy rather
+    //     than silently planting an alias in one element.
+    {
+        let d: Writ = writ_new(8192i64);
+        let obj: *mut u8 = alloc_tagged(ap, 8i64, 7302u64);
+        let a: &mut WArray<WAny> = src.array(4i64);
+        a.push(1i64);
+        a.push(WAny::ref_to(obj as *const u8));
+        match try_clone(&d, WAny::from(&*a)) {
+            Result::Ok(_)  => { return 14; }
+            Result::Err(e) => {
+                if !e.is_unknown_tag() { return 15; }
+                if e.tag != 7302u64 { return 16; }
+            }
+        }
+    }
+
+    // 4. below the cap the copy still succeeds and equals the original.
+    {
+        let sh: Writ = writ_new(65536i64);
+        let sh2: Writ = writ_new(65536i64);
+        let shallow: WAny = build_deep(&sh, 8i64);
+        match try_clone(&sh2, shallow) {
+            Result::Ok(w) => {
+                if !w.is_array() { return 17; }
+                if !equal(shallow, w) { return 18; }
+                if w.raw() == shallow.raw() { return 19; }
+            }
+            Result::Err(_) => { return 20; }
+        }
+    }
+
+    return 0;
+}

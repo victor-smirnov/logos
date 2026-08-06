@@ -1,0 +1,227 @@
+// REGRESSION — `logos.lang.writ.compactify::clone` claims to return "the new
+// independent root", and used to violate that claim in three measured ways that a
+// VALUE-ONLY oracle cannot see (two of them preserve the value and destroy the
+// TYPE, and the third preserves both by not copying at all):
+//
+//   (a) a boxed W_U64 (code 27) came back as an inline Pod tagged WA_I56 (code 1):
+//       `if v.is_int() { dst.int(v.as_i64()) }` admits W_U64, `as_i64` reinterprets
+//       the bits, and `dst.int` re-tags via `fits_i56`. u64::MAX arrived as -1.
+//   (b) a boxed W_F32 (code 30) came back as W_F64 (code 31):
+//       `if v.is_float() { dst.float(v.as_f64()) }` re-boxes every float as f64.
+//   (c) ANY unhandled type code fell through to `return v` — THE SOURCE WAny
+//       VERBATIM. The "copy" in `dst` was a pointer into `src`, dangling the
+//       moment `src` dropped. (Probed with a 7301-tagged object: identical raw word.)
+//
+// The oracle here therefore asserts BOTH halves at every extreme: `type_code()`
+// (which (a) and (b) break) AND `raw()`-disjointness from the source (which (c)
+// breaks), on top of `equal()` for the value. The expected type codes are DERIVED
+// from the encoding contract in anyval.logos — Pod codes for what fits i56, the
+// boxing codes W_I64/W_U64/W_F32/W_F64 for what does not — not read off a run.
+//
+// See also writ_clone_refusal.logos, which pins the failing form (`try_clone`).
+package writ_clone_preserves_type_code;
+use logos.lang.writ.allocator;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.lang.writ.compactify;
+use logos.lang.writ.equal;
+use logos.lang.str;
+
+// A cloned Ref must live in `dst`, so its raw word can never equal the source's.
+// (A Pod is position-independent and legitimately compares equal.)
+fn disjoint(orig: WAny, copy: WAny) -> bool {
+    if orig.is_pod() { return true; }
+    return orig.raw() != copy.raw();
+}
+
+unsafe fn main() -> i32 {
+    let src: Writ = writ_new(16384i64);
+    let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+
+    // ── inline Pods at the i56 extremes ───────────────────────────────────────
+    // i56 bounds, derived: 2^55 - 1 and -2^55.
+    let i56_max: i64 = 36028797018963967i64;
+    let i56_min: i64 = 0i64 - 36028797018963968i64;
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = src.int(i56_max);
+        if v.type_code() != (WA_I56 as u64) { return 1; }      // build-side contract
+        let c: WAny = clone(&d, v);
+        if c.type_code() != (WA_I56 as u64) { return 2; }
+        if c.as_i64() != i56_max { return 3; }
+    }
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = src.int(i56_min);
+        if v.type_code() != (WA_I56 as u64) { return 4; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != (WA_I56 as u64) { return 5; }
+        if c.as_i64() != i56_min { return 6; }
+    }
+
+    // ── bool ──────────────────────────────────────────────────────────────────
+    {
+        let d: Writ = writ_new(4096i64);
+        let c: WAny = clone(&d, WAny::from(true));
+        if c.type_code() != (WA_BOOL as u64) { return 7; }
+        if !c.as_bool() { return 8; }
+        let c2: WAny = clone(&d, WAny::from(false));
+        if c2.type_code() != (WA_BOOL as u64) { return 9; }
+        if c2.as_bool() { return 10; }
+    }
+
+    // ── boxed i64 at the i64 extremes (does not fit i56 → W_I64) ──────────────
+    let i64_max: i64 = 9223372036854775807i64;
+    let i64_min: i64 = (0i64 - 9223372036854775807i64) - 1i64;
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = src.int(i64_max);
+        if v.type_code() != W_I64 { return 11; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_I64 { return 12; }
+        if c.as_i64() != i64_max { return 13; }
+        if !disjoint(v, c) { return 14; }
+    }
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = src.int(i64_min);
+        if v.type_code() != W_I64 { return 15; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_I64 { return 16; }
+        if c.as_i64() != i64_min { return 17; }
+        if !disjoint(v, c) { return 18; }
+    }
+
+    // ── boxed u64 at 2^63 and 2^64-1 — DEFECT (a): both code AND value were lost ─
+    let u64_2p63: u64 = 9223372036854775808u64;
+    let u64_max:  u64 = 18446744073709551615u64;
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = box_u64(ap, u64_2p63);
+        if v.type_code() != W_U64 { return 19; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_U64 { return 20; }
+        if c.as_u64() != u64_2p63 { return 21; }
+        if !disjoint(v, c) { return 22; }
+    }
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = box_u64(ap, u64_max);
+        if v.type_code() != W_U64 { return 23; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_U64 { return 24; }
+        if c.as_u64() != u64_max { return 25; }
+        if !disjoint(v, c) { return 26; }
+    }
+
+    // ── boxed f32 — DEFECT (b): the value widened, the type code was lost. ─────
+    // Also pins the 2026-08-04 `as_f64` fix: a W_F32 box read through `as_f64`
+    // WIDENS the four stored bytes; it used to read eight and return a denormal.
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = box_f32(ap, 1.5f32);
+        if v.type_code() != W_F32 { return 27; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_F32 { return 28; }
+        if c.as_f32() != 1.5f32 { return 29; }
+        if c.as_f64() != 1.5f64 { return 30; }   // as_f64 over a W_F32 box widens
+        if !disjoint(v, c) { return 31; }
+    }
+    // f32 at a non-representable-in-f64-shortening value, to catch a silent
+    // round-trip through a wider type: 0.1f32 widened is NOT 0.1f64.
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = box_f32(ap, 0.1f32);
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_F32 { return 32; }
+        if c.as_f32() != 0.1f32 { return 33; }
+    }
+
+    // ── boxed f64 ─────────────────────────────────────────────────────────────
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = src.float(2.25f64);
+        if v.type_code() != W_F64 { return 34; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_F64 { return 35; }
+        if c.as_f64() != 2.25f64 { return 36; }
+        if !disjoint(v, c) { return 37; }
+    }
+
+    // ── string ────────────────────────────────────────────────────────────────
+    {
+        let d: Writ = writ_new(4096i64);
+        let v: WAny = WAny::from(src.wstring("a writ string"));
+        if v.type_code() != W_STRING { return 38; }
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_STRING { return 39; }
+        if !equal(v, c) { return 40; }
+        if !disjoint(v, c) { return 41; }
+    }
+
+    // ── array (heterogeneous, with a wide scalar inside) ──────────────────────
+    {
+        let d: Writ = writ_new(8192i64);
+        let a: &mut WArray<WAny> = src.array(8i64);
+        a.push(7i64);
+        a.push(u64_max);
+        a.push(1.5f32);
+        a.push("s");
+        a.push(true);
+        let v: WAny = WAny::from(&*a);
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_ARRAY { return 42; }
+        if !disjoint(v, c) { return 43; }
+        let ca: &WArray<WAny> = &*(c.resolve() as *const WArray<WAny>);
+        if ca.len() != 5i64 { return 44; }
+        if ca.get(0).type_code() != (WA_I56 as u64) { return 45; }
+        if ca.get(0).as_i64() != 7i64 { return 46; }
+        if ca.get(1).type_code() != W_U64 { return 47; }     // element-wise (a)
+        if ca.get(1).as_u64() != u64_max { return 48; }
+        if ca.get(2).type_code() != W_F32 { return 49; }     // element-wise (b)
+        if ca.get(2).as_f32() != 1.5f32 { return 50; }
+        if ca.get(3).type_code() != W_STRING { return 51; }
+        if ca.get(4).type_code() != (WA_BOOL as u64) { return 52; }
+        if !equal(v, c) { return 53; }
+    }
+
+    // ── map ───────────────────────────────────────────────────────────────────
+    {
+        let d: Writ = writ_new(8192i64);
+        let m: &mut WMap<WString, WAny> = src.map(8i64);
+        m.set("n", 7i64);
+        m.set("big", box_u64(ap, u64_max));
+        m.set("f", box_f32(ap, 1.5f32));
+        m.set("s", WAny::from(src.wstring("v")));
+        let v: WAny = WAny::from(&*m);
+        let c: WAny = clone(&d, v);
+        if c.type_code() != W_MAP { return 54; }
+        if !disjoint(v, c) { return 55; }
+        let cm: &WMap<WString, WAny> = &*(c.resolve() as *const WMap<WString, WAny>);
+        if cm.len() != 4i64 { return 56; }
+        if cm.get("n").as_i64() != 7i64 { return 57; }
+        if cm.get("big").type_code() != W_U64 { return 58; }
+        if cm.get("big").as_u64() != u64_max { return 59; }
+        if cm.get("f").type_code() != W_F32 { return 60; }
+        if cm.get("f").as_f32() != 1.5f32 { return 61; }
+        if cm.get("s").type_code() != W_STRING { return 62; }
+    }
+
+    // ── DEFECT (c): an arena object with a code the walker does not know must
+    //    NEVER come back as the source pointer. A refusal (null) is correct; an
+    //    alias is a cross-arena dangling reference the moment `src` drops.
+    {
+        let d: Writ = writ_new(4096i64);
+        let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
+        *(obj as *mut u64) = 0xDEADBEEFu64;
+        let v: WAny = WAny::ref_to(obj as *const u8);
+        if v.type_code() != 7301u64 { return 63; }
+        let c: WAny = clone(&d, v);
+        if c.raw() == v.raw() { return 64; }   // the alias — the whole point
+    }
+
+    return 0;
+}

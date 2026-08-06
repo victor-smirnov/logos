@@ -1,0 +1,415 @@
+// `logos.mem.any.anybox::AnyBox` — an OWNING type-erased value, and the Writ case.
+//
+// THE PROPERTY THIS EXISTS FOR: an `AnyBox` built from a Writ value and one built
+// from the corresponding native Logos value must be INDISTINGUISHABLE to a
+// consumer — same `TypeId`, same downcast, same value — because a `TypeId` that
+// reported "a Writ container" would force every consumer to know about Writ to
+// reach the payload, and the extension would buy nothing. The arena is a
+// representation detail INSIDE the box.
+//
+// So the oracle is not "the round trip preserves the value". It is the pairwise
+// identity `of_writ(writ_form(x)) ≡ AnyBox::from(x)` at the EXTREMES of every Writ
+// scalar code, plus the ownership property (the source arena drops FIRST and the
+// box still reads) which is what "the `Any` owns the arena" actually claims.
+//
+// The expected `TypeId`s are DERIVED — they are `type_id_of::<T>()` for the
+// payload type the encoding table in anybox.logos assigns to each Writ code — not
+// read off a run. Likewise the extremes: i56 is 2^55-1 / -2^55 by the Pod encoding,
+// u64 goes to 2^64-1 because `Writ::int` never inlines an unsigned, and f32 is
+// pinned at a value whose f64 widening is exact (1.5) AND at one where it is not
+// (0.1f32), so a silent widening cannot hide.
+package any_owning_writ;
+use logos.lang.any;
+use logos.mem.any.anybox;
+use logos.lang.num.float;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.writ.allocator;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.lang.writ.compactify;
+use logos.lang.str;
+
+// Build a box over a Writ value in a SHORT-LIVED arena and return it. If the box
+// did not own its own copy, everything read from it afterwards is a dangling read.
+// (Every `of_writ` call in this test goes through here for exactly that reason.)
+fn boxed_from_temp_i64(v: i64) -> Result<AnyBox, CloneRefusal> {
+    let src: Writ = writ_new(4096i64);
+    return of_writ(src.int(v));
+}
+
+unsafe fn main() -> i32 {
+    // ── THE IDENTITY PROPERTY: Writ i64 ≡ plain i64 ───────────────────────────
+    // Both an inline i56 Pod (7 fits 56 bits) and a boxed W_I64 (i64::MAX does not)
+    // must land on the SAME payload type as the native constructor.
+    let i64_max: i64 = 9223372036854775807i64;
+    let i64_min: i64 = (0i64 - 9223372036854775807i64) - 1i64;
+    let i56_max: i64 = 36028797018963967i64;
+    let i56_min: i64 = 0i64 - 36028797018963968i64;
+    {
+        let native: AnyBox = AnyBox::from(7i64);
+        match boxed_from_temp_i64(7i64) {          // Pod path (WA_I56)
+            Result::Ok(w) => {
+                if !w.type_id().eq(&native.type_id()) { return 1; }
+                if !w.holds::<i64>() { return 2; }
+                if w.is_writ() { return 3; }        // normalised, no arena payload
+                if w.writ_code() != 0u64 { return 4; }   // provenance discarded on purpose
+                match w.downcast_ref::<i64>() {
+                    Option::Some(r) => { if *r != 7i64 { return 5; } }
+                    Option::None    => { return 6; }
+                }
+                match w.downcast_ref::<u64>() {     // a different type must NOT downcast
+                    Option::Some(_) => { return 7; }
+                    Option::None    => { }
+                }
+            }
+            Result::Err(_) => { return 8; }
+        }
+        match native.downcast_ref::<i64>() {
+            Option::Some(r) => { if *r != 7i64 { return 9; } }
+            Option::None    => { return 10; }
+        }
+    }
+    // i56 extremes (Pod) and i64 extremes (boxed W_I64) — same payload type either way.
+    {
+        let cases: i64 = 4i64;
+        let mut k: i64 = 0i64;
+        while k < cases {
+            let v: i64 = if k == 0i64 { i56_max } else if k == 1i64 { i56_min }
+                         else if k == 2i64 { i64_max } else { i64_min };
+            match boxed_from_temp_i64(v) {
+                Result::Ok(w) => {
+                    if !w.holds::<i64>() { return 11; }
+                    if w.is_writ() { return 12; }
+                    match w.downcast_ref::<i64>() {
+                        Option::Some(r) => { if *r != v { return 13; } }
+                        Option::None    => { return 14; }
+                    }
+                }
+                Result::Err(_) => { return 15; }
+            }
+            k = k + 1i64;
+        }
+    }
+
+    // ── u64 at 2^63 and 2^64-1 — the code the old walker destroyed outright ───
+    let u64_2p63: u64 = 9223372036854775808u64;
+    let u64_max:  u64 = 18446744073709551615u64;
+    {
+        let mut k: i64 = 0i64;
+        while k < 2i64 {
+            let v: u64 = if k == 0i64 { u64_2p63 } else { u64_max };
+            let src: Writ = writ_new(4096i64);
+            let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+            match of_writ(box_u64(ap, v)) {
+                Result::Ok(w) => {
+                    let native: AnyBox = AnyBox::from(v);
+                    if !w.type_id().eq(&native.type_id()) { return 16; }
+                    if !w.holds::<u64>() { return 17; }
+                    if w.holds::<i64>() { return 18; }   // u64 is NOT i64
+                    match w.downcast_ref::<u64>() {
+                        Option::Some(r) => { if *r != v { return 19; } }
+                        Option::None    => { return 20; }
+                    }
+                }
+                Result::Err(_) => { return 21; }
+            }
+            k = k + 1i64;
+        }
+    }
+
+    // ── bool ──────────────────────────────────────────────────────────────────
+    {
+        let src: Writ = writ_new(4096i64);
+        match of_writ(WAny::from(true)) {
+            Result::Ok(w) => {
+                if !w.holds::<bool>() { return 22; }
+                match w.downcast_ref::<bool>() {
+                    Option::Some(r) => { if !*r { return 23; } }
+                    Option::None    => { return 24; }
+                }
+            }
+            Result::Err(_) => { return 25; }
+        }
+        match of_writ(WAny::from(false)) {
+            Result::Ok(w) => {
+                match w.downcast_ref::<bool>() {
+                    Option::Some(r) => { if *r { return 26; } }
+                    Option::None    => { return 27; }
+                }
+            }
+            Result::Err(_) => { return 28; }
+        }
+        if src.root().raw() != 0i64 { return 29; }   // keep `src` alive, assert nothing changed it
+    }
+
+    // ── exact-width inline codes: i8/u8/i16/u16/i24/u24 keep their OWN type ────
+    {
+        let src: Writ = writ_new(4096i64);
+        let i8_min:  i8  = (0i64 - 128i64) as i8;
+        let i16_min: i16 = (0i64 - 32768i64) as i16;
+        match of_writ(WAny::from(i8_min)) {
+            Result::Ok(w) => {
+                if !w.holds::<i8>() { return 30; }
+                if w.holds::<i64>() { return 31; }
+                match w.downcast_ref::<i8>() {
+                    Option::Some(r) => { if *r != i8_min { return 32; } }
+                    Option::None    => { return 33; }
+                }
+            }
+            Result::Err(_) => { return 34; }
+        }
+        match of_writ(WAny::from(255u8)) {
+            Result::Ok(w) => {
+                if !w.holds::<u8>() { return 35; }
+                match w.downcast_ref::<u8>() {
+                    Option::Some(r) => { if *r != 255u8 { return 36; } }
+                    Option::None    => { return 37; }
+                }
+            }
+            Result::Err(_) => { return 38; }
+        }
+        match of_writ(WAny::from(i16_min)) {
+            Result::Ok(w) => {
+                if !w.holds::<i16>() { return 39; }
+                match w.downcast_ref::<i16>() {
+                    Option::Some(r) => { if *r != i16_min { return 40; } }
+                    Option::None    => { return 41; }
+                }
+            }
+            Result::Err(_) => { return 42; }
+        }
+        match of_writ(WAny::from(65535u16)) {
+            Result::Ok(w) => {
+                if !w.holds::<u16>() { return 43; }
+                match w.downcast_ref::<u16>() {
+                    Option::Some(r) => { if *r != 65535u16 { return 44; } }
+                    Option::None    => { return 45; }
+                }
+            }
+            Result::Err(_) => { return 46; }
+        }
+        // i24 / u24 — the widths with no native C twin; the exact-width Writ codes
+        // WT_I24 / WT_U24 must not collapse into i64 the way a generic i56 does.
+        let i24_min: i24 = (0i64 - 8388608i64) as i24;   // -2^23
+        let u24_max: u24 = 16777215i64 as u24;           //  2^24-1
+        match of_writ(WAny::from(i24_min)) {
+            Result::Ok(w) => {
+                if !w.holds::<i24>() { return 470; }
+                if w.holds::<i64>() { return 471; }
+                match w.downcast_ref::<i24>() {
+                    Option::Some(r) => { if *r != i24_min { return 472; } }
+                    Option::None    => { return 473; }
+                }
+            }
+            Result::Err(_) => { return 474; }
+        }
+        match of_writ(WAny::from(u24_max)) {
+            Result::Ok(w) => {
+                if !w.holds::<u24>() { return 475; }
+                match w.downcast_ref::<u24>() {
+                    Option::Some(r) => { if *r != u24_max { return 476; } }
+                    Option::None    => { return 477; }
+                }
+            }
+            Result::Err(_) => { return 478; }
+        }
+        if src.root().raw() != 0i64 { return 47; }
+    }
+
+    // ── f32 / f64 — pins the 2026-08-04 `as_f64` fix at both a widening-exact
+    //    value (1.5) and a widening-INEXACT one (0.1f32 != 0.1f64). ────────────
+    {
+        let mut k: i64 = 0i64;
+        while k < 2i64 {
+            let v: f32 = if k == 0i64 { 1.5f32 } else { 0.1f32 };
+            let src: Writ = writ_new(4096i64);
+            let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+            match of_writ(box_f32(ap, v)) {
+                Result::Ok(w) => {
+                    let native: AnyBox = AnyBox::from(v);
+                    if !w.type_id().eq(&native.type_id()) { return 48; }
+                    if !w.holds::<f32>() { return 49; }
+                    if w.holds::<f64>() { return 50; }   // f32 must NOT arrive as f64
+                    match w.downcast_ref::<f32>() {
+                        Option::Some(r) => { if *r != v { return 51; } }
+                        Option::None    => { return 52; }
+                    }
+                }
+                Result::Err(_) => { return 53; }
+            }
+            k = k + 1i64;
+        }
+    }
+    {
+        let src: Writ = writ_new(4096i64);
+        match of_writ(src.float(2.25f64)) {
+            Result::Ok(w) => {
+                if !w.holds::<f64>() { return 54; }
+                if w.holds::<f32>() { return 55; }
+                match w.downcast_ref::<f64>() {
+                    Option::Some(r) => { if *r != 2.25f64 { return 56; } }
+                    Option::None    => { return 57; }
+                }
+            }
+            Result::Err(_) => { return 58; }
+        }
+    }
+
+    // ── OWNERSHIP: the source arena is gone before the box is read. ───────────
+    // A string, an array and a map, each built in an arena that drops at the end
+    // of the constructing block; the box must still read them from its OWN arena.
+    {
+        let w: AnyBox = make_string_box();
+        if !w.holds::<WString>() { return 59; }
+        if !w.is_writ() { return 60; }
+        if w.writ_code() != W_STRING { return 61; }
+        if !w.is_wstring() { return 610; }
+        // `wstring_ptr`, NOT `downcast_ref::<WString>()`: WString is a DST and
+        // `Option<&WString>` trips a pre-existing layout-engine disagreement (see
+        // the note on `downcast_ref`). The TypeId surface above is unaffected.
+        let sp: *const WString = w.wstring_ptr();
+        if sp.is_null() { return 64; }
+        {
+            let s: &WString = &*sp;
+            if s.len() != 13i64 { return 62; }
+            if !s.as_str().eq("a writ string") { return 63; }
+        }
+        // The same payload reached as a raw Writ value must agree.
+        if w.as_writ().type_code() != W_STRING { return 65; }
+    }
+    {
+        let w: AnyBox = make_array_box();
+        if !w.holds::<WArray<WAny>>() { return 66; }
+        if w.holds::<WMap<WString, WAny>>() { return 67; }
+        if w.writ_code() != W_ARRAY { return 68; }
+        match w.downcast_ref::<WArray<WAny>>() {
+            Option::Some(a) => {
+                if a.len() != 3i64 { return 69; }
+                if a.get(0).as_i64() != 7i64 { return 70; }
+                if a.get(1).type_code() != W_U64 { return 71; }        // element tag survives
+                if a.get(1).as_u64() != u64_max { return 72; }
+                if a.get(2).type_code() != W_F32 { return 73; }
+                if a.get(2).as_f32() != 1.5f32 { return 74; }
+            }
+            Option::None => { return 75; }
+        }
+    }
+    {
+        let w: AnyBox = make_map_box();
+        if !w.holds::<WMap<WString, WAny>>() { return 76; }
+        if w.writ_code() != W_MAP { return 77; }
+        match w.downcast_ref::<WMap<WString, WAny>>() {
+            Option::Some(m) => {
+                if m.len() != 2i64 { return 78; }
+                if m.get("n").as_i64() != 7i64 { return 79; }
+                if m.get("s").type_code() != W_STRING { return 80; }
+            }
+            Option::None => { return 81; }
+        }
+    }
+
+    // ── the reserved structural TypeId: a code no Logos type names ────────────
+    {
+        let src: Writ = writ_new(4096i64);
+        let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+        // A W_DECIMAL object — a real Writ code the walker copies but that no view
+        // type in this table names, so it must land on the reserved marker.
+        let obj: *mut u8 = alloc_tagged(ap, 16i64, W_DECIMAL);
+        *(obj as *mut u64) = 2u64;
+        *(((obj as i64) + 8i64) as *mut u64) = 12345u64;
+        match of_writ(WAny::ref_to(obj as *const u8)) {
+            Result::Ok(w) => {
+                if !w.holds::<WritOpaque>() { return 82; }
+                if w.holds::<WArray<WAny>>() { return 83; }
+                if w.writ_code() != W_DECIMAL { return 84; }   // the exact discriminator
+                if w.as_writ().type_code() != W_DECIMAL { return 85; }
+                match w.downcast_ref::<i64>() {                // never a Logos type
+                    Option::Some(_) => { return 86; }
+                    Option::None    => { }
+                }
+            }
+            Result::Err(_) => { return 87; }
+        }
+    }
+
+    // ── REFUSAL propagates: the box must not hold what could not be copied. ───
+    {
+        let src: Writ = writ_new(65536i64);
+        let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+        // unknown tag
+        let obj: *mut u8 = alloc_tagged(ap, 8i64, 7301u64);
+        match of_writ(WAny::ref_to(obj as *const u8)) {
+            Result::Ok(_)  => { return 88; }
+            Result::Err(e) => {
+                if !e.is_unknown_tag() { return 89; }
+                if e.tag != 7301u64 { return 90; }
+            }
+        }
+        // too deep
+        let mut cur: WAny = WAny::from(1i8);
+        let mut i: i64 = 0i64;
+        while i < 100000i64 {
+            let outer: &mut WArray<WAny> = src.array(1i64);
+            outer.push(cur);
+            cur = WAny::ref_to(&*outer as *const WArray<WAny> as *const u8);
+            i = i + 1i64;
+        }
+        match of_writ(cur) {
+            Result::Ok(_)  => { return 91; }
+            Result::Err(e) => { if !e.is_depth() { return 92; } }
+        }
+    }
+
+    // ── the box survives being moved and dropped in bulk ──────────────────────
+    {
+        let mut i: i64 = 0i64;
+        while i < 2000i64 {
+            let w: AnyBox = make_array_box();
+            match w.downcast_ref::<WArray<WAny>>() {
+                Option::Some(a) => { if a.len() != 3i64 { return 93; } }
+                Option::None    => { return 94; }
+            }
+            i = i + 1i64;
+        }
+    }
+
+    return 0;
+}
+
+// Each of these builds its payload in an arena that DIES at the end of the
+// function — the returned box must own an independent copy.
+unsafe fn make_string_box() -> AnyBox {
+    let src: Writ = writ_new(4096i64);
+    match of_writ(WAny::from(src.wstring("a writ string"))) {
+        Result::Ok(w)  => { return w; }
+        Result::Err(_) => { return AnyBox::from(0i64); }   // fails the holds::<WString> check
+    }
+}
+
+unsafe fn make_array_box() -> AnyBox {
+    let src: Writ = writ_new(8192i64);
+    let ap: *mut Allocator = (&src as *const Writ as *mut Writ).allocator.get();
+    let a: &mut WArray<WAny> = src.array(8i64);
+    a.push(7i64);
+    a.push(box_u64(ap, 18446744073709551615u64));
+    a.push(box_f32(ap, 1.5f32));
+    match of_writ(WAny::from(&*a)) {
+        Result::Ok(w)  => { return w; }
+        Result::Err(_) => { return AnyBox::from(0i64); }
+    }
+}
+
+unsafe fn make_map_box() -> AnyBox {
+    let src: Writ = writ_new(8192i64);
+    let m: &mut WMap<WString, WAny> = src.map(8i64);
+    m.set("n", 7i64);
+    m.set("s", WAny::from(src.wstring("v")));
+    match of_writ(WAny::from(&*m)) {
+        Result::Ok(w)  => { return w; }
+        Result::Err(_) => { return AnyBox::from(0i64); }
+    }
+}

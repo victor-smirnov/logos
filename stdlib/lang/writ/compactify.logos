@@ -13,69 +13,324 @@
 // It is the inverse-free twin of stringify/wbs_write: same type_code-dispatched
 // walk, but the sink is a live arena rather than text/bytes. (Old → new is a pure
 // copy; the old bytes are never mutated — design §4 "compaction = copy, not move".)
+//
+// ── TOTAL OR REFUSING (2026-08-06) ────────────────────────────────────────────
+// This is THE ONE Writ deep-copy walker. `logos.mem.writ.clone::writ_clone_into`
+// is now a thin delegator to it; there used to be two copies of this walk that had
+// DRIFTED apart, and the drift was the bug:
+//
+//   • the old walk here re-encoded rather than copied wide scalars —
+//     `if v.is_int() { dst.int(v.as_i64()) }` admitted a boxed `W_U64`, reinterpreted
+//     its bits as `i64` and re-tagged the result `WA_I56`, so `u64::MAX` came back as
+//     the inline Pod `-1` (BOTH type code and value destroyed); and
+//     `if v.is_float() { dst.float(v.as_f64()) }` turned every boxed `W_F32` into a
+//     `W_F64` (the value survived the widening, the type code did not);
+//   • worse, for ANY type code it did not handle it fell through to `return v` —
+//     handing back THE SOURCE `WAny` VERBATIM, so the "copy" in `dst` was a pointer
+//     into `src`, dangling the moment `src` dropped;
+//   • and past the depth cap it returned `WAny::ref_to(0)` — a null indistinguishable
+//     from a value that genuinely was null.
+//
+// All four are gone. The walk now copies wide scalars BIT-FOR-BIT under their
+// ORIGINAL tag, knows every structural code the `logos.lang.writ.*` layer defines,
+// and for anything left over REFUSES rather than aliasing or truncating:
+// `try_compactify` / `try_clone` return `Result<WAny, CloneRefusal>` distinguishing
+// "too deep" from "I do not know tag N" — because those are different facts to a
+// caller and collapsing them into one silent null is how the loss channels hid.
+//
+// The total-signature `compactify` / `clone` are kept for callers with no error
+// channel; they map a refusal to null. ⚠ BEHAVIOUR CHANGE: on an unknown tag they
+// now return NULL where they used to return the source `WAny` — a caller that
+// stored that word in `dst` was storing a cross-arena alias.
 
 package logos.lang.writ.compactify;
 
-use logos.lang.writ.container;   // Writ
-use logos.lang.writ.anyval;      // WAny
+use logos.lang.writ.container;   // Writ, alloc_tagged, writ_alloc_bytes
+use logos.lang.writ.allocator;   // Allocator
+use logos.lang.writ.anyval;      // WAny, w_type_code, W_* codes
 use logos.lang.writ.array;       // WArray<WAny>
 use logos.lang.writ.wmap;        // WMap<WString, WAny>
 use logos.lang.writ.wstring;     // WString
+use logos.lang.result;           // Result
 use logos.lang.str;                 // str
 use logos.lang.ptr;
 
 // Maximum structural nesting the recursive copy walker will descend. Past this
-// cap it stops and returns null rather than overflowing the native C stack on
+// cap it stops and REFUSES rather than overflowing the native C stack on
 // pathologically deep (adversarial or accidental) input — the same robustness
 // guard the Writ parser applies (WRIT_PARSE_MAX_DEPTH). Realistic documents nest
 // only a handful of levels; the observed stack overflow needs tens of thousands.
-const COMPACTIFY_MAX_DEPTH: i64 = 4096i64;
+pub const COMPACTIFY_MAX_DEPTH: i64 = 4096i64;
 
-/// Deep-copies `v` (and everything it transitively references) into `dst`, returning
-/// the new root `WAny`.
-/// Pods/null are position-independent (copied by value); refs are rebuilt and
-/// re-anchored to their new slot.
-pub fn compactify(dst: &Writ, v: WAny) -> WAny {
-    return compactify_d(dst, v, 0i64);
+// ── Refusal ───────────────────────────────────────────────────────────────────
+/// `CloneRefusal::kind` — the walk descended past `COMPACTIFY_MAX_DEPTH`.
+pub const CLONE_REFUSED_DEPTH: i64 = 1i64;
+/// `CloneRefusal::kind` — the walk met an arena object whose type code it cannot copy.
+pub const CLONE_REFUSED_UNKNOWN_TAG: i64 = 2i64;
+/// `CloneRefusal::kind` — the destination arena could not satisfy an allocation.
+pub const CLONE_REFUSED_OOM: i64 = 3i64;
+
+/// Why a deep copy could not be completed. `kind` is one of `CLONE_REFUSED_*`;
+/// `tag` carries the offending Writ type code when `kind == CLONE_REFUSED_UNKNOWN_TAG`
+/// (0 otherwise). A refusal is never a value — the copy did NOT happen.
+pub struct CloneRefusal {
+    /// One of `CLONE_REFUSED_DEPTH` / `CLONE_REFUSED_UNKNOWN_TAG` / `CLONE_REFUSED_OOM`.
+    pub kind: i64,
+    /// The Writ type code that was not understood (only for `CLONE_REFUSED_UNKNOWN_TAG`).
+    pub tag:  u64,
 }
 
-fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> WAny {
-    if depth > COMPACTIFY_MAX_DEPTH { return WAny::ref_to(0i64 as *const u8); }
-    if v.is_null() { return WAny::ref_to(0i64 as *const u8); }
-    if v.is_pod()  { return v; }                       // i56 / bool — position-independent
-    if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
-    if v.is_int()   { return dst.int(v.as_i64()); }    // (boxed i64; Pod i56 already handled above)
-    if v.is_string() {
-        let hs: &WString = unsafe { &*(v.resolve() as *const WString) };
-        return WAny::from(dst.wstring(hs.as_str()));
+impl Copy for CloneRefusal {}
+
+impl CloneRefusal {
+    /// Returns `true` iff this refusal is "the input nested deeper than the walker descends".
+    pub fn is_depth(self: &CloneRefusal) -> bool { return self.kind == CLONE_REFUSED_DEPTH; }
+    /// Returns `true` iff this refusal is "the walker does not know that arena type code".
+    pub fn is_unknown_tag(self: &CloneRefusal) -> bool { return self.kind == CLONE_REFUSED_UNKNOWN_TAG; }
+    /// Returns `true` iff this refusal is "the destination arena is out of memory".
+    pub fn is_oom(self: &CloneRefusal) -> bool { return self.kind == CLONE_REFUSED_OOM; }
+}
+
+fn refuse_depth() -> Result<WAny, CloneRefusal> {
+    return Result::Err(CloneRefusal { kind: CLONE_REFUSED_DEPTH, tag: 0u64 });
+}
+fn refuse_tag(tc: u64) -> Result<WAny, CloneRefusal> {
+    return Result::Err(CloneRefusal { kind: CLONE_REFUSED_UNKNOWN_TAG, tag: tc });
+}
+fn refuse_oom() -> Result<WAny, CloneRefusal> {
+    return Result::Err(CloneRefusal { kind: CLONE_REFUSED_OOM, tag: 0u64 });
+}
+
+// Structural wire-code ranges this walker knows. Typed dense arrays 2101..=2110 and
+// int-keyed dense maps 3101..=3104 are defined by `logos.lang.writ.typed_arr`; they
+// are named here as bare codes (not imported) to keep the walker free of a use-cycle.
+const W_TYPED_ARR_LO: u64 = 2101u64;
+const W_TYPED_ARR_HI: u64 = 2110u64;
+const W_TYPED_MAP_LO: u64 = 3101u64;
+const W_TYPED_MAP_HI: u64 = 3104u64;
+
+// ── Entry points ──────────────────────────────────────────────────────────────
+
+/// Deep-copies `v` (and everything it transitively references) into `dst`, returning
+/// the new root `WAny` — or a [CloneRefusal] saying why it could not.
+///
+/// Pods/null are position-independent (copied by value); boxed wide scalars are
+/// copied bit-for-bit under their original tag; strings/arrays/maps/typed payloads
+/// are rebuilt and re-anchored in `dst`. The result NEVER aliases `v`'s arena.
+pub fn try_compactify(dst: &Writ, v: WAny) -> Result<WAny, CloneRefusal> {
+    return unsafe { compactify_d(dst, v, 0i64) };
+}
+
+/// Deep-copies `v` into arena `dst`, returning the new independent root — or a
+/// [CloneRefusal]. Same operation as [try_compactify], named for the by-value-copy
+/// intent; pass the SAME arena to duplicate a subtree, a FRESH arena to compact.
+pub fn try_clone(dst: &Writ, v: WAny) -> Result<WAny, CloneRefusal> {
+    return try_compactify(dst, v);
+}
+
+/// Total-signature [try_compactify] for callers with no error channel: a refusal
+/// (too deep / unknown tag / OOM) becomes a NULL `WAny`.
+///
+/// ⚠ A null result is AMBIGUOUS — it is also what a genuinely null `v` produces.
+/// Anything that must distinguish "the value you gave me" from "I could not copy it"
+/// (`logos.lang.any.anybox`, for one) MUST use [try_compactify].
+pub fn compactify(dst: &Writ, v: WAny) -> WAny {
+    match try_compactify(dst, v) {
+        Result::Ok(w)  => { return w; }
+        Result::Err(_) => { return WAny::null(); }
     }
-    if v.is_array() {
-        let a: &WArray<WAny> = unsafe { &*(v.resolve() as *const WArray<WAny>) };
+}
+
+/// Total-signature [try_clone] — a refusal becomes a NULL `WAny`. See [compactify]
+/// for why that is ambiguous and when not to use it.
+pub fn clone(dst: &Writ, v: WAny) -> WAny { return compactify(dst, v); }
+
+// ── The walk ──────────────────────────────────────────────────────────────────
+
+unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRefusal> {
+    if depth > COMPACTIFY_MAX_DEPTH { return refuse_depth(); }
+    if v.is_null() { return Result::Ok(WAny::null()); }
+    if v.is_pod()  { return Result::Ok(v); }           // i56 / bool / exact-width — position-independent
+
+    let hp: *mut Writ = dst as *const Writ as *mut Writ;
+    let ap: *mut Allocator = hp.allocator.get();
+    let p: *const u8 = v.resolve();
+    let tc: u64 = w_type_code(p);
+
+    // Boxed wide scalars — an 8-byte payload behind the tag. Copy the BITS and
+    // KEEP THE TAG: re-encoding through `as_i64`/`as_f64` is what destroyed
+    // W_U64 (→ WA_I56) and W_F32 (→ W_F64).
+    if tc == W_I64 || tc == W_U64 || tc == W_F32 || tc == W_F64 {
+        let obj: *mut u8 = alloc_tagged(ap, 8i64, tc);
+        if obj.is_null() { return refuse_oom(); }
+        *(obj as *mut u64) = *(p as *const u64);
+        return Result::Ok(WAny::ref_to(obj as *const u8));
+    }
+
+    if tc == W_STRING {
+        let hs: &WString = &*(p as *const WString);
+        return Result::Ok(WAny::from(dst.wstring(hs.as_str())));
+    }
+
+    if tc == W_ARRAY {
+        let a: &WArray<WAny> = &*(p as *const WArray<WAny>);
         let n: i64 = a.len();
-        let na: &mut WArray<WAny> = dst.array(if n < 1i64 { 1i64 } else { n });
+        let mut cap: i64 = 8i64;
+        while cap < n { cap = cap * 2i64; }
+        let na: &mut WArray<WAny> = dst.array(cap);
         let mut i: i64 = 0i64;
-        while i < n { na.push(compactify_d(dst, a.get(i), depth + 1i64)); i = i + 1i64; }
-        return WAny::from(&*na);
-    }
-    if v.is_map() {
-        let m: &WMap<WString, WAny> = unsafe { &*(v.resolve() as *const WMap<WString, WAny>) };
-        let n: i64 = m.len();
-        let nm: &mut WMap<WString, WAny> = dst.map(if n < 1i64 { 1i64 } else { n });
-        let mut i: i64 = 0i64;
-        while i < m.slots() {
-            let k: WAny = m.key_at(i);
-            if !k.is_null() {
-                let ks: &WString = unsafe { &*(k.resolve() as *const WString) };
-                nm.set(ks.as_str(), compactify_d(dst, m.val_at(i), depth + 1i64));
+        while i < n {
+            match compactify_d(dst, a.get(i), depth + 1i64) {
+                Result::Ok(w)  => { na.push(w); }
+                Result::Err(e) => { return Result::Err(e); }
             }
             i = i + 1i64;
         }
-        return WAny::from(&*nm);
+        return Result::Ok(WAny::from(&*na));
     }
-    return v;
+
+    if tc == W_MAP {
+        let m: &WMap<WString, WAny> = &*(p as *const WMap<WString, WAny>);
+        // Open addressing: give the copy at least 2x the live count in slots, so a
+        // full map does not rebuild into a saturated table.
+        let mut slots: i64 = 8i64;
+        while slots < m.len() * 2i64 { slots = slots * 2i64; }
+        let nm: &mut WMap<WString, WAny> = dst.map(slots);
+        let cap: i64 = m.slots();
+        let mut i: i64 = 0i64;
+        while i < cap {
+            let k: WAny = m.key_at(i);
+            if !k.is_null() {
+                let ks: &WString = &*(k.resolve() as *const WString);
+                match compactify_d(dst, m.val_at(i), depth + 1i64) {
+                    Result::Ok(w)  => { nm.set(ks.as_str(), w); }
+                    Result::Err(e) => { return Result::Err(e); }
+                }
+            }
+            i = i + 1i64;
+        }
+        return Result::Ok(WAny::from(&*nm));
+    }
+
+    // Typed dense arrays (2101..=2110): a 24-byte header + a raw element buffer.
+    if tc >= W_TYPED_ARR_LO && tc <= W_TYPED_ARR_HI {
+        let n: u64 = *(p as *const u64);
+        let w: i64 = typed_elem_width(tc);
+        let bytes: i64 = (n as i64) * w;
+        let mut buf: *mut u8 = 0i64 as *mut u8;
+        if bytes > 0i64 {
+            buf = writ_alloc_bytes(hp, bytes);
+            if buf.is_null() { return refuse_oom(); }
+            let sf: i64 = (p as i64) + 16i64;
+            let selems: i64 = sf + *(sf as *const i64);
+            let mut i: i64 = 0i64;
+            while i < bytes {
+                *(((buf as i64) + i) as *mut u8) = *((selems + i) as *const u8);
+                i = i + 1i64;
+            }
+        }
+        let hdr: *mut u8 = alloc_tagged(ap, 24i64, tc);
+        if hdr.is_null() { return refuse_oom(); }
+        *(hdr as *mut u64) = n;
+        *(((hdr as i64) + 8i64) as *mut u64) = n;
+        let df: i64 = (hdr as i64) + 16i64;
+        if buf == (0i64 as *mut u8) { *(df as *mut i64) = 0i64; }
+        else { *(df as *mut i64) = (buf as i64) - df; }
+        return Result::Ok(WAny::ref_to(hdr as *const u8));
+    }
+
+    // Typed dense int-keyed maps (3101..=3104): keys buffer raw, values re-anchored at-rest.
+    if tc >= W_TYPED_MAP_LO && tc <= W_TYPED_MAP_HI {
+        let n: i64 = *(p as *const i64);
+        let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };
+        let mut kbuf: i64 = 0i64;
+        let mut vbuf: i64 = 0i64;
+        if n > 0i64 {
+            let kb: *mut u8 = writ_alloc_bytes(hp, n * kw);
+            if kb.is_null() { return refuse_oom(); }
+            let vb: *mut u8 = writ_alloc_bytes(hp, n * 8i64);
+            if vb.is_null() { return refuse_oom(); }
+            kbuf = kb as i64;
+            vbuf = vb as i64;
+            let skf: i64 = (p as i64) + 16i64; let skeys: i64 = skf + *(skf as *const i64);
+            let svf: i64 = (p as i64) + 24i64; let svals: i64 = svf + *(svf as *const i64);
+            let mut i: i64 = 0i64;
+            while i < n * kw {
+                *((kbuf + i) as *mut u8) = *((skeys + i) as *const u8);
+                i = i + 1i64;
+            }
+            i = 0i64;
+            while i < n {
+                match compactify_d(dst, wc_at(svals + i * 8i64), depth + 1i64) {
+                    Result::Ok(c2) => { store_at_rest(vbuf + i * 8i64, c2); }
+                    Result::Err(e) => { return Result::Err(e); }
+                }
+                i = i + 1i64;
+            }
+        }
+        let hdr: *mut u8 = alloc_tagged(ap, 32i64, tc);
+        if hdr.is_null() { return refuse_oom(); }
+        *(hdr as *mut i64) = n;
+        *(((hdr as i64) + 8i64) as *mut i64) = n;
+        let kf2: i64 = (hdr as i64) + 16i64;
+        let vf2: i64 = (hdr as i64) + 24i64;
+        if kbuf == 0i64 { *(kf2 as *mut i64) = 0i64; *(vf2 as *mut i64) = 0i64; }
+        else { *(kf2 as *mut i64) = kbuf - kf2; *(vf2 as *mut i64) = vbuf - vf2; }
+        return Result::Ok(WAny::ref_to(hdr as *const u8));
+    }
+
+    // TypedValue (4115) and WParameter (127): fixed objects of N at-rest WAny slots,
+    // each deep-copied and re-anchored to its NEW slot address.
+    if tc == W_TYPEDVALUE || tc == W_PARAMETER {
+        let nslots: i64 = if tc == W_TYPEDVALUE { 3i64 } else { 2i64 };
+        let obj: *mut u8 = alloc_tagged(ap, nslots * 8i64, tc);
+        if obj.is_null() { return refuse_oom(); }
+        let mut f: i64 = 0i64;
+        while f < nslots {
+            match compactify_d(dst, wc_at((p as i64) + f * 8i64), depth + 1i64) {
+                Result::Ok(c)  => { store_at_rest((obj as i64) + f * 8i64, c); }
+                Result::Err(e) => { return Result::Err(e); }
+            }
+            f = f + 1i64;
+        }
+        return Result::Ok(WAny::ref_to(obj as *const u8));
+    }
+
+    // WDecimal (102): a fixed-size POD object — a flat 16-byte copy under its tag.
+    if tc == W_DECIMAL {
+        let obj: *mut u8 = alloc_tagged(ap, 16i64, tc);
+        if obj.is_null() { return refuse_oom(); }
+        *(obj as *mut u64) = *(p as *const u64);
+        *(((obj as i64) + 8i64) as *mut u64) = *(((p as i64) + 8i64) as *const u64);
+        return Result::Ok(WAny::ref_to(obj as *const u8));
+    }
+
+    // Anything else — REFUSE. Returning `v` here (what this walker used to do)
+    // planted a pointer into the SOURCE arena inside `dst`; returning null (what
+    // the mem-layer twin did) was indistinguishable from a null value.
+    return refuse_tag(tc);
 }
 
-/// Deep-copies `v` into arena `dst`, returning the new independent root.
-/// Same operation as `compactify`, named for the by-value-copy intent (the legacy
-/// `clone`); pass the SAME arena to duplicate a subtree, a FRESH arena to compact.
-pub fn clone(dst: &Writ, v: WAny) -> WAny { return compactify(dst, v); }
+// Element width in bytes for a typed dense array wire code (2101..=2110).
+fn typed_elem_width(tc: u64) -> i64 {
+    if tc == 2101u64 || tc == 2105u64 { return 1i64; }
+    if tc == 2102u64 || tc == 2106u64 { return 2i64; }
+    if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { return 4i64; }
+    return 8i64;
+}
+
+// Materialise the at-rest WAny word stored at `slot_addr` into its value form.
+unsafe fn wc_at(slot_addr: i64) -> WAny {
+    let w: i64 = *(slot_addr as *const i64);
+    if w == 0i64 { return WAny::null(); }
+    if (w & 1i64) == 1i64 { return WAny::Pod(w as u64); }
+    return WAny::Ref((slot_addr + w) as *const u8);
+}
+
+// Lower the value-form `v` into the at-rest slot at `slot_addr` (Ref → self-relative
+// delta; Pod/null → verbatim, they are position-independent).
+unsafe fn store_at_rest(slot_addr: i64, v: WAny) {
+    let w: i64 = v.raw();
+    if w == 0i64 || (w & 1i64) == 1i64 { *(slot_addr as *mut i64) = w; }
+    else { *(slot_addr as *mut i64) = w - slot_addr; }
+}
