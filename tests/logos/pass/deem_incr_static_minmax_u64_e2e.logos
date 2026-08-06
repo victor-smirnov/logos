@@ -1,0 +1,111 @@
+// deem_incr_static_minmax_u64_e2e — THE CELL THAT MADE P5 A CAPABILITY
+// DELETION, CLOSED, AND ITS SEEDS PINNED AT u64's OWN EXTREMA.
+//
+// ── WHAT THIS FILE WAS, AND THE INSTRUCTION IT IS HONOURING ─────────────────
+// It was `tests/logos/fail/deem_incr_static_minmax_u64_fail`, whose whole job
+// was to make one fact impossible to lose by accident: `min`/`max` over a `u64`
+// column was a COMPILE-TIME REFUSAL in `deem!` while the interpreter — the thing
+// P5 deletes — answered it, and answered it correctly. Its header ended with a
+// standing instruction:
+//
+//     IF THE STATIC RULE IS WIDENED, THIS TEST GOES RED AND ITS `.expected`
+//     MUST BE REPLACED BY AN ANSWER AT u64's EXTREMES — not by a compile. The
+//     answer to write is the one the incremental engine already gives:
+//     max{1u64, 18446744073709551615u64} = 18446744073709551615.
+//
+// The rule is widened, so that is what is below. The query is UNCHANGED from the
+// file it replaces, including the `mn = min(s.k)` control over the `i64` column
+// in the same `aggregate` list: the claim was always about the argument's TYPE
+// and never about `min`, so the two aggregates stay side by side and the i64 one
+// is asserted too.
+//
+// ── THE SEEDS ARE THE POINT, AND THEY ARE THE PART THAT WAS A DEFECT ONCE ───
+// A `min`/`max` fold seeds each new group with the order's own extremum and lets
+// any row displace it. Under an i64 accumulator those seeds are the literals
+// i64::MAX / i64::MIN — the extrema of the SIGNED order. Put an i64 seed in a
+// cell that compares under u64's order and the seed lands in the MIDDLE of the
+// range: `el_wrap_ord_least`'s header records the measurement where `max` over a
+// single row holding 5 answered 2^63, a value present in NO row. The accumulator
+// now carries `u64` and its seeds are `agg_acc_least` / `agg_acc_greatest` of
+// that type — 0 and 2^64−1, u64's actual extrema, written as u64 literals.
+//
+// ⚠ SO THE SINGLE-ROW ARMS ARE NOT PADDING; THEY ARE THE SEED GATE, and the
+// two-row arms cannot replace them. `max{1, 2^64−1}` answers 2^64−1 under an
+// i64 seed as well (2^64−1 read signed is −1, which still beats i64::MIN), so
+// that arm alone would stay green through a wrong seed. `max` over the SINGLE
+// row {5} is the arm a signed seed fails: it answers 5 with u64's extremum and
+// 9223372036854775808 with i64::MIN's bits. `min` over the single row
+// {2^64−1} is its mirror: 18446744073709551615 with u64's extremum and
+// 9223372036854775807 (i64::MAX's bits) with the signed seed.
+//
+// ── THE EXPECTATIONS ARE HAND-DERIVED ───────────────────────────────────────
+// u64's order is the numeric one on 0 … 2^64−1: 1 < 2^64−1 and 5 is above 0, so
+// max{1, 2^64−1} = 18446744073709551615 and min{1, 2^64−1} = 1. Nothing below
+// asks the compiler what it thinks the answer is.
+//
+// ⚠ WHAT IS *NOT* CLAIMED HERE. This file says nothing about the dynamic or the
+// incremental ENGINE — `wql_domain_incr_disagreement` at :162-174 holds the
+// engine's `max` over the same values, and a value pinned twice is a value that
+// has to be rewritten twice. What is here is the STATIC tier's answer, which did
+// not exist before.
+//
+// EXIT CODES: 10-19 the two-row extremes + the i64 control, 20-29 the two
+// single-row SEED arms. All ≤ 122.
+//
+// exit 0 = `deem!` answers `min`/`max` over a `u64` column, at u64's extrema,
+//          with seeds drawn from u64's own order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct Rec { pub k: i64, pub v: u64 }
+
+pub deem extremes(src: &[Rec]) { from src s
+      group by s.k
+      aggregate mn = min(s.k), mx = max(s.v)
+      select (key, mn, mx) }
+
+pub deem both(src: &[Rec]) { from src s
+      group by s.k
+      aggregate lo = min(s.v), hi = max(s.v)
+      select (key, lo, hi) }
+
+fn main() -> i32 {
+    // ══ A. THE ANSWER THE REFUSAL WITHHELD, at u64's extremes. Codes 10-19.
+    //       max{1, 2^64−1} = 18446744073709551615 in u64's order; the `i64`
+    //       control aggregate in the same list is min{0, 0} = 0.
+    let a: [Rec; 2] = [Rec { k: 0i64, v: 1u64 },
+                       Rec { k: 0i64, v: 18446744073709551615u64 }];
+    let ra: Vec<(i64, i64, u64)> = match extremes(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if ra.len() != 1i64                              { return 11i32; }
+    if ra.get(0i64).1 != 0i64                        { return 12i32; }
+    if ra.get(0i64).2 != 18446744073709551615u64     { return 13i32; }
+    // …and `min` over the same two values is the other end of the same order.
+    let rb: Vec<(i64, u64, u64)> = match both(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if rb.len() != 1i64                              { return 15i32; }
+    if rb.get(0i64).1 != 1u64                        { return 16i32; }
+    if rb.get(0i64).2 != 18446744073709551615u64     { return 17i32; }
+
+    // ══ B. THE SEED GATE. Codes 20-29. ONE row per group, so the answer IS
+    //       the row and any surviving seed is visible as itself.
+    //       A signed seed would answer 9223372036854775808 for `max` (i64::MIN's
+    //       bits) and 9223372036854775807 for `min` (i64::MAX's).
+    let s5: [Rec; 1] = [Rec { k: 0i64, v: 5u64 }];
+    let r5: Vec<(i64, u64, u64)> = match both(&s5[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if r5.len() != 1i64          { return 21i32; }
+    if r5.get(0i64).1 != 5u64    { return 22i32; }
+    if r5.get(0i64).2 != 5u64    { return 23i32; }
+    let sm: [Rec; 1] = [Rec { k: 0i64, v: 18446744073709551615u64 }];
+    let rm: Vec<(i64, u64, u64)> = match both(&sm[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 24i32; } };
+    if rm.len() != 1i64                             { return 25i32; }
+    if rm.get(0i64).1 != 18446744073709551615u64    { return 26i32; }
+    if rm.get(0i64).2 != 18446744073709551615u64    { return 27i32; }
+
+    return 0i32;
+}

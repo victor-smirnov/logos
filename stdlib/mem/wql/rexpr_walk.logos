@@ -3728,9 +3728,31 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut aret:    [i32; 8]  = [0i32; 8];
     if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
                      &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &mut ty);
+    // ── THE ACCUMULATOR'S TYPE, DECIDED ONCE AND ABOVE EVERYTHING THAT READS IT
+    // ⚠ THIS CALL USED TO SIT 70 LINES BELOW, BESIDE THE BATCH FOLD, AND THAT
+    // POSITION IS WHAT MADE THE `u64` CELL LOOK LIKE A ONE-LINE FIX. Three
+    // things downstream of it are DERIVED from the accumulator and all three are
+    // decided here: the finalized COLUMN type (`compute_agg_col_tys` — the
+    // `__gf_*` vectors, the finalize `let`, the group-row rebind), the aggregate
+    // OUTPUT NAME's recorded type (`stamp_agg_out_types` — which `select`,
+    // `having` and `order by` all read, and which `infer_emit_ty` turns into the
+    // result element type), and the fold itself. Computing the accumulator after
+    // them left `Vec<u64>` cells read through `let t: i64 = …` inside the
+    // generated blob. Its inputs are all available the moment `resolve_aggs`
+    // returns, so the hoist costs nothing.
+    //
+    // ⚠ AND THERE IS NOW ONE ARRAY, NOT TWO. `compute_acc_tys` used to take a
+    // `typed` flag whose FALSE arm answered the class representative for the
+    // batch and whose TRUE arm answered `el::agg_acc_ty` for the incremental —
+    // two emitters holding two different opinions about one cell, which is
+    // exactly the disagreement `compute_agg_bodies`' header warns about one
+    // level down. The flag is deleted and the array is passed into
+    // `emit_incremental` rather than recomputed there.
+    let mut acc: [str; 8] = ["", "", "", "", "", "", "", ""];
+    compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, &mut acc);
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &acc, &mut ty);
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &mut act);
+    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &acc, &mut act);
 
     // Validate clause calls (select / where / on preds; the key is validated above).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
@@ -3794,17 +3816,10 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    // The BATCH fold's accumulator types: the class-representative pair, which is
-    // the decision this emitter's `Vec<i64>` / `Vec<f64>` declarations and its
-    // i64::MAX/i64::MIN seeds already take a few lines below. `typed = false` is
-    // therefore a control that changes nothing HERE by construction — and the
-    // reason it is spelled as a call rather than left inline is that the
-    // INCREMENTAL emitter below asks the same function with `typed = true`, so
-    // the two accumulators differ in exactly one argument and nowhere else.
-    let mut bacc: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, false, &mut bacc);
+    // The BATCH fold's accumulator types are `acc`, computed above and shared
+    // with the incremental emitter — see the note at `compute_acc_tys`' call.
     if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda,
-                           &agg_flt, &agg_cast, &bacc, &mut agg_body) { return false; }
+                           &agg_flt, &agg_cast, &acc, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
     let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -3890,7 +3905,15 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         } else if agg_flt[gd] {
             acols.push(quote_block! { let mut #n_ga: Vec<f64> = Vec::<f64>::new(); });
         } else {
-            acols.push(quote_block! { let mut #n_ga: Vec<i64> = Vec::<i64>::new(); });
+            // ⚠ THE CELL'S TYPE IS `acc[gd]`, NOT THE LITERAL `i64` THAT USED TO
+            // BE HERE. `Vec<i64>` was the decision that made every one of this
+            // fold's refusals: `check_agg_operand` was told the accumulator is an
+            // i64 and correctly refused a `u64` argument, because the only route
+            // into an i64 cell REINTERPRETS. With the column's own type in the
+            // cell there is nothing to refuse.
+            let bacc_f:  ExprBlob = parse_type(acc[gd]);
+            let bacc_f2: ExprBlob = parse_type(acc[gd]);
+            acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
         }
 
         // — the group-creation SEED —
@@ -3916,11 +3939,24 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                 seeds.push(quote_block! { #n_ga.push(0.0f64); });
             }
         } else if fnid == AGG_MIN() {
-            seeds.push(quote_block! { #n_ga.push(9223372036854775807i64); });
+            // ⚠ THE SEED IS THE ACCUMULATOR'S OWN EXTREMUM, and the literals
+            // 9223372036854775807i64 / -9223372036854775808i64 that stood here
+            // were the SIGNED order's. Under a `u64` cell those are not extrema
+            // at all — i64::MIN's bits read as u64 are 2^63, the MIDDLE of the
+            // range — so `max` over a single row holding 5 would answer 2^63, a
+            // value present in no row. That is the measurement
+            // `el_wrap_ord_least`'s header records, and it is the reason the
+            // seeds move with the cell rather than beside it. `greatest` seeds
+            // `min` and `least` seeds `max`; the incremental fold uses the same
+            // pair with the same polarity.
+            let sd: ExprBlob = parse_expr(agg_acc_greatest(acc[gd]));
+            seeds.push(quote_block! { #n_ga.push(#(sd)); });
         } else if fnid == AGG_MAX() {
-            seeds.push(quote_block! { #n_ga.push(-9223372036854775808i64); });
+            let sd2: ExprBlob = parse_expr(agg_acc_least(acc[gd]));
+            seeds.push(quote_block! { #n_ga.push(#(sd2)); });
         } else {
-            seeds.push(quote_block! { #n_ga.push(0i64); });
+            let sz: ExprBlob = parse_expr(agg_acc_zero(acc[gd]));
+            seeds.push(quote_block! { #n_ga.push(#(sz)); });
         }
 
         // — the per-row FOLD step —
@@ -3942,7 +3978,20 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             // `compute_agg_bodies`. This comment used to say "the arg is already
             // checked" and nothing checked it: `el_add(acc, (s.v))` over a `u64`
             // column reached the host compiler as `arg 2: expected i64, got u64`.
-            folds.push(quote_block! { #n_ga.set(__gi, el_add(#n_ga.get(__gi), (#(arg_f)))?); });
+            //
+            // ⚠⚠ AND THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE
+            // AND BY NOTHING ELSE — the same rule the incremental fold takes.
+            // `el_add` unconditional was the OTHER half of the u64 refusal, and
+            // the half that made a naive fix strictly worse than the refusal:
+            // a `u64` cell added through i64's predicate answers `{2^62, 2^62}`
+            // with an Err it should not raise and `{5, 2^63, 2^64-1}` with a
+            // quiet wrong number and no Err at all. Both directions are pinned
+            // by `wql_agg_wide_int_arg_e2e`.
+            if str_eq(acc[gd], "u64") {
+                folds.push(quote_block! { #n_ga.set(__gi, el_addu(#n_ga.get(__gi), (#(arg_f)))?); });
+            } else {
+                folds.push(quote_block! { #n_ga.set(__gi, el_add(#n_ga.get(__gi), (#(arg_f)))?); });
+            }
         } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
             if agg_cast[gd] {
                 folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + ((#(arg_f)) as f64)); });
@@ -3964,8 +4013,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                     { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
                 });
             } else {
+                // ⚠ THE BINDING'S TYPE IS THE CELL'S. `let __v: i64` hardcoded
+                // here is what produced `let '__v': type mismatch — expected
+                // i64, got u64` from inside the generated blob; the comparison
+                // that follows is then the CELL's `<`, which for a u64 cell is
+                // u64's order and is exactly the order the column asked for.
+                let vt: ExprBlob = parse_type(acc[gd]);
                 folds.push(quote_block! {
-                    { let __v: i64 = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                    { let __v: #(vt) = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
                 });
             }
         } else {
@@ -3974,8 +4029,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                     { let __v: f64 = (#(arg_f)); if f64_data_key(__v) > f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
                 });
             } else {
+                let vt2: ExprBlob = parse_type(acc[gd]);
                 folds.push(quote_block! {
-                    { let __v: i64 = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
+                    { let __v: #(vt2) = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
                 });
             }
         }
@@ -4138,34 +4194,33 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // TIDINESS ONE. Everything this call reads — the stamped types, the key, the
     // aggregate reprs, the projection body — was computed and CHECKED above, so
     // a query the batch emitter refuses never reaches here and the incremental
-    // form cannot admit what the batch form refused. That is the current shape of
-    // the `u64` cell: `check_agg_operand` refuses a `u64` `sum` for the BATCH
-    // accumulator and the item fails before this line, so `agg_acc_ty`'s `u64`
-    // row is reachable from `compute_acc_tys` and not yet from a query.
+    // form cannot admit what the batch form refused.
     //
-    // ⚠ AN EARLIER VERSION OF THIS COMMENT SAID CLOSING IT IS "ONE CALL SITE
-    // (`compute_acc_tys(..., true, ...)` for the batch too) plus two fixture
-    // moves". THAT IS WRONG, and measured wrong before anyone acted on it:
-    //   * the INCREMENTAL fold branches on the accumulator type and calls
-    //     `el_addu` — u64's checked_add;
-    //   * the BATCH fold calls `el_add` UNCONDITIONALLY, i64's;
-    //   * and the batch accumulator vector is declared `Vec<i64>` outright.
-    // Flipping the flag alone therefore yields a `u64` accumulator added through
-    // the SIGNED predicate — a wrong answer where there is currently a refusal,
-    // which is strictly worse. The real widening is four emitter sites (the
-    // flag, the fold's branch, the vector's element type, the seeds) and it
-    // needs the two extreme sums as its control: `{2^62, 2^62}` must ANSWER
-    // (representable, refused today) and `{5, 2^63, 2^64-1}` must ERR (exceeds
-    // u64, answers a quiet negative today).
+    // ── THE `u64` CELL, CLOSED 2026-08-06, AND WHAT IT ACTUALLY COST ──────────
+    // It used to be that `check_agg_operand` refused a `u64` `sum` for the BATCH
+    // accumulator and the item failed before this line, so `agg_acc_ty`'s `u64`
+    // row was reachable from `compute_acc_tys` and from no query. The comment
+    // here once said closing it was "one call site (`compute_acc_tys(...,
+    // true, ...)` for the batch too) plus two fixture moves". That was WRONG in
+    // both directions and it is worth recording which:
+    //   * flipping the flag ALONE gave a `u64` cell added through `el_add`, the
+    //     SIGNED predicate — a wrong answer where there had been a refusal;
+    //   * and the four emitter sites it then named (flag, fold branch, vector
+    //     element type, seeds) were still only four of SEVEN. The three it
+    //     missed are the ones that are not arithmetic at all: the min/max
+    //     binding's `let __v: i64`, the finalized COLUMN type
+    //     (`compute_agg_col_tys`), and the aggregate OUTPUT NAME's recorded type
+    //     (`stamp_agg_out_types`, which decides the result element type through
+    //     `infer_emit_ty`). The last two are also what forced the accumulator to
+    //     be computed ABOVE them rather than beside this call.
+    // The control is `{2^62, 2^62}` ANSWERING 2^63 and `{5, 2^63, 2^64-1}`
+    // ERRING, end to end through a query — `wql_agg_wide_int_arg_e2e`.
     //
-    // ⚠⚠ AND IT IS NOT OPTIONAL. On aggregate ARGUMENTS the static domain is
-    // strictly NARROWER than the interpreter's — `u64` min/max and `f32` sum are
-    // answered correctly by the interpreter and refused here — so deleting the
-    // interpreter without this widening DELETES CAPABILITY. See
-    // `tests/logos/fail/wql_agg_wide_int_arg_fail` and
-    // `tests/logos/pass/wql_tier_capability_disagreement`, whose header already
-    // instructs that it must go red when this cell closes.
-    if !emit_incremental(&ch, &ty, &aggs, acount, &uda, &agg_flt, &agg_cast, &act,
+    // ⚠ WHAT REMAINS NARROWER THAN THE INTERPRETER HERE IS `f32` `sum`, and it
+    // is withheld deliberately rather than missed: widening a float accumulator
+    // past its argument's width decides what a long `sum` answers and the caller
+    // cannot undo it (`el_agg_arg_reaches`' header, `wql_agg_f32_arg_fail`).
+    if !emit_incremental(&ch, &ty, &aggs, acount, &uda, &agg_flt, &agg_cast, &act, &acc,
                          key_ty, string_as_str(&key_body), result_ty, tres,
                          string_as_str(&proj_body), string_as_str(&having_body),
                          has_having, proj_opt, having_ref, has_where, mods,
@@ -4233,7 +4288,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // state shape is not final.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
-                    act: &[str; 8], key_ty: str, key_body: str,
+                    act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
                     result_ty: str, tres: i32, proj_body: str, having_body: str,
                     has_having: bool, proj_e: SExpr, having_ref: WRef<SExpr>,
                     has_where: bool, mods: QMods,
@@ -4245,20 +4300,20 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         return true;
     }
 
-    // The TYPED accumulators. Same function as the batch's, one argument apart.
-    let mut iacc: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_acc_tys(aggs, acount, ty, h, uda, agg_flt, true, &mut iacc);
     let mut iarg: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                  String::new(), String::new(), String::new(), String::new()];
-    // ⚠ IF THIS FAILS THE CHECK AND THE ADMISSION DISAGREE, and that is a defect
-    // in the compiler rather than in the query: `agg_acc_ty` answers `i64` at
-    // every row where the batch's pair answers `i64` and `u64` only where the
-    // batch answered `i64` and was refused, so the typed admission is a SUPERSET
-    // of the one that already passed above. Surfacing it loudly is the point —
-    // the alternative is an incremental form silently missing from an item whose
-    // batch form compiled.
+    // ⚠ THE ACCUMULATORS ARE THE BATCH'S, PASSED IN. This used to call
+    // `compute_acc_tys(..., true, ...)` and derive a SECOND array, because the
+    // batch asked the same function with `false` and got the class
+    // representative — one cell, two opinions, and the header above this call
+    // used to argue at length that the incremental answer was a safe SUPERSET of
+    // the batch's. There is no superset to argue about now: one array is
+    // computed once, above `stamp_agg_out_types`, and both emitters read it. If
+    // this call fails, the check and the admission disagree about an argument the
+    // batch form already accepted — a defect in the compiler, not in the query,
+    // and surfacing it loudly is the point.
     if !compute_agg_bodies(aggs, acount, ty, ch.base_var, h, uda,
-                           agg_flt, agg_cast, &iacc, &mut iarg) { return false; }
+                           agg_flt, agg_cast, acc, &mut iarg) { return false; }
 
     let bare: str = vis_strip(fn_name);
     let is_priv: bool = vis_is_priv(fn_name);
@@ -4296,7 +4351,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     while gi < acount {
         let a: RAgg = aggs.agg_at(gi);
         let fnid: i32 = agg_of_name(a.fn_name);
-        let acct: str = iacc[gi];
+        let acct: str = acc[gi];
         ganm[gi] = ga_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&ganm[gi]));
         let n_out: Ident = Ident::new(a.out);
@@ -4445,7 +4500,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         cb.push_str(", ");
         cb.push_str(string_as_str(&ganm[ci]));
         cb.push_str(": ");
-        push_vec_new(&mut cb, iacc[ci]);
+        push_vec_new(&mut cb, acc[ci]);
         ci = ci + 1i64;
     }
     cb.push_str(" };\n}\n");
@@ -4830,8 +4885,19 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
 // order / select clauses reference the outputs by name). A UDA output carries
 // its reflected finalizer-result class (`aret`); a builtin stays on the
 // agg_flt-driven FLT/INT split.
+// ⚠ AN INTEGER OUTPUT IS RECORDED BY NAME, NOT BY CLASS, and the difference is
+// a whole class of miscompile. `set_ty` stores the class REPRESENTATIVE, i.e.
+// the literal name "i64" — so a `sum` accumulating in `u64` was announced to
+// `select`, `having` and `order by` as an i64, `infer_emit_ty` made the result
+// element type `Vec<i64>`, and the emitted push was `Vec<i64>::push(u64)`: the
+// exact defect class `infer_emit_ty`'s own header records. The group KEY has
+// carried its own type name since key vectors stopped being `Vec<i64>`
+// (`ty.set_ty_named("key", key_ty)`), and this is the same move for the
+// aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
+// CLASS with no name to carry, and `f64` IS the float representative.
 fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
-                       uda: &[bool; 8], aret: &[i32; 8], ty: &mut ElTypes) {
+                       uda: &[bool; 8], aret: &[i32; 8], acc: &[str; 8],
+                       ty: &mut ElTypes) {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
@@ -4840,7 +4906,7 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
         } else if agg_flt[i] {
             ty.set_ty(a.out, EL_TY_FLT());
         } else {
-            ty.set_ty(a.out, EL_TY_INT());
+            ty.set_ty_named(a.out, acc[i]);
         }
         i = i + 1i64;
     }
@@ -4865,14 +4931,17 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
 // cast) and by the fold emitter (the `Vec<A>` declaration, the seed and the
 // arithmetic), so those three cannot come to different conclusions.
 //
-// `typed` selects WHOSE rule answers, and the two answers differ at exactly one
-// row of the lattice:
-//   false — the class REPRESENTATIVE pair, `f64` for a float accumulator and
-//           `i64` for every other, which is what the batch fold has always
-//           written and what its refusals rest on;
-//   true  — `el::agg_acc_ty` of the ARGUMENT's own emitted type, i.e. "add under
-//           the column's own overflow predicate": still `i64` for every width
-//           that widens losslessly, `u64` for the `EL_ORD_WRAP` class.
+// The answer is `el::agg_acc_ty` of the ARGUMENT's own emitted type — "add under
+// the column's own overflow predicate": `f64` for a float accumulator, `i64` for
+// every integer width that widens losslessly, `u64` for the `EL_ORD_WRAP` class.
+//
+// ⚠ THERE USED TO BE A `typed` FLAG HERE AND ITS FALSE ARM ANSWERED THE CLASS
+// REPRESENTATIVE FOR THE BATCH EMITTER. That is deleted. Two emitters holding
+// two opinions about one cell is the disagreement the header below warns about
+// one level down, and the disagreement was load-bearing: the batch's `Vec<i64>`
+// declaration, its i64::MAX/MIN seeds and its unconditional `el_add` were the
+// three places that made `false` the only answer it could survive. All three
+// now take this array, so there is one answer and it is this one.
 //
 // ⚠ A UDA's CELL IS EMPTY AND IS NEVER READ. Its accumulator is the user's
 // declared `A`, threaded verbatim through `uda_acc`, and its argument is printed
@@ -4890,7 +4959,7 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
 // and a `u64` column could arrive spelled two ways at the check and at the
 // accumulator; they read one answer.
 fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
-                   uda: &[bool; 8], agg_flt: &[bool; 8], typed: bool,
+                   uda: &[bool; 8], agg_flt: &[bool; 8],
                    acc: &mut [str; 8]) {
     let mut i: i64 = 0i64;
     while i < acount {
@@ -4898,8 +4967,6 @@ fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
             acc[i] = "";
         } else if agg_flt[i] {
             acc[i] = "f64";
-        } else if !typed {
-            acc[i] = "i64";
         } else {
             let a: RAgg = aggs.agg_at(i);
             if !a.has_arg {
@@ -4921,11 +4988,13 @@ fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
 // only ever sees this copy. It is one array now, computed by `compute_acc_tys`
 // and read by the check, by the cast and by the accumulator declaration.
 //
-// ⚠ AND THAT IS WHAT LETS TWO EMITTERS ANSWER DIFFERENTLY WITHOUT A SECOND
-// RULE. The BATCH fold asks for the i64/f64 pair verbatim (`typed = false`) and
-// therefore refuses a `u64` argument exactly as it did; the INCREMENTAL fold
-// asks `el::agg_acc_ty` (`typed = true`). The check and the emission always
-// agree because they read the SAME cell.
+// ⚠ AND BOTH EMITTERS NOW READ THE SAME CELL, WHICH IS THE POINT. There was a
+// period when they did not: the batch asked `compute_acc_tys` for the i64/f64
+// pair verbatim and the incremental asked it for `el::agg_acc_ty`, so one
+// emitter refused a `u64` argument the other would have accepted. The flag that
+// expressed that is deleted; `accw` is one array, computed once and passed to
+// the check, to the cast, to the accumulator declaration, to the seeds and to
+// the fold's overflow predicate.
 fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
                       uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
                       accw: &[str; 8], agg_body: &mut [String; 8]) -> bool {
@@ -5159,14 +5228,21 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
 // finalize `let` bindings, and the group-row rebinds. Builtins keep the
 // agg_flt-driven f64/i64 split; a UDA takes its reflected R class's lattice
 // name (i64 / f64 / bool / str).
+// ⚠ AN INTEGER COLUMN IS THE ACCUMULATOR'S TYPE, NOT "i64". The column is READ
+// OUT OF the accumulator (`let #n_out: #act = #n_ga.get(__r0)`) and pushed into
+// a `Vec<#act>`, so any answer here other than the cell's own type is a host
+// type mismatch inside the generated blob. ⚠⚠ AND IT MUST BE THE TYPE AND NOT A
+// CAST: `2^63 as i64` is negative, so casting the read instead of retyping the
+// column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
+// widening exists to produce — back into a wrong number.
 fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
-                       aret: &[i32; 8], act: &mut [str; 8]) {
+                       aret: &[i32; 8], acc: &[str; 8], act: &mut [str; 8]) {
     let mut i: i64 = 0i64;
     while i < acount {
         if i < 8i64 {
             if uda[i] { act[i] = el_class_repr(aret[i]); }
             else if agg_flt[i] { act[i] = "f64"; }
-            else { act[i] = "i64"; }
+            else { act[i] = acc[i]; }
         }
         i = i + 1i64;
     }

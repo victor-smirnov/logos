@@ -62,20 +62,21 @@
 //                  file as the runtime arms. Those cells live in `tests/logos/
 //                  fail/` and are named here so a reader of either finds the
 //                  other:
-//                    · `deem_incr_static_minmax_u64_fail` — `min`/`max` over a
-//                      `u64` column: REFUSED by `deem!` (el_agg_arg_reaches,
-//                      stdlib/mem/wql/el.logos:590), ANSWERED — and answered
-//                      CORRECTLY since 2026-08-05 — by the incremental engine.
-//                    · `wql_agg_wide_int_arg_fail` — the same for `sum(u64)`.
-//                    · `wql_agg_f32_arg_fail` — the same for `sum(f32)`, which
-//                      the incremental engine has answered correctly since
-//                      2026-08-04.
-//                  ⚠ THE DIRECTION MATTERS AND IS THE OPPOSITE OF THE OBVIOUS
-//                  ONE: on aggregate ARGUMENTS the static domain is strictly
-//                  NARROWER than the incremental one. P5 is therefore a
-//                  CAPABILITY DELETION unless `el_agg_arg_reaches` is widened
-//                  first. That is a decision about what `deem!` accepts and it
-//                  is not this file's to make; this file only makes it visible.
+//                    · `wql_agg_f32_arg_fail` — `sum(f32)`, REFUSED by `deem!`
+//                      and answered correctly by the incremental engine since
+//                      2026-08-04. It is the LAST one: what a float aggregate
+//                      accumulates in decides what a long `sum` answers, so the
+//                      widening is withheld on purpose rather than pending.
+//                  ⚠ THE DIRECTION MATTERED AND WAS THE OPPOSITE OF THE OBVIOUS
+//                  ONE: on aggregate ARGUMENTS the static domain was strictly
+//                  NARROWER than the incremental one, so P5 would have been a
+//                  CAPABILITY DELETION. The `u64` half of that closed on
+//                  2026-08-06 — the static batch accumulator now carries the
+//                  column's own type, so `min`/`max`/`sum` over a `u64` column
+//                  are ANSWERED by `deem!` and their answers are
+//                  `tests/logos/pass/deem_incr_static_minmax_u64_e2e` and
+//                  `tests/logos/pass/wql_agg_wide_int_arg_e2e`. The `f32` half
+//                  is the only cell left, and it is a deliberate withholding.
 //
 // ── WHY EVERY COMPARISON IS ON BITS ─────────────────────────────────────────
 // The three read-back surfaces are NOT commensurable without a bit bridge.

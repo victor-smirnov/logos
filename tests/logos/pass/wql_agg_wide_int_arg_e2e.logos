@@ -1,0 +1,177 @@
+// WQL — A `u64` / `usize` AGGREGATE ARGUMENT IS ANSWERED, AND IT IS ANSWERED
+// UNDER THAT COLUMN'S OWN OVERFLOW PREDICATE.
+//
+// ── WHAT THIS FILE WAS ──────────────────────────────────────────────────────
+// It was `tests/logos/fail/wql_agg_wide_int_arg_fail`, and it pinned a compile
+// REFUSAL: `sum` over a `u64` column was rejected by `check_agg_operand` because
+// the batch accumulator was hardcoded `Vec<i64>` with signed seeds and `el_add`,
+// so the only route the argument had into it was `as i64` — a REINTERPRETATION
+// that sends every value at or above 2^63 negative. The refusal was CORRECT
+// GIVEN THE ACCUMULATOR IT WAS TOLD ABOUT, and that is the whole of what moved:
+// the batch accumulator now carries the COLUMN's own type (`el::agg_acc_ty`),
+// exactly as the incremental one has since P1, and with the right accumulator
+// the refusal dissolves. Nothing about the lattice's ORDER facts changed.
+//
+// ⚠ IT IS NOT A WIDENING OF WHAT `as i64` ADMITS. `el_agg_arg_reaches` still
+// refuses every conversion that loses a value; what it now asks is whether the
+// argument reaches THE ACCUMULATOR IT IS BEING GIVEN (`el_int_widens(name,
+// want)`) rather than whether it reaches the class REPRESENTATIVE. For
+// `want = "i64"` the admitted set is byte-for-byte the old one — `u64`, `usize`,
+// `u128` and `i128` are refused there exactly as before, and
+// `wql_arith_wide_int_fail` / `wql_udf_wide_int_ret_fail` still hold that
+// refusal at the two positions whose accumulator IS i64 and cannot move.
+//
+// ── WHY `usize` IS HERE AND NOT IN A SECOND FILE ────────────────────────────
+// `agg_acc_ty("usize")` is `u64` — `usize` is `EL_ORD_WRAP` like `u64`, same
+// width, same order, same overflow predicate — so `usize` and `u64` are ONE row
+// of the rule and splitting them would be splitting a row. `usize` reaches a
+// `u64` accumulator through `as u64`, which is the identity on the bits and on
+// the value; the emitter WRITES that cast (`emit_norm_operand`).
+//
+// ── THE EXPECTATIONS ARE HAND-DERIVED, AND THE FOUR VALUES ARE THE ONES THAT
+//    SEPARATE THE TWO PREDICATES ──────────────────────────────────────────────
+// Nothing below asks `el_ty`, `agg_acc_ty` or any survey artifact what the
+// answer is; the arithmetic is written out here and compared against the query.
+//
+//   2^62 + 2^62 = 2^63 = 9223372036854775808
+//       FITS u64 with a factor of two to spare and OVERFLOWS i64 (max 2^63−1).
+//       This is the FALSE POSITIVE the old accumulator produced: a query whose
+//       right answer exists and is representable, refused. There is no wrong
+//       value to inspect, which is what makes it the sharper of the two.
+//   5 + 2^63 + (2^64−1) = 27670116110564327428
+//       EXCEEDS u64 → Err. Under the i64 predicate the same three payloads are
+//       5, −2^63 and −1, which add to −9223372036854775804 with NO overflow at
+//       all: a quiet wrong number and no error. That is the FALSE NEGATIVE, and
+//       it is why flipping the accumulator's TYPE without flipping its
+//       PREDICATE would have been strictly worse than the refusal.
+//   2^63 + (2^63−2) = 2^64−2 = 18446744073709551614
+//       fits u64 exactly, at the very top of its range.
+//   2^63 + 2^63 = 2^64
+//       Err under BOTH predicates — the arm that catches a "fix" that simply
+//       stopped checking.
+//
+// ── THE SIGNED CONTROL IS IN THIS FILE ON PURPOSE ───────────────────────────
+// Block D aggregates an `i64` column at i64::MIN / i64::MAX. Its accumulator is
+// `i64` before and after (`agg_acc_ty("i64") == "i64"`, `EL_ORD_OK`), its
+// predicate is `el_add`'s, and its answers must be identical across this change.
+// A file that only measured the row that MOVED could not tell a widening from a
+// replacement.
+//
+// ── BOTH EMITTERS, BECAUSE THERE ARE TWO OF THEM ────────────────────────────
+// Block E folds the same u64 sum through the INCREMENTAL form
+// (`totals_incremental` / `_epoch` / `_snapshot`), which the emitter derives for
+// this shape without being asked. Before this change `el_addu` had never been
+// emitted into generated code at all — the batch check refused the query first
+// and the batch form is emitted first, so the incremental fold's `u64` arm was
+// unreachable from any query. Blocks A and E are the first two callers it has.
+//
+// EXIT CODES: 10-19 the u64 sums, 20-29 usize, 30-39 the signed control,
+// 40-49 the incremental form. All ≤ 122.
+//
+// exit 0 = a `u64`/`usize` aggregate argument is accepted and answered under
+//          u64's overflow predicate, and the signed row did not move.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct Rec  { pub k: i64, pub v: u64 }
+struct URec { pub k: i64, pub v: usize }
+struct IRec { pub k: i64, pub v: i64 }
+
+pub deem totals(src: &[Rec])   { from src s group by s.k aggregate t = sum(s.v) select t }
+pub deem utotals(src: &[URec]) { from src s group by s.k aggregate t = sum(s.v) select t }
+pub deem itotals(src: &[IRec]) { from src s group by s.k aggregate t = sum(s.v) select t }
+pub deem iextremes(src: &[IRec]) {
+    from src s group by s.k aggregate lo = min(s.v), hi = max(s.v) select (key, lo, hi) }
+
+fn main() -> i32 {
+    // ══ A. 2^62 + 2^62 = 2^63 — REPRESENTABLE IN u64, REFUSED BEFORE ════════
+    let a: [Rec; 2] = [Rec { k: 0i64, v: 4611686018427387904u64 },
+                       Rec { k: 0i64, v: 4611686018427387904u64 }];
+    let ra: Vec<u64> = match totals(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if ra.len() != 1i64                        { return 11i32; }
+    if ra.get(0i64) != 9223372036854775808u64  { return 12i32; }
+
+    // ══ B. 5 + 2^63 + (2^64−1) EXCEEDS u64 → Err ════════════════════════════
+    //     The i64 predicate does not fire on these payloads at all.
+    let b: [Rec; 3] = [Rec { k: 0i64, v: 5u64 },
+                       Rec { k: 0i64, v: 9223372036854775808u64 },
+                       Rec { k: 0i64, v: 18446744073709551615u64 }];
+    match totals(&b[..]) {
+        Result::Ok(_v) => { return 13i32; } Result::Err(_e) => { } }
+
+    // ══ C. the top of u64's range, and the sum that leaves it ═══════════════
+    let c: [Rec; 2] = [Rec { k: 0i64, v: 9223372036854775808u64 },
+                       Rec { k: 0i64, v: 9223372036854775806u64 }];
+    let rc: Vec<u64> = match totals(&c[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if rc.len() != 1i64                         { return 15i32; }
+    if rc.get(0i64) != 18446744073709551614u64  { return 16i32; }
+    let d: [Rec; 2] = [Rec { k: 0i64, v: 9223372036854775808u64 },
+                       Rec { k: 0i64, v: 9223372036854775808u64 }];
+    match totals(&d[..]) {
+        Result::Ok(_v) => { return 17i32; } Result::Err(_e) => { } }
+
+    // ══ 20s. `usize` — THE SAME ROW OF THE RULE, NOT A SECOND ONE ═══════════
+    //     Its route into the accumulator is `as u64`, written by the emitter.
+    let u1: [URec; 2] = [URec { k: 0i64, v: 4611686018427387904usize },
+                         URec { k: 0i64, v: 4611686018427387904usize }];
+    let ru: Vec<u64> = match utotals(&u1[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if ru.len() != 1i64                        { return 21i32; }
+    if ru.get(0i64) != 9223372036854775808u64  { return 22i32; }
+    let u2: [URec; 3] = [URec { k: 0i64, v: 5usize },
+                         URec { k: 0i64, v: 9223372036854775808usize },
+                         URec { k: 0i64, v: 18446744073709551615usize }];
+    match utotals(&u2[..]) {
+        Result::Ok(_v) => { return 23i32; } Result::Err(_e) => { } }
+
+    // ══ 30s. THE SIGNED CONTROL — i64 at its own extremes, UNMOVED ══════════
+    //     `agg_acc_ty("i64")` is "i64", the predicate is `el_add`'s, and every
+    //     answer here is the one this file's parent commit already gave.
+    let i1: [IRec; 1] = [IRec { k: 0i64, v: 9223372036854775807i64 }];
+    let ri: Vec<i64> = match itotals(&i1[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    if ri.len() != 1i64                        { return 31i32; }
+    if ri.get(0i64) != 9223372036854775807i64  { return 32i32; }
+    let i2: [IRec; 2] = [IRec { k: 0i64, v: 9223372036854775807i64 },
+                         IRec { k: 0i64, v: 1i64 }];
+    match itotals(&i2[..]) {
+        Result::Ok(_v) => { return 33i32; } Result::Err(_e) => { } }
+    let i3: [IRec; 2] = [IRec { k: 0i64, v: -9223372036854775808i64 },
+                         IRec { k: 0i64, v: -1i64 }];
+    match itotals(&i3[..]) {
+        Result::Ok(_v) => { return 34i32; } Result::Err(_e) => { } }
+    // min/max over the signed extremes: the seeds must still be i64's own.
+    let i4: [IRec; 2] = [IRec { k: 0i64, v: -9223372036854775808i64 },
+                         IRec { k: 0i64, v: 9223372036854775807i64 }];
+    let re: Vec<(i64, i64, i64)> = match iextremes(&i4[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 35i32; } };
+    if re.len() != 1i64                            { return 36i32; }
+    if re.get(0i64).1 != -9223372036854775808i64   { return 37i32; }
+    if re.get(0i64).2 != 9223372036854775807i64    { return 38i32; }
+
+    // ══ 40s. THE INCREMENTAL FORM OF THE SAME QUERY ═════════════════════════
+    //     Two epochs of one row each, so the fold crosses the epoch boundary
+    //     with 2^62 already in the cell — the answer must be the batch's.
+    let e1: [Rec; 1] = [Rec { k: 0i64, v: 4611686018427387904u64 }];
+    let e2: [Rec; 1] = [Rec { k: 0i64, v: 4611686018427387904u64 }];
+    let mut h: TotalsIncr = totals_incremental();
+    match totals_epoch(&mut h, &e1[..]) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 40i32; } }
+    match totals_epoch(&mut h, &e2[..]) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 41i32; } }
+    let rs: Vec<u64> = match totals_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 42i32; } };
+    if rs.len() != 1i64                        { return 43i32; }
+    if rs.get(0i64) != 9223372036854775808u64  { return 44i32; }
+    // …and the epoch that leaves u64 RETURNS the error, at the epoch that did it.
+    let e3: [Rec; 1] = [Rec { k: 0i64, v: 18446744073709551615u64 }];
+    match totals_epoch(&mut h, &e3[..]) {
+        Result::Ok(_n) => { return 45i32; } Result::Err(_e) => { } }
+
+    return 0i32;
+}

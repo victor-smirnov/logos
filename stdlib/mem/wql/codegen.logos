@@ -643,23 +643,32 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
 /// `isize`, whose every value reaches `i64` unmoved. Its own diagnostic said so:
 /// "the restriction is this position's, not the type's". A check that documents
 /// its own wrongness is still wrong, and the remedy was not a special case but
-/// the OTHER HALF of the rule — `el_agg_arg_reaches` (`ElTy.fits` +
-/// `el_norm_cast`) here, and the cast actually written by `compute_agg_bodies`
-/// through `emit_norm_operand`. So the admitted set is the LATTICE's and not the
-/// backend's coercion table, and a 64-bit signed row added later is admitted
-/// without anyone remembering this arc.
+/// the OTHER HALF of the rule — `el_agg_arg_reaches` here, and the cast actually
+/// written by `compute_agg_bodies` through `emit_norm_operand`. So the admitted
+/// set is the LATTICE's and not the backend's coercion table, and a 64-bit
+/// signed row added later is admitted without anyone remembering this arc.
 ///
-/// ⚠ THE UNSIGNED AND OVER-WIDE REFUSALS ARE UNCHANGED, and they are the reason
-/// this is a rule and not a widening: `u64`/`usize` (`fits` false —
-/// REINTERPRETS) and `u128`/`i128` (`fits` false — TRUNCATES) are still refused,
-/// on the VALUE's ground, and their diagnostic is `el_order_why`'s shared text.
-/// `f32` is refused too, and the third branch below says why the reason there is
-/// neither the value nor the position — see `el_agg_arg_reaches`.
+/// ⚠⚠ AND `want` IS NOT ALWAYS `i64`. It is whatever accumulator the fold
+/// DECLARES — `el::agg_acc_ty` of the argument's own emitted type, which is
+/// `u64` for the `EL_ORD_WRAP` row — and the question this check asks is
+/// therefore "does the argument reach THAT cell", not "does it reach the class
+/// representative". Reading `want` as a constant is what made the `u64` refusal
+/// look like a value-domain fact when it was a consequence of a hardcoded
+/// `Vec<i64>` two files away.
 ///
-/// `want` is the accumulator's type (`i64` / `f64`), `fname` the aggregate's
-/// name. NOT called for a UDA (its argument goes to a user `_step` whose
-/// declared T is the contract) nor for the `avg`-over-an-int form (whose emitter
-/// writes the `as f64` itself).
+/// ⚠ THE OVER-WIDE REFUSALS ARE UNCHANGED, and they are the reason this is a
+/// rule and not a widening: `u128`/`i128` accumulate in `i64` (their `as i64`
+/// TRUNCATES, so `agg_acc_ty` leaves them at the representative) and are still
+/// refused there on the VALUE's ground, with `el_order_why`'s shared text.
+/// `u64`/`usize` are refused at every position whose accumulator IS `i64` —
+/// the arithmetic tower and a UDF result — and are ACCEPTED here, because here
+/// the accumulator is theirs. `f32` is refused too, and the third branch below
+/// says why the reason there is neither the value nor the position.
+///
+/// `want` is the accumulator's type (`i64` / `u64` / `f64`), `fname` the
+/// aggregate's name. NOT called for a UDA (its argument goes to a user `_step`
+/// whose declared T is the contract) nor for the `avg`-over-an-int form (whose
+/// emitter writes the `as f64` itself).
 /// Refuse an aggregate ARGUMENT whose declared type is outside the EL's value
 /// lattice, BEFORE the shared rule table is consulted. `fname` is the
 /// aggregate's name, `ctx` the clause. True = admitted.

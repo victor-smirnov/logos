@@ -24,9 +24,16 @@ package wql_agg_isize_arg_e2e;
 // remembering this arc.
 //
 // ⚠ WHAT IS *NOT* ADMITTED, AND WHY THAT IS NOT AN OMISSION.
-//   • `u64` / `usize`  — `fits` is FALSE: the normalization REINTERPRETS, and
-//     every value at or above 2^63 arrives negative. Still refused, on the
-//     value's ground, by `tests/logos/fail/wql_agg_wide_int_arg_fail`.
+//   • `u64` / `usize`  — ⚠ NO LONGER REFUSED, as of 2026-08-06, and the reason
+//     is not that the value-domain fact moved: `fits` is still FALSE and every
+//     value at or above 2^63 still arrives negative through `as i64`. What moved
+//     is that this position stopped asking for an `i64` accumulator. The fold
+//     declares `el::agg_acc_ty` of the column, so the question became "does the
+//     argument reach a `u64` cell", whose answer is yes and needs no cast.
+//     Answers: `tests/logos/pass/wql_agg_wide_int_arg_e2e`. Into an `i64`
+//     accumulator — which is what the arithmetic tower and a UDF result still
+//     are — the refusal is unchanged (`wql_arith_wide_int_fail`,
+//     `wql_udf_wide_int_ret_fail`).
 //   • `u128` / `i128`  — `fits` is FALSE: the normalization TRUNCATES.
 //   • `f32`            — `fits` is TRUE and the cast into `f64` is exact, so
 //     this seam COULD write it. It is withheld: what a float aggregate

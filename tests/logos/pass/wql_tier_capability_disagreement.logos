@@ -18,16 +18,56 @@
 // narrates it. The header is therefore corrected by hand below, and any cell
 // this file claims and does not execute should be read the same way.
 //
-// ── THE MATRIX, MEASURED AT 85c9433d ─────────────────────────────────────────
-// Over a `u64` / `usize` column, per POSITION, per TIER:
+// ⚠ THE SECOND TIME IT CAME DUE — the `u64` `sum`/`min`/`max` cells, 2026-08-06
+// — IT STILL DID NOT FIRE FROM HERE, for the identical reason, and that is
+// worth stating flatly rather than papering over: the executable pins were again
+// in `fail/` (`wql_agg_wide_int_arg_fail`, `deem_incr_static_minmax_u64_fail`),
+// those two files went red and were rewritten as `pass/…_e2e`, and this file
+// stayed green while its matrix said REFUSES about three cells that had just
+// started answering. Blocks G and H below are the correction and the reason the
+// pattern should not recur here: the three cells are EXECUTED, at u64's own
+// extremes, so the next move of this row takes this file red on an assertion.
+//
+// ── THE MATRIX — STATIC COLUMN RE-MEASURED 2026-08-06 ───────────────────────
+// Over a `u64` / `usize` column, per POSITION, per TIER. ⚠ ONLY THE STATIC
+// COLUMN WAS RE-MEASURED. The two runtime columns are carried over from
+// 85c9433d unchanged and are NOT a fresh measurement; in particular
+// `deem_incr_static_minmax_u64_fail` recorded, before it was replaced, that the
+// incremental engine's `min`/`max` over `u64` became CORRECT on 2026-08-05
+// (`agg_ord_key`/`el_wrap_ord_key`), which if true makes the INCREMENTAL cell
+// below stale. That cell's value is `wql_domain_incr_disagreement`'s to state
+// and this arc did not run it, so it is left as it was found and flagged rather
+// than edited from a sibling's prose.
 //
 //                        STATIC          DYNAMIC        INCREMENTAL
 //   order by             ACCEPTS, right  ACCEPTS, WRONG shape-refused
 //   select               ACCEPTS, right  ACCEPTS        shape-refused
 //   aggregate avg        ACCEPTS, right  ACCEPTS        ACCEPTS
-//   aggregate min/max    REFUSES         ACCEPTS, WRONG ACCEPTS, WRONG
-//   aggregate sum        REFUSES         ACCEPTS        ACCEPTS
+//   aggregate min/max    ACCEPTS, right  ACCEPTS, WRONG ACCEPTS, WRONG
+//   aggregate sum        ACCEPTS, right  ACCEPTS        ACCEPTS
 //   arithmetic `+`       REFUSES         ACCEPTS        ACCEPTS †
+//
+// ⚠ TWO ROWS OF THE STATIC COLUMN MOVED ON 2026-08-06 AND THIS FILE DID NOT GO
+// RED, WHICH IS THE SAME MISS AS LAST TIME AND IS RECORDED AS ONE. Both read
+// REFUSES and both are now ACCEPTS, right; the batch fold's accumulator carries
+// the column's own type (`el::agg_acc_ty`) with u64's seeds and u64's overflow
+// predicate. Nothing here executed those cells, so nothing here could fail — the
+// rows were corrected by hand, from the change, and blocks G and H were added so
+// that the NEXT move of this row is caught by an assertion.
+//
+// ⚠ AND THE `arithmetic +` ROW DID NOT MOVE WITH THEM, WHICH IS NOW THE SHARPEST
+// CELL IN THE TABLE. `sum(s.x)` over a `u64` column is answered while
+// `sum(s.x + 1)` over the SAME column silently drops to an i64 accumulator —
+// correctly, because `el_add` computes in i64 and `infer_emit_ty` therefore
+// reports the arithmetic node's type as the class representative — and
+// `select s.x + 1` is refused outright (`check_arith_operand`,
+// `wql_arith_wide_int_fail`). The accumulator follows the COLUMN, never the
+// arithmetic over it, and the reason is not an oversight: `sum(s.x + 1)` has an
+// ARITHMETIC node for its argument, `infer_emit_ty` reports that node's type as
+// the class representative because that is what `el_add` returns, and
+// `agg_acc_ty("i64")` is `i64`. The distinction is measured across two files —
+// block H here for the accepted half, `wql_arith_wide_int_fail` for the refused
+// one — because a refusal cannot be a pass test.
 //
 // † IN AN INCREMENTAL-ELIGIBLE SHAPE, and the distinction is the whole reason
 //   the footnote exists rather than a tick. `incremental()` refuses a BARE
@@ -50,23 +90,33 @@
 // being a protection and becomes a question, and this fixture is the artifact
 // that keeps the question visible.
 //
-// ── WHY THE STATIC REFUSAL SURVIVES A COMPARISON-SEAM FIX, DERIVED ──────────
-// The refusal is raised at `wql/codegen.logos::check_agg_operand` (and its
+// ── THE STATIC AGGREGATE REFUSAL SURVIVED A COMPARISON-SEAM FIX AND DID NOT
+// ── SURVIVE AN ACCUMULATOR FIX, AND THE DIFFERENCE IS THE FINDING ───────────
+// The refusal was raised at `wql/codegen.logos::check_agg_operand` (and its
 // arithmetic sibling `check_arith_operand`), and NO COMPARISON IS INVOLVED IN
-// ITS ANTECEDENT AT ANY POINT, so no change at a comparison site can move it.
-// ⚠ THAT WAS A DERIVATION, NOT A MEASUREMENT, when this file was written; the
-// antecedent has since been replaced and the derivation held — the u64/usize
-// cells below are unchanged.
+// ITS ANTECEDENT AT ANY POINT, so no change at a comparison site could move it.
+// ⚠ THAT WAS A DERIVATION, NOT A MEASUREMENT, when this file was written, and
+// the derivation held: the antecedent has been replaced twice since and both
+// times the comparison sites were untouched.
 //
-// ⚠ WHAT THE ANTECEDENT WAS, AND WHAT IT IS (2026-08-05). It was
-// `el_host_carries(et, "i64")`, whose whole test is `t.bits < 64` — a claim about
-// THE HOST LANGUAGE, because `compute_agg_bodies` printed the argument VERBATIM
-// into `let __v: i64 = …` / `el_add(acc, …)` and the host widens an integer only
-// from a NARROWER width. It is now `el_agg_arg_reaches(et, "i64")` — `ElTy.fits`
-// composed with `el_norm_cast`, a claim about the VALUE — and the emitter WRITES
-// the cast through `emit_norm_operand`. For `u64`/`usize` the two agree and the
-// answer is still REFUSE, because `fits` is false: the normalization
-// REINTERPRETS. For `isize` they disagree, and that cell is CLOSED — see below.
+// ⚠ WHAT THE ANTECEDENT WAS, AND WHAT IT IS. It was `el_host_carries(et,
+// "i64")`, whose whole test is `t.bits < 64` — a claim about THE HOST LANGUAGE,
+// because `compute_agg_bodies` printed the argument VERBATIM into
+// `let __v: i64 = …` / `el_add(acc, …)` and the host widens an integer only from
+// a NARROWER width. On 2026-08-05 it became `el_agg_arg_reaches(et, "i64")` — a
+// claim about the VALUE — and the emitter began WRITING the cast through
+// `emit_norm_operand`; `u64`/`usize` were still refused, because every route
+// into an i64 cell REINTERPRETS them.
+//
+// ⚠ WHAT MOVED ON 2026-08-06 IS THE SECOND ARGUMENT, NOT THE PREDICATE. It is
+// `el_agg_arg_reaches(et, <the accumulator this fold actually declares>)`, and
+// the fold now declares `el::agg_acc_ty` of the column — `u64` for the
+// `EL_ORD_WRAP` row — with u64's seeds (`agg_acc_least`/`agg_acc_greatest`),
+// u64's `<`, and u64's `checked_add` (`el_addu`). The refusal was CORRECT GIVEN
+// THE ACCUMULATOR IT WAS TOLD ABOUT and it dissolves when told about the right
+// one. Nothing was relaxed at an accumulator that did not move: into `i64`, the
+// admitted set is byte-for-byte the old one, which is what keeps
+// `wql_arith_wide_int_fail` and `wql_udf_wide_int_ret_fail` red.
 //
 // ── WHAT THE REFUSAL DOES *NOT* COVER, WHICH IS THE FINDING ─────────────────
 // It is NOT a class-level over-refusal. `u8`, `u16` and `u32` widen losslessly
@@ -80,16 +130,25 @@
 // not expressible; block C measures the type dimension and one `max` arm
 // measures the construction claim.
 //
-// ── THE CELL THAT MAKES THIS A DEFECT REPORT AND NOT A LIMITATION ───────────
+// ── THE CELL THAT MADE THIS A DEFECT REPORT AND NOT A LIMITATION — CLOSED ───
 //   POSITION, not TYPE, inside ONE clause of ONE tier. Over the SAME `u64`
-//   column, in the SAME `aggregate` clause, `avg` is ACCEPTED and its answer is
-//   CORRECT while `sum`/`min`/`max` are REFUSED — because `avg`'s fold emitter
-//   writes `((s.x) as f64)` itself and the others emit the argument verbatim.
-//   Block B measures it, and its numbers prove something further: that `as f64`
-//   is an UNSIGNED conversion. 2^64-1 comes back as 2^64 and 2^63 as 2^63, not
-//   as -1.0 and -2^63. So the static tier ALREADY HAS a correct wide-unsigned
-//   conversion at one aggregate position while refusing three others on the
-//   ground that it has none.
+//   column, in the SAME `aggregate` clause, `avg` was ACCEPTED and its answer
+//   CORRECT while `sum`/`min`/`max` were REFUSED — because `avg`'s fold emitter
+//   writes `((s.x) as f64)` itself and the others emitted the argument into an
+//   i64 cell. Block B measures `avg`, and its numbers prove something further:
+//   that `as f64` is an UNSIGNED conversion. 2^64-1 comes back as 2^64 and 2^63
+//   as 2^63, not as -1.0 and -2^63. So the static tier ALREADY HAD a correct
+//   wide-unsigned conversion at one aggregate position while refusing three
+//   others on the ground that it had none. That self-contradiction is what this
+//   file existed to keep visible, and it is gone: blocks G and H answer the
+//   other three at the same extremes.
+//
+//   ⚠ BLOCK B IS KEPT VERBATIM AND IS NOW A REGRESSION GUARD RATHER THAN A
+//   DEFECT REPORT. `avg`'s exemption from the normalizing cast (`agg_cast`) is
+//   exactly what lets it convert u64 UNSIGNED, and the accumulator change
+//   deliberately leaves that exemption alone — routing `avg`'s argument through
+//   `as i64` first would destroy the very thing block B measures. The three IEEE
+//   bit patterns are how that stays measured rather than assumed.
 //
 // ── THE SECOND SUCH CELL WAS `isize`, AND IT IS CLOSED (2026-08-05) ─────────
 // `isize` is 64-bit and SIGNED, so every one of its values survives `as i64`:
@@ -105,26 +164,37 @@
 // `tests/logos/pass/wql_agg_isize_arg_e2e`, which asserts the ANSWERS —
 // min/max/sum at isize::MIN and isize::MAX, and the Err at the overflow.
 //
-// ⚠ THAT CLOSURE IS THE MODEL FOR THE REMAINING CELLS AND ALSO THE WARNING. It
-// was available because `isize`'s VALUES were never in question; the u64/usize
-// cells are not, and lifting them by the same move would emit a wrong number
-// rather than a refusal. What the static tier would additionally need is an
-// accumulator typed with the ARGUMENT's own type — `rexpr_walk` hardcodes
-// `Vec<i64>` with signed seeds i64::MAX/i64::MIN and raw `<`/`>`, while its KEY
-// vectors already carry the key's own type, which is why its `order by` was
-// always right and its `max` would not be.
+// ⚠ THAT CLOSURE WAS THE MODEL FOR THE REMAINING CELLS AND ALSO THE WARNING,
+// AND BOTH HALVES PROVED RIGHT. It was available because `isize`'s VALUES were
+// never in question; the u64/usize cells were not, and lifting them BY THE SAME
+// MOVE — widening what reaches an i64 accumulator — would have emitted a wrong
+// number rather than a refusal. What the static tier additionally needed is
+// exactly what this paragraph predicted: an accumulator typed with the
+// ARGUMENT's own type. `rexpr_walk` hardcoded `Vec<i64>` with signed seeds
+// i64::MAX/i64::MIN and raw `<`/`>`, while its KEY vectors already carried the
+// key's own type — which is why its `order by` was always right and its `max`
+// would not have been. The accumulator now does what the key vector does, and
+// the seeds, the comparison and the overflow predicate follow the cell.
 //
-// ── THE REFUSALS THEMSELVES LIVE IN fail/, BECAUSE A PROGRAM THAT DOES NOT ───
+// ── THE REFUSALS THAT REMAIN LIVE IN fail/, BECAUSE A PROGRAM THAT DOES NOT ──
 // ── COMPILE CANNOT BE A PASS TEST ───────────────────────────────────────────
-//   `sum` over `u64`   → tests/logos/fail/wql_agg_wide_int_arg_fail
 //   `+` over `u64`     → tests/logos/fail/wql_arith_wide_int_fail
 //   a UDF returning `u64` → tests/logos/fail/wql_udf_wide_int_ret_fail
+//   an `f32` aggregate argument → tests/logos/fail/wql_agg_f32_arg_fail
+// The two surviving `u64` refusals are positions whose accumulator IS `i64` and
+// cannot move: the EL's checked arithmetic tower computes in i64 by definition,
+// so the value has to become an i64 there, and it cannot faithfully.
+//   `sum` over `u64` USED to head that list. Its answers are now
+//   `tests/logos/pass/wql_agg_wide_int_arg_e2e`; `min`/`max` over `u64` are
+//   `tests/logos/pass/deem_incr_static_minmax_u64_e2e`.
 // Every static ACCEPTANCE claimed in the matrix above is asserted by this file
 // simply by compiling: a `deem` whose query the static tier refuses is a compile
 // error, so each `pub deem` below is itself half of an assertion and its answer
 // is the other half.
 //
-// ── A CONSTRAINT FOR WHOEVER CLOSES THE SEAM ────────────────────────────────
+// ── A CONSTRAINT FOR WHOEVER CLOSES THE *RUNTIME* SEAM ──────────────────────
+// (The static seam is closed; this constraint is about the two runtime tiers,
+// whose read-back API is what it describes.)
 // `QRows` has five getters — get_i64/get_f64/get_bool/get_str/get_node
 // (stdlib/mem/deem/query.logos:68-78) — and none of them is unsigned. There is
 // therefore NO expression in the dynamic API for the value 2^64-1: a corrected
@@ -140,25 +210,33 @@
 // IEEE-754 written out by hand: 5.0 = 1.25·2^2 → exponent 1025 = 0x401 →
 // 0x4014000000000000; 2^64 → exponent 1023+64 = 0x43F → 0x43F0000000000000;
 // 2^63 → exponent 1023+63 = 0x43E → 0x43E0000000000000.
+// Blocks G and H likewise: G is an ORDER fact and needs no arithmetic at all
+// (u64's order on 0 … 2^64−1 puts 5 below 2^63 below 2^64−1, so max = 2^64−1 =
+// 18446744073709551615 and min = 5), and H is one addition written out —
+// 5 + 2^63 + 10 = 2^63 + 15 = 9223372036854775808 + 15 = 9223372036854775823,
+// which is ABOVE i64::MAX and therefore not a number an i64 accumulator could
+// have produced at all.
 //
-// ⚠ WHY THE AGGREGATE SOURCE IS {5, 2^63, 10} AND NOT THE EXTREMES. The
-// capability arms must survive BOTH outcomes of the open decision about what
-// `sum` accumulates in (i64 today, u64 under a domain fix). 5 + 2^63 + 10 is
-// 2^63+15: it overflows NEITHER an i64 accumulator (it lands on i64::MIN+15) NOR
-// a u64 one, so an arm asserting "this tier answers" cannot flip to Err because
-// the accumulator changed. The extremes stay where they belong — in the static
-// blocks, where the answers are correct and are asserted as such. `sum` has its
-// own separate latch defect in both runtime tiers (silently 0 on a u64 overflow,
-// spuriously refused on an i64 one); it is NOT pinned here, because pinning an
-// accumulator's behaviour would be taking the very decision this file exists to
-// leave open.
+// ⚠ WHY THE RUNTIME AGGREGATE SOURCE IS {5, 2^63, 10} AND NOT THE EXTREMES. The
+// capability arms had to survive BOTH outcomes of the then-open decision about
+// what `sum` accumulates in (i64 or u64). 5 + 2^63 + 10 is 2^63+15: it overflows
+// NEITHER an i64 accumulator (it lands on i64::MIN+15) NOR a u64 one, so an arm
+// asserting "this tier answers" cannot flip to Err because the accumulator
+// changed. The decision is now taken for the STATIC tier and its extremes are
+// asserted in blocks G/H; this source stays as it is because the two RUNTIME
+// tiers still carry `sum`'s own latch defect (silently 0 on a u64 overflow,
+// spuriously refused on an i64 one), which is not pinned here — it belongs to
+// the four value files named above.
 //
 // EXIT CODES: 10-19 static `u64` order/select; 20-29 static `avg` over `u64`;
 // 30-49 the narrow-unsigned controls; 50-69 the runtime tiers over `u64`;
-// 70-89 `isize`. All ≤ 122, so nothing collides with the 8-bit exit ceiling.
+// 70-89 `isize`; 90-99 the static `u64` aggregate cells that closed on
+// 2026-08-06 and the arithmetic seam that did not. All ≤ 122, so nothing
+// collides with the 8-bit exit ceiling.
 //
-// exit 0 = the tier capability matrix is exactly as measured on 2026-08-05,
-//          disagreements included.
+// exit 0 = the tier capability matrix is exactly as recorded above — the STATIC
+//          column as measured on 2026-08-06, the two runtime columns as carried
+//          over from 85c9433d — disagreements included.
 package test;
 
 use logos.lang.writ.container;
@@ -182,6 +260,7 @@ resource cat = schema_catalog!{ U, P };
 // in the ordering, projection and `avg` positions. The three it refuses cannot
 // appear in this file at all — see the fail/ fixtures named in the header.
 struct S_u64   { pub x: u64,   pub id: i64 }
+struct S_u64g  { pub x: u64,   pub g: i64 }
 struct S_isize { pub x: isize, pub id: i64 }
 struct S_u8    { pub x: u8,    pub g: i64 }
 struct S_u16   { pub x: u16,   pub g: i64 }
@@ -195,6 +274,12 @@ pub deem sum_u8(ss: &[S_u8])     { from ss s group by s.g aggregate a = sum(s.x)
 pub deem sum_u16(ss: &[S_u16])   { from ss s group by s.g aggregate a = sum(s.x) select a : i64 }
 pub deem sum_u32(ss: &[S_u32])   { from ss s group by s.g aggregate a = sum(s.x) select a : i64 }
 pub deem max_u32(ss: &[S_u32])   { from ss s group by s.g aggregate a = max(s.x) select a : i64 }
+// The three cells that closed on 2026-08-06. `select` carries NO `: i64`
+// annotation and cannot: the aggregate's output is a `u64` now, so pinning the
+// element type to i64 would be a `Vec<i64>::push(u64)` — a different red with a
+// different message, and worth knowing about when an existing query breaks.
+pub deem mm_u64(ss: &[S_u64g])   { from ss s group by s.g aggregate a = max(s.x), b = min(s.x) select (key, a, b) }
+pub deem sum_u64(ss: &[S_u64g])  { from ss s group by s.g aggregate a = sum(s.x) select a }
 
 fn mku(d: &Writ, xv: u64, gv: i64, i: i64) -> WAny {
     let r: U = d.make::<U>(); r.x = xv; r.g = gv; r.id = i;
@@ -381,6 +466,36 @@ fn main() -> i32 {
     if si.row_count() != 1i64                                   { return 82i32; }
     if si.get_i64(0i64, 0i64) != 9223372036854775807i64         { return 83i32; }
     if si.get_i64(0i64, 1i64) != -9223372036854775808i64        { return 84i32; }
+
+    // ══ G. THE STATIC TIER ANSWERS `min`/`max` OVER `u64`, AT u64's EXTREMES.
+    //       Codes 90-94. This row read REFUSES until 2026-08-06 and the refusal
+    //       was pinned in fail/, not here — see the second ⚠ at the top.
+    //       u64's order is the numeric one on 0 … 2^64−1, so over
+    //       {5, 2^63, 2^64−1} the max is 18446744073709551615 and the min is 5.
+    //       An i64-seeded fold would answer max = 9223372036854775808
+    //       (i64::MIN's bits, a value in no row) and rank 2^63 above 2^64−1.
+    let gs: [S_u64g; 3] = [S_u64g { x: 5u64,                    g: 0i64 },
+                           S_u64g { x: 9223372036854775808u64,  g: 0i64 },
+                           S_u64g { x: 18446744073709551615u64, g: 0i64 }];
+    let mm: Vec<(i64, u64, u64)> = match mm_u64(&gs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; } };
+    if mm.len() != 1i64                              { return 91i32; }
+    if mm.get(0i64).1 != 18446744073709551615u64     { return 92i32; }
+    if mm.get(0i64).2 != 5u64                        { return 93i32; }
+
+    // ══ H. AND `sum`, UNDER u64's OVERFLOW PREDICATE. Codes 95-99.
+    //       {5, 2^63, 10} = 2^63 + 15 = 9223372036854775823 — a value ABOVE
+    //       i64::MAX, so it is not merely the right answer, it is an answer the
+    //       accumulator this position used to declare could not hold at all.
+    //       The two extreme sums (the representable 2^63 and the u64 overflow)
+    //       are `wql_agg_wide_int_arg_e2e`'s, not repeated here.
+    let hs: [S_u64g; 3] = [S_u64g { x: 5u64,                   g: 0i64 },
+                           S_u64g { x: 9223372036854775808u64, g: 0i64 },
+                           S_u64g { x: 10u64,                  g: 0i64 }];
+    let sv: Vec<u64> = match sum_u64(&hs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 95i32; } };
+    if sv.len() != 1i64                        { return 96i32; }
+    if sv.get(0i64) != 9223372036854775823u64  { return 97i32; }
 
     return 0i32;
 }

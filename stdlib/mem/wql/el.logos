@@ -583,20 +583,25 @@ pub fn el_host_carries(name: str, want: str) -> bool {
 /// WRITE the cast that performs it. The aggregate argument was the one position
 /// that did neither half; it now does both, and this is its half of the rule.
 ///
-/// ⚠ IT IS DEFINED THROUGH `el_norm_cast`, NOT BESIDE IT, so the check admits
-/// exactly what the emitter is able to write: `emit_norm_operand` wraps the
-/// argument in `as <el_norm_cast(name)>`, and this returns true only when that
-/// cast's target IS the accumulator and `ElTy.fits` says the value survives it.
-/// A rule and an emitter that read the same function cannot disagree about which
-/// conversion exists.
+/// ⚠ IT IS ASKED ABOUT `want`, THE ACCUMULATOR IT IS ACTUALLY BEING GIVEN, and
+/// that is the whole of the 2026-08-06 change. It used to be defined through
+/// `el_norm_cast(name)` — the cast into the CLASS REPRESENTATIVE — which was the
+/// right question only while every integer accumulator WAS the representative.
+/// It is not: `agg_acc_ty` gives an `EL_ORD_WRAP` column a `u64` accumulator, and
+/// asking whether the argument survives `as i64` decided nothing about a cell
+/// that is not an i64. `emit_norm_operand` writes `as <want>` and never consulted
+/// `el_norm_cast` at all, so asking about `want` is also the CLOSER of the two
+/// readings of "the rule and the emitter read one function".
 ///
-/// ⚠ WHAT THIS ADMITS THAT `el_host_carries` DID NOT IS EXACTLY `isize`, and
-/// nothing else, because the integer family's `fits` decides the rest: `u64` and
-/// `usize` REINTERPRET (every value at or above 2^63 arrives negative) and
-/// `u128`/`i128` TRUNCATE, so their refusal is unchanged and rests on the VALUE.
-/// Everything below 64 bits was admitted before and still is — with the cast now
-/// written rather than left to the host, which is the same value by a route the
-/// lattice owns.
+/// ⚠ AND NOTHING WAS RELAXED AT THE ACCUMULATOR THAT DID NOT MOVE. For
+/// `want = "i64"`, `el_int_widens` is `ElTy.fits` restated at the destination and
+/// admits exactly the same set: i8..i32 / u8..u32 / i24 / u24 / i56 / u56 /
+/// isize / i64, and NOT `u64`, `usize` (REINTERPRET), `u128` or `i128`
+/// (TRUNCATE). The i64-accumulator refusals — `wql_arith_wide_int_fail`,
+/// `wql_udf_wide_int_ret_fail`, `wql_agg_nonnumeric_arg_fail` — are untouched.
+/// What is newly admitted is `usize` INTO A `u64` ACCUMULATOR, which is the same
+/// row of the rule as `u64` itself (same width, same order, same overflow
+/// predicate) and whose cast `as u64` moves neither a bit nor a value.
 ///
 /// ⚠ THE FLOAT SIDE IS WITHHELD ON PURPOSE, AND IT IS NOT AN OVERSIGHT.
 /// `el_norm_cast("f32")` is `f64` and the conversion is exact, so this seam
@@ -611,8 +616,42 @@ pub fn el_agg_arg_reaches(name: str, want: str) -> bool {
     if str_eq(name, want) { return true; }
     let t: ElTy = el_ty(name);
     if t.cls != EL_TY_INT() { return false; }
-    if !str_eq(want, el_norm_cast(name)) { return false; }
-    return t.fits;
+    return el_int_widens(name, want);
+}
+
+/// DOES EVERY VALUE OF INTEGER TYPE `name` SURVIVE THE HOST CONVERSION
+/// `as want`? `ElTy.fits` generalized from the class REPRESENTATIVE to an
+/// arbitrary integer destination — and it is the same theorem, because `fits` IS
+/// this predicate with `want` pinned to `repr`:
+///
+///   destination SIGNED, W bits   — a signed source needs `bits ≤ W`
+///                                  (the range nests), an unsigned one needs
+///                                  `bits < W` (its top bit must stay free, which
+///                                  is `fits`' `bits ≤ 63` for `repr = i64`);
+///   destination UNSIGNED, W bits — a signed source NEVER survives (negatives
+///                                  have no image at all), an unsigned one needs
+///                                  `bits ≤ W`.
+///
+/// ⚠ IT IS A CLAIM ABOUT THE VALUE, NOT ABOUT THE ORDER OR THE PREDICATE, and
+/// keeping those apart is why `agg_acc_ty` is a separate function. `u64 as u64`
+/// preserves the value trivially; what makes a `u64` accumulator RIGHT is that
+/// its `<` and its `checked_add` are also u64's, and that is `agg_acc_ty`'s
+/// answer and `agg_acc_least`/`el_addu`'s job. This predicate only says the
+/// argument arrives intact.
+///
+/// ⚠ NOT ASKED OF A FLOAT. Both classes are checked so the answer is total, but
+/// `el_agg_arg_reaches` refuses a float above this call for a reason that is
+/// neither the value's nor the position's — see its header.
+pub fn el_int_widens(name: str, want: str) -> bool {
+    let s: ElTy = el_ty(name);
+    let d: ElTy = el_ty(want);
+    if s.cls != EL_TY_INT() || d.cls != EL_TY_INT() { return false; }
+    if d.signed {
+        if s.signed { return s.bits <= d.bits; }
+        return s.bits < d.bits;
+    }
+    if s.signed { return false; }
+    return s.bits <= d.bits;
 }
 
 // ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────
@@ -1350,11 +1389,13 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
 // accumulates an f64 sum for EVERY admitted argument class (`el_quot_ty`), so
 // neither is this function's question; `sum`/`min`/`max` are.
 //
-// Consumers: the static incremental emitter's accumulator declaration, seeds and
-// fold (`rexpr_walk::incr_*`). The static BATCH fold still hardcodes "i64"/"f64"
-// and therefore still refuses a `u64` sum — that cell is
-// `tests/logos/fail/wql_agg_wide_int_arg_fail` and closing it is a value-domain
-// admission ruling, not this function's doing.
+// Consumers: BOTH static emitters, through the single `acc` array
+// `rexpr_walk::compute_acc_tys` fills — the accumulator declaration, the seeds,
+// the fold's overflow predicate, the finalized column type and the aggregate
+// output name's recorded type all read it. The BATCH fold used to hardcode
+// "i64"/"f64" and therefore refused a `u64` sum; that cell closed on 2026-08-06
+// and its answers are `tests/logos/pass/wql_agg_wide_int_arg_e2e` and
+// `tests/logos/pass/deem_incr_static_minmax_u64_e2e`.
 pub fn agg_acc_ty(arg_ty_name: str) -> str {
     let t: ElTy = el_ty(arg_ty_name);
     if t.cls == EL_TY_FLT() { return "f64"; }

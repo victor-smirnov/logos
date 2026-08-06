@@ -4,9 +4,20 @@ package wql_agg_arg_seam_e2e;
 //
 // `check_agg_operand` refuses an aggregate argument whose EMITTED type does not
 // reach the accumulator's type, and the predicate it asks is
-// `el_agg_arg_reaches` — `ElTy.fits` composed with `el_norm_cast`: the value
-// survives the normalization AND the cast's target IS the accumulator. This file
-// is the TRUE half of that predicate and the fail tests are the false half.
+// `el_agg_arg_reaches`: every value of the argument's type survives the host
+// conversion `as <accumulator>`, which is what `emit_norm_operand` then writes.
+// This file is the TRUE half of that predicate and the fail tests are the false
+// half.
+//
+// ⚠ THE PREDICATE'S SECOND ARGUMENT WIDENED ON 2026-08-06 AND EVERY ROW BELOW
+// IS UNMOVED, WHICH IS THE OTHER THING THIS FILE CONTROLS. It used to be
+// `ElTy.fits` composed with `el_norm_cast` — "the value survives the
+// normalization into the class REPRESENTATIVE, and that representative IS the
+// accumulator" — which was the right question only while every integer
+// accumulator was `i64`. It is now `el_int_widens(name, want)`, the same theorem
+// stated at an arbitrary destination, because `agg_acc_ty` gives an
+// `EL_ORD_WRAP` column a `u64` cell. At `want = "i64"` the two agree on every
+// row of the lattice, and every row of the lattice below asks exactly that.
 //
 // ⚠ THE PREDICATE CHANGED UNDER THIS FILE ON 2026-08-05 AND EVERY ANSWER BELOW
 // STAYED THE SAME, WHICH IS WHAT MAKES IT A CONTROL. It used to be

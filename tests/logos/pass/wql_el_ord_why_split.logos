@@ -19,8 +19,14 @@
 // described a static code path retired when key vectors stopped being
 // `Vec<i64>`. It stayed true only of the DYNAMIC tier — which never renders this
 // string. `tests/logos/pass/wql_tier_capability_disagreement` measures the
-// `order by` half; `tests/logos/fail/wql_agg_wide_int_arg_fail` holds the
-// refusal that used to carry the false clause.
+// `order by` half. The refusal that used to carry the false clause was
+// `tests/logos/fail/wql_agg_wide_int_arg_fail`; it is gone as of 2026-08-06 —
+// the aggregate accumulator now carries the column's own type, so that position
+// no longer normalizes a `u64` at all — and its answers are
+// `tests/logos/pass/wql_agg_wide_int_arg_e2e`. The NORM rendering below is still
+// reached, from every position whose accumulator IS `i64`: the arithmetic
+// operand (`wql_arith_wide_int_fail`) and the UDF result
+// (`wql_udf_wide_int_ret_fail`).
 //
 // ── WHAT THIS FILE ASSERTS, AND WHY EACH ARM EXISTS ─────────────────────────
 //   1. THE SPLIT EXISTS. For WRAP and TRUNC — the only two codes a normalizing
