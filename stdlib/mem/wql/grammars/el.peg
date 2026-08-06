@@ -109,7 +109,15 @@
     SParam   : code(0x0010_0000_0000_0001) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // $name — captured IDENT
     SVar     : code(0x0010_0000_0000_0002) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // loop var — captured IDENT
     SField   : code(0x0010_0000_0000_0003) cap(3) { base: "ref SExpr" = 0, name: "str" = 1, soff: "i64" = 2 }   // field NAME — captured IDENT
-    SBin     : code(0x0010_0000_0000_0004) cap(4) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2, soff: "i64" = 3 }
+    // ⚠ cap(5) WITH FOUR FIELDS DECLARED, and it is not a typo. A grammar
+    // declares only the fields it WRITES, so this block cannot generate the
+    // item — but the capacity it hands the TinyObjectMap must cover EVERY field
+    // the item has, because a TOM's capacity is FIXED AT CONSTRUCTION. `SBin`
+    // gained `ordw: bool = 4` (the u64 signedness claim, ir.logos); the parser
+    // never writes it, and sizing for 4 would hand the checker an object with no
+    // slot to write it into. `peg_schema_mirror_el` is the gate that caught
+    // exactly this — and it caught it at L4, having been invisible to L2.
+    SBin     : code(0x0010_0000_0000_0004) cap(5) { op: "i32" = 0, lhs: "ref SExpr" = 1, rhs: "ref SExpr" = 2, soff: "i64" = 3 }
     SUn      : code(0x0010_0000_0000_0005) cap(3) { op: "i32" = 0, arg: "ref SExpr" = 1, soff: "i64" = 2 }
     SCall    : code(0x0010_0000_0000_0006) cap(3) { fn_name: "str" = 0, args: "ref SExprArr" = 1, soff: "i64" = 2 }   // call NAME — captured IDENT
     SCond    : code(0x0010_0000_0000_0007) cap(4) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2, soff: "i64" = 3 }
