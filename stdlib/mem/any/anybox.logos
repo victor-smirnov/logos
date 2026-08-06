@@ -280,6 +280,24 @@ impl AnyBox {
     /// with the `Option<&WString>` removed, optdst2.logos: 0). Nothing in this
     /// package causes it and nothing here can fix it — the DST payload therefore has
     /// its own accessor, [wstring_ptr], which never forms the broken shape.
+    ///
+    /// ⚠ RE-MEASURED 2026-08-06 AND CONFIRMED, after a review pass reported it did
+    /// NOT reproduce and nearly had the accessor deleted. That review's probe — and
+    /// a second one run independently — compiled the FIXTURE with
+    /// `downcast_ref::<WString>()` against a stdlib that STILL CONTAINED
+    /// `wstring_ptr`, so the DST `Option` existed only in the test object and the
+    /// instantiation set stayed small. Remove the accessor from the stdlib as well
+    /// and the compile ABORTS:
+    ///   [product] logos.lang.iter.EnumIter$G2$OptionIter$G1$dstref_WString$...:
+    ///     mono_abi_layout says 32, llvm::DataLayout says 24
+    /// `FilterIter` the same; 24 disagreements in total. The broken shape is reached
+    /// through the ITERATOR machinery over `Option<&WString>`, which is exactly why
+    /// a probe that only calls `downcast_ref` directly comes back clean.
+    ///
+    /// THE METHOD POINT, since this cost two independent wrong measurements: a
+    /// workaround can only be tested for necessity by REMOVING IT FROM WHERE IT
+    /// LIVES and rebuilding everything downstream. Substituting at the call site
+    /// while the workaround still stands measures nothing.
     pub fn downcast_ref<T>(self: &AnyBox) -> Option<&T> {
         let want: TypeId = type_id_of::<T>();
         if !self.tid.eq(&want) { return Option::None; }
