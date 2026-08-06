@@ -1,5 +1,6 @@
 // deem_incr_diff_harness — THE DIFFERENTIAL SPINE FOR MOVING INCREMENTAL DEEM
-// FROM THE INTERPRETER TO THE STATIC SIDE (P0 of the P0-P5 arc).
+// FROM THE INTERPRETER TO THE STATIC SIDE (built at P0 of the P0-P5 arc; arm (1)
+// repointed at the P1 static incremental engine).
 //
 // ⚠⚠ THIS FILE IS BUILT AROUND ITS OWN DEMOLITION. Read this block before
 // editing anything below it.
@@ -20,9 +21,14 @@
 //     · §5 in full — it is a measurement OF the interpreter
 //   WHAT MUST REMAIN, because it is the SPEC and not the scaffolding:
 //     · `fn arm_hand`   — the hand-derived table. THE SPINE.
-//     · `fn arm_static` — at P0 a `deem!` BATCH RECOMPUTE; at P1-P4 the SAME
-//                         function body is repointed at the static incremental
-//                         engine and NOTHING ELSE IN THIS FILE MOVES.
+//     · `fn arm_static` — the STATIC INCREMENTAL engine: `q*_incremental()` /
+//                         `q*_epoch()` / `q*_snapshot()`, the three fns `deem!`
+//                         emits. REPOINTED HERE; see the next block for what
+//                         the repoint cost and why the promise it broke was
+//                         unkeepable.
+//     · `fn arm_batch`  — the `deem!` BATCH RECOMPUTE. This WAS `arm_static` up
+//                         to P1; it is retained as a WITNESS and checked once,
+//                         after the last epoch, against the maintained state.
 //     · `struct Cell` + `cells_eq` — the commensurability layer
 //     · `fn deltas()`   — the epoch/row table
 //   DO NOT RESTRUCTURE AT P5. The safety net is already gone by then.
@@ -36,25 +42,60 @@
 // INPUT ARITHMETIC, computed by hand and written down before any of this ran —
 // is what makes arms (1) and (2) mean anything.
 //
-// ── WHAT SIDE (1) IS AT P0, AND WHY IT IS NOT "THE STATIC INCREMENTAL ANSWER" ─
-// MEASURED at d0105d0a: `grep -n 'incremental|delta|epoch' stdlib/mem/wql/
-// codegen.logos` returns ZERO hits. The static side has no incremental surface
-// at all — incrementality is reachable ONLY through
-// `Query::compile(...).incremental(&env)`, and `deem!` has no incremental form.
-// So at P0 arm (1) is `deem!` recomputing the WHOLE post-epoch row set from
-// scratch. That is not a placeholder: it is the CORRECTNESS SPEC P1-P4 must
-// meet, and `stdlib/mem/deem/incr_rec.logos:58` already states it — "the
-// incremental result equals the batch recompute by construction". When the
-// static incremental engine exists, `arm_static` stops recomputing and starts
-// maintaining, and every expectation in this file stays exactly as written.
+// ── WHAT SIDE (1) IS, AND WHAT THE REPOINT COST ─────────────────────────────
+// AT P0 the static side had NO incremental surface: incrementality was reachable
+// only through `Query::compile(...).incremental(&env)` and `deem!` had no
+// incremental form, so arm (1) was `deem!` recomputing the WHOLE post-epoch row
+// set from scratch. P1 emitted the surface — `<q>_incremental` / `<q>_epoch` /
+// `<q>_snapshot`, stdlib/mem/wql/rexpr_walk.logos:4231-4619 — and arm (1) is now
+// that engine, MAINTAINED across the epoch table rather than recomputed.
+//
+// ⚠ THE BATCH ARM DID NOT BECOME REDUNDANT AND IS RETAINED AS `arm_batch`.
+// `stdlib/mem/deem/incr_rec.logos:58` states the law — "the incremental result
+// equals the batch recompute by construction" — and a law that nothing evaluates
+// is a sentence. It is checked ONCE, after the last epoch, because a fourth
+// per-epoch comparison DOES NOT FIT IN EIGHT BITS: 18 cells per arm forces
+// CELLS_SPAN = 20, and 20 + (2*4 + 3)*20 + 19 = 259 > 255 with no base ≥ 1 that
+// fits. See the enumerated space below. The per-epoch half of that law is
+// carried by `tests/logos/pass/wql_incr_static_three_ways` block E, which asserts
+// it for every split of one multiset into 1 / 3 / 7 epochs — on ordinary data.
+// What THIS file adds is the law on EXTREMES: i64::MIN/MAX, −0.0, the 1e16
+// annihilation and the fold-order razor, none of which exist anywhere else in
+// the suite.
+//
+// ⚠ THE FILE PROMISED THIS REPOINT WOULD MOVE NOTHING ELSE. IT WAS WRONG, AND
+// THE PROMISE WAS UNKEEPABLE RATHER THAN MERELY UNKEPT. Two facts about the
+// emitted surface force the driver to change:
+//   · `<q>_incremental()` DOES NOT BASE-FILL (rexpr_walk.logos:4470-4479 — the
+//     divergence from `IncrJoin` is deliberate and argued there), so epoch 0 is
+//     an explicit `<q>_epoch` call and not a side effect of construction. The
+//     "⚠ THE BASE EPOCH RUNS AT CONSTRUCTION" note below is therefore true of
+//     arm (2) ONLY.
+//   · the handle must OUTLIVE the epoch loop, so `arm_static` cannot keep a
+//     `&Vec<Row>` signature; it takes three handle refs, exactly as `arm_dyn`
+//     takes three `&IncrJoin`. That is the shape P5 already expects.
+// Recorded rather than quietly fixed: a header that describes a state which
+// never arrived is the same failure mode as a green gate that measures nothing.
 //
 // ── THE FOUR REFUSAL SHAPES, AND WHY ONLY THREE ARE `Cell` KINDS ─────────────
 //   K_VALUE      — an answer.
-//   K_MATH_ERR   — the arithmetic failed. THE THREE TIERS SPELL THIS THREE WAYS
-//                  and the arms normalize all three into this one kind:
-//                  static `Result::Err(ElError)` for the WHOLE call · dynamic
-//                  `QError` from `run` · incremental a per-engine `had_error()`
+//   K_MATH_ERR   — the arithmetic failed. THE TIERS SPELL THIS SEVERAL WAYS and
+//                  the arms normalize them into this one kind: static batch
+//                  `Result::Err(ElError)` for the WHOLE call · dynamic `QError`
+//                  from `run` · dynamic incremental a per-engine `had_error()`
 //                  latch that survives the epoch. §4 exercises exactly that.
+//                  ⚠ AND A FOURTH SPELLING NOW EXISTS AND §4 DOES NOT YET ASK
+//                  IT ANYTHING. The STATIC incremental engine has no latch at
+//                  all: `<q>_epoch` returns the `Err` AT THE EPOCH THAT
+//                  OVERFLOWED and the handle carries nothing afterwards
+//                  (rexpr_walk.logos:4266-4270). §4 still runs the BATCH `q_ovf`
+//                  on arm (1) — a deliberate scope call, not an oversight:
+//                  "where a math error latches in a maintained static engine" is
+//                  the open semantics question §4's own banner flags, and
+//                  repointing §4 would ANSWER it by accident. The spine's arm
+//                  (1) never returns K_MATH_ERR because `pump` turns an epoch
+//                  `Err` into exit 211-213 first, which is that convention
+//                  honestly reported rather than laundered into a cell.
 //   K_BUILD_ERR  — `compile`/`incremental` refused to build the thing at all.
 //   REFUSED-AT-COMPILE — deliberately NOT a `Cell` kind, because it cannot be a
 //                  runtime value: the static tier refuses some of these queries
@@ -91,17 +132,30 @@
 // rounding, and −0.0 cannot pass for 0.0.
 //
 // ── THE DELTA SEQUENCE IS DATA, AND THAT IS THE ACCEPTANCE CRITERION ────────
-// `fn deltas()` is a TABLE of `(ep, sign, row…)`. The driver that applies it is
-// written ONCE. P2 (retractions) = ADD ROWS WITH `sign = -1`. P3/P4 = ADD ROWS.
-// If any of those has to touch the driver, the comparator, or `struct Cell`,
-// THIS SLICE FAILED AT ITS JOB. `apply_retract` below is already wired into the
-// driver's `sign < 0` branch and is unreached at P0 on purpose — P2 adds table
-// rows, not plumbing.
+// `fn deltas()` is a TABLE of `(ep, sign, row…)`. P2 (retractions) = ADD ROWS
+// WITH `sign = -1`. P3/P4 = ADD ROWS. Arms (2) and (3) hold that promise: the
+// interpreter's `sign < 0` branch (`store.retract` + `apply_retract`) is wired
+// and unreached, and `arm_hand` is a table.
 //
-// ⚠ THE BASE EPOCH RUNS AT CONSTRUCTION. `Query::incremental` fills the
-// aggregate state from the bound source before it returns (incr.logos:1766-1770),
-// so epoch 0 in the table is the CONSTRUCTION FILL and must not be re-fed to
-// `epoch()`. The driver drains the store's base delta and discards it.
+// ⚠ ARM (1) DOES NOT HOLD IT, AND THE HARNESS NOW SAYS SO WITH A CODE RATHER
+// THAN A COMMENT. `<q>_epoch` takes the query's parameter list VERBATIM
+// (rexpr_walk.logos:4570-4576) and has NO weight, sign or multiplicity channel;
+// its group bump `__h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64)` (:4563) is
+// unconditional. So a `sign = -1` row has nowhere to go on the static side, and
+// P2 is a change to the EMITTED SURFACE — a signature, a sibling fn, or a
+// weighted element type — not a new addend in an accumulator. `ep_retracts`
+// below counts the retraction rows of each epoch and `run_spine` REFUSES (exit
+// 210) rather than folding one in as an insert. The day P2 adds the first
+// `sign = -1` row to §1, this file names the gap instead of failing later at an
+// unrelated cell.
+//
+// ⚠ THE BASE EPOCH RUNS AT CONSTRUCTION FOR ARM (2) AND ONLY ARM (2).
+// `Query::incremental` fills the aggregate state from the bound source before it
+// returns (incr.logos:1766-1770), so epoch 0 in the table is the CONSTRUCTION
+// FILL for the interpreter and must not be re-fed to its `epoch()`; the driver
+// drains the store's base delta and discards it. The static handle is the
+// opposite by design (rexpr_walk.logos:4470-4479): it constructs EMPTY, so the
+// driver feeds it epoch 0 explicitly. Both arms see the same rows once.
 //
 // ── THE DATA IS EXTREMES, AND THE i64 SET IS A FOLD-ORDER RAZOR ─────────────
 // Over {i64::MIN, −1, 0, 5, i64::MAX} the mathematical sum is 3, but a LEFT fold
@@ -133,9 +187,10 @@
 // rather than a transcript. If you change a value here, DERIVE the new one; do
 // not paste what the run printed.
 //
-// exit 0 = the three arms agree, cell for cell, on every epoch; the overflow
-//          group errors in all three tiers; and §5's measured disagreement is
-//          still exactly where it was.
+// exit 0 = the three arms agree, cell for cell, on every epoch; the maintained
+//          static state agrees with a batch recompute over the same cumulative
+//          rows; the overflow group errors in all three tiers; and §5's measured
+//          disagreement is still exactly where it was.
 package test;
 
 use logos.lang.writ.container;
@@ -161,9 +216,15 @@ use logos.mem.collections.vec;
 //   xi — the i64 EXTREMES.  min/max only (see the fold-order razor above).
 //   xs — a non-overflowing i64 set.  count/sum/avg.
 //   xf — f64, including −0.0 and a sum whose value depends on the fold order.
-//   xu — u64 extremes. Carried on the row but NOT in the spine: every aggregate
-//        over it is either refused by `deem!` at compile time (min/max/sum, see
-//        the fail files above) or disagrees between the tiers (avg, §5).
+//   xu — u64 extremes. Carried on the row but NOT in the spine. ⚠THIS COMMENT
+//        SAID "refused by `deem!` at compile time" AND NAMED FAIL FILES THAT DO
+//        NOT EXIST — the refusal closed on 2026-08-06 (header, above) and the
+//        prose outlived it. `min`/`max`/`sum` over `u64` are ANSWERED, pinned by
+//        `deem_incr_static_minmax_u64_e2e` and `wql_agg_wide_int_arg_e2e`; the
+//        one aggregate that still DISAGREES between the tiers is `avg`, and §5
+//        is the assertion that the disagreement cannot vanish silently. `xu` is
+//        out of the spine because the spine's cells predate that closure, not
+//        because the language refuses the column.
 // ═══════════════════════════════════════════════════════════════════════════
 struct Row { pub id: i64, pub g: i64, pub xi: i64, pub xs: i64, pub xf: f64, pub xu: u64 }
 
@@ -238,6 +299,14 @@ fn deltas() -> Vec<Delta> {
 //   0 min(xi)  1 max(xi)                          — Q1
 //   2 count()  3 sum(xs)  4 avg(xs)               — Q2
 //   5 sum(xf)  6 avg(xf)  7 min(xf)  8 max(xf)    — Q3
+// ⚠ SLOT 2 AND SLOTS 4/6 ARE NOT THE SAME COUNTER, MEASURED BY A CONTROL REVERT
+// AND CONTRARY TO THE DERIVATION THAT PRECEDED IT. `count()` is an aggregate
+// with its OWN accumulator (`__ga_n`, bumped at rexpr_walk.logos:4393); the
+// handle's `__gc` is a SECOND per-group counter read only by `avg`'s
+// divide-at-snapshot (:4444). Deleting the `__gc` bump leaves slot 2 correct and
+// zeroes slots 4 and 6 — this file returned 27, not the 25 that was predicted
+// from "count is __gc". Two counters that must agree and that nothing forces to
+// agree is a defect shape P2 should keep in view when it puts weights on them.
 // ═══════════════════════════════════════════════════════════════════════════
 // ── THE EXIT-CODE SPACE, ENUMERATED — because an exit code is 8 bits ────────
 //   1  ..   9   `run_spine` setup (store / compile / incremental refused)
@@ -245,10 +314,29 @@ fn deltas() -> Vec<Delta> {
 //               1..19.  which = 0 hand↔static · 1 hand↔interpreter · 2 static↔
 //               interpreter.  Highest reachable: 20 + 8*20 + 19 = 199.
 //  201 .. 209   §4, the three-shaped math error
+//  210          §1's table holds a `sign = -1` row and the STATIC arm has no
+//               route for it — the P2 surface gap, named. NOT a wrong answer.
+//  211 .. 213   a `q*_epoch` call returned Err (q1 / q2 / q3)
+//  214 .. 216   a `q*_epoch` folded a row count ≠ the epoch's insert count
 //  221 .. 239   §5, the u64 `avg` disagreement
-// Nothing here reaches 256, and no two ranges overlap. Adding an epoch to
-// `deltas()` costs 60 codes and stays inside the budget up to ep 5; past that,
-// widen by shrinking CELLS_SPAN, never by moving a base above 255.
+//  236 .. 254   the BATCH WITNESS: `arm_batch` over the final cumulative rows vs
+//               `arm_static`'s maintained state, base 235 + cells_eq's 1..19.
+// Nothing here reaches 256, and no two ranges overlap. §5 stops at 234 in fact
+// (`uavg_block` returns at most 14), which is what leaves 235.. free; the "239"
+// above is its declared budget and the batch witness may not grow into it.
+//
+// ⚠ THE BUDGET IS NOW FULL AND THAT IS A DESIGN CONSTRAINT, NOT A NOTE. 18 cells
+// per arm ⇒ `cells_eq` yields 1..19 ⇒ CELLS_SPAN = 20 EXACTLY and cannot shrink.
+// A FOURTH per-epoch comparison needs 20 + (2*3 + 3)*20 + 19 = 259 > 255 and no
+// base ≥ 1 fits, which is precisely why the batch arm is checked once at the end
+// rather than every epoch.
+// ⚠ AND THE LINE THAT STOOD HERE — "adding an epoch costs 60 codes and stays
+// inside the budget up to ep 5" — WAS FALSE, MEASURED: a 4th epoch makes the
+// highest spine code 20 + (3*3 + 2)*20 + 19 = 259, which WRAPS to 3 and reads as
+// a `Query::compile` failure. That is the 8-bit ceiling this file already carries
+// a warning about, sitting inside its own budget statement. A 4th epoch needs a
+// wider failure channel, not a re-spacing; nothing in the free ranges can absorb
+// 60 codes.
 fn CELLS_SPAN() -> i32 { return 20i32; }
 
 fn K_VALUE()     -> i32 { return 0i32; }
@@ -417,11 +505,29 @@ fn arm_hand(ep: i64) -> Vec<Cell> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §3b  ARM (1) — THE STATIC TIER.
-// AT P0 this is a `deem!` BATCH RECOMPUTE over the row set as of epoch `ep`.
-// AT P1-P4 this function's BODY is repointed at the static incremental engine
-// and its signature, its callers and every expectation stay put. That is the
-// whole reason it is a function taking the current row set and returning cells.
+// §3b  ARM (1) — THE STATIC TIER, MAINTAINED.
+//
+// `arm_static` reads the three `deem!`-emitted incremental HANDLES, which the
+// driver pumps one epoch at a time. `arm_batch` is the P0 body, kept: it
+// recomputes from the whole cumulative row set and is the witness for the law
+// "incremental == batch recompute", checked once after the last epoch.
+//
+// ⚠ THE TWO STATIC FOLDS ARE NOT INDEPENDENT AND THE WITNESS IS WEAKER THAN
+// arm (2) OR arm (3) FOR THAT REASON. Both are emitted from ONE `compute_acc_tys`
+// (rexpr_walk.logos:4961) and share the seeds, the `el_add`/`el_addu` overflow
+// predicate, the strict `f64_data_key` comparison and the divide-at-snapshot
+// `avg`. What differs is the group-creation step, the accumulator's residence
+// (locals vs handle fields) and the epoch split. So the witness catches a
+// STATE-CARRYING defect and would NOT catch a shared wrong fold — which is the
+// entire reason arms (2) and (3) exist and stay per-epoch.
+//
+// ⚠ PREDICTED BEFORE THE FIRST RUN, from reading both emitters and not from a
+// run: the two static folds AGREE on every cell of this data, including −0.0's
+// sign bit (both seed `min` with the canonical NaN and compare STRICTLY through
+// `f64_data_key`, which maps ±0.0 to 0, so first-in-row-order wins and the
+// incremental preserves the batch's relative row order), including the 1e16
+// annihilation, and including g0's `sum(xf)` being +0.0 while its `min(xf)` is
+// −0.5. If a cell disagrees, the defect is in a path no other fixture reaches.
 // ═══════════════════════════════════════════════════════════════════════════
 pub deem q1_iminmax(rs: &[Row]) {
     from rs s group by s.g aggregate mn = min(s.xi), mx = max(s.xi) select (key, mn, mx)
@@ -436,7 +542,25 @@ pub deem q3_fagg(rs: &[Row]) {
     select (key, sm, av, mn, mx)
 }
 
-fn arm_static(rows: &Vec<Row>) -> Vec<Cell> {
+// ── ARM (1), THE ONE THAT MATTERS: the maintained handles ──────────────────
+// Structurally the same fn as `arm_dyn` below — three handle refs in, cells out
+// — which is what makes P5's deletion an arm removal rather than a rewrite.
+fn arm_static(h1: &Q1IminmaxIncr, h2: &Q2IsumIncr, h3: &Q3FaggIncr) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    let r1: Vec<(i64, i64, i64)> = match q1_iminmax_snapshot(h1) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 0i32, K_MATH_ERR())); return v; }
+    };
+    let r2: Vec<(i64, i64, i64, f64)> = match q2_isum_snapshot(h2) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 2i32, K_MATH_ERR())); return v; }
+    };
+    let r3: Vec<(i64, f64, f64, f64, f64)> = match q3_fagg_snapshot(h3) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 5i32, K_MATH_ERR())); return v; }
+    };
+    return cells_of(&r1, &r2, &r3);
+}
+
+// ── THE BATCH WITNESS: the P0 arm, kept ────────────────────────────────────
+fn arm_batch(rows: &Vec<Row>) -> Vec<Cell> {
     let mut v: Vec<Cell> = vec_new::<Cell>();
     let r1: Vec<(i64, i64, i64)> = match q1_iminmax(rows.as_slice()) {
         Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 0i32, K_MATH_ERR())); return v; }
@@ -447,6 +571,18 @@ fn arm_static(rows: &Vec<Row>) -> Vec<Cell> {
     let r3: Vec<(i64, f64, f64, f64, f64)> = match q3_fagg(rows.as_slice()) {
         Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 5i32, K_MATH_ERR())); return v; }
     };
+    return cells_of(&r1, &r2, &r3);
+}
+
+// The three result row sets → cells. ONE spelling, shared by the maintained arm
+// and the batch witness, because the two return IDENTICAL tuple types — the
+// incremental form's `<q>_snapshot` returns exactly what `<q>()` returns
+// (rexpr_walk.logos:4589-4613). Two copies of this loop would be two chances to
+// mis-slot a column and make the arms differ for a reason that is not a fold.
+fn cells_of(r1: &Vec<(i64, i64, i64)>,
+            r2: &Vec<(i64, i64, i64, f64)>,
+            r3: &Vec<(i64, f64, f64, f64, f64)>) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
     let mut i: i64 = 0i64;
     while i < r1.len() {
         let t: (i64, i64, i64) = r1.get(i);
@@ -525,7 +661,17 @@ fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §3d  THE DRIVER — WRITTEN ONCE. P2/P3/P4 MUST NOT EDIT ANYTHING BELOW HERE.
+// §3d  THE DRIVER.
+//
+// ⚠ THIS BANNER USED TO READ "WRITTEN ONCE. P2/P3/P4 MUST NOT EDIT ANYTHING
+// BELOW HERE", AND P1's REPOINT EDITED IT. The rule was right in intent and
+// unkeepable as written: the static handle constructs EMPTY and must be pumped,
+// and it must outlive the epoch loop, so `arm_static`'s signature and the
+// driver's locals both had to move (see the header block on what the repoint
+// cost). What the rule was PROTECTING still holds and is the standard for P2/
+// P3/P4: `struct Cell`, `cells_eq`, `arm_hand` and the SHAPE of `deltas()` are
+// untouched, and a new row in §1 needs no new code — it needs an emitted
+// surface that can carry a sign, which `ep_retracts` refuses in the meantime.
 // ═══════════════════════════════════════════════════════════════════════════
 fn mk_node(dp: *const Writ, d: Delta) -> WAny {
     let w: &Writ = unsafe { &*dp };
@@ -536,6 +682,67 @@ fn mk_node(dp: *const Writ, d: Delta) -> WAny {
 
 fn apply_insert(rows: &mut Vec<Row>, d: Delta) {
     rows.push(Row { id: d.id, g: d.g, xi: d.xi, xs: d.xs, xf: d.xf, xu: d.xu });
+}
+
+// ── WHAT THE STATIC HANDLE IS FED ──────────────────────────────────────────
+// One epoch's INSERTED rows, in the delta table's own order — the same order and
+// the same rows the store's changelog hands the interpreter, so the two arms
+// fold identical sequences and a disagreement cannot be blamed on the input.
+fn ep_inserts(ds: &Vec<Delta>, ep: i64) -> Vec<Row> {
+    let mut v: Vec<Row> = vec_new::<Row>();
+    let n: i64 = ds.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: Delta = ds.get(i);
+        if d.ep == ep && d.sign > 0i64 {
+            v.push(Row { id: d.id, g: d.g, xi: d.xi, xs: d.xs, xf: d.xf, xu: d.xu });
+        }
+        i = i + 1i64;
+    }
+    return v;
+}
+
+// ⚠ AND WHAT IT CANNOT BE FED. `ep_inserts` DROPS `sign < 0`, so this counts
+// what it dropped and the driver refuses on a non-zero count instead of quietly
+// answering a query about a row set the handle never saw. The gap is in the
+// EMITTED SURFACE, not here: `<q>_epoch(&mut h, rows)` has no sign channel at
+// all (rexpr_walk.logos:4570-4576) and its `__gc` bump is unconditional (:4563).
+// This is the failing half of the promise "P2 adds table rows, not plumbing" —
+// stated as a code rather than as a comment, so that the first `sign = -1` row
+// anyone writes into §1 is met by exit 210 and not by a puzzle.
+fn ep_retracts(ds: &Vec<Delta>, ep: i64) -> i64 {
+    let n: i64 = ds.len();
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let d: Delta = ds.get(i);
+        if d.ep == ep && d.sign < 0i64 { c = c + 1i64; }
+        i = i + 1i64;
+    }
+    return c;
+}
+
+// Fold one epoch into all three handles. Returns 0, or the exit code that names
+// which query refused and how. The row COUNT `<q>_epoch` returns is asserted
+// against the epoch's own length: a handle that silently folded a different
+// number of rows than it was handed would otherwise only show up as a wrong
+// `count()` cell, and only when `count()` happens to be in the query.
+fn pump(h1: &mut Q1IminmaxIncr, h2: &mut Q2IsumIncr, h3: &mut Q3FaggIncr,
+        er: &Vec<Row>) -> i32 {
+    let want: i64 = er.len();
+    let n1: i64 = match q1_iminmax_epoch(h1, er.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 211i32; }
+    };
+    if n1 != want { return 214i32; }
+    let n2: i64 = match q2_isum_epoch(h2, er.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 212i32; }
+    };
+    if n2 != want { return 215i32; }
+    let n3: i64 = match q3_fagg_epoch(h3, er.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 213i32; }
+    };
+    if n3 != want { return 216i32; }
+    return 0i32;
 }
 // The `sign < 0` half of the driver. UNREACHED AT P0 BY CONSTRUCTION (the table
 // has no −1 rows); it exists so that P2 adds TABLE ROWS and not plumbing.
@@ -567,6 +774,12 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
     let sp: *const Writ = store.arena_ptr();
     let mut rows: Vec<Row> = vec_new::<Row>();
 
+    // ARM (1)'s state. Constructed EMPTY — `<q>_incremental()` does not base-fill
+    // (rexpr_walk.logos:4470-4479) — and pumped once per epoch, epoch 0 included.
+    let mut h1: Q1IminmaxIncr = q1_iminmax_incremental();
+    let mut h2: Q2IsumIncr    = q2_isum_incremental();
+    let mut h3: Q3FaggIncr    = q3_fagg_incremental();
+
     // ── epoch 0: the CONSTRUCTION fill ─────────────────────────────────────
     let nd: i64 = ds.len();
     let mut i0: i64 = 0i64;
@@ -578,6 +791,10 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
         }
         i0 = i0 + 1i64;
     }
+    if ep_retracts(&ds, 0i64) > 0i64 { return 210i32; }
+    let er0: Vec<Row> = ep_inserts(&ds, 0i64);
+    let pr0: i32 = pump(&mut h1, &mut h2, &mut h3, &er0);
+    if pr0 != 0i32 { return pr0; }
 
     let q1: Query = match Query::compile(Q1_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 2i32; } };
     let q2: Query = match Query::compile(Q2_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 3i32; } };
@@ -611,10 +828,14 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
             e1.epoch(&dz, &empty);
             e2.epoch(&dz, &empty);
             e3.epoch(&dz, &empty);
+            if ep_retracts(&ds, ep) > 0i64 { return 210i32; }
+            let er: Vec<Row> = ep_inserts(&ds, ep);
+            let pr: i32 = pump(&mut h1, &mut h2, &mut h3, &er);
+            if pr != 0i32 { return pr; }
         }
 
         let h: Vec<Cell> = arm_hand(ep);
-        let s: Vec<Cell> = arm_static(&rows);
+        let s: Vec<Cell> = arm_static(&h1, &h2, &h3);
         let d2: Vec<Cell> = arm_dyn(&e1, &e2, &e3);
 
         let epb: i32 = 20i32 + (ep as i32) * 3i32 * CELLS_SPAN();
@@ -632,6 +853,17 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
 
         ep = ep + 1i64;
     }
+
+    // ── THE BATCH WITNESS — ONCE, ON THE FINAL STATE ────────────────────────
+    // "The incremental result equals the batch recompute" (incr_rec.logos:58),
+    // evaluated rather than asserted in prose: `q*()` over the CUMULATIVE rows
+    // vs the state the three epochs maintained. Once, not per epoch, because a
+    // fourth 20-wide comparison does not fit in eight bits — see the enumerated
+    // space above. `rows` exists for exactly this call.
+    let bw: Vec<Cell> = arm_batch(&rows);
+    let sw: Vec<Cell> = arm_static(&h1, &h2, &h3);
+    let bq: i64 = cells_eq(&bw, &sw);
+    if bq != 0i64 { return 235i32 + (bq as i32); }
     return 0i32;
 }
 
@@ -642,9 +874,21 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
 // The three tiers spell it three different ways and the arms erase the
 // difference; that erasure is what lets P2's retraction rows say "this cell is
 // a math error at epoch k" without knowing which engine is answering.
-// ⚠ A STATIC INCREMENTAL ENGINE HAS NO PER-CALL IDENTITY to hang `Err` on, so
-// where a math error LATCHES in a maintained static engine is an open semantics
-// question. This cell is what will pin the answer the day it is made.
+// ⚠ THE LINE THAT STOOD HERE — "a static incremental engine has no per-call
+// identity to hang `Err` on" — IS REFUTED BY THE ENGINE THAT ARRIVED. `<q>_epoch`
+// IS the per-call identity: it returns `Result<i64, ElError>` and hands back the
+// error at the epoch that overflowed, with no latch, because the static tier's
+// convention is error-as-VALUE (rexpr_walk.logos:4266-4270). So the question is
+// no longer "where does it latch" but the sharper one: an overflow at epoch k
+// leaves the handle's accumulator in a state NOTHING DEFINES — the emitted fold
+// is `set(el_add(get, arg)?)`, so the `?` returns before the `set` and the cell
+// keeps its pre-overflow value while the epoch's remaining rows are never
+// folded. A caller who ignores the `Err` gets a silently PARTIAL epoch.
+// ⚠ §4 IS NOT REPOINTED AT THAT ENGINE, AND THAT IS A SCOPE CALL RATHER THAN AN
+// OVERSIGHT. `q_ovf` is eligible, so `q_ovf_epoch` exists and could be asked;
+// asking it would ANSWER the partial-epoch semantics by writing down whatever it
+// currently does, which is exactly the move this file exists to prevent. Arm (1)
+// here stays the BATCH `q_ovf`, whose `Err` is unambiguous.
 // (`tests/logos/pass/query_agg_sum_overflow_e2e` is the same fact stated in the
 // three tiers' own vocabularies rather than in one.)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -709,11 +953,23 @@ fn ovf_block(c: &SchemaCatalog) -> i32 {
 // tier is right; it is an assertion that the three do not agree, so that the
 // disagreement cannot vanish silently while the interpreter is deleted.
 //
-// `min`/`max`/`sum` over `u64` are refused by `deem!` at COMPILE time — see the
-// fail files named in the header — so `avg` is the ONLY aggregate over a `u64`
-// column that all three tiers will even build, and it is the exemption:
-// `agg_cast` (stdlib/mem/wql/rexpr_walk.logos:4246) makes the static fold write
-// `((s.xu) as f64)` itself, so the argument never meets the i64 tower.
+// ⚠STALE UNTIL 2026-08-06, CORRECTED HERE: this said `min`/`max`/`sum` over
+// `u64` are refused at COMPILE time and that `avg` is therefore the ONLY such
+// aggregate all three tiers build. Both halves are false — the refusal closed
+// (header) and the other three build. `avg` is singled out for the OPPOSITE
+// reason: it is the one that still DISAGREES, and it is the exemption:
+// `agg_cast` (stdlib/mem/wql/rexpr_walk.logos:4829-4878, applied at :3996 for
+// the batch fold) makes the static fold write `((s.xu) as f64)` itself, so the
+// argument never meets the i64 tower.
+//
+// ⚠ THERE IS A FOURTH ROUTE NOW AND THIS BLOCK DOES NOT ASK IT. `q_uavg` is
+// incrementally eligible, so `q_uavg_epoch` exists and applies the SAME
+// `agg_cast` arm (rexpr_walk.logos:4406) — it would answer 2^63, agreeing with
+// the static batch and turning a pinned three-way disagreement into a four-way
+// one with a 2-2 split. Adding it here would spend exit codes this file no
+// longer has (see the budget note at `CELLS_SPAN`) and would restate one fact
+// about `agg_cast` in a second tier's vocabulary. Named as a follow-up, not
+// done here.
 //
 // THE HAND-DERIVED OUGHT, for the group {2^63−1, 2^63}:
 //   the true mean is (2^63−1 + 2^63)/2 = 9223372036854775807.5, whose nearest
