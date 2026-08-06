@@ -4141,11 +4141,30 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // form cannot admit what the batch form refused. That is the current shape of
     // the `u64` cell: `check_agg_operand` refuses a `u64` `sum` for the BATCH
     // accumulator and the item fails before this line, so `agg_acc_ty`'s `u64`
-    // row is reachable from `compute_acc_tys` and not yet from a query. Closing
-    // that is one call site (`compute_acc_tys(..., true, ...)` for the batch too)
-    // plus two fixture moves, and it is a value-domain admission ruling — see
+    // row is reachable from `compute_acc_tys` and not yet from a query.
+    //
+    // ⚠ AN EARLIER VERSION OF THIS COMMENT SAID CLOSING IT IS "ONE CALL SITE
+    // (`compute_acc_tys(..., true, ...)` for the batch too) plus two fixture
+    // moves". THAT IS WRONG, and measured wrong before anyone acted on it:
+    //   * the INCREMENTAL fold branches on the accumulator type and calls
+    //     `el_addu` — u64's checked_add;
+    //   * the BATCH fold calls `el_add` UNCONDITIONALLY, i64's;
+    //   * and the batch accumulator vector is declared `Vec<i64>` outright.
+    // Flipping the flag alone therefore yields a `u64` accumulator added through
+    // the SIGNED predicate — a wrong answer where there is currently a refusal,
+    // which is strictly worse. The real widening is four emitter sites (the
+    // flag, the fold's branch, the vector's element type, the seeds) and it
+    // needs the two extreme sums as its control: `{2^62, 2^62}` must ANSWER
+    // (representable, refused today) and `{5, 2^63, 2^64-1}` must ERR (exceeds
+    // u64, answers a quiet negative today).
+    //
+    // ⚠⚠ AND IT IS NOT OPTIONAL. On aggregate ARGUMENTS the static domain is
+    // strictly NARROWER than the interpreter's — `u64` min/max and `f32` sum are
+    // answered correctly by the interpreter and refused here — so deleting the
+    // interpreter without this widening DELETES CAPABILITY. See
     // `tests/logos/fail/wql_agg_wide_int_arg_fail` and
-    // `tests/logos/pass/wql_tier_capability_disagreement`.
+    // `tests/logos/pass/wql_tier_capability_disagreement`, whose header already
+    // instructs that it must go red when this cell closes.
     if !emit_incremental(&ch, &ty, &aggs, acount, &uda, &agg_flt, &agg_cast, &act,
                          key_ty, string_as_str(&key_body), result_ty, tres,
                          string_as_str(&proj_body), string_as_str(&having_body),
