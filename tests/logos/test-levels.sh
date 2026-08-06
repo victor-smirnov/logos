@@ -163,11 +163,33 @@ fi
 # gate family would make this block print nothing and pass — the exact failure
 # the enumerator block above already documents. Its failure is the level's
 # failure, like EXH_FAIL.
+# ⚠ AND TWO NAMED `logos_09_` GATES, WHICH IS A LISTED POPULATION AND IS ADMITTED
+# AS ONE. The `logos_09_` family is 36 tests costing 270 s — far too much for a
+# per-commit tier — so it sits outside, and that is correct for the family. It is
+# NOT correct for the cheap SCRIPT gates inside it, and the cost of leaving them
+# there has already been paid once: `logos_09_rtval_domain` was written FOR the
+# value-domain arc, never ran on a commit capable of breaking it, and the first
+# such commit broke it — caught only by L4, a whole round later.
+#
+# MEASURED per gate rather than guessed: rtval_domain 0.71 s,
+# incr_eligibility_population 3.20 s. The other cheap candidates are
+# prepared_plan_surface 3.13, join_order_either_side 3.11,
+# deferred_plan_second_point 4.04, no_dup_use_in_synth 5.60; the expensive ones
+# are plan_size_asked 10.72 and el_hashable_agreement 24.80. Only the two whose
+# SUBJECT is the work currently in flight are pulled in: +3.9 s on a 9 s tier.
+#
+# ⚠ THIS LIST IS THE DEFECT CLASS THIS CODEBASE KEEPS CLOSING, and it is written
+# down as such rather than dressed up. The derived form is a LABEL each gate
+# declares about itself — cheap-and-per-commit vs expensive-and-L4 — with this
+# selector asking for the label instead of naming the members. That is the fix;
+# this is the stopgap, and it is here because the arc in flight needs its own
+# gate on the per-commit path today. Whoever writes the label retires these two
+# names and this paragraph together.
 GATE_FAIL=0
 if [ "${LOGOS_NO_GATES:-0}" != "1" ]; then
-    echo "[test-levels] gates — logos_00_* and logos_07_ir_snapshot_*"
+    echo "[test-levels] gates — logos_00_*, logos_07_ir_snapshot_*, +2 named logos_09_"
     if ! ctest --no-tests=error -j12 --output-on-failure \
-               -R '^logos_00_|^logos_07_ir_snapshot_'; then
+               -R '^logos_00_|^logos_07_ir_snapshot_|^logos_09_rtval_domain$|^logos_09_incr_eligibility_population$'; then
         GATE_FAIL=1
     fi
 fi
@@ -329,9 +351,9 @@ fi
 if [ "${LOGOS_NO_GATES:-0}" = "1" ]; then
     echo "PLUS: the gates tier was SKIPPED (LOGOS_NO_GATES=1)"
 elif [ "$GATE_FAIL" -ne 0 ]; then
-    echo "PLUS: the gates tier FAILED (logos_00_* / logos_07_ir_snapshot_*)"
+    echo "PLUS: the gates tier FAILED (logos_00_* / logos_07_ir_snapshot_* / 2 named logos_09_)"
 else
-    echo "PLUS: the gates tier passed (logos_00_* / logos_07_ir_snapshot_*)"
+    echo "PLUS: the gates tier passed (logos_00_* / logos_07_ir_snapshot_* / 2 named logos_09_)"
 fi
 # ⚠ `had_fail` IS PART OF THE EXIT STATUS. It used to be equivalent to
 # `tot_fail > 0` — the only thing that set it — and the two checks above set it
