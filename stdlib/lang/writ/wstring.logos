@@ -26,6 +26,7 @@ use logos.lang.str;                 // str_from_raw
 use logos.lang.mem;                 // copy_bytes
 use logos.lang.ptr;                 // byte_add
 use logos.lang.vlen;                // vlen_encode_size / write / read / prefix_size
+use logos.lang.panic;               // panic — a wrong-type resolve is a type violation
 
 /// UTF-8 string interned in the never-move arena as a self-describing custom DST.
 /// Layout is exactly the wire shape `[vlen(payload_len)][UTF-8 payload]` — the length is
@@ -72,8 +73,11 @@ impl Writ {
         }
     }
     /// Resolves a Ref `WAny` back to the `WString` it points at.
-    /// `e` must be a Ref to an interned string — no type check is performed.
+    /// PANICS if `e` is not a Ref to a `W_STRING` object — the reference is a DST whose
+    /// length is decoded out of the pointee, so a wrong type invents the length too.
+    /// (Resolver-guard class: see the note at the top of `writ/array.logos`.)
     pub fn wstring_of<'a>(self: &'a Writ, e: WAny) -> &'a WString {
+        if !e.is_string() { panic("Writ::wstring_of: the WAny is not a Ref to a W_STRING object — check is_string() first"); }
         return unsafe { &*(e.resolve() as *const WString) };
     }
 }
@@ -104,7 +108,10 @@ impl WAny {
 
     /// Resolves a Ref `WAny` to a borrowed `&WString` (read-only); check `is_string()` first.
     /// Encapsulates the `resolve()`+cast so callers stay `unsafe`-free.
+    /// PANICS if this is not a Ref to a `W_STRING` object. (`as_wstr` below is the
+    /// null-safe VALUE form and keeps its ADR-0011 empty-str default instead.)
     pub fn as_string(self: &WAny) -> &WString {
+        if !self.is_string() { panic("WAny::as_string: the WAny is not a Ref to a W_STRING object — check is_string() first"); }
         return unsafe { &*(self.resolve() as *const WString) };
     }
 

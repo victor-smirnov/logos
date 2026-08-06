@@ -1,0 +1,88 @@
+// POSITIVE CONTROL for the reference-returning-resolver guard class.
+//
+// The ten safe `fn`s in `stdlib/lang/writ` that hand back a `&T` onto an arena
+// object now consult the pointee's in-band tag before the `unsafe` deref (the
+// sibling abort fixtures `writ_wany_ref_resolver_guard_*` pin the refusal). A
+// guard that fires on the RIGHT type is a worse defect than no guard at all, so
+// this fixture calls every one of the ten on a correctly-tagged value and reads
+// the object back. All ten must still return the object, unchanged.
+//
+// The population is derived from the artifact, not listed: it is every safe fn
+// in stdlib/lang/writ whose body is `unsafe { &*(<WAny>.resolve() as *const T) }`
+// (or the `zone_mut_ref` mutable form) with no preceding tag test —
+//   wstring.logos  Writ::wstring_of, WAny::as_string
+//   array.logos    Writ::array_of,   WAny::as_array,  WAnyMut::as_array_mut
+//   wmap.logos     WAny::as_map,     WAnyMut::as_map_mut
+//   decimal.logos  WAny::as_decimal
+//   parameter.logos      WAny::as_parameter
+//   typed_value.logos    WAny::as_typed_value
+// The walkers (equal/stringify/wbs/compactify/pat/document) are NOT in it: each
+// already switches on `type_code()` before it resolves.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.lang.writ.wstring;
+use logos.lang.writ.decimal;
+use logos.lang.writ.parameter;
+use logos.lang.writ.typed_value;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(1024i64);
+
+    // wstring.logos — WAny::as_string / Writ::wstring_of
+    let s: &WString = h.wstring("hi");
+    let vs: WAny = WAny::from(s);
+    if !str_eq(vs.as_string().as_str(), "hi") { return 1i32; }
+    if !str_eq(h.wstring_of(vs).as_str(), "hi") { return 2i32; }
+
+    // array.logos — WAny::as_array / Writ::array_of
+    let a: &mut WArray<WAny> = h.array(2i64);
+    a.push(7i64);
+    let va: WAny = WAny::from(&*a);
+    if va.as_array().len() != 1i64 { return 3i32; }
+    if h.array_of(va).get(0i64).as_i56() != 7i64 { return 4i32; }
+
+    // wmap.logos — WAny::as_map
+    let m: &mut WMap<WString, WAny> = h.map(4i64);
+    m.set("k", 5i64);
+    let vm: WAny = WAny::from(&*m);
+    if vm.as_map().get("k").as_i56() != 5i64 { return 5i32; }
+
+    // decimal.logos — WAny::as_decimal
+    let d: WAny = h.decimal(314u64, 2u32, false);
+    if d.as_decimal().coeff() != 314u64 { return 6i32; }
+
+    // parameter.logos — WAny::as_parameter
+    let nullv: WAny = WAny::null();
+    let p: WAny = h.parameter("limit", nullv);
+    if !str_eq(p.as_parameter().name_str(), "limit") { return 7i32; }
+
+    // typed_value.logos — WAny::as_typed_value
+    let tv: WAny = h.typed_value("Date", nullv, h.int(9i64));
+    if !str_eq(tv.as_typed_value().type_name_str(), "Date") { return 8i32; }
+
+    // array.logos / wmap.logos — the WAnyMut cursor forms, which resolve the
+    // element slot's materialised value rather than a plain WAny.
+    let root: &mut WArray<WAny> = h.array(2i64);
+    let child: &mut WArray<WAny> = h.array(2i64);
+    child.push(1i64);
+    root.push(&*child);                          // root[0] = nested array
+    let m2: &mut WMap<WString, WAny> = h.map(4i64);
+    m2.set("a", 100i64);
+    root.push(WAny::from(&*m2));                 // root[1] = nested map
+
+    let cur: WAnyMut = root.get_mut(0i64);
+    let ca: &mut WArray<WAny> = cur.as_array_mut();
+    ca.push(2i64);
+    if h.array_of(root.get(0i64)).len() != 2i64 { return 9i32; }
+
+    let cur2: WAnyMut = root.get_mut(1i64);
+    let cm: &mut WMap<WString, WAny> = cur2.as_map_mut();
+    cm.set("b", 200i64);
+    if root.get(1i64).as_map().get("b").as_i56() != 200i64 { return 10i32; }
+
+    return 0i32;
+}

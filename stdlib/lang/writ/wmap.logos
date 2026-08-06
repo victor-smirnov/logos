@@ -300,8 +300,12 @@ impl WMap<WString, WAny> {
 impl WAnyMut {
     /// Resolves this cursor to a fat `&mut WMap<WString, WAny>` carrying its zone.
     /// Check `is_map()` first; the child can then set/grow in the same arena.
+    /// PANICS if the element is not a `W_MAP` object (resolver-guard class — see the
+    /// note at the top of `writ/array.logos`).
     pub fn as_map_mut(self: WAnyMut) -> &mut WMap<WString, WAny> {
-        return unsafe { zone_mut_ref::<WMap<WString, WAny>>(self.get().resolve() as *mut WMap<WString, WAny>, self.zone) };
+        let v: WAny = self.get();
+        if !v.is_map() { panic("WAnyMut::as_map_mut: the element is not a W_MAP object — check is_map() first"); }
+        return unsafe { zone_mut_ref::<WMap<WString, WAny>>(v.resolve() as *mut WMap<WString, WAny>, self.zone) };
     }
 }
 
@@ -311,7 +315,10 @@ impl WAny {
 
     /// Resolves a Ref `WAny` to a borrowed read-only `&WMap<WString, WAny>`.
     /// Check `is_map()` first; encapsulates the resolve()+cast so callers stay unsafe-free.
+    /// PANICS if this is not a Ref to a `W_MAP` object. Note the tag is W_MAP, not
+    /// W_TINYMAP: a `WMap<Wu6, WAny>` is a DIFFERENT type and does not resolve here.
     pub fn as_map(self: &WAny) -> &WMap<WString, WAny> {
+        if !self.is_map() { panic("WAny::as_map: the WAny is not a Ref to a W_MAP object — check is_map() first"); }
         return unsafe { &*(self.resolve() as *const WMap<WString, WAny>) };
     }
 }

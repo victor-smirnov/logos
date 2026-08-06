@@ -1,0 +1,38 @@
+// GUARD: WAny::as_decimal on a STRING must refuse, not reinterpret.
+//
+// THE CLASS. `WAny::as_decimal (stdlib/lang/writ/decimal.logos)` is a SAFE `fn` whose body is a bare
+// `unsafe { &*(<WAny>.resolve() as *const WDecimal) }` — it hands a `&WDecimal` back for
+// whatever the word points at. Its own doc-comment says "check `is_decimal()` first",
+// and nothing enforced that. So a fully-safe program that resolves a value of the
+// WRONG Writ type got a typed reference onto bytes that are not a WDecimal, and read
+// them: a length field out of a string's UTF-8 payload, a `data` self-relative
+// delta out of a decimal's coefficient. No fault, no diagnostic, no wrong-looking
+// value — the same shape fix #6 closed for `as_wstr`/`as_f32`/`as_f64`
+// (tests/logos/pass/writ_wany_wrongtype_accessor_guard.logos), left open in every
+// resolver that returns a REFERENCE instead of a value.
+//
+// WHY THIS ONE ABORTS INSTEAD OF DEFAULTING. Fix #6's accessors return a VALUE, so
+// a wrong type could yield the ADR-0011 absent-key default (empty str, 0.0). These
+// return a `&WDecimal` and there is no absent WDecimal to borrow — the only sound answers are
+// a refusal or a wider return type. The refusal is `panic` ⇒ SIGABRT ⇒ exit 134,
+// the same shape as tests/logos/pass/wql_rel_neg_cycle_abort.logos.
+//
+// WHAT THE GUARD DOES NOT BUY, stated so nobody reads more into it: it consults the
+// in-band tag at `obj[-1]`, so it decides "the tag says WDecimal", NOT "this pointer is
+// the start of a live arena object". A `WAny::ref_to` formed over non-arena memory
+// still reads whatever byte precedes it as a tag — measured, and an open arc.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.decimal;
+use logos.lang.writ.wstring;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let s: &WString = h.wstring("not a decimal");
+    let vs: WAny = WAny::from(s);
+    if !vs.is_string() { return 1i32; }
+    let d: &WDecimal = vs.as_decimal();        // MUST abort (was: coeff/scale off UTF-8 bytes)
+    if d.coeff() >= 0u64 { return 2i32; }
+    return 3i32;
+}

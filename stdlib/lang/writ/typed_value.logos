@@ -19,6 +19,7 @@ use logos.lang.writ.allocator;   // Allocator
 use logos.lang.cell;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc
 use logos.lang.ptr;                 // byte_add
+use logos.lang.panic;               // panic — a wrong-type resolve is a type violation
 
 /// A Writ SDN datatype instantiation `@Type(params?) = <initializer>`, wire code 4115.
 /// Holds three at-rest `WAny` words as raw `i64`; read/write goes through `*zoned` slot
@@ -85,8 +86,13 @@ impl WAny {
     pub fn is_typed_value(self: &WAny) -> bool {
         return self.is_ref() && unsafe { w_type_code(self.resolve()) } == W_TYPEDVALUE;
     }
-    /// Borrows the pointed-at typed value; unchecked — call `is_typed_value` first.
-    pub fn as_typed_value(self: &WAny) -> &WTypedValue { return unsafe { &*(self.resolve() as *const WTypedValue) }; }
+    /// Borrows the pointed-at typed value; call `is_typed_value` first.
+    /// PANICS if this is not a Ref to a `W_TYPEDVALUE` object (resolver-guard class — see
+    /// the note at the top of `writ/array.logos`).
+    pub fn as_typed_value(self: &WAny) -> &WTypedValue {
+        if !self.is_typed_value() { panic("WAny::as_typed_value: the WAny is not a Ref to a W_TYPEDVALUE object — check is_typed_value() first"); }
+        return unsafe { &*(self.resolve() as *const WTypedValue) };
+    }
     /// Creates a heterogeneous value holding a `Ref` to `tv`.
     pub fn from(tv: &WTypedValue) -> WAny { return WAny::ref_to(tv as *const WTypedValue as *const u8); }
 }

@@ -27,6 +27,29 @@ use logos.lang.writ.allocator;
 use logos.lang.writ.wstring;     // WString, wstring_in_alloc — for push(str)
 use logos.lang.ptr;
 use logos.lang.cell;
+use logos.lang.panic;            // panic — a wrong-type resolve is a type violation
+
+// ── THE RESOLVER GUARD (this file, wstring, wmap, decimal, parameter, typed_value)
+//
+// A `WAny` is a type-ERASED word. The resolvers below turn one back into a typed
+// `&T` onto arena memory, and each USED to do it without asking what the pointee
+// actually is — their doc-comments said "check `is_array()` first" and nothing
+// enforced it. So a fully-safe program that resolved the wrong Writ type got a
+// `&WArray<WAny>` onto a string's UTF-8 bytes and read a length field out of them:
+// no fault, no diagnostic, no wrong-LOOKING value. MEASURED before the guard, over
+// the ten resolvers: eight returned a plausible non-negative `len()`/`coeff()` and
+// two trapped (SIGILL) — i.e. the failure mode was silence, not a crash.
+//
+// This is the class fix #6 closed for the VALUE-returning accessors (`as_wstr`,
+// `as_f32`, `as_f64` — tests/logos/pass/writ_wany_wrongtype_accessor_guard.logos),
+// which could answer with the ADR-0011 absent-key default. A `&T` has no absent
+// form to borrow, so the only sound answer here is a refusal: `panic` ⇒ SIGABRT.
+//
+// ⚠ WHAT THE GUARD DECIDES, exactly: "the in-band tag at `obj[-1]` says T". It does
+// NOT decide "this pointer is the start of a live arena object" — `WAny::ref_to`
+// still accepts any `*const u8`, and over non-arena memory the byte before the
+// value is read as a tag. That is a separate, open arc (a type distinction on the
+// Ref arm, not a check); this guard neither closes it nor pretends to.
 
 // WArray<T> has two partial specialisations by element kind (mirrors legacy's
 // typed `Array<T>` vs heterogeneous container):
@@ -154,7 +177,9 @@ impl Writ {
     }
     /// Resolves a Ref element back to the array it points at, tied to this container.
     /// The returned `&WArray<WAny>` may not outlive the container.
+    /// PANICS if `e` is not a Ref to a `W_ARRAY` object (see the resolver-guard note above).
     pub fn array_of<'a>(self: &'a Writ, e: WAny) -> &'a WArray<WAny> {
+        if !e.is_array() { panic("Writ::array_of: the WAny is not a Ref to a W_ARRAY object — check is_array() first"); }
         return unsafe { &*(e.resolve() as *const WArray<WAny>) };
     }
 }
@@ -238,8 +263,12 @@ impl WArray<WAny> {
 impl WAnyMut {
     /// Resolves a Ref cursor to a fat `&mut WArray<WAny>` carrying its zone.
     /// Ready to push/grow in the same arena; check `is_array()` first.
+    /// PANICS if the cursor's element is not a `W_ARRAY` object — a growable `&mut`
+    /// onto something that is not an array writes a `len`/`cap`/`data` triple over it.
     pub fn as_array_mut(self: WAnyMut) -> &mut WArray<WAny> {
-        return unsafe { zone_mut_ref::<WArray<WAny>>(self.get().resolve() as *mut WArray<WAny>, self.zone) };
+        let v: WAny = self.get();
+        if !v.is_array() { panic("WAnyMut::as_array_mut: the element is not a W_ARRAY object — check is_array() first"); }
+        return unsafe { zone_mut_ref::<WArray<WAny>>(v.resolve() as *mut WArray<WAny>, self.zone) };
     }
 }
 
@@ -249,7 +278,9 @@ impl WAny {
 
     /// Resolves a Ref to a borrowed read-only `&WArray<WAny>`; check `is_array()` first.
     /// Encapsulates the `resolve()`+cast so callers stay safe.
+    /// PANICS if this is not a Ref to a `W_ARRAY` object (see the resolver-guard note above).
     pub fn as_array(self: &WAny) -> &WArray<WAny> {
+        if !self.is_array() { panic("WAny::as_array: the WAny is not a Ref to a W_ARRAY object — check is_array() first"); }
         return unsafe { &*(self.resolve() as *const WArray<WAny>) };
     }
 }

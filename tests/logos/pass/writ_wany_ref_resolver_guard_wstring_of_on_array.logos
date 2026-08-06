@@ -1,0 +1,40 @@
+// GUARD: Writ::wstring_of on an ARRAY must refuse, not reinterpret.
+//
+// THE CLASS. `Writ::wstring_of (stdlib/lang/writ/wstring.logos)` is a SAFE `fn` whose body is a bare
+// `unsafe { &*(<WAny>.resolve() as *const WString) }` — it hands a `&WString` back for
+// whatever the word points at. Its own doc-comment says "check `is_string()` first",
+// and nothing enforced that. So a fully-safe program that resolves a value of the
+// WRONG Writ type got a typed reference onto bytes that are not a WString, and read
+// them: a length field out of a string's UTF-8 payload, a `data` self-relative
+// delta out of a decimal's coefficient. No fault, no diagnostic, no wrong-looking
+// value — the same shape fix #6 closed for `as_wstr`/`as_f32`/`as_f64`
+// (tests/logos/pass/writ_wany_wrongtype_accessor_guard.logos), left open in every
+// resolver that returns a REFERENCE instead of a value.
+//
+// WHY THIS ONE ABORTS INSTEAD OF DEFAULTING. Fix #6's accessors return a VALUE, so
+// a wrong type could yield the ADR-0011 absent-key default (empty str, 0.0). These
+// return a `&WString` and there is no absent WString to borrow — the only sound answers are
+// a refusal or a wider return type. The refusal is `panic` ⇒ SIGABRT ⇒ exit 134,
+// the same shape as tests/logos/pass/wql_rel_neg_cycle_abort.logos.
+//
+// WHAT THE GUARD DOES NOT BUY, stated so nobody reads more into it: it consults the
+// in-band tag at `obj[-1]`, so it decides "the tag says WString", NOT "this pointer is
+// the start of a live arena object". A `WAny::ref_to` formed over non-arena memory
+// still reads whatever byte precedes it as a tag — measured, and an open arc.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wstring;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let h: Writ = writ_new(256i64);
+    let a: &mut WArray<WAny> = h.array(2i64);
+    a.push(7i64);
+    let va: WAny = WAny::from(&*a);
+    if !va.is_array() { return 1i32; }
+    let s: &WString = h.wstring_of(va);        // MUST abort
+    if s.len() >= 0i64 { return 2i32; }
+    return 3i32;
+}
