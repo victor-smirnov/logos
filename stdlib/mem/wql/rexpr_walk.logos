@@ -5050,9 +5050,17 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
                 if !check_agg_arg_in_lattice(ae_opt, t, a.fn_name, "wql!: `aggregate`") { return false; }
             }
             // ⚠⚠ AND IT IS EMITTED THROUGH THE SAME CAST THE CHECK ADMITTED IT
-            // BY. `check_agg_operand` asks `el_agg_arg_reaches`, which is defined
-            // through `el_norm_cast`; `emit_norm_operand` WRITES `el_norm_cast`'s
-            // conversion. Rule and emitter therefore read one function and cannot
+            // BY. `check_agg_operand` asks `el_int_widens(name, want)` — "does a
+            // value of `name` reach the accumulator `want` unmoved" — and
+            // `emit_norm_operand` WRITES `as want`.
+            //
+            // ⚠ THIS PARAGRAPH USED TO NAME `el_norm_cast` FOR BOTH HALVES, and
+            // both halves were false once the accumulator stopped being the i64
+            // representative: the question is no longer "which single cast does
+            // this type get" but "does it reach THIS accumulator", and the answer
+            // depends on the pair. The invariant the paragraph exists to state is
+            // unchanged and is the point — rule and emitter read ONE function, so
+            // they cannot disagree about which conversion exists. Rule and emitter therefore read one function and cannot
             // disagree about which conversion exists — which is exactly how the
             // two used to disagree: the check admitted only what the HOST widens
             // unwritten (`el_host_carries`, `bits < 64`) because this line wrote

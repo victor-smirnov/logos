@@ -26,7 +26,23 @@
 // stayed green while its matrix said REFUSES about three cells that had just
 // started answering. Blocks G and H below are the correction and the reason the
 // pattern should not recur here: the three cells are EXECUTED, at u64's own
-// extremes, so the next move of this row takes this file red on an assertion.
+// extremes.
+//
+// ⚠ AND THE SENTENCE THAT FOLLOWED THAT ONE WAS STILL FALSE. It said "so the
+// next move of this row takes this file red on an assertion." MEASURED
+// 2026-08-06 by breaking the row deliberately, twice, and rebuilding: with the
+// min/max seeds reverted to the SIGNED extrema, and with the batch fold's
+// overflow predicate reverted to i64's, THIS FILE STAYED GREEN both times.
+//   * block H sums to 2^63+15, and two's-complement addition is bit-identical
+//     under either predicate — only the CHECK differs, and this file does not
+//     reach the check;
+//   * block G's min/max operands (5, 2^64-1) sit outside the shadow of the bad
+//     seeds, so a seed leak does not reach them either.
+// The executable pins are therefore SINGLE-POINT and elsewhere: the seed rests
+// on `deem_incr_static_minmax_u64_e2e` alone, the predicate on
+// `wql_agg_wide_int_arg_e2e` alone. Widening THIS file to cover them is worth
+// doing; claiming it already does was the third time a file in this arc asserted
+// something about its own coverage that a control revert refuted.
 //
 // ── THE MATRIX — STATIC COLUMN RE-MEASURED 2026-08-06 ───────────────────────
 // Over a `u64` / `usize` column, per POSITION, per TIER. ⚠ ONLY THE STATIC
