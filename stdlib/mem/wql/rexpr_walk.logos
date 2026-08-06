@@ -3794,8 +3794,17 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
+    // The BATCH fold's accumulator types: the class-representative pair, which is
+    // the decision this emitter's `Vec<i64>` / `Vec<f64>` declarations and its
+    // i64::MAX/i64::MIN seeds already take a few lines below. `typed = false` is
+    // therefore a control that changes nothing HERE by construction — and the
+    // reason it is spelled as a call rather than left inline is that the
+    // INCREMENTAL emitter below asks the same function with `typed = true`, so
+    // the two accumulators differ in exactly one argument and nowhere else.
+    let mut bacc: [str; 8] = ["", "", "", "", "", "", "", ""];
+    compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, false, &mut bacc);
     if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda,
-                           &agg_flt, &agg_cast, &mut agg_body) { return false; }
+                           &agg_flt, &agg_cast, &bacc, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
     let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -4124,7 +4133,556 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
                   prep_ground(WG_AGG(), chain_axis(ch.n)));
+    // ── AND, WHEN THE SHAPE ADMITS IT, THE INCREMENTAL FORM (P1) ────────────
+    // ⚠ AFTER THE BATCH FN AND NOT BEFORE, WHICH IS A SEMANTIC ORDER AND NOT A
+    // TIDINESS ONE. Everything this call reads — the stamped types, the key, the
+    // aggregate reprs, the projection body — was computed and CHECKED above, so
+    // a query the batch emitter refuses never reaches here and the incremental
+    // form cannot admit what the batch form refused. That is the current shape of
+    // the `u64` cell: `check_agg_operand` refuses a `u64` `sum` for the BATCH
+    // accumulator and the item fails before this line, so `agg_acc_ty`'s `u64`
+    // row is reachable from `compute_acc_tys` and not yet from a query. Closing
+    // that is one call site (`compute_acc_tys(..., true, ...)` for the batch too)
+    // plus two fixture moves, and it is a value-domain admission ruling — see
+    // `tests/logos/fail/wql_agg_wide_int_arg_fail` and
+    // `tests/logos/pass/wql_tier_capability_disagreement`.
+    if !emit_incremental(&ch, &ty, &aggs, acount, &uda, &agg_flt, &agg_cast, &act,
+                         key_ty, string_as_str(&key_body), result_ty, tres,
+                         string_as_str(&proj_body), string_as_str(&having_body),
+                         has_having, proj_opt, having_ref, has_where, mods,
+                         fn_name, params_text, prm, prelude, h) { return false; }
     return true;
+}
+
+// ══ THE INCREMENTAL FORM OF AN AGGREGATE `deem!` (ADR 0024 / P1) ════════════
+//
+// A handle that keeps the group state BETWEEN calls, so a caller who appends
+// rows pays for the appended rows and not for the whole source again:
+//
+//     let mut h: <Q>Incr = <q>_incremental();
+//     <q>_epoch(&mut h, &rows_1)?;          // fold a batch of rows in
+//     <q>_epoch(&mut h, &rows_2)?;          // …and another
+//     let out: Vec<R> = <q>_snapshot(&h)?;  // the group rows, as `<q>()` returns them
+//
+// ── WHY THIS SHAPE, AND WHAT IT DELIBERATELY IS NOT ─────────────────────────
+//
+// ⚠ NO NEW SYNTAX, AND NONE IS AVAILABLE. The `deem` item head has no attribute
+// slot (`pub_deem_def` in tools/peg_gen_cpp/grammars/logos.peg) and the query DSL
+// has no modifier slot (stdlib/mem/wql/grammars/wql.peg — four shapes, no
+// modifiers), so EVERY opt-in spelling is a grammar change and therefore a
+// language-surface decision. What is emitter-only is UNCONDITIONAL-WHEN-ELIGIBLE,
+// with eligibility DERIVED from the plan rather than listed by a caller — and it
+// is what `deem!` already does for `<q>_prepare` / `<q>_run`, which nobody asks
+// for by name either.
+//
+// ⚠ THREE FREE FNS AND NOT AN `impl`, AND THE REASON IS A MEASURED QUOTE GAP.
+// `pub fn epoch(&mut self, #(ps))` — a method whose parameter list is spliced —
+// is a SYNTAX ERROR in the quote grammar today ("syntax error near '#'"), while
+// the same `#(ps)` splice in a free fn and a fixed-parameter method both parse.
+// So the surface follows the `<q>_prepare` / `<q>_run` convention, which is the
+// one this emitter already uses and which needs no antiquote the grammar lacks.
+// The gap is real and worth closing; the workaround here is not a text push.
+//
+// ⚠ THE DELTA IS THE SOURCE'S OWN ELEMENT TYPE, not a `ZBatch` of erased values.
+// `<q>_epoch` takes the query's parameter list VERBATIM — the same one `<q>()`
+// takes — so the rows going in are typed exactly as the batch form's are. Typing
+// the accumulator while leaving the input erased would have left `RtVal` at the
+// door.
+//
+// ⚠ THERE IS NO `had_error()`. The dynamic engine latches a fault on the handle
+// and answers it later; the static tier's convention is error-as-VALUE through
+// `Result<_, ElError>` and `?`, so an overflowing epoch RETURNS the error at the
+// epoch that overflowed. A latch would put the fault and its cause in different
+// calls.
+//
+// ⚠ THE HANDLE BORROWS NOTHING. `IncrJoin` must hold `envp: *const QEnv` because
+// it re-evaluates the query's SExprs against the catalog every epoch, which pins
+// the env AND its sources alive for the handle's whole life. A typed handle has
+// nothing left to re-evaluate: it owns its group key vector and its accumulators
+// by value, so the caller may grow, move or drop the source between epochs. That
+// is a strict capability gain and it FALLS OUT of the typing rather than being
+// designed in — and it is also what forces the eligibility rule below, because a
+// handle that owns its state cannot keep a group's representative ROW.
+//
+// ── WHAT INSERT-ONLY BUYS, AND WHAT IT DEFERS ───────────────────────────────
+// The dynamic engine's per-(group, column) `vmap: HashMap<i64,i64>` (value →
+// live multiplicity) and its RE-MIN/RE-MAX rescan exist SOLELY to serve a w = -1
+// addend. With inserts only there is no inverse to take: `min`/`max` is an O(1)
+// improve against one cached extremum and `sum`/`count`/`avg` are a plain
+// monoid, so the whole map disappears and the state is typed SCALARS. That is a
+// real saving and also a warning — P2 (retraction) puts the map back, so this
+// state shape is not final.
+fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
+                    uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
+                    act: &[str; 8], key_ty: str, key_body: str,
+                    result_ty: str, tres: i32, proj_body: str, having_body: str,
+                    has_having: bool, proj_e: SExpr, having_ref: WRef<SExpr>,
+                    has_where: bool, mods: QMods,
+                    fn_name: str, params_text: str, prm: &MacroParams,
+                    prelude: str, h: &Writ) -> bool {
+    let bare0: str = vis_strip(fn_name);
+    if !incr_eligible(ch, ty, aggs, acount, uda, act, key_ty, result_ty, tres,
+                      has_having, proj_e, having_ref, has_where, mods, prm, bare0) {
+        return true;
+    }
+
+    // The TYPED accumulators. Same function as the batch's, one argument apart.
+    let mut iacc: [str; 8] = ["", "", "", "", "", "", "", ""];
+    compute_acc_tys(aggs, acount, ty, h, uda, agg_flt, true, &mut iacc);
+    let mut iarg: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                 String::new(), String::new(), String::new(), String::new()];
+    // ⚠ IF THIS FAILS THE CHECK AND THE ADMISSION DISAGREE, and that is a defect
+    // in the compiler rather than in the query: `agg_acc_ty` answers `i64` at
+    // every row where the batch's pair answers `i64` and `u64` only where the
+    // batch answered `i64` and was refused, so the typed admission is a SUPERSET
+    // of the one that already passed above. Surfacing it loudly is the point —
+    // the alternative is an incremental form silently missing from an item whose
+    // batch form compiled.
+    if !compute_agg_bodies(aggs, acount, ty, ch.base_var, h, uda,
+                           agg_flt, agg_cast, &iacc, &mut iarg) { return false; }
+
+    let bare: str = vis_strip(fn_name);
+    let is_priv: bool = vis_is_priv(fn_name);
+    let mut tyb: String = String::new();
+    prep_type_name_sfx(bare, "Incr", &mut tyb);
+    let tyn: str = string_as_str(&tyb);
+
+    // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
+    // One pass, four parallel cursors, because every one of them is indexed by
+    // the same aggregate and a second loop is a second thing to fall out of step.
+    let mut fnames: Vec<Ident>    = vec_new::<Ident>();
+    let mut ftys:   Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut seeds:  Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut folds:  Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut freads: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    // ⚠ THE FIELD NAMES LIVE IN THIS FRAME, NOT IN THE LOOP'S. `Ident::new`
+    // BORROWS its bytes and these Idents are pushed into a Vec that outlives the
+    // iteration that built them, so a `String` local to the loop body is a
+    // dangling view by the time the quote is expanded. MEASURED before this
+    // array existed: the handle type came out with its two fixed fields and NONE
+    // of its accumulator fields, and the diagnostic was `struct 'QIncr' has no
+    // field '__ga_a'` from inside the generated blob — the same class of defect
+    // this file already carries a warning about above `ga_name`. The batch
+    // emitter gets away with the loop-local String because it expands its quote
+    // in the same iteration; this one does not.
+    let mut ganm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                 String::new(), String::new(), String::new(), String::new()];
+
+    fnames.push(Ident::new("__gk"));
+    ftys.push(parse_type_of_vec(key_ty));
+    fnames.push(Ident::new("__gc"));
+    ftys.push(parse_type_of_vec("i64"));
+
+    let mut gi: i64 = 0i64;
+    while gi < acount {
+        let a: RAgg = aggs.agg_at(gi);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        let acct: str = iacc[gi];
+        ganm[gi] = ga_name(a.out);
+        let n_ga: Ident = Ident::new(string_as_str(&ganm[gi]));
+        let n_out: Ident = Ident::new(a.out);
+        let arg_f: ExprBlob = parse_expr(string_as_str(&iarg[gi]));
+
+        fnames.push(Ident::new(string_as_str(&ganm[gi])));
+        ftys.push(parse_type_of_vec(acct));
+
+        // — the group-creation SEED, SPELLED IN THE ACCUMULATOR'S OWN TYPE —
+        // ⚠ THIS IS WHERE THE TYPING PAYS FIRST. The batch emitter writes the
+        // literals 9223372036854775807i64 / -9223372036854775808i64 because its
+        // cell IS an i64; for a `u64` cell those are not the extrema of the
+        // order the cell compares under — `el_wrap_ord_least`'s header records
+        // the measurement where a signed seed put `max`'s seed in the MIDDLE of
+        // a u64 column's order and `max` over a single row of 5 answered 2^63.
+        // `agg_acc_least` / `agg_acc_greatest` are the accumulator's own extrema
+        // and there is no key, no flag and no reinterpretation on the path.
+        if fnid == AGG_MIN() {
+            if agg_flt[gi] {
+                seeds.push(quote_block! { __h.#n_ga.push(f64_from_bits(0x7FF8000000000000u64)); });
+            } else {
+                let sd: ExprBlob = parse_expr(agg_acc_greatest(acct));
+                seeds.push(quote_block! { __h.#n_ga.push(#(sd)); });
+            }
+        } else if fnid == AGG_MAX() {
+            if agg_flt[gi] {
+                seeds.push(quote_block! { __h.#n_ga.push(f64_from_bits(0xFFF0000000000000u64)); });
+            } else {
+                let sd2: ExprBlob = parse_expr(agg_acc_least(acct));
+                seeds.push(quote_block! { __h.#n_ga.push(#(sd2)); });
+            }
+        } else {
+            let sz: ExprBlob = parse_expr(agg_acc_zero(acct));
+            seeds.push(quote_block! { __h.#n_ga.push(#(sz)); });
+        }
+
+        // — the per-row FOLD step —
+        if fnid == AGG_COUNT() {
+            folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
+        } else if fnid == AGG_SUM() && !agg_flt[gi] {
+            // ⚠ THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE AND BY
+            // NOTHING ELSE. `el_add` is i64's, `el_addu` is u64's, and no
+            // signedness flag reaches the fold: the dynamic engine's `agg_argu`
+            // (and the `el_wrap_add` it guards) exists precisely because its cell
+            // cannot answer this question about itself.
+            if str_eq(acct, "u64") {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+            } else {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+            }
+        } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
+            if agg_cast[gi] {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + ((#(arg_f)) as f64)); });
+            } else {
+                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + (#(arg_f))); });
+            }
+        } else if fnid == AGG_MIN() {
+            if agg_flt[gi] {
+                folds.push(quote_block! {
+                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(__h.#n_ga.get(__gi)) { __h.#n_ga.set(__gi, __v); } }
+                });
+            } else {
+                let vt: ExprBlob = parse_type(acct);
+                folds.push(quote_block! {
+                    { let __v: #(vt) = (#(arg_f)); if __v < __h.#n_ga.get(__gi) { __h.#n_ga.set(__gi, __v); } }
+                });
+            }
+        } else {
+            if agg_flt[gi] {
+                folds.push(quote_block! {
+                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) > f64_data_key(__h.#n_ga.get(__gi)) { __h.#n_ga.set(__gi, __v); } }
+                });
+            } else {
+                let vt2: ExprBlob = parse_type(acct);
+                folds.push(quote_block! {
+                    { let __v: #(vt2) = (#(arg_f)); if __v > __h.#n_ga.get(__gi) { __h.#n_ga.set(__gi, __v); } }
+                });
+            }
+        }
+
+        // — the group row's READ of one accumulator, at snapshot time —
+        // ⚠ `avg` DIVIDES AT SNAPSHOT, NOT AT FOLD, and that is what makes the
+        // handle's `avg` exact under ANY split of the rows into epochs: what is
+        // carried is the f64 sum and the i64 count, both of which are monoids, so
+        // `snapshot()` after N epochs reads the same pair as after one.
+        if fnid == AGG_AVG() {
+            let ract: ExprBlob = parse_type(act[gi]);
+            freads.push(quote_block! {
+                let #n_out: #(ract) =
+                    (if __h.__gc.get(__r0) > 0i64 { __h.#n_ga.get(__r0) / (__h.__gc.get(__r0) as f64) }
+                     else { 0.0f64 });
+            });
+        } else {
+            let rat2: ExprBlob = parse_type(acct);
+            freads.push(quote_block! { let #n_out: #(rat2) = __h.#n_ga.get(__r0); });
+        }
+        gi = gi + 1i64;
+    }
+
+    // ── the HANDLE TYPE ─────────────────────────────────────────────────────
+    let n_ty: Ident = Ident::new(tyn);
+    if is_priv {
+        let qs: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            struct #n_ty { #( pub #fnames: #ftys, )* }
+        };
+        unsafe { logos_emit_item_blob_subst(&qs); }
+    } else {
+        let qs2: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            pub struct #n_ty { #( pub #fnames: #ftys, )* }
+        };
+        unsafe { logos_emit_item_blob_subst(&qs2); }
+    }
+
+    // ── <q>_incremental() — the EMPTY handle ────────────────────────────────
+    // ⚠ IT DOES NOT BASE-FILL, AND THE DIFFERENCE FROM `IncrJoin` IS DELIBERATE.
+    // The dynamic engine builds a +1 batch over every element of every bound
+    // source at construction and runs it through the same accumulate path, so
+    // `snapshot()` immediately after `incremental()` already equals `run()`. Here
+    // the constructor takes no sources at all — a caller reproduces that by
+    // calling `<q>_epoch` once with the whole source, which is the SAME code
+    // path. One fold instead of two is what makes the differential against
+    // `<q>()` meaningful: if construction had its own fold, agreeing with the
+    // batch fn would only say that two folds written by one author agree.
+    // ⚠ THE STRUCT LITERAL IS BUILT AS TEXT AND PARSED, WHICH IS WHAT THE
+    // PREPARED EMITTER IN THIS SAME FILE ALREADY DOES FOR ITS OWN CONSTRUCTOR
+    // (`emit_prepared_fns`'s `pb`) — not a text push invented here. It is also a
+    // MEASURED quote gap and worth recording as one: `quote_expr! { #n_ty { #(
+    // #fnam2: #finit ),* } }` — a repeat in a struct-literal FIELD-VALUE position
+    // with an `ExprBlob` cursor — expands to nothing, and the only symptom is
+    // `logos_emit_item_blob_subst: blob[0] empty` followed by an undefined
+    // function at the call site. The same repeat in a struct FIELD-DECLARATION
+    // list (`#( pub #fnames: #ftys, )*`, used just above) works.
+    let mut inm: String = String::new();
+    prep_derived_name(fn_name, "_incremental", &mut inm);
+    let mut cb: String = String::new();
+    cb.push_str("{\n    return ");
+    cb.push_str(tyn);
+    cb.push_str(" { __gk: ");
+    push_vec_new(&mut cb, key_ty);
+    cb.push_str(", __gc: ");
+    push_vec_new(&mut cb, "i64");
+    let mut ci: i64 = 0i64;
+    while ci < acount {
+        cb.push_str(", ");
+        cb.push_str(string_as_str(&ganm[ci]));
+        cb.push_str(": ");
+        push_vec_new(&mut cb, iacc[ci]);
+        ci = ci + 1i64;
+    }
+    cb.push_str(" };\n}\n");
+    // ⚠ NOT THROUGH `emit_fn_quote_blob`, AND THE REASON IS A HOST-SIDE RULE
+    // WORTH KNOWING: `parse_params("")` FAILS. `logos_parse_as` special-cases an
+    // empty/whitespace-only input for rule 0 (`type_param_list`) only — every
+    // other rule, `param_list` included, reports "parse failed" and yields a null
+    // blob, and the ONLY symptom downstream is
+    // `logos_emit_item_blob_subst: blob[0] empty` plus an undefined function at
+    // the call site, with nothing naming the empty parameter list. This
+    // constructor is the first emitter in this file to want a genuinely
+    // parameterless fn, so it writes its own item instead of asking for one.
+    let n_ctor: Ident = Ident::new(vis_strip(string_as_str(&inm)));
+    let n_ty2: Ident = Ident::new(tyn);
+    let ctor_b: ExprBlob = parse_block(string_as_str(&cb));
+    if is_priv {
+        let qc: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            fn #n_ctor() -> #n_ty2 #(ctor_b)
+        };
+        unsafe { logos_emit_item_blob_subst(&qc); }
+    } else {
+        let qc2: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            pub fn #n_ctor() -> #n_ty2 #(ctor_b)
+        };
+        unsafe { logos_emit_item_blob_subst(&qc2); }
+    }
+
+    // ── <q>_epoch(&mut h, …) — fold a delta in ──────────────────────────────
+    let pre_f: ExprBlob = prelude_frag(prelude);
+    let key_f: ExprBlob = parse_expr(key_body);
+    let keyt_f: ExprBlob = parse_type(key_ty);
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f: ExprBlob = parse_type(ch.base_ty);
+    let base_vnm: Ident = Ident::new(ch.base_var);
+    // ⚠ THE GROUP INDEX IS THE BATCH EMITTER'S LINEAR `==` SCAN, ON PURPOSE. It
+    // is O(rows × groups) and a `HashMap<K, i64>` would be the right structure —
+    // but the fold's CORRECTNESS is what this slice is about, the batch emitter
+    // carries the same MVP dedup, and a differential between two shapes that
+    // share a bucket rule is a sharper instrument than one between two that do
+    // not. Replacing both together is the follow-up, and `K: Eq + Hash` is
+    // already the predicate `el_eq_hash` asks of the group key here.
+    let epoch_body: ExprBlob = quote_block! {
+        #(pre_f);
+        let mut __n: i64 = 0i64;
+        let mut __i0: i64 = 0i64;
+        while __i0 < (#(base_src_f)).len() {
+            let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+            let __k: #(keyt_f) = (#(key_f));
+            let mut __gi: i64 = -1i64;
+            let mut __s: i64 = 0i64;
+            while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+            if __gi < 0i64 {
+                __h.__gk.push(__k);
+                __h.__gc.push(0i64);
+                #( #seeds; )*
+                __gi = __h.__gk.len() - 1i64;
+            }
+            __h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64);
+            #( #folds; )*
+            __n = __n + 1i64;
+            __i0 = __i0 + 1i64;
+        }
+        return Result::Ok(__n);
+    };
+    let mut eps: String = String::new();
+    eps.push_str("__h: &mut ");
+    eps.push_str(tyn);
+    if params_text.len() > 0i64 {
+        eps.push_str(", ");
+        eps.push_str(params_text);
+    }
+    let mut enm: String = String::new();
+    prep_derived_name(fn_name, "_epoch", &mut enm);
+    emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
+                       "Result<i64, ElError>", epoch_body, prm);
+
+    // ── <q>_snapshot(&h) — the group rows, in first-occurrence order ────────
+    // ⚠ FIRST-OCCURRENCE ORDER IS THE SAME ORDER `<q>()` PRODUCES, and it is the
+    // same order for the same REASON: groups are appended to `__gk` as they are
+    // first seen and nothing permutes them afterwards. That is what makes the
+    // metamorphic property assertable element-by-element — for any split of one
+    // row multiset into epochs, snapshot equals `<q>()` over the concatenation —
+    // rather than only as a set.
+    let elem_f: ExprBlob = parse_type(result_ty);
+    let proj_f: ExprBlob = parse_expr(proj_body);
+    let mut keep: ExprBlob = quote_block! { __out.push(#(proj_f)); };
+    if has_having {
+        let hav_f: ExprBlob = parse_expr(having_body);
+        keep = quote_block! { if (#(hav_f)) #(keep) };
+    }
+    let snap_body: ExprBlob = quote_block! {
+        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        let mut __r0: i64 = 0i64;
+        while __r0 < __h.__gk.len() {
+            let key: #(keyt_f) = __h.__gk.get(__r0);
+            #( #freads; )*
+            #(keep);
+            __r0 = __r0 + 1i64;
+        }
+        return Result::Ok(__out);
+    };
+    let mut sps: String = String::new();
+    sps.push_str("__h: &");
+    sps.push_str(tyn);
+    let mut srty: String = String::new();
+    srty.push_str("Result<Vec<");
+    srty.push_str(result_ty);
+    srty.push_str(">, ElError>");
+    let mut snm: String = String::new();
+    prep_derived_name(fn_name, "_snapshot", &mut snm);
+    emit_fn_quote_blob(string_as_str(&snm), string_as_str(&sps), "",
+                       string_as_str(&srty), snap_body, prm);
+    return true;
+}
+
+// `Vec<T>` as a TYPE fragment and `Vec::<T>::new()` as constructor TEXT — the two
+// spellings the handle's field list and its constructor need, composed from the
+// element type's name rather than from a per-type table.
+fn parse_type_of_vec(t: str) -> ExprBlob {
+    let mut s: String = String::new();
+    s.push_str("Vec<");
+    s.push_str(t);
+    s.push_str(">");
+    return parse_type(string_as_str(&s));
+}
+fn push_vec_new(out: &mut String, t: str) {
+    out.push_str("Vec::<");
+    out.push_str(t);
+    out.push_str(">::new()");
+}
+
+// ══ IS THIS QUERY'S SHAPE EXPRESSIBLE ON A PERSISTED HANDLE? ════════════════
+//
+// DERIVED from the plan, never listed by a caller — which is what keeps the
+// population of incremental queries a property of the ARTIFACT rather than of
+// somebody's list. Every clause below states WHICH fact about a handle it rests
+// on, because a refusal whose ground is "not supported yet" is the one that
+// never gets revisited.
+//
+// ⚠ THE FLOOR IS THE DYNAMIC ENGINE'S OWN, AND THAT IS A CHOICE WITH A PAYOFF.
+// `IncrJoin` admits exactly `RDistinct?( RProj( RFilter?( RAggr( RScan ) ) ) )`
+// — one bare-scan source, `having` above the group, no `order by` / `limit` /
+// `edge` / `fix` / `rel`. The static `emit_aggregate` is strictly richer (it
+// takes a join chain and a pre-group `where`), so restricting P1 to the same
+// floor costs nothing that is not already deferred and buys a DIFFERENTIAL
+// against a genuinely separate implementation for every fixture — an asset that
+// stops existing when the interpreter is removed.
+// ⚠ EVERY DECISION IS TRACED WITH ITS GROUND, ON THE SAME CHANNEL AND IN THE
+// SAME SHAPE AS THE JOIN-ORDER DECISION (`LOGOS_TRACE_PLAN`, `plan_trace`). A
+// query that does NOT gain the incremental form gains it silently otherwise, and
+// "why did my query not get a handle" is then answerable only by reading this
+// function — which is the class of unobservable derived decision this compiler
+// has already paid for once at the join-order axis.
+fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
+                 uda: &[bool; 8], act: &[str; 8], key_ty: str,
+                 result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
+                 having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
+                 prm: &MacroParams, qn: str) -> bool {
+    // ONE bare scan. A join chain would make `<q>_epoch`'s delta ambiguous —
+    // which of the joined sources did the caller just append to? — and answering
+    // it is the DBSP product rule, which is P2/P3's, not this slice's.
+    if ch.n != 0i64 { return incr_decline(qn, "the input is a JOIN CHAIN — a delta would have to name which source it belongs to, and combining per-source deltas is the DBSP product rule (P2/P3)"); }
+    // A PRE-GROUP `where` is admissible in principle and is refused here for the
+    // same reason the dynamic engine refuses it: it has never been folded through
+    // the incremental path, so admitting it would be an untested arm. `having`
+    // sits ABOVE the group and IS admitted — it is re-evaluated per snapshot.
+    if has_where { return incr_decline(qn, "a PRE-GROUP `where` filters rows before the fold, and that arm has never been folded incrementally — `having`, which sits above the group, IS admitted"); }
+    // `order by` / `limit` / `distinct` all act on the SNAPSHOT rather than on
+    // the fold, so they are cheap to add later and are excluded now only to keep
+    // the emitted surface to what a fixture in this slice actually asserts.
+    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline(qn, "`order by` / `limit` / `distinct` act on the SNAPSHOT rather than on the fold — cheap to add, excluded here so the emitted surface stays what a fixture asserts"); }
+    // A generic `deem` would need the handle TYPE to carry the same type
+    // parameters, which is a second emitted-surface question (they would ride
+    // every one of the three fns as well). Named deferral.
+    if prm.tparams.len() > 0i64 { return incr_decline(qn, "the query is GENERIC — the handle type would have to carry the same type parameters and so would all three derived fns"); }
+    let mut i: i64 = 0i64;
+    while i < acount {
+        // A UDA threads the user's `A` and its own `_step`; its accumulator is
+        // outside `agg_acc_ty`'s domain by construction, and the dynamic engine's
+        // algebra gate refuses it too.
+        if uda[i] { return incr_decline(qn, "a USER AGGREGATE threads its own accumulator type through `_step`, which is outside `agg_acc_ty`'s domain"); }
+        // THE HANDLE OWNS ITS CELLS. A `str` accumulator column would be a BORROW
+        // of a source row, and the source is exactly what a handle does not keep.
+        if !incr_ty_ok(act[i]) { return incr_decline(qn, "an aggregate COLUMN is `str`/`String` — a handle owns its cells and a `str` cell is a borrow of a source row it does not keep"); }
+        i = i + 1i64;
+    }
+    // The group KEY is stored by value for the handle's whole life, so the same
+    // question is asked of it — and `str` keys are the named deferral this makes,
+    // not an oversight: the dynamic engine solves it by interning every string
+    // into its own Writ arena, which would put a Writ back into a path whose
+    // whole thesis is that it needs none.
+    if !incr_ty_ok(key_ty) { return incr_decline(qn, "the GROUP KEY is `str`/`String` — the dynamic engine solves this by interning into its own Writ, which is the one thing a typed handle exists not to need"); }
+    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline(qn, "the RESULT element type is `str`/`String`"); }
+    // `select` and `having` must be evaluable from the GROUP ROW alone — no
+    // source row (its index is meaningless across epochs) and no scalar
+    // parameter (it is a per-call value, and `<q>_snapshot` takes none).
+    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut j: i64 = 0i64;
+    while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
+    if !sexpr_over_group_names(proj_e, &onames, acount) {
+        return incr_decline(qn, "`select` reaches a name that is neither `key` nor an aggregate output — a source row (its index means nothing across epochs) or a scalar parameter (`<q>_snapshot` takes none)");
+    }
+    if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
+        return incr_decline(qn, "`having` reaches a name that is neither `key` nor an aggregate output");
+    }
+    // Every projected COMPONENT must be a value the handle can hand back without
+    // borrowing anything it does not own.
+    if !incr_proj_ty_ok(proj_e, ty) {
+        return incr_decline(qn, "a projected COMPONENT is a `str`/`String` value, which the handle cannot hand back without borrowing something it does not own");
+    }
+    plan_trace("incremental", "EMITTED", qn, "one bare scan, group by, insert-only aggregates over self-contained types");
+    return true;
+}
+
+/// One declined incremental form, traced with its GROUND, then `false`.
+fn incr_decline(qn: str, why: str) -> bool {
+    plan_trace("incremental", "declined", qn, why);
+    return false;
+}
+
+/// May a value of this type be OWNED by a handle that outlives the call that
+/// produced it? `str` is a VIEW — of a source row, of a Writ, of a literal — and
+/// the first two are exactly what a persisted handle does not keep alive; a
+/// `String` is owned but its `Vec<String>` snapshot would then differ from
+/// `<q>()`'s `Vec<str>`, which is a surface question (two return types for one
+/// query) rather than an emitter one. Both are DEFERRED, and pinned as refused
+/// by the eligibility fixture so that they cannot become silently mishandled.
+/// Everything else the EL lattice admits — the integer family, `bool`, `f64` —
+/// is a self-contained value.
+fn incr_ty_ok(t: str) -> bool {
+    if str_eq(t, "String") { return false; }
+    return el_ty(t).cls != EL_TY_STR();
+}
+
+/// The same question, asked of every component a tuple projection hands back.
+/// A `String`-returning call at a component root is caught by `returns_string`
+/// rather than by the component's inferred type, which is the same split
+/// `push_tuple_ty` makes when it decides an element type.
+fn incr_proj_ty_ok(e: SExpr, t: &ElTypes) -> bool {
+    match e {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !incr_proj_ty_ok(items.arg_at(i), t) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => {
+            if returns_string(e, t) { return false; }
+            return incr_ty_ok(infer_emit_ty(e, t));
+        }
+    }
 }
 
 // `__ga_<out>` / `__gf_<out>` / `<name><suffix>` — the generated-name spellings.
@@ -4282,9 +4840,76 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
 // to know (`Vec<i64>` / `Vec<f64>`, decided by `compute_agg_reprs`), and the
 // only thing that ever checked the two agreed was the HOST COMPILER, reporting
 // from a generated line. See `check_agg_operand`.
+// ── THE ACCUMULATOR'S TYPE, PER AGGREGATE, IN ONE PLACE ─────────────────────
+// Fills `acc[i]` with the Logos type the i-th aggregate's RUNNING TOTAL is
+// carried in. Read by `compute_agg_bodies` (the operand check + the normalizing
+// cast) and by the fold emitter (the `Vec<A>` declaration, the seed and the
+// arithmetic), so those three cannot come to different conclusions.
+//
+// `typed` selects WHOSE rule answers, and the two answers differ at exactly one
+// row of the lattice:
+//   false — the class REPRESENTATIVE pair, `f64` for a float accumulator and
+//           `i64` for every other, which is what the batch fold has always
+//           written and what its refusals rest on;
+//   true  — `el::agg_acc_ty` of the ARGUMENT's own emitted type, i.e. "add under
+//           the column's own overflow predicate": still `i64` for every width
+//           that widens losslessly, `u64` for the `EL_ORD_WRAP` class.
+//
+// ⚠ A UDA's CELL IS EMPTY AND IS NEVER READ. Its accumulator is the user's
+// declared `A`, threaded verbatim through `uda_acc`, and its argument is printed
+// into the user's `_step` rather than into an EL accumulator — so an answer here
+// would be a claim about a seam this array does not describe. Empty is the
+// honest value and `compute_agg_bodies` reaches the cell only under `!uda[ai]`.
+//
+// ⚠ `count` IS `i64` FROM THE FIRST BRANCH, NOT FROM A SPECIAL CASE. It has no
+// argument (`agg_takes_arg`), `compute_agg_reprs` gives it `agg_flt = false`,
+// and the `!has_arg` guard below keeps the argument inference from being asked
+// about an argument that is not there.
+//
+// ⚠ THE INFERENCE IS `infer_emit_ty`, THE SAME ONE `check_agg_operand` ASKS.
+// Asking `infer_ty_name` instead would be a second inference over the same node
+// and a `u64` column could arrive spelled two ways at the check and at the
+// accumulator; they read one answer.
+fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
+                   uda: &[bool; 8], agg_flt: &[bool; 8], typed: bool,
+                   acc: &mut [str; 8]) {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        if uda[i] {
+            acc[i] = "";
+        } else if agg_flt[i] {
+            acc[i] = "f64";
+        } else if !typed {
+            acc[i] = "i64";
+        } else {
+            let a: RAgg = aggs.agg_at(i);
+            if !a.has_arg {
+                acc[i] = "i64";
+            } else {
+                let ae: SExpr = simplify_sexpr(a.arg_expr(), h).any().view::<SExpr>();
+                acc[i] = agg_acc_ty(infer_emit_ty(ae, t));
+            }
+        }
+        i = i + 1i64;
+    }
+}
+
+// ⚠ `accw` — THE ACCUMULATOR'S TYPE, PASSED IN RATHER THAN RE-DECIDED HERE.
+// This used to compute `if agg_flt[ai] { "f64" } else { "i64" }` on the line
+// below, which is the same decision the FOLD EMITTER takes when it writes
+// `Vec<i64>` / `Vec<f64>` and the seeds — two places deciding one thing, free to
+// disagree, and the disagreement would be silent because `check_agg_operand`
+// only ever sees this copy. It is one array now, computed by `compute_acc_tys`
+// and read by the check, by the cast and by the accumulator declaration.
+//
+// ⚠ AND THAT IS WHAT LETS TWO EMITTERS ANSWER DIFFERENTLY WITHOUT A SECOND
+// RULE. The BATCH fold asks for the i64/f64 pair verbatim (`typed = false`) and
+// therefore refuses a `u64` argument exactly as it did; the INCREMENTAL fold
+// asks `el::agg_acc_ty` (`typed = true`). The check and the emission always
+// agree because they read the SAME cell.
 fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
                       uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
-                      agg_body: &mut [String; 8]) -> bool {
+                      accw: &[str; 8], agg_body: &mut [String; 8]) -> bool {
     let mut ai: i64 = 0i64;
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
@@ -4356,7 +4981,7 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // is the reason `avg` answers correctly at widths `sum` refuses.
             // Wrapping it in `as i64` first would destroy exactly that.
             if !uda[ai] && !agg_cast[ai] {
-                let want: str = if agg_flt[ai] { "f64" } else { "i64" };
+                let want: str = accw[ai];
                 if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }
                 emit_norm_operand(&mut agg_body[ai], ae_opt, t, var0, want);
             } else {

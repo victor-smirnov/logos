@@ -1,0 +1,135 @@
+// WHICH QUERIES GAIN THE INCREMENTAL FORM — THE POPULATION, DERIVED.
+//
+// The incremental handle is emitted UNCONDITIONALLY-WHEN-ELIGIBLE: nothing in
+// the surface asks for it (the `deem` item head has no attribute slot and the
+// query DSL has no modifier slot, so every opt-in spelling would be a grammar
+// change), and eligibility is DERIVED from the plan. A derived population is
+// only trustworthy if it is observable, so `incr_eligible` traces every decision
+// with its GROUND on `LOGOS_TRACE_PLAN`, and `incr_eligibility_gate.sh` reads
+// this file's compile and asserts the verdict for every query below.
+//
+// ⚠ THIS FILE IS HALF OF THAT ASSERTION AND THE GATE IS THE OTHER HALF. What it
+// pins ON ITS OWN is the positive direction — `ok_basic` is eligible, so its
+// three derived fns EXIST and answer, and a change that stopped emitting them
+// makes this file fail to COMPILE. What it cannot pin on its own is the negative
+// direction: a query whose handle is absent is a query with nothing to call, and
+// a test cannot name a function that is not there. That is what the trace is
+// for, and why the gate exists rather than six more `fail/` fixtures.
+//
+// ⚠ EVERY QUERY HERE MUST COMPILE, INCLUDING THE INELIGIBLE ONES. Declining the
+// incremental form is not a refusal of the query — the batch fn is emitted
+// exactly as before — and if declining ever became a hard error this file would
+// go red rather than the corpus going quiet.
+//
+// exit 0 = the eligible query's handle exists and agrees with its batch fn, and
+// every ineligible query still compiles and still answers.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub v: i64, pub nm: str }
+struct T { pub g: i64, pub w: i64 }
+
+// ── ELIGIBLE — the control, and the only one with derived fns to call ───────
+pub deem ok_basic(ss: &[S]) {
+    from ss s group by s.g aggregate t = sum(s.v) select (key, t)
+}
+
+// ── INELIGIBLE, one named shape each ───────────────────────────────────────
+// A JOIN CHAIN: a delta would have to say which source it belongs to.
+pub deem no_join(ss: &[S], tt: &[T]) {
+    from ss s join tt u on s.g == u.g group by s.g aggregate t = sum(u.w) select (key, t)
+}
+// A PRE-GROUP `where`: rows are filtered before the fold.
+pub deem no_where(ss: &[S]) {
+    from ss s where s.v > 0 group by s.g aggregate t = sum(s.v) select (key, t)
+}
+// `order by` acts on the SNAPSHOT rather than on the fold.
+pub deem no_order(ss: &[S]) {
+    from ss s group by s.g aggregate t = sum(s.v) select (key, t) order by key desc
+}
+// `limit`, same reason.
+pub deem no_limit(ss: &[S]) {
+    from ss s group by s.g aggregate t = sum(s.v) select (key, t) limit 1
+}
+// A `str` GROUP KEY: the handle would have to own the bytes, which is what the
+// dynamic engine's Writ arena does and what a typed handle exists not to need.
+pub deem no_strkey(ss: &[S]) {
+    from ss s group by s.nm aggregate t = sum(s.v) select t
+}
+// `select` REACHES THE SOURCE ROW: its index means nothing across epochs.
+pub deem no_rowsel(ss: &[S]) {
+    from ss s group by s.g aggregate t = sum(s.v) select s.v
+}
+
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, v:  5i64, nm: "a" });
+    v.push(S { g: 1i64, v: -2i64, nm: "b" });
+    v.push(S { g: 0i64, v:  7i64, nm: "a" });
+    return v;
+}
+fn trows() -> Vec<T> {
+    let mut v: Vec<T> = vec_new::<T>();
+    v.push(T { g: 0i64, w: 3i64 });
+    v.push(T { g: 1i64, w: 4i64 });
+    return v;
+}
+
+fn main() -> i32 {
+    let ss: Vec<S> = rows();
+    let tt: Vec<T> = trows();
+
+    // ── the ELIGIBLE query: the handle exists, and it agrees with the batch ──
+    // By hand: g=0 { 5, 7 } = 12, g=1 { -2 } = -2, in first-occurrence order.
+    let bv: Vec<(i64, i64)> = match ok_basic(ss.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
+    };
+    if bv.len() != 2i64      { return 11i32; }
+    if bv.get(0i64).1 != 12i64 { return 12i32; }
+    if bv.get(1i64).1 != -2i64 { return 13i32; }
+    let mut h: OkBasicIncr = ok_basic_incremental();
+    match ok_basic_epoch(&mut h, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 14i32; }
+    }
+    let iv: Vec<(i64, i64)> = match ok_basic_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 15i32; }
+    };
+    if iv.len() != bv.len()    { return 16i32; }
+    if iv.get(0i64).1 != 12i64 { return 17i32; }
+    if iv.get(1i64).1 != -2i64 { return 18i32; }
+
+    // ── every INELIGIBLE query still compiles and still answers ─────────────
+    // The batch fn is untouched by the decline, which is the property that keeps
+    // "not eligible" from ever meaning "not supported".
+    match no_join(ss.as_slice(), tt.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 20i32; } }
+        Result::Err(_e) => { return 21i32; }
+    }
+    match no_where(ss.as_slice()) {
+        Result::Ok(v) => { if v.len() != 1i64 { return 22i32; } }
+        Result::Err(_e) => { return 23i32; }
+    }
+    match no_order(ss.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 24i32; } }
+        Result::Err(_e) => { return 25i32; }
+    }
+    match no_limit(ss.as_slice()) {
+        Result::Ok(v) => { if v.len() != 1i64 { return 26i32; } }
+        Result::Err(_e) => { return 27i32; }
+    }
+    match no_strkey(ss.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 28i32; } }
+        Result::Err(_e) => { return 29i32; }
+    }
+    match no_rowsel(ss.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 30i32; } }
+        Result::Err(_e) => { return 31i32; }
+    }
+    return 0i32;
+}

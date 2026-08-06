@@ -74,6 +74,26 @@ pub fn el_neg(a: i64) -> Result<i64, ElError> {
     match a.checked_neg() { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
 }
 
+/// `el_add`'s SIBLING FOR A `u64` ACCUMULATOR — the same shape, the same error
+/// value, the other overflow predicate.
+///
+/// ⚠ THIS IS WHAT REPLACES A CARRIED FLAG, AND THAT IS THE WHOLE POINT OF ITS
+/// EXISTENCE. `el_wrap_add` above takes two `i64` PAYLOADS and reinterprets them,
+/// because the accumulator it serves is an `i64` cell holding a `u64` value and
+/// the only thing that knows better is a `bool` the checker stamped on the node
+/// (`SBin.ordw`, `IncrJoin.agg_argu`). Here the CELL is a `u64`, so the predicate
+/// is the host's `u64::checked_add` and nothing has to be told which one to use:
+/// the emitter picks the function by the accumulator's TYPE (`agg_acc_ty`) and
+/// there is no per-row flag on the path at all.
+///
+/// It is deliberately NOT a generic over a `CheckedAdd` trait: the two callers
+/// are emitted text, the choice is made at compile time by name, and a trait
+/// bound would put the same decision one level further from the emitter that
+/// takes it.
+pub fn el_addu(a: u64, b: u64) -> Result<u64, ElError> {
+    match a.checked_add(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+
 // ── Builtin function registry (CEL canon + common Trama filters) ──────────
 // `SCall.fn_name` carries the call NAME directly (self-describing IR); the
 // backends map it to one of these builtin ids. The id table is small + stable;
@@ -1287,6 +1307,85 @@ pub fn agg_result_ty(fn_name: str, arg_ty: i32) -> i32 {
     }
     if str_eq(fn_name, "avg") { return el_quot_ty(arg_ty); }
     return -1i32;
+}
+
+// ══ THE ACCUMULATOR'S TYPE, WHICH IS A DIFFERENT QUESTION FROM THE RESULT'S ══
+//
+// `agg_result_ty` answers what a group's COLUMN holds. This answers what the
+// RUNNING TOTAL is carried in while the fold is still going — and the two are
+// not the same question, because a fold has an overflow predicate and a column
+// does not.
+//
+// ⚠ IT IS NOT "THE COLUMN'S OWN TYPE", AND THE LITERAL READING IS REFUTED BY A
+// FIXTURE THAT ALREADY EXISTS. `tests/logos/pass/wql_u64_sum_accumulator.logos`
+// block 6 pins `sum` over a `u8` column of { 200, 100, 0 } at 300 — a number no
+// u8 can hold — so accumulating in the column's own type would call a correct
+// query an overflow. The rule is one step weaker and is the one the header of
+// `el_wrap_add` above derives in full: ADD UNDER THE COLUMN'S OWN OVERFLOW
+// PREDICATE. A width that widens into i64 losslessly HAS i64's predicate, so
+// i64 is its accumulator; `EL_ORD_WRAP` is the one class whose predicate moved
+// with its order, and u64 is that class's accumulator.
+//
+// So, per row of the lattice:
+//   INT  && fits   → "i64"   every signed width, u8/u16/u32/u24/u56 — the
+//                            widening keeps the value, so it keeps the predicate
+//   INT  && WRAP   → "u64"   u64/usize — value intact, ORDER and OVERFLOW both
+//                            moved; `u64::checked_add` is the host's own
+//                            predicate and NO `el_wrap_*` helper is reached
+//   FLT            → "f64"   the type the EL computes floats in; `f32` is
+//                            refused at the operand check rather than widened
+//                            here, deliberately — see `check_agg_operand`
+//   anything else  → "i64"   the class representative, which is what the
+//                            operand check is holding when it refuses
+//
+// ⚠ THE LAST ROW IS NOT A FALLBACK, IT IS THE STATUS QUO WRITTEN DOWN. A
+// `u128`/`i128` argument (`EL_ORD_TRUNC`) and a non-numeric one both come back
+// "i64" so that `check_agg_operand` refuses them with exactly the ground it
+// renders today: this function moves WHICH type the accumulator is, never
+// WHETHER a type is admitted. A caller that swapped its hardcoded "i64" for
+// this call changes no admission at any row but WRAP.
+//
+// ⚠ ASK IT ONLY WHERE THE RULE TABLE SAID THE ACCUMULATOR IS THE ARGUMENT'S.
+// `count` accumulates a row count (i64 whatever the argument) and `avg`
+// accumulates an f64 sum for EVERY admitted argument class (`el_quot_ty`), so
+// neither is this function's question; `sum`/`min`/`max` are.
+//
+// Consumers: the static incremental emitter's accumulator declaration, seeds and
+// fold (`rexpr_walk::incr_*`). The static BATCH fold still hardcodes "i64"/"f64"
+// and therefore still refuses a `u64` sum — that cell is
+// `tests/logos/fail/wql_agg_wide_int_arg_fail` and closing it is a value-domain
+// admission ruling, not this function's doing.
+pub fn agg_acc_ty(arg_ty_name: str) -> str {
+    let t: ElTy = el_ty(arg_ty_name);
+    if t.cls == EL_TY_FLT() { return "f64"; }
+    if t.cls == EL_TY_INT() && t.ord == EL_ORD_WRAP() { return "u64"; }
+    return "i64";
+}
+
+/// The IDENTITY element of an ordered fold in accumulator type `acc` — the seed
+/// `min` and `max` start from, spelled as a LITERAL of `acc` itself.
+///
+/// ⚠ A SEED IS ONLY SOUND WHEN IT IS OUTSIDE THE VALUE RANGE OR AT ITS EDGE, and
+/// that is a property of the ACCUMULATOR, not of the column: the header of
+/// `el_wrap_ord_least` records the measurement where signed seeds put `max`'s
+/// seed in the MIDDLE of a u64 column's order and `max` over a single row of 5
+/// answered 2^63. Typed accumulators make the question trivial again — u64's
+/// extrema are 0 and 2^64-1 and they are writable as u64 literals — which is
+/// exactly the "right by construction" the typing is for. `greatest` is the seed
+/// for `min` and `least` is the seed for `max`.
+pub fn agg_acc_least(acc: str) -> str {
+    if str_eq(acc, "u64") { return "0u64"; }
+    return "-9223372036854775808i64";
+}
+pub fn agg_acc_greatest(acc: str) -> str {
+    if str_eq(acc, "u64") { return "18446744073709551615u64"; }
+    return "9223372036854775807i64";
+}
+/// The ZERO of `acc` — `sum`'s seed and `count`'s.
+pub fn agg_acc_zero(acc: str) -> str {
+    if str_eq(acc, "u64") { return "0u64"; }
+    if str_eq(acc, "f64") { return "0.0f64"; }
+    return "0i64";
 }
 
 // ── ElTypes — the name→value-type dictionary (the type seam, Option B) ─────

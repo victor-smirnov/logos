@@ -1,0 +1,188 @@
+// THE ACCUMULATOR'S TYPE IS A RULE, AND THIS FILE IS ITS ORACLE.
+//
+// `el::agg_acc_ty(arg_ty) -> acc_ty` answers what an aggregate's RUNNING TOTAL
+// is carried in, which is a DIFFERENT question from `agg_result_ty`'s (what the
+// group column holds): a fold has an overflow predicate and a column does not.
+// The rule it implements is the one the header of `el_wrap_add` derives and
+// `tests/logos/pass/wql_u64_sum_accumulator.logos` block 6 already pins the
+// refutation of — NOT "add in the column's own type" (u8 arithmetic would call
+// `sum` over { 200, 100, 0 } = 300 an overflow, and 300 is the pinned answer)
+// but ADD UNDER THE COLUMN'S OWN OVERFLOW PREDICATE.
+//
+// ⚠ EVERY EXPECTATION BELOW IS WRITTEN OUT BY HAND. Nothing here asks `el_ty`
+// for the answer it then checks — that is the shape `wql_domain_static_extremes`
+// refuses, and for the reason this arc has now measured twice: a check that
+// derives its expectation from the mechanism under test agrees with a wrong
+// mechanism perfectly. The type names come from the lattice, the ANSWERS come
+// from the rule as written above, and the two are compared.
+//
+// ⚠ AND ONE ASSERTION IS OVER THE WHOLE LATTICE RATHER THAN OVER A LIST, which
+// is what makes this survive a type being ADDED. Block D says: wherever
+// `el_int_fits_i64` holds, the accumulator IS `i64` — the rule's thesis, stated
+// as a universal over `el_ty_at(0 .. el_ty_arity())` rather than as the sixteen
+// spellings that satisfy it today. A new lossless integer width added to the
+// lattice is covered by it without anyone remembering this file.
+//
+// ── THE ARITHMETIC, BY HAND, AT THE FOUR VALUES THAT SEPARATE THE PREDICATES ──
+// The i64 and u64 overflow predicates disagree in BOTH directions, so both
+// directions are asserted and each has its own exit code:
+//
+//   2^62 + 2^62 = 2^63 = 9223372036854775808
+//       fits u64 with a factor of two to spare; OVERFLOWS i64 (max 2^63-1).
+//       This is the FALSE POSITIVE: a query with a representable right answer
+//       refused. There is no value to inspect, which is what makes it the
+//       sharper of the two.
+//   2^63 + (2^63-2) = 2^64-2 = 18446744073709551614
+//       fits u64 exactly; the same bits read signed are -2, which is the
+//       spelling `get_i64` already hands back for a u64 at or above 2^63.
+//   9223372036854775813 + (2^64-1)
+//       the tail of sum over { 5, 2^63, 2^64-1 } = 27670116110564327428,
+//       which EXCEEDS u64 — Err under u64's predicate. Under i64's the same
+//       three payloads add to -9223372036854775804 with no overflow at all,
+//       which is the FALSE NEGATIVE this pair exists to separate.
+//   2^63 + 2^63 = 2^64
+//       Err under BOTH predicates — the arm that catches a "fix" which simply
+//       stopped checking.
+//
+// exit 0 = the rule, its three seed spellings and both overflow predicates all
+// answer as written above.
+package test;
+
+use logos.std.wql.el;
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.result;
+use logos.lang.option;
+
+fn eq(a: str, b: str) -> bool { return str_eq(a, b); }
+
+fn main() -> i32 {
+    // ── A. every signed width, and every unsigned width that WIDENS ─────────
+    // The widening into i64 keeps the value, so it keeps the predicate: i64's
+    // predicate IS this column's predicate on the widened value.
+    if !eq(agg_acc_ty("i8"),    "i64") { return 10i32; }
+    if !eq(agg_acc_ty("i16"),   "i64") { return 11i32; }
+    if !eq(agg_acc_ty("i24"),   "i64") { return 12i32; }
+    if !eq(agg_acc_ty("i32"),   "i64") { return 13i32; }
+    if !eq(agg_acc_ty("i56"),   "i64") { return 14i32; }
+    if !eq(agg_acc_ty("i64"),   "i64") { return 15i32; }
+    if !eq(agg_acc_ty("isize"), "i64") { return 16i32; }
+    if !eq(agg_acc_ty("u8"),    "i64") { return 17i32; }
+    if !eq(agg_acc_ty("u16"),   "i64") { return 18i32; }
+    if !eq(agg_acc_ty("u24"),   "i64") { return 19i32; }
+    if !eq(agg_acc_ty("u32"),   "i64") { return 20i32; }
+    if !eq(agg_acc_ty("u56"),   "i64") { return 21i32; }
+
+    // ── B. THE ONE ROW THAT MOVES — `EL_ORD_WRAP` ──────────────────────────
+    // u64/usize reach i64 with every bit intact and only their ORDER and their
+    // OVERFLOW PREDICATE moved. That is what a `u64` accumulator restores, and
+    // it is the whole reason this function is not the identity on "i64".
+    if !eq(agg_acc_ty("u64"),   "u64") { return 30i32; }
+    if !eq(agg_acc_ty("usize"), "u64") { return 31i32; }
+
+    // ── C. floats, and the rows the rule does NOT admit ────────────────────
+    // f32 comes back "f64" because that is the type the EL computes floats in;
+    // whether an f32 ARGUMENT may reach an f64 accumulator is a separate
+    // question and `check_agg_operand` still answers it NO.
+    if !eq(agg_acc_ty("f32"), "f64") { return 40i32; }
+    if !eq(agg_acc_ty("f64"), "f64") { return 41i32; }
+    // The wide integers TRUNCATE rather than wrap — no accumulator repairs a
+    // normalization that is not injective — and the non-numerics have no fold
+    // at all. Both come back "i64" so that the operand check refuses them with
+    // exactly the ground it renders today: this function moves WHICH type the
+    // accumulator is, never WHETHER a type is admitted.
+    if !eq(agg_acc_ty("i128"), "i64") { return 42i32; }
+    if !eq(agg_acc_ty("u128"), "i64") { return 43i32; }
+    if !eq(agg_acc_ty("bool"), "i64") { return 44i32; }
+    if !eq(agg_acc_ty("str"),  "i64") { return 45i32; }
+    // A name outside the lattice entirely — default to the baseline, and let the
+    // check that owns admission do the refusing.
+    if !eq(agg_acc_ty("NotAType"), "i64") { return 46i32; }
+
+    // ── D. THE THESIS, AS A UNIVERSAL OVER THE LATTICE ─────────────────────
+    // Wherever the widening into i64 is LOSSLESS, the accumulator is i64. Stated
+    // over every admitted row rather than over the twelve spellings of block A,
+    // so a width added to the lattice later is covered by it and a width that
+    // silently stopped fitting goes red here.
+    let n: i64 = el_ty_arity();
+    let mut i: i64 = 0i64;
+    let mut nfit: i64 = 0i64;
+    let mut nwrap: i64 = 0i64;
+    while i < n {
+        let t: ElTy = el_ty_at(i);
+        if el_int_fits_i64(t.name) {
+            if !eq(agg_acc_ty(t.name), "i64") { return 50i32; }
+            nfit = nfit + 1i64;
+        }
+        if t.cls == EL_TY_INT() && t.ord == EL_ORD_WRAP() {
+            if !eq(agg_acc_ty(t.name), "u64") { return 51i32; }
+            nwrap = nwrap + 1i64;
+        }
+        i = i + 1i64;
+    }
+    // ⚠ A UNIVERSAL OVER AN EMPTY SET IS VACUOUSLY TRUE, so the POPULATION is
+    // pinned too: twelve lossless integer widths and exactly two wrapping ones
+    // (u64, usize). Without these two lines block D passes on a lattice whose
+    // integer rows all vanished.
+    if nfit  != 12i64 { return 52i32; }
+    if nwrap != 2i64  { return 53i32; }
+
+    // ── E. the SEEDS, spelled in the accumulator's own type ────────────────
+    // A seed is only sound when it is at the edge of the ACCUMULATOR's order —
+    // `el_wrap_ord_least`'s header records the measurement where the signed
+    // seeds put `max`'s seed in the MIDDLE of a u64 column's order and `max`
+    // over a single row of 5 answered 2^63. Typed cells make it trivial again.
+    if !eq(agg_acc_zero("i64"),      "0i64")                    { return 60i32; }
+    if !eq(agg_acc_zero("u64"),      "0u64")                    { return 61i32; }
+    if !eq(agg_acc_zero("f64"),      "0.0f64")                  { return 62i32; }
+    if !eq(agg_acc_least("i64"),     "-9223372036854775808i64")  { return 63i32; }
+    if !eq(agg_acc_least("u64"),     "0u64")                     { return 64i32; }
+    if !eq(agg_acc_greatest("i64"),  "9223372036854775807i64")   { return 65i32; }
+    if !eq(agg_acc_greatest("u64"),  "18446744073709551615u64")  { return 66i32; }
+
+    // ── F. THE TWO OVERFLOW PREDICATES, AT THE FOUR SEPARATING VALUES ──────
+    // 2^62 + 2^62 = 2^63: inside u64, outside i64. The FALSE POSITIVE.
+    match el_addu(4611686018427387904u64, 4611686018427387904u64) {
+        Result::Ok(v)   => { if v != 9223372036854775808u64 { return 70i32; } }
+        Result::Err(_e) => { return 71i32; }
+    }
+    match el_add(4611686018427387904i64, 4611686018427387904i64) {
+        Result::Ok(_v)  => { return 72i32; }
+        Result::Err(_e) => { }
+    }
+    // 2^63 + (2^63-2) = 2^64-2, which read signed is -2 — the spelling the
+    // corpus already accepts for a u64 at or above 2^63.
+    match el_addu(9223372036854775808u64, 9223372036854775806u64) {
+        Result::Ok(v2)  => {
+            if v2 != 18446744073709551614u64 { return 73i32; }
+            if (v2 as i64) != -2i64          { return 74i32; }
+        }
+        Result::Err(_e) => { return 75i32; }
+    }
+    // sum over { 5, 2^63, 2^64-1 } — the running total after two addends, then
+    // the third, which exceeds u64. Under i64's predicate the same three
+    // payloads add without overflowing at all: that is the FALSE NEGATIVE.
+    let s1: u64 = match el_addu(0u64, 5u64) {
+        Result::Ok(v3)  => { v3 } Result::Err(_e) => { return 76i32; }
+    };
+    let s2: u64 = match el_addu(s1, 9223372036854775808u64) {
+        Result::Ok(v4)  => { v4 } Result::Err(_e) => { return 77i32; }
+    };
+    if s2 != 9223372036854775813u64 { return 78i32; }
+    match el_addu(s2, 18446744073709551615u64) {
+        Result::Ok(_v)  => { return 79i32; }
+        Result::Err(_e) => { }
+    }
+    // 2^63 + 2^63 = 2^64: Err under BOTH. The arm that catches a "fix" that
+    // simply stopped checking.
+    match el_addu(9223372036854775808u64, 9223372036854775808u64) {
+        Result::Ok(_v)  => { return 80i32; }
+        Result::Err(_e) => { }
+    }
+    // …and the same two payloads read signed: (-2^63) + (-2^63), also Err.
+    match el_add(-9223372036854775808i64, -9223372036854775808i64) {
+        Result::Ok(_v)  => { return 81i32; }
+        Result::Err(_e) => { }
+    }
+    return 0i32;
+}

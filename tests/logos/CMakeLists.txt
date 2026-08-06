@@ -1531,6 +1531,26 @@ set_tests_properties(logos_09_deferred_plan_second_point PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# INCREMENTAL-ELIGIBILITY gate (P1): the set of queries that gain an incremental
+# handle is DERIVED from the plan and asked for by nobody, so it is a derivation
+# that no caller and no fixture can enumerate from the outside. The companion
+# fixture pins the POSITIVE direction by calling the derived fns; the negative
+# direction has nothing to name, so the gate reads the decision AND ITS GROUND off
+# `LOGOS_TRACE_PLAN`, asserts the population by COUNT as well as by membership, and
+# proves it can still speak by running its own matcher over a trace broken four
+# ways.
+add_test(
+    NAME logos_09_incr_eligibility_population
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_eligibility_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_eligibility_matrix.logos
+)
+set_tests_properties(logos_09_incr_eligibility_population PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
 # DERIVED SET, not a transposition of the first pair. What the fixture cannot see is
 # everything about the orders that did NOT run: which permutations were considered,

@@ -1,0 +1,284 @@
+// THE STATIC INCREMENTAL FORM OF AN AGGREGATE `deem!`, CHECKED THREE WAYS.
+//
+// `deem!` now emits, for an aggregate query whose shape admits it, a HANDLE that
+// keeps the group state between calls:
+//
+//     let mut h: QIncr = q_incremental();     // empty
+//     q_epoch(&mut h, rows_a)?;               // fold a delta in
+//     q_epoch(&mut h, rows_b)?;               // …and another
+//     let out = q_snapshot(&h)?;              // the group rows
+//
+// Its accumulators are TYPED — `Vec<i64>` / `Vec<f64>` chosen by
+// `el::agg_acc_ty` from the argument's own type — rather than a cell plus a
+// carried signedness flag, which is what the dynamic engine's `agg_argf` /
+// `agg_argu` are.
+//
+// ⚠ THREE WITNESSES, BECAUSE "BOTH ENGINES AGREE" IS NOT SUFFICIENT. Two
+// implementations of the same wrong fold agree perfectly; this arc has measured
+// that twice this week. So every number below is asserted against all three of:
+//
+//   (i)   HAND-DERIVED CONSTANTS, computed from the input arithmetic and written
+//         out before the emitter existed — see the table below;
+//   (ii)  the static BATCH fn `q()`, which folds all rows in ONE pass and shares
+//         with the incremental path only the argument-expression emission, never
+//         the fold, the seeds or the group-creation step;
+//   (iii) the DYNAMIC interpreter's own incremental engine
+//         (`Query::compile(...).incremental(&env).snapshot()`), a genuinely
+//         separate implementation over `RtVal`.
+//
+// ⚠ WITNESS (iii) IS A WASTING ASSET AND THAT IS WHY IT IS SPENT HERE. The
+// interpreter is scheduled for deletion (P5); while it exists, every static
+// incremental answer can be checked against it on the same data, and after P5
+// no later slice can be validated this way.
+//
+// ⚠ AND THE FOURTH CHECK IS A PROPERTY, NOT A FOURTH FIXTURE. Block E asserts
+// the metamorphic law the enumerated cases are instances of: FOR ANY SPLIT of
+// one row multiset into epochs, `snapshot()` after the epochs equals `q()` over
+// the concatenation — same rows, same order. One epoch, three epochs and seven
+// singleton epochs are run against the same expectation, which is what catches a
+// group-creation or ordering defect that a single split cannot reach.
+//
+// ── THE DATA AND THE ANSWERS, BY HAND ──────────────────────────────────────
+// Rows, in this order (the group order is FIRST OCCURRENCE, so g = 0, 1, 2):
+//     (0, 5) (1, 10) (0, -3) (2, -8) (0, 6) (2, 2) (0, 8)
+//
+//   g=0  v = { 5, -3, 6, 8 }   c=4  t = 5-3+6+8 = 16   lo=-3  hi=8   av = 16/4 = 4.0
+//   g=1  v = { 10 }            c=1  t = 10             lo=10  hi=10  av = 10/1 = 10.0
+//   g=2  v = { -8, 2 }         c=2  t = -8+2 = -6      lo=-8  hi=2   av = -6/2 = -3.0
+//
+// Every mean is an exact binary f64 (4, 10 and -3 are integers), so `==` is the
+// right comparison and no tolerance is involved — the same discipline
+// `wql_agg_avg_bool_three_engines` states.
+//
+// exit 0 = all three witnesses agree with the table above, under every split.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub v: i64 }
+pub schema SR : code(0x0E45_0000_0000_0001) { g: i64 = 0, v: i64 = 1 }
+resource cat = schema_catalog!{ SR };
+
+pub deem q(ss: &[S]) {
+    from ss s group by s.g
+    aggregate c = count(), t = sum(s.v), lo = min(s.v), hi = max(s.v), av = avg(s.v)
+    select (key, c, t, lo, hi, av)
+}
+
+fn qtext() -> str {
+    return "from ss s group by s.g aggregate c = count(), t = sum(s.v), lo = min(s.v), hi = max(s.v), av = avg(s.v) select (key, c, t, lo, hi, av)";
+}
+
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, v:  5i64 });
+    v.push(S { g: 1i64, v: 10i64 });
+    v.push(S { g: 0i64, v: -3i64 });
+    v.push(S { g: 2i64, v: -8i64 });
+    v.push(S { g: 0i64, v:  6i64 });
+    v.push(S { g: 2i64, v:  2i64 });
+    v.push(S { g: 0i64, v:  8i64 });
+    return v;
+}
+
+fn slice_of(all: &Vec<S>, lo: i64, hi: i64) -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    let mut i: i64 = lo;
+    while i < hi { v.push(all.get(i)); i = i + 1i64; }
+    return v;
+}
+
+fn mkR(d: &Writ, g: i64, v: i64) -> WAny {
+    let r: SR = d.make::<SR>(); r.g = g; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn wsrc(d: &Writ, ss: &Vec<S>) -> WAny {
+    let n: i64 = ss.len();
+    let arr: &mut WArray<WAny> = d.array(n + 1i64);
+    let mut i: i64 = 0i64;
+    while i < n { arr.push(mkR(d, ss.get(i).g, ss.get(i).v)); i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+// One incremental run over `all`, cut into `parts` contiguous epochs of as equal
+// a size as the length allows. The whole point of the parameter is that the
+// ANSWER must not depend on it.
+fn incr_in_parts(all: &Vec<S>, parts: i64) -> Result<Vec<(i64, i64, i64, i64, i64, f64)>, ElError> {
+    let n: i64 = all.len();
+    let mut h: QIncr = q_incremental();
+    let mut p: i64 = 0i64;
+    while p < parts {
+        let lo: i64 = (n * p) / parts;
+        let hi: i64 = (n * (p + 1i64)) / parts;
+        let chunk: Vec<S> = slice_of(all, lo, hi);
+        q_epoch(&mut h, chunk.as_slice())?;
+        p = p + 1i64;
+    }
+    return q_snapshot(&h);
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let all: Vec<S> = rows();
+
+    // ── (i) THE HAND-DERIVED TABLE, against the incremental handle ──────────
+    let iv: Vec<(i64, i64, i64, i64, i64, f64)> = match incr_in_parts(&all, 3i64) {
+        Result::Ok(v)   => { v }
+        Result::Err(_e) => { return 10i32; }
+    };
+    if iv.len() != 3i64 { return 11i32; }
+    // g = 0
+    if iv.get(0i64).0 !=  0i64  { return 20i32; }
+    if iv.get(0i64).1 !=  4i64  { return 21i32; }
+    if iv.get(0i64).2 != 16i64  { return 22i32; }
+    if iv.get(0i64).3 != -3i64  { return 23i32; }
+    if iv.get(0i64).4 !=  8i64  { return 24i32; }
+    if iv.get(0i64).5 !=  4.0f64 { return 25i32; }
+    // g = 1 — the singleton group, which is where a seed that survives shows up
+    if iv.get(1i64).0 !=  1i64  { return 30i32; }
+    if iv.get(1i64).1 !=  1i64  { return 31i32; }
+    if iv.get(1i64).2 != 10i64  { return 32i32; }
+    if iv.get(1i64).3 != 10i64  { return 33i32; }
+    if iv.get(1i64).4 != 10i64  { return 34i32; }
+    if iv.get(1i64).5 != 10.0f64 { return 35i32; }
+    // g = 2 — first seen in the LAST epoch, so its group is created late
+    if iv.get(2i64).0 !=  2i64  { return 40i32; }
+    if iv.get(2i64).1 !=  2i64  { return 41i32; }
+    if iv.get(2i64).2 != -6i64  { return 42i32; }
+    if iv.get(2i64).3 != -8i64  { return 43i32; }
+    if iv.get(2i64).4 !=  2i64  { return 44i32; }
+    if iv.get(2i64).5 != -3.0f64 { return 45i32; }
+
+    // ── (ii) against the static BATCH fn, element by element ───────────────
+    let bv: Vec<(i64, i64, i64, i64, i64, f64)> = match q(all.as_slice()) {
+        Result::Ok(v)   => { v }
+        Result::Err(_e) => { return 50i32; }
+    };
+    if bv.len() != iv.len() { return 51i32; }
+    let mut i: i64 = 0i64;
+    while i < bv.len() {
+        if bv.get(i).0 != iv.get(i).0 { return 52i32; }
+        if bv.get(i).1 != iv.get(i).1 { return 53i32; }
+        if bv.get(i).2 != iv.get(i).2 { return 54i32; }
+        if bv.get(i).3 != iv.get(i).3 { return 55i32; }
+        if bv.get(i).4 != iv.get(i).4 { return 56i32; }
+        if bv.get(i).5 != iv.get(i).5 { return 57i32; }
+        i = i + 1i64;
+    }
+
+    // ── (iii) against the DYNAMIC interpreter's incremental engine ─────────
+    // `incremental()` BASE-FILLS at construction — it builds a +1 batch over
+    // every element of every bound source and runs it through the same
+    // accumulate path — so `snapshot()` here is the whole source folded once,
+    // which is the multiset the static handle saw across its three epochs.
+    let d: Writ = writ_new(8192i64);
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", wsrc(&d, &all));
+    let dq: Query = match Query::compile(qtext(), &c) {
+        Result::Ok(qq)  => { qq }
+        Result::Err(_e) => { return 60i32; }
+    };
+    let eng: IncrJoin = match dq.incremental(&e) {
+        Result::Ok(g)   => { g }
+        Result::Err(_e) => { return 61i32; }
+    };
+    if eng.had_error() { return 62i32; }
+    let dr: QRows = eng.snapshot();
+    if dr.row_count() != 3i64 { return 63i32; }
+    let mut j: i64 = 0i64;
+    while j < 3i64 {
+        if dr.get_i64(j, 0i64) != iv.get(j).0 { return 70i32; }
+        if dr.get_i64(j, 1i64) != iv.get(j).1 { return 71i32; }
+        if dr.get_i64(j, 2i64) != iv.get(j).2 { return 72i32; }
+        if dr.get_i64(j, 3i64) != iv.get(j).3 { return 73i32; }
+        if dr.get_i64(j, 4i64) != iv.get(j).4 { return 74i32; }
+        if dr.get_f64(j, 5i64) != iv.get(j).5 { return 75i32; }
+        j = j + 1i64;
+    }
+
+    // ── (iv) THE METAMORPHIC LAW — the answer does not depend on the split ──
+    // One epoch (the whole source at once), three epochs, and seven singleton
+    // epochs. `avg` is the arm this reaches that the others do not: it carries a
+    // sum and a count and divides at SNAPSHOT, so a per-epoch division would
+    // show up here and nowhere else.
+    let mut parts: i64 = 1i64;
+    while parts <= 7i64 {
+        let sv: Vec<(i64, i64, i64, i64, i64, f64)> = match incr_in_parts(&all, parts) {
+            Result::Ok(v)   => { v }
+            Result::Err(_e) => { return 80i32; }
+        };
+        if sv.len() != bv.len() { return 81i32; }
+        let mut k: i64 = 0i64;
+        while k < bv.len() {
+            if sv.get(k).0 != bv.get(k).0 { return 82i32; }
+            if sv.get(k).1 != bv.get(k).1 { return 83i32; }
+            if sv.get(k).2 != bv.get(k).2 { return 84i32; }
+            if sv.get(k).3 != bv.get(k).3 { return 85i32; }
+            if sv.get(k).4 != bv.get(k).4 { return 86i32; }
+            if sv.get(k).5 != bv.get(k).5 { return 87i32; }
+            k = k + 1i64;
+        }
+        parts = parts + 1i64;
+    }
+
+    // ── (v) AN EMPTY EPOCH CHANGES NOTHING, AND A HANDLE WITH NO EPOCH IS ──
+    // ── EMPTY RATHER THAN WRONG ────────────────────────────────────────────
+    // The construction/base-fill split is the one place this surface differs
+    // from `IncrJoin`'s, so it is pinned rather than described.
+    let h0: QIncr = q_incremental();
+    let z: Vec<(i64, i64, i64, i64, i64, f64)> = match q_snapshot(&h0) {
+        Result::Ok(v)   => { v }
+        Result::Err(_e) => { return 90i32; }
+    };
+    if z.len() != 0i64 { return 91i32; }
+    let mut h1: QIncr = q_incremental();
+    let none: Vec<S> = vec_new::<S>();
+    let n0: i64 = match q_epoch(&mut h1, none.as_slice()) {
+        Result::Ok(nn)  => { nn } Result::Err(_e) => { return 92i32; }
+    };
+    if n0 != 0i64 { return 93i32; }
+    let n1: i64 = match q_epoch(&mut h1, all.as_slice()) {
+        Result::Ok(nn)  => { nn } Result::Err(_e) => { return 94i32; }
+    };
+    if n1 != 7i64 { return 95i32; }
+    let n2: i64 = match q_epoch(&mut h1, none.as_slice()) {
+        Result::Ok(nn)  => { nn } Result::Err(_e) => { return 96i32; }
+    };
+    if n2 != 0i64 { return 97i32; }
+    let fv: Vec<(i64, i64, i64, i64, i64, f64)> = match q_snapshot(&h1) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 98i32; }
+    };
+    if fv.len() != bv.len() { return 99i32; }
+    let mut m: i64 = 0i64;
+    while m < bv.len() {
+        if fv.get(m).2 != bv.get(m).2 { return 100i32; }
+        if fv.get(m).5 != bv.get(m).5 { return 101i32; }
+        m = m + 1i64;
+    }
+
+    // ── (vi) SNAPSHOT DOES NOT CONSUME THE HANDLE ──────────────────────────
+    // Two snapshots of the same state are the same rows: `snapshot` reads the
+    // accumulators and derives, it does not finalize them in place.
+    let gv: Vec<(i64, i64, i64, i64, i64, f64)> = match q_snapshot(&h1) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 110i32; }
+    };
+    if gv.len() != fv.len() { return 111i32; }
+    let mut r: i64 = 0i64;
+    while r < gv.len() {
+        if gv.get(r).2 != fv.get(r).2 { return 112i32; }
+        if gv.get(r).1 != fv.get(r).1 { return 113i32; }
+        r = r + 1i64;
+    }
+    return 0i32;
+}

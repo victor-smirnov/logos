@@ -418,6 +418,88 @@ pub fn reject_tuple(e: SExpr, ctx: str) -> bool {
     return false;
 }
 
+// ── IS THIS EXPRESSION EVALUABLE FROM THE GROUP STATE ALONE? ─────────────────
+// True iff every NAME `e` reaches is one of the group row's own bindings — the
+// group key, spelled `key`, or an aggregate OUTPUT — so that `e` can be
+// evaluated with no source row, no scalar parameter and no catalog in scope.
+// `names`/`nn` is the admitted set: the caller passes the aggregate output names
+// and `key` is admitted here.
+//
+// ⚠ WHY THE QUESTION IS ASKED AT ALL — it is the incremental handle's whole
+// lifetime story. A persisted handle keeps group state ACROSS epochs, so it
+// cannot keep a group's REPRESENTATIVE ROW: the batch shape's `__g_row` is an
+// INDEX into the source slice of the epoch that created the group, and by the
+// next epoch that slice may have been grown, moved or dropped. Nor can it keep a
+// scalar parameter, which is a value the CALLER supplies per invocation. So a
+// `select` or `having` that reaches either is not expressible on a handle, and
+// this predicate turns that into a DERIVED eligibility answer rather than a
+// documented hazard.
+//
+// ⚠ THE LEAF IS ASKED THROUGH `root_ident_name`, NOT PER NODE SHAPE, and that
+// is not a shortcut — it is the same primitive the EMITTER resolves a bare
+// identifier with. A bare `key` in `select (key, a)` is NOT an `SVar`: the EL
+// parser gives it a NULL-BASE `SField`, and `SParam` and `SVar` are the other
+// two spellings of "a name standing on its own". A walk that matched on `SVar`
+// alone type-checked, ran, and declined every query in the corpus — measured,
+// with the trace line below naming `select` as the ground. One resolver means
+// the predicate and the emission cannot disagree about what a name is.
+//
+// ⚠ DEFAULT-DENY, AND THE DENIED SHAPES ARE NAMED. A field STEP (`s.v` — an
+// `SField` with a base) resolves to "" here and is denied: it reaches a row var
+// or a struct-typed parameter, and both are exactly what is not there. A scalar
+// PARAMETER resolves to its own name and is denied unless it happens to be an
+// aggregate output, which it cannot be. `SComp` resolves to "" and is denied
+// because its `plan` is a nested RExpr with its own scan, which this walk does
+// not enter and a handle cannot re-run. A node shape added later falls in the
+// same arm and is denied, which is the right default for a predicate whose false
+// answer costs a query only the incremental form.
+//
+// ⚠ WHY A WALK AND NOT A SUBSTRING SEARCH OVER THE EMITTED TEXT. `find(var)` on
+// the generated body looks like it would answer this — until a column, a UDF or
+// another query's variable is spelled with those bytes inside it. This codebase
+// has already paid for one `find` over generated text (the separator class,
+// `2bdd8f25`); the IR is right here and it answers exactly.
+pub fn sexpr_over_group_names(e: SExpr, names: &[str; 8], nn: i64) -> bool {
+    match e {
+        SExpr::Lit(_) => { return true; }
+        SExpr::Bin(b)   => { return sexpr_over_group_names(b.lhs_expr(), names, nn)
+                                 && sexpr_over_group_names(b.rhs_expr(), names, nn); }
+        SExpr::Un(u)    => { return sexpr_over_group_names(u.arg_expr(), names, nn); }
+        SExpr::Cond(c)  => { return sexpr_over_group_names(c.cond_expr(), names, nn)
+                                 && sexpr_over_group_names(c.then_expr(), names, nn)
+                                 && sexpr_over_group_names(c.else_expr(), names, nn); }
+        SExpr::Call(c)  => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() {
+                if !sexpr_over_group_names(args.arg_at(i), names, nn) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !sexpr_over_group_names(items.arg_at(i), names, nn) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => {
+            let rn: str = root_ident_name(e);
+            if rn.len() == 0i64 { return false; }
+            if str_eq(rn, "key") { return true; }
+            let mut k: i64 = 0i64;
+            while k < nn {
+                if str_eq(names[k], rn) { return true; }
+                k = k + 1i64;
+            }
+            return false;
+        }
+    }
+}
+
 // Append the NATIVE Logos tuple TYPE text `(T1, T2, …)` of a tuple projection:
 // per-component EL lattice type name, with the owned-String promotion for
 // String-returning calls (a borrowed `str` view of the call's temporary would

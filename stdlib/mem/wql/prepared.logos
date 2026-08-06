@@ -280,6 +280,14 @@ pub fn prep_deferred(nfl: i64, ncand: i64, sz0: str, sz1: str, sz2: str, sz3: st
 /// type's spelling rather than the fn's. The transform is the only place the two
 /// names are related, so nothing else has to know the convention.
 pub fn prep_type_name(fn_name: str, out: &mut String) {
+    prep_type_name_sfx(fn_name, "Plan", out);
+}
+
+/// The same derivation with the SUFFIX as a parameter — `"Plan"` for the
+/// prepared-statement type, `"Incr"` for the incremental handle. The camel-case
+/// rule is written once: a second copy would be a second thing to drift, and the
+/// two types are emitted for the same query and read by the same caller.
+pub fn prep_type_name_sfx(fn_name: str, sfx: str, out: &mut String) {
     let mut up: bool = true;
     let mut i: i64 = 0i64;
     while i < fn_name.len() {
@@ -298,7 +306,7 @@ pub fn prep_type_name(fn_name: str, out: &mut String) {
         }
         i = i + 1i64;
     }
-    out.push_str("Plan");
+    out.push_str(sfx);
 }
 
 /// `<fn_name><suffix>`, with the visibility marker (a leading `-`, params.logos)
