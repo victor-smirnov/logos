@@ -37,9 +37,10 @@
 # files under tests/{imported,logos}/{pass,fail}; the lints are not .logos and
 # tests/logos/ir/ is not one of those directories, so logos_00_* and
 # logos_07_ir_snapshot_* were unreachable from every level — including the whole
-# argument for noalias+readonly on a shared &T. They are now named explicitly at
-# L1-L3, ahead of the sampled corpus, at a measured cost of ~10-13 s. Set
-# LOGOS_NO_GATES=1 to skip, under the same caveat as above.
+# argument for noalias+readonly on a shared &T. They now run at L1-L3, ahead of
+# the sampled corpus, at a measured cost of ~10-13 s, selected by the tier LABEL
+# each gate declares about itself (`-L '^tier_commit$'`) rather than by a list of
+# names. Set LOGOS_NO_GATES=1 to skip, under the same caveat as above.
 #
 # Examples:
 #   bash ../tests/logos/test-levels.sh L0 nested-by-ref-b167
@@ -114,13 +115,20 @@ VARIANT=${1:-1}
 EXH_FAIL=0
 if [ "${LOGOS_NO_EXHAUSTIVE:-0}" != "1" ]; then
     echo "[test-levels] enumerator — smoke tier (12 684 generated cases)"
-    # ⚠ `--no-tests=error`. This name is registered by a `if(EXISTS
+    # ⚠ `--no-tests=error`. This tier is registered by a `if(EXISTS
     # tests/exhaustive/harness.py)` block, so a moved or deleted generator
-    # un-registers it — and `ctest -R` that matches nothing exits 0. Every level
+    # un-registers it — and `ctest` that matches nothing exits 0. Every level
     # would then print "the enumerator's smoke tier passed (12 684 generated
     # cases)" about 0 cases. Measured on ctest 3.28.3: no match exits 0 without
     # the flag and 8 with it.
-    if ! ctest --no-tests=error --output-on-failure -R '^logos_26_exhaustive_smoke$'; then
+    #
+    # SELECTED BY LABEL, NOT BY NAME, for the same reason as the gates tier
+    # below. `tier_explicit` means exactly "run by name from a bespoke harness
+    # block rather than through a tier selector" — which is what this block is —
+    # so the smoke tier can declare the truth about when it runs instead of
+    # claiming a tier it does not belong to. MEASURED identical to the
+    # `-R '^logos_26_exhaustive_smoke$'` it replaces: one test, the same one.
+    if ! ctest --no-tests=error --output-on-failure -L '^tier_explicit$'; then
         EXH_FAIL=1
     fi
 fi
@@ -140,13 +148,14 @@ fi
 # separator-split lint. A tier that runs the corpus but not the gates is a tier
 # that cannot see a soundness ruling being edited.
 #
-# WHAT IS PULLED IN: all of logos_00_* (the whole gate family — running three of
-# them per commit would be the same defect one level up) and all of
-# logos_07_ir_snapshot_*. 24 tests today: 12 + 12. (The comment said "21: 9 + 12"
-# and had been stale by two since before this arc — a count someone will trust,
-# so it is re-measured here: `grep -c 'NAME logos_00_'` = 12,
-# `ls tests/logos/ir/*.check | wc -l` = 12. The twelfth logos_00_ is
-# `logos_00_abi_reachability`, added with the ABI-closure gate.)
+# WHAT IS PULLED IN: whatever declares `tier_commit`. THE SCRIPT NO LONGER KNOWS
+# ANY GATE NAMES, and that is the entire point of this paragraph — see below.
+# 26 tests as this landed, but the count is deliberately NOT written into the
+# selector or asserted against a literal: it is a property of the build (the
+# logos_07_ir_snapshot_ family is conditional on FileCheck — 12 tests with it,
+# one `..._UNAVAILABLE` without, none at all under -DLOGOS_ALLOW_NO_FILECHECK=ON)
+# and it changes whenever a gate is added. The count is REPORTED instead, below,
+# so a run says what it actually ran.
 #
 # THE ACCEPTED COST, MEASURED HERE RATHER THAN ESTIMATED: 9.0 s of ctest wall,
 # three consecutive runs at 8.98 / 9.01 / 9.00 s (-j12, 32-core box at load ~6).
@@ -159,37 +168,71 @@ fi
 # Against the ~65 s L2 quoted at HEAD that is roughly +14%, paid on every commit,
 # to put the soundness argument for noalias+readonly on the per-commit path.
 #
-# ⚠ `--no-tests=error`. `ctest -R` that matches NOTHING exits 0, so a renamed
-# gate family would make this block print nothing and pass — the exact failure
-# the enumerator block above already documents. Its failure is the level's
-# failure, like EXH_FAIL.
-# ⚠ AND TWO NAMED `logos_09_` GATES, WHICH IS A LISTED POPULATION AND IS ADMITTED
-# AS ONE. The `logos_09_` family is 36 tests costing 270 s — far too much for a
-# per-commit tier — so it sits outside, and that is correct for the family. It is
-# NOT correct for the cheap SCRIPT gates inside it, and the cost of leaving them
-# there has already been paid once: `logos_09_rtval_domain` was written FOR the
-# value-domain arc, never ran on a commit capable of breaking it, and the first
-# such commit broke it — caught only by L4, a whole round later.
+# ⚠ `--no-tests=error`. MEASURED on ctest 3.28.3, this tree: a real run whose
+# `-L` matches NOTHING exits 0 without the flag and 8 with it. (The flag does NOT
+# affect `-N`, which exits 0 either way — so a listing is never evidence here.)
+# A tier label nobody ever applied would otherwise make this block print its line
+# and pass having run zero tests. Same failure the enumerator block above
+# documents; switching from `-R` to `-L` does not retire the need for the flag,
+# it sharpens it. Its failure is the level's failure, like EXH_FAIL.
 #
-# MEASURED per gate rather than guessed: rtval_domain 0.71 s,
-# incr_eligibility_population 3.20 s. The other cheap candidates are
-# prepared_plan_surface 3.13, join_order_either_side 3.11,
-# deferred_plan_second_point 4.04, no_dup_use_in_synth 5.60; the expensive ones
-# are plan_size_asked 10.72 and el_hashable_agreement 24.80. Only the two whose
-# SUBJECT is the work currently in flight are pulled in: +3.9 s on a 9 s tier.
+# ⚠ `-L` IS A REGEX, NOT AN EXACT MATCH — MEASURED on this tree: `-L 'uite_i'`
+# selects 215 tests (suite_ir 12 + suite_integration 203) where `-L '^suite_ir$'`
+# selects 12. Hence the anchors: a bare `-L tier_commit` would also swallow any
+# future `tier_commit_*`.
 #
-# ⚠ THIS LIST IS THE DEFECT CLASS THIS CODEBASE KEEPS CLOSING, and it is written
-# down as such rather than dressed up. The derived form is a LABEL each gate
-# declares about itself — cheap-and-per-commit vs expensive-and-L4 — with this
-# selector asking for the label instead of naming the members. That is the fix;
-# this is the stopgap, and it is here because the arc in flight needs its own
-# gate on the per-commit path today. Whoever writes the label retires these two
-# names and this paragraph together.
+# ⚠ `-L` AND `-R` COMPOSE AS AN AND — MEASURED: `-L '^tier_commit$'` alone
+# selects 26, and with `-R '^logos_00_'` added it selects 12. That is why this
+# block carries NO `-R`: one added here would silently shrink the tier to the
+# intersection while still reporting a pass.
+#
+# ⚠ THE PREDECESSOR OF THIS BLOCK LISTED ITS POPULATION BY NAME, and said so:
+#     -R '^logos_00_|^logos_07_ir_snapshot_|^logos_09_rtval_domain$|...'
+# with a paragraph admitting the two `logos_09_` names were a stopgap and
+# promising that "whoever writes the label retires these two names and this
+# paragraph together". This is that commit. A listed population answers "is this
+# name in my list?" and never "which tests want to run per commit?", so its
+# failure mode is SILENCE: a gate added today matched no alternative, was in
+# NEITHER tier, and nothing anywhere said so. That had already been paid for once
+# — `logos_09_rtval_domain` was written FOR the value-domain arc, never ran on a
+# commit that could break it, and the first such commit broke it, caught only by
+# L4 a whole round later.
+#
+# ⚠ THE LABEL ALONE IS NOT THE FIX; THE CANARY IS. Selecting on a label a gate
+# forgot to declare drops it from every tier just as silently — the same defect
+# with extra steps. So `cmake/LogosTestTiers.cmake` makes "exactly one tier label
+# per non-corpus test" a CONFIGURE-TIME FATAL ERROR, in every directory that
+# registers tests, with the set of those directories derived by walking
+# SUBDIRECTORIES rather than listed. It is not a test on purpose: it therefore
+# has no label of its own to lose, and cannot be unselected by -R, -L or
+# LOGOS_NO_GATES=1.
+#
+# THE MEASURED COST, at the population this landed with: ~9 s of ctest wall on an
+# idle box, dominated by logos_00_mlir_gen_bug_ledger (8.7 s) and
+# logos_00_sep_symbol_shape (6.3 s), which run in parallel with everything else.
+# ⚠ THE SAME COMMAND MEASURED 21.1 s at load ~50 with a sibling worktree running
+# its own suite — so this number is a property of an idle box, and a slow gates
+# tier is evidence about the machine before it is evidence about the gates.
 GATE_FAIL=0
+GATE_RAN=""
 if [ "${LOGOS_NO_GATES:-0}" != "1" ]; then
-    echo "[test-levels] gates — logos_00_*, logos_07_ir_snapshot_*, +2 named logos_09_"
-    if ! ctest --no-tests=error -j12 --output-on-failure \
-               -R '^logos_00_|^logos_07_ir_snapshot_|^logos_09_rtval_domain$|^logos_09_incr_eligibility_population$'; then
+    echo "[test-levels] gates — every test declaring 'tier_commit'"
+    # ⚠ `-L` ONLY. Adding a `-R` here would AND with the label and silently
+    # shrink the tier; the corpus chunks below are separate ctest invocations
+    # carrying only `-R`, and the two must not be crossed.
+    gate_out=$(ctest --no-tests=error -j"$(nproc)" --output-on-failure \
+                     -L '^tier_commit$' 2>&1) || GATE_FAIL=1
+    printf '%s\n' "$gate_out"
+    # THE TIER MUST REPORT WHAT IT RAN. The old line named a fixed population in
+    # prose, so it would have kept saying "logos_00_* + …" no matter what ran.
+    # Parse ctest's own summary instead — and treat a MISSING summary as failure,
+    # exactly as the corpus chunk loop does: a block that cannot say how many
+    # tests it ran has not reported on them.
+    GATE_RAN=$(printf '%s\n' "$gate_out" \
+               | sed -nE 's/^.*tests passed.*out of ([0-9]+).*$/\1/p' | tail -1)
+    if [ -z "$GATE_RAN" ]; then
+        echo "***Failed: the gates tier produced no ctest summary line — it cannot"
+        echo "  report how many gates it ran, so it is not evidence that they ran."
         GATE_FAIL=1
     fi
 fi
@@ -332,7 +375,7 @@ if [ "$tot_run" -lt "$COUNT" ]; then
 fi
 [ "$had_fail" -eq 0 ] && [ "$EXH_FAIL" -eq 0 ] && [ "$GATE_FAIL" -eq 0 ] && echo "(none)"
 [ "$EXH_FAIL" -ne 0 ] && echo "logos_26_exhaustive_smoke ***Failed (see above)"
-[ "$GATE_FAIL" -ne 0 ] && echo "the gates tier (logos_00_* / logos_07_ir_snapshot_*) ***Failed (see above)"
+[ "$GATE_FAIL" -ne 0 ] && echo "the gates tier (-L tier_commit) ***Failed (see above)"
 echo
 echo "=== Pass/fail ==="
 echo "$(( tot_run - tot_fail ))/$tot_run tests passed, $tot_fail failed  (level $LEVEL.$VARIANT)"
@@ -348,12 +391,17 @@ else
 fi
 # The gates are counted separately for the same reason as the enumerator: they
 # are not among the $tot_run, and folding them in would misreport both.
+# ⚠ THE COUNT IS PRINTED, NOT DESCRIBED. These lines used to name a fixed
+# population in prose ("logos_00_* / logos_07_ir_snapshot_* / 2 named logos_09_")
+# — which stayed word-for-word identical however the tier actually changed, so
+# the output was a claim about the selector's source code rather than about the
+# run. `$GATE_RAN` is ctest's own count from the run just performed.
 if [ "${LOGOS_NO_GATES:-0}" = "1" ]; then
     echo "PLUS: the gates tier was SKIPPED (LOGOS_NO_GATES=1)"
 elif [ "$GATE_FAIL" -ne 0 ]; then
-    echo "PLUS: the gates tier FAILED (logos_00_* / logos_07_ir_snapshot_* / 2 named logos_09_)"
+    echo "PLUS: the gates tier FAILED (${GATE_RAN:-?} tests declaring tier_commit)"
 else
-    echo "PLUS: the gates tier passed (logos_00_* / logos_07_ir_snapshot_* / 2 named logos_09_)"
+    echo "PLUS: the gates tier passed ($GATE_RAN tests declaring tier_commit)"
 fi
 # ⚠ `had_fail` IS PART OF THE EXIT STATUS. It used to be equivalent to
 # `tot_fail > 0` — the only thing that set it — and the two checks above set it

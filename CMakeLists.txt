@@ -291,11 +291,17 @@ include_directories(include)
 # Enable testing early so add_test() in subdirectories is effective.
 enable_testing()
 
+# Every test declares its own tier as a label; nothing selects tests by name.
+# See cmake/LogosTestTiers.cmake — the audit it installs is a FATAL_ERROR, not
+# a test, so it cannot be unselected.
+include(${CMAKE_SOURCE_DIR}/cmake/LogosTestTiers.cmake)
+logos_require_tier_labels()
+
 # Coercion arc S2: the type-mismatch verdict is emitted by exactly one
 # function (SemaChecker::expect_type). Mechanically enforced — see the script.
 add_test(NAME lint_mismatch_monopoly
     COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/lint-mismatch-monopoly.sh)
-set_tests_properties(lint_mismatch_monopoly PROPERTIES LABELS "lint")
+set_tests_properties(lint_mismatch_monopoly PROPERTIES LABELS "lint;tier_full")
 
 # Modules
 add_subdirectory(src/verification)
@@ -324,6 +330,13 @@ add_subdirectory(stdlib/rt)
 
 # Tests
 add_subdirectory(tests/logos)
+
+# ⚠ MUST FOLLOW EVERY add_subdirectory() ABOVE. The per-directory tier audit can
+# only read labels from the directory that defined the test, so the set of
+# directories carrying an audit is itself a population — and this derives it
+# rather than listing it: any directory anywhere in the tree that registers a
+# test without calling logos_require_tier_labels() fails the configure.
+logos_audit_tier_coverage()
 
 # ── Install rules ────────────────────────────────────────────────────────
 #

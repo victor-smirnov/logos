@@ -52,7 +52,12 @@ add_executable(exerciser_jit_smoke exerciser_jit_smoke.cpp)
 target_link_libraries(exerciser_jit_smoke PRIVATE logos_jit)
 target_compile_options(exerciser_jit_smoke PRIVATE -fno-rtti)
 
+# Tier audit for this directory's tests (cmake/LogosTestTiers.cmake): every
+# test here must declare exactly one tier label, or the configure fails.
+logos_require_tier_labels()
+
 add_test(NAME jit_smoke COMMAND exerciser_jit_smoke)
+set_tests_properties(jit_smoke PROPERTIES LABELS "jit;cpp;tier_full")
 
 # Host-symbol resolution exerciser (slice 2).
 add_executable(exerciser_jit_host_call exerciser_jit_host_call.cpp)
@@ -63,3 +68,4 @@ target_compile_options(exerciser_jit_host_call PRIVATE -fno-rtti)
 # in case future ORC paths fall back to process search).
 set_target_properties(exerciser_jit_host_call PROPERTIES ENABLE_EXPORTS ON)
 add_test(NAME jit_host_call COMMAND exerciser_jit_host_call)
+set_tests_properties(jit_host_call PROPERTIES LABELS "jit;cpp;tier_full")

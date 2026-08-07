@@ -6,6 +6,14 @@ if (NOT TARGET logosc)
     return()
 endif()
 
+# ── EVERY GATE IN THIS FILE DECLARES ITS OWN TIER ────────────────────────────
+# test-levels.sh no longer knows any gate NAMES: it selects the per-commit gates
+# tier with `-L '^tier_commit$'`. So a gate that declares no tier would run in no
+# tier at all while still looking registered — the exact silent-drop this
+# replaced. This call installs the audit that makes that a configure failure.
+# See cmake/LogosTestTiers.cmake.
+logos_require_tier_labels()
+
 set(TEST_RUNNER ${CMAKE_CURRENT_SOURCE_DIR}/run_test.sh)
 set(STDLIB      ${CMAKE_SOURCE_DIR}/stdlib)
 set(PUB_LIB     ${CMAKE_CURRENT_SOURCE_DIR}/pub_lib)
@@ -732,7 +740,15 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     # (`ctest -LE imported`, and test-levels.sh L0-L4) while the full
     # conformance gate stays one `ctest -L imported` away — reversible, nothing
     # deleted. See docs/dev-checklist / the corpus-revision decision.
-    set(_labels "logos;${MODE};suite_${SUITE}")
+    # ── `corpus` IS WHAT EXEMPTS THESE FROM DECLARING A TIER ─────────────────
+    # The tier canary (cmake/LogosTestTiers.cmake) demands exactly one tier
+    # label per test, and the sampler-reachable corpus is the one population
+    # that legitimately has none: it is selected by the per-level chunk regexes
+    # over enumerated `.logos` files, never by a tier. The exemption is stamped
+    # HERE, at the single funnel every such test passes through, so it is
+    # derived from the registration path — not from a name prefix, which is the
+    # listed population the tier labels exist to retire.
+    set(_labels "logos;corpus;${MODE};suite_${SUITE}")
     if (LOGOS_FILE MATCHES "/tests/imported/")
         set(_labels "${_labels};imported")
     endif()
@@ -813,7 +829,7 @@ add_test(
 )
 set_tests_properties(logos_00_corpus_registration PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
 )
 
 # ── THE RECORDED LESSONS ABOUT LYING GATES, AS RULES ─────────────────────────
@@ -842,7 +858,7 @@ add_test(
 )
 set_tests_properties(logos_00_gate_lint PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
 )
 
 # ── THE OPEN LAYOUT DECLINES — A LEDGER THAT CAN ONLY SHRINK ─────────────────
@@ -905,7 +921,7 @@ add_test(
 )
 set_tests_properties(logos_00_sep_symbol_shape PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -931,7 +947,7 @@ add_test(
 )
 set_tests_properties(logos_00_mlir_gen_exit_code PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;fail;suite_semantic_core"
+    LABELS  "logos;fail;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -944,7 +960,7 @@ add_test(
 )
 set_tests_properties(logos_00_mlir_gen_bug_ledger PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -974,7 +990,7 @@ add_test(
 )
 set_tests_properties(logos_00_type_apply_trap_ledger PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -994,7 +1010,7 @@ add_test(
 )
 set_tests_properties(logos_00_separator_split_lint PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
 # ── THE ROOT COORDINATE HAS ONE DEFINITION, AND ONE MEMBERSHIP ─────────────
@@ -1014,7 +1030,7 @@ add_test(
 )
 set_tests_properties(logos_00_root_coord_lint PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
 # ── THE SHARED-&T UB RULING CANNOT DRIFT BACK INTO PROSE ────────────────────
@@ -1050,7 +1066,7 @@ add_test(
 )
 set_tests_properties(logos_00_shared_ref_ub_lint PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
 # ── THE FREEZE LATTICE'S AXIS POPULATION IS DERIVED FROM THE PREDICATE ───────
@@ -1073,7 +1089,7 @@ add_test(
 )
 set_tests_properties(logos_00_freeze_arm_coverage PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
 add_test(
@@ -1085,7 +1101,7 @@ add_test(
 )
 set_tests_properties(logos_00_layout_decline_ledger PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1127,7 +1143,7 @@ add_test(
 )
 set_tests_properties(logos_00_abi_reachability PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
 # ── Pass tests ────────────────────────────────────────────────────────────────
@@ -1266,7 +1282,7 @@ if (FILECHECK_BIN)
         )
         set_tests_properties(${_test_name} PROPERTIES
             TIMEOUT 30
-            LABELS  "logos;ir_snapshot;suite_ir"
+            LABELS  "logos;ir_snapshot;suite_ir;tier_commit"
             ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
         )
     endforeach()
@@ -1289,7 +1305,7 @@ else()
     )
     set_tests_properties(logos_07_ir_snapshot_UNAVAILABLE PROPERTIES
         TIMEOUT 30
-        LABELS  "logos;ir_snapshot;suite_ir"
+        LABELS  "logos;ir_snapshot;suite_ir;tier_commit"
     )
     message(WARNING
         "logos tests: no FileCheck for LLVM ${LOGOS_LLVM_MAJOR} — ${_ir_missing_n} IR "
@@ -1329,7 +1345,7 @@ foreach(EXP_FILE IN LISTS SPEC_PASS_EXPECTED)
     add_test(NAME ${_test_name}
         COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
     set_tests_properties(${_test_name} PROPERTIES
-        TIMEOUT 30 LABELS "logos;pass;suite_spec"
+        TIMEOUT 30 LABELS "logos;corpus;pass;suite_spec"
         ENVIRONMENT "${_spec_env}")
 endforeach()
 
@@ -1344,7 +1360,7 @@ foreach(EXP_FILE IN LISTS SPEC_FAIL_EXPECTED)
     add_test(NAME ${_test_name}
         COMMAND ${TEST_RUNNER} fail $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
     set_tests_properties(${_test_name} PROPERTIES
-        TIMEOUT 15 LABELS "logos;fail;suite_spec"
+        TIMEOUT 15 LABELS "logos;corpus;fail;suite_spec"
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
 endforeach()
 
@@ -1357,7 +1373,7 @@ add_test(
 )
 set_tests_properties(logos_08_lint_inline_typebuilder PROPERTIES
     TIMEOUT 10
-    LABELS  "logos;lint;suite_lint"
+    LABELS  "logos;lint;suite_lint;tier_full"
 )
 
 # --gen-dir round-trip gate: quote-emitted modules dump as .gen.logos, the
@@ -1393,7 +1409,7 @@ foreach(GENDIR_CASE quote_item_vis_antiquote quote_item_opt_use quote_item_parse
     )
     set_tests_properties(logos_09_gendir_${GENDIR_CASE} PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;pass;suite_semantic_core"
+        LABELS  "logos;pass;suite_semantic_core;tier_full"
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
     )
 endforeach()
@@ -1417,7 +1433,7 @@ add_test(
 )
 set_tests_properties(logos_09_no_dup_use_in_synth PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1443,7 +1459,7 @@ foreach(FLATBODY_CASE wql_first_fold_e2e wql_join_e2e wql_aggregate_e2e wql_data
     )
     set_tests_properties(logos_09_flat_emitted_body_${FLATBODY_CASE} PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;pass;suite_semantic_core"
+        LABELS  "logos;pass;suite_semantic_core;tier_full"
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
     )
 endforeach()
@@ -1464,7 +1480,7 @@ add_test(
 )
 set_tests_properties(logos_09_plan_size_asked PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1483,7 +1499,7 @@ add_test(
 )
 set_tests_properties(logos_09_join_order_either_side PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1503,7 +1519,7 @@ add_test(
 )
 set_tests_properties(logos_09_prepared_plan_surface PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1527,7 +1543,7 @@ add_test(
 )
 set_tests_properties(logos_09_deferred_plan_second_point PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1547,7 +1563,7 @@ add_test(
 )
 set_tests_properties(logos_09_incr_eligibility_population PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1572,7 +1588,7 @@ add_test(
 )
 set_tests_properties(logos_09_join_order_beyond_pair PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1597,7 +1613,7 @@ add_test(
 )
 set_tests_properties(logos_09_join_order_key_fidelity PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1625,7 +1641,7 @@ add_test(
 )
 set_tests_properties(logos_09_el_hashable_agreement PROPERTIES
     TIMEOUT 180
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1648,7 +1664,7 @@ add_test(
 )
 set_tests_properties(logos_09_wide_key_index_tier PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1671,7 +1687,7 @@ add_test(
 )
 set_tests_properties(logos_09_wql_shadowed_column PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1691,7 +1707,7 @@ add_test(
 )
 set_tests_properties(logos_09_wql_column_decl_layer PROPERTIES
     TIMEOUT 120
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1706,7 +1722,7 @@ add_test(
 )
 set_tests_properties(logos_09_render_type_fidelity PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1725,7 +1741,7 @@ add_test(
 )
 set_tests_properties(logos_09_why_size_reachability PROPERTIES
     TIMEOUT 180
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -1737,7 +1753,7 @@ add_test(
 )
 set_tests_properties(logos_09_diag_json_format PROPERTIES
     TIMEOUT 30
-    LABELS  "logos;diag;suite_diag"
+    LABELS  "logos;diag;suite_diag;tier_full"
 )
 
 # lforge end-to-end smoke: build, run, clean a hello-world fixture (B0.5).
@@ -1751,7 +1767,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_10_lforge_smoke PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.1: multi-target builds (lib + bin with deps), topo-sort, --release.
@@ -1764,7 +1780,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_11_lforge_multitarget PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.5: lforge test discovers tests/*.logos, builds + runs each.
@@ -1777,7 +1793,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_12_lforge_test_cmd PROPERTIES
         TIMEOUT 90
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.2: mtime-based incremental rebuild.
@@ -1790,7 +1806,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_13_lforge_incremental PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.6: lforge install <prefix> places artifacts under <prefix>/{bin,lib}.
@@ -1803,7 +1819,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_14_lforge_install PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # `lforge build --dump-metacall` writes metafn-emitted ASTs as Logos source.
@@ -1816,7 +1832,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_14_lforge_dump_metacall PROPERTIES
         TIMEOUT 90
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 endif()
 
@@ -1829,7 +1845,7 @@ add_test(
 )
 set_tests_properties(logos_15_emit_file PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lforge;suite_lforge"
+    LABELS  "logos;lforge;suite_lforge;tier_full"
 )
 
 # Archive integrity: a package must never vanish from a module archive
@@ -1845,7 +1861,7 @@ add_test(
 )
 set_tests_properties(logos_15_archive_integrity PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;lforge;suite_lforge"
+    LABELS  "logos;lforge;suite_lforge;tier_full"
 )
 
 # ADR 0014 slice-1: logosc --emit-docs writes a .docwr doc-facts container.
@@ -1857,7 +1873,7 @@ add_test(
 )
 set_tests_properties(logos_15_emit_docs PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;lforge;suite_lforge"
+    LABELS  "logos;lforge;suite_lforge;tier_full"
 )
 
 # ADR 0014 slice-2: tools/docgen resolves a .docwr into docs.json (impl edges →
@@ -1870,7 +1886,7 @@ add_test(
 )
 set_tests_properties(logos_15_doc_json PROPERTIES
     TIMEOUT 90
-    LABELS  "logos;lforge;suite_lforge"
+    LABELS  "logos;lforge;suite_lforge;tier_full"
 )
 
 # B1.3: lforge fans out per-file lib compilation in parallel + per-file
@@ -1885,7 +1901,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_16_lforge_parallel PROPERTIES
         TIMEOUT 90
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # ADR 0014 slice-3: `lforge doc` builds libs, --emit-docs, resolves docs.json.
@@ -1898,7 +1914,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_16_lforge_doc PROPERTIES
         TIMEOUT 120
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.8: lib targets accept C and asm sources alongside Logos files.
@@ -1911,7 +1927,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_17_lforge_c_asm PROPERTIES
         TIMEOUT 90
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B1.9: dogfood — build stdlib_rt + stdlib_fibers via lforge and verify
@@ -1926,7 +1942,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_18_lforge_dogfood_rt PROPERTIES
         TIMEOUT 120
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B2: project-level external deps via local paths.
@@ -1939,7 +1955,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_19_lforge_external_dep PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B2.5: project-level external deps via git URLs (uses a local file://
@@ -1953,7 +1969,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_20_lforge_git_dep PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B3a: transitive external deps -- a closure of local-path projects
@@ -1967,7 +1983,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_21_lforge_transitive_dep PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B3a: lockfile records git pins; second build uses them without
@@ -1981,7 +1997,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_22_lforge_lockfile PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B3b: MVS conflict detection + `lforge update` re-resolves.
@@ -1994,7 +2010,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_23_lforge_mvs_update PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B4: content-addressed build cache shared across consumers.
@@ -2007,7 +2023,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_24_lforge_build_cache PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
     # B5: replace: directive + requires_logos: ABI floor.
@@ -2020,7 +2036,7 @@ if (TARGET lforge)
     )
     set_tests_properties(logos_25_lforge_replace_and_floor PROPERTIES
         TIMEOUT 60
-        LABELS  "logos;lforge;suite_lforge"
+        LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 endif()
 
@@ -2050,7 +2066,7 @@ add_test(
 set_tests_properties(logos_09_plan_independence PROPERTIES
     TIMEOUT    900
     PROCESSORS 12
-    LABELS     "logos;pass;suite_semantic_core"
+    LABELS     "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR};LOGOS_TEST_LIB_DIR=${CMAKE_CURRENT_BINARY_DIR}"
 )
 
@@ -2080,7 +2096,7 @@ add_test(
 )
 set_tests_properties(logos_09_layout_engine_agreement PROPERTIES
     TIMEOUT 300
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -2105,7 +2121,7 @@ add_test(
 )
 set_tests_properties(logos_09_unit_graph PROPERTIES
     TIMEOUT 900
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -2159,7 +2175,7 @@ add_test(
 )
 set_tests_properties(logos_09_rtval_domain PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
 )
 
 # SHARDED EMISSION (LOGOS_EMIT_SHARDS / LOGOS_EMIT_WORKERS). MEASURED 2026-08-04:
@@ -2198,7 +2214,7 @@ add_test(
 )
 set_tests_properties(logos_09_emit_shards PROPERTIES
     TIMEOUT 600
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
@@ -2238,10 +2254,23 @@ set_tests_properties(logos_09_emit_shards PROPERTIES
 # corpus today" is a gate rather than a hope.
 if(EXISTS ${CMAKE_SOURCE_DIR}/tests/exhaustive/harness.py)
     foreach(EXH_TIER smoke full)
+        # ── WHY THE SMOKE TIER IS `tier_explicit` AND NOT `tier_commit` ──────
+        # It DOES run on every commit — but not through a tier selector. It has
+        # its own block in test-levels.sh with its own accounting and its own
+        # reported line, because it is 12 684 generated cases behind one ctest
+        # name and folding it into the gates count would misreport both. Under a
+        # two-value vocabulary neither label could be true: `tier_commit` would
+        # run it a SECOND time per level (~34 s wasted, failure double-counted),
+        # and `tier_full` would state the opposite of when it runs. So the
+        # vocabulary carries a third value meaning "selected by name from a
+        # bespoke harness block", and test-levels.sh selects that block on the
+        # label — so this is a declaration, not a decoration.
         if(EXH_TIER STREQUAL smoke)
             set(_exh_timeout 600)
+            set(_exh_tier tier_explicit)
         else()
             set(_exh_timeout 1800)
+            set(_exh_tier tier_full)
         endif()
         add_test(
             NAME logos_26_exhaustive_${EXH_TIER}
@@ -2252,7 +2281,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/tests/exhaustive/harness.py)
         set_tests_properties(logos_26_exhaustive_${EXH_TIER} PROPERTIES
             TIMEOUT    ${_exh_timeout}
             PROCESSORS 12
-            LABELS     "logos;exhaustive;suite_exhaustive"
+            LABELS     "logos;exhaustive;suite_exhaustive;${_exh_tier}"
         )
     endforeach()
 endif()

@@ -125,9 +125,13 @@ add_executable(trait_engine_test
     trait_engine.cpp
     trait_engine_test.cpp
 )
+# Tier audit for this directory's tests (cmake/LogosTestTiers.cmake): every
+# test here must declare exactly one tier label, or the configure fails.
+logos_require_tier_labels()
+
 add_test(NAME trait_engine_test COMMAND trait_engine_test
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp")
+set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp;tier_full")
 
 # Verifies TypeRef/lir_view cross-arena dispatch (ExternalRef detection +
 # ArenaPool resolution end-to-end). See docs/internals/multi-arena-ir.md.
