@@ -1,1 +1,2 @@
 exit: 0
+stdout: spine ok ep=5 cmp=20 cells=300

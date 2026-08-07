@@ -12,23 +12,28 @@
 // and it is built so that P5 REMOVES an arm rather than rewrites a harness.
 //
 //   WHAT P5 DELETES FROM THIS FILE, and nothing else:
-//     · `fn arm_dyn` and the three `Q*_TEXT()` query strings it needs
-//     · in `run_spine`: the `q1`/`q2`/`q3` compiles, the `eng_env`, the three
-//       `IncrJoin` locals, their `epoch(...)` pumps, and the `let d2 = arm_dyn`
-//     · in the epoch loop: the `cells_eq(&h, &d2)` and `cells_eq(&s, &d2)`
+//     · `fn arm_dyn`, `fn arm_dyn_r` and the five `Q*_TEXT()` query strings
+//       they need (plus `RA_TEXT` in §6)
+//     · in `run_spine`: the `q1`…`q5` compiles, the `eng_env`, the five
+//       `IncrJoin` locals, their `epoch(...)` pumps, and the `arm_dyn`/
+//       `arm_dyn_r` calls
+//     · in the epoch loops: the `cells_eq(&h, &d2)` and `cells_eq(&s, &d2)`
 //       checks (the `cells_eq(&h, &s)` check is the one that stays)
 //     · in §4: the `dc` and `gc` cells and the two `sc.kind != …` cross-checks
 //     · §5 in full — it is a measurement OF the interpreter
+//     · §6 in full — likewise: it is a measurement of a DISAGREEMENT with the
+//       interpreter, and the static half of it (the `RetractAbsent` refusal)
+//       is already asserted by `deem_incr_static_retract_e2e`, which survives.
 //   WHAT MUST REMAIN, because it is the SPEC and not the scaffolding:
-//     · `fn arm_hand`   — the hand-derived table. THE SPINE.
-//     · `fn arm_static` — the STATIC INCREMENTAL engine: `q*_incremental()` /
-//                         `q*_epoch()` / `q*_snapshot()`, the three fns `deem!`
-//                         emits. REPOINTED HERE; see the next block for what
-//                         the repoint cost and why the promise it broke was
-//                         unkeepable.
-//     · `fn arm_batch`  — the `deem!` BATCH RECOMPUTE. This WAS `arm_static` up
-//                         to P1; it is retained as a WITNESS and checked once,
-//                         after the last epoch, against the maintained state.
+//     · `fn arm_hand` / `fn arm_hand_r` — the hand-derived tables. THE SPINE.
+//     · `fn arm_static` / `fn arm_static_r` — the STATIC INCREMENTAL engine:
+//                         `q*_incremental()` / `q*_epoch()` / `q*_retract()` /
+//                         `q*_snapshot()`, the fns `deem!` emits. REPOINTED at
+//                         P1; given its retracting half at P2.
+//     · `fn arm_batch` / `fn arm_batch_r` — the `deem!` BATCH RECOMPUTE. This
+//                         WAS `arm_static` up to P1; it is retained as a
+//                         WITNESS and checked once per phase against the
+//                         maintained state.
 //     · `struct Cell` + `cells_eq` — the commensurability layer
 //     · `fn deltas()`   — the epoch/row table
 //   DO NOT RESTRUCTURE AT P5. The safety net is already gone by then.
@@ -132,22 +137,61 @@
 // rounding, and −0.0 cannot pass for 0.0.
 //
 // ── THE DELTA SEQUENCE IS DATA, AND THAT IS THE ACCEPTANCE CRITERION ────────
-// `fn deltas()` is a TABLE of `(ep, sign, row…)`. P2 (retractions) = ADD ROWS
-// WITH `sign = -1`. P3/P4 = ADD ROWS. Arms (2) and (3) hold that promise: the
-// interpreter's `sign < 0` branch (`store.retract` + `apply_retract`) is wired
-// and unreached, and `arm_hand` is a table.
+// `fn deltas()` is a TABLE of `(ep, sign, row…)`. P3/P4 = ADD ROWS.
 //
-// ⚠ ARM (1) DOES NOT HOLD IT, AND THE HARNESS NOW SAYS SO WITH A CODE RATHER
-// THAN A COMMENT. `<q>_epoch` takes the query's parameter list VERBATIM
-// (rexpr_walk.logos:4570-4576) and has NO weight, sign or multiplicity channel;
-// its group bump `__h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64)` (:4563) is
-// unconditional. So a `sign = -1` row has nowhere to go on the static side, and
-// P2 is a change to the EMITTED SURFACE — a signature, a sibling fn, or a
-// weighted element type — not a new addend in an accumulator. `ep_retracts`
-// below counts the retraction rows of each epoch and `run_spine` REFUSES (exit
-// 210) rather than folding one in as an insert. The day P2 adds the first
-// `sign = -1` row to §1, this file names the gap instead of failing later at an
-// unrelated cell.
+// ⚠ P2 ARRIVED AND THE PROMISE HELD ONLY HALFWAY — THE HALF THAT FAILED IS
+// NAMED D4 AND IT IS WHY THIS FILE NOW HAS TWO PHASES. Up to `5c7b7668` the
+// emitted surface had no weight channel at all, `ep_retracts` counted the
+// `sign = -1` rows of each epoch and `run_spine` REFUSED with exit 210 rather
+// than folding a retraction in as an insert. `8fbea82a` emitted the surface —
+// `<q>_apply(&mut h, __src, __w, <params VERBATIM>)` with `<q>_epoch` /
+// `<q>_retract` as forwarders at (0,+1) / (0,−1), rexpr_walk.logos:4881-5005 —
+// so the refusal and its code are DELETED here and the rows it guarded against
+// are written into §1. That is the handoff, taken.
+//
+// ⚠ BUT THE SURFACE IS NOT EMITTED FOR EVERY QUERY, AND THE THREE THIS FILE
+// ASKED WERE NOT ALL ELIGIBLE. `incr_retract_eligible` (rexpr_walk.logos:5258)
+// refuses any list holding a `sum` or `avg` whose ACCUMULATOR is f64 — which
+// catches `avg` over an INTEGER column too, because `avg` divides at snapshot
+// out of a float running total. MEASURED on this very file with
+// `LOGOS_TRACE_PLAN=1`, before anything below was written:
+//     retraction -> EMITTED  on q1_iminmax
+//     retraction -> declined on q2_isum     (avg(xs) — an f64 accumulator)
+//     retraction -> declined on q3_fagg     (sum(xf), avg(xf))
+// So TWO of the spine's three handles cannot be handed a `sign = -1` row at
+// all, and the 18-cell per-epoch comparison CANNOT survive a retraction: seven
+// of its cells would be read off handles that never saw the change. The split
+// below is forced by D4, not chosen.
+//
+//   PHASE A, epochs 0-2, INSERTS ONLY — unchanged, cell for cell, constant for
+//     constant, code for code. q1/q2/q3, 18 cells, three arms per epoch, then
+//     the batch witness. Every control revert recorded against this file still
+//     lands on the code it landed on before.
+//   PHASE B, epochs 2-4, THE RETRACTING PROJECTION — the same rows through the
+//     aggregates D4 admits, which is exactly `min`/`max` at ANY type plus
+//     `count` and integer `sum`. Two more emitted queries carry them:
+//       q5_icnt  count(), sum(xs)          → slots 2,3   (q2 minus its avg)
+//       q4_fext  min(xf), max(xf)          → slots 7,8   (q3 minus its sum/avg)
+//     with q1 shared between the phases. 12 cells, three arms per epoch.
+//     ⚠ EPOCH 2 IS IN BOTH PHASES ON PURPOSE AND IS THE CONTROL: at ep2 no row
+//     has been retracted yet, so phase B's 12 cells must reproduce phase A's
+//     answers for the same six slots. A control that changes nothing is
+//     evidence about the stand — this one says q4/q5 are pumped correctly
+//     BEFORE any retraction is asked of them, so a red at ep3/ep4 is about the
+//     retraction and not about the two new handles.
+//
+// ⚠ WHAT PHASE B DOES NOT CARRY, AND WHY THAT IS THE POINT RATHER THAN A HOLE.
+// Slots 4 (`avg(xs)`), 5 (`sum(xf)`) and 6 (`avg(xf)`) have NO retracting
+// route, so no arm can be asked about them after ep2 and none is. h2 and h3 are
+// simply not pumped in phase B — they hold their ep2 state and are read for the
+// last time by the phase-A batch witness, which is why that witness MOVED to
+// the end of phase A (it used to run after the whole loop, over `rows`; `rows`
+// now shrinks). The interpreter's e2/e3 DO keep taking the batch, because there
+// is one changelog and withholding it would be an artefact of this driver;
+// nothing reads them afterwards. What the interpreter's f64 `sum` answers
+// across a retraction is the OPEN fork (incr.logos:553-566) this file has
+// always declined to claim, and it is still declined — now with the emitter
+// agreeing, which is new: D4 is the same fork, refused one layer down.
 //
 // ⚠ THE BASE EPOCH RUNS AT CONSTRUCTION FOR ARM (2) AND ONLY ARM (2).
 // `Query::incremental` fills the aggregate state from the bound source before it
@@ -167,10 +211,20 @@
 // overflow asserted as the three-shaped error.
 //
 // ── WHAT THIS FILE DOES NOT CLAIM ──────────────────────────────────────────
-//  · Nothing about f64 `sum`/`avg` AFTER A RETRACTION. `gsumf` is not an exact
-//    abelian group (incr.logos:553-566, an OPEN fork with three named
-//    alternatives), so `(S+x)−x == S` can fail. P0 has no retractions; when P2
-//    adds them the f64 sum cell is a MEASUREMENT until that fork is decided.
+//  · Nothing about f64 `sum`/`avg` AFTER A RETRACTION, AND THE EMITTER NOW
+//    AGREES. `gsumf` is not an exact abelian group (incr.logos:553-566, an OPEN
+//    fork with three named alternatives), so `(S+x)−x == S` can fail. P2's
+//    `incr_retract_eligible` refuses to emit a retracting surface for exactly
+//    that list (D4), so at P2 the claim is not merely withheld here — there is
+//    no route through which it could be made. Slots 4, 5 and 6 therefore end at
+//    epoch 2. ⚠ THE DAY D4 IS DECIDED, THE FIX IS TO EXTEND `arm_hand_r` AND
+//    `rcells_of` BY THREE SLOTS, not to add a fourth phase.
+//  · Nothing about f64 `min`/`max` after a retraction being CHEAP. It is
+//    correct — slots 7 and 8 assert that below, over −0.0 and 1e16 — and the
+//    map that makes it correct is derived from ELIGIBILITY, not use, so an
+//    insert-only `min`/`max` pays for it: 5.4× on the fold at 4 groups,
+//    measured by `8fbea82a`. That is a cost, it is recorded there, and no
+//    assertion here is about it.
 //  · Nothing about an f64 JOIN key — the incremental engine refuses it and
 //    `wql_domain_incr_disagreement:239-255` pins that as KNOWN-WRONG. No f64
 //    column is a join key here.
@@ -186,11 +240,42 @@
 // reading them off a run. That is the only reason the constants are evidence
 // rather than a transcript. If you change a value here, DERIVE the new one; do
 // not paste what the run printed.
+// ⚠ THAT HELD AGAIN AT P2, AND IT IS WORTH SAYING BECAUSE IT NEARLY DID NOT.
+// Phase B's 36 cells and §6's five were derived from §1's table and from
+// rexpr_walk.logos:4660-4730 / incr.logos:1345+1424 respectively, written down,
+// and then run once — all of them held, including the interpreter's count of 2
+// for a three-row multiset, which was read out of `gcount += w` and not out of
+// a transcript. The one thing that was NOT derivable this way and had to be
+// MEASURED first is which queries get a retracting surface at all: that is
+// `LOGOS_TRACE_PLAN=1`'s answer, and this file's whole two-phase shape follows
+// from it.
 //
-// exit 0 = the three arms agree, cell for cell, on every epoch; the maintained
-//          static state agrees with a batch recompute over the same cumulative
-//          rows; the overflow group errors in all three tiers; and §5's measured
-//          disagreement is still exactly where it was.
+// ── WHICH OF THESE CODES ARE PROVEN TO BITE ────────────────────────────────
+// Each broken once, on the code predicted before the break, then reverted:
+//   10 · 11 · 12 · 13 · 14 · 15 · 16 · 17 · 18 · 19 · 33 (a phase-A cell) ·
+//   235 · and the STDOUT census, which is the only one that catches a
+//   comparison that stopped running (removing phase B's third check leaves
+//   exit 0 and every remaining cell agreeing: `cmp=17 cells=264`, red).
+// Two EMITTER controls, removed from where they live with the archives dropped
+// and the tree rebuilt: `want_map` off → exit 10 at `phaseB ep=3 cell=1`, the
+// re-min over {−1, 0} after i64::MIN leaves; the `__nc < 0` value-multiplicity
+// guard off → exit 16, §6's static half accepts what it should refuse.
+// NOT proven, and named rather than implied: 8, 9, 210, 217, 218 (setup and
+// plumbing arms reachable only from a broken toolchain), and phase A's
+// 211..216, which predate this slice and were not re-broken here.
+//
+// exit 0 = the three arms agree, cell for cell, on every epoch of both phases —
+//          across RETRACTIONS as well as inserts; the maintained static state
+//          agrees with a batch recompute at the end of each phase; the overflow
+//          group errors in all three tiers; and §5's and §6's two measured
+//          disagreements are still exactly where they were.
+//
+// ⚠ AND `stdout` IS PART OF THE ASSERTION NOW, NOT DECORATION. See the
+// exit-code block at `CELLS_SPAN`: the state space outgrew eight bits at this
+// slice, exactly as the previous round predicted it would, so the successful
+// run prints its own COUNTS — epochs, comparisons, cells — and `.expected`
+// pins them. A comparison that silently stops running lowers a number rather
+// than lowering nothing.
 package test;
 
 use logos.lang.writ.container;
@@ -205,6 +290,9 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.num.float;
 use logos.mem.collections.vec;
+use logos.std.wql.el;    // ElError — §6 asserts the error ARM by name, not by `_`
+use logos.std.fmt;       // println! — the failure channel that is not eight bits
+use logos.std.io;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // THE ROW. `struct Row` is what `deem!` folds; `RowF` is the same row as a Writ
@@ -247,30 +335,67 @@ fn i64_max() -> i64 { return 9223372036854775807i64; }
 fn neg_zero() -> f64 { return f64_from_bits(9223372036854775808u64); }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §1  THE DELTA SEQUENCE — DATA. P2 ADDS ROWS HERE, NOT CODE ANYWHERE.
+// §1  THE DELTA SEQUENCE — DATA. P3/P4 ADD ROWS HERE, NOT CODE ANYWHERE.
 //
 //   ep    — the epoch this change belongs to. ep 0 is the CONSTRUCTION fill.
-//   sign  — +1 insert, −1 retract. P0 is all +1; the driver already handles −1.
+//   sign  — +1 insert, −1 retract.
 //
 // THE ROW SET, epoch by epoch (this table IS the derivation input for §2):
-//   ep0  id0 g0  xi=i64::MIN  xs=0   xf= 0.5   xu=0
-//        id1 g0  xi=−1        xs=6   xf=−0.0   xu=5
-//        id2 g1  xi=i64::MAX  xs=2   xf= 1e16  xu=2^63−1
-//        id3 g1  xi=5         xs=4   xf= 1.0   xu=2^63
-//   ep1  id4 g0  xi=0         xs=−3  xf=−0.5   xu=2^64−1
-//   ep2  id5 g1  xi=−1        xs=−3  xf=−1e16  xu=5
+//   ep0  +id0 g0  xi=i64::MIN  xs=0   xf= 0.5   xu=0
+//        +id1 g0  xi=−1        xs=6   xf=−0.0   xu=5
+//        +id2 g1  xi=i64::MAX  xs=2   xf= 1e16  xu=2^63−1
+//        +id3 g1  xi=5         xs=4   xf= 1.0   xu=2^63
+//   ep1  +id4 g0  xi=0         xs=−3  xf=−0.5   xu=2^64−1
+//   ep2  +id5 g1  xi=−1        xs=−3  xf=−1e16  xu=5
+//   ep3  −id0    −id2                                    ← PHASE B begins
+//   ep4  −id1    +id6 g0 xi=7 xs=10 xf=2.0 xu=1    −id5
 //
 // Chosen so that each epoch moves a DIFFERENT part of the state machine:
 //   ep1 raises g0's `max(xi)` (−1 → 0) and replaces g0's `min(xf)` (−0.0 → −0.5)
 //       — the semilattice O(1) improve path;
 //   ep2 lowers g1's `min(xi)` (5 → −1) and completes the f64 reorder triple.
+//
+// ⚠ EP3 AND EP4 ARE CHOSEN FOR THE RESCAN, WHICH IS THE ONLY PATH `min`/`max`
+// HAS UNDER A RETRACTION. Retracting a NON-best value is a map decrement and
+// touches nothing; retracting THE best forces a re-derivation over the
+// survivors, and that is where a wrong comparator lives. So every retraction
+// here takes out a current extremum, and each leaves TWO survivors where it can
+// — with one survivor the rescan loop returns it whatever the comparator is
+// (the cell `deem_incr_static_retract_e2e` A6b was built for, on the u64 side).
+//   ep3 −id0 takes g0's `min(xi)` = i64::MIN AND g0's `max(xf)` = 0.5, leaving
+//       {−1, 0} and {−0.0, −0.5}: the re-max lands on **−0.0**, whose BITS are
+//       0x8000000000000000 while `== 0.0` is true. This is the −0.0 identity
+//       cell, on the retraction path, and only the bit comparator sees it.
+//       Its `xs` is 0, so g0's `sum(xs)` must NOT move — a control inside the
+//       same epoch, against a fold that ignores the weight and subtracts a row.
+//   ep3 −id2 takes g1's `max(xi)` = i64::MAX and g1's `max(xf)` = 1e16, leaving
+//       {5, −1} and {1.0, −1e16}; its `xs` is 2, so g1's `sum(xs)` MUST move
+//       3 → 1. The two groups therefore disagree about whether `sum` moves, in
+//       one epoch, for a reason the table states.
+//   ep4 is MIXED — a retraction, an insert and a retraction in one epoch —
+//       because that is the shape the two tiers are driven with DIFFERENTLY:
+//       the interpreter gets ONE `ZBatch` carrying both signs in table order,
+//       the static side gets `<q>_epoch` (the +1 rows) and then `<q>_retract`
+//       (the −1 rows), which is a different order. DERIVED, not hoped: for
+//       these rows the answer is order-free. `count`/`sum` are additive. For
+//       `min`/`max`, g0's −id1 removes the best (−1 for xi, −0.0 for xf) and
+//       +id6 improves it (7 for xi, 2.0 for xf) — retract-first rescans {0}
+//       then fails to improve with 7 → 0, insert-first improves nothing then
+//       rescans {0,7} → 0; and for xf retract-first rescans {−0.5} then
+//       improves to 2.0, insert-first improves to 2.0 then drops a non-best.
+//       Both orders land on the same cell, and NEITHER group ever empties, so
+//       no seed-after-empty question is raised here (that one is
+//       `deem_incr_static_retract_e2e` block C's).
 // ═══════════════════════════════════════════════════════════════════════════
 struct Delta {
     pub ep: i64, pub sign: i64,
     pub id: i64, pub g: i64, pub xi: i64, pub xs: i64, pub xf: f64, pub xu: u64
 }
 
-fn n_epochs() -> i64 { return 3i64; }
+// PHASE A runs epochs 0 .. n_ins_epochs()−1; PHASE B runs
+// n_ins_epochs()−1 .. n_epochs()−1, so epoch 2 is in both (the control).
+fn n_ins_epochs() -> i64 { return 3i64; }
+fn n_epochs()     -> i64 { return 5i64; }
 
 fn deltas() -> Vec<Delta> {
     let mut v: Vec<Delta> = vec_new::<Delta>();
@@ -287,6 +412,26 @@ fn deltas() -> Vec<Delta> {
                    xi: 0i64, xs: 0i64 - 3i64, xf: 0.0f64 - 0.5f64,
                    xu: 18446744073709551615u64 });
     v.push(Delta { ep: 2i64, sign: 1i64, id: 5i64, g: 1i64,
+                   xi: 0i64 - 1i64, xs: 0i64 - 3i64,
+                   xf: 0.0f64 - 10000000000000000.0f64, xu: 5u64 });
+    // ── PHASE B. ⚠ A RETRACTION ROW MUST REPEAT THE INSERTED ROW EXACTLY.
+    // The FactStore keys on `id` alone, so the interpreter arm would not notice
+    // a wrong payload — but `<q>_retract` folds the row it is HANDED: it looks
+    // the value up in the per-(group, aggregate) multiplicity map and refuses
+    // (`ElError::RetractAbsent`) a value that is not there. A mistyped `xf`
+    // here is exit 13, not a wrong answer. `neg_zero()` below is the same call
+    // that built id1, because the map key is `f64_to_bits` and −0.0 and +0.0
+    // are two keys.
+    v.push(Delta { ep: 3i64, sign: 0i64 - 1i64, id: 0i64, g: 0i64,
+                   xi: i64_min(), xs: 0i64, xf: 0.5f64, xu: 0u64 });
+    v.push(Delta { ep: 3i64, sign: 0i64 - 1i64, id: 2i64, g: 1i64,
+                   xi: i64_max(), xs: 2i64, xf: 10000000000000000.0f64,
+                   xu: 9223372036854775807u64 });
+    v.push(Delta { ep: 4i64, sign: 0i64 - 1i64, id: 1i64, g: 0i64,
+                   xi: 0i64 - 1i64, xs: 6i64, xf: neg_zero(), xu: 5u64 });
+    v.push(Delta { ep: 4i64, sign: 1i64, id: 6i64, g: 0i64,
+                   xi: 7i64, xs: 10i64, xf: 2.0f64, xu: 1u64 });
+    v.push(Delta { ep: 4i64, sign: 0i64 - 1i64, id: 5i64, g: 1i64,
                    xi: 0i64 - 1i64, xs: 0i64 - 3i64,
                    xf: 0.0f64 - 10000000000000000.0f64, xu: 5u64 });
     return v;
@@ -307,37 +452,80 @@ fn deltas() -> Vec<Delta> {
 // zeroes slots 4 and 6 — this file returned 27, not the 25 that was predicted
 // from "count is __gc". Two counters that must agree and that nothing forces to
 // agree is a defect shape P2 should keep in view when it puts weights on them.
+// ⚠ P2 DID PUT A WEIGHT ON ONE OF THEM AND NOT THE OTHER, WHICH IS WORSE THAN
+// EITHER. `<q>_apply` guards `__gc` with `el_add(__gc, __w)` and refuses a
+// negative total (rexpr_walk.logos:4954-4955); `count`'s own `__ga_n` takes a
+// bare `+ __w` with no guard of its own. They still must agree and still
+// nothing forces them to — and now they are guarded differently. Phase B reads
+// slot 2 (`__ga_n`) at every epoch and §6 reads it after a refused retraction,
+// which is as close as this file gets to holding the two against each other;
+// closing the gap is an emitter question, not this file's.
 // ═══════════════════════════════════════════════════════════════════════════
 // ── THE EXIT-CODE SPACE, ENUMERATED — because an exit code is 8 bits ────────
-//   1  ..   9   `run_spine` setup (store / compile / incremental refused)
-//  20  .. 199   the spine: base 20 + (ep*3 + which)*CELLS_SPAN, plus cells_eq's
+//   1  ..   7   `run_spine` setup, the q1/q2/q3 route (store 1, compile 2-4,
+//               `incremental` 5-7)
+//   8          `Query::compile` refused Q4_TEXT or Q5_TEXT
+//   9          `incremental()` refused e4 or e5
+//  10  ..  15   PHASE B — see the widening note below; STDOUT names the epoch
+//               and the cell.  10 hand↔static · 11 hand↔interpreter · 12 static
+//               ↔interpreter · 13 an `_epoch`/`_retract` that must succeed
+//               returned Err · 14 a fold's row count ≠ what it was handed ·
+//               15 phase B's batch witness
+//  16  ..  19   §6, the `RetractAbsent` divergence (16 the static tier did not
+//               refuse · 17 it refused with the WRONG `ElError` arm · 18 the
+//               interpreter errored · 19 the interpreter's answer is not the
+//               measured one)
+//  20  .. 199   PHASE A: base 20 + (ep*3 + which)*CELLS_SPAN, plus cells_eq's
 //               1..19.  which = 0 hand↔static · 1 hand↔interpreter · 2 static↔
 //               interpreter.  Highest reachable: 20 + 8*20 + 19 = 199.
 //  201 .. 209   §4, the three-shaped math error
-//  210          §1's table holds a `sign = -1` row and the STATIC arm has no
-//               route for it — the P2 surface gap, named. NOT a wrong answer.
-//  211 .. 213   a `q*_epoch` call returned Err (q1 / q2 / q3)
-//  214 .. 216   a `q*_epoch` folded a row count ≠ the epoch's insert count
-//  221 .. 239   §5, the u64 `avg` disagreement
-//  236 .. 254   the BATCH WITNESS: `arm_batch` over the final cumulative rows vs
-//               `arm_static`'s maintained state, base 235 + cells_eq's 1..19.
+//  210          §6 plumbing (a call that must succeed failed).  ⚠ THIS CODE WAS
+//               P1's REFUSAL — "§1 holds a `sign = -1` row and the static arm
+//               has no route for it". P2 emitted the route, so the refusal and
+//               its guard `ep_retracts` are DELETED and the code is reused.
+//  211 .. 213   a phase-A `q*_epoch` returned Err (q1 / q2 / q3)
+//  214 .. 216   a phase-A `q*_epoch` folded a row count ≠ the insert count
+//  217          a phase-A `q4_fext_epoch` / `q5_icnt_epoch` returned Err
+//  218          …or folded a row count ≠ the insert count
+//  219          free
+//  221 .. 234   §5, the u64 `avg` disagreement
+//  235          §6's CONTROL: the two tiers disagreed BEFORE the retraction
+//  236 .. 254   PHASE A's BATCH WITNESS: `arm_batch` over the cumulative rows
+//               AT THE END OF PHASE A vs `arm_static`, base 235 + 1..19.
+//  255          free
 // Nothing here reaches 256, and no two ranges overlap. §5 stops at 234 in fact
-// (`uavg_block` returns at most 14), which is what leaves 235.. free; the "239"
-// above is its declared budget and the batch witness may not grow into it.
+// (`uavg_block` returns at most 14), which is what leaves 235 for §6's control.
 //
-// ⚠ THE BUDGET IS NOW FULL AND THAT IS A DESIGN CONSTRAINT, NOT A NOTE. 18 cells
-// per arm ⇒ `cells_eq` yields 1..19 ⇒ CELLS_SPAN = 20 EXACTLY and cannot shrink.
-// A FOURTH per-epoch comparison needs 20 + (2*3 + 3)*20 + 19 = 259 > 255 and no
-// base ≥ 1 fits, which is precisely why the batch arm is checked once at the end
-// rather than every epoch.
-// ⚠ AND THE LINE THAT STOOD HERE — "adding an epoch costs 60 codes and stays
-// inside the budget up to ep 5" — WAS FALSE, MEASURED: a 4th epoch makes the
-// highest spine code 20 + (3*3 + 2)*20 + 19 = 259, which WRAPS to 3 and reads as
-// a `Query::compile` failure. That is the 8-bit ceiling this file already carries
-// a warning about, sitting inside its own budget statement. A 4th epoch needs a
-// wider failure channel, not a re-spacing; nothing in the free ranges can absorb
-// 60 codes.
+// ⚠⚠ THE BUDGET RAN OUT AT THIS SLICE, EXACTLY WHERE THE PREVIOUS ROUND SAID IT
+// WOULD, AND THE FIX IS THE ONE THAT ROUND PRESCRIBED: "a 4th epoch needs a
+// WIDER FAILURE CHANNEL, not a re-spacing; nothing in the free ranges can
+// absorb 60 codes." Phase B adds three epochs of three 12-cell comparisons —
+// 9 × (1..12 plus the length sentinel 19) = 180 states — into a space with 15
+// codes left in it. There is no packing that fits, and the arithmetic is not
+// close: 18 cells per arm forces CELLS_SPAN = 20, phase A alone occupies
+// 20..199, and 200..255 is already four blocks deep.
+//
+// SO THE STATE MOVED TO A CHANNEL THAT IS NOT EIGHT BITS, AND IT IS STILL
+// ASSERTED. The exit code names the STATE CLASS (10..15); `println!` names the
+// PARAMETERS (which epoch, which comparison, which cell); and — this is the
+// half that makes it a gate rather than a debug aid — `.expected` pins STDOUT,
+// so the successful run's own COUNTS are part of the assertion:
+//     spine ok ep=5 cmp=20 cells=300
+// 20 comparisons = 9 (phase A) + 1 (its witness) + 9 (phase B) + 1 (its
+// witness); 300 cells = 162 + 18 + 108 + 12. A comparison that stops running
+// lowers a number and the test goes red on stdout even if every remaining
+// comparison passes — which is the one failure `cells_eq` alone cannot see, and
+// the shape this codebase has on record as "a test MISSING from the suite:
+// predict the COUNT".
+// ⚠ DO NOT WIDEN A BASE TO BUY ROOM. See `cells_eq`'s banner: a 700-base came
+// back as exit 189 = 701 & 0xFF and read as a DIFFERENT real failure. The
+// ceiling is not negotiable; the channel is.
 fn CELLS_SPAN() -> i32 { return 20i32; }
+
+// The running census `.expected` pins. Threaded through every comparison rather
+// than counted in a comment, because a count in a comment is the thing being
+// guarded against.
+struct Tally { pub cmp: i64, pub cells: i64 }
 
 fn K_VALUE()     -> i32 { return 0i32; }
 fn K_MATH_ERR()  -> i32 { return 1i32; }
@@ -397,6 +585,18 @@ fn cells_eq(a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
         i = i + 1i64;
     }
     return 0i64;
+}
+
+// `cells_eq`, counted. EVERY comparison in this file goes through here so that
+// the printed census is derived from the calls that actually ran and not from
+// whoever remembered to bump it. The return value is `cells_eq`'s, unchanged —
+// phase A's exit codes are byte-identical to what they were before phase B
+// existed, which is what keeps every control revert recorded against this file
+// landing on the code it landed on.
+fn cmp_cells(t: &mut Tally, a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
+    t.cmp = t.cmp + 1i64;
+    t.cells = t.cells + a.len();
+    return cells_eq(a, b);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -482,12 +682,18 @@ fn arm_hand(ep: i64) -> Vec<Cell> {
     //               because both perform the SAME left-to-right fold, and an f64
     //               sum is order-dependent by definition — a different order
     //               (1.0 + (−1e16)) + 1e16 answers 1.0. This cell is the
-    //               fold-order razor, and it is where P2 lands: a RETRACTION
-    //               reorders the fold, and `gsumf`'s inverse (sum += w·arg,
-    //               w = −1) is not exact. Until that fork is decided (incr.logos:
-    //               553-566) a post-retraction value of this cell is a
-    //               MEASUREMENT, not a spec. At P0, with inserts only, it is a
-    //               spec: both folds see the same order.
+    //               fold-order razor, and it is where P2 was expected to land:
+    //               a RETRACTION reorders the fold, and `gsumf`'s inverse
+    //               (sum += w·arg, w = −1) is not exact.
+    //               ⚠ P2 LANDED SOMEWHERE ELSE. Rather than answering this cell
+    //               after a retraction, the emitter REFUSED to give the query a
+    //               retracting surface at all (D4 — `incr_retract_eligible`
+    //               declines `q3_fagg`), so the cell is a spec forever at
+    //               inserts and is simply never asked the other question. That
+    //               is the better outcome and it is not the one this comment
+    //               predicted: the razor did not cut, it was withdrawn. When D4
+    //               is decided the cell becomes a MEASUREMENT and phase B grows
+    //               three slots.
     //          avg: +0.0 / 3 = +0.0
     //          min: −1e16      max: 1e16
     if ep < 2i64 {
@@ -501,6 +707,97 @@ fn arm_hand(ep: i64) -> Vec<Cell> {
         v.push(cf(1i64, 7i32, 0.0f64 - 10000000000000000.0f64));
         v.push(cf(1i64, 8i32, 10000000000000000.0f64));
     }
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3a′  ARM (3) FOR PHASE B — the hand table over the RETRACTING PROJECTION.
+// Six slots, the ones D4 admits: 0/1 `min`/`max`(xi), 2/3 `count`/`sum`(xs),
+// 7/8 `min`/`max`(xf). ep 2, 3, 4.
+//
+// ⚠ ep 2 IS WRITTEN OUT RATHER THAN FILTERED OUT OF `arm_hand(2)`, on purpose.
+// Filtering would make the control's hand side a tautology — it would agree
+// with phase A because it IS phase A. Written out, the two tables are two
+// derivations of the same six cells from the same row list, and a slip in
+// either is a red. (The static arm cannot match both if they disagree.)
+//
+// THE DERIVATION, from §1's table. Surviving multiset per group per epoch:
+//   ep2  g0 {id0 MIN/0/+0.5, id1 −1/6/−0.0, id4 0/−3/−0.5}
+//        g1 {id2 MAX/2/+1e16, id3 5/4/+1.0, id5 −1/−3/−1e16}
+//   ep3  −id0, −id2 ⇒ g0 {id1, id4}   g1 {id3, id5}
+//   ep4  −id1, +id6 7/10/+2.0, −id5 ⇒ g0 {id4, id6}   g1 {id3}
+//
+//   ep2  g0  min(xi) i64::MIN   max(xi) 0     count 3  sum(xs)  3
+//            min(xf) −0.5       max(xf) 0.5
+//        g1  min(xi) −1         max(xi) i64::MAX  count 3  sum(xs) 3
+//            min(xf) −1e16      max(xf) 1e16
+//   ep3  g0  min(xi) −1     ⚠ THE RE-MIN: i64::MIN was retracted, the survivors
+//                             are {−1, 0}. A rescan that compares the raw key
+//                             UNSIGNED answers 0 (i64::MIN's bit pattern is the
+//                             LARGEST u64), so two survivors straddling the
+//                             sign bit is the discriminating pair.
+//            max(xi) 0       (untouched)
+//            count 2         sum(xs) 3  ⚠ THE CONTROL: id0 carried xs = 0, so a
+//                             correct fold moves the count and NOT the sum.
+//            min(xf) −0.5    (untouched)
+//            max(xf) −0.0   ⚠⚠ THE RE-MAX, AND THE BIT CELL. 0.5 was retracted;
+//                             the survivors are {−0.0, −0.5} and −0.0 is the
+//                             greater. ASSERTED ON THE BITS 0x8000000000000000:
+//                             a tier that canonicalises −0.0 to +0.0 anywhere
+//                             on the retraction path answers bits 0 and passes
+//                             every `!=` in sight. The static map keys on
+//                             `f64_to_bits` (injective) precisely so −0.0 comes
+//                             back −0.0; `f64_data_key` — which maps both zeros
+//                             onto one key — is the ORDER and not the identity,
+//                             and this cell is where the two must not be
+//                             confused.
+//        g1  min(xi) −1      (untouched)
+//            max(xi) 5      ⚠ THE RE-MAX at i64::MAX, survivors {5, −1}.
+//            count 2         sum(xs) 1   (3 − 2; this one MUST move)
+//            min(xf) −1e16   (untouched)
+//            max(xf) 1.0     (1e16 retracted, survivors {1.0, −1e16})
+//   ep4  g0  min(xi) 0       (−1 retracted, survivors {0, 7})
+//            max(xi) 7       (the O(1) improve, same epoch as a retraction)
+//            count 2         (2 − 1 + 1)     sum(xs) 7   (3 − 6 + 10)
+//            min(xf) −0.5    (untouched by either change)
+//            max(xf) 2.0     (−0.0 retracted AND 2.0 inserted — see §1 on why
+//                             the two drive orders land on the same value)
+//        g1  min(xi) 5       (−1 retracted, ONE survivor)
+//            max(xi) 5       count 1         sum(xs) 4   (1 + 3)
+//            min(xf) 1.0     max(xf) 1.0
+// ═══════════════════════════════════════════════════════════════════════════
+fn arm_hand_r(ep: i64) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    if ep == 2i64 {
+        v.push(ci(0i64, 0i32, i64_min()));      v.push(ci(0i64, 1i32, 0i64));
+        v.push(ci(0i64, 2i32, 3i64));           v.push(ci(0i64, 3i32, 3i64));
+        v.push(cf(0i64, 7i32, 0.0f64 - 0.5f64));
+        v.push(cf(0i64, 8i32, 0.5f64));
+        v.push(ci(1i64, 0i32, 0i64 - 1i64));    v.push(ci(1i64, 1i32, i64_max()));
+        v.push(ci(1i64, 2i32, 3i64));           v.push(ci(1i64, 3i32, 3i64));
+        v.push(cf(1i64, 7i32, 0.0f64 - 10000000000000000.0f64));
+        v.push(cf(1i64, 8i32, 10000000000000000.0f64));
+        return v;
+    }
+    if ep == 3i64 {
+        v.push(ci(0i64, 0i32, 0i64 - 1i64));    v.push(ci(0i64, 1i32, 0i64));
+        v.push(ci(0i64, 2i32, 2i64));           v.push(ci(0i64, 3i32, 3i64));
+        v.push(cf(0i64, 7i32, 0.0f64 - 0.5f64));
+        v.push(cf(0i64, 8i32, neg_zero()));
+        v.push(ci(1i64, 0i32, 0i64 - 1i64));    v.push(ci(1i64, 1i32, 5i64));
+        v.push(ci(1i64, 2i32, 2i64));           v.push(ci(1i64, 3i32, 1i64));
+        v.push(cf(1i64, 7i32, 0.0f64 - 10000000000000000.0f64));
+        v.push(cf(1i64, 8i32, 1.0f64));
+        return v;
+    }
+    v.push(ci(0i64, 0i32, 0i64));               v.push(ci(0i64, 1i32, 7i64));
+    v.push(ci(0i64, 2i32, 2i64));               v.push(ci(0i64, 3i32, 7i64));
+    v.push(cf(0i64, 7i32, 0.0f64 - 0.5f64));
+    v.push(cf(0i64, 8i32, 2.0f64));
+    v.push(ci(1i64, 0i32, 5i64));               v.push(ci(1i64, 1i32, 5i64));
+    v.push(ci(1i64, 2i32, 1i64));               v.push(ci(1i64, 3i32, 4i64));
+    v.push(cf(1i64, 7i32, 1.0f64));
+    v.push(cf(1i64, 8i32, 1.0f64));
     return v;
 }
 
@@ -542,6 +839,29 @@ pub deem q3_fagg(rs: &[Row]) {
     select (key, sm, av, mn, mx)
 }
 
+// ── PHASE B's TWO EXTRA QUERIES ────────────────────────────────────────────
+// ⚠ THESE ARE NOT NEW QUESTIONS. Each is an existing query with the aggregate
+// D4 refuses removed, and nothing else: `q5_icnt` is `q2_isum` without
+// `avg(xs)`, `q4_fext` is `q3_fagg` without `sum(xf)`/`avg(xf)`. They exist
+// because `incr_retract_eligible` takes THE LIST as the unit (rexpr_walk.logos:
+// 5226-5231 argues why: a retraction retracts a ROW, and a row feeds every
+// aggregate at once), so one ineligible aggregate takes the whole retracting
+// surface away from its neighbours. Splitting the list is the only way to ask
+// `count`, integer `sum` and f64 `min`/`max` — all of which DO run backwards —
+// what they answer after a retraction.
+//
+// MEASURED, `LOGOS_TRACE_PLAN=1`, and it is the whole ground for this split:
+//   retraction -> EMITTED  on q1_iminmax · q4_fext · q5_icnt
+//   retraction -> declined on q2_isum · q3_fagg
+// If a later slice makes q2/q3 eligible, THESE TWO BECOME REDUNDANT and phase B
+// should be folded back into phase A rather than kept beside it.
+pub deem q4_fext(rs: &[Row]) {
+    from rs s group by s.g aggregate mn = min(s.xf), mx = max(s.xf) select (key, mn, mx)
+}
+pub deem q5_icnt(rs: &[Row]) {
+    from rs s group by s.g aggregate n = count(), sm = sum(s.xs) select (key, n, sm)
+}
+
 // ── ARM (1), THE ONE THAT MATTERS: the maintained handles ──────────────────
 // Structurally the same fn as `arm_dyn` below — three handle refs in, cells out
 // — which is what makes P5's deletion an arm removal rather than a rewrite.
@@ -572,6 +892,72 @@ fn arm_batch(rows: &Vec<Row>) -> Vec<Cell> {
         Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 5i32, K_MATH_ERR())); return v; }
     };
     return cells_of(&r1, &r2, &r3);
+}
+
+// ── PHASE B's ARM (1) AND ITS BATCH WITNESS ────────────────────────────────
+// Same shape, same rule: `rcells_of` is written once and both callers use it,
+// because `<q>_snapshot` returns exactly what `<q>()` returns.
+fn arm_static_r(h1: &Q1IminmaxIncr, h5: &Q5IcntIncr, h4: &Q4FextIncr) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    let r1: Vec<(i64, i64, i64)> = match q1_iminmax_snapshot(h1) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 0i32, K_MATH_ERR())); return v; }
+    };
+    let r5: Vec<(i64, i64, i64)> = match q5_icnt_snapshot(h5) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 2i32, K_MATH_ERR())); return v; }
+    };
+    let r4: Vec<(i64, f64, f64)> = match q4_fext_snapshot(h4) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 7i32, K_MATH_ERR())); return v; }
+    };
+    return rcells_of(&r1, &r5, &r4);
+}
+
+// The batch recompute over the SURVIVING rows — the third witness, and the one
+// that shares nothing with the retract path: `<q>()` folds a flat row list with
+// no map, no multiplicity, no rescan and no group-count guard, so "incremental
+// == batch recompute" (incr_rec.logos:58) is a real question again once rows
+// can leave. Checked once, at the end of phase B, for the same eight-bit reason
+// phase A's is checked once.
+fn arm_batch_r(rows: &Vec<Row>) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    let r1: Vec<(i64, i64, i64)> = match q1_iminmax(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 0i32, K_MATH_ERR())); return v; }
+    };
+    let r5: Vec<(i64, i64, i64)> = match q5_icnt(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 2i32, K_MATH_ERR())); return v; }
+    };
+    let r4: Vec<(i64, f64, f64)> = match q4_fext(rows.as_slice()) {
+        Result::Ok(x) => { x } Result::Err(_e) => { v.push(cerr(0i64, 7i32, K_MATH_ERR())); return v; }
+    };
+    return rcells_of(&r1, &r5, &r4);
+}
+
+// (g, mn, mx) · (g, n, sm) · (g, mn, mx) → the six retracting slots.
+fn rcells_of(r1: &Vec<(i64, i64, i64)>,
+             r5: &Vec<(i64, i64, i64)>,
+             r4: &Vec<(i64, f64, f64)>) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    let mut i: i64 = 0i64;
+    while i < r1.len() {
+        let t: (i64, i64, i64) = r1.get(i);
+        v.push(ci(t.0, 0i32, t.1));
+        v.push(ci(t.0, 1i32, t.2));
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < r5.len() {
+        let t: (i64, i64, i64) = r5.get(j);
+        v.push(ci(t.0, 2i32, t.1));
+        v.push(ci(t.0, 3i32, t.2));
+        j = j + 1i64;
+    }
+    let mut k: i64 = 0i64;
+    while k < r4.len() {
+        let t: (i64, f64, f64) = r4.get(k);
+        v.push(cf(t.0, 7i32, t.1));
+        v.push(cf(t.0, 8i32, t.2));
+        k = k + 1i64;
+    }
+    return v;
 }
 
 // The three result row sets → cells. ONE spelling, shared by the maintained arm
@@ -623,6 +1009,12 @@ fn Q2_TEXT() -> str {
 fn Q3_TEXT() -> str {
     return "from ss s group by s.g aggregate sm = sum(s.xf), av = avg(s.xf), mn = min(s.xf), mx = max(s.xf) select (key, sm, av, mn, mx)";
 }
+fn Q4_TEXT() -> str {
+    return "from ss s group by s.g aggregate mn = min(s.xf), mx = max(s.xf) select (key, mn, mx)";
+}
+fn Q5_TEXT() -> str {
+    return "from ss s group by s.g aggregate n = count(), sm = sum(s.xs) select (key, n, sm)";
+}
 
 fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
     let mut v: Vec<Cell> = vec_new::<Cell>();
@@ -660,6 +1052,43 @@ fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
     return v;
 }
 
+// PHASE B's interpreter arm. The engines are driven by the SAME `ZBatch` the
+// store hands e1/e2/e3 — one changelog, five engines — so a `sign = -1` row
+// reaches this arm as a weight of −1 and needs no plumbing of its own. That is
+// the half of "P2 adds table rows, not code" that arms (2) and (3) DID keep.
+fn arm_dyn_r(e1: &IncrJoin, e5: &IncrJoin, e4: &IncrJoin) -> Vec<Cell> {
+    let mut v: Vec<Cell> = vec_new::<Cell>();
+    if e1.had_error() || e5.had_error() || e4.had_error() {
+        v.push(cerr(0i64, 0i32, K_MATH_ERR()));
+        return v;
+    }
+    let s1: QRows = e1.snapshot();
+    let mut i: i64 = 0i64;
+    while i < s1.row_count() {
+        let g: i64 = s1.get_i64(i, 0i64);
+        v.push(ci(g, 0i32, s1.get_i64(i, 1i64)));
+        v.push(ci(g, 1i32, s1.get_i64(i, 2i64)));
+        i = i + 1i64;
+    }
+    let s5: QRows = e5.snapshot();
+    let mut j: i64 = 0i64;
+    while j < s5.row_count() {
+        let g: i64 = s5.get_i64(j, 0i64);
+        v.push(ci(g, 2i32, s5.get_i64(j, 1i64)));
+        v.push(ci(g, 3i32, s5.get_i64(j, 2i64)));
+        j = j + 1i64;
+    }
+    let s4: QRows = e4.snapshot();
+    let mut k: i64 = 0i64;
+    while k < s4.row_count() {
+        let g: i64 = s4.get_i64(k, 0i64);
+        v.push(cf(g, 7i32, s4.get_f64(k, 1i64)));
+        v.push(cf(g, 8i32, s4.get_f64(k, 2i64)));
+        k = k + 1i64;
+    }
+    return v;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // §3d  THE DRIVER.
 //
@@ -668,10 +1097,20 @@ fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
 // unkeepable as written: the static handle constructs EMPTY and must be pumped,
 // and it must outlive the epoch loop, so `arm_static`'s signature and the
 // driver's locals both had to move (see the header block on what the repoint
-// cost). What the rule was PROTECTING still holds and is the standard for P2/
+// cost). What the rule was PROTECTING still holds and is the standard for
 // P3/P4: `struct Cell`, `cells_eq`, `arm_hand` and the SHAPE of `deltas()` are
-// untouched, and a new row in §1 needs no new code — it needs an emitted
-// surface that can carry a sign, which `ep_retracts` refuses in the meantime.
+// untouched.
+//
+// ⚠ AND P2 EDITED IT AGAIN, WITH A REASON THAT IS WORTH WRITING DOWN BECAUSE IT
+// WILL RECUR. "A new row in §1 needs no new code" held for arms (2) and (3) —
+// `store.retract` + `apply_retract` were already wired and `arm_hand` is a
+// table — and FAILED for arm (1), not because the surface was missing (it
+// arrived) but because it is emitted PER QUERY and two of the three queries
+// were refused it. A capability that lands per-artifact rather than globally
+// splits its callers; the driver grew a second phase rather than a second
+// branch, so the shape P5 deletes is still one arm per tier. P3's fixpoint is
+// the next capability with that property — expect the same split, and prefer a
+// second PHASE over a per-cell exception.
 // ═══════════════════════════════════════════════════════════════════════════
 fn mk_node(dp: *const Writ, d: Delta) -> WAny {
     let w: &Writ = unsafe { &*dp };
@@ -702,24 +1141,26 @@ fn ep_inserts(ds: &Vec<Delta>, ep: i64) -> Vec<Row> {
     return v;
 }
 
-// ⚠ AND WHAT IT CANNOT BE FED. `ep_inserts` DROPS `sign < 0`, so this counts
-// what it dropped and the driver refuses on a non-zero count instead of quietly
-// answering a query about a row set the handle never saw. The gap is in the
-// EMITTED SURFACE, not here: `<q>_epoch(&mut h, rows)` has no sign channel at
-// all (rexpr_walk.logos:4570-4576) and its `__gc` bump is unconditional (:4563).
-// This is the failing half of the promise "P2 adds table rows, not plumbing" —
-// stated as a code rather than as a comment, so that the first `sign = -1` row
-// anyone writes into §1 is met by exit 210 and not by a puzzle.
-fn ep_retracts(ds: &Vec<Delta>, ep: i64) -> i64 {
+// ⚠ AND WHAT `ep_inserts` DROPS, WHICH IS NOW FED RATHER THAN REFUSED. Up to
+// `5c7b7668` this slot held `ep_retracts`, which COUNTED the `sign < 0` rows so
+// `run_spine` could return exit 210 — "the static arm has no route for this".
+// `8fbea82a` emitted the route, so the counter and the refusal are gone and
+// this is its replacement: the same rows, in the same table order, as a `Vec`
+// for `<q>_retract`. The one thing that did NOT survive the handoff is the
+// promise's scope — see the D4 block in the header for why only three of the
+// five handles can be handed this.
+fn ep_retract_rows(ds: &Vec<Delta>, ep: i64) -> Vec<Row> {
+    let mut v: Vec<Row> = vec_new::<Row>();
     let n: i64 = ds.len();
-    let mut c: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < n {
         let d: Delta = ds.get(i);
-        if d.ep == ep && d.sign < 0i64 { c = c + 1i64; }
+        if d.ep == ep && d.sign < 0i64 {
+            v.push(Row { id: d.id, g: d.g, xi: d.xi, xs: d.xs, xf: d.xf, xu: d.xu });
+        }
         i = i + 1i64;
     }
-    return c;
+    return v;
 }
 
 // Fold one epoch into all three handles. Returns 0, or the exit code that names
@@ -728,6 +1169,7 @@ fn ep_retracts(ds: &Vec<Delta>, ep: i64) -> i64 {
 // number of rows than it was handed would otherwise only show up as a wrong
 // `count()` cell, and only when `count()` happens to be in the query.
 fn pump(h1: &mut Q1IminmaxIncr, h2: &mut Q2IsumIncr, h3: &mut Q3FaggIncr,
+        h4: &mut Q4FextIncr, h5: &mut Q5IcntIncr,
         er: &Vec<Row>) -> i32 {
     let want: i64 = er.len();
     let n1: i64 = match q1_iminmax_epoch(h1, er.as_slice()) {
@@ -742,13 +1184,79 @@ fn pump(h1: &mut Q1IminmaxIncr, h2: &mut Q2IsumIncr, h3: &mut Q3FaggIncr,
         Result::Ok(n) => { n } Result::Err(_e) => { return 213i32; }
     };
     if n3 != want { return 216i32; }
+    // Phase B's two handles ride the insert epochs as well, or they would reach
+    // ep2 empty and the control would be comparing nothing to nothing.
+    let n4: i64 = match q4_fext_epoch(h4, er.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 217i32; }
+    };
+    if n4 != want { return 218i32; }
+    let n5: i64 = match q5_icnt_epoch(h5, er.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 217i32; }
+    };
+    if n5 != want { return 218i32; }
     return 0i32;
 }
-// The `sign < 0` half of the driver. UNREACHED AT P0 BY CONSTRUCTION (the table
-// has no −1 rows); it exists so that P2 adds TABLE ROWS and not plumbing.
-// Removal preserves the relative order of what remains, which is what makes the
-// static batch fold order well defined after a retraction — the very thing the
-// f64 sum cell turns on.
+
+// PHASE B's pump. `<q>_retract` is `<q>_apply(&h, 0i32, -1i64, …)`
+// (rexpr_walk.logos:5000-5005) — the SAME primitive `<q>_epoch` forwards into
+// at +1, which is why an insert half and a retract half of one epoch are two
+// calls and not two code paths.
+//
+// ⚠ INSERTS FIRST, THEN RETRACTIONS, AND THE INTERPRETER IS DRIVEN THE OTHER
+// WAY. The store hands e1/e4/e5 one `ZBatch` in §1's table order, which at ep4
+// is (−id1, +id6, −id5). This split is therefore a REAL difference between the
+// two arms, not a formality, and §1 derives — from the semilattice's improve/
+// rescan rule and `count`/`sum`'s additivity — that these rows land on the same
+// cells either way. If a later epoch empties a group in one order and not the
+// other, that derivation stops holding and this comment is the place that says
+// so before the cells do.
+//
+// ⚠ AND ON `Err`: THE HANDLE IS UNSPECIFIED, WHICH IS WHY THIS RETURNS. `_apply`
+// is not transactional — `__gc` is written before the folds, so a refusal
+// partway leaves per-aggregate state that nothing defines (`8fbea82a` records
+// the contract and names a transactional `_apply` as a later, breaking-nothing
+// slice). Reading a cell off such a handle would be reading an undefined value
+// and calling the number evidence.
+fn pump_r(h1: &mut Q1IminmaxIncr, h4: &mut Q4FextIncr, h5: &mut Q5IcntIncr,
+          er: &Vec<Row>, rr: &Vec<Row>) -> i32 {
+    let wi: i64 = er.len();
+    if wi > 0i64 {
+        let a1: i64 = match q1_iminmax_epoch(h1, er.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB epoch q1 Err"); return 13i32; }
+        };
+        if a1 != wi { println!("phaseB epoch q1 rows={} want={}", a1, wi); return 14i32; }
+        let a4: i64 = match q4_fext_epoch(h4, er.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB epoch q4 Err"); return 13i32; }
+        };
+        if a4 != wi { println!("phaseB epoch q4 rows={} want={}", a4, wi); return 14i32; }
+        let a5: i64 = match q5_icnt_epoch(h5, er.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB epoch q5 Err"); return 13i32; }
+        };
+        if a5 != wi { println!("phaseB epoch q5 rows={} want={}", a5, wi); return 14i32; }
+    }
+    let wr: i64 = rr.len();
+    if wr > 0i64 {
+        let b1: i64 = match q1_iminmax_retract(h1, rr.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB retract q1 Err"); return 13i32; }
+        };
+        if b1 != wr { println!("phaseB retract q1 rows={} want={}", b1, wr); return 14i32; }
+        let b4: i64 = match q4_fext_retract(h4, rr.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB retract q4 Err"); return 13i32; }
+        };
+        if b4 != wr { println!("phaseB retract q4 rows={} want={}", b4, wr); return 14i32; }
+        let b5: i64 = match q5_icnt_retract(h5, rr.as_slice()) {
+            Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseB retract q5 Err"); return 13i32; }
+        };
+        if b5 != wr { println!("phaseB retract q5 rows={} want={}", b5, wr); return 14i32; }
+    }
+    return 0i32;
+}
+// The `sign < 0` half of the driver. WRITTEN AT P0 AND UNREACHED UNTIL NOW; it
+// existed so that P2 would add TABLE ROWS and not plumbing, and that half of the
+// promise held — this function is called for the first time at ep3 and did not
+// have to change. Removal preserves the relative order of what remains, which is
+// what makes the static batch fold order well defined after a retraction — the
+// very thing `arm_batch_r` turns on.
 fn apply_retract(rows: &mut Vec<Row>, d: Delta) {
     let mut out: Vec<Row> = vec_new::<Row>();
     let n: i64 = rows.len();
@@ -765,7 +1273,7 @@ fn apply_retract(rows: &mut Vec<Row>, d: Delta) {
     *rows = fresh;
 }
 
-fn run_spine(c: &SchemaCatalog) -> i32 {
+fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     let ds: Vec<Delta> = deltas();
     let kf: [str; 1] = ["id"];
     let mut store: FactStore = match FactStore::new(c, "RowF", &kf[..], 262144i64) {
@@ -779,6 +1287,10 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
     let mut h1: Q1IminmaxIncr = q1_iminmax_incremental();
     let mut h2: Q2IsumIncr    = q2_isum_incremental();
     let mut h3: Q3FaggIncr    = q3_fagg_incremental();
+    // …and phase B's two, constructed HERE and pumped through phase A, so that
+    // at ep2 they hold a state built by inserts alone. See the control.
+    let mut h4: Q4FextIncr    = q4_fext_incremental();
+    let mut h5: Q5IcntIncr    = q5_icnt_incremental();
 
     // ── epoch 0: the CONSTRUCTION fill ─────────────────────────────────────
     let nd: i64 = ds.len();
@@ -791,14 +1303,15 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
         }
         i0 = i0 + 1i64;
     }
-    if ep_retracts(&ds, 0i64) > 0i64 { return 210i32; }
     let er0: Vec<Row> = ep_inserts(&ds, 0i64);
-    let pr0: i32 = pump(&mut h1, &mut h2, &mut h3, &er0);
+    let pr0: i32 = pump(&mut h1, &mut h2, &mut h3, &mut h4, &mut h5, &er0);
     if pr0 != 0i32 { return pr0; }
 
     let q1: Query = match Query::compile(Q1_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 2i32; } };
     let q2: Query = match Query::compile(Q2_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 3i32; } };
     let q3: Query = match Query::compile(Q3_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 4i32; } };
+    let q4: Query = match Query::compile(Q4_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 8i32; } };
+    let q5: Query = match Query::compile(Q5_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 8i32; } };
 
     // `eng_env` must OUTLIVE every engine: `incremental()` stores a raw pointer
     // to it (`envp`) and reads it back on every epoch.
@@ -807,12 +1320,15 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
     let mut e1: IncrJoin = match q1.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
     let mut e2: IncrJoin = match q2.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
     let mut e3: IncrJoin = match q3.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 7i32; } };
+    let mut e4: IncrJoin = match q4.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 9i32; } };
+    let mut e5: IncrJoin = match q5.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 9i32; } };
     // The base epoch already ran inside `incremental()`; drain the store's
     // changelog so epoch 1 does not replay it.
     let _base: ZBatch = store.take_delta();
 
+    // ══ PHASE A — epochs 0 .. n_ins_epochs()−1, INSERTS ONLY ═══════════════
     let mut ep: i64 = 0i64;
-    while ep < n_epochs() {
+    while ep < n_ins_epochs() {
         if ep > 0i64 {
             let mut ii: i64 = 0i64;
             while ii < nd {
@@ -828,9 +1344,10 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
             e1.epoch(&dz, &empty);
             e2.epoch(&dz, &empty);
             e3.epoch(&dz, &empty);
-            if ep_retracts(&ds, ep) > 0i64 { return 210i32; }
+            e4.epoch(&dz, &empty);
+            e5.epoch(&dz, &empty);
             let er: Vec<Row> = ep_inserts(&ds, ep);
-            let pr: i32 = pump(&mut h1, &mut h2, &mut h3, &er);
+            let pr: i32 = pump(&mut h1, &mut h2, &mut h3, &mut h4, &mut h5, &er);
             if pr != 0i32 { return pr; }
         }
 
@@ -840,30 +1357,91 @@ fn run_spine(c: &SchemaCatalog) -> i32 {
 
         let epb: i32 = 20i32 + (ep as i32) * 3i32 * CELLS_SPAN();
         // hand vs static — the assertion that OUTLIVES P5.
-        let a: i64 = cells_eq(&h, &s);
-        if a != 0i64 { return epb + (a as i32); }
+        let a: i64 = cmp_cells(t, &h, &s);
+        if a != 0i64 { println!("phaseA ep={} hand-vs-static cell={}", ep, a); return epb + (a as i32); }
         // hand vs interpreter — deleted at P5.
-        let b: i64 = cells_eq(&h, &d2);
-        if b != 0i64 { return epb + CELLS_SPAN() + (b as i32); }
+        let b: i64 = cmp_cells(t, &h, &d2);
+        if b != 0i64 { println!("phaseA ep={} hand-vs-interp cell={}", ep, b); return epb + CELLS_SPAN() + (b as i32); }
         // static vs interpreter, asserted DIRECTLY and not inferred from "both
         // matched the table": a differential that only ever runs through an
         // expectation table stops being a differential the day the table moves.
-        let cc: i64 = cells_eq(&s, &d2);
-        if cc != 0i64 { return epb + 2i32 * CELLS_SPAN() + (cc as i32); }
+        let cc: i64 = cmp_cells(t, &s, &d2);
+        if cc != 0i64 { println!("phaseA ep={} static-vs-interp cell={}", ep, cc); return epb + 2i32 * CELLS_SPAN() + (cc as i32); }
 
         ep = ep + 1i64;
     }
 
-    // ── THE BATCH WITNESS — ONCE, ON THE FINAL STATE ────────────────────────
+    // ── PHASE A's BATCH WITNESS — ONCE, ON THE STATE THE INSERTS BUILT ──────
     // "The incremental result equals the batch recompute" (incr_rec.logos:58),
     // evaluated rather than asserted in prose: `q*()` over the CUMULATIVE rows
-    // vs the state the three epochs maintained. Once, not per epoch, because a
+    // vs the state the insert epochs maintained. Once, not per epoch, because a
     // fourth 20-wide comparison does not fit in eight bits — see the enumerated
-    // space above. `rows` exists for exactly this call.
+    // space above.
+    // ⚠ THIS MOVED FROM THE END OF THE FILE TO THE END OF PHASE A, AND IT HAD
+    // TO. It reads h2 and h3, which have no retracting surface (D4) and are not
+    // pumped after this point, against `rows` — and `rows` starts SHRINKING at
+    // ep3. Left where it was, it would have compared a batch over four surviving
+    // rows against a handle holding six, and gone red for a reason that is this
+    // driver's and not the engine's.
     let bw: Vec<Cell> = arm_batch(&rows);
     let sw: Vec<Cell> = arm_static(&h1, &h2, &h3);
-    let bq: i64 = cells_eq(&bw, &sw);
-    if bq != 0i64 { return 235i32 + (bq as i32); }
+    let bq: i64 = cmp_cells(t, &bw, &sw);
+    if bq != 0i64 { println!("phaseA batch-witness cell={}", bq); return 235i32 + (bq as i32); }
+
+    // ══ PHASE B — epochs n_ins_epochs()−1 .. n_epochs()−1, WITH RETRACTIONS ═
+    // The first turn (ep2) applies NOTHING: it is the control, comparing the six
+    // retracting slots of a state built by inserts alone. h2/h3 are deliberately
+    // absent from here on — D4 leaves them no route — while e2/e3 keep taking
+    // the batch because there is one changelog; nothing reads them again.
+    let mut rp: i64 = n_ins_epochs() - 1i64;
+    while rp < n_epochs() {
+        if rp >= n_ins_epochs() {
+            let mut ji: i64 = 0i64;
+            while ji < nd {
+                let d: Delta = ds.get(ji);
+                if d.ep == rp {
+                    if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
+                    else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+                }
+                ji = ji + 1i64;
+            }
+            let dz: ZBatch = store.take_delta();
+            let empty: ZBatch = ZBatch::new();
+            e1.epoch(&dz, &empty);
+            e2.epoch(&dz, &empty);
+            e3.epoch(&dz, &empty);
+            e4.epoch(&dz, &empty);
+            e5.epoch(&dz, &empty);
+            let er: Vec<Row> = ep_inserts(&ds, rp);
+            let rr: Vec<Row> = ep_retract_rows(&ds, rp);
+            let pr: i32 = pump_r(&mut h1, &mut h4, &mut h5, &er, &rr);
+            if pr != 0i32 { return pr; }
+        }
+
+        let h: Vec<Cell> = arm_hand_r(rp);
+        let s: Vec<Cell> = arm_static_r(&h1, &h5, &h4);
+        let d2: Vec<Cell> = arm_dyn_r(&e1, &e5, &e4);
+
+        let a: i64 = cmp_cells(t, &h, &s);
+        if a != 0i64 { println!("phaseB ep={} hand-vs-static cell={}", rp, a); return 10i32; }
+        let b: i64 = cmp_cells(t, &h, &d2);
+        if b != 0i64 { println!("phaseB ep={} hand-vs-interp cell={}", rp, b); return 11i32; }
+        let cc: i64 = cmp_cells(t, &s, &d2);
+        if cc != 0i64 { println!("phaseB ep={} static-vs-interp cell={}", rp, cc); return 12i32; }
+
+        rp = rp + 1i64;
+    }
+
+    // ── PHASE B's BATCH WITNESS ────────────────────────────────────────────
+    // The law again, on the side where it is a real question: `rows` has had two
+    // rows removed and one added, and `<q>()` folds that flat list with no map,
+    // no rescan and no group-count guard. A maintained `min` that kept a stale
+    // best would agree with the hand table only if the hand table were wrong,
+    // and disagree with this.
+    let bwr: Vec<Cell> = arm_batch_r(&rows);
+    let swr: Vec<Cell> = arm_static_r(&h1, &h5, &h4);
+    let bqr: i64 = cmp_cells(t, &bwr, &swr);
+    if bqr != 0i64 { println!("phaseB batch-witness cell={}", bqr); return 15i32; }
     return 0i32;
 }
 
@@ -1067,13 +1645,172 @@ fn uavg_block(c: &SchemaCatalog) -> i32 {
     return 0i32;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// §6  RETRACTING WHAT WAS NEVER INSERTED — THE SECOND MEASURED DISAGREEMENT,
+//     AND THE ONE THE SPINE MUST NOT BE MADE TO HIDE.
+//
+// ⚠ THE SPINE DELIBERATELY DOES NOT COVER THIS, AND THAT IS WHY THE BLOCK
+// EXISTS. Phase B compares three arms cell for cell, so it can only be driven
+// with retractions all three arms accept. `8fbea82a`'s DECISION 2 made the
+// static tier STRICTER than the interpreter on exactly one input — a retraction
+// of a row that is not in the multiset — and a spine that only ever fed inputs
+// both tiers accept would be a spine that reports "the tiers agree" about a
+// domain on which they were designed to differ. Same idiom, same reason, as §5.
+//
+// THE INPUT. One group g = 9, three rows carrying xs ∈ {3, 4, 5}, then a
+// retraction of a row carrying xs = 9 — a value that was never inserted, into a
+// group that WAS. The group-count guard cannot see it: 3 − 1 = 2 is legal.
+//
+// THE HAND-DERIVED OUGHT, which is neither tier's answer and is written first:
+//   the multiset {3,4,5} does not contain 9, so removing 9 from it leaves
+//   {3,4,5}. count = 3, min = 3, max = 5. A retraction of an absent row is a
+//   CALLER ERROR, and the two defensible responses are "refuse" and "no-op".
+//
+// THE TWO ROUTES, DERIVED FROM THE CODE BEFORE EITHER WAS RUN:
+//   static — `<q>_apply` checks the group count first (3 → 2, legal, passes),
+//            then folds. `count`'s own accumulator takes `+ __w`. Then `min`'s
+//            multiplicity map: `__cur` for the key 9 is 0, `__nc = 0 + (−1)` is
+//            −1, and `__nc < 0` returns `Err(ElError::RetractAbsent)`
+//            (rexpr_walk.logos:4673-4691). REFUSES. ⚠ And by the contract the
+//            handle is then UNSPECIFIED — `count` was already bumped — so this
+//            block reads NOTHING off it afterwards.
+//   interpreter — `incr.logos:1345` does `gcount += w` with no error path at
+//            all, before any sign is examined: count goes 3 → 2. Then the map
+//            (:1424-1432): `cur` is 0, `nc` is −1 ≤ 0, so `mp.remove(&av)` — a
+//            silent no-op on a key that is not there — and `vbest == av` is
+//            false, so `removed_best` stays false and NO rescan happens. min
+//            and max are untouched. `had_error()` is set only by `rt_is_err` on
+//            the KEY and stays FALSE. ANSWERS (count 2, min 3, max 5).
+//
+// So the interpreter answers 2 where the multiset has 3 rows — silently, with
+// no latch, with the extrema still right, which is the worst shape a wrong
+// answer can take: it is wrong in one column and self-consistent in the others.
+// It is not "no error", it is `aggstate_ensure` running before `w`'s sign is
+// read — "I was never asked".
+//
+// ⚠ IF THIS BLOCK GOES RED BECAUSE THE TIERS NOW AGREE, THAT IS A FIX AND THE
+// BLOCK MUST BE REWRITTEN TO THE OUGHT — not "repaired" by re-reading a run.
+// The direction matters: the interpreter moving to `Err` closes it, the static
+// tier moving to a silent no-op ALSO closes it but drops a diagnosis, and P5
+// deletes the interpreter either way. Whichever happens, it must happen on
+// purpose.
+// ═══════════════════════════════════════════════════════════════════════════
+pub deem q_ra(rs: &[Row]) {
+    from rs s group by s.g aggregate n = count(), mn = min(s.xs), mx = max(s.xs)
+    select (key, n, mn, mx)
+}
+
+fn RA_TEXT() -> str {
+    return "from ss s group by s.g aggregate n = count(), mn = min(s.xs), mx = max(s.xs) select (key, n, mn, mx)";
+}
+
+fn ra_rows() -> Vec<Row> {
+    let mut v: Vec<Row> = vec_new::<Row>();
+    v.push(Row { id: 0i64, g: 9i64, xi: 0i64, xs: 3i64, xf: 0.0f64, xu: 0u64 });
+    v.push(Row { id: 1i64, g: 9i64, xi: 0i64, xs: 4i64, xf: 0.0f64, xu: 0u64 });
+    v.push(Row { id: 2i64, g: 9i64, xi: 0i64, xs: 5i64, xf: 0.0f64, xu: 0u64 });
+    return v;
+}
+
+fn ra_block(c: &SchemaCatalog) -> i32 {
+    let rs: Vec<Row> = ra_rows();
+    // the row that was never inserted — same group, a value not in the multiset
+    let mut ghost: Vec<Row> = vec_new::<Row>();
+    ghost.push(Row { id: 7i64, g: 9i64, xi: 0i64, xs: 9i64, xf: 0.0f64, xu: 0u64 });
+
+    // ── the static handle ──────────────────────────────────────────────────
+    let mut hs: QRaIncr = q_ra_incremental();
+    match q_ra_epoch(&mut hs, rs.as_slice()) {
+        Result::Ok(_n) => {} Result::Err(_e) => { return 210i32; }
+    }
+    let s0: Vec<(i64, i64, i64, i64)> = match q_ra_snapshot(&hs) {
+        Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; }
+    };
+    if s0.len() != 1i64 { return 210i32; }
+
+    // ── the interpreter, over the same rows ────────────────────────────────
+    let d: Writ = writ_new(8192i64);
+    let arr: &mut WArray<WAny> = d.array(4i64);
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: Row = rs.get(i);
+        let n: RowF = d.make::<RowF>();
+        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
+        arr.push(WAny::ref_to((n.m as i64) as *const u8));
+        i = i + 1i64;
+    }
+    // the ghost row lives in the same Writ but is NEVER pushed into `arr`, so
+    // the engine base-fills from three rows and meets the fourth only as a −1.
+    let gn: RowF = d.make::<RowF>();
+    let g0r: Row = ghost.get(0i64);
+    gn.id = g0r.id; gn.g = g0r.g; gn.xi = g0r.xi; gn.xs = g0r.xs;
+    gn.xf = g0r.xf; gn.xu = g0r.xu;
+    let gh: WAny = WAny::ref_to((gn.m as i64) as *const u8);
+
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
+    let q: Query = match Query::compile(RA_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; } };
+    let mut eng: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; } };
+    if eng.had_error() { return 210i32; }
+    let i0: QRows = eng.snapshot();
+    if i0.row_count() != 1i64 { return 210i32; }
+
+    // ⚠ THE CONTROL, BEFORE THE RETRACTION. The two tiers must AGREE here, or
+    // the disagreement measured below is about something else entirely. A
+    // control that changes nothing is evidence about the stand.
+    let t0: (i64, i64, i64, i64) = s0.get(0i64);
+    if t0.0 != 9i64 { return 235i32; }
+    if t0.1 != 3i64 || t0.2 != 3i64 || t0.3 != 5i64 { return 235i32; }
+    if i0.get_i64(0i64, 0i64) != 9i64 { return 235i32; }
+    if i0.get_i64(0i64, 1i64) != 3i64 { return 235i32; }
+    if i0.get_i64(0i64, 2i64) != 3i64 { return 235i32; }
+    if i0.get_i64(0i64, 3i64) != 5i64 { return 235i32; }
+
+    // ── the static tier REFUSES, by name ───────────────────────────────────
+    match q_ra_retract(&mut hs, ghost.as_slice()) {
+        Result::Ok(_n) => { println!("§6 static ACCEPTED a retraction of an absent row"); return 16i32; }
+        Result::Err(er) => {
+            match er {
+                ElError::RetractAbsent => {}
+                ElError::Underflow  => { println!("§6 static Err arm = Underflow");  return 17i32; }
+                ElError::Overflow   => { println!("§6 static Err arm = Overflow");   return 17i32; }
+                ElError::DivByZero  => { println!("§6 static Err arm = DivByZero");  return 17i32; }
+            }
+        }
+    }
+    // ⚠ `hs` IS UNSPECIFIED FROM HERE. Nothing below reads it.
+
+    // ── the interpreter DOES NOT, and answers a count the multiset denies ──
+    let mut z: ZBatch = ZBatch::new();
+    let empty: ZBatch = ZBatch::new();
+    z.push(gh, 0i64 - 1i64);
+    eng.epoch(&z, &empty);
+    if eng.had_error() { println!("§6 interpreter LATCHED an error — the divergence closed"); return 18i32; }
+    let i1: QRows = eng.snapshot();
+    if i1.row_count() != 1i64 { println!("§6 interpreter dropped the group"); return 19i32; }
+    // count: 2. THE MULTISET STILL HAS THREE ROWS. This is the disagreement.
+    if i1.get_i64(0i64, 1i64) != 2i64 { println!("§6 interpreter count={} not 2", i1.get_i64(0i64, 1i64)); return 19i32; }
+    // …and the extrema are untouched, which is what makes the wrong count quiet.
+    if i1.get_i64(0i64, 2i64) != 3i64 { println!("§6 interpreter min={} not 3", i1.get_i64(0i64, 2i64)); return 19i32; }
+    if i1.get_i64(0i64, 3i64) != 5i64 { println!("§6 interpreter max={} not 5", i1.get_i64(0i64, 3i64)); return 19i32; }
+    return 0i32;
+}
+
 fn main() -> i32 {
     let c: SchemaCatalog = cat();
-    let a: i32 = run_spine(&c);
+    let mut t: Tally = Tally { cmp: 0i64, cells: 0i64 };
+    let a: i32 = run_spine(&c, &mut t);
     if a != 0i32 { return a; }
     let b: i32 = ovf_block(&c);
     if b != 0i32 { return 200i32 + b; }
     let u: i32 = uavg_block(&c);
     if u != 0i32 { return 220i32 + u; }
+    let r: i32 = ra_block(&c);
+    if r != 0i32 { return r; }
+    // THE CENSUS, and it is an assertion: `.expected` pins this line. See the
+    // exit-code block — the state space outgrew eight bits at this slice, so the
+    // counts a successful run derived from its own calls are how a comparison
+    // that stopped running becomes visible.
+    println!("spine ok ep={} cmp={} cells={}", n_epochs(), t.cmp, t.cells);
     return 0i32;
 }
