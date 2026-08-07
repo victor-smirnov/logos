@@ -155,23 +155,38 @@
 //     chokepoint: the same assertion broken at its OWN code still exits 117.
 //     The guard narrows nothing.
 //
-// ⚠⚠ WHAT THESE GUARDS DO NOT COVER, NAMED HERE BECAUSE THE SISTER FILE COVERS
-// IT AND THIS ONE DOES NOT. `deem_incr_diff_harness` prints a CENSUS on the
-// success path (`spine ok ep=5 cmp=20 cells=300`) and its `.expected` pins that
-// line, so a comparison which silently STOPS RUNNING lowers a number and goes
-// red. This file's `.expected` is `exit: 0` with no `stdout:` key at all, and
-// `run_test.sh` compares stdout only when the key is present — so here an
-// assertion that stops running is INVISIBLE: deleting it leaves exit 0 and
-// nothing else moves. The ceiling guards are about a code meaning TWO states;
-// this is the opposite hole, a state with NO code, and it is open.
+// ── THE OPPOSITE HOLE — A STATE WITH NO CODE — CLOSED 2026-08-07 ────────────
+// The guards above are about ONE CODE STANDING FOR TWO STATES. The inverse ran
+// open until this slice: `.expected` was `exit: 0` with NO `stdout:` key, and
+// `run_test.sh:217` compares stdout only when the key is present, so an
+// assertion that STOPPED RUNNING was invisible — delete one, the file still
+// exits 0 and nothing moves. `deem_incr_diff_harness` had already solved this
+// (`spine ok ep=5 cmp=20 cells=300`, pinned) and this file had not.
+// It does now: `main` prints
+//     retract ok chk=93 rows=25
+// on the success path and `.expected` pins that line. Both numbers are DERIVED —
+// `chk` is bumped inside `bad`, the chokepoint all 89 predicates below pass
+// through, plus `arm_ok` in the four refusal blocks' accepting arm; `rows`
+// accumulates the `.len()` each snapshot actually returned. Neither is a literal
+// typed into a comment, which is the form this header records failing twice.
+// PROVEN TO BITE, predicted then reverted:
+//   · delete the A6b re-MIN assertion at `s6b.get(0i64).2 != 2^63` → the run
+//     still exits 0 and prints `chk=92`; `run_test.sh` says `FAIL: stdout
+//     mismatch` and the test is red on a run that used to be silent.
+//   · delete the WHOLE A6b block, its batch witness with it — the only place the
+//     re-MIN rescan over two surviving u64 values is ever read — → `chk=86
+//     rows=23`, seven predicates and two snapshots gone. BOTH axes move,
+//     because a deleted block stops a snapshot being TAKEN and not merely
+//     asserted, and that is why there are two axes rather than one.
+// ⚠ WHAT IT STILL DOES NOT COVER, stated at the mechanism as well as here: a
+// census sees an assertion that stops RUNNING, not one WEAKENED IN PLACE.
 // MEASURED 2026-08-07: with the emitted f64 `min` improve inverted this file
 // exits 59 and prints NOTHING, because its assertions carry no `println!` — the
-// code is the whole channel. That is sound while codes stay unique (they are,
-// 1..117 with 7 reserved), but it leaves no room: 118/119/120 are the only free
-// codes under the ceiling, so the 4th assertion added here forces the parameter
-// channel rather than merely suggesting it. Closing both is one slice and it is
-// NOT taken here — this comment is a scope call recorded at the blind spot, not
-// a plan someone has to find in a commit message.
+// code is the whole channel on the FAILURE path, and the census does not change
+// that (it prints only when `r == 0`). That is sound while codes stay unique
+// (they are, 1..121 with 7 reserved), but it leaves no room: 122/123/124 are the
+// only free codes under the ceiling, so the 4th assertion added here forces the
+// parameter channel rather than merely suggesting it.
 //
 // ⚠ 118-121 SIT OUT OF SEQUENCE ON PURPOSE, and the ceiling moved 117 → 121
 // rather than the arms sharing a code. `ElError` grew a fifth variant when the
@@ -269,6 +284,54 @@ fn TOP_CODE()     -> i32 { return 121i32; }
 fn EXIT_MAX()     -> i32 { return 124i32; }
 fn EXIT_OVERRUN() -> i32 { return 125i32; }
 
+// ── THE CENSUS: THE OPPOSITE HOLE TO THE CEILING, AND IT IS NOW A MECHANISM ──
+// The ceiling above is about ONE CODE STANDING FOR TWO STATES. This is the
+// inverse: A STATE WITH NO CODE. `.expected` used to be `exit: 0` with no
+// `stdout:` key at all, and `run_test.sh` compares stdout only when the key is
+// present — so an assertion that STOPPED RUNNING was invisible. Delete one, the
+// file still exits 0, nothing moves. Every guard in this file watches the value
+// a failing run reports; none of them watched whether the run happened.
+//
+// `Tally` is that missing half. `chk` counts ASSERTION SITES THAT EXECUTED and
+// `rows` counts ROWS THE ENGINE ACTUALLY HANDED BACK, and `main` prints both on
+// the success path where `.expected` pins them. The numbers are DERIVED — `bad`
+// is the chokepoint every one of the 89 predicates below passes through, and
+// `rows` accumulates the `.len()` of each snapshot at the site that produced it
+// — because a count written into a comment, or into `.expected` by hand, is the
+// very form this file already records as having failed twice (the header's
+// "All ≤ 122" and "EVERY ONE ≤ 117").
+//
+// ⚠ TWO AXES OF DIFFERENT KIND, ON PURPOSE. `chk` counts SYNTAX that ran; `rows`
+// counts DATA that came back. Deleting one predicate moves `chk` alone; deleting
+// a BLOCK stops a snapshot being taken at all and moves BOTH. That is the
+// difference between "an assertion was dropped" and "a call to the mechanism was
+// dropped", and one number cannot tell them apart.
+//
+// PINNED: `retract ok chk=93 rows=25`. 93 = 89 `if` predicates + 4 refusal
+// blocks (E, F, G, G2); 25 = the rows the 21 snapshots, 3 batch recomputes and 3
+// interpreter snapshots handed back — `assertions` has no loop, so each site
+// runs exactly once and the census is a fixed number. HAND-DERIVED FIRST AND
+// MEASURED SECOND, and they agreed; a disagreement would have been evidence
+// about the code, not a licence to write down whatever printed.
+//
+// ⚠ WHAT THIS DOES NOT COVER, NAMED AT THE MECHANISM RATHER THAN LEFT TO BE
+// FOUND: a census sees an assertion that stops RUNNING, not one that stops
+// ASSERTING. Rewriting `!= 5u64` into `!= a0.get(0i64).2` still calls `bad` once
+// and still reads the same rows, so `chk` and `rows` are unmoved. That failure
+// belongs to review, not to this counter.
+struct Tally { pub chk: i64, pub rows: i64 }
+
+// THE CHOKEPOINT. Every predicate in `assertions` goes through here, so the
+// printed census is derived from the checks that actually ran and not from
+// whoever remembered to bump a number. The return value is the predicate's,
+// unchanged — `bad(t, X)` and `X` decide identically.
+fn bad(t: &mut Tally, c: bool) -> bool { t.chk = t.chk + 1i64; return c; }
+
+// The same bump for the four REFUSAL blocks (E, F, G, G2), whose assertion is a
+// `match` and not an `if`: it fires in the arm that MUST be taken, so a deleted
+// refusal block lowers `chk` exactly like a deleted `if`.
+fn arm_ok(t: &mut Tally) { t.chk = t.chk + 1i64; }
+
 fn check_layout() -> i32 {
     if TOP_CODE() > EXIT_MAX() {
         println!("EXIT-CODE LAYOUT: declared top {} exceeds the ceiling {}", TOP_CODE(), EXIT_MAX());
@@ -291,15 +354,21 @@ fn check_layout() -> i32 {
 fn main() -> i32 {
     let lay: i32 = check_layout();
     if lay != 0i32 { return lay; }
-    let r: i32 = assertions();
+    let mut t: Tally = Tally { chk: 0i64, rows: 0i64 };
+    let r: i32 = assertions(&mut t);
     if r > TOP_CODE() {
         println!("EXIT-CODE OVERRUN: an assertion returned {} > TOP_CODE {}", r, TOP_CODE());
         return EXIT_OVERRUN();
     }
+    // THE CENSUS, AND IT IS AN ASSERTION: `.expected` pins this line. It is
+    // printed ONLY on the success path, so a failing run still says nothing on
+    // stdout and is already red on its code; what this adds is the failure the
+    // code channel cannot carry — an assertion that stopped running.
+    if r == 0i32 { println!("retract ok chk={} rows={}", t.chk, t.rows); }
     return r;
 }
 
-fn assertions() -> i32 {
+fn assertions(t: &mut Tally) -> i32 {
     // ══ A. u64 min/max under retraction, at the extrema ═══════════════════
     let mut hu: UqIncr = uq_incremental();
     let ua: [U; 3] = [U { k: 0i64, v: 5u64 },
@@ -307,33 +376,37 @@ fn assertions() -> i32 {
                       U { k: 0i64, v: 18446744073709551615u64 }];
     match uq_epoch(&mut hu, &ua) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
     let a0: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if a0.len() != 1i64 { return 13i32; }
-    if a0.get(0i64).1 != 3i64 { return 14i32; }
-    if a0.get(0i64).2 != 5u64 { return 15i32; }
-    if a0.get(0i64).3 != 18446744073709551615u64 { return 16i32; }
+    t.rows = t.rows + a0.len();
+    if bad(t, a0.len() != 1i64) { return 13i32; }
+    if bad(t, a0.get(0i64).1 != 3i64) { return 14i32; }
+    if bad(t, a0.get(0i64).2 != 5u64) { return 15i32; }
+    if bad(t, a0.get(0i64).3 != 18446744073709551615u64) { return 16i32; }
 
     // retract 2^64−1. THE DISCRIMINATING CELL: 2^63, not 5.
     let ur1: [U; 1] = u1(0i64, 18446744073709551615u64);
     match uq_retract(&mut hu, &ur1) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
     let a1: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if a1.len() != 1i64 { return 17i32; }
-    if a1.get(0i64).1 != 2i64 { return 18i32; }
-    if a1.get(0i64).2 != 5u64 { return 19i32; }
-    if a1.get(0i64).3 != 9223372036854775808u64 { return 20i32; }
+    t.rows = t.rows + a1.len();
+    if bad(t, a1.len() != 1i64) { return 17i32; }
+    if bad(t, a1.get(0i64).1 != 2i64) { return 18i32; }
+    if bad(t, a1.get(0i64).2 != 5u64) { return 19i32; }
+    if bad(t, a1.get(0i64).3 != 9223372036854775808u64) { return 20i32; }
 
     // retract 2^63 → one row left, {5}
     let ur2: [U; 1] = u1(0i64, 9223372036854775808u64);
     match uq_retract(&mut hu, &ur2) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
     let a2: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if a2.len() != 1i64 { return 21i32; }
-    if a2.get(0i64).2 != 5u64 { return 22i32; }
-    if a2.get(0i64).3 != 5u64 { return 23i32; }
+    t.rows = t.rows + a2.len();
+    if bad(t, a2.len() != 1i64) { return 21i32; }
+    if bad(t, a2.get(0i64).2 != 5u64) { return 22i32; }
+    if bad(t, a2.get(0i64).3 != 5u64) { return 23i32; }
 
     // retract 5 → THE GROUP IS EMPTY. The slot survives; the ROW must not.
     let ur3: [U; 1] = u1(0i64, 5u64);
     match uq_retract(&mut hu, &ur3) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
     let a3: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if a3.len() != 0i64 { return 24i32; }
+    t.rows = t.rows + a3.len();
+    if bad(t, a3.len() != 0i64) { return 24i32; }
 
     // A5. THE SEED GATE, POST-RETRACTION. The cells still hold 5 from the run
     // above — a value now present in no row. `min` over the single row {7} must
@@ -341,10 +414,11 @@ fn assertions() -> i32 {
     let ui4: [U; 1] = u1(0i64, 7u64);
     match uq_epoch(&mut hu, &ui4) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
     let a4: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if a4.len() != 1i64 { return 25i32; }
-    if a4.get(0i64).1 != 1i64 { return 26i32; }
-    if a4.get(0i64).2 != 7u64 { return 27i32; }
-    if a4.get(0i64).3 != 7u64 { return 28i32; }
+    t.rows = t.rows + a4.len();
+    if bad(t, a4.len() != 1i64) { return 25i32; }
+    if bad(t, a4.get(0i64).1 != 1i64) { return 26i32; }
+    if bad(t, a4.get(0i64).2 != 7u64) { return 27i32; }
+    if bad(t, a4.get(0i64).3 != 7u64) { return 28i32; }
 
     // ══ A6. RE-MIN OVER A SURVIVING MULTI-VALUE SET ═══════════════════════
     // ⚠ THE CELL BLOCK A ABOVE CANNOT REACH, AND IT IS THE HALF OF u64's ORDER
@@ -374,58 +448,64 @@ fn assertions() -> i32 {
     let r6a: [U; 1] = u1(0i64, 9223372036854775808u64);
     match uq_retract(&mut h6, &r6a) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
     let s6a: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&h6) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
-    if s6a.len() != 1i64 { return 29i32; }
-    if s6a.get(0i64).1 != 2i64 { return 30i32; }
-    if s6a.get(0i64).2 != 5u64 { return 31i32; }
-    if s6a.get(0i64).3 != 18446744073709551615u64 { return 32i32; }
+    t.rows = t.rows + s6a.len();
+    if bad(t, s6a.len() != 1i64) { return 29i32; }
+    if bad(t, s6a.get(0i64).1 != 2i64) { return 30i32; }
+    if bad(t, s6a.get(0i64).2 != 5u64) { return 31i32; }
+    if bad(t, s6a.get(0i64).3 != 18446744073709551615u64) { return 32i32; }
 
     let mut h7: UqIncr = uq_incremental();
     match uq_epoch(&mut h7, &u6) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
     let r6b: [U; 1] = u1(0i64, 5u64);
     match uq_retract(&mut h7, &r6b) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
     let s6b: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&h7) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
-    if s6b.len() != 1i64 { return 33i32; }
-    if s6b.get(0i64).1 != 2i64 { return 34i32; }
+    t.rows = t.rows + s6b.len();
+    if bad(t, s6b.len() != 1i64) { return 33i32; }
+    if bad(t, s6b.get(0i64).1 != 2i64) { return 34i32; }
     // THE ASSERTION. 2^63, not 2^64−1.
-    if s6b.get(0i64).2 != 9223372036854775808u64 { return 35i32; }
-    if s6b.get(0i64).3 != 18446744073709551615u64 { return 36i32; }
+    if bad(t, s6b.get(0i64).2 != 9223372036854775808u64) { return 35i32; }
+    if bad(t, s6b.get(0i64).3 != 18446744073709551615u64) { return 36i32; }
     // …and the batch fn over the two survivors says the same thing, by a fold
     // that shares no map, no seed and no rescan with the path above.
     let b6: [U; 2] = [U { k: 0i64, v: 9223372036854775808u64 },
                       U { k: 0i64, v: 18446744073709551615u64 }];
     let b6v: Vec<(i64, i64, u64, u64)> = match uq(&b6) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
-    if b6v.len() != 1i64 { return 37i32; }
-    if b6v.get(0i64).2 != s6b.get(0i64).2 { return 38i32; }
-    if b6v.get(0i64).3 != s6b.get(0i64).3 { return 39i32; }
+    t.rows = t.rows + b6v.len();
+    if bad(t, b6v.len() != 1i64) { return 37i32; }
+    if bad(t, b6v.get(0i64).2 != s6b.get(0i64).2) { return 38i32; }
+    if bad(t, b6v.get(0i64).3 != s6b.get(0i64).3) { return 39i32; }
 
     // ══ B. MULTIPLICITY — the whole reason the map holds a COUNT ═══════════
     let mut hi: IqIncr = iq_incremental();
     let ib: [I; 3] = [I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 3i64 }];
     match iq_epoch(&mut hi, &ib) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
     let b0: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
-    if b0.len() != 1i64 { return 40i32; }
-    if b0.get(0i64).1 != 3i64  { return 41i32; }
-    if b0.get(0i64).2 != 17i64 { return 42i32; }
-    if b0.get(0i64).3 != 3i64  { return 43i32; }
-    if b0.get(0i64).4 != 7i64  { return 44i32; }
+    t.rows = t.rows + b0.len();
+    if bad(t, b0.len() != 1i64) { return 40i32; }
+    if bad(t, b0.get(0i64).1 != 3i64 ) { return 41i32; }
+    if bad(t, b0.get(0i64).2 != 17i64) { return 42i32; }
+    if bad(t, b0.get(0i64).3 != 3i64 ) { return 43i32; }
+    if bad(t, b0.get(0i64).4 != 7i64 ) { return 44i32; }
 
     // retract ONE of the two 7s: `hi` must STILL be 7.
     let ibr: [I; 1] = i1(0i64, 7i64);
     match iq_retract(&mut hi, &ibr) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
     let b1: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
-    if b1.len() != 1i64 { return 45i32; }
-    if b1.get(0i64).1 != 2i64  { return 46i32; }
-    if b1.get(0i64).2 != 10i64 { return 47i32; }
-    if b1.get(0i64).3 != 3i64  { return 48i32; }
-    if b1.get(0i64).4 != 7i64  { return 49i32; }
+    t.rows = t.rows + b1.len();
+    if bad(t, b1.len() != 1i64) { return 45i32; }
+    if bad(t, b1.get(0i64).1 != 2i64 ) { return 46i32; }
+    if bad(t, b1.get(0i64).2 != 10i64) { return 47i32; }
+    if bad(t, b1.get(0i64).3 != 3i64 ) { return 48i32; }
+    if bad(t, b1.get(0i64).4 != 7i64 ) { return 49i32; }
 
     // retract the OTHER 7: now the rescan must find 3.
     match iq_retract(&mut hi, &ibr) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
     let b2: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
-    if b2.get(0i64).1 != 1i64 { return 50i32; }
-    if b2.get(0i64).2 != 3i64 { return 51i32; }
-    if b2.get(0i64).3 != 3i64 { return 52i32; }
-    if b2.get(0i64).4 != 3i64 { return 53i32; }
+    t.rows = t.rows + b2.len();
+    if bad(t, b2.get(0i64).1 != 1i64) { return 50i32; }
+    if bad(t, b2.get(0i64).2 != 3i64) { return 51i32; }
+    if bad(t, b2.get(0i64).3 != 3i64) { return 52i32; }
+    if bad(t, b2.get(0i64).4 != 3i64) { return 53i32; }
 
     // ══ C. AN EMPTIED GROUP DISAPPEARS AND ITS SIBLING DOES NOT ═══════════
     let mut hc: IqIncr = iq_incremental();
@@ -434,10 +514,11 @@ fn assertions() -> i32 {
     let icr: [I; 1] = i1(0i64, 1i64);
     match iq_retract(&mut hc, &icr) { Result::Ok(_n) => {} Result::Err(_e) => { return 4i32; } }
     let c1: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hc) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
-    if c1.len() != 1i64 { return 54i32; }
-    if c1.get(0i64).0 != 1i64 { return 55i32; }
-    if c1.get(0i64).1 != 1i64 { return 56i32; }
-    if c1.get(0i64).4 != 2i64 { return 57i32; }
+    t.rows = t.rows + c1.len();
+    if bad(t, c1.len() != 1i64) { return 54i32; }
+    if bad(t, c1.get(0i64).0 != 1i64) { return 55i32; }
+    if bad(t, c1.get(0i64).1 != 1i64) { return 56i32; }
+    if bad(t, c1.get(0i64).4 != 2i64) { return 57i32; }
 
     // ══ D. FLOATS — IDENTITY IS THE MAP KEY, ORDER IS THE COMPARATOR ══════
     let mut hf: FqIncr = fq_incremental();
@@ -447,10 +528,11 @@ fn assertions() -> i32 {
                       F { k: 0i64, v:  1.0f64 }];
     match fq_epoch(&mut hf, &fd) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
     let d0: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
-    if d0.len() != 1i64 { return 58i32; }
+    t.rows = t.rows + d0.len();
+    if bad(t, d0.len() != 1i64) { return 58i32; }
     // BITS, not `==`: −0.0 == +0.0 and NaN != NaN, so `==` cannot see either.
-    if f64_to_bits(d0.get(0i64).1) != 0x8000000000000000u64 { return 59i32; }
-    if f64_to_bits(d0.get(0i64).2) != 0x7FF8000000000000u64 { return 60i32; }
+    if bad(t, f64_to_bits(d0.get(0i64).1) != 0x8000000000000000u64) { return 59i32; }
+    if bad(t, f64_to_bits(d0.get(0i64).2) != 0x7FF8000000000000u64) { return 60i32; }
 
     // retract −0.0. THE CELL: `lo` must become +0.0, bits all-zero. A map keyed
     // on `f64_data_key` collapses the two zeros onto one key and answers −0.0.
@@ -460,15 +542,17 @@ fn assertions() -> i32 {
     let fr1: [F; 1] = f1(0i64, -0.0f64);
     match fq_retract(&mut hf, &fr1) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
     let d1: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
-    if f64_to_bits(d1.get(0i64).1) != 0x0000000000000000u64 { return 61i32; }
-    if f64_to_bits(d1.get(0i64).2) != 0x7FF8000000000000u64 { return 62i32; }
+    t.rows = t.rows + d1.len();
+    if bad(t, f64_to_bits(d1.get(0i64).1) != 0x0000000000000000u64) { return 61i32; }
+    if bad(t, f64_to_bits(d1.get(0i64).2) != 0x7FF8000000000000u64) { return 62i32; }
 
     // retract the NaN — the rescan's other end: `hi` must become 1.0.
     let fr2: [F; 1] = f1(0i64, f64_from_bits(0x7FF8000000000000u64));
     match fq_retract(&mut hf, &fr2) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
     let d2: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
-    if f64_to_bits(d2.get(0i64).2) != 0x3FF0000000000000u64 { return 63i32; }
-    if f64_to_bits(d2.get(0i64).1) != 0x0000000000000000u64 { return 64i32; }
+    t.rows = t.rows + d2.len();
+    if bad(t, f64_to_bits(d2.get(0i64).2) != 0x3FF0000000000000u64) { return 63i32; }
+    if bad(t, f64_to_bits(d2.get(0i64).1) != 0x0000000000000000u64) { return 64i32; }
 
     // ══ E. A u64 SUM DRIVEN BELOW ZERO ERRS, AND SAYS *UNDERFLOW* ═════════
     // ⚠ THE CONSTRUCTION KEEPS THE GROUP COUNT LEGAL ON PURPOSE. `<q>_apply`
@@ -485,7 +569,7 @@ fn assertions() -> i32 {
         Result::Ok(_n)  => { return 65i32; }   // a wrap to ≈2^64 would land here
         Result::Err(e1) => {
             match e1 {
-                ElError::Underflow => {}
+                ElError::Underflow => { arm_ok(t); }
                 // The count guard firing here means the construction above
                 // stopped isolating the arithmetic — the defect this block was
                 // rebuilt to avoid.
@@ -508,7 +592,7 @@ fn assertions() -> i32 {
         Result::Ok(_n)  => { return 69i32; }
         Result::Err(e2) => {
             match e2 {
-                ElError::RetractAbsent => {}
+                ElError::RetractAbsent => { arm_ok(t); }
                 ElError::Underflow  => { return 70i32; }
                 ElError::Overflow   => { return 71i32; }
                 ElError::DivByZero  => { return 72i32; }
@@ -526,7 +610,7 @@ fn assertions() -> i32 {
         Result::Ok(_n)  => { return 73i32; }
         Result::Err(e3) => {
             match e3 {
-                ElError::RetractAbsent => {}
+                ElError::RetractAbsent => { arm_ok(t); }
                 ElError::Underflow  => { return 74i32; }
                 ElError::Overflow   => { return 75i32; }
                 ElError::DivByZero  => { return 76i32; }
@@ -562,7 +646,7 @@ fn assertions() -> i32 {
         Result::Ok(_n)  => { return 77i32; }   // a silent `remove` no-op lands here
         Result::Err(e4) => {
             match e4 {
-                ElError::RetractAbsent => {}
+                ElError::RetractAbsent => { arm_ok(t); }
                 ElError::Underflow  => { return 78i32; }
                 ElError::Overflow   => { return 79i32; }
                 ElError::DivByZero  => { return 80i32; }
@@ -571,9 +655,10 @@ fn assertions() -> i32 {
         }
     }
     let vv: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hv) { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
-    if vv.len() != 1i64 { return 81i32; }
-    if vv.get(0i64).3 != 3i64 { return 82i32; }   // lo untouched by the refusal
-    if vv.get(0i64).4 != 3i64 { return 83i32; }   // hi likewise
+    t.rows = t.rows + vv.len();
+    if bad(t, vv.len() != 1i64) { return 81i32; }
+    if bad(t, vv.get(0i64).3 != 3i64) { return 82i32; }   // lo untouched by the refusal
+    if bad(t, vv.get(0i64).4 != 3i64) { return 83i32; }   // hi likewise
 
     // ══ H. GROUP ORDER AFTER A GROUP EMPTIES AND COMES BACK ═══════════════
     // ⚠ AN OPEN SURFACE QUESTION, PINNED AS MEASURED RATHER THAN DECIDED.
@@ -601,18 +686,20 @@ fn assertions() -> i32 {
     let ihb: [I; 1] = i1(0i64, 9i64);
     match iq_epoch(&mut hh, &ihb) { Result::Ok(_n) => {} Result::Err(_e) => { return 10i32; } }
     let hv: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hh) { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
-    if hv.len() != 2i64 { return 84i32; }
-    if hv.get(0i64).0 != 0i64 { return 85i32; }   // g0 keeps its ORIGINAL slot
-    if hv.get(0i64).4 != 9i64 { return 86i32; }
-    if hv.get(1i64).0 != 1i64 { return 87i32; }
+    t.rows = t.rows + hv.len();
+    if bad(t, hv.len() != 2i64) { return 84i32; }
+    if bad(t, hv.get(0i64).0 != 0i64) { return 85i32; }   // g0 keeps its ORIGINAL slot
+    if bad(t, hv.get(0i64).4 != 9i64) { return 86i32; }
+    if bad(t, hv.get(1i64).0 != 1i64) { return 87i32; }
     // …and the batch fn over the survivors in ARRIVAL order disagrees on ORDER
     // while agreeing on every row. That is the fork, stated as an assertion.
     let hb: [I; 2] = [I { k: 1i64, v: 2i64 }, I { k: 0i64, v: 9i64 }];
     let hbv: Vec<(i64, i64, i64, i64, i64)> = match iq(&hb) { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
-    if hbv.len() != 2i64 { return 88i32; }
-    if hbv.get(0i64).0 != 1i64 { return 89i32; }
-    if hbv.get(1i64).0 != 0i64 { return 90i32; }
-    if hbv.get(1i64).4 != hv.get(0i64).4 { return 91i32; }   // same ROW, other slot
+    t.rows = t.rows + hbv.len();
+    if bad(t, hbv.len() != 2i64) { return 88i32; }
+    if bad(t, hbv.get(0i64).0 != 1i64) { return 89i32; }
+    if bad(t, hbv.get(1i64).0 != 0i64) { return 90i32; }
+    if bad(t, hbv.get(1i64).4 != hv.get(0i64).4) { return 91i32; }   // same ROW, other slot
 
     // ══ (ii) THE STATIC BATCH FN OVER THE SURVIVING MULTISET ══════════════
     // A after two retractions is the multiset {5}; B after one retraction is
@@ -620,22 +707,25 @@ fn assertions() -> i32 {
     // with the retract path.
     let ba: [U; 1] = [U { k: 0i64, v: 5u64 }];
     let bav: Vec<(i64, i64, u64, u64)> = match uq(&ba) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
-    if bav.len() != 1i64 { return 92i32; }
-    if bav.get(0i64).2 != a2.get(0i64).2 { return 93i32; }
-    if bav.get(0i64).3 != a2.get(0i64).3 { return 94i32; }
+    t.rows = t.rows + bav.len();
+    if bad(t, bav.len() != 1i64) { return 92i32; }
+    if bad(t, bav.get(0i64).2 != a2.get(0i64).2) { return 93i32; }
+    if bad(t, bav.get(0i64).3 != a2.get(0i64).3) { return 94i32; }
     let bb: [I; 2] = [I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 3i64 }];
     let bbv: Vec<(i64, i64, i64, i64, i64)> = match iq(&bb) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
-    if bbv.len() != 1i64 { return 95i32; }
-    if bbv.get(0i64).1 != b1.get(0i64).1 { return 96i32; }
-    if bbv.get(0i64).2 != b1.get(0i64).2 { return 97i32; }
-    if bbv.get(0i64).3 != b1.get(0i64).3 { return 98i32; }
-    if bbv.get(0i64).4 != b1.get(0i64).4 { return 99i32; }
+    t.rows = t.rows + bbv.len();
+    if bad(t, bbv.len() != 1i64) { return 95i32; }
+    if bad(t, bbv.get(0i64).1 != b1.get(0i64).1) { return 96i32; }
+    if bad(t, bbv.get(0i64).2 != b1.get(0i64).2) { return 97i32; }
+    if bad(t, bbv.get(0i64).3 != b1.get(0i64).3) { return 98i32; }
+    if bad(t, bbv.get(0i64).4 != b1.get(0i64).4) { return 99i32; }
     // C's survivor, likewise.
     let bc: [I; 1] = [I { k: 1i64, v: 2i64 }];
     let bcv: Vec<(i64, i64, i64, i64, i64)> = match iq(&bc) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
-    if bcv.len() != c1.len() { return 100i32; }
-    if bcv.get(0i64).0 != c1.get(0i64).0 { return 101i32; }
-    if bcv.get(0i64).4 != c1.get(0i64).4 { return 102i32; }
+    t.rows = t.rows + bcv.len();
+    if bad(t, bcv.len() != c1.len()) { return 100i32; }
+    if bad(t, bcv.get(0i64).0 != c1.get(0i64).0) { return 101i32; }
+    if bad(t, bcv.get(0i64).4 != c1.get(0i64).4) { return 102i32; }
 
     // ══ (iii) THE DYNAMIC INTERPRETER, DRIVEN WITH A w = −1 BATCH ═════════
     // `incremental()` BASE-FILLS from the bound source, so the engine starts at
@@ -656,22 +746,25 @@ fn assertions() -> i32 {
         Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
     let mut eng: IncrJoin = match dq.incremental(&e) {
         Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
-    if eng.had_error() { return 103i32; }
-    if eng.snapshot().row_count() != 1i64 { return 104i32; }
+    if bad(t, eng.had_error()) { return 103i32; }
+    let ds0: QRows = eng.snapshot();
+    t.rows = t.rows + ds0.row_count();
+    if bad(t, ds0.row_count() != 1i64) { return 104i32; }
     let mut z: ZBatch = ZBatch::new();
     let empty: ZBatch = ZBatch::new();
     z.push(h_big, -1i64);
     eng.epoch(&z, &empty);
-    if eng.had_error() { return 105i32; }
+    if bad(t, eng.had_error()) { return 105i32; }
     let ds: QRows = eng.snapshot();
-    if ds.row_count() != 1i64 { return 106i32; }
+    t.rows = t.rows + ds.row_count();
+    if bad(t, ds.row_count() != 1i64) { return 106i32; }
     // count = 2, min = 5, max = 2^63 (bits −9223372036854775808)
-    if ds.get_i64(0i64, 1i64) != 2i64 { return 107i32; }
-    if ds.get_i64(0i64, 2i64) != 5i64 { return 108i32; }
-    if ds.get_i64(0i64, 3i64) != -9223372036854775808i64 { return 109i32; }
+    if bad(t, ds.get_i64(0i64, 1i64) != 2i64) { return 107i32; }
+    if bad(t, ds.get_i64(0i64, 2i64) != 5i64) { return 108i32; }
+    if bad(t, ds.get_i64(0i64, 3i64) != -9223372036854775808i64) { return 109i32; }
     // …and that is bit-for-bit what the static handle answered in block A.
-    if ds.get_i64(0i64, 3i64) != (a1.get(0i64).3 as i64) { return 110i32; }
-    if ds.get_i64(0i64, 1i64) != a1.get(0i64).1 { return 111i32; }
+    if bad(t, ds.get_i64(0i64, 3i64) != (a1.get(0i64).3 as i64)) { return 110i32; }
+    if bad(t, ds.get_i64(0i64, 1i64) != a1.get(0i64).1) { return 111i32; }
 
     // The MULTIPLICITY cell, of the interpreter: 7 twice and 3, retract one 7.
     let ar2: &mut WArray<WAny> = d.array(4i64);
@@ -689,13 +782,14 @@ fn assertions() -> i32 {
     let mut z2: ZBatch = ZBatch::new();
     z2.push(h7, -1i64);
     eng2.epoch(&z2, &empty);
-    if eng2.had_error() { return 112i32; }
+    if bad(t, eng2.had_error()) { return 112i32; }
     let ds2: QRows = eng2.snapshot();
-    if ds2.row_count() != 1i64 { return 113i32; }
-    if ds2.get_i64(0i64, 1i64) != 2i64  { return 114i32; }
-    if ds2.get_i64(0i64, 2i64) != 10i64 { return 115i32; }
-    if ds2.get_i64(0i64, 3i64) != 3i64  { return 116i32; }
-    if ds2.get_i64(0i64, 4i64) != 7i64  { return 117i32; }
+    t.rows = t.rows + ds2.row_count();
+    if bad(t, ds2.row_count() != 1i64) { return 113i32; }
+    if bad(t, ds2.get_i64(0i64, 1i64) != 2i64 ) { return 114i32; }
+    if bad(t, ds2.get_i64(0i64, 2i64) != 10i64) { return 115i32; }
+    if bad(t, ds2.get_i64(0i64, 3i64) != 3i64 ) { return 116i32; }
+    if bad(t, ds2.get_i64(0i64, 4i64) != 7i64 ) { return 117i32; }
 
     return 0i32;
 }

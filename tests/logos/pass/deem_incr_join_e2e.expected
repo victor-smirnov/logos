@@ -1,1 +1,2 @@
 exit: 0
+stdout: join ok chk=64 rows=23

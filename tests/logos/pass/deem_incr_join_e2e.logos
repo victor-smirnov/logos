@@ -124,18 +124,53 @@
 // asserting elementwise would pin a coincidence. `find_key` below makes the
 // comparison say what it means.
 //
-// ── EXIT CODES: EVERY ONE ≤ 125 ────────────────────────────────────────────
+// ── EXIT CODES: THE CEILING IS A NUMBER THE PROGRAM REFUSES TO RUN WITHOUT ──
 // `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC naming the
 // assertion that fired. 126, 127 and 128+signal belong to the shell, so no code
 // here may reach them — a fixture code up there is one number standing for two
 // states, which this corpus has already paid for once.
-//   1-9    plumbing (a call that must succeed returned `Err`), one per epoch
-//   10-13  epoch 0      14-19  epoch 1 (the double-count control)
-//   20-23  epoch 2      24-31  epoch 3
-//   32-39  epoch 4      40-45  epoch 5      46-51  epoch 6
-//   52-55  epoch 7      56-59  epoch 8
-//   60-79  witness (ii), the batch recompute
+//
+// ⚠ AND UNTIL 2026-08-07 THAT WAS ONLY A SENTENCE. This block said "EVERY ONE
+// ≤ 125" and NOTHING in the file refused a 126th: no `TOP_CODE`, no
+// `check_layout`, no chokepoint — the same form the sister fixtures record as
+// having failed twice ("All ≤ 122" while using 130-162). `TOP_CODE` is declared
+// and checked against `EXIT_MAX` on every run now, and the value `assertions()`
+// actually returns is checked against `TOP_CODE` before it leaves the process.
+// PROVEN TO BITE, three controls each predicted then reverted:
+//   · `TOP_CODE` 87 → 130 (a block declaring itself into SIGQUIT's number) →
+//     exit 125 before any assertion runs, "declared top 130 exceeds the ceiling
+//     124".
+//   · epoch 0's first assertion made to return 110 without bumping `TOP_CODE` →
+//     exit 125, "an assertion returned 110 > TOP_CODE 87".
+//   · THE CONTROL, because a chokepoint that swallows everything is not a
+//     chokepoint: the same assertion broken at its OWN code exits 10, and stdout
+//     is EMPTY. The guard narrows nothing and the census does not mask it.
+//
+// THE ALLOCATION AS IT ACTUALLY IS — RE-DERIVED FROM THE SOURCE 2026-08-07, not
+// carried forward. The table that stood here stopped at "60-79 witness (ii)"
+// while 80-87 were live and undocumented, and it read "24-31 epoch 3" while 31
+// is epoch 8's `Overflow` arm. A reader who greps is entitled to find what the
+// header says.
+//   1-8      plumbing (a call that must succeed returned `Err`), one per epoch
+//   10-13    epoch 0        14-19  epoch 1 (the double-count control)
+//   20-23    epoch 2        24-30  epoch 3
+//   32-39    epoch 4        40-44  epoch 5      45-51  epoch 6
+//   52-56    epoch 7, refusal (i): the row that matches NO partner
+//   83-87    epoch 7, refusal (ii): the row that matches ON THE JOIN KEY
+//   57-59, 31, 70-75        epoch 8, the two out-of-range tags
+//   60-69    witness (ii), the batch recompute
+//   76-82    the post-refusal state comparison
 // One code, one assertion.
+// ⚠ 9 IS RESERVED AND NEVER EMITTED, named here rather than left for a reader to
+// find: it was epoch 8's plumbing slot, and epoch 8 has no plumbing — its only
+// calls are the two `qj_apply`s that ARE the assertions, so no must-succeed call
+// is left over to fail. The slot is kept rather than closed because closing it
+// renumbers 78 codes to reclaim one, and every control revert recorded against
+// this file would land somewhere else. A reader who counts 1-9 and finds eight
+// is looking at this, not at a deleted assertion.
+// ⚠ 31, 45, 70-75 AND 83-87 SIT OUT OF SEQUENCE, likewise on purpose: each was
+// appended after its band was allocated, and appending beat shifting the codes
+// every recorded control revert was measured against.
 //
 // exit 0 = a two-relation rule body is maintained across epochs, under inserts
 //          AND retractions on EITHER side, and agrees with the batch recompute
@@ -146,6 +181,7 @@ use logos.std.wql.wql;
 use logos.std.wql.el;
 use logos.lang.result;
 use logos.mem.collections.vec;
+use logos.std.fmt;       // println! — the ceiling guard and the census
 
 struct A { pub k: i64, pub x: i64 }
 struct B { pub k: i64, pub w: i64 }
@@ -186,7 +222,85 @@ fn find_key(v: &Vec<(i64, i64, i64, i64)>, k: i64) -> (i64, i64, i64, i64) {
     return (0i64 - 1i64, 0i64, 0i64, 0i64);
 }
 
+// ── THE CEILING, AS A MECHANISM RATHER THAN A SENTENCE ──────────────────────
+// The header used to say "EVERY ONE ≤ 125" and nothing refused a 126th. That is
+// the same form the sister fixtures record as having failed twice, so it is a
+// declaration the program checks now. `TOP_CODE` is the highest code an
+// assertion below may return; `check_layout` refuses a layout that does not fit
+// before any assertion runs, and `main` checks the code that actually came back.
+fn TOP_CODE()     -> i32 { return 87i32; }
+// 88..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
+fn EXIT_MAX()     -> i32 { return 124i32; }
+fn EXIT_OVERRUN() -> i32 { return 125i32; }
+
+fn check_layout() -> i32 {
+    if TOP_CODE() > EXIT_MAX() {
+        println!("EXIT-CODE LAYOUT: declared top {} exceeds the ceiling {}", TOP_CODE(), EXIT_MAX());
+        return EXIT_OVERRUN();
+    }
+    if EXIT_MAX() >= EXIT_OVERRUN() {
+        println!("EXIT-CODE LAYOUT: ceiling {} collides with the guard {}", EXIT_MAX(), EXIT_OVERRUN());
+        return EXIT_OVERRUN();
+    }
+    // ⚠ A HARD 125, NOT `EXIT_OVERRUN()`: this branch fires exactly when
+    // `EXIT_OVERRUN` has been edited into the band it exists to stay out of, so
+    // reporting through it would report the defect using the defect.
+    if EXIT_OVERRUN() > 125i32 {
+        println!("EXIT-CODE LAYOUT: guard {} is itself in the shell/signal band", EXIT_OVERRUN());
+        return 125i32;
+    }
+    return 0i32;
+}
+
+// ── THE CENSUS: A STATE WITH NO CODE ────────────────────────────────────────
+// `.expected` was `exit: 0` with NO `stdout:` key, and `run_test.sh:217`
+// compares stdout only when the key is present — so an assertion that STOPPED
+// RUNNING was invisible here exactly as it was in
+// `deem_incr_static_retract_e2e`: delete one, the file still exits 0 and nothing
+// moves. This file needed the census for the same reason and by the same
+// evidence, and it is NOT a straight-line constant here: the four cells of the
+// post-refusal loop at the end are counted PER ITERATION, so a loop that stops
+// iterating lowers `chk` even though every `if` is still in the source.
+//
+// `chk` counts ASSERTION SITES THAT EXECUTED (via `bad`, the chokepoint all 56
+// predicates pass through, and `arm_ok` in the four `ElError` blocks' accepting
+// arm); `rows` accumulates the `.len()` each snapshot and each batch recompute
+// actually returned. Two axes of different kind on purpose: `chk` counts SYNTAX
+// that ran, `rows` counts DATA that came back, so deleting a predicate moves one
+// and deleting an EPOCH moves both.
+//
+// PINNED: `join ok chk=64 rows=23`. 64 = 52 single-line predicates + 4·2 in the
+// post-refusal loop + 4 refusal arms; 23 = the rows 13 snapshots and batch
+// recomputes handed back. HAND-DERIVED FIRST AND MEASURED SECOND, and they
+// agreed — a disagreement would have been evidence about the code, not a licence
+// to write down whatever printed.
+// PROVEN TO BITE, predicted then reverted: delete the `post.1 != pre.1` line in
+// the post-refusal loop — the count cell the pre-P3 emitter halved — and the run
+// still exits 0 but prints `chk=62`, TWO lower for ONE deleted line, because the
+// loop runs once per surviving group. `run_test.sh` says `FAIL: stdout mismatch`
+// and a fixture that used to swallow the deletion is red.
+struct Tally { pub chk: i64, pub rows: i64 }
+
+fn bad(t: &mut Tally, c: bool) -> bool { t.chk = t.chk + 1i64; return c; }
+fn arm_ok(t: &mut Tally) { t.chk = t.chk + 1i64; }
+
 fn main() -> i32 {
+    let lay: i32 = check_layout();
+    if lay != 0i32 { return lay; }
+    let mut t: Tally = Tally { chk: 0i64, rows: 0i64 };
+    let r: i32 = assertions(&mut t);
+    if r > TOP_CODE() {
+        println!("EXIT-CODE OVERRUN: an assertion returned {} > TOP_CODE {}", r, TOP_CODE());
+        return EXIT_OVERRUN();
+    }
+    // THE CENSUS, AND IT IS AN ASSERTION: `.expected` pins this line. Printed
+    // only on the success path, so a failing run still says nothing on stdout
+    // and is already red on its code.
+    if r == 0i32 { println!("join ok chk={} rows={}", t.chk, t.rows); }
+    return r;
+}
+
+fn assertions(t: &mut Tally) -> i32 {
     let mut h: QjIncr = qj_incremental();
 
     // ══ EPOCH 0 — one side at a time; the first call matches nothing ═══════
@@ -195,17 +309,18 @@ fn main() -> i32 {
     let n0a: i64 = match qj_apply(&mut h, 0i32, 1i64, a1.as_slice(), b1.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
     };
-    if n0a != 0i64 { return 10i32; }
+    if bad(t, n0a != 0i64) { return 10i32; }
     let n0b: i64 = match qj_apply(&mut h, 1i32, 1i64, a1.as_slice(), b1.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
     };
-    if n0b != 1i64 { return 11i32; }
+    if bad(t, n0b != 1i64) { return 11i32; }
     let s0: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
     };
-    if s0.len() != 1i64 { return 12i32; }
+    t.rows = t.rows + s0.len();
+    if bad(t, s0.len() != 1i64) { return 12i32; }
     let g0: (i64, i64, i64, i64) = find_key(&s0, 1i64);
-    if g0.1 != 1i64 || g0.2 != 100i64 || g0.3 != 10i64 { return 13i32; }
+    if bad(t, g0.1 != 1i64 || g0.2 != 100i64 || g0.3 != 10i64) { return 13i32; }
 
     // ══ EPOCH 1 — BOTH SIDES CHANGE. THE DOUBLE-COUNT CONTROL. ════════════
     // correct 4/402 · double-count 5/503 · lost-cross-term 3/301.
@@ -214,22 +329,23 @@ fn main() -> i32 {
     let n1a: i64 = match qj_apply(&mut h, 0i32, 1i64, a2.as_slice(), b2.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 2i32; }
     };
-    if n1a != 1i64 { return 14i32; }
+    if bad(t, n1a != 1i64) { return 14i32; }
     let n1b: i64 = match qj_apply(&mut h, 1i32, 1i64, a2.as_slice(), b2.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 2i32; }
     };
     // ⚠ TWO, AND THIS SINGLE NUMBER IS WHERE THE ORDER SHOWS. `b2` pairs with
     // BOTH stored A rows because `a2` was integrated by the previous call. An
     // emitter that read A pre-delta answers 1 here.
-    if n1b != 2i64 { return 15i32; }
+    if bad(t, n1b != 2i64) { return 15i32; }
     let s1: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; }
     };
-    if s1.len() != 1i64 { return 16i32; }
+    t.rows = t.rows + s1.len();
+    if bad(t, s1.len() != 1i64) { return 16i32; }
     let g1: (i64, i64, i64, i64) = find_key(&s1, 1i64);
-    if g1.1 != 4i64   { return 17i32; }   // ← THE double-count assertion
-    if g1.2 != 402i64 { return 18i32; }   // ← and its independent witness
-    if g1.3 != 10i64  { return 19i32; }
+    if bad(t, g1.1 != 4i64  ) { return 17i32; }   // ← THE double-count assertion
+    if bad(t, g1.2 != 402i64) { return 18i32; }   // ← and its independent witness
+    if bad(t, g1.3 != 10i64 ) { return 19i32; }
 
     // ══ EPOCH 2 — an unmatched delta row creates NO group ══════════════════
     let a9: Vec<A> = a_row(9i64, 1i64);
@@ -237,55 +353,58 @@ fn main() -> i32 {
     let n2: i64 = match qj_apply(&mut h, 0i32, 1i64, a9.as_slice(), b9.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 3i32; }
     };
-    if n2 != 0i64 { return 20i32; }
+    if bad(t, n2 != 0i64) { return 20i32; }
     let s2: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; }
     };
-    if s2.len() != 1i64 { return 21i32; }
-    if find_key(&s2, 9i64).0 != (0i64 - 1i64) { return 22i32; }
+    t.rows = t.rows + s2.len();
+    if bad(t, s2.len() != 1i64) { return 21i32; }
+    if bad(t, find_key(&s2, 9i64).0 != (0i64 - 1i64)) { return 22i32; }
     let g2: (i64, i64, i64, i64) = find_key(&s2, 1i64);
-    if g2.1 != 4i64 { return 23i32; }
+    if bad(t, g2.1 != 4i64) { return 23i32; }
 
     // ══ EPOCH 3 — the partner arrives; the second group appears ════════════
     let n3: i64 = match qj_apply(&mut h, 1i32, 1i64, a9.as_slice(), b9.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 4i32; }
     };
-    if n3 != 1i64 { return 24i32; }
+    if bad(t, n3 != 1i64) { return 24i32; }
     let s3: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; }
     };
-    if s3.len() != 2i64 { return 25i32; }
+    t.rows = t.rows + s3.len();
+    if bad(t, s3.len() != 2i64) { return 25i32; }
     let g3a: (i64, i64, i64, i64) = find_key(&s3, 1i64);
-    if g3a.1 != 4i64 || g3a.2 != 402i64 || g3a.3 != 10i64 { return 26i32; }
+    if bad(t, g3a.1 != 4i64 || g3a.2 != 402i64 || g3a.3 != 10i64) { return 26i32; }
     let g3b: (i64, i64, i64, i64) = find_key(&s3, 9i64);
-    if g3b.0 != 9i64 { return 27i32; }
-    if g3b.1 != 1i64 { return 28i32; }
-    if g3b.2 != 7i64 { return 29i32; }
-    if g3b.3 != 1i64 { return 30i32; }
+    if bad(t, g3b.0 != 9i64) { return 27i32; }
+    if bad(t, g3b.1 != 1i64) { return 28i32; }
+    if bad(t, g3b.2 != 7i64) { return 29i32; }
+    if bad(t, g3b.3 != 1i64) { return 30i32; }
 
     // ══ EPOCH 4 — RETRACTION ON BOTH SIDES IN ONE EPOCH ═══════════════════
     let n4a: i64 = match qj_apply(&mut h, 0i32, 0i64 - 1i64, a2.as_slice(), b2.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 5i32; }
     };
-    if n4a != 2i64 { return 32i32; }
+    if bad(t, n4a != 2i64) { return 32i32; }
     let n4b: i64 = match qj_apply(&mut h, 1i32, 0i64 - 1i64, a2.as_slice(), b2.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 5i32; }
     };
     // ⚠ ONE, NOT TWO. `a2` sits at multiplicity 0 after the previous call, so it
     // must not pair. An emitter joining against a stale side answers 2 and
     // empties the group.
-    if n4b != 1i64 { return 33i32; }
+    if bad(t, n4b != 1i64) { return 33i32; }
     let s4: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; }
     };
-    if s4.len() != 2i64 { return 34i32; }
+    t.rows = t.rows + s4.len();
+    if bad(t, s4.len() != 2i64) { return 34i32; }
     let g4: (i64, i64, i64, i64) = find_key(&s4, 1i64);
-    if g4.1 != 1i64   { return 35i32; }
-    if g4.2 != 100i64 { return 36i32; }
-    if g4.3 != 10i64  { return 37i32; }
+    if bad(t, g4.1 != 1i64  ) { return 35i32; }
+    if bad(t, g4.2 != 100i64) { return 36i32; }
+    if bad(t, g4.3 != 10i64 ) { return 37i32; }
     let g4b: (i64, i64, i64, i64) = find_key(&s4, 9i64);
-    if g4b.1 != 1i64 { return 38i32; }
-    if g4b.2 != 7i64 { return 39i32; }
+    if bad(t, g4b.1 != 1i64) { return 38i32; }
+    if bad(t, g4b.2 != 7i64) { return 39i32; }
 
     // ── WITNESS (ii) HERE: the batch fn over the SURVIVING multiset ────────
     // live A = {a1, a9}, live B = {b1, b9}.
@@ -298,30 +417,32 @@ fn main() -> i32 {
     let q1: Vec<(i64, i64, i64, i64)> = match qj(av1.as_slice(), bv1.as_slice()) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
     };
-    if q1.len() != s4.len() { return 60i32; }
+    t.rows = t.rows + q1.len();
+    if bad(t, q1.len() != s4.len()) { return 60i32; }
     let w1a: (i64, i64, i64, i64) = find_key(&q1, 1i64);
-    if w1a.1 != g4.1 || w1a.2 != g4.2 || w1a.3 != g4.3 { return 61i32; }
+    if bad(t, w1a.1 != g4.1 || w1a.2 != g4.2 || w1a.3 != g4.3) { return 61i32; }
     let w1b: (i64, i64, i64, i64) = find_key(&q1, 9i64);
-    if w1b.1 != g4b.1 || w1b.2 != g4b.2 || w1b.3 != g4b.3 { return 62i32; }
+    if bad(t, w1b.1 != g4b.1 || w1b.2 != g4b.2 || w1b.3 != g4b.3) { return 62i32; }
 
     // ══ EPOCH 5 — the map RE-DERIVES `lo` when the cached best is retracted ═
     let n5a: i64 = match qj_apply(&mut h, 0i32, 1i64, a2.as_slice(), b2.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 7i32; }
     };
-    if n5a != 1i64 { return 40i32; }
+    if bad(t, n5a != 1i64) { return 40i32; }
     let n5b: i64 = match qj_apply(&mut h, 0i32, 0i64 - 1i64, a1.as_slice(), b1.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 7i32; }
     };
-    if n5b != 1i64 { return 41i32; }
+    if bad(t, n5b != 1i64) { return 41i32; }
     let s5: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; }
     };
+    t.rows = t.rows + s5.len();
     let g5: (i64, i64, i64, i64) = find_key(&s5, 1i64);
-    if g5.1 != 1i64   { return 42i32; }
-    if g5.2 != 100i64 { return 43i32; }
+    if bad(t, g5.1 != 1i64  ) { return 42i32; }
+    if bad(t, g5.2 != 100i64) { return 43i32; }
     // ⚠ 11, RE-DERIVED. The cached best 10 came from `a1`, which is gone; a
     // scalar `min` cell with no multiplicity map answers 10 here.
-    if g5.3 != 11i64  { return 44i32; }
+    if bad(t, g5.3 != 11i64 ) { return 44i32; }
 
     // witness (ii): live A = {a2, a9}, live B = {b1, b9}
     let av2: Vec<A> = { let mut o: Vec<A> = vec_new::<A>();
@@ -330,37 +451,40 @@ fn main() -> i32 {
     let q2: Vec<(i64, i64, i64, i64)> = match qj(av2.as_slice(), bv1.as_slice()) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
     };
+    t.rows = t.rows + q2.len();
     let w2a: (i64, i64, i64, i64) = find_key(&q2, 1i64);
-    if w2a.1 != g5.1 || w2a.2 != g5.2 || w2a.3 != g5.3 { return 63i32; }
+    if bad(t, w2a.1 != g5.1 || w2a.2 != g5.2 || w2a.3 != g5.3) { return 63i32; }
     let w2b: (i64, i64, i64, i64) = find_key(&q2, 9i64);
     let g5b: (i64, i64, i64, i64) = find_key(&s5, 9i64);
-    if w2b.1 != g5b.1 || w2b.2 != g5b.2 || w2b.3 != g5b.3 { return 64i32; }
+    if bad(t, w2b.1 != g5b.1 || w2b.2 != g5b.2 || w2b.3 != g5b.3) { return 64i32; }
 
     // ══ EPOCH 6 — |w| > 1: the pair weight is a PRODUCT ════════════════════
     let n6a: i64 = match qj_apply(&mut h, 1i32, 2i64, a1.as_slice(), b1.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
     };
-    if n6a != 1i64 { return 46i32; }
+    if bad(t, n6a != 1i64) { return 46i32; }
     let s6: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
     };
+    t.rows = t.rows + s6.len();
     let g6: (i64, i64, i64, i64) = find_key(&s6, 1i64);
     // ONE fold, at weight 1·2 = 2. An emitter folding at the delta's own weight
     // answers c = 2 and t = 200.
-    if g6.1 != 3i64   { return 47i32; }
-    if g6.2 != 300i64 { return 48i32; }
+    if bad(t, g6.1 != 3i64  ) { return 47i32; }
+    if bad(t, g6.2 != 300i64) { return 48i32; }
     let n6b: i64 = match qj_apply(&mut h, 0i32, 1i64, a1.as_slice(), b1.as_slice()) {
         Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
     };
-    if n6b != 1i64 { return 49i32; }
+    if bad(t, n6b != 1i64) { return 49i32; }
     let s6b: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
     };
+    t.rows = t.rows + s6b.len();
     let g6b: (i64, i64, i64, i64) = find_key(&s6b, 1i64);
     // b1 now has multiplicity 3, so a1 ⋈ b1 carries weight 3.
-    if g6b.1 != 6i64   { return 50i32; }
-    if g6b.2 != 600i64 { return 51i32; }
-    if g6b.3 != 10i64  { return 45i32; }
+    if bad(t, g6b.1 != 6i64  ) { return 50i32; }
+    if bad(t, g6b.2 != 600i64) { return 51i32; }
+    if bad(t, g6b.3 != 10i64 ) { return 45i32; }
 
     // witness (ii): live A = {a1×1, a2×1, a9×1}, live B = {b1×3, b9×1} — a
     // multiplicity of 3 IS three copies of the row, so the batch array lists it
@@ -378,14 +502,15 @@ fn main() -> i32 {
     let q3: Vec<(i64, i64, i64, i64)> = match qj(av3.as_slice(), bv3.as_slice()) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
     };
-    if q3.len() != s6b.len() { return 65i32; }
+    t.rows = t.rows + q3.len();
+    if bad(t, q3.len() != s6b.len()) { return 65i32; }
     let w3a: (i64, i64, i64, i64) = find_key(&q3, 1i64);
-    if w3a.1 != g6b.1 { return 66i32; }
-    if w3a.2 != g6b.2 { return 67i32; }
-    if w3a.3 != g6b.3 { return 68i32; }
+    if bad(t, w3a.1 != g6b.1) { return 66i32; }
+    if bad(t, w3a.2 != g6b.2) { return 67i32; }
+    if bad(t, w3a.3 != g6b.3) { return 68i32; }
     let w3b: (i64, i64, i64, i64) = find_key(&q3, 9i64);
     let g6c: (i64, i64, i64, i64) = find_key(&s6b, 9i64);
-    if w3b.1 != g6c.1 || w3b.2 != g6c.2 || w3b.3 != g6c.3 { return 69i32; }
+    if bad(t, w3b.1 != g6c.1 || w3b.2 != g6c.2 || w3b.3 != g6c.3) { return 69i32; }
 
     // ══ EPOCH 7 — retracting a row the relation never held ════════════════
     // ⚠ THE ARM IS NAMED. `Result::Err(_e) => {}` would pass on any arm, and the
@@ -408,12 +533,13 @@ fn main() -> i32 {
     let snap_pre: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; }
     };
+    t.rows = t.rows + snap_pre.len();
     let a5: Vec<A> = a_row(5i64, 5i64);
     match qj_apply(&mut h, 0i32, 0i64 - 1i64, a5.as_slice(), b1.as_slice()) {
         Result::Ok(_n) => { return 52i32; }
         Result::Err(e7) => {
             match e7 {
-                ElError::RetractAbsent => { }
+                ElError::RetractAbsent => { arm_ok(t); }
                 ElError::Underflow  => { return 53i32; }
                 ElError::Overflow   => { return 54i32; }
                 ElError::DivByZero  => { return 55i32; }
@@ -436,7 +562,7 @@ fn main() -> i32 {
         Result::Ok(_n) => { return 83i32; }
         Result::Err(e7b) => {
             match e7b {
-                ElError::RetractAbsent => { }
+                ElError::RetractAbsent => { arm_ok(t); }
                 ElError::Underflow  => { return 84i32; }
                 ElError::Overflow   => { return 85i32; }
                 ElError::DivByZero  => { return 86i32; }
@@ -453,7 +579,7 @@ fn main() -> i32 {
         Result::Ok(_n) => { return 57i32; }
         Result::Err(e8) => {
             match e8 {
-                ElError::SrcUnknown => { }
+                ElError::SrcUnknown => { arm_ok(t); }
                 ElError::RetractAbsent => { return 58i32; }
                 ElError::Underflow  => { return 59i32; }
                 ElError::Overflow   => { return 31i32; }
@@ -466,7 +592,7 @@ fn main() -> i32 {
         Result::Ok(_n) => { return 71i32; }
         Result::Err(e9) => {
             match e9 {
-                ElError::SrcUnknown => { }
+                ElError::SrcUnknown => { arm_ok(t); }
                 ElError::RetractAbsent => { return 72i32; }
                 ElError::Underflow  => { return 73i32; }
                 ElError::Overflow   => { return 74i32; }
@@ -483,15 +609,16 @@ fn main() -> i32 {
     let snap_post: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 77i32; }
     };
-    if snap_post.len() != snap_pre.len() { return 78i32; }
+    t.rows = t.rows + snap_post.len();
+    if bad(t, snap_post.len() != snap_pre.len()) { return 78i32; }
     let mut __z: i64 = 0i64;
     while __z < snap_pre.len() {
         let pre: (i64, i64, i64, i64) = snap_pre.get(__z);
         let post: (i64, i64, i64, i64) = snap_post.get(__z);
-        if post.0 != pre.0 { return 79i32; }
-        if post.1 != pre.1 { return 80i32; }   // count — halved by the old order
-        if post.2 != pre.2 { return 81i32; }   // sum   — the 999 subtracted twice
-        if post.3 != pre.3 { return 82i32; }   // min   — the map rescanned
+        if bad(t, post.0 != pre.0) { return 79i32; }
+        if bad(t, post.1 != pre.1) { return 80i32; }   // count — halved by the old order
+        if bad(t, post.2 != pre.2) { return 81i32; }   // sum   — the 999 subtracted twice
+        if bad(t, post.3 != pre.3) { return 82i32; }   // min   — the map rescanned
         __z = __z + 1i64;
     }
 
