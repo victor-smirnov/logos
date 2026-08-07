@@ -744,10 +744,21 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     # The tier canary (cmake/LogosTestTiers.cmake) demands exactly one tier
     # label per test, and the sampler-reachable corpus is the one population
     # that legitimately has none: it is selected by the per-level chunk regexes
-    # over enumerated `.logos` files, never by a tier. The exemption is stamped
-    # HERE, at the single funnel every such test passes through, so it is
-    # derived from the registration path — not from a name prefix, which is the
-    # listed population the tier labels exist to retire.
+    # over enumerated `.logos` files, never by a tier. The exemption is derived
+    # from the REGISTRATION PATH — not from a name prefix, which is the listed
+    # population the tier labels exist to retire.
+    #
+    # ⚠ THIS SAID "stamped HERE, at the single funnel every such test passes
+    # through". MEASURED FALSE: `logos;corpus` is stamped at THREE sites — this
+    # one and the two `suite_spec` loops below (the pass loop and the fail
+    # loop), which together carry 608 of the 6815 corpus tests. The mechanism
+    # survives the correction, because all three are loops over ENUMERATED
+    # FILES rather than name prefixes, so the exemption is still derived. What
+    # is false is "single", and a reader who trusts it will add a fourth site
+    # believing the canary funnels everything past this line.
+    # ⚠ Nothing constrains who may write `corpus`: any future test carrying
+    # that label escapes the tier canary. That is the escape hatch's real
+    # perimeter, and it is unguarded.
     set(_labels "logos;corpus;${MODE};suite_${SUITE}")
     if (LOGOS_FILE MATCHES "/tests/imported/")
         set(_labels "${_labels};imported")

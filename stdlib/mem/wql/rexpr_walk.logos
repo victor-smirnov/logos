@@ -4460,6 +4460,26 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // `Entry<u64,i64>` table at the default capacity of 16), all for a
         // capability the caller never uses.
         //
+        // ⚠⚠ THAT 544 BYTES IS THE FLOOR AT CONSTRUCTION, NOT THE FOOTPRINT,
+        // AND READING IT AS THE FOOTPRINT UNDERSTATES MEMORY BY ~4 ORDERS OF
+        // MAGNITUDE. The map is keyed by DISTINCT VALUE, so it grows with the
+        // column's cardinality and not with the group count: an independent
+        // paired measurement on a high-cardinality column (~50 000 distinct
+        // values per group, FOUR groups) read 23.2 MB maxRSS against 4.6 MB
+        // with `want_map` off — +18.5 MB where this paragraph's arithmetic
+        // predicts about 2 KB. The per-group number above is what the two
+        // `hashmap_new`s cost BEFORE a single row is folded.
+        //
+        // ⚠ THE FOLD FACTOR DOES NOT REPLICATE EITHER, and both numbers stand
+        // because neither run has been bisected. Same box, only `want_map`
+        // flipped: this paragraph's 5.4× against 2.9× high-cardinality and
+        // 2.1× low-cardinality measured separately, ~2.3–3.1× once the common
+        // 200k-row build is subtracted. The DIRECTION agrees, the MAGNITUDE
+        // does not. The second run's query carries `count()` beside min+max,
+        // which is one candidate denominator and is not the measured one.
+        // ⚠ NO GATE PINS ANY OF THESE NUMBERS — they are prose, and the first
+        // reader to need one must re-measure rather than cite.
+        //
         // ⚠ AND THE SAME MEASUREMENT AT 500 GROUPS SHOWS +2.3%, NOT 5.4× — the
         // linear key scan swamps it there. So the cost is invisible on wide-group
         // queries and glaring on narrow ones, which is exactly the shape a single

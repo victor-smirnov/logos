@@ -796,5 +796,60 @@ fn main() -> i32 {
         Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
     };
     if v1.len() != 0i64 { return 122i32; }
+
+    // ── J. |w| > 1 THROUGH THE SEMILATTICE MAP — a PARTIAL retraction ───────
+    // The blocks above drive |w| > 1 through `count` and `sum` only, whose
+    // state is a SCALAR. min/max keep a value→multiplicity MAP, and until this
+    // block NOTHING asked whether that map reads the weight or assumes ±1:
+    // hard-coding the map's `__cur + __w` back to ±1 left the whole 322-test
+    // arc subset GREEN. That is the shape this tree keeps closing — a claim in
+    // a comment that no gate pins — so the discriminating cell lives here.
+    //
+    // The cell is a retraction the entry must SURVIVE. A weight that is read
+    // and a weight that is assumed differ only where |w| and 1 disagree about
+    // reaching ZERO, so ±1 in EITHER direction alone is not enough to tell
+    // them apart: +2 then −2 empties the entry under both readings.
+    //
+    //   value 7 @ +2, value 4 @ +1, then value 7 @ −1
+    //     weight read:    {7:1, 4:1}  →  lo = 4, hi = 7
+    //     ±1 assumed:     {4:1}       →  lo = 4, hi = 4   (7 evicted a step early)
+    //
+    // then the mirror, so a break in ONE arm cannot hide behind the other —
+    // `lo` and `hi` are separate aggregate slots with separate maps:
+    //
+    //   value 4 @ −1
+    //     weight read:    {7:1}       →  lo = 7, hi = 7
+    //     ±1 assumed:     {}          →  the group empties and the row vanishes
+    let mut hm2: QmIncr = qm_incremental();
+    let j7: Vec<S> = one_row(0i64, 7i64);
+    let j4: Vec<S> = one_row(0i64, 4i64);
+    match qm_apply(&mut hm2, 0i32, 2i64, j7.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
+    }
+    match qm_apply(&mut hm2, 0i32, 1i64, j4.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
+    }
+    match qm_apply(&mut hm2, 0i32, 0i64 - 1i64, j7.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
+    }
+    let j0: Vec<(i64, i64, i64, i64)> = match qm_snapshot(&hm2) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
+    };
+    if j0.len() != 1i64 { return 124i32; }
+    // count is a SCALAR arm and is right under either reading — asserted so a
+    // failure below is unambiguously the MAP's and not the group counter's.
+    if j0.get(0i64).1 != 2i64 { return 125i32; }
+    if j0.get(0i64).2 != 4i64 { return 126i32; }
+    if j0.get(0i64).3 != 7i64 { return 127i32; }   // ← the max arm's discriminator
+    match qm_apply(&mut hm2, 0i32, 0i64 - 1i64, j4.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
+    }
+    let j1: Vec<(i64, i64, i64, i64)> = match qm_snapshot(&hm2) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
+    };
+    if j1.len() != 1i64 { return 128i32; }
+    if j1.get(0i64).1 != 1i64 { return 129i32; }
+    if j1.get(0i64).2 != 7i64 { return 130i32; }   // ← the min arm's discriminator
+    if j1.get(0i64).3 != 7i64 { return 131i32; }
     return 0i32;
 }
