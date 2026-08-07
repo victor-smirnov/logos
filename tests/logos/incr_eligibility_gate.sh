@@ -77,17 +77,32 @@ EXPECT=(
   "no_limit|declined|\`order by\`"
   "no_strkey|declined|GROUP KEY is \`str\`"
   "no_rowsel|declined|\`select\` reaches a name"
-  # ⚠⚠ THESE TWO ARE NOT LIKE THE OTHERS. Every row above withholds a FEATURE;
-  # these withhold a handle that EXISTED AND ANSWERED WRONG. Measured on
+  # ⚠⚠ THIS GROUP IS NOT LIKE THE OTHERS. Every row above withholds a FEATURE;
+  # the rel clause withheld a handle that EXISTED AND ANSWERED WRONG. Measured on
   # aaf16585 against each query's own batch fn: the recursive rel's handle said
   # group 1 had count 1 where the batch said 2 (it never derived the transitive
   # edge, because each epoch re-ran the fixpoint over the DELTA ALONE), and the
   # one-shot rel's handle said 2 where the batch said 1 (a rel is a SET and
   # dedups, and dedup is a property of the ACCUMULATED input). Both returned
-  # `Ok` and both traced EMITTED. So this gate is the thing standing between the
-  # corpus and a silent wrong answer, not a record of a deferral.
-  "no_rel_rec|declined|DECLARED \`rel\`"
-  "no_rel_oneshot|declined|DECLARED \`rel\`"
+  # `Ok` and both traced EMITTED.
+  #
+  # P3b answers the FIRST: `ok_rel_rec` is EMITTED again, and the ground says why
+  # it is now sound — the handle owns the accumulated input and the fixpoint
+  # TOTAL, and each epoch EXTENDS that total. ⚠ THE PHRASE ASSERTED IS
+  # "RECURSIVE \`rel\`", not "one bare scan": if this query ever fell back onto
+  # the plain bare-scan ground it would mean the rel arm stopped being taken
+  # while the verdict stayed EMITTED, which is exactly the aaf16585 defect
+  # wearing the right answer's clothes.
+  #
+  # The SECOND is still refused and `no_rel_oneshot` still pins it — and its
+  # ground is now the SPECIFIC antecedent (NON-RECURSIVE) rather than "a source
+  # is a rel", so a future slice that admits it cannot leave this row matching by
+  # accident. `no_rel_join` pins the JOIN-POSITION clause, which until now was
+  # pinned by nothing at all: both rel queries sat in BASE position, so that loop
+  # could be deleted with every gate green.
+  "ok_rel_rec|EMITTED|RECURSIVE \`rel\`"
+  "no_rel_oneshot|declined|NON-RECURSIVE declared \`rel\`"
+  "no_rel_join|declined|JOIN-POSITION source is a DECLARED \`rel\`"
 )
 
 # ── THE SECOND AXIS: may the handle be run BACKWARDS? ───────────────────────
@@ -111,10 +126,20 @@ EXPECT=(
 # `<q>_apply`, which only the retracting surface emits. The order of the two
 # questions is what makes that a single verdict rather than two, and the derived
 # count below is what would catch it becoming two.
+#
+# ⚠ `ok_rel_rec` IS ON THE FIRST LIST AND OFF THIS ONE, WITH A GROUND THAT IS A
+# FACT RATHER THAN AN OPEN DECISION. A derived fact may support ITSELF through a
+# cycle, so "subtract what it added" names no amount; the mechanism that works is
+# DRed and it is a provenance state machine, not an inverse fold. The refusal is
+# also STRUCTURAL — it selects the insert-only surface, so `<q>_retract` is not
+# emitted and `fail/wql_incr_rel_no_retract.logos` requires the compile to fail on
+# the missing name. Two gates, two directions: this one catches the ground being
+# reworded, that one catches the fn being emitted anyway.
 REXPECT=(
   "ok_basic|EMITTED|invert exactly"
   "ok_join|EMITTED|invert exactly"
   "no_retract_avg|declined|(S+x)-x != S"
+  "ok_rel_rec|declined|support ITSELF through a cycle"
 )
 
 # Check one expected row against a trace file. Echoes one violation line per
@@ -186,14 +211,17 @@ fi
 # 2. a FLIPPED verdict (no_where reads EMITTED);
 # 3. a GENERIC ground (no_strkey's antecedent replaced by "not supported yet");
 # 4. a RENAMED query (no_rowsel spelled no_rowsel2);
-# 5. THE REL REFUSAL FLIPPED (no_rel_rec reads EMITTED) — and this one is not a
-#    fifth flavour of the same mode, it is THE EXACT REGRESSION that removing the
-#    rel clause from `incr_eligible` produces. The other four model ways a gate
-#    can go blind; this one models the specific defect the gate was added to
-#    catch, so a matcher that silently stopped seeing this row would be caught
-#    here rather than by the corpus answering wrong. `no_rel_oneshot` is left
-#    CLEAN in the same trace so the canary stays a controlled experiment: one
-#    row broken, its pair intact.
+# 5. THE REL ARM SILENTLY NOT TAKEN (ok_rel_rec reads EMITTED with the PLAIN
+#    bare-scan ground) — and this one is not a fifth flavour of the same mode, it
+#    is THE EXACT REGRESSION the rel clause exists to catch, in the shape it now
+#    takes. Before P3b the defect wore the verdict `EMITTED` where `declined` was
+#    right; now the verdict is right and the GROUND is what separates "the handle
+#    owns the accumulated input and the fixpoint total" from "one bare scan over
+#    whatever the prelude left in scope", which is the aaf16585 behaviour that
+#    returned `Ok` and answered wrong. A matcher that stopped reading grounds
+#    would be caught here rather than by the corpus answering wrong.
+#    `no_rel_oneshot` and `no_rel_join` are left CLEAN in the same trace so the
+#    canary stays a controlled experiment: one row broken, its neighbours intact.
 CAN="$TMPD/canary.txt"
 {
   echo "[plan] incremental -> EMITTED on ok_basic   (one bare scan, group by, insert-only aggregates over self-contained types)"
@@ -207,8 +235,9 @@ CAN="$TMPD/canary.txt"
   echo "[plan] incremental -> declined on no_limit   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
   echo "[plan] incremental -> declined on no_strkey   (not supported yet)"
   echo "[plan] incremental -> declined on no_rowsel2   (\`select\` reaches a name that is neither \`key\` nor an aggregate output)"
-  echo "[plan] incremental -> EMITTED on no_rel_rec   (one bare scan, group by, insert-only aggregates over self-contained types)"
-  echo "[plan] incremental -> declined on no_rel_oneshot   (a source is a DECLARED \`rel\` — \`<q>_apply\` splices the rel prelude verbatim)"
+  echo "[plan] incremental -> EMITTED on ok_rel_rec   (one bare scan, group by, insert-only aggregates over self-contained types)"
+  echo "[plan] incremental -> declined on no_rel_oneshot   (the source is a NON-RECURSIVE declared \`rel\` — it materializes through the one-shot helper)"
+  echo "[plan] incremental -> declined on no_rel_join   (a JOIN-POSITION source is a DECLARED \`rel\` — the handle's joined side is stored as a weighted Z-set)"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"
@@ -222,6 +251,7 @@ RCAN="$TMPD/rcanary.txt"
   echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> EMITTED on ok_join   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> EMITTED on no_retract_avg   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+  echo "[plan] retraction -> EMITTED on ok_rel_rec   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
 } > "$RCAN"
 RCANV=$(check_rows "$RCAN" "${REXPECT[@]}")
 printf '%s' "$RCANV" >> "$TMPD/canary.violations"
@@ -230,6 +260,7 @@ RCAN2="$TMPD/rcanary2.txt"
   echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> EMITTED on ok_join   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> declined on no_retract_avg   (not supported yet)"
+  echo "[plan] retraction -> declined on ok_rel_rec   (not supported yet)"
 } > "$RCAN2"
 RCANV2=$(check_rows "$RCAN2" "${REXPECT[@]}")
 printf '%s' "$RCANV2" >> "$TMPD/canary.violations"
@@ -244,7 +275,7 @@ if [ -z "$(printf '%s' "$RCANV" | tr -d '[:space:]')" ] || \
     printf 'generic-ground : %s\n' "$RCANV2"
     exit 1
 fi
-for want in no_join_strrow no_where no_strkey no_rowsel no_rel_rec; do
+for want in no_join_strrow no_where no_strkey no_rowsel ok_rel_rec; do
     if ! grep -qF -- "'${want}'" "$TMPD/canary.violations"; then
         echo "FAIL: THE GATE'S CANARY DID NOT FIRE for '${want}'."
         echo "      A broken trace passed the same matcher that judges the real one,"

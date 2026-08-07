@@ -1555,6 +1555,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // singleton leaves, topo-ordered before their dependents.)
         scc = compute_rel_scc(&deps, prm.rel_n);
         if !check_stratified(prm, &deps, &scc) { return false; }
+        // P3b — the condensation, flattened onto the registry so the ENTRY
+        // query's lowering can read it (see `stamp_rel_incr_shape`). AFTER
+        // stratification: an unstratifiable program never reaches emission, so
+        // a flag stamped before it would describe a program that does not exist.
+        stamp_rel_incr_shape(prm, &scc);
         // ── Track A: warded Datalog± existential-head verdict ───────────────
         // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
         // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
@@ -1573,6 +1578,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
+            stamp_rel_incr_shape(prm, &scc);
         }
     }
 

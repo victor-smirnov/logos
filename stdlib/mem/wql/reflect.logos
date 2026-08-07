@@ -753,6 +753,22 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str,
 /// the schema graph and not with the number of routes through it. The fields are
 /// written BEFORE the recursion, so `type_stamped` is already true when a cycle
 /// comes back around — a self-referential schema terminates.
+/// The TYPE half of `stamp_types_from_schema`, on its own — record `sname`'s
+/// fields under the TYPE key and recurse, WITHOUT writing the flat name
+/// bindings a bound row variable brings.
+///
+/// ⚠ THE SPLIT IS THE POINT, not a convenience. A caller that needs to ASK a
+/// struct's field list (P3b: the incremental handle must spell a field-by-field
+/// `==` over a struct that appears nowhere in the query's own sources) must not
+/// pay for it with flat `name → type` entries that every expression in that
+/// query then resolves through. The full stamper stays the right call wherever a
+/// row VARIABLE is bound to the struct; this one is for the other case.
+pub fn stamp_type_fields(view: &OView, t: &mut ElTypes, sname: str) {
+    if view.holder == (0 as *mut u8) { return; }
+    stamp_schema_by_type(view, t, sname);
+    report_ty_overflow(t);
+}
+
 fn stamp_schema_by_type(view: &OView, t: &mut ElTypes, sname: str) {
     let ty_of: str = resolve_alias_name(view, sname);
     if ty_of.len() == 0i64 { return; }

@@ -3655,6 +3655,29 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     }
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
+    // ── P3b: THE REL'S OWN INPUT TYPE, STAMPED BY TYPE ONLY ────────────────
+    // A rel-backed entry scans the REL, so the struct feeding the rel's BODIES
+    // is nowhere in this dict — the walk above stamps only the ENTRY's sources.
+    // The incremental arm needs it: the handle accumulates that struct's rows,
+    // and the presence gate is a field-by-field `==` spelled from the binding
+    // table (`incr_row_eq_text`), which cannot be written for a type the dict
+    // has never seen. Measured before this call existed: the admission declined
+    // with "INPUT ROW TYPE is not OWNABLE", which is a TRUE sentence about a
+    // dict that was never asked rather than about the type.
+    //
+    // ⚠ TYPE-ONLY, AND GATED ON THE ENTRY'S BASE BEING A REL. `stamp_types_from_schema`
+    // would also write FLAT name bindings (`a` → i64) that every expression in
+    // this query resolves through, which is a change to name resolution for a
+    // population far wider than the one that needs it. `stamp_type_fields`
+    // writes the (TYPE, field) keys and nothing else, and the gate keeps even
+    // that confined to queries whose base source is a declared rel.
+    if prm.rel_find_src(ch.base_src) >= 0i64 {
+        let mut pj: i64 = 0i64;
+        while pj < prm.n {
+            if prm.is_slice[pj] { stamp_type_fields(&view, &mut ty, prm.tys[pj]); }
+            pj = pj + 1i64;
+        }
+    }
     // Group KEY: infer + stamp. A group key needs an IDENTITY (`==` + a hash), and
     // which classes have one is `el::el_eq_hash` — the same one-place, default-deny
     // shape as the ORDER question next to it, and for the same reason: this used to
@@ -4398,6 +4421,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     fn_name: str, params_text: str, prm: &MacroParams,
                     prelude: str, h: &Writ) -> bool {
     let bare0: str = vis_strip(fn_name);
+    // P3b — is the ENTRY's base source a declared `rel`? Asked here, ahead of
+    // eligibility, because it decides the SURFACE (`incr_retract_eligible`) as
+    // well as the shape, and one answer for both is what stops the emitted
+    // signature and the state it owns from disagreeing. -1 = not rel-backed.
+    // ⚠ Only meaningful once eligibility has ADMITTED it: the checks that make
+    // it usable (single-member recursive SCC, one slice param, ownable rows) all
+    // live in `incr_eligible`, which runs immediately below.
+    let rel_m0: i64 = prm.rel_find_src(ch.base_src);
     // ⚠ THE RETRACT PREDICATE IS READ BEFORE ELIGIBILITY AND WITHOUT TRACING.
     // A JOIN chain is admitted only on the RETRACTING surface (the source tag
     // lives in `<q>_apply`'s signature and nothing else emits one), so the
@@ -4407,7 +4438,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // derivation both callers read, so the two cannot disagree.
     if !incr_eligible(ch, ty, aggs, acount, uda, act, key_ty, result_ty, tres,
                       has_having, proj_e, having_ref, has_where, mods, prm,
-                      retract_ok(aggs, acount, acc), bare0) {
+                      retract_ok(aggs, acount, acc) && rel_m0 < 0i64, bare0) {
         return true;
     }
 
@@ -4438,7 +4469,20 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // multiplicity MAP. One predicate for all four is what stops the emitted
     // signature, the state it owns and the arithmetic inside it from disagreeing
     // about what this query can do.
-    let retr: bool = incr_retract_eligible(aggs, acount, acc, bare);
+    let retr: bool = incr_retract_eligible(aggs, acount, acc, rel_m0 >= 0i64, bare);
+    // From here the rel index is the ADMITTED one: eligibility has run and, if
+    // it returned true with `rel_m0 >= 0`, every clause the rel arm depends on
+    // holds. The slice parameter's index is re-found by the same walk the
+    // admission used (`prm.is_slice`, exactly one).
+    let rel_m: i64 = rel_m0;
+    let mut rel_sp: i64 = -1i64;
+    if rel_m >= 0i64 {
+        let mut pk0: i64 = 0i64;
+        while pk0 < prm.n {
+            if prm.is_slice[pk0] { rel_sp = pk0; }
+            pk0 = pk0 + 1i64;
+        }
+    }
 
     // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
     // One pass, four parallel cursors, because every one of them is indexed by
@@ -4465,6 +4509,12 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut gmnm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                  String::new(), String::new(), String::new(), String::new()];
     let mut wmap: [bool; 8] = [false, false, false, false, false, false, false, false];
+
+    // The rel TOTAL field's name, under the SAME frame-lifetime rule `ganm`
+    // carries above: `Ident::new` BORROWS, and this Ident is pushed into a Vec
+    // that outlives any block-local String that built it.
+    let mut totnm: String = String::new();
+    if rel_m >= 0i64 { totnm = suffixed("__tot_", prm.rel_names[rel_m]); }
 
     fnames.push(Ident::new("__gk"));
     ftys.push(parse_type_of_vec(key_ty));
@@ -4544,6 +4594,41 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // caught it. `sizeof(RowTy) + 8` per DISTINCT stored row is the SHAPE; the
     // number for any particular query is a paired maxRSS measurement on a named
     // row count and row type, and this arc has not made one.
+    // ══ THE REL-BACKED HANDLE'S STATE — P3b ════════════════════════════════
+    //
+    // TWO fields, and their SIZE CLASS is a capability change worth stating
+    // where a reader meets it rather than in a footnote. P1's handle held per
+    // GROUP cells; P3's added the two joined sides. This one holds
+    //
+    //   `__edb`      — every input fact ever applied, deduplicated;
+    //   `__tot_<m>`  — the rel's fixpoint TOTAL over that input,
+    //
+    // so it is O(|input| + |derived relation|). For a transitive closure the
+    // second term is quadratic in the node count by nature of the answer, not by
+    // anything this emitter chose. That is the price of the capability: the
+    // fixpoint is a function of the ACCUMULATED input and of nothing smaller, so
+    // a handle that answers correctly across epochs must own the accumulation.
+    //
+    // ⚠⚠ THE INBOUND COLLAPSE BOUNDARY IS `__edb`, AND IT IS THE ABSENCE OF A
+    // FIELD THAT ENFORCES IT. P3's stored sides are `__s<k>` PLUS `__s<k>w` — a
+    // Z-set with multiplicities. `__edb` has NO weight vector, deliberately:
+    // there is no `Vec<i64>` beside it for a multiplicity to live in, so "the
+    // same edge twice is one fact" is structural rather than a rule somebody
+    // must remember. Counting derivations through a cycle DIVERGES
+    // (`path(a,b) :- path(a,c), edge(c,b)` has unboundedly many derivations of
+    // one fact), so a weight must not cross into the SCC — and it cannot, since
+    // nothing here can express one.
+    //
+    // ⚠ NO BYTE FIGURE IS QUOTED. Nothing here has been measured at any size,
+    // and this file already records what happened the last time a construction
+    // floor was written down as a footprint (understated by ~4 orders of
+    // magnitude, no gate caught it).
+    if rel_m >= 0i64 {
+        fnames.push(Ident::new("__edb"));
+        ftys.push(parse_type_of_vec(prm.tys[rel_sp]));
+        fnames.push(Ident::new(string_as_str(&totnm)));
+        ftys.push(parse_type_of_vec(prm.rel_rowty[rel_m]));
+    }
     let joined: bool = ch.n == 1i64;
     if joined {
         fnames.push(Ident::new("__s0"));
@@ -4988,6 +5073,16 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // declared under — one variable, read twice, never re-derived. (A control
     // revert on the field push with this initializer left standing is the
     // `unknown field` diagnostic the `wmap` comment above records.)
+    // The rel-backed state's initializers, under THE SAME `rel_m` the fields
+    // were declared under — one variable, read twice, never re-derived.
+    if rel_m >= 0i64 {
+        cb.push_str(", __edb: ");
+        push_vec_new(&mut cb, prm.tys[rel_sp]);
+        cb.push_str(", ");
+        cb.push_str(string_as_str(&totnm));
+        cb.push_str(": ");
+        push_vec_new(&mut cb, prm.rel_rowty[rel_m]);
+    }
     if joined {
         cb.push_str(", __s0: ");
         push_vec_new(&mut cb, ch.base_ty);
@@ -5406,7 +5501,146 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // retraction on a float-accumulator or `min`/`max` query fails to
         // COMPILE, which is the honest signal and the one that cannot answer D4
         // by accident.
-        let epoch_body: ExprBlob = quote_block! {
+        let mut epoch_body: ExprBlob = quote_block! { };
+        if rel_m >= 0i64 {
+            // ══ THE REL-BACKED EPOCH — P3b ═════════════════════════════════
+            //
+            // ⚠ `#(pre_f)` IS ABSENT HERE, AND ITS ABSENCE IS THE WHOLE SLICE.
+            // The batch prelude declares a FRESH total and runs the fixpoint
+            // from scratch; splicing it is exactly what made every epoch
+            // re-materialize the rel over the delta alone and answer wrong. This
+            // body calls the CROSS-EPOCH driver instead, on state the handle
+            // owns.
+            //
+            // ── WHAT IS ATOMIC, STATED BECAUSE `<q>_apply` IS NOT ───────────
+            // The accumulated input and the fixpoint total are both built in
+            // LOCALS and committed to `__h` only after the driver RETURNS. So a
+            // fault inside the fixpoint (an `el_add` in a rel body, the
+            // aggregate convergence guard) leaves the handle EXACTLY as it was —
+            // this half is transactional, which `<q>_apply`'s row loop is not,
+            // and it matters more here because the state at risk is the whole
+            // relation rather than one group's cells. What remains UNSPECIFIED
+            // is the same window P1-P3 already document: a fault inside the
+            // GROUP FOLD below leaves the total committed and some rows folded.
+            // Priced and not taken: containing that too means either a second
+            // copy of the group state per epoch or a `__poisoned` bit plus an
+            // `ElError` variant for reads to report — the bit is the cheaper of
+            // the two and is the named follow-up.
+            //
+            // ── THE COST, AS WHAT IT IS A FUNCTION OF ──────────────────────
+            // Per epoch: O(|delta| x |accumulated input|) for the presence gate
+            // (a LINEAR `==` scan, the same unindexed shape `__s<k>` uses — a
+            // `HashSet` would be O(1) amortized but demands `Hash` of a caller's
+            // row struct, which nothing in the admission proves), plus one copy
+            // of the input and one of the total, plus the driver's own naive
+            // round 0. NOT MEASURED at any size; no number is quoted.
+            let mut pt: String = String::new();
+            let ety: str = prm.tys[rel_sp];
+            let rty: str = prm.rel_rowty[rel_m];
+            let mut eqt: String = String::new();
+            incr_row_eq_text(ty, ety, "__c", "__dv", &mut eqt);
+            // ── INBOUND COLLAPSE BOUNDARY: a 0→positive PRESENCE crossing ───
+            // ⚠ THIS IS THE ONLY PLACE A CALLER'S DELTA ENTERS, AND IT ENTERS AS
+            // A BIT. No weight is read, no multiplicity is stored, and there is
+            // no field for one — see the note on the handle's fields. The same
+            // edge presented twice is one fact, which is what a `rel` MEANS.
+            pt.push_str("let mut __ecp: Vec<"); pt.push_str(ety); pt.push_str("> = Vec::<"); pt.push_str(ety); pt.push_str(">::new();\n");
+            pt.push_str("let mut __ck: i64 = 0i64;\n");
+            pt.push_str("while __ck < __h.__edb.len() { __ecp.push(__h.__edb.get(__ck)); __ck = __ck + 1i64; }\n");
+            pt.push_str("let mut __di: i64 = 0i64;\n");
+            pt.push_str("while __di < ("); pt.push_str(prm.names[rel_sp]); pt.push_str(").len() {\n");
+            pt.push_str("    let __dv: "); pt.push_str(ety); pt.push_str(" = ("); pt.push_str(prm.names[rel_sp]); pt.push_str(")[__di];\n");
+            pt.push_str("    let mut __dup: bool = false;\n");
+            pt.push_str("    let mut __dq: i64 = 0i64;\n");
+            pt.push_str("    while __dq < __ecp.len() {\n");
+            pt.push_str("        let __c: "); pt.push_str(ety); pt.push_str(" = __ecp.get(__dq);\n");
+            pt.push_str("        if ("); pt.push_str(string_as_str(&eqt)); pt.push_str(") { __dup = true; }\n");
+            pt.push_str("        __dq = __dq + 1i64;\n");
+            pt.push_str("    }\n");
+            pt.push_str("    if !__dup { __ecp.push(__dv); }\n");
+            pt.push_str("    __di = __di + 1i64;\n");
+            pt.push_str("}\n");
+            // The TOTAL, seeded from the handle into a LOCAL — the driver
+            // extends it in place and a fault leaves the handle untouched.
+            pt.push_str("let mut __tt: Vec<"); pt.push_str(rty); pt.push_str("> = Vec::<"); pt.push_str(rty); pt.push_str(">::new();\n");
+            pt.push_str("let mut __tk: i64 = 0i64;\n");
+            pt.push_str("while __tk < __h."); pt.push_str(string_as_str(&totnm));
+            pt.push_str(".len() { __tt.push(__h."); pt.push_str(string_as_str(&totnm));
+            pt.push_str(".get(__tk)); __tk = __tk + 1i64; }\n");
+            pt.push_str("let __b0: i64 = __tt.len();\n");
+            // ⚠ THE CALL IS IN ITS OWN BLOCK so the `&[..]` view of `__ecp` dies
+            // before `__ecp` is MOVED into the handle two statements later.
+            pt.push_str("{\n");
+            pt.push_str("let __ecs: &["); pt.push_str(ety); pt.push_str("] = __ecp.as_slice();\n");
+            pt.push_str("__wql_");
+            pt.push_str(bare);
+            pt.push_str("_scc");
+            pt.push_i64(prm.rel_sccid[rel_m]);
+            pt.push_str("_i(");
+            let mut ai: i64 = 0i64;
+            while ai < prm.n {
+                if ai > 0i64 { pt.push_str(", "); }
+                if ai == rel_sp { pt.push_str("__ecs"); } else { pt.push_str(prm.names[ai]); }
+                ai = ai + 1i64;
+            }
+            if prm.n > 0i64 { pt.push_str(", "); }
+            pt.push_str("&mut __tt)?;\n");
+            pt.push_str("}\n");
+            // ── COMMIT, then take THIS EPOCH'S NEW ROWS as a suffix ─────────
+            // `promote` only ever APPENDS to the total, so the rows derived this
+            // epoch are exactly `[__b0 .. len)` — no extra vector had to be
+            // maintained to know which they are.
+            pt.push_str("__h.__edb = __ecp;\n");
+            pt.push_str("let mut __nw: Vec<"); pt.push_str(rty); pt.push_str("> = Vec::<"); pt.push_str(rty); pt.push_str(">::new();\n");
+            pt.push_str("let mut __rk: i64 = __b0;\n");
+            pt.push_str("while __rk < __tt.len() { __nw.push(__tt.get(__rk)); __rk = __rk + 1i64; }\n");
+            pt.push_str("__h."); pt.push_str(string_as_str(&totnm)); pt.push_str(" = __tt;\n");
+            pt.push_str("let __nws: &["); pt.push_str(rty); pt.push_str("] = __nw.as_slice();\n");
+            // ⚠ SPLICED WITH A REPETITION (`#( #pro; )*`) AND NOT AS `#(pro)`.
+            // The two are not the same construct: `#(x)` in statement position
+            // embeds a BLOCK, so every `let` above would die at its closing brace
+            // and `__nws` would be invisible to the fold loop — the exact scope
+            // rule that makes `prelude_frag` items-only. A repetition splices the
+            // statement list FLAT.
+            let mut prow: String = String::new();
+            prow.push_str("{\n");
+            prow.push_str(string_as_str(&pt));
+            prow.push_str("}\n");
+            let mut pro: Vec<ExprBlob> = vec_new::<ExprBlob>();
+            pro.push(parse_block(string_as_str(&prow)));
+            // ── OUTBOUND COLLAPSE BOUNDARY: +1 PER DERIVED ROW, NEVER `__wd` ─
+            // ⚠ AND `__wd` DOES NOT EXIST IN THIS SCOPE. A rel-backed query
+            // takes the INSERT-ONLY surface (`incr_retract_eligible` refuses
+            // first, with recursion as its ground), so there is no weight
+            // parameter anywhere in the emitted signature and folding at a
+            // weight is not expressible rather than merely wrong. The rows
+            // folded are `__nws` — the ones this epoch ADDED — so an unchanged
+            // saturated fixpoint folds nothing and the answer does not move.
+            epoch_body = quote_block! {
+                #( #pro; )*
+                let mut __n: i64 = 0i64;
+                let mut __i0: i64 = 0i64;
+                while __i0 < __nws.len() {
+                    let #base_vnm: &#(base_ty_f) = &__nws[__i0];
+                    let __k: #(keyt_f) = (#(key_f));
+                    let mut __gi: i64 = -1i64;
+                    let mut __s: i64 = 0i64;
+                    while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+                    if __gi < 0i64 {
+                        __h.__gk.push(__k);
+                        __h.__gc.push(0i64);
+                        #( #seeds; )*
+                        __gi = __h.__gk.len() - 1i64;
+                    }
+                    __h.__gc.set(__gi, __h.__gc.get(__gi) + 1i64);
+                    #( #folds; )*
+                    __n = __n + 1i64;
+                    __i0 = __i0 + 1i64;
+                }
+                return Result::Ok(__n);
+            };
+        } else {
+        epoch_body = quote_block! {
             #(pre_f);
             let mut __n: i64 = 0i64;
             let mut __i0: i64 = 0i64;
@@ -5429,6 +5663,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             }
             return Result::Ok(__n);
         };
+        }
         eps.push_str("__h: &mut ");
         eps.push_str(tyn);
         if params_text.len() > 0i64 {
@@ -5608,15 +5843,83 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // equals the batch over that document. The accumulated input of several
     // `&Writ`s is not expressible as a batch call at all, so there is no
     // cross-epoch spec here to violate in the way a derived rel violates one.
-    if incr_src_is_derived_rel(prm, ch.base_src) {
-        return incr_decline(qn, "a source is a DECLARED `rel` — `<q>_apply` splices the rel prelude verbatim, so every epoch re-materializes the rel from an EMPTY total over the DELTA ALONE and folds each row at the delta's weight, but a rel is a SET whose dedup and whose recursive closure are both properties of the ACCUMULATED input, of which the handle stores neither the rel's rows nor the input they came from");
-    }
+    // ── P3b: THE REFUSAL BECOMES AN ANSWER, FOR ONE SHAPE ──────────────────
+    //
+    // What replaced the blanket refusal is NOT "rels are fine now". The handle
+    // now OWNS the accumulated input and the rel's fixpoint TOTAL, and
+    // `<q>_epoch` extends that total by re-entering a cross-epoch semi-naïve
+    // driver rather than re-running the fixpoint from an empty one. That is the
+    // whole of the change, and everything the old ground said about a shape the
+    // handle does NOT own is still true and still refused below, with the
+    // specific antecedent named.
+    //
+    // ⚠ A REL IN JOIN POSITION IS STILL REFUSED, AND THE REFUSAL IS NOW PINNED.
+    // The previous round left this loop pinned by NOTHING — both matrix rel
+    // queries put the rel in BASE position, so deleting the loop left every gate
+    // green. `no_rel_join` in `wql_incr_eligibility_matrix.logos` is a rel in
+    // JOIN position and the gate asserts its ground, so this clause now bites.
+    // It is not a formality: the handle's join arm stores the joined side as a
+    // weighted Z-set (`__s1`/`__s1w`), and a rel side has no weight to store —
+    // its rows come out of a fixpoint that has already deduped them.
     let mut rsi: i64 = 0i64;
     while rsi < ch.n {
         if incr_src_is_derived_rel(prm, ch.src[rsi]) {
-            return incr_decline(qn, "a source is a DECLARED `rel` — `<q>_apply` splices the rel prelude verbatim, so every epoch re-materializes the rel from an EMPTY total over the DELTA ALONE and folds each row at the delta's weight, but a rel is a SET whose dedup and whose recursive closure are both properties of the ACCUMULATED input, of which the handle stores neither the rel's rows nor the input they came from");
+            return incr_decline(qn, "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own");
         }
         rsi = rsi + 1i64;
+    }
+    let rel_m: i64 = prm.rel_find_src(ch.base_src);
+    if rel_m >= 0i64 {
+        // A rel in BASE position AND a join step: the epoch would have to
+        // maintain the fixpoint total AND a weighted Z-set side in one call.
+        if ch.n > 0i64 {
+            return incr_decline(qn, "the BASE source is a declared `rel` and the query also JOINS — one epoch would have to extend a set-semantics fixpoint total and integrate a weighted Z-set side, and the source TAG that tells them apart lives on `<q>_apply`, which a rel-backed query does not emit");
+        }
+        // THE SHAPE, DERIVED ONCE, IN `stamp_rel_incr_shape`. The ground travels
+        // with the flag — see the note on `rel_incr_why`. ⚠ This is also what
+        // keeps the admission and the ARTIFACT in step: `emit_rel_fns` emits the
+        // `_i` driver under the same flag, so an admission that disagreed would
+        // call a function that does not exist.
+        if !prm.rel_incr_ok[rel_m] { return incr_decline(qn, prm.rel_incr_why[rel_m]); }
+        // ── THE ACCUMULATED INPUT MUST BE OWNABLE AND IDENTIFIABLE ──────────
+        // The handle keeps the rel's EDB — every fact ever applied — because the
+        // fixpoint is a function of the ACCUMULATED input and nothing else. That
+        // makes the input's row type subject to exactly the question P3 asks of a
+        // joined side: `str` is a borrow of caller bytes, and `f64` has no `==`
+        // that is identity for the presence gate to search on.
+        //
+        // ⚠ AND THERE MUST BE EXACTLY ONE OF THEM. `<q>_epoch` keeps the query's
+        // parameter list VERBATIM, so with two slice params a caller would pass
+        // both on every call and the emitter could not tell which one is the
+        // delta — the same ambiguity the join arm answers with a source TAG, and
+        // a rel-backed query has no `<q>_apply` to carry one. Scalar params ride
+        // through untouched (they are not input to accumulate).
+        let mut nsl: i64 = 0i64;
+        let mut spi: i64 = -1i64;
+        let mut pk: i64 = 0i64;
+        while pk < prm.n {
+            if prm.is_slice[pk] { nsl = nsl + 1i64; spi = pk; }
+            pk = pk + 1i64;
+        }
+        if nsl != 1i64 {
+            return incr_decline(qn, "a rel-backed query must have EXACTLY ONE slice parameter — `<q>_epoch` keeps the parameter list verbatim, so with two the caller passes both on every call and nothing says which is the delta; the join arm answers that with a source TAG on `<q>_apply`, which a rel-backed query does not emit");
+        }
+        if !incr_row_ty_ok(ty, prm.tys[spi]) {
+            return incr_decline(qn, "the rel's INPUT ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle accumulates every fact ever applied, so a `str` field is a borrow of source bytes it does not own and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the insert presence gate to search on");
+        }
+        // The rel's own ROW type is stored too (the fixpoint total). Its columns
+        // are the rel's DECLARED ones, so the question is asked of the column
+        // list rather than of a stamped struct — a rel row is a tuple and has no
+        // binding table to walk.
+        let coff: i64 = prm.rel_coff[rel_m];
+        let mut ci2: i64 = 0i64;
+        while ci2 < prm.rel_ccnt[rel_m] {
+            let ct: str = prm.relc_ty[coff + ci2];
+            if !incr_ty_ok(ct) || el_class_lookup(ct) == EL_TY_FLT() || el_class_lookup(ct) < 0i32 {
+                return incr_decline(qn, "a rel COLUMN is `str` or `f64` — the handle owns the fixpoint TOTAL, and a `str` column is a borrow while an `f64` column has no `==` that is identity for the shadow set that makes the fixpoint terminate");
+            }
+            ci2 = ci2 + 1i64;
+        }
     }
     // ── THE JOIN, P3: ONE STEP IS ADMITTED AND EVERY OTHER SHAPE IS NAMED ────
     // The old ground was "COMBINING per-source deltas is the DBSP product rule
@@ -5740,6 +6043,10 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     }
     if ch.n == 1i64 {
         plan_trace("incremental", "EMITTED", qn, "one join step over two owned relations, group by, weighted aggregates over self-contained types");
+        return true;
+    }
+    if rel_m >= 0i64 {
+        plan_trace("incremental", "EMITTED", qn, "one bare scan over a RECURSIVE `rel`, group by, insert-only aggregates — the handle owns the accumulated input and the fixpoint TOTAL, and each epoch EXTENDS that total through the cross-epoch semi-naive driver");
         return true;
     }
     plan_trace("incremental", "EMITTED", qn, "one bare scan, group by, insert-only aggregates over self-contained types");
@@ -5908,7 +6215,29 @@ fn retract_ok(aggs: &RAggArr, acount: i64, acc: &[str; 8]) -> bool {
     return true;
 }
 
-fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8], qn: str) -> bool {
+fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
+                         rel_backed: bool, qn: str) -> bool {
+    // ── RETRACTION THROUGH RECURSION IS REFUSED, AND THE GROUND IS A FACT ───
+    //
+    // ⚠ ASKED FIRST, AHEAD OF THE AGGREGATE LIST, because it is the STRONGER
+    // refusal: an f64 `sum` is an open DECISION, this one is a property of
+    // recursion. A fact may support ITSELF through a cycle (`path(a,b)` derived
+    // from `path(a,c)`), so "subtract what it added" is not merely imprecise —
+    // there is no well-defined amount to subtract. The mechanism that IS correct
+    // is DRed (over-delete every consequence, compact, re-derive from surviving
+    // support), which the dynamic engine implements at `incr_rec.logos:776-910`;
+    // it is a second state machine over provenance, not an inverse fold.
+    //
+    // ⚠⚠ AND THE REFUSAL IS STRUCTURAL, NOT ADVISORY. Returning `false` here
+    // selects the INSERT-ONLY surface: `<q>_apply` and `<q>_retract` are not
+    // emitted at all and `__wd` does not exist in any scope this query emits, so
+    // folding a derived row at a weight is not expressible rather than merely
+    // wrong. `fail/wql_incr_rel_no_retract.logos` calls `<q>_retract` and
+    // requires the compile to FAIL on the missing name — flip this clause and
+    // that fixture goes green, which is a red gate on the per-commit path.
+    if rel_backed {
+        return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold");
+    }
     if !retract_ok(aggs, acount, acc) {
         return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
     }
@@ -7319,9 +7648,60 @@ fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
 // Body emitters are reused UNCHANGED: `__out`/`__rsp` are lexically rebound
 // per member block, source slices per round/variant — the emission is
 // parameterized by NAMES only.
+// ══ THE CROSS-EPOCH MODE (`incr`), AND WHY IT IS A SECOND FN AND NOT A FLAG ══
+//
+// `incr == false` emits exactly what this fn has always emitted, BYTE FOR BYTE:
+// the caller declares empty totals and the fixpoint runs from scratch. That is
+// not a courtesy — it makes every existing rel query in the corpus a CONTROL on
+// this change, so a regression anywhere in the rel tier is attributable.
+//
+// `incr == true` emits a SIBLING `__wql_<q>_scc<c>_i` whose caller hands it a
+// total that ALREADY HOLDS the previous epoch's fixpoint, and which extends that
+// total to the fixpoint over the accumulated input. Two things differ, and both
+// are defects if omitted — each was derived from the body this fn already emits:
+//
+//  (1) THE SHADOW SET IS SEEDED FROM THE TOTAL. `__rs_<m>` is declared FRESH,
+//      and `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`
+//      while `promote` appends `__dl` into `__tot` UNCONDITIONALLY. Re-entering
+//      with a non-empty total and an empty set therefore re-admits every row the
+//      previous epoch already derived and appends a SECOND COPY — and a rel is a
+//      SET, so the answer is wrong on the first re-entry and compounds. Seeding
+//      is O(|total|) per epoch, which is dominated by (2).
+//
+//  (2) ROUND 0 IS A FULL NAÏVE PASS, NOT A DELTA PASS, AND THAT IS A NAMED
+//      CHOICE WITH A COST. The loop's variant expansion makes only IN-SCC
+//      occurrences read a delta, because `body_scc_occs` records only sources
+//      whose `comp` is this SCC. A new derivation can come from an OLD IDB row
+//      joined with a NEW EDB row — `path(x,z) :- path(x,y), edge(y,z)` with an
+//      old `path` and a new `edge` — and that combination has NO in-SCC delta
+//      occurrence, so a from-empty-delta re-entry MISSES IT. The exact fix is a
+//      round-0 variant per EDB occurrence binding that occurrence to the EDB
+//      DELTA; the fix TAKEN here binds every occurrence to its FULL current
+//      value and runs every body once. It is a SUPERSET of the exact set —
+//      complete for the same reason, and safe because set semantics makes
+//      over-derivation free (the seeded shadow set drops every row already in
+//      the total). What it costs is one naïve pass over the accumulated input
+//      per epoch instead of one pass over the delta. NOT MEASURED at any size,
+//      and no number is quoted: the EDB-delta occurrence list is the named
+//      follow-up, and it changes this fn only.
+//
+//      COMPLETENESS, since "generous" must not mean "hopeful": let T be the
+//      previous total (= lfp over the old input E) and E' ⊇ E the accumulated
+//      input. T ⊆ lfp(E') by monotonicity. Round 0 computes F(T, E') and keeps
+//      what is not in T, so every new fact derivable from T-facts alone is
+//      found; every other new fact needs a fact of some earlier round's delta
+//      and is found by the in-SCC delta variants, by induction on rounds. The
+//      iteration is the standard one from a lower bound of the fixpoint.
+//
+// TERMINATION ON CYCLIC DATA IS THE SAME PROPERTY AND THE SAME MECHANISM: the
+// shadow set gates every insert, so the deltas empty once the closure saturates.
+// ⚠ NO WEIGHT ENTERS HERE. The only crossing into the SCC is `rel_push_frag`'s
+// PRESENCE bit; there is no multiplicity vector beside `__tot_<m>` to carry one,
+// which is what makes "weights may not flow into an SCC" structural rather than
+// disciplinary — counting derivations through a cycle diverges.
 fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                params_text: str, prm: &MacroParams, scc: &RelScc,
-               h: &Writ) -> bool {
+               incr: bool, h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
     let mut mem: [i64; 8] = [0i64; 8];
     let mut nm: i64 = 0i64;
@@ -7345,6 +7725,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     hn.push_str(vis_strip(fn_name));
     hn.push_str("_scc");
     hn.push_i64(c);
+    if incr { hn.push_str("_i"); }
     let mut ps: String = String::new();
     ps.push_str(params_text);
     push_dep_params(&mut ps, prm, mask);
@@ -7406,11 +7787,34 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
             let rt5: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
             let rt6: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
             let s_rs: String = suffixed("__rs_", rn);  let n_rs: Ident = Ident::new(string_as_str(&s_rs));
-            state.push(quote_block! {
-                let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
-                let mut #n_dl: Vec<#(rt)> = Vec::<#(rt2)>::new();
-                let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
-            });
+            if incr {
+                // ⚠ SEEDED FROM THE TOTAL — see (1) in this fn's header. The set
+                // is a fn LOCAL and stays one: keeping it on the HANDLE would
+                // save this O(|total|) walk, but it would put a `HashSet` of the
+                // whole relation beside the `Vec` of it, and the walk is
+                // dominated by the naïve round-0 pass that follows anyway.
+                let rt7: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+                let s_tt1: String = suffixed("__tot_", rn); let n_tt1: Ident = Ident::new(string_as_str(&s_tt1));
+                state.push(quote_block! {
+                    let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
+                    {
+                        let __sp: *mut HashSet<#(rt7)> = &mut #n_rs;
+                        let mut __sk: i64 = 0i64;
+                        while __sk < #n_tt1.len() {
+                            unsafe { (__sp).insert(#n_tt1.get(__sk)); }
+                            __sk = __sk + 1i64;
+                        }
+                    }
+                    let mut #n_dl: Vec<#(rt)> = Vec::<#(rt2)>::new();
+                    let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
+                });
+            } else {
+                state.push(quote_block! {
+                    let mut #n_rs: HashSet<#(rt5)> = hashset_new::<#(rt6)>();
+                    let mut #n_dl: Vec<#(rt)> = Vec::<#(rt2)>::new();
+                    let mut #n_nd: Vec<#(rt3)> = Vec::<#(rt4)>::new();
+                });
+            }
         }
         m1 = m1 + 1i64;
     }
@@ -7426,7 +7830,10 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < nb {
             let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
-            if oc1.n == 0i64 {
+            // FROM SCRATCH: a seed is a body with NO in-SCC source. CROSS-EPOCH:
+            // EVERY body runs, at its canonical (total) source names — round 0 is
+            // a full naïve pass, see (2) in this fn's header.
+            if incr || oc1.n == 0i64 {
                 let mut f: ExprBlob = quote_block! { };
                 if !rel_body_frag(bodies.body_any(b1), ri, prm, &mut f, h) { return false; }
                 runs.push(f);
@@ -7435,6 +7842,29 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         }
         if runs.len() > 0i64 { seeds.push(member_block_frag(runs, prm, ri)); }
         m2 = m2 + 1i64;
+    }
+    // ⚠ ROUND 0 IS ONE BLOCK, AND THE BRACES ARE THE POINT. Its bodies read the
+    // member TOTALS through `__rel_<m>_sl`, an immutable view of a `&mut Vec`
+    // param that the fixpoint loop below APPENDS to. Spliced flat, that view
+    // would still be live across the loop; inside a block it dies before the
+    // first `promote`. (The loop binds its own `__rel_<m>_sl` per round.)
+    if incr && seeds.len() > 0i64 {
+        let mut r0: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut mb: i64 = 0i64;
+        while mb < nm {
+            let rnb: str = prm.rel_names[mem[mb]];
+            if !prm.rel_is_agg[mem[mb]] {
+                let rtb: ExprBlob = parse_type(prm.rel_rowty[mem[mb]]);
+                let n_ssb: Ident = Ident::new(prm.rel_srcs[mem[mb]]);
+                let s_ttb: String = suffixed("__tot_", rnb); let n_ttb: Ident = Ident::new(string_as_str(&s_ttb));
+                r0.push(quote_block! { let #n_ssb: &[#(rtb)] = #n_ttb.as_slice(); });
+            }
+            mb = mb + 1i64;
+        }
+        let mut sk: i64 = 0i64;
+        while sk < seeds.len() { r0.push(seeds.get(sk)); sk = sk + 1i64; }
+        seeds = vec_new::<ExprBlob>();
+        seeds.push(quote_block! { { #( #r0; )* } });
     }
 
     // ── The fixpoint loop ──
@@ -7682,7 +8112,23 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
     while p < scc.nscc {
         let c: i64 = scc.order[p];
         if scc.rec[c] {
-            if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, h) { return false; }
+            if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, false, h) { return false; }
+            // P3b — the CROSS-EPOCH sibling, emitted from the SHAPE and not from
+            // a request. ⚠ It is emitted whenever the shape admits it, even if
+            // the entry query then declines the handle for an unrelated reason
+            // (a `str` group key, an `order by`, …) and the fn goes unused. The
+            // alternative is to ask the entry query first — but `emit_rel_fns`
+            // runs BEFORE the entry is lowered, and inverting that order to save
+            // a dead private fn would make the rel tier depend on the entry's
+            // aggregate list. `rel_incr_ok` is the SAME derivation `incr_eligible`
+            // reads, so the fn exists exactly where an admission can name it.
+            let mut mi: i64 = 0i64;
+            while mi < prm.rel_n {
+                if scc.comp[mi] == c && prm.rel_incr_ok[mi] {
+                    if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, true, h) { return false; }
+                }
+                mi = mi + 1i64;
+            }
         } else {
             let mut i: i64 = 0i64;
             while i < prm.rel_n {

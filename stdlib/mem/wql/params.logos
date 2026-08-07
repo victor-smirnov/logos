@@ -93,6 +93,31 @@ pub struct MacroParams {
     // the lattice order (`<` for min, `>` for max) the absorb gate uses.
     pub rel_is_agg:  [bool; 8],
     pub rel_agg_dir: [i32; 8],
+    // ── THE REL'S SCC, FLATTENED ONTO THE REGISTRY (P3b) ──────────────────
+    // `RelScc` is computed by the program walker and threaded to the WALKER's
+    // emitters, but `emit_incremental` is reached from the ENTRY query's
+    // lowering and never sees it — the blocker P3b's scope stage named. Two
+    // rel-registry FACTS close it without threading a sixth signature: the
+    // rel's SCC id (which names the emitted fixpoint fn) and one derived
+    // predicate saying whether that SCC has the shape whose CROSS-EPOCH driver
+    // is emitted at all.
+    //
+    // ⚠ `rel_incr_ok` IS A DERIVATION WITH ONE HOME, and that is the point: the
+    // fn-emission side (`emit_rel_fns`) and the admission side
+    // (`incr_eligible`) must not answer it twice. `stamp_rel_incr_shape` writes
+    // it once, right where `compute_rel_scc` returns; a rel whose flag is false
+    // has NO `_i` fn in the artifact, so an admission that disagreed would name
+    // a function that does not exist and fail to compile rather than answer.
+    ///
+    /// ⚠ `rel_incr_why` IS PART OF THE SAME WRITE, not a second opinion about
+    /// it. The admission site needs a GROUND that names the antecedent that
+    /// actually failed — a refusal reworded into "not supported yet" is the one
+    /// nobody revisits — and re-deriving that ground beside the flag is exactly
+    /// the "one cell, two opinions" shape this file has been bitten by. One
+    /// loop writes the flag and the sentence that explains it; `""` ⇔ admitted.
+    pub rel_sccid:   [i64; 8],
+    pub rel_incr_ok: [bool; 8],
+    pub rel_incr_why: [str; 8],
     // ── NATIVE rels (ADR 0016 M1a): sources with an ENGINE-SUPPLIED
     // materialization instead of query bodies. Today: `<p>: &Writ` params —
     // the generic graph-edge relation (writ_graph_edges). A native rel has
@@ -203,6 +228,9 @@ pub fn macro_params_new() -> MacroParams {
         rel_n: 0i64,
         rel_is_agg:  [false; 8],
         rel_agg_dir: [0i32; 8],
+        rel_sccid:   [0i64; 8],
+        rel_incr_ok: [false; 8],
+        rel_incr_why: [""; 8],
         rel_native:  [false; 8],
         rel_iter:    [false; 8],
         rel_stream:  [false; 8],
@@ -495,6 +523,75 @@ pub struct RelScc {
     pub order:    [i64; 8],
     pub nscc:     i64,
     pub dep_mask: [i64; 8],
+}
+
+/// P3b — FLATTEN the condensation onto the rel registry, and DERIVE, once, the
+/// one predicate both the fn-emission side and the admission side ask.
+///
+/// `rel_incr_ok[r]` = "rel `r`'s SCC has a CROSS-EPOCH semi-naïve driver". Every
+/// clause names the piece that is missing rather than saying "not yet", and the
+/// narrowness is deliberate: this is the FIRST slice in which a handle owns a
+/// whole derived relation, so the shape it owns is the one shape a fixture in
+/// this slice runs at every epoch on cyclic data.
+///
+///   • RECURSIVE — a NON-recursive rel materializes through the one-shot helper
+///     (`__wql_<q>_rel_<r>`), which has no total to extend and no shadow set to
+///     seed; its epoch would have to CLEAR and re-fold the group state, a
+///     different mechanism with its own failure modes. It keeps its refusal, and
+///     the second measured wrong answer (a rel is a SET; the same edge twice
+///     counted twice) stays REFUSED rather than becoming wrong.
+///   • ONE MEMBER — a multi-member SCC's totals are several `&mut Vec` params
+///     and several handle fields; nothing about the driver changes, but the
+///     admission would then rest on a shape no fixture runs.
+///   • NOT an AGGREGATE member — a recursive min/max member's state is a
+///     best-per-key MAP plus a distinct-key roster plus a round counter, and its
+///     total is MATERIALIZED after the loop rather than appended during it, so
+///     "the rows added this epoch" is not a suffix of the total. That is a
+///     strictly harder promotion and it is not this slice's.
+///   • NO OUT-OF-SCC REL DEPENDENCY (`dep_mask == 0`) — a lower-stratum rel is
+///     itself derived, so maintaining this one across epochs means maintaining
+///     THAT one too, and the entry query would need both totals on the handle.
+///   • NOT NATIVE / NOT STREAMING — a native rel is a pure function of a
+///     caller-owned `&Writ` with no parse-side bodies at all, and a streaming
+///     rel is bound to an iterator rather than to a slice the driver can total.
+///   • THE ONLY REL IN THE PROGRAM — with a second rel the entry prelude has
+///     more than one materialization step and `<q>_epoch` would have to
+///     reproduce the ORDER of them; one rel makes the epoch body derivable from
+///     the registry alone, which is what removes the threaded second prelude.
+pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        let c: i64 = scc.comp[r];
+        prm.rel_sccid[r] = c;
+        let mut nmem: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        while k < prm.rel_n {
+            if scc.comp[k] == c { nmem = nmem + 1i64; }
+            k = k + 1i64;
+        }
+        // ⚠ ORDER MATTERS ONLY FOR THE SENTENCE, NOT FOR THE FLAG: the flag is
+        // the conjunction and is written last, from the same `why`. A clause
+        // added to one and not the other cannot happen — there is one `if`.
+        let mut why: str = "";
+        if !scc.rec[c] {
+            why = "the source is a NON-RECURSIVE declared `rel` — it materializes through the one-shot helper, which has no fixpoint TOTAL to extend and no shadow set to seed, so maintaining it across epochs means CLEARING and re-folding the group state rather than extending it (the dedup defect this refusal closes is still real: a rel is a SET and the same fact twice is one row)";
+        } else if nmem != 1i64 {
+            why = "the recursive SCC has MORE THAN ONE MEMBER — every member's total is a separate `&mut Vec` out-param and a separate handle field, and no fixture in this slice runs a mutually recursive rel across epochs";
+        } else if prm.rel_n != 1i64 {
+            why = "the program declares MORE THAN ONE `rel` — the entry prelude then has several materialization steps in a condensation order, and `<q>_epoch` would have to reproduce that order rather than derive its whole body from the registry";
+        } else if prm.rel_is_agg[r] {
+            why = "the recursive member is an AGGREGATE rel (a min/max semilattice head) — its state is a best-per-key MAP plus a distinct-key roster plus a convergence counter, and its total is MATERIALIZED after the loop rather than appended during it, so `the rows added this epoch` is not a suffix of the total";
+        } else if prm.rel_native[r] {
+            why = "the rel is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
+        } else if prm.rel_iter[r] || prm.rel_stream[r] {
+            why = "the rel STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
+        } else if scc.dep_mask[r] != 0i64 {
+            why = "the recursive SCC DEPENDS ON A LOWER-STRATUM `rel` — that rel is itself derived, so maintaining this one across epochs means maintaining that one too and the handle would have to own both totals";
+        }
+        prm.rel_incr_why[r] = why;
+        prm.rel_incr_ok[r]  = why.len() == 0i64;
+        r = r + 1i64;
+    }
 }
 
 pub fn rel_scc_new() -> RelScc {
