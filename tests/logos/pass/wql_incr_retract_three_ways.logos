@@ -422,6 +422,17 @@ fn check_layout() -> i32 {
 // but prints `chk=166` — TWENTY-ONE lower for ONE deleted line, because that
 // line is checked once per group per split. `run_test.sh` says `FAIL: stdout
 // mismatch` and a deletion that used to be invisible is red.
+// ⚠ WHAT THIS DOES NOT COVER, NAMED AT THE MECHANISM RATHER THAN LEFT TO BE
+// FOUND: a census sees an assertion that stops RUNNING, not one WEAKENED IN
+// PLACE. Rewriting a comparison into a tautology still calls the chokepoint once
+// and still reads the same rows, so `chk` and `rows` are unmoved — MEASURED
+// 2026-08-07 on the sister file, where `f64_to_bits(x) != f64_to_bits(x)` passed
+// green with the census at its full count. That failure belongs to review, not
+// to this counter.
+// ⚠ THIS PARAGRAPH WAS MISSING HERE while the sister file carried it and the
+// slice's report claimed all three files did. Two of the three census fixtures
+// documented a blind spot the third did not — added 2026-08-07. A limitation
+// recorded in one file of a family reads, from the other two, as no limitation.
 struct Tally { pub chk: i64, pub rows: i64 }
 
 fn bad(t: &mut Tally, c: bool) -> bool { t.chk = t.chk + 1i64; return c; }

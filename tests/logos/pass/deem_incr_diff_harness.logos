@@ -242,8 +242,16 @@
 // `rm -f build/lib/logos/liblogos-*.a` — ctest links prebuilt archives, so
 // without that the control changes nothing — and run `ctest -R 'incr|wql_agg|
 // deem_'`: ONE red out of 90, this file, exit 20 with
-// `phaseA ep=0 hand-vs-static cell=1` on stdout. Every other fixture in the
-// family passes.
+// `phaseA ep=0 hand-vs-static cell=13 (len hand=18 static=18)` on stdout. Every
+// other fixture in the family passes.
+// ⚠ THE CELL INDEX IN THIS PARAGRAPH WAS `cell=1` AND THAT WAS WRONG — corrected
+// 2026-08-07 by a third run of the same control. The load-bearing half (sole
+// sensor, 1 of 90, exit 20) reproduced exactly; only the pinned stdout string
+// did not. It is recorded rather than quietly overwritten because a stale
+// diagnostic is worse than none: the next reader runs the control, sees a cell
+// index that does not match, and doubts the CONTROL instead of the paragraph.
+// The exit code names the CLASS; the printed cell is a PARAMETER, and a
+// parameter written from memory is the same defect as a ceiling in a comment.
 // ⚠ AND THE CENSUS SLICE DID NOT NARROW THAT. `deem_incr_static_retract_e2e`,
 // `deem_incr_join_e2e` and `wql_incr_retract_three_ways` now pin a census, which
 // closes "an assertion stopped RUNNING" — a different hole. Their `min`/`max`
