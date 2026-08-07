@@ -103,6 +103,12 @@ EXPECT=(
   "ok_rel_rec|EMITTED|RECURSIVE \`rel\`"
   "no_rel_oneshot|declined|NON-RECURSIVE declared \`rel\`"
   "no_rel_join|declined|JOIN-POSITION source is a DECLARED \`rel\`"
+  # ⚠ THE GROUND, NOT MERELY "some refusal". `fail/wql_incr_mutrec_outside_rel`
+  # asserts only that a name is not found, and that is true under EVERY refusal
+  # reaching the query — MEASURED: restoring P3b's `nmem != 1`, which withdraws
+  # the whole capability, leaves that door GREEN. This row is the one that fails
+  # if the clause stops being the OUTSIDE-SCC clause.
+  "no_rel_outside|declined|OUTSIDE this recursive SCC"
 )
 
 # ── THE SECOND AXIS: may the handle be run BACKWARDS? ───────────────────────
@@ -238,6 +244,7 @@ CAN="$TMPD/canary.txt"
   echo "[plan] incremental -> EMITTED on ok_rel_rec   (one bare scan, group by, insert-only aggregates over self-contained types)"
   echo "[plan] incremental -> declined on no_rel_oneshot   (the source is a NON-RECURSIVE declared \`rel\` — it materializes through the one-shot helper)"
   echo "[plan] incremental -> declined on no_rel_join   (a JOIN-POSITION source is a DECLARED \`rel\` — the handle's joined side is stored as a weighted Z-set)"
+  echo "[plan] incremental -> declined on no_rel_outside   (the program declares a \`rel\` OUTSIDE this recursive SCC — the entry prelude then has several materialization steps)"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"

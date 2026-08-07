@@ -190,6 +190,35 @@ pub deem no_rel_join(uu: &[U], es: &[E]) {
     }
     from uu u join jpath p on u.g == p.a group by u.g aggregate n = count() select (key, n)
 }
+// ⚠ A REL OUTSIDE THE SCC — AND THIS QUERY EXISTS BECAUSE THE `fail/` DOOR FOR
+// THE SAME CLAUSE IS NOT EVIDENCE ABOUT IT. `fail/wql_incr_mutrec_outside_rel`
+// asserts only that a name is NOT FOUND, and that name is absent under EVERY
+// refusal that reaches the query — MEASURED: restore P3b's `nmem != 1`, which
+// withdraws the whole mutual-recursion capability, and that door stays GREEN.
+// A `fail/` file has no room for a positive assertion and cannot carry an
+// eligible control, so the specific GROUND needs a query that COMPILES and
+// leaves a plan-trace verdict. That is this one, and the gate's EXPECT row
+// matches its ANTECEDENT rather than a generic "unsupported".
+//
+// The clause is `nmem != prm.rel_n`, and it is not `dep_mask` in disguise: here
+// `spath`/`epath` are a mutually recursive SCC of two and `tag` is a third rel
+// that NOBODY SCANS — the SCC's dep mask is 0 — yet the entry prelude still has
+// to materialize it, in a position `<q>_epoch` cannot derive from the registry.
+// A tree carrying only the `dep_mask` clause would admit this and emit an epoch
+// body that silently skipped a rel.
+pub deem no_rel_outside(es: &[E]) {
+    rel spath(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from epath v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel epath(a: i64, b: i64) {
+        from spath o join es e on o.b == e.a select (o.a, e.b);
+    }
+    rel tag(a: i64, b: i64) {
+        from es e select (e.b, e.a);
+    }
+    from spath p group by p.a aggregate c = count() select (key, c)
+}
 
 fn rows() -> Vec<S> {
     let mut v: Vec<S> = vec_new::<S>();
