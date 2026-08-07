@@ -49,6 +49,11 @@ struct T { pub g: i64, pub w: i64 }
 // its row carries a `str`" produce the same verdict and nothing separates them.
 struct U { pub g: i64, pub v: i64 }
 struct V { pub g: i64, pub z: i64 }
+// `E` is an EDGE, for the two `rel` declines below. It is its own struct rather
+// than a reuse of `U` so that the rel refusals cannot be confused with a row-type
+// refusal: `E`'s fields are both `i64`, so `incr_row_ty_ok` would ADMIT it, and
+// the only thing standing between these queries and a handle is the rel clause.
+struct E { pub a: i64, pub b: i64 }
 
 // ── ELIGIBLE — the control, and the only one with derived fns to call ───────
 pub deem ok_basic(ss: &[S]) {
@@ -130,6 +135,42 @@ pub deem no_strkey(ss: &[S]) {
 pub deem no_rowsel(ss: &[S]) {
     from ss s group by s.g aggregate t = sum(s.v) select s.v
 }
+// ── A DECLARED `rel` — AND THIS PAIR CLOSES A *SILENT WRONG ANSWER* ─────────
+//
+// ⚠⚠ EVERY OTHER DECLINE IN THIS FILE WITHHELD A FEATURE. These two withhold a
+// HANDLE THAT EXISTED AND ANSWERED WRONG. Measured on aaf16585, before the
+// clause landed, each against this query's own batch fn:
+//
+//   • `no_rel_rec`, edges {(1,2),(2,3)} split into two one-epoch deltas: the
+//     batch says group 1 has count 2 (it derives (1,3) through the rel), the
+//     handle said 1. The closure of a union is not the union of the closures.
+//   • `no_rel_oneshot`, the SAME edge presented in two epochs: the batch says 1
+//     because a rel is a SET and dedups, the handle said 2. So the hole is
+//     EVERY declared rel and not only a recursive one — which is why BOTH
+//     shapes are pinned here and not just the interesting one.
+//
+// The ground is in `incr_eligible`: `<q>_apply` splices the rel prelude
+// verbatim, so each epoch re-materializes the rel from an EMPTY total over the
+// DELTA ALONE. Dedup and closure are both properties of the ACCUMULATED input,
+// and the handle keeps neither the rel's rows nor the input they came from.
+//
+// ⚠ NATIVE rels (`<p>: &Writ`) are NOT refused — measured separately: they have
+// no dedup and no recursion, so one epoch over a document equals the batch over
+// it. The clause asks `rel_native`, so this file's coverage of the refusal does
+// not accidentally claim the native arm.
+pub deem no_rel_rec(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+pub deem no_rel_oneshot(es: &[E]) {
+    rel dpath(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+    }
+    from dpath d group by d.a aggregate c = count() select (key, c)
+}
 
 fn rows() -> Vec<S> {
     let mut v: Vec<S> = vec_new::<S>();
@@ -159,6 +200,19 @@ fn urows() -> Vec<U> {
 fn vrows() -> Vec<V> {
     let mut v: Vec<V> = vec_new::<V>();
     v.push(V { g: 0i64, z: 9i64 });
+    return v;
+}
+// A 3-CYCLE, PLUS A DUPLICATE EDGE. Deliberately not a DAG and deliberately not
+// duplicate-free, because the two things the batch does that a delta-fed handle
+// cannot are exactly (a) close a cycle and (b) dedup — and a DAG with distinct
+// edges exercises neither. The duplicate also makes the `no_rel_oneshot`
+// assertion below bite: without it, dedup and no-dedup give the same count.
+fn erows() -> Vec<E> {
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    v.push(E { a: 2i64, b: 3i64 });
+    v.push(E { a: 3i64, b: 1i64 });
+    v.push(E { a: 1i64, b: 2i64 });   // duplicate — a rel is a SET
     return v;
 }
 
@@ -307,6 +361,38 @@ fn main() -> i32 {
     match no_rowsel(ss.as_slice()) {
         Result::Ok(v) => { if v.len() != 2i64 { return 30i32; } }
         Result::Err(_e) => { return 31i32; }
+    }
+    // ── THE TWO `rel` DECLINES: THE BATCH STILL RUNS THE WHOLE FIXPOINT ─────
+    // ⚠ THE ASSERTION IS PLACED WHERE THE MECHANISM IS EXPENSIVE, WHICH ON A REL
+    // MEANS CYCLIC DATA. Over the 3-cycle every node reaches every node
+    // INCLUDING ITSELF, so the closure is all 9 pairs and each of the 3 groups
+    // has count 3 — reached by a semi-naive loop that runs several rounds and
+    // re-derives facts it already has. A DAG would assert none of that: it
+    // cannot see termination and it cannot see self-support. Checking only
+    // `v.len() != 3` would be the cheap version, satisfied by a rel that
+    // produced the raw edges and closed nothing, so the COUNTS are checked too.
+    let ee: Vec<E> = erows();
+    match no_rel_rec(ee.as_slice()) {
+        Result::Ok(v) => {
+            if v.len() != 3i64      { return 71i32; }
+            if v.get(0i64).1 != 3i64 { return 72i32; }
+            if v.get(1i64).1 != 3i64 { return 73i32; }
+            if v.get(2i64).1 != 3i64 { return 74i32; }
+        }
+        Result::Err(_e) => { return 75i32; }
+    }
+    // The one-shot rel: `es` carries (1,2) TWICE and a rel is a SET, so `dpath`
+    // holds three rows and group 1 has count ONE. A count of 2 for group 1 is
+    // precisely the dedup failing, which is one of the two properties the
+    // declined handle could not carry across an epoch.
+    match no_rel_oneshot(ee.as_slice()) {
+        Result::Ok(v) => {
+            if v.len() != 3i64      { return 76i32; }
+            if v.get(0i64).1 != 1i64 { return 77i32; }
+            if v.get(1i64).1 != 1i64 { return 78i32; }
+            if v.get(2i64).1 != 1i64 { return 79i32; }
+        }
+        Result::Err(_e) => { return 80i32; }
     }
     return 0i32;
 }

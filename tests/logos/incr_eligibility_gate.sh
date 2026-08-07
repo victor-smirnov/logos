@@ -77,6 +77,17 @@ EXPECT=(
   "no_limit|declined|\`order by\`"
   "no_strkey|declined|GROUP KEY is \`str\`"
   "no_rowsel|declined|\`select\` reaches a name"
+  # ⚠⚠ THESE TWO ARE NOT LIKE THE OTHERS. Every row above withholds a FEATURE;
+  # these withhold a handle that EXISTED AND ANSWERED WRONG. Measured on
+  # aaf16585 against each query's own batch fn: the recursive rel's handle said
+  # group 1 had count 1 where the batch said 2 (it never derived the transitive
+  # edge, because each epoch re-ran the fixpoint over the DELTA ALONE), and the
+  # one-shot rel's handle said 2 where the batch said 1 (a rel is a SET and
+  # dedups, and dedup is a property of the ACCUMULATED input). Both returned
+  # `Ok` and both traced EMITTED. So this gate is the thing standing between the
+  # corpus and a silent wrong answer, not a record of a deferral.
+  "no_rel_rec|declined|DECLARED \`rel\`"
+  "no_rel_oneshot|declined|DECLARED \`rel\`"
 )
 
 # ── THE SECOND AXIS: may the handle be run BACKWARDS? ───────────────────────
@@ -170,11 +181,19 @@ VIOLATION: the walk reported ${GOT_R} retraction decisions, expected ${WANT_R} �
            mismatch means the second derivation stopped tracking the first."
 fi
 
-# ── THE CANARY: the same matcher, over a trace broken four ways ─────────────
+# ── THE CANARY: the same matcher, over a trace broken five ways ─────────────
 # 1. a MISSING query (no_join_strrow has no line at all);
 # 2. a FLIPPED verdict (no_where reads EMITTED);
 # 3. a GENERIC ground (no_strkey's antecedent replaced by "not supported yet");
-# 4. a RENAMED query (no_rowsel spelled no_rowsel2).
+# 4. a RENAMED query (no_rowsel spelled no_rowsel2);
+# 5. THE REL REFUSAL FLIPPED (no_rel_rec reads EMITTED) — and this one is not a
+#    fifth flavour of the same mode, it is THE EXACT REGRESSION that removing the
+#    rel clause from `incr_eligible` produces. The other four model ways a gate
+#    can go blind; this one models the specific defect the gate was added to
+#    catch, so a matcher that silently stopped seeing this row would be caught
+#    here rather than by the corpus answering wrong. `no_rel_oneshot` is left
+#    CLEAN in the same trace so the canary stays a controlled experiment: one
+#    row broken, its pair intact.
 CAN="$TMPD/canary.txt"
 {
   echo "[plan] incremental -> EMITTED on ok_basic   (one bare scan, group by, insert-only aggregates over self-contained types)"
@@ -188,6 +207,8 @@ CAN="$TMPD/canary.txt"
   echo "[plan] incremental -> declined on no_limit   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
   echo "[plan] incremental -> declined on no_strkey   (not supported yet)"
   echo "[plan] incremental -> declined on no_rowsel2   (\`select\` reaches a name that is neither \`key\` nor an aggregate output)"
+  echo "[plan] incremental -> EMITTED on no_rel_rec   (one bare scan, group by, insert-only aggregates over self-contained types)"
+  echo "[plan] incremental -> declined on no_rel_oneshot   (a source is a DECLARED \`rel\` — \`<q>_apply\` splices the rel prelude verbatim)"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"
@@ -223,7 +244,7 @@ if [ -z "$(printf '%s' "$RCANV" | tr -d '[:space:]')" ] || \
     printf 'generic-ground : %s\n' "$RCANV2"
     exit 1
 fi
-for want in no_join_strrow no_where no_strkey no_rowsel; do
+for want in no_join_strrow no_where no_strkey no_rowsel no_rel_rec; do
     if ! grep -qF -- "'${want}'" "$TMPD/canary.violations"; then
         echo "FAIL: THE GATE'S CANARY DID NOT FIRE for '${want}'."
         echo "      A broken trace passed the same matcher that judges the real one,"

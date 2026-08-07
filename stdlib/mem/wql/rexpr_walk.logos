@@ -5546,6 +5546,78 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                  result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
                  having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
                  prm: &MacroParams, retr: bool, qn: str) -> bool {
+    // ── A DECLARED `rel` IS A SET, AND A HANDLE OVER ONE ANSWERS WRONG ──────
+    //
+    // ⚠⚠ THIS CLAUSE CLOSES A SILENT WRONG ANSWER, NOT A MISSING FEATURE, AND
+    // THE FLOOR THIS FUNCTION'S OWN HEADER STATES ALREADY EXCLUDED `rel` —
+    // "one bare-scan source … no `order by` / `limit` / `edge` / `fix` / `rel`"
+    // — it was written down and never mechanized, so it got re-made. Until now
+    // NO clause here asked whether a source was a rel, and every consequence
+    // below was MEASURED on aaf16585 against the query's own batch fn:
+    //
+    //   • RECURSIVE rel (transitive closure), edges {(1,2),(2,3)} split into two
+    //     one-edge epochs: batch says group 1 has count 2 (it derives (1,3)),
+    //     the handle says 1. The closure of a union is not the union of the
+    //     closures.
+    //   • NON-RECURSIVE rel, the SAME edge presented in two epochs: batch says
+    //     1 (the rel dedups), the handle says 2. So the hole is EVERY declared
+    //     rel, not only a recursive one — dedup alone is enough to break it.
+    //   • one `_apply(h, 0, +2, …)`: a Z-set row of weight 2 is two copies, but
+    //     the rel is a SET, so the closure is unchanged and batch says 1 while
+    //     the handle says 2.
+    //   • a retraction through recursion: batch over the survivor has NO group 1
+    //     at all, the handle reports group 1 with count 1 — and returns `Ok`.
+    //
+    // THE MECHANISM, because a ground that does not name one is the ground that
+    // never gets revisited: `emit_incremental` splices the rel PRELUDE verbatim
+    // at the top of `<q>_apply` (the `prelude_frag` call below), exactly as the
+    // batch emitters do. That prelude declares `let mut __rel_<m> = Vec::new();`
+    // and runs the whole SCC fixpoint — so every call re-materializes the rel
+    // FROM AN EMPTY TOTAL over THE DELTA ALONE, then folds each resulting row at
+    // the delta's weight. Both properties a rel has are properties of the
+    // ACCUMULATED input: set-semantics dedup (`rel_push_frag`'s shadow-set gate)
+    // and the recursive closure. The handle stores neither the rel's rows nor
+    // the input they were derived from, so neither survives the epoch boundary.
+    //
+    // THE SUCCESSOR IS NAMED, NOT VAGUE. Insert-only maintenance means seeding
+    // the semi-naive loop with the EDB delta instead of the whole relation, and
+    // it needs: the per-member total `__tot_<m>` and shadow set `__rs_<m>`
+    // promoted from fn locals onto the handle; the accumulated EDB kept as
+    // handle state in Z-set normal form; a round-0 variant in `body_scc_occs`
+    // binding the EDB occurrence to the delta and the in-SCC occurrence to the
+    // existing total; and a SECOND prelude threaded through `walk_query` →
+    // `emit_incremental`, which today receives the prelude only as opaque text
+    // and never sees `RelScc` at all. RETRACTION through recursion is a further
+    // slice again — a fact may support ITSELF through a cycle, so "subtract what
+    // it added" is wrong; the answer is DRed (over-delete, compact, re-derive),
+    // which the dynamic engine already implements at `incr_rec.logos:776-910`
+    // and which degrades to full recompute for a lattice member.
+    //
+    // ⚠ WEIGHTS MAY NEVER FLOW NAIVELY INTO AN SCC, and that is why the fix is
+    // not "carry `__wd` through". Counting derivations through a cycle DIVERGES:
+    // `path(a,b) :- path(a,c), edge(c,b)` has unboundedly many derivations of
+    // one fact, and set semantics is exactly what makes the existing fixpoint
+    // terminate. Any successor collapses the inbound weight to a 0→positive
+    // PRESENCE crossing and folds each derived row at +1, never at `__wd`.
+    //
+    // ⚠ NATIVE rels are NOT refused, and that is MEASURED rather than assumed.
+    // A native rel (`<p>: &Writ`, materialized by `writ_graph_edges`) has no
+    // dedup and no recursion: it is a pure function of one caller-owned
+    // container, so folding each epoch's rows at their weight IS the multiset
+    // union a bare scan means. Measured on aaf16585: one epoch over a document
+    // equals the batch over that document. The accumulated input of several
+    // `&Writ`s is not expressible as a batch call at all, so there is no
+    // cross-epoch spec here to violate in the way a derived rel violates one.
+    if incr_src_is_derived_rel(prm, ch.base_src) {
+        return incr_decline(qn, "a source is a DECLARED `rel` — `<q>_apply` splices the rel prelude verbatim, so every epoch re-materializes the rel from an EMPTY total over the DELTA ALONE and folds each row at the delta's weight, but a rel is a SET whose dedup and whose recursive closure are both properties of the ACCUMULATED input, of which the handle stores neither the rel's rows nor the input they came from");
+    }
+    let mut rsi: i64 = 0i64;
+    while rsi < ch.n {
+        if incr_src_is_derived_rel(prm, ch.src[rsi]) {
+            return incr_decline(qn, "a source is a DECLARED `rel` — `<q>_apply` splices the rel prelude verbatim, so every epoch re-materializes the rel from an EMPTY total over the DELTA ALONE and folds each row at the delta's weight, but a rel is a SET whose dedup and whose recursive closure are both properties of the ACCUMULATED input, of which the handle stores neither the rel's rows nor the input they came from");
+        }
+        rsi = rsi + 1i64;
+    }
     // ── THE JOIN, P3: ONE STEP IS ADMITTED AND EVERY OTHER SHAPE IS NAMED ────
     // The old ground was "COMBINING per-source deltas is the DBSP product rule
     // and needs the joined side's state on the handle". That is still exactly
@@ -5751,6 +5823,25 @@ fn incr_row_eq_text(t: &ElTypes, row_ty: str, sv: str, dv: str, out: &mut String
 }
 
 /// One declined incremental form, traced with its GROUND, then `false`.
+/// Is this chain source a DECLARED, DERIVED `rel` — one materialized by query
+/// BODIES rather than by an engine helper?
+///
+/// ⚠ `rel_find_src` resolves BOTH spellings a rel source wears (the emitted
+/// `__rel_<m>_sl` and the semi-naive delta's `__dl_<m>_sl`), which is why the
+/// question is asked of it rather than of `rel_names`: by the time a chain
+/// reaches `incr_eligible` the plan node's `src_name` has been rewritten to the
+/// emitted form, and matching the DECLARED name would silently answer "no rel
+/// here" for every query in the population this predicate exists to catch.
+///
+/// ⚠ NATIVE is excluded deliberately and the ground is in `incr_eligible`: a
+/// native rel has neither dedup nor recursion, so it carries no property of the
+/// accumulated input for an epoch boundary to lose.
+fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
+    let i: i64 = prm.rel_find_src(src);
+    if i < 0i64 { return false; }
+    return !prm.rel_native[i];
+}
+
 fn incr_decline(qn: str, why: str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     return false;

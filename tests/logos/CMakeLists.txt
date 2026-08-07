@@ -1564,8 +1564,10 @@ set_tests_properties(logos_09_deferred_plan_second_point PROPERTIES
 # fixture pins the POSITIVE direction by calling the derived fns; the negative
 # direction has nothing to name, so the gate reads the decision AND ITS GROUND off
 # `LOGOS_TRACE_PLAN`, asserts the population by COUNT as well as by membership, and
-# proves it can still speak by running its own matcher over a trace broken four
-# ways.
+# proves it can still speak by running its own matcher over a trace broken five
+# ways — the fifth being the rel refusal flipped to EMITTED, which is the exact
+# regression that removing `incr_eligible`'s rel clause produces and the one that
+# let a handle over a declared `rel` answer wrong while tracing success.
 add_test(
     NAME logos_09_incr_eligibility_population
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_eligibility_gate.sh
