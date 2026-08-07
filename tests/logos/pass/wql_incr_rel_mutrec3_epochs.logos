@@ -1,0 +1,351 @@
+// ADVERSARIAL RE-VERIFICATION OF P3c — A **THREE**-MEMBER RECURSIVE SCC,
+// A DIFFERENT RULE PAIR, A DIFFERENT ORACLE, AND A DIFFERENT GRAPH.
+//
+// The slice's own fixture runs a TWO-member odd/even SCC over a 3-cycle, checked
+// against a from-scratch alternating closure. Everything below shares NOTHING
+// with it: three members instead of two, residues mod 3 instead of a parity, a
+// product-graph BFS instead of a rule-shaped closure, and a graph with a DIAMOND
+// (two distinct paths of the same length) that the odd/even graph does not have.
+//
+//     rel r1(a,b) :- es(a,b)          // a path a→b of length ≡ 1 (mod 3)
+//     rel r1(a,b) :- r0(a,c), es(c,b)
+//     rel r2(a,b) :- r1(a,c), es(c,b) // ≡ 2 (mod 3), length ≥ 2
+//     rel r0(a,b) :- r2(a,c), es(c,b) // ≡ 0 (mod 3), length ≥ 3
+//
+// ONE SCC OF THREE MEMBERS. Registry order is r1, r2, r0 — deliberately NOT the
+// numeric order, because the driver takes the totals as POSITIONAL out-params in
+// registry order and all three row types are `(i64, i64)`, so a rotated binding
+// TYPECHECKS. Three members give six orderings, five of them wrong.
+//
+// ── WITNESS: A PRODUCT-GRAPH BFS, WHICH IS NOT A DATALOG EVALUATOR ─────────
+// `prod_count(es, k, a)` = |{ b : some walk a→b of length ≥1 with length ≡ k }|,
+// computed by breadth-first search over the state space (node × Z/3) from
+// (a, 0), the start state expanded but never recorded so a cycle back to it is
+// counted. No rules, no deltas, no shadow set, no SCC, no stratification, no
+// alternation — a graph search over a product automaton. It cannot agree with a
+// wrong semi-naive rewriting by running the same fold.
+//
+// ── WHAT IS ASSERTED AT EVERY EPOCH ───────────────────────────────────────
+//  · every key 1..5 of every member — 5 is NEVER touched by any edge, so its
+//    answer is `-1` = the group is ABSENT, which is a different assertion from
+//    "present with 0";
+//  · the GROUP POPULATION of each member, derived from the table, so a fourth
+//    group nobody asked about is caught;
+//  · ⚠ THE RAW ROW COUNT OF ALL THREE `__tot_<m>` FIELDS BY NAME. This is the
+//    WEIGHT assertion and it is why the fixture reaches into the handle: the
+//    group state dedups downstream, so a relation row derived TWICE through two
+//    different members is invisible to `count()` but not to `|__tot_r*|`. E4
+//    closes a DIAMOND — 1→2→3 and 1→4→3, two distinct length-2 paths — and
+//    `|__tot_r2|` must be 1, not 2. It also pins the two members NOBODY FOLDS:
+//    each query folds one member, and the other two are maintained and read by
+//    nothing else in the tree.
+//  · the batch fn as a CONTROL that certifies nothing (same emitter).
+//
+// ── THE DATA. Seven epochs, one edge each, over nodes 1..4 (5 is a hole) ──
+//   E1 (1,2)  E2 (2,3)  E3 (1,4)  E4 (4,3) ← the DIAMOND
+//   E5 (3,1) ← closes the 3-cycle 1→2→3→1, so residue 0 becomes inhabited
+//   E6 (3,3) ← a SELF-LOOP: every residue saturates
+//   E7 (1,2) ← a DUPLICATE edge; nothing may move (a rel is a SET), and this is
+//              the epoch the `|__edb|` bound speaks at.
+//
+// ── THE ALTERNATION-DEPTH BLOCK ───────────────────────────────────────────
+// The chain 1→2→…→13 fed FROM THE TAIL. `r0(1,13)` is a walk of length 12: the
+// derivation is r1(1,2) → r2(1,3) → r0(1,4) → r1(1,5) → … → r0(1,13), ELEVEN
+// crossings between members, and the LAST edge fed must cascade all twelve
+// rounds in ONE epoch. Asserted only at the last prefix.
+//
+// exit 0 = three witnesses agree with the table at all seven epochs for all
+// three members, the diamond carries weight 1, and the depth block answers.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+// THREE QUERIES OVER THE SAME THREE-MEMBER SCC — one per member, so every
+// positional out-param is the FOLDED one in exactly one of them.
+pub deem r1q(es: &[E]) {
+    rel r1(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from r0 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r2(a: i64, b: i64) {
+        from r1 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r0(a: i64, b: i64) {
+        from r2 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    from r1 p group by p.a aggregate c = count() select (key, c)
+}
+
+pub deem r2q(es: &[E]) {
+    rel r1(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from r0 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r2(a: i64, b: i64) {
+        from r1 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r0(a: i64, b: i64) {
+        from r2 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    from r2 p group by p.a aggregate c = count() select (key, c)
+}
+
+pub deem r0q(es: &[E]) {
+    rel r1(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from r0 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r2(a: i64, b: i64) {
+        from r1 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel r0(a: i64, b: i64) {
+        from r2 v join es e on v.b == e.a select (v.a, e.b);
+    }
+    from r0 p group by p.a aggregate c = count() select (key, c)
+}
+
+// ── THE ORACLE: BFS OVER (node × Z/3) ─────────────────────────────────────
+fn seen_add(s: &mut Vec<(i64, i64)>, n: i64, r: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < s.len() {
+        let c: (i64, i64) = s.get(i);
+        if c.0 == n && c.1 == r { return false; }
+        i = i + 1i64;
+    }
+    s.push((n, r));
+    return true;
+}
+
+fn prod_reach(es: &[E], key: i64) -> Vec<(i64, i64)> {
+    let mut seen: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut q: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    // The START state is expanded but NOT recorded: a walk of length 0 is not a
+    // fact. A cycle that returns to (key, 0) records it then, which is exactly
+    // `r0(key, key)`.
+    q.push((key, 0i64));
+    let mut head: i64 = 0i64;
+    while head < q.len() {
+        let s: (i64, i64) = q.get(head);
+        head = head + 1i64;
+        let mut j: i64 = 0i64;
+        while j < es.len() {
+            if es[j].a == s.0 {
+                let nr: i64 = (s.1 + 1i64) % 3i64;
+                if seen_add(&mut seen, es[j].b, nr) { q.push((es[j].b, nr)); }
+            }
+            j = j + 1i64;
+        }
+    }
+    return seen;
+}
+
+// |{ b : a walk key→b of length ≥1 and ≡ resid (mod 3) }|, or -1 if none.
+fn prod_count(es: &[E], resid: i64, key: i64) -> i64 {
+    let seen: Vec<(i64, i64)> = prod_reach(es, key);
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < seen.len() {
+        if seen.get(i).1 == resid { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    if n == 0i64 { return -1i64; }
+    return n;
+}
+
+// TOTAL rows of member `resid` over the whole graph — the weight witness.
+fn prod_total(es: &[E], resid: i64, maxn: i64) -> i64 {
+    let mut t: i64 = 0i64;
+    let mut a: i64 = 1i64;
+    while a <= maxn {
+        let c: i64 = prod_count(es, resid, a);
+        if c > 0i64 { t = t + c; }
+        a = a + 1i64;
+    }
+    return t;
+}
+
+fn cnt_of(out: &Vec<(i64, i64)>, key: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < out.len() {
+        let r: (i64, i64) = out.get(i);
+        if r.0 == key { return r.1; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn edge(a: i64, b: i64) -> Vec<E> {
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: a, b: b });
+    return v;
+}
+
+fn main() -> i32 {
+    let mut h1: R1qIncr = r1q_incremental();
+    let mut h2: R2qIncr = r2q_incremental();
+    let mut h0: R0qIncr = r0q_incremental();
+    let mut acc: Vec<E> = vec_new::<E>();
+
+    let mut ei: i64 = 0i64;
+    while ei < 7i64 {
+        let mut d: Vec<E> = vec_new::<E>();
+        if ei == 0i64 { d = edge(1i64, 2i64); }
+        if ei == 1i64 { d = edge(2i64, 3i64); }
+        if ei == 2i64 { d = edge(1i64, 4i64); }
+        if ei == 3i64 { d = edge(4i64, 3i64); }
+        if ei == 4i64 { d = edge(3i64, 1i64); }
+        if ei == 5i64 { d = edge(3i64, 3i64); }
+        if ei == 6i64 { d = edge(1i64, 2i64); }
+
+        match r1q_epoch(&mut h1, d.as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 10i32 + (ei as i32) * 10i32; }
+        }
+        match r2q_epoch(&mut h2, d.as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 11i32 + (ei as i32) * 10i32; }
+        }
+        match r0q_epoch(&mut h0, d.as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 12i32 + (ei as i32) * 10i32; }
+        }
+        let mut ai: i64 = 0i64;
+        while ai < d.len() { acc.push(d.get(ai)); ai = ai + 1i64; }
+
+        let o1: Vec<(i64, i64)> = match r1q_snapshot(&h1) {
+            Result::Ok(v) => { v } Result::Err(_e) => { return 13i32 + (ei as i32) * 10i32; }
+        };
+        let o2: Vec<(i64, i64)> = match r2q_snapshot(&h2) {
+            Result::Ok(v) => { v } Result::Err(_e) => { return 14i32 + (ei as i32) * 10i32; }
+        };
+        let o0: Vec<(i64, i64)> = match r0q_snapshot(&h0) {
+            Result::Ok(v) => { v } Result::Err(_e) => { return 15i32 + (ei as i32) * 10i32; }
+        };
+
+        // ══ THE WEIGHT ASSERTION FIRST, BEFORE ANY ANSWER ═════════════════
+        // ⚠ AHEAD OF THE COUNTS DELIBERATELY. `count()` is folded through the
+        // group state, which dedups downstream — a relation row derived TWICE is
+        // invisible to it in general. `|__tot_<m>|` is the ARTIFACT and it sees
+        // the multiplicity directly, so it is asked first and the answers are
+        // asked after. MEASURED: with the driver's shadow-set presence gate
+        // removed this reds at E2 on `__tot_r1` (exit 203) — where, with the
+        // counts asked first, the file reported a count instead (exit 121).
+        // ⚠ E4 closes a DIAMOND: 1→2→3 and 1→4→3 are two distinct length-2
+        // walks deriving the SAME row r2(1,3), so `|__tot_r2|` must read 1.
+        // ⚠ AND THIS IS THE ONLY PLACE THE UNFOLDED MEMBERS ARE READ AT ALL:
+        // `r1q`'s handle maintains `__tot_r2` and `__tot_r0` and folds neither.
+        let t1: i64 = prod_total(acc.as_slice(), 1i64, 5i64);
+        let t2: i64 = prod_total(acc.as_slice(), 2i64, 5i64);
+        let t0: i64 = prod_total(acc.as_slice(), 0i64, 5i64);
+        if h1.__tot_r1.len() != t1 { return 200i32 + (ei as i32) * 3i32 + 0i32; }
+        if h1.__tot_r2.len() != t2 { return 200i32 + (ei as i32) * 3i32 + 1i32; }
+        if h1.__tot_r0.len() != t0 { return 200i32 + (ei as i32) * 3i32 + 2i32; }
+        if h2.__tot_r1.len() != t1 { return 225i32 + (ei as i32) * 3i32 + 0i32; }
+        if h2.__tot_r2.len() != t2 { return 225i32 + (ei as i32) * 3i32 + 1i32; }
+        if h0.__tot_r0.len() != t0 { return 225i32 + (ei as i32) * 3i32 + 2i32; }
+
+        // ── EVERY KEY 1..5 OF EVERY MEMBER against the BFS oracle ──────────
+        let mut k: i64 = 1i64;
+        let mut pop1: i64 = 0i64;
+        let mut pop2: i64 = 0i64;
+        let mut pop0: i64 = 0i64;
+        while k <= 5i64 {
+            let w1: i64 = prod_count(acc.as_slice(), 1i64, k);
+            let w2: i64 = prod_count(acc.as_slice(), 2i64, k);
+            let w0: i64 = prod_count(acc.as_slice(), 0i64, k);
+            if cnt_of(&o1, k) != w1 { return 100i32 + (ei as i32) * 20i32 + (k as i32); }
+            if cnt_of(&o2, k) != w2 { return 105i32 + (ei as i32) * 20i32 + (k as i32); }
+            if cnt_of(&o0, k) != w0 { return 110i32 + (ei as i32) * 20i32 + (k as i32); }
+            if w1 > 0i64 { pop1 = pop1 + 1i64; }
+            if w2 > 0i64 { pop2 = pop2 + 1i64; }
+            if w0 > 0i64 { pop0 = pop0 + 1i64; }
+            k = k + 1i64;
+        }
+        // ── GROUP POPULATION — a group nobody asked about is caught here ───
+        if o1.len() != pop1 { return 16i32 + (ei as i32) * 10i32; }
+        if o2.len() != pop2 { return 17i32 + (ei as i32) * 10i32; }
+        if o0.len() != pop0 { return 18i32 + (ei as i32) * 10i32; }
+
+        // `__edb` is ONE for the whole SCC and holds the DISTINCT input.
+        let mut ue: i64 = 0i64;
+        let mut ux: i64 = 0i64;
+        while ux < acc.len() {
+            let mut dup: bool = false;
+            let mut uy: i64 = 0i64;
+            while uy < ux {
+                if acc.get(uy).a == acc.get(ux).a && acc.get(uy).b == acc.get(ux).b { dup = true; }
+                uy = uy + 1i64;
+            }
+            if !dup { ue = ue + 1i64; }
+            ux = ux + 1i64;
+        }
+        if h1.__edb.len() != ue { return 19i32 + (ei as i32) * 10i32; }
+
+        // ── THE BATCH CONTROL (same emitter — certifies nothing) ───────────
+        let b1: Vec<(i64, i64)> = match r1q(acc.as_slice()) {
+            Result::Ok(v) => { v } Result::Err(_e) => { return 90i32; }
+        };
+        if b1.len() != o1.len() { return 91i32 + (ei as i32); }
+
+        ei = ei + 1i64;
+    }
+
+    // ══ ALTERNATION DEPTH — THE CHAIN 1→…→13, FED FROM THE TAIL ═══════════
+    // r0(1,13) is 12 rounds deep and crosses members eleven times. Asserted ONLY
+    // at the last prefix so an early divergence cannot report first and mask it.
+    let mut c1: R1qIncr = r1q_incremental();
+    let mut c2: R2qIncr = r2q_incremental();
+    let mut c0: R0qIncr = r0q_incremental();
+    let mut src: i64 = 12i64;
+    while src >= 1i64 {
+        match r1q_epoch(&mut c1, edge(src, src + 1i64).as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 240i32; }
+        }
+        match r2q_epoch(&mut c2, edge(src, src + 1i64).as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 241i32; }
+        }
+        match r0q_epoch(&mut c0, edge(src, src + 1i64).as_slice()) {
+            Result::Ok(_n) => { } Result::Err(_e) => { return 242i32; }
+        }
+        src = src - 1i64;
+    }
+    let d1: Vec<(i64, i64)> = match r1q_snapshot(&c1) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 243i32; }
+    };
+    let d2: Vec<(i64, i64)> = match r2q_snapshot(&c2) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 244i32; }
+    };
+    let d0: Vec<(i64, i64)> = match r0q_snapshot(&c0) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 245i32; }
+    };
+    // Group populations differ across the three members — 12 / 11 / 10 — so a
+    // ROTATED positional binding of the totals is caught here even though all
+    // three row types are identical.
+    if d1.len() != 12i64 { return 246i32; }
+    if d2.len() != 11i64 { return 247i32; }
+    if d0.len() != 10i64 { return 248i32; }
+    // ⚠ THE DEPTH CELL. r0(1,13) needs the full 12-round cascade; without it
+    // key 1 of r0 answers 3 instead of 4.
+    if cnt_of(&d0, 1i64) != 4i64  { return 250i32; }
+    if cnt_of(&d1, 1i64) != 4i64  { return 251i32; }
+    if cnt_of(&d2, 1i64) != 4i64  { return 252i32; }
+    if cnt_of(&d0, 3i64) != 3i64  { return 253i32; }
+    if cnt_of(&d1, 3i64) != 4i64  { return 254i32; }
+    if cnt_of(&d2, 3i64) != 3i64  { return 255i32; }
+    if cnt_of(&d0, 10i64) != 1i64 { return 226i32; }
+    if cnt_of(&d0, 11i64) != -1i64 { return 227i32; }
+    if cnt_of(&d1, 12i64) != 1i64 { return 228i32; }
+    if cnt_of(&d2, 12i64) != -1i64 { return 229i32; }
+    // The INDEPENDENT witness at the deepest prefix.
+    let mut ch: Vec<E> = vec_new::<E>();
+    let mut cs: i64 = 1i64;
+    while cs <= 12i64 { ch.push(E { a: cs, b: cs + 1i64 }); cs = cs + 1i64; }
+    if prod_count(ch.as_slice(), 0i64, 1i64) != 4i64 { return 230i32; }
+    if prod_count(ch.as_slice(), 1i64, 3i64) != 4i64 { return 231i32; }
+    if prod_count(ch.as_slice(), 2i64, 3i64) != 3i64 { return 232i32; }
+    return 0i32;
+}

@@ -1631,6 +1631,33 @@ set_tests_properties(logos_09_incr_scc_driver_count PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# MUTREC REFUSAL gate: the handle is EMITTED and the RETRACTION, specifically, is
+# the thing withheld — asserted in ONE compile so the two cannot drift apart.
+#
+# ⚠ THIS EXISTS BECAUSE THE THREE `fail/wql_incr_mutrec_*` DOORS WERE MEASURED
+# TO PASS UNDER A STRICTLY STRONGER REFUSAL. Restore P3b's `nmem != 1` — the
+# mutually recursive SCC gets no incremental surface at all — rebuild the stdlib,
+# and all three doors stay GREEN while only `pass/wql_incr_rel_mutrec_epochs.logos`
+# reds. `run_test.sh` fail mode asks that stderr CONTAIN a name-not-found, and the
+# name is missing under every refusal that reaches the query. A green door is
+# therefore not evidence about the retraction clause; this gate is the eligible
+# control the `fail/` files cannot carry, because a file that must not compile has
+# no room for a positive assertion.
+#
+# `tier_commit`: one compile, and the commit that would break it is the same
+# commit that touches these two clauses.
+add_test(
+    NAME logos_09_incr_mutrec_refusal
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_mutrec_refusal_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_rel_mutrec_epochs.logos
+)
+set_tests_properties(logos_09_incr_mutrec_refusal PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
 # DERIVED SET, not a transposition of the first pair. What the fixture cannot see is
 # everything about the orders that did NOT run: which permutations were considered,
