@@ -540,10 +540,7 @@ pub struct RelScc {
 ///     different mechanism with its own failure modes. It keeps its refusal, and
 ///     the second measured wrong answer (a rel is a SET; the same edge twice
 ///     counted twice) stays REFUSED rather than becoming wrong.
-///   • ONE MEMBER — a multi-member SCC's totals are several `&mut Vec` params
-///     and several handle fields; nothing about the driver changes, but the
-///     admission would then rest on a shape no fixture runs.
-///   • NOT an AGGREGATE member — a recursive min/max member's state is a
+///   • NO AGGREGATE MEMBER — a recursive min/max member's state is a
 ///     best-per-key MAP plus a distinct-key roster plus a round counter, and its
 ///     total is MATERIALIZED after the loop rather than appended during it, so
 ///     "the rows added this epoch" is not a suffix of the total. That is a
@@ -551,22 +548,54 @@ pub struct RelScc {
 ///   • NO OUT-OF-SCC REL DEPENDENCY (`dep_mask == 0`) — a lower-stratum rel is
 ///     itself derived, so maintaining this one across epochs means maintaining
 ///     THAT one too, and the entry query would need both totals on the handle.
-///   • NOT NATIVE / NOT STREAMING — a native rel is a pure function of a
+///   • NO NATIVE / NO STREAMING MEMBER — a native rel is a pure function of a
 ///     caller-owned `&Writ` with no parse-side bodies at all, and a streaming
 ///     rel is bound to an iterator rather than to a slice the driver can total.
-///   • THE ONLY REL IN THE PROGRAM — with a second rel the entry prelude has
-///     more than one materialization step and `<q>_epoch` would have to
-///     reproduce the ORDER of them; one rel makes the epoch body derivable from
-///     the registry alone, which is what removes the threaded second prelude.
+///   • EVERY REL IN THE PROGRAM IS A MEMBER OF THIS SCC — with a rel OUTSIDE it
+///     the entry prelude has more than one materialization step and `<q>_epoch`
+///     would have to reproduce the ORDER of them; one SCC covering the whole
+///     registry makes the epoch body derivable from the registry alone, which is
+///     what removes the threaded second prelude.
+///
+/// ══ P3c — THE CLAUSES ARE PER-SCC, NOT PER-REL, AND THAT IS THE WIDENING ═══
+///
+/// P3b asked every clause of the rel `r` ALONE, which was indistinguishable from
+/// asking it of the SCC because `nmem != 1` had already refused everything else.
+/// Widening to mutual recursion makes the difference load-bearing: the `_i`
+/// driver emitted for an SCC contains the state of EVERY member, so an SCC whose
+/// members are {plain, aggregate} would get a driver in which one member's total
+/// is appended during the loop and the other's is MATERIALIZED after it — and
+/// the `_i` seeding path (`__rs_<m>` walked out of `__tot_<m>`) exists only on
+/// the plain branch, so the aggregate member would enter every epoch after the
+/// first with an EMPTY best-per-key map and re-derive its extremum from the
+/// delta alone. Hence `any_agg`, `any_native`, `any_stream` and the UNION of the
+/// dep masks: a clause that held for the selected member but not for its
+/// co-member would have admitted exactly that.
+///
+/// ⚠ NO CAPACITY CLAUSE, and the reason is a bound rather than an oversight:
+/// `rel_add` refuses past 8 (`rel_n >= 8` → -1), so `nmem <= rel_n <= 8` and
+/// `emit_scc_fn`'s `mem: [i64; 8]` and the handle's `[String; 8]` total-name
+/// array cannot be overrun. If `rel_add`'s bound ever moves, both move with it.
 pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         let c: i64 = scc.comp[r];
         prm.rel_sccid[r] = c;
         let mut nmem: i64 = 0i64;
+        // ── THE SCC'S PROPERTIES, NOT THE REL'S — see the P3c note above ────
+        let mut any_agg:    bool = false;
+        let mut any_native: bool = false;
+        let mut any_stream: bool = false;
+        let mut mask_u:     i64  = 0i64;
         let mut k: i64 = 0i64;
         while k < prm.rel_n {
-            if scc.comp[k] == c { nmem = nmem + 1i64; }
+            if scc.comp[k] == c {
+                nmem = nmem + 1i64;
+                if prm.rel_is_agg[k] { any_agg = true; }
+                if prm.rel_native[k] { any_native = true; }
+                if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
+                mask_u = mask_u | scc.dep_mask[k];
+            }
             k = k + 1i64;
         }
         // ⚠ ORDER MATTERS ONLY FOR THE SENTENCE, NOT FOR THE FLAG: the flag is
@@ -575,17 +604,25 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
         let mut why: str = "";
         if !scc.rec[c] {
             why = "the source is a NON-RECURSIVE declared `rel` — it materializes through the one-shot helper, which has no fixpoint TOTAL to extend and no shadow set to seed, so maintaining it across epochs means CLEARING and re-folding the group state rather than extending it (the dedup defect this refusal closes is still real: a rel is a SET and the same fact twice is one row)";
-        } else if nmem != 1i64 {
-            why = "the recursive SCC has MORE THAN ONE MEMBER — every member's total is a separate `&mut Vec` out-param and a separate handle field, and no fixture in this slice runs a mutually recursive rel across epochs";
-        } else if prm.rel_n != 1i64 {
-            why = "the program declares MORE THAN ONE `rel` — the entry prelude then has several materialization steps in a condensation order, and `<q>_epoch` would have to reproduce that order rather than derive its whole body from the registry";
-        } else if prm.rel_is_agg[r] {
-            why = "the recursive member is an AGGREGATE rel (a min/max semilattice head) — its state is a best-per-key MAP plus a distinct-key roster plus a convergence counter, and its total is MATERIALIZED after the loop rather than appended during it, so `the rows added this epoch` is not a suffix of the total";
-        } else if prm.rel_native[r] {
-            why = "the rel is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
-        } else if prm.rel_iter[r] || prm.rel_stream[r] {
-            why = "the rel STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
-        } else if scc.dep_mask[r] != 0i64 {
+        } else if nmem != prm.rel_n {
+            // ⚠ P3c REPLACED `prm.rel_n != 1` WITH THIS, AND THE OLD CLAUSE'S
+            // GROUND IS WHY. That ground was "the entry prelude then has several
+            // materialization steps in a condensation order". It evaporates
+            // exactly when EVERY declared rel is a member of THIS SCC:
+            // `emit_prelude_scc` then emits ONE step and there is no order to
+            // reproduce. It does NOT evaporate for a rel outside the SCC, and
+            // that is the case this clause still refuses — which is also the
+            // `dep_mask` clause's neighbour, but not its duplicate: a rel
+            // outside the SCC that this SCC does NOT scan still has to be
+            // materialized by the entry, in an order `<q>_epoch` cannot derive.
+            why = "the program declares a `rel` OUTSIDE this recursive SCC — the entry prelude then has several materialization steps in a condensation order, and `<q>_epoch` would have to reproduce that order rather than derive its whole body from the registry";
+        } else if any_agg {
+            why = "a member of the recursive SCC is an AGGREGATE rel (a min/max semilattice head) — its state is a best-per-key MAP plus a distinct-key roster plus a convergence counter, and its total is MATERIALIZED after the loop rather than appended during it, so `the rows added this epoch` is not a suffix of the total; the `_i` variant seeds a shadow set from the total and there is no such seeding for a map";
+        } else if any_native {
+            why = "a member of the SCC is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
+        } else if any_stream {
+            why = "a member of the SCC STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
+        } else if mask_u != 0i64 {
             why = "the recursive SCC DEPENDS ON A LOWER-STRATUM `rel` — that rel is itself derived, so maintaining this one across epochs means maintaining that one too and the handle would have to own both totals";
         }
         prm.rel_incr_why[r] = why;

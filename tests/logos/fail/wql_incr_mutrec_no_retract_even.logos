@@ -1,0 +1,49 @@
+// RETRACTION THROUGH MUTUAL RECURSION IS REFUSED — DOOR 2 OF 2.
+//
+// The sibling of `wql_incr_mutrec_no_retract_odd.logos`, and it exists because
+// the refusal's population is the SCC's MEMBERS, not one distinguished member.
+// P3c admits a mutually recursive SCC by binding one `__tot_<m>` per member to
+// the driver, and the ENTRY query may select from ANY of them
+// (`rel_find_src(ch.base_src)`); each choice is its own path into
+// `incr_retract_eligible`. `even` is the member with NO base body — every one of
+// its rows comes through the other member — so it is the door where "this fact
+// supports itself through the cycle" is not even arguable: `even` has no
+// derivation that does not pass through `odd`.
+//
+// ⚠ THIS IS THE DOOR A SINGLE FIXTURE WOULD HAVE MISSED. Pinning only the
+// `odd` query pins only the member that happens to be declared first and to
+// carry the base body — precisely the shape a single-member SCC already had. An
+// eligibility clause that read the FIRST member of the SCC rather than the
+// SELECTED one would pass that fixture and fail this one.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem evenq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    from even p group by p.a aggregate c = count() select (key, c)
+}
+
+fn main() -> i32 {
+    let mut h: EvenqIncr = evenq_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match evenq_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    // ⚠ THE LINE UNDER TEST. `evenq_retract` is not emitted either.
+    match evenq_retract(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 2i32; }
+    }
+    return 0i32;
+}

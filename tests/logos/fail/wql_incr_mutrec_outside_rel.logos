@@ -1,0 +1,60 @@
+// A REL OUTSIDE THE RECURSIVE SCC STILL REFUSES THE HANDLE — THE CLAUSE P3c
+// REPLACED RATHER THAN DELETED.
+//
+// P3b refused any program declaring more than one `rel` (`prm.rel_n != 1`), and
+// the ground it named was the ENTRY PRELUDE: with a second rel the prelude has
+// several materialization steps in a condensation order, and `<q>_epoch` — which
+// derives its whole body from the registry — would have to reproduce that order.
+//
+// P3c widens that clause to `nmem != prm.rel_n`, and the reason is that the
+// ground EVAPORATES in exactly one case: when every declared rel is a member of
+// THIS SCC, `emit_prelude_scc` emits ONE materialization step and there is no
+// order to reproduce. It does NOT evaporate otherwise — which is what this file
+// pins. Here `odd`/`even` are a mutually recursive SCC of two, `tag` is a third
+// rel outside it, and `rel_n` is 3 against `nmem` 2, so the refusal stands and
+// `oddq_incremental` is never emitted.
+//
+// ⚠ NOT THE SAME CLAUSE AS `dep_mask`, and the difference is why both exist.
+// `dep_mask` refuses an SCC that SCANS a lower-stratum rel. `tag` is scanned by
+// nothing — the SCC's mask is 0 — and it still has to be materialized by the
+// entry, in a position `<q>_epoch` cannot derive. A tree with only the
+// `dep_mask` clause would admit this program and emit an epoch body that
+// silently skipped a rel.
+//
+// ⚠ AND IT BITES. Relax `nmem != prm.rel_n` to `false` and `oddq_incremental` is
+// emitted, this fixture COMPILES, and a `fail/` test that compiles is RED.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem oddq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    // ⚠ THE THIRD REL — outside the SCC, scanned by nobody, and still a
+    // materialization step the epoch body cannot account for.
+    rel tag(a: i64, b: i64) {
+        from es e select (e.b, e.a);
+    }
+    from odd p group by p.a aggregate c = count() select (key, c)
+}
+
+fn main() -> i32 {
+    // ⚠ THE LINE UNDER TEST. No handle is emitted for this query, so neither the
+    // constructor nor the handle TYPE exists.
+    let mut h: OddqIncr = oddq_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match oddq_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    return 0i32;
+}

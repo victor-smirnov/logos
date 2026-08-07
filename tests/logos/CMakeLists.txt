@@ -1606,6 +1606,31 @@ set_tests_properties(logos_09_incr_retraction_population PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# SCC DRIVER COUNT gate (P3c): one cross-epoch semi-naive driver per admitted
+# recursive SCC, not one per admitted MEMBER.
+#
+# ⚠ `tier_commit`, AND FOR A REASON THE CONTROL MEASURED RATHER THAN A HABIT.
+# `emit_rel_fns` emitted the `_i` driver from inside the member loop, which was
+# correct only because every multi-member SCC was refused. Widening the admission
+# made it emit the SAME item once per member — and MEASURED 2026-08-07 by
+# restoring the old loop and rebuilding the whole stdlib, EVERY test in the tree
+# stayed green: the compiler takes the duplicate definition silently. A defect no
+# answer can see is exactly the kind that returns, so the emitter reports what it
+# emitted and this counts it. It runs in ~2 compiles, so there is no cost ground
+# for putting it out of reach of the commit that would break it.
+add_test(
+    NAME logos_09_incr_scc_driver_count
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_scc_driver_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_rel_mutrec_epochs.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_rel_rec_epochs.logos
+)
+set_tests_properties(logos_09_incr_scc_driver_count PROPERTIES
+    TIMEOUT 60
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
 # DERIVED SET, not a transposition of the first pair. What the fixture cannot see is
 # everything about the orders that did NOT run: which permutations were considered,

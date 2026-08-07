@@ -87,6 +87,18 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // error path at all — which is not the answer "no error", it is "that engine was
 // never asked". Strict → lax is a compatible relaxation later; lax → strict
 // breaks every caller that learned to ignore the silence.
+/// ⚠ THE `|__edb|` BOUND IS **NOT** A VARIANT HERE, AND THE REASON IS WHERE THE
+/// FAULT COMES FROM. P3c's rel-backed handle checks that its accumulated input
+/// stays distinct (`<q>_epoch`, rexpr_walk.logos) — a bound a CALLER CANNOT
+/// PROVOKE, only a broken emitter can, which is the same class as the recursive
+/// aggregate's convergence guard and it takes the same answer: `panic` with a
+/// diagnostic, not a value in this enum. It was written as a sixth variant
+/// first, and that is recorded rather than quietly dropped: it made FIVE
+/// exhaustive `match`es across the corpus non-exhaustive at once
+/// (`wql_incr_eligibility_matrix`, `wql_incr_retract_three_ways`,
+/// `deem_incr_diff_harness`, `deem_incr_join_e2e`,
+/// `deem_incr_static_retract_e2e`), i.e. it charged every CALLER a new arm for a
+/// condition no caller can cause. This enum is the caller's error surface.
 pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent, SrcUnknown }
 
 // i64 checked arithmetic returning ElError. `checked_add/sub/mul/div/rem/neg`

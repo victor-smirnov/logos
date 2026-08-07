@@ -4510,11 +4510,43 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                                  String::new(), String::new(), String::new(), String::new()];
     let mut wmap: [bool; 8] = [false, false, false, false, false, false, false, false];
 
-    // The rel TOTAL field's name, under the SAME frame-lifetime rule `ganm`
-    // carries above: `Ident::new` BORROWS, and this Ident is pushed into a Vec
-    // that outlives any block-local String that built it.
-    let mut totnm: String = String::new();
-    if rel_m >= 0i64 { totnm = suffixed("__tot_", prm.rel_names[rel_m]); }
+    // ── THE SCC'S MEMBERS, IN THE ORDER `emit_scc_fn` PUTS THEM IN ITS ─────
+    // ── SIGNATURE, AND THAT ORDER IS THE WHOLE CONTRACT — P3c ──────────────
+    //
+    // `emit_scc_fn` appends one `__tot_<m>: &mut Vec<RowTy>` out-param per
+    // member by scanning the registry with `r` ASCENDING and taking every rel
+    // whose `scc.comp[r]` is this SCC. The epoch body below builds the CALL, so
+    // it must produce the same members in the same order or the totals bind to
+    // the wrong parameters — and with two members of the SAME row type (the
+    // odd/even pair is exactly that) the compiler would not catch it: it would
+    // typecheck and answer with the members SWAPPED.
+    //
+    // ⚠ THE MEMBERSHIP TEST IS `rel_sccid`, NOT `scc`, because `scc` is not in
+    // scope here — `stamp_rel_incr_shape` flattened `comp` onto the registry for
+    // exactly this reason. Same array, same scan direction, one derivation.
+    let mut tmem: [i64; 8] = [0i64; 8];
+    let mut ntm:  i64      = 0i64;
+    if rel_m >= 0i64 {
+        let mut tk: i64 = 0i64;
+        while tk < prm.rel_n {
+            if prm.rel_sccid[tk] == prm.rel_sccid[rel_m] {
+                if ntm < 8i64 { tmem[ntm] = tk; ntm = ntm + 1i64; }
+            }
+            tk = tk + 1i64;
+        }
+    }
+    // The rel TOTAL fields' names — ONE PER SCC MEMBER (P3c), under the SAME
+    // frame-lifetime rule `ganm` carries above: `Ident::new` BORROWS, and these
+    // Idents are pushed into a Vec that outlives any block-local String that
+    // built them. This was a single `String` while only one member could be
+    // admitted; the array is what makes it survive N.
+    let mut totnm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new()];
+    let mut tn0: i64 = 0i64;
+    while tn0 < ntm {
+        totnm[tn0] = suffixed("__tot_", prm.rel_names[tmem[tn0]]);
+        tn0 = tn0 + 1i64;
+    }
 
     fnames.push(Ident::new("__gk"));
     ftys.push(parse_type_of_vec(key_ty));
@@ -4626,8 +4658,25 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if rel_m >= 0i64 {
         fnames.push(Ident::new("__edb"));
         ftys.push(parse_type_of_vec(prm.tys[rel_sp]));
-        fnames.push(Ident::new(string_as_str(&totnm)));
-        ftys.push(parse_type_of_vec(prm.rel_rowty[rel_m]));
+        // ⚠ ONE TOTAL FIELD PER SCC MEMBER — P3c — AND `__edb` STAYS ONE.
+        // The size class is stated because it is the capability's price and a
+        // reader will ask: every member of the SCC reads the SAME single slice
+        // parameter (the one-slice-param clause below is what guarantees it), so
+        // there is exactly ONE accumulated input no matter how many members
+        // there are, and the handle grows by one `Vec` per ADDITIONAL member's
+        // relation. O(|input| + Σ_m |member m's relation|), counted in ROWS.
+        // For the odd/even pair over a chain of n edges that sum is n(n+1)/2 —
+        // the same total as the single transitive-closure rel over the same
+        // chain, split across two Vecs, not N× that. NO BYTE FIGURE IS QUOTED:
+        // this file's `want_map` note records a construction floor written down
+        // as a footprint, wrong by ~4 orders of magnitude with no gate to catch
+        // it, and nothing here has been weighed.
+        let mut tf: i64 = 0i64;
+        while tf < ntm {
+            fnames.push(Ident::new(string_as_str(&totnm[tf])));
+            ftys.push(parse_type_of_vec(prm.rel_rowty[tmem[tf]]));
+            tf = tf + 1i64;
+        }
     }
     let joined: bool = ch.n == 1i64;
     if joined {
@@ -5078,10 +5127,19 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if rel_m >= 0i64 {
         cb.push_str(", __edb: ");
         push_vec_new(&mut cb, prm.tys[rel_sp]);
-        cb.push_str(", ");
-        cb.push_str(string_as_str(&totnm));
-        cb.push_str(": ");
-        push_vec_new(&mut cb, prm.rel_rowty[rel_m]);
+        // ⚠ THE SAME `ntm`/`tmem`/`totnm` THE FIELDS WERE DECLARED FROM — P3c.
+        // One derivation read twice, never re-scanned: a second scan here that
+        // disagreed with the field push is precisely the `unknown field`
+        // diagnostic the `wmap` comment above records, and with N members there
+        // are N chances to get it wrong instead of one.
+        let mut ti: i64 = 0i64;
+        while ti < ntm {
+            cb.push_str(", ");
+            cb.push_str(string_as_str(&totnm[ti]));
+            cb.push_str(": ");
+            push_vec_new(&mut cb, prm.rel_rowty[tmem[ti]]);
+            ti = ti + 1i64;
+        }
     }
     if joined {
         cb.push_str(", __s0: ");
@@ -5547,6 +5605,10 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             pt.push_str("let mut __ecp: Vec<"); pt.push_str(ety); pt.push_str("> = Vec::<"); pt.push_str(ety); pt.push_str(">::new();\n");
             pt.push_str("let mut __ck: i64 = 0i64;\n");
             pt.push_str("while __ck < __h.__edb.len() { __ecp.push(__h.__edb.get(__ck)); __ck = __ck + 1i64; }\n");
+            // ⚠ THE PREFIX MARK THE `|__edb|` BOUND BELOW IS CHECKED AGAINST.
+            // Taken HERE, before a single delta row is merged, so it is exactly
+            // `|__h.__edb|` — the size the PREVIOUS epoch certified.
+            pt.push_str("let __eb0: i64 = __ecp.len();\n");
             pt.push_str("let mut __di: i64 = 0i64;\n");
             pt.push_str("while __di < ("); pt.push_str(prm.names[rel_sp]); pt.push_str(").len() {\n");
             pt.push_str("    let __dv: "); pt.push_str(ety); pt.push_str(" = ("); pt.push_str(prm.names[rel_sp]); pt.push_str(")[__di];\n");
@@ -5560,14 +5622,114 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             pt.push_str("    if !__dup { __ecp.push(__dv); }\n");
             pt.push_str("    __di = __di + 1i64;\n");
             pt.push_str("}\n");
-            // The TOTAL, seeded from the handle into a LOCAL — the driver
-            // extends it in place and a fault leaves the handle untouched.
-            pt.push_str("let mut __tt: Vec<"); pt.push_str(rty); pt.push_str("> = Vec::<"); pt.push_str(rty); pt.push_str(">::new();\n");
-            pt.push_str("let mut __tk: i64 = 0i64;\n");
-            pt.push_str("while __tk < __h."); pt.push_str(string_as_str(&totnm));
-            pt.push_str(".len() { __tt.push(__h."); pt.push_str(string_as_str(&totnm));
-            pt.push_str(".get(__tk)); __tk = __tk + 1i64; }\n");
-            pt.push_str("let __b0: i64 = __tt.len();\n");
+            // ══ THE |__edb| BOUND, CHECKED BY THE PROGRAM — P3c ════════════
+            //
+            // ⚠ THE GATE ABOVE WAS PINNED BY NOTHING, AND THAT WAS MEASURED,
+            // NOT SUSPECTED. `wql_incr_rel_rec_epochs` records it: defeat the
+            // `==` gate — push every delta row, duplicates included — and NO
+            // ANSWER MOVES anywhere in the tree, because dedup is re-imposed
+            // DOWNSTREAM by the driver's shadow-set presence bit on the DERIVED
+            // rows. The gate is a COST filter: round 0 is a full naive pass over
+            // `__edb` every epoch, so an unbounded `__edb` makes epochs
+            // quadratic in the number of times a caller re-presents a fact. A
+            // cost claim that no gate pins is a claim this arc has learned to
+            // distrust.
+            //
+            // So the bound is stated as something the PROGRAM checks:
+            //
+            //     |__edb|  ==  |distinct facts ever presented|
+            //
+            // and it is checked on the SUFFIX — every row merged this epoch
+            // against every row that precedes it — rather than by a full
+            // pairwise sweep. That is not a shortcut; it is the whole invariant,
+            // BY INDUCTION: the prefix `[0 .. __eb0)` is `__h.__edb` as the
+            // PREVIOUS epoch committed it, and the previous epoch ran this same
+            // check before committing, so it is already distinct. The base case
+            // is the empty `__edb` a fresh handle carries. Checking the suffix
+            // against everything therefore establishes distinctness of the
+            // whole, and a duplicate inside the delta itself is caught too
+            // because `__eb` ranges over the new rows as well.
+            //
+            // It is INDEPENDENT of the gate rather than a second call into it:
+            // its own loop, its own cursors, its own instantiation of the row
+            // equality (`__xa`/`__xb`, not the gate's `__c`/`__dv`), so deleting
+            // the gate does not delete the check with it — it makes the check
+            // FIRE, on the first repeated fact, instead of the handle silently
+            // doubling.
+            //
+            // ⚠ IT PANICS RATHER THAN RETURNING AN `ElError`, and that is a
+            // decision about WHOSE fault it is. No caller can provoke it — the
+            // gate stands between every caller and this check — so it is the
+            // same class as the recursive aggregate's convergence guard fifty
+            // lines from here, and it takes the same answer. The `ElError`
+            // variant was written FIRST and reverted: it made five exhaustive
+            // `match`es across the corpus non-exhaustive at once, charging every
+            // caller an arm for a condition no caller can cause. See the note on
+            // `ElError` in el.logos.
+            //
+            // ⚠ MEASURED CONTROL, 2026-08-07: remove the `if !__dup` guard,
+            // drop the archives, rebuild the stdlib. `wql_incr_rel_mutrec_epochs`
+            // and `wql_incr_rel_rec_epochs` BOTH red, each at the epoch that
+            // re-presents an edge. (Measured against the `Err` form, at exit 201
+            // and 131 respectively; the panic form reds the same epoch with the
+            // message above instead of a code — re-measured below.) Before this
+            // check, that same edit moved NO answer anywhere in the tree.
+            //
+            // ⚠ AND THE COST IS THE GATE'S OWN CLASS, WHICH IS WHY THE SUFFIX
+            // FORM WAS CHOSEN. The gate already pays O(|delta| × |__edb|) with
+            // this same unindexed `==`; the check pays O(|delta| × |__edb|) too,
+            // so the epoch's complexity is unchanged and what is added is one
+            // constant factor. The full pairwise sweep was written first and
+            // REJECTED on measurement of its shape rather than its runtime: it
+            // is O(|__edb|²), which for the single-row deltas every fixture here
+            // uses is a genuine new asymptote (per-epoch O(n) → O(n²)), and
+            // "no new asymptote" would have been a false sentence in the exact
+            // place this arc has twice been burned for writing one. A
+            // counter-based form (`|__edb| <= Σ|delta|`) was rejected for the
+            // opposite reason: it stays TRUE with the gate deleted, so it would
+            // not bite — "a control that changes nothing".
+            let mut eqt2: String = String::new();
+            incr_row_eq_text(ty, ety, "__xa", "__xb", &mut eqt2);
+            pt.push_str("let mut __ea: i64 = __eb0;\n");
+            pt.push_str("while __ea < __ecp.len() {\n");
+            pt.push_str("    let __xa: "); pt.push_str(ety); pt.push_str(" = __ecp.get(__ea);\n");
+            pt.push_str("    let mut __eb: i64 = 0i64;\n");
+            pt.push_str("    while __eb < __ea {\n");
+            pt.push_str("        let __xb: "); pt.push_str(ety); pt.push_str(" = __ecp.get(__eb);\n");
+            pt.push_str("        if ("); pt.push_str(string_as_str(&eqt2));
+            pt.push_str(") { logos.lang.panic::panic(\"wql!: <q>_epoch's accumulated input `__edb` is NOT DISTINCT — the presence gate in front of it let a repeated fact through, so round 0's per-epoch pass over the accumulated input is no longer bounded by the number of DISTINCT facts ever presented\"); }\n");
+            pt.push_str("        __eb = __eb + 1i64;\n");
+            pt.push_str("    }\n");
+            pt.push_str("    __ea = __ea + 1i64;\n");
+            pt.push_str("}\n");
+            // ── THE TOTALS, ONE PER SCC MEMBER — P3c ───────────────────────
+            // Each seeded from the handle into a LOCAL: the driver extends them
+            // in place and a fault anywhere in the fixpoint leaves the handle
+            // EXACTLY as it was, which is the transactional half this body has
+            // and `<q>_apply` does not. With N members that property is now N
+            // writes that must all land after the driver returns, and they do —
+            // the commits are below the call, not interleaved with it.
+            //
+            // ⚠ `__tt<i>` IS INDEXED BY POSITION IN `tmem`, WHICH IS THE ORDER
+            // `emit_scc_fn` PUT THE OUT-PARAMS IN. The two members of a mutually
+            // recursive pair usually share a row type, so a swapped pair
+            // TYPECHECKS and answers with the relations exchanged. The single
+            // scan in `tmem`'s construction is what makes the order one fact.
+            let mut fi: i64 = -1i64;
+            let mut t0: i64 = 0i64;
+            while t0 < ntm {
+                let mrt: str = prm.rel_rowty[tmem[t0]];
+                if tmem[t0] == rel_m { fi = t0; }
+                pt.push_str("let mut __tt"); pt.push_i64(t0);
+                pt.push_str(": Vec<"); pt.push_str(mrt); pt.push_str("> = Vec::<"); pt.push_str(mrt); pt.push_str(">::new();\n");
+                pt.push_str("let mut __tk"); pt.push_i64(t0); pt.push_str(": i64 = 0i64;\n");
+                pt.push_str("while __tk"); pt.push_i64(t0); pt.push_str(" < __h."); pt.push_str(string_as_str(&totnm[t0]));
+                pt.push_str(".len() { __tt"); pt.push_i64(t0); pt.push_str(".push(__h."); pt.push_str(string_as_str(&totnm[t0]));
+                pt.push_str(".get(__tk"); pt.push_i64(t0); pt.push_str(")); __tk"); pt.push_i64(t0);
+                pt.push_str(" = __tk"); pt.push_i64(t0); pt.push_str(" + 1i64; }\n");
+                pt.push_str("let __b0"); pt.push_i64(t0); pt.push_str(": i64 = __tt"); pt.push_i64(t0); pt.push_str(".len();\n");
+                t0 = t0 + 1i64;
+            }
             // ⚠ THE CALL IS IN ITS OWN BLOCK so the `&[..]` view of `__ecp` dies
             // before `__ecp` is MOVED into the handle two statements later.
             pt.push_str("{\n");
@@ -5583,18 +5745,42 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 if ai == rel_sp { pt.push_str("__ecs"); } else { pt.push_str(prm.names[ai]); }
                 ai = ai + 1i64;
             }
-            if prm.n > 0i64 { pt.push_str(", "); }
-            pt.push_str("&mut __tt)?;\n");
+            let mut t1: i64 = 0i64;
+            while t1 < ntm {
+                if prm.n > 0i64 || t1 > 0i64 { pt.push_str(", "); }
+                pt.push_str("&mut __tt"); pt.push_i64(t1);
+                t1 = t1 + 1i64;
+            }
+            pt.push_str(")?;\n");
             pt.push_str("}\n");
             // ── COMMIT, then take THIS EPOCH'S NEW ROWS as a suffix ─────────
             // `promote` only ever APPENDS to the total, so the rows derived this
-            // epoch are exactly `[__b0 .. len)` — no extra vector had to be
-            // maintained to know which they are.
+            // epoch are exactly `[__b0<i> .. len)` — no extra vector had to be
+            // maintained to know which they are, and that stays true PER MEMBER
+            // because `promote` is per member.
+            //
+            // ⚠ ONLY ONE MEMBER IS FOLDED, AND THAT IS NOT AN OVERSIGHT — P3c.
+            // The entry query selects from exactly one rel (`rel_m`, found by
+            // `rel_find_src(ch.base_src)`), so the group state it maintains is a
+            // function of THAT member's rows alone. The co-members are
+            // MAINTAINED — their totals are seeded, extended and committed —
+            // because the fixpoint needs them, and they are never folded because
+            // nothing asked about them. A second query over the other member
+            // gets its own handle with its own group state.
             pt.push_str("__h.__edb = __ecp;\n");
             pt.push_str("let mut __nw: Vec<"); pt.push_str(rty); pt.push_str("> = Vec::<"); pt.push_str(rty); pt.push_str(">::new();\n");
-            pt.push_str("let mut __rk: i64 = __b0;\n");
-            pt.push_str("while __rk < __tt.len() { __nw.push(__tt.get(__rk)); __rk = __rk + 1i64; }\n");
-            pt.push_str("__h."); pt.push_str(string_as_str(&totnm)); pt.push_str(" = __tt;\n");
+            pt.push_str("let mut __rk: i64 = __b0"); pt.push_i64(fi); pt.push_str(";\n");
+            pt.push_str("while __rk < __tt"); pt.push_i64(fi); pt.push_str(".len() { __nw.push(__tt");
+            pt.push_i64(fi); pt.push_str(".get(__rk)); __rk = __rk + 1i64; }\n");
+            // ⚠ THE COMMITS COME AFTER THE FOLD'S COPY, because committing MOVES
+            // `__tt<i>` into the handle — the selected member's rows would be
+            // gone. All N land here, together, below the driver call.
+            let mut t2: i64 = 0i64;
+            while t2 < ntm {
+                pt.push_str("__h."); pt.push_str(string_as_str(&totnm[t2]));
+                pt.push_str(" = __tt"); pt.push_i64(t2); pt.push_str(";\n");
+                t2 = t2 + 1i64;
+            }
             pt.push_str("let __nws: &["); pt.push_str(rty); pt.push_str("] = __nw.as_slice();\n");
             // ⚠ SPLICED WITH A REPETITION (`#( #pro; )*`) AND NOT AS `#(pro)`.
             // The two are not the same construct: `#(x)` in statement position
@@ -8122,12 +8308,37 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
             // a dead private fn would make the rel tier depend on the entry's
             // aggregate list. `rel_incr_ok` is the SAME derivation `incr_eligible`
             // reads, so the fn exists exactly where an admission can name it.
+            //
+            // ⚠⚠ ONCE PER SCC, NOT ONCE PER ADMITTED MEMBER — P3c. This loop
+            // used to CALL `emit_scc_fn` from inside the member scan, which was
+            // indistinguishable from correct only because `nmem != 1` refused
+            // every multi-member SCC: with one member the loop body ran once.
+            // Widening the refusal would have made an N-member admitted SCC emit
+            // the SAME item `__wql_<q>_scc<c>_i` N times — a duplicate-definition
+            // error at best, and the reason this was found by reading rather
+            // than by a gate is that no shape could reach it. `emit_scc_fn` takes
+            // the SCC id `c` and derives its whole member list from it, so the
+            // member index was never an argument; the scan only ever decided
+            // WHETHER, never WHICH.
+            let mut any_ok: bool = false;
             let mut mi: i64 = 0i64;
             while mi < prm.rel_n {
-                if scc.comp[mi] == c && prm.rel_incr_ok[mi] {
-                    if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, true, h) { return false; }
-                }
+                if scc.comp[mi] == c && prm.rel_incr_ok[mi] { any_ok = true; }
                 mi = mi + 1i64;
+            }
+            if any_ok {
+                // ⚠ TRACED BECAUSE THE DUPLICATE WAS INVISIBLE. Restoring the
+                // per-member loop (CONTROL, 2026-08-07: full stdlib rebuild)
+                // emitted `__wql_<q>_scc<c>_i` TWICE for the two-member SCC and
+                // EVERY fixture in the tree stayed GREEN — the compiler accepts
+                // the second identical definition without a word, so nothing an
+                // answer can see distinguishes one emission from two. The
+                // artifact is therefore reported, and `incr_scc_driver_gate.sh`
+                // asserts the COUNT: one line per recursive SCC, not one per
+                // admitted member.
+                plan_trace("rel incr driver", "EMITTED", vis_strip(fn_name),
+                           "one cross-epoch semi-naive driver per admitted recursive SCC — its member totals are POSITIONAL out-params, so the SCC id is the whole argument and the member scan decides only WHETHER, never WHICH");
+                if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, true, h) { return false; }
             }
         } else {
             let mut i: i64 = 0i64;

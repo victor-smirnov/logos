@@ -1,0 +1,61 @@
+// RETRACTION THROUGH MUTUAL RECURSION IS REFUSED — DOOR 1 OF 2.
+//
+// P3b pinned this refusal for a SINGLE-member recursive SCC
+// (`fail/wql_incr_rel_no_retract.logos`). P3c widens the ADMISSION to mutually
+// recursive SCCs and the refusal has to widen with it — and, crucially, it now
+// has MORE THAN ONE DOOR: an SCC of N members can be entered through any
+// member's total, so a query selecting from `odd` and a query selecting from
+// `even` are two separate paths to `incr_retract_eligible`'s `rel_backed` arm.
+// This file is the `odd` door; `wql_incr_mutrec_no_retract_even.logos` is the
+// other. Pinning one and not the other would leave half the surface unasserted.
+//
+// THE GROUND IS A FACT AND NOT A DEFERRAL, and mutual recursion makes it worse
+// rather than better: a fact may support ITSELF through a cycle, and here the
+// cycle runs THROUGH THE OTHER MEMBER — `odd(1,4)` is derived from `even(1,3)`,
+// which is derived from `odd(1,2)`, and once the graph has a cycle `odd(1,2)` is
+// re-derivable from `odd(1,4)` in turn. "Subtract what this fact added" names no
+// amount. The correct mechanism is DRed (over-delete every consequence, compact,
+// re-derive from surviving support) — a provenance state machine, not an inverse
+// fold.
+//
+// ⚠ WHAT IS ASSERTED IS THE ARTIFACT, NOT A TRACE LINE. A compiler that traced
+// "declined" while emitting `<q>_retract` anyway would satisfy a trace-reading
+// gate. It does not satisfy this one: the NAME DOES NOT EXIST, so a program that
+// reaches for it does not COMPILE.
+//
+// ⚠ AND IT BITES. `incr_retract_eligible`'s `rel_backed` clause selects the
+// insert-only surface; disable it and `oddq_retract` is emitted, this fixture
+// COMPILES, and a `fail/` test that compiles is a RED test.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem oddq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    from odd p group by p.a aggregate c = count() select (key, c)
+}
+
+fn main() -> i32 {
+    let mut h: OddqIncr = oddq_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match oddq_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    // ⚠ THE LINE UNDER TEST. `oddq_retract` is not emitted for a query backed by
+    // a recursive `rel`, mutually recursive or not.
+    match oddq_retract(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 2i32; }
+    }
+    return 0i32;
+}
