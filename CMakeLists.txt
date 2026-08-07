@@ -331,12 +331,16 @@ add_subdirectory(stdlib/rt)
 # Tests
 add_subdirectory(tests/logos)
 
-# ⚠ MUST FOLLOW EVERY add_subdirectory() ABOVE. The per-directory tier audit can
-# only read labels from the directory that defined the test, so the set of
-# directories carrying an audit is itself a population — and this derives it
-# rather than listing it: any directory anywhere in the tree that registers a
-# test without calling logos_require_tier_labels() fails the configure.
-logos_audit_tier_coverage()
+# ⚠ THERE IS DELIBERATELY NO `logos_audit_tier_coverage()` CALL HERE. It used to
+# sit on this line under a comment reading "MUST FOLLOW EVERY add_subdirectory()
+# ABOVE" — and that comment was the entire enforcement: the audit walks the
+# SUBDIRECTORIES property, which lists only directories already descended into,
+# so an add_subdirectory() added BELOW the call was invisible to it. MEASURED: a
+# directory added one line lower, registering a test with no tier label,
+# configured rc=0 and landed in no tier at all. The audit now DEFERs itself onto
+# this directory from cmake/LogosTestTiers.cmake, so it runs after every
+# add_subdirectory() wherever they are written and there is no ordering left to
+# get wrong. Do not add a call back; see that file.
 
 # ── Install rules ────────────────────────────────────────────────────────
 #

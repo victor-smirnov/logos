@@ -52,6 +52,13 @@
 set(LOGOS_TIER_VALUES tier_commit tier_full tier_explicit
     CACHE INTERNAL "the tier vocabulary; exactly one per non-corpus test")
 
+# ⚠ LOAD-BEARING, NOT HYGIENE. The bottom of this file DEFERs the coverage audit
+# onto the directory that includes it, and that must be the root — a second
+# include from a subdirectory would schedule a second walk that fires at the end
+# of THAT subdirectory, before its later siblings exist, reintroducing exactly
+# the early-sampling defect the defer retires.
+include_guard(GLOBAL)
+
 # Call ONCE from any directory that defines tests, at any point in the file —
 # the audit is DEFERred to the end of that directory's processing, so it sees
 # every test added after the call as well as before.
@@ -110,7 +117,9 @@ function(_logos_tier_audit_dir)
     endif()
 endfunction()
 
-# Call ONCE from the top-level CMakeLists, AFTER every add_subdirectory().
+# Scheduled automatically at the bottom of this file — see there. Not called
+# from any CMakeLists, on purpose: its correctness used to depend on WHERE the
+# call sat, which is the same listed-population defect one level up again.
 function(logos_audit_tier_coverage)
     get_property(_audited GLOBAL PROPERTY LOGOS_TIER_AUDITED_DIRS)
     set(_pending "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -133,3 +142,31 @@ function(logos_audit_tier_coverage)
             "See cmake/LogosTestTiers.cmake.")
     endif()
 endfunction()
+
+# ── THE COVERAGE AUDIT SCHEDULES ITSELF; THERE IS NO CALL SITE TO MISPLACE ────
+#
+# THE DEFECT THIS RETIRES, MEASURED. `logos_audit_tier_coverage()` used to be
+# called explicitly from the root CMakeLists, under a comment reading "⚠ MUST
+# FOLLOW EVERY add_subdirectory() ABOVE". That comment was the whole enforcement.
+# The walk reads the SUBDIRECTORIES property, which only lists directories CMake
+# has already descended into, so an `add_subdirectory()` placed BELOW the call
+# is invisible to it. MEASURED on this tree: a new directory added one line after
+# the call, registering a test with no tier label at all, configured rc=0 — and
+# `ctest -N -L 'tier_commit|tier_full|tier_explicit'` matched it 0 times. A test
+# registered in NO tier, silently, which is precisely the drop this whole
+# mechanism exists to make impossible. The canary's own population was derived;
+# the MOMENT it was sampled was still listed, by a comment.
+#
+# THE DERIVED FORM. Defer the call to the end of the root directory's
+# processing. Every `add_subdirectory()` anywhere in the tree completes inside
+# that processing, whatever order they appear in, so the walk cannot run early —
+# there is no ordering left for a future edit to get wrong, and no comment left
+# to obey. MEASURED: with this, the same late-added directory fails the
+# configure with rc=1 and names the directory.
+#
+# ⚠ THE DEFER BINDS THIS FILE'S INCLUDER, which is the root CMakeLists (the only
+# include). Deferred calls fire in registration order; this one registers before
+# the root's own `logos_require_tier_labels()` and both still run, because every
+# SUBDIRECTORY's per-directory audit fired at the end of that subdirectory, long
+# before either.
+cmake_language(DEFER CALL logos_audit_tier_coverage)
