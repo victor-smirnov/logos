@@ -21,8 +21,17 @@
 // exactly as before — and if declining ever became a hard error this file would
 // go red rather than the corpus going quiet.
 //
-// exit 0 = the eligible query's handle exists and agrees with its batch fn, and
-// every ineligible query still compiles and still answers.
+// ⚠ A SECOND AXIS RUNS OVER THE SAME QUERIES, AND IT IS NOT THE SAME
+// POPULATION. `incremental` says whether a query gets a HANDLE; `retraction`
+// says whether that handle may be run BACKWARDS, and it is asked only of a query
+// that already has one. A query can be on the first list and off the second —
+// `no_retract_avg` below is exactly that — and the gate asserts both lists with
+// both counts, because a second derived population read off one count is a
+// population nobody wrote down twice.
+//
+// exit 0 = the eligible query's handle exists, agrees with its batch fn and
+// retracts; the retract-declined query still has its handle; and every
+// ineligible query still compiles and still answers.
 package test;
 
 use logos.std.wql.wql;
@@ -38,6 +47,24 @@ struct T { pub g: i64, pub w: i64 }
 // ── ELIGIBLE — the control, and the only one with derived fns to call ───────
 pub deem ok_basic(ss: &[S]) {
     from ss s group by s.g aggregate t = sum(s.v) select (key, t)
+}
+
+// ── ELIGIBLE FOR THE HANDLE, DECLINED FOR RETRACTION ───────────────────────
+// A SECOND population, derived on its own axis. `avg` accumulates an f64
+// numerator for EVERY admitted argument class, so running it backwards rests on
+// (S+x)−x == S, which f64 does not give — an OPEN fork reserved to Victor, and
+// emitting `<q>_retract` here would take it silently. What this file pins on
+// its own is that the refusal is NARROW: `_incremental` / `_epoch` / `_snapshot`
+// still exist and still answer. That `_retract` does NOT exist is exactly what a
+// fixture cannot say (there is no name to write), so the gate reads the traced
+// decision instead — the same split the file's header states for the axis above.
+//
+// ⚠ AND `min`/`max` IS *NOT* IN THIS CATEGORY, which is why the example here is
+// an `avg` and not a `min`. A `min`/`max` handle retracts by RESCANNING a
+// value→multiplicity map: it computes no inverse, so the f64 fork does not
+// reach it and it is admitted at every type.
+pub deem no_retract_avg(ss: &[S]) {
+    from ss s group by s.g aggregate a = avg(s.v) select (key, a)
 }
 
 // ── INELIGIBLE, one named shape each ───────────────────────────────────────
@@ -74,6 +101,11 @@ fn rows() -> Vec<S> {
     v.push(S { g: 0i64, v:  7i64, nm: "a" });
     return v;
 }
+fn one_row(g: i64, v: i64) -> Vec<S> {
+    let mut r: Vec<S> = vec_new::<S>();
+    r.push(S { g: g, v: v, nm: "a" });
+    return r;
+}
 fn trows() -> Vec<T> {
     let mut v: Vec<T> = vec_new::<T>();
     v.push(T { g: 0i64, w: 3i64 });
@@ -103,6 +135,32 @@ fn main() -> i32 {
     if iv.len() != bv.len()    { return 16i32; }
     if iv.get(0i64).1 != 12i64 { return 17i32; }
     if iv.get(1i64).1 != -2i64 { return 18i32; }
+    // …and it RETRACTS, because every aggregate in its list runs backwards.
+    // By hand: retract (0, 5) and g=0's sum is 12 − 5 = 7; g=1 is untouched.
+    let r1: Vec<S> = one_row(0i64, 5i64);
+    match ok_basic_retract(&mut h, r1.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 19i32; }
+    }
+    let rv: Vec<(i64, i64)> = match ok_basic_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; }
+    };
+    if rv.len() != 2i64        { return 41i32; }
+    if rv.get(0i64).1 != 7i64  { return 42i32; }
+    if rv.get(1i64).1 != -2i64 { return 43i32; }
+
+    // ── THE RETRACT-DECLINED QUERY STILL HAS ITS HANDLE ────────────────────
+    // The decline takes away `_retract` and nothing else. By hand: g=0 mean of
+    // { 5, 7 } = 6.0, g=1 mean of { −2 } = −2.0, both exact in binary f64.
+    let mut ha: NoRetractAvgIncr = no_retract_avg_incremental();
+    match no_retract_avg_epoch(&mut ha, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 44i32; }
+    }
+    let av: Vec<(i64, f64)> = match no_retract_avg_snapshot(&ha) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 45i32; }
+    };
+    if av.len() != 2i64          { return 46i32; }
+    if av.get(0i64).1 != 6.0f64  { return 47i32; }
+    if av.get(1i64).1 != -2.0f64 { return 48i32; }
 
     // ── every INELIGIBLE query still compiles and still answers ─────────────
     // The batch fn is untouched by the decline, which is the property that keeps

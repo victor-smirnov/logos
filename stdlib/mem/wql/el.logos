@@ -47,7 +47,32 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // (logos.std.deem): both `div`/`rem` treat a zero divisor as `DivByZero` and a
 // `checked_* == None` (i64::MIN / -1) as `Overflow`. ONE math-error type is
 // shared by the static emitted fns AND the incremental engine's error channel.
-pub enum ElError { Overflow, DivByZero }
+// ⚠ FOUR ARMS, AND THE TWO NEW ONES EXIST BECAUSE `Overflow` WAS LYING ABOUT
+// TWO DIFFERENT MISTAKES. Both were reported as `Overflow` while retraction was
+// being built, and neither is one:
+//
+//   `Underflow`     — an ARITHMETIC borrow out of an unsigned total. `el_subu`
+//                     is its only producer. `a - b` with `b > a` in `u64` is not
+//                     "the result is too large", it is "the result is below the
+//                     type's floor", and the two are opposite directions with
+//                     opposite fixes. `el_sub`/`el_neg` keep `Overflow` because
+//                     `i64::checked_sub` fails at BOTH ends of the range and one
+//                     name for one predicate is the honest spelling there.
+//   `RetractAbsent` — a MULTISET-DOMAIN violation, not arithmetic at all: the
+//                     caller retracted a row the accumulator never folded. A
+//                     multiset has no element of negative multiplicity, so a
+//                     group count or a value multiplicity that would go below
+//                     zero describes no state the handle can be in. It is named
+//                     for the CALLER'S mistake — "you took out what was never
+//                     put in" — rather than for the subtraction that noticed.
+//
+// ⚠ STRICT ON PURPOSE, AND IN THE REVERSIBLE DIRECTION. The dynamic interpreter
+// does NOT report this case: `logos.mem.deem.incr`'s `aggstate_ensure` runs
+// before `w`'s sign is looked at and its count update is a bare `+ w` with no
+// error path at all — which is not the answer "no error", it is "that engine was
+// never asked". Strict → lax is a compatible relaxation later; lax → strict
+// breaks every caller that learned to ignore the silence.
+pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent }
 
 // i64 checked arithmetic returning ElError. `checked_add/sub/mul/div/rem/neg`
 // (Option<i64>) already exist in logos.lang.cmp.ord. The generated static
@@ -110,9 +135,14 @@ pub fn el_addu(a: u64, b: u64) -> Result<u64, ElError> {
 // construction rather than by coincidence: `logos.mem.deem.incr`'s ag_run takes
 // `el_wrap_sub(cur, prod)` for `w < 0` over an `agg_argu` column and latches
 // `math_err` on `Option::None`. The static tier's convention is error-as-VALUE,
-// so the same fact comes back as `Err(Overflow)` at the call that caused it.
+// so the same fact comes back as `Err(Underflow)` at the call that caused it.
+//
+// ⚠ `Underflow`, NOT `Overflow` — the name is the whole reason the arm exists.
+// A borrow out of a `u64` total is the FLOOR being crossed; `el_addu`'s fault is
+// the CEILING. Reporting both as `Overflow` told a caller the total was too
+// large when it had gone below zero, which is the opposite repair.
 pub fn el_subu(a: u64, b: u64) -> Result<u64, ElError> {
-    match a.checked_sub(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+    match a.checked_sub(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Underflow); } }
 }
 pub fn el_mulu(a: u64, b: u64) -> Result<u64, ElError> {
     match a.checked_mul(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }

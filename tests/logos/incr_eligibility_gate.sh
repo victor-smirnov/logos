@@ -56,6 +56,8 @@ if [ "$RC" != 0 ]; then
     exit 1
 fi
 grep -F '[plan] incremental ->' "$TMPD/all.err" > "$TRACE"
+RTRACE="$TMPD/rtrace.txt"
+grep -F '[plan] retraction ->' "$TMPD/all.err" > "$RTRACE"
 
 # ── the expected table: query, verdict, a phrase its GROUND must contain ─────
 # The phrase is the ANTECEDENT, chosen so that a ground reworded into a generic
@@ -64,12 +66,31 @@ grep -F '[plan] incremental ->' "$TMPD/all.err" > "$TRACE"
 # the prose.
 EXPECT=(
   "ok_basic|EMITTED|one bare scan"
+  "no_retract_avg|EMITTED|one bare scan"
   "no_join|declined|JOIN CHAIN"
   "no_where|declined|PRE-GROUP \`where\`"
   "no_order|declined|\`order by\`"
   "no_limit|declined|\`order by\`"
   "no_strkey|declined|GROUP KEY is \`str\`"
   "no_rowsel|declined|\`select\` reaches a name"
+)
+
+# ── THE SECOND AXIS: may the handle be run BACKWARDS? ───────────────────────
+# `retraction` is asked ONLY of a query that already has a handle, so this table
+# is a SUBSET of the one above and its count is the number of EMITTED rows there
+# — which is why both counts are asserted rather than one. The ground for the
+# decline must name the FORK, not "unsupported": `<q>_retract` for an f64
+# `sum`/`avg` would take an open decision ((S+x)−x != S) by accident, and a
+# refusal whose ground has been reworded into a generic one is a refusal nobody
+# will revisit when the fork closes.
+#
+# ⚠ THE AXIS NAME IS `retraction` AND IT IS THE SAME CHANNEL
+# `incr_retraction_gate.sh` READS. Two names for one decision means one of the
+# two gates greps a channel that does not exist, sees zero lines, and reports
+# nothing while looking green.
+REXPECT=(
+  "ok_basic|EMITTED|invert exactly"
+  "no_retract_avg|declined|(S+x)-x != S"
 )
 
 # Check one expected row against a trace file. Echoes one violation line per
@@ -101,6 +122,8 @@ check_rows() {
 }
 
 VIOL=$(check_rows "$TRACE" "${EXPECT[@]}")
+RVIOL=$(check_rows "$RTRACE" "${REXPECT[@]}")
+VIOL="${VIOL}${RVIOL}"
 
 # ── the POPULATION, by count ────────────────────────────────────────────────
 WANT_N=${#EXPECT[@]}
@@ -111,6 +134,28 @@ VIOLATION: the walk reported ${GOT_N} incremental decisions, expected ${WANT_N} 
            a query that stops being walked leaves no trace line and no failure
            anywhere else in the corpus."
 fi
+# ── and the RETRACT population, by count, DERIVED from the first table ──────
+# It is not a second hand-written number: the retract axis is asked exactly once
+# per query the first axis EMITTED, so the expected count is COMPUTED from
+# EXPECT. A query that gains a handle and is then never asked the second question
+# — or one that is asked it without having a handle — moves these two apart.
+WANT_R=0
+for row in "${EXPECT[@]}"; do
+    case "$row" in *"|EMITTED|"*) WANT_R=$((WANT_R + 1)) ;; esac
+done
+if [ "$WANT_R" != "${#REXPECT[@]}" ]; then
+    VIOL="${VIOL}
+VIOLATION: ${WANT_R} queries are EMITTED on the incremental axis but the retract
+           table lists ${#REXPECT[@]} — the two tables describe the same queries
+           and one of them was edited alone."
+fi
+GOT_R=$(grep -c -F '[plan] retraction ->' "$RTRACE")
+if [ "$GOT_R" != "$WANT_R" ]; then
+    VIOL="${VIOL}
+VIOLATION: the walk reported ${GOT_R} retraction decisions, expected ${WANT_R} —
+           the retract axis is asked once per query that HAS a handle, so a
+           mismatch means the second derivation stopped tracking the first."
+fi
 
 # ── THE CANARY: the same matcher, over a trace broken four ways ─────────────
 # 1. a MISSING query (no_join has no line at all);
@@ -120,6 +165,7 @@ fi
 CAN="$TMPD/canary.txt"
 {
   echo "[plan] incremental -> EMITTED on ok_basic   (one bare scan, group by, insert-only aggregates over self-contained types)"
+  echo "[plan] incremental -> EMITTED on no_retract_avg   (one bare scan, group by, insert-only aggregates over self-contained types)"
   echo "[plan] incremental -> EMITTED on no_where   (one bare scan, group by, insert-only aggregates over self-contained types)"
   echo "[plan] incremental -> declined on no_order   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
   echo "[plan] incremental -> declined on no_limit   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
@@ -128,6 +174,36 @@ CAN="$TMPD/canary.txt"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"
+# ⚠ THE SECOND AXIS GETS ITS OWN CANARY, broken the two ways that matter for a
+# decision whose whole content is a REFUSAL: the verdict FLIPPED (the fork gets
+# taken silently, which is the failure this axis exists to prevent) and the
+# ground made GENERIC (the refusal survives but stops naming what would close
+# it). A gate that only ever sees a clean trace cannot tell either from a pass.
+RCAN="$TMPD/rcanary.txt"
+{
+  echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+  echo "[plan] retraction -> EMITTED on no_retract_avg   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+} > "$RCAN"
+RCANV=$(check_rows "$RCAN" "${REXPECT[@]}")
+printf '%s' "$RCANV" >> "$TMPD/canary.violations"
+RCAN2="$TMPD/rcanary2.txt"
+{
+  echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+  echo "[plan] retraction -> declined on no_retract_avg   (not supported yet)"
+} > "$RCAN2"
+RCANV2=$(check_rows "$RCAN2" "${REXPECT[@]}")
+printf '%s' "$RCANV2" >> "$TMPD/canary.violations"
+if [ -z "$(printf '%s' "$RCANV" | tr -d '[:space:]')" ] || \
+   [ -z "$(printf '%s' "$RCANV2" | tr -d '[:space:]')" ]; then
+    echo "FAIL: THE RETRACT AXIS'S CANARY DID NOT FIRE."
+    echo "      A trace that takes the open f64 fork (EMITTED where the ground says"
+    echo "      declined), or one whose ground has been reworded into a generic"
+    echo "      'not supported yet', passed the same matcher that judges the real"
+    echo "      trace. Canary output was:"
+    printf 'flipped-verdict: %s\n' "$RCANV"
+    printf 'generic-ground : %s\n' "$RCANV2"
+    exit 1
+fi
 for want in no_join no_where no_strkey no_rowsel; do
     if ! grep -qF -- "'${want}'" "$TMPD/canary.violations"; then
         echo "FAIL: THE GATE'S CANARY DID NOT FIRE for '${want}'."

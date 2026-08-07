@@ -10,10 +10,15 @@
 # nobody can read is a list nobody wrote down. This is the same split the
 # eligibility pair uses, on the axis one level in:
 #
-#   `incr_eligible`   → does this query get a HANDLE at all?      (channel:
-#                        `[plan] incremental ->`, incr_eligibility_gate.sh)
-#   `incr_invertible` → can that handle take a NEGATIVE weight?   (channel:
-#                        `[plan] retraction ->`, this gate)
+#   `incr_eligible`          → does this query get a HANDLE at all?  (channel:
+#                               `[plan] incremental ->`, incr_eligibility_gate.sh)
+#   `incr_retract_eligible`  → can that handle take a NEGATIVE weight? (channel:
+#                               `[plan] retraction ->`, this gate)
+#
+# ⚠ ONE AXIS NAME, NOT TWO. Both of this arc's candidates traced this decision,
+# under two different names (`retraction` and `incr_retract`), and a gate reading
+# the name that lost would have seen ZERO lines and said nothing at all while
+# looking green. `retraction` is the surviving name and both gates read it.
 #
 # The companion fixture (`pass/wql_incr_retract_matrix.logos`) pins the POSITIVE
 # direction on its own: the invertible queries' `_retract` is called there, so an
@@ -21,12 +26,18 @@
 # the NEGATIVE direction, because a query without a `_retract` is a query with
 # nothing to name.
 #
-# ⚠ AND THE NEGATIVE DIRECTION IS THE ONE THAT MATTERS MOST HERE, because one of
-# the two grounds for refusing is an OPEN DECISION rather than a missing feature.
-# `(S+x)-x != S` over an f64 accumulator is unanswered and is not this emitter's
-# to answer; if `incr_invertible` ever started admitting a float, the corpus
-# would go on passing and a decision nobody took would have been taken. This gate
-# is the thing that says so.
+# ⚠ AND THE NEGATIVE DIRECTION IS THE ONE THAT MATTERS MOST HERE, because the
+# ONLY remaining ground for refusing is an OPEN DECISION rather than a missing
+# feature. `(S+x)-x != S` over an f64 accumulator is unanswered and is not this
+# emitter's to answer; if `incr_retract_eligible` ever started admitting a float
+# `sum`/`avg`, the corpus would go on passing and a decision nobody took would
+# have been taken. This gate is the thing that says so.
+#
+# ⚠ `min`/`max` ARE ON THE EMITTED SIDE OF THIS TABLE AND THAT IS DELIBERATE.
+# They do not invert; they RESCAN a value→multiplicity map, which computes
+# nothing and cannot round, so admitting them touches the open fork not at all.
+# The grounds below are chosen so that the two reasons stay distinguishable: the
+# EMITTED row must name the rescan, the declined row must name the fork.
 #
 # ⚠ THE POPULATION IS PINNED BY COUNT, NOT ONLY BY MEMBERSHIP — a query that
 # stops being walked leaves no line and no failure anywhere else.
@@ -61,10 +72,10 @@ grep -F '[plan] retraction ->' "$TMPD/all.err" > "$TRACE"
 EXPECT=(
   "inv_count_sum|EMITTED|invert exactly"
   "inv_usum|EMITTED|invert exactly"
+  "inv_min|EMITTED|value→multiplicity map"
+  "inv_max|EMITTED|value→multiplicity map"
   "no_fsum|declined|accumulates in \`f64\`"
   "no_avg|declined|accumulates in \`f64\`"
-  "no_min|declined|cached extremum"
-  "no_max|declined|cached extremum"
 )
 
 check_rows() {
@@ -106,21 +117,26 @@ VIOLATION: the walk reported ${GOT_N} retraction decisions, expected ${WANT_N} �
 fi
 
 # ── THE CANARY: the same matcher, over a trace broken four ways ─────────────
+# ⚠ THE FOUR BREAKAGES HAD TO BE REPOINTED WHEN min/max MOVED TO THE EMITTED
+# SIDE, and repointing them is not bookkeeping: two of them used to ride on
+# `no_min` / `no_max`, which no longer exist under those names. Four DISTINCT
+# breakages is the property being kept, not the four query names.
 # 1. a MISSING query (inv_usum has no line at all);
-# 2. a FLIPPED verdict (no_fsum reads EMITTED — the D4 regression, exactly);
-# 3. a GENERIC ground (no_min's antecedent replaced by "not supported yet");
-# 4. a RENAMED query (no_max spelled no_max2).
+# 2. a FLIPPED verdict (no_fsum reads EMITTED — the D4 regression, exactly, and
+#    it must stay on no_fsum because no_fsum IS the f64 fork);
+# 3. a GENERIC ground (no_avg's antecedent replaced by "not supported yet");
+# 4. a RENAMED query (inv_min spelled inv_min2).
 CAN="$TMPD/canary.txt"
 {
-  echo "[plan] retraction -> EMITTED on inv_count_sum   (every aggregate is \`count\` or a NON-float \`sum\` — both invert exactly)"
-  echo "[plan] retraction -> EMITTED on no_fsum   (every aggregate is \`count\` or a NON-float \`sum\` — both invert exactly)"
-  echo "[plan] retraction -> declined on no_avg   (an aggregate accumulates in \`f64\`)"
-  echo "[plan] retraction -> declined on no_min   (not supported yet)"
-  echo "[plan] retraction -> declined on no_max2   (\`min\`/\`max\` cannot be inverted from a cached extremum)"
+  echo "[plan] retraction -> EMITTED on inv_count_sum   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly under their own checked predicate, min/max rescan a typed value→multiplicity map)"
+  echo "[plan] retraction -> EMITTED on no_fsum   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly under their own checked predicate, min/max rescan a typed value→multiplicity map)"
+  echo "[plan] retraction -> declined on no_avg   (not supported yet)"
+  echo "[plan] retraction -> EMITTED on inv_min2   (every aggregate in the list runs backwards exactly — min/max rescan a typed value→multiplicity map)"
+  echo "[plan] retraction -> EMITTED on inv_max   (every aggregate in the list runs backwards exactly — min/max rescan a typed value→multiplicity map)"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"
-for want in inv_usum no_fsum no_min no_max; do
+for want in inv_usum no_fsum no_avg inv_min; do
     if ! grep -qF -- "'${want}'" "$TMPD/canary.violations"; then
         echo "FAIL: THE GATE'S CANARY DID NOT FIRE for '${want}'."
         echo "      A broken trace passed the same matcher that judges the real one,"

@@ -4313,13 +4313,38 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 //
 // ⚠ THE SURFACE'S SHAPE DEPENDS ON THE AGGREGATE LIST, AND THAT IS THE POINT.
 // `<q>_retract` and the weight parameter are emitted ONLY for a query whose
-// every aggregate inverts EXACTLY (`incr_invertible`). A query with a float
-// accumulator or a `min`/`max` keeps P1's surface unchanged — `<q>_epoch` with
-// no weight — so a caller cannot express a retraction that the fold cannot
-// answer. The alternative (emit the weight always, `Err` at run time) makes the
-// SAME refusal a run-time surprise, and one of the two things being refused is
-// `(S+x)-x` over floats, which is an OPEN decision (D4) rather than a bug: a
-// compile-time absence cannot answer it by accident, a run-time branch can.
+// every aggregate can run backwards (`incr_retract_eligible`). A query with an
+// f64 `sum`/`avg` keeps P1's surface unchanged — `<q>_epoch` with no weight — so
+// a caller cannot express a retraction that the fold cannot answer. The
+// alternative (emit the weight always, `Err` at run time) makes the SAME refusal
+// a run-time surprise, and the ONE thing being refused is `(S+x)-x` over floats,
+// which is an OPEN decision (D4) rather than a bug: a compile-time absence
+// cannot answer it by accident, a run-time branch can.
+//
+// ⚠ `min`/`max` ARE ADMITTED, AT EVERY TYPE INCLUDING f64, AND THEY DO NOT
+// INVERT — they RESCAN. A retract-eligible `min`/`max` carries a typed
+// value→multiplicity map beside its cached extremum and re-derives the best from
+// the map's live keys when the best itself is retracted. That computes no
+// inverse, so it does not touch D4 at all.
+//
+// ── THE ERROR CONTRACT, AND WHAT IT DOES *NOT* PROMISE ──────────────────────
+//
+// ⚠⚠ `<q>_apply` IS NOT TRANSACTIONAL. On `Err` the handle is in an UNSPECIFIED
+// INTERMEDIATE STATE and a caller must DISCARD it or replay from a known epoch —
+// it must not read `<q>_snapshot` and treat the answer as either the pre-call or
+// the post-call multiset. This is not an oversight being papered over, it is the
+// contract this slice ships: `__gk`/`__gc` are written BEFORE the folds and the
+// row loop returns at the first fault, so a mid-batch `Err` leaves earlier rows
+// folded, this row's group count already moved, and possibly one of several
+// aggregates updated. Under strict retraction (below) an `Err` is DESIGNED to be
+// hit rather than exceptional, which makes the partial-state path ordinary.
+//
+// A bounded rollback was priced and NOT taken here: undoing one row means
+// restoring `__gk`/`__gc`, un-inserting or re-inserting a map entry, and
+// restoring a cached best that a rescan may already have overwritten — three
+// undo logs across state the emitter builds per aggregate. Stating the contract
+// costs nothing and does not foreclose it; a later slice that makes `_apply`
+// atomic STRENGTHENS this promise and breaks no caller.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
                     act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
@@ -4355,12 +4380,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     prep_type_name_sfx(bare, "Incr", &mut tyb);
     let tyn: str = string_as_str(&tyb);
 
-    // ⚠ ASKED ONCE, HERE, AND IT DECIDES THREE THINGS AT ONCE: which fold each
-    // aggregate gets, whether `<q>_apply` carries a weight at all, and whether
-    // `<q>_retract` is emitted. One predicate for all three is what stops the
-    // emitted signature and the arithmetic inside it from disagreeing about
-    // what this query can do.
-    let invertible: bool = incr_invertible(aggs, acount, agg_flt, bare);
+    // ⚠ ASKED ONCE, HERE, AND IT DECIDES FOUR THINGS AT ONCE: which fold each
+    // aggregate gets, whether `<q>_apply` carries a weight at all, whether
+    // `<q>_retract` is emitted, and whether a `min`/`max` carries its
+    // multiplicity MAP. One predicate for all four is what stops the emitted
+    // signature, the state it owns and the arithmetic inside it from disagreeing
+    // about what this query can do.
+    let retr: bool = incr_retract_eligible(aggs, acount, acc, bare);
 
     // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
     // One pass, four parallel cursors, because every one of them is indexed by
@@ -4382,6 +4408,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // in the same iteration; this one does not.
     let mut ganm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                  String::new(), String::new(), String::new(), String::new()];
+    // The MULTIPLICITY MAP's field name, under the same frame-lifetime rule as
+    // `ganm`, and the ONE decision about whether that field exists at all.
+    let mut gmnm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+                                 String::new(), String::new(), String::new(), String::new()];
+    let mut wmap: [bool; 8] = [false, false, false, false, false, false, false, false];
 
     fnames.push(Ident::new("__gk"));
     ftys.push(parse_type_of_vec(key_ty));
@@ -4400,6 +4431,85 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 
         fnames.push(Ident::new(string_as_str(&ganm[gi])));
         ftys.push(parse_type_of_vec(acct));
+
+        // ── THE MULTIPLICITY MAP, AND WHY IT IS ONE FIELD PER min/max ───────
+        // `count` and `sum` have INVERSES; `min` and `max` do not. Retract the
+        // current minimum and the new minimum is a fact about every OTHER row
+        // still present, which a scalar cell cannot hold — so a min/max on a
+        // retract-eligible query carries a value→live-multiplicity map beside
+        // its cached extremum, exactly the pair the dynamic engine keeps
+        // (`AggState.vmap` / `AggState.vbest`) and exactly the pair P1 deleted
+        // on purpose with a comment saying this slice would put it back.
+        //
+        // ⚠⚠ IT IS EMITTED WHEREVER THE WEIGHT IS, SO AN INSERT-ONLY CALLER PAYS
+        // FOR IT, AND "PAYS NOTHING" WAS MEASURED AND IS FALSE. `want_map`
+        // derives from ELIGIBILITY, not from USE: nothing in the surface
+        // declares that a query will ever retract, so every retract-eligible
+        // `min`/`max` query builds and maintains the map even if only
+        // `<q>_epoch` is ever called. MEASURED on this box, 2026-08-06, over an
+        // insert-only `min`+`max` on a u64 column, 200 000 rows × 20 epochs =
+        // 4 M rows, 4 groups so the O(rows × groups) key scan is not the
+        // denominator, same binary and same data with only `want_map` flipped:
+        //
+        //     scalar cells (P1's shape) : 0.113 s     handle 96 bytes
+        //     with the map              : 0.608 s     handle 144 bytes
+        //
+        // 5.4× on the fold — ≈62 ns added per aggregate per row — plus 4
+        // mallocs and 544 bytes of heap per GROUP (two `hashmap_new`s, each
+        // `alloc(16)` for the state bytes and `alloc(16 × 16)` for the
+        // `Entry<u64,i64>` table at the default capacity of 16), all for a
+        // capability the caller never uses.
+        //
+        // ⚠ AND THE SAME MEASUREMENT AT 500 GROUPS SHOWS +2.3%, NOT 5.4× — the
+        // linear key scan swamps it there. So the cost is invisible on wide-group
+        // queries and glaring on narrow ones, which is exactly the shape a single
+        // benchmark reports as "negligible" if it happens to pick wide groups.
+        //
+        // NOT FIXED HERE, and deliberately: the repair is a surface that lets a
+        // query DECLARE that it retracts, which is a design fork belonging to
+        // whoever owns the surface — and taking it inside this emitter would be
+        // the same "decide an open question by accident" this file refuses to do
+        // for D4. The number is recorded so the fork is taken on a measurement
+        // rather than on this comment's predecessor, which asserted the opposite.
+        let is_mm: bool = fnid == AGG_MIN() || fnid == AGG_MAX();
+        let want_map: bool = retr && is_mm;
+        // ⚠ RECORDED, NOT RE-DERIVED DOWNSTREAM. The constructor a hundred lines
+        // below has to initialize exactly the fields declared here, and asking
+        // the same question again from `aggs` + `acc` is one cell with two
+        // opinions, free to disagree — the antipattern this file already carries
+        // two warnings about (`accw`, `compute_acc_tys`). MEASURED in the
+        // candidate this was ported from: a control revert on the predicate made
+        // the field vanish and left the initializer standing, and the diagnostic
+        // was `struct literal 'UqIncr': unknown field '__gm_mn'` from inside the
+        // generated blob rather than a wrong answer.
+        wmap[gi] = want_map;
+        let is_fl: bool = str_eq(acct, "f64");
+        // K of the map, and the type `min`/`max` COMPARE in. For i64 and u64 the
+        // cell already compares under its own order (P1's whole thesis) so both
+        // are the accumulator itself and `el_wrap_ord_key` never appears; for
+        // f64 the key is the bit pattern and the order key is an i64.
+        //
+        // ⚠ THE f64 KEY IS IDENTITY, NOT ORDER, AND THE TWO MUST NOT BE THE SAME
+        // FUNCTION. `impl Hash for f64` does not exist, so a float map MUST key
+        // on `f64_to_bits` — which is also the RIGHT key: it is injective and
+        // invertible, so −0.0 comes back −0.0 and a NaN payload survives.
+        // `f64_data_key` is NEITHER injective nor invertible — it maps both
+        // zeros and every NaN onto one key — so keying on it would collapse
+        // −0.0 into +0.0, a defect this tree has a fix for and must not
+        // reintroduce. `f64_data_key` is the COMPARATOR and only that.
+        let mkt:  str = if is_fl { "u64" } else { acct };
+        let ordt: str = if is_fl { "i64" } else { acct };
+        let t_map_v: str = if str_eq(mkt, "u64") { "Vec<HashMap<u64, i64>>" } else { "Vec<HashMap<i64, i64>>" };
+        let t_map_p: str = if str_eq(mkt, "u64") { "*mut HashMap<u64, i64>" } else { "*mut HashMap<i64, i64>" };
+        let t_map_c: str = if str_eq(mkt, "u64") { "*const HashMap<u64, i64>" } else { "*const HashMap<i64, i64>" };
+        let t_keys:  str = if str_eq(mkt, "u64") { "HashMapKeys<u64, i64>" }  else { "HashMapKeys<i64, i64>" };
+        let hm_new:  str = if str_eq(mkt, "u64") { "hashmap_new::<u64, i64>()" } else { "hashmap_new::<i64, i64>()" };
+        gmnm[gi] = gm_name(a.out);
+        let n_gm: Ident = Ident::new(string_as_str(&gmnm[gi]));
+        if want_map {
+            fnames.push(Ident::new(string_as_str(&gmnm[gi])));
+            ftys.push(parse_type(t_map_v));
+        }
 
         // — the group-creation SEED, SPELLED IN THE ACCUMULATOR'S OWN TYPE —
         // ⚠ THIS IS WHERE THE TYPING PAYS FIRST. The batch emitter writes the
@@ -4428,17 +4538,32 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let sz: ExprBlob = parse_expr(agg_acc_zero(acct));
             seeds.push(quote_block! { __h.#n_ga.push(#(sz)); });
         }
+        // ⚠ AND THE SEED ABOVE IS A PLACEHOLDER ONCE A MAP EXISTS, NOT AN
+        // IDENTITY. Under insert-only the first row always displaces it. Under
+        // retraction a group can EMPTY and the cell then holds a stale best, so
+        // the next insert would compare against a value present in no row —
+        // which is the seed defect this arc has already paid for twice (once for
+        // floats, once for u64). The `__ml == 1` arm in the fold below is what
+        // replaces the seed compare: when the map holds exactly one live key,
+        // that key IS the extremum, no comparison and no sentinel involved. The
+        // seed survives only for the window before a brand-new group's first row.
+        if want_map {
+            let hm0: ExprBlob = parse_expr(hm_new);
+            seeds.push(quote_block! { __h.#n_gm.push(#(hm0)); });
+        }
 
         // — the per-row FOLD step —
         if fnid == AGG_COUNT() {
-            // ⚠ `count` INTEGRATES THE WEIGHT AND DOES NOT CHECK ITS SIGN, and
-            // that is MEASURED off the dynamic engine rather than chosen: its
-            // `ag_run` does a bare `gcount += w` with no guard, so a multiplicity
-            // driven below zero is not an error there and must not be one here.
-            // What IS checked is the OVERFLOW, because that is the static tier's
-            // convention for every other cell on this path. The two facts are
-            // different and the fixture asserts them separately.
-            if invertible {
+            // ⚠ `count` INTEGRATES THE WEIGHT AND CHECKS ONLY ITS OVERFLOW HERE.
+            // The SIGN question — may a count go below zero — is not this fold's
+            // to answer, because the answer belongs to the GROUP: `<q>_apply`'s
+            // `__gn < 0` guard is asked once per row for the whole group, before
+            // any fold runs, and a `count()` aggregate's cell tracks exactly that
+            // group multiplicity. Asking it twice would be one cell with two
+            // opinions. (The dynamic engine does a bare `gcount += w` with no
+            // guard at all; see the ⚠⚠ at `apply_body` for why its silence is
+            // not the answer "no error".)
+            if retr {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), __w)?); });
             } else {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
@@ -4461,7 +4586,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // the MAGNITUDE multiplies and the SIGN of `w` picks add or subtract,
             // which is the same decomposition the dynamic engine makes.
             if str_eq(acct, "u64") {
-                if invertible {
+                if retr {
                     folds.push(quote_block! {
                         { let __p: u64 = el_mulu(__wm, (#(arg_f)))?;
                           if __wneg { __h.#n_ga.set(__gi, el_subu(__h.#n_ga.get(__gi), __p)?); }
@@ -4471,7 +4596,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
                 }
             } else {
-                if invertible {
+                if retr {
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), el_mul(__w, (#(arg_f)))?)?); });
                 } else {
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
@@ -4481,15 +4606,139 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // ⚠ UNREACHABLE WITH A WEIGHT, BY CONSTRUCTION. This arm is the f64
             // accumulator — a float `sum`, and EVERY `avg` including `avg` over
             // an integer column, whose running total is an f64 the moment it is
-            // divided at snapshot. `incr_invertible` is false for both, so no
-            // `__w` exists in the fn this fold lands in and `(S+x)-x` cannot be
-            // emitted. That is decision D4 left OPEN, not answered.
+            // divided at snapshot. `incr_retract_eligible` is false for both, so
+            // no `__w` exists in the fn this fold lands in and `(S+x)-x` cannot
+            // be emitted. That is decision D4 left OPEN, not answered.
             if agg_cast[gi] {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + ((#(arg_f)) as f64)); });
             } else {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + (#(arg_f))); });
             }
+        } else if want_map {
+            // ── THE SEMILATTICE FOLD: map + cached best + rescan-on-retract ──
+            // The dynamic engine's shape (incr.logos, `fnid == 3 || fnid == 4`),
+            // TYPED: no `RtVal`, no `agg_argu` flag, no `el_wrap_ord_key`. K is
+            // the accumulator's own type for an integer and the bit pattern for
+            // a float; the comparison is the accumulator's own `<`/`>` for an
+            // integer and `f64_data_key`'s total order for a float.
+            //
+            // ⚠ THE FLOAT ORDER IS `f64_data_key`'s AND IT IS COMMITTED TO HERE,
+            // deliberately and consistently with the batch tier: every NaN is
+            // one value and is the GREATEST, −0.0 and +0.0 TIE. The improve is
+            // STRICT (`<` / `>`), so among tied values the FIRST ARRIVAL wins
+            // the cached best — and the rescan below inherits the same rule from
+            // the same comparator, so a retraction cannot silently reorder a tie.
+            // That is `design_fp_as_data_postgres_semantics`'s order, which the
+            // batch `min`/`max` on the arm just below already uses.
+            //
+            // ⚠ THE FOLD IS DRIVEN BY THE RAW `__w`, NOT BY `el_wmag(__w)`. A
+            // weight of +3 puts THREE copies of the value into the multiset and
+            // −3 takes three out; `__cur + __w` is that statement, and it is why
+            // the map holds a COUNT rather than a presence bit. `el_wmag`
+            // discards the SIGN — feeding it here would turn every retraction
+            // into an insert — so its use stays confined to the u64 `sum` arm
+            // above, where the cell has no signed product to multiply by.
+            let vt0:  ExprBlob = parse_type(acct);
+            let mkty: ExprBlob = parse_type(mkt);
+            let orty: ExprBlob = parse_type(ordt);
+            let pmap: ExprBlob = parse_type(t_map_p);
+            let cmap: ExprBlob = parse_type(t_map_c);
+            let kits: ExprBlob = parse_type(t_keys);
+            // IDENTITY (the map key) and ORDER (the comparator) — two functions,
+            // each applied only to locals this emitter itself named.
+            let kv_e:  ExprBlob = parse_expr(if is_fl { "f64_to_bits(__v)" }   else { "__v" });
+            let kb_e:  ExprBlob = parse_expr(if is_fl { "f64_to_bits(__b)" }   else { "__b" });
+            let vo_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__v)" }  else { "__v" });
+            let bo_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__b)" }  else { "__b" });
+            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(*__kp)" } else { "*__kp" });
+            let ko_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__kv)" } else { "__kv" });
+            let impr:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__vo < __bo" }  else { "__vo > __bo" });
+            let rcmp:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__ko < __nbo" } else { "__ko > __nbo" });
+            // Dead initializers: `__f1` guards every read of them, and the first
+            // live key writes both. Spelled in the right types because the
+            // language wants an initializer, NOT because anything compares
+            // against them — that distinction is the seed defect this arc paid
+            // for twice.
+            let zv: ExprBlob = parse_expr(agg_acc_zero(acct));
+            let zo: ExprBlob = parse_expr(agg_acc_zero(ordt));
+            folds.push(quote_block! {
+                {
+                    let __v: #(vt0) = (#(arg_f));
+                    let __mk: #(mkty) = (#(kv_e));
+                    let __b: #(vt0) = __h.#n_ga.get(__gi);
+                    let __bk: #(mkty) = (#(kb_e));
+                    let __mp: #(pmap) = unsafe { __h.#n_gm.at(__gi) };
+                    let __cp: *const i64 = unsafe { __mp.get(&__mk) };
+                    let __cur: i64 = if (__cp as i64) == 0i64 { 0i64 } else { unsafe { *__cp } };
+                    let __nc: i64 = __cur + __w;
+                    // ⚠ STRICTLY `< 0`, AND THE STRICTNESS IS THE WHOLE CONTENT.
+                    // `__nc == 0` with `__cur > 0` is the LEGITIMATE removal of
+                    // the last copy of a value and must fall through to the
+                    // `<= 0` arm below. `__nc < 0` can only mean the caller
+                    // retracted more copies of this VALUE than the multiset
+                    // holds — including the adjacent case where the GROUP exists
+                    // but this value was never inserted (`__cur == 0`, `__w < 0`),
+                    // where the map's `remove` would otherwise be a silent no-op
+                    // and the retraction would vanish. One guard decides both,
+                    // because they are the same mistake.
+                    //
+                    // ⚠ REACHABLE ONLY IN A NARROW WINDOW, so it has a
+                    // purpose-built witness rather than a hoped-for one: the
+                    // GROUP-COUNT guard in `<q>_apply` runs first and catches the
+                    // common double-retraction. This arm needs a row whose group
+                    // count stays legal while its VALUE goes below zero — insert
+                    // (k,5) twice, then retract (k,7).
+                    if __nc < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                    let mut __rb: bool = false;
+                    if __nc <= 0i64 {
+                        unsafe { __mp.remove(&__mk); }
+                        if __bk == __mk { __rb = true; }
+                    } else {
+                        unsafe { __mp.insert(__mk, __nc); }
+                    }
+                    if __nc > 0i64 && __cur <= 0i64 {
+                        let __mc0: #(cmap) = unsafe { __h.#n_gm.at_const(__gi) };
+                        let __ml: i64 = unsafe { (&*__mc0).len() };
+                        if __ml == 1i64 {
+                            __h.#n_ga.set(__gi, __v);
+                        } else {
+                            let __vo: #(orty) = (#(vo_e));
+                            let __bo: #(orty) = (#(bo_e));
+                            if #(impr) { __h.#n_ga.set(__gi, __v); }
+                        }
+                    }
+                    if __rb {
+                        let __mc: #(cmap) = unsafe { __h.#n_gm.at_const(__gi) };
+                        if unsafe { (&*__mc).len() } > 0i64 {
+                            let mut __nb: #(vt0) = #(zv);
+                            let mut __nbo: #(orty) = #(zo);
+                            let mut __f1: bool = true;
+                            let mut __it: #(kits) = unsafe { __mc.keys() };
+                            loop {
+                                match __it.next() {
+                                    Option::Some(__kp) => {
+                                        let __kv: #(vt0) = (#(vok_e));
+                                        let __ko: #(orty) = (#(ko_e));
+                                        if __f1 { __nb = __kv; __nbo = __ko; __f1 = false; }
+                                        else { if #(rcmp) { __nb = __kv; __nbo = __ko; } }
+                                    }
+                                    Option::None => { break; }
+                                }
+                            }
+                            __h.#n_ga.set(__gi, __nb);
+                        }
+                    }
+                }
+            });
         } else if fnid == AGG_MIN() {
+            // ⚠ THE SCALAR min/max ARMS ARE THE `!want_map` FALLBACK AND STAY
+            // EXACTLY AS P1 WROTE THEM. They are reached only when this query is
+            // NOT retract-eligible — an f64 `sum`/`avg` elsewhere in the same
+            // list took the weight away — so there is no `__w` in scope, the
+            // cached extremum is never asked to go backwards, and the O(1)
+            // improve against one cell is the whole state a `min` needs. Keeping
+            // the two shapes side by side is what makes the map a COST paid for
+            // a capability rather than an unconditional change of state shape.
             if agg_flt[gi] {
                 folds.push(quote_block! {
                     { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(__h.#n_ga.get(__gi)) { __h.#n_ga.set(__gi, __v); } }
@@ -4537,12 +4786,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if is_priv {
         let qs: QuoteItemBlob = quote_item! {
             use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
             struct #n_ty { #( pub #fnames: #ftys, )* }
         };
         unsafe { logos_emit_item_blob_subst(&qs); }
     } else {
         let qs2: QuoteItemBlob = quote_item! {
             use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
             pub struct #n_ty { #( pub #fnames: #ftys, )* }
         };
         unsafe { logos_emit_item_blob_subst(&qs2); }
@@ -4582,6 +4833,20 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         cb.push_str(string_as_str(&ganm[ci]));
         cb.push_str(": ");
         push_vec_new(&mut cb, acc[ci]);
+        // The multiplicity map's initializer, under THE SAME DECISION the field
+        // was declared under — `wmap[ci]`, written once by the loop above, not a
+        // second derivation from `aggs` + `acc` that is free to answer
+        // differently. The key type follows the SAME rule the field's did: the
+        // accumulator's own type for an integer, `u64` (the bit pattern) for a
+        // float, which is why this reads `acc[ci] == "i64"` and defaults to u64
+        // rather than testing for "f64" — an f64 accumulator's MAP is a u64 map.
+        if wmap[ci] {
+            cb.push_str(", ");
+            cb.push_str(string_as_str(&gmnm[ci]));
+            cb.push_str(": ");
+            if str_eq(acc[ci], "i64") { cb.push_str("Vec::<HashMap<i64, i64>>::new()"); }
+            else                      { cb.push_str("Vec::<HashMap<u64, i64>>::new()"); }
+        }
         ci = ci + 1i64;
     }
     cb.push_str(" };\n}\n");
@@ -4600,12 +4865,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if is_priv {
         let qc: QuoteItemBlob = quote_item! {
             use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
             fn #n_ctor() -> #n_ty2 #(ctor_b)
         };
         unsafe { logos_emit_item_blob_subst(&qc); }
     } else {
         let qc2: QuoteItemBlob = quote_item! {
             use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
             pub fn #n_ctor() -> #n_ty2 #(ctor_b)
         };
         unsafe { logos_emit_item_blob_subst(&qc2); }
@@ -4633,12 +4900,32 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // of the fn's own body, so the weighted form writes them out itself.
     let mut eps: String = String::new();
     let mut enm: String = String::new();
-    if invertible {
-        // ⚠ THE GROUP IS CREATED FOR A RETRACTION INTO A KEY NEVER SEEN, and
-        // that is the dynamic engine's answer too (`aggstate_ensure` runs before
-        // the sign of `w` is looked at). The group then carries a NEGATIVE
-        // multiplicity and `<q>_snapshot`'s guard keeps it out of the output, so
-        // the two tiers produce the same rows by the same route.
+    if retr {
+        // ⚠⚠ A MULTIPLICITY THAT WOULD GO NEGATIVE IS AN ERROR, AND THE
+        // INTERPRETER IS NOT THE ORACLE FOR THIS CELL. `logos.mem.deem.incr`
+        // runs `aggstate_ensure` BEFORE `w`'s sign is looked at, and its count
+        // update is a plain `gcount.set(slot, gcount.get(slot) + w)` with NO
+        // ERROR PATH AT ALL. An engine with no branch for a case does not answer
+        // "no error" — it answers "I was never asked", and citing that silence
+        // as agreement is how a decision gets taken by accident. (It is also
+        // deleted at P5, so it cannot be made to agree either.)
+        //
+        // So: STRICT. A negative multiplicity is an UNREPRESENTABLE state for a
+        // multiset, this arc's goal is a type-safe incremental Datalog, and
+        // strict → lax is a compatible relaxation later while lax → strict
+        // breaks every caller. The reversible direction is the one to take.
+        //
+        // THREE guards, all dead under `+1` and load-bearing under a negative
+        // weight, all returning `ElError::RetractAbsent` — one name for one
+        // caller mistake, "you took out what was never put in":
+        //   1. a retraction into a key NEVER SEEN (here, before the group is
+        //      created — so no phantom group is created either, which is what
+        //      `__w == 0` and the tombstone growth would otherwise compound);
+        //   2. a group's ROW COUNT driven below zero (below);
+        //   3. a VALUE's multiplicity driven below zero, inside the semilattice
+        //      fold — a case guard 2 does not reach, because the group count can
+        //      stay legal while the retracted value was never in the map.
+        // `ElError::Overflow` would LIE about all three: nothing overflowed.
         let apply_body: ExprBlob = quote_block! {
             #(pre_f);
             let mut __n: i64 = 0i64;
@@ -4658,12 +4945,15 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 let mut __s: i64 = 0i64;
                 while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
                 if __gi < 0i64 {
+                    if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
                     __h.__gk.push(__k);
                     __h.__gc.push(0i64);
                     #( #seeds; )*
                     __gi = __h.__gk.len() - 1i64;
                 }
-                __h.__gc.set(__gi, el_add(__h.__gc.get(__gi), __w)?);
+                let __gn: i64 = el_add(__h.__gc.get(__gi), __w)?;
+                if __gn < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                __h.__gc.set(__gi, __gn);
                 #( #folds; )*
                 __n = __n + 1i64;
                 __i0 = __i0 + 1i64;
@@ -4926,47 +5216,55 @@ fn incr_decline(qn: str, why: str) -> bool {
     return false;
 }
 
-// ══ DOES EVERY AGGREGATE OF THIS QUERY INVERT *EXACTLY*? ═══════════════════
+// ══ MAY THIS QUERY'S HANDLE BE RUN BACKWARDS? ══════════════════════════════
 //
-// The question `<q>_retract` rests on, asked of the SAME aggregate array the
-// folds are built from and traced on the SAME channel as every other derived
-// decision — because a query that silently loses its retraction is exactly the
-// unobservable derived decision `incr_eligible`'s header already argues about.
+// The question `<q>_apply`'s WEIGHT and `<q>_retract` rest on, asked of the SAME
+// aggregate array the folds are built from and traced on the SAME channel as
+// every other derived decision — because a query that silently loses its
+// retraction is exactly the unobservable derived decision `incr_eligible`'s
+// header already argues about.
 //
-// EXACTLY is the operative word and it is not a stylistic preference:
+// ⚠ THE LIST IS THE UNIT, NOT THE AGGREGATE. A retraction retracts a ROW, and a
+// row feeds every aggregate in the list at once. There is no shape in which
+// `min` runs backwards and the `sum` beside it does not — so ONE aggregate that
+// cannot take a negative weight takes the whole retracting surface away, and the
+// batch fn, `<q>_epoch` and `<q>_snapshot` are untouched by the refusal.
+//
+// ⚠ EXACTLY ONE THING IS REFUSED, AND IT IS A FORK RATHER THAN A GAP:
 //
 //   `count`   — the multiplicity is an integer and `+w` inverts `+(-w)`.
 //   `sum` over a NON-float accumulator — `i64` and `u64` both invert under
 //               their own checked predicates, with no representable value lost.
-//   `sum`/`avg` over an f64 accumulator — `(S+x)-x != S`. That is decision D4,
-//               it is OPEN, and it is not this emitter's to take. Note this
-//               catches `avg` over an INTEGER column too: `avg` divides at
-//               snapshot out of an f64 running total, so its accumulator is a
-//               float whatever the column is.
-//   `min`/`max` — not invertible from a cached extremum AT ALL. Retracting the
-//               current best leaves a stale value with nothing to recompute it
-//               from; the dynamic engine survives it only because it keeps a
-//               per-(group, column) value→multiplicity map and RE-SCANS. That
-//               map is a third state axis (group × aggregate × value) with no
-//               representation on the typed path, so it is its own slice — and
-//               a fold that quietly accepted `w = -1` here would answer with a
-//               stale extremum, which is worse than refusing.
-fn incr_invertible(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8], qn: str) -> bool {
+//   `min`/`max`, AT EVERY TYPE INCLUDING f64 — these do NOT invert, and they do
+//               not have to. Retracting the current best is answered by RESCAN
+//               over a per-(group, aggregate) value→multiplicity map (see the
+//               semilattice fold in `emit_incremental`), which computes no
+//               inverse at all: an extremum is a value SELECTED from the
+//               multiset, never a value COMPUTED from it, so nothing rounds and
+//               f64 is admitted on the same footing as the integers.
+//   `sum`/`avg` over an f64 accumulator — REFUSED. `(S+x)-x != S`. That is
+//               decision D4, it is OPEN and reserved, and it is not this
+//               emitter's to take. Note this catches `avg` over an INTEGER
+//               column too: `avg` divides at snapshot out of an f64 running
+//               total, so its accumulator is a float whatever the column is.
+//
+// ⚠ THE PREDICATE READS `acc`, THE ACCUMULATOR ARRAY, AND NOT `agg_flt`. The two
+// axes answer the same cell — `compute_acc_tys` sets `acc[i] == "f64"` exactly
+// when `agg_flt[i]`, and `agg_flt` is unconditionally true for `avg` — but the
+// GROUND is about the accumulator, so the test that carries the ground should be
+// the one that names it. (A UDA is the only place the two could part, with
+// `acc[i] == ""`; `incr_eligible` declines a UDA one axis out, so this predicate
+// is never asked about one.)
+fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8], qn: str) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
-        // The SAME condition the weighted folds are selected by, written once:
-        // an aggregate is invertible iff the emitter has a signed form for it.
-        let ok: bool = (fnid == AGG_COUNT()) || (fnid == AGG_SUM() && !agg_flt[i]);
-        if !ok {
-            if fnid == AGG_MIN() || fnid == AGG_MAX() {
-                return incr_no_retract(qn, "`min`/`max` cannot be inverted from a cached extremum — retracting the current best leaves it stale, and recomputing needs the per-(group, column) value→multiplicity map the typed handle does not carry");
-            }
+        if (fnid == AGG_SUM() || fnid == AGG_AVG()) && str_eq(acc[i], "f64") {
             return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
         }
         i = i + 1i64;
     }
-    plan_trace("retraction", "EMITTED", qn, "every aggregate is `count` or a NON-float `sum` — both invert exactly under their own checked predicate");
+    plan_trace("retraction", "EMITTED", qn, "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map");
     return true;
 }
 
@@ -5019,6 +5317,14 @@ fn incr_proj_ty_ok(e: SExpr, t: &ElTypes) -> bool {
 fn ga_name(out: str) -> String {
     let mut s: String = String::new();
     s.push_str("__ga_");
+    s.push_str(out);
+    return s;
+}
+// `__gm_<out>` — the min/max multiplicity map's field on the incremental
+// handle. Same borrowing rule as `ga_name`: the caller keeps the String.
+fn gm_name(out: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("__gm_");
     s.push_str(out);
     return s;
 }

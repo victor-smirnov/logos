@@ -1,7 +1,7 @@
 // RETRACTION ON THE STATIC INCREMENTAL PATH, CHECKED THREE WAYS.
 //
-// `deem!` now emits, for an aggregate query whose every aggregate inverts
-// EXACTLY, a delta primitive that carries a SOURCE TAG and a WEIGHT:
+// `deem!` now emits, for an aggregate query whose every aggregate can RUN
+// BACKWARDS, a delta primitive that carries a SOURCE TAG and a WEIGHT:
 //
 //     let mut h: QaIncr = qa_incremental();
 //     qa_apply(&mut h, 0i32,  1i64, rows)?;    // a +1 delta over source 0
@@ -64,40 +64,88 @@
 //    -9223372036854775808, which is the number the interpreter's `get_i64`
 //    hands back for the same total — the same bits, read signed.
 //
-// C. THE u64 SUM DRIVEN BELOW ZERO **ERRS**, AND THE MULTIPLICITY DOES NOT.
-//    These are two different facts and the two tiers answer them differently,
-//    so they are asserted separately rather than as one "retract twice" case:
+// C. RETRACTING WHAT WAS NEVER INSERTED IS AN ERROR, AND THE ERROR HAS A NAME
+//    THAT DOES NOT LIE. Three distinct mistakes, three assertions, and each one
+//    checks WHICH ARM came back rather than merely that something came back —
+//    an `Err(_)` wildcard would pass on any arm and the whole point of the arms
+//    is that they are different facts:
 //
-//      • `qu`: insert (9, 5), retract (9, 5), retract (9, 5) again
-//          → the third addend takes the u64 total from 0 to -5, which is an
-//            UNDERFLOW: `Err(Overflow)`. The interpreter latches `math_err` at
-//            exactly this point (`el_wrap_sub` → `None` → `*mep = true`), and
-//            its own comment states the rule: "a retraction that would take the
-//            total below zero is a u64 underflow and latches the same error
-//            channel". So this is the interpreter's recorded rule, not an
-//            invention — the static tier returns it as a VALUE instead of
-//            latching it, which is this tier's convention.
-//      • `qc` (count only): the same triple → `Ok` every time. The
-//            multiplicity reaches -1 and NOTHING says so, because the
-//            interpreter's `gcount += w` is a bare add with no guard. The group
-//            is simply absent from the snapshot.
+//      • `ElError::RetractAbsent` — a MULTISET-DOMAIN violation. A multiset has
+//            no element of negative multiplicity, so a group count or a value
+//            multiplicity driven below zero, or a retraction into a group never
+//            seen, describes no state the handle can be in. Named for the
+//            caller's mistake, not for the arithmetic that noticed.
+//      • `ElError::Underflow` — an ARITHMETIC borrow out of a `u64` TOTAL,
+//            `el_subu`'s fault and only its. A different mistake with a
+//            different repair, so a different name: `Overflow` said "too large"
+//            about a number that had gone below zero.
 //
-//    ⚠ AND THROUGH A `FactStore` THE THIRD ADDEND DOES NOT EXIST AT ALL:
+//    ⚠⚠ THIS IS WHERE THE STATIC TIER IS STRICTER THAN THE INTERPRETER, AND
+//    THE DIVERGENCE IS ASSERTED RATHER THAN ASSUMED. Take `qc` (count only):
+//    insert (3,1), retract it, retract it again.
+//      static      → `Err(RetractAbsent)` — the count would reach −1.
+//      interpreter → `had_error()` FALSE, the group merely absent. Its
+//                    `aggstate_ensure` runs before `w`'s sign is read and its
+//                    count update is a bare `gcount += w` with NO ERROR PATH AT
+//                    ALL — which is not the answer "no error", it is "I was
+//                    never asked", so its silence was never agreement.
+//    Both answers are pinned below so that the divergence cannot vanish
+//    silently while the interpreter is being deleted.
+//
+//    ⚠ AND THE ORDER OF THE GUARDS IS ITSELF LOAD-BEARING, which is why
+//    `el_subu`'s witness had to be REBUILT rather than kept. The group-count
+//    guard runs BEFORE the folds, so the old construction — insert (9,5),
+//    retract, retract — now returns at the COUNT guard and never reaches
+//    `el_subu` at all: the assertion would have stayed green while the witness
+//    it was written for evaporated. The witness below keeps the count LEGAL and
+//    drives only the SUM under: insert (0,1) twice (count 2, total 2), then
+//    retract one row carrying 5 — count 2 → 1 is fine, 2 − 5 in u64 is not.
+//
+//    ⚠ THE VALUE-MULTIPLICITY guard needs the same care and gets its own query
+//    `qm` (count + min + max): insert (0,5) twice, then retract (0,7). The
+//    group count goes 2 → 1, which is legal, so the count guard does NOT fire;
+//    the map's entry for 7 goes 0 → −1, which is the only thing that can catch
+//    it. Without this row that guard is a name no test reads.
+//
+//    ⚠ AND THROUGH A `FactStore` NONE OF THESE ADDENDS EXIST AT ALL:
 //    `retract` returns -1 and pushes nothing when the row is not present, so the
-//    store is a SET and a double retraction is a no-op. The case above is
-//    therefore a RAW-BATCH case by construction, which is why it is driven by
-//    `<q>_retract` directly and not through a store.
+//    store is a SET and a double retraction is a no-op. The cases above are
+//    therefore RAW-BATCH cases by construction, which is why they are driven by
+//    `<q>_retract` / `<q>_apply` directly and not through a store.
 //
-// D. THE SOURCE TAG. A delta tagged with a source this operator does not read
+// G. THE SOURCE TAG. A delta tagged with a source this operator does not read
 //    contributes NOTHING and returns Ok(0). Today exactly one bare scan is
 //    admitted, so 0 is the only tag that folds; the parameter is in the
 //    signature from the outset because retiring `incr_eligible`'s join-chain
 //    refusal is precisely "the delta can name its source", and a second
 //    reopening of the emitted API costs more than an unused argument.
 //
-// E. THE METAMORPHIC LAW, EXTENDED TO SIGNED WEIGHTS: for any split of an
+// H. THE METAMORPHIC LAW, EXTENDED TO SIGNED WEIGHTS: for any split of an
 //    insert stream followed by a retraction stream into epochs, the snapshot
 //    equals `qa()` over the remaining multiset — same rows, same order.
+//
+// ── EXIT CODES: EVERY ONE ≤ 122, AND THE CEILING IS NOT COSMETIC ───────────
+// `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC telling a
+// reader which assertion fired. 126, 127 and 128+signal are the shell's, so a
+// fixture code up there is one number standing for two different states —
+// exactly how a crash reads as an assertion, or an assertion as a crash. This
+// arc has already paid for that: a candidate's 132 collided with SIGILL and was
+// disambiguated only because the harness happened to print the signal's text.
+//
+// 123 distinct assertions do not fit in 10-decade blocks under a ceiling of 125,
+// so the scheme is: codes 1-10 are the BLOCKS' PLUMBING (a call that must
+// succeed returned `Err` — block A is 1, B is 2, … I is 10), and every genuine
+// ASSERTION gets its own code, allocated in source order:
+//     A 11-32 · B 33-36 · C 37-42 · D 43-64 · E 65-75 · F 76-93 · 123
+//     F5 94-105 · G 106-111 · H 112-115 · I 116-122
+// One code, one assertion — no code stands for two states, and none can be
+// confused with a signal.
+//
+// ⚠ 123 IS BLOCK F's AND SITS OUT OF SEQUENCE ON PURPOSE. It is F4's slot-list
+// assertion, added after the ranges were allocated; appending it beat shifting
+// 47 codes so that one number could be contiguous, and a renumbering is exactly
+// the edit that silently invalidates every control measurement taken against
+// the old codes. Named here so the gap is a decision and not an oversight.
 //
 // exit 0 = all three witnesses agree with the table above, under every split.
 package test;
@@ -134,12 +182,23 @@ pub deem qu(us: &[U]) {
 pub deem qc(ss: &[S]) {
     from ss s group by s.g aggregate c = count() select (key, c)
 }
+// count + min + max — the SEMILATTICE arms, whose state is a value→multiplicity
+// MAP rather than a scalar. Present here for one cell only: the map's own
+// "retracted a value this group never held" guard, which the group-count guard
+// cannot reach. The map's full behaviour (order at 2^63, multiplicity, the
+// stale-seed gate, float identity) is `deem_incr_static_retract_e2e`'s subject.
+pub deem qm(ss: &[S]) {
+    from ss s group by s.g aggregate c = count(), lo = min(s.v), hi = max(s.v) select (key, c, lo, hi)
+}
 
 fn qa_text() -> str {
     return "from ss s group by s.g aggregate c = count(), t = sum(s.v) select (key, c, t)";
 }
 fn qu_text() -> str {
     return "from us s group by s.g aggregate n = count(), t = sum(s.u) select (key, n, t)";
+}
+fn qc_text() -> str {
+    return "from ss s group by s.g aggregate c = count() select (key, c)";
 }
 
 // ── the row sets ───────────────────────────────────────────────────────────
@@ -259,55 +318,55 @@ fn main() -> i32 {
     // ══ A. THE HAND TABLE, against the static handle ═══════════════════════
     let mut h: QaIncr = qa_incremental();
     let ni: i64 = match qa_epoch(&mut h, ins.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 10i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
     };
     if ni != 7i64 { return 11i32; }
     // …insert-only first, so a defect in the RETRACTION cannot hide behind a
     // defect in the fold it inverts.
     let a0: Vec<(i64, i64, i64)> = match qa_snapshot(&h) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 12i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
     };
-    if a0.len() != 3i64 { return 13i32; }
-    if a0.get(0i64).0 !=  0i64 { return 14i32; }
-    if a0.get(0i64).1 !=  4i64 { return 15i32; }
-    if a0.get(0i64).2 != 16i64 { return 16i32; }
-    if a0.get(1i64).0 !=  1i64 { return 17i32; }
-    if a0.get(1i64).1 !=  1i64 { return 18i32; }
-    if a0.get(1i64).2 != 10i64 { return 19i32; }
-    if a0.get(2i64).0 !=  2i64 { return 20i32; }
-    if a0.get(2i64).1 !=  2i64 { return 21i32; }
-    if a0.get(2i64).2 != -6i64 { return 22i32; }
+    if a0.len() != 3i64 { return 12i32; }
+    if a0.get(0i64).0 !=  0i64 { return 13i32; }
+    if a0.get(0i64).1 !=  4i64 { return 14i32; }
+    if a0.get(0i64).2 != 16i64 { return 15i32; }
+    if a0.get(1i64).0 !=  1i64 { return 16i32; }
+    if a0.get(1i64).1 !=  1i64 { return 17i32; }
+    if a0.get(1i64).2 != 10i64 { return 18i32; }
+    if a0.get(2i64).0 !=  2i64 { return 19i32; }
+    if a0.get(2i64).1 !=  2i64 { return 20i32; }
+    if a0.get(2i64).2 != -6i64 { return 21i32; }
 
     let nr: i64 = match qa_retract(&mut h, ret.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 23i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
     };
-    if nr != 2i64 { return 24i32; }
+    if nr != 2i64 { return 22i32; }
     let a1: Vec<(i64, i64, i64)> = match qa_snapshot(&h) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 25i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
     };
-    if a1.len() != 3i64 { return 26i32; }
-    if a1.get(0i64).0 !=  0i64 { return 27i32; }
-    if a1.get(0i64).1 !=  3i64 { return 28i32; }
-    if a1.get(0i64).2 != 19i64 { return 29i32; }
-    if a1.get(1i64).0 !=  1i64 { return 30i32; }
-    if a1.get(1i64).1 !=  1i64 { return 31i32; }
-    if a1.get(1i64).2 != 10i64 { return 32i32; }
-    if a1.get(2i64).0 !=  2i64 { return 33i32; }
-    if a1.get(2i64).1 !=  1i64 { return 34i32; }
-    if a1.get(2i64).2 != -8i64 { return 35i32; }
+    if a1.len() != 3i64 { return 23i32; }
+    if a1.get(0i64).0 !=  0i64 { return 24i32; }
+    if a1.get(0i64).1 !=  3i64 { return 25i32; }
+    if a1.get(0i64).2 != 19i64 { return 26i32; }
+    if a1.get(1i64).0 !=  1i64 { return 27i32; }
+    if a1.get(1i64).1 !=  1i64 { return 28i32; }
+    if a1.get(1i64).2 != 10i64 { return 29i32; }
+    if a1.get(2i64).0 !=  2i64 { return 30i32; }
+    if a1.get(2i64).1 !=  1i64 { return 31i32; }
+    if a1.get(2i64).2 != -8i64 { return 32i32; }
 
     // ══ B. against the static BATCH fn over the REMAINING multiset ═════════
     // This is the correctness spec, not a second opinion: a handle that has seen
     // I then R must answer what a batch over I∖R answers, element by element.
     let b1: Vec<(i64, i64, i64)> = match qa(rest.as_slice()) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; }
     };
-    if b1.len() != a1.len() { return 41i32; }
+    if b1.len() != a1.len() { return 33i32; }
     let mut i: i64 = 0i64;
     while i < b1.len() {
-        if b1.get(i).0 != a1.get(i).0 { return 42i32; }
-        if b1.get(i).1 != a1.get(i).1 { return 43i32; }
-        if b1.get(i).2 != a1.get(i).2 { return 44i32; }
+        if b1.get(i).0 != a1.get(i).0 { return 34i32; }
+        if b1.get(i).1 != a1.get(i).1 { return 35i32; }
+        if b1.get(i).2 != a1.get(i).2 { return 36i32; }
         i = i + 1i64;
     }
 
@@ -330,80 +389,80 @@ fn main() -> i32 {
     let mut e: QEnv = QEnv::new();
     e.bind_source("ss", WAny::ref_to(ins_arr as *const WArray<WAny> as *const u8));
     let dq: Query = match Query::compile(qa_text(), &c) {
-        Result::Ok(qq) => { qq } Result::Err(_e) => { return 50i32; }
+        Result::Ok(qq) => { qq } Result::Err(_e) => { return 3i32; }
     };
     let mut eng: IncrJoin = match dq.incremental(&e) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 51i32; }
+        Result::Ok(g) => { g } Result::Err(_e) => { return 3i32; }
     };
     let nothing: ZBatch = ZBatch::new();
-    if eng.had_error() { return 52i32; }
+    if eng.had_error() { return 37i32; }
     let dre: ZBatch = zb_S(&d, &ret, 0i64 - 1i64);
     eng.epoch(&dre, &nothing);
-    if eng.had_error() { return 53i32; }
+    if eng.had_error() { return 38i32; }
     let dr: QRows = eng.snapshot();
-    if dr.row_count() != 3i64 { return 54i32; }
+    if dr.row_count() != 3i64 { return 39i32; }
     let mut k: i64 = 0i64;
     while k < 3i64 {
         let key: i64 = a1.get(k).0;
         let j: i64 = find_key(&dr, key);
-        if j < 0i64 { return 55i32; }
-        if dr.get_i64(j, 1i64) != a1.get(k).1 { return 56i32; }
-        if dr.get_i64(j, 2i64) != a1.get(k).2 { return 57i32; }
+        if j < 0i64 { return 40i32; }
+        if dr.get_i64(j, 1i64) != a1.get(k).1 { return 41i32; }
+        if dr.get_i64(j, 2i64) != a1.get(k).2 { return 42i32; }
         k = k + 1i64;
     }
 
     // ══ D. THE EMPTIED GROUP — absent, order of the survivors unchanged ════
     let g1: Vec<S> = one_row(1i64, 10i64);
     match qa_retract(&mut h, g1.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 60i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 4i32; }
     }
     let a2: Vec<(i64, i64, i64)> = match qa_snapshot(&h) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 61i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; }
     };
-    if a2.len() != 2i64 { return 62i32; }
-    if a2.get(0i64).0 !=  0i64 { return 63i32; }
-    if a2.get(0i64).1 !=  3i64 { return 64i32; }
-    if a2.get(0i64).2 != 19i64 { return 65i32; }
-    if a2.get(1i64).0 !=  2i64 { return 66i32; }
-    if a2.get(1i64).1 !=  1i64 { return 67i32; }
-    if a2.get(1i64).2 != -8i64 { return 68i32; }
+    if a2.len() != 2i64 { return 43i32; }
+    if a2.get(0i64).0 !=  0i64 { return 44i32; }
+    if a2.get(0i64).1 !=  3i64 { return 45i32; }
+    if a2.get(0i64).2 != 19i64 { return 46i32; }
+    if a2.get(1i64).0 !=  2i64 { return 47i32; }
+    if a2.get(1i64).1 !=  1i64 { return 48i32; }
+    if a2.get(1i64).2 != -8i64 { return 49i32; }
     // …and that IS what the batch answers over what remains.
     let b2: Vec<(i64, i64, i64)> = match qa(rest2.as_slice()) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 69i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; }
     };
-    if b2.len() != a2.len() { return 70i32; }
+    if b2.len() != a2.len() { return 50i32; }
     let mut m: i64 = 0i64;
     while m < b2.len() {
-        if b2.get(m).0 != a2.get(m).0 { return 71i32; }
-        if b2.get(m).1 != a2.get(m).1 { return 72i32; }
-        if b2.get(m).2 != a2.get(m).2 { return 73i32; }
+        if b2.get(m).0 != a2.get(m).0 { return 51i32; }
+        if b2.get(m).1 != a2.get(m).1 { return 52i32; }
+        if b2.get(m).2 != a2.get(m).2 { return 53i32; }
         m = m + 1i64;
     }
     // The interpreter drops the same row, for its own reason (`live = false`).
     let dg1: ZBatch = zb_S(&d, &g1, 0i64 - 1i64);
     eng.epoch(&dg1, &nothing);
-    if eng.had_error() { return 74i32; }
+    if eng.had_error() { return 54i32; }
     let dr2: QRows = eng.snapshot();
-    if dr2.row_count() != 2i64 { return 75i32; }
-    if find_key(&dr2, 1i64) >= 0i64 { return 76i32; }
-    if find_key(&dr2, 0i64) < 0i64 { return 77i32; }
-    if find_key(&dr2, 2i64) < 0i64 { return 78i32; }
+    if dr2.row_count() != 2i64 { return 55i32; }
+    if find_key(&dr2, 1i64) >= 0i64 { return 56i32; }
+    if find_key(&dr2, 0i64) < 0i64 { return 57i32; }
+    if find_key(&dr2, 2i64) < 0i64 { return 58i32; }
 
     // …AND THE TOMBSTONE IS A TOMBSTONE: re-inserting the key brings the group
     // back in its ORIGINAL position, because the slot was kept rather than
     // deleted. A `__gk` entry that had been removed would put g=1 last.
     match qa_epoch(&mut h, g1.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 79i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 4i32; }
     }
     let a3: Vec<(i64, i64, i64)> = match qa_snapshot(&h) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; }
     };
-    if a3.len() != 3i64 { return 81i32; }
-    if a3.get(0i64).0 != 0i64 { return 82i32; }
-    if a3.get(1i64).0 != 1i64 { return 83i32; }
-    if a3.get(1i64).1 != 1i64 { return 84i32; }
-    if a3.get(1i64).2 != 10i64 { return 85i32; }
-    if a3.get(2i64).0 != 2i64 { return 86i32; }
+    if a3.len() != 3i64 { return 59i32; }
+    if a3.get(0i64).0 != 0i64 { return 60i32; }
+    if a3.get(1i64).0 != 1i64 { return 61i32; }
+    if a3.get(1i64).1 != 1i64 { return 62i32; }
+    if a3.get(1i64).2 != 10i64 { return 63i32; }
+    if a3.get(2i64).0 != 2i64 { return 64i32; }
 
     // ══ E. THE u64 EXTREME — 2^63 EXACTLY, in the subtract direction ═══════
     let mut hu: QuIncr = qu_incremental();
@@ -413,24 +472,24 @@ fn main() -> i32 {
                          v.push(U { g: 0i64, u: 5u64 });
                          v };
     match qu_epoch(&mut hu, uins.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 90i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 5i32; }
     }
     let u0: Vec<(i64, i64, u64)> = match qu_snapshot(&hu) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 91i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; }
     };
-    if u0.len() != 1i64 { return 92i32; }
-    if u0.get(0i64).1 != 2i64 { return 93i32; }
-    if u0.get(0i64).2 != 9223372036854775813u64 { return 94i32; }
+    if u0.len() != 1i64 { return 65i32; }
+    if u0.get(0i64).1 != 2i64 { return 66i32; }
+    if u0.get(0i64).2 != 9223372036854775813u64 { return 67i32; }
     let ufive: Vec<U> = one_u(0i64, 5u64);
     match qu_retract(&mut hu, ufive.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 95i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 5i32; }
     }
     let u1: Vec<(i64, i64, u64)> = match qu_snapshot(&hu) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 96i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; }
     };
-    if u1.len() != 1i64 { return 97i32; }
-    if u1.get(0i64).1 != 1i64 { return 98i32; }
-    if u1.get(0i64).2 != two63 { return 99i32; }
+    if u1.len() != 1i64 { return 68i32; }
+    if u1.get(0i64).1 != 1i64 { return 69i32; }
+    if u1.get(0i64).2 != two63 { return 70i32; }
     // …and the interpreter's total is the SAME BITS, read signed. Same
     // constraint as block C: the two rows are BOUND, so construction folds them
     // and the `u64` claim survives into the plan.
@@ -441,101 +500,243 @@ fn main() -> i32 {
     let mut ue: QEnv = QEnv::new();
     ue.bind_source("us", WAny::ref_to(uarr as *const WArray<WAny> as *const u8));
     let uqq: Query = match Query::compile(qu_text(), &c) {
-        Result::Ok(qq) => { qq } Result::Err(_e) => { return 100i32; }
+        Result::Ok(qq) => { qq } Result::Err(_e) => { return 5i32; }
     };
     let mut ueng: IncrJoin = match uqq.incremental(&ue) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 101i32; }
+        Result::Ok(g) => { g } Result::Err(_e) => { return 5i32; }
     };
-    if ueng.had_error() { return 102i32; }
+    if ueng.had_error() { return 71i32; }
     let mut ur: ZBatch = ZBatch::new();
     ur.push(mkU(&ud, 0i64, 5u64), 0i64 - 1i64);
     ueng.epoch(&ur, &nothing);
-    if ueng.had_error() { return 103i32; }
+    if ueng.had_error() { return 72i32; }
     let urows: QRows = ueng.snapshot();
-    if urows.row_count() != 1i64 { return 104i32; }
-    if urows.get_i64(0i64, 1i64) != 1i64 { return 105i32; }
+    if urows.row_count() != 1i64 { return 73i32; }
+    if urows.get_i64(0i64, 1i64) != 1i64 { return 74i32; }
     // 2^63 as an i64 payload — `-9223372036854775808`, written out rather than
     // computed, which is the spelling the corpus already pins elsewhere.
-    if urows.get_i64(0i64, 2i64) != -9223372036854775808i64 { return 106i32; }
+    if urows.get_i64(0i64, 2i64) != -9223372036854775808i64 { return 75i32; }
 
-    // ══ F. BELOW ZERO ERRS ON THE SUM, AND NEVER ON THE MULTIPLICITY ═══════
+    // ══ F. RETRACTING WHAT WAS NEVER INSERTED — THREE MISTAKES, THREE NAMES ═
+    //
+    // F1. THE GROUP COUNT BELOW ZERO. Insert (9,5), retract it, retract it
+    // again: the group's multiplicity would reach −1, a state no multiset has.
     let mut hz: QuIncr = qu_incremental();
     let z5: Vec<U> = one_u(9i64, 5u64);
     match qu_epoch(&mut hz, z5.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 110i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 6i32; }
     }
     match qu_retract(&mut hz, z5.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 111i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 6i32; }
     }
     // the group is empty now — and absent
     let z0: Vec<(i64, i64, u64)> = match qu_snapshot(&hz) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 112i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
     };
-    if z0.len() != 0i64 { return 113i32; }
-    // the THIRD addend: 0 - 5 in u64 is an underflow, and it must SAY SO
+    if z0.len() != 0i64 { return 76i32; }
+    // …and the THIRD addend must say WHICH mistake, by name.
     match qu_retract(&mut hz, z5.as_slice()) {
-        Result::Ok(_n) => { return 114i32; }
-        Result::Err(_e) => { }
+        Result::Ok(_n) => { return 77i32; }
+        Result::Err(e1) => {
+            match e1 {
+                ElError::RetractAbsent => { }
+                // `Underflow` here would mean the count guard had been removed
+                // and `el_subu` caught the same call instead — a different
+                // fact reported for the same input.
+                ElError::Underflow  => { return 78i32; }
+                ElError::Overflow   => { return 79i32; }
+                ElError::DivByZero  => { return 80i32; }
+            }
+        }
     }
-    // The interpreter latches the same fault on the same addend — over its own
-    // binding of the single row (9, 5), folded by construction.
+
+    // F2. THE u64 TOTAL BELOW ZERO — `el_subu`'s OWN witness, and it has to keep
+    // the COUNT legal to reach it. Insert (0,1) twice: count 2, total 2. Then
+    // retract ONE row carrying 5 — count 2 → 1 is legal, so F1's guard does not
+    // fire, and 2 − 5 in u64 is the borrow. Without `el_subu` this wraps to
+    // ≈2^64 (or traps: measured, a raw `a - b` on the u64 cell prints "Illegal
+    // instruction"), so the value returned here is what makes the fault
+    // REPORTABLE rather than merely present.
+    let mut hb2: QuIncr = qu_incremental();
+    let b1u: Vec<U> = { let mut o: Vec<U> = vec_new::<U>();
+                        o.push(U { g: 7i64, u: 1u64 });
+                        o.push(U { g: 7i64, u: 1u64 }); o };
+    match qu_epoch(&mut hb2, b1u.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 6i32; }
+    }
+    let b5u: Vec<U> = one_u(7i64, 5u64);
+    match qu_retract(&mut hb2, b5u.as_slice()) {
+        Result::Ok(_n) => { return 81i32; }
+        Result::Err(e2) => {
+            match e2 {
+                ElError::Underflow => { }
+                // `RetractAbsent` here would mean the count guard fired first —
+                // the exact way this witness evaporates. Named so the failure
+                // says which guard swallowed it.
+                ElError::RetractAbsent => { return 82i32; }
+                ElError::Overflow      => { return 83i32; }
+                ElError::DivByZero     => { return 84i32; }
+            }
+        }
+    }
+
+    // F3. A VALUE'S MULTIPLICITY BELOW ZERO — the map's own guard, reachable
+    // only when the group count stays legal. Insert (0,5) twice (count 2, map
+    // {5:2}), then retract (0,7): count 2 → 1 is fine, and 7 is a value this
+    // group never held. A `remove` on a missing key is a silent no-op, so
+    // WITHOUT the guard this returns Ok and the retraction simply vanishes.
+    let mut hm: QmIncr = qm_incremental();
+    let m5: Vec<S> = { let mut o: Vec<S> = vec_new::<S>();
+                       o.push(S { g: 0i64, v: 5i64 });
+                       o.push(S { g: 0i64, v: 5i64 }); o };
+    match qm_epoch(&mut hm, m5.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 6i32; }
+    }
+    let m7: Vec<S> = one_row(0i64, 7i64);
+    match qm_retract(&mut hm, m7.as_slice()) {
+        Result::Ok(_n) => { return 85i32; }
+        Result::Err(e3) => {
+            match e3 {
+                ElError::RetractAbsent => { }
+                ElError::Underflow  => { return 86i32; }
+                ElError::Overflow   => { return 87i32; }
+                ElError::DivByZero  => { return 88i32; }
+            }
+        }
+    }
+
+    // F4. A GROUP NEVER SEEN AT ALL. The retraction names a key with no slot,
+    // so no group is created for it either — a `+0`-weight phantom slot is
+    // exactly what the tombstone list must not accumulate.
+    let mut hn: QcIncr = qc_incremental();
+    let n9: Vec<S> = one_row(9i64, 1i64);
+    match qc_retract(&mut hn, n9.as_slice()) {
+        Result::Ok(_n) => { return 89i32; }
+        Result::Err(e4) => {
+            match e4 {
+                ElError::RetractAbsent => { }
+                ElError::Underflow  => { return 90i32; }
+                ElError::Overflow   => { return 91i32; }
+                ElError::DivByZero  => { return 92i32; }
+            }
+        }
+    }
+    // …and the handle is still EMPTY: the refused retraction created nothing.
+    let nz: Vec<(i64, i64)> = match qc_snapshot(&hn) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
+    };
+    if nz.len() != 0i64 { return 93i32; }
+    // ⚠ AND THE SNAPSHOT ALONE CANNOT SAY THAT — WHICH IS WHY THIS LINE REACHES
+    // INTO THE HANDLE. `<q>_snapshot` skips any group whose count is not
+    // positive, so a PHANTOM slot created by the refused retraction (key 9,
+    // count −1, seeds run, maps allocated) is invisible to it and `nz.len()`
+    // reads 0 either way. Without the group-creation guard the slot list GROWS
+    // on every refused retraction — unbounded under P3's fixpoint, which retries
+    // over exactly this state — so the assertion has to be about `__gk` itself.
+    // The handle's fields are `pub` by construction; this is the one place in
+    // the corpus that depends on that, deliberately.
+    if hn.__gk.len() != 0i64 { return 123i32; }
+
+    // ══ F5. THE DIVERGENCE, ASSERTED FROM BOTH SIDES ═══════════════════════
+    // The count-only triple: static `Err(RetractAbsent)`, interpreter silent.
+    // Neither half of this may be dropped — the static answer alone would look
+    // like agreement, and the interpreter answer alone would look like a bug.
+    let mut hc: QcIncr = qc_incremental();
+    let c5: Vec<S> = one_row(3i64, 1i64);
+    match qc_epoch(&mut hc, c5.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 7i32; }
+    }
+    match qc_retract(&mut hc, c5.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 7i32; }
+    }
+    // the group is empty and absent — both tiers agree about THAT
+    let cz: Vec<(i64, i64)> = match qc_snapshot(&hc) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; }
+    };
+    if cz.len() != 0i64 { return 94i32; }
+    // …and here they part. STATIC: strict.
+    match qc_retract(&mut hc, c5.as_slice()) {
+        Result::Ok(_n) => { return 95i32; }
+        Result::Err(e5) => {
+            match e5 {
+                ElError::RetractAbsent => { }
+                ElError::Underflow  => { return 96i32; }
+                ElError::Overflow   => { return 97i32; }
+                ElError::DivByZero  => { return 98i32; }
+            }
+        }
+    }
+    // INTERPRETER: the same triple over a count-only query, and it does NOT
+    // report. Bound to the single row (3,1) so construction folds it, then the
+    // SAME retraction twice through `epoch`.
+    let carr: &mut WArray<WAny> = d.array(4i64);
+    carr.push(mkS(&d, 3i64, 1i64));
+    let mut ce: QEnv = QEnv::new();
+    ce.bind_source("ss", WAny::ref_to(carr as *const WArray<WAny> as *const u8));
+    let cqq: Query = match Query::compile(qc_text(), &c) {
+        Result::Ok(qq) => { qq } Result::Err(_e) => { return 7i32; }
+    };
+    let mut ceng: IncrJoin = match cqq.incremental(&ce) {
+        Result::Ok(g) => { g } Result::Err(_e) => { return 7i32; }
+    };
+    if ceng.had_error() { return 99i32; }
+    let mut cr: ZBatch = ZBatch::new();
+    cr.push(mkS(&d, 3i64, 1i64), 0i64 - 1i64);
+    ceng.epoch(&cr, &nothing);
+    if ceng.had_error() { return 100i32; }
+    ceng.epoch(&cr, &nothing);
+    // ⚠ THE DIVERGENCE, PINNED. `had_error()` FALSE where the static tier
+    // returned `RetractAbsent`. If a later slice makes the interpreter strict,
+    // or makes the static tier lax, THIS line goes red and says so — which is
+    // the whole reason it is an assertion and not a comment.
+    if ceng.had_error() { return 101i32; }
+    if ceng.snapshot().row_count() != 0i64 { return 102i32; }
+
+    // F6. …AND THE u64 SUM'S FAULT IS THE ONE CELL WHERE THE TWO TIERS STILL
+    // AGREE THAT SOMETHING IS WRONG, by different routes. The interpreter has
+    // no count guard, so its `el_wrap_sub(0, 5)` → `None` latches `math_err` on
+    // exactly the addend where the static tier's F1 count guard returned first.
+    // Same input, same verdict "error", different reason — asserted so that the
+    // agreement is not mistaken for the two tiers running the same check.
     let zarr: &mut WArray<WAny> = ud.array(4i64);
     zarr.push(mkU(&ud, 9i64, 5u64));
     let mut ze: QEnv = QEnv::new();
     ze.bind_source("us", WAny::ref_to(zarr as *const WArray<WAny> as *const u8));
     let mut zeng: IncrJoin = match uqq.incremental(&ze) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 115i32; }
+        Result::Ok(g) => { g } Result::Err(_e) => { return 7i32; }
     };
-    if zeng.had_error() { return 116i32; }
+    if zeng.had_error() { return 103i32; }
     let mut zr: ZBatch = ZBatch::new();
     zr.push(mkU(&ud, 9i64, 5u64), 0i64 - 1i64);
     zeng.epoch(&zr, &nothing);
-    if zeng.had_error() { return 117i32; }
+    if zeng.had_error() { return 104i32; }
     zeng.epoch(&zr, &nothing);
-    if !zeng.had_error() { return 118i32; }
-
-    // …and the MULTIPLICITY alone does NOT err: a count-only query takes the
-    // same triple and answers Ok every time, with the group simply absent.
-    let mut hc: QcIncr = qc_incremental();
-    let c5: Vec<S> = one_row(3i64, 1i64);
-    match qc_epoch(&mut hc, c5.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 120i32; }
-    }
-    match qc_retract(&mut hc, c5.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 121i32; }
-    }
-    match qc_retract(&mut hc, c5.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 122i32; }
-    }
-    let cz: Vec<(i64, i64)> = match qc_snapshot(&hc) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 123i32; }
-    };
-    if cz.len() != 0i64 { return 124i32; }
+    if !zeng.had_error() { return 105i32; }
 
     // ══ G. THE SOURCE TAG — a delta for a source this operator does not read ═
     let mut ht: QaIncr = qa_incremental();
     match qa_epoch(&mut ht, ins.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 130i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 8i32; }
     }
     let nother: i64 = match qa_apply(&mut ht, 3i32, 0i64 - 1i64, ret.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 131i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
     };
-    if nother != 0i64 { return 132i32; }
+    if nother != 0i64 { return 106i32; }
     let t0: Vec<(i64, i64, i64)> = match qa_snapshot(&ht) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 133i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
     };
-    if t0.len() != 3i64 { return 134i32; }
-    if t0.get(0i64).2 != 16i64 { return 135i32; }   // untouched by the tagged delta
+    if t0.len() != 3i64 { return 107i32; }
+    if t0.get(0i64).2 != 16i64 { return 108i32; }   // untouched by the tagged delta
     // …and tag 0 through `_apply` is exactly what `_retract` forwards.
     let ntag: i64 = match qa_apply(&mut ht, 0i32, 0i64 - 1i64, ret.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 136i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
     };
-    if ntag != 2i64 { return 137i32; }
+    if ntag != 2i64 { return 109i32; }
     let t1: Vec<(i64, i64, i64)> = match qa_snapshot(&ht) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 138i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
     };
-    if t1.len() != 3i64 { return 139i32; }
-    if t1.get(0i64).2 != 19i64 { return 140i32; }
+    if t1.len() != 3i64 { return 110i32; }
+    if t1.get(0i64).2 != 19i64 { return 111i32; }
 
     // ══ H. THE METAMORPHIC LAW UNDER SIGNED WEIGHTS ════════════════════════
     // The answer does not depend on how the insert stream or the retraction
@@ -543,14 +744,14 @@ fn main() -> i32 {
     let mut parts: i64 = 1i64;
     while parts <= 7i64 {
         let sv: Vec<(i64, i64, i64)> = match incr_in_parts(&ins, &ret, parts) {
-            Result::Ok(v) => { v } Result::Err(_e) => { return 150i32; }
+            Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; }
         };
-        if sv.len() != b1.len() { return 151i32; }
+        if sv.len() != b1.len() { return 112i32; }
         let mut z: i64 = 0i64;
         while z < b1.len() {
-            if sv.get(z).0 != b1.get(z).0 { return 152i32; }
-            if sv.get(z).1 != b1.get(z).1 { return 153i32; }
-            if sv.get(z).2 != b1.get(z).2 { return 154i32; }
+            if sv.get(z).0 != b1.get(z).0 { return 113i32; }
+            if sv.get(z).1 != b1.get(z).1 { return 114i32; }
+            if sv.get(z).2 != b1.get(z).2 { return 115i32; }
             z = z + 1i64;
         }
         parts = parts + 1i64;
@@ -562,38 +763,38 @@ fn main() -> i32 {
     let mut hw: QaIncr = qa_incremental();
     let r1: Vec<S> = one_row(4i64, 7i64);
     match qa_apply(&mut hw, 0i32, 3i64, r1.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 160i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
     }
     let w0: Vec<(i64, i64, i64)> = match qa_snapshot(&hw) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 161i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
     };
-    if w0.len() != 1i64 { return 162i32; }
-    if w0.get(0i64).1 !=  3i64 { return 163i32; }
-    if w0.get(0i64).2 != 21i64 { return 164i32; }
+    if w0.len() != 1i64 { return 116i32; }
+    if w0.get(0i64).1 !=  3i64 { return 117i32; }
+    if w0.get(0i64).2 != 21i64 { return 118i32; }
     match qa_apply(&mut hw, 0i32, 0i64 - 3i64, r1.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 165i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
     }
     let w1: Vec<(i64, i64, i64)> = match qa_snapshot(&hw) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 166i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
     };
-    if w1.len() != 0i64 { return 167i32; }
+    if w1.len() != 0i64 { return 119i32; }
     // …and the u64 side takes the magnitude through its own predicate.
     let mut hu2: QuIncr = qu_incremental();
     let uw: Vec<U> = one_u(1i64, 3u64);
     match qu_apply(&mut hu2, 0i32, 4i64, uw.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 170i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
     }
     let v0: Vec<(i64, i64, u64)> = match qu_snapshot(&hu2) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 171i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
     };
-    if v0.len() != 1i64 { return 172i32; }
-    if v0.get(0i64).2 != 12u64 { return 173i32; }
+    if v0.len() != 1i64 { return 120i32; }
+    if v0.get(0i64).2 != 12u64 { return 121i32; }
     match qu_apply(&mut hu2, 0i32, 0i64 - 4i64, uw.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 174i32; }
+        Result::Ok(_n) => { } Result::Err(_e) => { return 10i32; }
     }
     let v1: Vec<(i64, i64, u64)> = match qu_snapshot(&hu2) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 175i32; }
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; }
     };
-    if v1.len() != 0i64 { return 176i32; }
+    if v1.len() != 0i64 { return 122i32; }
     return 0i32;
 }

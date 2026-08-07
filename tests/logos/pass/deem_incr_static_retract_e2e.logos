@@ -1,0 +1,562 @@
+// deem_incr_static_retract_e2e — P2: `min`/`max` UNDER RETRACTION, and the
+// multiplicity map P1 deleted on purpose.
+//
+// ── WHY THERE IS A MAP AT ALL, AND WHY A FIXTURE CANNOT SEE IT BY ACCIDENT ──
+// `count` and `sum` have INVERSES: retract a row and subtract what it added.
+// `min` and `max` do not. Retract the current minimum and the new minimum is a
+// fact about EVERY OTHER ROW STILL PRESENT, which a single cached extremum
+// cannot answer. So a retract-eligible `min`/`max` carries a per-(group,
+// aggregate) value→live-multiplicity map beside its cached best, and rescans
+// that map's live keys when the best itself is retracted — the shape the
+// dynamic interpreter has had since ADR 0013 §3.1, which P1 deleted with a
+// comment saying P2 would put it back.
+//
+// ⚠ EVERY BLOCK BELOW IS A CELL A SIMPLER FIXTURE CANNOT REACH, and that is the
+// selection rule for what is here. In particular:
+//
+//   • inserting each value ONCE cannot see multiplicity at all. Block B inserts
+//     7 TWICE and retracts it ONCE; the answer must still be 7. A map that
+//     stored presence instead of a count answers 3.
+//   • two rows on the same side of 2^63 cannot see the ORDER. Block A retracts
+//     2^64−1 out of {5, 2^63, 2^64−1}; the answer is 2^63. A signed comparison
+//     answers 5, because 2^63 read as i64 is negative.
+//   • a group that never EMPTIES cannot see the liveness filter or the stale
+//     best. Blocks C and A5 empty one and then insert into it again.
+//   • a float pair that is not {−0.0, +0.0} cannot see the map's KEY. Block D
+//     retracts −0.0 out of {−0.0, +0.0, NaN, 1.0}: the emitted `min` must become
+//     +0.0. A map keyed on `f64_data_key` — which maps both zeros onto ONE key —
+//     leaves the count at 1, retracts nothing, and answers −0.0.
+//
+// ── THE THREE WITNESSES ─────────────────────────────────────────────────────
+// "Both engines agree" is not evidence: this arc has measured a three-way
+// differential passing for months while all three sides ran the same wrong
+// fold. So every number here is asserted against
+//   (i)   a HAND-DERIVED constant, written from the input arithmetic;
+//   (ii)  the static BATCH fn `<q>()` over the SURVIVING multiset — a fold that
+//         shares with the retract path only the argument-expression emission;
+//   (iii) the DYNAMIC interpreter's incremental engine driven with a w = −1
+//         `ZBatch` (blocks A and B) — a genuinely separate implementation over
+//         `RtVal`, and a WASTING one: P5 deletes it.
+//
+// ── THE HAND-DERIVED TABLE ──────────────────────────────────────────────────
+// A. u64 column, one group k=0, rows in order 5, 2^63, 2^64−1.
+//      after epoch      : c=3  mn=5              mx=18446744073709551615
+//      retract 2^64−1   : c=2  mn=5              mx=9223372036854775808   (=2^63)
+//      retract 2^63     : c=1  mn=5              mx=5
+//      retract 5        : the group is EMPTY — 0 rows in the snapshot
+//      insert 7         : c=1  mn=7              mx=7
+//        (mn=7 is the SEED GATE. The cell still holds 5 from before the group
+//         emptied; 5 is present in no row, and comparing against it answers 5.)
+// B. i64 column, one group k=0, rows 7, 7, 3.
+//      after epoch      : c=3  t=17  lo=3  hi=7
+//      retract one 7    : c=2  t=10  lo=3  hi=7    ← multiplicity: 7 SURVIVES
+//      retract the 7    : c=1  t=3   lo=3  hi=3
+// C. i64, rows (k=0,v=1) (k=1,v=2); retract (k=0,v=1) → ONE row, key 1.
+// D. f64, one group, rows −0.0, +0.0, NaN, 1.0 in that order.
+//      `f64_data_key` is the order: −0.0 == +0.0, every NaN is one value and is
+//      the GREATEST. The improve is strict, so the first of a tie wins.
+//      after epoch      : lo = −0.0 (bits 0x8000000000000000)
+//                         hi = NaN  (bits 0x7FF8000000000000)
+//      retract −0.0     : lo = +0.0 (bits 0x0000000000000000)
+//      retract NaN      : hi = 1.0  (bits 0x3FF0000000000000)
+// A6. THE HALF OF u64's ORDER BLOCK A CANNOT SEE. Block A only ever retracts
+//    the current MAX, so `mn` sits at 5 from the first row and is never
+//    RE-DERIVED: a signed comparator in the re-MIN rescan goes unnoticed there.
+//      a. retract 2^63 (NEITHER extremum) → c=2, mn=5, mx=2^64−1 unmoved.
+//      b. fresh handle, retract 5 (the MINIMUM) → mn must be re-derived over
+//         the two survivors {2^63, 2^64−1} and the answer is 2^63. A SIGNED
+//         rescan answers 2^64−1, whose i64 payload is −1. Two survivors is the
+//         minimum that can discriminate: with one, the loop returns it whatever
+//         the comparator is.
+// E. a u64 `sum` driven BELOW ZERO must ERR, not wrap, AND SAY `Underflow`.
+//    `el_addu` had no `el_subu` sibling until this arc, and `a - b` on a u64
+//    cell wraps to ≈2^64 — or traps outright — so the fault was never absent,
+//    only unreportable. Insert 1 TWICE (count 2, sum 2), then retract a row
+//    carrying 5: the count goes 2 → 1, which is LEGAL, so the group-count guard
+//    does not fire first and the arithmetic is reached. (Insert-once-retract-
+//    twice would return at the count guard and this witness would evaporate.)
+// F. retracting into a group that never existed → `Err(RetractAbsent)`.
+// G. retracting a row twice → the group's count would go below zero →
+//    `Err(RetractAbsent)`.
+// G2. the group EXISTS but the VALUE never did — insert (0,3) twice, retract
+//    (0,8). The count 2 → 1 is legal, so only the map can catch it, and the
+//    map's `remove` of a missing key is a silent no-op. DECIDED, not measured:
+//    neither tier had an answer, and it is the same caller mistake as F and G,
+//    so it gets the same name.
+//
+// ⚠ EVERY ERROR ASSERTION NAMES ITS ARM. `Result::Err(_e) => {}` would pass on
+// any arm, and the arms exist precisely because `Overflow` used to be returned
+// for two different mistakes.
+//
+// ── EXIT CODES: EVERY ONE ≤ 117, AND THE CEILING IS NOT COSMETIC ────────────
+// `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC naming the
+// assertion that fired. 126, 127 and 128+signal belong to the shell, so a code
+// up there is one number standing for two states — which is how this very
+// fixture's ancestor had a 132 that meant both "block D's second float check"
+// and "SIGILL", disambiguated only because the harness printed the signal text.
+// (Its header claimed "All ≤ 122" while using 130-162: the header lied too.)
+//
+// 117 distinct assertions do not fit in 10-decade blocks under that ceiling, so:
+// codes 1-12 are the BLOCKS' PLUMBING (a call that must succeed returned `Err`
+// — A is 1, A6 is 2, … (iii) is 12), and every genuine ASSERTION gets its own
+// code in source order:
+//     A 13-28 · A6 29-39 · B 40-53 · C 54-57 · D 58-64 · E 65-68 · F 69-72
+//     G 73-76 · G2 77-83 · H 84-91 · (ii) 92-102 · (iii) 103-117
+// One code, one assertion.
+//
+// exit 0 = the static tier retracts, at u64's extrema, with multiplicity, with
+//          identity preserved on floats, and refuses — by name — to retract
+//          what was never inserted.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;
+use logos.std.wql.el;    // ElError — the error ARM is asserted by name, not by `_`
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.mem.collections.vec;
+
+struct U { pub k: i64, pub v: u64 }
+struct I { pub k: i64, pub v: i64 }
+struct F { pub k: i64, pub v: f64 }
+
+pub schema UR : code(0x0E71_0000_0000_0001) { k: i64 = 0, v: u64 = 1 }
+pub schema IR : code(0x0E71_0000_0000_0002) { k: i64 = 0, v: i64 = 1 }
+resource cat = schema_catalog!{ UR, IR };
+
+// A. u64 min/max — NO `sum` in this list on purpose: 5 + 2^63 + (2^64−1)
+// overflows u64, and this block is about the ORDER, not about the addition.
+pub deem uq(src: &[U]) { from src s
+      group by s.k
+      aggregate c = count(), mn = min(s.v), mx = max(s.v)
+      select (key, c, mn, mx) }
+
+// B/C. i64 — the control column, with both invertible algebras beside the
+// semilattice ones so that a fix to one is visible against the others.
+pub deem iq(src: &[I]) { from src s
+      group by s.k
+      aggregate c = count(), t = sum(s.v), lo = min(s.v), hi = max(s.v)
+      select (key, c, t, lo, hi) }
+
+// D. f64 min/max — IN SCOPE for retraction and `sum`/`avg` over a float is NOT
+// (see `incr_retract_eligible`): an extremum is a value SELECTED from the
+// multiset, so nothing rounds, while an f64 sum's inverse rests on
+// (S+x)−x == S, which is an open fork.
+pub deem fq(src: &[F]) { from src s
+      group by s.k
+      aggregate lo = min(s.v), hi = max(s.v)
+      select (key, lo, hi) }
+
+// E. the u64 SUM, on its own, so its underflow is not entangled with block A.
+pub deem sq(src: &[U]) { from src s
+      group by s.k
+      aggregate c = count(), t = sum(s.v)
+      select (key, c, t) }
+
+fn u1(k: i64, v: u64) -> [U; 1] { return [U { k: k, v: v }]; }
+fn i1(k: i64, v: i64) -> [I; 1] { return [I { k: k, v: v }]; }
+fn f1(k: i64, v: f64) -> [F; 1] { return [F { k: k, v: v }]; }
+
+fn mkU(d: &Writ, k: i64, v: u64) -> WAny {
+    let r: UR = d.make::<UR>(); r.k = k; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
+    let r: IR = d.make::<IR>(); r.k = k; r.v = v;
+    return WAny::ref_to((r.m as i64) as *const u8);
+}
+
+fn main() -> i32 {
+    // ══ A. u64 min/max under retraction, at the extrema ═══════════════════
+    let mut hu: UqIncr = uq_incremental();
+    let ua: [U; 3] = [U { k: 0i64, v: 5u64 },
+                      U { k: 0i64, v: 9223372036854775808u64 },
+                      U { k: 0i64, v: 18446744073709551615u64 }];
+    match uq_epoch(&mut hu, &ua) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let a0: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a0.len() != 1i64 { return 13i32; }
+    if a0.get(0i64).1 != 3i64 { return 14i32; }
+    if a0.get(0i64).2 != 5u64 { return 15i32; }
+    if a0.get(0i64).3 != 18446744073709551615u64 { return 16i32; }
+
+    // retract 2^64−1. THE DISCRIMINATING CELL: 2^63, not 5.
+    let ur1: [U; 1] = u1(0i64, 18446744073709551615u64);
+    match uq_retract(&mut hu, &ur1) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let a1: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a1.len() != 1i64 { return 17i32; }
+    if a1.get(0i64).1 != 2i64 { return 18i32; }
+    if a1.get(0i64).2 != 5u64 { return 19i32; }
+    if a1.get(0i64).3 != 9223372036854775808u64 { return 20i32; }
+
+    // retract 2^63 → one row left, {5}
+    let ur2: [U; 1] = u1(0i64, 9223372036854775808u64);
+    match uq_retract(&mut hu, &ur2) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let a2: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a2.len() != 1i64 { return 21i32; }
+    if a2.get(0i64).2 != 5u64 { return 22i32; }
+    if a2.get(0i64).3 != 5u64 { return 23i32; }
+
+    // retract 5 → THE GROUP IS EMPTY. The slot survives; the ROW must not.
+    let ur3: [U; 1] = u1(0i64, 5u64);
+    match uq_retract(&mut hu, &ur3) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let a3: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a3.len() != 0i64 { return 24i32; }
+
+    // A5. THE SEED GATE, POST-RETRACTION. The cells still hold 5 from the run
+    // above — a value now present in no row. `min` over the single row {7} must
+    // answer 7; comparing against the stale cell answers 5.
+    let ui4: [U; 1] = u1(0i64, 7u64);
+    match uq_epoch(&mut hu, &ui4) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let a4: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&hu) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a4.len() != 1i64 { return 25i32; }
+    if a4.get(0i64).1 != 1i64 { return 26i32; }
+    if a4.get(0i64).2 != 7u64 { return 27i32; }
+    if a4.get(0i64).3 != 7u64 { return 28i32; }
+
+    // ══ A6. RE-MIN OVER A SURVIVING MULTI-VALUE SET ═══════════════════════
+    // ⚠ THE CELL BLOCK A ABOVE CANNOT REACH, AND IT IS THE HALF OF u64's ORDER
+    // THAT WAS NEVER TESTED. Block A only ever retracts the current MAX, so
+    // `mn` sits at 5 from the first row until the group empties and is never
+    // RE-DERIVED at all: only the re-MAX rescan is discriminated there. A
+    // signed comparator in the re-MIN rescan would go unnoticed.
+    //
+    // Two steps, over the same {5, 2^63, 2^64−1}:
+    //   A6a. retract 2^63 — a value that is NEITHER extremum. Neither end may
+    //        move (mn = 5, mx = 2^64−1) and the count drops to 2. This is the
+    //        `__rb == false` path: no rescan runs at all, which is exactly what
+    //        must be true when the retracted key is not the cached best.
+    //   A6b. on a FRESH handle over the same three rows, retract 5 — the
+    //        current MINIMUM — so `mn` must be re-derived over the two
+    //        survivors {2^63, 2^64−1}. The answer is 2^63. A rescan comparing
+    //        under a SIGNED order answers 2^64−1, whose i64 payload is −1 and
+    //        therefore the smallest thing in sight — the same defect
+    //        `el_wrap_ord_least`'s header records on the seed side, here on the
+    //        rescan side. TWO survivors is the minimum that can see it: with
+    //        one survivor left the loop returns it whatever the comparator is.
+    let mut h6: UqIncr = uq_incremental();
+    let u6: [U; 3] = [U { k: 0i64, v: 5u64 },
+                      U { k: 0i64, v: 9223372036854775808u64 },
+                      U { k: 0i64, v: 18446744073709551615u64 }];
+    match uq_epoch(&mut h6, &u6) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
+    let r6a: [U; 1] = u1(0i64, 9223372036854775808u64);
+    match uq_retract(&mut h6, &r6a) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
+    let s6a: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&h6) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if s6a.len() != 1i64 { return 29i32; }
+    if s6a.get(0i64).1 != 2i64 { return 30i32; }
+    if s6a.get(0i64).2 != 5u64 { return 31i32; }
+    if s6a.get(0i64).3 != 18446744073709551615u64 { return 32i32; }
+
+    let mut h7: UqIncr = uq_incremental();
+    match uq_epoch(&mut h7, &u6) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
+    let r6b: [U; 1] = u1(0i64, 5u64);
+    match uq_retract(&mut h7, &r6b) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
+    let s6b: Vec<(i64, i64, u64, u64)> = match uq_snapshot(&h7) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if s6b.len() != 1i64 { return 33i32; }
+    if s6b.get(0i64).1 != 2i64 { return 34i32; }
+    // THE ASSERTION. 2^63, not 2^64−1.
+    if s6b.get(0i64).2 != 9223372036854775808u64 { return 35i32; }
+    if s6b.get(0i64).3 != 18446744073709551615u64 { return 36i32; }
+    // …and the batch fn over the two survivors says the same thing, by a fold
+    // that shares no map, no seed and no rescan with the path above.
+    let b6: [U; 2] = [U { k: 0i64, v: 9223372036854775808u64 },
+                      U { k: 0i64, v: 18446744073709551615u64 }];
+    let b6v: Vec<(i64, i64, u64, u64)> = match uq(&b6) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if b6v.len() != 1i64 { return 37i32; }
+    if b6v.get(0i64).2 != s6b.get(0i64).2 { return 38i32; }
+    if b6v.get(0i64).3 != s6b.get(0i64).3 { return 39i32; }
+
+    // ══ B. MULTIPLICITY — the whole reason the map holds a COUNT ═══════════
+    let mut hi: IqIncr = iq_incremental();
+    let ib: [I; 3] = [I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 3i64 }];
+    match iq_epoch(&mut hi, &ib) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
+    let b0: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if b0.len() != 1i64 { return 40i32; }
+    if b0.get(0i64).1 != 3i64  { return 41i32; }
+    if b0.get(0i64).2 != 17i64 { return 42i32; }
+    if b0.get(0i64).3 != 3i64  { return 43i32; }
+    if b0.get(0i64).4 != 7i64  { return 44i32; }
+
+    // retract ONE of the two 7s: `hi` must STILL be 7.
+    let ibr: [I; 1] = i1(0i64, 7i64);
+    match iq_retract(&mut hi, &ibr) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
+    let b1: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if b1.len() != 1i64 { return 45i32; }
+    if b1.get(0i64).1 != 2i64  { return 46i32; }
+    if b1.get(0i64).2 != 10i64 { return 47i32; }
+    if b1.get(0i64).3 != 3i64  { return 48i32; }
+    if b1.get(0i64).4 != 7i64  { return 49i32; }
+
+    // retract the OTHER 7: now the rescan must find 3.
+    match iq_retract(&mut hi, &ibr) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
+    let b2: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hi) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if b2.get(0i64).1 != 1i64 { return 50i32; }
+    if b2.get(0i64).2 != 3i64 { return 51i32; }
+    if b2.get(0i64).3 != 3i64 { return 52i32; }
+    if b2.get(0i64).4 != 3i64 { return 53i32; }
+
+    // ══ C. AN EMPTIED GROUP DISAPPEARS AND ITS SIBLING DOES NOT ═══════════
+    let mut hc: IqIncr = iq_incremental();
+    let ic: [I; 2] = [I { k: 0i64, v: 1i64 }, I { k: 1i64, v: 2i64 }];
+    match iq_epoch(&mut hc, &ic) { Result::Ok(_n) => {} Result::Err(_e) => { return 4i32; } }
+    let icr: [I; 1] = i1(0i64, 1i64);
+    match iq_retract(&mut hc, &icr) { Result::Ok(_n) => {} Result::Err(_e) => { return 4i32; } }
+    let c1: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hc) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if c1.len() != 1i64 { return 54i32; }
+    if c1.get(0i64).0 != 1i64 { return 55i32; }
+    if c1.get(0i64).1 != 1i64 { return 56i32; }
+    if c1.get(0i64).4 != 2i64 { return 57i32; }
+
+    // ══ D. FLOATS — IDENTITY IS THE MAP KEY, ORDER IS THE COMPARATOR ══════
+    let mut hf: FqIncr = fq_incremental();
+    let fd: [F; 4] = [F { k: 0i64, v: -0.0f64 },
+                      F { k: 0i64, v:  0.0f64 },
+                      F { k: 0i64, v: f64_from_bits(0x7FF8000000000000u64) },
+                      F { k: 0i64, v:  1.0f64 }];
+    match fq_epoch(&mut hf, &fd) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    let d0: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if d0.len() != 1i64 { return 58i32; }
+    // BITS, not `==`: −0.0 == +0.0 and NaN != NaN, so `==` cannot see either.
+    if f64_to_bits(d0.get(0i64).1) != 0x8000000000000000u64 { return 59i32; }
+    if f64_to_bits(d0.get(0i64).2) != 0x7FF8000000000000u64 { return 60i32; }
+
+    // retract −0.0. THE CELL: `lo` must become +0.0, bits all-zero. A map keyed
+    // on `f64_data_key` collapses the two zeros onto one key and answers −0.0.
+    let fr1: [F; 1] = f1(0i64, -0.0f64);
+    match fq_retract(&mut hf, &fr1) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    let d1: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if f64_to_bits(d1.get(0i64).1) != 0x0000000000000000u64 { return 61i32; }
+    if f64_to_bits(d1.get(0i64).2) != 0x7FF8000000000000u64 { return 62i32; }
+
+    // retract the NaN — the rescan's other end: `hi` must become 1.0.
+    let fr2: [F; 1] = f1(0i64, f64_from_bits(0x7FF8000000000000u64));
+    match fq_retract(&mut hf, &fr2) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    let d2: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if f64_to_bits(d2.get(0i64).2) != 0x3FF0000000000000u64 { return 63i32; }
+    if f64_to_bits(d2.get(0i64).1) != 0x0000000000000000u64 { return 64i32; }
+
+    // ══ E. A u64 SUM DRIVEN BELOW ZERO ERRS, AND SAYS *UNDERFLOW* ═════════
+    // ⚠ THE CONSTRUCTION KEEPS THE GROUP COUNT LEGAL ON PURPOSE. `<q>_apply`
+    // guards the group's multiplicity BEFORE it runs any fold, so the obvious
+    // "insert once, retract twice" never reaches `el_subu` at all — it returns
+    // at the count guard and the arithmetic witness evaporates while the test
+    // stays green. Insert 1 TWICE (count 2, total 2) and retract ONE row
+    // carrying 5: count 2 → 1 is legal, 2 − 5 in u64 is the borrow.
+    let mut hs: SqIncr = sq_incremental();
+    let se: [U; 2] = [U { k: 0i64, v: 1u64 }, U { k: 0i64, v: 1u64 }];
+    match sq_epoch(&mut hs, &se) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
+    let sr: [U; 1] = u1(0i64, 5u64);
+    match sq_retract(&mut hs, &sr) {
+        Result::Ok(_n)  => { return 65i32; }   // a wrap to ≈2^64 would land here
+        Result::Err(e1) => {
+            match e1 {
+                ElError::Underflow => {}
+                // The count guard firing here means the construction above
+                // stopped isolating the arithmetic — the defect this block was
+                // rebuilt to avoid.
+                ElError::RetractAbsent => { return 66i32; }
+                ElError::Overflow      => { return 67i32; }
+                ElError::DivByZero     => { return 68i32; }
+            }
+        }
+    }
+
+    // ══ F. RETRACTING INTO A GROUP THAT NEVER EXISTED ERRS ════════════════
+    let mut hf2: IqIncr = iq_incremental();
+    let fr: [I; 1] = i1(9i64, 1i64);
+    match iq_retract(&mut hf2, &fr) {
+        Result::Ok(_n)  => { return 69i32; }
+        Result::Err(e2) => {
+            match e2 {
+                ElError::RetractAbsent => {}
+                ElError::Underflow  => { return 70i32; }
+                ElError::Overflow   => { return 71i32; }
+                ElError::DivByZero  => { return 72i32; }
+            }
+        }
+    }
+
+    // ══ G. RETRACTING THE SAME ROW TWICE DRIVES THE COUNT BELOW ZERO ══════
+    let mut hg: IqIncr = iq_incremental();
+    let g1: [I; 1] = i1(0i64, 4i64);
+    match iq_epoch(&mut hg, &g1) { Result::Ok(_n) => {} Result::Err(_e) => { return 8i32; } }
+    match iq_retract(&mut hg, &g1) { Result::Ok(_n) => {} Result::Err(_e) => { return 8i32; } }
+    match iq_retract(&mut hg, &g1) {
+        Result::Ok(_n)  => { return 73i32; }
+        Result::Err(e3) => {
+            match e3 {
+                ElError::RetractAbsent => {}
+                ElError::Underflow  => { return 74i32; }
+                ElError::Overflow   => { return 75i32; }
+                ElError::DivByZero  => { return 76i32; }
+            }
+        }
+    }
+
+    // ══ G2. THE ADJACENT SILENT CASE: THE GROUP EXISTS, THE VALUE NEVER DID ═
+    // ⚠ THE ONE CELL WHERE NEITHER TIER HAD AN ANSWER, DECIDED THE SAME WAY AND
+    // PINNED. Insert (0,3) TWICE, then retract (0,8). The group's count goes
+    // 2 → 1, which is legal, so G's guard does not fire; but 8 is a value this
+    // group never held, so the map's `remove(&8)` is a NO-OP and the retraction
+    // would simply VANISH — an `Ok` describing a multiset the handle never had.
+    // The static tier calls that what it is: the caller retracted what was never
+    // inserted, `RetractAbsent`, the same name as F and G because it is the same
+    // mistake. Neither the batch fn nor the interpreter can arbitrate this
+    // (the interpreter's vmap `remove` is equally silent), so it is DECIDED
+    // rather than measured, and this assertion is what makes the decision
+    // visible to whoever revisits it.
+    //
+    // ⚠ AND THE `lo`/`hi` CELLS BELOW ARE THE SECOND HALF: after the refusal
+    // the group's own answers must be UNCHANGED for the reader to know the
+    // refusal is the whole story — this is NOT a claim that `_apply` is
+    // transactional (it is not; see the error contract in `emit_incremental`),
+    // it is the narrower fact that this particular refusal happens before this
+    // particular aggregate's cell moves.
+    let mut hv: IqIncr = iq_incremental();
+    let v3: [I; 2] = [I { k: 0i64, v: 3i64 }, I { k: 0i64, v: 3i64 }];
+    match iq_epoch(&mut hv, &v3) { Result::Ok(_n) => {} Result::Err(_e) => { return 9i32; } }
+    let v8: [I; 1] = i1(0i64, 8i64);
+    match iq_retract(&mut hv, &v8) {
+        Result::Ok(_n)  => { return 77i32; }   // a silent `remove` no-op lands here
+        Result::Err(e4) => {
+            match e4 {
+                ElError::RetractAbsent => {}
+                ElError::Underflow  => { return 78i32; }
+                ElError::Overflow   => { return 79i32; }
+                ElError::DivByZero  => { return 80i32; }
+            }
+        }
+    }
+    let vv: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hv) { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
+    if vv.len() != 1i64 { return 81i32; }
+    if vv.get(0i64).3 != 3i64 { return 82i32; }   // lo untouched by the refusal
+    if vv.get(0i64).4 != 3i64 { return 83i32; }   // hi likewise
+
+    // ══ H. GROUP ORDER AFTER A GROUP EMPTIES AND COMES BACK ═══════════════
+    // ⚠ AN OPEN SURFACE QUESTION, PINNED AS MEASURED RATHER THAN DECIDED.
+    // `__gk` slots are appended on first sight and never removed (the dynamic
+    // engine's slots behave identically, so it cannot arbitrate this — the case
+    // the brief warns about, where all sides agreeing is not evidence). Insert
+    // (0,1) then (1,2); retract (0,1), emptying g0; insert (0,9). The handle's
+    // slot order is still [g0, g1] — FIRST OCCURRENCE OVER THE WHOLE HISTORY —
+    // while `<q>()` over the survivors LISTED IN ARRIVAL ORDER, [(1,2), (0,9)],
+    // answers [g1, g0].
+    //
+    // Both are defensible and the choice is a CONTRACT, not an emitter detail:
+    // (a) restate the metamorphic law as multiset equality once any retraction
+    // has occurred; (b) declare slot order the contract and say that `<q>()` and
+    // `<q>_snapshot` may differ in ROW ORDER after one; (c) compact slots on
+    // empty. This block takes none of them — it pins what the code does today so
+    // that a future slice changing it has to change a fixture and say so.
+    // `wql_incr_static_three_ways` block E's "same rows, same order" law is an
+    // INSERT-ONLY law and is left exactly as it is.
+    let mut hh: IqIncr = iq_incremental();
+    let ih: [I; 2] = [I { k: 0i64, v: 1i64 }, I { k: 1i64, v: 2i64 }];
+    match iq_epoch(&mut hh, &ih) { Result::Ok(_n) => {} Result::Err(_e) => { return 10i32; } }
+    let ihr: [I; 1] = i1(0i64, 1i64);
+    match iq_retract(&mut hh, &ihr) { Result::Ok(_n) => {} Result::Err(_e) => { return 10i32; } }
+    let ihb: [I; 1] = i1(0i64, 9i64);
+    match iq_epoch(&mut hh, &ihb) { Result::Ok(_n) => {} Result::Err(_e) => { return 10i32; } }
+    let hv: Vec<(i64, i64, i64, i64, i64)> = match iq_snapshot(&hh) { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if hv.len() != 2i64 { return 84i32; }
+    if hv.get(0i64).0 != 0i64 { return 85i32; }   // g0 keeps its ORIGINAL slot
+    if hv.get(0i64).4 != 9i64 { return 86i32; }
+    if hv.get(1i64).0 != 1i64 { return 87i32; }
+    // …and the batch fn over the survivors in ARRIVAL order disagrees on ORDER
+    // while agreeing on every row. That is the fork, stated as an assertion.
+    let hb: [I; 2] = [I { k: 1i64, v: 2i64 }, I { k: 0i64, v: 9i64 }];
+    let hbv: Vec<(i64, i64, i64, i64, i64)> = match iq(&hb) { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if hbv.len() != 2i64 { return 88i32; }
+    if hbv.get(0i64).0 != 1i64 { return 89i32; }
+    if hbv.get(1i64).0 != 0i64 { return 90i32; }
+    if hbv.get(1i64).4 != hv.get(0i64).4 { return 91i32; }   // same ROW, other slot
+
+    // ══ (ii) THE STATIC BATCH FN OVER THE SURVIVING MULTISET ══════════════
+    // A after two retractions is the multiset {5}; B after one retraction is
+    // {7, 3}. The batch fold shares no seed, no group-creation step and no fold
+    // with the retract path.
+    let ba: [U; 1] = [U { k: 0i64, v: 5u64 }];
+    let bav: Vec<(i64, i64, u64, u64)> = match uq(&ba) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if bav.len() != 1i64 { return 92i32; }
+    if bav.get(0i64).2 != a2.get(0i64).2 { return 93i32; }
+    if bav.get(0i64).3 != a2.get(0i64).3 { return 94i32; }
+    let bb: [I; 2] = [I { k: 0i64, v: 7i64 }, I { k: 0i64, v: 3i64 }];
+    let bbv: Vec<(i64, i64, i64, i64, i64)> = match iq(&bb) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if bbv.len() != 1i64 { return 95i32; }
+    if bbv.get(0i64).1 != b1.get(0i64).1 { return 96i32; }
+    if bbv.get(0i64).2 != b1.get(0i64).2 { return 97i32; }
+    if bbv.get(0i64).3 != b1.get(0i64).3 { return 98i32; }
+    if bbv.get(0i64).4 != b1.get(0i64).4 { return 99i32; }
+    // C's survivor, likewise.
+    let bc: [I; 1] = [I { k: 1i64, v: 2i64 }];
+    let bcv: Vec<(i64, i64, i64, i64, i64)> = match iq(&bc) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if bcv.len() != c1.len() { return 100i32; }
+    if bcv.get(0i64).0 != c1.get(0i64).0 { return 101i32; }
+    if bcv.get(0i64).4 != c1.get(0i64).4 { return 102i32; }
+
+    // ══ (iii) THE DYNAMIC INTERPRETER, DRIVEN WITH A w = −1 BATCH ═════════
+    // `incremental()` BASE-FILLS from the bound source, so the engine starts at
+    // the same multiset the static handle reached by its first epoch; the
+    // `ZBatch` then retracts the same row. `get_i64` reads a u64 cell's BITS, so
+    // 2^63 comes back as −9223372036854775808 — the constant is the same number.
+    let d: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = cat();
+    let ar: &mut WArray<WAny> = d.array(4i64);
+    let h_big: WAny = mkU(&d, 0i64, 18446744073709551615u64);
+    ar.push(mkU(&d, 0i64, 5u64));
+    ar.push(mkU(&d, 0i64, 9223372036854775808u64));
+    ar.push(h_big);
+    let mut e: QEnv = QEnv::new();
+    e.bind_source("ss", WAny::ref_to(ar as *const WArray<WAny> as *const u8));
+    let dq: Query = match Query::compile(
+        "from ss s group by s.k aggregate c = count(), mn = min(s.v), mx = max(s.v) select (key, c, mn, mx)", &c) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
+    let mut eng: IncrJoin = match dq.incremental(&e) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
+    if eng.had_error() { return 103i32; }
+    if eng.snapshot().row_count() != 1i64 { return 104i32; }
+    let mut z: ZBatch = ZBatch::new();
+    let empty: ZBatch = ZBatch::new();
+    z.push(h_big, -1i64);
+    eng.epoch(&z, &empty);
+    if eng.had_error() { return 105i32; }
+    let ds: QRows = eng.snapshot();
+    if ds.row_count() != 1i64 { return 106i32; }
+    // count = 2, min = 5, max = 2^63 (bits −9223372036854775808)
+    if ds.get_i64(0i64, 1i64) != 2i64 { return 107i32; }
+    if ds.get_i64(0i64, 2i64) != 5i64 { return 108i32; }
+    if ds.get_i64(0i64, 3i64) != -9223372036854775808i64 { return 109i32; }
+    // …and that is bit-for-bit what the static handle answered in block A.
+    if ds.get_i64(0i64, 3i64) != (a1.get(0i64).3 as i64) { return 110i32; }
+    if ds.get_i64(0i64, 1i64) != a1.get(0i64).1 { return 111i32; }
+
+    // The MULTIPLICITY cell, of the interpreter: 7 twice and 3, retract one 7.
+    let ar2: &mut WArray<WAny> = d.array(4i64);
+    let h7: WAny = mkI(&d, 0i64, 7i64);
+    ar2.push(h7);
+    ar2.push(mkI(&d, 0i64, 7i64));
+    ar2.push(mkI(&d, 0i64, 3i64));
+    let mut e2: QEnv = QEnv::new();
+    e2.bind_source("ss", WAny::ref_to(ar2 as *const WArray<WAny> as *const u8));
+    let dq2: Query = match Query::compile(
+        "from ss s group by s.k aggregate c = count(), t = sum(s.v), lo = min(s.v), hi = max(s.v) select (key, c, t, lo, hi)", &c) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
+    let mut eng2: IncrJoin = match dq2.incremental(&e2) {
+        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
+    let mut z2: ZBatch = ZBatch::new();
+    z2.push(h7, -1i64);
+    eng2.epoch(&z2, &empty);
+    if eng2.had_error() { return 112i32; }
+    let ds2: QRows = eng2.snapshot();
+    if ds2.row_count() != 1i64 { return 113i32; }
+    if ds2.get_i64(0i64, 1i64) != 2i64  { return 114i32; }
+    if ds2.get_i64(0i64, 2i64) != 10i64 { return 115i32; }
+    if ds2.get_i64(0i64, 3i64) != 3i64  { return 116i32; }
+    if ds2.get_i64(0i64, 4i64) != 7i64  { return 117i32; }
+
+    return 0i32;
+}

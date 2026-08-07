@@ -1568,13 +1568,19 @@ set_tests_properties(logos_09_incr_eligibility_population PROPERTIES
 )
 
 # INCREMENTAL RETRACTION gate — the same shape, one axis in. Eligibility asks
-# whether a query gets a HANDLE; invertibility asks whether that handle's delta
+# whether a query gets a HANDLE; retractability asks whether that handle's delta
 # may carry a NEGATIVE weight, and the answer moves the EMITTED SIGNATURE
 # (`<q>_apply` + `<q>_retract`, or P1's insert-only `<q>_epoch` alone). The
-# negative direction has nothing a fixture can name, and one of its two grounds
-# — `(S+x)-x != S` over an f64 accumulator — is an OPEN decision rather than a
-# missing feature: if the refusal ever silently lapsed, the corpus would go on
-# passing and a decision nobody took would have been taken.
+# negative direction has nothing a fixture can name, and its ONE remaining
+# ground — `(S+x)-x != S` over an f64 accumulator — is an OPEN decision rather
+# than a missing feature: if the refusal ever silently lapsed, the corpus would
+# go on passing and a decision nobody took would have been taken.
+#
+# ⚠ `tier_commit`: THIS GATE MUST BE REACHABLE PER COMMIT. What it guards is a
+# derivation nothing else in the corpus can enumerate, and its subject is an open
+# decision, so a gate that only runs in a full-suite tier is a gate the commit
+# that breaks it never meets. The label is how it declares that, rather than
+# being hand-added to a selector regex that lives somewhere else.
 add_test(
     NAME logos_09_incr_retraction_population
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_retraction_gate.sh
@@ -1583,7 +1589,7 @@ add_test(
 )
 set_tests_properties(logos_09_incr_retraction_population PROPERTIES
     TIMEOUT 60
-    LABELS  "logos;pass;suite_semantic_core"
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 

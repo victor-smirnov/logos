@@ -1,30 +1,39 @@
 // WHICH INCREMENTAL QUERIES GAIN A RETRACTION — THE POPULATION, DERIVED.
 //
-// Eligibility for the incremental HANDLE and invertibility of its FOLD are two
-// different questions, and the second one moves the emitted surface: a query
-// whose every aggregate inverts exactly gets `<q>_apply(&mut h, src, w, …)`
+// Eligibility for the incremental HANDLE and the RETRACTABILITY of its fold are
+// two different questions, and the second one moves the emitted surface: a query
+// whose every aggregate can run backwards gets `<q>_apply(&mut h, src, w, …)`
 // plus `<q>_epoch` / `<q>_retract` forwarders, and a query with even one
-// non-invertible aggregate keeps the insert-only surface — `<q>_epoch` with no
+// aggregate that cannot keeps the insert-only surface — `<q>_epoch` with no
 // weight and no `<q>_retract` at all.
+//
+// ⚠ "RUNS BACKWARDS" IS NOT "HAS AN INVERSE", and the distinction is what
+// decides the population. `count` and integer `sum` INVERT — subtract what the
+// row added. `min` and `max` do not invert at all; they RESCAN a per-(group,
+// aggregate) value→multiplicity map, which computes nothing and therefore
+// cannot round. Both are exact, so both are admitted, and `min`/`max` are
+// admitted at EVERY type including f64. The one refusal left is an f64
+// ACCUMULATOR under `sum`/`avg`, where running backwards would mean assuming
+// (S+x)−x == S.
 //
 // ⚠ THE SHAPE OF THE EMITTED API DEPENDING ON THE AGGREGATE LIST IS THE
 // DELIBERATE PART. The alternative — emit the weight always and return `Err` at
-// run time — makes the same refusal a run-time surprise, and one of the two
-// things being refused is `(S+x)-x` over an f64 accumulator, which is an OPEN
-// decision rather than a bug. A function that is not there cannot answer an open
-// decision by accident; a run-time branch someone forgets to check can.
+// run time — makes the same refusal a run-time surprise, and the thing being
+// refused is an OPEN decision rather than a bug. A function that is not there
+// cannot answer an open decision by accident; a run-time branch someone forgets
+// to check can.
 //
 // ⚠ THIS FILE IS HALF OF THE ASSERTION AND `incr_retraction_gate.sh` IS THE
 // OTHER HALF, for the same reason the eligibility pair is split that way. What
-// this file pins ON ITS OWN is the POSITIVE direction: the invertible queries'
+// this file pins ON ITS OWN is the POSITIVE direction: the eligible queries'
 // `_apply` and `_retract` EXIST and answer, so an emitter that stopped emitting
 // them makes this file fail to COMPILE. It cannot pin the negative direction —
 // a test cannot name a function that is not there — so the gate reads the
 // decision and its GROUND off `LOGOS_TRACE_PLAN`.
 //
-// ⚠ EVERY QUERY HERE MUST COMPILE, INCLUDING THE NON-INVERTIBLE ONES. Losing
-// the retraction is not losing the handle: the insert-only path is exactly what
-// it was, which is the property that keeps "not invertible" from ever silently
+// ⚠ EVERY QUERY HERE MUST COMPILE, INCLUDING THE REFUSED ONES. Losing the
+// retraction is not losing the handle: the insert-only path is exactly what it
+// was, which is the property that keeps "cannot retract" from ever silently
 // meaning "not incremental".
 //
 // ── THE ANSWERS, BY HAND ───────────────────────────────────────────────────
@@ -32,8 +41,14 @@
 //   g=0  c=2  sum(v)=12  sum(x)=3.5  avg(v)=6.0  min(v)=5  max(v)=7
 //   g=1  c=1  sum(v)=-2  sum(x)=0.5  avg(v)=-2.0 min(v)=-2 max(v)=-2
 // urows: (0, 4) (0, 6) → sum(u) = 10; retracting (0,4) leaves 6.
+// retracting (0, 7, 1.0):  g=0 c=1 sum(v)=5  min(v)=5  max(v)=5
+//   — min's cached best (5) is NOT the retracted value, so no rescan runs;
+//     max's cached best (7) IS, so its answer comes from the rescan.
 //
-// exit 0 = the invertible queries retract exactly, and every non-invertible one
+// EXIT CODES: 10-29 the invertible pair, 40-57 min/max, 30-39 the refused
+// queries' handles. All ≤ 125, so none can be confused with 128+signal.
+//
+// exit 0 = the retract-eligible queries retract exactly, and every refused one
 //          still compiles, still folds and still answers.
 package test;
 
@@ -55,7 +70,22 @@ pub deem inv_usum(us: &[U]) {
     from us s group by s.g aggregate t = sum(s.u) select (key, t)
 }
 
-// ── NOT INVERTIBLE, one named ground each ──────────────────────────────────
+// ── ALSO RETRACT-ELIGIBLE: `min` / `max`, WHICH DO NOT INVERT AT ALL ───────
+// ⚠ AND THAT IS THE POINT — "runs backwards" is NOT "has an inverse". Retracting
+// the current extremum is answered by a RESCAN over a per-(group, aggregate)
+// value→multiplicity map, which computes nothing: an extremum is a value
+// SELECTED from the multiset, never a value COMPUTED from it. So `min`/`max` are
+// admitted at every type INCLUDING f64, and admitting them touches D4 not at all.
+// (Their arithmetic is `deem_incr_static_retract_e2e`'s subject; what this file
+// pins is that the SURFACE exists.)
+pub deem inv_min(ss: &[S]) {
+    from ss s group by s.g aggregate lo = min(s.v) select (key, lo)
+}
+pub deem inv_max(ss: &[S]) {
+    from ss s group by s.g aggregate hi = max(s.v) select (key, hi)
+}
+
+// ── NOT RETRACT-ELIGIBLE, one named ground each ────────────────────────────
 // An f64 ACCUMULATOR: `(S+x)-x != S` is an open decision, not this emitter's.
 pub deem no_fsum(ss: &[S]) {
     from ss s group by s.g aggregate t = sum(s.x) select (key, t)
@@ -65,13 +95,6 @@ pub deem no_fsum(ss: &[S]) {
 // accumulator is a float whatever the column's type is.
 pub deem no_avg(ss: &[S]) {
     from ss s group by s.g aggregate a = avg(s.v) select (key, a)
-}
-// `min` / `max`: not invertible from a cached extremum at all.
-pub deem no_min(ss: &[S]) {
-    from ss s group by s.g aggregate lo = min(s.v) select (key, lo)
-}
-pub deem no_max(ss: &[S]) {
-    from ss s group by s.g aggregate hi = max(s.v) select (key, hi)
 }
 
 fn rows() -> Vec<S> {
@@ -137,7 +160,51 @@ fn main() -> i32 {
     if u1.len() != 1i64 { return 28i32; }
     if u1.get(0i64).1 != 6u64 { return 29i32; }
 
-    // ── NOT INVERTIBLE: the HANDLE is still there and still folds ──────────
+    // ── min / max: THE SURFACE EXISTS AND ANSWERS ──────────────────────────
+    // By hand: g=0 holds { 5, 7 }; retracting 7 must leave min 5 (the cached
+    // best was never 7) and max 5 (the cached best WAS 7, so this one rescans).
+    // Both directions in four calls, because a `min` that only ever loses a
+    // non-best value never exercises the rescan at all.
+    let mut hm: InvMinIncr = inv_min_incremental();
+    match inv_min_epoch(&mut hm, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 40i32; }
+    }
+    let m0: Vec<(i64, i64)> = match inv_min_snapshot(&hm) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 41i32; }
+    };
+    if m0.len() != 2i64 { return 42i32; }
+    if m0.get(0i64).1 !=  5i64 { return 43i32; }
+    if m0.get(1i64).1 != -2i64 { return 44i32; }
+    match inv_min_retract(&mut hm, one.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 50i32; }
+    }
+    let m1: Vec<(i64, i64)> = match inv_min_snapshot(&hm) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 51i32; }
+    };
+    if m1.len() != 2i64 { return 52i32; }
+    if m1.get(0i64).1 != 5i64 { return 53i32; }
+
+    let mut hx: InvMaxIncr = inv_max_incremental();
+    match inv_max_epoch(&mut hx, ss.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 45i32; }
+    }
+    let x0: Vec<(i64, i64)> = match inv_max_snapshot(&hx) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 46i32; }
+    };
+    if x0.len() != 2i64 { return 47i32; }
+    if x0.get(0i64).1 !=  7i64 { return 48i32; }
+    if x0.get(1i64).1 != -2i64 { return 49i32; }
+    // …retracting the CURRENT MAX: the rescan has to answer 5.
+    match inv_max_retract(&mut hx, one.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 54i32; }
+    }
+    let x1: Vec<(i64, i64)> = match inv_max_snapshot(&hx) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 55i32; }
+    };
+    if x1.len() != 2i64 { return 56i32; }
+    if x1.get(0i64).1 != 5i64 { return 57i32; }
+
+    // ── NOT RETRACT-ELIGIBLE: the HANDLE is still there and still folds ────
     // Each of these calls `<q>_epoch` with P1's exact signature. That they
     // compile at all is the assertion: the insert-only surface did not move.
     let mut hf: NoFsumIncr = no_fsum_incremental();
@@ -162,26 +229,5 @@ fn main() -> i32 {
     if v0.get(0i64).1 !=  6.0f64 { return 38i32; }
     if v0.get(1i64).1 != -2.0f64 { return 39i32; }
 
-    let mut hm: NoMinIncr = no_min_incremental();
-    match no_min_epoch(&mut hm, ss.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 40i32; }
-    }
-    let m0: Vec<(i64, i64)> = match no_min_snapshot(&hm) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 41i32; }
-    };
-    if m0.len() != 2i64 { return 42i32; }
-    if m0.get(0i64).1 !=  5i64 { return 43i32; }
-    if m0.get(1i64).1 != -2i64 { return 44i32; }
-
-    let mut hx: NoMaxIncr = no_max_incremental();
-    match no_max_epoch(&mut hx, ss.as_slice()) {
-        Result::Ok(_n) => { } Result::Err(_e) => { return 45i32; }
-    }
-    let x0: Vec<(i64, i64)> = match no_max_snapshot(&hx) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 46i32; }
-    };
-    if x0.len() != 2i64 { return 47i32; }
-    if x0.get(0i64).1 !=  7i64 { return 48i32; }
-    if x0.get(1i64).1 != -2i64 { return 49i32; }
     return 0i32;
 }
