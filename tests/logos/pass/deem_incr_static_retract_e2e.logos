@@ -59,6 +59,23 @@
 //                         hi = NaN  (bits 0x7FF8000000000000)
 //      retract −0.0     : lo = +0.0 (bits 0x0000000000000000)
 //      retract NaN      : hi = 1.0  (bits 0x3FF0000000000000)
+//
+// ⚠⚠ THIS BLOCK ASSERTS SEMANTICS VICTOR HAS ALREADY DECIDED TO CHANGE
+// (2026-08-07). It is GREEN, and its green must not be read as settled.
+// TODAY identity and order are two different functions: the map's KEY is
+// `f64_to_bits` (bitwise, so −0.0 and +0.0 are two entries and every NaN
+// payload is its own entry) while the COMPARATOR is `f64_data_key` (the
+// FP-as-DATA order, which calls them equal). That split contradicts this
+// project's own recorded rule — THE RULE LIVES IN THE KEY.
+// DECIDED, NOT YET DONE: PostgreSQL semantics all the way into the key —
+// **all zeros are ONE element, all NaNs are ONE element**. Scheduled after
+// P3; see the memory note `design_fp_as_data_postgres_semantics`.
+// WHEN IT LANDS, THESE ASSERTIONS INVERT AND THAT IS THE POINT: the two
+// zeros become one entry of multiplicity 2, so retracting −0.0 leaves a
+// zero standing and `lo` reads 0x8000000000000000 (the first arrival), NOT
+// 0x0000000000000000 as asserted at :332. Likewise the NaN retraction stops
+// depending on the payload. A reader who "fixes" the emitter to match the
+// decision MUST update :332 — the red is expected, not a regression.
 // A6. THE HALF OF u64's ORDER BLOCK A CANNOT SEE. Block A only ever retracts
 //    the current MAX, so `mn` sits at 5 from the first row and is never
 //    RE-DERIVED: a signed comparator in the re-MIN rescan goes unnoticed there.
@@ -326,6 +343,9 @@ fn main() -> i32 {
 
     // retract −0.0. THE CELL: `lo` must become +0.0, bits all-zero. A map keyed
     // on `f64_data_key` collapses the two zeros onto one key and answers −0.0.
+    // ⚠ AND THAT COLLAPSE IS THE DECIDED DESTINATION (2026-08-07, header): when
+    // it lands, THIS assertion becomes 0x8000000000000000. Do not "repair" the
+    // emitter back to a bitwise key to keep this line green.
     let fr1: [F; 1] = f1(0i64, -0.0f64);
     match fq_retract(&mut hf, &fr1) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
     let d1: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
