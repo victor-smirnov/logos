@@ -234,6 +234,27 @@
 //    insert-only `min`/`max` pays for it: 5.4× on the fold at 4 groups,
 //    measured by `8fbea82a`. That is a cost, it is recorded there, and no
 //    assertion here is about it.
+//
+// ⚠⚠ THIS FILE IS THE SOLE SENSOR FOR THE *INSERT-ONLY* f64 `min` IMPROVE, AND
+// THAT WAS RE-MEASURED 2026-08-07 RATHER THAN CARRIED FORWARD. Invert the arm
+// `rexpr_walk.logos` emits for a NON-retract-eligible incremental f64 `min`
+// (`f64_data_key(__v) < f64_data_key(__h.<ga>.get(__gi))`), rebuild after
+// `rm -f build/lib/logos/liblogos-*.a` — ctest links prebuilt archives, so
+// without that the control changes nothing — and run `ctest -R 'incr|wql_agg|
+// deem_'`: ONE red out of 90, this file, exit 20 with
+// `phaseA ep=0 hand-vs-static cell=1` on stdout. Every other fixture in the
+// family passes.
+// ⚠ AND THE CENSUS SLICE DID NOT NARROW THAT. `deem_incr_static_retract_e2e`,
+// `deem_incr_join_e2e` and `wql_incr_retract_three_ways` now pin a census, which
+// closes "an assertion stopped RUNNING" — a different hole. Their `min`/`max`
+// queries are all RETRACT-ELIGIBLE, so they take the map+rescan arm and never
+// execute the scalar improve at all: no census can sense an arm its fixture does
+// not run. Inverting the retract-eligible improve instead reddens FIVE of the 90
+// (this file, both `deem_incr_*_e2e`, `wql_incr_retract_matrix` and
+// `wql_incr_retract_three_ways`), all on the EXIT CODE and none merely on the
+// census — measured the same day. The insert-only arm still has exactly one
+// witness and that is here.
+//
 //  · Nothing about an f64 JOIN key — the incremental engine refuses it and
 //    `wql_domain_incr_disagreement:239-255` pins that as KNOWN-WRONG. No f64
 //    column is a join key here.
