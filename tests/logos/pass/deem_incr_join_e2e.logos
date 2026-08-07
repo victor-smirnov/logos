@@ -390,6 +390,24 @@ fn main() -> i32 {
     // ══ EPOCH 7 — retracting a row the relation never held ════════════════
     // ⚠ THE ARM IS NAMED. `Result::Err(_e) => {}` would pass on any arm, and the
     // arms exist because one name used to stand for two different mistakes.
+    //
+    // ⚠⚠ AND THE ARM IS NOT ENOUGH — THIS IS THE CELL THAT WAS MISSING AND IT
+    // COST A REAL DEFECT. Asserting only that `Err(RetractAbsent)` comes back
+    // says nothing about the HANDLE, and the first emitter to pass this block
+    // ran the identity search AFTER the fold nest: it folded every matching
+    // pair at a negative weight and only then refused. On this very data the
+    // group read (n 2, sv -1976, sm 70) where the truth is (n 4, sv 22, sm 140)
+    // — a value present in no row subtracted twice out of `sum`, an untouched
+    // group's count halved — and the block was GREEN, because it only ever
+    // looked at the error. A refusal is a promise about state, so the state is
+    // what must be asserted.
+    // ⚠ The neighbouring `three_ways` block G pins exactly this contract for
+    // the TAG path ("THE HANDLE IS UNTOUCHED BY THE REFUSAL"). Until this
+    // block existed the corpus asserted it for one refusal and not the other,
+    // so a caller could not tell the two `Err`s apart.
+    let snap_pre: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; }
+    };
     let a5: Vec<A> = a_row(5i64, 5i64);
     match qj_apply(&mut h, 0i32, 0i64 - 1i64, a5.as_slice(), b1.as_slice()) {
         Result::Ok(_n) => { return 52i32; }
@@ -400,6 +418,29 @@ fn main() -> i32 {
                 ElError::Overflow   => { return 54i32; }
                 ElError::DivByZero  => { return 55i32; }
                 ElError::SrcUnknown => { return 56i32; }
+            }
+        }
+    }
+    // ⚠⚠ AND THE ROW ABOVE CANNOT SEE THE DEFECT THIS BLOCK EXISTS FOR — MEASURED,
+    // NOT REASONED. `(5,5)` matches NO stored partner on `k`, so the fold nest
+    // runs zero iterations and there is nothing to corrupt: with the refusal
+    // deliberately moved back below the nest, this fixture stayed GREEN. The
+    // discriminating row must MATCH ON THE JOIN KEY while being ABSENT BY
+    // IDENTITY — then the nest folds every partner at a negative weight before
+    // the refusal is ever reached. `k = 1` is populated on both sides; `x = 999`
+    // is in no row.
+    // This is the same selection rule the sister fixtures state: an assertion
+    // that cannot reach the mechanism is not a weaker test, it is not a test.
+    let a1x: Vec<A> = a_row(1i64, 999i64);
+    match qj_apply(&mut h, 0i32, 0i64 - 1i64, a1x.as_slice(), b1.as_slice()) {
+        Result::Ok(_n) => { return 83i32; }
+        Result::Err(e7b) => {
+            match e7b {
+                ElError::RetractAbsent => { }
+                ElError::Underflow  => { return 84i32; }
+                ElError::Overflow   => { return 85i32; }
+                ElError::DivByZero  => { return 86i32; }
+                ElError::SrcUnknown => { return 87i32; }
             }
         }
     }
@@ -432,6 +473,26 @@ fn main() -> i32 {
                 ElError::DivByZero  => { return 75i32; }
             }
         }
+    }
+
+    // ══ THE STATE AFTER THREE REFUSALS — element by element ═══════════════
+    // Epoch 7 refused a never-held retraction; epoch 8 refused an out-of-range
+    // tag twice. None of the three may have moved a cell. Compared against the
+    // snapshot taken BEFORE epoch 7, not against hand constants, so this stays
+    // true when the numbers above change.
+    let snap_post: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 77i32; }
+    };
+    if snap_post.len() != snap_pre.len() { return 78i32; }
+    let mut __z: i64 = 0i64;
+    while __z < snap_pre.len() {
+        let pre: (i64, i64, i64, i64) = snap_pre.get(__z);
+        let post: (i64, i64, i64, i64) = snap_post.get(__z);
+        if post.0 != pre.0 { return 79i32; }
+        if post.1 != pre.1 { return 80i32; }   // count — halved by the old order
+        if post.2 != pre.2 { return 81i32; }   // sum   — the 999 subtracted twice
+        if post.3 != pre.3 { return 82i32; }   // min   — the map rescanned
+        __z = __z + 1i64;
     }
 
     return 0i32;

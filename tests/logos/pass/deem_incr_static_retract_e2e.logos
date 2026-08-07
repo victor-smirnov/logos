@@ -256,8 +256,17 @@ fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
 // ACTUALLY returns against it, so a block appended after (iii) that marches
 // past 117 is caught on the number rather than on the declaration.
 fn TOP_CODE()     -> i32 { return 121i32; }
-// 118..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
-fn EXIT_MAX()     -> i32 { return 120i32; }
+// 122..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
+// ⚠ MERGE RESOLUTION 2026-08-07, and it was PROVEN LIVE rather than assumed:
+// P3 appended the four `SrcUnknown` arms at 118-121 while this guard arrived
+// from a sibling commit pre-set to TOP_CODE 117 / EXIT_MAX 120. The merge was
+// textually clean and SEMANTICALLY WRONG — four codes above the declared top,
+// green only because no arm fires today. Raising TOP_CODE to 121 ALONE was
+// tried first, on purpose: every run then exits 125 with `declared top 121
+// exceeds the ceiling 120`, which is the guard refusing a space it cannot
+// represent. EXIT_MAX had to move with it. A resolution that only edited the
+// comment would have left the fixture green and the ceiling a lie again.
+fn EXIT_MAX()     -> i32 { return 124i32; }
 fn EXIT_OVERRUN() -> i32 { return 125i32; }
 
 fn check_layout() -> i32 {

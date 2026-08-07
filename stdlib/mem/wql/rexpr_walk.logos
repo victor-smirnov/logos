@@ -5202,6 +5202,42 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let mut __i0: i64 = 0i64;
                     while __i0 < (#(base_src_f)).len() {
                         let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                        // ── REFUSE BEFORE FOLDING ──────────────────────────
+                        // The identity search is SPLIT: the lookup and the
+                        // refusal run BEFORE the fold nest, the mutation stays
+                        // after it. ⚠ THIS ORDER IS THE FIX FOR A MEASURED
+                        // DEFECT, not a preference. With the whole block below
+                        // the nest, retracting a row this relation never held
+                        // folded every matching pair at a NEGATIVE weight and
+                        // only then returned `Err`: on A={(2,5),(2,6)},
+                        // B={(2,30),(2,40)}, group 2 = (n 4, sv 22, sm 140), a
+                        // `-1` delta carrying a value 999 that is in no row
+                        // answered `Err(RetractAbsent)` and left the group
+                        // reading (n 2, sv -1976, sm 70). The caller's mistake
+                        // is detectable with no fold at all, so it is detected
+                        // with no fold at all.
+                        // ⚠ THE NARROW CLAIM, so nobody reads more into it: this
+                        // makes a delta ROW that is refused leave the handle
+                        // untouched. It does NOT make `<q>_apply` transactional
+                        // — earlier rows of the same multi-row delta are already
+                        // folded and integrated, and a fault raised INSIDE the
+                        // nest still leaves that row folded against some
+                        // partners. Those remain the contract's UNSPECIFIED.
+                        let mut __f: i64 = -1i64;
+                        let mut __q: i64 = 0i64;
+                        while __q < __h.__s0.len() {
+                            let __c: #(base_ty_f) = __h.__s0.get(__q);
+                            if (#(eq0_f)) { __f = __q; }
+                            __q = __q + 1i64;
+                        }
+                        if __f < 0i64 {
+                            // A retraction of a row this relation has never held
+                            // is the SAME caller mistake the group guards name.
+                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                        } else {
+                            let __chk: i64 = el_add(__h.__s0w.get(__f), __wd)?;
+                            if __chk < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                        }
                         let mut __j1: i64 = 0i64;
                         while __j1 < __h.__s1.len() {
                             let #var1: #(ty1_f) = __h.__s1.get(__j1);
@@ -5214,29 +5250,26 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                             }
                             __j1 = __j1 + 1i64;
                         }
-                        // INTEGRATE AFTER THE FOLD, NEVER BEFORE — moving this
-                        // block above the inner loop is the double count — and
-                        // integrate INTO NORMAL FORM: find this row's entry by
-                        // identity and move its multiplicity, so every stored
-                        // weight stays ≥ 0 and every pair weight in one call
-                        // carries the sign of `__wd`.
-                        let mut __f: i64 = -1i64;
-                        let mut __q: i64 = 0i64;
-                        while __q < __h.__s0.len() {
-                            let __c: #(base_ty_f) = __h.__s0.get(__q);
-                            if (#(eq0_f)) { __f = __q; }
-                            __q = __q + 1i64;
-                        }
+                        // INTEGRATE AFTER THE FOLD. ⚠ THE OLD COMMENT HERE SAID
+                        // "NEVER BEFORE — moving this block above the inner loop
+                        // is the double count", AND THAT WAS FALSE: a control
+                        // moved exactly this block above the nest and every
+                        // fixture stayed green, because within one `__src` arm
+                        // the fold READS `__h.__s1` while the integration WRITES
+                        // `__h.__s0` — disjoint state, so the statement order is
+                        // not observable. The real constraint is ACROSS CALLS:
+                        // `∆J = ∆S_k ⋈ (other sides at their CURRENT contents)`,
+                        // and the other side must not yet carry this call's own
+                        // delta. `__f` is computed above and stays valid because
+                        // the nest does not touch `__s0`.
+                        // Integrate INTO NORMAL FORM: move this row's entry by
+                        // identity, so every stored weight stays ≥ 0 and every
+                        // pair weight in one call carries the sign of `__wd`.
                         if __f < 0i64 {
-                            // A retraction of a row this relation has never held
-                            // is the SAME caller mistake the group guards name.
-                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
                             __h.__s0.push((#(base_src_f))[__i0]);
                             __h.__s0w.push(__wd);
                         } else {
-                            let __nw: i64 = el_add(__h.__s0w.get(__f), __wd)?;
-                            if __nw < 0i64 { return Result::Err(ElError::RetractAbsent); }
-                            __h.__s0w.set(__f, __nw);
+                            __h.__s0w.set(__f, el_add(__h.__s0w.get(__f), __wd)?);
                         }
                         __i0 = __i0 + 1i64;
                     }
@@ -5246,6 +5279,22 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let mut __i1: i64 = 0i64;
                     while __i1 < (#(src1_f)).len() {
                         let #var1: &#(ty1_f) = &(#(src1_f))[__i1];
+                        // REFUSE BEFORE FOLDING — the mirror of the `__src == 0`
+                        // arm; the same measured defect lives on both sides and
+                        // fixing one would have left the other corrupting.
+                        let mut __f: i64 = -1i64;
+                        let mut __q: i64 = 0i64;
+                        while __q < __h.__s1.len() {
+                            let __c: #(ty1_f) = __h.__s1.get(__q);
+                            if (#(eq1_f)) { __f = __q; }
+                            __q = __q + 1i64;
+                        }
+                        if __f < 0i64 {
+                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                        } else {
+                            let __chk: i64 = el_add(__h.__s1w.get(__f), __wd)?;
+                            if __chk < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                        }
                         let mut __j0: i64 = 0i64;
                         while __j0 < __h.__s0.len() {
                             let #base_vnm: #(base_ty_f) = __h.__s0.get(__j0);
@@ -5258,21 +5307,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                             }
                             __j0 = __j0 + 1i64;
                         }
-                        let mut __f: i64 = -1i64;
-                        let mut __q: i64 = 0i64;
-                        while __q < __h.__s1.len() {
-                            let __c: #(ty1_f) = __h.__s1.get(__q);
-                            if (#(eq1_f)) { __f = __q; }
-                            __q = __q + 1i64;
-                        }
                         if __f < 0i64 {
-                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
                             __h.__s1.push((#(src1_f))[__i1]);
                             __h.__s1w.push(__wd);
                         } else {
-                            let __nw: i64 = el_add(__h.__s1w.get(__f), __wd)?;
-                            if __nw < 0i64 { return Result::Err(ElError::RetractAbsent); }
-                            __h.__s1w.set(__f, __nw);
+                            __h.__s1w.set(__f, el_add(__h.__s1w.get(__f), __wd)?);
                         }
                         __i1 = __i1 + 1i64;
                     }
