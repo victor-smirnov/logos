@@ -155,6 +155,24 @@
 //     chokepoint: the same assertion broken at its OWN code still exits 117.
 //     The guard narrows nothing.
 //
+// ⚠⚠ WHAT THESE GUARDS DO NOT COVER, NAMED HERE BECAUSE THE SISTER FILE COVERS
+// IT AND THIS ONE DOES NOT. `deem_incr_diff_harness` prints a CENSUS on the
+// success path (`spine ok ep=5 cmp=20 cells=300`) and its `.expected` pins that
+// line, so a comparison which silently STOPS RUNNING lowers a number and goes
+// red. This file's `.expected` is `exit: 0` with no `stdout:` key at all, and
+// `run_test.sh` compares stdout only when the key is present — so here an
+// assertion that stops running is INVISIBLE: deleting it leaves exit 0 and
+// nothing else moves. The ceiling guards are about a code meaning TWO states;
+// this is the opposite hole, a state with NO code, and it is open.
+// MEASURED 2026-08-07: with the emitted f64 `min` improve inverted this file
+// exits 59 and prints NOTHING, because its assertions carry no `println!` — the
+// code is the whole channel. That is sound while codes stay unique (they are,
+// 1..117 with 7 reserved), but it leaves no room: 118/119/120 are the only free
+// codes under the ceiling, so the 4th assertion added here forces the parameter
+// channel rather than merely suggesting it. Closing both is one slice and it is
+// NOT taken here — this comment is a scope call recorded at the blind spot, not
+// a plan someone has to find in a commit message.
+//
 // exit 0 = the static tier retracts, at u64's extrema, with multiplicity, with
 //          identity preserved on floats, and refuses — by name — to retract
 //          what was never inserted.
