@@ -58,10 +58,18 @@
 // ⚠ THE BATCH ARM DID NOT BECOME REDUNDANT AND IS RETAINED AS `arm_batch`.
 // `stdlib/mem/deem/incr_rec.logos:58` states the law — "the incremental result
 // equals the batch recompute by construction" — and a law that nothing evaluates
-// is a sentence. It is checked ONCE, after the last epoch, because a fourth
-// per-epoch comparison DOES NOT FIT IN EIGHT BITS: 18 cells per arm forces
-// CELLS_SPAN = 20, and 20 + (2*4 + 3)*20 + 19 = 259 > 255 with no base ≥ 1 that
-// fits. See the enumerated space below. The per-epoch half of that law is
+// is a sentence. It is checked ONCE, after the last epoch.
+// ⚠ AND THE REASON IT IS ONCE CHANGED ON 2026-08-07 — SAID HERE RATHER THAN
+// LEFT AS A TRUE-LOOKING SENTENCE THAT IS NO LONGER THE REASON. It used to be
+// arithmetic: "a fourth per-epoch comparison DOES NOT FIT IN EIGHT BITS — 18
+// cells per arm forces CELLS_SPAN = 20, and 20 + (2*4 + 3)*20 + 19 = 259 > 255
+// with no base ≥ 1 that fits." That constraint is GONE. Phase A no longer packs
+// its parameters into the exit code, so a fourth per-epoch comparison would cost
+// exactly ONE class code out of the ~70 free ones. What remains is a scope call
+// and a runtime cost, not a budget — and it is NOT taken here, because this
+// slice moved a channel and changed no assertion. A later slice that wants the
+// law per-epoch may simply have it; the number that used to forbid it does not
+// exist any more. The per-epoch half of that law is
 // carried by `tests/logos/pass/wql_incr_static_three_ways` block E, which asserts
 // it for every split of one multiset into 1 / 3 / 7 epochs — on ordinary data.
 // What THIS file adds is the law on EXTREMES: i64::MIN/MAX, −0.0, the 1e16
@@ -99,8 +107,9 @@
 //                  the open semantics question §4's own banner flags, and
 //                  repointing §4 would ANSWER it by accident. The spine's arm
 //                  (1) never returns K_MATH_ERR because `pump` turns an epoch
-//                  `Err` into exit 211-213 first, which is that convention
-//                  honestly reported rather than laundered into a cell.
+//                  `Err` into exit 24 first (it was 211-213), which is that
+//                  convention honestly reported rather than laundered into a
+//                  cell.
 //   K_BUILD_ERR  — `compile`/`incremental` refused to build the thing at all.
 //   REFUSED-AT-COMPILE — deliberately NOT a `Cell` kind, because it cannot be a
 //                  runtime value: the static tier refuses some of these queries
@@ -251,18 +260,66 @@
 // from it.
 //
 // ── WHICH OF THESE CODES ARE PROVEN TO BITE ────────────────────────────────
-// Each broken once, on the code predicted before the break, then reverted:
-//   10 · 11 · 12 · 13 · 14 · 15 · 16 · 17 · 18 · 19 · 33 (a phase-A cell) ·
-//   235 · and the STDOUT census, which is the only one that catches a
-//   comparison that stopped running (removing phase B's third check leaves
-//   exit 0 and every remaining cell agreeing: `cmp=17 cells=264`, red).
+// Each broken once, on the code predicted before the break, then reverted.
+//
+// FROM EARLIER ROUNDS, on codes this slice did not move:
+//   10 · 11 · 12 · 13 · 14 · 15 · 16 · 17 · 18 · 19 · and the STDOUT census,
+//   which is the only one that catches a comparison that stopped running
+//   (removing phase B's third check leaves exit 0 and every remaining cell
+//   agreeing: `cmp=17 cells=264`, red).
 // Two EMITTER controls, removed from where they live with the archives dropped
 // and the tree rebuilt: `want_map` off → exit 10 at `phaseB ep=3 cell=1`, the
 // re-min over {−1, 0} after i64::MIN leaves; the `__nc < 0` value-multiplicity
 // guard off → exit 16, §6's static half accepts what it should refuse.
-// NOT proven, and named rather than implied: 8, 9, 210, 217, 218 (setup and
-// plumbing arms reachable only from a broken toolchain), and phase A's
-// 211..216, which predate this slice and were not re-broken here.
+//
+// 2026-08-07 — EVERY CODE THIS SLICE MOVED, RE-BROKEN AT ITS NEW CODE. The old
+// entry "33 (a phase-A cell)" is NOT translated: a code that no longer exists
+// cannot be said to bite, so phase A's four comparisons were re-proven from
+// scratch. 28 breaks, 28 predictions, 28 hits:
+//   20 (phaseA hand↔static, was 20+ep*60+cell) · 21 (hand↔interp, was 40+…) ·
+//   22 (static↔interp, was 60+…) · 23 (batch witness, was 235+cell) ·
+//   25 × 5 — the pump's row-count check for q1…q5 (was 214/215/216 and 218
+//     TWICE: q4 and q5 shared one number with nothing printed. Broken
+//     separately for all five; the code is one and stdout says `q4` or `q5`) ·
+//   26 × 2 (§6's control, was 235 across six silent sites) ·
+//   27 × 2 (§6's plumbing, was 210 across seven silent sites) ·
+//   30 · 32 · 34 · 35 · 36 (§4, was 201/203/205/206/207) ·
+//   38 · 39 · 40 · 43 · 44 · 45 · 47 · 48 · 49 · 50 (§5, was 222/223/224/
+//     227/228/229/231/232/233/234).
+// THE CEILING GUARD — every branch of it, each predicted then reverted:
+//   · `EXIT_MAX` 120 → 40      → 125, "top 50 exceeds the ceiling 40"
+//   · `UAVG_SPAN` 14 → 90      → 125, "top 126 exceeds the ceiling 120" — the
+//     realistic growth: a block widens and walks into the shell/signal band.
+//   · `OVF_SPAN` 7 → 6 with §4's 7th assertion broken → 125, "§4 returned 7 >
+//     OVF_SPAN 6". The dynamic half: the check is on the VALUE, not the
+//     declaration, so a block that outgrows its span cannot land on the next
+//     block's code.
+//   · `EXIT_MAX` 120 → 125    → 125, "ceiling 125 collides with the guard 125".
+//   · `EXIT_OVERRUN` 125 → 130 → 125 (NOT 130), "guard 130 is itself in the
+//     shell/signal band" — the branch that must not report through the value it
+//     distrusts, so it returns a hard literal.
+//   · `arm_hand` grows a 19th cell → 20, `cell=-1 (len hand=19 static=18)`.
+//     Under the old sentinel that read `cell=19` and exited 39 — which is also
+//     "cell #18 differs". The sentinel and an index are now disjoint.
+//   · AND THE CONTROL, because a chokepoint that swallows everything is not a
+//     chokepoint: §5's last assertion broken with nothing else touched still
+//     exits 50, its own code. The guards narrow nothing.
+// AND THE DEFECT ITSELF, MEASURED ON BOTH SIDES rather than argued. The edit is
+// the one §1's banner invites — `n_ins_epochs()` 3 → 4:
+//   · at `a484078c`, before this slice: EXIT 221, stdout `phaseA ep=3
+//     hand-vs-interp cell=1`. 221 is §5's "the static batch `q_uavg` returned
+//     Err". One number, two real states, and the exit code is what this file
+//     names states WITH.
+//   · after it: EXIT 21, the same stdout line. In range, one class, one meaning.
+//   · and the WRAP is not a projection either: the same edit with phase A's base
+//     moved 35 up (55 instead of 20, still inside the space it occupied) puts
+//     `ep=3 hand-vs-interp cell=1` at 256, and the run EXITS 0. The only thing
+//     that caught it was the stdout census, whose diagnosis is "stdout mismatch"
+//     — a green exit code for a cell disagreement.
+// NOT proven, and named rather than implied: 1..9 and 24, the setup/plumbing
+// arms (a `compile`, an `incremental`, a `_epoch` that must succeed returning
+// `Err`), reachable only from a broken toolchain or a stdlib edit, which this
+// slice is forbidden. They were not proven before this slice either.
 //
 // exit 0 = the three arms agree, cell for cell, on every epoch of both phases —
 //          across RETRACTIONS as well as inserts; the maintained static state
@@ -271,11 +328,13 @@
 //          disagreements are still exactly where they were.
 //
 // ⚠ AND `stdout` IS PART OF THE ASSERTION NOW, NOT DECORATION. See the
-// exit-code block at `CELLS_SPAN`: the state space outgrew eight bits at this
-// slice, exactly as the previous round predicted it would, so the successful
-// run prints its own COUNTS — epochs, comparisons, cells — and `.expected`
-// pins them. A comparison that silently stops running lowers a number rather
-// than lowering nothing.
+// exit-code block at `EXIT_MAX`: the state space outgrew eight bits, exactly as
+// the round before predicted it would, so the successful run prints its own
+// COUNTS — epochs, comparisons, cells — and `.expected` pins them. A comparison
+// that silently stops running lowers a number rather than lowering nothing.
+// As of 2026-08-07 stdout carries the PARAMETERS of every failure as well, and
+// the exit code carries only the class; see the exit-code block for the three
+// measured defects that bought.
 package test;
 
 use logos.lang.writ.container;
@@ -461,55 +520,100 @@ fn deltas() -> Vec<Delta> {
 // which is as close as this file gets to holding the two against each other;
 // closing the gap is an emitter question, not this file's.
 // ═══════════════════════════════════════════════════════════════════════════
-// ── THE EXIT-CODE SPACE, ENUMERATED — because an exit code is 8 bits ────────
+// ── THE EXIT-CODE SPACE — AND THE CEILING IS NOW A CHECKED NUMBER ───────────
+//
+// ⚠⚠ WHAT WAS HERE BEFORE 2026-08-07, AND WHY IT HAD TO GO. Phase A used to
+// PACK ITS PARAMETERS INTO THE EXIT CODE: `base 20 + (ep*3 + which)*CELLS_SPAN`
+// plus `cells_eq`'s 1..19, occupying 20..199 with 171 distinct codes computed
+// from three arithmetic sites. Three separate defects rode on that, all three
+// MEASURED on this file rather than reasoned about:
+//
+//   (1) THE CEILING LIVED IN A COMMENT. `n_ins_epochs()` is 3 and nothing said
+//       so. §1's banner says "P3/P4 = ADD ROWS HERE, NOT CODE ANYWHERE" — and a
+//       row in a FOURTH insert epoch makes phase A occupy 20 + 3*3*20 + 2*20 +
+//       19 = 259, which collides with §4 (201-207), §5 (221-234), §6's control
+//       (235) and the batch witness (236-254), and then WRAPS: 256/257/258/259
+//       truncate to 0/1/2/3. `phaseA ep=3 static-vs-interp cell=16` would have
+//       EXITED 0. The one thing that would still have caught it is the stdout
+//       census — with "exit 0, stdout mismatch" as the diagnosis for a cell
+//       disagreement, which is the gate answering a question nobody asked.
+//   (2) THE SHELL/SIGNAL BAND WAS ALREADY OCCUPIED, TODAY, NOT ONE EPOCH AWAY.
+//       38 live phase-A codes sat in 126..165. 127 (`command not found`, which
+//       is what bash returns when the binary cannot resolve a shared library —
+//       see `bug_build_rpath_only_on_install`) was `phaseA ep1 static-vs-interp
+//       cell 7`. 139 (SIGSEGV) was the same comparison's cell 19, which is the
+//       LENGTH-MISMATCH sentinel: a segfault read as "the two arms returned
+//       different numbers of cells", the most plausible-looking wrong verdict
+//       in the file. 126/130/132/134/136/137/141 likewise all landed on live
+//       cells. `run_test.sh:197` takes `$?` verbatim; 128+signal is not
+//       distinguishable from a returned code.
+//   (3) THE SENTINEL WAS A LEGAL CELL INDEX. `cells_eq` returned the literal 19
+//       for "the lengths differ" and `1+i` for cell i — the same number the
+//       moment an arm carries 19 cells, which is what "ADD ROWS HERE" invites.
+//
+// SO PHASE A JOINED THE CHANNEL PHASE B ALREADY USED, AND NO EXIT CODE IN THIS
+// FILE IS COMPUTED FROM AN EPOCH OR A CELL ANY MORE. The exit code names the
+// STATE CLASS; `println!` names the PARAMETERS. Adding an insert epoch, or a
+// row, or a cell now costs ZERO exit codes — the failure mode "a later slice
+// adds an epoch and two states start sharing a code" is not documented, it is
+// ARITHMETICALLY ABSENT. The whole space fits under 126 with room to spare, so
+// the shell/signal band is empty of this file's codes.
+//
 //   1  ..   7   `run_spine` setup, the q1/q2/q3 route (store 1, compile 2-4,
 //               `incremental` 5-7)
-//   8          `Query::compile` refused Q4_TEXT or Q5_TEXT
-//   9          `incremental()` refused e4 or e5
-//  10  ..  15   PHASE B — see the widening note below; STDOUT names the epoch
-//               and the cell.  10 hand↔static · 11 hand↔interpreter · 12 static
-//               ↔interpreter · 13 an `_epoch`/`_retract` that must succeed
+//   8          `Query::compile` refused a PHASE-B query   println! names Q4|Q5
+//   9          `incremental()` refused a PHASE-B engine   println! names e4|e5
+//  10  ..  15   PHASE B.  10 hand↔static · 11 hand↔interpreter · 12 static↔
+//               interpreter · 13 an `_epoch`/`_retract` that must succeed
 //               returned Err · 14 a fold's row count ≠ what it was handed ·
-//               15 phase B's batch witness
+//               15 phase B's batch witness.  println! names ep and cell.
 //  16  ..  19   §6, the `RetractAbsent` divergence (16 the static tier did not
 //               refuse · 17 it refused with the WRONG `ElError` arm · 18 the
 //               interpreter errored · 19 the interpreter's answer is not the
 //               measured one)
-//  20  .. 199   PHASE A: base 20 + (ep*3 + which)*CELLS_SPAN, plus cells_eq's
-//               1..19.  which = 0 hand↔static · 1 hand↔interpreter · 2 static↔
-//               interpreter.  Highest reachable: 20 + 8*20 + 19 = 199.
-//  201 .. 209   §4, the three-shaped math error
-//  210          §6 plumbing (a call that must succeed failed).  ⚠ THIS CODE WAS
-//               P1's REFUSAL — "§1 holds a `sign = -1` row and the static arm
-//               has no route for it". P2 emitted the route, so the refusal and
-//               its guard `ep_retracts` are DELETED and the code is reused.
-//  211 .. 213   a phase-A `q*_epoch` returned Err (q1 / q2 / q3)
-//  214 .. 216   a phase-A `q*_epoch` folded a row count ≠ the insert count
-//  217          a phase-A `q4_fext_epoch` / `q5_icnt_epoch` returned Err
-//  218          …or folded a row count ≠ the insert count
-//  219          free
-//  221 .. 234   §5, the u64 `avg` disagreement
-//  235          §6's CONTROL: the two tiers disagreed BEFORE the retraction
-//  236 .. 254   PHASE A's BATCH WITNESS: `arm_batch` over the cumulative rows
-//               AT THE END OF PHASE A vs `arm_static`, base 235 + 1..19.
-//  255          free
-// Nothing here reaches 256, and no two ranges overlap. §5 stops at 234 in fact
-// (`uavg_block` returns at most 14), which is what leaves 235 for §6's control.
+//  20  ..  23   PHASE A.  20 hand↔static · 21 hand↔interpreter · 22 static↔
+//               interpreter · 23 phase A's batch witness.  println! names ep,
+//               the comparison and the cell — the parameters that used to be
+//               multiplied into the code.
+//  24  ..  25   PHASE A's pump.  24 a `q*_epoch` returned Err · 25 it folded a
+//               row count ≠ the insert count.  println! names the query.
+//               (These were 211..218, with 217 and 218 each carrying TWO sites
+//               and no parameter channel at all.)
+//  26          §6's CONTROL: the two tiers disagreed BEFORE the retraction.
+//               println! names the reading.  (Was 235.)
+//  27          §6 plumbing: a call that must succeed failed.  println! names
+//               the call.  ⚠ THIS IS A NEW CODE AND 210 IS RETIRED, NOT REUSED
+//               AGAIN. 210 was P1's "§1 holds a `sign = -1` row and the static
+//               arm has no route for it"; `8fbea82a` deleted that guard and the
+//               number was recycled for §6's plumbing, so a bisect across that
+//               boundary read ONE code as TWO different real failures. Bisecting
+//               this arc is what a later slice does. 210 now belongs to nothing
+//               on either side of the boundary and the two meanings have two
+//               names.
+//  28  ..  29   free — `CLASS_SPAN`'s slack.
+//  30  ..  36   §4, the three-shaped math error   (OVF_BASE + 1..7)
+//  37  ..  50   §5, the u64 `avg` disagreement    (UAVG_BASE + 1..14)
+//  125         THE CEILING GUARD ITSELF: a block returned more than its
+//               declared span, or the declared layout does not fit. See
+//               `check_layout` / `EXIT_OVERRUN`.
 //
-// ⚠⚠ THE BUDGET RAN OUT AT THIS SLICE, EXACTLY WHERE THE PREVIOUS ROUND SAID IT
-// WOULD, AND THE FIX IS THE ONE THAT ROUND PRESCRIBED: "a 4th epoch needs a
-// WIDER FAILURE CHANNEL, not a re-spacing; nothing in the free ranges can
-// absorb 60 codes." Phase B adds three epochs of three 12-cell comparisons —
-// 9 × (1..12 plus the length sentinel 19) = 180 states — into a space with 15
-// codes left in it. There is no packing that fits, and the arithmetic is not
-// close: 18 cells per arm forces CELLS_SPAN = 20, phase A alone occupies
-// 20..199, and 200..255 is already four blocks deep.
+// ⚠ THE BASES ARE DERIVED, NOT WRITTEN. `OVF_BASE` is `CLASS_SPAN` and
+// `UAVG_BASE` is `OVF_BASE + OVF_SPAN`, so two blocks OVERLAPPING is not a
+// mistake this file can make: widening a span slides everything above it and
+// `check_layout` re-derives the top. What a span cannot do by itself is stop a
+// block from returning more than it declares — so `main` checks the RETURNED
+// VALUE against the span before folding it in, and refuses with `EXIT_OVERRUN`
+// rather than adding it to a base. The declaration is checked statically on
+// every run; the usage is checked on the actual number.
 //
-// SO THE STATE MOVED TO A CHANNEL THAT IS NOT EIGHT BITS, AND IT IS STILL
-// ASSERTED. The exit code names the STATE CLASS (10..15); `println!` names the
-// PARAMETERS (which epoch, which comparison, which cell); and — this is the
-// half that makes it a gate rather than a debug aid — `.expected` pins STDOUT,
-// so the successful run's own COUNTS are part of the assertion:
+// ⚠ THE CEILING IS 120, NOT 255, AND THAT IS THE POINT OF DEFECT (2) ABOVE.
+// 126 and 127 are the shell's and 128+N is a signal, so a code up there is one
+// number standing for two states. `deem_incr_static_retract_e2e` reached the
+// same conclusion independently and caps itself the same way.
+//
+// AND `.expected` PINS STDOUT, which is the half that makes the parameter
+// channel a gate rather than a debug aid: the successful run's own COUNTS are
+// part of the assertion,
 //     spine ok ep=5 cmp=20 cells=300
 // 20 comparisons = 9 (phase A) + 1 (its witness) + 9 (phase B) + 1 (its
 // witness); 300 cells = 162 + 18 + 108 + 12. A comparison that stops running
@@ -517,10 +621,54 @@ fn deltas() -> Vec<Delta> {
 // comparison passes — which is the one failure `cells_eq` alone cannot see, and
 // the shape this codebase has on record as "a test MISSING from the suite:
 // predict the COUNT".
-// ⚠ DO NOT WIDEN A BASE TO BUY ROOM. See `cells_eq`'s banner: a 700-base came
-// back as exit 189 = 701 & 0xFF and read as a DIFFERENT real failure. The
-// ceiling is not negotiable; the channel is.
-fn CELLS_SPAN() -> i32 { return 20i32; }
+// ⚠ DO NOT WIDEN A BASE TO BUY ROOM AND DO NOT PACK A PARAMETER INTO A CODE.
+// The first draft of this file used bases 700/800/900 and a control revert came
+// back as exit 189 = 701 & 0xFF, which read as a DIFFERENT real failure. The
+// second draft packed phase A's parameters and got defects (1)(2)(3) above. The
+// ceiling is not negotiable and the channel is not the exit code.
+
+// The highest code an ASSERTION in this file may use. 121..124 are deliberately
+// left empty between it and the guard; 126/127/128+N belong to the shell.
+fn EXIT_MAX()     -> i32 { return 120i32; }
+// The guard's own code. Fixed, above every derived code, below the shell band.
+fn EXIT_OVERRUN() -> i32 { return 125i32; }
+
+// The class codes `run_spine` and `ra_block` return DIRECTLY. 1..27 are used;
+// the span is 29 so that two more classes cost nothing above them.
+fn CLASS_SPAN() -> i32 { return 29i32; }
+// `ovf_block` returns 1..7 and `uavg_block` 1..14, each offset by its base.
+fn OVF_SPAN()   -> i32 { return  7i32; }
+fn UAVG_SPAN()  -> i32 { return 14i32; }
+
+fn OVF_BASE()  -> i32 { return CLASS_SPAN(); }               // 29 → 30..36
+fn UAVG_BASE() -> i32 { return OVF_BASE() + OVF_SPAN(); }    // 36 → 37..50
+fn TOP_CODE()  -> i32 { return UAVG_BASE() + UAVG_SPAN(); }  // 50
+
+// THE STATIC HALF OF THE GUARD, run before anything else on every run. Returns
+// 0, or `EXIT_OVERRUN` after printing which part of the layout does not fit.
+// A comment saying "≤ 3 epochs" is the form that already failed here; this is
+// the same statement as a number the program refuses to run without.
+fn check_layout() -> i32 {
+    if TOP_CODE() > EXIT_MAX() {
+        println!("EXIT-CODE LAYOUT: top {} exceeds the ceiling {}", TOP_CODE(), EXIT_MAX());
+        return EXIT_OVERRUN();
+    }
+    if EXIT_MAX() >= EXIT_OVERRUN() {
+        println!("EXIT-CODE LAYOUT: ceiling {} collides with the guard {}", EXIT_MAX(), EXIT_OVERRUN());
+        return EXIT_OVERRUN();
+    }
+    // ⚠ THIS ONE RETURNS A HARD 125, NOT `EXIT_OVERRUN()`, AND THAT IS THE
+    // WHOLE POINT OF IT. It fires precisely when `EXIT_OVERRUN` has been edited
+    // into the shell/signal band, so returning `EXIT_OVERRUN()` here would
+    // report the defect USING the defect — a guard that cannot be reached
+    // through the value it distrusts. Provable: set `EXIT_OVERRUN` to 130 and
+    // the run exits 125, not 130.
+    if EXIT_OVERRUN() > 125i32 {
+        println!("EXIT-CODE LAYOUT: guard {} is itself in the shell/signal band", EXIT_OVERRUN());
+        return 125i32;
+    }
+    return 0i32;
+}
 
 // The running census `.expected` pins. Threaded through every comparison rather
 // than counted in a comment, because a count in a comment is the thing being
@@ -559,20 +707,24 @@ fn cell_find(v: &Vec<Cell>, grp: i64, slot: i32) -> i64 {
 }
 
 // 0 = identical. Otherwise 1 + the index in `a` of the first cell that `b` either
-// lacks or answers differently, and 19 for a length mismatch. Not a bool: the
-// exit code has to name the cell.
+// lacks or answers differently, and CELLS_LEN_MISMATCH for a length mismatch.
+// Not a bool: the DIAGNOSTIC has to name the cell.
 //
-// ⚠⚠ AN EXIT CODE IS EIGHT BITS, AND A WRAPPED CODE IS A GATE THAT LIES. Every
-// code this file can return is ≤ 255 AND distinct — see the enumerated space at
-// `CELLS_SPAN` above, which is where the budget is stated and spaced. The
-// first draft of this file used bases 700/800/900 and a control revert came back
-// as exit 189, which is 701 & 0xFF and which COLLIDES with a real code from the
-// static-vs-interpreter comparison (190 + 5). It read as a different failure
-// than the one that happened. That is the ceiling this codebase already has on
-// record as one of the eight ways a gate lies; do not reintroduce it by
-// widening a base. `CELLS_SPAN` is the budget every base is spaced by.
+// ⚠ THE LENGTH SENTINEL IS NEGATIVE, AND IT USED TO BE THE LITERAL 19. 19 is a
+// legal value of `1 + i` — it is cell #18 — the moment an arm carries 19 cells,
+// and §1's banner invites exactly that ("P3/P4 = ADD ROWS HERE"). Today
+// `arm_hand` pushes 18, so the two meanings were one edit apart and nothing said
+// so. A negative sentinel cannot be a cell index at any width, so this is not a
+// bound that has to be re-checked when the arms grow: it is arithmetically
+// disjoint from every index. (While the sentinel rode the EXIT code it also
+// collided with 128+SIGSEGV at `phaseA ep1 static-vs-interp` — see the
+// exit-code block. That half closed when phase A left the code channel; this
+// half is about the number the DIAGNOSTIC prints, which is now the only place
+// it appears.)
+fn CELLS_LEN_MISMATCH() -> i64 { return 0i64 - 1i64; }
+
 fn cells_eq(a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
-    if a.len() != b.len() { return 19i64; }
+    if a.len() != b.len() { return CELLS_LEN_MISMATCH(); }
     let n: i64 = a.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -589,10 +741,16 @@ fn cells_eq(a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
 
 // `cells_eq`, counted. EVERY comparison in this file goes through here so that
 // the printed census is derived from the calls that actually ran and not from
-// whoever remembered to bump it. The return value is `cells_eq`'s, unchanged —
-// phase A's exit codes are byte-identical to what they were before phase B
-// existed, which is what keeps every control revert recorded against this file
-// landing on the code it landed on.
+// whoever remembered to bump it. The return value is `cells_eq`'s, unchanged.
+// ⚠ THE PROMISE THAT STOOD HERE — "phase A's exit codes are byte-identical to
+// what they were before phase B existed, which is what keeps every control
+// revert recorded against this file landing on the code it landed on" — IS
+// DELIBERATELY BROKEN AS OF 2026-08-07 AND IS NOT COMING BACK. It was a promise
+// to keep the parameters multiplied into the exit code, and the exit-code block
+// above records the three defects that bought. Every phase-A control revert
+// recorded before that date lands on 20/21/22/23 now, with the epoch and the
+// cell it used to encode printed on stdout instead; the header's proven-to-bite
+// list was re-derived against the new codes rather than translated.
 fn cmp_cells(t: &mut Tally, a: &Vec<Cell>, b: &Vec<Cell>) -> i64 {
     t.cmp = t.cmp + 1i64;
     t.cells = t.cells + a.len();
@@ -1168,32 +1326,38 @@ fn ep_retract_rows(ds: &Vec<Delta>, ep: i64) -> Vec<Row> {
 // against the epoch's own length: a handle that silently folded a different
 // number of rows than it was handed would otherwise only show up as a wrong
 // `count()` cell, and only when `count()` happens to be in the query.
+// ⚠ ONE CODE PER CLASS, THE QUERY ON STDOUT — these were 211..216 (one code per
+// query per class) plus 217/218, and 217/218 each carried TWO return sites with
+// no `println!` at all, so "q4 refused" and "q5 refused" were literally the same
+// number. That is the file's own rule ("the code names the STATE CLASS,
+// `println!` names the PARAMETERS") applied where it had never been retrofitted:
+// the query is a parameter, and five queries do not need five codes.
 fn pump(h1: &mut Q1IminmaxIncr, h2: &mut Q2IsumIncr, h3: &mut Q3FaggIncr,
         h4: &mut Q4FextIncr, h5: &mut Q5IcntIncr,
         er: &Vec<Row>) -> i32 {
     let want: i64 = er.len();
     let n1: i64 = match q1_iminmax_epoch(h1, er.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 211i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseA epoch q1 Err"); return 24i32; }
     };
-    if n1 != want { return 214i32; }
+    if n1 != want { println!("phaseA epoch q1 rows={} want={}", n1, want); return 25i32; }
     let n2: i64 = match q2_isum_epoch(h2, er.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 212i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseA epoch q2 Err"); return 24i32; }
     };
-    if n2 != want { return 215i32; }
+    if n2 != want { println!("phaseA epoch q2 rows={} want={}", n2, want); return 25i32; }
     let n3: i64 = match q3_fagg_epoch(h3, er.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 213i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseA epoch q3 Err"); return 24i32; }
     };
-    if n3 != want { return 216i32; }
+    if n3 != want { println!("phaseA epoch q3 rows={} want={}", n3, want); return 25i32; }
     // Phase B's two handles ride the insert epochs as well, or they would reach
     // ep2 empty and the control would be comparing nothing to nothing.
     let n4: i64 = match q4_fext_epoch(h4, er.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 217i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseA epoch q4 Err"); return 24i32; }
     };
-    if n4 != want { return 218i32; }
+    if n4 != want { println!("phaseA epoch q4 rows={} want={}", n4, want); return 25i32; }
     let n5: i64 = match q5_icnt_epoch(h5, er.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 217i32; }
+        Result::Ok(n) => { n } Result::Err(_e) => { println!("phaseA epoch q5 Err"); return 24i32; }
     };
-    if n5 != want { return 218i32; }
+    if n5 != want { println!("phaseA epoch q5 rows={} want={}", n5, want); return 25i32; }
     return 0i32;
 }
 
@@ -1310,8 +1474,11 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     let q1: Query = match Query::compile(Q1_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 2i32; } };
     let q2: Query = match Query::compile(Q2_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 3i32; } };
     let q3: Query = match Query::compile(Q3_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 4i32; } };
-    let q4: Query = match Query::compile(Q4_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 8i32; } };
-    let q5: Query = match Query::compile(Q5_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 8i32; } };
+    // ⚠ 8 AND 9 ARE ONE CLASS EACH AND THE QUERY IS A PARAMETER. Both codes used
+    // to carry TWO return sites with no `println!`, so "Q4 refused" and "Q5
+    // refused" were the same number with nothing to tell them apart.
+    let q4: Query = match Query::compile(Q4_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { println!("compile refused Q4"); return 8i32; } };
+    let q5: Query = match Query::compile(Q5_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { println!("compile refused Q5"); return 8i32; } };
 
     // `eng_env` must OUTLIVE every engine: `incremental()` stores a raw pointer
     // to it (`envp`) and reads it back on every epoch.
@@ -1320,8 +1487,8 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     let mut e1: IncrJoin = match q1.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
     let mut e2: IncrJoin = match q2.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
     let mut e3: IncrJoin = match q3.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 7i32; } };
-    let mut e4: IncrJoin = match q4.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 9i32; } };
-    let mut e5: IncrJoin = match q5.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 9i32; } };
+    let mut e4: IncrJoin = match q4.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { println!("incremental() refused e4"); return 9i32; } };
+    let mut e5: IncrJoin = match q5.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { println!("incremental() refused e5"); return 9i32; } };
     // The base epoch already ran inside `incremental()`; drain the store's
     // changelog so epoch 1 does not replay it.
     let _base: ZBatch = store.take_delta();
@@ -1355,18 +1522,21 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
         let s: Vec<Cell> = arm_static(&h1, &h2, &h3);
         let d2: Vec<Cell> = arm_dyn(&e1, &e2, &e3);
 
-        let epb: i32 = 20i32 + (ep as i32) * 3i32 * CELLS_SPAN();
+        // ⚠ NO `epb`. The epoch and the cell used to be MULTIPLIED INTO the exit
+        // code (`20 + (ep*3 + which)*CELLS_SPAN + cell`); they are printed now,
+        // and the code is the class. `cell=-1` is the length sentinel, which is
+        // why both lengths are printed unconditionally.
         // hand vs static — the assertion that OUTLIVES P5.
         let a: i64 = cmp_cells(t, &h, &s);
-        if a != 0i64 { println!("phaseA ep={} hand-vs-static cell={}", ep, a); return epb + (a as i32); }
+        if a != 0i64 { println!("phaseA ep={} hand-vs-static cell={} (len hand={} static={})", ep, a, h.len(), s.len()); return 20i32; }
         // hand vs interpreter — deleted at P5.
         let b: i64 = cmp_cells(t, &h, &d2);
-        if b != 0i64 { println!("phaseA ep={} hand-vs-interp cell={}", ep, b); return epb + CELLS_SPAN() + (b as i32); }
+        if b != 0i64 { println!("phaseA ep={} hand-vs-interp cell={} (len hand={} interp={})", ep, b, h.len(), d2.len()); return 21i32; }
         // static vs interpreter, asserted DIRECTLY and not inferred from "both
         // matched the table": a differential that only ever runs through an
         // expectation table stops being a differential the day the table moves.
         let cc: i64 = cmp_cells(t, &s, &d2);
-        if cc != 0i64 { println!("phaseA ep={} static-vs-interp cell={}", ep, cc); return epb + 2i32 * CELLS_SPAN() + (cc as i32); }
+        if cc != 0i64 { println!("phaseA ep={} static-vs-interp cell={} (len static={} interp={})", ep, cc, s.len(), d2.len()); return 22i32; }
 
         ep = ep + 1i64;
     }
@@ -1386,7 +1556,7 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     let bw: Vec<Cell> = arm_batch(&rows);
     let sw: Vec<Cell> = arm_static(&h1, &h2, &h3);
     let bq: i64 = cmp_cells(t, &bw, &sw);
-    if bq != 0i64 { println!("phaseA batch-witness cell={}", bq); return 235i32 + (bq as i32); }
+    if bq != 0i64 { println!("phaseA batch-witness cell={} (len batch={} static={})", bq, bw.len(), sw.len()); return 23i32; }
 
     // ══ PHASE B — epochs n_ins_epochs()−1 .. n_epochs()−1, WITH RETRACTIONS ═
     // The first turn (ep2) applies NOTHING: it is the control, comparing the six
@@ -1423,11 +1593,11 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
         let d2: Vec<Cell> = arm_dyn_r(&e1, &e5, &e4);
 
         let a: i64 = cmp_cells(t, &h, &s);
-        if a != 0i64 { println!("phaseB ep={} hand-vs-static cell={}", rp, a); return 10i32; }
+        if a != 0i64 { println!("phaseB ep={} hand-vs-static cell={} (len hand={} static={})", rp, a, h.len(), s.len()); return 10i32; }
         let b: i64 = cmp_cells(t, &h, &d2);
-        if b != 0i64 { println!("phaseB ep={} hand-vs-interp cell={}", rp, b); return 11i32; }
+        if b != 0i64 { println!("phaseB ep={} hand-vs-interp cell={} (len hand={} interp={})", rp, b, h.len(), d2.len()); return 11i32; }
         let cc: i64 = cmp_cells(t, &s, &d2);
-        if cc != 0i64 { println!("phaseB ep={} static-vs-interp cell={}", rp, cc); return 12i32; }
+        if cc != 0i64 { println!("phaseB ep={} static-vs-interp cell={} (len static={} interp={})", rp, cc, s.len(), d2.len()); return 12i32; }
 
         rp = rp + 1i64;
     }
@@ -1441,7 +1611,7 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     let bwr: Vec<Cell> = arm_batch_r(&rows);
     let swr: Vec<Cell> = arm_static_r(&h1, &h5, &h4);
     let bqr: i64 = cmp_cells(t, &bwr, &swr);
-    if bqr != 0i64 { println!("phaseB batch-witness cell={}", bqr); return 15i32; }
+    if bqr != 0i64 { println!("phaseB batch-witness cell={} (len batch={} static={})", bqr, bwr.len(), swr.len()); return 15i32; }
     return 0i32;
 }
 
@@ -1488,7 +1658,7 @@ fn ovf_block(c: &SchemaCatalog) -> i32 {
     let sc: Cell = match q_ovf(rs.as_slice()) {
         Result::Ok(_v) => { ci(7i64, 3i32, 0i64) } Result::Err(_e) => { cerr(7i64, 3i32, K_MATH_ERR()) }
     };
-    if sc.kind != K_MATH_ERR() { return 1i32; }
+    if sc.kind != K_MATH_ERR() { println!("§4 static batch q_ovf kind={} not K_MATH_ERR", sc.kind); return 1i32; }
 
     let d: Writ = writ_new(8192i64);
     let arr: &mut WArray<WAny> = d.array(4i64);
@@ -1503,24 +1673,24 @@ fn ovf_block(c: &SchemaCatalog) -> i32 {
     let mut e: QEnv = QEnv::new();
     e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
 
-    let q: Query = match Query::compile(OVF_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 2i32; } };
+    let q: Query = match Query::compile(OVF_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§4 compile OVF_TEXT refused"); return 2i32; } };
     // arm (2a): the dynamic engine fails the RUN.
     let dc: Cell = match q.run(&e) {
         Result::Ok(_r) => { ci(7i64, 3i32, 0i64) } Result::Err(_e) => { cerr(7i64, 3i32, K_MATH_ERR()) }
     };
-    if dc.kind != K_MATH_ERR() { return 3i32; }
+    if dc.kind != K_MATH_ERR() { println!("§4 dynamic run kind={} not K_MATH_ERR", dc.kind); return 3i32; }
 
     // arm (2b): the incremental engine BUILDS, and LATCHES. Distinguishing that
     // from a build refusal is the whole reason K_BUILD_ERR is a separate kind.
     let g: IncrJoin = match q.incremental(&e) {
-        Result::Ok(x) => { x } Result::Err(_e) => { return 4i32; }
+        Result::Ok(x) => { x } Result::Err(_e) => { println!("§4 incremental() refused to BUILD q_ovf"); return 4i32; }
     };
     let gc: Cell = if g.had_error() { cerr(7i64, 3i32, K_MATH_ERR()) } else { ci(7i64, 3i32, 0i64) };
-    if gc.kind != K_MATH_ERR() { return 5i32; }
+    if gc.kind != K_MATH_ERR() { println!("§4 incremental engine did not LATCH: kind={}", gc.kind); return 5i32; }
 
     // and the three normalize to ONE cell.
-    if sc.kind != dc.kind { return 6i32; }
-    if sc.kind != gc.kind { return 7i32; }
+    if sc.kind != dc.kind { println!("§4 static kind={} != dynamic kind={}", sc.kind, dc.kind); return 6i32; }
+    if sc.kind != gc.kind { println!("§4 static kind={} != incremental kind={}", sc.kind, gc.kind); return 7i32; }
     return 0i32;
 }
 
@@ -1544,10 +1714,12 @@ fn ovf_block(c: &SchemaCatalog) -> i32 {
 // incrementally eligible, so `q_uavg_epoch` exists and applies the SAME
 // `agg_cast` arm (rexpr_walk.logos:4406) — it would answer 2^63, agreeing with
 // the static batch and turning a pinned three-way disagreement into a four-way
-// one with a 2-2 split. Adding it here would spend exit codes this file no
-// longer has (see the budget note at `CELLS_SPAN`) and would restate one fact
-// about `agg_cast` in a second tier's vocabulary. Named as a follow-up, not
-// done here.
+// one with a 2-2 split. ⚠ THE SECOND HALF OF THAT REASON — "adding it here
+// would spend exit codes this file no longer has" — EXPIRED ON 2026-08-07 and
+// is struck rather than left standing: §5's span has room and the file has ~70
+// free codes. What remains is the first half alone, which is sufficient: it
+// would restate one fact about `agg_cast` in a second tier's vocabulary. Named
+// as a follow-up, not done here.
 //
 // THE HAND-DERIVED OUGHT, for the group {2^63−1, 2^63}:
 //   the true mean is (2^63−1 + 2^63)/2 = 9223372036854775807.5, whose nearest
@@ -1597,9 +1769,9 @@ fn uavg_block(c: &SchemaCatalog) -> i32 {
 
     // ── arm (1), static ────────────────────────────────────────────────────
     let sv: Vec<(i64, f64)> = match q_uavg(rs.as_slice()) {
-        Result::Ok(x) => { x } Result::Err(_e) => { return 1i32; }
+        Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 static batch q_uavg Err"); return 1i32; }
     };
-    if sv.len() != 2i64 { return 2i32; }
+    if sv.len() != 2i64 { println!("§5 static groups={} not 2", sv.len()); return 2i32; }
     let mut s_ctl: f64 = 0.0f64;
     let mut s_ext: f64 = 0.0f64;
     let mut i: i64 = 0i64;
@@ -1608,8 +1780,8 @@ fn uavg_block(c: &SchemaCatalog) -> i32 {
         if t.0 == 0i64 { s_ctl = t.1; } else { s_ext = t.1; }
         i = i + 1i64;
     }
-    if f64_to_bits(s_ctl) != f64_to_bits(2.5f64) { return 3i32; }          // CONTROL
-    if f64_to_bits(s_ext) != 4890909195324358656u64 { return 4i32; }       // = 2^63, the OUGHT
+    if f64_to_bits(s_ctl) != f64_to_bits(2.5f64) { println!("§5 CONTROL static bits={} not 2.5", f64_to_bits(s_ctl)); return 3i32; }
+    if f64_to_bits(s_ext) != 4890909195324358656u64 { println!("§5 static bits={} not 2^63 (the OUGHT)", f64_to_bits(s_ext)); return 4i32; }
 
     // ── arms (2), dynamic + incremental, over the same rows ────────────────
     let d: Writ = writ_new(8192i64);
@@ -1625,22 +1797,22 @@ fn uavg_block(c: &SchemaCatalog) -> i32 {
     let mut e: QEnv = QEnv::new();
     e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
 
-    let q: Query = match Query::compile(UAVG_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
-    let dr: QRows = match q.run(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
+    let q: Query = match Query::compile(UAVG_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 compile UAVG_TEXT refused"); return 5i32; } };
+    let dr: QRows = match q.run(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 dynamic run Err"); return 6i32; } };
     let dc: i64 = find_key(&dr, 0i64);
     let de: i64 = find_key(&dr, 1i64);
-    if dc < 0i64 || de < 0i64 { return 7i32; }
-    if f64_to_bits(dr.get_f64(dc, 1i64)) != f64_to_bits(2.5f64) { return 8i32; }   // CONTROL
-    if f64_to_bits(dr.get_f64(de, 1i64)) != f64_to_bits(0.0f64) { return 9i32; }   // ⚠ 0.0, not 2^63
+    if dc < 0i64 || de < 0i64 { println!("§5 dynamic lost a group: ctl={} ext={}", dc, de); return 7i32; }
+    if f64_to_bits(dr.get_f64(dc, 1i64)) != f64_to_bits(2.5f64) { println!("§5 CONTROL dynamic bits={} not 2.5", f64_to_bits(dr.get_f64(dc, 1i64))); return 8i32; }
+    if f64_to_bits(dr.get_f64(de, 1i64)) != f64_to_bits(0.0f64) { println!("§5 dynamic bits={} not 0.0 — the pinned disagreement MOVED", f64_to_bits(dr.get_f64(de, 1i64))); return 9i32; }
 
-    let g: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 10i32; } };
-    if g.had_error() { return 11i32; }
+    let g: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 incremental() refused to build q_uavg"); return 10i32; } };
+    if g.had_error() { println!("§5 incremental engine latched"); return 11i32; }
     let ir: QRows = g.snapshot();
     let ic: i64 = find_key(&ir, 0i64);
     let ie: i64 = find_key(&ir, 1i64);
-    if ic < 0i64 || ie < 0i64 { return 12i32; }
-    if f64_to_bits(ir.get_f64(ic, 1i64)) != f64_to_bits(2.5f64) { return 13i32; }  // CONTROL
-    if f64_to_bits(ir.get_f64(ie, 1i64)) != f64_to_bits(0.0f64 - 0.5f64) { return 14i32; } // ⚠ −0.5
+    if ic < 0i64 || ie < 0i64 { println!("§5 incremental lost a group: ctl={} ext={}", ic, ie); return 12i32; }
+    if f64_to_bits(ir.get_f64(ic, 1i64)) != f64_to_bits(2.5f64) { println!("§5 CONTROL incremental bits={} not 2.5", f64_to_bits(ir.get_f64(ic, 1i64))); return 13i32; }
+    if f64_to_bits(ir.get_f64(ie, 1i64)) != f64_to_bits(0.0f64 - 0.5f64) { println!("§5 incremental bits={} not −0.5 — the pinned disagreement MOVED", f64_to_bits(ir.get_f64(ie, 1i64))); return 14i32; }
 
     return 0i32;
 }
@@ -1719,14 +1891,22 @@ fn ra_block(c: &SchemaCatalog) -> i32 {
     ghost.push(Row { id: 7i64, g: 9i64, xi: 0i64, xs: 9i64, xf: 0.0f64, xu: 0u64 });
 
     // ── the static handle ──────────────────────────────────────────────────
+    // ⚠ EXIT 27, AND 210 IS RETIRED RATHER THAN RECYCLED AGAIN. These seven
+    // sites all carried 210 with no `println!`, and 210 had ALREADY been one
+    // number for two real failures across `8fbea82a`: before it, "§1 holds a
+    // `sign = -1` row and the static arm has no route for it"; after it, "§6
+    // plumbing". A bisect over this arc — which a later slice runs — reads that
+    // as one failure that came and went. The class now has its own number on the
+    // near side of the boundary and the far side keeps 210; nothing in this file
+    // returns 210 any more, so the two meanings can never be confused again.
     let mut hs: QRaIncr = q_ra_incremental();
     match q_ra_epoch(&mut hs, rs.as_slice()) {
-        Result::Ok(_n) => {} Result::Err(_e) => { return 210i32; }
+        Result::Ok(_n) => {} Result::Err(_e) => { println!("§6 plumbing: q_ra_epoch Err"); return 27i32; }
     }
     let s0: Vec<(i64, i64, i64, i64)> = match q_ra_snapshot(&hs) {
-        Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; }
+        Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: q_ra_snapshot Err"); return 27i32; }
     };
-    if s0.len() != 1i64 { return 210i32; }
+    if s0.len() != 1i64 { println!("§6 plumbing: static rows={} not 1", s0.len()); return 27i32; }
 
     // ── the interpreter, over the same rows ────────────────────────────────
     let d: Writ = writ_new(8192i64);
@@ -1749,22 +1929,26 @@ fn ra_block(c: &SchemaCatalog) -> i32 {
 
     let mut e: QEnv = QEnv::new();
     e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
-    let q: Query = match Query::compile(RA_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; } };
-    let mut eng: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { return 210i32; } };
-    if eng.had_error() { return 210i32; }
+    let q: Query = match Query::compile(RA_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: compile RA_TEXT Err"); return 27i32; } };
+    let mut eng: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: RA incremental() Err"); return 27i32; } };
+    if eng.had_error() { println!("§6 plumbing: RA engine latched at construction"); return 27i32; }
     let i0: QRows = eng.snapshot();
-    if i0.row_count() != 1i64 { return 210i32; }
+    if i0.row_count() != 1i64 { println!("§6 plumbing: interpreter rows={} not 1", i0.row_count()); return 27i32; }
 
     // ⚠ THE CONTROL, BEFORE THE RETRACTION. The two tiers must AGREE here, or
     // the disagreement measured below is about something else entirely. A
     // control that changes nothing is evidence about the stand.
+    // ⚠ EXIT 26 (was 235), AND EACH READING NAMES ITSELF. Six sites shared one
+    // number with nothing printed, so "the static tier lost the group key" and
+    // "the interpreter's max is wrong" were indistinguishable — in the block
+    // whose entire job is to say WHICH tier answers WHAT.
     let t0: (i64, i64, i64, i64) = s0.get(0i64);
-    if t0.0 != 9i64 { return 235i32; }
-    if t0.1 != 3i64 || t0.2 != 3i64 || t0.3 != 5i64 { return 235i32; }
-    if i0.get_i64(0i64, 0i64) != 9i64 { return 235i32; }
-    if i0.get_i64(0i64, 1i64) != 3i64 { return 235i32; }
-    if i0.get_i64(0i64, 2i64) != 3i64 { return 235i32; }
-    if i0.get_i64(0i64, 3i64) != 5i64 { return 235i32; }
+    if t0.0 != 9i64 { println!("§6 control: static key={} not 9", t0.0); return 26i32; }
+    if t0.1 != 3i64 || t0.2 != 3i64 || t0.3 != 5i64 { println!("§6 control: static (n,mn,mx)=({},{},{}) not (3,3,5)", t0.1, t0.2, t0.3); return 26i32; }
+    if i0.get_i64(0i64, 0i64) != 9i64 { println!("§6 control: interp key={} not 9", i0.get_i64(0i64, 0i64)); return 26i32; }
+    if i0.get_i64(0i64, 1i64) != 3i64 { println!("§6 control: interp n={} not 3", i0.get_i64(0i64, 1i64)); return 26i32; }
+    if i0.get_i64(0i64, 2i64) != 3i64 { println!("§6 control: interp mn={} not 3", i0.get_i64(0i64, 2i64)); return 26i32; }
+    if i0.get_i64(0i64, 3i64) != 5i64 { println!("§6 control: interp mx={} not 5", i0.get_i64(0i64, 3i64)); return 26i32; }
 
     // ── the static tier REFUSES, by name ───────────────────────────────────
     match q_ra_retract(&mut hs, ghost.as_slice()) {
@@ -1797,16 +1981,45 @@ fn ra_block(c: &SchemaCatalog) -> i32 {
 }
 
 fn main() -> i32 {
+    // ⚠⚠ THE STATIC HALF OF THE CEILING GUARD, BEFORE ANY WORK. See the
+    // exit-code block: the ceiling used to exist ONLY as the literal 8 inside a
+    // comment's arithmetic, and this file has already paid for that once (exit
+    // 189 = 701 & 0xFF, read as a different real failure). It is a number the
+    // program refuses to run without now.
+    let lay: i32 = check_layout();
+    if lay != 0i32 { return lay; }
+
     let c: SchemaCatalog = cat();
     let mut t: Tally = Tally { cmp: 0i64, cells: 0i64 };
+
+    // ⚠ THE DYNAMIC HALF: EVERY BLOCK'S RETURN IS CHECKED AGAINST ITS DECLARED
+    // SPAN BEFORE IT IS FOLDED INTO A BASE. `check_layout` proves the DECLARED
+    // layout fits; only this proves the block stayed inside what it declared. A
+    // block that grows a code past its span exits `EXIT_OVERRUN` and prints the
+    // offending number, instead of silently landing on the next block's code.
     let a: i32 = run_spine(&c, &mut t);
-    if a != 0i32 { return a; }
+    if a != 0i32 {
+        if a > CLASS_SPAN() { println!("EXIT-CODE OVERRUN: run_spine returned {} > CLASS_SPAN {}", a, CLASS_SPAN()); return EXIT_OVERRUN(); }
+        return a;
+    }
     let b: i32 = ovf_block(&c);
-    if b != 0i32 { return 200i32 + b; }
+    if b != 0i32 {
+        if b > OVF_SPAN() { println!("EXIT-CODE OVERRUN: §4 returned {} > OVF_SPAN {}", b, OVF_SPAN()); return EXIT_OVERRUN(); }
+        return OVF_BASE() + b;
+    }
     let u: i32 = uavg_block(&c);
-    if u != 0i32 { return 220i32 + u; }
+    if u != 0i32 {
+        if u > UAVG_SPAN() { println!("EXIT-CODE OVERRUN: §5 returned {} > UAVG_SPAN {}", u, UAVG_SPAN()); return EXIT_OVERRUN(); }
+        return UAVG_BASE() + u;
+    }
+    // ⚠ `ra_block` returns CLASS codes directly (16..19, 26, 27) — it shares
+    // `run_spine`'s number space rather than owning a base, which is why its
+    // return is checked against the same span.
     let r: i32 = ra_block(&c);
-    if r != 0i32 { return r; }
+    if r != 0i32 {
+        if r > CLASS_SPAN() { println!("EXIT-CODE OVERRUN: ra_block returned {} > CLASS_SPAN {}", r, CLASS_SPAN()); return EXIT_OVERRUN(); }
+        return r;
+    }
     // THE CENSUS, and it is an assertion: `.expected` pins this line. See the
     // exit-code block — the state space outgrew eight bits at this slice, so the
     // counts a successful run derived from its own calls are how a comparison

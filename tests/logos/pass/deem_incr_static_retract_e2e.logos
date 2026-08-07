@@ -105,13 +105,25 @@
 // any arm, and the arms exist precisely because `Overflow` used to be returned
 // for two different mistakes.
 //
-// ── EXIT CODES: EVERY ONE ≤ 117, AND THE CEILING IS NOT COSMETIC ────────────
+// ── EXIT CODES: THE CEILING IS 120, AND SINCE 2026-08-07 IT IS A NUMBER THE
+//    PROGRAM REFUSES TO RUN WITHOUT ──────────────────────────────────────────
 // `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC naming the
 // assertion that fired. 126, 127 and 128+signal belong to the shell, so a code
 // up there is one number standing for two states — which is how this very
 // fixture's ancestor had a 132 that meant both "block D's second float check"
 // and "SIGILL", disambiguated only because the harness printed the signal text.
 // (Its header claimed "All ≤ 122" while using 130-162: the header lied too.)
+//
+// ⚠ AND UNTIL 2026-08-07 THE FIX FOR THAT LIE WAS ITSELF ONLY A SENTENCE. This
+// block said "EVERY ONE ≤ 117" and nothing refused a 118th, a 130th or a 200th:
+// the ceiling lived in a comment, which is the same form as the claim it
+// replaced. `check_layout` and `main`'s chokepoint below are that sentence as a
+// mechanism — `TOP_CODE` is DECLARED and checked against `EXIT_MAX` on every
+// run, and the value `assertions()` actually returns is checked against
+// `TOP_CODE` before it leaves the process. A code above the ceiling exits
+// `EXIT_OVERRUN` and prints itself instead of impersonating a signal.
+// (`deem_incr_diff_harness` carries the same two guards, derived independently
+// from the same 8-bit fact.)
 //
 // 117 distinct assertions do not fit in 10-decade blocks under that ceiling, so:
 // codes 1-12 are the BLOCKS' PLUMBING (a call that must succeed returned `Err`
@@ -120,6 +132,28 @@
 //     A 13-28 · A6 29-39 · B 40-53 · C 54-57 · D 58-64 · E 65-68 · F 69-72
 //     G 73-76 · G2 77-83 · H 84-91 · (ii) 92-102 · (iii) 103-117
 // One code, one assertion.
+// ⚠ WITH ONE GAP, NAMED RATHER THAN LEFT FOR A READER TO FIND: **7 IS RESERVED
+// AND NEVER EMITTED.** It is block F's plumbing slot, and F has no plumbing —
+// its only call is the `iq_retract` that IS the assertion, so there is no
+// must-succeed call left over to fail. The slot is kept rather than closed
+// because closing it would renumber 110 codes to reclaim one, and every control
+// revert recorded against this file would land somewhere else. A reader who
+// counts 1-12 and finds eleven is looking at this, not at a deleted assertion.
+//
+// THE GUARDS ARE PROVEN TO BITE — five controls, each predicted then reverted:
+//   · `TOP_CODE` 117 → 132, i.e. a 13th block declaring itself into SIGILL's
+//     number → exit 125 before any assertion runs, "declared top 132 exceeds
+//     the ceiling 120".
+//   · the last assertion made to return 130 without bumping `TOP_CODE` → exit
+//     125, "an assertion returned 130 > TOP_CODE 117". At `a484078c` that same
+//     edit exited 130, which is 128+SIGINT.
+//   · `EXIT_MAX` 120 → 125    → 125, "ceiling 125 collides with the guard 125".
+//   · `EXIT_OVERRUN` 125 → 130 → 125 (NOT 130), "guard 130 is itself in the
+//     shell/signal band" — that branch returns a hard literal precisely because
+//     it fires when `EXIT_OVERRUN` is the thing that is wrong.
+//   · THE CONTROL, because a chokepoint that swallows everything is not a
+//     chokepoint: the same assertion broken at its OWN code still exits 117.
+//     The guard narrows nothing.
 //
 // exit 0 = the static tier retracts, at u64's extrema, with multiplicity, with
 //          identity preserved on floats, and refuses — by name — to retract
@@ -133,6 +167,7 @@ use logos.std.wql.ir;
 use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
 use logos.std.wql.el;    // ElError — the error ARM is asserted by name, not by `_`
+use logos.std.fmt;       // println! — the ceiling guard names the offending code
 use logos.mem.deem;
 use logos.lang.result;
 use logos.lang.num.float;
@@ -188,7 +223,48 @@ fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
     return WAny::ref_to((r.m as i64) as *const u8);
 }
 
+// ── THE CEILING, AS A MECHANISM ─────────────────────────────────────────────
+// `TOP_CODE` is the highest code the assertions below may return. It is a
+// DECLARATION, so `check_layout` can refuse a ceiling this file has outgrown
+// before a single assertion runs; and `main` checks the value `assertions()`
+// ACTUALLY returns against it, so a block appended after (iii) that marches
+// past 117 is caught on the number rather than on the declaration.
+fn TOP_CODE()     -> i32 { return 117i32; }
+// 118..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
+fn EXIT_MAX()     -> i32 { return 120i32; }
+fn EXIT_OVERRUN() -> i32 { return 125i32; }
+
+fn check_layout() -> i32 {
+    if TOP_CODE() > EXIT_MAX() {
+        println!("EXIT-CODE LAYOUT: declared top {} exceeds the ceiling {}", TOP_CODE(), EXIT_MAX());
+        return EXIT_OVERRUN();
+    }
+    if EXIT_MAX() >= EXIT_OVERRUN() {
+        println!("EXIT-CODE LAYOUT: ceiling {} collides with the guard {}", EXIT_MAX(), EXIT_OVERRUN());
+        return EXIT_OVERRUN();
+    }
+    // ⚠ A HARD 125, NOT `EXIT_OVERRUN()`: this branch fires exactly when
+    // `EXIT_OVERRUN` has been edited into the band it exists to stay out of, so
+    // reporting through it would report the defect using the defect.
+    if EXIT_OVERRUN() > 125i32 {
+        println!("EXIT-CODE LAYOUT: guard {} is itself in the shell/signal band", EXIT_OVERRUN());
+        return 125i32;
+    }
+    return 0i32;
+}
+
 fn main() -> i32 {
+    let lay: i32 = check_layout();
+    if lay != 0i32 { return lay; }
+    let r: i32 = assertions();
+    if r > TOP_CODE() {
+        println!("EXIT-CODE OVERRUN: an assertion returned {} > TOP_CODE {}", r, TOP_CODE());
+        return EXIT_OVERRUN();
+    }
+    return r;
+}
+
+fn assertions() -> i32 {
     // ══ A. u64 min/max under retraction, at the extrema ═══════════════════
     let mut hu: UqIncr = uq_incremental();
     let ua: [U; 3] = [U { k: 0i64, v: 5u64 },
