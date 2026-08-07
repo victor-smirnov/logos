@@ -1,0 +1,438 @@
+// deem_incr_join_e2e — P3: A TWO-RELATION RULE BODY, MAINTAINED INCREMENTALLY.
+//
+// A Datalog rule body IS a join (`from path p join edges e on p.b == e.src`), so
+// nothing recursive can be incremental until a join can be. `incr_eligible` used
+// to refuse a join chain outright; it now admits ONE step, the handle keeps both
+// sides, and `<q>_apply(&mut h, __src, __w, …)` dispatches on the chain position
+// (base = 0, step = 1).
+//
+// ── THE ALGEBRAIC FORM, AND WHY THIS FIXTURE IS SHAPED THE WAY IT IS ────────
+// The surface names exactly ONE source per call, so ∆B is identically zero while
+// ∆A is being applied and the rule reduces to
+//
+//        ∆J = ∆S_k ⋈ (every other side at its CURRENT stored contents)
+//
+// with the delta integrated into `__s<k>` AFTER the fold. The three-term rule's
+// cross term ∆A⋈∆B is not a term inside one call — it is what the NEXT call
+// computes when it reads A at its post-integration contents. So the entire
+// content of the rule is an ORDER, and the only way to see an order is a
+// fixture where BOTH SIDES CHANGE IN THE SAME EPOCH. Block 1 is that fixture and
+// everything else exists to keep it honest.
+//
+// ── THE HAND-DERIVED TABLE. Tag 0 = `aa` (rows of A), tag 1 = `bb` (rows of B).
+// The query joins on `p.k == e.k`, groups by `p.k`, and computes
+//     c = count()      — pairs in the group
+//     t = sum(e.w)     — over the JOINED side's column, so a wrong pair set
+//                        moves it independently of `c`
+//     lo = min(p.x)    — over the BASE side's column, and it carries the
+//                        semilattice multiplicity map, which is the state a
+//                        wrong pair weight corrupts without moving `c` at all
+//
+//   A rows: a1 = (k 1, x 10)   a2 = (k 1, x 11)   a9 = (k 9, x 1)
+//   B rows: b1 = (k 1, w 100)  b2 = (k 1, w 101)  b9 = (k 9, w 7)
+//
+//   EPOCH 0 — one side at a time, and the FIRST call matches NOTHING because the
+//             other side is still empty. That is not a miss: `Ok(0)` from a join
+//             apply means "accepted, matched nothing".
+//     apply(0, +1, [a1]) -> n = 0    (stored B is empty)
+//     apply(1, +1, [b1]) -> n = 1    (stored A = {a1})
+//     snapshot: one group, key 1:  c = 1  t = 100  lo = 10
+//
+//   EPOCH 1 — ⚠⚠ BOTH SIDES CHANGE. THIS IS THE DOUBLE-COUNT CONTROL.
+//     apply(0, +1, [a2]) -> n = 1    a2 ⋈ {b1}
+//     apply(1, +1, [b2]) -> n = 2    {a1,a2} ⋈ b2   ← a1 AND the a2 just added
+//     A is 2 rows, B is 2 rows, all four pair, so c MUST be 2·2 = 4.
+//     snapshot: c = 4   t = 100 + 100 + 101 + 101 = 402   lo = 10
+//
+//     THREE emitters answer three different numbers here and nothing else in
+//     this file separates them:
+//       correct  (compute-then-integrate, joined side from the HANDLE)  c=4 t=402
+//       DOUBLE   (joined side read from the VERBATIM PARAMETER, i.e. B's
+//                 full current contents on call 1 and A's on call 2)     c=5 t=503
+//       UNDER    (call 2 reads A as it was BEFORE call 1 integrated a2)  c=3 t=301
+//     `c` and `t` move independently, so a single wrong pair is visible twice.
+//
+//   EPOCH 2 — A DELTA ROW WITH NO PARTNER MUST CREATE NO GROUP.
+//     apply(0, +1, [a9]) -> n = 0    (no B row has k = 9 yet)
+//     snapshot still has exactly ONE group. Group creation lives inside the
+//     match body; the batch fn agrees because an unmatched row never reaches the
+//     fold. An emitter that created the group in the base loop answers 2 rows
+//     here, one of them all-zero.
+//
+//   EPOCH 3 — the partner arrives and the SECOND group appears.
+//     apply(1, +1, [b9]) -> n = 1
+//     snapshot: key 1 (c 4, t 402, lo 10), key 9 (c 1, t 7, lo 1)
+//
+//   EPOCH 4 — ⚠⚠ RETRACTION ON BOTH SIDES IN THE SAME EPOCH, the mirror of the
+//             block-1 control. Live A = {a1,a2,a9}, live B = {b1,b2,b9}.
+//     apply(0, -1, [a2]) -> n = 2    a2 ⋈ {b1,b2}, both at weight -1
+//        c 4 -> 2,  t 402 - 100 - 101 = 201,  lo still 10
+//     apply(1, -1, [b2]) -> n = 1    ⚠ ONE, not two: a2 is already at
+//        multiplicity 0 in the stored side, so only a1 pairs.
+//        c 2 -> 1,  t 201 - 101 = 100,  lo still 10
+//     snapshot: key 1 (c 1, t 100, lo 10), key 9 (c 1, t 7, lo 1)
+//     An emitter that retracted against a STALE A answers n = 2 on the second
+//     call and drives `c` to 0, emptying a group that must stay.
+//
+//   EPOCH 5 — the MULTIPLICITY MAP under a retraction that must RE-DERIVE `lo`.
+//     apply(0, +1, [a2]) -> n = 1    a2 ⋈ {b1}   (b2 is at multiplicity 0)
+//        c 1 -> 2,  t 100 + 100 = 200,  lo = min(10, 11) = 10
+//     apply(0, -1, [a1]) -> n = 1    a1 ⋈ {b1}
+//        c 2 -> 1,  t 200 - 100 = 100,  lo must be RE-DERIVED to 11 — the cached
+//        best 10 is now present in no pair. A scalar `min` cell answers 10.
+//
+//   EPOCH 6 — |w| > 1, so the PAIR weight is a PRODUCT and not a sign.
+//     apply(1, +2, [b1]) -> n = 1    one pair fold, at weight 1·2 = 2
+//        c 1 -> 3,  t 100 + 2·100 = 300,  lo = 11
+//     An emitter that folded the pair at the DELTA's weight rather than at
+//     `__wd · __sw` is invisible while every stored multiplicity is 1; here b1's
+//     multiplicity becomes 3 and the next line is what reads it:
+//     apply(0, +1, [a1]) -> n = 1    a1 ⋈ b1, and b1 has multiplicity 3, so the
+//        pair carries weight 3.
+//        c 3 -> 6,  t 300 + 3·100 = 600,  lo = min(11, 10) = 10
+//
+//   EPOCH 7 — RETRACTING A ROW THE RELATION NEVER HELD is the same caller
+//     mistake as retracting an absent group, and gets the same name.
+//     apply(0, -1, [(k 5, x 5)])  ->  Err(RetractAbsent)
+//
+//   EPOCH 8 — AN OUT-OF-RANGE SOURCE TAG IS AN ERROR AND NOT `Ok(0)`.
+//     apply(2, +1, …) -> Err(SrcUnknown).  Until P3 this answered `Ok(0)` — a
+//     call that folded nothing while reading as a successful epoch. There are
+//     two relations here, so 2 names none of them.
+//
+// ── THE WITNESSES, AND ONE THAT DOES NOT EXIST ─────────────────────────────
+//   (i)  a HAND-DERIVED constant for every cell, the table above;
+//   (ii) the static BATCH fn `qj()` over the SURVIVING multiset, which shares
+//        with the incremental path only the argument-expression emission.
+//   (iii) DOES NOT EXIST FOR THIS SHAPE, and its silence is not an answer.
+//        `logos.mem.deem.incr` opens `IncrJoin::epoch` with
+//        `if self.is_aggr { self.ag_run(da); return; }` — the aggregate path
+//        consumes only `da` and DROPS `db` — and the construction path refuses
+//        the shape outright with "aggregate input is not a bare scan —
+//        join/where+aggregate is out of slice-3". The interpreter is `is_aggr`
+//        XOR `is_join`, never both: it has no branch for a joined aggregate
+//        maintained incrementally, so it did not answer and no agreement may be
+//        cited from it. TWO witnesses here, not three, and that is stated rather
+//        than papered over.
+//
+// ⚠ (ii) IS COMPARED BY KEY, NOT ELEMENTWISE, AND THE REASON IS REAL. On a bare
+// scan the handle's groups appear in source order and `<q>_snapshot` is
+// elementwise-equal to `<q>()`. On a JOIN, first-occurrence order is the order
+// groups are first MATCHED, which depends on how the caller split the input into
+// epochs. Here group 9 is created in epoch 3, after group 1, and `qj()` over the
+// survivors visits `aa` in array order — the orders happen to agree, but
+// asserting elementwise would pin a coincidence. `find_key` below makes the
+// comparison say what it means.
+//
+// ── EXIT CODES: EVERY ONE ≤ 125 ────────────────────────────────────────────
+// `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC naming the
+// assertion that fired. 126, 127 and 128+signal belong to the shell, so no code
+// here may reach them — a fixture code up there is one number standing for two
+// states, which this corpus has already paid for once.
+//   1-9    plumbing (a call that must succeed returned `Err`), one per epoch
+//   10-13  epoch 0      14-19  epoch 1 (the double-count control)
+//   20-23  epoch 2      24-31  epoch 3
+//   32-39  epoch 4      40-45  epoch 5      46-51  epoch 6
+//   52-55  epoch 7      56-59  epoch 8
+//   60-79  witness (ii), the batch recompute
+// One code, one assertion.
+//
+// exit 0 = a two-relation rule body is maintained across epochs, under inserts
+//          AND retractions on EITHER side, and agrees with the batch recompute
+//          of the same query at every epoch.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub x: i64 }
+struct B { pub k: i64, pub w: i64 }
+
+// ⚠ EVERY FIELD IS AN INTEGER, AND THAT IS ELIGIBILITY AND NOT TASTE. The handle
+// stores whole rows of both sides in Z-set NORMAL FORM, so it must be able to
+// OWN a row (no `str` — that would be a borrow of source bytes) and to IDENTIFY
+// one (field-by-field `==`, which on `f64` is not identity: NaN != NaN, and
+// -0.0 == +0.0). `wql_incr_eligibility_matrix.logos` pins both refusals from the
+// other side.
+pub deem qj(aa: &[A], bb: &[B]) {
+    from aa p join bb e on p.k == e.k
+    group by p.k
+    aggregate c = count(), t = sum(e.w), lo = min(p.x)
+    select (key, c, t, lo)
+}
+
+fn a_row(k: i64, x: i64) -> Vec<A> {
+    let mut v: Vec<A> = vec_new::<A>();
+    v.push(A { k: k, x: x });
+    return v;
+}
+fn b_row(k: i64, w: i64) -> Vec<B> {
+    let mut v: Vec<B> = vec_new::<B>();
+    v.push(B { k: k, w: w });
+    return v;
+}
+
+// The snapshot row for `key`, or a sentinel `(-1, 0, 0, 0)` when the key has no
+// LIVE group. Used for both witnesses, so a group that vanished and a group that
+// answered wrongly are different failures.
+fn find_key(v: &Vec<(i64, i64, i64, i64)>, k: i64) -> (i64, i64, i64, i64) {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        if v.get(i).0 == k { return v.get(i); }
+        i = i + 1i64;
+    }
+    return (0i64 - 1i64, 0i64, 0i64, 0i64);
+}
+
+fn main() -> i32 {
+    let mut h: QjIncr = qj_incremental();
+
+    // ══ EPOCH 0 — one side at a time; the first call matches nothing ═══════
+    let a1: Vec<A> = a_row(1i64, 10i64);
+    let b1: Vec<B> = b_row(1i64, 100i64);
+    let n0a: i64 = match qj_apply(&mut h, 0i32, 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
+    };
+    if n0a != 0i64 { return 10i32; }
+    let n0b: i64 = match qj_apply(&mut h, 1i32, 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 1i32; }
+    };
+    if n0b != 1i64 { return 11i32; }
+    let s0: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
+    };
+    if s0.len() != 1i64 { return 12i32; }
+    let g0: (i64, i64, i64, i64) = find_key(&s0, 1i64);
+    if g0.1 != 1i64 || g0.2 != 100i64 || g0.3 != 10i64 { return 13i32; }
+
+    // ══ EPOCH 1 — BOTH SIDES CHANGE. THE DOUBLE-COUNT CONTROL. ════════════
+    // correct 4/402 · double-count 5/503 · lost-cross-term 3/301.
+    let a2: Vec<A> = a_row(1i64, 11i64);
+    let b2: Vec<B> = b_row(1i64, 101i64);
+    let n1a: i64 = match qj_apply(&mut h, 0i32, 1i64, a2.as_slice(), b2.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 2i32; }
+    };
+    if n1a != 1i64 { return 14i32; }
+    let n1b: i64 = match qj_apply(&mut h, 1i32, 1i64, a2.as_slice(), b2.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 2i32; }
+    };
+    // ⚠ TWO, AND THIS SINGLE NUMBER IS WHERE THE ORDER SHOWS. `b2` pairs with
+    // BOTH stored A rows because `a2` was integrated by the previous call. An
+    // emitter that read A pre-delta answers 1 here.
+    if n1b != 2i64 { return 15i32; }
+    let s1: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; }
+    };
+    if s1.len() != 1i64 { return 16i32; }
+    let g1: (i64, i64, i64, i64) = find_key(&s1, 1i64);
+    if g1.1 != 4i64   { return 17i32; }   // ← THE double-count assertion
+    if g1.2 != 402i64 { return 18i32; }   // ← and its independent witness
+    if g1.3 != 10i64  { return 19i32; }
+
+    // ══ EPOCH 2 — an unmatched delta row creates NO group ══════════════════
+    let a9: Vec<A> = a_row(9i64, 1i64);
+    let b9: Vec<B> = b_row(9i64, 7i64);
+    let n2: i64 = match qj_apply(&mut h, 0i32, 1i64, a9.as_slice(), b9.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 3i32; }
+    };
+    if n2 != 0i64 { return 20i32; }
+    let s2: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; }
+    };
+    if s2.len() != 1i64 { return 21i32; }
+    if find_key(&s2, 9i64).0 != (0i64 - 1i64) { return 22i32; }
+    let g2: (i64, i64, i64, i64) = find_key(&s2, 1i64);
+    if g2.1 != 4i64 { return 23i32; }
+
+    // ══ EPOCH 3 — the partner arrives; the second group appears ════════════
+    let n3: i64 = match qj_apply(&mut h, 1i32, 1i64, a9.as_slice(), b9.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 4i32; }
+    };
+    if n3 != 1i64 { return 24i32; }
+    let s3: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; }
+    };
+    if s3.len() != 2i64 { return 25i32; }
+    let g3a: (i64, i64, i64, i64) = find_key(&s3, 1i64);
+    if g3a.1 != 4i64 || g3a.2 != 402i64 || g3a.3 != 10i64 { return 26i32; }
+    let g3b: (i64, i64, i64, i64) = find_key(&s3, 9i64);
+    if g3b.0 != 9i64 { return 27i32; }
+    if g3b.1 != 1i64 { return 28i32; }
+    if g3b.2 != 7i64 { return 29i32; }
+    if g3b.3 != 1i64 { return 30i32; }
+
+    // ══ EPOCH 4 — RETRACTION ON BOTH SIDES IN ONE EPOCH ═══════════════════
+    let n4a: i64 = match qj_apply(&mut h, 0i32, 0i64 - 1i64, a2.as_slice(), b2.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 5i32; }
+    };
+    if n4a != 2i64 { return 32i32; }
+    let n4b: i64 = match qj_apply(&mut h, 1i32, 0i64 - 1i64, a2.as_slice(), b2.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 5i32; }
+    };
+    // ⚠ ONE, NOT TWO. `a2` sits at multiplicity 0 after the previous call, so it
+    // must not pair. An emitter joining against a stale side answers 2 and
+    // empties the group.
+    if n4b != 1i64 { return 33i32; }
+    let s4: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; }
+    };
+    if s4.len() != 2i64 { return 34i32; }
+    let g4: (i64, i64, i64, i64) = find_key(&s4, 1i64);
+    if g4.1 != 1i64   { return 35i32; }
+    if g4.2 != 100i64 { return 36i32; }
+    if g4.3 != 10i64  { return 37i32; }
+    let g4b: (i64, i64, i64, i64) = find_key(&s4, 9i64);
+    if g4b.1 != 1i64 { return 38i32; }
+    if g4b.2 != 7i64 { return 39i32; }
+
+    // ── WITNESS (ii) HERE: the batch fn over the SURVIVING multiset ────────
+    // live A = {a1, a9}, live B = {b1, b9}.
+    let av1: Vec<A> = { let mut o: Vec<A> = vec_new::<A>();
+                        o.push(A { k: 1i64, x: 10i64 });
+                        o.push(A { k: 9i64, x:  1i64 }); o };
+    let bv1: Vec<B> = { let mut o: Vec<B> = vec_new::<B>();
+                        o.push(B { k: 1i64, w: 100i64 });
+                        o.push(B { k: 9i64, w:   7i64 }); o };
+    let q1: Vec<(i64, i64, i64, i64)> = match qj(av1.as_slice(), bv1.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
+    };
+    if q1.len() != s4.len() { return 60i32; }
+    let w1a: (i64, i64, i64, i64) = find_key(&q1, 1i64);
+    if w1a.1 != g4.1 || w1a.2 != g4.2 || w1a.3 != g4.3 { return 61i32; }
+    let w1b: (i64, i64, i64, i64) = find_key(&q1, 9i64);
+    if w1b.1 != g4b.1 || w1b.2 != g4b.2 || w1b.3 != g4b.3 { return 62i32; }
+
+    // ══ EPOCH 5 — the map RE-DERIVES `lo` when the cached best is retracted ═
+    let n5a: i64 = match qj_apply(&mut h, 0i32, 1i64, a2.as_slice(), b2.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 7i32; }
+    };
+    if n5a != 1i64 { return 40i32; }
+    let n5b: i64 = match qj_apply(&mut h, 0i32, 0i64 - 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 7i32; }
+    };
+    if n5b != 1i64 { return 41i32; }
+    let s5: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; }
+    };
+    let g5: (i64, i64, i64, i64) = find_key(&s5, 1i64);
+    if g5.1 != 1i64   { return 42i32; }
+    if g5.2 != 100i64 { return 43i32; }
+    // ⚠ 11, RE-DERIVED. The cached best 10 came from `a1`, which is gone; a
+    // scalar `min` cell with no multiplicity map answers 10 here.
+    if g5.3 != 11i64  { return 44i32; }
+
+    // witness (ii): live A = {a2, a9}, live B = {b1, b9}
+    let av2: Vec<A> = { let mut o: Vec<A> = vec_new::<A>();
+                        o.push(A { k: 1i64, x: 11i64 });
+                        o.push(A { k: 9i64, x:  1i64 }); o };
+    let q2: Vec<(i64, i64, i64, i64)> = match qj(av2.as_slice(), bv1.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
+    };
+    let w2a: (i64, i64, i64, i64) = find_key(&q2, 1i64);
+    if w2a.1 != g5.1 || w2a.2 != g5.2 || w2a.3 != g5.3 { return 63i32; }
+    let w2b: (i64, i64, i64, i64) = find_key(&q2, 9i64);
+    let g5b: (i64, i64, i64, i64) = find_key(&s5, 9i64);
+    if w2b.1 != g5b.1 || w2b.2 != g5b.2 || w2b.3 != g5b.3 { return 64i32; }
+
+    // ══ EPOCH 6 — |w| > 1: the pair weight is a PRODUCT ════════════════════
+    let n6a: i64 = match qj_apply(&mut h, 1i32, 2i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
+    };
+    if n6a != 1i64 { return 46i32; }
+    let s6: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
+    };
+    let g6: (i64, i64, i64, i64) = find_key(&s6, 1i64);
+    // ONE fold, at weight 1·2 = 2. An emitter folding at the delta's own weight
+    // answers c = 2 and t = 200.
+    if g6.1 != 3i64   { return 47i32; }
+    if g6.2 != 300i64 { return 48i32; }
+    let n6b: i64 = match qj_apply(&mut h, 0i32, 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
+    };
+    if n6b != 1i64 { return 49i32; }
+    let s6b: Vec<(i64, i64, i64, i64)> = match qj_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
+    };
+    let g6b: (i64, i64, i64, i64) = find_key(&s6b, 1i64);
+    // b1 now has multiplicity 3, so a1 ⋈ b1 carries weight 3.
+    if g6b.1 != 6i64   { return 50i32; }
+    if g6b.2 != 600i64 { return 51i32; }
+    if g6b.3 != 10i64  { return 45i32; }
+
+    // witness (ii): live A = {a1×1, a2×1, a9×1}, live B = {b1×3, b9×1} — a
+    // multiplicity of 3 IS three copies of the row, so the batch array lists it
+    // three times. That identity is what makes weighted apply and batch
+    // recompute the same question.
+    let av3: Vec<A> = { let mut o: Vec<A> = vec_new::<A>();
+                        o.push(A { k: 1i64, x: 11i64 });
+                        o.push(A { k: 9i64, x:  1i64 });
+                        o.push(A { k: 1i64, x: 10i64 }); o };
+    let bv3: Vec<B> = { let mut o: Vec<B> = vec_new::<B>();
+                        o.push(B { k: 1i64, w: 100i64 });
+                        o.push(B { k: 9i64, w:   7i64 });
+                        o.push(B { k: 1i64, w: 100i64 });
+                        o.push(B { k: 1i64, w: 100i64 }); o };
+    let q3: Vec<(i64, i64, i64, i64)> = match qj(av3.as_slice(), bv3.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; }
+    };
+    if q3.len() != s6b.len() { return 65i32; }
+    let w3a: (i64, i64, i64, i64) = find_key(&q3, 1i64);
+    if w3a.1 != g6b.1 { return 66i32; }
+    if w3a.2 != g6b.2 { return 67i32; }
+    if w3a.3 != g6b.3 { return 68i32; }
+    let w3b: (i64, i64, i64, i64) = find_key(&q3, 9i64);
+    let g6c: (i64, i64, i64, i64) = find_key(&s6b, 9i64);
+    if w3b.1 != g6c.1 || w3b.2 != g6c.2 || w3b.3 != g6c.3 { return 69i32; }
+
+    // ══ EPOCH 7 — retracting a row the relation never held ════════════════
+    // ⚠ THE ARM IS NAMED. `Result::Err(_e) => {}` would pass on any arm, and the
+    // arms exist because one name used to stand for two different mistakes.
+    let a5: Vec<A> = a_row(5i64, 5i64);
+    match qj_apply(&mut h, 0i32, 0i64 - 1i64, a5.as_slice(), b1.as_slice()) {
+        Result::Ok(_n) => { return 52i32; }
+        Result::Err(e7) => {
+            match e7 {
+                ElError::RetractAbsent => { }
+                ElError::Underflow  => { return 53i32; }
+                ElError::Overflow   => { return 54i32; }
+                ElError::DivByZero  => { return 55i32; }
+                ElError::SrcUnknown => { return 56i32; }
+            }
+        }
+    }
+
+    // ══ EPOCH 8 — AN OUT-OF-RANGE SOURCE TAG IS AN ERROR ══════════════════
+    // ⚠ THIS IS THE ASSERTION THE OLD `Ok(0)` COULD NOT CARRY. There are two
+    // relations, so tag 2 names neither; before P3 the emitted body answered
+    // `Ok(0)` — a call that folded nothing and reported success.
+    match qj_apply(&mut h, 2i32, 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(_n) => { return 57i32; }
+        Result::Err(e8) => {
+            match e8 {
+                ElError::SrcUnknown => { }
+                ElError::RetractAbsent => { return 58i32; }
+                ElError::Underflow  => { return 59i32; }
+                ElError::Overflow   => { return 31i32; }
+                ElError::DivByZero  => { return 70i32; }
+            }
+        }
+    }
+    // …and a NEGATIVE tag is out of range at the other end.
+    match qj_apply(&mut h, 0i32 - 1i32, 1i64, a1.as_slice(), b1.as_slice()) {
+        Result::Ok(_n) => { return 71i32; }
+        Result::Err(e9) => {
+            match e9 {
+                ElError::SrcUnknown => { }
+                ElError::RetractAbsent => { return 72i32; }
+                ElError::Underflow  => { return 73i32; }
+                ElError::Overflow   => { return 74i32; }
+                ElError::DivByZero  => { return 75i32; }
+            }
+        }
+    }
+
+    return 0i32;
+}

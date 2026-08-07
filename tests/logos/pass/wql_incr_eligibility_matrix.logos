@@ -43,6 +43,12 @@ use logos.mem.collections.vec;
 
 struct S { pub g: i64, pub v: i64, pub nm: str }
 struct T { pub g: i64, pub w: i64 }
+// `U` is `S` WITHOUT the `str` field and `V` is a third relation for the
+// two-step chain. They exist so that the join refusals below can be told apart:
+// with only `S` in the file, "declined because it joins" and "declined because
+// its row carries a `str`" produce the same verdict and nothing separates them.
+struct U { pub g: i64, pub v: i64 }
+struct V { pub g: i64, pub z: i64 }
 
 // ── ELIGIBLE — the control, and the only one with derived fns to call ───────
 pub deem ok_basic(ss: &[S]) {
@@ -67,10 +73,41 @@ pub deem no_retract_avg(ss: &[S]) {
     from ss s group by s.g aggregate a = avg(s.v) select (key, a)
 }
 
+// ── ELIGIBLE, AND IT IS A JOIN — P3 ────────────────────────────────────────
+// ONE join step over two relations whose row types the handle can OWN (no `str`
+// field — it would be a borrow of source bytes) and IDENTIFY (no `f64` field —
+// `==` on a float is not identity, and the Z-set's normal form searches on it).
+// `<q>_apply` is the WHOLE surface: `<q>_epoch` / `<q>_retract` forward at tag 0,
+// which on a join would silently mean "the LEFT relation", so neither is emitted.
+pub deem ok_join(uu: &[U], tt: &[T]) {
+    from uu u join tt t on u.g == t.g group by u.g aggregate n = count(), w = sum(t.w) select (key, n, w)
+}
+
 // ── INELIGIBLE, one named shape each ───────────────────────────────────────
-// A JOIN CHAIN: a delta would have to say which source it belongs to.
-pub deem no_join(ss: &[S], tt: &[T]) {
+// A JOIN whose ROW TYPE carries a `str`. `S` has `nm: str`, so storing its rows
+// on the handle would make the handle hold a view of bytes the caller may drop
+// between epochs — which is exactly the capability the typed handle exists to
+// have. The refusal is about the FIELD, not about the join.
+pub deem no_join_strrow(ss: &[S], tt: &[T]) {
     from ss s join tt u on s.g == u.g group by s.g aggregate t = sum(u.w) select (key, t)
+}
+// TWO join steps. Rooting the nest at a step other than the base re-splits every
+// equi-term's build/probe halves and re-places every floating predicate, which
+// is `decide_join_orders`' derivation and `emit_aggregate` never runs it.
+pub deem no_join2(uu: &[U], tt: &[T], vv: &[V]) {
+    from uu u join tt t on u.g == t.g join vv v on t.g == v.g
+    group by u.g aggregate w = sum(v.z) select (key, w)
+}
+// A JOIN that keeps the INSERT-ONLY surface. `avg` accumulates in f64, so
+// `incr_retract_eligible` is false (decision D4) — and the source TAG a join
+// delta must carry lives on `<q>_apply`, which only the retracting surface
+// emits. Two independent axes; only their COMBINATION is unbuilt.
+pub deem no_join_avg(uu: &[U], tt: &[T]) {
+    from uu u join tt t on u.g == t.g group by u.g aggregate a = avg(t.w) select (key, a)
+}
+// A SELF-JOIN: one relation in two chain positions, so one tag would feed both.
+pub deem no_join_self(uu: &[U]) {
+    from uu u join uu v on u.g == v.g group by u.g aggregate n = count() select (key, n)
 }
 // A PRE-GROUP `where`: rows are filtered before the fold.
 pub deem no_where(ss: &[S]) {
@@ -112,10 +149,24 @@ fn trows() -> Vec<T> {
     v.push(T { g: 1i64, w: 4i64 });
     return v;
 }
+fn urows() -> Vec<U> {
+    let mut v: Vec<U> = vec_new::<U>();
+    v.push(U { g: 0i64, v:  5i64 });
+    v.push(U { g: 1i64, v: -2i64 });
+    v.push(U { g: 0i64, v:  7i64 });
+    return v;
+}
+fn vrows() -> Vec<V> {
+    let mut v: Vec<V> = vec_new::<V>();
+    v.push(V { g: 0i64, z: 9i64 });
+    return v;
+}
 
 fn main() -> i32 {
     let ss: Vec<S> = rows();
     let tt: Vec<T> = trows();
+    let uu: Vec<U> = urows();
+    let vv: Vec<V> = vrows();
 
     // ── the ELIGIBLE query: the handle exists, and it agrees with the batch ──
     // By hand: g=0 { 5, 7 } = 12, g=1 { -2 } = -2, in first-occurrence order.
@@ -162,12 +213,80 @@ fn main() -> i32 {
     if av.get(0i64).1 != 6.0f64  { return 47i32; }
     if av.get(1i64).1 != -2.0f64 { return 48i32; }
 
+    // ── AN OUT-OF-RANGE SOURCE TAG ON A *ONE-SOURCE* QUERY ─────────────────
+    // ⚠⚠ THIS IS THE ASSERTION THE OLD BEHAVIOUR COULD NOT CARRY, AND IT BELONGS
+    // ON A BARE SCAN AND NOT ONLY ON A JOIN. `<q>_apply` used to answer `Ok(0)`
+    // for any tag but 0, with the ground "a delta for a source this operator
+    // does not read contributes nothing" — true while a tag could not be wrong,
+    // and a silent success that folds nothing as soon as it can be. `ok_basic`
+    // has exactly one relation, so 1 names none of them, and the answer must be
+    // an ERROR by NAME. `deem_incr_join_e2e` asserts the same thing where two
+    // sources exist; this is the half of the population that is not a join.
+    match ok_basic_apply(&mut h, 1i32, 1i64, ss.as_slice()) {
+        Result::Ok(_n) => { return 66i32; }
+        Result::Err(es) => {
+            match es {
+                ElError::SrcUnknown => { }
+                ElError::RetractAbsent => { return 67i32; }
+                ElError::Underflow  => { return 68i32; }
+                ElError::Overflow   => { return 69i32; }
+                ElError::DivByZero  => { return 70i32; }
+            }
+        }
+    }
+
+    // ── THE ELIGIBLE JOIN: `<q>_apply` is the whole surface ────────────────
+    // By hand over `uu` ⋈ `tt` on g: g=0 has U rows {5, 7} and T row w=3, so
+    // n=2 and w=6; g=1 has U row {−2} and T row w=4, so n=1 and w=4.
+    // ⚠ THE HANDLE IS DRIVEN ONE SIDE AT A TIME, WHICH IS THE ONLY SURFACE IT
+    // HAS — and the first call matches nothing because the other side is still
+    // empty. `deem_incr_join_e2e` is where the epoch algebra is asserted; what
+    // this file pins is that the three derived fns EXIST for a join at all.
+    let mut hj: OkJoinIncr = ok_join_incremental();
+    match ok_join_apply(&mut hj, 0i32, 1i64, uu.as_slice(), tt.as_slice()) {
+        Result::Ok(n) => { if n != 0i64 { return 50i32; } }
+        Result::Err(_e) => { return 51i32; }
+    }
+    match ok_join_apply(&mut hj, 1i32, 1i64, uu.as_slice(), tt.as_slice()) {
+        Result::Ok(n) => { if n != 3i64 { return 52i32; } }
+        Result::Err(_e) => { return 53i32; }
+    }
+    let jv: Vec<(i64, i64, i64)> = match ok_join_snapshot(&hj) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 54i32; }
+    };
+    if jv.len() != 2i64      { return 55i32; }
+    if jv.get(0i64).1 != 2i64 { return 56i32; }
+    if jv.get(0i64).2 != 6i64 { return 57i32; }
+    if jv.get(1i64).1 != 1i64 { return 58i32; }
+    if jv.get(1i64).2 != 4i64 { return 59i32; }
+    // …and the BATCH fn agrees with it.
+    let jb: Vec<(i64, i64, i64)> = match ok_join(uu.as_slice(), tt.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; }
+    };
+    if jb.len() != jv.len()          { return 61i32; }
+    if jb.get(0i64).1 != jv.get(0i64).1 { return 62i32; }
+    if jb.get(0i64).2 != jv.get(0i64).2 { return 63i32; }
+    if jb.get(1i64).1 != jv.get(1i64).1 { return 64i32; }
+    if jb.get(1i64).2 != jv.get(1i64).2 { return 65i32; }
+
     // ── every INELIGIBLE query still compiles and still answers ─────────────
     // The batch fn is untouched by the decline, which is the property that keeps
     // "not eligible" from ever meaning "not supported".
-    match no_join(ss.as_slice(), tt.as_slice()) {
+    match no_join_strrow(ss.as_slice(), tt.as_slice()) {
         Result::Ok(v) => { if v.len() != 2i64 { return 20i32; } }
         Result::Err(_e) => { return 21i32; }
+    }
+    match no_join2(uu.as_slice(), tt.as_slice(), vv.as_slice()) {
+        Result::Ok(v) => { if v.len() != 1i64 { return 44i32; } }
+        Result::Err(_e) => { return 45i32; }
+    }
+    match no_join_avg(uu.as_slice(), tt.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 46i32; } }
+        Result::Err(_e) => { return 47i32; }
+    }
+    match no_join_self(uu.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 48i32; } }
+        Result::Err(_e) => { return 49i32; }
     }
     match no_where(ss.as_slice()) {
         Result::Ok(v) => { if v.len() != 1i64 { return 22i32; } }

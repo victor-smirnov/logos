@@ -1987,6 +1987,7 @@ fn ra_block(c: &SchemaCatalog) -> i32 {
                 ElError::Underflow  => { println!("§6 static Err arm = Underflow");  return 17i32; }
                 ElError::Overflow   => { println!("§6 static Err arm = Overflow");   return 17i32; }
                 ElError::DivByZero  => { println!("§6 static Err arm = DivByZero");  return 17i32; }
+                ElError::SrcUnknown => { println!("§6 static Err arm = SrcUnknown"); return 17i32; }
             }
         }
     }

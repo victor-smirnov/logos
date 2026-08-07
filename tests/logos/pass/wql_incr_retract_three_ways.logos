@@ -113,12 +113,18 @@
 //    therefore RAW-BATCH cases by construction, which is why they are driven by
 //    `<q>_retract` / `<q>_apply` directly and not through a store.
 //
-// G. THE SOURCE TAG. A delta tagged with a source this operator does not read
-//    contributes NOTHING and returns Ok(0). Today exactly one bare scan is
-//    admitted, so 0 is the only tag that folds; the parameter is in the
-//    signature from the outset because retiring `incr_eligible`'s join-chain
-//    refusal is precisely "the delta can name its source", and a second
-//    reopening of the emitted API costs more than an unused argument.
+// G. THE SOURCE TAG. A delta tagged with a source this query does not HAVE is
+//    `Err(ElError::SrcUnknown)`, and the handle is untouched by the refusal.
+//    ⚠ THIS ASSERTION WAS INVERTED BY P3 AND THE OLD ONE IS RECORDED HERE SO
+//    THE CHANGE IS NOT SILENT: it used to require `Ok(0)`, on the ground that "a
+//    delta for a source this operator does not read contributes nothing". That
+//    reading is honest only while the tag CANNOT be wrong — one bare scan, so 0
+//    is the only tag a caller could mean — and P3 admits a one-step JOIN, which
+//    makes a mistyped tag a caller mistake that folds nothing while answering
+//    SUCCESS. `qa` still has ONE source, which is exactly why the block belongs
+//    here: the strictness is not a property of joins, it is a property of the
+//    dispatch, and the bare-scan half of the population is where it would have
+//    stayed silent.
 //
 // H. THE METAMORPHIC LAW, EXTENDED TO SIGNED WEIGHTS: for any split of an
 //    insert stream followed by a retraction stream into epochs, the snapshot
@@ -546,6 +552,18 @@ fn main() -> i32 {
                 ElError::Underflow  => { return 78i32; }
                 ElError::Overflow   => { return 79i32; }
                 ElError::DivByZero  => { return 80i32; }
+                // ⚠ `SrcUnknown` IS THIS BLOCK'S PLUMBING, NOT A NEW ASSERTION,
+                // AND THAT IS WHY IT REUSES CODE 6 RATHER THAN TAKING A NEW ONE.
+                // The tag reaching `<q>_apply` here is the LITERAL `0i32` the
+                // forwarder writes, so a source fault means the dispatch is not
+                // reading its own parameter — "a call that must succeed
+                // returned Err", which is exactly what codes 1-10 are for.
+                // ⚠⚠ AND THE FIXTURE HAS NO ROOM FOR A NEW CODE: every value in
+                // 1..125 is taken (measured), and block J already appended
+                // 126-131, which the header above names as unsafe. Adding five
+                // more distinct codes would deepen a breach this file already
+                // documents. See the report accompanying this commit.
+                ElError::SrcUnknown => { return 6i32; }
             }
         }
     }
@@ -576,6 +594,7 @@ fn main() -> i32 {
                 ElError::RetractAbsent => { return 82i32; }
                 ElError::Overflow      => { return 83i32; }
                 ElError::DivByZero     => { return 84i32; }
+                ElError::SrcUnknown    => { return 6i32; }   // plumbing — see F1
             }
         }
     }
@@ -601,6 +620,7 @@ fn main() -> i32 {
                 ElError::Underflow  => { return 86i32; }
                 ElError::Overflow   => { return 87i32; }
                 ElError::DivByZero  => { return 88i32; }
+                ElError::SrcUnknown => { return 6i32; }   // plumbing — see F1
             }
         }
     }
@@ -618,6 +638,7 @@ fn main() -> i32 {
                 ElError::Underflow  => { return 90i32; }
                 ElError::Overflow   => { return 91i32; }
                 ElError::DivByZero  => { return 92i32; }
+                ElError::SrcUnknown => { return 6i32; }   // plumbing — see F1
             }
         }
     }
@@ -663,6 +684,7 @@ fn main() -> i32 {
                 ElError::Underflow  => { return 96i32; }
                 ElError::Overflow   => { return 97i32; }
                 ElError::DivByZero  => { return 98i32; }
+                ElError::SrcUnknown => { return 7i32; }   // plumbing — see F1 (F5's code)
             }
         }
     }
@@ -713,15 +735,39 @@ fn main() -> i32 {
     zeng.epoch(&zr, &nothing);
     if !zeng.had_error() { return 105i32; }
 
-    // ══ G. THE SOURCE TAG — a delta for a source this operator does not read ═
+    // ══ G. THE SOURCE TAG — a tag this query has no source for ═════════════
+    //
+    // ⚠⚠ THIS BLOCK ASSERTED THE OPPOSITE UNTIL P3, AND THE INVERSION IS THE
+    // POINT. It used to require `qa_apply(&h, 3i32, −1, …)` to answer `Ok(0)`,
+    // under the ground "a delta for a source this operator does not read
+    // contributes nothing". That is true of a tag that CANNOT be wrong — while
+    // `incr_eligible` admitted exactly one bare scan, 0 was the only tag any
+    // caller could mean — and it becomes a silent success that folds nothing the
+    // moment a query has two relations to name. P3 admits a join, so the tag is
+    // now live and STRICT: out of `0 ..= ch.n` is `Err(ElError::SrcUnknown)`.
+    // `qa` has ONE source, so 3 names nothing and the call must be refused.
+    //
+    // ⚠ THE HANDLE IS UNTOUCHED BY THE REFUSAL, and that is asserted below
+    // rather than assumed. The dispatch runs BEFORE any fold, so a rejected tag
+    // is one of the few `<q>_apply` errors that leaves the handle in a
+    // SPECIFIED state — worth pinning precisely because the fn's contract says
+    // the opposite about faults raised mid-fold.
     let mut ht: QaIncr = qa_incremental();
     match qa_epoch(&mut ht, ins.as_slice()) {
         Result::Ok(_n) => { } Result::Err(_e) => { return 8i32; }
     }
-    let nother: i64 = match qa_apply(&mut ht, 3i32, 0i64 - 1i64, ret.as_slice()) {
-        Result::Ok(n) => { n } Result::Err(_e) => { return 8i32; }
-    };
-    if nother != 0i64 { return 106i32; }
+    match qa_apply(&mut ht, 3i32, 0i64 - 1i64, ret.as_slice()) {
+        Result::Ok(_n) => { return 106i32; }
+        Result::Err(eg) => {
+            match eg {
+                ElError::SrcUnknown    => { }
+                ElError::RetractAbsent => { return 8i32; }
+                ElError::Underflow     => { return 8i32; }
+                ElError::Overflow      => { return 8i32; }
+                ElError::DivByZero     => { return 8i32; }
+            }
+        }
+    }
     let t0: Vec<(i64, i64, i64)> = match qa_snapshot(&ht) {
         Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; }
     };

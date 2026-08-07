@@ -4299,10 +4299,54 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // have to name which source it belongs to" — the tag IS the retirement of that
 // refusal, so it belongs in the signature the moment the refusal is written
 // down and not after. It is the chain POSITION (`JChain`'s base is 0, step i is
-// i+1), which is a number this file already has, so nothing new is derived. A
-// delta tagged with a source this operator does not read contributes NOTHING
-// and returns `Ok(0)` — which is not a silent miss but the correct
-// specialization of the per-relation dispatch the fixpoint needs.
+// i+1), which is a number this file already has, so nothing new is derived.
+//
+// ⚠⚠ P3 MADE THE TAG LIVE AND STRICT, AND THE OLD BEHAVIOUR WAS A TRAP. It used
+// to read "a delta tagged with a source this operator does not read contributes
+// NOTHING and returns `Ok(0)`", which is honest only while a tag cannot be
+// wrong. With two sources it is a caller mistake that folds nothing and answers
+// SUCCESS — the one shape a fixture cannot tell from a working epoch. An
+// out-of-range tag is now `Err(ElError::SrcUnknown)` on BOTH shapes, including
+// the one-source one where it had been silent.
+//
+// ── P3: A JOIN OF ONE STEP, MAINTAINED ──────────────────────────────────────
+//
+// `incr_eligible` admits `ch.n == 1` — two distinct, non-streaming, non-anti,
+// non-edge, by-reference sources whose row types are self-contained field by
+// field — and the handle grows a `Vec<RowTy>` + `Vec<i64>` Z-set per side. The
+// algebraic form, the integrate order, the cost and the "every other source
+// parameter is UNREAD" rule are all stated at the two sites a reader hits them:
+// the field declarations and the fold. Three consequences belong up here:
+//
+// ⚠ `<q>_epoch` / `<q>_retract` ARE NOT EMITTED FOR A JOIN QUERY. They forward
+// at tag 0 and tag 0 is the base source, so their names would read as "an epoch
+// of the query" while meaning "a delta on the left relation". `<q>_apply` is the
+// whole surface there.
+//
+// ⚠ `Ok(__n)` COUNTS FOLDS, WHICH ON A JOIN IS MATCHED PAIRS AND NOT DELTA ROWS.
+// On a bare scan every row folds, so the number is unchanged and every P1/P2
+// fixture still reads it as "rows". On a join a delta row with no partner folds
+// nothing and creates NO GROUP — which is what agrees with the batch fn, where
+// an unmatched row never reaches the aggregate — so `Ok(0)` from a join apply
+// means "accepted, matched nothing", not "did nothing".
+//
+// ⚠ FIRST-OCCURRENCE ORDER IS THE ORDER GROUPS ARE FIRST *MATCHED*. On a bare
+// scan that is source order and `<q>_snapshot` is elementwise-equal to `<q>()`;
+// on a join it depends on how the caller split the input into epochs and on
+// which side arrived first, and it coincides with `<q>()`'s order only when the
+// whole of one side is applied before the other. A join fixture must therefore
+// compare against the batch fn BY KEY, not elementwise — see
+// `deem_incr_join_e2e`, which says so where it does it.
+//
+// ⚠ THE NON-TRANSACTIONALITY WINDOW WIDENED, BY A FACTOR THAT CAN BE NAMED. The
+// contract below still holds — on `Err` the handle is UNSPECIFIED — and no gate
+// pins it. What changed: one delta ROW used to touch one group, so a mid-batch
+// `Err` left at most `|delta|` folds half-applied. Under a join one delta row
+// touches one group PER MATCHING ROW ON THE STORED SIDE, so the bound is
+// `|delta| × |matches|`, and the source-side push happens after the whole inner
+// loop — so an `Err` inside the nest leaves the delta row folded against some
+// partners and NOT integrated into `__s<k>` at all. Not made atomic here;
+// recorded so the next slice prices it rather than rediscovers it.
 //
 // ⚠ THE WEIGHT IS A SCALAR PER BATCH, NOT A PARALLEL SLICE, AND THAT LOSES NO
 // EXPRESSIVENESS. A Z-set row of weight k IS k copies of that row, so any
@@ -4354,8 +4398,16 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     fn_name: str, params_text: str, prm: &MacroParams,
                     prelude: str, h: &Writ) -> bool {
     let bare0: str = vis_strip(fn_name);
+    // ⚠ THE RETRACT PREDICATE IS READ BEFORE ELIGIBILITY AND WITHOUT TRACING.
+    // A JOIN chain is admitted only on the RETRACTING surface (the source tag
+    // lives in `<q>_apply`'s signature and nothing else emits one), so the
+    // shape question needs this answer — but the `retraction` axis is TRACED
+    // exactly once per query that gets a handle, and `incr_eligibility_gate.sh`
+    // asserts that identity as a derived count. `retract_ok` is the untraced
+    // derivation both callers read, so the two cannot disagree.
     if !incr_eligible(ch, ty, aggs, acount, uda, act, key_ty, result_ty, tres,
-                      has_having, proj_e, having_ref, has_where, mods, prm, bare0) {
+                      has_having, proj_e, having_ref, has_where, mods, prm,
+                      retract_ok(aggs, acount, acc), bare0) {
         return true;
     }
 
@@ -4418,6 +4470,91 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     ftys.push(parse_type_of_vec(key_ty));
     fnames.push(Ident::new("__gc"));
     ftys.push(parse_type_of_vec("i64"));
+
+    // ══ THE JOINED SIDES' STATE — P3, AND IT *IS* THE PRODUCT RULE ═════════
+    //
+    // ⚠⚠ THE ALGEBRAIC FORM, STATED WHERE THE READER MEETS IT: this emitter
+    // uses the PER-CALL SINGLE-DELTA form
+    //
+    //        ∆J  =  ∆S_k  ⋈  (every other side at its CURRENT stored contents)
+    //
+    // and INTEGRATES ∆S_k into `__s<k>` only AFTER the fold has run. It is not
+    // the two-term form and it is not the three-term form, and the reason is the
+    // SURFACE rather than a preference: `<q>_apply(&mut h, __src, __w, …)` names
+    // exactly ONE source per call, so ∆B is identically zero while ∆A is being
+    // applied. The three-term rule's cross term ∆A⋈∆B is not a term inside one
+    // call at all — it is what the NEXT call computes when it reads A at its
+    // post-integration contents. Compute-then-integrate is therefore the ENTIRE
+    // content of the rule here, and getting the order backwards is exactly the
+    // classic double count:
+    //
+    //     A={a1}, B={b1}, both matching. Same-epoch: apply(0,+1,{a2}) then
+    //     apply(1,+1,{b2}). Correct is |A|·|B| = 2·2 = 4.
+    //       compute-then-integrate : 1 (a2⋈{b1}) + 2 ({a1,a2}⋈b2) = 3, over the
+    //                                1 already there  →  4   ✓
+    //       integrate-then-compute : 2 + 2 = 4 over 1          →  5   ✗ (double)
+    //       reading A PRE-delta    : 1 + 1 = 2 over 1          →  3   ✗ (loses
+    //                                the cross term entirely)
+    //     One number separates all three, which is why the fixture asserts it.
+    //
+    // ── WHAT THE HANDLE STORES, AND WHAT THAT COSTS ────────────────────────
+    // Per joined side: `__s<k>: Vec<RowTy>` and `__s<k>w: Vec<i64>` — the side
+    // as a Z-set IN NORMAL FORM: one entry per DISTINCT ROW, carrying that row's
+    // multiplicity, and every multiplicity is ≥ 0.
+    //
+    // ⚠⚠ NORMAL FORM IS NOT AN OPTIMIZATION — IT IS WHAT MAKES THE STRICT GUARDS
+    // SOUND, AND THE APPEND-ONLY ALTERNATIVE WAS DERIVED AND REJECTED FOR CAUSE.
+    // Appending `(row, −1)` instead of decrementing needs no row identity at all
+    // (a +1 and a −1 entry cancel in every product they enter), and the NET
+    // answer is the same. But the folds are not applied net: `<q>_apply` walks
+    // the pairs ONE AT A TIME, and every one of P2's strict guards — the group
+    // count and, inside the semilattice fold, the per-VALUE multiplicity — fires
+    // on an INTERMEDIATE state. WORKED THROUGH, on the fixture's own rows:
+    // with `__s0 = a1:+1, a2:+1, a2:−1` and a delta `−1` on the other side, the
+    // three pair folds carry weights −1, −1, +1; the middle one drives `min`'s
+    // map entry for `a2.x` to −1 and returns `Err(RetractAbsent)` for a batch
+    // that is perfectly legal. Normal form removes the case at the root: every
+    // stored multiplicity is ≥ 0, so all pair weights in ONE call carry the sign
+    // of `__wd` and the intermediate states are MONOTONE. Guards that fire only
+    // on a genuine caller mistake are the whole of P2's contract.
+    //
+    // ⚠ THE PRICE OF NORMAL FORM IS ROW IDENTITY, WHICH IS WHY THE ELIGIBILITY
+    // CLAUSE REFUSES A FLOAT FIELD. Finding the stored entry is a field-by-field
+    // `==` over the row, and `==` on `f64` is not identity: NaN ≠ NaN would make
+    // a row carrying a NaN un-retractable, and −0.0 == +0.0 would let a
+    // retraction of one cancel an insert of the other. That is exactly the
+    // question Victor reserved on 2026-08-07 for the multiplicity map's key, and
+    // an emitter must not answer it by accident. Integers and `bool` only.
+    //
+    // ⚠ THE COST, STATED AS WHAT IT IS A FUNCTION OF RATHER THAN AS A BYTE
+    // COUNT. `__s<k>` holds one entry per DISTINCT row ever applied to side k;
+    // a row driven to multiplicity 0 keeps its slot (the same tombstone rule
+    // `__gk` follows, and for the same reason — the alternative renumbers) but
+    // nothing else accumulates. Per apply call: O(|delta| × |stored other side|)
+    // for the fold plus O(|delta| × |stored own side|) for the identity search,
+    // both UNINDEXED. A maintained arrangement (`HashMap<K, Vec<i64>>`, which is
+    // what the interpreter keeps at `incr.logos:1162`) buys O(matches) instead,
+    // and is NOT built here: it must itself be maintained under retraction,
+    // which doubles the state that can go wrong while the correctness question
+    // this slice answers lives entirely in the unindexed form. Named follow-up.
+    //
+    // ⚠⚠ NO BYTE FIGURE IS QUOTED, ON PURPOSE. The `want_map` comment above this
+    // one records what happens when a construction FLOOR gets written down as a
+    // FOOTPRINT: it understated memory by ~4 orders of magnitude and no gate
+    // caught it. `sizeof(RowTy) + 8` per DISTINCT stored row is the SHAPE; the
+    // number for any particular query is a paired maxRSS measurement on a named
+    // row count and row type, and this arc has not made one.
+    let joined: bool = ch.n == 1i64;
+    if joined {
+        fnames.push(Ident::new("__s0"));
+        ftys.push(parse_type_of_vec(ch.base_ty));
+        fnames.push(Ident::new("__s0w"));
+        ftys.push(parse_type_of_vec("i64"));
+        fnames.push(Ident::new("__s1"));
+        ftys.push(parse_type_of_vec(ch.ty[0]));
+        fnames.push(Ident::new("__s1w"));
+        ftys.push(parse_type_of_vec("i64"));
+    }
 
     let mut gi: i64 = 0i64;
     while gi < acount {
@@ -4847,6 +4984,20 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     push_vec_new(&mut cb, key_ty);
     cb.push_str(", __gc: ");
     push_vec_new(&mut cb, "i64");
+    // The stored sides' initializers, under THE SAME `joined` the fields were
+    // declared under — one variable, read twice, never re-derived. (A control
+    // revert on the field push with this initializer left standing is the
+    // `unknown field` diagnostic the `wmap` comment above records.)
+    if joined {
+        cb.push_str(", __s0: ");
+        push_vec_new(&mut cb, ch.base_ty);
+        cb.push_str(", __s0w: ");
+        push_vec_new(&mut cb, "i64");
+        cb.push_str(", __s1: ");
+        push_vec_new(&mut cb, ch.ty[0]);
+        cb.push_str(", __s1w: ");
+        push_vec_new(&mut cb, "i64");
+    }
     let mut ci: i64 = 0i64;
     while ci < acount {
         cb.push_str(", ");
@@ -4916,8 +5067,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // SCOPE rule this file has already been bitten by: `#(frag)` in statement
     // position splices a BLOCK, so any `let` inside it dies at that block's
     // closing brace and is invisible to the loop below (which is why
-    // `prelude_frag` carries only items). `__wneg` / `__wm` have to be bindings
-    // of the fn's own body, so the weighted form writes them out itself.
+    // `prelude_frag` carries only items).
+    // ⚠ AND THAT SAME RULE IS WHAT SHAPES THE FOLD CORE BELOW. `#(core)` is a
+    // BLOCK, so everything the core must SEE — `__w`, and the row bindings the
+    // key and the aggregate arguments read — is declared by whatever splices it,
+    // and everything the core declares (`__k`, `__gi`, `__wneg`, `__wm`) dies at
+    // its own closing brace. `__wneg` / `__wm` used to be bindings of the fn's
+    // own body; they moved INTO the core when the join made them functions of a
+    // PAIR weight rather than of the call's.
     let mut eps: String = String::new();
     let mut enm: String = String::new();
     if retr {
@@ -4946,43 +5103,209 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         //      fold — a case guard 2 does not reach, because the group count can
         //      stay legal while the retracted value was never in the map.
         // `ElError::Overflow` would LIE about all three: nothing overflowed.
-        let apply_body: ExprBlob = quote_block! {
-            #(pre_f);
-            let mut __n: i64 = 0i64;
-            // A delta for a source this operator does not read contributes
-            // nothing. Today `incr_eligible` admits exactly ONE bare scan, so 0
-            // is the only tag that folds — and an operator over a `rel` block
-            // reading a subset of the relations answers the same way for the
-            // relations outside its subset.
-            if __src != 0i32 { return Result::Ok(__n); }
+        //
+        // ── ONE FOLD CORE, TWO (OR THREE) PLACES IT IS REACHED FROM ─────────
+        // ⚠ THE WEIGHT THE FOLD SEES IS `__w`, WHICH IS *NOT* THE PARAMETER.
+        // The parameter is `__wd`, the DELTA's weight; `__w` is the weight of
+        // the thing actually being folded, and the two differ exactly where the
+        // product rule lives. On a bare scan the folded thing IS the delta row,
+        // so `__w == __wd`. On a join the folded thing is a PAIR, and a pair of
+        // a weight-`__wd` delta row with a stored row of weight `__sw` has
+        // weight `__wd · __sw` — that product is the whole of ∆(A⋈B) restricted
+        // to one changing side. Naming them apart is what stops a reader (or an
+        // editor) from folding a pair at the delta's weight, which for |w| = 1
+        // inputs is invisible and for anything else is silently wrong.
+        //
+        // ⚠ `__wneg` / `__wm` MOVED INSIDE THE CORE, and that is a real (small)
+        // cost paid for one property: on a join they are functions of the PAIR
+        // weight and cannot be hoisted, and having one spelling for both shapes
+        // is worth an `el_wmag` per row on the bare-scan path. Every P1/P2
+        // fixture is the control on that move — same body, same answers.
+        let core: ExprBlob = quote_block! {
             let __wneg: bool = __w < 0i64;
             let __wm: u64 = el_wmag(__w)?;
-            let mut __i0: i64 = 0i64;
-            while __i0 < (#(base_src_f)).len() {
-                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
-                let __k: #(keyt_f) = (#(key_f));
-                let mut __gi: i64 = -1i64;
-                let mut __s: i64 = 0i64;
-                while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-                if __gi < 0i64 {
-                    if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
-                    __h.__gk.push(__k);
-                    __h.__gc.push(0i64);
-                    #( #seeds; )*
-                    __gi = __h.__gk.len() - 1i64;
-                }
-                let __gn: i64 = el_add(__h.__gc.get(__gi), __w)?;
-                if __gn < 0i64 { return Result::Err(ElError::RetractAbsent); }
-                __h.__gc.set(__gi, __gn);
-                #( #folds; )*
-                __n = __n + 1i64;
-                __i0 = __i0 + 1i64;
+            let __k: #(keyt_f) = (#(key_f));
+            let mut __gi: i64 = -1i64;
+            let mut __s: i64 = 0i64;
+            while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+            if __gi < 0i64 {
+                if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                __h.__gk.push(__k);
+                __h.__gc.push(0i64);
+                #( #seeds; )*
+                __gi = __h.__gk.len() - 1i64;
             }
-            return Result::Ok(__n);
+            let __gn: i64 = el_add(__h.__gc.get(__gi), __w)?;
+            if __gn < 0i64 { return Result::Err(ElError::RetractAbsent); }
+            __h.__gc.set(__gi, __gn);
+            #( #folds; )*
+            __n = __n + 1i64;
         };
+        let mut apply_body: ExprBlob = quote_block! { };
+        if joined {
+            // The step's `on` predicate as ONE boolean over BOTH row vars — the
+            // same text `analyze_chain` hands a `JS_LOOP` step, taken from the
+            // same `step_terms` simplification, so the incremental nest and the
+            // batch nest test the identical condition. No equi-split, no build
+            // key, no residual: with one step there is nothing to place.
+            //
+            // ⚠ THE NEST IS UNINDEXED IN BOTH DIRECTIONS AND THE PLAN'S CHOSEN
+            // STRATEGY IS NOT CONSULTED. `ch.jstrat[0]` describes the BATCH
+            // nest, whose build side is fixed by the chain order; a delta can
+            // arrive on either side, so half the calls would want the index on
+            // the other half's key. Rebuilding per call is what the cost note on
+            // the handle's fields prices, and reading a strategy that was chosen
+            // for the other direction is how a plan silently stops describing
+            // the emitted code.
+            let src1_f: ExprBlob = parse_expr(ch.src[0]);
+            let ty1_f:  ExprBlob = parse_type(ch.ty[0]);
+            let var1:   Ident    = Ident::new(ch.var[0]);
+            let mut ptxt: String = String::new();
+            if ch.onw[0] != 0i64 {
+                let onr: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::ref_to(ch.onw[0] as *const u8));
+                let stt: StepTerms = step_terms(onr, h);
+                emit_sexpr(&mut ptxt, stt.opt.any().view::<SExpr>(), ty, ch.base_var);
+            } else {
+                ptxt.push_str("true");
+            }
+            let pred_f: ExprBlob = parse_expr(string_as_str(&ptxt));
+            // ROW IDENTITY, one text per side, over the SAME field list the
+            // eligibility clause admitted the type on.
+            let mut e0t: String = String::new();
+            incr_row_eq_text(ty, ch.base_ty, "__c", ch.base_var, &mut e0t);
+            let mut e1t: String = String::new();
+            incr_row_eq_text(ty, ch.ty[0], "__c", ch.var[0], &mut e1t);
+            let eq0_f: ExprBlob = parse_expr(string_as_str(&e0t));
+            let eq1_f: ExprBlob = parse_expr(string_as_str(&e1t));
+            // ⚠ THE STORED SIDE IS BOUND BY VALUE (`Vec::get` copies), THE DELTA
+            // SIDE BY REFERENCE. Not a style choice: the fold MUTATES `__h`, so
+            // a `&` into `__h.__s<k>` held across it is a live shared borrow of
+            // the thing being written. A copy costs `sizeof(RowTy)` per pair and
+            // is available precisely because eligibility already proved every
+            // field of the row is a self-contained scalar.
+            //
+            // ⚠⚠ EVERY SOURCE PARAMETER OTHER THAN THE ONE `__src` NAMES IS
+            // UNREAD IN THIS FN, AND THAT IS A RULE RATHER THAN AN ACCIDENT.
+            // `<q>_apply` keeps the query's parameter list VERBATIM, so a
+            // two-source query is handed BOTH slices on every call while only
+            // one of them is the delta. The joined side comes from the HANDLE
+            // and only from the handle. Reading it from the parameter instead —
+            // where the natural thing for a caller to pass is that side's full
+            // CURRENT contents — would fold ∆A against B_new on one call and
+            // A_new against ∆B on the next, and the cross term would be counted
+            // TWICE. That is the same-epoch double count, and it would be the
+            // DEFAULT behaviour rather than a bug to hunt.
+            apply_body = quote_block! {
+                #(pre_f);
+                let mut __n: i64 = 0i64;
+                if __src == 0i32 {
+                    let mut __i0: i64 = 0i64;
+                    while __i0 < (#(base_src_f)).len() {
+                        let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                        let mut __j1: i64 = 0i64;
+                        while __j1 < __h.__s1.len() {
+                            let #var1: #(ty1_f) = __h.__s1.get(__j1);
+                            let __sw: i64 = __h.__s1w.get(__j1);
+                            if __sw != 0i64 {
+                                if (#(pred_f)) {
+                                    let __w: i64 = el_mul(__wd, __sw)?;
+                                    #(core);
+                                }
+                            }
+                            __j1 = __j1 + 1i64;
+                        }
+                        // INTEGRATE AFTER THE FOLD, NEVER BEFORE — moving this
+                        // block above the inner loop is the double count — and
+                        // integrate INTO NORMAL FORM: find this row's entry by
+                        // identity and move its multiplicity, so every stored
+                        // weight stays ≥ 0 and every pair weight in one call
+                        // carries the sign of `__wd`.
+                        let mut __f: i64 = -1i64;
+                        let mut __q: i64 = 0i64;
+                        while __q < __h.__s0.len() {
+                            let __c: #(base_ty_f) = __h.__s0.get(__q);
+                            if (#(eq0_f)) { __f = __q; }
+                            __q = __q + 1i64;
+                        }
+                        if __f < 0i64 {
+                            // A retraction of a row this relation has never held
+                            // is the SAME caller mistake the group guards name.
+                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                            __h.__s0.push((#(base_src_f))[__i0]);
+                            __h.__s0w.push(__wd);
+                        } else {
+                            let __nw: i64 = el_add(__h.__s0w.get(__f), __wd)?;
+                            if __nw < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                            __h.__s0w.set(__f, __nw);
+                        }
+                        __i0 = __i0 + 1i64;
+                    }
+                    return Result::Ok(__n);
+                }
+                if __src == 1i32 {
+                    let mut __i1: i64 = 0i64;
+                    while __i1 < (#(src1_f)).len() {
+                        let #var1: &#(ty1_f) = &(#(src1_f))[__i1];
+                        let mut __j0: i64 = 0i64;
+                        while __j0 < __h.__s0.len() {
+                            let #base_vnm: #(base_ty_f) = __h.__s0.get(__j0);
+                            let __sw: i64 = __h.__s0w.get(__j0);
+                            if __sw != 0i64 {
+                                if (#(pred_f)) {
+                                    let __w: i64 = el_mul(__wd, __sw)?;
+                                    #(core);
+                                }
+                            }
+                            __j0 = __j0 + 1i64;
+                        }
+                        let mut __f: i64 = -1i64;
+                        let mut __q: i64 = 0i64;
+                        while __q < __h.__s1.len() {
+                            let __c: #(ty1_f) = __h.__s1.get(__q);
+                            if (#(eq1_f)) { __f = __q; }
+                            __q = __q + 1i64;
+                        }
+                        if __f < 0i64 {
+                            if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                            __h.__s1.push((#(src1_f))[__i1]);
+                            __h.__s1w.push(__wd);
+                        } else {
+                            let __nw: i64 = el_add(__h.__s1w.get(__f), __wd)?;
+                            if __nw < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                            __h.__s1w.set(__f, __nw);
+                        }
+                        __i1 = __i1 + 1i64;
+                    }
+                    return Result::Ok(__n);
+                }
+                return Result::Err(ElError::SrcUnknown);
+            };
+        } else {
+            apply_body = quote_block! {
+                #(pre_f);
+                let mut __n: i64 = 0i64;
+                // ⚠ AN UNKNOWN TAG IS AN ERROR AND NO LONGER `Ok(0)`. This query
+                // has exactly one relation, so 0 is the only tag that names
+                // anything; every other value names no source of this query and
+                // there is no delta to fold. It USED to answer `Ok(__n)` with
+                // `__n == 0` — "a delta for a source this operator does not read
+                // contributes nothing" — which was honest while a tag could not
+                // be wrong and became a silent success that folded nothing the
+                // moment a second source existed. See `ElError::SrcUnknown`.
+                if __src != 0i32 { return Result::Err(ElError::SrcUnknown); }
+                let mut __i0: i64 = 0i64;
+                while __i0 < (#(base_src_f)).len() {
+                    let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                    let __w: i64 = __wd;
+                    #(core);
+                    __i0 = __i0 + 1i64;
+                }
+                return Result::Ok(__n);
+            };
+        }
         eps.push_str("__h: &mut ");
         eps.push_str(tyn);
-        eps.push_str(", __src: i32, __w: i64");
+        eps.push_str(", __src: i32, __wd: i64");
         if params_text.len() > 0i64 {
             eps.push_str(", ");
             eps.push_str(params_text);
@@ -4996,35 +5319,48 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // P1 fixture a control on this refactor: if forwarding through the
         // weighted primitive moved any answer, they say so before P2's own
         // arithmetic is trusted at all.
-        let mut fps: String = String::new();
-        fps.push_str("__h: &mut ");
-        fps.push_str(tyn);
-        if params_text.len() > 0i64 {
-            fps.push_str(", ");
-            fps.push_str(params_text);
+        //
+        // ⚠⚠ AND THEY ARE NOT EMITTED AT ALL FOR A JOIN QUERY. They forward at
+        // tag 0, and tag 0 is the BASE source: on a two-relation query the name
+        // `<q>_epoch` would read as "an epoch of the query" while the meaning is
+        // "a delta on the LEFT relation", which is a lie a caller cannot see.
+        // Three answers were available — keep them at tag 0 and say so; emit one
+        // per source (`<q>_epoch_<var>`); or emit neither and require the
+        // explicit `<q>_apply(&mut h, src, w, …)`. THE THIRD IS TAKEN: it names
+        // no source it cannot justify, and it costs no existing fixture anything
+        // because every query that had a handle before this slice has `ch.n == 0`
+        // and still gets both forwarders unchanged.
+        if !joined {
+            let mut fps: String = String::new();
+            fps.push_str("__h: &mut ");
+            fps.push_str(tyn);
+            if params_text.len() > 0i64 {
+                fps.push_str(", ");
+                fps.push_str(params_text);
+            }
+            let mut applyc: String = String::new();
+            prep_derived_name(bare, "_apply", &mut applyc);
+            let mut epnm: String = String::new();
+            prep_derived_name(fn_name, "_epoch", &mut epnm);
+            let mut rtnm: String = String::new();
+            prep_derived_name(fn_name, "_retract", &mut rtnm);
+            let mut eb: String = String::new();
+            eb.push_str("{\n    return ");
+            eb.push_str(string_as_str(&applyc));
+            eb.push_str("(__h, 0i32, 1i64");
+            if prm.n > 0i64 { eb.push_str(", "); push_param_args(&mut eb, prm); }
+            eb.push_str(");\n}\n");
+            emit_fn_quote_blob(string_as_str(&epnm), string_as_str(&fps), "",
+                               "Result<i64, ElError>", parse_block(string_as_str(&eb)), prm);
+            let mut rb: String = String::new();
+            rb.push_str("{\n    return ");
+            rb.push_str(string_as_str(&applyc));
+            rb.push_str("(__h, 0i32, -1i64");
+            if prm.n > 0i64 { rb.push_str(", "); push_param_args(&mut rb, prm); }
+            rb.push_str(");\n}\n");
+            emit_fn_quote_blob(string_as_str(&rtnm), string_as_str(&fps), "",
+                               "Result<i64, ElError>", parse_block(string_as_str(&rb)), prm);
         }
-        let mut applyc: String = String::new();
-        prep_derived_name(bare, "_apply", &mut applyc);
-        let mut epnm: String = String::new();
-        prep_derived_name(fn_name, "_epoch", &mut epnm);
-        let mut rtnm: String = String::new();
-        prep_derived_name(fn_name, "_retract", &mut rtnm);
-        let mut eb: String = String::new();
-        eb.push_str("{\n    return ");
-        eb.push_str(string_as_str(&applyc));
-        eb.push_str("(__h, 0i32, 1i64");
-        if prm.n > 0i64 { eb.push_str(", "); push_param_args(&mut eb, prm); }
-        eb.push_str(");\n}\n");
-        emit_fn_quote_blob(string_as_str(&epnm), string_as_str(&fps), "",
-                           "Result<i64, ElError>", parse_block(string_as_str(&eb)), prm);
-        let mut rb: String = String::new();
-        rb.push_str("{\n    return ");
-        rb.push_str(string_as_str(&applyc));
-        rb.push_str("(__h, 0i32, -1i64");
-        if prm.n > 0i64 { rb.push_str(", "); push_param_args(&mut rb, prm); }
-        rb.push_str(");\n}\n");
-        emit_fn_quote_blob(string_as_str(&rtnm), string_as_str(&fps), "",
-                           "Result<i64, ElError>", parse_block(string_as_str(&rb)), prm);
     } else {
         // ── INSERT-ONLY: P1'S SURFACE, UNCHANGED ───────────────────────────
         // No `__w`, no `__src`, no `<q>_retract`. A caller that reaches for a
@@ -5170,14 +5506,79 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                  uda: &[bool; 8], act: &[str; 8], key_ty: str,
                  result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
                  having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
-                 prm: &MacroParams, qn: str) -> bool {
-    // ONE bare scan. The delta can now NAME its source — `<q>_apply` takes a
-    // chain-position tag — so half of the old ground is retired; what remains is
-    // the other half, which is arithmetic rather than surface: COMBINING
-    // per-source deltas over a join is the DBSP product rule (∆(A⋈B) =
-    // ∆A⋈B + A⋈∆B + ∆A⋈∆B), and that needs the joined side's STATE kept on the
-    // handle, which this state shape does not carry.
-    if ch.n != 0i64 { return incr_decline(qn, "the input is a JOIN CHAIN — the delta can now name its source, but COMBINING per-source deltas is the DBSP product rule and needs the joined side's state on the handle"); }
+                 prm: &MacroParams, retr: bool, qn: str) -> bool {
+    // ── THE JOIN, P3: ONE STEP IS ADMITTED AND EVERY OTHER SHAPE IS NAMED ────
+    // The old ground was "COMBINING per-source deltas is the DBSP product rule
+    // and needs the joined side's state on the handle". That is still exactly
+    // right — so the handle now KEEPS the joined side's state, and the refusal
+    // retires for the shape where keeping it is derivable. What is left is a
+    // list, and every entry names the piece that is missing rather than saying
+    // "not supported yet".
+    //
+    // ⚠ TWO OR MORE STEPS IS THE ROTATION PROBLEM AND IT IS NOT THE FOLD'S. A
+    // delta at chain slot s makes s the OUTERMOST source, and re-rooting a nest
+    // changes four things at once — `chain_reorder`'s own header enumerates them
+    // — of which the emitter here can derive only the first: the outer source,
+    // WHICH HALF of each equi-term is the build key (`equi_term_sides` splits by
+    // the step's NEW row var, so exchanging the vars exchanges build and probe),
+    // therefore the STRATEGY (a direction may have no usable equi-key at all),
+    // and the PLACEMENT of every floating predicate. `chain_reorder` does all
+    // four but consumes a `JoinOrder` candidate table produced by the planner's
+    // `decide_join_orders`, and this emitter never runs it. With exactly ONE
+    // step there is ONE `on` predicate and NO placement question, and the nest
+    // is two loops in either direction — which is why the line falls here and
+    // not at "arbitrary chain".
+    if ch.n > 1i64 { return incr_decline(qn, "the input is a JOIN CHAIN OF TWO OR MORE STEPS — rooting the nest at a step other than the base re-splits every equi-term's build/probe halves and re-places every floating predicate, which is `decide_join_orders`' derivation and this emitter does not run it"); }
+    if ch.n == 1i64 {
+        // A delta must name its SOURCE, and the tag lives in `<q>_apply`'s
+        // signature — which exists only on the RETRACTING surface. The two axes
+        // are independent (the tag says WHICH relation, the weight says WHICH
+        // DIRECTION) and only their combination is unbuilt: an insert-only join
+        // would need a THIRD emitted signature, `<q>_apply(&mut h, __src, …)`
+        // with no weight. Named, not hidden — and it is reached only by a query
+        // whose aggregate list already lost retraction to D4.
+        if !retr { return incr_decline(qn, "the query JOINS and keeps the INSERT-ONLY surface (an aggregate accumulates in `f64` — decision D4), and the source TAG a join delta must carry lives on `<q>_apply`, which only the retracting surface emits"); }
+        // An ANTI step is a MATCHCOUNT, not a product: a base row's membership
+        // in the output flips when its match count crosses 0, so a delta on the
+        // anti side must EMIT A RETRACTION of a row that itself did not change.
+        // That is a second state machine (the dynamic engine spends
+        // `incr.logos:1149-1251` on it) and it is not this fold.
+        if ch.anti[0] { return incr_decline(qn, "the join step is ANTI — anti is a MATCHCOUNT whose 0↔positive crossing must emit a retraction of a row that never changed, which is a second state machine and not the product rule"); }
+        // A TRAVERSAL step's source is a field-path expression re-derived per
+        // BOUND ROW (`a.children`), so there is no standalone relation for the
+        // handle to own and no tag that could name one.
+        if ch.edge[0] { return incr_decline(qn, "the join step is a TRAVERSAL (`edge`) — its source is re-derived per bound row, so there is no standalone relation for the handle to own or for a source tag to name"); }
+        // A BY-VALUE binding is the streamed/iterator shape's; the stored side is
+        // a `Vec` this emitter indexes by reference.
+        if ch.byval[0] { return incr_decline(qn, "the join step binds its row BY VALUE — the handle's stored side is a `Vec` this emitter binds by reference, and the two spellings are not interchangeable in the emitted predicate"); }
+        // A STREAMED source yields its rows ONCE. The handle would have to be
+        // that single reader and would then own a relation the caller can no
+        // longer re-present as a delta.
+        if prm.rel_src_streams(ch.base_src) || prm.rel_src_streams(ch.src[0]) {
+            return incr_decline(qn, "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta");
+        }
+        // A SELF-JOIN puts ONE relation in TWO chain positions, so one tag would
+        // have to feed both — and integrating the delta once while folding it
+        // against a state that must also already contain it is exactly the
+        // same-epoch double count this slice's fixture exists to catch. The
+        // dynamic engine refuses it too (`incr.logos:1780`).
+        if str_eq(ch.base_src, ch.src[0]) {
+            return incr_decline(qn, "the join is a SELF-JOIN — one relation in two chain positions, so one source tag would feed both, and folding a delta against a state that must already contain it is the double count this rule exists to avoid");
+        }
+        // THE HANDLE OWNS ITS STORED SIDES, ROW BY ROW AND FIELD BY FIELD.
+        // ⚠⚠ THIS CLAUSE IS NOT A FORMALITY AND THE COMPILER DOES NOT ENFORCE
+        // IT. MEASURED (2026-08-07, prebuilt logosc): a row struct carrying a
+        // `str` field copies into a handle-owned `Vec<Row>` and COMPILES CLEAN
+        // — the handle then holds a view of source bytes it does not own, which
+        // silently destroys the capability this emitter's header states in
+        // capitals ("THE HANDLE BORROWS NOTHING … the caller may grow, move or
+        // drop the source between epochs"). `incr_ty_ok` was already asked of
+        // the group key, of every accumulator column and of every projected
+        // component — and never of the ROW, because until now no row was stored.
+        if !incr_row_ty_ok(ty, ch.base_ty) || !incr_row_ty_ok(ty, ch.ty[0]) {
+            return incr_decline(qn, "a join source's ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle stores whole rows of both sides, so a `str` field is a borrow of source bytes it does not own, a struct field is an ownership question this clause does not walk, and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the Z-set's normal form to search on");
+        }
+    }
     // A PRE-GROUP `where` is admissible in principle and is refused here for the
     // same reason the dynamic engine refuses it: it has never been folded through
     // the incremental path, so admitting it would be an untested arm. `having`
@@ -5226,8 +5627,88 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if !incr_proj_ty_ok(proj_e, ty) {
         return incr_decline(qn, "a projected COMPONENT is a `str`/`String` value, which the handle cannot hand back without borrowing something it does not own");
     }
+    if ch.n == 1i64 {
+        plan_trace("incremental", "EMITTED", qn, "one join step over two owned relations, group by, weighted aggregates over self-contained types");
+        return true;
+    }
     plan_trace("incremental", "EMITTED", qn, "one bare scan, group by, insert-only aggregates over self-contained types");
     return true;
+}
+
+/// May a whole ROW of this type be OWNED by a handle? The question `incr_ty_ok`
+/// asks of ONE type, asked of every FIELD of a stored source row.
+///
+/// ⚠ IT REFUSES WHAT IT COULD NOT READ, and that direction is the whole point.
+/// `type_stamped` false means the reflection walk never reached this struct — an
+/// unknown name, an alias this module cannot follow, no module AST loaded — and
+/// an unread struct is not an empty one. Answering `true` there would admit
+/// exactly the rows whose fields nobody looked at.
+///
+/// ⚠ A FIELD WHOSE OWN TYPE IS A STRUCT IS REFUSED RATHER THAN WALKED. `el_ty`
+/// answers the `i64` baseline for a name outside the lattice, so a nested struct
+/// would pass `incr_ty_ok` while carrying a `str` two levels down — the silent
+/// wrong answer this clause exists to stop. Ownership is transitive and this
+/// function is not; refusing is the direction that cannot be wrong, and widening
+/// it later breaks no caller.
+///
+/// ⚠⚠ A FLOAT FIELD IS REFUSED TOO, AND THAT IS THE *SECOND* QUESTION THIS
+/// FUNCTION ANSWERS. Storing rows in Z-set NORMAL FORM means finding the entry a
+/// delta row is a copy of, and that search is a field-by-field `==`. On `f64`,
+/// `==` IS NOT IDENTITY — NaN ≠ NaN makes a row carrying one impossible to
+/// retract, and −0.0 == +0.0 lets a retraction of one cancel an insert of the
+/// other. That is Victor's open 2026-08-07 decision about the multiplicity map's
+/// key wearing a different hat, and an emitter may not answer it in passing.
+fn incr_row_ty_ok(t: &ElTypes, row_ty: str) -> bool {
+    if row_ty.len() == 0i64 { return false; }
+    if !t.type_stamped(row_ty) { return false; }
+    let mut i: i64 = 0i64;
+    while true {
+        let e: i64 = t.type_field_at(row_ty, i);
+        if e < 0i64 { return true; }
+        let ftn: str = t.binding_ty_name_at(e);
+        if ftn.len() == 0i64 { return false; }
+        if el_class_lookup(ftn) < 0i32 { return false; }
+        if !incr_ty_ok(ftn) { return false; }
+        if el_class_lookup(ftn) == EL_TY_FLT() { return false; }
+        if t.binding_col_at(e).len() == 0i64 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// `<stored>.f == <delta>.f && …` over every stamped field of `row_ty` — the ROW
+/// IDENTITY the Z-set's normal form searches on, spelled from the SAME field
+/// list `incr_row_ty_ok` admitted the type on. One walk of the binding table
+/// decides the type and one writes the test, so a field the check never saw can
+/// never end up outside the comparison.
+///
+/// `sv` is the stored copy's local name, `dv` the delta row's binding.
+fn incr_row_eq_text(t: &ElTypes, row_ty: str, sv: str, dv: str, out: &mut String) {
+    let mut i: i64 = 0i64;
+    while true {
+        let e: i64 = t.type_field_at(row_ty, i);
+        if e < 0i64 {
+            // A struct with no stamped field cannot be told apart from another
+            // instance of itself, so `true` here would make every row identical
+            // and silently merge the relation into one entry. `incr_row_ty_ok`
+            // admits only a `type_stamped` type, and a stamped type has at least
+            // one binding — so this is unreachable, and it is spelled `false`
+            // (nothing matches, every delta row becomes its own entry) rather
+            // than `true` so that an unreachable case that becomes reachable
+            // wastes memory instead of losing rows.
+            if i == 0i64 { out.push_str("false"); }
+            return;
+        }
+        if i > 0i64 { out.push_str(" && "); }
+        out.push_str(sv);
+        out.push_str(".");
+        out.push_str(t.binding_col_at(e));
+        out.push_str(" == ");
+        out.push_str(dv);
+        out.push_str(".");
+        out.push_str(t.binding_col_at(e));
+        i = i + 1i64;
+    }
 }
 
 /// One declined incremental form, traced with its GROUND, then `false`.
@@ -5275,14 +5756,31 @@ fn incr_decline(qn: str, why: str) -> bool {
 // the one that names it. (A UDA is the only place the two could part, with
 // `acc[i] == ""`; `incr_eligible` declines a UDA one axis out, so this predicate
 // is never asked about one.)
-fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8], qn: str) -> bool {
+/// THE PREDICATE ITSELF, WITH NO TRACE — because ONE of its consumers has to ask
+/// it BEFORE the query is known to be eligible at all, and tracing a `retraction`
+/// verdict for a query that never gets a handle would break the derived count
+/// `incr_eligibility_gate.sh` asserts (the retract axis is traced exactly once
+/// per EMITTED handle, and that identity is the gate's second table).
+///
+/// ⚠ ONE DERIVATION, TWO CALLERS — not one decision asked twice. `incr_eligible`
+/// needs the answer because a JOIN chain on the INSERT-ONLY surface has no place
+/// to put a source tag (see the clause there); `incr_retract_eligible` needs it
+/// to trace and to shape the emitted fns. Both read THIS function, so they cannot
+/// answer differently — the `accw`/`compute_acc_tys` failure mode this file
+/// already carries two warnings about.
+fn retract_ok(aggs: &RAggArr, acount: i64, acc: &[str; 8]) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
-        if (fnid == AGG_SUM() || fnid == AGG_AVG()) && str_eq(acc[i], "f64") {
-            return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
-        }
+        if (fnid == AGG_SUM() || fnid == AGG_AVG()) && str_eq(acc[i], "f64") { return false; }
         i = i + 1i64;
+    }
+    return true;
+}
+
+fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8], qn: str) -> bool {
+    if !retract_ok(aggs, acount, acc) {
+        return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
     }
     plan_trace("retraction", "EMITTED", qn, "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map");
     return true;

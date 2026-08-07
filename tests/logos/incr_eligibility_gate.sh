@@ -67,7 +67,11 @@ grep -F '[plan] retraction ->' "$TMPD/all.err" > "$RTRACE"
 EXPECT=(
   "ok_basic|EMITTED|one bare scan"
   "no_retract_avg|EMITTED|one bare scan"
-  "no_join|declined|JOIN CHAIN"
+  "ok_join|EMITTED|one join step over two owned relations"
+  "no_join_strrow|declined|ROW TYPE is not OWNABLE AND IDENTIFIABLE"
+  "no_join2|declined|TWO OR MORE STEPS"
+  "no_join_avg|declined|INSERT-ONLY surface"
+  "no_join_self|declined|SELF-JOIN"
   "no_where|declined|PRE-GROUP \`where\`"
   "no_order|declined|\`order by\`"
   "no_limit|declined|\`order by\`"
@@ -88,8 +92,17 @@ EXPECT=(
 # `incr_retraction_gate.sh` READS. Two names for one decision means one of the
 # two gates greps a channel that does not exist, sees zero lines, and reports
 # nothing while looking green.
+#
+# ⚠ AND `no_join_avg` IS *NOT* IN THIS TABLE THOUGH ITS NAME LOOKS LIKE
+# `no_retract_avg`'s. The retraction axis is asked only of a query that HAS a
+# handle, and `no_join_avg` has none — it is declined ON THE FIRST AXIS, with the
+# ground that a join delta must name its source and the tag lives on
+# `<q>_apply`, which only the retracting surface emits. The order of the two
+# questions is what makes that a single verdict rather than two, and the derived
+# count below is what would catch it becoming two.
 REXPECT=(
   "ok_basic|EMITTED|invert exactly"
+  "ok_join|EMITTED|invert exactly"
   "no_retract_avg|declined|(S+x)-x != S"
 )
 
@@ -158,7 +171,7 @@ VIOLATION: the walk reported ${GOT_R} retraction decisions, expected ${WANT_R} �
 fi
 
 # ── THE CANARY: the same matcher, over a trace broken four ways ─────────────
-# 1. a MISSING query (no_join has no line at all);
+# 1. a MISSING query (no_join_strrow has no line at all);
 # 2. a FLIPPED verdict (no_where reads EMITTED);
 # 3. a GENERIC ground (no_strkey's antecedent replaced by "not supported yet");
 # 4. a RENAMED query (no_rowsel spelled no_rowsel2).
@@ -166,6 +179,10 @@ CAN="$TMPD/canary.txt"
 {
   echo "[plan] incremental -> EMITTED on ok_basic   (one bare scan, group by, insert-only aggregates over self-contained types)"
   echo "[plan] incremental -> EMITTED on no_retract_avg   (one bare scan, group by, insert-only aggregates over self-contained types)"
+  echo "[plan] incremental -> EMITTED on ok_join   (one join step over two owned relations, group by, weighted aggregates over self-contained types)"
+  echo "[plan] incremental -> declined on no_join2   (the input is a JOIN CHAIN OF TWO OR MORE STEPS)"
+  echo "[plan] incremental -> declined on no_join_avg   (the query JOINS and keeps the INSERT-ONLY surface)"
+  echo "[plan] incremental -> declined on no_join_self   (the join is a SELF-JOIN)"
   echo "[plan] incremental -> EMITTED on no_where   (one bare scan, group by, insert-only aggregates over self-contained types)"
   echo "[plan] incremental -> declined on no_order   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
   echo "[plan] incremental -> declined on no_limit   (\`order by\` / \`limit\` / \`distinct\` act on the SNAPSHOT)"
@@ -182,6 +199,7 @@ printf '%s' "$CANV" > "$TMPD/canary.violations"
 RCAN="$TMPD/rcanary.txt"
 {
   echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+  echo "[plan] retraction -> EMITTED on ok_join   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> EMITTED on no_retract_avg   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
 } > "$RCAN"
 RCANV=$(check_rows "$RCAN" "${REXPECT[@]}")
@@ -189,6 +207,7 @@ printf '%s' "$RCANV" >> "$TMPD/canary.violations"
 RCAN2="$TMPD/rcanary2.txt"
 {
   echo "[plan] retraction -> EMITTED on ok_basic   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
+  echo "[plan] retraction -> EMITTED on ok_join   (every aggregate in the list runs backwards exactly — count and integer sum invert exactly)"
   echo "[plan] retraction -> declined on no_retract_avg   (not supported yet)"
 } > "$RCAN2"
 RCANV2=$(check_rows "$RCAN2" "${REXPECT[@]}")
@@ -204,7 +223,7 @@ if [ -z "$(printf '%s' "$RCANV" | tr -d '[:space:]')" ] || \
     printf 'generic-ground : %s\n' "$RCANV2"
     exit 1
 fi
-for want in no_join no_where no_strkey no_rowsel; do
+for want in no_join_strrow no_where no_strkey no_rowsel; do
     if ! grep -qF -- "'${want}'" "$TMPD/canary.violations"; then
         echo "FAIL: THE GATE'S CANARY DID NOT FIRE for '${want}'."
         echo "      A broken trace passed the same matcher that judges the real one,"

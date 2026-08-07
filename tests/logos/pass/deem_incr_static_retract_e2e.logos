@@ -105,8 +105,7 @@
 // any arm, and the arms exist precisely because `Overflow` used to be returned
 // for two different mistakes.
 //
-// ── EXIT CODES: THE CEILING IS 120, AND SINCE 2026-08-07 IT IS A NUMBER THE
-//    PROGRAM REFUSES TO RUN WITHOUT ──────────────────────────────────────────
+// ── EXIT CODES: THE CEILING IS A NUMBER THE PROGRAM REFUSES TO RUN WITHOUT ──
 // `.expected` says `exit: 0`, so a non-zero code is a DIAGNOSTIC naming the
 // assertion that fired. 126, 127 and 128+signal belong to the shell, so a code
 // up there is one number standing for two states — which is how this very
@@ -131,6 +130,7 @@
 // code in source order:
 //     A 13-28 · A6 29-39 · B 40-53 · C 54-57 · D 58-64 · E 65-68 · F 69-72
 //     G 73-76 · G2 77-83 · H 84-91 · (ii) 92-102 · (iii) 103-117
+//     the `SrcUnknown` arms of E/F/G/G2, appended: 118-121
 // One code, one assertion.
 // ⚠ WITH ONE GAP, NAMED RATHER THAN LEFT FOR A READER TO FIND: **7 IS RESERVED
 // AND NEVER EMITTED.** It is block F's plumbing slot, and F has no plumbing —
@@ -172,6 +172,14 @@
 // channel rather than merely suggesting it. Closing both is one slice and it is
 // NOT taken here — this comment is a scope call recorded at the blind spot, not
 // a plan someone has to find in a commit message.
+//
+// ⚠ 118-121 SIT OUT OF SEQUENCE ON PURPOSE, and the ceiling moved 117 → 121
+// rather than the arms sharing a code. `ElError` grew a fifth variant when the
+// source tag became strict (P3), so every four-arm `match` in this file has a
+// new arm; each is "the dispatch stopped reading its own tag" at a DIFFERENT
+// call, which is four facts and not one. 121 < 125 keeps every code clear of
+// the shell's 126/127/128+signal, which is what the ceiling is actually for —
+// the number 117 was never the constraint, 125 is.
 //
 // exit 0 = the static tier retracts, at u64's extrema, with multiplicity, with
 //          identity preserved on floats, and refuses — by name — to retract
@@ -247,7 +255,7 @@ fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
 // before a single assertion runs; and `main` checks the value `assertions()`
 // ACTUALLY returns against it, so a block appended after (iii) that marches
 // past 117 is caught on the number rather than on the declaration.
-fn TOP_CODE()     -> i32 { return 117i32; }
+fn TOP_CODE()     -> i32 { return 121i32; }
 // 118..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
 fn EXIT_MAX()     -> i32 { return 120i32; }
 fn EXIT_OVERRUN() -> i32 { return 125i32; }
@@ -475,6 +483,11 @@ fn assertions() -> i32 {
                 ElError::RetractAbsent => { return 66i32; }
                 ElError::Overflow      => { return 67i32; }
                 ElError::DivByZero     => { return 68i32; }
+                // ⚠ REACHED ONLY IF THE DISPATCH STOPS READING ITS OWN TAG. This
+                // call goes through `<q>_retract`, which writes the LITERAL
+                // `0i32`, so a `SrcUnknown` here says the emitted `__src` arm
+                // compares against something other than the parameter.
+                ElError::SrcUnknown    => { return 118i32; }
             }
         }
     }
@@ -490,6 +503,7 @@ fn assertions() -> i32 {
                 ElError::Underflow  => { return 70i32; }
                 ElError::Overflow   => { return 71i32; }
                 ElError::DivByZero  => { return 72i32; }
+                ElError::SrcUnknown => { return 119i32; }
             }
         }
     }
@@ -507,6 +521,7 @@ fn assertions() -> i32 {
                 ElError::Underflow  => { return 74i32; }
                 ElError::Overflow   => { return 75i32; }
                 ElError::DivByZero  => { return 76i32; }
+                ElError::SrcUnknown => { return 120i32; }
             }
         }
     }
@@ -542,6 +557,7 @@ fn assertions() -> i32 {
                 ElError::Underflow  => { return 78i32; }
                 ElError::Overflow   => { return 79i32; }
                 ElError::DivByZero  => { return 80i32; }
+                ElError::SrcUnknown => { return 121i32; }
             }
         }
     }

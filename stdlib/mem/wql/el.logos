@@ -47,9 +47,9 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // (logos.std.deem): both `div`/`rem` treat a zero divisor as `DivByZero` and a
 // `checked_* == None` (i64::MIN / -1) as `Overflow`. ONE math-error type is
 // shared by the static emitted fns AND the incremental engine's error channel.
-// ⚠ FOUR ARMS, AND THE TWO NEW ONES EXIST BECAUSE `Overflow` WAS LYING ABOUT
-// TWO DIFFERENT MISTAKES. Both were reported as `Overflow` while retraction was
-// being built, and neither is one:
+// ⚠ FIVE ARMS, AND THE THREE NON-ARITHMETIC ONES EXIST BECAUSE `Overflow` WAS
+// LYING ABOUT MISTAKES THAT ARE NOT ARITHMETIC AT ALL. The first two were
+// reported as `Overflow` while retraction was being built, and neither is one:
 //
 //   `Underflow`     — an ARITHMETIC borrow out of an unsigned total. `el_subu`
 //                     is its only producer. `a - b` with `b > a` in `u64` is not
@@ -65,6 +65,21 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 //                     zero describes no state the handle can be in. It is named
 //                     for the CALLER'S mistake — "you took out what was never
 //                     put in" — rather than for the subtraction that noticed.
+//   `SrcUnknown`    — a DELTA TAGGED WITH A SOURCE THIS QUERY DOES NOT HAVE.
+//                     `<q>_apply(&mut h, __src, __w, …)` dispatches on the chain
+//                     POSITION (the base is 0, join step i is i+1); a tag
+//                     outside `0 ..= ch.n` names no relation of this query, so
+//                     there is no delta to fold and no meaning to give the call.
+//                     ⚠⚠ THIS ARM REPLACES A NO-OP `Ok(0)` THAT READ AS A PASS.
+//                     While exactly one source existed, "a delta for a source
+//                     this operator does not read contributes nothing" was true
+//                     of every tag but 0 and the emitter returned `Ok(0)`. With
+//                     a JOIN there are two tags and a mistyped one is a caller
+//                     mistake that silently folds NOTHING while answering
+//                     success — the shape a fixture cannot tell from a working
+//                     epoch. The other four arms all LIE about it: nothing
+//                     overflowed, underflowed or divided, and nothing was
+//                     retracted. One name for one caller mistake.
 //
 // ⚠ STRICT ON PURPOSE, AND IN THE REVERSIBLE DIRECTION. The dynamic interpreter
 // does NOT report this case: `logos.mem.deem.incr`'s `aggstate_ensure` runs
@@ -72,7 +87,7 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 // error path at all — which is not the answer "no error", it is "that engine was
 // never asked". Strict → lax is a compatible relaxation later; lax → strict
 // breaks every caller that learned to ignore the silence.
-pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent }
+pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent, SrcUnknown }
 
 // i64 checked arithmetic returning ElError. `checked_add/sub/mul/div/rem/neg`
 // (Option<i64>) already exist in logos.lang.cmp.ord. The generated static
@@ -1820,6 +1835,42 @@ impl ElTypes {
             i = i + 1i64;
         }
         return false;
+    }
+
+    /// ENUMERATE struct `ty_of`'s stamped fields: the raw binding-table index of
+    /// its `i`-th field, or −1 past the end.
+    ///
+    /// ⚠ THE COUNT IS THE STAMPED COUNT, NOT THE DECLARED ONE, and a caller that
+    /// treats them as the same is asking a question this table cannot answer. A
+    /// field whose name or type name came back empty is never bound (see
+    /// `stamp_schema_by_type`), and a table that overflowed dropped bindings —
+    /// which `report_ty_overflow` turns into a build failure, so the overflow
+    /// case cannot reach a caller silently. Anything that must reason about ALL
+    /// of a struct's fields must ALSO require `type_stamped`, which says the
+    /// reflection walk reached this type at all.
+    pub fn type_field_at(self: &ElTypes, ty_of: str, i: i64) -> i64 {
+        let mut e: i64 = 0i64;
+        let mut seen: i64 = 0i64;
+        while e < self.rb_n {
+            if self.rb_kind[e] == CB_TYPE() && str_eq(self.rb_var[e], ty_of) {
+                if seen == i { return e; }
+                seen = seen + 1i64;
+            }
+            e = e + 1i64;
+        }
+        return -1i64;
+    }
+
+    /// The declared type NAME at a binding-table index from `type_field_at`.
+    pub fn binding_ty_name_at(self: &ElTypes, e: i64) -> str {
+        if e < 0i64 || e >= self.rb_n { return ""; }
+        return self.rb_tn[e];
+    }
+
+    /// The COLUMN name at a binding-table index from `type_field_at`.
+    pub fn binding_col_at(self: &ElTypes, e: i64) -> str {
+        if e < 0i64 || e >= self.rb_n { return ""; }
+        return self.rb_col[e];
     }
 
     /// The declared type NAME of `var.col`, or "" when this is not a rel binding.
