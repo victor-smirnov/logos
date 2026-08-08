@@ -1,0 +1,264 @@
+// THE FLOAT KEY, ASKED THE TWO QUESTIONS ITS OWN FIXTURE DOES NOT ASK:
+// IS THE MERGED CLASS STILL COUNTED, AND DOES THE STORED MEMBER FOLLOW ARRIVAL?
+//
+// ── WHY A NEW FILE AND NOT ANOTHER BLOCK IN THE SIBLING ───────────────────
+// `deem_incr_static_retract_e2e.logos` owns the float-key witness (block D/D2)
+// and its header states the constraint in its own words: "codes stay unique
+// (they are, 1..124 — and as of 2026-08-08 the last free number, 7, is spent on
+// block D2) … There is no room left at all: the next assertion added to this
+// file must share a code with a `println!` that names it, or the file must be
+// split." Its census `retract ok chk=110 rows=31` is pinned in its `.expected`,
+// so anything appended there moves a number two files away from the question.
+// This is the split. It starts a clean 1..125 code space and it does not touch
+// the sibling: nothing there is weakened, renumbered or removed.
+//
+// ── WHAT D2 ALREADY PINS, READ OFF THAT FILE RATHER THAN REMEMBERED ───────
+//   D2(i)   −0.0 and +0.0 are ONE element of multiplicity 2: the first AND the
+//           second retraction of the literal −0.0 both succeed, and the class
+//           then leaves the map (`rows = 1`, `lo` rescans to 1.0).
+//   D2(ii)  all NaNs are one element: retracting a payload that was never
+//           inserted succeeds, `hi` rescans to 1.0.
+//   D2(iii) the map carries the FIRST ARRIVAL's exact bits beside the count, so
+//           a rescan into the NaN class answers 0x7FF8000000000001 and not the
+//           canonical key 0x7FF8000000000000.
+//
+// ── AND THE TWO IT DOES NOT ASK. BOTH ARE ABOUT WHAT THE MERGE COST ───────
+//
+// (A) MULTIPLICITY EXACTNESS — A CLASS MERGE MUST NOT MAKE RETRACTION UNBOUNDED.
+// D2(i) stops at the SECOND retraction, which is the last legal one. The
+// interesting call is the THIRD: two zeros went in, two came out, and the class
+// is gone. If the merge were implemented by keying the class and then answering
+// "is this class present" instead of "how many of it are there", the third
+// retraction would ALSO succeed — and every assertion in D2 would still pass,
+// because D2 never makes the call. So the third retraction must be refused BY
+// NAME, `ElError::RetractAbsent`, and the state must be UNMOVED under the
+// refusal: a refusal that half-applies is the expensive failure here, not the
+// refusal itself.
+// ⚠ THE OTHER FOUR `ElError` ARMS ARE SPELLED OUT AND EACH FAILS WITH ITS OWN
+// `println!`. `Err(_)` would accept `Underflow` — which is what a count driven
+// below zero would raise if the guard were the ARITHMETIC and not the map — and
+// that is a different mechanism answering the same question.
+//
+// (B) THE ARRIVAL-ORDER MIRROR — P1 AGAINST P3, WHICH IS THREE HYPOTHESES AND
+// NOT TWO. D2(iii) fixes ONE arrival order and asks only that the answer is not
+// the canonical key. Three implementations pass that single question:
+//     H1  the map stores the FIRST arrival's bits          ← the specified one
+//     H2  the map stores the LAST arrival's bits
+//     H3  the map hard-codes a member of the class (a sign, a payload)
+// D2(iii) separates H1/H2 from H3 and stops. The MIRROR separates all three: run
+// the same shape twice with the two arrivals SWAPPED and require the answer to
+// swap with them. H2 answers the other member in both halves — it fails both.
+// H3 answers the same bits in both halves — it fails both. Only H1 tracks.
+// Two classes are mirrored, because the class merge has two reasons to exist:
+//   · THE NaN CLASS, payloads …0001 and …0002 — H3 as "canonical payload";
+//   · THE ZERO CLASS, −0.0 and +0.0 — H3 as "hard-coded SIGN", which the
+//     canonical-payload form of H3 does not cover and which the sibling's
+//     block D pins in ONE direction only (−0.0 arriving first).
+//
+// ⚠ EVERY MIRROR HALF FORCES A RESCAN RATHER THAN READING A CACHED BEST, and
+// that is what makes the bits come from the MAP. `min` is the aggregate and NaN
+// is the greatest value under PostgreSQL semantics, so:
+//   · NaN halves insert {payload, payload′, 2.0}: `lo` is 2.0, retracting 2.0
+//     re-derives `lo` over the survivors — one class, the NaN one;
+//   · zero halves insert {∓0.0, ±0.0, −1.0}: `lo` is −1.0, retracting −1.0
+//     re-derives `lo` into the zero class.
+// A retraction of a NON-extremum would leave the cached best in place and the
+// assertion would read a value the map never handed out.
+//
+// ── PROVEN TO BITE, PREDICTED THEN REVERTED ──────────────────────────────
+// Fixture-local controls only; `stdlib/mem/deem/` and the emitter are untouched
+// by this file and by the round that added it.
+//   · (A) the third retraction's `RetractAbsent` arm swapped with the `Ok` arm,
+//     i.e. the file made to expect what an unbounded retraction would do
+//     → PREDICTED exit 16, MEASURED 16, and the census would have moved too.
+//     ⚠ AND THAT CONTROL SAYS THE ARM IS REACHED, not merely written: the run
+//     exits 16 through the `RetractAbsent` arm, so the engine really does refuse
+//     the third call and the block is not a dead branch asserting nothing.
+//   · (B) the mirror's second half asserted against the FIRST half's answer
+//     (H2/H3's prediction) → PREDICTED exit 33, MEASURED 33, and the diagnostic
+//     printed `lo = 9221120237041090562` = 0x7FF8000000000002: the answer really
+//     did SWAP with the arrival order, which is the whole content of the mirror.
+//   · THE CENSUS ITSELF — the final `bad` site deleted → the run still exits 0
+//     and prints `chk=15 rows=6`; `run_test.sh` says `FAIL: stdout mismatch`.
+//     An assertion that stops RUNNING is red on a channel the exit code has not
+//     got. MEASURED.
+// All three reverted.
+//
+// ── THE CENSUS, THE SIBLING'S DISCIPLINE ─────────────────────────────────
+// `chk` counts predicates that RAN, `rows` counts rows that CAME BACK, and
+// `.expected` pins both — because a deleted predicate moves `chk` alone while a
+// deleted BLOCK stops a snapshot being taken and moves both. Hand-derived
+// before the run: 9 `if` predicates + 7 accepting arms = 16; 6 snapshots of one
+// row each = 6. `assertions` has no loop, so every site runs exactly once.
+//
+// exit 0 = the merged class is still COUNTED, exactly, and refuses by name past
+//          its multiplicity; and the member the map hands back FOLLOWS ARRIVAL
+//          in both the NaN class and the zero class, in both directions.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;    // ElError — the refusal is asserted by NAME
+use logos.std.fmt;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.lang.num.float;
+use logos.mem.collections.vec;
+
+struct F { pub k: i64, pub v: f64 }
+
+// `min` and `max` are the only aggregates in scope for float retraction: an
+// extremum is a value SELECTED from the multiset, so nothing rounds. `sum`/`avg`
+// over a float are NOT, and this file does not ask about them.
+pub deem fq(src: &[F]) { from src s
+      group by s.k
+      aggregate lo = min(s.v), hi = max(s.v)
+      select (key, lo, hi) }
+
+fn f1(k: i64, v: f64) -> [F; 1] { return [F { k: k, v: v }]; }
+
+struct Tally { pub chk: i64, pub rows: i64 }
+
+// THE CHOKEPOINT — every predicate below goes through it, so the printed census
+// is derived from the checks that actually ran.
+fn bad(t: &mut Tally, c: bool) -> bool { t.chk = t.chk + 1i64; return c; }
+// The same bump for a `match` arm that MUST be taken, so a deleted refusal
+// block lowers `chk` exactly like a deleted `if`.
+fn arm_ok(t: &mut Tally) { t.chk = t.chk + 1i64; }
+
+// The two NaN payloads, and the canonical key neither of them is.
+fn nan_a() -> u64 { return 0x7FF8000000000001u64; }
+fn nan_b() -> u64 { return 0x7FF8000000000002u64; }
+fn nan_canon() -> u64 { return 0x7FF8000000000000u64; }
+fn pos_zero() -> u64 { return 0x0000000000000000u64; }
+fn neg_zero() -> u64 { return 0x8000000000000000u64; }
+
+// ── (B) ONE MIRROR HALF, PARAMETERISED BY ARRIVAL ORDER ──────────────────
+// `first` arrives before `second`; `want` is the bits the map must hand back
+// after the rescan. The two halves differ ONLY in the order of the two
+// arrivals, which is what makes the pair separate H1 from H2 and from H3 — a
+// single half cannot, whatever it asserts.
+fn mirror_half(t: &mut Tally, first: u64, second: u64, floor: f64, want: u64,
+               base: i32) -> i32 {
+    let mut h: FqIncr = fq_incremental();
+    let ins: [F; 3] = [F { k: 0i64, v: f64_from_bits(first) },
+                       F { k: 0i64, v: f64_from_bits(second) },
+                       F { k: 0i64, v: floor }];
+    match fq_epoch(&mut h, &ins) { Result::Ok(_n) => {} Result::Err(_e) => { return base; } }
+    // Retract the CURRENT EXTREMUM, so `lo` cannot be answered from the cache.
+    let rr: [F; 1] = f1(0i64, floor);
+    match fq_retract(&mut h, &rr) {
+        Result::Ok(_n) => { arm_ok(t); }
+        Result::Err(_e) => {
+            println!("MIRROR {}: retracting the floor was refused", base);
+            return base + 1i32;
+        }
+    }
+    let s: Vec<(i64, f64, f64)> = match fq_snapshot(&h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return base + 2i32; }
+    };
+    t.rows = t.rows + s.len();
+    if bad(t, f64_to_bits(s.get(0i64).1) != want) {
+        println!("MIRROR {}: lo = {} bits; the FIRST arrival was {} and the answer must follow it, not the last arrival {} and not a canonical member",
+                 base, f64_to_bits(s.get(0i64).1), first, second);
+        return base + 3i32;
+    }
+    return 0i32;
+}
+
+fn assertions(t: &mut Tally) -> i32 {
+    // ══ (A) MULTIPLICITY EXACTNESS — THE THIRD RETRACTION ════════════════
+    // Two zeros in, two zeros out, class gone. The third call is the one D2
+    // never makes.
+    let mut hz: FqIncr = fq_incremental();
+    let fz: [F; 3] = [F { k: 0i64, v: -0.0f64 },
+                      F { k: 0i64, v:  0.0f64 },
+                      F { k: 0i64, v:  1.0f64 }];
+    match fq_epoch(&mut hz, &fz) { Result::Ok(_n) => {} Result::Err(_e) => { return 10i32; } }
+    let fzr: [F; 1] = f1(0i64, -0.0f64);
+    match fq_retract(&mut hz, &fzr) {
+        Result::Ok(_n) => { arm_ok(t); }
+        Result::Err(_e) => { println!("A: the FIRST retraction of -0.0 was refused"); return 11i32; }
+    }
+    match fq_retract(&mut hz, &fzr) {
+        Result::Ok(_n) => { arm_ok(t); }
+        Result::Err(_e) => { println!("A: the SECOND retraction of -0.0 was refused - the two zeros are not one element of multiplicity 2"); return 12i32; }
+    }
+    let z1: Vec<(i64, f64, f64)> = match fq_snapshot(&hz) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; }
+    };
+    t.rows = t.rows + z1.len();
+    if bad(t, z1.len() != 1i64) { println!("A: rows = {}, not 1", z1.len()); return 14i32; }
+    if bad(t, f64_to_bits(z1.get(0i64).1) != 0x3FF0000000000000u64) {
+        println!("A: lo = {} bits, not 1.0 - the zero class did not leave the map", f64_to_bits(z1.get(0i64).1));
+        return 15i32;
+    }
+
+    // ⚠⚠ THE CALL D2 DOES NOT MAKE. The class is gone; a THIRD retraction must
+    // be refused, by name. `Ok` here means the merge answers presence rather
+    // than COUNT, and retraction of a merged class is unbounded.
+    match fq_retract(&mut hz, &fzr) {
+        Result::Ok(_n) => {
+            println!("A: THE THIRD retraction of -0.0 SUCCEEDED - the class merge made retraction UNBOUNDED: two zeros went in, three came out");
+            return 16i32;
+        }
+        // ⚠ EACH ARM NAMED. `Err(_)` would accept `Underflow`, which is the
+        // ARITHMETIC guard and not the map's, answering a question about the
+        // map with evidence about a subtraction.
+        Result::Err(e1) => {
+            match e1 {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("A WRONG ARM: Underflow - a count went below zero instead of the map refusing"); return 17i32; }
+                ElError::Overflow   => { println!("A WRONG ARM: Overflow");   return 17i32; }
+                ElError::DivByZero  => { println!("A WRONG ARM: DivByZero");  return 17i32; }
+                ElError::SrcUnknown => { println!("A WRONG ARM: SrcUnknown"); return 17i32; }
+            }
+        }
+    }
+    // ⚠ AND THE STATE IS UNMOVED UNDER THE REFUSAL — asserted where the refusal
+    // is EXPENSIVE. A refusal that half-applied would leave `rows` or `lo`
+    // changed and every "it refused" assertion above would still be green.
+    let z2: Vec<(i64, f64, f64)> = match fq_snapshot(&hz) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; }
+    };
+    t.rows = t.rows + z2.len();
+    if bad(t, z2.len() != 1i64) { println!("A: rows = {} AFTER the refusal, not 1", z2.len()); return 18i32; }
+    if bad(t, f64_to_bits(z2.get(0i64).1) != 0x3FF0000000000000u64) {
+        println!("A: lo moved to {} bits under a REFUSED retraction", f64_to_bits(z2.get(0i64).1));
+        return 18i32;
+    }
+
+    // ══ (B1/B3) THE NaN CLASS, MIRRORED ══════════════════════════════════
+    // …0001 then …0002 must answer …0001; …0002 then …0001 must answer …0002.
+    // H2 (last arrival) answers …0002 / …0001 and fails both halves; H3
+    // (canonical payload) answers …0000 in both and fails both.
+    let m1: i32 = mirror_half(t, nan_a(), nan_b(), 2.0f64, nan_a(), 20i32);
+    if m1 != 0i32 { return m1; }
+    let m2: i32 = mirror_half(t, nan_b(), nan_a(), 2.0f64, nan_b(), 30i32);
+    if m2 != 0i32 { return m2; }
+
+    // ══ (C1/C3) THE ZERO CLASS, MIRRORED ═════════════════════════════════
+    // The sibling's block D pins −0.0-arrives-first only. This half of the pair
+    // is what separates "stored first arrival" from "hard-coded SIGN": +0.0
+    // first must answer +0.0, and the canonical-payload form of H3 says nothing
+    // about signs.
+    let m3: i32 = mirror_half(t, pos_zero(), neg_zero(), 0.0f64 - 1.0f64, pos_zero(), 40i32);
+    if m3 != 0i32 { return m3; }
+    let m4: i32 = mirror_half(t, neg_zero(), pos_zero(), 0.0f64 - 1.0f64, neg_zero(), 50i32);
+    if m4 != 0i32 { return m4; }
+
+    // ⚠ AND THE CANONICAL KEY IS NAMED, so a reader can see that neither mirror
+    // half's expected answer IS it. This is a statement about the FIXTURE, not
+    // about the engine, and it is why the pair separates H3 at all.
+    if bad(t, nan_canon() == nan_a() || nan_canon() == nan_b()) { return 60i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut t: Tally = Tally { chk: 0i64, rows: 0i64 };
+    let r: i32 = assertions(&mut t);
+    // Printed ONLY on the success path: a failing run is already red on its
+    // code, and what the census adds is the failure the code channel cannot
+    // carry — an assertion that stopped RUNNING.
+    if r == 0i32 { println!("fp key ok chk={} rows={}", t.chk, t.rows); }
+    return r;
+}

@@ -74,6 +74,113 @@
 // closure(PRES). If they disagree the generalisation is wrong, and that
 // disagreement is the finding; the exit code is 5/6/7/8.
 //
+// ══ ⚠⚠ AND CELL 0 IS NOT ENOUGH, BECAUSE IT IS THE SAME FAMILY ═══════════
+// `product2` and `product_n` are one object with two sizes: both allocate a
+// k × k boolean matrix over states `(node, member, flag)`, both close it with
+// the SAME Floyd–Warshall triple loop, both project pairs out of it afterwards.
+// Cell 0 checks a GENERALISATION against the INSTANCE it generalises. A wrong
+// theorem about the state encoding, or about the closure, is shared by both
+// sides and passes. And there is no fallback: the interpreter refuses N ≥ 2
+// (above), so for this cell a closed form is the whole of the evidence, and one
+// closed form checked against itself is one oracle with extra steps.
+//
+// ── THE SECOND ORACLE: A TAINTED LEAST FIXPOINT ───────────────────────────
+// Derived HERE, from the sentence DRed's phase 1 is an approximation of —
+// "some derivation of this row uses a retracted row" — with no product state
+// space and no all-pairs closure anywhere in it.
+//
+//   FACT      d(x, z, m, t)  ≡  "there is a derivation of the member-m row
+//                               (x,z) whose edge multiset contains a retracted
+//                               edge iff t = 1"
+//   BASE      for every (x,w) ∈ ALL and every m ∈ B:
+//                 d(x, w, m, del(x,w))
+//   STEP      for every d(x, c, m′, t), every (c,z) ∈ ALL and every (m′,m) ∈ R:
+//                 d(x, z, m, t ∨ del(c,z))
+//   EXTRACT   T_m  = { (x,z) : ∃t. d(x,z,m,t) }
+//             OD_m = { (x,z) :     d(x,z,m,1) }
+//             closure(PRES)_m = the same lfp with del ≡ 0
+//
+// ⚠ WHY THE TAINT ORs AND DOES NOT AND. The taint means "THIS derivation uses
+// a retracted row", and a walk uses one as soon as ANY of its edges is
+// retracted — so taint accumulates monotonically ALONG the walk: ∨. ∧ would
+// say "every edge retracted", which is not the DRed over-approximation at all
+// and would collapse OD to the single-edge deletions.
+//
+// ⚠ AND WHY t IS A FIELD OF THE FACT AND NOT AN AGGREGATE OVER IT. The two
+// quantifiers have different arities: ∨ runs ALONG one derivation, while OD_m
+// is an ∃ ACROSS derivations. d(x,z,m,0) and d(x,z,m,1) therefore COEXIST for
+// one (x,z,m) — and that coexistence IS the row with both a clean and a dirty
+// derivation, i.e. exactly the population phase 3 re-derives (RD). Folding t
+// into the fact by keeping min or max destroys the set this file is about.
+//
+// ⚠ WHY THE LEAST FIXPOINT TERMINATES, and why that is the WHOLE argument. The
+// fact domain is finite — n²·N·2 — and both rules are positive and monotone, so
+// the immediate-consequence operator only ADDS facts; the sequence is
+// increasing in a finite lattice and stabilises in at most n²·N·2 rounds. The
+// loop below is semi-naive: a frontier index walks the fact list, every fact is
+// expanded exactly once, and the loop ends when the list stops growing. No
+// closure ORDER, no k-loop invariant, no reflexive-diagonal convention — which
+// is precisely the machinery the product form has and this one does not.
+//
+// AT N = 1 the member coordinate is constant (R = {(0,0)}, B = {0}) and drops
+// out: base = "consume one edge, carry its del flag", step = "append one edge,
+// OR its del flag". That is `product2`'s "entry edge, then zero or more product
+// edges" with the reflexive diagonal replaced by the base case doing the first
+// edge itself — the two forms agree there for a REASON, and cell 0 checks it.
+//
+// ⚠ THE `bool` IN THE FACT IS ENCODED AS i64 0/1. Tuples of `bool` are
+// unexercised in this corpus (`grep '(i64, i64, bool)'` over tests/logos is
+// empty) while 4-tuples of i64 are in use. That is a CRUTCH at the type and
+// nowhere else: the recurrence above is unchanged by the encoding.
+//
+// ⚠ AND `lfp_add`'s dense `d` VECTOR IS NOT A STATE PRODUCT. It is a membership
+// index over the FACT domain (x, z, m, t) — every entry of it is an ANSWER PAIR
+// plus the taint bit, which is what the rules derive. The product form's states
+// are (node, member, flag) and its matrix is a RELATION BETWEEN states; nothing
+// here asks whether one state reaches another.
+//
+// ── THE MUTUAL CATCH: TWO ORACLES THAT ONLY EVER AGREE ARE ONE ORACLE ─────
+// Each form was corrupted and the OTHER one had to speak. Measured on this
+// tree, predicted first, reverted after.
+//  • C4 — THE PRODUCT FORM CORRUPTED, invisibly to cell 0. In `product_n` the
+//    edge's target member is taken from `tr.0` instead of `tr.1`, i.e. R
+//    collapses to member self-loops. At N = 1 `tr.0 == tr.1` so this is a
+//    LITERAL NO-OP: cell 0's 5/6/7/8 and the N = 1 taint arm 60/61/62 all pass,
+//    and the N = 1 random arm 69/70 passes on all 400 graphs.
+//    → PREDICTED **exit 64** — the taint form's T_even (6 rows) against the
+//      product form's, which becomes ∅ because `even` is no longer reachable
+//      from B. MEASURED **63**, and the prediction was wrong in its ORDER, not
+//      in its content: with R self-looping, T_odd becomes the plain transitive
+//      closure and grows PAST 8 before `even` is even consulted, so the member-0
+//      arm speaks first. Both arms are red; 63 is simply the earlier one.
+//      Two further measurements say what the taint form is WORTH here, because
+//      "some check went red" is not the claim:
+//        · 63–68 muted, C4 still applied → **exit 71**, cell R, where no pinned
+//          table exists and none could — the disagreement is oracle-vs-oracle on
+//          a random graph;
+//        · 63–72 all muted → **exit 2**, the product form's OWN pinned count.
+//          That is the whole of the old evidence: a hand-written table derived
+//          from the same reading of the same encoding.
+//  • C5 — THE TAINT FORM CORRUPTED, at exactly the sentence the derivation
+//    above argues: the step's `t ∨ del(c,z)` replaced by `del(c,z)` (assignment,
+//    not disjunction), so a walk forgets a retracted edge that is not its last.
+//    → PREDICTED **exit 61** — the N = 1 OD arm, against `product2` on this
+//      file's own graph: (2,5) is derived by 2→3, 3→4, 4→5 with the retracted
+//      edge in the MIDDLE, so the corrupted taint form drops it from OD.
+//      MEASURED 61. And with 60–68 muted → **exit 70**, cell R's N = 1 OD arm:
+//      the random population catches it too, on graphs no one designed.
+// Neither corruption touches the engine; both are fixture-local and reverted.
+//
+// ── CELL R: 400 RANDOM GRAPHS, ORACLE AGAINST ORACLE ─────────────────────
+// ⚠ AND THE SCOPE OF THAT AGREEMENT IS STATED RATHER THAN GLOSSED: cell R binds
+// the two ORACLES to each other on 400 pseudo-random graphs at N = 1 and N = 2,
+// per member, on T and OD. It does NOT bind either to the ENGINE — the emitted
+// `_od/_odp/_cpt/_i` ride the ONE designed graph below, because 400 retraction
+// epochs plus 400 closures under this suite's 30 s cap is not a trade this file
+// is willing to make. Engine-vs-both on the designed graph; oracle-vs-oracle on
+// the random ones. The census at 73/74/75 pins that the random population is not
+// degenerate: a generator that emitted empty graphs would make 71/72 vacuous.
+//
 // ── THE SHAPE, AND THE PER-MEMBER TABLE, STATED BEFORE ANYTHING RAN ───────
 //     rel odd (a,b) :- es(a,b)                 ← the only BASE body: B = {odd}
 //     rel odd (a,b) :- even(a,c), es(c,b)      ← R ∋ (even, odd)
@@ -153,9 +260,11 @@
 //    longer reachable from B at all). MEASURED 2. The alternation factor is
 //    therefore load-bearing in the oracle and not decoration.
 //
-// exit 0 = the N = 1 cross-check agrees, and all four phases at N = 2 agree with
-// the generalised product automaton on T, OD, S, rm, the six latches, the
-// survivor lemma and the re-derived set, in BOTH members.
+// exit 0 = the N = 1 cross-check agrees, the tainted least fixpoint agrees with
+// the product automaton at N = 1, at N = 2 per member, and on 400 random graphs,
+// and all four phases at N = 2 agree with those two independent oracles on T,
+// OD, S, rm, the six latches, the survivor lemma and the re-derived set, in
+// BOTH members.
 package test;
 
 use logos.std.wql.wql;
@@ -396,6 +505,97 @@ fn diff_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     return out;
 }
 
+// ══ THE SECOND ORACLE: THE TAINTED LEAST FIXPOINT ═════════════════════════
+// See the header for the recurrence and for why the taint ORs, why t is a
+// FIELD, and why the fixpoint terminates. Nothing below allocates a k × k
+// matrix, encodes a state, or closes anything transitively.
+
+// `d` is a MEMBERSHIP INDEX over the fact domain (x, z, m, t) — not a state
+// product; `fx` is the fact list in derivation order, which doubles as the
+// semi-naive worklist. Returns true when the fact is NEW.
+fn lfp_add(d: &mut Vec<bool>, fx: &mut Vec<(i64, i64, i64, i64)>,
+           n: i64, nm: i64, x: i64, z: i64, m: i64, t: i64) -> bool {
+    let ix: i64 = ((x * n + z) * nm + m) * 2i64 + t;
+    if d.get(ix) { return false; }
+    d.set(ix, true);
+    fx.push((x, z, m, t));
+    return true;
+}
+
+fn taint_lfp(n: i64, nm: i64, rr: &Vec<(i64, i64)>, bb: &Vec<i64>,
+             all: &Vec<E>, de: &Vec<E>) -> Vec<bool> {
+    let dsz: i64 = n * n * nm * 2i64;
+    let mut d: Vec<bool> = vec_new::<bool>();
+    let mut z0: i64 = 0i64;
+    while z0 < dsz { d.push(false); z0 = z0 + 1i64; }
+    let mut fx: Vec<(i64, i64, i64, i64)> = vec_new::<(i64, i64, i64, i64)>();
+    // BASE — one rule per member with a base body: consume ONE edge and carry
+    // that edge's del flag as the taint.
+    let mut e: i64 = 0i64;
+    while e < all.len() {
+        let ee: E = all.get(e);
+        let t0: i64 = if is_del(de, ee.a, ee.b) { 1i64 } else { 0i64 };
+        let mut bi: i64 = 0i64;
+        while bi < bb.len() {
+            let m1: i64 = bb.get(bi);
+            lfp_add(&mut d, &mut fx, n, nm, ee.a, ee.b, m1, t0);
+            bi = bi + 1i64;
+        }
+        e = e + 1i64;
+    }
+    // STEP — append one edge along R and OR its del flag into the taint. The
+    // frontier `head` walks the fact list; everything before it has been
+    // expanded, so each fact is expanded exactly once and the loop stops when
+    // the list stops growing. THAT is the termination argument, in full.
+    let mut head: i64 = 0i64;
+    while head < fx.len() {
+        let f: (i64, i64, i64, i64) = fx.get(head);
+        let mut e2: i64 = 0i64;
+        while e2 < all.len() {
+            let ee2: E = all.get(e2);
+            if ee2.a == f.1 {
+                let dl: i64 = if is_del(de, ee2.a, ee2.b) { 1i64 } else { 0i64 };
+                // ⚠ THE DISJUNCTION. C5 replaces this with `dl` alone.
+                let nt: i64 = if f.3 == 1i64 || dl == 1i64 { 1i64 } else { 0i64 };
+                let mut ri: i64 = 0i64;
+                while ri < rr.len() {
+                    let tr: (i64, i64) = rr.get(ri);
+                    if tr.0 == f.2 {
+                        lfp_add(&mut d, &mut fx, n, nm, f.0, ee2.b, tr.1, nt);
+                    }
+                    ri = ri + 1i64;
+                }
+            }
+            e2 = e2 + 1i64;
+        }
+        head = head + 1i64;
+    }
+    return d;
+}
+
+// T_mem when `want_od` is false; OD_mem when it is true. ∃ ACROSS derivations —
+// which is why both taint values are read for T and only t = 1 for OD.
+fn lfp_pairs(d: &Vec<bool>, n: i64, nm: i64, mem: i64, want_od: bool) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut x: i64 = 0i64;
+    while x < n {
+        let mut zt: i64 = 0i64;
+        while zt < n {
+            let i0: i64 = ((x * n + zt) * nm + mem) * 2i64;
+            let hit: bool = if want_od { d.get(i0 + 1i64) }
+                            else { d.get(i0) || d.get(i0 + 1i64) };
+            if hit { pair_uniq(&mut out, x, zt); }
+            zt = zt + 1i64;
+        }
+        x = x + 1i64;
+    }
+    return out;
+}
+
+// A plain LCG kept under 2^31 so `s * 1103515245` cannot leave i64's range.
+// Deterministic: cell R's census numbers are pinned literals below.
+fn rnd(s: i64) -> i64 { return (s * 1103515245i64 + 12345i64) % 2147483648i64; }
+
 fn main() -> i32 {
     // ── THE GRAPH. Node ids 1..6, so the state space is sized at n = 7 and
     // node 0 is simply never an endpoint.
@@ -442,6 +642,18 @@ fn main() -> i32 {
     // both pass on a form that answers ∅ for everything.
     if a_od.len() == 0i64 || a_od.len() >= a_t.len() { return 8i32; }
 
+    // ══ CELL 0b — THE TAINTED LEAST FIXPOINT AT N = 1, AGAINST `product2` ══
+    // Against the VERBATIM N = 1 form, not against `product_n`, so the two
+    // objects being compared share no line of code. C5 speaks at 61.
+    let l1: Vec<bool> = taint_lfp(n, 1i64, &r1, &b1, &all, &de);
+    let c_t: Vec<(i64, i64)>  = lfp_pairs(&l1, n, 1i64, 0i64, false);
+    if !same_set(&a_t, &c_t)   { return 60i32; }
+    let c_od: Vec<(i64, i64)> = lfp_pairs(&l1, n, 1i64, 0i64, true);
+    if !same_set(&a_od, &c_od) { return 61i32; }
+    let l1p: Vec<bool> = taint_lfp(n, 1i64, &r1, &b1, &pres, &empty_de);
+    let c_pr: Vec<(i64, i64)> = lfp_pairs(&l1p, n, 1i64, 0i64, false);
+    if !same_set(&a_pr, &c_pr) { return 62i32; }
+
     // ══ THE ORACLE AT N = 2, COMPUTED BEFORE THE ENGINE IS TOUCHED ════════
     // Member 0 = `odd` (registry order, and the only one with a base body),
     // member 1 = `even`.  R = {(even,odd), (odd,even)} = {(1,0), (0,1)}.
@@ -459,6 +671,91 @@ fn main() -> i32 {
     let mmp: Vec<bool> = product_n(n, 2i64, &rr, &pres, &empty_de);
     let o_pr0: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &pres, &empty_de, &mmp, 0i64, false);
     let o_pr1: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &pres, &empty_de, &mmp, 1i64, false);
+
+    // ══ THE SECOND ORACLE AT N = 2, PER MEMBER ═══════════════════════════
+    // ⚠ THIS RUNS BEFORE THE PINNED COUNTS BELOW ON PURPOSE. The counts are the
+    // product form checked against a table hand-derived from the same reading of
+    // the product encoding; these four checks are the product form checked
+    // against a form that has no encoding at all. C4 speaks at 64.
+    let lm: Vec<bool> = taint_lfp(n, 2i64, &rr, &bb, &all, &de);
+    let c_t0: Vec<(i64, i64)>  = lfp_pairs(&lm, n, 2i64, 0i64, false);
+    let c_t1: Vec<(i64, i64)>  = lfp_pairs(&lm, n, 2i64, 1i64, false);
+    let c_od0: Vec<(i64, i64)> = lfp_pairs(&lm, n, 2i64, 0i64, true);
+    let c_od1: Vec<(i64, i64)> = lfp_pairs(&lm, n, 2i64, 1i64, true);
+    if !same_set(&o_t0, &c_t0)   { return 63i32; }
+    if !same_set(&o_t1, &c_t1)   { return 64i32; }
+    if !same_set(&o_od0, &c_od0) { return 65i32; }
+    if !same_set(&o_od1, &c_od1) { return 66i32; }
+    let lmp: Vec<bool> = taint_lfp(n, 2i64, &rr, &bb, &pres, &empty_de);
+    let c_pr0: Vec<(i64, i64)> = lfp_pairs(&lmp, n, 2i64, 0i64, false);
+    let c_pr1: Vec<(i64, i64)> = lfp_pairs(&lmp, n, 2i64, 1i64, false);
+    if !same_set(&o_pr0, &c_pr0) { return 67i32; }
+    if !same_set(&o_pr1, &c_pr1) { return 68i32; }
+
+    // ══ CELL R — 400 RANDOM GRAPHS, ORACLE AGAINST ORACLE ════════════════
+    // No pinned table exists here and none could: the point is a POPULATION,
+    // not a shape. Six nodes, each ordered pair an edge with p ≈ 1/4, each edge
+    // retracted with p ≈ 1/3. Oracle-vs-oracle ONLY — see the header for why the
+    // engine does not ride these graphs.
+    let mut seed: i64 = 20260808i64;
+    let rn: i64 = 6i64;
+    let mut g: i64 = 0i64;
+    let mut nz_t1: i64 = 0i64;
+    let mut nz_od0: i64 = 0i64;
+    let mut nz_od1: i64 = 0i64;
+    while g < 400i64 {
+        let mut ga: Vec<E> = vec_new::<E>();
+        let mut gd: Vec<E> = vec_new::<E>();
+        let mut ra: i64 = 0i64;
+        while ra < rn {
+            let mut rb: i64 = 0i64;
+            while rb < rn {
+                seed = rnd(seed);
+                if seed % 4i64 == 0i64 {
+                    ga.push(ed(ra, rb));
+                    seed = rnd(seed);
+                    if seed % 3i64 == 0i64 { gd.push(ed(ra, rb)); }
+                }
+                rb = rb + 1i64;
+            }
+            ra = ra + 1i64;
+        }
+        // N = 1, against the verbatim two-state form.
+        let gp1: Vec<bool> = product2(rn, &ga, &gd);
+        let gl1: Vec<bool> = taint_lfp(rn, 1i64, &r1, &b1, &ga, &gd);
+        let p1t: Vec<(i64, i64)> = from_product2(rn, &gp1, 0i64, true);
+        let l1t: Vec<(i64, i64)> = lfp_pairs(&gl1, rn, 1i64, 0i64, false);
+        if !same_set(&p1t, &l1t) { return 69i32; }
+        let p1o: Vec<(i64, i64)> = from_product2(rn, &gp1, 1i64, false);
+        let l1o: Vec<(i64, i64)> = lfp_pairs(&gl1, rn, 1i64, 0i64, true);
+        if !same_set(&p1o, &l1o) { return 70i32; }
+        // N = 2, per member.
+        let gpm: Vec<bool> = product_n(rn, 2i64, &rr, &ga, &gd);
+        let glm: Vec<bool> = taint_lfp(rn, 2i64, &rr, &bb, &ga, &gd);
+        let mut mi: i64 = 0i64;
+        while mi < 2i64 {
+            let pt: Vec<(i64, i64)> = t_of(rn, 2i64, &bb, &ga, &gd, &gpm, mi, false);
+            let lt: Vec<(i64, i64)> = lfp_pairs(&glm, rn, 2i64, mi, false);
+            if !same_set(&pt, &lt) { return 71i32; }
+            let po: Vec<(i64, i64)> = t_of(rn, 2i64, &bb, &ga, &gd, &gpm, mi, true);
+            let lo: Vec<(i64, i64)> = lfp_pairs(&glm, rn, 2i64, mi, true);
+            if !same_set(&po, &lo) { return 72i32; }
+            if mi == 1i64 {
+                if lt.len() > 0i64 { nz_t1 = nz_t1 + 1i64; }
+                if lo.len() > 0i64 { nz_od1 = nz_od1 + 1i64; }
+            } else {
+                if lo.len() > 0i64 { nz_od0 = nz_od0 + 1i64; }
+            }
+            mi = mi + 1i64;
+        }
+        g = g + 1i64;
+    }
+    // ⚠ THE POPULATION CENSUS, MEASURED AND PINNED. Without it a generator that
+    // drifted to empty graphs would leave 69–72 comparing ∅ with ∅, 400 times.
+    // These are the counts the seed above actually produces.
+    if nz_t1  != 400i64 { return 73i32; }
+    if nz_od0 != 396i64 { return 74i32; }
+    if nz_od1 != 396i64 { return 75i32; }
 
     // ⚠ THE ORACLE'S OWN SHAPE, PINNED. The per-member table in the header is
     // the thing this file was designed around; if the oracle ever stops
