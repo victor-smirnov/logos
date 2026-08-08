@@ -722,13 +722,30 @@ fn assertions(t: &mut Tally) -> i32 {
         }
     }
 
-    // F2. THE u64 TOTAL BELOW ZERO — `el_subu`'s OWN witness, and it has to keep
-    // the COUNT legal to reach it. Insert (0,1) twice: count 2, total 2. Then
-    // retract ONE row carrying 5 — count 2 → 1 is legal, so F1's guard does not
-    // fire, and 2 − 5 in u64 is the borrow. Without `el_subu` this wraps to
-    // ≈2^64 (or traps: measured, a raw `a - b` on the u64 cell prints "Illegal
-    // instruction"), so the value returned here is what makes the fault
-    // REPORTABLE rather than merely present.
+    // F2. A VALUE THIS GROUP NEVER HELD, ON A QUERY WITH NO VALUE MAP.
+    //
+    // ⚠⚠ THIS BLOCK CHANGED ARM ON 2026-08-08. It read "THE u64 TOTAL BELOW ZERO
+    // — `el_subu`'s OWN witness": insert (7,1) twice (count 2, total 2), then
+    // retract ONE row carrying 5, so the count 2 → 1 stays legal and 2 − 5 in
+    // u64 is the borrow. `<q>_apply` now carries a FOOTPRINT sensor on the bare
+    // scan (`emit_incremental`) — the handle keeps the (key, aggregate-argument)
+    // tuples it has actually been handed, in Z-set normal form, and refuses a
+    // retraction of one it does not hold BEFORE any fold — so `(7,5)`, never
+    // inserted, is `RetractAbsent`. That is the right answer for this input: it
+    // names the caller's mistake instead of reporting a borrow that only
+    // happened because the mistake went undetected.
+    //
+    // ⚠ AND `el_subu`'s BORROW IS NOW UNREACHABLE THROUGH `<q>_retract`, WHICH
+    // IS A PROOF AND NOT AN OBSERVATION: every stored weight is ≥ 0, so a
+    // group's u64 total is Σ_f w_f·v_f, a retraction is admitted only for a
+    // footprint f with |w| ≤ w_f, and it subtracts |w|·v_f ≤ w_f·v_f ≤ total.
+    // The subtrahend is bounded by one term of the sum it comes out of.
+    // ⚠ SO THE ARITHMETIC WITNESS MOVED TO ITS OWN SEAM AND IS NOT LOST:
+    // `deem_incr_static_retract_e2e` block E now calls `el_subu(2,5)` directly
+    // and asserts `Underflow`, plus `el_subu(5,2) == 3` as the control. Those
+    // two blocks were `el_subu`'s ONLY witnesses in the corpus; deleting them
+    // would have left a guard against a u64 wrap (measured elsewhere in this
+    // file as an "Illegal instruction") asserted by nothing at all.
     let mut hb2: QuIncr = qu_incremental();
     let b1u: Vec<U> = { let mut o: Vec<U> = vec_new::<U>();
                         o.push(U { g: 7i64, u: 1u64 });
@@ -741,11 +758,12 @@ fn assertions(t: &mut Tally) -> i32 {
         Result::Ok(_n) => { return 81i32; }
         Result::Err(e2) => {
             match e2 {
-                ElError::Underflow => { arm_ok(t); }
-                // `RetractAbsent` here would mean the count guard fired first —
-                // the exact way this witness evaporates. Named so the failure
-                // says which guard swallowed it.
-                ElError::RetractAbsent => { println!("F2 WRONG ARM: RetractAbsent — the count guard fired first and this witness evaporated"); return 82i32; }
+                ElError::RetractAbsent => { arm_ok(t); }
+                // `Underflow` here means the FOOTPRINT SENSOR is gone and
+                // `el_subu` caught the same call instead — a different fact
+                // reported for the same input, and the shape of the regression
+                // this block now guards.
+                ElError::Underflow => { println!("F2 WRONG ARM: Underflow — the footprint sensor is gone and el_subu caught the same call"); return 82i32; }
                 ElError::Overflow      => { println!("F2 WRONG ARM: Overflow"); return 82i32; }
                 ElError::DivByZero     => { println!("F2 WRONG ARM: DivByZero"); return 82i32; }
                 ElError::SrcUnknown    => { return 6i32; }   // plumbing — see F1
@@ -753,11 +771,20 @@ fn assertions(t: &mut Tally) -> i32 {
         }
     }
 
-    // F3. A VALUE'S MULTIPLICITY BELOW ZERO — the map's own guard, reachable
-    // only when the group count stays legal. Insert (0,5) twice (count 2, map
+    // F3. A VALUE'S MULTIPLICITY BELOW ZERO. Insert (0,5) twice (count 2, map
     // {5:2}), then retract (0,7): count 2 → 1 is fine, and 7 is a value this
     // group never held. A `remove` on a missing key is a silent no-op, so
-    // WITHOUT the guard this returns Ok and the retraction simply vanishes.
+    // WITHOUT a guard this returns Ok and the retraction simply vanishes.
+    //
+    // ⚠ THE ARM IS UNCHANGED AND THE MECHANISM BEHIND IT IS NOT, WHICH IS
+    // EXACTLY THE KIND OF DRIFT A COMMENT HIDES. Until 2026-08-08 this was the
+    // MAP's own guard (`__nc < 0` inside the min/max fold element). The
+    // footprint sensor in `<q>_apply` now answers first, for every bare-scan
+    // query, and returns the SAME `RetractAbsent` — so the map guard is no
+    // longer reachable from `<q>_retract` on this shape. It stays as a floor,
+    // and it is what still answers on the JOIN path, where the sensor's identity
+    // is over the delta side only. Nothing here asserts the map guard any more;
+    // what this block asserts is the NAME the surface gives the mistake.
     let mut hm: QmIncr = qm_incremental();
     let m5: Vec<S> = { let mut o: Vec<S> = vec_new::<S>();
                        o.push(S { g: 0i64, v: 5i64 });

@@ -1,0 +1,273 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// WHAT THE FOOTPRINT SENSOR DOES **NOT** POLICE — AN ANNOTATED DEFECT
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ⚠⚠ EVERY ASSERTION IN THIS FILE IS GREEN AND SEVERAL OF THEM ASSERT THE WRONG
+// ANSWER ON PURPOSE. Read the block before "fixing" one. This is the pinned
+// residue of the 2026-08-08 slice that closed the shipping corruption in
+// `<q>_retract` (see `deem_incr_static_retract_e2e` block G3), and it exists so
+// that the part which was NOT closed has a sensor of its own instead of a
+// sentence in a comment — which is exactly the shape that let the corruption
+// itself survive from P2.
+//
+// ── THE MECHANISM, SO THE LIMIT IS DERIVABLE AND NOT MERELY OBSERVED ─────────
+// `emit_incremental` gives a retract-eligible BARE-SCAN query a Z-set of the
+// FOLD'S FOOTPRINT: the group KEY followed by every aggregate ARGUMENT, which is
+// the exact set of values `<q>_apply` reads out of a delta row. Retracting a
+// footprint the handle does not hold is refused, by name, before any fold.
+//
+// It is not the ROW. Storing rows was the first plan and it does not survive
+// contact with the corpus: row storage drags `incr_row_ty_ok` in, which refuses
+// a `str` field (the handle would hold a view of caller bytes) and an `f64`
+// field (`==` is not identity) — and that clause refuses
+// `wql_incr_eligibility_matrix.ok_basic` and `deem_incr_diff_harness.q5_icnt`,
+// BOTH of which call `<q>_retract` today. The choice was between policing whole
+// rows for some queries and policing the fold's footprint for all of them.
+//
+// ── DEFECT 1: IDENTITY IS UP TO THE FIELDS THE FOLD READS ────────────────────
+// Two rows that agree on (key, arguments) are INDISTINGUISHABLE to the handle,
+// so retracting one when the other was inserted is accepted. §1 pins that. The
+// handle's own answers are unmoved by the swap — no snapshot can disagree — but
+// a caller who believes `_retract` polices whole-row provenance is wrong, and
+// nothing tells them so. THE FIX IS NOT "store the row": it is a surface where a
+// query declares an identity, or an `incr_row_ty_ok` that can own a `str`.
+//
+// ── DEFECT 2: `count`-ONLY HAS AN EMPTY ARGUMENT LIST ────────────────────────
+// Its footprint is the key alone, so the sensor degenerates into the group-count
+// guard and ANY row of an existing group can be retracted. §2 pins that. This is
+// defect 1 at its limit rather than a second mechanism — a `count` reads nothing
+// but presence — and it is the one case where the handle's state after an
+// unpoliced retraction genuinely disagrees with `<q>()` over the true surviving
+// multiset. §2 asserts that DISAGREEMENT, which is the sharpest form available:
+// the handle says 1 and the batch says 2 for the same true input.
+//
+// ── DEFECT 3: `_apply` IS NOT TRANSACTIONAL ACROSS A MULTI-ROW DELTA ─────────
+// The slice made a REFUSED ROW atomic — the refusal precedes the group guards
+// and every fold, so a refused row leaves the handle untouched. It did NOT make
+// a multi-row `_apply` atomic: rows before the refused one are already folded
+// and integrated. §3 pins the state that leaves. The DECISION is deliberate and
+// is stated at `emit_incremental`'s header: per-row atomicity now, per-call
+// atomicity later, and a later slice that delivers it STRENGTHENS this and only
+// has to change §3.
+//
+// ⚠ WHAT IS **NOT** A DEFECT AND MUST NOT BE "FIXED" HERE: floats. A float
+// aggregate ARGUMENT enters the footprint through `f64_to_bits`, the same
+// function the multiplicity map beside it already keys on, and a float in the
+// GROUP KEY is compared with `keyt_f`'s own `==`, the identical relation the
+// `__gk` scan has always used to find a group. Both inherit Victor's OPEN f64/f32
+// KEY decision (all zeros one element, all NaNs one element) rather than
+// answering it. When that task lands it moves all three together.
+//
+// exit 0 = the sensor refuses what it can see, and the three things it cannot
+//          see are asserted here as the defects they are.
+package test;
+
+use logos.mem.collections.vec;
+use logos.mem.deem;
+use logos.std.wql.wql;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.std.fmt;
+use logos.lang.result;
+
+// A row with a field the fold NEVER READS (`nm`), which is what makes defect 1
+// expressible at all. `str` is used on purpose: it is also the field type that
+// made whole-row storage impossible, so one struct carries both halves of the
+// argument.
+struct S { pub g: i64, pub v: i64, pub nm: str }
+
+pub deem sumq(rs: &[S]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
+pub deem cntq(rs: &[S]) { from rs r group by r.g aggregate n = count() select (key, n) }
+
+// §4's query, and it is here because NOTHING ELSE IN THE CORPUS REACHES WHAT IT
+// EXERCISES: a footprint with MORE THAN ONE COMPONENT beside the key, and an
+// aggregate argument that is an ARITHMETIC EXPRESSION rather than a bare column.
+// The footprint stores the argument's VALUE, so the component here is `r.v * 2`
+// and not `r.v` — the two are the same identity only because one is a function
+// of the other, which is a property of THIS query and not a rule.
+//
+// ⚠ AND ONE SHAPE OF `fpty` IS UNREACHABLE BY CONSTRUCTION, RECORDED SO NOBODY
+// GOES LOOKING FOR THE TEST. A footprint is `(KeyTy, arg…)`, so a multi-column
+// group key would make it NESTED — `((i64, i64), i64)`. MEASURED 2026-08-08:
+// `wql!` refuses a tuple group key outright ("`group by`: a tuple expression
+// `(a, b, …)` is only supported as the `select` projection"), so `KeyTy` is
+// always a scalar and the nested spelling cannot arise. The language ADMITS
+// nested-tuple `==` and `Vec` (verified separately), so the emitter would be
+// correct if the key clause ever widens — but nothing here pins that, and this
+// paragraph is the reason why rather than an oversight.
+pub deem twoq(rs: &[S]) { from rs r
+      group by r.g
+      aggregate n = count(), s = sum(r.v * 2)
+      select (key, n, s) }
+
+// THE CENSUS, same mechanism as `deem_incr_static_retract_e2e`: a code says an
+// assertion FAILED, and nothing says an assertion stopped RUNNING. `chk` counts
+// predicates that executed, `rows` counts rows the engine handed back, and
+// `.expected` pins the printed line, so deleting an assertion turns this file
+// red instead of leaving it silently green.
+struct Tally { pub chk: i64, pub rows: i64 }
+fn bad(t: &mut Tally, c: bool) -> bool { t.chk = t.chk + 1i64; return c; }
+fn arm_ok(t: &mut Tally) { t.chk = t.chk + 1i64; }
+
+fn checks(t: &mut Tally) -> i32 {
+    // ══ §1. DEFECT — A FIELD THE FOLD DOES NOT READ IS NOT PART OF IDENTITY ══
+    // Insert (1, 5, "y"). Retract (1, 5, "x"): a row that was NEVER inserted,
+    // differing only in `nm`. The footprint (1, 5) matches, so this is ACCEPTED.
+    //
+    // ⚠ GREEN AND WRONG, DELIBERATELY. The `Ok` below is the defect. What makes
+    // it defensible rather than merely broken is the assertion after it: the
+    // handle's state is exactly what a CORRECT retraction of (1,5,"y") would
+    // leave, because `nm` reaches no cell. A future surface that policies whole
+    // rows turns this arm into `Err(RetractAbsent)` and must edit this block.
+    let mut h1: SumqIncr = sumq_incremental();
+    let i1: [S; 1] = [S { g: 1i64, v: 5i64, nm: "y" }];
+    match sumq_epoch(&mut h1, &i1) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let r1: [S; 1] = [S { g: 1i64, v: 5i64, nm: "x" }];
+    match sumq_retract(&mut h1, &r1) {
+        Result::Ok(_n)  => { arm_ok(t); }     // ⚠ THE DEFECT, PINNED
+        Result::Err(_e) => { println!("§1: the sensor grew whole-row identity — this file's defect 1 is CLOSED, retire the block"); return 21i32; }
+    }
+    let v1: Vec<(i64, i64)> = match sumq_snapshot(&h1) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    t.rows = t.rows + v1.len();
+    // …and the group is empty, exactly as a correct retraction would leave it.
+    if bad(t, v1.len() != 0i64) { println!("§1: rows {}", v1.len()); return 22i32; }
+
+    // ══ §1b. THE CONTROL — THE FIELDS IT DOES READ ARE POLICED ═══════════════
+    // A sensor that accepts everything would pass §1 while destroying the
+    // capability. Same insert, retract a row differing in `v`, which the `sum`
+    // DOES read: refused, by name.
+    let mut h2: SumqIncr = sumq_incremental();
+    match sumq_epoch(&mut h2, &i1) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    let r2: [S; 1] = [S { g: 1i64, v: 6i64, nm: "y" }];
+    match sumq_retract(&mut h2, &r2) {
+        Result::Ok(_n)  => { println!("§1b: retracting a value never inserted was ACCEPTED"); return 23i32; }
+        Result::Err(e2) => {
+            match e2 {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("§1b WRONG ARM: Underflow");  return 23i32; }
+                ElError::Overflow   => { println!("§1b WRONG ARM: Overflow");   return 23i32; }
+                ElError::DivByZero  => { println!("§1b WRONG ARM: DivByZero");  return 23i32; }
+                ElError::SrcUnknown => { println!("§1b WRONG ARM: SrcUnknown"); return 23i32; }
+            }
+        }
+    }
+    let v2: Vec<(i64, i64)> = match sumq_snapshot(&h2) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    t.rows = t.rows + v2.len();
+    if bad(t, v2.len() != 1i64)      { println!("§1b: rows {}", v2.len());        return 24i32; }
+    if bad(t, v2.get(0i64).1 != 5i64) { println!("§1b: sum {}", v2.get(0i64).1); return 24i32; }
+
+    // ══ §2. DEFECT — `count`-ONLY HAS AN EMPTY ARGUMENT LIST ═════════════════
+    // Its footprint is the KEY alone, so every row of a group is the same
+    // footprint and the sensor is the group-count guard again. Insert (1,10,"a")
+    // and (1,5,"b"); retract (1,999,"z"), a row that shares nothing with either.
+    // ACCEPTED, and the count falls 2 → 1.
+    //
+    // ⚠ AND THIS IS THE ONE PLACE THE HANDLE GENUINELY DISAGREES WITH THE BATCH
+    // FN OVER THE TRUE SURVIVING MULTISET, which is the sharpest statement of
+    // the defect available: nothing was actually removed, so `<q>()` over both
+    // rows says 2, and the handle says 1.
+    let mut h3: CntqIncr = cntq_incremental();
+    let i3: [S; 2] = [S { g: 1i64, v: 10i64, nm: "a" }, S { g: 1i64, v: 5i64, nm: "b" }];
+    match cntq_epoch(&mut h3, &i3) { Result::Ok(_n) => {} Result::Err(_e) => { return 2i32; } }
+    let r3: [S; 1] = [S { g: 1i64, v: 999i64, nm: "z" }];
+    match cntq_retract(&mut h3, &r3) {
+        Result::Ok(_n)  => { arm_ok(t); }     // ⚠ THE DEFECT, PINNED
+        Result::Err(_e) => { println!("§2: a count-only query grew a value sensor — defect 2 is CLOSED, retire the block"); return 25i32; }
+    }
+    let v3: Vec<(i64, i64)> = match cntq_snapshot(&h3) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    t.rows = t.rows + v3.len();
+    if bad(t, v3.len() != 1i64)       { println!("§2: rows {}", v3.len());        return 26i32; }
+    if bad(t, v3.get(0i64).1 != 1i64) { println!("§2: count {}", v3.get(0i64).1); return 26i32; }
+    // …and the batch fn over the TRUE surviving multiset — both rows, since
+    // nothing was really retracted — says 2. The disagreement IS the defect.
+    let b3: Vec<(i64, i64)> = match cntq(&i3) { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    t.rows = t.rows + b3.len();
+    if bad(t, b3.get(0i64).1 != 2i64) { println!("§2: batch count {}", b3.get(0i64).1); return 27i32; }
+    if bad(t, b3.get(0i64).1 == v3.get(0i64).1) { println!("§2: handle and batch AGREE — defect 2 is CLOSED, retire the block"); return 27i32; }
+
+    // ══ §3. DEFECT — `_apply` IS NOT TRANSACTIONAL ACROSS A MULTI-ROW DELTA ══
+    // Insert (1,10,"a") and (1,5,"b") → the group holds 15. Now retract a TWO-ROW
+    // delta whose FIRST row is legitimate (1,10) and whose SECOND was never
+    // inserted (1,999). The call returns `Err(RetractAbsent)` — and the first
+    // row has already been folded and integrated, so the handle reads 5, not 15.
+    //
+    // ⚠ THAT IS THE DECIDED CONTRACT, NOT AN ACCIDENT, AND IT IS ASSERTED HERE
+    // RATHER THAN DOCUMENTED: a REFUSED ROW is atomic, an `_apply` CALL is not.
+    // The 5 below is what a caller who ignores the `Err` will read. A slice that
+    // makes the call atomic changes this one number to 15 and this comment
+    // with it.
+    let mut h4: SumqIncr = sumq_incremental();
+    match sumq_epoch(&mut h4, &i3) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
+    let r4: [S; 2] = [S { g: 1i64, v: 10i64, nm: "a" }, S { g: 1i64, v: 999i64, nm: "z" }];
+    match sumq_retract(&mut h4, &r4) {
+        Result::Ok(_n)  => { println!("§3: a delta containing a never-inserted row was ACCEPTED"); return 28i32; }
+        Result::Err(e4) => {
+            match e4 {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("§3 WRONG ARM: Underflow");  return 28i32; }
+                ElError::Overflow   => { println!("§3 WRONG ARM: Overflow");   return 28i32; }
+                ElError::DivByZero  => { println!("§3 WRONG ARM: DivByZero");  return 28i32; }
+                ElError::SrcUnknown => { println!("§3 WRONG ARM: SrcUnknown"); return 28i32; }
+            }
+        }
+    }
+    let v4: Vec<(i64, i64)> = match sumq_snapshot(&h4) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    t.rows = t.rows + v4.len();
+    if bad(t, v4.len() != 1i64) { println!("§3: rows {}", v4.len()); return 29i32; }
+    // ⚠ 5, NOT 15. The earlier row of the same delta is folded and stays folded.
+    if bad(t, v4.get(0i64).1 != 5i64) { println!("§3: sum after a partly-refused delta {}", v4.get(0i64).1); return 29i32; }
+
+    // ══ §4. A MULTI-COMPONENT FOOTPRINT, AND THE KEY HALF OF IT ══════════════
+    // NOT a defect: this section exists because no other query on the retracting
+    // path has both a `count` (which contributes NO footprint component) and a
+    // `sum` over an EXPRESSION (which contributes the expression's value). Insert
+    // (g=1,v=5) and (g=2,v=5) — two DIFFERENT groups whose rows agree on `v` and
+    // therefore on every argument component, so a footprint that dropped the KEY
+    // would merge them. Then:
+    //   (a) retract (1,5): legal, group 1 empties;
+    //   (b) retract (1,5) again: refused — and THIS is what asserts the key is
+    //       part of the identity, because group 2 still holds a row with an
+    //       identical argument component and must not answer for group 1.
+    let mut h5: TwoqIncr = twoq_incremental();
+    let i5: [S; 2] = [S { g: 1i64, v: 5i64, nm: "a" }, S { g: 2i64, v: 5i64, nm: "b" }];
+    match twoq_epoch(&mut h5, &i5) { Result::Ok(_n) => {} Result::Err(_e) => { return 4i32; } }
+    let v5: Vec<(i64, i64, i64)> = match twoq_snapshot(&h5) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    t.rows = t.rows + v5.len();
+    if bad(t, v5.len() != 2i64) { println!("§4: rows {}", v5.len()); return 30i32; }
+    // the ARGUMENT is `r.v * 2`, so the stored footprint component is 10, not 5
+    if bad(t, v5.get(0i64).2 != 10i64) { println!("§4: sum {}", v5.get(0i64).2); return 30i32; }
+    let r5: [S; 1] = [S { g: 1i64, v: 5i64, nm: "z" }];
+    match twoq_retract(&mut h5, &r5) {
+        Result::Ok(_n)  => { arm_ok(t); }
+        Result::Err(_e) => { println!("§4a: a LEGAL retraction was refused under a multi-component footprint"); return 31i32; }
+    }
+    match twoq_retract(&mut h5, &r5) {
+        Result::Ok(_n)  => { println!("§4b: the SECOND retraction was accepted — the KEY is not part of the footprint identity"); return 32i32; }
+        Result::Err(e5b) => {
+            match e5b {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("§4b WRONG ARM: Underflow");  return 32i32; }
+                ElError::Overflow   => { println!("§4b WRONG ARM: Overflow");   return 32i32; }
+                ElError::DivByZero  => { println!("§4b WRONG ARM: DivByZero");  return 32i32; }
+                ElError::SrcUnknown => { println!("§4b WRONG ARM: SrcUnknown"); return 32i32; }
+            }
+        }
+    }
+    // …and group 2 — same `v`, same argument component, different key — is
+    // untouched, which is the other half of "the key is part of the identity".
+    let w5: Vec<(i64, i64, i64)> = match twoq_snapshot(&h5) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    t.rows = t.rows + w5.len();
+    if bad(t, w5.len() != 1i64)        { println!("§4: rows after {}", w5.len());           return 33i32; }
+    if bad(t, w5.get(0i64).0 != 2i64)  { println!("§4: surviving key {}", w5.get(0i64).0);  return 33i32; }
+    if bad(t, w5.get(0i64).2 != 10i64) { println!("§4: surviving sum {}", w5.get(0i64).2);  return 33i32; }
+
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut t: Tally = Tally { chk: 0i64, rows: 0i64 };
+    let r: i32 = checks(&mut t);
+    if r != 0i32 { return r; }
+    println!("footprint residue ok chk={} rows={}", t.chk, t.rows);
+    return 0i32;
+}

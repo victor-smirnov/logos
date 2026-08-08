@@ -131,7 +131,14 @@
 //     A 13-28 · A6 29-39 · B 40-53 · C 54-57 · D 58-64 · E 65-68 · F 69-72
 //     G 73-76 · G2 77-83 · H 84-91 · (ii) 92-102 · (iii) 103-117
 //     the `SrcUnknown` arms of E/F/G/G2, appended: 118-121
-// One code, one assertion.
+//     G2's transactionality pair 122 · G3 123 (arms) and 124 (state)
+// One code, one assertion — WITH THE 2026-08-08 EXCEPTION THIS HEADER ITSELF
+// PREDICTED: 122, 123 and 124 each carry SEVERAL assertions and separate them on
+// STDOUT via `println!`, because those are the last three numbers under the
+// ceiling and the alternative was renumbering 121 codes. Block E's 66/67/68 were
+// re-cut at the same time (E changed arm — see the block) and 66 likewise names
+// itself. A reader chasing a failure code in that band reads the printed line,
+// not the number alone.
 // ⚠ WITH ONE GAP, NAMED RATHER THAN LEFT FOR A READER TO FIND: **7 IS RESERVED
 // AND NEVER EMITTED.** It is block F's plumbing slot, and F has no plumbing —
 // its only call is the `iq_retract` that IS the assertion, so there is no
@@ -163,7 +170,7 @@
 // exits 0 and nothing moves. `deem_incr_diff_harness` had already solved this
 // (`spine ok ep=5 cmp=20 cells=300`, pinned) and this file had not.
 // It does now: `main` prints
-//     retract ok chk=93 rows=25
+//     retract ok chk=106 rows=28
 // on the success path and `.expected` pins that line. Both numbers are DERIVED —
 // `chk` is bumped inside `bad`, the chokepoint all 89 predicates below pass
 // through, plus `arm_ok` in the four refusal blocks' accepting arm; `rows`
@@ -251,6 +258,15 @@ pub deem sq(src: &[U]) { from src s
       aggregate c = count(), t = sum(s.v)
       select (key, c, t) }
 
+// G3b. THE MINIMUM SHAPE THAT CAN STILL HOLD A WRONG NUMBER: one `sum`, no
+// `count`, no `min`/`max` — so the handle carries the group key, the group count
+// and ONE accumulator, and no value-level state whatsoever. This is the query
+// the 2026-08-08 defect was reported on.
+pub deem tq(src: &[I]) { from src s
+      group by s.k
+      aggregate t = sum(s.v)
+      select (key, t) }
+
 fn u1(k: i64, v: u64) -> [U; 1] { return [U { k: k, v: v }]; }
 fn i1(k: i64, v: i64) -> [I; 1] { return [I { k: k, v: v }]; }
 fn f1(k: i64, v: f64) -> [F; 1] { return [F { k: k, v: v }]; }
@@ -270,8 +286,15 @@ fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
 // before a single assertion runs; and `main` checks the value `assertions()`
 // ACTUALLY returns against it, so a block appended after (iii) that marches
 // past 117 is caught on the number rather than on the declaration.
-fn TOP_CODE()     -> i32 { return 121i32; }
-// 122..124 are headroom; 125 is the guard; 126/127/128+N belong to the shell.
+// ⚠ 121 → 124 ON 2026-08-08, AND THE HEADROOM IS NOW GONE — SAY SO RATHER THAN
+// LEAVE IT TO BE DISCOVERED. G2's two transactionality assertions took 122, G3's
+// refusal arms took 123 and G3's state assertions took 124, each sharing its
+// code with a `println!` that names which one fired. That is the PARAMETER
+// CHANNEL the exit-code header above predicted would be forced, and it is
+// forced: the next assertion added to this file has no number left and must
+// either share one of 122/123/124 or the file must be split.
+fn TOP_CODE()     -> i32 { return 124i32; }
+// 125 is the guard; 126/127/128+N belong to the shell.
 // ⚠ MERGE RESOLUTION 2026-08-07, and it was PROVEN LIVE rather than assumed:
 // P3 appended the four `SrcUnknown` arms at 118-121 while this guard arrived
 // from a sibling commit pre-set to TOP_CODE 117 / EXIT_MAX 120. The merge was
@@ -307,12 +330,16 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 // difference between "an assertion was dropped" and "a call to the mechanism was
 // dropped", and one number cannot tell them apart.
 //
-// PINNED: `retract ok chk=93 rows=25`. 93 = 89 `if` predicates + 4 refusal
-// blocks (E, F, G, G2); 25 = the rows the 21 snapshots, 3 batch recomputes and 3
+// PINNED: `retract ok chk=106 rows=28`. 106 = 98 `if` predicates + 8 accepting
+// arms taken through `arm_ok` (E's refusal, E2's `el_subu` borrow, F, G, G2, G3,
+// G3b, G3c); 28 = the rows the 24 snapshots, 3 batch recomputes and 3
 // interpreter snapshots handed back — `assertions` has no loop, so each site
 // runs exactly once and the census is a fixed number. HAND-DERIVED FIRST AND
 // MEASURED SECOND, and they agreed; a disagreement would have been evidence
 // about the code, not a licence to write down whatever printed.
+// (2026-08-08: 93/25 → 106/28. +13 checks and +3 snapshots from block E's
+// re-sited `el_subu` witness, G2's two transactionality cells and the three G3
+// blocks. Hand-derived to 106/28 before the run, and the run agreed.)
 //
 // ⚠ WHAT THIS DOES NOT COVER, NAMED AT THE MECHANISM RATHER THAN LEFT TO BE
 // FOUND: a census sees an assertion that stops RUNNING, not one that stops
@@ -554,13 +581,40 @@ fn assertions(t: &mut Tally) -> i32 {
     if bad(t, f64_to_bits(d2.get(0i64).2) != 0x3FF0000000000000u64) { return 63i32; }
     if bad(t, f64_to_bits(d2.get(0i64).1) != 0x0000000000000000u64) { return 64i32; }
 
-    // ══ E. A u64 SUM DRIVEN BELOW ZERO ERRS, AND SAYS *UNDERFLOW* ═════════
-    // ⚠ THE CONSTRUCTION KEEPS THE GROUP COUNT LEGAL ON PURPOSE. `<q>_apply`
-    // guards the group's multiplicity BEFORE it runs any fold, so the obvious
-    // "insert once, retract twice" never reaches `el_subu` at all — it returns
-    // at the count guard and the arithmetic witness evaporates while the test
-    // stays green. Insert 1 TWICE (count 2, total 2) and retract ONE row
-    // carrying 5: count 2 → 1 is legal, 2 − 5 in u64 is the borrow.
+    // ══ E. RETRACTING A VALUE THIS GROUP NEVER HELD, WITH NO VALUE MAP ═══════
+    //
+    // ⚠⚠ THIS BLOCK CHANGED ARM ON 2026-08-08, AND THE WITNESS IT USED TO CARRY
+    // IS PROVABLY GONE RATHER THAN MERELY MOVED. It read "a u64 SUM DRIVEN BELOW
+    // ZERO ERRS, AND SAYS *UNDERFLOW*": insert 1 TWICE (count 2, total 2) and
+    // retract ONE row carrying 5 — the count 2 → 1 stays legal, so the group
+    // guard does not fire, and 2 − 5 in u64 was `el_subu`'s borrow.
+    //
+    // `<q>_apply` now carries a FOOTPRINT sensor on the bare scan (see
+    // `emit_incremental`): the handle keeps the (key, aggregate-argument) tuples
+    // it has actually been handed, in Z-set normal form, and REFUSES a
+    // retraction of a footprint it does not hold before any fold runs. `(0,5)`
+    // was never inserted, so this call is now `RetractAbsent` — and that is the
+    // RIGHT answer for this input: it names the caller's mistake instead of
+    // reporting a borrow that only happened because the mistake went undetected.
+    //
+    // ⚠ AND `el_subu`'s UNDERFLOW IS NOW UNREACHABLE THROUGH `<q>_retract` AT
+    // ALL — this is a PROOF, not an observation, because "no test reaches it"
+    // and "nothing can reach it" are different claims and only the second
+    // licenses retiring a witness. Every stored weight is ≥ 0 (normal form), so
+    // a group's u64 total is Σ_f w_f·v_f over the footprints it holds. A
+    // retraction is admitted only for a footprint f with |w| ≤ w_f, and it
+    // subtracts |w|·v_f ≤ w_f·v_f ≤ total. The subtrahend is bounded by a single
+    // term of the sum it is subtracted from, so the borrow cannot occur.
+    // (`__s0w` can only LAG the accumulators — the integration runs after the
+    // fold and the row returns at the first fault — and lagging over-refuses,
+    // which is the safe direction.)
+    //
+    // SO THE ARITHMETIC WITNESS IS RE-SITED AT ITS OWN SEAM, DIRECTLY, BELOW.
+    // `el_subu` had exactly two witnesses in the whole corpus — this block and
+    // `wql_incr_retract_three_ways` F2 — and both were routes that can no longer
+    // reach it. Deleting them would have left a guard against a u64 wrap (or, as
+    // that fixture measured, an "Illegal instruction") with nothing asserting it
+    // at all.
     let mut hs: SqIncr = sq_incremental();
     let se: [U; 2] = [U { k: 0i64, v: 1u64 }, U { k: 0i64, v: 1u64 }];
     match sq_epoch(&mut hs, &se) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
@@ -569,13 +623,14 @@ fn assertions(t: &mut Tally) -> i32 {
         Result::Ok(_n)  => { return 65i32; }   // a wrap to ≈2^64 would land here
         Result::Err(e1) => {
             match e1 {
-                ElError::Underflow => { arm_ok(t); }
-                // The count guard firing here means the construction above
-                // stopped isolating the arithmetic — the defect this block was
-                // rebuilt to avoid.
-                ElError::RetractAbsent => { return 66i32; }
-                ElError::Overflow      => { return 67i32; }
-                ElError::DivByZero     => { return 68i32; }
+                ElError::RetractAbsent => { arm_ok(t); }
+                // `Underflow` here means the footprint sensor was removed and
+                // `el_subu` caught the same call instead — a DIFFERENT fact
+                // reported for the same input, and the exact shape of the
+                // regression this block now guards.
+                ElError::Underflow => { println!("E WRONG ARM: Underflow — the footprint sensor is gone and el_subu caught the same call"); return 66i32; }
+                ElError::Overflow  => { println!("E WRONG ARM: Overflow");  return 66i32; }
+                ElError::DivByZero => { println!("E WRONG ARM: DivByZero"); return 66i32; }
                 // ⚠ REACHED ONLY IF THE DISPATCH STOPS READING ITS OWN TAG. This
                 // call goes through `<q>_retract`, which writes the LITERAL
                 // `0i32`, so a `SrcUnknown` here says the emitted `__src` arm
@@ -583,6 +638,25 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::SrcUnknown    => { return 118i32; }
             }
         }
+    }
+    // …and `el_subu`'s borrow, asserted where it lives. 2 − 5 over u64.
+    match el_subu(2u64, 5u64) {
+        Result::Ok(_v)  => { return 67i32; }
+        Result::Err(e1b) => {
+            match e1b {
+                ElError::Underflow     => { arm_ok(t); }
+                ElError::RetractAbsent => { println!("E2 WRONG ARM: RetractAbsent"); return 68i32; }
+                ElError::Overflow      => { println!("E2 WRONG ARM: Overflow");      return 68i32; }
+                ElError::DivByZero     => { println!("E2 WRONG ARM: DivByZero");     return 68i32; }
+                ElError::SrcUnknown    => { println!("E2 WRONG ARM: SrcUnknown");    return 68i32; }
+            }
+        }
+    }
+    // …and the ADJACENT legal call, because a guard that refuses everything is
+    // not a guard: 5 − 2 must still be 3.
+    match el_subu(5u64, 2u64) {
+        Result::Ok(v1b)  => { if bad(t, v1b != 3u64) { println!("E2: el_subu(5,2) = {}", v1b); return 68i32; } }
+        Result::Err(_e1c) => { println!("E2: el_subu(5,2) refused a legal subtraction"); return 68i32; }
     }
 
     // ══ F. RETRACTING INTO A GROUP THAT NEVER EXISTED ERRS ════════════════
@@ -659,6 +733,122 @@ fn assertions(t: &mut Tally) -> i32 {
     if bad(t, vv.len() != 1i64) { return 81i32; }
     if bad(t, vv.get(0i64).3 != 3i64) { return 82i32; }   // lo untouched by the refusal
     if bad(t, vv.get(0i64).4 != 3i64) { return 83i32; }   // hi likewise
+    // ⚠⚠ THE TWO CELLS THAT ACTUALLY MOVED, AND THEY HAD NO ASSERTION UNTIL
+    // 2026-08-08. `lo`/`hi` above belong to the aggregate whose OWN guard
+    // refused, so they were never going to move whatever the code did — an
+    // assertion about a value the callee would leave alone anyway. The cells the
+    // refusal used to CORRUPT are the ones declared BEFORE the `min`, because
+    // `#folds` is spliced in AGGREGATE DECLARATION ORDER and the map's guard
+    // lives inside the min's own fold element rather than beside the group
+    // guards. MEASURED at 360b2761 on exactly this input: the refusal returned
+    // `Err(RetractAbsent)` and left c = 1 and t = −2 (6 + (−1)·8) — an `Err` on
+    // top of a group holding a total no input produces. That is the
+    // "non-transactional `_apply`" half of the contract in `emit_incremental`'s
+    // header, DOCUMENTED since P2 and never once asserted where it is
+    // observable, which is why it survived.
+    //
+    // THE DECISION, stated here because this is where a reader meets it:
+    // `_apply` stays NON-transactional across a multi-row delta and across a
+    // fault raised inside a fold, and it becomes atomic PER DELTA ROW — a row
+    // that is REFUSED leaves the handle exactly as it was. So these two cells
+    // are now pinned at their pre-call values, and a future slice that makes
+    // `_apply` atomic in the wider sense STRENGTHENS this and moves nothing.
+    // ⚠ THE PARAMETER CHANNEL, NOT TWO NEW CODES, AND THE HEADER ALREADY SAID
+    // WHY: 122/123/124 are the only free numbers under the ceiling, so these
+    // share 122 and name themselves on stdout.
+    if bad(t, vv.get(0i64).1 != 2i64) { println!("G2: COUNT moved under a refused retract: {}", vv.get(0i64).1); return 122i32; }
+    if bad(t, vv.get(0i64).2 != 6i64) { println!("G2: SUM moved under a refused retract: {}", vv.get(0i64).2); return 122i32; }
+
+    // ══ G3. THE SHIPPING DEFECT: A HANDLE WITH NO VALUE-LEVEL STATE AT ALL ═══
+    //
+    // ⚠⚠ EVERY BLOCK ABOVE THAT REFUSES A NEVER-INSERTED VALUE USES `iq`, WHICH
+    // CARRIES A `min` — AND THE `min` IS WHY THEY WORKED. `want_map` builds a
+    // value→multiplicity map for a retract-eligible `min`/`max` and for nothing
+    // else, so F, G and G2 all lean on the ONE value-level sensor in the handle.
+    // Take it away and the surface had no sensor at all. MEASURED at 360b2761,
+    // and the two shapes below fail DIFFERENTLY, which is why both are here:
+    //
+    //   · G3b, `tq` (i64 `sum`): insert (1,10) and (1,5) → the group reads 15;
+    //     retract (1,999), never inserted → **Ok(1)**, and the total reads −984.
+    //     No error, no name, a public fn returning success on a live handle
+    //     holding a number no input produces.
+    //   · G3, `sq` (u64 `count` + `sum`): the same input → **Err(Underflow)**,
+    //     with the group COUNT already dropped 2 → 1 and the total left at 15.
+    //     So this shape does not return `Ok` — it reports the wrong fact (an
+    //     arithmetic borrow, when the caller retracted what was never inserted)
+    //     and still leaves the handle mutated behind an `Err`. `u64` is the only
+    //     reason it is not silent, which is luck rather than a sensor.
+    //
+    // Nothing fired in either case because the group count went 2 → 1, which is
+    // LEGAL, so the group guard is silent, and a `sum`-only or `count`+`sum`
+    // query has no second sensor to be silent.
+    //
+    // ⚠ THE SEEDING IS THE POINT AND IT IS NOT DECORATION. Two rows are inserted
+    // FIRST so that a real fold has happened and the group holds 15 before the
+    // bad retraction arrives — a handle that refuses cheaply, before doing any
+    // work, looks exactly like one that refuses correctly, and 15 is a value no
+    // cheap refusal can produce. `sq` is the one query in this file with an
+    // aggregate list and NO `min`/`max`; `tq` below is the same statement
+    // stripped further, a single `sum` and not even a `count`.
+    let mut hs3: SqIncr = sq_incremental();
+    let s3: [U; 2] = [U { k: 1i64, v: 10u64 }, U { k: 1i64, v: 5u64 }];
+    match sq_epoch(&mut hs3, &s3) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
+    let s3r: [U; 1] = u1(1i64, 999u64);
+    match sq_retract(&mut hs3, &s3r) {
+        Result::Ok(_n) => { println!("G3: sq_retract of a NEVER-INSERTED row returned Ok"); return 123i32; }
+        Result::Err(e5) => {
+            match e5 {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("G3 WRONG ARM: Underflow");  return 123i32; }
+                ElError::Overflow   => { println!("G3 WRONG ARM: Overflow");   return 123i32; }
+                ElError::DivByZero  => { println!("G3 WRONG ARM: DivByZero");  return 123i32; }
+                ElError::SrcUnknown => { println!("G3 WRONG ARM: SrcUnknown"); return 123i32; }
+            }
+        }
+    }
+    let s3v: Vec<(i64, i64, u64)> = match sq_snapshot(&hs3) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    t.rows = t.rows + s3v.len();
+    if bad(t, s3v.len() != 1i64)         { println!("G3: rows {}", s3v.len());          return 124i32; }
+    if bad(t, s3v.get(0i64).1 != 2i64)   { println!("G3: sq COUNT {}", s3v.get(0i64).1); return 124i32; }
+    if bad(t, s3v.get(0i64).2 != 15u64)  { println!("G3: sq SUM {}", s3v.get(0i64).2);   return 124i32; }
+
+    // G3b. THE SAME STATEMENT AT ITS MINIMUM — one `sum`, over i64, and nothing
+    // else on the handle but the group key and the group count. This is the
+    // brief's own repro, verbatim: it is the shape with the fewest cells that
+    // can still hold a wrong number, and at 360b2761 it answered `Ok(1)` and
+    // then read −984.
+    let mut ht3: TqIncr = tq_incremental();
+    let t3: [I; 2] = [I { k: 1i64, v: 10i64 }, I { k: 1i64, v: 5i64 }];
+    match tq_epoch(&mut ht3, &t3) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
+    let t3r: [I; 1] = i1(1i64, 999i64);
+    match tq_retract(&mut ht3, &t3r) {
+        Result::Ok(_n) => { println!("G3b: tq_retract of a NEVER-INSERTED row returned Ok"); return 123i32; }
+        Result::Err(e6) => {
+            match e6 {
+                ElError::RetractAbsent => { arm_ok(t); }
+                ElError::Underflow  => { println!("G3b WRONG ARM: Underflow");  return 123i32; }
+                ElError::Overflow   => { println!("G3b WRONG ARM: Overflow");   return 123i32; }
+                ElError::DivByZero  => { println!("G3b WRONG ARM: DivByZero");  return 123i32; }
+                ElError::SrcUnknown => { println!("G3b WRONG ARM: SrcUnknown"); return 123i32; }
+            }
+        }
+    }
+    let t3v: Vec<(i64, i64)> = match tq_snapshot(&ht3) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    t.rows = t.rows + t3v.len();
+    if bad(t, t3v.len() != 1i64)       { println!("G3b: rows {}", t3v.len());          return 124i32; }
+    if bad(t, t3v.get(0i64).1 != 15i64) { println!("G3b: tq SUM {}", t3v.get(0i64).1); return 124i32; }
+
+    // G3c. AND THE CONTROL, because a sensor that refuses EVERYTHING refuses
+    // correctly on every input above while destroying the capability. Retract a
+    // row that WAS inserted: it must succeed and the total must fall to 10.
+    let t3ok: [I; 1] = i1(1i64, 5i64);
+    match tq_retract(&mut ht3, &t3ok) {
+        Result::Ok(_n)  => { arm_ok(t); }
+        Result::Err(_e) => { println!("G3c: the footprint sensor refused a retraction of a row that WAS inserted"); return 124i32; }
+    }
+    let t3w: Vec<(i64, i64)> = match tq_snapshot(&ht3) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    t.rows = t.rows + t3w.len();
+    if bad(t, t3w.get(0i64).1 != 10i64) { println!("G3c: tq SUM after a LEGAL retract {}", t3w.get(0i64).1); return 124i32; }
 
     // ══ H. GROUP ORDER AFTER A GROUP EMPTIES AND COMES BACK ═══════════════
     // ⚠ AN OPEN SURFACE QUESTION, PINNED AS MEASURED RATHER THAN DECIDED.

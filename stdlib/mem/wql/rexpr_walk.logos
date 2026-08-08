@@ -4679,6 +4679,123 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         }
     }
     let joined: bool = ch.n == 1i64;
+    // ══ THE BARE SCAN'S RETRACT SENSOR, AND WHY IT IS NOT THE JOIN'S ═════════
+    //
+    // ⚠⚠ THIS CLOSES A SHIPPING SILENT WRONG ANSWER, MEASURED ON 360b2761 AND
+    // REPRODUCED HERE BEFORE ANYTHING WAS EDITED:
+    //
+    //     pub deem sums(rs: &[R]) { from rs r group by r.g
+    //                               aggregate s = sum(r.v) select (key, s) }
+    //     insert (1,10) and (1,5)  → the group reads 15
+    //     sums_retract(&mut h, [(1,999)])  → **Ok(1)**, and the group reads −984
+    //
+    // A public fn returned a number no input produces, on a live handle, and
+    // said it succeeded. The reason NO sensor fired is structural rather than an
+    // oversight, and it is worth naming because it is what decides the shape of
+    // the fix: `core`'s guard 1 catches a key never seen and guard 2 catches a
+    // group's ROW COUNT driven below zero — the count here goes 2 → 1, which is
+    // LEGAL — and the only VALUE-level sensor in the whole handle is the
+    // multiplicity map, which `want_map` builds for a `min`/`max` and for
+    // nothing else. A sum-only or count-only handle carries no state that can
+    // see "this row was never here". Adding `min(r.v)` to the same query does
+    // return `Err(RetractAbsent)` — from guard 3, at line ~4982, which is NOT a
+    // peer of guards 1 and 2: it lives INSIDE one element of `#folds`, and
+    // `#folds` is spliced in AGGREGATE DECLARATION ORDER, so the `sum` declared
+    // before it has already committed −984 by the time it speaks.
+    //
+    // ── WHAT IS STORED, AND WHY IT IS *NOT* THE ROW ─────────────────────────
+    // The join arm stores whole ROWS (`__s0`), and lifting that verbatim was the
+    // first plan. It does not survive contact with the corpus: row storage drags
+    // `incr_row_ty_ok` with it — the clause that refuses a `str` field (the
+    // handle would hold a view of source bytes it does not own) and an `f64`
+    // field (`==` is not identity) — and MEASURED over `tests/logos/pass`, that
+    // clause refuses `wql_incr_eligibility_matrix.ok_basic` (its row carries
+    // `nm: str`) and `deem_incr_diff_harness.q5_icnt` (its row carries
+    // `xf: f64`), BOTH of which call `<q>_retract` today. Lifting it would have
+    // deleted a capability two green fixtures exercise.
+    //
+    // So what is stored is the FOLD'S FOOTPRINT: the group KEY, followed by
+    // every aggregate ARGUMENT. That is not a compromise, it is the exact set
+    // the bare-scan fold READS from a delta row — `core` computes `__k` from
+    // `key_body` and each `#folds` element from its `iarg`, and eligibility has
+    // already barred `where`, `order by`, `limit` and any `select` reaching a
+    // source row, so nothing else of the row can reach the handle. Two rows
+    // agreeing on the footprint are therefore INDISTINGUISHABLE to this handle:
+    // folding one and retracting the other leaves it in exactly the state a
+    // correct retraction would.
+    //
+    // ⚠ AND THAT IS ALSO EXACTLY WHAT IT DOES **NOT** CATCH, stated where a
+    // caller hits it rather than left to be found. Identity is up to the fields
+    // the fold reads, so on `struct S { g, v, nm: str }` grouped by `g` and
+    // summing `v`, retracting `(1, 5, "x")` when only `(1, 5, "y")` was inserted
+    // is ACCEPTED. The handle's answers are unmoved by the difference, so no
+    // observation of it can disagree — but a caller who believes `_retract`
+    // policies whole-row provenance is wrong, and the corpus pins this as a
+    // DEFECT rather than as a property (`wql_incr_retract_footprint_identity`).
+    // A count-only query has an EMPTY argument list, so its footprint is the key
+    // alone and its sensor degenerates into guard 2; that is the same statement
+    // at its limit (a `count` reads nothing but presence) and is pinned there.
+    //
+    // ⚠ THE FLOAT COMPONENT IS KEYED ON `f64_to_bits`, WHICH IS NOT A NEW
+    // DECISION — it is the SAME function the multiplicity map beside it already
+    // keys on (see `kv_e`, below), for the same reason: `f64_to_bits` is
+    // injective, so it is identity, while `f64_data_key` collapses both zeros
+    // and every NaN. When Victor's scheduled f64/f32 KEY task lands (all zeros
+    // one element, all NaNs one element) it must move BOTH — this line and
+    // `kv_e` — and that is why it is spelled the same way here.
+    // A float can also reach the footprint through the group KEY, where the
+    // comparison is `keyt_f`'s own `==`; that is not this clause's choice
+    // either, it is the identical relation `core`'s `__gk` scan has always used
+    // to find a group, inherited unchanged so the two cannot disagree.
+    //
+    // ⚠ GATED ON `retr`, NOT EMITTED UNCONDITIONALLY. The join arm's `__s0` is
+    // the JOIN's state and is needed whatever the surface; this one is a
+    // RETRACTION sensor and an insert-only query must not pay a scan and a Vec
+    // for a capability it does not have. That is the opposite of the mistake
+    // `want_map`'s note above records (a map built from ELIGIBILITY and paid for
+    // by insert-only callers) only because `retr` IS the surface here: a query
+    // that cannot retract cannot reach the refusal.
+    let sens: bool = retr && !joined;
+    // `(KeyTy, A0, A1, …)` and `((key_body), (arg0), (arg1), …)` — ONE walk
+    // writes both, so a component whose type is declared here can never be
+    // missing from the value, which is the `accw`/`compute_acc_tys` antipattern
+    // this file already carries two warnings about.
+    let mut fpty: String = String::new();
+    let mut fpex: String = String::new();
+    if sens {
+        fpty.push_str("(");
+        fpty.push_str(key_ty);
+        fpex.push_str("((");
+        fpex.push_str(key_body);
+        fpex.push_str(")");
+        let mut fi: i64 = 0i64;
+        while fi < acount {
+            // `count()` HAS NO ARGUMENT — `compute_agg_bodies` leaves `iarg`
+            // EMPTY for it, so this is not an optimisation, it is the only
+            // spelling that parses.
+            if agg_of_name(aggs.agg_at(fi).fn_name) != AGG_COUNT() {
+                fpty.push_str(", ");
+                fpex.push_str(", ");
+                if agg_flt[fi] {
+                    // Reachable only through `min`/`max`: a float `sum` and
+                    // every `avg` lost the retracting surface to D4, so no other
+                    // aggregate can present a float argument on this path.
+                    fpty.push_str("u64");
+                    fpex.push_str("f64_to_bits(");
+                    fpex.push_str(string_as_str(&iarg[fi]));
+                    fpex.push_str(")");
+                } else {
+                    fpty.push_str(acc[fi]);
+                    fpex.push_str("(");
+                    fpex.push_str(string_as_str(&iarg[fi]));
+                    fpex.push_str(")");
+                }
+            }
+            fi = fi + 1i64;
+        }
+        fpty.push_str(")");
+        fpex.push_str(")");
+    }
     if joined {
         fnames.push(Ident::new("__s0"));
         ftys.push(parse_type_of_vec(ch.base_ty));
@@ -4687,6 +4804,12 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         fnames.push(Ident::new("__s1"));
         ftys.push(parse_type_of_vec(ch.ty[0]));
         fnames.push(Ident::new("__s1w"));
+        ftys.push(parse_type_of_vec("i64"));
+    }
+    if sens {
+        fnames.push(Ident::new("__s0"));
+        ftys.push(parse_type_of_vec(string_as_str(&fpty)));
+        fnames.push(Ident::new("__s0w"));
         ftys.push(parse_type_of_vec("i64"));
     }
 
@@ -5151,6 +5274,17 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         cb.push_str(", __s1w: ");
         push_vec_new(&mut cb, "i64");
     }
+    // The bare scan's sensor, under THE SAME `sens` and THE SAME `fpty` the
+    // fields were declared from — one derivation read twice. Re-deriving the
+    // footprint type here is the `unknown field` diagnostic the `wmap` note
+    // records, with the added twist that a type that merely DIFFERED would
+    // typecheck and store a footprint the lookup can never match.
+    if sens {
+        cb.push_str(", __s0: ");
+        push_vec_new(&mut cb, string_as_str(&fpty));
+        cb.push_str(", __s0w: ");
+        push_vec_new(&mut cb, "i64");
+    }
     let mut ci: i64 = 0i64;
     while ci < acount {
         cb.push_str(", ");
@@ -5473,6 +5607,74 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 return Result::Err(ElError::SrcUnknown);
             };
         } else {
+            // ── REFUSE BEFORE FOLDING, ON THE BARE SCAN ────────────────────
+            // The SAME three-block order the join arm uses — lookup+refuse
+            // BEFORE the fold, the normal-form integration AFTER it — and the
+            // order is the fix for the second half of the measured defect, not
+            // a preference: with the refusal after `#(core)` the sum-plus-min
+            // query still answers `Err(RetractAbsent)` from guard 3 and still
+            // leaves the group reading −984, because `__gc.set` and every fold
+            // declared before the `min` have already committed. Moving it above
+            // `#(core)` puts it above guards 1 and 2 as well, so a delta ROW
+            // that is refused leaves the handle untouched.
+            //
+            // ⚠ THE NARROW CLAIM, VERBATIM FROM THE JOIN ARM BECAUSE IT IS THE
+            // SAME CLAIM: this makes a refused delta ROW leave the handle
+            // untouched. It does NOT make `<q>_apply` transactional. Earlier
+            // rows of the same multi-row delta are already folded and
+            // integrated, and an `el_add`/`el_mul` OVERFLOW raised inside a fold
+            // still leaves this row's group count moved and possibly some of its
+            // aggregates updated. That remains the contract's UNSPECIFIED, it is
+            // stated in this fn's header, and `deem_incr_static_retract_e2e`
+            // block G3 now ASSERTS the state a refusal leaves rather than
+            // documenting it — "documented and unasserted" is what let the −984
+            // survive from P2 until now.
+            //
+            // ⚠ THE PRICE, IN THE UNITS A READER WILL ASK IN: one linear scan of
+            // `__s0` per DELTA ROW, so O(|Δ| · D) with D the number of DISTINCT
+            // footprints ever presented, plus O(D) memory of (footprint, i64).
+            // Identical asymptotics to what the join arm already pays and this
+            // tree already accepted. NO ns/byte FIGURE IS QUOTED — nothing here
+            // has been weighed, and this file records what happened the last time
+            // a construction floor was written down as a footprint.
+            let mut sen0: ExprBlob = quote_block! { };
+            let mut sen1: ExprBlob = quote_block! { };
+            if sens {
+                let fpty_f: ExprBlob = parse_type(string_as_str(&fpty));
+                let fpex_f: ExprBlob = parse_expr(string_as_str(&fpex));
+                sen0 = quote_block! {
+                    let __fp: #(fpty_f) = #(fpex_f);
+                    let mut __f: i64 = -1i64;
+                    let mut __q: i64 = 0i64;
+                    while __q < __h.__s0.len() {
+                        if __h.__s0.get(__q) == __fp { __f = __q; }
+                        __q = __q + 1i64;
+                    }
+                    if __f < 0i64 {
+                        // Retracting a footprint this query has never been
+                        // handed is the SAME caller mistake the group guards
+                        // name, so it wears the SAME name.
+                        if __wd < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                    } else {
+                        let __chk: i64 = el_add(__h.__s0w.get(__f), __wd)?;
+                        if __chk < 0i64 { return Result::Err(ElError::RetractAbsent); }
+                    }
+                };
+                // INTEGRATE INTO NORMAL FORM, AFTER THE FOLD. `__f` is computed
+                // above and stays valid because `#(core)` touches `__gk`, `__gc`
+                // and the accumulators and never `__s0` — disjoint state, so the
+                // statement order is not observable WITHIN one call. It is
+                // placed after the fold anyway, so that the bare scan and the
+                // join arm read as one shape rather than two.
+                sen1 = quote_block! {
+                    if __f < 0i64 {
+                        __h.__s0.push(__fp);
+                        __h.__s0w.push(__wd);
+                    } else {
+                        __h.__s0w.set(__f, el_add(__h.__s0w.get(__f), __wd)?);
+                    }
+                };
+            }
             apply_body = quote_block! {
                 #(pre_f);
                 let mut __n: i64 = 0i64;
@@ -5488,8 +5690,10 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 let mut __i0: i64 = 0i64;
                 while __i0 < (#(base_src_f)).len() {
                     let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                    #(sen0);
                     let __w: i64 = __wd;
                     #(core);
+                    #(sen1);
                     __i0 = __i0 + 1i64;
                 }
                 return Result::Ok(__n);
