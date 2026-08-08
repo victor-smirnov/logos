@@ -984,8 +984,17 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
     }
 
     case la::DEREF_WRITE: {
+        // ⚠ `NAME` HOLDS AN EXPRESSION NODE, NOT A STRING, and reading it with
+        // `str_of` rendered EVERY `*expr = value` as `* = value` — the target
+        // silently vanished. `sema_stmt.cpp:593` is the authority and it says
+        // `lower_expr(map_of(stmt.get(la::NAME.code)))`; the two accessors
+        // disagreed about the same field. Caught 2026-08-08 by `--gen-dir`'s
+        // round-trip (`logos_09_gendir_query_mapping_runtime_e2e`) the first
+        // time a synthesized doc contained a deref-write — the emitted work
+        // counter `unsafe { *__wcp = *__wcp + 1i64; }`. The defect is older
+        // than that emission; nothing had reached it.
         std::string s = "*";
-        s += std::string(str_of(node.get(la::NAME.code)));
+        s += render_expr_src(map_of(node.get(la::NAME.code)));
         s += " = ";
         s += render_expr_src(map_of(node.get(la::VALUE.code)));
         s += ";";
@@ -993,8 +1002,11 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
     }
 
     case la::DEREF_COMPOUND: {
+        // Same field, same disagreement — `sema_stmt.cpp:543` also lowers this
+        // as an expression. Fixed together; a fix to one alone would leave the
+        // sibling to be found by whoever next emits `*expr += value`.
         std::string s = "*";
-        s += std::string(str_of(node.get(la::NAME.code)));
+        s += render_expr_src(map_of(node.get(la::NAME.code)));
         s += " ";
         s += std::string(str_of(node.get(la::OP.code)));
         s += " ";

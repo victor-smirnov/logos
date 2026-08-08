@@ -8247,6 +8247,14 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     // |S| = 780 / 3160 / 12720 for ZERO rows of output, and the whole DRed
     // retraction (154 / 971 / 3985 us) LOST to from-scratch recompute
     // (120 / 660 / 2673 us) by a ratio of 1.28 / 1.47 / 1.49 that GROWS in n.
+    // ⚠⚠ THE RATIO ABOVE DOES NOT REPRODUCE AND THE WORD "GROWS" IS WRONG.
+    // RE-MEASURED 2026-08-08 with BOTH COLUMNS TIMED IN ONE PROCESS, INTERLEAVED,
+    // best of 5, on a box confirmed idle: 1.21/1.20/1.15 and 1.17/1.19/1.16 in
+    // two independent runs agreeing to +/-0.04 — FLAT TO DECLINING. The original
+    // pair was measured SEPARATELY, one column at a time, and a ratio formed
+    // from two separately-measured columns is not a controlled comparison; the
+    // growth was an artifact of that. THE DIRECTION HOLDS SOLIDLY — DRed loses
+    // everywhere — but do not plan around the trend.
     // That is a PESSIMIZATION, and nothing in the tree could see it: every
     // assertion in this arc is about a SET, and a wall-clock assertion in the
     // corpus is a flake generator.
@@ -8881,6 +8889,26 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // The baseline was measured only after the fact, by an independent verifier —
 // from-scratch recompute over PRES: 120 / 660 / 2673 us against DRed's
 // 154 / 971 / 3985, i.e. a ratio of 1.28 / 1.47 / 1.49 that GROWS IN n.
+// ⚠⚠ CORRECTED 2026-08-08: THAT RATIO IS AN ARTIFACT OF THE METHOD AND "GROWS"
+// IS FALSE. Timing both columns IN ONE PROCESS, INTERLEAVED, best of 5, idle
+// box, two independent runs: 1.21/1.20/1.15 and 1.17/1.19/1.16 — flat to
+// DECLINING. A ratio built from two columns measured at different times is not
+// a controlled comparison, and this paragraph was written by someone (me) who
+// had just committed under the title "a cost number without the alternative it
+// must beat is not a measurement" — the alternative was there and the CONTROL
+// was not. Same defect one level up.
+// The DIRECTION reproduces at every point measured, including |RD| > 0 where
+// the sweep the first round could not run finally happened: ratios 1.24 (|RD|
+// 39), 1.78 (|RD| 419), 1.15 (|RD| 79), 1.88 (|RD| 1639). DRed loses, and loses
+// WORSE as |RD| grows — the opposite of the direction a hybrid needs.
+// ⚠ THEREFORE THERE IS NO CROSSOVER AND NO THRESHOLD WAS WRITTEN. Victor chose
+// a hybrid on 2026-08-08; the measurement says its premise has zero supporting
+// points, so the honest implementation of "hybrid" here is "no branch". Had a
+// constant been fitted to the numbers above, every corpus shape (all n <= 16)
+// would have routed to recompute and the DRed path would have gone DARK with no
+// red anywhere. The follow-up that can actually change the direction is the
+// EDB-delta occurrence list, which changes the ENUMERATION rather than choosing
+// between two enumerations.
 // So this is not "the cost is not yet optimal"; it is a PESSIMIZATION at every
 // size anyone has measured, and a reader who takes the rows above as "linear,
 // fine for now" is reading a column that has no baseline beside it. A cost
