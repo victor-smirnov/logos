@@ -513,8 +513,12 @@ fn deltas() -> Vec<Delta> {
     // the value up in the per-(group, aggregate) multiplicity map and refuses
     // (`ElError::RetractAbsent`) a value that is not there. A mistyped `xf`
     // here is exit 13, not a wrong answer. `neg_zero()` below is the same call
-    // that built id1, because the map key is `f64_to_bits` and −0.0 and +0.0
-    // are two keys.
+    // that built id1 — and it must STAY that way even though the STATIC tier's
+    // map key became `f64_canon_bits` on 2026-08-07 (all zeros one element),
+    // which would now accept a `+0.0` there: the INTERPRETER arm this phase
+    // compares against still keys `f64_to_bits`, so a `+0.0` would be exit 13
+    // from that side alone. Repeating the row exactly is the rule that survives
+    // both, and it is the rule this comment states.
     v.push(Delta { ep: 3i64, sign: 0i64 - 1i64, id: 0i64, g: 0i64,
                    xi: i64_min(), xs: 0i64, xf: 0.5f64, xu: 0u64 });
     v.push(Delta { ep: 3i64, sign: 0i64 - 1i64, id: 2i64, g: 1i64,

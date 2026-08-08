@@ -4736,13 +4736,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // alone and its sensor degenerates into guard 2; that is the same statement
     // at its limit (a `count` reads nothing but presence) and is pinned there.
     //
-    // ⚠ THE FLOAT COMPONENT IS KEYED ON `f64_to_bits`, WHICH IS NOT A NEW
-    // DECISION — it is the SAME function the multiplicity map beside it already
-    // keys on (see `kv_e`, below), for the same reason: `f64_to_bits` is
-    // injective, so it is identity, while `f64_data_key` collapses both zeros
-    // and every NaN. When Victor's scheduled f64/f32 KEY task lands (all zeros
-    // one element, all NaNs one element) it must move BOTH — this line and
-    // `kv_e` — and that is why it is spelled the same way here.
+    // ⚠ THE FLOAT COMPONENT IS KEYED ON `f64_canon_bits`, WHICH IS NOT A NEW
+    // DECISION — it is the SAME function the multiplicity map beside it keys on
+    // (see `kv_e`, below), and it must stay that way: this sensor decides
+    // whether a retraction is HELD before the map ever runs, so a sensor that
+    // separated −0.0 from +0.0 would answer `RetractAbsent` for a footprint the
+    // map holds, and the merge below would never be reached. LANDED 2026-08-07
+    // together with `kv_e` (all zeros one element, all NaNs one element); the
+    // two moved in one commit because either alone is a contradiction.
     // A float can also reach the footprint through the group KEY, where the
     // comparison is `keyt_f`'s own `==`; that is not this clause's choice
     // either, it is the identical relation `core`'s `__gk` scan has always used
@@ -4781,7 +4782,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     // every `avg` lost the retracting surface to D4, so no other
                     // aggregate can present a float argument on this path.
                     fpty.push_str("u64");
-                    fpex.push_str("f64_to_bits(");
+                    fpex.push_str("f64_canon_bits(");
                     fpex.push_str(string_as_str(&iarg[fi]));
                     fpex.push_str(")");
                 } else {
@@ -4903,21 +4904,51 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // are the accumulator itself and `el_wrap_ord_key` never appears; for
         // f64 the key is the bit pattern and the order key is an i64.
         //
-        // ⚠ THE f64 KEY IS IDENTITY, NOT ORDER, AND THE TWO MUST NOT BE THE SAME
-        // FUNCTION. `impl Hash for f64` does not exist, so a float map MUST key
-        // on `f64_to_bits` — which is also the RIGHT key: it is injective and
-        // invertible, so −0.0 comes back −0.0 and a NaN payload survives.
-        // `f64_data_key` is NEITHER injective nor invertible — it maps both
-        // zeros and every NaN onto one key — so keying on it would collapse
-        // −0.0 into +0.0, a defect this tree has a fix for and must not
-        // reintroduce. `f64_data_key` is the COMPARATOR and only that.
+        // ⚠ THE f64 KEY IS IDENTITY AND THE COMPARATOR IS ORDER — TWO FUNCTIONS,
+        // AND THEY MUST AGREE ON WHAT IS ONE ELEMENT. `impl Hash for f64` does
+        // not exist, so a float map keys on a BIT PATTERN; the question this
+        // arc answered (2026-08-07) is WHICH. `f64_to_bits` splits identity from
+        // order: it makes −0.0 and +0.0 two entries, and every NaN payload its
+        // own entry, of a map whose comparator (`f64_data_key`) calls them ONE
+        // value — so retracting −0.0 against an inserted +0.0 answered
+        // `RetractAbsent`. The key is now `f64_canon_bits`, which collapses
+        // exactly the two classes `f64_data_key` collapses and is `to_bits`
+        // everywhere else, so key equality and comparator equality agree by
+        // construction. What the canonical key GIVES UP is the spelling: it says
+        // which element, not which member arrived, so the map carries the
+        // first-arrival bits beside the count (see `t_map_e` just below).
+        // `f64_data_key` remains the COMPARATOR and only that; `f64_total_key`
+        // (the faithful IEEE totalOrder primitive) is untouched by all of this.
         let mkt:  str = if is_fl { "u64" } else { acct };
         let ordt: str = if is_fl { "i64" } else { acct };
-        let t_map_v: str = if str_eq(mkt, "u64") { "Vec<HashMap<u64, i64>>" } else { "Vec<HashMap<i64, i64>>" };
-        let t_map_p: str = if str_eq(mkt, "u64") { "*mut HashMap<u64, i64>" } else { "*mut HashMap<i64, i64>" };
-        let t_map_c: str = if str_eq(mkt, "u64") { "*const HashMap<u64, i64>" } else { "*const HashMap<i64, i64>" };
-        let t_keys:  str = if str_eq(mkt, "u64") { "HashMapKeys<u64, i64>" }  else { "HashMapKeys<i64, i64>" };
-        let hm_new:  str = if str_eq(mkt, "u64") { "hashmap_new::<u64, i64>()" } else { "hashmap_new::<i64, i64>()" };
+        // ⚠ AND THE MAP'S VALUE IS A PAIR FOR A FLOAT AND A BARE COUNT FOR AN
+        // INTEGER, WHICH IS THE PRICE OF THE CANONICAL KEY AND IS PAID ONLY BY
+        // THE TIER THAT NEEDS IT. Once the key merges a class, the key no longer
+        // identifies the member that ARRIVED: `f64_from_bits(canonical)` is
+        // +0.0 for the whole zero class. The rescan decodes the surviving
+        // extremum out of the map, so with a bare count a retraction elsewhere
+        // in the group would silently rewrite a stored −0.0 to +0.0 — MEASURED:
+        // `deem_incr_diff_harness` ep3 `max(xf)`, where the batch engine, the
+        // interpreter AND the hand table all answer −0.0 and only this tier
+        // would not. So the pair is (multiplicity, FIRST-ARRIVAL BITS): the key
+        // answers "which element", the second component answers "spelled how".
+        // An integer key is already the member, so it carries no second
+        // component and its map is unchanged.
+        //
+        // ⚠ `str_eq(mkt, "u64")` IS NOT THE FLOAT TEST — a u64 aggregate has
+        // `mkt == "u64"` and `is_fl == false`, and its map value must stay a
+        // bare `i64`. The two questions are asked separately, in that order.
+        let t_map_v: str = if is_fl { "Vec<HashMap<u64, (i64, u64)>>" }
+                           else if str_eq(mkt, "u64") { "Vec<HashMap<u64, i64>>" } else { "Vec<HashMap<i64, i64>>" };
+        let t_map_p: str = if is_fl { "*mut HashMap<u64, (i64, u64)>" }
+                           else if str_eq(mkt, "u64") { "*mut HashMap<u64, i64>" } else { "*mut HashMap<i64, i64>" };
+        let t_map_c: str = if is_fl { "*const HashMap<u64, (i64, u64)>" }
+                           else if str_eq(mkt, "u64") { "*const HashMap<u64, i64>" } else { "*const HashMap<i64, i64>" };
+        let t_keys:  str = if is_fl { "HashMapKeys<u64, (i64, u64)>" }
+                           else if str_eq(mkt, "u64") { "HashMapKeys<u64, i64>" }  else { "HashMapKeys<i64, i64>" };
+        let hm_new:  str = if is_fl { "hashmap_new::<u64, (i64, u64)>()" }
+                           else if str_eq(mkt, "u64") { "hashmap_new::<u64, i64>()" } else { "hashmap_new::<i64, i64>()" };
+        let t_map_e: str = if is_fl { "(i64, u64)" } else { "i64" };
         gmnm[gi] = gm_name(a.out);
         let n_gm: Ident = Ident::new(string_as_str(&gmnm[gi]));
         if want_map {
@@ -5032,15 +5063,20 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // ── THE SEMILATTICE FOLD: map + cached best + rescan-on-retract ──
             // The dynamic engine's shape (incr.logos, `fnid == 3 || fnid == 4`),
             // TYPED: no `RtVal`, no `agg_argu` flag, no `el_wrap_ord_key`. K is
-            // the accumulator's own type for an integer and the bit pattern for
-            // a float; the comparison is the accumulator's own `<`/`>` for an
-            // integer and `f64_data_key`'s total order for a float.
+            // the accumulator's own type for an integer and the CANONICAL bit
+            // pattern for a float; the comparison is the accumulator's own
+            // `<`/`>` for an integer and `f64_data_key`'s total order for a
+            // float — and for the float the two now quotient identically.
             //
             // ⚠ THE FLOAT ORDER IS `f64_data_key`'s AND IT IS COMMITTED TO HERE,
             // deliberately and consistently with the batch tier: every NaN is
-            // one value and is the GREATEST, −0.0 and +0.0 TIE. The improve is
-            // STRICT (`<` / `>`), so among tied values the FIRST ARRIVAL wins
-            // the cached best — and the rescan below inherits the same rule from
+            // one value and is the GREATEST, −0.0 and +0.0 are ONE ELEMENT. The
+            // improve is STRICT (`<` / `>`), so among tied values the FIRST
+            // ARRIVAL wins the cached best — and since the key now merges a tied
+            // CLASS into one entry, the second arrival of a class does not even
+            // reach the improve (`__cur > 0`), so the cached best keeps the
+            // first arrival's exact bits while the map's key holds the canonical
+            // ones. That is why the cell is `__v` and not `f64_from_bits(__mk)` — and the rescan below inherits the same rule from
             // the same comparator, so a retraction cannot silently reorder a tie.
             // That is `design_fp_as_data_postgres_semantics`'s order, which the
             // batch `min`/`max` on the arm just below already uses.
@@ -5058,13 +5094,37 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let pmap: ExprBlob = parse_type(t_map_p);
             let cmap: ExprBlob = parse_type(t_map_c);
             let kits: ExprBlob = parse_type(t_keys);
-            // IDENTITY (the map key) and ORDER (the comparator) — two functions,
-            // each applied only to locals this emitter itself named.
-            let kv_e:  ExprBlob = parse_expr(if is_fl { "f64_to_bits(__v)" }   else { "__v" });
-            let kb_e:  ExprBlob = parse_expr(if is_fl { "f64_to_bits(__b)" }   else { "__b" });
+            let mvty: ExprBlob = parse_type(t_map_e);
+            // IDENTITY (the map key) and ORDER (the comparator) — two functions
+            // that AGREE on the quotient, each applied only to locals this
+            // emitter itself named.
+            //
+            // ⚠ AND A THIRD QUESTION THE OTHER TWO CANNOT ANSWER: HOW THE
+            // SURVIVING ELEMENT IS SPELLED. `vok_e` used to invert the key; with
+            // a canonical key that inverse yields the class REPRESENTATIVE
+            // (+0.0, the canonical NaN) rather than the member that arrived, so
+            // it now reads the FIRST-ARRIVAL BITS the map stores beside the
+            // count (`cnt_e` / `ins_e` are the same pair's other two faces).
+            // An integer key IS the member, so all three degenerate to it.
+            let kv_e:  ExprBlob = parse_expr(if is_fl { "f64_canon_bits(__v)" } else { "__v" });
+            let kb_e:  ExprBlob = parse_expr(if is_fl { "f64_canon_bits(__b)" } else { "__b" });
             let vo_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__v)" }  else { "__v" });
             let bo_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__b)" }  else { "__b" });
-            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(*__kp)" } else { "*__kp" });
+            // The multiplicity out of the map cell, and the cell to write back.
+            // `ins_e` KEEPS the stored bits when the class is already live
+            // (`__cp` non-null) and adopts this row's EXACT bits — `f64_to_bits`,
+            // not the canonical ones — when the class is new. That is what makes
+            // the first arrival of a tie the value the query answers with, the
+            // same rule the strict improve below applies to the cached best.
+            let cnt_e: ExprBlob = parse_expr(if is_fl { "(*__cp).0" } else { "*__cp" });
+            let ins_e: ExprBlob = parse_expr(if is_fl
+                { "(__nc, if (__cp as i64) == 0i64 { f64_to_bits(__v) } else { (*__cp).1 })" }
+                else { "__nc" });
+            // ⚠ THE LOOKUP GOES THROUGH `__mp`, THE `*mut`, BECAUSE `get` IS
+            // DECLARED ON `*mut HashMap` — `__mc` (the `*const` the iterator
+            // needs) has no `get`. Same map, no mutation, and the key came from
+            // that map's own live keys, so the pointer is never null here.
+            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*(__mp.get(__kp))).1 })" } else { "*__kp" });
             let ko_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__kv)" } else { "__kv" });
             let impr:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__vo < __bo" }  else { "__vo > __bo" });
             let rcmp:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__ko < __nbo" } else { "__ko > __nbo" });
@@ -5082,8 +5142,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let __b: #(vt0) = __h.#n_ga.get(__gi);
                     let __bk: #(mkty) = (#(kb_e));
                     let __mp: #(pmap) = unsafe { __h.#n_gm.at(__gi) };
-                    let __cp: *const i64 = unsafe { __mp.get(&__mk) };
-                    let __cur: i64 = if (__cp as i64) == 0i64 { 0i64 } else { unsafe { *__cp } };
+                    let __cp: *const #(mvty) = unsafe { __mp.get(&__mk) };
+                    let __cur: i64 = if (__cp as i64) == 0i64 { 0i64 } else { unsafe { #(cnt_e) } };
                     let __nc: i64 = __cur + __w;
                     // ⚠ STRICTLY `< 0`, AND THE STRICTNESS IS THE WHOLE CONTENT.
                     // `__nc == 0` with `__cur > 0` is the LEGITIMATE removal of
@@ -5108,7 +5168,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                         unsafe { __mp.remove(&__mk); }
                         if __bk == __mk { __rb = true; }
                     } else {
-                        unsafe { __mp.insert(__mk, __nc); }
+                        unsafe { __mp.insert(__mk, #(ins_e)); }
                     }
                     if __nc > 0i64 && __cur <= 0i64 {
                         let __mc0: #(cmap) = unsafe { __h.#n_gm.at_const(__gi) };
@@ -5302,8 +5362,18 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             cb.push_str(", ");
             cb.push_str(string_as_str(&gmnm[ci]));
             cb.push_str(": ");
-            if str_eq(acc[ci], "i64") { cb.push_str("Vec::<HashMap<i64, i64>>::new()"); }
-            else                      { cb.push_str("Vec::<HashMap<u64, i64>>::new()"); }
+            // ⚠ AND THE VALUE TYPE FOLLOWS THE SAME RULE, WHICH IS WHY "f64" IS
+            // TESTED FIRST AND BY NAME. A float map stores (multiplicity,
+            // first-arrival bits) because its canonical key no longer says which
+            // member arrived; an integer map stores the bare count. MEASURED
+            // 2026-08-07: getting this line wrong is not a wrong answer, it is
+            // `struct literal 'FqIncr': field '__gm_lo': expected
+            // Vec<HashMap<u64, (i64, u64)>>, got Vec<HashMap<u64, i64>>` from
+            // inside the generated blob — the exact failure the ⚠ above
+            // predicts for a second derivation of one decision.
+            if str_eq(acc[ci], "f64")      { cb.push_str("Vec::<HashMap<u64, (i64, u64)>>::new()"); }
+            else if str_eq(acc[ci], "i64") { cb.push_str("Vec::<HashMap<i64, i64>>::new()"); }
+            else                           { cb.push_str("Vec::<HashMap<u64, i64>>::new()"); }
         }
         ci = ci + 1i64;
     }

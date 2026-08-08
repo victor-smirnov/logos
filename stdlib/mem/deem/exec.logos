@@ -576,6 +576,14 @@ fn ts_edge_row(out: &mut RowSet, parent_word: i64, key: str, idx: i64,
     // the key to stop being the same column; that is an arc, not an edit here.
     // Unlike the ordering defect this one is DETERMINISTIC — it does not move
     // with the optimiser — so it is a semantics gap, not a correctness hazard.
+    //
+    // ⚠ AND `f64_canon_bits` (2026-08-07, Victor's decision: all zeros one
+    // element, all NaNs one element) DOES NOT CLOSE IT, so do not read the
+    // incremental map's fix as covering this. There the canonical bits are the
+    // KEY and the value lives beside it, so merging the key costs no identity;
+    // here one column is both, so keying it canonically would DESTROY the −0.0
+    // and the NaN payload this paragraph exists to protect. The gap is a
+    // MISSING SECOND COLUMN, not a missing key function.
     match cv {
         RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
         RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }

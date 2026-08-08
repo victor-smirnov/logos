@@ -15,7 +15,17 @@
 //     `__dl_<name>_sl` — the semi-naïve per-round view), the native row type
 //     text (`(i64, str)` / scalar for 1 column), and the column name/type
 //     window. Column types are restricted to i64/str/bool — rels are SETS
-//     (structural-equality dedup on insert), and f64 kills Eq;
+//     (structural-equality dedup on insert), and a row containing an f64 has no
+//     structural `Eq` to dedup by.
+//     ⚠ THE OLD GROUND FOR THIS LINE — "f64 kills Eq", i.e. a float has no
+//     usable identity — WAS SUPERSEDED ON 2026-08-07. A float DOES have a
+//     decided identity now: `f64_canon_bits` (all zeros one element, all NaNs
+//     one element), which agrees with `f64_data_key`'s order and is what the
+//     incremental min/max multiplicity map keys on. The refusal STANDS anyway,
+//     for a DIFFERENT reason it must now be read as: rel dedup is structural
+//     over the WHOLE ROW, so lifting it means deriving a row `Eq` that routes
+//     its float components through the canonical key — a follow-up, not a
+//     consequence of the key change;
 //   • VALIDATES each body: Simple/Join shape only (aggregate/find → named
 //     error), no select-tail modifiers (first/distinct/order/limit/`: RTy` are
 //     entry-query concerns; distinct is implicit — set semantics), select

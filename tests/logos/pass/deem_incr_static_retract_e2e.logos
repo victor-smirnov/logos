@@ -23,9 +23,11 @@
 //   • a group that never EMPTIES cannot see the liveness filter or the stale
 //     best. Blocks C and A5 empty one and then insert into it again.
 //   • a float pair that is not {−0.0, +0.0} cannot see the map's KEY. Block D
-//     retracts −0.0 out of {−0.0, +0.0, NaN, 1.0}: the emitted `min` must become
-//     +0.0. A map keyed on `f64_data_key` — which maps both zeros onto ONE key —
-//     leaves the count at 1, retracts nothing, and answers −0.0.
+//     retracts −0.0 out of {−0.0, +0.0, NaN, 1.0}: the two zeros are ONE element
+//     of multiplicity 2, so a zero SURVIVES and the emitted `min` stays the
+//     first arrival, −0.0. A map keyed bitwise makes them two entries, removes
+//     the only −0.0 and answers +0.0. Block D2 asks the map itself, where a
+//     cached cell cannot answer for it.
 //
 // ── THE THREE WITNESSES ─────────────────────────────────────────────────────
 // "Both engines agree" is not evidence: this arc has measured a three-way
@@ -53,29 +55,34 @@
 //      retract the 7    : c=1  t=3   lo=3  hi=3
 // C. i64, rows (k=0,v=1) (k=1,v=2); retract (k=0,v=1) → ONE row, key 1.
 // D. f64, one group, rows −0.0, +0.0, NaN, 1.0 in that order.
-//      `f64_data_key` is the order: −0.0 == +0.0, every NaN is one value and is
-//      the GREATEST. The improve is strict, so the first of a tie wins.
-//      after epoch      : lo = −0.0 (bits 0x8000000000000000)
+//      `f64_data_key` is the order AND (through `f64_canon_bits`) the identity:
+//      −0.0 and +0.0 are ONE element, every NaN is ONE element and is the
+//      GREATEST. The improve is strict, so the first arrival of a class wins the
+//      cached best — and the second arrival of a class never even reaches the
+//      improve, because the map already holds the class at count ≥ 1.
+//      after epoch      : lo = −0.0 (bits 0x8000000000000000), the zero class's
+//                              FIRST ARRIVAL, held exactly
 //                         hi = NaN  (bits 0x7FF8000000000000)
-//      retract −0.0     : lo = +0.0 (bits 0x0000000000000000)
-//      retract NaN      : hi = 1.0  (bits 0x3FF0000000000000)
+//      retract −0.0     : the zero class goes 2 → 1, a zero SURVIVES, and the
+//                         cached best is untouched: lo = −0.0 (0x8000000000000000)
+//      retract NaN      : hi = 1.0  (bits 0x3FF0000000000000); lo unmoved
 //
-// ⚠⚠ THIS BLOCK ASSERTS SEMANTICS VICTOR HAS ALREADY DECIDED TO CHANGE
-// (2026-08-07). It is GREEN, and its green must not be read as settled.
-// TODAY identity and order are two different functions: the map's KEY is
-// `f64_to_bits` (bitwise, so −0.0 and +0.0 are two entries and every NaN
-// payload is its own entry) while the COMPARATOR is `f64_data_key` (the
-// FP-as-DATA order, which calls them equal). That split contradicts this
-// project's own recorded rule — THE RULE LIVES IN THE KEY.
-// DECIDED, NOT YET DONE: PostgreSQL semantics all the way into the key —
-// **all zeros are ONE element, all NaNs are ONE element**. Scheduled after
-// P3; see the memory note `design_fp_as_data_postgres_semantics`.
-// WHEN IT LANDS, THESE ASSERTIONS INVERT AND THAT IS THE POINT: the two
-// zeros become one entry of multiplicity 2, so retracting −0.0 leaves a
-// zero standing and `lo` reads 0x8000000000000000 (the first arrival), NOT
-// 0x0000000000000000 as asserted at :332. Likewise the NaN retraction stops
-// depending on the payload. A reader who "fixes" the emitter to match the
-// decision MUST update :332 — the red is expected, not a regression.
+// ⚠⚠ THE SEMANTICS THIS BLOCK PINS CHANGED ON 2026-08-07 AND THE CHANGE HAS
+// LANDED. Identity and order used to be two different functions — the map's KEY
+// was `f64_to_bits` (bitwise: −0.0 and +0.0 two entries, every NaN payload its
+// own entry) while the COMPARATOR was `f64_data_key`, which calls them equal.
+// That split contradicted this project's own rule, THE RULE LIVES IN THE KEY,
+// and it was observable: retracting −0.0 against an inserted +0.0 answered
+// `RetractAbsent`. Victor decided PostgreSQL semantics all the way into the key
+// — **all zeros are ONE element, all NaNs are ONE element** — and the key is now
+// `f64_canon_bits`, which collapses exactly the classes `f64_data_key`
+// collapses. `f64_total_key` (the faithful IEEE totalOrder primitive) did NOT
+// move, and float ARITHMETIC was not touched: only the key path.
+// The assertions at the two `d1`/`d2` `lo` sites INVERTED with that landing
+// (0x0000000000000000 → 0x8000000000000000) and block D2 was added, because a
+// cached cell reading right is not evidence about the map. A reader who
+// "repairs" the emitter back to a bitwise key will red D2 first — that block is
+// unreachable without the merge. See `design_fp_as_data_postgres_semantics`.
 // A6. THE HALF OF u64's ORDER BLOCK A CANNOT SEE. Block A only ever retracts
 //    the current MAX, so `mn` sits at 5 from the first row and is never
 //    RE-DERIVED: a signed comparator in the re-MIN rescan goes unnoticed there.
@@ -170,7 +177,7 @@
 // exits 0 and nothing moves. `deem_incr_diff_harness` had already solved this
 // (`spine ok ep=5 cmp=20 cells=300`, pinned) and this file had not.
 // It does now: `main` prints
-//     retract ok chk=106 rows=28
+//     retract ok chk=110 rows=31
 // on the success path and `.expected` pins that line. Both numbers are DERIVED —
 // `chk` is bumped inside `bad`, the chokepoint all 89 predicates below pass
 // through, plus `arm_ok` in the four refusal blocks' accepting arm; `rows`
@@ -191,9 +198,10 @@
 // exits 59 and prints NOTHING, because its assertions carry no `println!` — the
 // code is the whole channel on the FAILURE path, and the census does not change
 // that (it prints only when `r == 0`). That is sound while codes stay unique
-// (they are, 1..121 with 7 reserved), but it leaves no room: 122/123/124 are the
-// only free codes under the ceiling, so the 4th assertion added here forces the
-// parameter channel rather than merely suggesting it.
+// (they are, 1..124 — and as of 2026-08-08 the last free number, 7, is spent on
+// block D2, which puts EVERY one of its sites on the parameter channel). There is
+// no room left at all: the next assertion added to this file must share a code
+// with a `println!` that names it, or the file must be split.
 //
 // ⚠ 118-121 SIT OUT OF SEQUENCE ON PURPOSE, and the ceiling moved 117 → 121
 // rather than the arms sharing a code. `ElError` grew a fifth variant when the
@@ -330,9 +338,9 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 // difference between "an assertion was dropped" and "a call to the mechanism was
 // dropped", and one number cannot tell them apart.
 //
-// PINNED: `retract ok chk=106 rows=28`. 106 = 98 `if` predicates + 8 accepting
+// PINNED: `retract ok chk=110 rows=31`. 110 = 102 `if` predicates + 8 accepting
 // arms taken through `arm_ok` (E's refusal, E2's `el_subu` borrow, F, G, G2, G3,
-// G3b, G3c); 28 = the rows the 24 snapshots, 3 batch recomputes and 3
+// G3b, G3c); 31 = the rows the 27 snapshots, 3 batch recomputes and 3
 // interpreter snapshots handed back — `assertions` has no loop, so each site
 // runs exactly once and the census is a fixed number. HAND-DERIVED FIRST AND
 // MEASURED SECOND, and they agreed; a disagreement would have been evidence
@@ -340,6 +348,9 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 // (2026-08-08: 93/25 → 106/28. +13 checks and +3 snapshots from block E's
 // re-sited `el_subu` witness, G2's two transactionality cells and the three G3
 // blocks. Hand-derived to 106/28 before the run, and the run agreed.)
+// (2026-08-08: 106/28 → 110/31. +4 predicates and +3 snapshots from block D2,
+// the float-KEY merge's own witnesses. Derived from the four new `bad` sites and
+// the three new `fq_snapshot` calls before the run; the run agreed.)
 //
 // ⚠ WHAT THIS DOES NOT COVER, NAMED AT THE MECHANISM RATHER THAN LEFT TO BE
 // FOUND: a census sees an assertion that stops RUNNING, not one that stops
@@ -561,16 +572,16 @@ fn assertions(t: &mut Tally) -> i32 {
     if bad(t, f64_to_bits(d0.get(0i64).1) != 0x8000000000000000u64) { return 59i32; }
     if bad(t, f64_to_bits(d0.get(0i64).2) != 0x7FF8000000000000u64) { return 60i32; }
 
-    // retract −0.0. THE CELL: `lo` must become +0.0, bits all-zero. A map keyed
-    // on `f64_data_key` collapses the two zeros onto one key and answers −0.0.
-    // ⚠ AND THAT COLLAPSE IS THE DECIDED DESTINATION (2026-08-07, header): when
-    // it lands, THIS assertion becomes 0x8000000000000000. Do not "repair" the
-    // emitter back to a bitwise key to keep this line green.
+    // retract −0.0. THE CELL: the zero class goes 2 → 1, so a zero is still in
+    // the multiset and the cached best is not re-derived — `lo` stays the FIRST
+    // ARRIVAL's exact bits, 0x8000000000000000. A map keyed BITWISE removes the
+    // only −0.0 and answers +0.0; that was this line until 2026-08-07 and it is
+    // the shape a "repair" back to `f64_to_bits` would restore. See the header.
     let fr1: [F; 1] = f1(0i64, -0.0f64);
     match fq_retract(&mut hf, &fr1) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
     let d1: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
     t.rows = t.rows + d1.len();
-    if bad(t, f64_to_bits(d1.get(0i64).1) != 0x0000000000000000u64) { return 61i32; }
+    if bad(t, f64_to_bits(d1.get(0i64).1) != 0x8000000000000000u64) { return 61i32; }
     if bad(t, f64_to_bits(d1.get(0i64).2) != 0x7FF8000000000000u64) { return 62i32; }
 
     // retract the NaN — the rescan's other end: `hi` must become 1.0.
@@ -579,7 +590,82 @@ fn assertions(t: &mut Tally) -> i32 {
     let d2: Vec<(i64, f64, f64)> = match fq_snapshot(&hf) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
     t.rows = t.rows + d2.len();
     if bad(t, f64_to_bits(d2.get(0i64).2) != 0x3FF0000000000000u64) { return 63i32; }
-    if bad(t, f64_to_bits(d2.get(0i64).1) != 0x0000000000000000u64) { return 64i32; }
+    if bad(t, f64_to_bits(d2.get(0i64).1) != 0x8000000000000000u64) { return 64i32; }
+
+    // ══ D2. THE MERGE ITSELF, ASKED WHERE ONLY THE MERGE CAN ANSWER ══════════
+    //
+    // ⚠ BLOCK D READS BITS OUT OF A CELL, AND A CELL CAN BE RIGHT FOR THE WRONG
+    // REASON — its `lo` after retracting −0.0 is the cached best, which a
+    // comparator change or a changed improve rule could also move. These two
+    // calls ask the MAP, through the only observation it has: whether a
+    // retraction is ACCEPTED. Under the pre-2026-08-07 bitwise key both are
+    // `RetractAbsent` (the footprint sensor refuses first, and the multiplicity
+    // map would refuse after it), so no cached-best or comparator edit can make
+    // this block green.
+    //
+    //   (i)  MULTIPLICITY 2 OUT OF TWO DIFFERENT BIT PATTERNS. Insert −0.0,
+    //        +0.0, 1.0 and retract the literal −0.0 TWICE. Legal exactly
+    //        because the two zeros are ONE element of multiplicity 2. The
+    //        survivor is 1.0, so `lo` must RESCAN to 1.0 — which also pins that
+    //        the zero class left the map rather than lingering at count 1.
+    //   (ii) NaN PAYLOAD INDEPENDENCE. Insert one payload, retract a DIFFERENT
+    //        one; all NaNs are one element, so it must be accepted, and `hi`
+    //        rescans to 1.0.
+    //
+    // ⚠ THIS BLOCK IS ON THE PARAMETER CHANNEL — ONE CODE, `println!` SAYS
+    // WHICH — AND THAT IS NOT A STYLE CHOICE. The exit-code census above had
+    // exactly ONE free number left (7) when this block was written: 1..6 are the
+    // per-block setup codes, 8..124 are all taken, 125 is the guard and
+    // 126/127/128+N belong to the shell. The header predicted this ("the next
+    // assertion added to this file has no number left"), and it was measured
+    // rather than assumed — a first draft numbered these 120..127, which SILENTLY
+    // COLLIDED with P3's four `SrcUnknown` arms and G2/G3, and 126/127 would have
+    // impersonated the shell besides. So every site here exits 7 and names itself.
+    let mut hz: FqIncr = fq_incremental();
+    let fz: [F; 3] = [F { k: 0i64, v: -0.0f64 },
+                      F { k: 0i64, v:  0.0f64 },
+                      F { k: 0i64, v:  1.0f64 }];
+    match fq_epoch(&mut hz, &fz) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    let fzr: [F; 1] = f1(0i64, -0.0f64);
+    match fq_retract(&mut hz, &fzr) { Result::Ok(_n) => {} Result::Err(_e) => { println!("D2(i): the FIRST retraction of -0.0 was refused"); return 7i32; } }
+    // THE SECOND retraction of the SAME bit pattern — the multiplicity claim.
+    match fq_retract(&mut hz, &fzr) { Result::Ok(_n) => {} Result::Err(_e) => { println!("D2(i): the SECOND retraction of -0.0 was refused - the two zeros are still TWO entries"); return 7i32; } }
+    let z1: Vec<(i64, f64, f64)> = match fq_snapshot(&hz) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    t.rows = t.rows + z1.len();
+    if bad(t, z1.len() != 1i64) { println!("D2(i): rows = {}, not 1", z1.len()); return 7i32; }
+    if bad(t, f64_to_bits(z1.get(0i64).1) != 0x3FF0000000000000u64) { println!("D2(i): lo = {} bits, not 1.0 - the zero class did not leave the map", f64_to_bits(z1.get(0i64).1)); return 7i32; }
+
+    let mut hn: FqIncr = fq_incremental();
+    let fn0: [F; 2] = [F { k: 0i64, v: f64_from_bits(0x7FF8000000000001u64) },
+                       F { k: 0i64, v: 1.0f64 }];
+    match fq_epoch(&mut hn, &fn0) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    // A DIFFERENT payload, and the sign bit set as well.
+    let fnr: [F; 1] = f1(0i64, f64_from_bits(0xFFFCDEADBEEF0000u64));
+    match fq_retract(&mut hn, &fnr) { Result::Ok(_n) => {} Result::Err(_e) => { println!("D2(ii): retracting a NaN of a DIFFERENT payload was refused"); return 7i32; } }
+    let z2: Vec<(i64, f64, f64)> = match fq_snapshot(&hn) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    t.rows = t.rows + z2.len();
+    if bad(t, f64_to_bits(z2.get(0i64).2) != 0x3FF0000000000000u64) { println!("D2(ii): hi = {} bits, not 1.0", f64_to_bits(z2.get(0i64).2)); return 7i32; }
+
+    //   (iii) THE OTHER HALF OF A MERGED CLASS: WHICH MEMBER IS EMITTED. The key
+    //        says which ELEMENT, not how it was SPELLED, so the map carries the
+    //        first arrival's exact bits beside the count and the RESCAN reads
+    //        them from there. Force a rescan INTO the NaN class: `min` over
+    //        { NaN payload …0001, 2.0 } is 2.0, so retracting 2.0 re-derives
+    //        `lo` over the survivors — one class, the NaN one. The answer must
+    //        be the payload that ARRIVED, 0x7FF8000000000001. A rescan that
+    //        decoded the value out of the canonical key answers
+    //        0x7FF8000000000000 and passes every `!=` in sight; that is the same
+    //        loss `deem_incr_diff_harness` ep3 `max(xf)` pins for the zero
+    //        class, asked here where a single fixture can see it.
+    let mut hp: FqIncr = fq_incremental();
+    let fp0: [F; 2] = [F { k: 0i64, v: f64_from_bits(0x7FF8000000000001u64) },
+                       F { k: 0i64, v: 2.0f64 }];
+    match fq_epoch(&mut hp, &fp0) { Result::Ok(_n) => {} Result::Err(_e) => { return 5i32; } }
+    let fpr: [F; 1] = f1(0i64, 2.0f64);
+    match fq_retract(&mut hp, &fpr) { Result::Ok(_n) => {} Result::Err(_e) => { println!("D2(iii): retracting 2.0 was refused"); return 7i32; } }
+    let z3: Vec<(i64, f64, f64)> = match fq_snapshot(&hp) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    t.rows = t.rows + z3.len();
+    if bad(t, f64_to_bits(z3.get(0i64).1) != 0x7FF8000000000001u64) { println!("D2(iii): lo = {} bits, not the NaN payload that ARRIVED - the rescan decoded the value out of the canonical KEY", f64_to_bits(z3.get(0i64).1)); return 7i32; }
 
     // ══ E. RETRACTING A VALUE THIS GROUP NEVER HELD, WITH NO VALUE MAP ═══════
     //

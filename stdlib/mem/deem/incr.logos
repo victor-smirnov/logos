@@ -540,15 +540,33 @@ fn arr_new(var: str) -> Arr {
 // is identity loss, not rounding. Pinned by query_incr_f64_agg_three_engines.
 //
 // ⚠ min/max KEY ON THE BIT PATTERN AND ORDER ON `f64_data_key`, WHICH ARE TWO
-// DIFFERENT QUESTIONS. Identity must be exact and INVERTIBLE — the emitted cell
-// is the argument's own value, so −0.0 must not come back as +0.0 and a NaN
-// payload must survive — and `f64_data_key` is neither (it maps both zeros and
-// every NaN onto one key). Order must be TOTAL — `<` is partial, so `max` over
-// { NaN, 1.0 } would answer 1.0 where the order says NaN is greatest — and the
-// bit pattern is not an order. So the map key is `f64_to_bits`, the comparator
-// is `f64_data_key`, and `agg_ord_key` below is the single place that says so.
-// This matches the batch engine, which compares min/max through `f64_data_key`
-// too (deem/exec.logos, `exec_aggr`).
+// DIFFERENT QUESTIONS. Identity must be exact and INVERTIBLE — this engine's
+// cached best `vbest` IS A KEY, not a value, so the emitted cell is
+// `agg_val_of_key(vbest)` and a non-invertible key would change what a query
+// ANSWERS. Order must be TOTAL — `<` is partial, so `max` over { NaN, 1.0 }
+// would answer 1.0 where the order says NaN is greatest — and the bit pattern
+// is not an order. So the map key is `f64_to_bits`, the comparator is
+// `f64_data_key`, and `agg_ord_key` below is the single place that says so.
+//
+// ⚠⚠ AND THAT SPLIT IS NOW A KNOWN DIVERGENCE FROM THE STATIC TIER, DELIBERATE,
+// NAMED, AND NOT FIXED HERE. Victor's 2026-08-07 decision — all zeros ONE
+// element, all NaNs ONE element — landed in the STATIC emitter
+// (`wql/rexpr_walk.logos`, `kv_e`/`kb_e` and the retraction-footprint sensor,
+// both keying `f64_canon_bits`). It was NOT applied to this file, for a reason
+// that is about THIS representation and not about the decision: the static
+// handle caches the extremum as a VALUE, so a canonical key merges the classes
+// while the cell keeps the first arrival's exact bits; here the cached best is
+// the KEY ITSELF, so canonicalising it would silently rewrite every emitted
+// −0.0 to +0.0 and every NaN payload to the canonical one — a semantics change
+// to a tier P5 DELETES, paid for by editing the assertions of the very
+// differential (`deem_incr_diff_harness`) that exists to compare the two.
+// CONSEQUENCE, stated so no one reads a green harness as agreement: on the ONE
+// shape where the tiers now differ — retracting a member of a class that has
+// another member live (retract −0.0 with +0.0 present) — the static tier keeps
+// the class at count 1 and this engine reports `RetractAbsent`. The harness's
+// inputs do not contain that shape; `deem_incr_static_retract_e2e` block D/D2
+// does, and it drives the static tier only. When P5 deletes this file the
+// divergence goes with it.
 //
 // ⚠⚠ FORK, OPEN, AND DELIBERATELY NOT DECIDED HERE: `gsumf` IS NOT AN EXACT
 // ABELIAN GROUP. Retraction is `sum += w·arg` with w = −1, so the design rests

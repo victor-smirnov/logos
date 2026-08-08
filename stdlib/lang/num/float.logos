@@ -153,6 +153,63 @@ pub fn f32_data_key(x: f32) -> i64 {
     return f32_total_key(x);
 }
 
+// ── Data IDENTITY (the same quotient as `*_data_key`, but as BITS) ────────
+//
+// `*_data_key` is the ORDER over values; `*_canon_bits` is the IDENTITY over
+// the same values, and the whole point of having both is that they agree:
+//
+//     f64_canon_bits(a) == f64_canon_bits(b)   ⟺   f64_data_key(a) == f64_data_key(b)
+//
+// A map that keys on `f64_to_bits` and compares on `f64_data_key` splits those
+// two, and the split is observable: `−0.0` and `+0.0` become two entries of a
+// multiplicity map whose comparator calls them one value, so retracting `−0.0`
+// against an inserted `+0.0` answers `RetractAbsent` while the order says the
+// two are the same element. DECIDED 2026-08-07, PostgreSQL semantics all the
+// way into the key: ALL ZEROS ARE ONE ELEMENT, ALL NaNs ARE ONE ELEMENT.
+//
+// ⚠ WHY BITS AND NOT JUST `*_data_key` AS THE MAP KEY. Two reasons, neither of
+// them "it reads better". (1) A float map keys on a BIT PATTERN in every other
+// respect — the accumulator, the retraction-footprint tuple and the emitted
+// cell are all `u64` there — and a key that changed type would make the float
+// arm structurally different from the integer arm it is emitted beside.
+// (2) `*_canon_bits` is `to_bits` outside the two collapsed classes, so
+// `f64_from_bits` is its inverse ON THE QUOTIENT: the zero class decodes to
+// `+0.0` and the NaN class to the canonical quiet NaN, each a genuine member of
+// its class. `f64_data_key` has no inverse this library offers at all
+// (`f64_total_key` xors the sign fan-out in).
+//
+// ⚠ AND THE QUOTIENT INVERSE IS NOT THE SAME THING AS THE MEMBER THAT ARRIVED.
+// A consumer that must answer with the stored spelling of a value — the
+// incremental `min`/`max` map does, because `−0.0` and a NaN payload are
+// observable through `to_bits` — has to keep those bits BESIDE the key. The
+// canonical key says WHICH ELEMENT; it deliberately no longer says HOW IT WAS
+// SPELLED, and a design that reads the spelling back out of the key is wrong in
+// exactly one place: after a class-merging retraction.
+//
+// ⚠ AND THE COST IS THE KEY PATH ONLY. Canonicalising every float OPERATION was
+// implemented and measured at +40…117% (see above) and is NOT what this buys:
+// arithmetic is untouched, `f64_total_key` is untouched, and one branch pair on
+// key extraction is the entire price.
+
+/// The canonical IEEE 754 bit pattern of `x` AS A DATA VALUE: every NaN maps to
+/// one pattern, `−0.0` and `+0.0` map to one pattern, everything else is
+/// `f64_to_bits`. The identity/hash key matching `f64_data_key`'s order, and
+/// invertible on the quotient through `f64_from_bits`.
+pub fn f64_canon_bits(x: f64) -> u64 {
+    // `x != x` is the IEEE NaN test and needs no bit inspection.
+    if x != x { return 0x7FF8000000000000u64; }   // the canonical quiet NaN
+    if x == 0.0f64 { return 0u64; }               // catches BOTH zeros → +0.0
+    return f64_to_bits(x);
+}
+
+/// The canonical IEEE 754 bit pattern of `x` as a DATA value, for `f32`.
+/// The `f32` analogue of `f64_canon_bits`; see the note above it.
+pub fn f32_canon_bits(x: f32) -> u32 {
+    if x != x { return 0x7FC00000u32; }
+    if x == 0.0f32 { return 0u32; }
+    return f32_to_bits(x);
+}
+
 // ── Classification ───────────────────────────────────────────────────────
 //
 // IEEE 754 bit layout:

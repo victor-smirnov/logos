@@ -162,7 +162,15 @@ fn wg_vi(child: WAny) -> i64 {
     // `order by` (PostgreSQL's, `lang/num/float.logos`) says all three are one
     // value. `order by e.vi` is i64 order over those bits, so negative floats
     // come back reversed. Closing it needs the value and the key to stop being
-    // the same column; that is an arc, not an edit here. It is DETERMINISTIC —
+    // the same column; that is an arc, not an edit here.
+    //
+    // ⚠ AND `f64_canon_bits` (2026-08-07) DOES NOT CLOSE IT, which is worth
+    // saying because it closes the sibling gap in the incremental min/max map.
+    // There the canonical bits are the KEY and the accumulator holds the VALUE,
+    // so collapsing the key costs nothing. Here one column is both, so keying
+    // it canonically would DESTROY the stored −0.0 and the stored NaN payload —
+    // the very loss the paragraph above pins. The gap is a MISSING SECOND
+    // COLUMN, not a missing key function. It is DETERMINISTIC —
     // it does not move with the optimiser — so it is a semantics gap, not a
     // correctness hazard.
     else if child.is_float() { vi = f64_to_bits(child.as_f64()) as i64; }
