@@ -8750,8 +8750,24 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // i.e. phase 3 is LINEAR IN |S| WHILE RE-DERIVING NOTHING — ~20x the work at 4x
 // the relation, for zero rows of output. (Whole retraction, phases 1+2+3:
 // 173 / 699 / 3101 us; the other phases are the same shape, each a scan of T.)
+// ⚠⚠ AND THE SENTENCE THIS PARAGRAPH WAS MISSING: AT |RD| = 0 THE WHOLE DRed
+// RETRACTION IS SLOWER THAN THROWING THE RELATION AWAY AND REBUILDING IT.
+// The baseline was measured only after the fact, by an independent verifier —
+// from-scratch recompute over PRES: 120 / 660 / 2673 us against DRed's
+// 154 / 971 / 3985, i.e. a ratio of 1.28 / 1.47 / 1.49 that GROWS IN n.
+// So this is not "the cost is not yet optimal"; it is a PESSIMIZATION at every
+// size anyone has measured, and a reader who takes the rows above as "linear,
+// fine for now" is reading a column that has no baseline beside it. A cost
+// number without the alternative it is supposed to beat is not a measurement.
+// ⚠ THAT MAKES A HYBRID A REAL DESIGN QUESTION rather than a micro-optimisation:
+// recompute when |OD| is large relative to |T|, run DRed when it is small. It is
+// NOT taken here and NOT decided — recorded so the follow-up is chosen with the
+// baseline in view.
 // ⚠ NOT GATED, and deliberately: a wall-clock assertion in the corpus is a flake
 // generator. The number is recorded here and in the round's commit message.
+// ⚠ A NON-FLAKY PROXY EXISTS and is the suggested gate: a COUNTER — bodies
+// evaluated, or rows pushed-and-deduped — asserted against |RD|. That pins the
+// shape (work proportional to output, not to |S|) without pinning a clock.
 // THE FOLLOW-UP is the EDB-delta occurrence list named in `emit_scc_fn`'s
 // header, and it changes that fn only.
 //
