@@ -1,0 +1,467 @@
+// DRed PHASE 3 — RE-DERIVE. THE CLAIM IS THAT `_i` *IS* PHASE 3, AND THIS FILE
+// IS WHERE THAT CLAIM IS EXERCISED RATHER THAN ASSERTED.
+//
+// ── WHAT PHASE 3 IS, MECHANICALLY ─────────────────────────────────────────
+// There is NO fourth emitted sibling. Phase 3 is the SAME item `_i` that the
+// insert path uses, re-entered with two substitutions:
+//
+//   __wql_tc_scc0_i( PRES ,  &mut tot )      ← tot EXACTLY AS `_cpt` LEFT IT
+//                     ^^^^ the SURVIVOR edb, where an insert epoch passes the
+//                          ACCUMULATED edb
+//
+// and the re-derived rows are the suffix `[b0 .. len)` with
+//
+//   ⚠ b0 CAPTURED **AFTER** `_cpt` RETURNS.
+//
+// That capture point is not a detail. On the insert path `__b0_<m>` is taken
+// BEFORE the driver call, because nothing shrinks the total there. `_cpt`
+// SHRINKS it (retain, then `pop` to the write index), so a `b0` captured before
+// the compact indexes a vector that no longer reaches that length: on the chain
+// below it would be 6 against a post-compact length of 2. The fixture asserts
+// `b0 == |S|` straight from the latch, which is the machine-checkable form of
+// "captured on the right side of the compact".
+//
+// ── `__tot := S`, AND WHY `tot = 0` WOULD HAVE BEEN A BUG ─────────────────
+// The plan for this phase said "tot = 0, shadow set pre-populated with S".
+// ⚠ IN `_i` THE SHADOW SET AND THE TOTAL ARE THE SAME VARIABLE — the incr state
+// block seeds a FRESH `__rs_<m>` by walking `__tot_<m>` element by element. So
+// `tot = 0` is an EMPTY shadow set, every surviving fact counts as new, and the
+// whole closure is recomputed. The ANSWER IS STILL RIGHT. Only incrementality
+// dies — which is why this file asserts `RD`, not the answer.
+// ⚠ THAT IS NOT A WARNING IN A COMMENT — IT IS A LIVE BLOCK AT THE BOTTOM OF
+// THIS FILE. `_i` is called on the diamond's survivor edb with a FRESH EMPTY
+// Vec, and the file ASSERTS BOTH HALVES: the resulting relation equals
+// `closure(PRES)` exactly (the answer is RIGHT), and it holds 4 rows where the
+// correct `RD` is 1 (the incrementality is GONE). Only the numbers this file
+// actually computes are claimed; the chain's and the cycle's are not, because
+// they were not run.
+//
+// ── THE SURVIVOR LEMMA, ASSERTED AS ITS OWN CHECK: `S ⊆ closure(PRES)` ────
+// ⚠⚠ THIS IS THE ASSERTION NO OTHER FIXTURE IN THE ARC MAKES, AND IT IS THE ONE
+// THAT CANNOT BE RECOVERED LATER. Phase 3 only ever APPENDS (`promote` pushes),
+// so ANY row phase 2 wrongly KEEPS is in the answer forever — unrepairable by
+// construction. The soundness of phases 1+2 TOGETHER is exactly
+// `S = T ∖ OD ⊆ lfp(PRES)`, and `wql_incr_rel_od_phase1.logos` cannot see it:
+// that file checks `S` against `T ∖ OD_oracle`, so an engine and an oracle
+// sharing a wrong theorem about OD would agree with each other and both be
+// wrong. Here `S` is walked ROW BY ROW against `naive_closure(PRES)` — a
+// from-scratch fixpoint that knows nothing about OD, DE, or phases.
+// It is also the hypothesis `_i`'s completeness proof now names: the insert
+// caller discharges `T₀ ⊆ lfp(E')` by monotonicity, and this caller — whose
+// input SHRINKS, so monotonicity is FALSE — discharges it by this lemma.
+//
+// ── WHAT EACH CELL IS FOR ─────────────────────────────────────────────────
+//  1 CHAIN, mid edge deleted   — `RD = ∅`. The boundary: phase 2 alone is
+//                                already the right answer, so phase 3 must add
+//                                NOTHING. Every "re-derive everything" defect
+//                                shows up here as a non-empty RD.
+//  2 DIAMOND                   — `RD = {(1,4)}`, and it is re-derived from an
+//                                OLD S-row `(1,3)` joined with an OLD PRES edge
+//                                `(3,4)`. NEITHER side is a delta, so this row
+//                                exists ONLY because `_i`'s round 0 is a FULL
+//                                naïve pass. It is the cell that fails the
+//                                moment round 0 is narrowed to the base bodies.
+//  3 SELF-SUPPORTING CYCLE     — `S = ∅`, `RD` = the whole four-row closure.
+//                                Phase 2 answers nothing at all here; phase 3
+//                                is the entire answer.
+//  4 DE EMPTY                  — `OD = ∅`, `S = T`, `RD = ∅`. A phase 3 that
+//                                re-derived on principle rather than on need
+//                                shows up here and nowhere else, and a
+//                                DUPLICATE-pushing `_i` shows up here as a
+//                                relation longer than its own closure.
+//
+// ── THE ORACLES ───────────────────────────────────────────────────────────
+// `naive_closure` is repeat-`P := P ∪ (P ∘ E)` with linear dedup — no delta, no
+// shadow set, no SCC, no phases. `RD` is checked against
+// `closure(PRES) ∖ S` computed from it, `|RD|` additionally against a
+// HAND-COMPUTED count per cell, and `RD ⊆ rm` against the negative delta `_cpt`
+// handed back. `stdlib/mem/deem/incr_rec.logos`'s `dred` runs the same algorithm
+// as the emitter and is cited nowhere as agreement.
+//
+// ── CONTROLS, MEASURED 2026-08-08 (archives dropped, whole stdlib rebuilt) ─
+//  • ROUND 0 NARROWED TO THE BASE BODIES — `emit_scc_fn`'s seed selection
+//    `if incr || oc1.n == 0i64` weakened to `if oc1.n == 0i64`, i.e. the
+//    "exact" delta-only round 0 the header names as the follow-up.
+//    → **exit 62** — the DIAMOND, at the SET check (50 + 12). `(1,4)` is
+//    `S(1,3) ⋈ PRES(3,4)`: both sides are old, so no delta occurrence produces
+//    it, `RD` comes back EMPTY and the relation is missing a true fact.
+//    Predicted before running. The CHAIN stays green — its RD is empty anyway —
+//    so this cell is the only one that speaks, and it speaks at the ANSWER
+//    check rather than at the RD check because a missing row breaks both and
+//    the set comparison is written first.
+//  • THE SHADOW SET NOT SEEDED FROM THE TOTAL — `emit_scc_fn`'s `if incr` state
+//    arm forced to the from-scratch arm.
+//    → **exit 42** — the CHAIN, at the SET check (30 + 12): S = [12,34] is
+//    re-derived and pushed a SECOND time, so the relation comes back with four
+//    rows where its closure has two. Predicted as cell 4 and MEASURED at cell 1,
+//    which is the earlier cell with the same shape — the prediction named the
+//    defect correctly and the cell index wrongly, and is corrected here rather
+//    than quietly re-fitted.
+//  • THE `b0` CAPTURE MOVED BACK BEFORE `_cpt` (this file's own call sequence,
+//    since that capture is the caller's).
+//    → **exit 40** — the chain (30 + 10): `b0 = 6` against a post-compact
+//    length of 2 and a `|S|` latch of 2. The suffix would have been empty
+//    either way, which is exactly why `b0 == |S|` is ASSERTED and not left to
+//    be inferred from RD.
+//
+// ── WHAT IS DELIBERATELY *NOT* HERE ───────────────────────────────────────
+// NO RETRACTION SURFACE. `incr_retract_eligible` still refuses every rel-backed
+// query; `tc_retract` / `tc_apply` / `__wd` do not exist, and
+// `fail/wql_incr_rel_no_retract.logos` and the two `fail/wql_incr_mutrec_no_retract_*`
+// doors are UNCHANGED. This file drives the four emitted private siblings
+// directly, as a sibling item in the same module — which is why phase 3 can be
+// proven before any surface exists.
+// NO `|RD|` LATCH. `_cpt` still reports `-1` in slot 2 and this file asserts it,
+// because `_cpt` returns BEFORE phase 3 runs and so structurally cannot fill it;
+// the epoch driver retires the sentinel, and there is no epoch driver. Writing
+// the fill here would assert the fixture's own arithmetic against itself. What
+// IS asserted is the quantity that line would carry:
+// `tot.len() - lat[1]` against the closure oracle.
+//
+// exit 0 = on all four cells: `S ⊆ closure(PRES)` row by row; `b0 == |S|`; the
+// post-phase-3 relation equals the from-scratch fixpoint over PRES as a SET and
+// its first `|S|` rows are still exactly `S`; `RD` equals `closure(PRES) ∖ S`
+// as a set and matches a hand-computed count; `RD ⊆ rm`; and the `-1` sentinel
+// is untouched.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+// ── THE ORACLE: a from-scratch naive closure. `P := E ∪ (P ∘ E)` to
+// quiescence, dedup by linear `==`. No delta, no shadow set, no phases.
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn naive_closure(es: &[E]) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() {
+        pair_uniq(&mut p, es[i].a, es[i].b);
+        i = i + 1i64;
+    }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a {
+                    if pair_uniq(&mut p, pr.0, es[j].b) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+// Set equality: mutual containment PLUS equal length, so a DUPLICATE in either
+// side is a disagreement rather than something containment absorbs. That is the
+// only thing standing between this file and an `_i` whose shadow set stopped
+// gating.
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn seq_eq(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let a: (i64, i64) = x.get(i);
+        let b: (i64, i64) = y.get(i);
+        if a.0 != b.0 || a.1 != b.1 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn pair_copy(x: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < x.len() { let c: (i64, i64) = x.get(i); o.push((c.0, c.1)); i = i + 1i64; }
+    return o;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn edge_has(v: &Vec<E>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v.get(i);
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &Vec<E>, de: &Vec<E>) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all.get(i);
+        if !edge_has(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── ONE CELL: THE WHOLE FOUR-PHASE SEQUENCE ────────────────────────────────
+// T ← from-scratch; OD ← 1a+1b; (S, rm) ← 2; RD ← 3.
+//
+// ⚠ HOW MUCH WORK THE BROKEN CODE DOES BEFORE ANYTHING IS LOOKED AT: the
+// from-scratch fixpoint over ALL, then phase 1a's scan of the whole previous
+// total against DE, then 1b to quiescence over the survivor graph, then `_cpt`'s
+// counting pass over all of T and its retain pass over all of T, then `_i`'s
+// round-0 naïve pass over (S × PRES) and its delta rounds to quiescence. Nothing
+// here is caught at a first push.
+fn cell_p3(all: &Vec<E>, de: &Vec<E>, want_s_n: i64, want_rd_n: i64) -> i32 {
+    let pres: Vec<E> = survivors(all, de);
+    let cl_pres: Vec<(i64, i64)> = naive_closure(pres.as_slice());
+
+    // ── T, from the emitter's own from-scratch driver ────────────────────
+    let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(all.as_slice(), &mut tot) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 1i32; }
+    }
+    let cl_all: Vec<(i64, i64)> = naive_closure(all.as_slice());
+    if !same_set(&tot, &cl_all) { return 2i32; }
+
+    // ── PHASE 1a + 1b ────────────────────────────────────────────────────
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de.as_slice(), tot.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 3i32; }
+    }
+    match __wql_tc_scc0_odp(pres.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 4i32; }
+    }
+
+    // ── PHASE 2 ──────────────────────────────────────────────────────────
+    let mut lat: Vec<i64> = vec_new::<i64>();
+    let mut rm: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_cpt(od.as_slice(), &mut tot, &mut rm, &mut lat) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 5i32; }
+    }
+    if lat.len() != 3i64 { return 6i32; }
+    if lat.get(1i64) != tot.len() { return 7i32; }        // |S|
+    if tot.len() != want_s_n      { return 8i32; }        // hand-computed
+
+    // ⚠⚠ THE SURVIVOR LEMMA, ROW BY ROW: `S ⊆ closure(PRES)`.
+    // This is the soundness of phases 1 AND 2 TOGETHER, and the ONE property
+    // phase 3 cannot repair — it only appends, so a row wrongly kept here is
+    // wrong forever. The oracle is a from-scratch closure over the survivor
+    // edges that has never heard of OD, DE or a phase.
+    let mut sl: i64 = 0i64;
+    while sl < tot.len() {
+        let sc: (i64, i64) = tot.get(sl);
+        if !pair_has(&cl_pres, sc.0, sc.1) { return 9i32; }
+        sl = sl + 1i64;
+    }
+
+    // The exact rows of S, kept so that "phase 3 only APPENDS" is checkable
+    // afterwards rather than assumed from the emitter's `promote`.
+    let s_snap: Vec<(i64, i64)> = pair_copy(&tot);
+
+    // ⚠ THE CAPTURE POINT. `b0` is taken HERE — after `_cpt` shrank the total —
+    // and not before the phase-2 call the way the insert driver takes it. The
+    // latch `|S|` is the independent witness that it landed on the right side.
+    let b0: i64 = tot.len();
+    if b0 != lat.get(1i64) { return 10i32; }
+
+    // ── PHASE 3 — `_i`, OVER THE SURVIVOR EDB, ON THE COMPACTED TOTAL ────
+    // `__tot := S`, passed by handing `_cpt`'s own `&mut` Vec straight on. The
+    // shadow set is therefore S (it is seeded by walking this Vec), so the
+    // round-0 naïve pass re-derives freely and the dedup gate drops everything
+    // already present: what lands in the suffix is exactly what was missing.
+    match __wql_tc_scc0_i(pres.as_slice(), &mut tot) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 11i32; }
+    }
+
+    // THE FIXPOINT. The maintained relation now equals the from-scratch fixpoint
+    // over `I ∖ R`, as a SET — length included, so a re-derivation that pushed a
+    // duplicate is a failure and not a rounding.
+    if !same_set(&tot, &cl_pres) { return 12i32; }
+
+    // PHASE 3 ONLY APPENDS: the first `|S|` rows are still exactly S, in order.
+    let mut pre: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut pi: i64 = 0i64;
+    while pi < b0 { let pc: (i64, i64) = tot.get(pi); pre.push((pc.0, pc.1)); pi = pi + 1i64; }
+    if !seq_eq(&pre, &s_snap) { return 13i32; }
+
+    // ── RD, THE RE-DERIVED SUFFIX `[b0 .. len)` ──────────────────────────
+    let mut rd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut qi: i64 = b0;
+    while qi < tot.len() { let qc: (i64, i64) = tot.get(qi); rd.push((qc.0, qc.1)); qi = qi + 1i64; }
+
+    // |RD| — the quantity the epoch driver will latch into slot 2 as
+    // `len(tot) − lat[1]`. There is no driver, so it is computed the same way
+    // here and checked against the oracle rather than written into the latch.
+    if tot.len() - lat.get(1i64) != rd.len() { return 14i32; }
+    if rd.len() != want_rd_n                 { return 15i32; }   // hand-computed
+
+    // RD = closure(PRES) ∖ S, as a set. This is the assertion the ANSWER cannot
+    // make: a phase 3 that re-derived the WHOLE closure produces the same final
+    // relation and fails only here.
+    let mut want_rd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut ci: i64 = 0i64;
+    while ci < cl_pres.len() {
+        let cc: (i64, i64) = cl_pres.get(ci);
+        if !pair_has(&s_snap, cc.0, cc.1) { pair_uniq(&mut want_rd, cc.0, cc.1); }
+        ci = ci + 1i64;
+    }
+    if !same_set(&rd, &want_rd) { return 16i32; }
+
+    // RD ⊆ rm — every re-derived row is one PHASE 2 REMOVED. Phase 3 repairs
+    // over-deletion and does nothing else; a row in RD that was never in `rm`
+    // would mean phase 3 invented a fact rather than restoring one, and the
+    // final NET delta a driver folds is `rm ∖ RD` down and nothing up.
+    let mut mi: i64 = 0i64;
+    while mi < rd.len() {
+        let mc: (i64, i64) = rd.get(mi);
+        if !pair_has(&rm, mc.0, mc.1) { return 17i32; }
+        mi = mi + 1i64;
+    }
+    // …and the arithmetic that follows from it, stated so the three cardinals
+    // cannot drift apart silently: |T| − |rm| + |RD| = |closure(PRES)|.
+    if cl_all.len() - rm.len() + rd.len() != cl_pres.len() { return 18i32; }
+
+    // THE SENTINEL, UNCHANGED. `_cpt` returns before phase 3 runs and cannot
+    // know |RD|; the round that adds an epoch driver retires this line.
+    if lat.get(2i64) != 0i64 - 1i64 { return 19i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    // ══ CELL 1 — THE CHAIN. `RD = ∅` IS THE ASSERTION. ═══════════════════
+    // ALL = 1→2, 2→3, 3→4;  DE = 2→3;  PRES = 1→2, 3→4.
+    // T = {12,23,34,13,24,14}                                 — 6
+    // OD = {23,24,13,14}                                      — 4
+    // S  = {12,34}                                            — 2
+    // closure(PRES) = {12,34}                                 — 2
+    // RD = closure(PRES) ∖ S = ∅                              — 0
+    // Phase 2 alone is already the right answer here, so a phase 3 that
+    // re-derives anything at all is caught, and `b0 == |S| == 2` (not 6) is what
+    // pins the capture point.
+    let mut a1: Vec<E> = vec_new::<E>();
+    a1.push(ed(1i64, 2i64)); a1.push(ed(2i64, 3i64)); a1.push(ed(3i64, 4i64));
+    let mut d1: Vec<E> = vec_new::<E>();
+    d1.push(ed(2i64, 3i64));
+    let r1: i32 = cell_p3(&a1, &d1, 2i64, 0i64);
+    if r1 != 0i32 { return 30i32 + r1; }
+
+    // ══ CELL 2 — THE DIAMOND. THE ROUND-0 CELL. ══════════════════════════
+    // ALL = 1→2, 1→3, 2→4, 3→4;  DE = 2→4;  PRES = 1→2, 1→3, 3→4.
+    // T = {12,13,24,34,14}                                    — 5
+    // OD = {24,14}   ((1,4) has a SECOND, surviving derivation and is
+    //                 over-deleted anyway — that is the point of DRed)
+    // S  = {12,13,34}                                         — 3
+    // closure(PRES) = {12,13,34,14}                           — 4
+    // RD = {(1,4)}                                            — 1
+    // ⚠ (1,4) IS RE-DERIVED FROM TWO OLD FACTS: `path(1,3) ∈ S` joined with
+    // `edge(3,4) ∈ PRES`. Neither is a delta of any round, so this row exists in
+    // RD ONLY BECAUSE `_i`'s round 0 is a FULL naïve pass over (S × PRES). A
+    // round 0 narrowed to the base bodies returns RD = ∅ here and a relation
+    // missing a true fact — the measured control at the head of this file.
+    let mut a2: Vec<E> = vec_new::<E>();
+    a2.push(ed(1i64, 2i64)); a2.push(ed(1i64, 3i64));
+    a2.push(ed(2i64, 4i64)); a2.push(ed(3i64, 4i64));
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(2i64, 4i64));
+    let r2: i32 = cell_p3(&a2, &d2, 3i64, 1i64);
+    if r2 != 0i32 { return 50i32 + r2; }
+
+    // ══ CELL 3 — THE SELF-SUPPORTING CYCLE. PHASE 3 IS THE WHOLE ANSWER. ═
+    // ALL = 0→1, 1→2, 2→3, 3→1;  DE = 1→2;  PRES = 0→1, 2→3, 3→1.
+    // T = {(0,1),(0,2),(0,3)} ∪ {1,2,3}×{1,2,3}               — 12
+    // OD = ALL OF T                                           — 12
+    // S  = ∅                                                  — 0
+    // closure(PRES) = {(0,1),(2,3),(2,1),(3,1)}               — 4
+    // RD = all four                                           — 4
+    // Phase 2 leaves NOTHING; the entire correct answer is re-derived. Under any
+    // counting/multiplicity scheme the nine pairs among {1,2,3} keep a positive
+    // weight forever and nothing is deleted at all — the cell that separates
+    // DRed from counting, now with the repair asserted and not just the damage.
+    let mut a3: Vec<E> = vec_new::<E>();
+    a3.push(ed(0i64, 1i64)); a3.push(ed(1i64, 2i64));
+    a3.push(ed(2i64, 3i64)); a3.push(ed(3i64, 1i64));
+    let mut d3: Vec<E> = vec_new::<E>();
+    d3.push(ed(1i64, 2i64));
+    let r3: i32 = cell_p3(&a3, &d3, 0i64, 4i64);
+    if r3 != 0i32 { return 70i32 + r3; }
+
+    // ══ CELL 4 — DE EMPTY. THE PRECISION DIRECTION. ══════════════════════
+    // Nothing retracted: OD = ∅, S = T, PRES = ALL, RD = ∅ and the relation must
+    // come back UNCHANGED — same rows, same length. Every other cell would pass
+    // an `_i` that pushed a second copy of every row it re-derived, because
+    // every other cell's S is a strict subset of the closure and the duplicate
+    // would hide inside a difference. Here S IS the closure, so a duplicate
+    // doubles the length and `same_set` speaks.
+    let mut d4: Vec<E> = vec_new::<E>();
+    let r4: i32 = cell_p3(&a2, &d4, 5i64, 0i64);
+    if r4 != 0i32 { return 90i32 + r4; }
+
+    // ══ AND THE ONE THING AN ANSWER ORACLE *WOULD* HAVE CAUGHT, TO SHOW IT
+    // ══ WOULD NOT ═══════════════════════════════════════════════════════
+    // The diamond again, phase 3 run with `__tot := ∅` — the plan's original
+    // phrasing. The final relation is compared against `closure(PRES)` and is
+    // CORRECT; only |RD| differs (4 instead of 1). This block asserts the
+    // WRONGNESS BY NAME rather than describing it, so that "an answer oracle is
+    // blind here" is a measurement this file carries rather than a claim it
+    // repeats.
+    let p2b: Vec<E> = survivors(&a2, &d2);
+    let cl_p2b: Vec<(i64, i64)> = naive_closure(p2b.as_slice());
+    let mut z: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_i(p2b.as_slice(), &mut z) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 110i32; }
+    }
+    if !same_set(&z, &cl_p2b) { return 111i32; }   // THE ANSWER IS RIGHT …
+    if z.len() != 4i64        { return 112i32; }   // … and RD would be 4, not 1.
+
+    return 0i32;
+}

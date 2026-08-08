@@ -1,0 +1,323 @@
+// ALL FOUR DRed PHASES ON RANDOM GRAPHS, AGAINST AN ORACLE OF A **DIFFERENT
+// SHAPE** — A PRODUCT AUTOMATON CLOSED BY FLOYD–WARSHALL.
+//
+// ── WHY A THIRD ORACLE, AND WHY THIS ONE ──────────────────────────────────
+// The engine computes OD as a SEED (`existing-rel ⋈ DE`, over the previous
+// total) followed by a PROPAGATION over survivors. `wql_incr_rel_od_phase1.logos`
+// checks it against the CLOSED FORM obtained by decomposing a walk at its LAST
+// deleted edge — prefix in ALL, the edge, suffix in PRES. Those are THE SAME
+// DECOMPOSITION read from two directions. A mistake in the theorem itself would
+// be shared by oracle and engine, and both would agree.
+//
+// THIS ORACLE DOES NOT DECOMPOSE ANYTHING. It closes the PRODUCT of the graph
+// with a two-state automaton "have I used a deleted edge yet":
+//
+//     states  = (node, flag ∈ {0,1})               — 2n of them
+//     edge (a,b) takes (a,f) to (b, f ∨ del(a,b))
+//     reach   = transitive closure of that relation, by FLOYD–WARSHALL
+//               over the 2n × 2n boolean matrix — no delta, no fixpoint over
+//               a rule set, no notion of a "round"
+//
+//     T             = { (x,z) : (x,0) ⇝ (z,0) or (x,0) ⇝ (z,1) }
+//     OD            = { (x,z) : (x,0) ⇝ (z,1) }
+//     closure(PRES) = { (x,z) : (x,0) ⇝ (z,0) }
+//     S             = T ∖ OD
+//
+// Read literally off the specification "SOME derivation uses a retracted row",
+// with no `closure(ALL)`, no `closure(PRES)`, no loop over DE and no prefix /
+// suffix split. It agrees with the closed form only if the theorem is true.
+// ⚠ `stdlib/mem/deem/incr_rec.logos`'s `dred` runs the SAME algorithm as the
+// emitter and is cited nowhere here as agreement.
+//
+// A DETERMINISTIC eleven-cell version of this oracle already exists, in
+// `wql_incr_rel_od_phase1_adv.logos`. What is new here is (a) RANDOM coverage
+// rather than hand-picked shapes, and (b) PHASES 2 AND 3 — that file stops at
+// phase 1 and writes its own test-side compact and re-derive; this one drives
+// the emitted `_cpt` and the emitted `_i`, and checks the negative delta `rm`,
+// the three latches, `S ⊆ closure(PRES)` and the post-re-derive fixpoint.
+//
+// ── THE TRIAL SPACE ───────────────────────────────────────────────────────
+// 1200 trials. Each: n ∈ [2,5] nodes; every ordered pair (i,j) INCLUDING i = j
+// is an edge with probability ≈ 1/3 (so self-loops and 2-cycles occur and
+// nothing is a DAG by construction); every edge is retracted with probability
+// ≈ 1/4, so DE is empty in a good fraction of trials and is the whole edge set
+// in a few. DE ⊆ ALL always, so `_cpt` can never refuse and this file measures
+// the ACCEPTING path only — the refusal is `wql_incr_rel_od_phase1.logos`'s and
+// `wql_incr_rel_cpt_mutrec_txn.logos`'s job.
+// The generator is a plain LCG with a FIXED seed: the trial sequence is the
+// same on every machine and every run, so a failure is reproducible and a
+// "flaky" red is not a thing this file can produce.
+//
+// ── WHAT IS ASSERTED PER TRIAL ────────────────────────────────────────────
+//   T = oracle T · OD = oracle OD · S = oracle S and |S| = the `|S|` latch ·
+//   |OD| = the `|OD|` latch · the `-1` sentinel · rm = OD ∩ T with S ⊎ rm = T ·
+//   S ⊆ closure(PRES) · the post-`_i` relation = closure(PRES) as a SET ·
+//   RD = closure(PRES) ∖ S · RD ⊆ rm.
+// The exit code names WHICH check spoke; the trial index is not encoded (an
+// 8-bit exit cannot carry it), so a failure is reproduced by re-running with
+// the same seed and printing.
+//
+// ── CONTROLS, MEASURED 2026-08-08 (archives dropped, whole stdlib rebuilt) ─
+//  • THE SHADOW SET NOT SEEDED FROM THE TOTAL in `_i`'s incr arm (so phase 3
+//    re-pushes every surviving row). → **exit 21**, the post-`_i` set equality:
+//    the relation comes back with duplicates. PREDICTED BEFORE RUNNING AND
+//    MEASURED AT 21.
+// That edit is the same one measured against `wql_incr_rel_od_phase3.logos`
+// (which reported 42 on its chain cell), so this file agreeing is NOT
+// independent evidence about that defect and is not offered as such. What IS
+// this file's own is the oracle's SHAPE and the random trial space; a defect
+// that happens to spare the four hand-picked graphs of the phase-3 fixture has
+// 1200 random ones to survive here.
+//
+// exit 0 = 1200 trials, every check above, no mismatch.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+// ── THE ORACLE ────────────────────────────────────────────────────────────
+// `m` is the 2n × 2n adjacency of the PRODUCT graph, indexed `s * k + t` with
+// `k = 2n` and state `(v, f)` at `v * 2 + f`. Floyd–Warshall closes it in place
+// and yields paths of length ≥ 1 (the diagonal is set only if a real cycle
+// exists), which is what a derivation of `path(x,z)` is.
+fn product_closure(n: i64, all: &Vec<E>, de: &Vec<E>) -> Vec<bool> {
+    let k: i64 = n * 2i64;
+    let mut m: Vec<bool> = vec_new::<bool>();
+    let mut z: i64 = 0i64;
+    while z < k * k { m.push(false); z = z + 1i64; }
+    let mut e: i64 = 0i64;
+    while e < all.len() {
+        let ee: E = all.get(e);
+        // is this edge retracted?
+        let mut del: bool = false;
+        let mut d: i64 = 0i64;
+        while d < de.len() {
+            let dd: E = de.get(d);
+            if dd.a == ee.a && dd.b == ee.b { del = true; }
+            d = d + 1i64;
+        }
+        // (a,0) → (b, del) and (a,1) → (b,1): the flag is monotone.
+        let f1: i64 = if del { 1i64 } else { 0i64 };
+        m.set((ee.a * 2i64 + 0i64) * k + (ee.b * 2i64 + f1), true);
+        m.set((ee.a * 2i64 + 1i64) * k + (ee.b * 2i64 + 1i64), true);
+        e = e + 1i64;
+    }
+    let mut kk: i64 = 0i64;
+    while kk < k {
+        let mut i: i64 = 0i64;
+        while i < k {
+            if m.get(i * k + kk) {
+                let mut j: i64 = 0i64;
+                while j < k {
+                    if m.get(kk * k + j) { m.set(i * k + j, true); }
+                    j = j + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        kk = kk + 1i64;
+    }
+    return m;
+}
+
+// { (x,z) : (x,0) ⇝ (z,flag) } for a chosen flag, or the union when `both`.
+fn from_product(n: i64, m: &Vec<bool>, flag: i64, both: bool) -> Vec<(i64, i64)> {
+    let k: i64 = n * 2i64;
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut x: i64 = 0i64;
+    while x < n {
+        let mut zt: i64 = 0i64;
+        while zt < n {
+            let hit0: bool = m.get((x * 2i64) * k + (zt * 2i64));
+            let hit1: bool = m.get((x * 2i64) * k + (zt * 2i64 + 1i64));
+            let take: bool = if both { hit0 || hit1 }
+                             else if flag == 0i64 { hit0 }
+                             else { hit1 };
+            if take { pair_uniq(&mut out, x, zt); }
+            zt = zt + 1i64;
+        }
+        x = x + 1i64;
+    }
+    return out;
+}
+
+// ── THE GENERATOR: a plain LCG, FIXED seed, so the trial sequence is
+// identical on every machine and a red is reproducible by construction.
+struct Rng { pub s: i64 }
+
+fn rnext(r: &mut Rng) -> i64 {
+    r.s = (r.s * 1103515245i64 + 12345i64) % 2147483648i64;
+    return r.s / 65536i64;
+}
+
+fn rbelow(r: &mut Rng, k: i64) -> i64 { return rnext(r) % k; }
+
+fn main() -> i32 {
+    let mut rng: Rng = Rng { s: 20260808i64 };
+    let mut trial: i64 = 0i64;
+    while trial < 1200i64 {
+        let n: i64 = 2i64 + rbelow(&mut rng, 4i64);       // 2..5 nodes
+
+        // ALL: every ordered pair, self-loops included, with p ≈ 1/3.
+        let mut all: Vec<E> = vec_new::<E>();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let mut j: i64 = 0i64;
+            while j < n {
+                if rbelow(&mut rng, 3i64) == 0i64 { all.push(ed(i, j)); }
+                j = j + 1i64;
+            }
+            i = i + 1i64;
+        }
+        // DE ⊆ ALL with p ≈ 1/4 per edge, and PRES its complement.
+        let mut de: Vec<E> = vec_new::<E>();
+        let mut pres: Vec<E> = vec_new::<E>();
+        let mut q: i64 = 0i64;
+        while q < all.len() {
+            let ee: E = all.get(q);
+            if rbelow(&mut rng, 4i64) == 0i64 { de.push(ee); } else { pres.push(ee); }
+            q = q + 1i64;
+        }
+
+        // ── THE ORACLE, computed before the engine is touched ────────────
+        let m: Vec<bool> = product_closure(n, &all, &de);
+        let o_t: Vec<(i64, i64)>  = from_product(n, &m, 0i64, true);
+        let o_od: Vec<(i64, i64)> = from_product(n, &m, 1i64, false);
+        let o_pr: Vec<(i64, i64)> = from_product(n, &m, 0i64, false);
+        let mut o_s: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        let mut si: i64 = 0i64;
+        while si < o_t.len() {
+            let sc: (i64, i64) = o_t.get(si);
+            if !pair_has(&o_od, sc.0, sc.1) { pair_uniq(&mut o_s, sc.0, sc.1); }
+            si = si + 1i64;
+        }
+
+        // ── THE ENGINE ──────────────────────────────────────────────────
+        let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        match __wql_tc_scc0(all.as_slice(), &mut tot) {
+            Result::Ok(_u) => { } Result::Err(_e) => { return 10i32; }
+        }
+        if !same_set(&tot, &o_t) { return 11i32; }
+
+        let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        match __wql_tc_scc0_od(de.as_slice(), tot.as_slice(), &mut od) {
+            Result::Ok(_u) => { } Result::Err(_e) => { return 12i32; }
+        }
+        match __wql_tc_scc0_odp(pres.as_slice(), &mut od) {
+            Result::Ok(_u) => { } Result::Err(_e) => { return 13i32; }
+        }
+        if !same_set(&od, &o_od) { return 14i32; }
+
+        let mut lat: Vec<i64> = vec_new::<i64>();
+        let mut rm: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        let t_n: i64 = tot.len();
+        match __wql_tc_scc0_cpt(od.as_slice(), &mut tot, &mut rm, &mut lat) {
+            Result::Ok(_u) => { } Result::Err(_e) => { return 15i32; }
+        }
+        if !same_set(&tot, &o_s)      { return 16i32; }
+        if lat.len() != 3i64          { return 17i32; }
+        if lat.get(0i64) != o_od.len() { return 18i32; }   // |OD|, distinct
+        if lat.get(1i64) != o_s.len()  { return 19i32; }   // |S|
+        if lat.get(2i64) != 0i64 - 1i64 { return 20i32; }  // |RD| sentinel
+        // rm PARTITIONS T with S, and is exactly OD ∩ T (= OD, since OD ⊆ T).
+        if rm.len() + tot.len() != t_n { return 22i32; }
+        if !same_set(&rm, &o_od)       { return 23i32; }
+
+        // ⚠⚠ THE SURVIVOR LEMMA — the property phase 3 CANNOT repair, since it
+        // only appends. Checked against the product oracle's `(x,0) ⇝ (z,0)`
+        // set, which was computed without ever forming S.
+        let mut li: i64 = 0i64;
+        while li < tot.len() {
+            let lc: (i64, i64) = tot.get(li);
+            if !pair_has(&o_pr, lc.0, lc.1) { return 24i32; }
+            li = li + 1i64;
+        }
+
+        // ── PHASE 3 = `_i` over PRES, on the compacted total ─────────────
+        let b0: i64 = tot.len();
+        if b0 != lat.get(1i64) { return 25i32; }
+        match __wql_tc_scc0_i(pres.as_slice(), &mut tot) {
+            Result::Ok(_u) => { } Result::Err(_e) => { return 26i32; }
+        }
+        if !same_set(&tot, &o_pr) { return 21i32; }
+        // RD = closure(PRES) ∖ S, and every re-derived row was one phase 2
+        // removed — phase 3 repairs over-deletion and does nothing else.
+        let mut rd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        let mut qi: i64 = b0;
+        while qi < tot.len() {
+            let qc: (i64, i64) = tot.get(qi);
+            pair_uniq(&mut rd, qc.0, qc.1);
+            qi = qi + 1i64;
+        }
+        if rd.len() != tot.len() - b0 { return 27i32; }   // no dup in the suffix
+        let mut want_rd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+        let mut ci: i64 = 0i64;
+        while ci < o_pr.len() {
+            let cc: (i64, i64) = o_pr.get(ci);
+            if !pair_has(&o_s, cc.0, cc.1) { pair_uniq(&mut want_rd, cc.0, cc.1); }
+            ci = ci + 1i64;
+        }
+        if !same_set(&rd, &want_rd) { return 28i32; }
+        let mut mi: i64 = 0i64;
+        while mi < rd.len() {
+            let mc: (i64, i64) = rd.get(mi);
+            if !pair_has(&rm, mc.0, mc.1) { return 29i32; }
+            mi = mi + 1i64;
+        }
+
+        trial = trial + 1i64;
+    }
+    return 0i32;
+}

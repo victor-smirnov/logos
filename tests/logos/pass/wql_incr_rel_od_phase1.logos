@@ -18,7 +18,21 @@
 //   __wql_tc_scc0     (es = ALL,  &mut tot)                    ← the previous total T
 //   __wql_tc_scc0_od  (es = DE,   rd = T,  &mut od)            ← PHASE 1a, seed
 //   __wql_tc_scc0_odp (es = PRES,          &mut od)            ← PHASE 1b, propagate
-//   __wql_tc_scc0_cpt (od, &mut tot, &mut lat)                 ← PHASE 2,   compact
+//   __wql_tc_scc0_cpt (od, &mut tot, &mut rm, &mut lat)        ← PHASE 2,   compact
+//
+// ⚠ `rm` — THE NEGATIVE DELTA, AND WHY IT IS AN OUT-PARAM RATHER THAN A COUNT.
+// The compact retains survivors at a write index and pops the tail, so the rows
+// it drops are OVERWRITTEN IN PLACE: once `_cpt` returns there is nothing left
+// anywhere to reconstruct `OD ∩ T` from. The caller's T has been rewritten and
+// `od` is a strict SUPERSET in general (it may name rows T never held — the
+// refusal cell at the bottom of this file is exactly such an input). A driver
+// that folds this relation into per-group aggregate state has to fold DOWN by
+// what left and UP by what phase 3 puts back; `__lat` says HOW MANY left, never
+// WHICH, so without `rm` the aggregate cells would go silently stale while the
+// relation itself stayed right — a defect no assertion about the rel can see.
+// `rm` is asserted here as a SET (against the closed-form oracle ∩ T), as an
+// exact SEQUENCE on the chain and the diamond, as a PARTITION of the pre-compact
+// total with S, and as UNTOUCHED under a refused compact from a SEEDED Vec.
 //
 // ── WHY THE INTERMEDIATE SETS AND NOT THE ANSWER ──────────────────────────
 // ⚠⚠ AN ANSWER ORACLE IS BLIND TO THIS ARC — measured twice, on two builds, by
@@ -105,6 +119,16 @@
 //    IS THE CONTROL THAT MAKES "the total is untouched" MEAN SOMETHING — see the
 //    note on that cell about why its DE deletes a real edge as well as a
 //    never-inserted one.
+//  • `rm` IS THE WRONG SIDE OF THE PARTITION. CONTROL, MEASURED 2026-08-08:
+//    push into `__rm_<m>` from the SURVIVOR branch (`!__hit2`) instead of the
+//    removed one, so the out-param comes back holding `S`.
+//    → **exit 112** — the chain's `cell_p2`, at the `rm` set equality (100+12).
+//    Predicted before running. `wql_incr_rel_cpt_mutrec_txn` reported 64 and
+//    `wql_incr_rel_dred_product_random` 22 under the same control; the phase-3
+//    fixture reported 48, from the `|T| − |rm| + |RD| = |closure(PRES)|`
+//    arithmetic rather than the check named in its prediction — the DEFECT was
+//    predicted correctly and the CHECK-WITHIN-THE-CELL was not, and that is
+//    recorded rather than re-fitted.
 //  • THE ORDER IS NOT PRESERVED. CONTROL: swap the first two survivors after the
 //    compact (written out with `get`/`set`, so the control's own code is under
 //    measurement and not a library call). → **exit 111** — `same_set` and the
@@ -432,8 +456,28 @@ fn cell_p2(all: &Vec<E>, de: &Vec<E>, want_s_n: i64) -> i32 {
     let t_pre: Vec<(i64, i64)> = pair_copy(&tot);
 
     // ── PHASE 2 ───────────────────────────────────────────────────────────
+    // `rm` is the NEGATIVE DELTA — the rows the compact removed, `OD ∩ T`, in
+    // T's own order. It is an out-param and not a derivable quantity: the
+    // compact overwrites the dropped rows in place, so after the call the only
+    // copy of them is this Vec (the caller's T has been rewritten and `od` is a
+    // SUPERSET that may name rows T never held).
+    //
+    // ⚠⚠ BOTH OUT-PARAMS ARE SEEDED, AND ON THE **SUCCESS** PATH — WHICH IS THE
+    // PATH THAT HAD NO WITNESS. The refusal cell at the bottom of this file
+    // seeds them to prove a REFUSAL writes nothing; nothing anywhere proved a
+    // SUCCESS clears. Every successful `_cpt` call in this file used to be handed
+    // a FRESH Vec, and a fresh Vec passes identically whether the callee clears
+    // first or appends to what it was given — MEASURED for `__lat` once already:
+    // deleting `__lat.clear()` outright left both fixtures at 0. `555` and (8,8)
+    // are out of every legal range here (|OD|, |S| ≥ 0 and small; the chain's
+    // rows all have a < b ≤ 4), so their SURVIVAL is a defect and their absence
+    // is a fact only a write can produce. `lat.len() != 3` below is what catches
+    // the latch; the `same_set` on `rm` is what catches the removed set.
     let mut lat: Vec<i64> = vec_new::<i64>();
-    match __wql_tc_scc0_cpt(od.as_slice(), &mut tot, &mut lat) {
+    lat.push(555i64);
+    let mut rm: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rm.push((8i64, 8i64));
+    match __wql_tc_scc0_cpt(od.as_slice(), &mut tot, &mut rm, &mut lat) {
         Result::Ok(_u) => { } Result::Err(_e) => { return 4i32; }
     }
 
@@ -466,6 +510,42 @@ fn cell_p2(all: &Vec<E>, de: &Vec<E>, want_s_n: i64) -> i32 {
     // the stale tail and breaks the LENGTH first; scrambling (a swap-with-last
     // compaction) breaks this and nothing else.
     if !is_subseq(&tot, &t_pre) { return 11i32; }
+
+    // ── THE NEGATIVE DELTA `rm`, AS A SET, A COUNT AND AN ORDER ───────────
+    // ⚠ WHY THIS IS NOT REDUNDANT WITH `|OD|` AND `|S|`. The two latches are
+    // COUNTS; a fold that has to undo the removal needs the ROWS. And `rm` is
+    // not recoverable from anything else the call leaves behind: `t_pre` here is
+    // a fixture-side copy that a real driver does not have, `tot` has been
+    // rewritten in place, and `od` is a strict SUPERSET of `OD ∩ T` in the
+    // general case (the refusal cell below is exactly such a case).
+    //
+    // The oracle is `want_od` — the CLOSED FORM's OD — intersected with the
+    // pre-compact total, so a phase-1 defect cannot cancel against a phase-2 one.
+    let mut want_rm: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut ri: i64 = 0i64;
+    while ri < t_pre.len() {
+        let rr: (i64, i64) = t_pre.get(ri);
+        if pair_has(&want_od, rr.0, rr.1) { pair_uniq(&mut want_rm, rr.0, rr.1); }
+        ri = ri + 1i64;
+    }
+    // The seed is GONE — a successful compact CLEARS `__rm_<m>` rather than
+    // appending to whatever the caller was carrying. Named separately from the
+    // set equality so the failure says which of the two things broke.
+    if pair_has(&rm, 8i64, 8i64) { return 16i32; }
+    if !same_set(&rm, &want_rm) { return 12i32; }
+    // S and RM PARTITION the pre-compact total: every row went to exactly one
+    // side. Stated as arithmetic AND as disjointness, because a `rm` that
+    // duplicated a row while dropping another would satisfy the count alone.
+    if rm.len() + tot.len() != t_pre.len() { return 13i32; }
+    let mut di: i64 = 0i64;
+    while di < rm.len() {
+        let dc: (i64, i64) = rm.get(di);
+        if pair_has(&tot, dc.0, dc.1) { return 14i32; }
+        di = di + 1i64;
+    }
+    // …and `rm` carries T's ORDER, not OD's propagation order — a subsequence
+    // of the pre-compact total, the same contract `S` owes.
+    if !is_subseq(&rm, &t_pre) { return 15i32; }
     return 0i32;
 }
 
@@ -634,12 +714,22 @@ fn main() -> i32 {
         Result::Ok(_u) => { } Result::Err(_e) => { return 83i32; }
     }
     let mut lat1: Vec<i64> = vec_new::<i64>();
-    match __wql_tc_scc0_cpt(od1.as_slice(), &mut tt1, &mut lat1) {
+    let mut rm1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_cpt(od1.as_slice(), &mut tt1, &mut rm1, &mut lat1) {
         Result::Ok(_u) => { } Result::Err(_e) => { return 84i32; }
     }
     let mut want_s1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
     want_s1.push((1i64, 2i64)); want_s1.push((3i64, 4i64));
     if !seq_eq(&tt1, &want_s1) { return 85i32; }
+    // THE REMOVED ROWS, AS AN EXACT SEQUENCE. T = [12,23,34,13,24,14] and
+    // OD = {23,13,24,14}, so T's order restricted to OD is [23,13,24,14] —
+    // NOT OD's own propagation order, which puts the seed rows {23,13} first
+    // and then {24,14} and happens to agree here only by accident of the graph.
+    // The diamond below is where the two orders actually differ.
+    let mut want_rm1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_rm1.push((2i64, 3i64)); want_rm1.push((1i64, 3i64));
+    want_rm1.push((2i64, 4i64)); want_rm1.push((1i64, 4i64));
+    if !seq_eq(&rm1, &want_rm1) { return 160i32; }
 
     let mut tt2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
     match __wql_tc_scc0(a2.as_slice(), &mut tt2) {
@@ -657,12 +747,22 @@ fn main() -> i32 {
         Result::Ok(_u) => { } Result::Err(_e) => { return 89i32; }
     }
     let mut lat2: Vec<i64> = vec_new::<i64>();
-    match __wql_tc_scc0_cpt(od2b.as_slice(), &mut tt2, &mut lat2) {
+    let mut rm2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_cpt(od2b.as_slice(), &mut tt2, &mut rm2, &mut lat2) {
         Result::Ok(_u) => { } Result::Err(_e) => { return 90i32; }
     }
     let mut want_s2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
     want_s2.push((1i64, 2i64)); want_s2.push((1i64, 3i64)); want_s2.push((3i64, 4i64));
     if !seq_eq(&tt2, &want_s2) { return 91i32; }
+    // T = [12,13,24,34,14], OD = {24,14} ⇒ rm = [24,14] in T's order.
+    let mut want_rm2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_rm2.push((2i64, 4i64)); want_rm2.push((1i64, 4i64));
+    if !seq_eq(&rm2, &want_rm2) { return 161i32; }
+    // ⚠ AND THE DIAMOND'S `rm` IS EXACTLY WHAT PHASE 3 MUST PARTLY UNDO: (1,4)
+    // is in it AND is still true over PRES. A fold that took `rm` as the final
+    // negative delta without waiting for the re-derive would be wrong here, on
+    // this row, which is why the phase-3 fixture asserts `RD ⊆ rm`.
+    if !pair_has(&rm2, 1i64, 4i64) { return 162i32; }
 
     // ══ `OD ⊆ T` — THE REFUSAL, AND THE STATE IT LEAVES ══════════════════
     // Nothing in the tree checks `DE ⊆ EDB`: there is no retraction surface to
@@ -712,10 +812,26 @@ fn main() -> i32 {
     // 777 is arbitrary and out of every latch's range (|OD|, |S| >= 0, |RD| = -1).
     let mut latbad: Vec<i64> = vec_new::<i64>();
     latbad.push(777i64);
-    match __wql_tc_scc0_cpt(odbad.as_slice(), &mut tt3, &mut latbad) {
+    // ⚠ SEEDED OUT OF RANGE, FOR THE SAME REASON AND ONE MORE. `rm` is a Vec the
+    // callee would leave alone on a refusal whether it is transactional or
+    // merely lazy, so asked of a FRESH Vec the assertion below is vacuous. (7,7)
+    // is a pair the chain never derives — every row of T here has a < b — so
+    // "unchanged" is a claim about a value only a WRITE could remove. On the
+    // successful path the callee CLEARS `__rm_<m>`, so this seed is also the only
+    // input that separates "cleared then filled" from "appended to whatever the
+    // caller had": the successful cells above start from a fresh Vec and cannot.
+    let mut rmbad: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rmbad.push((7i64, 7i64));
+    match __wql_tc_scc0_cpt(odbad.as_slice(), &mut tt3, &mut rmbad, &mut latbad) {
         Result::Ok(_u) => { return 98i32; }              // it must NOT succeed
         Result::Err(_e) => { }
     }
+    // THE NEGATIVE DELTA, UNTOUCHED — the refusal is transactional in `rm` too.
+    // Four of the five OD rows ARE in T, so a one-pass compact would have pushed
+    // four rows here before it could refuse, and a clear-before-check would have
+    // dropped the seed.
+    if rmbad.len() != 1i64 { return 163i32; }
+    if !pair_has(&rmbad, 7i64, 7i64) { return 164i32; }
     // THE TOTAL, UNTOUCHED — same rows, same order as before the refused call.
     if !seq_eq(&tt3, &want_t1) { return 99i32; }
     // …and no latch was written: a refused compact reports nothing, so a reader

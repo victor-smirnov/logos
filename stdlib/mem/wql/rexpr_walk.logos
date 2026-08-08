@@ -8093,13 +8093,54 @@ fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
 //      and no number is quoted: the EDB-delta occurrence list is the named
 //      follow-up, and it changes this fn only.
 //
-//      COMPLETENESS, since "generous" must not mean "hopeful": let T be the
-//      previous total (= lfp over the old input E) and E' ⊇ E the accumulated
-//      input. T ⊆ lfp(E') by monotonicity. Round 0 computes F(T, E') and keeps
-//      what is not in T, so every new fact derivable from T-facts alone is
-//      found; every other new fact needs a fact of some earlier round's delta
-//      and is found by the in-SCC delta variants, by induction on rounds. The
-//      iteration is the standard one from a lower bound of the fixpoint.
+//      COMPLETENESS, since "generous" must not mean "hopeful". ⚠ THIS PROOF IS
+//      STATED AS A HYPOTHESIS ITS CALLERS DISCHARGE, NOT AS A CLAIM ABOUT THE
+//      INPUT, because THE INPUT NO LONGER ONLY GROWS. It used to read "let E' ⊇ E
+//      be the accumulated input; T ⊆ lfp(E') by monotonicity" — and that premise
+//      is FALSE for the second caller, whose input SHRINKS. A header that proves
+//      the wrong theorem is worse than no header, so:
+//
+//        HYPOTHESIS.  Let T₀ be the total this fn is entered with and E' the
+//        input it is handed. The induction below needs EXACTLY  T₀ ⊆ lfp(E')
+//        and nothing else about how T₀ and E' are related.
+//
+//        DISCHARGE, CALLER 1 — INSERT (the epoch driver). T₀ = lfp(E) for the
+//        previous input E, and E' = E ∪ (the epoch's new rows) ⊇ E. Then
+//        T₀ = lfp(E) ⊆ lfp(E') by MONOTONICITY of the immediate-consequence
+//        operator in its input. This is the old premise, now local to the caller
+//        that actually has it.
+//
+//        DISCHARGE, CALLER 2 — DRed PHASE 3 (re-derive). E' = PRES = ALL ∖ DE,
+//        which is a STRICT SUBSET of the input T₀'s ancestors were computed
+//        over, so monotonicity says NOTHING here and citing it would be a
+//        falsehood. What holds instead is the SURVIVOR LEMMA, and it comes
+//        straight out of phase 1's specification of the over-delete set
+//        (`emit_scc_od_fns`'s header):
+//              OD = { f ∈ T : SOME derivation of f uses a row of DE }.
+//        Contrapositive: f ∈ S = T ∖ OD ⇒ NO derivation of f uses a row of DE
+//        ⇒ f has a derivation all of whose rows are in ALL ∖ DE = PRES ⇒
+//        f ∈ lfp(PRES). Hence S ⊆ lfp(PRES), i.e. T₀ ⊆ lfp(E') with T₀ = S.
+//        ⚠ The lemma is a property of PHASES 1 AND 2 TOGETHER — it fails the
+//        moment phase 2 KEEPS a row it should have dropped, and phase 3 only
+//        ADDS, so such a row is unrepairable forever. It is therefore asserted
+//        as its own check by the phase-3 fixture (`S ⊆ closure(PRES)`, walked
+//        row by row against an independent closure), not inferred from the
+//        cardinality latches and not inferred from the final answer.
+//
+//        INDUCTION (unchanged, and input-monotonicity-free). Round 0 computes
+//        F(T₀, E') and keeps what is not in T₀, so every fact derivable from
+//        T₀-facts alone is found; every other fact of lfp(E') ∖ T₀ needs a fact
+//        of some earlier round's delta and is found by the in-SCC delta
+//        variants, by induction on rounds. The iteration is the standard one
+//        from a LOWER BOUND of the fixpoint — and "lower bound" is precisely
+//        what the hypothesis supplies, which is why nothing below it reads
+//        E ⊆ E'.
+//
+//        ⚠ WHAT THE HYPOTHESIS DOES NOT BUY: soundness in the other direction.
+//        `lfp(E') ⊇ T₀` says every entry row is still derivable; it does NOT say
+//        the fn removes a row that ISN'T. This fn never removes anything. A
+//        caller whose input shrank must have already deleted the unsupported
+//        rows before entering — which is what phases 1+2 are.
 //
 // TERMINATION ON CYCLIC DATA IS THE SAME PROPERTY AND THE SAME MECHANISM: the
 // shadow set gates every insert, so the deltas empty once the closure saturates.
@@ -8581,8 +8622,9 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 //
 // ══ DRed PHASE 2 — `_cpt`, THE COMPACT ═════════════════════════════════════
 //  `__wql_<q>_scc<c>_cpt(__od_<m>: &[Row]…, __tot_<m>: &mut Vec<Row>…,
-//                        __lat: &mut Vec<i64>)`
-//      Replaces each member's total with `T ∖ OD`, IN PLACE.
+//                        __rm_<m>: &mut Vec<Row>…, __lat: &mut Vec<i64>)`
+//      Replaces each member's total with `T ∖ OD`, IN PLACE, and hands back the
+//      rows it removed (`OD ∩ T`, in T's order) in `__rm_<m>`.
 //
 // ── THE FORK, AND WHAT THE CHOICE COSTS ────────────────────────────────────
 // The interpreter (`incr_rec.logos`, `fn dred`) REBUILDS: a fresh `new_rows`
@@ -8650,14 +8692,85 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // the latch reporting the SET's cardinality is what would make a regression in
 // that gating visible here instead of silently inflating a count.
 //
+// ══ DRed PHASE 3 — RE-DERIVE. THERE IS NO FOURTH SIBLING, AND THAT IS THE
+// ══ ANSWER, NOT AN OMISSION ════════════════════════════════════════════════
+// PHASE 3 IS `_i`. Not "`_i` adapted", not "`_i`'s body copied" — the SAME
+// emitted item `__wql_<q>_scc<c>_i`, re-entered with two substitutions:
+//
+//     __wql_<q>_scc<c>_i( <PRES, the survivor edb, where the epoch driver
+//                          passes the accumulated edb>,
+//                         &mut __tot_<m>  ← EXACTLY AS `_cpt` LEFT IT )
+//
+// and the epoch's re-derived rows are then the suffix `[__b0_<m> .. len)` with
+// `__b0_<m>` captured AFTER `_cpt` returns, because `promote` only ever appends.
+//
+// ── `__tot := S`, NOT `__tot := ∅` ─────────────────────────────────────────
+// ⚠ THE PLAN FOR THIS PHASE SAID "tot = 0, shadow set pre-populated with S",
+// AND WRITING THAT WOULD BE A BUG HERE. In `_i` THE SHADOW SET AND THE TOTAL ARE
+// THE SAME VARIABLE: the incr state block seeds a FRESH `__rs_<m>` by walking
+// `__tot_<m>` element by element (see `emit_scc_fn`, the `if incr` state arm).
+// `tot = 0` therefore means an EMPTY shadow set, which means every surviving
+// fact is "new" and the whole closure is recomputed — right answer, zero
+// incrementality, and no assertion about the ANSWER could ever see it.
+// The interpreter's `rctx.tot[0] = 0` (`incr_rec.logos`) is a DIFFERENT
+// MECHANISM and does not transfer: `dred`'s rows and its dedup map `rhm` are
+// separate objects, so it can hold S in `rhm` while telling the driver the delta
+// starts at 0. `_i` has no such split. The plan described `dred`'s data layout.
+//
+// ── WHY `_odp` NEEDED A SIBLING AND `_i` DOES NOT ──────────────────────────
+// The two look symmetric and are not, and the asymmetry is the BASE bodies.
+// `_odp`'s shadow set is OD and starts near-empty, so running `_i`'s round 0
+// there would inject every surviving base fact INTO OD — the measured
+// "1b re-seeding from the EDB" control, `pass/wql_incr_rel_od_phase1.logos`,
+// exit 36. In phase 3 the shadow set is S, and a surviving base fact
+// re-derivable from PRES is either ALREADY IN S (dropped by the dedup gate, for
+// free) or was over-deleted and MUST come back. THE BASE BODIES ARE WANTED HERE
+// AND POISON THERE, which is why one of the two reuses is legitimate.
+//
+// ── COMPLETENESS ──────────────────────────────────────────────────────────
+// `_i` extends a total to the fixpoint over its input PROVIDED the total is a
+// lower bound of that fixpoint. For an insert that is monotonicity; here the
+// input SHRINKS and monotonicity is FALSE. The hypothesis is discharged instead
+// by the SURVIVOR LEMMA `S = T ∖ OD ⊆ lfp(PRES)`, read off the OD spec above.
+// The proof is written where it belongs — in `emit_scc_fn`'s header, restated as
+// a hypothesis with one discharge per caller, because a header that proves the
+// wrong theorem is worse than no header.
+//
+// ── ROUND 0 IS A FULL NAÏVE PASS AND PHASE 3 INHERITS THAT ─────────────────
+// `_i`'s round 0 runs every body of every member at FULL slices, so a retraction
+// costs one naïve pass over (PRES × S) before any delta round. The answer is
+// right; the COST is the thing that is wrong, and it is invisible to every
+// oracle in this arc — every assertion here is about a SET.
+// ⚠ MEASURED 2026-08-08, UNSHARDED, box otherwise idle. Chain of n edges with
+// the LAST edge retracted, so |RD| = 0 AT EVERY SIZE and a true delta pass would
+// be FLAT in n. `_i` alone, best of four runs:
+//        n=40   |S|=780     102 us     131 ns/surviving row
+//        n=80   |S|=3160    412 us     130 ns/surviving row
+//        n=160  |S|=12720  2008 us     158 ns/surviving row
+// i.e. phase 3 is LINEAR IN |S| WHILE RE-DERIVING NOTHING — ~20x the work at 4x
+// the relation, for zero rows of output. (Whole retraction, phases 1+2+3:
+// 173 / 699 / 3101 us; the other phases are the same shape, each a scan of T.)
+// ⚠ NOT GATED, and deliberately: a wall-clock assertion in the corpus is a flake
+// generator. The number is recorded here and in the round's commit message.
+// THE FOLLOW-UP is the EDB-delta occurrence list named in `emit_scc_fn`'s
+// header, and it changes that fn only.
+//
 // ── OUT OF FENCE HERE, AND THE REFUSAL THAT KEEPS IT OUT ───────────────────
-// PHASE 3 (RE-DERIVE) IS NOT EMITTED, and neither is a retraction surface.
-// `incr_retract_eligible` still refuses every rel-backed query, `<q>_retract` /
-// `<q>_apply` / `__wd` still do not exist for one, and
-// `fail/wql_incr_rel_no_retract.logos` still pins that refusal — unchanged and
-// still load-bearing, because nothing in this slice makes a retraction
-// presentable. The `|RD| = -1` latch is the positive statement of that absence:
-// phase 3 never ran, and a fixture asserts the sentinel.
+// THERE IS NO RETRACTION SURFACE AND NO EPOCH DRIVER. `incr_retract_eligible`
+// still refuses every rel-backed query, `<q>_retract` / `<q>_apply` / `__wd`
+// still do not exist for one, and `fail/wql_incr_rel_no_retract.logos` plus
+// `fail/wql_incr_mutrec_no_retract_{odd,even}.logos` still pin that refusal —
+// ALL THREE UNCHANGED IN THIS SLICE, deliberately and not by omission. They are
+// NAME-ABSENT doors (they assert `tc_retract` / `oddq_retract` / `evenq_retract`
+// do not exist), which is true under EVERY refusal that reaches the query, so
+// they pin no particular ground; splitting them and replacing them with positive
+// fixtures is the FIRST work of the surface round, and half-splitting them now
+// would leave the tree with doors that pin even less. What pins the ground today
+// is `logos_09_incr_mutrec_refusal` (`tier_commit`), also untouched.
+// CONSEQUENCE: the `|RD| = -1` latch STAYS. Phase 3 exists as a call sequence a
+// FIXTURE performs, not as anything the compiler emits, so no emitted code is in
+// a position to fill that slot; see the `-1` push in `_cpt` for who retires it
+// and when.
 // ⚠ WHAT IS NOT DECIDED HERE: the ERROR CONTRACT for a retraction that faults
 // PART WAY (transactional vs poisoned handle) is a contract about the DRIVER,
 // and there is no driver. `_cpt`'s own refusal is transactional, which is the
@@ -9004,6 +9117,39 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         cs.push_str(">");
         c1 = c1 + 1i64;
     }
+    // ── THE REMOVED SET, AS AN OUT-PARAM — `__rm_<m>` ─────────────────────
+    // ⚠ THIS IS THE NEGATIVE DELTA AND NOTHING ELSE CAN RECOVER IT. The compact
+    // retains survivors at a write index and `pop`s the tail: the rows it drops
+    // are OVERWRITTEN IN PLACE, so after `_cpt` returns there is no artifact
+    // anywhere from which `OD ∩ T` could be reconstructed — the caller's copy of
+    // T is the thing that was rewritten, and `__od_<m>` is a SUPERSET (it may
+    // name rows T never held; that is exactly what the `OD ⊆ T` check refuses).
+    // The counts in `__lat` say HOW MANY vanished, never WHICH.
+    //
+    // WHY A CALLER NEEDS THE WHICH. Phase 3 only ever APPENDS (`promote` pushes,
+    // `emit_scc_fn`), so an epoch driver that folds the positive suffix
+    // `[__b0 .. len)` into the entry query's per-group state folds it UP by |RD|
+    // and never DOWN by `OD ∖ RD`. The rel TOTAL would be right and the
+    // AGGREGATE cells silently stale — a defect no assertion about the relation
+    // can see. Handing back the removed rows in T's order is what makes the −1
+    // side of the fold nameable at all.
+    //
+    // ⚠ TRANSACTIONAL FOR THE SAME REASON THE TOTALS ARE. The pushes live in
+    // PASS 2, after every member's check has run, and the `clear` below sits
+    // beside `__lat.clear()` — after the checks. A refused compact therefore
+    // leaves the caller's `__rm_<m>` exactly as the caller left it, seed and all,
+    // which is the only input on which "a refusal reports nothing" is a claim
+    // (see the `777` note on `__lat`: a FRESH empty Vec cannot tell a clear from
+    // a no-op from a write).
+    let mut c1b: i64 = 0i64;
+    while c1b < nm {
+        cs.push_str(", __rm_");
+        cs.push_str(prm.rel_names[mem[c1b]]);
+        cs.push_str(": &mut Vec<");
+        cs.push_str(prm.rel_rowty[mem[c1b]]);
+        cs.push_str(">");
+        c1b = c1b + 1i64;
+    }
     cs.push_str(", __lat: &mut Vec<i64>");
 
     // ── PASS 1, READ-ONLY: build the OD membership set, count the survivors,
@@ -9065,6 +9211,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         // same count computed by the same predicate over the same rows; an
         // equality assertion between them would be a branch no input can take.
         let s_tt:  String = suffixed("__tot_",  rnd); let n_tt:  Ident = Ident::new(string_as_str(&s_tt));
+        let s_rm:  String = suffixed("__rm_",   rnd); let n_rm:  Ident = Ident::new(string_as_str(&s_rm));
         cdo.push(quote_block! {
             {
                 let __sp3: *mut HashSet<#(lt1)> = &mut #n_os;
@@ -9076,6 +9223,15 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                     if !__hit2 {
                         #n_tt.set(__w, __row2);
                         __w = __w + 1i64;
+                    } else {
+                        // THE NEGATIVE DELTA, in T's own order — see the
+                        // `__rm_<m>` note on the signature. It is emitted from
+                        // THIS branch and not from a second walk over `__od_<m>`
+                        // on purpose: `__od_<m>` may name rows T never held, and
+                        // it carries the propagation's order, not T's. `OD ∩ T`
+                        // in FIRST-DERIVATION order is what a fold has to undo,
+                        // and this is the only place both facts are in hand.
+                        #n_rm.push(__row2);
                     }
                     __r2 = __r2 + 1i64;
                 }
@@ -9092,13 +9248,24 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 }
                 __lat.push(#n_odn);
                 __lat.push(__w);
-                // |RD| — the RE-DERIVE count. PHASE 3 DOES NOT EXIST IN THIS
-                // SLICE, so the latch carries the interpreter's "never ran"
-                // sentinel rather than 0: `dred` distinguishes those two states
-                // for the same reason (`incr_rec.logos`, the `-1` init), and a 0
-                // here would read as "phase 3 ran and re-derived nothing", which
-                // is a CLAIM this tier cannot make. A fixture asserting `-1` is
-                // what keeps the absence of phase 3 observable.
+                // |RD| — the RE-DERIVE count, AND `_cpt` STRUCTURALLY CANNOT
+                // FILL IT. Phase 3 exists now — it is `_i` re-entered over the
+                // SURVIVOR edb with this very `__tot_<m>` as its total (see the
+                // "DRed PHASE 3" section of `emit_scc_od_fns`'s header) — but it
+                // runs AFTER `_cpt` has returned, so |RD| is not a fact in scope
+                // here at any point. The latch therefore still carries the
+                // interpreter's "never ran" sentinel (`incr_rec.logos`'s `-1`
+                // init) rather than 0, because a 0 would read as "phase 3 ran and
+                // re-derived nothing" — a CLAIM this fn cannot make.
+                // ⚠ WHO RETIRES IT: the epoch DRIVER, with
+                // `__lat.set(3m+2, __tot_<m>.len() - __lat.get(3m+1))` after the
+                // `_i` call. THERE IS NO EMITTED DRIVER IN THIS SLICE — the
+                // retraction surface is still refused for every rel-backed query
+                // — so writing that line anywhere today would put it in the
+                // FIXTURE, where it would assert the fixture's own arithmetic
+                // against itself. The slice's phase-3 fixture instead computes
+                // |RD| from `len(__tot) − __lat[3m+1]` and checks it against an
+                // INDEPENDENT closure oracle, and asserts this `-1` unchanged.
                 __lat.push(0i64 - 1i64);
             }
         });
@@ -9123,9 +9290,20 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     // fixtures at 0, because the only assertion on it is asked of a FRESH,
     // EMPTY Vec — which passes identically whether the emitter clears, writes,
     // or does neither. The fixture now seeds the latch before the refused call.
+    // The `__rm_<m>` clears sit WITH `__lat.clear()`, i.e. AFTER every member's
+    // check — same transaction, same reason.
+    let mut cclr: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut c4: i64 = 0i64;
+    while c4 < nm {
+        let s_rmc: String = suffixed("__rm_", prm.rel_names[mem[c4]]);
+        let n_rmc: Ident = Ident::new(string_as_str(&s_rmc));
+        cclr.push(quote_block! { #n_rmc.clear(); });
+        c4 = c4 + 1i64;
+    }
     let cpt_body: ExprBlob = quote_block! {
         #( #cchk; )*
         __lat.clear();
+        #( #cclr; )*
         #( #cdo; )*
         return Result::Ok(());
     };
@@ -9205,7 +9383,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // query, and phases 2 and 3 are NOT emitted. See
                 // `emit_scc_od_fns` for what is in fence and what is not.
                 plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
-                           "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, refusing before it writes if OD⊄T). No re-derive, no retraction surface.");
+                           "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, handing back the removed rows in `__rm_<m>`, refusing before it writes if OD⊄T). PHASE 3 IS `_i` RE-ENTERED OVER THE SURVIVOR EDB WITH THE COMPACTED TOTAL — no fourth sibling is emitted for it, and no retraction surface follows.");
                 if !emit_scc_od_fns(rels, c, fn_name, params_text, prm, scc, h) { return false; }
             }
         } else {
