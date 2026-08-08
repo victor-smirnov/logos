@@ -264,6 +264,22 @@ pub struct IncrRec {
     jn_ctl:   Vec<ControlAtom>,  // flat applied-controls pool (epoch stamped)
     jn_coff:  Vec<i64>,          // per-entry controls offset
     jn_ccnt:  Vec<i64>,          // per-entry controls count
+    // ── HARVEST LATCHES for DRed's INTERMEDIATE sets (P5 pre-deletion). ──────
+    // ⚠ CRUTCH, LABELLED. These three fields carry NO engine semantics: nothing
+    // in `dred`, `epoch` or `snapshot` ever reads them. They exist because
+    // `fn dred` is the only executable specification of the compact→re-derive
+    // composition and it is about to be DELETED (P5), while its phase-1
+    // over-delete set (`od_rows`) and its phase-2 survivor count were
+    // FUNCTION-LOCAL — so every fixture over retraction degraded to an ANSWER
+    // oracle on `snapshot()`, which is measurably blind here: a phase-1 defect
+    // that over-deletes too much is repaired by phase 3 and the final answer
+    // does not move (only incrementality dies).
+    // They describe the LAST `dred` pass only. `cpt_n`/`rdv_n` are −1 until one
+    // has run to completion; an insert-only epoch does NOT clear them.
+    // Read via od_len/od_ab/dred_compact_len/dred_rederive_len.
+    od_last:  Vec<RtVal>,        // phase-1 OD, cell-flat, stride ncols
+    cpt_n:    i64,               // |S| = rows left by phase 2 (compact); −1 = none
+    rdv_n:    i64,               // rows ADDED BACK by phase 3; −1 = none
 }
 
 // Build a WArray<WAny> in `edoc` from `nodes` and bind it as the edge source.
@@ -779,6 +795,12 @@ impl IncrRec {
         let rec_body: i64 = self.rec_body;
         let rec_ovr: i64 = self.rec_ovr;
         let nb: i64 = self.nbase;
+        // Harvest latches: this pass owns them from here on. Cleared FIRST so an
+        // early return (ir_check failure at the top, or a phase-1 math error)
+        // leaves −1 / empty — "no completed pass", not the previous pass's set.
+        self.od_last = vec_new::<RtVal>();
+        self.cpt_n = 0i64 - 1i64;
+        self.rdv_n = 0i64 - 1i64;
 
         // DE node list (edges just removed) and PRES (surviving present set,
         // includes any NE). Owned Vecs — the enode/ewt borrows end here.
@@ -854,6 +876,14 @@ impl IncrRec {
         }
         if chk_bad(cp) { self.math_err = true; return; }
 
+        // HARVEST LATCH (phase 1 complete): copy OD out before phase 2 consumes
+        // it. `od_rows` dies at return, and the epoch's single kind-3 TraceStep
+        // records only the NET delta across all three phases.
+        let mut od_copy: Vec<RtVal> = vec_new::<RtVal>();
+        let mut oc: i64 = 0i64;
+        while oc < od_rows.len() { od_copy.push(od_rows.get(oc)); oc = oc + 1i64; }
+        self.od_last = od_copy;
+
         // ── PHASE 2: COMPACT — self.rows/self.rhm ← old[0,ptot) ∖ OD ──
         let mut new_rows: Vec<RtVal> = vec_new::<RtVal>();
         let mut new_rhm: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
@@ -884,6 +914,7 @@ impl IncrRec {
         self.rows = new_rows;
         self.rhm = new_rhm;
         self.ptot = self.rows.len() / ncols;
+        self.cpt_n = self.ptot;          // HARVEST LATCH: |S| = |T| ∖ OD
 
         // ── PHASE 3: RE-DERIVE — warm-started semi-naïve over PRES into the
         // compacted rel. tot=0 so the FIRST promote takes S ∪ new-base as the
@@ -914,7 +945,33 @@ impl IncrRec {
         }
         if chk.failed { self.math_err = true; }
         self.ptot = self.rows.len() / ncols;
+        self.rdv_n = self.ptot - self.cpt_n;   // HARVEST LATCH: |RD| re-derived
     }
+
+    // ── HARVEST ACCESSORS (P5 pre-deletion). ⚠ CRUTCH, LABELLED: read-only
+    // windows onto the LAST `dred` pass's intermediate sets. No engine path
+    // reads them; deleting them cannot change an answer.
+    // Shape note: the probe proposed `od_at(i, c) -> RtVal`, but `rt_i` and
+    // `RtVal`'s constructors are package-private, so a fixture could not read a
+    // cell. `FactAB` is the corpus idiom for exactly this (see `fact_ab`) and
+    // the harvested rel is 2-column transitive closure.
+    /// Rows in the last pass's phase-1 over-delete set (0 if none ran).
+    pub fn od_len(self: &IncrRec) -> i64 {
+        if self.ncols <= 0i64 { return 0i64; }
+        return self.od_last.len() / self.ncols;
+    }
+    /// Row `i` of that set as (a,b); sentinel (−1,−1) out of range or ncols≠2.
+    pub fn od_ab(self: &IncrRec, i: i64) -> FactAB {
+        if self.ncols != 2i64 || i < 0i64 { return FactAB { a: -1i64, b: -1i64 }; }
+        let base: i64 = i * 2i64;
+        if base + 1i64 >= self.od_last.len() { return FactAB { a: -1i64, b: -1i64 }; }
+        return FactAB { a: rt_i(self.od_last.get(base + 0i64)),
+                        b: rt_i(self.od_last.get(base + 1i64)) };
+    }
+    /// |S| — rows LEFT by phase 2 (compact). −1 iff no pass completed phase 2.
+    pub fn dred_compact_len(self: &IncrRec) -> i64 { return self.cpt_n; }
+    /// |RD| — rows ADDED BACK by phase 3. −1 iff no pass reached phase 3.
+    pub fn dred_rederive_len(self: &IncrRec) -> i64 { return self.rdv_n; }
 
     // Error-returning EL policy: true iff any epoch hit a math error (overflow /
     // division-by-zero) in a recursive-body cell. The harness checks this after
@@ -1259,6 +1316,14 @@ impl Query {
             return Result::Err(qerr("Query::incremental_rec: query has no `rel` block — use Query::incremental for the join/anti/aggregate fragment"));
         }
         if self.reg.n != 1i64 {
+            // ⚠ THIS REFUSAL IS WHY THE INTERPRETER IS NOT A WITNESS FOR N-MEMBER
+            // SCC RETRACTION. `fn dred` runs only behind this guard, so it never
+            // executes for a mutual-recursion SCC at ANY N — there is no runtime
+            // counterpart to the emitter's `if nm < 8i64` member truncation in
+            // `emit_scc_od_fns`/`emit_scc_fn` (stdlib/mem/wql/rexpr_walk.logos),
+            // and the pre-P5 harvest could record nothing about generic-N
+            // retraction beyond this sentence. The refusal itself is asserted in
+            // tests/logos/pass/deem_dred_phases23_spec.logos (last cell).
             return Result::Err(qerr("Query::incremental_rec: multiple rels (mutual-recursion SCC) — out of slice-5 (single linear-recursive rel only)"));
         }
         let c: i64 = self.reg.comp[0];
@@ -1372,6 +1437,9 @@ impl Query {
             jn_ctl: vec_new::<ControlAtom>(),
             jn_coff: vec_new::<i64>(),
             jn_ccnt: vec_new::<i64>(),
+            od_last: vec_new::<RtVal>(),
+            cpt_n: 0i64 - 1i64,
+            rdv_n: 0i64 - 1i64,
         };
         // seed the edge multiset from the bound base relation (+1/identity)
         let sn: i64 = sarr.len();

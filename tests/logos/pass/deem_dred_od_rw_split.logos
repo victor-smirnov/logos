@@ -1,0 +1,394 @@
+// REGION 2 — THE RUNTIME READ/WRITE SPLIT vs THE EMITTED SIBLING, ON ONE INPUT.
+//
+// ── THE TWO MECHANISMS, AND WHY NOTHING PINNED THEM TOGETHER ───────────────
+// DRed phase 1a must READ the accumulated relation T while WRITING into a
+// separate over-delete set OD. The two tiers buy that differently:
+//
+//   INTERPRETER (stdlib/mem/deem/incr_rec.logos :: fn dred, phase 1a)
+//     picks storage AT RUNTIME. It sets `sctx.rowsp[0] = &self.rows` (READ) and
+//     then `rctx_set_wr(sctxp, 0, od_rows_i, od_rhm_i)` (WRITE-REDIRECT), and
+//     every push inside `qrel_run_body` re-decides with
+//     `let rows_i = if whm != 0 { wr } else { rowsp[ri] }`
+//     (stdlib/mem/deem/exec.logos, RelCtx.wr_rowsp / wr_hmp).
+//
+//   STATIC TIER (stdlib/mem/wql/rexpr_walk.logos :: emit_scc_od_fns)
+//     has no such branch and cannot have one — it decides AT EMISSION, by
+//     emitting a SIBLING function `__wql_<q>_scc0_od` whose read handle and
+//     write handle are two different parameters.
+//
+// They were equated by nothing. This file is the fixture that would CATCH a
+// divergence: ONE graph, ONE retraction, and the over-delete set taken out of
+// BOTH engines and compared as EXACT SETS — plus a third, independent closed
+// form so that "the two agree" is not the whole evidence. This repo has twice
+// watched a differential pass while every side ran the same wrong fold; the
+// oracle is what makes this a test rather than a recording.
+//
+// ── THE THREE WITNESSES ───────────────────────────────────────────────────
+//  (1) HAND-DERIVED CONSTANTS — |T| and |OD| per cell, in the comment above it.
+//  (2) `automaton_od` — the product of the graph with the two-state automaton
+//      "have I used a deleted edge yet": OD = {(x,z) : (z,1) reachable from
+//      (x,0)}. No delta, no fixpoint over a rel, no seed/propagate split, and
+//      deliberately NOT the last-deleted-edge decomposition that
+//      wql_incr_rel_od_phase1.logos uses — the two files cannot share a wrong
+//      theorem.
+//  (3) BOTH ENGINES, each asserted against (2) SEPARATELY and then against each
+//      other. A shared defect fails against (2) on both arms; a divergence in
+//      the write-redirect fails the cross-arm check even if one arm is right.
+//
+// ⚠ WHY THE INTERPRETER'S OD IS VISIBLE AT ALL: it was a function-local
+// (`od_rows` in `fn dred`) until the harvest latches `IncrRec::od_len`/`od_ab`
+// were added for this round — labelled as crutches at their definition, read by
+// nothing in the engine. `dred` is deleted at P5 and this comparison cannot be
+// made afterwards.
+//
+// ── WHAT IS STILL NOT OBSERVABLE, RECORDED HERE BECAUSE THIS IS WHERE A READER
+// LOOKS FOR IT ─────────────────────────────────────────────────────────────
+// WHICH storage a body wrote is not observable on either arm: `RelCtx`'s
+// `wr_rowsp`/`wr_hmp` are package-private with no accessor, and the emitted
+// sibling's parameter binding is not reflected. What this file pins is the
+// mechanisms' OBSERVABLE EFFECT — the resulting OD set, and, on the interpreter
+// arm, that T was left UNTOUCHED by phase 1a (the write-redirect's whole point:
+// a lost redirect would have grown the maintained relation instead).
+//
+// ── COST OF A CATCH ───────────────────────────────────────────────────────
+// Both arms run their seed over the whole previous total and then propagate to
+// quiescence over the whole survivor graph before anything is read.
+//
+// ── CONTROLS, MEASURED 2026-08-07 (whole-block deletions in `fn dred`, with
+// the archives dropped and the stdlib rebuilt) ────────────────────────────
+//  • DELETE the interpreter's phase-1a `rctx_set_delta(sctxp, 0, 0, ptot0)`
+//    existing-rel⋈DE seed term → **exit 80** (cell 1, check 20: the interpreter
+//    arm's |OD| = 2, want 4). ⚠ ONE-TIER CONTROL, AND THE ORDER MATTERS: the
+//    arm-vs-ORACLE check (20/21) fires before the cross-tier check (22), which
+//    is the right order — a tier that disagrees with the closed form is named as
+//    wrong, not merely as different. The cross-tier check is what catches the
+//    case neither of those can: both tiers agreeing with the oracle on the SET
+//    while one of them wrote it into the wrong storage would still leave |S|
+//    wrong, which is check 24.
+//  • DELETE the interpreter's phase-2 compact filter → **exit 84** (cell 1,
+//    check 24: |S| = 6 = |T|, want |T|−|OD| = 2).
+//  • DELETE the interpreter's phase-3 re-derive loop → **GREEN, correctly**.
+//    This file pins phase 1 and the compact boundary; phase 3 is asserted in
+//    deem_dred_phases23_spec.logos, which reds at exit 170 on that control.
+//    A control that leaves a fixture green is scope, stated, not a gap.
+//
+// exit 0 = on all three graphs the two tiers produce the SAME over-delete set,
+// that set is the automaton's, and its cardinality is the hand constant.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+// The STATIC arm's query. `__wql_tcx_scc0` / `_scc0_od` / `_scc0_odp` are the
+// emitted private siblings driven directly below (there is no retraction
+// SURFACE yet — `incr_retract_eligible` still refuses every rel-backed query).
+pub deem tcx(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+// The INTERPRETER arm's edge schema.
+pub schema XEdge : code(0x0E07_0000_0000_0022) {
+    src: i64 = 0,
+    dst: i64 = 1,
+}
+resource xcat = schema_catalog!{ XEdge };
+
+// ── set utilities ─────────────────────────────────────────────────────────
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn edge_in(v: &Vec<E>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v.get(i);
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &Vec<E>, de: &Vec<E>) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all.get(i);
+        if !edge_in(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn naive_closure(es: &Vec<E>) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() { let e: E = es.get(i); pair_uniq(&mut p, e.a, e.b); i = i + 1i64; }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                let e2: E = es.get(j);
+                if pr.1 == e2.a { if pair_uniq(&mut p, pr.0, e2.b) { grew = true; } }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+// ── WITNESS 2: THE PRODUCT AUTOMATON (see the header). ────────────────────
+fn automaton_od(all: &Vec<E>, del: &Vec<E>, nodes: &Vec<i64>) -> Vec<(i64, i64)> {
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut xi: i64 = 0i64;
+    while xi < nodes.len() {
+        let x: i64 = nodes.get(xi);
+        let mut reach: Vec<(i64, i64)> = vec_new::<(i64, i64)>();   // (node, flag)
+        let mut e0: i64 = 0i64;
+        while e0 < all.len() {
+            let e: E = all.get(e0);
+            if e.a == x {
+                let f: i64 = if edge_in(del, e.a, e.b) { 1i64 } else { 0i64 };
+                pair_uniq(&mut reach, e.b, f);
+            }
+            e0 = e0 + 1i64;
+        }
+        let mut grew: bool = true;
+        while grew {
+            grew = false;
+            let mut k: i64 = 0i64;
+            while k < reach.len() {
+                let s: (i64, i64) = reach.get(k);
+                let mut j: i64 = 0i64;
+                while j < all.len() {
+                    let e2: E = all.get(j);
+                    if e2.a == s.0 {
+                        let d: i64 = if edge_in(del, e2.a, e2.b) { 1i64 } else { 0i64 };
+                        let nf: i64 = if s.1 == 1i64 { 1i64 } else { d };
+                        if pair_uniq(&mut reach, e2.b, nf) { grew = true; }
+                    }
+                    j = j + 1i64;
+                }
+                k = k + 1i64;
+            }
+        }
+        let mut zi: i64 = 0i64;
+        while zi < nodes.len() {
+            let z: i64 = nodes.get(zi);
+            if pair_has(&reach, z, 1i64) { pair_uniq(&mut od, x, z); }
+            zi = zi + 1i64;
+        }
+        xi = xi + 1i64;
+    }
+    return od;
+}
+
+// ── interpreter plumbing ──────────────────────────────────────────────────
+fn mk_edge(d: &Writ, s: i64, t: i64) -> WAny {
+    let e: XEdge = d.make::<XEdge>();
+    e.src = s; e.dst = t;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+
+fn build_src(d: &Writ, hs: &Vec<WAny>, wts: &Vec<i64>) -> WAny {
+    let arr: &mut WArray<WAny> = d.array(64i64);
+    let n: i64 = hs.len();
+    let mut i: i64 = 0i64;
+    while i < n { if wts.get(i) > 0i64 { arr.push(hs.get(i)); } i = i + 1i64; }
+    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
+}
+
+fn snap_pairs(eng: &IncrRec) -> Vec<(i64, i64)> {
+    let rs: QRows = eng.snapshot();
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut r: i64 = 0i64;
+    while r < rs.row_count() {
+        pair_uniq(&mut out, rs.get_i64(r, 0i64), rs.get_i64(r, 1i64));
+        r = r + 1i64;
+    }
+    return out;
+}
+
+// ── ONE CELL: both tiers, one graph ───────────────────────────────────────
+fn cell(all: &Vec<E>, de: &Vec<E>, nodes: &Vec<i64>, want_t: i64, want_od: i64) -> i32 {
+    let pres: Vec<E> = survivors(all, de);
+    let t_or:  Vec<(i64, i64)> = naive_closure(all);
+    let od_or: Vec<(i64, i64)> = automaton_od(all, de, nodes);
+    if t_or.len()  != want_t  { return 1i32; }   // witness 1 pins witness 2
+    if od_or.len() != want_od { return 2i32; }
+
+    // ── ARM A: THE STATIC TIER — read handle and write handle are two
+    // different PARAMETERS of an emitted sibling. ──
+    let mut tot_s: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tcx_scc0(all.as_slice(), &mut tot_s) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 3i32; }
+    }
+    if !same_set(&tot_s, &t_or) { return 4i32; }
+    let mut od_s: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tcx_scc0_od(de.as_slice(), tot_s.as_slice(), &mut od_s) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 5i32; }
+    }
+    match __wql_tcx_scc0_odp(pres.as_slice(), &mut od_s) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 6i32; }
+    }
+    if !same_set(&od_s, &od_or) { return 7i32; }
+    // The static seed READ `tot_s` and must not have written into it.
+    if !same_set(&tot_s, &t_or) { return 8i32; }
+
+    // ── ARM B: THE INTERPRETER — one storage, chosen per push at RUNTIME. ──
+    let doc: Writ = writ_new(65536i64);
+    let c: SchemaCatalog = xcat();
+    let q: Query = match Query::compile(
+        r#"rel path(a: i64, b: i64) {
+             from edges e select (e.src, e.dst);
+             from path p join edges e on p.b == e.src select (p.a, e.dst);
+           }
+           from path p select (p.a, p.b)"#,
+        &c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+
+    let mut hs: Vec<WAny> = vec_new::<WAny>();
+    let mut wts: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all.get(i);
+        hs.push(mk_edge(&doc, e.a, e.b));
+        wts.push(1i64);
+        i = i + 1i64;
+    }
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("edges", build_src(&doc, &hs, &wts));
+    let mut eng: IncrRec = match q.incremental_rec(&env)
+        { Result::Ok(e2) => { e2 } Result::Err(_e3) => { return 11i32; } };
+    let t_eng: Vec<(i64, i64)> = snap_pairs(&eng);
+    if !same_set(&t_eng, &t_or) { return 12i32; }
+
+    let mut b: ZBatch = ZBatch::new();
+    let mut di: i64 = 0i64;
+    while di < de.len() {
+        let d: E = de.get(di);
+        let mut k: i64 = 0i64;
+        while k < all.len() {
+            let e3: E = all.get(k);
+            if e3.a == d.a && e3.b == d.b { wts.set(k, 0i64); b.push(hs.get(k), 0i64 - 1i64); }
+            k = k + 1i64;
+        }
+        di = di + 1i64;
+    }
+    eng.epoch(&b);
+    if eng.had_error() { return 13i32; }
+
+    let mut od_i: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let odn: i64 = eng.od_len();
+    let mut oi: i64 = 0i64;
+    while oi < odn {
+        let f: FactAB = eng.od_ab(oi);
+        pair_uniq(&mut od_i, f.a, f.b);
+        oi = oi + 1i64;
+    }
+    // The interpreter's OD against the ORACLE …
+    if od_i.len() != want_od { return 20i32; }
+    if !same_set(&od_i, &od_or) { return 21i32; }
+    // … and THE CROSS-TIER CHECK, which is what this file exists for.
+    if !same_set(&od_i, &od_s) { return 22i32; }
+    // The write-redirect's own effect: phase 1a READ the maintained relation
+    // and wrote nowhere near it, so |T| never grew. (|S| ≤ |T| is checked as an
+    // inequality, because phase 2 has since compacted it.)
+    if eng.dred_compact_len() > want_t { return 23i32; }
+    if eng.dred_compact_len() != t_or.len() - od_or.len() { return 24i32; }
+    return 0i32;
+}
+
+fn nodes4(a: i64, b: i64, c: i64, d: i64) -> Vec<i64> {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(a); v.push(b); v.push(c); v.push(d);
+    return v;
+}
+
+// ⚠ Disjoint exit-code ranges (cell codes reach 24, the exit status is 8 bits).
+fn main() -> i32 {
+    // CELL 1 — CHAIN 1→2→3→4, delete 2→3. T = 6, OD = {23,24,13,14} = 4.
+    let mut a1: Vec<E> = vec_new::<E>();
+    a1.push(ed(1i64, 2i64)); a1.push(ed(2i64, 3i64)); a1.push(ed(3i64, 4i64));
+    let mut d1: Vec<E> = vec_new::<E>();
+    d1.push(ed(2i64, 3i64));
+    let r1: i32 = cell(&a1, &d1, &nodes4(1i64, 2i64, 3i64, 4i64), 6i64, 4i64);
+    if r1 != 0i32 { return 60i32 + r1; }        // 61..84
+
+    // CELL 2 — DIAMOND 1→2,1→3,2→4,3→4, delete 2→4. T = 5, OD = {24,14} = 2.
+    // The over-deleted (1,4) is still TRUE after the retraction, so this cell
+    // is also where the two tiers would diverge if one of them quietly wrote
+    // the seed into the maintained relation instead of into OD.
+    let mut a2: Vec<E> = vec_new::<E>();
+    a2.push(ed(1i64, 2i64)); a2.push(ed(1i64, 3i64));
+    a2.push(ed(2i64, 4i64)); a2.push(ed(3i64, 4i64));
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(2i64, 4i64));
+    let r2: i32 = cell(&a2, &d2, &nodes4(1i64, 2i64, 3i64, 4i64), 5i64, 2i64);
+    if r2 != 0i32 { return 130i32 + r2; }       // 131..154
+
+    // CELL 3 — SELF-SUPPORTING CYCLE 0→1,1→2,2→3,3→1, delete 1→2.
+    // T = 12, OD = ALL 12: phase 1 wipes the relation on BOTH tiers.
+    let mut a3: Vec<E> = vec_new::<E>();
+    a3.push(ed(0i64, 1i64)); a3.push(ed(1i64, 2i64));
+    a3.push(ed(2i64, 3i64)); a3.push(ed(3i64, 1i64));
+    let mut d3: Vec<E> = vec_new::<E>();
+    d3.push(ed(1i64, 2i64));
+    let r3: i32 = cell(&a3, &d3, &nodes4(0i64, 1i64, 2i64, 3i64), 12i64, 12i64);
+    if r3 != 0i32 { return 190i32 + r3; }       // 191..214
+
+    return 0i32;
+}
