@@ -8905,9 +8905,23 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     // cannot leave member 1 already rewritten. Interleaving them would make the
     // refusal non-transactional at N ≥ 2 while looking identical at N = 1 —
     // and N = 1 is the only shape with a witness anywhere today.
+    // ⚠ THE CLEAR RUNS AFTER THE CHECKS, AND THAT ORDER IS A FIX FOR A MEASURED
+    // DEFECT IN THE FIRST VERSION OF THIS FN. With `__lat.clear()` first, a
+    // REFUSED compact ERASED the caller's previous-epoch latches: seed `__lat`
+    // with 777, call with an `OD ⊄ T`, and it comes back EMPTY. The commit that
+    // introduced it claimed "a refused compact reports nothing, so a reader
+    // cannot mistake a stale latch for a completed phase" — but it did not
+    // merely fail to report, it DESTROYED THE PRIOR REPORT, which is the one
+    // thing a caller cannot recover. That contradicted this fn's own headline
+    // promise: the totals are transactional under a refusal, so the latch must
+    // be too, or the two disagree about whether anything happened.
+    // ⚠ AND NOTHING CAUGHT IT. Deleting `__lat.clear()` altogether left both
+    // fixtures at 0, because the only assertion on it is asked of a FRESH,
+    // EMPTY Vec — which passes identically whether the emitter clears, writes,
+    // or does neither. The fixture now seeds the latch before the refused call.
     let cpt_body: ExprBlob = quote_block! {
-        __lat.clear();
         #( #cchk; )*
+        __lat.clear();
         #( #cdo; )*
         return Result::Ok(());
     };

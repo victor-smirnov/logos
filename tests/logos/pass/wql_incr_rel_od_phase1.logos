@@ -703,7 +703,15 @@ fn main() -> i32 {
     if odbad.len() != 5i64 { return 95i32; }
     if !pair_has(&odbad, 9i64, 9i64) { return 96i32; }   // the fact T never held
     if pair_has(&tt3, 9i64, 9i64)    { return 97i32; }
+    // ⚠ SEEDED, NOT FRESH — AND THAT IS THE WHOLE POINT OF THIS BINDING.
+    // Asked of a FRESH empty Vec this block passes identically whether the
+    // emitter clears the latch, writes it, or does neither: MEASURED, deleting
+    // `__lat.clear()` outright left this fixture and its sibling at 0. A latch
+    // seeded with a value the callee never writes is the only input on which
+    // "a refused compact does not touch the caller's latch" is a claim at all.
+    // 777 is arbitrary and out of every latch's range (|OD|, |S| >= 0, |RD| = -1).
     let mut latbad: Vec<i64> = vec_new::<i64>();
+    latbad.push(777i64);
     match __wql_tc_scc0_cpt(odbad.as_slice(), &mut tt3, &mut latbad) {
         Result::Ok(_u) => { return 98i32; }              // it must NOT succeed
         Result::Err(_e) => { }
@@ -712,7 +720,11 @@ fn main() -> i32 {
     if !seq_eq(&tt3, &want_t1) { return 99i32; }
     // …and no latch was written: a refused compact reports nothing, so a reader
     // cannot mistake a stale latch for a completed phase.
-    if latbad.len() != 0i64 { return 79i32; }
+    // The refusal is TRANSACTIONAL IN THE LATCH TOO, not merely in the totals:
+    // the seed must survive untouched. An emitter that clears before checking
+    // answers len()==0 here and destroys a report the caller cannot rebuild.
+    if latbad.len() != 1i64   { return 79i32; }
+    if latbad.get(0i64) != 777i64 { return 78i32; }
 
     return 0i32;
 }
