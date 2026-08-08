@@ -146,5 +146,37 @@ fn main() -> i32 {
     if f64_total_key(f64_from_bits(0x7FF0000000000000u64)) >= f64_total_key(nan)     { return 45i32; }
     if f32_total_key(-1.0f32) >= f32_total_key(1.0f32) { return 46i32; }
 
+    // ── THE CANONICAL IDENTITY KEY, AND WHY f32's IS ASSERTED HERE ──────────
+    // `*_canon_bits` is the IDENTITY key that matches `*_data_key`'s ORDER:
+    // every NaN one pattern, both zeros one pattern, everything else the bits.
+    // The three laws mirror the data key's, on BITS — `==` cannot see either
+    // property, since `-0.0 == +0.0` and `NaN != NaN`.
+    if f64_canon_bits(f64_from_bits(0x8000000000000000u64)) != 0u64 { return 70i32; }
+    if f64_canon_bits(0.0f64) != 0u64 { return 71i32; }
+    if f64_canon_bits(nan) != 0x7FF8000000000000u64 { return 72i32; }
+    if f64_canon_bits(f64_from_bits(0xFFF8000000000007u64)) != 0x7FF8000000000000u64 { return 73i32; }
+    if f64_canon_bits(1.0f64) != f64_to_bits(1.0f64) { return 74i32; }
+    // ⚠ f32's HAS NO CALLER IN THE TREE AND CANNOT ACQUIRE ONE TODAY, WHICH IS
+    // EXACTLY WHY IT IS PINNED HERE. `agg_acc_ty` (stdlib/mem/wql/el.logos:1498)
+    // maps EVERY float column to an `f64` accumulator, and the multiplicity map
+    // is keyed on the ACCUMULATOR type — so `f32` never reaches it. The fn was
+    // added for symmetry with the decided semantics (all zeros one element, all
+    // NaNs one element, which is an `f32` law too) and it will acquire a caller
+    // when the `f32` accumulator question is settled — that is D1, and it is
+    // VICTOR'S. Until then this block is its only sensor.
+    // ⚠ A `pub fn` with no caller and no test is what a later refactor deletes
+    // as dead. This tree has already paid for the same shape in a GUARD whose
+    // witnesses a new sensor silently took. Unreachable is a reason to PIN, not
+    // a reason to skip.
+    if f32_canon_bits(f32_from_bits(0x80000000u32)) != 0u32 { return 75i32; }
+    if f32_canon_bits(0.0f32) != 0u32 { return 76i32; }
+    if f32_canon_bits(nanf) != 0x7FC00000u32 { return 77i32; }
+    if f32_canon_bits(f32_from_bits(0xFFC00009u32)) != 0x7FC00000u32 { return 78i32; }
+    if f32_canon_bits(-1.0f32) != f32_to_bits(-1.0f32) { return 79i32; }
+    // …and the canonical key must NOT have become the total order: totalOrder
+    // still separates the two zeros, the identity key merges them.
+    if f64_total_key(f64_from_bits(0x8000000000000000u64)) == f64_total_key(0.0f64) { return 80i32; }
+    if f32_total_key(f32_from_bits(0x80000000u32)) == f32_total_key(0.0f32) { return 81i32; }
+
     return 0i32;
 }
