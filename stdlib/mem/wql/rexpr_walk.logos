@@ -6421,6 +6421,24 @@ fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
     // wrong. `fail/wql_incr_rel_no_retract.logos` calls `<q>_retract` and
     // requires the compile to FAIL on the missing name — flip this clause and
     // that fixture goes green, which is a red gate on the per-commit path.
+    // ⚠ AND THAT `fail/` DOOR IS NOT THE LOAD-BEARING ONE — a missing name is
+    // true under every refusal that reaches the query. The gate that pins THIS
+    // clause by its GROUND is `logos_09_incr_mutrec_refusal` (tier_commit),
+    // which asserts `retraction -> declined` carrying the phrase "support ITSELF
+    // through a cycle" while the handle itself is EMITTED. CONTROL, MEASURED
+    // 2026-08-07: `if rel_backed` weakened to `if false`, archives dropped, full
+    // stdlib rebuild → that gate goes RED.
+    //
+    // ⚠⚠ DRed'S PHASE 1 IS NOW EMITTED AND THIS CLAUSE STILL SAYS NO, ON PURPOSE.
+    // `emit_scc_od_fns` emits `__wql_<q>_scc<c>_od` / `_odp` beside the insert
+    // driver, and `pass/wql_incr_rel_od_phase1.logos` proves the over-delete set
+    // against a from-scratch oracle — but phase 2 (COMPACT) and phase 3
+    // (RE-DERIVE) do not exist, nothing calls the two new fns outside that
+    // fixture, and the handle has no signed-diff group fold. Admitting the
+    // retraction surface on a phase-1-only engine would answer `Ok` with an
+    // OVER-DELETED relation, which is strictly worse than refusing. The ground
+    // below is unchanged for the same reason: what is missing is still the
+    // mechanism, not a preference.
     if rel_backed {
         return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold");
     }
@@ -8276,6 +8294,390 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
     };
 }
 
+// ══ DRed PHASE 1 — THE OVER-DELETE SIBLINGS `_od` (seed) AND `_odp` (propagate)
+//
+// ── WHAT THIS IS, AND EXACTLY WHAT IT IS NOT ────────────────────────────────
+// Retraction through a recursive `rel` is DELETE-AND-REDERIVE: (1) OVER-DELETE
+// every fact that has ANY derivation through a retracted row, (2) COMPACT the
+// total to `old ∖ OD`, (3) RE-DERIVE, which puts back exactly the facts with an
+// alternative all-survivor derivation. THIS SLICE EMITS PHASE 1 AND NOTHING
+// ELSE. There is no compact, no re-derive, no epoch body, and — deliberately —
+// NO SURFACE CHANGE: `incr_retract_eligible` still refuses every rel-backed
+// query, `<q>_apply` / `<q>_retract` / `__wd` are still not emitted for one, and
+// `fail/wql_incr_rel_no_retract.logos` still pins that refusal. A caller cannot
+// present a retraction to a recursive query today and that is unchanged here.
+// What lands is the one piece of EMISSION phase 1 needs and nothing has: the
+// over-delete driver, provable on its own against a from-scratch oracle.
+//
+// ── WHY IT IS TWO NEW FNS AND NOT A FLAG ON `_i` — MEASURED, NOT ASSUMED ────
+// The interpreter (`stdlib/mem/deem/incr_rec.logos`, `fn dred`) gets phase 1 by
+// switching a RUNTIME WRITE POINTER: `RelCtx` carries `rowsp`/`hmp` (read)
+// beside `wr_rowsp`/`wr_hmp` (write) and `qrel_push_out` picks between them with
+// an `if whm != 0`. THE EMITTED SIDE HAS NO SUCH INDIRECTION AT ALL, and that is
+// not an oversight: `emit_scc_fn` is parameterized BY NAMES ONLY — the read
+// slice is `#n_ss = __tot_<m>.as_slice()`, the write is `__out.push` / the
+// promote's `__tot_<m>.push`, and `member_block_frag` LEXICALLY REBINDS `__out`
+// and `__rsp`. Storage identity is fixed at emission by name. Putting a runtime
+// `if` under every push to buy the redirect would tax the insert path forever
+// for a retraction feature; emitting the split costs nothing at run time and is
+// the same relationship `_i` already has to the from-scratch fn.
+//
+// ⚠ AND `_i` CANNOT SERVE AS PHASE 1b, WHICH THE PLAN FOR THIS SLICE ASSUMED IT
+// COULD. The plan read phase 1b as "`_i` with `__tot := __od` and the EDB bound
+// to PRES", because 1b is a fixpoint with read==write==od. It is not: `_i`'s
+// round 0 runs EVERY body, BASE BODIES INCLUDED, so with the EDB bound to PRES
+// it would inject every surviving base fact into OD. OD would become
+// `closure(PRES) ∪ (the real over-delete set)`, phase 2 would then compact the
+// relation to nothing, and phase 3 would recompute the whole closure from
+// scratch — an answer that is still CORRECT and no longer INCREMENTAL, i.e. a
+// defect no correctness oracle can see. The interpreter runs `rec_body` ONLY in
+// its 1b loop; `_odp` is that loop, and the base bodies are the difference.
+// ⚠ MEASURED, NOT ARGUED: run the base bodies in `_odp` too (the one edit that
+// makes it behave like `_i`), drop the archives, rebuild the stdlib —
+// `pass/wql_incr_rel_od_phase1.logos` exits 36 on the CHAIN cell, OD carrying
+// the surviving base edges (1,2) and (3,4). Six rows where four are correct.
+//
+// ── THE TWO FNS ────────────────────────────────────────────────────────────
+//  `__wql_<q>_scc<c>_od(<params = DE>, <dep slices>, __rd_<m>: &[Row]…,
+//                       __od_<m>: &mut Vec<Row>…)`
+//      PHASE 1a, ROUND 0 ONLY, NO LOOP. Every body of every member runs once
+//      with the EDB params bound to the DELETED rows and every in-SCC source
+//      bound to `__rd_<m>` — the PREVIOUS total, read-only. New rows land in a
+//      FRESH per-member shadow set + next-delta and are appended to `__od_<m>`.
+//      That is both of the interpreter's seed terms at once: the base bodies
+//      give `base ⋈ DE`, and the recursive bodies reading the full previous
+//      total give `existing-rel[0,ptot) ⋈ DE` — the term whose absence
+//      UNDER-DELETES every fact derived THROUGH a deleted row rather than
+//      directly FROM it.
+//      ⚠ THE SHADOW SET IS FRESH, NOT SEEDED FROM `__rd`. It gates membership of
+//      OD, which starts empty; seeding it from the previous total (the thing
+//      `_i` must do) would gate every over-deleted row out and make OD empty.
+//
+//  `__wql_<q>_scc<c>_odp(<params = PRES>, <dep slices>, __od_<m>: &mut Vec<Row>)`
+//      PHASE 1b. Semi-naive fixpoint with read==write==`__od_<m>`, EDB bound to
+//      the SURVIVING rows, RECURSIVE BODIES ONLY (a body with no in-SCC
+//      occurrence contributes nothing — propagation extends over-deleted facts
+//      along survivor edges, it does not re-seed from the EDB). The initial
+//      delta is the whole seed OD and the shadow set IS seeded from it.
+//
+// ── THE SPECIFICATION OF `OD`, WHICH IS NOT "THE ANSWER GOT SMALLER" ───────
+// With T = the previous total = lfp(ALL), DE the retracted rows and PRES =
+// ALL ∖ DE, phases 1a+1b compute
+//
+//     OD = { f ∈ T : SOME derivation of f uses a row of DE }
+//
+// and for transitive closure that is exactly the set of pairs joined by a walk
+// through at least one deleted edge — decompose any such walk at its LAST
+// deleted edge and the prefix is an arbitrary walk in ALL (= `__rd`), the edge
+// is in DE (= 1a), and the suffix is all survivors (= 1b). OD is a SUPERSET of
+// `closure(ALL) ∖ closure(PRES)` and the containment is STRICT whenever a fact
+// has a second, surviving derivation — which is what makes phase 3 load-bearing
+// rather than decorative, and is asserted as such in
+// `pass/wql_incr_rel_od_phase1.logos` on a diamond.
+//
+// ── OUT OF FENCE HERE, AND THE REFUSAL THAT KEEPS IT OUT ───────────────────
+// An AGGREGATE (lattice) member gets NO od siblings — the fn returns having
+// emitted nothing the moment it sees one. Retraction of a recursive aggregate
+// needs the interpreter's degrade-to-recompute, D4 (float `sum`/`avg`) is
+// Victor's open decision, and neither is in this slice; the entry-side refusal
+// (`incr_retract_eligible`) is what actually withholds the capability, and it
+// stands untouched.
+fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
+                   params_text: str, prm: &MacroParams, scc: &RelScc,
+                   h: &Writ) -> bool {
+    let mut mem: [i64; 8] = [0i64; 8];
+    let mut nm: i64 = 0i64;
+    let mut mask: i64 = 0i64;
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if scc.comp[r] == c {
+            // OUT OF FENCE — see the header. Nothing is emitted for an SCC with
+            // a lattice member, so there is no half-built path to mistake for a
+            // capability.
+            if prm.rel_is_agg[r] { return true; }
+            if nm < 8i64 { mem[nm] = r; nm = nm + 1i64; }
+            mask = mask | scc.dep_mask[r];
+        }
+        r = r + 1i64;
+    }
+
+    // ══ PHASE 1a — `_od` ══════════════════════════════════════════════════
+    let mut hn: String = String::new();
+    hn.push_str("-__wql_");
+    hn.push_str(vis_strip(fn_name));
+    hn.push_str("_scc");
+    hn.push_i64(c);
+    hn.push_str("_od");
+    let mut ps: String = String::new();
+    ps.push_str(params_text);
+    push_dep_params(&mut ps, prm, mask);
+    let mut m0: i64 = 0i64;
+    while m0 < nm {
+        ps.push_str(", __rd_");
+        ps.push_str(prm.rel_names[mem[m0]]);
+        ps.push_str(": &[");
+        ps.push_str(prm.rel_rowty[mem[m0]]);
+        ps.push_str("]");
+        m0 = m0 + 1i64;
+    }
+    let mut m0b: i64 = 0i64;
+    while m0b < nm {
+        ps.push_str(", __od_");
+        ps.push_str(prm.rel_names[mem[m0b]]);
+        ps.push_str(": &mut Vec<");
+        ps.push_str(prm.rel_rowty[mem[m0b]]);
+        ps.push_str(">");
+        m0b = m0b + 1i64;
+    }
+
+    // State: a FRESH shadow set (OD starts empty — see the header) + next-delta.
+    let mut state: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m1: i64 = 0i64;
+    while m1 < nm {
+        let rn: str = prm.rel_names[mem[m1]];
+        let at1: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let at2: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let at3: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let at4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
+        let s_rs: String = suffixed("__rs_", rn); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
+        let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        state.push(quote_block! {
+            let mut #n_rs: HashSet<#(at1)> = hashset_new::<#(at2)>();
+            let mut #n_nd: Vec<#(at3)> = Vec::<#(at4)>::new();
+        });
+        m1 = m1 + 1i64;
+    }
+    // BIND every in-SCC source to the READ-ONLY previous total `__rd_<m>`.
+    let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m2: i64 = 0i64;
+    while m2 < nm {
+        let rnb: str = prm.rel_names[mem[m2]];
+        let bt: ExprBlob = parse_type(prm.rel_rowty[mem[m2]]);
+        let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m2]]);
+        let s_rd: String = suffixed("__rd_", rnb); let n_rd: Ident = Ident::new(string_as_str(&s_rd));
+        binds.push(quote_block! { let #n_ss: &[#(bt)] = #n_rd; });
+        m2 = m2 + 1i64;
+    }
+    // RUNS: every body of every member, once, at its canonical source names.
+    let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m3: i64 = 0i64;
+    while m3 < nm {
+        let ri: i64 = mem[m3];
+        let bodies: RQBodyArr = rels.rel_at(ri).bodies_arr();
+        let nb: i64 = bodies.len();
+        let mut rr: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut b1: i64 = 0i64;
+        while b1 < nb {
+            let mut f: ExprBlob = quote_block! { };
+            if !rel_body_frag(bodies.body_any(b1), ri, prm, &mut f, h) { return false; }
+            rr.push(f);
+            b1 = b1 + 1i64;
+        }
+        if rr.len() > 0i64 { runs.push(member_block_frag(rr, prm, ri)); }
+        m3 = m3 + 1i64;
+    }
+    // PROMOTE (once): append the seed rows into the caller's OD store.
+    let mut prom: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m4: i64 = 0i64;
+    while m4 < nm {
+        let rnp: str = prm.rel_names[mem[m4]];
+        let pt: ExprBlob = parse_type(prm.rel_rowty[mem[m4]]);
+        let s_nd: String = suffixed("__nd_", rnp); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        let s_od: String = suffixed("__od_", rnp); let n_od: Ident = Ident::new(string_as_str(&s_od));
+        prom.push(quote_block! {
+            {
+                let __ps: &[#(pt)] = #n_nd.as_slice();
+                let mut __pk: i64 = 0i64;
+                while __pk < __ps.len() {
+                    #n_od.push(__ps[__pk]);
+                    __pk = __pk + 1i64;
+                }
+            }
+        });
+        m4 = m4 + 1i64;
+    }
+    // ⚠ THE ROUND-0 BLOCK'S BRACES ARE THE POINT, exactly as in `emit_scc_fn`:
+    // `__rd_<m>` is a `&[Row]` param so it does not alias `__od_<m>`, but the
+    // per-member `__nd_<m>` is borrowed MUTABLY by `member_block_frag` and read
+    // by the promote, so the runs live in their own scope.
+    let od_body: ExprBlob = quote_block! {
+        #( #state; )*
+        {
+            #( #binds; )*
+            #( #runs; )*
+        }
+        #( #prom; )*
+        return Result::Ok(());
+    };
+    emit_fn_quote_blob(hn.as_str(), ps.as_str(), prm.tparams, "Result<(), ElError>",
+                       od_body, prm);
+
+    // ══ PHASE 1b — `_odp` ═════════════════════════════════════════════════
+    let mut pn: String = String::new();
+    pn.push_str("-__wql_");
+    pn.push_str(vis_strip(fn_name));
+    pn.push_str("_scc");
+    pn.push_i64(c);
+    pn.push_str("_odp");
+    let mut pps: String = String::new();
+    pps.push_str(params_text);
+    push_dep_params(&mut pps, prm, mask);
+    let mut m5: i64 = 0i64;
+    while m5 < nm {
+        pps.push_str(", __od_");
+        pps.push_str(prm.rel_names[mem[m5]]);
+        pps.push_str(": &mut Vec<");
+        pps.push_str(prm.rel_rowty[mem[m5]]);
+        pps.push_str(">");
+        m5 = m5 + 1i64;
+    }
+    // State: shadow set SEEDED from the seed OD (it is already in the store),
+    // and the first delta IS that seed — the interpreter's `pctx.tot[0] = 0`
+    // followed by a promote over `[0, len)`.
+    let mut pstate: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m6: i64 = 0i64;
+    while m6 < nm {
+        let rn6: str = prm.rel_names[mem[m6]];
+        let ct1: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct2: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct3: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct4: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct5: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct6: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let ct7: ExprBlob = parse_type(prm.rel_rowty[mem[m6]]);
+        let s_rs: String = suffixed("__rs_", rn6); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
+        let s_dl: String = suffixed("__dl_", rn6); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_nd: String = suffixed("__nd_", rn6); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        let s_od: String = suffixed("__od_", rn6); let n_od: Ident = Ident::new(string_as_str(&s_od));
+        pstate.push(quote_block! {
+            let mut #n_rs: HashSet<#(ct1)> = hashset_new::<#(ct2)>();
+            let mut #n_dl: Vec<#(ct3)> = Vec::<#(ct4)>::new();
+            let mut #n_nd: Vec<#(ct5)> = Vec::<#(ct6)>::new();
+            {
+                let __sp: *mut HashSet<#(ct7)> = &mut #n_rs;
+                let mut __sk: i64 = 0i64;
+                while __sk < #n_od.len() {
+                    unsafe { (__sp).insert(#n_od.get(__sk)); }
+                    #n_dl.push(#n_od.get(__sk));
+                    __sk = __sk + 1i64;
+                }
+            }
+        });
+        m6 = m6 + 1i64;
+    }
+    // EXIT: every member's delta empty ⇒ the OD fixpoint is reached.
+    let mut pexit: ExprBlob = parse_expr("true");
+    let mut m7: i64 = 0i64;
+    while m7 < nm {
+        let s_dl: String = suffixed("__dl_", prm.rel_names[mem[m7]]);
+        let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        if m7 == 0i64 { pexit = quote_expr! { #n_dl.len() == 0i64 }; }
+        else          { pexit = quote_expr! { #(pexit) && #n_dl.len() == 0i64 }; }
+        m7 = m7 + 1i64;
+    }
+    // BIND: total = the OD store, delta = this round's OD delta.
+    let mut pbinds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m8: i64 = 0i64;
+    while m8 < nm {
+        let rn8: str = prm.rel_names[mem[m8]];
+        let dt1: ExprBlob = parse_type(prm.rel_rowty[mem[m8]]);
+        let dt2: ExprBlob = parse_type(prm.rel_rowty[mem[m8]]);
+        let n_ss: Ident = Ident::new(prm.rel_srcs[mem[m8]]);
+        let n_ds: Ident = Ident::new(prm.rel_dsrcs[mem[m8]]);
+        let s_dl: String = suffixed("__dl_", rn8); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_od: String = suffixed("__od_", rn8); let n_od: Ident = Ident::new(string_as_str(&s_od));
+        pbinds.push(quote_block! {
+            let #n_ss: &[#(dt1)] = #n_od.as_slice();
+            let #n_ds: &[#(dt2)] = #n_dl.as_slice();
+        });
+        m8 = m8 + 1i64;
+    }
+    // VARIANTS: every RECURSIVE body × its in-SCC occurrences. A body with no
+    // in-SCC occurrence is a base body and does NOT run here — see the header.
+    let mut pvars: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut m9: i64 = 0i64;
+    while m9 < nm {
+        let ri9: i64 = mem[m9];
+        let bodies9: RQBodyArr = rels.rel_at(ri9).bodies_arr();
+        let nb9: i64 = bodies9.len();
+        let mut runs9: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut b9: i64 = 0i64;
+        while b9 < nb9 {
+            let body_any: WAny = bodies9.body_any(b9);
+            let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
+            if oc.n > 0i64 {
+                let mut v: i64 = 0i64;
+                while v < oc.n {
+                    let mut w: i64 = 0i64;
+                    while w < oc.n {
+                        let nm_w: str = if w == v { prm.rel_dsrcs[oc.rel[w]] }
+                                        else      { prm.rel_srcs[oc.rel[w]] };
+                        set_occ_src(body_any, &oc, w, nm_w, h);
+                        w = w + 1i64;
+                    }
+                    let mut f9: ExprBlob = quote_block! { };
+                    if !rel_body_frag(body_any, ri9, prm, &mut f9, h) { return false; }
+                    runs9.push(f9);
+                    v = v + 1i64;
+                }
+                let mut w2: i64 = 0i64;
+                while w2 < oc.n {
+                    set_occ_src(body_any, &oc, w2, prm.rel_srcs[oc.rel[w2]], h);
+                    w2 = w2 + 1i64;
+                }
+            }
+            b9 = b9 + 1i64;
+        }
+        if runs9.len() > 0i64 { pvars.push(member_block_frag(runs9, prm, ri9)); }
+        m9 = m9 + 1i64;
+    }
+    // PROMOTE: delta ← next-delta, OD ∪= delta (the shadow set already holds it).
+    let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut ma: i64 = 0i64;
+    while ma < nm {
+        let rna: str = prm.rel_names[mem[ma]];
+        let et1: ExprBlob = parse_type(prm.rel_rowty[mem[ma]]);
+        let et2: ExprBlob = parse_type(prm.rel_rowty[mem[ma]]);
+        let s_dl: String = suffixed("__dl_", rna); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
+        let s_nd: String = suffixed("__nd_", rna); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        let s_od: String = suffixed("__od_", rna); let n_od: Ident = Ident::new(string_as_str(&s_od));
+        pprom.push(quote_block! {
+            #n_dl = #n_nd;
+            #n_nd = Vec::<#(et1)>::new();
+            {
+                let __qs: &[#(et2)] = #n_dl.as_slice();
+                let mut __qk: i64 = 0i64;
+                while __qk < __qs.len() {
+                    #n_od.push(__qs[__qk]);
+                    __qk = __qk + 1i64;
+                }
+            }
+        });
+        ma = ma + 1i64;
+    }
+    // ⚠ THE EXIT IS AT THE LOOP TOP AND THE PROMOTE AT THE BOTTOM, which is the
+    // MIRROR of `emit_scc_fn` and forced by the same borrow fact from the other
+    // side: here the seed delta is already in `__od_<m>` when the fn is entered,
+    // so a promote-first loop would append it a second time. The binds/variants
+    // therefore sit in their own block, so the `__od_<m>.as_slice()` view dies
+    // before the promote pushes into it.
+    let odp_body: ExprBlob = quote_block! {
+        #( #pstate; )*
+        loop {
+            if #(pexit) { break; }
+            {
+                #( #pbinds; )*
+                #( #pvars; )*
+            }
+            #( #pprom; )*
+        }
+        return Result::Ok(());
+    };
+    emit_fn_quote_blob(pn.as_str(), pps.as_str(), prm.tparams, "Result<(), ElError>",
+                       odp_body, prm);
+    return true;
+}
+
 // ── The rel-tier emission entry ──────────────────────────────────────────────
 // One chunk: per non-recursive rel a one-shot helper fn (slice B), per
 // RECURSIVE SCC one semi-naïve fixpoint fn (slice C) — emitted in condensation
@@ -8339,6 +8741,16 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 plan_trace("rel incr driver", "EMITTED", vis_strip(fn_name),
                            "one cross-epoch semi-naive driver per admitted recursive SCC — its member totals are POSITIONAL out-params, so the SCC id is the whole argument and the member scan decides only WHETHER, never WHICH");
                 if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, true, h) { return false; }
+                // DRed PHASE 1 — the over-delete siblings. Emitted from the
+                // SHAPE beside `_i`, on the same admission and once per SCC for
+                // the same reason (the member scan decides WHETHER, never
+                // WHICH). ⚠ NO SURFACE FOLLOWS FROM THIS: nothing calls them
+                // yet, `incr_retract_eligible` still refuses every rel-backed
+                // query, and phases 2 and 3 are NOT emitted. See
+                // `emit_scc_od_fns` for what is in fence and what is not.
+                plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
+                           "DRed phase 1 only — `_od` (seed: base+recursive bodies at the deleted rows over the previous total) and `_odp` (propagate: recursive bodies only, over the survivors, read==write==od). No compact, no re-derive, no retraction surface.");
+                if !emit_scc_od_fns(rels, c, fn_name, params_text, prm, scc, h) { return false; }
             }
         } else {
             let mut i: i64 = 0i64;
