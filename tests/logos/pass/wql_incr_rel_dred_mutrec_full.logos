@@ -1,0 +1,592 @@
+// ALL FOUR DRed PHASES AT N = 2 — THE FIRST CORRECTNESS WITNESS THIS CELL HAS
+// EVER HAD, AGAINST A PRODUCT AUTOMATON GENERALISED TO N MEMBERS.
+//
+// ── WHY THIS FILE EXISTS: THE HOLE, MEASURED ──────────────────────────────
+// DRed emits four fns for a recursive SCC — `_od` (phase 1a seed), `_odp`
+// (phase 1b propagate), `_cpt` (phase 2 compact), `_i` re-entered over the
+// survivors (phase 3 re-derive) — and every one of them is N-MEMBER: it takes
+// one `__rd_<m>` / `__od_<m>` / `__tot_<m>` per SCC member.
+//
+// ⚠⚠ NOTHING IN THE TREE WITNESSED THAT ANY OF IT WAS CORRECT AT N ≥ 2.
+// `wql_incr_rel_cpt_mutrec_txn.logos` was the only N = 2 DRed fixture, and it
+// calls the from-scratch driver and `_cpt` ONLY — zero calls to `_od`, zero to
+// `_odp`, zero to `_i`, with the OD sets hand-written. Three of the four
+// emitted fns had NO N ≥ 2 caller anywhere. That file is not weakened here; it
+// witnesses phase 2's TRANSACTIONAL REFUSAL across members, which is real and
+// which this file does not duplicate. This one is added BESIDE it.
+//
+// And it was blind for a reason that is DATA, not structure. On its
+// `es = {1→2, 2→3}`: |T_odd| = 2 with the removed row at INDEX 0, |T_even| = 1
+// with the removed row at INDEX 0, |S_odd| = 1, |S_even| = 0. Both of the
+// controls named below are therefore invisible to it:
+//   · C1 drops the survivor at index 0 — but index 0 is the REMOVED row in both
+//     of its members, so C1 is a literal no-op there;
+//   · C2 kills phase 1b — but `_odp` is never called there at all.
+// Measured: under BOTH controls `od_phase1`, `od_phase3` and
+// `dred_product_random` went red and `cpt_mutrec_txn` stayed GREEN.
+//
+// ── ⚠ AND THERE IS NO ORACLE TO BORROW — THIS CELL NEVER HAD ONE ──────────
+// The interpreter's `dred` NEVER RUNS FOR A MULTI-MEMBER SCC:
+// `Query::incremental_rec` refuses `reg.n != 1` at
+// `stdlib/mem/deem/incr_rec.logos:1318`, whose own comment reads "THIS REFUSAL
+// IS WHY THE INTERPRETER IS NOT A WITNESS FOR N-MEMBER SCC RETRACTION". The
+// witness every other cell in this arc leans on does not exist here and never
+// did. An INDEPENDENT CLOSED FORM is the only oracle available, now or ever.
+//
+// ── THE ORACLE: THE PRODUCT AUTOMATON, GENERALISED TO N MEMBERS ───────────
+// `wql_incr_rel_dred_product_random.logos` carries the N = 1 form: state =
+// (node, "a retracted edge has been used"), closed by Floyd–Warshall over 2n
+// states. It is the literal reading of "SOME derivation uses a retracted row"
+// and assumes none of the prefix/suffix decomposition that both the engine and
+// the phase-1 fixture's other oracle are built out of. It is NOT re-derived
+// here; it is GENERALISED, and the generalisation is a strict superset.
+//
+// For N members a derivation of a member-m row is a walk in the edge relation
+// whose MEMBER SEQUENCE is legal, so the state gains the member index:
+//
+//   R      = { (m', m) : member m has a recursive body `from m' join es` }
+//   B      = { m : member m has a BASE body `from es` }
+//   states = (node, member, flag),  2·N·n of them
+//   edge   : (v, m, f) → (w, m2, f ∨ del(v,w))   for every (v,w) ∈ ALL,
+//                                                 every (m, m2) ∈ R
+//   SRC(x) = { (w, m1, del(x,w)) : (x,w) ∈ ALL, m1 ∈ B }   — the base body,
+//                                                            one edge consumed
+//   reach  = REFLEXIVE-transitive closure of the edge relation, by
+//            FLOYD–WARSHALL over the (2Nn)² boolean matrix. Reflexive because
+//            the entry step has already consumed an edge.
+//   T_m    = { (x,z) : ∃s ∈ SRC(x). s ⇝* (z, m, f), any f }
+//   OD_m   = { (x,z) : ∃s ∈ SRC(x). s ⇝* (z, m, 1) }
+//   S_m    = T_m ∖ OD_m
+//   closure(PRES)_m = the same machine run over PRES with del ≡ ∅
+//
+// "The walk ALTERNATES between members" is not an extra rule — it IS the
+// `(m,m2) ∈ R` factor on every edge. The walk cannot change member except along
+// R, so a node-walk legal for `odd` at length 3 is ILLEGAL for `even` at length
+// 3: no R-path of length 3 out of B ends at `even`.
+//
+// ⚠ AND IT IS CROSS-CHECKED AGAINST THE N = 1 FORM, IN THIS FILE, CELL 0.
+// At N = 1 (`tc`: R = {(path,path)}, B = {path}) the member coordinate is
+// constant and drops out; SRC(x) = {(w, del(x,w))} and "entry edge + zero or
+// more product edges" is exactly the existing "(x,0) ⇝ (z,f) by paths of length
+// ≥ 1". Cell 0 runs BOTH implementations — the 2-state form copied verbatim
+// from `dred_product_random`, and the N-member form below instantiated at
+// N = 1 — on this file's own graph and requires them to agree on T, OD and
+// closure(PRES). If they disagree the generalisation is wrong, and that
+// disagreement is the finding; the exit code is 5/6/7/8.
+//
+// ── THE SHAPE, AND THE PER-MEMBER TABLE, STATED BEFORE ANYTHING RAN ───────
+//     rel odd (a,b) :- es(a,b)                 ← the only BASE body: B = {odd}
+//     rel odd (a,b) :- even(a,c), es(c,b)      ← R ∋ (even, odd)
+//     rel even(a,b) :- odd(a,c),  es(c,b)      ← R ∋ (odd, even)
+//
+//   es  = { 1→2, 2→3, 3→4, 4→5, 2→6, 6→4 }        DE = { 3→4 }
+//
+// ⚠ THE 2→6→4 DIAMOND IS LOAD-BEARING AND IS THE MINIMUM STRUCTURE THAT GIVES
+// PHASE 3 ANYTHING TO DO. RD = closure(PRES) ∖ S is non-empty only when a row
+// of T has BOTH a retracted-edge derivation and a surviving one; on any straight
+// chain RD = ∅ in every member and `_i` would be EXERCISED but not WITNESSED.
+//
+//   member `odd`  |T| = 8   T  = {(1,2),(2,3),(3,4),(4,5),(2,6),(6,4),(1,4),(2,5)}
+//                 |OD| = 3  OD = {(3,4),(1,4),(2,5)}
+//                 |S|  = 5  S  = {(1,2),(2,3),(4,5),(2,6),(6,4)}
+//                 |RD| = 2  RD = {(1,4),(2,5)}      (re-derived via 2→6→4)
+//   member `even` |T| = 6   T  = {(1,3),(1,6),(2,4),(3,5),(6,5),(1,5)}
+//                 |OD| = 3  OD = {(2,4),(3,5),(1,5)}
+//                 |S|  = 3  S  = {(1,3),(1,6),(6,5)}
+//                 |RD| = 2  RD = {(1,5),(2,4)}
+//
+// ⚠ THE SHAPE REQUIREMENT THAT FOLLOWS FROM WHY THE OLD FIXTURE FAILED, and it
+// is asserted rather than asserted-about: |S_m| ≥ 2 in BOTH members (5 and 3),
+// so "drop one extra survivor" changes a SET rather than emptying one; and the
+// row at INDEX 0 of T_m is a SURVIVOR in both members, which is the precise
+// property `cpt_mutrec_txn` lacks and the precise reason C1 bites here. Check
+// 13 states it directly, on the emitted order rather than on a model of it.
+//
+// ── ⚠ ASSERT THE INTERMEDIATES — THE ANSWER ORACLE IS BLIND HERE ──────────
+// Delete phase 1a's existing-rel ⋈ DE seed term and a diamond's FINAL answer
+// stays byte-for-byte correct — same rows, same order — while the intermediate
+// sets move: phase 3 repairs the over-deletion and only INCREMENTALITY dies. So
+// every intermediate is asserted per member: T_m, OD_m, S_m, `rm_m`, the three
+// latches per member, and the re-derived suffix RD_m.
+//
+// ⚠⚠ AND THE ONE PROPERTY PHASE 3 CANNOT REPAIR — `S_m ⊆ closure(PRES)_m`, per
+// member, checks 43/44. Phase 3 only APPENDS, so a row phase 2 wrongly KEEPS is
+// unrepairable forever and no assertion about the final relation can see it.
+//
+// ── WHAT IS DELIBERATELY NOT ASSERTED ─────────────────────────────────────
+// ⚠ `_i`'s work counter `__wc` READS A TIE BY CONSTRUCTION and is not a
+// correctness sensor. Closed form: |PRES| + Σ_{p ∈ lfp(PRES)} outdeg(p.b) — no
+// reference to the seeded total, because semi-naive enumerates each
+// (row, edge) pair exactly once regardless of seed whenever seed ⊆ lfp, which
+// the survivor lemma guarantees. It was equal in all 32 configurations
+// measured. Only its ARITY is pinned here (one i64 per member, check 54); its
+// VALUE would agree with a wrong DRed and a right one alike.
+//
+// ── CONTROLS, PREDICTED BEFORE BUILDING AND THEN MEASURED ─────────────────
+// Both are one-line edits in `stdlib/mem/wql/rexpr_walk.logos` (the EMITTER;
+// `stdlib/mem/deem/` is not touched), archives dropped and the whole stdlib
+// rebuilt because ctest links PREBUILT archives.
+//  • C1 — `_cpt`'s retain condition weakened so it drops one extra survivor per
+//    member: `if !__hit2 {` → `if !__hit2 && __r2 != 0i64 {` in `cdo`.
+//    → PREDICTED **exit 30**, the `S_odd` set check: T_odd's index 0 is the
+//      survivor (1,2), so S_odd comes back one row short and `rm_odd` one row
+//      long. MEASURED 30.
+//  • C2 — `_odp`'s seed delta suppressed (`#n_dl.push(#n_od.get(__sk));`
+//    deleted from `pstate`), so the first delta is empty, `pexit` is true at the
+//    first loop-top test and phase 1b propagates nothing: OD = the 1a seed only.
+//    → PREDICTED **exit 20**, the `OD_odd` set check: the 1a seed is
+//      {(3,4),(1,4)} and (2,5) — which needs one propagation step through
+//      `even` — never arrives. MEASURED 20.
+// ⚠⚠ UNDER BOTH CONTROLS `wql_incr_rel_cpt_mutrec_txn` STAYED **GREEN**,
+// re-measured on this tree with the same archives. That is the acceptance
+// criterion for this file and the reason it exists: it REDS where the previous
+// N = 2 fixture could not speak. The single-member fixtures reddened as they
+// always did (C1: `dred_product_random` 16, `od_phase1` 110, `od_phase3` 38,
+// `od_phase1_adv` green — it stops before phase 2; C2: 14 / 36 / 38 / 16),
+// which is what says the controls were live in the build both times.
+//
+//  • C3 — AN ORACLE-SIDE CONTROL, because a fixture whose oracle is a constant
+//    would also have reddened above. R corrupted from {(even,odd),(odd,even)} to
+//    {(odd,odd),(even,even)} — i.e. the member coordinate made a self-loop, the
+//    generalisation collapsed back to the N = 1 shape. → PREDICTED **exit 2**
+//    (T_odd becomes the plain transitive closure, |T_odd| ≠ 8, and `even` is no
+//    longer reachable from B at all). MEASURED 2. The alternation factor is
+//    therefore load-bearing in the oracle and not decoration.
+//
+// exit 0 = the N = 1 cross-check agrees, and all four phases at N = 2 agree with
+// the generalised product automaton on T, OD, S, rm, the six latches, the
+// survivor lemma and the re-derived set, in BOTH members.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem oddq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    from odd p group by p.a aggregate c = count() select (key, c)
+}
+
+// ── SET PLUMBING ──────────────────────────────────────────────────────────
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn subset_of(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn is_del(de: &Vec<E>, a: i64, b: i64) -> bool {
+    let mut d: i64 = 0i64;
+    while d < de.len() {
+        let dd: E = de.get(d);
+        if dd.a == a && dd.b == b { return true; }
+        d = d + 1i64;
+    }
+    return false;
+}
+
+// ══ THE N = 1 FORM, COPIED VERBATIM FROM `wql_incr_rel_dred_product_random`
+// ══ SO CELL 0 COMPARES THE GENERALISATION AGAINST THE THING IT GENERALISES,
+// ══ NOT AGAINST A RE-STATEMENT OF IT. ═════════════════════════════════════
+fn product2(n: i64, all: &Vec<E>, de: &Vec<E>) -> Vec<bool> {
+    let k: i64 = n * 2i64;
+    let mut m: Vec<bool> = vec_new::<bool>();
+    let mut z: i64 = 0i64;
+    while z < k * k { m.push(false); z = z + 1i64; }
+    let mut e: i64 = 0i64;
+    while e < all.len() {
+        let ee: E = all.get(e);
+        let del: bool = is_del(de, ee.a, ee.b);
+        let f1: i64 = if del { 1i64 } else { 0i64 };
+        m.set((ee.a * 2i64 + 0i64) * k + (ee.b * 2i64 + f1), true);
+        m.set((ee.a * 2i64 + 1i64) * k + (ee.b * 2i64 + 1i64), true);
+        e = e + 1i64;
+    }
+    let mut kk: i64 = 0i64;
+    while kk < k {
+        let mut i: i64 = 0i64;
+        while i < k {
+            if m.get(i * k + kk) {
+                let mut j: i64 = 0i64;
+                while j < k {
+                    if m.get(kk * k + j) { m.set(i * k + j, true); }
+                    j = j + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        kk = kk + 1i64;
+    }
+    return m;
+}
+
+fn from_product2(n: i64, m: &Vec<bool>, flag: i64, both: bool) -> Vec<(i64, i64)> {
+    let k: i64 = n * 2i64;
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut x: i64 = 0i64;
+    while x < n {
+        let mut zt: i64 = 0i64;
+        while zt < n {
+            let hit0: bool = m.get((x * 2i64) * k + (zt * 2i64));
+            let hit1: bool = m.get((x * 2i64) * k + (zt * 2i64 + 1i64));
+            let take: bool = if both { hit0 || hit1 }
+                             else if flag == 0i64 { hit0 }
+                             else { hit1 };
+            if take { pair_uniq(&mut out, x, zt); }
+            zt = zt + 1i64;
+        }
+        x = x + 1i64;
+    }
+    return out;
+}
+
+// ══ THE N-MEMBER FORM ═════════════════════════════════════════════════════
+// State (v, mem, flag) lives at `(v * nm + mem) * 2 + flag`; k = n * nm * 2.
+// `rr` is R as a list of (from-member, to-member) pairs; `bb` is B as a list of
+// members that have a base body. Nothing below mentions `odd`, `even` or 2 —
+// the same code is instantiated at N = 1 by cell 0 and at N = 2 by the rest.
+fn product_n(n: i64, nm: i64, rr: &Vec<(i64, i64)>,
+             all: &Vec<E>, de: &Vec<E>) -> Vec<bool> {
+    let k: i64 = n * nm * 2i64;
+    let mut m: Vec<bool> = vec_new::<bool>();
+    let mut z: i64 = 0i64;
+    while z < k * k { m.push(false); z = z + 1i64; }
+    let mut e: i64 = 0i64;
+    while e < all.len() {
+        let ee: E = all.get(e);
+        let del: bool = is_del(de, ee.a, ee.b);
+        let mut t: i64 = 0i64;
+        while t < rr.len() {
+            let tr: (i64, i64) = rr.get(t);
+            let mut f: i64 = 0i64;
+            while f < 2i64 {
+                let nf: i64 = if f == 1i64 || del { 1i64 } else { 0i64 };
+                let sfrom: i64 = (ee.a * nm + tr.0) * 2i64 + f;
+                let sto: i64   = (ee.b * nm + tr.1) * 2i64 + nf;
+                m.set(sfrom * k + sto, true);
+                f = f + 1i64;
+            }
+            t = t + 1i64;
+        }
+        e = e + 1i64;
+    }
+    // REFLEXIVE — the entry step of `t_of` has already consumed one edge, so a
+    // one-edge derivation must be reachable by zero product steps.
+    let mut i0: i64 = 0i64;
+    while i0 < k { m.set(i0 * k + i0, true); i0 = i0 + 1i64; }
+    let mut kk: i64 = 0i64;
+    while kk < k {
+        let mut i: i64 = 0i64;
+        while i < k {
+            if m.get(i * k + kk) {
+                let mut j: i64 = 0i64;
+                while j < k {
+                    if m.get(kk * k + j) { m.set(i * k + j, true); }
+                    j = j + 1i64;
+                }
+            }
+            i = i + 1i64;
+        }
+        kk = kk + 1i64;
+    }
+    return m;
+}
+
+// T_mem when `want_od` is false; OD_mem when it is true.
+fn t_of(n: i64, nm: i64, bb: &Vec<i64>, all: &Vec<E>, de: &Vec<E>,
+        mtx: &Vec<bool>, mem: i64, want_od: bool) -> Vec<(i64, i64)> {
+    let k: i64 = n * nm * 2i64;
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut x: i64 = 0i64;
+    while x < n {
+        let mut zt: i64 = 0i64;
+        while zt < n {
+            let mut hit: bool = false;
+            let mut e: i64 = 0i64;
+            while e < all.len() {
+                let ee: E = all.get(e);
+                if ee.a == x {
+                    let f0: i64 = if is_del(de, ee.a, ee.b) { 1i64 } else { 0i64 };
+                    let mut bi: i64 = 0i64;
+                    while bi < bb.len() {
+                        let m1: i64 = bb.get(bi);
+                        let s: i64 = (ee.b * nm + m1) * 2i64 + f0;
+                        let mut ff: i64 = 0i64;
+                        while ff < 2i64 {
+                            let tgt: i64 = (zt * nm + mem) * 2i64 + ff;
+                            if mtx.get(s * k + tgt) {
+                                if want_od { if ff == 1i64 { hit = true; } }
+                                else { hit = true; }
+                            }
+                            ff = ff + 1i64;
+                        }
+                        bi = bi + 1i64;
+                    }
+                }
+                e = e + 1i64;
+            }
+            if hit { pair_uniq(&mut out, x, zt); }
+            zt = zt + 1i64;
+        }
+        x = x + 1i64;
+    }
+    return out;
+}
+
+fn diff_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { pair_uniq(&mut out, c.0, c.1); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn main() -> i32 {
+    // ── THE GRAPH. Node ids 1..6, so the state space is sized at n = 7 and
+    // node 0 is simply never an endpoint.
+    let n: i64 = 7i64;
+    let mut all: Vec<E> = vec_new::<E>();
+    all.push(ed(1i64, 2i64)); all.push(ed(2i64, 3i64)); all.push(ed(3i64, 4i64));
+    all.push(ed(4i64, 5i64)); all.push(ed(2i64, 6i64)); all.push(ed(6i64, 4i64));
+    let mut de: Vec<E> = vec_new::<E>();
+    de.push(ed(3i64, 4i64));
+    let mut pres: Vec<E> = vec_new::<E>();
+    let mut pi: i64 = 0i64;
+    while pi < all.len() {
+        let ee: E = all.get(pi);
+        if !is_del(&de, ee.a, ee.b) { pres.push(ee); }
+        pi = pi + 1i64;
+    }
+    if pres.len() != 5i64 { return 1i32; }
+    let empty_de: Vec<E> = vec_new::<E>();
+
+    // ══ CELL 0 — THE GENERALISATION AGAINST THE N = 1 FORM ════════════════
+    // `tc`: one member, R = {(0,0)}, B = {0}. The member coordinate is constant
+    // and must drop out. If these disagree, the generalisation is wrong and
+    // THAT is the finding — nothing below it means anything.
+    let mut r1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    r1.push((0i64, 0i64));
+    let mut b1: Vec<i64> = vec_new::<i64>();
+    b1.push(0i64);
+    let m2: Vec<bool> = product2(n, &all, &de);
+    let mn: Vec<bool> = product_n(n, 1i64, &r1, &all, &de);
+    let a_t: Vec<(i64, i64)>  = from_product2(n, &m2, 0i64, true);
+    let b_t: Vec<(i64, i64)>  = t_of(n, 1i64, &b1, &all, &de, &mn, 0i64, false);
+    if !same_set(&a_t, &b_t) { return 5i32; }
+    let a_od: Vec<(i64, i64)> = from_product2(n, &m2, 1i64, false);
+    let b_od: Vec<(i64, i64)> = t_of(n, 1i64, &b1, &all, &de, &mn, 0i64, true);
+    if !same_set(&a_od, &b_od) { return 6i32; }
+    // …and on PRES with del ≡ ∅, which is the form the survivor lemma uses.
+    let m2p: Vec<bool> = product2(n, &pres, &empty_de);
+    let mnp: Vec<bool> = product_n(n, 1i64, &r1, &pres, &empty_de);
+    let a_pr: Vec<(i64, i64)> = from_product2(n, &m2p, 0i64, true);
+    let b_pr: Vec<(i64, i64)> = t_of(n, 1i64, &b1, &pres, &empty_de, &mnp, 0i64, false);
+    if !same_set(&a_pr, &b_pr) { return 7i32; }
+    // A NON-TRIVIAL cross-check needs the two sides to differ somewhere they
+    // could: OD must be non-empty and a PROPER subset of T, or 5 and 6 would
+    // both pass on a form that answers ∅ for everything.
+    if a_od.len() == 0i64 || a_od.len() >= a_t.len() { return 8i32; }
+
+    // ══ THE ORACLE AT N = 2, COMPUTED BEFORE THE ENGINE IS TOUCHED ════════
+    // Member 0 = `odd` (registry order, and the only one with a base body),
+    // member 1 = `even`.  R = {(even,odd), (odd,even)} = {(1,0), (0,1)}.
+    let mut rr: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rr.push((1i64, 0i64)); rr.push((0i64, 1i64));
+    let mut bb: Vec<i64> = vec_new::<i64>();
+    bb.push(0i64);
+    let mm: Vec<bool> = product_n(n, 2i64, &rr, &all, &de);
+    let o_t0: Vec<(i64, i64)>  = t_of(n, 2i64, &bb, &all, &de, &mm, 0i64, false);
+    let o_t1: Vec<(i64, i64)>  = t_of(n, 2i64, &bb, &all, &de, &mm, 1i64, false);
+    let o_od0: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &all, &de, &mm, 0i64, true);
+    let o_od1: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &all, &de, &mm, 1i64, true);
+    let o_s0: Vec<(i64, i64)> = diff_set(&o_t0, &o_od0);
+    let o_s1: Vec<(i64, i64)> = diff_set(&o_t1, &o_od1);
+    let mmp: Vec<bool> = product_n(n, 2i64, &rr, &pres, &empty_de);
+    let o_pr0: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &pres, &empty_de, &mmp, 0i64, false);
+    let o_pr1: Vec<(i64, i64)> = t_of(n, 2i64, &bb, &pres, &empty_de, &mmp, 1i64, false);
+
+    // ⚠ THE ORACLE'S OWN SHAPE, PINNED. The per-member table in the header is
+    // the thing this file was designed around; if the oracle ever stops
+    // producing it the graph has drifted and every "C1 bites" argument below is
+    // void. These are the numbers, not a re-derivation of them.
+    if o_t0.len()  != 8i64 { return 2i32; }
+    if o_t1.len()  != 6i64 { return 3i32; }
+    if o_od0.len() != 3i64 || o_od1.len() != 3i64 { return 4i32; }
+    if o_s0.len()  != 5i64 || o_s1.len()  != 3i64 { return 9i32; }
+
+    // ══ PHASE 0 — THE PREVIOUS TOTALS, from the from-scratch N-member driver.
+    let mut t_odd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut t_even: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_oddq_scc0(all.as_slice(), &mut t_odd, &mut t_even) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 10i32; }
+    }
+    if !same_set(&t_odd, &o_t0)  { return 11i32; }
+    if !same_set(&t_even, &o_t1) { return 12i32; }
+    // ⚠⚠ THE PROPERTY `cpt_mutrec_txn` LACKS, ASSERTED ON THE EMITTED ORDER
+    // RATHER THAN ON A MODEL OF IT. C1 drops the survivor sitting at index 0;
+    // in the old fixture index 0 was the REMOVED row in both members, which is
+    // exactly why C1 was a no-op there. Here index 0 must be a SURVIVOR — if the
+    // emitter's enumeration order ever changes so that it is not, C1 stops
+    // biting and this check says so BEFORE the silent green.
+    let f0o: (i64, i64) = t_odd.get(0i64);
+    if pair_has(&o_od0, f0o.0, f0o.1)  { return 13i32; }
+    let f0e: (i64, i64) = t_even.get(0i64);
+    if pair_has(&o_od1, f0e.0, f0e.1)  { return 14i32; }
+
+    // ══ PHASE 1a — `_od`: the seed, existing-rel ⋈ DE, PER MEMBER ═════════
+    // ⚠ THE USER PARAM CARRIES **DE** HERE, and the previous totals go in the
+    // `__rd_<m>` slots in registry order. `even` has NO base body, so its seed
+    // is `odd_prev ⋈ DE` alone — it depends on `__rd_odd` landing in the right
+    // positional slot, and the members' |OD| would have to be equal for a swap
+    // to survive checks 20/21 (they are 3 and 3 — so the SETS, not the counts,
+    // are what tell them apart, and they are disjoint in content).
+    let mut od_odd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut od_even: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_oddq_scc0_od(de.as_slice(), t_odd.as_slice(), t_even.as_slice(),
+                             &mut od_odd, &mut od_even) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 15i32; }
+    }
+    // The SEED alone must be a strict subset of the fixpoint, or phase 1b has
+    // nothing to do and C2 would be invisible. This is the shape check that
+    // makes the C2 measurement meaningful.
+    if od_odd.len() >= o_od0.len()   { return 16i32; }
+    if od_even.len() >= o_od1.len()  { return 17i32; }
+
+    // ══ PHASE 1b — `_odp`: propagate over the SURVIVOR edges ══════════════
+    match __wql_oddq_scc0_odp(pres.as_slice(), &mut od_odd, &mut od_even) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 18i32; }
+    }
+    // ⚠ C2 SPEAKS HERE, at 20: with the seed delta suppressed the fixpoint
+    // never starts and OD is the 1a seed only.
+    if !same_set(&od_odd, &o_od0)   { return 20i32; }
+    if !same_set(&od_even, &o_od1)  { return 21i32; }
+
+    // ══ PHASE 2 — `_cpt` ═════════════════════════════════════════════════
+    // `rm` and `lat` SEEDED, not fresh: a fresh Vec passes identically whether
+    // the callee clears, writes, or does neither. (7,7)/(8,8) are pairs neither
+    // relation can hold and 555 is outside every latch's range.
+    let t0n: i64 = t_odd.len();
+    let t1n: i64 = t_even.len();
+    let mut rm_odd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rm_odd.push((7i64, 7i64));
+    let mut rm_even: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rm_even.push((8i64, 8i64));
+    let mut lat: Vec<i64> = vec_new::<i64>();
+    lat.push(555i64);
+    match __wql_oddq_scc0_cpt(od_odd.as_slice(), od_even.as_slice(),
+                              &mut t_odd, &mut t_even,
+                              &mut rm_odd, &mut rm_even, &mut lat) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 25i32; }
+    }
+    // ⚠ C1 SPEAKS HERE, at 30: one extra survivor dropped from member `odd`.
+    if !same_set(&t_odd, &o_s0)   { return 30i32; }
+    if !same_set(&t_even, &o_s1)  { return 31i32; }
+    if lat.len() != 6i64             { return 32i32; }
+    if lat.get(0i64) != o_od0.len()  { return 33i32; }   // |OD_odd|
+    if lat.get(1i64) != o_s0.len()   { return 34i32; }   // |S_odd|
+    if lat.get(2i64) != 0i64 - 1i64  { return 35i32; }   // |RD_odd| sentinel
+    if lat.get(3i64) != o_od1.len()  { return 36i32; }   // |OD_even|
+    if lat.get(4i64) != o_s1.len()   { return 37i32; }   // |S_even|
+    if lat.get(5i64) != 0i64 - 1i64  { return 38i32; }   // |RD_even| sentinel
+    // THE NEGATIVE DELTA, per member: `rm` partitions T with S, seed gone.
+    if rm_odd.len() + t_odd.len()  != t0n { return 39i32; }
+    if rm_even.len() + t_even.len() != t1n { return 40i32; }
+    if !same_set(&rm_odd, &o_od0)  { return 41i32; }
+    if !same_set(&rm_even, &o_od1) { return 42i32; }
+    // ⚠⚠ THE SURVIVOR LEMMA, PER MEMBER — the property phases 1+2 need TOGETHER
+    // and that phase 3 CANNOT repair, since it only appends. Checked against
+    // `closure(PRES)_m`, which the oracle computed without ever forming S.
+    if !subset_of(&t_odd, &o_pr0)  { return 43i32; }
+    if !subset_of(&t_even, &o_pr1) { return 44i32; }
+
+    // ══ PHASE 3 — `_i` re-entered over PRES on the compacted totals ═══════
+    let b0o: i64 = t_odd.len();
+    let b0e: i64 = t_even.len();
+    let mut wc: Vec<i64> = vec_new::<i64>();
+    match __wql_oddq_scc0_i(pres.as_slice(), &mut t_odd, &mut t_even, &mut wc) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 45i32; }
+    }
+    if !same_set(&t_odd, &o_pr0)  { return 46i32; }
+    if !same_set(&t_even, &o_pr1) { return 47i32; }
+    // RD_m = closure(PRES)_m ∖ S_m, read off the APPENDED SUFFIX — phase 3
+    // repairs over-deletion and does nothing else.
+    let mut rd_odd: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut qi: i64 = b0o;
+    while qi < t_odd.len() { let qc: (i64, i64) = t_odd.get(qi); pair_uniq(&mut rd_odd, qc.0, qc.1); qi = qi + 1i64; }
+    if rd_odd.len() != t_odd.len() - b0o { return 48i32; }   // no dup in the suffix
+    let mut rd_even: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut qj: i64 = b0e;
+    while qj < t_even.len() { let qc2: (i64, i64) = t_even.get(qj); pair_uniq(&mut rd_even, qc2.0, qc2.1); qj = qj + 1i64; }
+    if rd_even.len() != t_even.len() - b0e { return 49i32; }
+    let w_rd0: Vec<(i64, i64)> = diff_set(&o_pr0, &o_s0);
+    let w_rd1: Vec<(i64, i64)> = diff_set(&o_pr1, &o_s1);
+    // ⚠ |RD_m| ≥ 1 IN BOTH MEMBERS IS WHY THE DIAMOND IS IN THE GRAPH. On a
+    // straight chain both are 0, `_i` runs and witnesses nothing.
+    if w_rd0.len() == 0i64 || w_rd1.len() == 0i64 { return 50i32; }
+    if !same_set(&rd_odd, &w_rd0)  { return 51i32; }
+    if !same_set(&rd_even, &w_rd1) { return 52i32; }
+    // Every re-derived row was one phase 2 removed.
+    if !subset_of(&rd_odd, &rm_odd)   { return 53i32; }
+    if !subset_of(&rd_even, &rm_even) { return 54i32; }
+    // ⚠ `__wc`'s ARITY ONLY — one i64 per member. Its VALUE is a tie by
+    // construction (see the header) and asserting it would be a cost sensor
+    // dressed as a correctness one.
+    if wc.len() != 2i64 { return 55i32; }
+
+    return 0i32;
+}
