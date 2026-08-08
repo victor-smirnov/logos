@@ -1,22 +1,33 @@
-// DRed PHASE 1, ALONE — THE OVER-DELETE SET OF A RECURSIVE `rel`, AGAINST AN
-// ORACLE THAT SHARES NO CODE WITH IT.
+// DRed PHASES 1 AND 2 — THE OVER-DELETE SET OF A RECURSIVE `rel` AND THE
+// COMPACT IT FEEDS, AGAINST ORACLES THAT SHARE NO CODE WITH EITHER.
 //
 // ── WHAT IS UNDER TEST, AND WHAT IS DELIBERATELY NOT ───────────────────────
 // Retraction through recursion is DELETE-AND-REDERIVE: (1) OVER-DELETE every
 // fact with ANY derivation through a retracted row, (2) COMPACT the total to
 // `old ∖ OD`, (3) RE-DERIVE, which puts back exactly the facts that still have
-// an all-survivor derivation. THIS FILE TESTS PHASE 1 AND NOTHING ELSE.
+// an all-survivor derivation. THIS FILE TESTS PHASES 1 AND 2.
 //
-// There is no compact here, no re-derive, and NO RETRACTION SURFACE: the
-// emitter's `incr_retract_eligible` still refuses every rel-backed query, so
+// There is no re-derive here and NO RETRACTION SURFACE: the emitter's
+// `incr_retract_eligible` still refuses every rel-backed query, so
 // `tc_apply` / `tc_retract` / `__wd` do not exist and `fail/wql_incr_rel_no_retract.logos`
-// still pins that refusal. What this file drives is the two newly emitted
-// PRIVATE siblings directly, as a sibling item in the same module — which is
-// the whole reason phase 1 can be proven before any surface exists:
+// still pins that refusal, unchanged. What this file drives is the three
+// emitted PRIVATE siblings directly, as a sibling item in the same module —
+// which is the whole reason phases 1 and 2 can be proven before any surface
+// exists:
 //
 //   __wql_tc_scc0     (es = ALL,  &mut tot)                    ← the previous total T
 //   __wql_tc_scc0_od  (es = DE,   rd = T,  &mut od)            ← PHASE 1a, seed
 //   __wql_tc_scc0_odp (es = PRES,          &mut od)            ← PHASE 1b, propagate
+//   __wql_tc_scc0_cpt (od, &mut tot, &mut lat)                 ← PHASE 2,   compact
+//
+// ── WHY THE INTERMEDIATE SETS AND NOT THE ANSWER ──────────────────────────
+// ⚠⚠ AN ANSWER ORACLE IS BLIND TO THIS ARC — measured twice, on two builds, by
+// two people. Delete phase 1a's `existing-rel ⋈ DE` seed term and the DIAMOND's
+// final answer is BYTE-FOR-BYTE CORRECT — identical rows, identical order —
+// while `od` goes 2→1, `S` 3→4 and the re-derive count 1→0. Phase 3 repairs the
+// over-deletion, so only INCREMENTALITY dies. Every assertion in this file is
+// therefore about an INTERMEDIATE SET: what phase 1 computes and what phase 2
+// leaves. Nothing here asks the query for an answer.
 //
 // ── THE SPECIFICATION OF `OD`, DERIVED, NOT COPIED FROM THE ENGINE ────────
 // With T = lfp(ALL), DE the retracted edges and PRES = ALL ∖ DE:
@@ -78,9 +89,55 @@
 //    compact the relation to nothing and phase 3 recompute the whole closure —
 //    still correct, no longer incremental.
 //
-// exit 0 = on all three cells, the emitted over-delete set equals the closed
-// form, the previous total equals the naive closure, and OD's strict excess over
-// `closure(ALL) ∖ closure(PRES)` is present where the diamond says it must be.
+// ── PHASE 2's OWN CONTROLS, ALL THREE MEASURED 2026-08-08 ─────────────────
+// Each is an edit to the EMITTED body in `emit_scc_od_fns`, built with the
+// archives dropped and the whole stdlib rebuilt.
+//
+//  • THE COMPACT DOES NOT SHORTEN. CONTROL: delete `_cpt`'s `pop` loop, leaving
+//    the retained prefix followed by the stale tail the retain never overwrote.
+//    → **exit 107** — the chain's `|S|` latch says 2 while the total still holds
+//    6 rows. Predicted before running.
+//  • THE REFUSAL COMES AFTER THE WRITE. CONTROL: move the `OD ⊆ T` check out of
+//    the read-only pass and to the end of the compact, i.e. the one-pass shape.
+//    → **exit 99** — the three good cells stay GREEN and only the `OD ⊄ T` cell
+//    speaks: the call still refuses, but the total has already been rewritten to
+//    `[12,34]` and the rows it dropped are gone. Predicted before running. THIS
+//    IS THE CONTROL THAT MAKES "the total is untouched" MEAN SOMETHING — see the
+//    note on that cell about why its DE deletes a real edge as well as a
+//    never-inserted one.
+//  • THE ORDER IS NOT PRESERVED. CONTROL: swap the first two survivors after the
+//    compact (written out with `get`/`set`, so the control's own code is under
+//    measurement and not a library call). → **exit 111** — `same_set` and the
+//    `|S|` latch still agree; ONLY the subsequence check speaks. Predicted
+//    before running, and it is the measurement that separates the ORDER
+//    assertion from the SET assertion rather than assuming it does.
+//
+// ⚠⚠ AN EARLIER ATTEMPT AT THE THIRD CONTROL USED `Vec::reverse` AND CAME OUT
+// AT **110**, i.e. `same_set` FAILED — but a reversal is a PERMUTATION and
+// cannot change a set. The control was therefore rewritten to use an explicit
+// `get`/`set` swap (which behaves correctly, hence the 111 above), and the
+// anomaly was ISOLATED rather than waved at. MEASURED 2026-08-08, standalone,
+// on this build:
+//     Vec<i64>::reverse          → correct
+//     Vec<StructOfTwoI64>::reverse → correct
+//     Vec<(i64,i64)>::reverse    → [(3,4),(3,4)] — the element is DUPLICATED
+//     Vec<(i64,i64)>::swap(0,1)  → [(3,4),(3,4)] — same
+// So `let tmp: T = self.ptr[i]; self.ptr[i] = self.ptr[j]; self.ptr[j] = tmp;`
+// (vec.logos, `swap` and `reverse`) does not COPY when `T` is a TUPLE — `tmp`
+// aliases the slot instead — while the identical code is correct for a scalar
+// and for a struct of the same shape. THAT IS A DEFECT IN `Vec`/the tuple
+// lowering, NOT in anything this file or this slice emits, and it is OUT OF
+// FENCE here: it is reported, not fixed and not gated, because fixing it is a
+// different change with a different blast radius. Nothing in `_cpt` touches it —
+// the compact moves rows with `get`/`set`, which is measured correct above.
+//
+// exit 0 = on all three cells: the emitted over-delete set equals the closed
+// form, the previous total equals the naive closure, OD's strict excess over
+// `closure(ALL) ∖ closure(PRES)` is present where the diamond says it must be,
+// the compacted total equals `T ∖ OD` as a SET and as an exact SEQUENCE, the
+// three latches report `|OD|`, `|S|` and the `-1` "phase 3 never ran" sentinel,
+// and a compact whose OD is not contained in T refuses without having moved a
+// single row.
 package test;
 
 use logos.std.wql.wql;
@@ -220,6 +277,52 @@ fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
     return true;
 }
 
+// ── ORDER, AS A STRUCTURAL PROPERTY. `x` is a SUBSEQUENCE of `y`: the same
+// rows in the same relative order, with rows dropped but never reordered. This
+// is precisely what a write-index retain preserves and what a rebuild-into-a-
+// fresh-Vec would ALSO preserve — so it is not a test of the implementation
+// choice, it is the ORDER CONTRACT both choices owe, stated so that a future
+// compact that sorts, or swaps-with-last, or uses `remove` from the front, is
+// caught. `swap`-with-last compaction is the realistic wrong answer here: it is
+// O(|S|) instead of O(|T|) and it SCRAMBLES the order.
+fn is_subseq(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    let mut i: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while i < x.len() {
+        let a: (i64, i64) = x.get(i);
+        let mut hit: bool = false;
+        while j < y.len() {
+            let b: (i64, i64) = y.get(j);
+            j = j + 1i64;
+            if b.0 == a.0 && b.1 == a.1 { hit = true; break; }
+        }
+        if !hit { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// Exact row SEQUENCE — equal length and equal element-by-element. `same_set`
+// deliberately cannot see order; this deliberately can.
+fn seq_eq(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let a: (i64, i64) = x.get(i);
+        let b: (i64, i64) = y.get(i);
+        if a.0 != b.0 || a.1 != b.1 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn pair_copy(x: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < x.len() { let c: (i64, i64) = x.get(i); o.push((c.0, c.1)); i = i + 1i64; }
+    return o;
+}
+
 fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
 
 fn edge_has(v: &Vec<E>, a: i64, b: i64) -> bool {
@@ -286,6 +389,83 @@ fn cell(all: &Vec<E>, de: &Vec<E>, want_od_n: i64) -> i32 {
         if !pair_has(&tot, c.0, c.1) { return 7i32; }
         i = i + 1i64;
     }
+    return 0i32;
+}
+
+// ── ONE CELL, PHASE 2 ──────────────────────────────────────────────────────
+// Runs phases 1a+1b again and then COMPACTS, asserting the INTERMEDIATE SET the
+// compact leaves — `S = T ∖ OD` — as a set, as a length, and as an ORDER, plus
+// the three latches `_cpt` reports.
+//
+// ⚠ WHY THE INTERMEDIATE SET AND NOT THE ANSWER. Measured twice on two builds:
+// delete phase 1a's `existing-rel ⋈ DE` seed term and the DIAMOND's final answer
+// is byte-for-byte correct — same rows, same order — while `od` goes 2→1, `S`
+// 3→4 and the re-derive count 1→0. Phase 3 repairs the over-deletion and only
+// INCREMENTALITY dies. An answer oracle is blind to this whole arc, so every
+// assertion below is about what phase 2 LEAVES, never about what a later phase
+// would compute from it.
+//
+// `S` is derived from the ORACLE's OD (`od_oracle`) and the pre-compact total,
+// not from the engine's `od`, so a phase-1 defect cannot cancel against a
+// phase-2 defect.
+//
+// ⚠ THE ASSERTIONS SIT AFTER BOTH FIXPOINTS AND A FULL SCAN OF T. Phases 1a and
+// 1b run to quiescence over the whole graph, then `_cpt`'s counting pass walks
+// every row of T, before anything is looked at.
+fn cell_p2(all: &Vec<E>, de: &Vec<E>, want_s_n: i64) -> i32 {
+    let pres: Vec<E> = survivors(all, de);
+
+    let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(all.as_slice(), &mut tot) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 1i32; }
+    }
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de.as_slice(), tot.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 2i32; }
+    }
+    match __wql_tc_scc0_odp(pres.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 3i32; }
+    }
+
+    // The total EXACTLY as it stood before the compact — the only thing the
+    // order assertion can be made against once `_cpt` has rewritten it in place.
+    let t_pre: Vec<(i64, i64)> = pair_copy(&tot);
+
+    // ── PHASE 2 ───────────────────────────────────────────────────────────
+    let mut lat: Vec<i64> = vec_new::<i64>();
+    match __wql_tc_scc0_cpt(od.as_slice(), &mut tot, &mut lat) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 4i32; }
+    }
+
+    // THE LATCHES — the emitted counterpart of the interpreter's
+    // `od_last`/`cpt_n`/`rdv_n`, three i64 per SCC member and one member here.
+    if lat.len() != 3i64          { return 5i32; }
+    if lat.get(0i64) != od.len()  { return 6i32; }   // |OD|, distinct
+    if lat.get(1i64) != tot.len() { return 7i32; }   // |S|
+    // ⚠ −1, NOT 0. Phase 3 does not exist in this slice, and "never ran" is a
+    // different state from "ran and re-derived nothing". This assertion is what
+    // keeps the ABSENCE of re-derivation observable rather than assumed; the
+    // round that adds phase 3 must change this line, deliberately.
+    if lat.get(2i64) != 0i64 - 1i64 { return 8i32; }
+
+    // ── S AS A SET, against the ORACLE's OD over the pre-compact total ────
+    let want_od: Vec<(i64, i64)> = od_oracle(all.as_slice(), de.as_slice(), pres.as_slice());
+    let mut want_s: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut si: i64 = 0i64;
+    while si < t_pre.len() {
+        let cc: (i64, i64) = t_pre.get(si);
+        if !pair_has(&want_od, cc.0, cc.1) { pair_uniq(&mut want_s, cc.0, cc.1); }
+        si = si + 1i64;
+    }
+    if want_s.len() != want_s_n { return 9i32; }     // hand-computed cardinality
+    if !same_set(&tot, &want_s) { return 10i32; }    // set equality, dup-sensitive
+
+    // ── S AS AN ORDER ─────────────────────────────────────────────────────
+    // In-place retain keeps the survivors' RELATIVE order, so `S` is a
+    // subsequence of the pre-compact total. Dropping `_cpt`'s `pop` loop leaves
+    // the stale tail and breaks the LENGTH first; scrambling (a swap-with-last
+    // compaction) breaks this and nothing else.
+    if !is_subseq(&tot, &t_pre) { return 11i32; }
     return 0i32;
 }
 
@@ -407,6 +587,132 @@ fn main() -> i32 {
         if !pair_has(&od3, c4.0, c4.1) { return 77i32; }
         q = q + 1i64;
     }
+
+    // ══ PHASE 2 — THE COMPACT, ON THE SAME THREE GRAPHS ══════════════════
+    // T ∖ OD by hand, from the OD sets computed above:
+    //   CHAIN   T={12,23,34,13,24,14}, OD={23,24,13,14}      → S={12,34}    2
+    //   DIAMOND T={12,13,24,34,14},    OD={24,14}            → S={12,13,34} 3
+    //   CYCLE   T = OD (12 rows)                             → S={}         0
+    // ⚠ THE CYCLE'S S IS EMPTY AND THAT IS THE POINT: phase 2 alone answers
+    // NOTHING there, and the four facts `closure(PRES)` still holds are all
+    // inside OD. Phase 3 is the only thing that can put them back.
+    let r1c: i32 = cell_p2(&a1, &d1, 2i64);
+    if r1c != 0i32 { return 100i32 + r1c; }
+    let r2c: i32 = cell_p2(&a2, &d2, 3i64);
+    if r2c != 0i32 { return 120i32 + r2c; }
+    let r3c: i32 = cell_p2(&a3, &d3, 0i64);
+    if r3c != 0i32 { return 140i32 + r3c; }
+
+    // ══ THE ORDER, PINNED AS AN EXACT SEQUENCE ═══════════════════════════
+    // `cell_p2` asserts S is a SUBSEQUENCE of the pre-compact total, which is
+    // the contract both a retain and a rebuild owe. Here the two sequences
+    // themselves are written down, because the moment phase 3 exists nothing
+    // can distinguish "phase 2 preserved the order" from "phase 3 happened to
+    // append in the right place".
+    //
+    // The pre-compact order is the emitter's FIRST-DERIVATION order: round 0
+    // runs the base body over `es` in input order, then each semi-naive round
+    // appends what that round newly derived. For the chain that is
+    // [12,23,34] then [13,24] then [14]; for the diamond [12,13,24,34] then
+    // [14] — (1,4) is derived twice in the same round and the shadow set keeps
+    // the first. IN-PLACE RETAIN then cuts the over-deleted rows out and leaves
+    // every survivor where it was.
+    let mut tt1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(a1.as_slice(), &mut tt1) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 80i32; }
+    }
+    let mut want_t1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_t1.push((1i64, 2i64)); want_t1.push((2i64, 3i64)); want_t1.push((3i64, 4i64));
+    want_t1.push((1i64, 3i64)); want_t1.push((2i64, 4i64)); want_t1.push((1i64, 4i64));
+    if !seq_eq(&tt1, &want_t1) { return 81i32; }
+    let p1: Vec<E> = survivors(&a1, &d1);
+    let mut od1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(d1.as_slice(), tt1.as_slice(), &mut od1) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 82i32; }
+    }
+    match __wql_tc_scc0_odp(p1.as_slice(), &mut od1) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 83i32; }
+    }
+    let mut lat1: Vec<i64> = vec_new::<i64>();
+    match __wql_tc_scc0_cpt(od1.as_slice(), &mut tt1, &mut lat1) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 84i32; }
+    }
+    let mut want_s1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_s1.push((1i64, 2i64)); want_s1.push((3i64, 4i64));
+    if !seq_eq(&tt1, &want_s1) { return 85i32; }
+
+    let mut tt2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(a2.as_slice(), &mut tt2) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 86i32; }
+    }
+    let mut want_t2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_t2.push((1i64, 2i64)); want_t2.push((1i64, 3i64)); want_t2.push((2i64, 4i64));
+    want_t2.push((3i64, 4i64)); want_t2.push((1i64, 4i64));
+    if !seq_eq(&tt2, &want_t2) { return 87i32; }
+    let mut od2b: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(d2.as_slice(), tt2.as_slice(), &mut od2b) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 88i32; }
+    }
+    match __wql_tc_scc0_odp(p2.as_slice(), &mut od2b) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 89i32; }
+    }
+    let mut lat2: Vec<i64> = vec_new::<i64>();
+    match __wql_tc_scc0_cpt(od2b.as_slice(), &mut tt2, &mut lat2) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 90i32; }
+    }
+    let mut want_s2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    want_s2.push((1i64, 2i64)); want_s2.push((1i64, 3i64)); want_s2.push((3i64, 4i64));
+    if !seq_eq(&tt2, &want_s2) { return 91i32; }
+
+    // ══ `OD ⊆ T` — THE REFUSAL, AND THE STATE IT LEAVES ══════════════════
+    // Nothing in the tree checks `DE ⊆ EDB`: there is no retraction surface to
+    // check it at, so a caller cannot present a bad DE today. Phase 2 is
+    // nevertheless where the violation would FIRST become visible — as a
+    // survivor count that does not add up — and it refuses there.
+    //
+    // DE = {2→3, 9→9} over the CHAIN. 9→9 was never inserted, so `_od`'s BASE
+    // body seeds OD with (9,9), a fact the total never held:
+    //   OD = {23,13} (seed) ∪ {24,14} (propagate) ∪ {99}   — 5 rows
+    //   T ∖ OD = {12,34}                                   — 2 rows
+    //   6 − 2 = 4 ≠ 5   ⇒  Err(RetractAbsent)
+    //
+    // ⚠⚠ THIS REFUSAL IS EXPENSIVE, WHICH IS WHAT MAKES THE STATE ASSERTION
+    // BELOW WORTH MAKING. Four of the five OD rows ARE in the total, so a
+    // one-pass implementation — retain first, discover the mismatch after —
+    // would already have rewritten the front of the Vec and popped it to two
+    // rows before it could refuse, and those rows are unrecoverable. The
+    // assertion is that the total is unchanged in CONTENT and in ORDER, i.e.
+    // that the compact is TRANSACTIONAL. A DE of ONLY {9→9} would make the same
+    // assertion pass FOR FREE — no row of T is in OD, so even the broken form
+    // writes each row back onto itself — which is exactly the cheap refusal that
+    // proves nothing, and is why this cell deletes a REAL edge alongside.
+    let mut tt3: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(a1.as_slice(), &mut tt3) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 92i32; }
+    }
+    let mut dbad: Vec<E> = vec_new::<E>();
+    dbad.push(ed(2i64, 3i64)); dbad.push(ed(9i64, 9i64));
+    let pbad: Vec<E> = survivors(&a1, &dbad);
+    let mut odbad: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(dbad.as_slice(), tt3.as_slice(), &mut odbad) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 93i32; }
+    }
+    match __wql_tc_scc0_odp(pbad.as_slice(), &mut odbad) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 94i32; }
+    }
+    if odbad.len() != 5i64 { return 95i32; }
+    if !pair_has(&odbad, 9i64, 9i64) { return 96i32; }   // the fact T never held
+    if pair_has(&tt3, 9i64, 9i64)    { return 97i32; }
+    let mut latbad: Vec<i64> = vec_new::<i64>();
+    match __wql_tc_scc0_cpt(odbad.as_slice(), &mut tt3, &mut latbad) {
+        Result::Ok(_u) => { return 98i32; }              // it must NOT succeed
+        Result::Err(_e) => { }
+    }
+    // THE TOTAL, UNTOUCHED — same rows, same order as before the refused call.
+    if !seq_eq(&tt3, &want_t1) { return 99i32; }
+    // …and no latch was written: a refused compact reports nothing, so a reader
+    // cannot mistake a stale latch for a completed phase.
+    if latbad.len() != 0i64 { return 79i32; }
 
     return 0i32;
 }

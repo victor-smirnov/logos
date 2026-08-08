@@ -8375,7 +8375,91 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // rather than decorative, and is asserted as such in
 // `pass/wql_incr_rel_od_phase1.logos` on a diamond.
 //
+// ══ DRed PHASE 2 — `_cpt`, THE COMPACT ═════════════════════════════════════
+//  `__wql_<q>_scc<c>_cpt(__od_<m>: &[Row]…, __tot_<m>: &mut Vec<Row>…,
+//                        __lat: &mut Vec<i64>)`
+//      Replaces each member's total with `T ∖ OD`, IN PLACE.
+//
+// ── THE FORK, AND WHAT THE CHOICE COSTS ────────────────────────────────────
+// The interpreter (`incr_rec.logos`, `fn dred`) REBUILDS: a fresh `new_rows`
+// beside a fresh `new_rhm`, survivors copied cell by cell, then `self.rows =
+// new_rows`. ⚠ ITS REASON DOES NOT TRANSFER, and that is the whole fork. `rhm`
+// maps a row to a PACKED INDEX `(ni << 3) | ri` into a cell-flat `Vec<RtVal>`,
+// so compacting in place would invalidate every entry the map holds; the map
+// must be rebuilt whatever happens, and rebuilding the rows beside it is then
+// free. THE EMITTED SIDE HAS NO INDEX-KEYED MAP: `__tot_<m>` is a `Vec<RowTy>`
+// of typed rows and every shadow set in this file is keyed BY VALUE. The
+// forcing constraint is absent, so the cheaper form is available and is taken:
+// a write-index retain followed by `pop` to the write index. O(|T|) time, no
+// second Vec, peak memory unchanged (the rebuild's is 2×|T| rows live at once).
+//
+// ⚠ AND THE PRICE, WHICH IS AN ORDER PROPERTY AND IS OBSERVABLE. `__tot_<m>` is
+// in FIRST-DERIVATION order — round 0's rows, then round 1's, and so on — and a
+// caller can see that order through a snapshot. Retain-in-place preserves the
+// relative order OF THE SURVIVORS exactly, so after phase 2 the total is
+// "first-derivation order with the over-deleted rows cut out". It is NOT
+// "first-derivation order over the new input": a row that phase 3 later
+// re-derives is APPENDED, so it lands after rows it originally preceded. That
+// consequence is pinned by name in `pass/wql_incr_rel_od_phase1.logos`, on the
+// chain and on the diamond, as an exact row SEQUENCE — not as a set — because
+// the moment phase 3 exists there is no longer any way to tell which of the two
+// phases moved a row.
+//
+// ── TWO PASSES, AND WHY THE SECOND ONE CANNOT FAIL ─────────────────────────
+// `OD ⊆ T` is an INVARIANT, not a convenience: `_od`'s recursive bodies read
+// `__rd` = T and so cannot leave it, but its BASE bodies read the deleted rows
+// directly, so a caller that retracts a row IT NEVER INSERTED seeds OD with a
+// fact the total never held. Nothing in the tree checks `DE ⊆ EDB` today (there
+// is no retraction surface to check it at), so phase 2 is where the violation
+// first becomes visible — as a survivor count that does not add up.
+// `_cpt` therefore runs a READ-ONLY counting pass first and returns
+// `ElError::RetractAbsent` from it, BEFORE a single row has moved. The compact
+// is consequently TRANSACTIONAL BY CONSTRUCTION: on the refusing input the
+// total is left byte-identical, in content AND in order, and there is no
+// half-compacted state for anything downstream to inherit.
+// COST: one extra O(|T|) scan per retraction, paid on every retraction whether
+// or not it faults. The alternative — one pass, discovering the mismatch after
+// `set` has already overwritten the front of the Vec — is CHEAPER AND
+// UNRECOVERABLE, because the rows `set` overwrote are gone.
+// ⚠ THE REFUSAL IS NOT A CHEAP ONE. It fires after phases 1a and 1b have run to
+// their fixpoints over the whole graph and after a full scan of T, so the
+// "total untouched" assertion in the fixture is made about a total that a
+// one-pass implementation would already have destroyed.
+//
+// ── THE LATCHES, AND WHY THEY ARE AN OUT-PARAM AND NOT HANDLE FIELDS ───────
+// An answer oracle is BLIND to this arc — measured twice: delete phase 1a's
+// existing-rel⋈DE seed term and the diamond's final answer is byte-for-byte
+// correct while OD, S and RD all move. So the INTERMEDIATE sets have to be
+// assertable, which is what `incr_rec.logos`'s `od_last` / `cpt_n` / `rdv_n`
+// latches do for the interpreter. `__lat` is their emitted counterpart: cleared
+// on entry, then three i64 per member in SIGNATURE ORDER — |OD|, |S|, |RD|.
+// ⚠ NOT HANDLE FIELDS, AND THE REASON IS AN ORDERING FACT RATHER THAN A TASTE.
+// `emit_rel_fns` runs BEFORE the entry query is lowered (see its own note), so
+// the rel tier does not know the handle struct exists and cannot name its type.
+// Beyond that, there is no retract DRIVER in this slice: OD, S and RD are the
+// CALLER's own locals here, so a handle field would be written by nobody and a
+// reader would have to trust a dead field. When the driver lands it will hide
+// these three quantities inside itself and they will have to move onto the
+// handle at that point; `__lat` is the shape they will move in.
+// ⚠ |OD| IS THE DISTINCT COUNT — `__os_<m>.len()`, not `__od_<m>.len()`. The
+// two agree because `_od` and `_odp` both gate every push on a shadow set, and
+// the latch reporting the SET's cardinality is what would make a regression in
+// that gating visible here instead of silently inflating a count.
+//
 // ── OUT OF FENCE HERE, AND THE REFUSAL THAT KEEPS IT OUT ───────────────────
+// PHASE 3 (RE-DERIVE) IS NOT EMITTED, and neither is a retraction surface.
+// `incr_retract_eligible` still refuses every rel-backed query, `<q>_retract` /
+// `<q>_apply` / `__wd` still do not exist for one, and
+// `fail/wql_incr_rel_no_retract.logos` still pins that refusal — unchanged and
+// still load-bearing, because nothing in this slice makes a retraction
+// presentable. The `|RD| = -1` latch is the positive statement of that absence:
+// phase 3 never ran, and a fixture asserts the sentinel.
+// ⚠ WHAT IS NOT DECIDED HERE: the ERROR CONTRACT for a retraction that faults
+// PART WAY (transactional vs poisoned handle) is a contract about the DRIVER,
+// and there is no driver. `_cpt`'s own refusal is transactional, which is the
+// strongest of the two and forecloses nothing; a fault arising inside phase 3's
+// arithmetic is a different question and is not answered by this slice.
+//
 // An AGGREGATE (lattice) member gets NO od siblings — the fn returns having
 // emitted nothing the moment it sees one. Retraction of a recursive aggregate
 // needs the interpreter's degrade-to-recompute, D4 (float `sum`/`avg`) is
@@ -8675,6 +8759,160 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     };
     emit_fn_quote_blob(pn.as_str(), pps.as_str(), prm.tparams, "Result<(), ElError>",
                        odp_body, prm);
+
+    // ══ PHASE 2 — `_cpt`, THE COMPACT ═════════════════════════════════════
+    // See the `emit_scc_od_fns` header section "DRed PHASE 2" for the three
+    // decisions this block implements (in place, two passes, latches as an
+    // out-param) and what each of them costs.
+    if nm == 0i64 { return true; }
+    let mut cn: String = String::new();
+    cn.push_str("-__wql_");
+    cn.push_str(vis_strip(fn_name));
+    cn.push_str("_scc");
+    cn.push_i64(c);
+    cn.push_str("_cpt");
+    // ⚠ NO `params_text` AND NO DEP SLICES, UNLIKE ITS TWO SIBLINGS. Phase 2
+    // runs no body: it is a set difference over rows the caller already holds,
+    // and it is INDEPENDENT OF THE EDB. Giving it an `es`/dep parameter for
+    // signature symmetry would invite exactly the misreading that phase 2 cares
+    // whether it is handed ALL or PRES — it does not, and cannot, because it
+    // never looks at one. The type parameters still come from `prm.tparams`;
+    // for a generic query they are inferable from the row types of the `__od_`
+    // / `__tot_` params whenever the row type mentions them, and `_cpt` has no
+    // caller today for which that could fail.
+    let mut cs: String = String::new();
+    let mut c0: i64 = 0i64;
+    while c0 < nm {
+        if c0 > 0i64 { cs.push_str(", "); }
+        cs.push_str("__od_");
+        cs.push_str(prm.rel_names[mem[c0]]);
+        cs.push_str(": &[");
+        cs.push_str(prm.rel_rowty[mem[c0]]);
+        cs.push_str("]");
+        c0 = c0 + 1i64;
+    }
+    let mut c1: i64 = 0i64;
+    while c1 < nm {
+        cs.push_str(", __tot_");
+        cs.push_str(prm.rel_names[mem[c1]]);
+        cs.push_str(": &mut Vec<");
+        cs.push_str(prm.rel_rowty[mem[c1]]);
+        cs.push_str(">");
+        c1 = c1 + 1i64;
+    }
+    cs.push_str(", __lat: &mut Vec<i64>");
+
+    // ── PASS 1, READ-ONLY: build the OD membership set, count the survivors,
+    // and REFUSE BEFORE MUTATING ANYTHING if `OD ⊄ T`.
+    let mut cchk: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut c2: i64 = 0i64;
+    while c2 < nm {
+        let rnc: str = prm.rel_names[mem[c2]];
+        let kt1: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let kt2: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let kt3: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let kt4: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let kt5: ExprBlob = parse_type(prm.rel_rowty[mem[c2]]);
+        let s_os:  String = suffixed("__os_",   rnc); let n_os:  Ident = Ident::new(string_as_str(&s_os));
+        let s_odn: String = suffixed("__odn_",  rnc); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
+        let s_kp:  String = suffixed("__keep_", rnc); let n_kp:  Ident = Ident::new(string_as_str(&s_kp));
+        let s_od:  String = suffixed("__od_",   rnc); let n_od:  Ident = Ident::new(string_as_str(&s_od));
+        let s_tt:  String = suffixed("__tot_",  rnc); let n_tt:  Ident = Ident::new(string_as_str(&s_tt));
+        cchk.push(quote_block! {
+            let mut #n_os: HashSet<#(kt1)> = hashset_new::<#(kt2)>();
+            {
+                let __sp: *mut HashSet<#(kt3)> = &mut #n_os;
+                let mut __k: i64 = 0i64;
+                while __k < #n_od.len() {
+                    unsafe { (__sp).insert(#n_od[__k]); }
+                    __k = __k + 1i64;
+                }
+            }
+            let #n_odn: i64 = #n_os.len();
+            let mut #n_kp: i64 = 0i64;
+            {
+                let __sp2: *mut HashSet<#(kt4)> = &mut #n_os;
+                let mut __r: i64 = 0i64;
+                while __r < #n_tt.len() {
+                    let __row: #(kt5) = #n_tt.get(__r);
+                    let __hit: bool = unsafe { (__sp2).contains(&__row) };
+                    if !__hit { #n_kp = #n_kp + 1i64; }
+                    __r = __r + 1i64;
+                }
+            }
+            if #n_tt.len() - #n_kp != #n_odn {
+                return Result::Err(ElError::RetractAbsent);
+            }
+        });
+        c2 = c2 + 1i64;
+    }
+    // ── PASS 2, THE WRITE: retain in place at a write index, then `pop` the
+    // tail. Nothing here can fail, because pass 1 already refused every input
+    // on which it could.
+    let mut cdo: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut c3: i64 = 0i64;
+    while c3 < nm {
+        let rnd: str = prm.rel_names[mem[c3]];
+        let lt1: ExprBlob = parse_type(prm.rel_rowty[mem[c3]]);
+        let lt2: ExprBlob = parse_type(prm.rel_rowty[mem[c3]]);
+        let s_os:  String = suffixed("__os_",   rnd); let n_os:  Ident = Ident::new(string_as_str(&s_os));
+        let s_odn: String = suffixed("__odn_",  rnd); let n_odn: Ident = Ident::new(string_as_str(&s_odn));
+        // `__keep_<m>` is deliberately NOT re-read here. It and `__w` are the
+        // same count computed by the same predicate over the same rows; an
+        // equality assertion between them would be a branch no input can take.
+        let s_tt:  String = suffixed("__tot_",  rnd); let n_tt:  Ident = Ident::new(string_as_str(&s_tt));
+        cdo.push(quote_block! {
+            {
+                let __sp3: *mut HashSet<#(lt1)> = &mut #n_os;
+                let mut __w: i64 = 0i64;
+                let mut __r2: i64 = 0i64;
+                while __r2 < #n_tt.len() {
+                    let __row2: #(lt2) = #n_tt.get(__r2);
+                    let __hit2: bool = unsafe { (__sp3).contains(&__row2) };
+                    if !__hit2 {
+                        #n_tt.set(__w, __row2);
+                        __w = __w + 1i64;
+                    }
+                    __r2 = __r2 + 1i64;
+                }
+                // THE TAIL IS STALE UNTIL THIS RUNS. `set` never shortens the
+                // Vec, so the rows at `[__w, len)` are duplicates of survivors
+                // that were moved down. Dropping this loop leaves a total that
+                // is a strict SUPERSET of `T ∖ OD` and phase 3 would then
+                // "re-derive" onto garbage.
+                while #n_tt.len() > __w {
+                    match #n_tt.pop() {
+                        Option::Some(_x) => { }
+                        Option::None     => { }
+                    }
+                }
+                __lat.push(#n_odn);
+                __lat.push(__w);
+                // |RD| — the RE-DERIVE count. PHASE 3 DOES NOT EXIST IN THIS
+                // SLICE, so the latch carries the interpreter's "never ran"
+                // sentinel rather than 0: `dred` distinguishes those two states
+                // for the same reason (`incr_rec.logos`, the `-1` init), and a 0
+                // here would read as "phase 3 ran and re-derived nothing", which
+                // is a CLAIM this tier cannot make. A fixture asserting `-1` is
+                // what keeps the absence of phase 3 observable.
+                __lat.push(0i64 - 1i64);
+            }
+        });
+        c3 = c3 + 1i64;
+    }
+    // ⚠ THE TWO REPEATS ARE SEPARATE FOR THE N-MEMBER CASE. Every member's
+    // check runs before ANY member's compact, so a violation found on member 2
+    // cannot leave member 1 already rewritten. Interleaving them would make the
+    // refusal non-transactional at N ≥ 2 while looking identical at N = 1 —
+    // and N = 1 is the only shape with a witness anywhere today.
+    let cpt_body: ExprBlob = quote_block! {
+        __lat.clear();
+        #( #cchk; )*
+        #( #cdo; )*
+        return Result::Ok(());
+    };
+    emit_fn_quote_blob(cn.as_str(), cs.as_str(), prm.tparams, "Result<(), ElError>",
+                       cpt_body, prm);
     return true;
 }
 
@@ -8749,7 +8987,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // query, and phases 2 and 3 are NOT emitted. See
                 // `emit_scc_od_fns` for what is in fence and what is not.
                 plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
-                           "DRed phase 1 only — `_od` (seed: base+recursive bodies at the deleted rows over the previous total) and `_odp` (propagate: recursive bodies only, over the survivors, read==write==od). No compact, no re-derive, no retraction surface.");
+                           "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, refusing before it writes if OD⊄T). No re-derive, no retraction surface.");
                 if !emit_scc_od_fns(rels, c, fn_name, params_text, prm, scc, h) { return false; }
             }
         } else {
