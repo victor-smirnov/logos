@@ -781,10 +781,26 @@ fn assertions(t: &mut Tally) -> i32 {
     // MAP's own guard (`__nc < 0` inside the min/max fold element). The
     // footprint sensor in `<q>_apply` now answers first, for every bare-scan
     // query, and returns the SAME `RetractAbsent` — so the map guard is no
-    // longer reachable from `<q>_retract` on this shape. It stays as a floor,
-    // and it is what still answers on the JOIN path, where the sensor's identity
-    // is over the delta side only. Nothing here asserts the map guard any more;
-    // what this block asserts is the NAME the surface gives the mistake.
+    // longer reachable from `<q>_retract` on this shape. It stays as a floor.
+    // Nothing here asserts the map guard any more; what this block asserts is
+    // the NAME the surface gives the mistake.
+    //
+    // ⚠⚠ AND THE SENTENCE THAT USED TO END THIS PARAGRAPH — "it is what still
+    // answers on the JOIN path, where the sensor's identity is over the delta
+    // side only" — WAS FALSE, or witnessed by nothing, and is removed rather
+    // than quietly reworded. MEASURED 2026-08-08 on the merged tree:
+    // `if __nc < 0i64` → `if false` at `rexpr_walk.logos:5105`, archives
+    // dropped, full stdlib rebuild, then the WHOLE arc subset
+    // (`ctest -R 'incr|deem_|wql_agg|datalog|rel_' -LE imported`) — **125/125
+    // GREEN**. Not a sampled tier: every arc test there is, including the join
+    // fixtures that sentence named. The same control on the parent commit reds
+    // three tests, so the guard WAS witnessed until the footprint sensor landed
+    // and took its callers.
+    // The guard is kept as defence in depth — a legitimate reason for code to
+    // exist — but "defence in depth no input reaches" and "what still answers
+    // on path X" are different claims, and only the first is true here.
+    // ⚠ A floor with no witness is what a later refactor deletes as dead. If
+    // some path does need it, that path needs a FIXTURE, not a sentence.
     let mut hm: QmIncr = qm_incremental();
     let m5: Vec<S> = { let mut o: Vec<S> = vec_new::<S>();
                        o.push(S { g: 0i64, v: 5i64 });
