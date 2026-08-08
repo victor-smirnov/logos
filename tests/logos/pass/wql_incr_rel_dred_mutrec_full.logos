@@ -597,6 +597,30 @@ fn lfp_pairs(d: &Vec<bool>, n: i64, nm: i64, mem: i64, want_od: bool) -> Vec<(i6
 fn rnd(s: i64) -> i64 { return (s * 1103515245i64 + 12345i64) % 2147483648i64; }
 
 fn main() -> i32 {
+    // ── THE COMPARATORS TEST THEMSELVES FIRST, AND HERE IS WHY ─────────────
+    // ⚠ MEASURED 2026-08-08: force `same_set` to return `true` unconditionally
+    // and THIS FILE STILL EXITS 0. About twenty-five assertions go vacuous at
+    // once — every oracle-vs-oracle check AND every engine-vs-oracle check —
+    // while the file prints green, because a permissive comparator changes no
+    // LENGTH and the length pins are the only things left standing. Work done
+    // before the catch: all of it. There was no catch.
+    // The comparators are the instrument every other assertion is read
+    // through, and an instrument nothing calibrates reports whatever it likes.
+    // Four lines, one exit code, and the same argument covers `subset_of` and
+    // `pair_has` — a permissive ANY of the three is caught here.
+    let mut c1: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    c1.push((1i64, 2i64)); c1.push((3i64, 4i64));
+    let mut c2: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    c2.push((3i64, 4i64)); c2.push((1i64, 2i64));       // same set, other ORDER
+    let mut c3: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    c3.push((1i64, 2i64));                               // a strict subset
+    if !same_set(&c1, &c2)  { return 76i32; }   // reordering must not matter
+    if same_set(&c1, &c3)   { return 77i32; }   // ⚠ the permissive-true catch
+    if !subset_of(&c3, &c1) { return 78i32; }
+    if subset_of(&c1, &c3)  { return 79i32; }   // ⚠ the permissive-true catch
+    if !pair_has(&c1, 3i64, 4i64) { return 80i32; }
+    if pair_has(&c1, 9i64, 9i64)  { return 81i32; }   // ⚠ the permissive-true catch
+
     // ── THE GRAPH. Node ids 1..6, so the state space is sized at n = 7 and
     // node 0 is simply never an endpoint.
     let n: i64 = 7i64;
