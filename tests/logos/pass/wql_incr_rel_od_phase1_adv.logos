@@ -461,21 +461,25 @@ fn main() -> i32 {
     // retractions run emitted phase 1 and this file's phase 2 + phase 3.
     let mut cur: Vec<E> = vec_new::<E>();
     let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    // `_i`'s work-counter out-param (see `emit_scc_fn`'s `__wc` note). This
+    // file asserts nothing about it — the cost gate lives in
+    // `wql_incr_rel_od_phase3.logos` cell 5, where |RD| is pinned at 0.
+    let mut wc: Vec<i64> = vec_new::<i64>();
 
     cur.push(ed(1i64,2i64));
-    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot, &mut wc) {
         Result::Ok(_x1) => { } Result::Err(_y1) => { return 120i32; }
     }
     if !same_set(&tot, &naive_closure(cur.as_slice())) { return 121i32; }
 
     cur.push(ed(2i64,3i64));
-    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot, &mut wc) {
         Result::Ok(_x2) => { } Result::Err(_y2) => { return 122i32; }
     }
     if !same_set(&tot, &naive_closure(cur.as_slice())) { return 123i32; }
 
     cur.push(ed(3i64,1i64));
-    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot, &mut wc) {
         Result::Ok(_x3) => { } Result::Err(_y3) => { return 124i32; }
     }
     if !same_set(&tot, &naive_closure(cur.as_slice())) { return 125i32; }
@@ -501,7 +505,7 @@ fn main() -> i32 {
 
     // Ep5 — RE-INSERT 2→3. The maintained total must climb back to all 9.
     cur.push(ed(2i64,3i64));
-    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot, &mut wc) {
         Result::Ok(_x6) => { } Result::Err(_y6) => { return 140i32; }
     }
     if !same_set(&tot, &naive_closure(cur.as_slice())) { return 141i32; }

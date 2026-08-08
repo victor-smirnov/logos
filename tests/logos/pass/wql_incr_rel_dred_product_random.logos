@@ -288,7 +288,12 @@ fn main() -> i32 {
         // ── PHASE 3 = `_i` over PRES, on the compacted total ─────────────
         let b0: i64 = tot.len();
         if b0 != lat.get(1i64) { return 25i32; }
-        match __wql_tc_scc0_i(pres.as_slice(), &mut tot) {
+        // `_i`'s work-counter out-param — see `emit_scc_fn`'s `__wc` note.
+        // Unasserted here: this file's shapes are RANDOM, so no closed form for
+        // the candidate count exists. The cost gate is in
+        // `wql_incr_rel_od_phase3.logos` cell 5, on a shape that has one.
+        let mut wc: Vec<i64> = vec_new::<i64>();
+        match __wql_tc_scc0_i(pres.as_slice(), &mut tot, &mut wc) {
             Result::Ok(_u) => { } Result::Err(_e) => { return 26i32; }
         }
         if !same_set(&tot, &o_pr) { return 21i32; }

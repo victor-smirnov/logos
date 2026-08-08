@@ -5938,6 +5938,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // before `__ecp` is MOVED into the handle two statements later.
             pt.push_str("{\n");
             pt.push_str("let __ecs: &["); pt.push_str(ety); pt.push_str("] = __ecp.as_slice();\n");
+            pt.push_str("let mut __wcd: Vec<i64> = Vec::<i64>::new();\n");
             pt.push_str("__wql_");
             pt.push_str(bare);
             pt.push_str("_scc");
@@ -5955,7 +5956,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 pt.push_str("&mut __tt"); pt.push_i64(t1);
                 t1 = t1 + 1i64;
             }
-            pt.push_str(")?;\n");
+            // THE WORK COUNTER — `_i`'s last out-param (see `emit_scc_fn`'s
+            // `__wc` note). The INSERT driver sinks it: it is declared inside
+            // the call's own block, so it dies at the closing brace and no
+            // handle field, no ABI surface and no epoch state grows by it. The
+            // number it carries is about DRed's phase 3, which has no driver;
+            // the corpus fixture that reads it calls `_i` directly.
+            pt.push_str(", &mut __wcd)?;\n");
             pt.push_str("}\n");
             // ── COMMIT, then take THIS EPOCH'S NEW ROWS as a suffix ─────────
             // `promote` only ever APPENDS to the total, so the rows derived this
@@ -7425,10 +7432,41 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // driver lexically rebinds them per member block onto that member's
 // next-delta Vec + shadow set (which is total ∪ next-delta — exactly the
 // "new w.r.t. the total" probe semi-naïve needs).
+//
+// ══ `__wcp` — THE WORK COUNTER, AND WHY IT IS *HERE* AND NOT AT THE PUSH ═══
+// One increment per CANDIDATE ROW — every row a body actually produced, whether
+// the dedup gate then kept it or dropped it. `__wcp` binds contextually exactly
+// as `__out`/`__rsp` do, and it is a `*mut i64` for the same reason `__rsp` is a
+// raw pointer: the member block already holds a `&mut` of that member's delta
+// Vec, and a second live `&mut` into the same fn's locals is a borrow fight for
+// no gain.
+//
+// ⚠ THE COUNT MUST BE OF CANDIDATES, NOT OF ACCEPTS, OR IT MEASURES NOTHING.
+// `__out.len()` is free and already recoverable (phase 3's re-derived rows are
+// the suffix past `__b0_<m>`), and it is BLIND to the exact defect this counter
+// exists for: at |RD| = 0 — the published worst case, a chain with its last edge
+// retracted — `_i`'s round 0 runs a full naïve pass over (S × PRES), every row
+// it produces is already in S, every one is dropped by the dedup gate, and an
+// accept counter reads 0 while the machine did work linear in |S|. Counting on
+// the WRONG side of `if __rsp.insert(…)` is the difference between a sensor and
+// a decoration.
+//
+// ⚠ THE INCREMENT IS *BEFORE* THE PROBE, not inside its `true` arm, and not
+// after it: `insert` is the expensive call (hash + compare + possible grow), so
+// a counter placed after it would still be paid on the dropped rows but would
+// read as if only the kept ones cost anything.
+//
+// WHAT IT COSTS: one add per candidate row, against a HashSet insert on the same
+// row — noise. It is emitted on EVERY path (one-shot helper, from-scratch SCC
+// driver, `_od`, `_odp`, and `_i`), because `rel_push_frag` is one fn and giving
+// it a mode flag would put the sensor's presence at the mercy of the caller that
+// most wants it absent. Only `_i` REPORTS it (`__wc: &mut Vec<i64>`); the other
+// four sink it into a fn-local that dies on return. See `emit_scc_fn`.
 fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
     let rt: ExprBlob = parse_type(row_ty);
     return quote_block! {
         let __rv: #(rt) = (#(proj));
+        unsafe { *__wcp = *__wcp + 1i64; }
         if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }
     };
 }
@@ -7456,6 +7494,10 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
     return quote_block! {
         let __ak: #(kty) = (#(key));
         let __av: #(vty) = (#(val));
+        // The work counter — see `rel_push_frag`'s `__wcp` note. A candidate is
+        // a produced (key, arg) pair, counted BEFORE the improvement gate, so a
+        // wave that improves nothing still shows the work it did.
+        unsafe { *__wcp = *__wcp + 1i64; }
         unsafe {
             let __cp: *const #(vty2) = (#n_bp).get(&__ak);
             let mut __imp: bool = false;
@@ -7927,6 +7969,11 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
         let mut __out: Vec<#(rt)> = Vec::<#(rt2)>::new();
         let mut __rs: HashSet<#(rt3)> = hashset_new::<#(rt4)>();
         let __rsp: *mut HashSet<#(rt5)> = &mut __rs;
+        // The work counter is SUNK here. A one-shot rel helper is not a
+        // fixpoint and has no pessimization to sense; the binding exists so
+        // `rel_push_frag` stays ONE fragment (see its `__wcp` note).
+        let mut __wcx: i64 = 0i64;
+        let __wcp: *mut i64 = &mut __wcx;
         #( #runs; )*
         return Result::Ok(__out);
     };
@@ -8187,6 +8234,55 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         ps.push_str(">");
         m0 = m0 + 1i64;
     }
+    // ══ `__wc` — THE COST GATE'S OUT-PARAM, ON `_i` ONLY ══════════════════
+    // One i64 per member, in MEMBER ORDER (the same order as the `__tot_<m>`
+    // out-params and as `_cpt`'s `__lat` triples): the number of CANDIDATE rows
+    // this fn's bodies produced, accepted and dropped alike.
+    //
+    // WHY IT EXISTS. `_i` IS DRed's phase 3 (see `emit_scc_od_fns`'s header),
+    // and phase 3's round 0 is a full naïve pass over (PRES × S). At |RD| = 0 —
+    // the published worst case, a chain with its LAST edge retracted — that pass
+    // re-derives NOTHING and still costs work linear in |S|: measured 2026-08-08
+    // unsharded on an idle box, `_i` alone took 102 / 412 / 2008 us at
+    // |S| = 780 / 3160 / 12720 for ZERO rows of output, and the whole DRed
+    // retraction (154 / 971 / 3985 us) LOST to from-scratch recompute
+    // (120 / 660 / 2673 us) by a ratio of 1.28 / 1.47 / 1.49 that GROWS in n.
+    // That is a PESSIMIZATION, and nothing in the tree could see it: every
+    // assertion in this arc is about a SET, and a wall-clock assertion in the
+    // corpus is a flake generator.
+    //
+    // ⚠ WHAT THIS PINS, AND IT IS A SHAPE AND NOT A CLOCK. On the chain of `n`
+    // edges with the last one retracted, phase 3's candidate count is
+    //     (n-1)  from the base body over PRES
+    //   + (n-1)(n-2)/2  from the recursive body's join over (S ⋈ PRES)
+    //   = n(n-1)/2 = |S|      EXACTLY, for every n.
+    // So the gate reads `__wc[0] == |S|` WHILE `|RD| == 0` at two sizes — work
+    // proportional to the RELATION while the output is EMPTY. It bites in both
+    // directions: a round 0 that scans more goes above |S|, and the delta-only
+    // round 0 / hybrid that this arc is heading for drops it far below, which
+    // must then be re-stated deliberately rather than absorbed. The witness is
+    // `pass/wql_incr_rel_od_phase3.logos` cell 5.
+    //
+    // ⚠ WHY IT IS NOT `__out.len()`, WHICH WOULD HAVE BEEN FREE. |RD| is already
+    // recoverable as the suffix past `__b0_<m>` and it reads 0 in exactly the
+    // case that hurts — see `rel_push_frag`'s `__wcp` note. An accept counter
+    // passes the pessimization silently.
+    //
+    // ⚠ THE PRICE, STATED: the insert path pays it too, because phase 3 IS the
+    // insert path's fn and that identity is the whole point of the design. One
+    // add per candidate row against a HashSet insert on the same row. The
+    // alternative — a second emitted `_i` variant carrying the counter — buys
+    // nothing and doubles the item that every N-member correctness argument is
+    // about.
+    //
+    // ⚠ CLEAR-THEN-PUSH AT THE **END**, not at the start. `_cpt`'s measured
+    // defect (see its `__lat.clear()` note) was a clear that ERASED the caller's
+    // previous report when the call then refused. `_i` can fault mid-fixpoint
+    // (`?` inside a body fragment), so the write happens once, after everything
+    // that can fail — a faulted `_i` leaves `__wc` exactly as the caller left it.
+    if incr {
+        ps.push_str(", __wc: &mut Vec<i64>");
+    }
     // ── the BODY is a QUOTE too (ADR 0024 S5) ─────────────────────────────
     // The semi-naïve driver's shape is a runtime value TWICE over: one state
     // block per SCC member, and one delta VARIANT per in-SCC source occurrence
@@ -8208,6 +8304,14 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         let rt4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
         let s_dl: String = suffixed("__dl_", rn);  let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn);  let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        // THE WORK COUNTER — one per member, fn-level so it outlives the member
+        // blocks and accumulates across every round. Declared for BOTH the
+        // from-scratch and the incremental fn: `member_block_frag` binds
+        // `__wcp` to it unconditionally, and a declaration that appears only
+        // when someone is listening is a sensor that can be turned off by
+        // accident. See `rel_push_frag`'s `__wcp` note and the `__wc` param.
+        let s_wc: String = suffixed("__wc_", rn);  let n_wc: Ident = Ident::new(string_as_str(&s_wc));
+        state.push(quote_block! { let mut #n_wc: i64 = 0i64; });
         if prm.rel_is_agg[mem[m1]] {
             let off: i64 = prm.rel_coff[mem[m1]];
             let kty:  ExprBlob = parse_type(prm.relc_ty[off]);
@@ -8486,6 +8590,19 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         mt = mt + 1i64;
     }
 
+    // ── THE COST REPORT — see the `__wc` note on the signature. Emitted only
+    // for `_i`, and only here at the tail, below every `?` that could fault.
+    let mut wcrep: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    if incr {
+        wcrep.push(quote_block! { __wc.clear(); });
+        let mut mw: i64 = 0i64;
+        while mw < nm {
+            let s_wcr: String = suffixed("__wc_", prm.rel_names[mem[mw]]);
+            let n_wcr: Ident = Ident::new(string_as_str(&s_wcr));
+            wcrep.push(quote_block! { __wc.push(#n_wcr); });
+            mw = mw + 1i64;
+        }
+    }
     let body_f: ExprBlob = quote_block! {
         #( #state; )*
         #( #seeds; )*
@@ -8497,6 +8614,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
             #( #variants; )*
         }
         #( #matz; )*
+        #( #wcrep; )*
         return Result::Ok(());
     };
     emit_fn_quote_blob(hn.as_str(), ps.as_str(), prm.tparams, "Result<(), ElError>",
@@ -8521,10 +8639,17 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
     let rt:  ExprBlob = parse_type(prm.rel_rowty[ri]);
     let rt2: ExprBlob = parse_type(prm.rel_rowty[ri]);
     let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+    // The work counter's per-member accumulator, bound the same way and for the
+    // same reason as `__out`/`__rsp` — see `rel_push_frag`'s `__wcp` note. It is
+    // NOT declared here: it is a fn-level local of whichever driver spliced this
+    // block (`emit_scc_fn`, `_od`, `_odp`), so it survives the block and every
+    // round, and only `_i` hands it back.
+    let s_wc: String = suffixed("__wc_", rn); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
     if prm.rel_is_agg[ri] {
         return quote_block! {
             {
                 let __out: &mut Vec<#(rt)> = &mut #n_nd;
+                let __wcp: *mut i64 = &mut #n_wc;
                 #( #runs; )*
             }
         };
@@ -8534,6 +8659,7 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
         {
             let __out: &mut Vec<#(rt)> = &mut #n_nd;
             let __rsp: *mut HashSet<#(rt2)> = &mut #n_rs;
+            let __wcp: *mut i64 = &mut #n_wc;
             #( #runs; )*
         }
     };
@@ -8765,11 +8891,52 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // baseline in view.
 // ⚠ NOT GATED, and deliberately: a wall-clock assertion in the corpus is a flake
 // generator. The number is recorded here and in the round's commit message.
-// ⚠ A NON-FLAKY PROXY EXISTS and is the suggested gate: a COUNTER — bodies
-// evaluated, or rows pushed-and-deduped — asserted against |RD|. That pins the
-// shape (work proportional to output, not to |S|) without pinning a clock.
+// ⚠ THE NON-FLAKY PROXY IS NOW BUILT — `_i`'s `__wc` out-param, one CANDIDATE
+// ROW count per SCC member. See the `__wc` note on `emit_scc_fn`'s signature for
+// what it counts and why it is not `__out.len()`, and `rel_push_frag`'s `__wcp`
+// note for where the increment sits and why the side of the dedup gate matters.
+// The gate is `pass/wql_incr_rel_od_phase3.logos` cell 5: on the chain of n with
+// the LAST edge retracted the count is provably `n(n−1)/2 = |S|` while RD = ∅,
+// asserted at n = 8 and n = 16 so it pins a SHAPE and not a literal.
+// ⚠ IT BITES, MEASURED 2026-08-08: with `member_block_frag`'s runs spliced TWICE
+// — every body run twice, idempotent under the dedup gate, so every SET oracle
+// in this arc is unmoved — `wql_incr_rel_dred_product_random` and
+// `wql_incr_rel_od_phase1_adv` BOTH STAYED GREEN and only cell 1's counter spoke
+// (exit 22). The controls are recorded in the fixture.
+// ⚠ WHAT THE GATE DOES NOT SAY: it counts rows, not scans, so a join strategy
+// that scanned more for the same tuples reads identically; and it is N = 1, like
+// every other DRed witness here (open task #16).
 // THE FOLLOW-UP is the EDB-delta occurrence list named in `emit_scc_fn`'s
 // header, and it changes that fn only.
+//
+// ⚠⚠ THE HYBRID IS **NOT** BUILT, AND THE REASON IS THE BOX, NOT THE DESIGN.
+// Victor's call is a hybrid — recompute when the retraction is large, DRed when
+// it is small — and the one question it hangs on is whether DRed wins ANYWHERE:
+// the published table is the |RD| = 0 worst case, and a sweep at |RD| > 0 is
+// what would answer it. That sweep requires an idle box (the charter's own rule:
+// check `uptime` before quoting any timing) and the box has not been idle across
+// two consecutive rounds — another user's session held ~1400% of 32 cores with a
+// 6.8 GB resident set. So NO number was taken and NO threshold was written: a
+// magic constant with no experiment behind it is the defect, not the fix. What
+// IS known without a clock is recorded here and in the two notes below:
+//   (a) the a-priori set is |DE|, |T| and |EDB| — all O(1) `.len()` on slices
+//       already in `_od`'s scope. |OD| is NOT among them, and computing it IS
+//       phases 1a+1b, so a post-phase-1 threshold is strictly the worst of the
+//       three options (52 + 120 = 172 us at n=40 against DRed's own 154).
+//   (b) the third option — `_odp` BAILING OUT when |OD| crosses k·|T| — is much
+//       cheaper than it looked. The check goes at `_odp`'s loop top beside the
+//       existing exit test, so it runs ONCE PER ROUND (rounds are bounded by
+//       derivation depth, not |OD|), not in any inner loop; and there is NO
+//       abort path through `_cpt`, because `_cpt` has not run when `_odp`
+//       aborts — `__tot_<m>` is still the intact previous total, `__rs_`/`__dl_`
+//       /`__nd_` are `_odp` locals, and the only dirty object is the caller's
+//       `__od_<m>`, which the recompute branch never reads. The accumulator that
+//       bail-out would read is ALREADY DECLARED in `_odp`'s state (`__wc_<m>`).
+//   (c) the branch has no home in emitted code today — `incr_retract_eligible`
+//       still refuses every rel-backed query, so there is no `<q>_retract`
+//       prelude — and it would have to be a FOURTH SIBLING beside `_od`/`_odp`/
+//       `_cpt`, which violates no fence for the same reason phases 1 and 2 are
+//       emitted today while the entry surface says no.
 //
 // ── OUT OF FENCE HERE, AND THE REFUSAL THAT KEEPS IT OUT ───────────────────
 // THERE IS NO RETRACTION SURFACE AND NO EPOCH DRIVER. `incr_retract_eligible`
@@ -8858,9 +9025,15 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let at4: ExprBlob = parse_type(prm.rel_rowty[mem[m1]]);
         let s_rs: String = suffixed("__rs_", rn); let n_rs: Ident = Ident::new(string_as_str(&s_rs));
         let s_nd: String = suffixed("__nd_", rn); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
+        // The work counter's accumulator — `member_block_frag` binds `__wcp` to
+        // it unconditionally. `_od` does NOT report it: phase 1a is a single
+        // pass over T and has no fixpoint to pessimize. Sunk deliberately, not
+        // omitted; see the `__wc` note on `emit_scc_fn`'s signature.
+        let s_wc: String = suffixed("__wc_", rn); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
         state.push(quote_block! {
             let mut #n_rs: HashSet<#(at1)> = hashset_new::<#(at2)>();
             let mut #n_nd: Vec<#(at3)> = Vec::<#(at4)>::new();
+            let mut #n_wc: i64 = 0i64;
         });
         m1 = m1 + 1i64;
     }
@@ -8966,7 +9139,17 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let s_dl: String = suffixed("__dl_", rn6); let n_dl: Ident = Ident::new(string_as_str(&s_dl));
         let s_nd: String = suffixed("__nd_", rn6); let n_nd: Ident = Ident::new(string_as_str(&s_nd));
         let s_od: String = suffixed("__od_", rn6); let n_od: Ident = Ident::new(string_as_str(&s_od));
+        // The work counter's accumulator. `_odp` does NOT report it either —
+        // and that is the one sink worth a second look, because 1b IS a
+        // fixpoint and a bail-out threshold would read exactly this number.
+        // It is left unreported because no caller could act on it today (there
+        // is no retraction surface and no epoch driver), and a reported number
+        // nobody reads is a contract to keep for nothing. The declaration is
+        // here, so the round that builds the bail-out has the accumulator
+        // already in scope at the `_odp` loop top.
+        let s_wc: String = suffixed("__wc_", rn6); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
         pstate.push(quote_block! {
+            let mut #n_wc: i64 = 0i64;
             let mut #n_rs: HashSet<#(ct1)> = hashset_new::<#(ct2)>();
             let mut #n_dl: Vec<#(ct3)> = Vec::<#(ct4)>::new();
             let mut #n_nd: Vec<#(ct5)> = Vec::<#(ct6)>::new();
