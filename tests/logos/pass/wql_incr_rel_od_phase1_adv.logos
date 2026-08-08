@@ -1,0 +1,529 @@
+// DRed PHASE 1, ADVERSARIALLY — THE OVER-DELETE SET AGAINST A *DIFFERENTLY
+// SHAPED* ORACLE, OVER ELEVEN GRAPHS, PLUS A MIXED INSERT/RETRACT EPOCH RUN
+// WHOSE ANSWER IS CHECKED AT EVERY EPOCH.
+//
+// ── WHY THIS FILE EXISTS BESIDE `wql_incr_rel_od_phase1.logos` ────────────
+// That file's oracle is the CLOSED FORM obtained by decomposing a walk at its
+// LAST deleted edge:
+//     OD = { (x,z) : ∃(u,v)∈DE . (x=u ∨ (x,u)∈closure(ALL))
+//                              ∧ (z=v ∨ (v,z)∈closure(PRES)) }
+// That form is a THEOREM about the spec, and the emitter is built out of the
+// same two halves (1a reads the previous total, 1b propagates over survivors).
+// A mistake in the DECOMPOSITION would therefore be shared by oracle and
+// engine and neither fixture nor emitter would notice.
+//
+// THE ORACLE HERE DOES NOT DECOMPOSE ANYTHING. It closes the PRODUCT of the
+// graph with a two-state automaton "have I used a deleted edge yet":
+//
+//     state = (node, flag∈{0,1});  edge (a,b) takes flag to flag ∨ del(a,b)
+//     OD    = { (x,z) : some walk x→…→z ends in flag = 1 }
+//
+// — the definition of "some derivation uses a retracted row" read literally,
+// with no prefix/suffix split, no closure(ALL), no closure(PRES) and no DE
+// loop. It agrees with the closed form only if the theorem is true.
+//
+// ── WHAT EACH CELL IS FOR ─────────────────────────────────────────────────
+//  1 chain, mid-edge deleted   — derived THROUGH the edge at depth 2 (1a's
+//                                `existing-rel ⋈ DE` term).
+//  2 diamond                   — a fact with two derivations, one cut: it is
+//                                over-deleted AND still true.
+//  3 self-supporting cycle     — the whole relation goes; counting cannot pass.
+//  4 DE EMPTY                  — OD must be EMPTY. Nothing in the slice's
+//                                fixture ever runs phase 1 with nothing
+//                                retracted; a seed that leaked the previous
+//                                total would show up only here.
+//  5 DISJOINT SPECTATOR        — a component the deletion cannot reach must
+//                                contribute NOTHING to OD. This is the only
+//                                PRECISION direction: every other cell would
+//                                pass an engine that over-deleted everything.
+//  6 TWO deleted edges, in series
+//  7 SELF-LOOP deleted
+//  8 EVERY edge deleted        — OD = T exactly.
+//  9 shared upstream, deleted edge upstream of a re-join
+// 10 two-cycle with an alternative route — closure(PRES) == closure(ALL) while
+//    OD is ALL NINE pairs: T ∖ OD is empty and yet the correct answer is the
+//    whole relation. Phase 2 alone is maximally wrong here.
+// 11 prefix walk that ITSELF crosses a deleted edge — the reason 1a reads the
+//    PREVIOUS TOTAL (closure of ALL) and not the survivors.
+//
+// ── THE EPOCH RUN ─────────────────────────────────────────────────────────
+// Six epochs, INSERT and RETRACT mixed, on cyclic data. Inserts go through the
+// emitted cross-epoch driver `__wql_tc_scc0_i`; retractions run phase 1 and
+// then this file's OWN phase 2 (set difference) and phase 3 (re-derive from
+// the compacted total, naive, test-side). The maintained total is compared
+// against a from-scratch naive closure AT EVERY EPOCH.
+//   ⚠ phase 2 and 3 are NOT emitted by the compiler — they are written here so
+//   that the *consequence* of a phase-1 error is measurable end to end. An
+//   UNDER-deleting phase 1 leaves a false fact in the compacted total and no
+//   re-derivation can remove it: the epoch answer goes wrong. (An OVER-
+//   deleting phase 1 is repaired by phase 3 and is invisible to this run — it
+//   is the exact-set comparison in the cells that pins precision.)
+//
+// ── CONTROLS, ALL MEASURED 2026-08-07 (archives dropped, stdlib rebuilt) ──
+//  · SEED MISSING `existing-rel ⋈ DE` (drop the recursive bodies from `_od`'s
+//    round 0) → **exit 16**: cell 1, set mismatch. Predicted before running.
+//    Work done before the catch: the whole previous total was built by the
+//    from-scratch fixpoint, the seed scanned ALL of it against DE, and 1b ran
+//    to quiescence over the survivor graph — the catch is the final set
+//    comparison, not a first push.
+//  · 1b CAPPED AT ONE ROUND → **exit 36**: cell 3, the cycle. Cells 1 and 2
+//    stayed green (their propagation finishes in one round), which is why the
+//    cyclic cell is not optional.
+//  · PRESENCE GATE REMOVED at `rel_push_frag` → **exit 22**: cell 2, the total
+//    itself disagrees with the naive closure (the diamond's (1,4) is derived
+//    twice and pushed twice).
+//  · NO PHASE 3 (this file's own `rederive` replaced by the compacted set) →
+//    **exit 133**: the Ep4 answer. Phase 1 over-deletes the ENTIRE relation
+//    there, so re-derivation is the only thing that can produce the three
+//    surviving facts. That is the load-bearingness of phase 3, measured on the
+//    ANSWER, before a line of phase 3 exists in the emitter.
+//  · This file's own cell-1 cardinality perturbed 4→5 → **exit 15**, so the
+//    hand-computed counts are not decoration.
+//
+// exit 0 = every cell's engine OD equals the product-automaton OD, OD ⊆ T,
+// T ∖ OD ⊆ closure(PRES) (over-delete is SOUND), and every epoch answer equals
+// the from-scratch closure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+// ── set helpers ────────────────────────────────────────────────────────────
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+// ── ORACLE A: from-scratch naive closure (no delta, no shadow set, no SCC).
+fn naive_closure(es: &[E]) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() {
+        pair_uniq(&mut p, es[i].a, es[i].b);
+        i = i + 1i64;
+    }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a {
+                    if pair_uniq(&mut p, pr.0, es[j].b) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+fn is_deleted(de: &[E], a: i64, b: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < de.len() {
+        if de[i].a == a && de[i].b == b { return 1i64; }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+// ── ORACLE B: the PRODUCT AUTOMATON. States are (node, flag); the second
+// component of the pair set is encoded `node*2 + flag`. `OD = { (x,z) : the
+// state (z,1) is reachable from x }` — "some walk uses a deleted edge", with
+// no decomposition and no reference to closure(ALL)/closure(PRES).
+fn od_product(all: &[E], de: &[E]) -> Vec<(i64, i64)> {
+    let mut s: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        pair_uniq(&mut s, all[i].a, all[i].b * 2i64 + is_deleted(de, all[i].a, all[i].b));
+        i = i + 1i64;
+    }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < s.len() {
+            let st: (i64, i64) = s.get(k);
+            let z: i64 = st.1 / 2i64;
+            let f: i64 = st.1 - z * 2i64;
+            let mut j: i64 = 0i64;
+            while j < all.len() {
+                if all[j].a == z {
+                    let mut nf: i64 = f;
+                    if is_deleted(de, all[j].a, all[j].b) == 1i64 { nf = 1i64; }
+                    if pair_uniq(&mut s, st.0, all[j].b * 2i64 + nf) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut q: i64 = 0i64;
+    while q < s.len() {
+        let st2: (i64, i64) = s.get(q);
+        let z2: i64 = st2.1 / 2i64;
+        if st2.1 - z2 * 2i64 == 1i64 { pair_uniq(&mut od, st2.0, z2); }
+        q = q + 1i64;
+    }
+    return od;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn edge_has(v: &Vec<E>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v.get(i);
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &Vec<E>, de: &Vec<E>) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all.get(i);
+        if !edge_has(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── ONE CELL. Build T with the emitter's own from-scratch driver, run PHASE 1a
+// and PHASE 1b, and compare with the product oracle.
+// ⚠ Every check below runs AFTER both fixpoints have completed over the whole
+// graph: the seed has already scanned the entire previous total against every
+// deleted row and 1b has already run to quiescence over the whole survivor
+// graph. Nothing here is caught at a first push.
+fn cell(all: &Vec<E>, de: &Vec<E>, want_n: i64) -> i32 {
+    let pres: Vec<E> = survivors(all, de);
+
+    let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0(all.as_slice(), &mut tot) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 1i32; }
+    }
+    if !same_set(&tot, &naive_closure(all.as_slice())) { return 2i32; }
+
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de.as_slice(), tot.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 3i32; }
+    }
+    match __wql_tc_scc0_odp(pres.as_slice(), &mut od) {
+        Result::Ok(_u) => { } Result::Err(_e) => { return 4i32; }
+    }
+
+    let want: Vec<(i64, i64)> = od_product(all.as_slice(), de.as_slice());
+    if want.len() != want_n { return 5i32; }       // hand-computed cardinality
+    if !same_set(&od, &want) { return 6i32; }      // exact set — PRECISION too
+
+    // OD ⊆ T: over-delete may not invent a fact.
+    let mut i: i64 = 0i64;
+    while i < od.len() {
+        let c: (i64, i64) = od.get(i);
+        if !pair_has(&tot, c.0, c.1) { return 7i32; }
+        i = i + 1i64;
+    }
+    // SOUNDNESS: T ∖ OD ⊆ closure(PRES). Whatever phase 1 KEEPS must still be
+    // true — this is the half no re-derivation can repair, and it is the half
+    // that fails when the seed misses `existing-rel ⋈ DE`.
+    let cl_pres: Vec<(i64, i64)> = naive_closure(pres.as_slice());
+    let mut k: i64 = 0i64;
+    while k < tot.len() {
+        let c2: (i64, i64) = tot.get(k);
+        if !pair_has(&od, c2.0, c2.1) {
+            if !pair_has(&cl_pres, c2.0, c2.1) { return 8i32; }
+        }
+        k = k + 1i64;
+    }
+    return 0i32;
+}
+
+// ── This file's OWN phase 2 + phase 3 (the compiler emits neither).
+fn compact(tot: &Vec<(i64, i64)>, od: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < tot.len() {
+        let c: (i64, i64) = tot.get(i);
+        if !pair_has(od, c.0, c.1) { pair_uniq(&mut out, c.0, c.1); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn rederive(seed: &Vec<(i64, i64)>, pres: &[E]) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < seed.len() {
+        let c: (i64, i64) = seed.get(i);
+        pair_uniq(&mut p, c.0, c.1);
+        i = i + 1i64;
+    }
+    let mut b: i64 = 0i64;
+    while b < pres.len() {
+        pair_uniq(&mut p, pres[b].a, pres[b].b);
+        b = b + 1i64;
+    }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < pres.len() {
+                if pr.1 == pres[j].a {
+                    if pair_uniq(&mut p, pr.0, pres[j].b) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+fn main() -> i32 {
+    // ══ CELL 1 — chain 1→2→3→4, retract the MIDDLE edge. ═════════════════
+    // T = 6 rows; OD = {(2,3),(2,4),(1,3),(1,4)} — (1,4) is derived at depth 2
+    // THROUGH the deleted edge, never FROM it.
+    let mut a1: Vec<E> = vec_new::<E>();
+    a1.push(ed(1i64,2i64)); a1.push(ed(2i64,3i64)); a1.push(ed(3i64,4i64));
+    let mut d1: Vec<E> = vec_new::<E>();
+    d1.push(ed(2i64,3i64));
+    let r1: i32 = cell(&a1, &d1, 4i64);
+    if r1 != 0i32 { return 10i32 + r1; }
+
+    // ══ CELL 2 — diamond, one of two derivations cut. (1,4) over-deleted AND
+    // still true: phase 3 is load-bearing.
+    let mut a2: Vec<E> = vec_new::<E>();
+    a2.push(ed(1i64,2i64)); a2.push(ed(1i64,3i64));
+    a2.push(ed(2i64,4i64)); a2.push(ed(3i64,4i64));
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(2i64,4i64));
+    let r2: i32 = cell(&a2, &d2, 2i64);
+    if r2 != 0i32 { return 20i32 + r2; }
+    let p2: Vec<E> = survivors(&a2, &d2);
+    let cl2: Vec<(i64, i64)> = naive_closure(p2.as_slice());
+    let od2: Vec<(i64, i64)> = od_product(a2.as_slice(), d2.as_slice());
+    if !pair_has(&od2, 1i64, 4i64) { return 28i32; }   // over-deleted …
+    if !pair_has(&cl2, 1i64, 4i64) { return 29i32; }   // … and still TRUE.
+
+    // ══ CELL 3 — self-supporting cycle 0→1→2→3→1, retract the cycle edge.
+    // OD = all 12 rows; under counting NOTHING would ever be deleted.
+    let mut a3: Vec<E> = vec_new::<E>();
+    a3.push(ed(0i64,1i64)); a3.push(ed(1i64,2i64));
+    a3.push(ed(2i64,3i64)); a3.push(ed(3i64,1i64));
+    let mut d3: Vec<E> = vec_new::<E>();
+    d3.push(ed(1i64,2i64));
+    let r3: i32 = cell(&a3, &d3, 12i64);
+    if r3 != 0i32 { return 30i32 + r3; }
+
+    // ══ CELL 4 — DE EMPTY. OD must be EMPTY. A seed that leaked the previous
+    // total, or a 1b that re-derived from the EDB, shows up ONLY here.
+    let mut d4: Vec<E> = vec_new::<E>();
+    let r4: i32 = cell(&a3, &d4, 0i64);
+    if r4 != 0i32 { return 40i32 + r4; }
+
+    // ══ CELL 5 — DISJOINT SPECTATOR. Component {7,8,9} cannot be reached from
+    // the deletion; none of its 3 closure rows may enter OD. PRECISION: an
+    // engine that over-deletes "everything" passes cells 1-3 and dies here.
+    let mut a5: Vec<E> = vec_new::<E>();
+    a5.push(ed(1i64,2i64)); a5.push(ed(2i64,3i64)); a5.push(ed(3i64,4i64));
+    a5.push(ed(7i64,8i64)); a5.push(ed(8i64,9i64));
+    let mut d5: Vec<E> = vec_new::<E>();
+    d5.push(ed(2i64,3i64));
+    let r5: i32 = cell(&a5, &d5, 4i64);
+    if r5 != 0i32 { return 50i32 + r5; }
+
+    // ══ CELL 6 — TWO deleted edges in series on a 5-chain.
+    // ALL = 1→2→3→4→5, DE = {2→3, 3→4}. T = 10 rows; survivors {1→2, 4→5}.
+    // OD = every pair whose walk crosses either — 1..3 × 3..5 minus the
+    // unreachable: {(2,3),(2,4),(2,5),(1,3),(1,4),(1,5),(3,4),(3,5)} = 8.
+    let mut a6: Vec<E> = vec_new::<E>();
+    a6.push(ed(1i64,2i64)); a6.push(ed(2i64,3i64));
+    a6.push(ed(3i64,4i64)); a6.push(ed(4i64,5i64));
+    let mut d6: Vec<E> = vec_new::<E>();
+    d6.push(ed(2i64,3i64)); d6.push(ed(3i64,4i64));
+    let r6: i32 = cell(&a6, &d6, 8i64);
+    if r6 != 0i32 { return 60i32 + r6; }
+
+    // ══ CELL 7 — a SELF-LOOP is retracted. ALL = 1→1, 1→2; DE = {1→1}.
+    // T = {(1,1),(1,2)}; OD = both — (1,2) is derivable as 1→1→2.
+    let mut a7: Vec<E> = vec_new::<E>();
+    a7.push(ed(1i64,1i64)); a7.push(ed(1i64,2i64));
+    let mut d7: Vec<E> = vec_new::<E>();
+    d7.push(ed(1i64,1i64));
+    let r7: i32 = cell(&a7, &d7, 2i64);
+    if r7 != 0i32 { return 70i32 + r7; }
+
+    // ══ CELL 8 — EVERY edge retracted. OD = T exactly (6 rows on the chain),
+    // and closure(PRES) is empty, so soundness has nothing to hide behind.
+    let mut d8: Vec<E> = vec_new::<E>();
+    d8.push(ed(1i64,2i64)); d8.push(ed(2i64,3i64)); d8.push(ed(3i64,4i64));
+    let r8: i32 = cell(&a1, &d8, 6i64);
+    if r8 != 0i32 { return 80i32 + r8; }
+
+    // ══ CELL 9 — shared upstream, re-join downstream.
+    // ALL = 1→2, 2→3, 2→4, 3→5, 4→5; DE = {2→3}.
+    // T = {12,23,24,35,45,13,14,25,15} — 9 rows ((1,5),(2,5) each have TWO
+    // derivations). OD = walks through 2→3 = {(2,3),(2,5),(1,3),(1,5)} = 4,
+    // and (1,5),(2,5) survive via 4.
+    let mut a9: Vec<E> = vec_new::<E>();
+    a9.push(ed(1i64,2i64)); a9.push(ed(2i64,3i64)); a9.push(ed(2i64,4i64));
+    a9.push(ed(3i64,5i64)); a9.push(ed(4i64,5i64));
+    let mut d9: Vec<E> = vec_new::<E>();
+    d9.push(ed(2i64,3i64));
+    let r9: i32 = cell(&a9, &d9, 4i64);
+    if r9 != 0i32 { return 90i32 + r9; }
+
+    // ══ CELL 10 — a 2-cycle with an ALTERNATIVE ROUTE.
+    // ALL = 1→2, 2→1, 1→3, 3→2; DE = {1→2}. closure(ALL) = all 9 pairs among
+    // {1,2,3} and closure(PRES) is ALSO all 9 (1→3→2 replaces 1→2). Every one
+    // of the 9 has a walk through 1→2, so OD = 9 = T: phase 2 empties the
+    // relation and phase 3 must put ALL NINE back. The maximal statement of
+    // "compact alone is not an answer".
+    let mut aA: Vec<E> = vec_new::<E>();
+    aA.push(ed(1i64,2i64)); aA.push(ed(2i64,1i64));
+    aA.push(ed(1i64,3i64)); aA.push(ed(3i64,2i64));
+    let mut dA: Vec<E> = vec_new::<E>();
+    dA.push(ed(1i64,2i64));
+    let rA: i32 = cell(&aA, &dA, 9i64);
+    if rA != 0i32 { return 100i32 + rA; }
+    let pA: Vec<E> = survivors(&aA, &dA);
+    if naive_closure(pA.as_slice()).len() != 9i64 { return 109i32; }
+
+    // ══ CELL 11 — THE PREFIX ITSELF CROSSES A DELETED EDGE.
+    // ALL = 1→2, 2→3, 3→4; DE = {1→2, 3→4}. Decomposed at its LAST deleted
+    // edge, (1,4)'s walk has the prefix 1→2→3 which ITSELF crosses a deleted
+    // edge — which is why 1a must read the PREVIOUS TOTAL (closure of ALL) and
+    // not the survivors. OD = T ∖ {(2,3)} = 5 rows: (2,3)'s only walk is the
+    // single surviving edge, so it is the one row that must stay OUT.
+    let mut dB: Vec<E> = vec_new::<E>();
+    dB.push(ed(1i64,2i64)); dB.push(ed(3i64,4i64));
+    let rB: i32 = cell(&a1, &dB, 5i64);
+    if rB != 0i32 { return 110i32 + rB; }
+
+    // ══ THE EPOCH RUN — INSERT AND RETRACT MIXED, CHECKED AT EVERY EPOCH ══
+    // Ep1 +1→2   Ep2 +2→3   Ep3 +3→1 (closes a 3-cycle)   Ep4 −2→3
+    // Ep5 +2→3 again (re-insert)   Ep6 −3→1
+    // Inserts run the emitted cross-epoch driver on the maintained total;
+    // retractions run emitted phase 1 and this file's phase 2 + phase 3.
+    let mut cur: Vec<E> = vec_new::<E>();
+    let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+
+    cur.push(ed(1i64,2i64));
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+        Result::Ok(_x1) => { } Result::Err(_y1) => { return 120i32; }
+    }
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 121i32; }
+
+    cur.push(ed(2i64,3i64));
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+        Result::Ok(_x2) => { } Result::Err(_y2) => { return 122i32; }
+    }
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 123i32; }
+
+    cur.push(ed(3i64,1i64));
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+        Result::Ok(_x3) => { } Result::Err(_y3) => { return 124i32; }
+    }
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 125i32; }
+    if tot.len() != 9i64 { return 126i32; }   // all 9 pairs among {1,2,3}
+
+    // Ep4 — RETRACT 2→3, the edge that closes the cycle's far side.
+    let mut de4: Vec<E> = vec_new::<E>();
+    de4.push(ed(2i64,3i64));
+    let pr4: Vec<E> = survivors(&cur, &de4);
+    let mut o4: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de4.as_slice(), tot.as_slice(), &mut o4) {
+        Result::Ok(_x4) => { } Result::Err(_y4) => { return 130i32; }
+    }
+    match __wql_tc_scc0_odp(pr4.as_slice(), &mut o4) {
+        Result::Ok(_x5) => { } Result::Err(_y5) => { return 131i32; }
+    }
+    if !same_set(&o4, &od_product(cur.as_slice(), de4.as_slice())) { return 132i32; }
+    let c4: Vec<(i64, i64)> = compact(&tot, &o4);
+    tot = rederive(&c4, pr4.as_slice());
+    cur = pr4;
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 133i32; }
+    if tot.len() != 3i64 { return 134i32; }   // {(1,2),(3,1),(3,2)}
+
+    // Ep5 — RE-INSERT 2→3. The maintained total must climb back to all 9.
+    cur.push(ed(2i64,3i64));
+    match __wql_tc_scc0_i(cur.as_slice(), &mut tot) {
+        Result::Ok(_x6) => { } Result::Err(_y6) => { return 140i32; }
+    }
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 141i32; }
+    if tot.len() != 9i64 { return 142i32; }
+
+    // Ep6 — RETRACT 3→1, breaking the cycle at a different edge.
+    let mut de6: Vec<E> = vec_new::<E>();
+    de6.push(ed(3i64,1i64));
+    let pr6: Vec<E> = survivors(&cur, &de6);
+    let mut o6: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de6.as_slice(), tot.as_slice(), &mut o6) {
+        Result::Ok(_x7) => { } Result::Err(_y7) => { return 150i32; }
+    }
+    match __wql_tc_scc0_odp(pr6.as_slice(), &mut o6) {
+        Result::Ok(_x8) => { } Result::Err(_y8) => { return 151i32; }
+    }
+    if !same_set(&o6, &od_product(cur.as_slice(), de6.as_slice())) { return 152i32; }
+    let c6: Vec<(i64, i64)> = compact(&tot, &o6);
+    tot = rederive(&c6, pr6.as_slice());
+    cur = pr6;
+    if !same_set(&tot, &naive_closure(cur.as_slice())) { return 153i32; }
+    if tot.len() != 3i64 { return 154i32; }   // {(1,2),(2,3),(1,3)}
+
+    return 0i32;
+}

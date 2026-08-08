@@ -1,0 +1,106 @@
+// DRed PHASE 1b, ISOLATED — TERMINATION ON CYCLIC SURVIVORS IS THE PRESENCE
+// GATE, AND NOTHING ELSE IN THIS FILE CAN LOOP.
+//
+// The previous total T is written out BY HAND rather than computed, and no
+// from-scratch driver is called: the only loop in the whole program that can
+// fail to terminate is `__wql_tc_scc0_odp`'s. (`_od` has no loop at all — it is
+// round 0 once.) So a hang here names 1b and cannot be blamed on the closure.
+//
+// GRAPH: ALL = 1→2, 2→1, 1→3, 3→2 — strongly connected. DE = {1→2}.
+// PRES = {2→1, 1→3, 3→2} is STILL A CYCLE (1→3→2→1), which is the point: 1b
+// propagates along survivor edges, so only a survivor cycle makes 1b's own
+// termination a question. T = all nine pairs among {1,2,3}.
+// Seed (1a) = {(x,2) : x=1 ∨ (x,1)∈T} = {(1,2),(2,2),(3,2)};
+// 1b then closes it over the survivor cycle to ALL NINE.
+//
+// ⚠ CONTROL, MEASURED 2026-08-07: delete the shadow-set presence gate at
+// `rel_push_frag` (`if unsafe { __rsp.insert(__rv) } { __out.push(__rv) }` →
+// an unconditional push), drop the archives, rebuild the stdlib → this program
+// DOES NOT TERMINATE: killed by `timeout 90`, rc 124. Under the same build the
+// two acyclic-total fixtures beside it still FINISH (exit 42 / 22 — they die on
+// the duplicate rows in the from-scratch total, long before any loop). So
+// termination of 1b is that one bit, measured as divergence rather than argued
+// from the shape of the loop.
+// ⚠⚠ AND THE FIRST VERSION OF THIS FILE ATE THAT CONTROL. It asserted
+// `od.len() == 3` right after the seed; with the gate gone the seed itself
+// gains a duplicate, so the program returned 2 and EXITED BEFORE `_odp` was
+// entered — a termination control that never reached the loop it names. The
+// seed is therefore checked by CONTAINMENT here and exactness is asserted only
+// after 1b, where the divergence has already had to happen.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn main() -> i32 {
+    // T, by hand: all nine pairs among {1,2,3}.
+    let mut tot: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut x: i64 = 1i64;
+    while x < 4i64 {
+        let mut y: i64 = 1i64;
+        while y < 4i64 { tot.push((x, y)); y = y + 1i64; }
+        x = x + 1i64;
+    }
+
+    let mut de: Vec<E> = vec_new::<E>();
+    de.push(ed(1i64, 2i64));
+    let mut pres: Vec<E> = vec_new::<E>();
+    pres.push(ed(2i64, 1i64)); pres.push(ed(1i64, 3i64)); pres.push(ed(3i64, 2i64));
+
+    let mut od: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    match __wql_tc_scc0_od(de.as_slice(), tot.as_slice(), &mut od) {
+        Result::Ok(_a) => { } Result::Err(_b) => { return 1i32; }
+    }
+    // The seed's three rows, by CONTAINMENT ONLY — deliberately not by length.
+    // ⚠ THE LENGTH CHECK USED TO BE HERE AND IT ATE THE CONTROL. With the
+    // presence gate removed the seed itself gains a duplicate (the base body
+    // pushes (1,2) and the recursive body pushes it again through (1,1)∈T), so
+    // `od.len() != 3` fired and the program EXITED BEFORE `_odp` was ever
+    // entered — a termination control that never reached the loop. Exactness is
+    // asserted after 1b instead, where it is equally strong and where the
+    // divergence has already had to happen.
+    if !pair_has(&od, 1i64, 2i64) { return 3i32; }
+    if !pair_has(&od, 2i64, 2i64) { return 4i32; }
+    if !pair_has(&od, 3i64, 2i64) { return 5i32; }
+
+    match __wql_tc_scc0_odp(pres.as_slice(), &mut od) {
+        Result::Ok(_c) => { } Result::Err(_d) => { return 6i32; }
+    }
+    // …and after 1b, all nine — reached by walking the survivor cycle, with NO
+    // duplicate rows (the length is asserted, not just containment).
+    if od.len() != 9i64 { return 7i32; }
+    let mut p: i64 = 1i64;
+    while p < 4i64 {
+        let mut q: i64 = 1i64;
+        while q < 4i64 {
+            if !pair_has(&od, p, q) { return 8i32; }
+            q = q + 1i64;
+        }
+        p = p + 1i64;
+    }
+    return 0i32;
+}
