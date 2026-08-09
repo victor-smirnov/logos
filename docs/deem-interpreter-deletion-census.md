@@ -50,6 +50,15 @@ still compiled.
 `deem_state_trace` / `deem_state_epochs` / `deem_state_tail` / `deem_state_controls`, each taking
 `e: &IncrRec`. It dies with `incr_rec.logos`.
 
+⚠ CORRECTION (verification pass, measured at `8cf79102`): the compiler does NOT merely lose vocabulary.
+`SemaChecker::seed_builtin_source_impls` in `src/compiler/sema_expr.cpp` hard-names the fallback seed
+`source_impls_["IncrRec"]` → `EngineState` rels `trace`/`epochs`/`tail`/`controls`, materializers
+`deem_state_trace`/`_epochs`/`_tail`/`_controls`, module `logos.mem.deem`. The seed is CONTENT-guarded
+(`const bool have_incr = source_impls_.count("IncrRec") > 0; … if (have_incr) return;`) — it defers only
+while `mapping_state.logos` declares them. Delete that file and the guard flips OFF, so the C++ fallback
+RE-REGISTERS four materializers that no longer exist. The seed must be removed in the same change.
+(`writ_graph_edges`, seeded the same way for `Writ`, survives.)
+
 This one bites UPWARD into the static tier: `wql_engine_source_e2e` declares `pub deem encounters(e: &IncrRec)`
 — a STATIC `deem` item whose source type is the dynamic engine (ADR 0016 M5, case S). The engine-as-a-source
 capability is a static-tier feature that cannot outlive `IncrRec`. `stdlib/mem/wql/params.logos` carries the
@@ -102,6 +111,18 @@ reference to `check.logos`'s.) `catalog_macro.logos` really does `use logos.mem.
 
 Population: `grep -rlE "Query::run|Query::compile|\.incremental\(\)|incremental_rec\(\)|Tpl::compile|Tpl::render" tests/logos/`
 = 81 `tests/logos/pass/*.logos` + `tests/logos/rtval_domain_gate.sh`.
+
+⚠ **THE POPULATION IS INCOMPLETE, and by construction.** That grep names the interpreter's ENTRY POINTS,
+not the SYMBOLS in the §2 cut. Re-greped over the cut's own symbols
+(`FactStore|FactHistory|IncrRec|IncrJoin|EngineState|deem_state_*|Tpl|QRows|Query|RelCtx|QPlan|ts_scan|…`),
+`tests/logos/` yields 92 files, and **three of the extra ten are real, non-comment uses that are NOT in
+the table below**: `query_incr_factstore_unit` (`FactStore::new`), `query_incr_factstore_epochs`
+(`FactHistory::new` ×2), `query_incr_factstore_float_identity_unit` (`FactStore::new` + `FactHistory::new`,
+and it reaches `fs_key_enc`). `FactStore` is defined once, in `incr.logos`; `FactHistory` once, in
+`facthistory.logos` — both in the cut. All three die and none is censused, so §6 L5's witness list and
+§7's registry prediction are both three short. The other seven extra files are comment-only hits.
+The census total is therefore **85 affected test files, not 82**, and the correct population rule is
+"grep the CUT's symbols", not "grep the entry points".
 
 Classes:
 
@@ -318,21 +339,59 @@ Victor decides this. Each entry is a shipped capability with no static counterpa
 
 * `tests/logos/rtval_domain_gate.sh` (`logos_09_rtval_domain`, `tier_commit`, registered in
   `tests/logos/CMakeLists.txt`) globs `*.logos` in `stdlib/mem/deem` and asserts three hard constants:
-  `WANT_VARIANTS="B Error F I Node Null S"`, `WANT_MATCH_SITES=27`, `WANT_KIND_CALLS=27`. Crude count of
-  `rt_kind(` call sites today: `eval.logos` 11, `exec.logos` 2, `query.logos` 1, `deem.logos` 4 — i.e. the
-  majority of the censused population is inside the cut. Both counts go red and must be re-measured and
-  re-stated, with the header sentence ("`RtVal` is the value of BOTH the dynamic query engine and the
+  `WANT_VARIANTS="B Error F I Node Null S"`, `WANT_MATCH_SITES=27`, `WANT_KIND_CALLS=27`.
+  ⚠ The crude per-LINE count first recorded here (eval 11, exec 2, query 1, deem 4) UNDERCOUNTS: by
+  OCCURRENCE it is eval **20**, exec **4**, query **1**, deem **4** — 25 of 29 inside the cut, so the
+  conclusion holds a fortiori.
+  **MEASURED that the gate bites** (verification pass): one extra `rt_kind(` call site planted in
+  `deem.logos` (`fn __probe_kind_site`) turned `logos_09_rtval_domain` red with
+  `the rt_kind i32-CODE dispatch surface moved: 28 call site(s)`, ctest exit **8**; reverting restored
+  green. The gate reads SOURCE TEXT, so it reds with no rebuild — it will red on the cut and must be
+  re-measured and re-stated, with the header sentence ("`RtVal` is the value of BOTH the dynamic query engine and the
   incremental one") rewritten, because it stops being true. `tests/logos/rtval_fallback.ledger` is
   currently empty by design and its `deleted-by` discipline applies here.
 * `tests/logos/abi_closure_gate.sh` — built on the derived closure that gives
   `type logos.mem.deem.RtVal` a record; `is_deem_api_type` in `src/compiler/emit_module.cpp` names five
   types by hand — `Query`, `SchemaCatalog`, `QEnv`, `QRows`, `QError` — and TWO of them (`Query`, `QRows`)
-  cease to exist. Check what that allowlist does with a name that no longer resolves.
+  cease to exist. ANSWERED (verification pass, by reading `is_deem_api_type` / `is_deem_internal_type`):
+  it is a pure `std::string_view` comparison used as an EXCLUSION predicate — no lookup, so a name that
+  no longer resolves is silently DEAD, not an error. The consequence is that the derived closure
+  `deem_abi_admitted` starts from a two-thirds-alive seed and SHRINKS, dropping every spec record that
+  was admitted only because `Query`/`QRows` named it. That reads as record REMOVAL, so `abi-check.sh`
+  will report BREAKING and demand a deliberate bump — the gate bites, but only after the deletion.
 * Every deleted fixture has a matching `add_test` entry in `tests/logos/CMakeLists.txt`; the registry
   count (`ctest -N`, 6950 all / 3267 `-LE imported` at `9ebb6110`) must be PREDICTED before the cut and
   compared after — a test that silently stops existing is the failure mode this repo has already met.
 
 ---
+
+## 7b. Verification pass — what an adversarial re-measure CONFIRMED
+
+Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHARDS=8`):
+
+* Every sole-definition row of §1a: confirmed by `grep -rnE '^(pub )?(fn|struct) …' stdlib/`. Call counts
+  44 / 25 confirmed. `Query { … }` constructed at exactly one site, in `query.logos`'s `Query::compile`.
+* §2 arithmetic: 1672+1472+606+963 = 4713 (P5 as written), +1978+1466+92+514 = **8763**. Confirmed.
+* The three DRed harvest fixtures: `deem_dred_phases23_spec`, `wql_incr_rec_agg_retract_lattice`,
+  `wql_incr_rec_dred_error_window` each declare ZERO `deem` items and each reaches `Query::compile` +
+  `q.incremental_rec(&env)`. L11 stands: harvest by fixture does not survive.
+* The B→A correction: all eleven have zero `deem` declarations; every `_apply(` hit in them is a local
+  `src_apply`/`nasty_apply`/`edge_apply`. Confirmed — the `_apply(` grep was indeed a false signal.
+* Row 48 `query_rec_agg_batch_e2e` is the one row filed A while HAVING a static arm (`sssp`, `longest`),
+  which by this file's own class definitions is B. The A verdict survives on the merits, not the rule:
+  the static half is duplicated by `wql_rel_sssp_e2e` and `wql_rel_widest_path_e2e` (both interp-free,
+  both carrying an independent Bellman-Ford / bottleneck oracle) and the cycle case by
+  `wql_rel_neg_cycle_abort`.
+* Rows 23/33/35 (`query_incr_guard`, `query_incr_sssp_guard`, `query_incr_tc_guard`) guard the DYNAMIC
+  entry points and return `Result::Err` values; the static tier keeps its own door for the same rule
+  (`tests/logos/fail/wql_rel_agg_group_cycle_fail`). A is correct.
+* Registry unmoved by this commit: `ctest -N` 6950 all / 3267 `-LE imported` / 29 `-L '^tier_commit$'`.
+  `git diff --stat 9ebb6110 8cf79102 -- stdlib src tests tools abi scripts` is EMPTY, so no emitted
+  symbol can have moved; absolute baseline recorded for the next attempt — `wql_rel_sssp_e2e` (rel)
+  155 defined symbols, `wql_aggregate_e2e` (non-rel) 283.
+* `scripts/abi-check.sh` RC **0**, `VERDICT: ABI-PRESERVING`, sym 12695 / type 365 / vtable 115 /
+  schema 2 identical to the `origin/main` base; `abi/logos.abi` correctly NOT regenerated. L1 and L2
+  green (691/691, 1890/1890).
 
 ## 8. Not measured here
 
