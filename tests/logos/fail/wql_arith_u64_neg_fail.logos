@@ -1,0 +1,25 @@
+// WQL — UNARY `-` HAS NO ENTRY IN THE UNSIGNED TOWER, AND THE REFUSAL SAYS SO
+// RATHER THAN FALLING BACK TO THE SIGNED ONE.
+//
+// The EL's five unsigned operations are `el_addu`/`el_subu`/`el_mulu`/`el_divu`/
+// `el_remu`. There is no `el_negu` and there will not be one: negation is not an
+// operation on an unsigned value — every non-zero u64 has no image in the type.
+// The signed tower's `el_neg` exists, and reaching it would mean reading the
+// column as i64, which is the silent choice of signedness this whole seam
+// refuses to make (`wql_arith_mixed_tower_fail` refuses the binary case).
+//
+// ⚠ A `u32` COLUMN IS NOT REFUSED HERE AND MUST NOT BE. `-s.w` over `u32` is
+// admitted and answered (`wql_arith_narrow_e2e` claim 5): u32's tower IS the i64
+// one, because every u32 value survives `as i64`, so `el_neg` is the node's own
+// operation and not a substitution. The refusal is about the TOWER, not about
+// the word "unsigned" — which is exactly the distinction a name list would lose.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub u: u64 }
+
+pub deem negd(src: &[Rec]) { from src s select -s.u }
+
+fn main() -> i32 { return 0i32; }

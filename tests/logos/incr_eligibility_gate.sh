@@ -69,6 +69,26 @@ EXPECT=(
   "no_retract_avg|EMITTED|one bare scan"
   "ok_join|EMITTED|one join step over two owned relations"
   "no_join_strrow|declined|ROW TYPE is not OWNABLE AND IDENTIFIABLE"
+  # ⚠ A PIN TRANSCRIBED OFF A DYING FIXTURE, NOT A NEW SHAPE.
+  # `pass/wql_domain_incr_disagreement` block 3b holds the one live `KNOWN-WRONG`
+  # of that family: an equi-join on an `f64` key is ACCEPTED by two tiers and
+  # REFUSED by the incremental one. Both accepting halves there run through
+  # `Query::compile` — the DYNAMIC interpreter — so P5's deletion takes away the
+  # side that made the refusal a DISAGREEMENT rather than a policy. The surviving
+  # accepting tier is the STATIC batch fn, which the companion fixture calls and
+  # asserts the answer of; this row is the refusing side.
+  #
+  # ⚠ THE CONTROL IS `ok_join`, WHICH IS THE SAME SHAPE AND IS EMITTED — two owned
+  # relations, one step, `group by` + `sum`. The two rows differ in the KEY'S TYPE
+  # and in nothing else, which is what makes this row a measurement.
+  #
+  # ⚠ IT FAILS-IF-FIXED, AND THAT IS WHY IT IS TRANSCRIBED RATHER THAN DROPPED.
+  # The day the incremental tier admits an f64 join key, this query traces
+  # EMITTED, the verdict stops matching and this gate goes red — and so does the
+  # DERIVED retract count, because a new EMITTED row is a new retract question.
+  # A red here from a FIX is the pin doing its job: rewrite the row, do not
+  # delete it.
+  "no_join_f64key|declined|ROW TYPE is not OWNABLE AND IDENTIFIABLE"
   "no_join2|declined|TWO OR MORE STEPS"
   "no_join_avg|declined|INSERT-ONLY surface"
   "no_join_self|declined|SELF-JOIN"

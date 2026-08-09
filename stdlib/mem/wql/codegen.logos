@@ -95,7 +95,11 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
 //                      (string concatenation); arithmetic with a FLT operand ⇒
 //                      FLT (INT promotes to FLT), else INT;
 //   • SUn            — `!` ⇒ BOOL, `-` ⇒ the argument's numeric type (FLT/INT);
-//   • SCond          — the then-branch's type (both arms agree under strict typing).
+//   • SCond          — the then-branch's type. The arms are MADE to agree, by
+//                      `check_cond_branches`, which runs before any of this is
+//                      read; before it existed "both arms agree under strict
+//                      typing" was an assumption this walk made and nothing
+//                      enforced, and a mixed ternary reached the host compiler.
 // Unknown / out-of-MVP nodes default to INT.
 pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
     match e {
@@ -327,11 +331,78 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
 /// `el_add(((s.v) as i64), (1i64))?` and its type is i64. Keeping the operands'
 /// name here is what made `select s.v + 1` over a `u64` column emit
 /// `Vec<u64>::push(i64)`.
+///
+/// ⚠ AND "THE CLASS'S REPRESENTATIVE" IS NOW A LIE FOR ONE HALF OF THE INTEGER
+/// CLASS, WHICH IS WHY THE ARITHMETIC ARM ASKS THE TOWER INSTEAD. There are two
+/// integer towers (`el::el_arith_tower`), and an arithmetic node computing in the
+/// unsigned one emits `el_addu`/`el_divu`/… — u64 in, u64 out. Its emitted type
+/// is `u64`, not the class representative, and answering `i64` here is exactly
+/// what made `order by (s.u / 3u64)` unreachable: `key_norm_ok` was handed the
+/// pair (`u64` named, `i64` emitted) and refused a normalization the emitter was
+/// never going to write. The FLOAT and STRING arms are unchanged — those classes
+/// have one tower each.
 pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
-    if el_computes_in_repr(e) { return el_class_repr(infer_ty(e, t)); }
+    if el_computes_in_repr(e) {
+        let c: i32 = infer_ty(e, t);
+        if c == EL_TY_INT() { return el_tower_repr(arith_node_tower(e, t)); }
+        return el_class_repr(c);
+    }
     let n: str = infer_ty_name(e, t);
     if el_class_lookup(n) >= 0i32 { return n; }
     return el_class_repr(infer_ty(e, t));
+}
+
+/// THE TOWER ONE OPERAND OF AN ARITHMETIC NODE CONTRIBUTES.
+///
+/// ⚠ A LITERAL CONTRIBUTES NOTHING, AND THAT IS THE WHOLE REASON THIS IS NOT
+/// JUST `el_arith_tower(infer_ty_name(e, t))`. `infer_ty_name` answers `i64` for
+/// an integer literal — the class representative, through its own fallback arm —
+/// and an `i64` ANSWER is indistinguishable there from an `i64` COLUMN. Reading
+/// the literal in `s.u / 3` as a signed contribution makes the node mixed-sign
+/// and refuses the one query this arm was built for; reading an `i64` column in
+/// `s.u / s.g` as no contribution silently picks a tower for a node that has
+/// none. The node kind is what separates them, so the node kind is what is asked.
+///
+/// Every non-literal answers through its NAMED type, which is what the query put
+/// there: a nested arithmetic node reports its own tower's type (`infer_ty_name`
+/// propagates the operands' name), a column reports its declared type, and a UDF
+/// call falls to the representative — already refused at its own site if lossy.
+pub fn arith_operand_tower(e: SExpr, t: &ElTypes) -> i32 {
+    match e {
+        SExpr::Lit(l) => {
+            // A STRING or FLOAT literal is not an integer operand either; both
+            // are handled by the node's class before any of this runs, and the
+            // read of `l.val` is what keeps this arm from being a bare wildcard.
+            let v: WAny = l.val;
+            if v.is_string() || v.is_bool() || v.is_float() { return EL_TOW_NONE(); }
+            return EL_TOW_NONE();
+        }
+        _ => { return el_arith_tower(infer_ty_name(e, t)); }
+    }
+}
+
+/// THE TOWER AN ARITHMETIC NODE COMPUTES IN — the join of its operands', with
+/// `NONE` (all-literal, e.g. `1 + 2`) resolving to the signed tower, which is
+/// where literal arithmetic has always computed.
+///
+/// Ask it ONLY of a node `el_computes_in_repr` admits and whose class is INT;
+/// every other node has no tower and the answer would be meaningless rather than
+/// merely unused.
+pub fn arith_node_tower(e: SExpr, t: &ElTypes) -> i32 {
+    match e {
+        SExpr::Bin(b) => {
+            let j: i32 = el_tower_join(arith_operand_tower(b.lhs_expr(), t),
+                                       arith_operand_tower(b.rhs_expr(), t));
+            if j == EL_TOW_NONE() { return EL_TOW_I64(); }
+            return j;
+        }
+        SExpr::Un(u) => {
+            let a: i32 = arith_operand_tower(u.arg_expr(), t);
+            if a == EL_TOW_NONE() { return EL_TOW_I64(); }
+            return a;
+        }
+        _ => { return EL_TOW_I64(); }
+    }
 }
 
 /// True iff the EL emits `e` through its own computation type rather than
@@ -601,15 +672,186 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
     if !el_computes_in_repr(parent) { return true; }
     if infer_ty(parent, t) != EL_TY_INT() { return true; }
     let n: str = infer_ty_name(e, t);
-    if el_arith_ok(n) { return true; }
+    // ── (1) THE OPERAND HAS NO TOWER AT ALL — u128/i128 ───────────────────
+    // The only value-domain refusal left at this seam, and its ground is that
+    // there is no 128-bit checked set to compute in, not that the type's values
+    // are somehow defective.
+    if arith_operand_tower(e, t) == EL_TOW_DENY() {
+        let mut m: String = String::new();
+        m.push_str(ctx);
+        m.push_str(": arithmetic over a value of type `");
+        m.push_str(n);
+        m.push_str("` — the EL computes integer arithmetic in one of two towers, i64 (`el_add`/`el_sub`/…) or u64 (`el_addu`/`el_subu`/…), and this type fits NEITHER: it is wider than both, so reaching either drops bits — ");
+        m.push_str(el_order_why(n));
+        error(string_as_str(&m));
+        return false;
+    }
+    // ── (2) THE NODE MIXES THE TWO TOWERS ─────────────────────────────────
+    // A per-NODE fact, so it is asked of `parent` and reported once with BOTH
+    // operands named. Reported from whichever operand is checked first; the
+    // caller stops on the first `false`, so it cannot double-report.
+    let ntw: i32 = arith_node_tower(parent, t);
+    if ntw == EL_TOW_DENY() {
+        report_mixed_tower(parent, t, ctx);
+        return false;
+    }
+    // ── (3) UNARY MINUS HAS NO UNSIGNED FORM ──────────────────────────────
+    // `el_neg` computes in i64 and there is no `el_negu`, because negation is not
+    // an operation on an unsigned value: every non-zero u64 has no image. This is
+    // a refusal about the OPERATOR, so it names the operator.
+    if ntw == EL_TOW_U64() && is_neg_node(parent) {
+        let mut m2: String = String::new();
+        m2.push_str(ctx);
+        m2.push_str(": unary `-` applied to `");
+        sexpr_display(&mut m2, e);
+        m2.push_str("`, a value of type `");
+        m2.push_str(n);
+        m2.push_str("` — negation is not an operation on an unsigned value (every non-zero one has no image in the type), and the EL's `el_neg` computes in i64, where this type's values above i64::MAX are a different number. The remedy is to subtract from a bound (`0u64 - x` is refused for the same reason; `hi - x` over u64 columns is not), or to declare the column signed");
+        error(string_as_str(&m2));
+        return false;
+    }
+    return true;
+}
+
+/// THE TWO BRANCHES OF A TERNARY MUST HAVE ONE TYPE, AND THE WQL LAYER IS WHERE
+/// THAT IS SAID — because it is the only layer that still knows the clause and
+/// the columns.
+///
+/// ⚠ THIS REPLACES A LIVE ANTI-DIAGNOSTIC, MEASURED. `order by (s.g > 0i64 ?
+/// s.u : s.v)` over a `u64` and an `i64` column was accepted by every wql check,
+/// emitted as a bare `(if (…) { … } else { … })`, and refused by the HOST
+/// compiler reading the generated blob:
+///   <metaprog-blob-subst>:1: error [fn mixt_run]: if-expression branches have
+///     incompatible types: u64 vs i64
+/// — the sole emitter of that text is `src/compiler/sema_expr.cpp`, which is far
+/// below any notion of a clause or a column and cannot name either. The file
+/// position is a synthesised blob, so the author is handed a line number in text
+/// they never wrote, about columns that are not mentioned.
+///
+/// ⚠ AND IT IS ASKED OF `infer_emit_ty`, NOT `infer_ty_name`. The question is
+/// whether the two branches' EMITTED TEXT agrees, which is what the host will
+/// type-check — and after the unsigned tower landed those differ: a `u64`
+/// arithmetic node emits `u64` while a `u32` one emits `i64`, and asking the
+/// query's names would report agreement for a pair the host rejects.
+///
+/// ⚠ WHY IT CANNOT BE DERIVED FROM `infer_ty`/`infer_ty_name`'s Cond ARM: both
+/// answer a `SCond` with the THEN branch's type and never consult the ELSE branch
+/// at all. That silent asymmetry is precisely why a mixed ternary reached the
+/// host compiler — everything upstream believed the node had one type. The arms
+/// stay as they are (they are RIGHT once the branches agree) and this is the
+/// check that makes the antecedent true.
+pub fn check_cond_branches(c: SCond, t: &ElTypes, ctx: str) -> bool {
+    let te: SExpr = c.then_expr();
+    let ee: SExpr = c.else_expr();
+    let tn: str = infer_emit_ty(te, t);
+    let en: str = infer_emit_ty(ee, t);
+    if str_eq(tn, en) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
-    m.push_str(": arithmetic over a value of type `");
-    m.push_str(n);
-    m.push_str("` — the EL's checked arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's values do not survive the normalization into it — ");
-    m.push_str(el_order_why(n));
+    m.push_str(": the two branches of `");
+    sexpr_display(&mut m, c.cond_expr());
+    m.push_str(" ? … : …` have different types — `");
+    sexpr_display(&mut m, te);
+    m.push_str("` is `");
+    m.push_str(tn);
+    m.push_str("` and `");
+    sexpr_display(&mut m, ee);
+    m.push_str("` is `");
+    m.push_str(en);
+    m.push_str("`. A ternary is ONE value with ONE type, so the branches must agree; the remedy is to write both branches over columns of the same type, or to make the conversion explicit in the source rows. Refused here rather than in the generated source, where the message would name a synthesised line and neither column");
     error(string_as_str(&m));
     return false;
+}
+
+/// True iff `e` is the unary-minus node — the one arithmetic operator with no
+/// entry in the unsigned tower.
+fn is_neg_node(e: SExpr) -> bool {
+    match e {
+        SExpr::Un(u) => { return u.op == OP_NEG(); }
+        _ => { return false; }
+    }
+}
+
+/// THE MIXED-TOWER REFUSAL, NAMING BOTH OPERANDS AND BOTH TYPES.
+///
+/// ⚠ IT RENDERS THE OPERANDS AS THE QUERY SPELLED THEM (`sexpr_display`), not as
+/// the backend emits them. The emitted form of a rel-sourced column is a
+/// POSITIONAL tuple access (`s.0`), which names a slot and not the column the
+/// author wrote — and a diagnostic the author cannot map back to their own text
+/// is the anti-pattern this refusal exists to avoid, not a milder version of it.
+fn report_mixed_tower(parent: SExpr, t: &ElTypes, ctx: str) {
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": arithmetic mixes a SIGNED and an UNSIGNED value, and the EL has no tower that holds both — ");
+    match parent {
+        SExpr::Bin(b) => {
+            let l: SExpr = b.lhs_expr();
+            let r: SExpr = b.rhs_expr();
+            m.push_str("`");
+            sexpr_display(&mut m, l);
+            m.push_str("` is `");
+            m.push_str(infer_ty_name(l, t));
+            m.push_str("` and `");
+            sexpr_display(&mut m, r);
+            m.push_str("` is `");
+            m.push_str(infer_ty_name(r, t));
+            m.push_str("`");
+        }
+        _ => { m.push_str("the operand's type and the node's disagree"); }
+    }
+    m.push_str(". The i64 tower loses every unsigned value at or above 2^63 and the u64 tower loses every negative one, so neither reading is the query's; choosing one silently is what this refusal exists to prevent. The remedy is an explicit cast in the source column's declared type, or a `where` that bounds the signed side and a query written entirely in one signedness");
+    error(string_as_str(&m));
+}
+
+/// THE EXPRESSION AS THE QUERY SPELLED IT, for a diagnostic to quote.
+///
+/// ⚠ NOT `emit_sexpr`, WHICH IS THE OTHER RENDERING AND THE WRONG ONE HERE.
+/// `emit_sexpr` answers "what does the backend write", so a rel column comes out
+/// as `s.0` and a struct column needs the caller's row-var binding to come out at
+/// all. This one answers "what did the author type", which is the only rendering
+/// a reader can locate in their own source. Unrecognised shapes degrade to
+/// `<expression>` rather than to a lie about their form.
+pub fn sexpr_display(out: &mut String, e: SExpr) {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { out.push_str(f.name); return; }
+            sexpr_display(out, f.base_expr());
+            out.push_str(".");
+            out.push_str(f.name);
+        }
+        SExpr::Var(v)   => { out.push_str(v.name); }
+        SExpr::Param(p) => { out.push_str(":"); out.push_str(p.name); }
+        SExpr::Lit(l)   => {
+            let v: WAny = l.val;
+            if v.is_string() { out.push_str("\""); emit_str_escaped(out, v.as_wstr()); out.push_str("\""); return; }
+            if v.is_bool()   { if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); } return; }
+            if v.is_float()  { push_f64_lit(out, v.as_f64()); return; }
+            out.push_i64(v.as_i64());
+        }
+        SExpr::Call(c)  => { out.push_str(c.fn_name); out.push_str("(…)"); }
+        SExpr::Bin(b)   => {
+            out.push_str("(");
+            sexpr_display(out, b.lhs_expr());
+            out.push_str(emit_binop(b.op));
+            sexpr_display(out, b.rhs_expr());
+            out.push_str(")");
+        }
+        SExpr::Un(u)    => {
+            if u.op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
+            sexpr_display(out, u.arg_expr());
+        }
+        SExpr::Cond(c)  => {
+            out.push_str("(");
+            sexpr_display(out, c.cond_expr());
+            out.push_str(" ? ");
+            sexpr_display(out, c.then_expr());
+            out.push_str(" : ");
+            sexpr_display(out, c.else_expr());
+            out.push_str(")");
+        }
+        _ => { out.push_str("<expression>"); }
+    }
 }
 
 /// THE AGGREGATE ARGUMENT IS THE FIFTH EL OPERAND POSITION, and it is the last
@@ -957,10 +1199,19 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // this the emitted line was `el_add((s.w), (1u32))` and the host
                 // compiler reported an arg-1 mismatch in a generated chunk. The
                 // types whose normalization does NOT preserve the value are
-                // refused upstream (`check_calls` → `el_arith_ok`), so the cast
+                // refused upstream (`check_calls` → `el_arith_tower`), so the cast
                 // here is only ever applied where it is value-preserving.
-                let ir: str = el_class_repr(EL_TY_INT());
-                out.push_str(el_int_op_fn(op));
+                //
+                // ⚠ AND `THE OPERANDS ARE i64` IS TRUE OF ONE OF THE TWO TOWERS.
+                // A node whose operands are 64-bit UNSIGNED computes in the u64
+                // tower (`el_addu`/`el_divu`/…): its operands normalize to `u64`,
+                // not to i64, and no cast is written for the column at all. The
+                // tower is a property of the NODE — a node mixing the two is
+                // refused at `check_arith_operand`, so exactly one applies here.
+                let tw: i32 = el_tower_join(arith_operand_tower(lhs, t),
+                                            arith_operand_tower(rhs, t));
+                let ir: str = el_tower_repr(tw);
+                out.push_str(el_int_op_fn(op, tw));
                 out.push_str("(");
                 emit_norm_operand(out, lhs, t, var, ir);
                 out.push_str(", ");
@@ -1295,9 +1546,10 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             return check_calls(u.arg_expr(), t, ctx);
         }
         SExpr::Cond(c) => {
-            return check_calls(c.cond_expr(), t, ctx)
-                && check_calls(c.then_expr(), t, ctx)
-                && check_calls(c.else_expr(), t, ctx);
+            if !check_calls(c.cond_expr(), t, ctx) { return false; }
+            if !check_calls(c.then_expr(), t, ctx) { return false; }
+            if !check_calls(c.else_expr(), t, ctx) { return false; }
+            return check_cond_branches(c, t, ctx);
         }
         SExpr::Comp(cp) => { return check_calls(cp.head_expr(), t, ctx); }
         SExpr::Tuple(tp) => {
@@ -1462,12 +1714,26 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
     out.push_str(") != 0i64)");
 }
 
-// SBin arithmetic op id → the error-returning i64 checked-op fn NAME (logos.std
+// SBin arithmetic op id → the error-returning checked-op fn NAME (logos.std
 // .wql.el, which every emitting quote imports as `use logos.std.wql.el;` — so
 // the name is written BARE here). Emitted as `el_op((L),(R))?` so a math
 // fault propagates to the generated fn's Result. Only the arithmetic ops map;
 // callers gate on `is_arith` first.
-pub fn el_int_op_fn(op: i32) -> str {
+//
+// ⚠ TWO ROWS PER OP, ONE PER TOWER, AND THE TOWER IS AN ARGUMENT RATHER THAN A
+// SECOND FUNCTION. `el_addu`/`el_subu`/`el_mulu` existed before this table did,
+// for an aggregate ACCUMULATOR, and were reachable from nothing else; `el_divu`/
+// `el_remu` did not exist at all. A separate `el_uint_op_fn` beside this one is
+// two places for "which ops does the EL have", which is how the unsigned set came
+// to be missing two of five in the first place.
+pub fn el_int_op_fn(op: i32, tw: i32) -> str {
+    if tw == EL_TOW_U64() {
+        if op == OP_ADD() { return "el_addu"; }
+        if op == OP_SUB() { return "el_subu"; }
+        if op == OP_MUL() { return "el_mulu"; }
+        if op == OP_DIV() { return "el_divu"; }
+        return "el_remu";
+    }
     if op == OP_ADD() { return "el_add"; }
     if op == OP_SUB() { return "el_sub"; }
     if op == OP_MUL() { return "el_mul"; }

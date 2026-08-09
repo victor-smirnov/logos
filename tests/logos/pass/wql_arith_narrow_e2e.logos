@@ -17,9 +17,21 @@
 // Neither diagnostic named the column or the reason: they were type errors in
 // generated lines for a query the compiler had accepted.
 //
-// This fixture pins the admitted half — the widths whose normalization keeps
-// every value. The refused half (u64/usize reinterpret, u128/i128 truncate) is
-// wql_arith_wide_int_fail.
+// This fixture pins the widths whose normalization INTO i64 keeps every value —
+// the i64 tower's own population, which is what every claim below is about.
+//
+// ⚠ "THE CLASS'S REPRESENTATIVE" IS THE i64 TOWER'S REPRESENTATIVE, AND SINCE
+// 2026-08-09 THERE IS A SECOND TOWER. A 64-bit UNSIGNED column's arithmetic
+// computes in u64 (`el_addu`/`el_subu`/`el_mulu`/`el_divu`/`el_remu`), takes no
+// cast at all, and emits `u64` — `tests/logos/pass/wql_arith_u64_tower_e2e`.
+// Nothing in THIS file moves under that: u8..u32, i8..i32, i24/u24, i56/u56 and
+// isize all have `ElTy.fits`, so their tower is and remains the i64 one, and
+// claim 4's key vector is `i64` because that node's TOWER is i64 — not because
+// every integer node's is. The header used to say the refused half was
+// "u64/usize reinterpret, u128/i128 truncate"; only `u128`/`i128` are refused
+// now, and they are refused for having NO tower rather than for reinterpreting
+// into one (wql_arith_wide_int_fail). A node MIXING the two towers is
+// wql_arith_mixed_tower_fail.
 //
 //   1. `u32 + literal` above the i32 range: the result is i64 and is exact;
 //   2. `u32 + u32` — BOTH operands normalized (neither is a literal that could

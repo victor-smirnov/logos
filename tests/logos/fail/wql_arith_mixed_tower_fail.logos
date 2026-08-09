@@ -1,0 +1,34 @@
+// WQL — AN ARITHMETIC NODE MIXING A SIGNED AND AN UNSIGNED COLUMN HAS NO TOWER,
+// AND IS REFUSED WITH BOTH COLUMNS NAMED.
+//
+// ⚠ THIS REFUSAL IS THE PRICE OF THE SECOND TOWER, AND IT IS THE REASON THE
+// TOWER IS A PROPERTY OF THE NODE RATHER THAN OF A TYPE. Before `el_addu`/
+// `el_divu`/… were reachable from the arithmetic seam there was one tower and a
+// `u64` operand was simply refused, so `s.g + s.u` never got as far as asking
+// which reading was meant. With two towers the node has a genuine choice, and
+// exactly one thing must not happen: taking it silently.
+//
+//   the i64 tower loses every unsigned value at or above 2^63
+//     (2^64−1 reads as −1, 2^63 reads as i64::MIN);
+//   the u64 tower loses every negative signed value
+//     (there is no image at all — the conversion is not merely lossy).
+//
+// Neither reading is the query's, so the node is refused and the diagnostic names
+// BOTH operands, BOTH types and the clause. `wql_arith_u64_tower_e2e` block E is
+// the same operators over a single-signedness column, answered.
+//
+// ⚠ AN INTEGER LITERAL IS NOT AN OPERAND FOR THIS PURPOSE. `s.u / 3` is admitted
+// — a literal carries no width and takes the other side's tower, exactly as it
+// takes the other side's type at the emitter's `want_l`/`want_r`. That is why
+// `arith_operand_tower` asks the NODE KIND and not just `infer_ty_name`, which
+// answers `i64` for a literal and for an `i64` column alike.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub g: i64, pub u: u64 }
+
+pub deem mixt(src: &[Rec]) { from src s select s.g + s.u }
+
+fn main() -> i32 { return 0i32; }

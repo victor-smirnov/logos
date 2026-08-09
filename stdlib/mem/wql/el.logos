@@ -175,6 +175,39 @@ pub fn el_mulu(a: u64, b: u64) -> Result<u64, ElError> {
     match a.checked_mul(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
 }
 
+// ── THE DIVISION SIBLINGS — WHAT MAKES THE UNSIGNED SET A *TOWER* ──────────
+//
+// ⚠ `el_addu`/`el_subu`/`el_mulu` WERE BUILT FOR ONE CALLER — an aggregate
+// ACCUMULATOR, which only ever adds, subtracts and scales — so the set stopped
+// where that caller stopped. That is not the same population as "the operators
+// the EL's expression grammar has": `/` and `%` are in the grammar, they are in
+// the signed tower (`el_div`/`el_rem`), and their absence here is exactly why
+// `order by (s.u / 3u64)` over a `u64` column had no static arm at all and was
+// refused by `el_arith_tower`'s ancestor as though u64 arithmetic were lossy.
+// It is not lossy — it is a DIFFERENT tower, and a tower missing two of its five
+// operations is a tower nothing can compute in.
+//
+// ⚠ AND THE TWO TOWERS DISAGREE ON EXACTLY THE VALUES THAT MADE THIS WORTH
+// BUILDING. `18446744073709551615u64 / 3u64` is 6148914691236517205; the same
+// bits read as an i64 are −1, and −1 / 3 is 0. Every value at or above 2^63 —
+// half the type — divides to a different answer under the signed reading, and
+// the old route reached the signed reading by way of `as i64`. So this is not a
+// convenience arm: it is the arm without which half of `u64` answers wrong.
+//
+// DivByZero, NOT Overflow, and it is the SAME error value the signed tower
+// returns for the same cause — a caller matching on `ElError` must not have to
+// know which tower ran. There is no `i64::MIN / -1` analogue here (unsigned
+// division cannot overflow), so `checked_div`'s only `None` is the zero divisor
+// and the explicit guard above it states the reason rather than inferring it.
+pub fn el_divu(a: u64, b: u64) -> Result<u64, ElError> {
+    if b == 0u64 { return Result::Err(ElError::DivByZero); }
+    match a.checked_div(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+pub fn el_remu(a: u64, b: u64) -> Result<u64, ElError> {
+    if b == 0u64 { return Result::Err(ElError::DivByZero); }
+    match a.checked_rem(b) { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+
 /// |w| AS A `u64`, TOTAL EXCEPT AT ONE VALUE — the magnitude of a Z-set weight,
 /// for the u64 accumulator that must add or subtract that many copies of an
 /// unsigned addend.
@@ -694,8 +727,11 @@ pub fn el_host_carries(name: str, want: str) -> bool {
 /// `want = "i64"`, `el_int_widens` is `ElTy.fits` restated at the destination and
 /// admits exactly the same set: i8..i32 / u8..u32 / i24 / u24 / i56 / u56 /
 /// isize / i64, and NOT `u64`, `usize` (REINTERPRET), `u128` or `i128`
-/// (TRUNCATE). The i64-accumulator refusals — `wql_arith_wide_int_fail`,
-/// `wql_udf_wide_int_ret_fail`, `wql_agg_nonnumeric_arg_fail` — are untouched.
+/// (TRUNCATE). The i64-accumulator refusals — `wql_udf_wide_int_ret_fail`,
+/// `wql_agg_nonnumeric_arg_fail` — are untouched. (`wql_arith_wide_int_fail` was
+/// in that list until 2026-08-09; the ARITHMETIC seam's destination is no longer
+/// fixed at i64, because `el_arith_tower` gives a 64-bit unsigned node the u64
+/// tower and it takes no cast at all. That file now holds `u128`/`i128`.)
 /// What is newly admitted is `usize` INTO A `u64` ACCUMULATOR, which is the same
 /// row of the rule as `u64` itself (same width, same order, same overflow
 /// predicate) and whose cast `as u64` moves neither a bit nor a value.
@@ -1115,12 +1151,12 @@ pub fn EL_WHY_SORT() -> i32 { return 1i32; }   // a key collected into a vector 
 /// ⚠ WHICH (code, question) PAIRS ARE REACHABLE, because a pair nobody reaches is
 /// a claim nobody can check — and here the derivation is exact rather than a
 /// survey of callers. All three NORM callers refuse on the same antecedent: the
-/// type is INT-family and `!fits` (`el_arith_ok` returns `t.fits` for INT and
-/// true otherwise; `check_agg_operand` reaches the shared ground only inside
-/// `!ty.fits`, and f32/f64 have `fits == true`; `check_calls` guards on
-/// `EL_TY_INT() && !el_int_fits_i64`). `el_ord_of` maps exactly that antecedent
-/// to WRAP (bits ≤ 64) or TRUNC (bits > 64). So NORM reaches WRAP and TRUNC and
-/// NOTHING ELSE, and PARTIAL / UNNAMED / NO_CMP are SORT-reachable only — their
+/// type is INT-family and `!fits` (`check_agg_operand` reaches the shared ground
+/// only inside `!ty.fits`, and f32/f64 have `fits == true`; `check_calls` guards
+/// on `EL_TY_INT() && !el_int_fits_i64`). `el_ord_of` maps exactly that
+/// antecedent to WRAP (bits ≤ 64) or TRUNC (bits > 64). So NORM reaches WRAP and
+/// TRUNC and NOTHING ELSE, and PARTIAL / UNNAMED / NO_CMP are SORT-reachable
+/// only — their
 /// consequence clauses are the sort's and are written as such. If a fourth
 /// normalization position ever reaches one of them, the sentence it gets is the
 /// sort's and will read wrong; that is the same defect one row over, and the
@@ -1327,26 +1363,95 @@ pub fn el_index_key_ok(name: str) -> bool {
     return t.cls == EL_TY_INT();
 }
 
-// ── MAY THE EL COMPUTE ARITHMETIC IN THIS TYPE? ───────────────────────────
-// The EL's integer arithmetic is `el_add`/`el_sub`/… — i64 in, i64 out, checked.
-// So the RESULT of an integer arithmetic node is i64 whatever the operands were
-// named, and each operand is normalized into i64 to reach the call. That is the
-// same `as i64` the call site refuses when the value cannot survive it, and it is
-// refused here for the same reason and by the same fact (`ElTy.fits`): u8..u32,
-// i8..i32, u56/i56 and isize normalize without moving a value, `u64`/`usize`
-// REINTERPRET and `u128`/`i128` TRUNCATE.
+// ── WHICH TOWER DOES THE EL COMPUTE THIS TYPE'S ARITHMETIC IN? ────────────
 //
-// ⚠ THIS IS NOT A NEW RESTRICTION, IT IS A NEW DIAGNOSTIC. MEASURED at HEAD:
-// `select s.v + 1` over a `u64` column emitted `el_add((s.v), (1u64))` and failed
-// as `call to 'el_add' arg 1: expected i64, got u64` — inside a generated chunk,
-// naming neither the column nor the reason. The same query over `u32` failed the
-// same way; it is ADMITTED now, with its operands normalized, because the u32
-// normalization keeps every value.
-pub fn el_arith_ok(name: str) -> bool {
+// ⚠ THIS USED TO BE A BOOL AND THE BOOL WAS THE DEFECT. It answered "may the EL
+// compute arithmetic over this type" with `ElTy.fits` — "does every value
+// survive `as i64`" — because there WAS only one tower: `el_add`/`el_sub`/
+// `el_mul`/`el_div`/`el_rem`, i64 in, i64 out. Under that single tower `u64` and
+// `usize` were refused, and the refusal's own ground text said the values "do
+// not survive the normalization into it". True, and beside the point: nothing
+// obliged a `u64` column to be normalized into i64 at all. A `u64` key vector was
+// already `Vec<u64>` (`key_norm_ok`) and a `u64` accumulator was already `u64`
+// (`agg_acc_ty`) — the arithmetic seam was the last position still holding that
+// every integer is an i64, and it charged the whole `u64` type for it.
+//
+// So the question is no longer "may it" but "in WHICH", and there are two:
+//
+//   EL_TOW_I64   every value survives `as i64` (`ElTy.fits`) — i8..i64, u8..u32,
+//                the packed i24/u24/i56/u56, isize. `el_add`/`el_sub`/`el_mul`/
+//                `el_div`/`el_rem`.
+//   EL_TOW_U64   a 64-bit UNSIGNED value, which survives `as i64` in BITS but not
+//                in VALUE — u64, usize. `el_addu`/`el_subu`/`el_mulu`/`el_divu`/
+//                `el_remu`, which compute in u64 and never take the cast.
+//   EL_TOW_NONE  not an integer operand at all: a float (arithmetic is IEEE
+//                infix), a str/bool, or a name outside the lattice (LENIENT —
+//                the host compiler is the oracle, unchanged).
+//   EL_TOW_DENY  `u128`/`i128`. These have no tower: they TRUNCATE into i64 and
+//                there is no 128-bit checked set. This is the only value-domain
+//                refusal the arithmetic seam has left, and it is a refusal about
+//                a MISSING TOWER rather than about the type's values.
+//
+// ⚠ THE TWO TOWERS ARE NOT INTERCHANGEABLE AND THAT IS THE WHOLE POINT.
+// `18446744073709551615 / 3` is 6148914691236517205 in u64 and 0 in i64 (the
+// same bits are −1 there). Every u64 value at or above 2^63 divides, orders and
+// compares differently under the signed reading — so a NODE mixing a signed and
+// an unsigned column has no tower either, and `el_tower_join` denies it rather
+// than picking one. That denial is a per-NODE fact; this function answers only
+// for one type name.
+pub fn EL_TOW_NONE() -> i32 { return 0i32; }
+pub fn EL_TOW_I64()  -> i32 { return 1i32; }
+pub fn EL_TOW_U64()  -> i32 { return 2i32; }
+pub fn EL_TOW_DENY() -> i32 { return 3i32; }
+
+pub fn el_arith_tower(name: str) -> i32 {
     let t: ElTy = el_ty(name);
-    if t.cls < 0i32 { return true; }           // lenient: the host compiler decides
-    if t.cls != EL_TY_INT() { return true; }   // float arithmetic is infix, no i64
-    return t.fits;
+    if t.cls < 0i32         { return EL_TOW_NONE(); }  // lenient: the host decides
+    if t.cls != EL_TY_INT() { return EL_TOW_NONE(); }  // float arithmetic is infix
+    if t.fits               { return EL_TOW_I64(); }
+    // ⚠ READ OFF THE SAME TWO STORED FACTS `el_ord_of` READS, so "u64 and usize"
+    // is never a name list here: an unsigned row of ≤ 64 bits is exactly the
+    // EL_ORD_WRAP population, which is exactly what `agg_acc_ty` already types as
+    // a u64 accumulator. A packed unsigned width added later joins both by its
+    // row, not by an edit here.
+    if !t.signed && t.bits <= 64i64 { return EL_TOW_U64(); }
+    return EL_TOW_DENY();                              // u128 / i128 — no tower
+}
+
+/// The type the tower's operations take and return — what the emitter prints for
+/// an arithmetic node computing in it, and what its operands are normalized to.
+pub fn el_tower_repr(tw: i32) -> str {
+    if tw == EL_TOW_U64() { return "u64"; }
+    return el_class_repr(EL_TY_INT());
+}
+
+/// THE TOWER OF A NODE FROM THE TOWERS OF ITS OPERANDS — a join on the four-value
+/// lattice, and the only place a MIXED-SIGN arithmetic node is decided.
+///
+/// `NONE` is the identity: an integer LITERAL has no width of its own and takes
+/// the other operand's tower, exactly as it takes the other operand's type at
+/// `emit_sexpr_as`'s `want_l`/`want_r`. Two `NONE`s stay `NONE` and the caller
+/// reads that as i64 — `1 + 2` has always computed there.
+///
+/// ⚠ `I64 ⊔ U64` IS `DENY`, NOT `U64`, AND NOT `I64`. `s.g + s.u` over an `i64`
+/// and a `u64` column has no correct answer in either tower: i64 loses every u64
+/// value above 2^63 and u64 loses every negative i64. Picking a side silently is
+/// the class of defect this whole lattice exists to refuse, so the node is
+/// refused and the diagnostic names both columns and both types.
+pub fn el_tower_join(a: i32, b: i32) -> i32 {
+    if a == EL_TOW_DENY() || b == EL_TOW_DENY() { return EL_TOW_DENY(); }
+    if a == EL_TOW_NONE() { return b; }
+    if b == EL_TOW_NONE() { return a; }
+    if a == b             { return a; }
+    return EL_TOW_DENY();                              // signed ⊔ unsigned
+}
+
+/// The BOOL VIEW, for the one question that is still binary: does this type have
+/// a tower at all? Kept because "u128 has no checked set" and "u64 has a
+/// different one" are different answers and callers that only branch on the
+/// first should not have to spell the second.
+pub fn el_arith_ok(name: str) -> bool {
+    return el_arith_tower(name) != EL_TOW_DENY();
 }
 
 /// THE answer to the NEIGHBOURING question, kept next to the order table because

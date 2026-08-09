@@ -24,9 +24,14 @@
 // the aggregate accumulator now carries the column's own type, so that position
 // no longer normalizes a `u64` at all — and its answers are
 // `tests/logos/pass/wql_agg_wide_int_arg_e2e`. The NORM rendering below is still
-// reached, from every position whose accumulator IS `i64`: the arithmetic
-// operand (`wql_arith_wide_int_fail`) and the UDF result
-// (`wql_udf_wide_int_ret_fail`).
+// reached, and by BOTH codes, but not from the same two positions any more:
+//   WRAP (u64/usize) — the UDF RESULT alone (`wql_udf_wide_int_ret_fail`), whose
+//     normalization is `as i64` and has nowhere else to go;
+//   TRUNC (u128/i128) — the UDF result AND the arithmetic operand
+//     (`wql_arith_wide_int_fail`), which since 2026-08-09 computes a 64-bit
+//     unsigned node in a u64 tower and so no longer reaches WRAP at all.
+// Both codes therefore still have a NORM caller and the split below is still
+// exercised; what changed is which caller supplies WRAP.
 //
 // ── WHAT THIS FILE ASSERTS, AND WHY EACH ARM EXISTS ─────────────────────────
 //   1. THE SPLIT EXISTS. For WRAP and TRUNC — the only two codes a normalizing

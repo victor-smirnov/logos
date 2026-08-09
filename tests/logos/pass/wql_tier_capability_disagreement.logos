@@ -61,7 +61,7 @@
 //   aggregate avg        ACCEPTS, right  ACCEPTS        ACCEPTS
 //   aggregate min/max    ACCEPTS, right  ACCEPTS, WRONG ACCEPTS, WRONG
 //   aggregate sum        ACCEPTS, right  ACCEPTS        ACCEPTS
-//   arithmetic `+`       REFUSES         ACCEPTS        ACCEPTS †
+//   arithmetic `+`       ACCEPTS, right  ACCEPTS        ACCEPTS †
 //
 // ⚠ TWO ROWS OF THE STATIC COLUMN MOVED ON 2026-08-06 AND THIS FILE DID NOT GO
 // RED, WHICH IS THE SAME MISS AS LAST TIME AND IS RECORDED AS ONE. Both read
@@ -71,19 +71,33 @@
 // rows were corrected by hand, from the change, and blocks G and H were added so
 // that the NEXT move of this row is caught by an assertion.
 //
-// ⚠ AND THE `arithmetic +` ROW DID NOT MOVE WITH THEM, WHICH IS NOW THE SHARPEST
-// CELL IN THE TABLE. `sum(s.x)` over a `u64` column is answered while
-// `sum(s.x + 1)` over the SAME column silently drops to an i64 accumulator —
-// correctly, because `el_add` computes in i64 and `infer_emit_ty` therefore
-// reports the arithmetic node's type as the class representative — and
-// `select s.x + 1` is refused outright (`check_arith_operand`,
-// `wql_arith_wide_int_fail`). The accumulator follows the COLUMN, never the
-// arithmetic over it, and the reason is not an oversight: `sum(s.x + 1)` has an
-// ARITHMETIC node for its argument, `infer_emit_ty` reports that node's type as
-// the class representative because that is what `el_add` returns, and
-// `agg_acc_ty("i64")` is `i64`. The distinction is measured across two files —
-// block H here for the accepted half, `wql_arith_wide_int_fail` for the refused
-// one — because a refusal cannot be a pass test.
+// ⚠ THE `arithmetic +` ROW DID NOT MOVE WITH THEM ON 2026-08-06 AND HAS MOVED
+// NOW (2026-08-09) — AND THE PARAGRAPH THAT SAT HERE IS WHY IT IS WORTH SAYING
+// SO IN FULL. It read: `sum(s.x)` over a `u64` column is answered while
+// `sum(s.x + 1)` over the SAME column "silently drops to an i64 accumulator —
+// correctly, because `el_add` computes in i64", and `select s.x + 1` "is refused
+// outright". Every clause of that was TRUE OF THE CODE AND FALSE AS A RULE: it
+// derived a value-domain verdict from the fact that only one tower had been
+// written. The EL now has two — `el_add`/… in i64 and `el_addu`/`el_subu`/
+// `el_mulu`/`el_divu`/`el_remu` in u64 (`el_divu`/`el_remu` did not exist at all
+// before that date) — and an arithmetic node whose operands are 64-bit unsigned
+// computes in the second, takes no cast, and reports its emitted type as `u64`.
+// So `select s.x + 1` is ACCEPTED and answered in u64, and `sum(s.x + 1)` now
+// accumulates in u64 as well: `agg_acc_ty` is asked the ARGUMENT's emitted type
+// and the argument's emitted type finally tells the truth about the node.
+//
+// ⚠ THE ACCUMULATOR NOW FOLLOWS THE ARITHMETIC, WHICH IS THE OPPOSITE OF WHAT
+// THIS PARAGRAPH USED TO ASSERT AS A PRINCIPLE ("the accumulator follows the
+// COLUMN, never the arithmetic over it"). That was never a principle; it was the
+// i64 laundering in `infer_emit_ty` described as one.
+//
+// The cells are measured in `tests/logos/pass/wql_arith_u64_tower_e2e`, at 2^63
+// and 2^64−1, where the signed reading gives DIFFERENT answers — a fixture over
+// small values would have passed against the old route and measured nothing.
+// What remains refused, and therefore still lives in `fail/`, is a genuinely
+// towerless set: `u128`/`i128` (`wql_arith_wide_int_fail`), a node MIXING signed
+// and unsigned columns (`wql_arith_mixed_tower_fail`), and unary `-` over an
+// unsigned value (`wql_arith_u64_neg_fail`).
 //
 // † IN AN INCREMENTAL-ELIGIBLE SHAPE, and the distinction is the whole reason
 //   the footnote exists rather than a tick. `incremental()` refuses a BARE
@@ -132,7 +146,9 @@
 // THE ACCUMULATOR IT WAS TOLD ABOUT and it dissolves when told about the right
 // one. Nothing was relaxed at an accumulator that did not move: into `i64`, the
 // admitted set is byte-for-byte the old one, which is what keeps
-// `wql_arith_wide_int_fail` and `wql_udf_wide_int_ret_fail` red.
+// `wql_udf_wide_int_ret_fail` red. (`wql_arith_wide_int_fail` was in that
+// sentence too and no longer belongs there: the arithmetic seam's accumulator
+// DID move — 2026-08-09, to a second tower — and that file now holds `u128`.)
 //
 // ── WHAT THE REFUSAL DOES *NOT* COVER, WHICH IS THE FINDING ─────────────────
 // It is NOT a class-level over-refusal. `u8`, `u16` and `u32` widen losslessly
@@ -194,15 +210,22 @@
 //
 // ── THE REFUSALS THAT REMAIN LIVE IN fail/, BECAUSE A PROGRAM THAT DOES NOT ──
 // ── COMPILE CANNOT BE A PASS TEST ───────────────────────────────────────────
-//   `+` over `u64`     → tests/logos/fail/wql_arith_wide_int_fail
 //   a UDF returning `u64` → tests/logos/fail/wql_udf_wide_int_ret_fail
 //   an `f32` aggregate argument → tests/logos/fail/wql_agg_f32_arg_fail
-// The two surviving `u64` refusals are positions whose accumulator IS `i64` and
-// cannot move: the EL's checked arithmetic tower computes in i64 by definition,
-// so the value has to become an i64 there, and it cannot faithfully.
+//   `u128`/`i128` arithmetic → tests/logos/fail/wql_arith_wide_int_fail
+//   a MIXED signed/unsigned arithmetic node → fail/wql_arith_mixed_tower_fail
+//   unary `-` over an unsigned value → fail/wql_arith_u64_neg_fail
+//   a ternary whose branches disagree → fail/wql_cond_branch_types_fail
+// The surviving `u64` refusal is the UDF RESULT, whose normalization IS `as i64`
+// and has nowhere else to go: a fn's return type is the fn's, so there is no
+// second tower to pick and no operand to leave uncast.
 //   `sum` over `u64` USED to head that list. Its answers are now
 //   `tests/logos/pass/wql_agg_wide_int_arg_e2e`; `min`/`max` over `u64` are
 //   `tests/logos/pass/deem_incr_static_minmax_u64_e2e`.
+//   `+` over `u64` headed it until 2026-08-09, on the ground that "the EL's
+//   checked arithmetic tower computes in i64 by definition". That was a claim
+//   about how many towers had been WRITTEN, stated as a definition. Its answers
+//   are `tests/logos/pass/wql_arith_u64_tower_e2e`.
 // Every static ACCEPTANCE claimed in the matrix above is asserted by this file
 // simply by compiling: a `deem` whose query the static tier refuses is a compile
 // error, so each `pub deem` below is itself half of an assertion and its answer
@@ -413,8 +436,9 @@ fn main() -> i32 {
     let sm: QRows = gm.snapshot();
     if sm.row_count() != 1i64 { return 56i32; }
 
-    // the arithmetic position, which the static tier also refuses
-    // (`wql_arith_wide_int_fail`) and both runtime tiers take.
+    // the arithmetic position, which the static tier ALSO takes now
+    // (`wql_arith_u64_tower_e2e`, in u64's own tower) and both runtime tiers
+    // take. It read "which the static tier also refuses" while that was true.
     // ⚠ `+ 1` AND NOT `+ s.x`, and the reason is a real Err rather than a
     // preference: the dynamic tier's `+` is a CHECKED i64 add, so doubling the
     // 2^63 row is i64::MIN + i64::MIN and the query legitimately fails. That is

@@ -54,6 +54,29 @@ struct V { pub g: i64, pub z: i64 }
 // refusal: `E`'s fields are both `i64`, so `incr_row_ty_ok` would ADMIT it, and
 // the only thing standing between these queries and a handle is the rel clause.
 struct E { pub a: i64, pub b: i64 }
+// `F` is `U` WITH AN f64 COLUMN, and it exists to TRANSCRIBE A PIN OFF A DYING
+// FIXTURE. `tests/logos/pass/wql_domain_incr_disagreement` block 3b holds the one
+// live `⚠ KNOWN-WRONG` of that family: an equi-join on an `f64` key is ACCEPTED
+// by two tiers and REFUSED by the incremental one. Both of its accepting halves
+// run through `Query::compile` — the DYNAMIC interpreter — so when the
+// interpreter is deleted the disagreement loses the side that made it a finding
+// and the pin would go with it. The surviving accepting tier is the STATIC batch
+// fn, and it is asserted below with the other ineligible queries; the refusing
+// side is this file's own gate row (`no_join_f64key|declined`).
+//
+// ⚠ THE CONTROL IS `ok_join`, ALREADY IN THIS FILE, AND THAT IS WHY `F` IS NOT
+// JUST `U` WITH ONE FIELD CHANGED. `ok_join` is the same join SHAPE over `U`/`T`
+// — two owned relations, one step, `group by` + `count`/`sum` — and it is
+// EMITTED. So the two rows differ in the KEY'S TYPE and in nothing else, which
+// is the only thing that makes "declined for the f64" a measurement rather than
+// a restatement of "declined".
+//
+// ⚠ AND THIS ROW FAILS-IF-FIXED, WHICH IS THE WHOLE POINT OF TRANSCRIBING IT.
+// The day the incremental tier admits an f64 join key, `no_join_f64key` traces
+// EMITTED, the gate's expected verdict stops matching, and this file goes RED.
+// Like block 3b before it: a red here from a FIX is the pin doing its job —
+// rewrite the row, do not delete it.
+struct F { pub g: i64, pub k: f64, pub w: i64 }
 // `W` is a WEIGHTED edge, for the aggregate-headed rel below. It is not a reuse
 // of `E` because the min head folds over `x.d + e.w` and needs a third column;
 // its fields are all `i64`, so `incr_row_ty_ok` would ADMIT its row type and the
@@ -100,6 +123,17 @@ pub deem ok_join(uu: &[U], tt: &[T]) {
 // have. The refusal is about the FIELD, not about the join.
 pub deem no_join_strrow(ss: &[S], tt: &[T]) {
     from ss s join tt u on s.g == u.g group by s.g aggregate t = sum(u.w) select (key, t)
+}
+// A JOIN ON AN `f64` KEY — the row transcribed from `wql_domain_incr_disagreement`
+// block 3b (see `struct F`). Same shape as `ok_join`, same two owned relations,
+// one step, `group by` + `sum`; the key is `f64` and the row therefore carries an
+// f64 field. The STATIC BATCH answers it (asserted below); the incremental tier
+// declines, and the ground it gives is the ownable-and-identifiable one — an
+// `f64` has no `==` that is identity, so the Z-set's normal form has nothing to
+// search on. Two engines accept, one refuses: the disagreement, on the pair that
+// survives the interpreter's deletion.
+pub deem no_join_f64key(ff: &[F], gg: &[F]) {
+    from ff x join gg y on x.k == y.k group by x.g aggregate t = sum(y.w) select (key, t)
 }
 // TWO join steps. Rooting the nest at a step other than the base re-splits every
 // equi-term's build/probe halves and re-places every floating predicate, which
@@ -312,6 +346,16 @@ fn urows() -> Vec<U> {
     v.push(U { g: 0i64, v:  7i64 });
     return v;
 }
+// TWO ROWS WHOSE `f64` KEYS ARE EQUAL AND ONE WHOSE KEY IS NOT — so the batch
+// answer below is a JOIN and not a cross product, and a comparison that stopped
+// discriminating would be visible in the group total rather than only in the
+// row count.
+fn frows() -> Vec<F> {
+    let mut v: Vec<F> = vec_new::<F>();
+    v.push(F { g: 0i64, k: 1.5f64, w: 3i64 });
+    v.push(F { g: 1i64, k: 2.5f64, w: 4i64 });
+    return v;
+}
 fn vrows() -> Vec<V> {
     let mut v: Vec<V> = vec_new::<V>();
     v.push(V { g: 0i64, z: 9i64 });
@@ -457,6 +501,22 @@ fn main() -> i32 {
     match no_join_strrow(ss.as_slice(), tt.as_slice()) {
         Result::Ok(v) => { if v.len() != 2i64 { return 20i32; } }
         Result::Err(_e) => { return 21i32; }
+    }
+    // THE ACCEPTING HALF OF THE TRANSCRIBED DISAGREEMENT (see `struct F`). The
+    // static batch tier joins on an `f64` key and ANSWERS: two groups, each
+    // matching exactly one partner, so the sums are the partners' own weights.
+    // A comparison that matched everything would give 0 → {7} and 1 → {7}; one
+    // that matched nothing would give no rows at all. Both are distinguishable
+    // from what is asserted here, which is why the totals are asserted and not
+    // merely the row count.
+    let ff: Vec<F> = frows();
+    match no_join_f64key(ff.as_slice(), ff.as_slice()) {
+        Result::Ok(v) => {
+            if v.len() != 2i64        { return 100i32; }
+            if v.get(0i64).1 != 3i64  { return 101i32; }
+            if v.get(1i64).1 != 4i64  { return 102i32; }
+        }
+        Result::Err(_e) => { return 103i32; }
     }
     match no_join2(uu.as_slice(), tt.as_slice(), vv.as_slice()) {
         Result::Ok(v) => { if v.len() != 1i64 { return 44i32; } }

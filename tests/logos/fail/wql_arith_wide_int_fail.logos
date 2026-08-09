@@ -1,37 +1,39 @@
-// WQL — ARITHMETIC OVER A VALUE THAT CANNOT SURVIVE THE EL's i64 TOWER IS
-// REFUSED, NOT REINTERPRETED.
+// WQL — ARITHMETIC OVER A TYPE THE EL HAS NO TOWER FOR IS REFUSED, AND `u128` /
+// `i128` ARE THE ONLY TYPES LEFT IN THAT SET.
 //
-// The EL's checked integer arithmetic is `el_add`/`el_sub`/`el_mul`/`el_div`/
-// `el_rem` — i64 in, i64 out, with an overflow returned as an `ElError` rather
-// than trapped. So EVERY integer arithmetic node computes in i64 whatever the
-// query named its operands, and each operand is normalized into i64 to reach the
-// call. For u8..u32 / i8..i32 / isize that normalization keeps every value and the
-// arithmetic is ADMITTED (wql_arith_narrow_e2e). For `u64`/`usize` it
-// REINTERPRETS and for `u128`/`i128` it TRUNCATES.
+// ── WHAT THIS FILE USED TO PIN, AND WHY THAT ROW MOVED ──────────────────────
+// It pinned `select s.v + 1` over a `u64` column, with the ground "the EL's
+// checked arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's
+// values do not survive the normalization into it". Both halves were true and the
+// conclusion did not follow: nothing obliged a `u64` column to be normalized into
+// i64. The EL has TWO integer towers now — `el_add`/… in i64 and `el_addu`/
+// `el_subu`/`el_mulu`/`el_divu`/`el_remu` in u64 — and a node whose operands are
+// 64-bit unsigned computes in the second one, taking no cast at all. That half of
+// the old refusal is now `tests/logos/pass/wql_arith_u64_tower_e2e`, which
+// asserts the ANSWERS at 2^63 and 2^64−1, where the signed reading differs.
 //
-// ⚠ WHAT THIS REPLACES IS NOT A WEAKER CHECK, IT IS NO CHECK. MEASURED at the
-// parent commit, `from src s select s.v + 1` over a `u64` column:
-//   <metaprog-blob-subst>:1: error [fn p_run]: call to 'el_add' arg 1:
-//     expected i64, got u64
-//   <metaprog-blob-subst>:1190: error [fn p_run]: method 'Vec__push' arg 1:
-//     expected u64, got i64
-// — two type errors in generated lines, naming neither the column nor the reason,
-// for a query the compiler had decided to accept. The same query over a `u32`
-// column failed identically; it compiles and answers now.
+// ⚠ WHAT DID NOT MOVE IS THIS FILE'S SUBJECT, AND ITS GROUND IS A DIFFERENT ONE.
+// `u128`/`i128` are refused not because their values are lossy under some chosen
+// normalization but because THERE IS NO 128-BIT CHECKED SET TO COMPUTE IN. Both
+// towers are 64 bits wide, so either one drops bits. A refusal about a missing
+// tower is repaired by writing the tower; a refusal about a value's survival is
+// repaired by not converting — the two have different remedies and this file
+// holds the first.
 //
 // ⚠ REFUSED AT THE OPERAND, WHICH IS WHERE THE CAST IS. The same fact
-// (`ElTy.fits`) refuses a lossy UDF RESULT at its call site
-// (wql_udf_wide_int_ret_fail); this is the other site the same `as i64` is
-// emitted at, and the two share the ground text rather than a second copy of it.
+// (`ElTy.fits`, and past it `el_arith_tower`'s width test) refuses a lossy UDF
+// RESULT at its call site (wql_udf_wide_int_ret_fail); this is the other site the
+// same `as i64` is emitted at, and the two share the ground text rather than a
+// second copy of it.
 //
-// A `u64` column may still be projected, sorted by, grouped by and compared —
-// none of those go through the i64 tower (wql_key_own_type_e2e).
+// A `u128` column may still be projected, sorted by, grouped by and compared —
+// none of those go through either tower (wql_key_own_type_e2e).
 package test;
 
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
 
-struct Rec { pub id: i64, pub v: u64 }
+struct Rec { pub id: i64, pub v: u128 }
 
 pub deem shifted(src: &[Rec]) { from src s select s.v + 1 }
 

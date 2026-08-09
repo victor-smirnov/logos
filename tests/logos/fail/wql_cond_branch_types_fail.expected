@@ -1,0 +1,1 @@
+wql!: `order by`: the two branches of `(s.g > 0) ? … : …` have different types — `s.u` is `u64` and `s.v` is `i64`

@@ -1,0 +1,1 @@
+wql!: `select`: unary `-` applied to `s.u`, a value of type `u64` — negation is not an operation on an unsigned value

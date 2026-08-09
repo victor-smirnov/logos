@@ -31,9 +31,11 @@ package wql_agg_isize_arg_e2e;
 //     declares `el::agg_acc_ty` of the column, so the question became "does the
 //     argument reach a `u64` cell", whose answer is yes and needs no cast.
 //     Answers: `tests/logos/pass/wql_agg_wide_int_arg_e2e`. Into an `i64`
-//     accumulator — which is what the arithmetic tower and a UDF result still
-//     are — the refusal is unchanged (`wql_arith_wide_int_fail`,
-//     `wql_udf_wide_int_ret_fail`).
+//     accumulator — which is what a UDF RESULT still is — the refusal is
+//     unchanged (`wql_udf_wide_int_ret_fail`). The ARITHMETIC seam left that
+//     list on 2026-08-09: it grew a second tower and computes a 64-bit unsigned
+//     node in u64 (`wql_arith_u64_tower_e2e`), so it no longer normalizes a
+//     `u64` into an i64 accumulator either.
 //   • `u128` / `i128`  — `fits` is FALSE: the normalization TRUNCATES.
 //   • `f32`            — `fits` is TRUE and the cast into `f64` is exact, so
 //     this seam COULD write it. It is withheld: what a float aggregate

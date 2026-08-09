@@ -1,1 +1,1 @@
-wql!: `select`: arithmetic over a value of type `u64` — the EL's checked arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's values do not survive the normalization into it
+wql!: `select`: arithmetic over a value of type `u128` — the EL computes integer arithmetic in one of two towers, i64 (`el_add`/`el_sub`/…) or u64 (`el_addu`/`el_subu`/…), and this type fits NEITHER: it is wider than both, so reaching either drops bits

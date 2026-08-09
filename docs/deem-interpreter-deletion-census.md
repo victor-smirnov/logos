@@ -232,8 +232,8 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 58 | `query_u64_ordw_origin` | 1 | — | C | `ordw` under/over-carry at the aggregate out-name |
 | 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) |
 | 60 | `wql_agg_avg_bool_three_engines` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
-| 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer |
-| 62 | `wql_domain_incr_disagreement` | 9 | — | C K | the incremental tier's three disagreements; block 3b is KNOWN-WRONG |
+| 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer — its ARITHMETIC positions now have a static arm (**2026-08-09**, `pass/wql_arith_u64_tower_e2e`); the rest still need `..._static_carrier_positions` |
+| 62 | `wql_domain_incr_disagreement` | 9 | — | C K | the incremental tier's three disagreements; block 3b is KNOWN-WRONG — **TRANSCRIBED 2026-08-09** onto `no_join_f64key` (`pass/wql_incr_eligibility_matrix` + `incr_eligibility_gate.sh`), see §5 C1 |
 | 63 | `wql_domain_runtime_extremes` | 3 | — | C K | 18 types round-tripped through the dynamic tier (static twin: `wql_domain_static_extremes`) |
 | 64 | `wql_domain_runtime_order_a` | 6 | — | C K | `order by` — i8/i16/i32/i64/isize/i24 |
 | 65 | `wql_domain_runtime_order_b` | 6 | — | C K | `order by` — i56/u8/u16/u32/u24/u56 |
@@ -251,7 +251,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 77 | `wql_native_graph_e2e` | 1 | 3 deems | B | native object graph as a `deem!` source |
 | 78 | `wql_tier_capability_disagreement` | 5 | 10 deems | B K | THREE tiers disagree about what they will answer; becomes a two-tier file |
 | 79 | `wql_u64_sum_accumulator` | 10 | — | C | the `sum` accumulator seam over u64, both failure directions |
-| 80 | `wql_u64_sum_scalar_arith` | 7 | — | C | the scalar-arith seam one level below, one cell per operator |
+| 80 | `wql_u64_sum_scalar_arith` | 7 | — | C | the scalar-arith seam one level below, one cell per operator — **static arm BUILT 2026-08-09** (`pass/wql_arith_u64_tower_e2e`), see §5 C1 |
 | 81 | `wql_value_domain_tiers_measured` | 5 | `sg_sel`,`su_order` | B | the value domain across three engines; becomes two |
 | 82 | `tests/logos/rtval_domain_gate.sh` | 1 | — | G | §7 |
 
@@ -287,12 +287,44 @@ Stated as symbols, so each is a task and not a wish.
 **C1 — the value domain in the dynamic tier** (rows 14, 58, 59, 61, 62, 63, 64, 65, 66, 67, 79, 80).
 These pin that a column's own type governs comparison, ordering and accumulation at every position.
 The static tier already has the type: `el_ty_stored` / `el_ty_stored_of` (`stdlib/mem/wql/el.logos`) and
-the wrap key `el_wrap_ord_key`. What is missing is a STATIC fixture family that asks the same question of
+the wrap key `el_wrap_ord_key`. What was missing is a STATIC fixture family that asks the same question of
 emitted code at the same seams — order key, aggregate accumulator, scalar arithmetic inside an aggregate
-argument, and the aggregate OUT-NAME's signedness. Model: `wql_domain_static_extremes` already exists and
-is exactly the right shape; it needs siblings `..._static_order_{a,b,c}`, `..._static_carrier_positions`,
-`..._static_u64_sum_{accumulator,scalar_arith}`. Until they exist, deleting rows 61–67 and 79–80 removes
-the only place the value-domain arc's open defects are written down (see the K flag).
+argument, and the aggregate OUT-NAME's signedness.
+
+⚠ **PART OF C1 WAS NOT A FIXTURE GAP AT ALL, AND THAT IS THE CORRECTION THIS ENTRY NEEDED.** The
+paragraph above assumed every C1 cell was a witness the static tier could already produce and simply had
+not been asked for. Rows 61 and 80 — the scalar-arithmetic seam over a `u64` column — were not: the
+static tier could not compute them. MEASURED (grep over `stdlib/` and `src/`, both spellings): the EL's
+unsigned set was `el_addu` / `el_subu` / `el_mulu` only, written for an aggregate ACCUMULATOR, and
+`el_divu` / `el_remu` **did not exist anywhere**. Two of the five operators the EL's grammar has had no
+unsigned form, `el_arith_ok` returned `ElTy.fits` and therefore refused every `u64` arithmetic node, and
+`infer_emit_ty` laundered every arithmetic node to the class representative `i64`, so a computed `u64`
+key was refused twice over. **CLOSED 2026-08-09**: `el_arith_tower` / `el_tower_join` / `el_tower_repr`
+(el.logos) plus `arith_operand_tower` / `arith_node_tower` (codegen.logos) give the EL a second integer
+tower; `el_divu` / `el_remu` were written; `el_int_op_fn` takes the tower. Witnesses:
+
+* `tests/logos/pass/wql_arith_u64_tower_e2e` — division, remainder, a computed `order by` key, the u64
+  overflow / underflow / div-by-zero arms and a `sum` over an arithmetic argument, all at 2^63 and
+  2^64−1 where the signed reading gives a **different** answer, with an i64 control block;
+* `tests/logos/fail/wql_arith_wide_int_fail` — rewritten to `u128`, the only remaining towerless case;
+* `tests/logos/fail/wql_arith_mixed_tower_fail`, `.../wql_arith_u64_neg_fail` — the two refusals the
+  second tower creates (a node mixing signednesses; unary `-` over an unsigned value);
+* `tests/logos/fail/wql_cond_branch_types_fail` — row 58's over-carry half, which reached the HOST
+  compiler as `if-expression branches have incompatible types: u64 vs i64` from `sema_expr.cpp`, naming
+  neither clause nor column and pointing at a synthesised blob. `check_cond_branches` (codegen.logos)
+  now refuses first, naming the clause and both columns.
+
+**Row 62 is TRANSCRIBED, not discharged.** Its live `⚠ KNOWN-WRONG` (block 3b: an equi-join on an `f64`
+key is accepted by the dynamic and static tiers and refused by the incremental one) had both accepting
+halves inside `Query::compile`. The pin now also lives on the pair that survives the cut:
+`no_join_f64key` in `tests/logos/pass/wql_incr_eligibility_matrix.logos` (the static batch answers it,
+asserted on the group totals) plus the matching `declined` row in `tests/logos/incr_eligibility_gate.sh`,
+whose control is `ok_join` — the same shape, i64 key, EMITTED. It fails-if-fixed: admitting an f64 join
+key makes the query trace EMITTED and reds both the verdict row and the DERIVED retract count.
+
+Rows 14, 59 and 63–67/79 still need siblings of `wql_domain_static_extremes` (`..._static_order_{a,b,c}`,
+`..._static_carrier_positions`, `..._static_u64_sum_accumulator`); until they exist, deleting those rows
+removes the only place the value-domain arc's remaining open defects are written down (see the K flag).
 
 **C2 — runtime templates** (rows 49, 52, 53, 54, 55). There is no static substitute and none was ever
 designed: `stdlib/mem/wql/trama_render.logos` is the metaprog-side sibling and says so, naming the
@@ -422,6 +454,10 @@ Victor decides this. Each entry is a shipped capability with no static counterpa
 * Every deleted fixture has a matching `add_test` entry in `tests/logos/CMakeLists.txt`; the registry
   count (`ctest -N`, 6950 all / 3267 `-LE imported` at `9ebb6110`) must be PREDICTED before the cut and
   compared after — a test that silently stops existing is the failure mode this repo has already met.
+  ⚠ RE-MEASURED at `e53962b6`: still **6950 / 3267** (the four C1 fixtures below were added on top of
+  that and take it to 6954 / 3271). A round brief circulating "6951 / 3268" does not describe this tree;
+  the number was re-derived here by moving the new fixtures aside, re-running `cmake -S . -B build`, and
+  counting — not by trusting either the brief or this file.
 
 ---
 

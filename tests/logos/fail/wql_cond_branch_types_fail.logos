@@ -1,0 +1,48 @@
+// WQL — A TERNARY WHOSE BRANCHES DISAGREE IS REFUSED BY THE LAYER THAT STILL
+// KNOWS THE CLAUSE AND THE COLUMNS.
+//
+// ── THE ANTI-DIAGNOSTIC THIS REPLACES, MEASURED ─────────────────────────────
+// `order by (s.g > 0i64 ? s.u : s.v)` over a `u64` and an `i64` column passed
+// every wql check, was emitted as a bare `(if (…) { … } else { … })`, and was
+// refused by the HOST COMPILER reading the generated blob:
+//
+//   <metaprog-blob-subst>:1: error [fn mixt_run]: if-expression branches have
+//     incompatible types: u64 vs i64
+//
+// The sole emitter of that text is `src/compiler/sema_expr.cpp`, which sits far
+// below any notion of a clause or a column and cannot name either. So the author
+// was handed a line number in text they never wrote, about columns that are not
+// mentioned, for a query they can see. That is the repo's recorded
+// anti-diagnostic shape (`docs/`, `antipat_assertion_as_diagnostic`), not an
+// acceptable outcome — a refusal that cannot say WHERE it happened.
+//
+// ── WHY IT REACHED THE HOST AT ALL ──────────────────────────────────────────
+// `infer_ty` and `infer_ty_name` both answer a `SCond` with the THEN branch's
+// type and never consult the ELSE branch, and `check_calls`'s `SExpr::Cond` arm
+// recursed into all three sub-expressions while checking nothing about branch
+// agreement. Everything upstream therefore believed the node had one type. The
+// inference arms are RIGHT once the branches agree; `check_cond_branches` is what
+// makes that antecedent true, and it runs from the same `SExpr::Cond` arm, which
+// already held the clause string.
+//
+// ⚠ THE CLAUSE IS `order by` HERE ON PURPOSE. The check is hooked into
+// `check_calls`, which every clause calls with its own context string, so the
+// same defect in `select` / `where` / `on` / `group by` / `having` / `find`
+// names that clause instead. One refusal, six sites, no per-clause copy.
+//
+// ⚠ AND IT IS ASKED OF `infer_emit_ty`, NOT OF THE QUERY'S NAMES. The question
+// is whether the two branches' EMITTED TEXT agrees, which is what the host will
+// type-check. Since the unsigned tower landed those genuinely differ for
+// arithmetic nodes (a `u64`-tower node emits `u64`, a `u32`-tower one emits
+// `i64`), and asking the query's names would report agreement for a pair the
+// host rejects.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub g: i64, pub u: u64, pub v: i64 }
+
+pub deem mixt(src: &[Rec]) { from src s select s.id order by (s.g > 0i64 ? s.u : s.v) }
+
+fn main() -> i32 { return 0i32; }

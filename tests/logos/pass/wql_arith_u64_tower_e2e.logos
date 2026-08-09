@@ -1,0 +1,191 @@
+// WQL — THE EL HAS TWO INTEGER TOWERS, AND A `u64` COLUMN'S ARITHMETIC COMPUTES
+// IN THE UNSIGNED ONE.
+//
+// ── WHAT THIS FILE REPLACES ─────────────────────────────────────────────────
+// `tests/logos/fail/wql_arith_wide_int_fail` used to pin `select s.v + 1` over a
+// `u64` column as a compile REFUSAL, and its ground was that "the EL's checked
+// arithmetic (`el_add`/`el_sub`/…) computes in i64, and this type's values do not
+// survive the normalization into it". Both halves were true and the conclusion
+// did not follow: nothing obliged a `u64` column to be normalized into i64. The
+// key vector had already stopped doing that (`key_norm_ok` collects a `u64` key
+// into a `Vec<u64>`) and so had the aggregate accumulator (`el::agg_acc_ty`
+// answers `u64`). ARITHMETIC was the last position still holding that every
+// integer is an i64, and it charged the whole type for it.
+//
+// The measured state before this file existed, and it is the reason the arm is
+// not a convenience:
+//   • `el_addu`/`el_subu`/`el_mulu` existed — for an aggregate ACCUMULATOR, the
+//     only caller that ever wanted them, so the set stopped where that caller
+//     stopped;
+//   • `el_divu` and `el_remu` did not exist ANYWHERE (grep over `stdlib/` and
+//     `src/`, zero hits). Two of the five operators the EL's grammar has had no
+//     unsigned form at all, so `order by (s.u / 3u64)` had no static arm to
+//     reach even if the refusal had been lifted.
+//
+// ── WHY THE VALUES BELOW AND NOT SMALLER ONES ───────────────────────────────
+// ⚠ EVERY ROW HERE IS CHOSEN SO THAT THE SIGNED READING GIVES A DIFFERENT
+// ANSWER, NOT MERELY A DIFFERENT TYPE. A fixture over 5, 7 and 12 would pass
+// identically against the old `as i64` route and would measure nothing:
+//
+//   2^64−1 = 18446744073709551615   as i64 it is −1
+//     / 3  → 6148914691236517205    signed: −1 / 3 = 0
+//     % 10 → 5                      signed: −1 % 10 = −1
+//   2^63   =  9223372036854775808   as i64 it is i64::MIN
+//     / 3  → 3074457345618258602    signed: −3074457345618258602
+//     % 10 → 8                      signed: −8
+//
+// Half of `u64` — every value at or above 2^63 — divides, remainders and ranks
+// differently under the signed reading. The arithmetic is written out here by
+// hand and compared against the query; nothing below asks `el_ty`, `el_divu` or
+// any survey artifact what the answer should be.
+//
+// ── THE ERROR ARMS ARE THE UNSIGNED PREDICATES, NOT THE SIGNED ONES ─────────
+// `el_addu`'s overflow is u64's ceiling (2^64−1), not i64's; `el_subu`'s fault is
+// an UNDERFLOW below zero, which the signed tower cannot even express; and
+// `el_divu`/`el_remu` guard the zero divisor explicitly. Block D asks for each,
+// and each is a value the i64 predicate would have answered differently: 2^63 +
+// 2^63 does not overflow i64's reading of those bits at all (it is
+// (−2^63) + (−2^63), which does), and 1 − 2 is a perfectly good i64.
+//
+// ── THE SIGNED CONTROL IS IN THIS FILE ON PURPOSE ───────────────────────────
+// Block E runs the same five operators over an `i64` column at its own extremes.
+// Its tower is `el_add`/`el_div`/… before and after, and every answer must be the
+// one the parent commit already gave. A file that only measured the row that
+// MOVED could not tell a second tower from a replaced one — and a replaced one is
+// exactly the defect (a silently-chosen signedness) this whole lattice exists to
+// refuse.
+//
+// ── WHAT IS STILL REFUSED, AND WHERE ────────────────────────────────────────
+//   `u128`/`i128` arithmetic (NO tower)        → fail/wql_arith_wide_int_fail
+//   a node MIXING signed and unsigned columns  → fail/wql_arith_mixed_tower_fail
+//   unary `-` over an unsigned value           → fail/wql_arith_u64_neg_fail
+//   a ternary whose branches disagree          → fail/wql_cond_branch_types_fail
+//
+// exit 0 = every answer below is the unsigned one.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub u: u64, pub z: u64 }
+struct IRec { pub id: i64, pub v: i64 }
+
+pub deem divd(src: &[Rec])   { from src s select s.u / 3u64 }
+pub deem remd(src: &[Rec])   { from src s select s.u % 10u64 }
+pub deem by_div(src: &[Rec])  { from src s select s.id order by s.u / 3u64 }
+pub deem plus1(src: &[Rec])   { from src s select s.u + 1u64 }
+pub deem minus1(src: &[Rec])  { from src s select s.u - 1u64 }
+pub deem dbl(src: &[Rec])     { from src s select s.u * 2u64 }
+pub deem divz(src: &[Rec])    { from src s select s.u / s.z }
+pub deem remz(src: &[Rec])    { from src s select s.u % s.z }
+pub deem summed(src: &[Rec])  { from src s group by s.id aggregate t = sum(s.u / 3u64) select t }
+
+pub deem idivd(src: &[IRec])  { from src s select s.v / 3i64 }
+pub deem iremd(src: &[IRec])  { from src s select s.v % 10i64 }
+pub deem iplus(src: &[IRec])  { from src s select s.v + 1i64 }
+
+fn main() -> i32 {
+    // Three rows: the top of u64, 2^63 exactly, and a small one whose answer is
+    // the same under both readings (the arm that would stay green on a mistake,
+    // kept so the file cannot be read as "big numbers only").
+    let rs: [Rec; 3] = [
+        Rec { id: 1i64, u: 18446744073709551615u64, z: 0u64 },
+        Rec { id: 2i64, u:  9223372036854775808u64, z: 0u64 },
+        Rec { id: 3i64, u:                    7u64, z: 0u64 },
+    ];
+
+    // ══ A. DIVISION — the operator that had no unsigned form at all ══════════
+    let a: Vec<u64> = match divd(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if a.len() != 3i64                        { return 11i32; }
+    if a.get(0i64) != 6148914691236517205u64  { return 12i32; }   // signed: 0
+    if a.get(1i64) != 3074457345618258602u64  { return 13i32; }   // signed: negative
+    if a.get(2i64) != 2u64                    { return 14i32; }
+
+    // ══ B. REMAINDER — the other one ════════════════════════════════════════
+    let b: Vec<u64> = match remd(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if b.get(0i64) != 5u64  { return 21i32; }                     // signed: −1
+    if b.get(1i64) != 8u64  { return 22i32; }                     // signed: −8
+    if b.get(2i64) != 7u64  { return 23i32; }
+
+    // ══ C. A COMPUTED u64 KEY — the census row this arm was built for ═══════
+    //     The key vector is `Vec<u64>` because the NODE is u64, so the sort
+    //     compares in u64. Ascending by `u / 3`: 2 < 3074… < 6148…, i.e. ids
+    //     3, 2, 1. Under the signed reading the keys are 0, −3074… and 0, and
+    //     the order would be 2, then 1 and 3 in collection order — a DIFFERENT
+    //     permutation, which is what makes this claim a measurement.
+    let c: Vec<i64> = match by_div(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    if c.len() != 3i64      { return 31i32; }
+    if c.get(0i64) != 3i64  { return 32i32; }
+    if c.get(1i64) != 2i64  { return 33i32; }
+    if c.get(2i64) != 1i64  { return 34i32; }
+
+    // ══ D. THE UNSIGNED PREDICATES ══════════════════════════════════════════
+    // D1. `+ 1` at 2^64−1 OVERFLOWS u64. The i64 reading of those bits is −1,
+    //     and −1 + 1 = 0 with no fault whatsoever.
+    match plus1(&rs[..]) {
+        Result::Ok(_v) => { return 40i32; } Result::Err(_e) => { } }
+
+    // D2. `* 2` at 2^63 overflows u64. Same bits signed are i64::MIN, whose
+    //     doubling also faults — so this arm alone does not separate the towers;
+    //     it is here because a tower that stopped CHECKING would pass D1 by
+    //     answering 0 and must not pass this too.
+    match dbl(&rs[..]) {
+        Result::Ok(_v) => { return 41i32; } Result::Err(_e) => { } }
+
+    // D3. `− 1` is fine at the top and at 2^63, and its answers are unsigned.
+    let d3: Vec<u64> = match minus1(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 42i32; } };
+    if d3.get(0i64) != 18446744073709551614u64 { return 43i32; }
+    if d3.get(1i64) !=  9223372036854775807u64 { return 44i32; }
+    if d3.get(2i64) != 6u64                    { return 45i32; }
+
+    // D4. UNDERFLOW — a fault the signed tower cannot express. `0 − 1` over u64
+    //     is below the floor; over i64 it is −1 and no fault at all.
+    let zr: [Rec; 1] = [Rec { id: 9i64, u: 0u64, z: 0u64 }];
+    match minus1(&zr[..]) {
+        Result::Ok(_v) => { return 46i32; } Result::Err(_e) => { } }
+
+    // D5. DIVISION AND REMAINDER BY ZERO — `el_divu`/`el_remu`'s explicit guard,
+    //     the reason they are not bare `checked_div` wrappers.
+    match divz(&rs[..]) {
+        Result::Ok(_v) => { return 47i32; } Result::Err(_e) => { } }
+    match remz(&rs[..]) {
+        Result::Ok(_v) => { return 48i32; } Result::Err(_e) => { } }
+
+    // ══ D6. THE ACCUMULATOR FOLLOWS THE ARITHMETIC NOW ══════════════════════
+    //     `sum(s.u / 3u64)` accumulates in u64: `agg_acc_ty` is asked the
+    //     ARGUMENT's emitted type, and an unsigned-tower node's emitted type is
+    //     `u64` rather than the class representative. Grouped by `id`, each
+    //     group is one row, so the sums are block A's values unchanged — the
+    //     claim being pinned is the ACCUMULATOR's type, and a `Vec<i64>` result
+    //     would not type-check against this binding at all.
+    let d6: Vec<u64> = match summed(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    if d6.len() != 3i64 { return 51i32; }
+
+    // ══ E. THE SIGNED CONTROL — the i64 tower, unmoved ══════════════════════
+    let is: [IRec; 3] = [
+        IRec { id: 1i64, v: -1i64 },
+        IRec { id: 2i64, v: -9223372036854775808i64 },
+        IRec { id: 3i64, v: 7i64 },
+    ];
+    let e1: Vec<i64> = match idivd(&is[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    if e1.get(0i64) != 0i64                     { return 61i32; }
+    if e1.get(1i64) != -3074457345618258602i64  { return 62i32; }
+    if e1.get(2i64) != 2i64                     { return 63i32; }
+    let e2: Vec<i64> = match iremd(&is[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 64i32; } };
+    if e2.get(0i64) != -1i64 { return 65i32; }
+    if e2.get(1i64) != -8i64 { return 66i32; }
+    if e2.get(2i64) != 7i64  { return 67i32; }
+    // i64::MAX + 1 overflows the SIGNED tower — the control's own error arm.
+    let im: [IRec; 1] = [IRec { id: 1i64, v: 9223372036854775807i64 }];
+    match iplus(&im[..]) {
+        Result::Ok(_v) => { return 68i32; } Result::Err(_e) => { } }
+
+    return 0i32;
+}
