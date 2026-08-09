@@ -1,0 +1,353 @@
+// THE DRed EPOCH DRIVER OVER THE SHAPES `wql_incr_rel_dred_driver.logos` HAS
+// NO CELL FOR — a from-scratch fixpoint confronted at EVERY epoch of a long
+// mixed insert/retract sequence.
+//
+// The landed driver fixture's three cells are a diamond, a chain and a
+// 3-cycle, each retracted ONCE from a single connected graph. The shapes below
+// are the ones a caller reaches that those three do not:
+//
+//   A   TWO DISCONNECTED COMPONENTS, retracting inside one. The interpreter's
+//       measured anti-example (`stdlib/mem/deem/incr_rec.logos`, `fn dred`)
+//       loses a fact in a DIFFERENT connected component; nothing else in the
+//       tree asks the emitted driver that question.
+//   A2  AN EMPTY DE — a retraction of nothing must be an exact no-op, |OD| and
+//       |RD| both 0, and the total unchanged in LENGTH as well as content.
+//   A3  THE SAME ROW TWICE IN ONE DE — the driver's header says DE is a SET and
+//       a duplicate is one retraction, and that sentence had no caller.
+//   B   A MULTI-ROW DE THAT EMPTIES TWO WHOLE GROUPS. The −1 fold drives each
+//       group's count to 0; `same_set` compares the snapshot with EQUAL LENGTH,
+//       so a group left behind holding a 0 is a disagreement, not something
+//       containment absorbs.
+//   C   REBUILDING a component whose groups were emptied — does the fold reuse
+//       the zeroed group or create a second one with the same key?
+//   D   A SELF-LOOP inside a cycle, then the back edge, opening it.
+//   E   A TOTAL WIPE: the relation and the snapshot must both be EMPTY.
+//   F   REBUILDING FROM EMPTY on the same handle, with a different graph.
+//   G   A LONG INTERLEAVED SEQUENCE — insert, insert, retract, insert,
+//       retract-two, insert, retract, insert — checked after every step.
+//
+// ── THE ORACLE ────────────────────────────────────────────────────────────
+// `naive_closure` over the caller's own record of `I ∖ R`, with `groups_of`
+// written here rather than taken from `tc()`. The ACCUMULATED INPUT (`__edb`)
+// is checked at every epoch too, which is the only assertion that catches a
+// retraction that undoes itself one epoch later — hence every cell that
+// retracts also inserts afterwards.
+//
+// ── CONTROL, MEASURED (archives dropped, whole stdlib rebuilt) ────────────
+// ⚠ ONE CONTROL, AND IT REACHES CELL A ONLY. Cells A2 through G are asserted
+// against the oracle but are not separately pinned, and this file says so
+// rather than implying a coverage it does not have.
+//  • `_od` RESTRICTED TO ITS BASE BODIES (phase 1a's existing-rel⋈DE seed term
+//    deleted in `emit_scc_od_fns`) → **exit 22** — cell A, `check` code 2: the
+//    group answer disagrees with the from-scratch closure. The driver had run
+//    all four phases, both folds and the commit, and returned `Ok`.
+//  • THE `DE ⊆ __edb` REFUSAL WEAKENED TO A NO-OP → **exit 0**, unchanged, and
+//    that is correct: every row this file retracts IS an input row, so it says
+//    nothing about that check. `wql_incr_rel_dred_driver.logos` block D is
+//    where that check is asked.
+//
+// ⚠ NOT A WORD ABOUT COST AND NO CLOCK ANYWHERE — the box is shared.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn naive_closure(es: &[E]) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() { pair_uniq(&mut p, es[i].a, es[i].b); i = i + 1i64; }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a {
+                    if pair_uniq(&mut p, pr.0, es[j].b) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn groups_of(cl: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut ks: Vec<i64> = vec_new::<i64>();
+    let mut cs: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < cl.len() {
+        let p: (i64, i64) = cl.get(i);
+        let mut f: i64 = -1i64;
+        let mut j: i64 = 0i64;
+        while j < ks.len() { if ks.get(j) == p.0 { f = j; } j = j + 1i64; }
+        if f < 0i64 { ks.push(p.0); cs.push(1i64); }
+        else { cs.set(f, cs.get(f) + 1i64); }
+        i = i + 1i64;
+    }
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut k: i64 = 0i64;
+    while k < ks.len() { o.push((ks.get(k), cs.get(k))); k = k + 1i64; }
+    return o;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn edge_has(v: &[E], a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v[i];
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &[E], de: &[E]) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all[i];
+        if !edge_has(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn edb_copy(h: &TcIncr) -> Vec<E> {
+    let mut o: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < h.__edb.len() { let e: E = h.__edb.get(i); o.push(ed(e.a, e.b)); i = i + 1i64; }
+    return o;
+}
+
+fn tot_copy(h: &TcIncr) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < h.__tot_path.len() { let p: (i64, i64) = h.__tot_path.get(i); o.push((p.0, p.1)); i = i + 1i64; }
+    return o;
+}
+
+fn edges_same(x: &[E], y: &[E]) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() { let e: E = x[i]; if !edge_has(y, e.a, e.b) { return false; } i = i + 1i64; }
+    let mut j: i64 = 0i64;
+    while j < y.len() { let e2: E = y[j]; if !edge_has(x, e2.a, e2.b) { return false; } j = j + 1i64; }
+    return true;
+}
+
+fn check(h: &TcIncr, cur: &[E]) -> i32 {
+    let cl: Vec<(i64, i64)> = naive_closure(cur);
+    let snap: Vec<(i64, i64)> = match tc_snapshot(h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
+    };
+    let want: Vec<(i64, i64)> = groups_of(&cl);
+    if !same_set(&snap, &want) { return 2i32; }
+    let tot: Vec<(i64, i64)> = tot_copy(h);
+    if !same_set(&tot, &cl) { return 3i32; }
+    let acc: Vec<E> = edb_copy(h);
+    if !edges_same(acc.as_slice(), cur) { return 4i32; }
+    return 0i32;
+}
+
+fn ins(h: &mut TcIncr, cur: &mut Vec<E>, de: &[E]) -> i32 {
+    match tc_epoch(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 9i32; }
+    }
+    let mut i: i64 = 0i64;
+    while i < de.len() {
+        let e: E = de[i];
+        if !edge_has(cur.as_slice(), e.a, e.b) { cur.push(ed(e.a, e.b)); }
+        i = i + 1i64;
+    }
+    return check(h, cur.as_slice());
+}
+
+fn ret(h: &mut TcIncr, cur: &mut Vec<E>, de: &[E]) -> i32 {
+    match __wql_tc_scc0_dred(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 8i32; }
+    }
+    let nc: Vec<E> = survivors(cur.as_slice(), de);
+    cur.clear();
+    let mut ci: i64 = 0i64;
+    while ci < nc.len() { let e: E = nc.get(ci); cur.push(ed(e.a, e.b)); ci = ci + 1i64; }
+    // the |RD| sentinel must have been retired
+    if h.__lat.len() != 3i64 { return 7i32; }
+    if h.__lat.get(2i64) == 0i64 - 1i64 { return 6i32; }
+    // |OD| + |S| must equal the PREVIOUS total's size, and |S| + |RD| the new one
+    return check(h, cur.as_slice());
+}
+
+fn main() -> i32 {
+    // ══ A: TWO DISCONNECTED COMPONENTS. Retract inside one; the other must
+    // not move (the interpreter's measured "collateral loss in a different
+    // connected component").
+    let mut h: TcIncr = tc_incremental();
+    let mut c: Vec<E> = vec_new::<E>();
+    let mut d: Vec<E> = vec_new::<E>();
+    d.push(ed(1i64, 2i64)); d.push(ed(2i64, 3i64)); d.push(ed(3i64, 4i64));
+    d.push(ed(10i64, 11i64)); d.push(ed(11i64, 12i64));
+    let r: i32 = ins(&mut h, &mut c, d.as_slice());
+    if r != 0i32 { return 10i32 + r; }
+
+    let mut r1: Vec<E> = vec_new::<E>();
+    r1.push(ed(2i64, 3i64));
+    let r2v: i32 = ret(&mut h, &mut c, r1.as_slice());
+    if r2v != 0i32 { return 20i32 + r2v; }
+
+    // ══ A2: AN EMPTY DE. A retraction of nothing must be an exact no-op —
+    // relation, input, answer and the |RD| latch all unchanged.
+    let pre_tot: i64 = h.__tot_path.len();
+    let mut r0: Vec<E> = vec_new::<E>();
+    let r0v: i32 = ret(&mut h, &mut c, r0.as_slice());
+    if r0v != 0i32 { return 24i32 + r0v; }
+    if h.__tot_path.len() != pre_tot { return 23i32; }
+    if h.__lat.get(0i64) != 0i64 { return 22i32; }
+    if h.__lat.get(2i64) != 0i64 { return 21i32; }
+
+    // ══ A3: THE SAME ROW TWICE IN ONE DE — one retraction, not two.
+    let mut rd: Vec<E> = vec_new::<E>();
+    rd.push(ed(3i64, 4i64)); rd.push(ed(3i64, 4i64));
+    let rdv: i32 = ret(&mut h, &mut c, rd.as_slice());
+    if rdv != 0i32 { return 25i32 + rdv; }
+
+    // ══ B: A MULTI-ROW DE that empties a whole group. Retract (10,11) and
+    // (11,12) together — group 10 and group 11 both disappear entirely.
+    let mut r2: Vec<E> = vec_new::<E>();
+    r2.push(ed(10i64, 11i64)); r2.push(ed(11i64, 12i64));
+    let r3v: i32 = ret(&mut h, &mut c, r2.as_slice());
+    if r3v != 0i32 { return 30i32 + r3v; }
+
+    // ══ C: rebuild the retracted component and re-check.
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(10i64, 11i64)); d2.push(ed(11i64, 12i64));
+    let r4v: i32 = ins(&mut h, &mut c, d2.as_slice());
+    if r4v != 0i32 { return 40i32 + r4v; }
+
+    // ══ D: A SELF-LOOP inside a cycle. 5→6, 6→5, 6→6.
+    let mut h2: TcIncr = tc_incremental();
+    let mut c2: Vec<E> = vec_new::<E>();
+    let mut e2: Vec<E> = vec_new::<E>();
+    e2.push(ed(5i64, 6i64)); e2.push(ed(6i64, 5i64)); e2.push(ed(6i64, 6i64));
+    let r5v: i32 = ins(&mut h2, &mut c2, e2.as_slice());
+    if r5v != 0i32 { return 50i32 + r5v; }
+    let mut f2: Vec<E> = vec_new::<E>();
+    f2.push(ed(6i64, 6i64));
+    let r6v: i32 = ret(&mut h2, &mut c2, f2.as_slice());
+    if r6v != 0i32 { return 60i32 + r6v; }
+    // retract the back edge too: the cycle opens, closure = {(5,6)}
+    let mut g2: Vec<E> = vec_new::<E>();
+    g2.push(ed(6i64, 5i64));
+    let r7v: i32 = ret(&mut h2, &mut c2, g2.as_slice());
+    if r7v != 0i32 { return 70i32 + r7v; }
+
+    // ══ E: TOTAL WIPE. Retract the last edge — relation empty, snapshot empty.
+    let mut g3: Vec<E> = vec_new::<E>();
+    g3.push(ed(5i64, 6i64));
+    let r8v: i32 = ret(&mut h2, &mut c2, g3.as_slice());
+    if r8v != 0i32 { return 80i32 + r8v; }
+    if h2.__tot_path.len() != 0i64 { return 89i32; }
+    let sn: Vec<(i64, i64)> = match tc_snapshot(&h2) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 88i32; }
+    };
+    if sn.len() != 0i64 { return 87i32; }
+
+    // ══ F: REBUILD FROM EMPTY, a different graph on the same handle.
+    let mut g4: Vec<E> = vec_new::<E>();
+    g4.push(ed(7i64, 8i64)); g4.push(ed(8i64, 9i64));
+    let r9v: i32 = ins(&mut h2, &mut c2, g4.as_slice());
+    if r9v != 0i32 { return 90i32 + r9v; }
+
+    // ══ G: A LONG MIXED SEQUENCE on a third handle, interleaving.
+    let mut h3: TcIncr = tc_incremental();
+    let mut c3: Vec<E> = vec_new::<E>();
+    let mut s1: Vec<E> = vec_new::<E>();
+    s1.push(ed(1i64, 2i64)); s1.push(ed(2i64, 3i64)); s1.push(ed(3i64, 1i64));
+    s1.push(ed(3i64, 4i64)); s1.push(ed(4i64, 5i64));
+    let t1: i32 = ins(&mut h3, &mut c3, s1.as_slice());
+    if t1 != 0i32 { return 100i32 + t1; }
+    let mut s2: Vec<E> = vec_new::<E>();
+    s2.push(ed(5i64, 1i64));
+    let t2: i32 = ins(&mut h3, &mut c3, s2.as_slice());
+    if t2 != 0i32 { return 110i32 + t2; }
+    let mut s3: Vec<E> = vec_new::<E>();
+    s3.push(ed(3i64, 1i64));
+    let t3: i32 = ret(&mut h3, &mut c3, s3.as_slice());
+    if t3 != 0i32 { return 120i32 + t3; }
+    let mut s4: Vec<E> = vec_new::<E>();
+    s4.push(ed(2i64, 5i64));
+    let t4: i32 = ins(&mut h3, &mut c3, s4.as_slice());
+    if t4 != 0i32 { return 130i32 + t4; }
+    let mut s5: Vec<E> = vec_new::<E>();
+    s5.push(ed(4i64, 5i64)); s5.push(ed(5i64, 1i64));
+    let t5: i32 = ret(&mut h3, &mut c3, s5.as_slice());
+    if t5 != 0i32 { return 140i32 + t5; }
+    let mut s6: Vec<E> = vec_new::<E>();
+    s6.push(ed(5i64, 2i64));
+    let t6: i32 = ins(&mut h3, &mut c3, s6.as_slice());
+    if t6 != 0i32 { return 150i32 + t6; }
+    let mut s7: Vec<E> = vec_new::<E>();
+    s7.push(ed(1i64, 2i64));
+    let t7: i32 = ret(&mut h3, &mut c3, s7.as_slice());
+    if t7 != 0i32 { return 160i32 + t7; }
+    let mut s8: Vec<E> = vec_new::<E>();
+    s8.push(ed(1i64, 3i64));
+    let t8: i32 = ins(&mut h3, &mut c3, s8.as_slice());
+    if t8 != 0i32 { return 170i32 + t8; }
+
+    return 0i32;
+}
