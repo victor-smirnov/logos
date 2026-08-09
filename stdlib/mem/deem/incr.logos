@@ -145,8 +145,20 @@ pub const FS_JN_ID: u64 = 2u64;
 //   · The STATIC tier has no fact store at all: the emitted surface is
 //     `<q>_apply(&mut h, __src, __w, <params>)` (`wql/rexpr_walk.logos`), where
 //     the CALLER supplies typed delta rows — no U1 clamp, no presence set, no
-//     content keying, no arena. A `grep` for `fact|FsKey` over `stdlib/mem/wql`
-//     returns nothing.
+//     content keying, no arena.
+//     ⚠ THIS PARAGRAPH CLAIMED "a `grep` for `fact|FsKey` over `stdlib/mem/wql`
+//     returns nothing" AND THAT IS FALSE — corrected the same day it was
+//     written. `fact` occurs in `access_plan.logos`, `catalog_macro.logos`,
+//     `params.logos`, `mapping_item.logos`, `join_sel.logos` and others. The
+//     hits are the PLANNER'S vocabulary — fact tables, fact cardinality, the
+//     word in prose — not this struct. `FsKey` is what returns nothing there,
+//     and that is the claim that carries the argument; the wider grep was
+//     written from memory and does not survive being run.
+//     ⚠ A claim stated AS MEASURED must have been measured. This one was in the
+//     same commit that fixed three identity defects — being right about the
+//     hard part is not a licence to be loose about the easy part, and a reader
+//     who runs the grep and sees ten hits has no way to know which half to
+//     trust.
 // CONSEQUENCE for P4: "make the fact store typed" has no customer. The deep
 // typing (a row struct + a key tuple instead of `WAny` / `Vec<FsKey>`) needs the
 // schema AT EMISSION, while this struct's whole contract is a schema DISCOVERED
