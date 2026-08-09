@@ -7,7 +7,14 @@ cmake_minimum_required(VERSION 3.28)
 # Jenny toolchain remains available opt-in via
 #   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/jenny.cmake
 
-project(logos VERSION 0.37.0 LANGUAGES CXX C ASM)
+# ⚠ 0.37.0 -> 0.38.0 ON 2026-08-09, AND THE BUMP IS THE POINT, NOT A SIDE EFFECT.
+# P5 deleted the Deem interpreter and the DBSP incremental engine, REMOVING ABI
+# records: `logos.mem.deem.Query`, `.QRows`, `.QBodyTab`, `.QRelReg` and every
+# symbol reachable only through them. Removals are BREAKING (additions alone are
+# not and owe no bump). Authorised: the library API has no users outside Logos.
+# `scripts/abi-check.sh`'s BUMP GATE compares MAJOR.MINOR against the base ref,
+# so the MINOR is what has to move.
+project(logos VERSION 0.38.0 LANGUAGES CXX C ASM)
 
 # ── Version & parallel-install slot ──────────────────────────────────────
 # Single source of truth: project(VERSION) above + the pre-release marker

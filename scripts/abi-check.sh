@@ -78,7 +78,19 @@ BASE="${1:-origin/main}"
 # its own while `type` or `vtable` went silent. These are floors on BOTH the
 # freshly emitted spec and the BASE spec — a base that cannot meet them is not a
 # previous ABI, it is a blob, and no verdict about it is a verdict about the ABI.
-MIN_SYM=12368
+# ⚠ MIN_SYM LOWERED 12368 -> 12061 on 2026-08-09, DELIBERATELY, AND THIS IS THE
+# "say why" the paragraph above demands. P5 deleted the Deem interpreter and the
+# DBSP incremental engine — seven stdlib files, 7199 lines
+# (`stdlib/mem/deem/{check,exec,query,incr,incr_rec,mapping_state}.logos`,
+# `stdlib/lcm/deem/facthistory.logos`) — so the emitted spec legitimately lost
+# 307 `sym` records. The floor is a "this is not a blob" bound, not a coverage
+# claim: it exists so that a spec emitted from a broken or empty build cannot
+# produce a verdict. It is set to the value MEASURED on the post-cut tree, not
+# rounded down, so it still refuses anything thinner. `type` went the other way
+# (361, above the unchanged 359 floor) and needed no edit — which is exactly why
+# these are PER CATEGORY: one category shrinking by design does not license the
+# others to go silent.
+MIN_SYM=12061
 MIN_TYPE=359
 MIN_VTABLE=115
 MIN_SCHEMA=2
