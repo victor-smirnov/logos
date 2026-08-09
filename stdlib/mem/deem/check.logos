@@ -1160,6 +1160,15 @@ fn check_rexpr(e: RExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             // f64 keys have no total order / stable hash (rt_key_hash has no F
             // arm) — the static codegen and `distinct` reject them; the dynamic
             // group-by must too, else it silently mis-buckets f64 keys.
+            // ⚠ "MIS-BUCKETS" IS MEASURED, NOT PREDICTED (2026-08-08). With this
+            // arm disabled (`if false &&`) and the archives rebuilt, five rows
+            // with rates {NaN_p, NaN_p, +0.0, −0.0, 1.5} grouped into FOUR
+            // groups through `Query::run`. PostgreSQL semantics — the rule
+            // Victor set for FsKey — demands THREE (all NaNs one group, all
+            // zeros one group): `rt_eq`'s float arm is raw IEEE, so the two
+            // identical NaNs split into two groups while the two zeros merged.
+            // Both fences (this one and the `jtier != QT_HASH` guard in
+            // `Query::incremental`) held independently in that run.
             if kt.t == CT_FLT {
                 chk_fail(chk, "a `group by` key cannot be f64", "", "", "", "");
                 return;

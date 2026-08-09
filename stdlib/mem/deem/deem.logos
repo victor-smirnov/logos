@@ -1040,21 +1040,23 @@ fn rt_truthy(v: RtVal) -> bool {
 //
 // ⚠ THE f64 ARM IS A VALUE EQUALITY, NOT AN IDENTITY, AND IT STAYS RAW IEEE `==`
 // (NaN != NaN, +0.0 == −0.0). It is deliberately NOT `f64_canon_bits` — that is
-// FsKey's rule (`incr.logos:195`) and FsKey is a different shape. Two measured
-// grounds, 2026-08-08:
+// FsKey's rule (`fskey_hash`/`fskey_eq`/`fs_key_enc`, incr.logos) and FsKey is a
+// different shape. Two measured grounds, 2026-08-08:
 //   · WHERE IT IS LIVE it is a PREDICATE. On the loop tier a residual f64 equi-
-//     term is evaluated here (`exec.logos:463`), and NaN != NaN is the CORRECT
-//     SQL/PostgreSQL answer for a predicate. Canonicalising would be a
+//     term is evaluated here (`eval_on_residual`, exec.logos), and NaN != NaN is
+//     the CORRECT SQL/PostgreSQL answer for a predicate. Canonicalising would be a
 //     behaviour change in the wrong direction.
 //   · WHERE IT WOULD BE AN IDENTITY it is UNREACHABLE for f64. rt_eq is also the
-//     bucket verifier for `rt_key_hash` (`exec.logos:441`), which hashes every
+//     bucket verifier for `rt_key_hash` (exec.logos), which hashes every
 //     RtVal::F to the bare tag-0 bucket — so on a key path rt_eq would be the
 //     ONLY discriminator. It never gets the chance: an f64 `group by` key is
-//     refused at `check.logos:1164` and an f64 equi-join key at
-//     `check.logos:1401` → `incr.logos:1887`, both BEFORE any arrangement is
-//     built. `query_incr_guard` pins both (exit 8, exit 17).
+//     refused in `check_rexpr`'s Aggr arm ("a `group by` key cannot be f64",
+//     check.logos) and an f64 equi-join key is forced to QT_LOOP by the
+//     `kb.t == CT_FLT` branch of the join-tier pick (check.logos) and then
+//     rejected by the `jtier != QT_HASH` guard in `Query::incremental`
+//     (incr.logos). `query_incr_guard` pins both (exit 8, exit 17).
 // A change that admits an f64 key MUST come back here first: `AggState.keyv` is
-// ONE column (compared at `incr.logos:726`, read back and emitted at :1583), so
+// ONE column (compared in `aggstate_find`, read back and emitted in `ag_run`), so
 // the answer then is a two-column split or a fence — never canonicalising in
 // place, which would destroy a stored −0.0 / NaN payload.
 fn rt_eq(l: RtVal, r: RtVal) -> bool {

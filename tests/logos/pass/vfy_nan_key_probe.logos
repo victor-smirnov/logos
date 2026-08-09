@@ -1,0 +1,205 @@
+// vfy_nan_key_probe — the SURVIVING f64 behaviour, and the refusals' PROVENANCE.
+//
+// Two jobs `query_incr_guard` cannot do, both measured 2026-08-08:
+//
+//  1. PROVENANCE. `accepts()` in query_incr_guard returns false for a
+//     Query::compile failure and for a Query::incremental refusal ALIKE, so its
+//     exit 8 / exit 17 are equally consistent with a mere PARSE error. This
+//     probe prints WHICH stage answered and WITH WHAT MESSAGE, and asserts the
+//     f64 refusals come from the CHECKER (codes 25/26 fire if they were parse
+//     errors). Measured: "a `group by` key cannot be f64" and "join key is not
+//     hash-arrangeable", both post-compile. It also pins the NON-incremental
+//     `Query::run` path, which the guard never exercises — it refuses the f64
+//     group key too, so the "no RtVal::F reaches a key role" claim holds on
+//     BOTH surfaces, not just the incremental one.
+//
+//  2. THE SURVIVING BEHAVIOUR, not only the refusal. Where the f64 arm of
+//     `rt_eq` is LIVE it is a predicate on the loop tier, and raw IEEE is the
+//     CORRECT SQL answer there. Nothing pinned that, so a future "fix" that
+//     canonicalised `rt_eq` would have been caught by no test at all. Pinned
+//     here: NaN != NaN (3 of 5 rows survive `rate == rate`), +0.0 == −0.0
+//     (both zeros match one dept), and a loop-tier f64 equi-join yielding 3
+//     rows with the NaN rows matching NOTHING.
+//
+//  Plus the two-column trap: a projected f64 must keep its EXACT bits. A NaN
+//  carrying payload 0x7ff80000deadbeef must read back with that payload — if it
+//  ever comes back canonicalised, a key rule leaked into the value path.
+//
+// CALIBRATED: with `check.logos`'s `kt.t == CT_FLT` arm disabled and the
+// archives rebuilt, this exits 20 (f64 group key accepted). Green here is
+// therefore evidence about the fence, not about a dead probe.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.mem.deem;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.num.float;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+// ⚠ str views are NOT NUL-terminated — always print with %.*s (len, ptr).
+fn p1(fmt: str, s: str) { unsafe { printf(fmt.as_ptr(), s.len() as i32, s.as_ptr()); } }
+fn p2(fmt: str, a: str, b: str) { unsafe { printf(fmt.as_ptr(), a.len() as i32, a.as_ptr(), b.len() as i32, b.as_ptr()); } }
+fn pi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pu(fmt: str, v: u64) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub schema Emp : code(0x0D02_0000_0000_0011) {
+    name: str = 0,
+    dept: i64 = 1,
+    rate: f64 = 2,
+}
+pub schema Dept : code(0x0D02_0000_0000_0012) {
+    id:    i64 = 0,
+    dname: str = 1,
+    cap:   f64 = 2,
+}
+
+resource cat = schema_catalog!{ Emp, Dept };
+
+fn mk_emp(d: &Writ, name: str, dept: i64, rate: f64) -> WAny {
+    let e: Emp = d.make::<Emp>();
+    e.name = name; e.dept = dept; e.rate = rate;
+    return WAny::ref_to((e.m as i64) as *const u8);
+}
+fn mk_dept(d: &Writ, id: i64, dname: str, cap: f64) -> WAny {
+    let x: Dept = d.make::<Dept>();
+    x.id = id; x.dname = dname; x.cap = cap;
+    return WAny::ref_to((x.m as i64) as *const u8);
+}
+
+// STAGE-SEPARATED classifier. Returns:
+//   0 = compile Err (PARSE/CHECK at compile time)  1 = incremental Err  2 = accepted
+fn stage(qtext: str, c: &SchemaCatalog, env: &QEnv, tag: str) -> i32 {
+    let q: Query = match Query::compile(qtext, c) {
+        Result::Ok(v) => { v }
+        Result::Err(e) => { p2("  [%.*s] COMPILE-ERR: %.*s\n", tag, e.message()); return 0i32; }
+    };
+    match q.incremental(env) {
+        Result::Ok(_e) => { p1("  [%.*s] ACCEPTED by incremental()\n", tag); return 2i32; }
+        Result::Err(e2) => { p2("  [%.*s] INCR-ERR: %.*s\n", tag, e2.message()); return 1i32; }
+    }
+}
+
+// Non-incremental run(): returns row count, or -1 on Err (message printed).
+fn runrows(qtext: str, c: &SchemaCatalog, env: &QEnv, tag: str) -> i64 {
+    let q: Query = match Query::compile(qtext, c) {
+        Result::Ok(v) => { v }
+        Result::Err(e) => { p2("  [%.*s] run/COMPILE-ERR: %.*s\n", tag, e.message()); return -1i64; }
+    };
+    match q.run(env) {
+        Result::Ok(r) => { let n: i64 = r.row_count(); pi("", 0i64); return n; }
+        Result::Err(e2) => { p2("  [%.*s] run/ERR: %.*s\n", tag, e2.message()); return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let doc: Writ = writ_new(16384i64);
+
+    // A NaN with a DISTINCTIVE payload (0x7ff8_0000_dead_beef) and both zeros.
+    let nan_pay: f64 = f64_from_bits(0x7ff80000deadbeefu64);
+    let nan_pay2: f64 = f64_from_bits(0x7ff80000deadbeefu64);
+    let pz: f64 = 0.0f64;
+    let nz: f64 = f64_from_bits(0x8000000000000000u64);
+
+    let emps: &mut WArray<WAny> = doc.array(8i64);
+    emps.push(mk_emp(&doc, "Nan1", 1i64, nan_pay));
+    emps.push(mk_emp(&doc, "Nan2", 1i64, nan_pay2));
+    emps.push(mk_emp(&doc, "PZ",   2i64, pz));
+    emps.push(mk_emp(&doc, "NZ",   2i64, nz));
+    emps.push(mk_emp(&doc, "One",  3i64, 1.5f64));
+    let esrc: WAny = WAny::ref_to(emps as *const WArray<WAny> as *const u8);
+
+    let depts: &mut WArray<WAny> = doc.array(8i64);
+    depts.push(mk_dept(&doc, 1i64, "NanD", nan_pay));
+    depts.push(mk_dept(&doc, 2i64, "PZD",  pz));
+    depts.push(mk_dept(&doc, 3i64, "One",  1.5f64));
+    let dsrc: WAny = WAny::ref_to(depts as *const WArray<WAny> as *const u8);
+
+    let c: SchemaCatalog = cat();
+    let mut env: QEnv = QEnv::new();
+    env.bind_source("emps", esrc);
+    env.bind_source("depts", dsrc);
+
+    p1("%.*s\n", "== STAGE SEPARATION (which stage answers?) ==");
+    let s_f64_grp: i32 = stage("from emps e group by e.rate aggregate n = count() select (key, n)", &c, &env, "f64 GROUP key");
+    let s_i64_grp: i32 = stage("from emps e group by e.dept aggregate n = count() select (key, n)", &c, &env, "i64 GROUP key (calib)");
+    let s_str_grp: i32 = stage("from emps e group by e.name aggregate n = count() select (key, n)", &c, &env, "str GROUP key (calib)");
+    let s_f64_jn: i32  = stage("from emps e join depts d on e.rate == d.cap select e.name", &c, &env, "f64 JOIN key");
+    let s_i64_jn: i32  = stage("from emps e join depts d on e.dept == d.id select e.name", &c, &env, "i64 JOIN key (calib)");
+
+    p1("%.*s\n", "== LIVE (non-incremental) run(): the loop-tier f64 predicate ==");
+    // 3 NaN-carrying emps rows? emps has 2 NaN, 1 +0, 1 -0, 1 1.5.
+    // depts has NaN, +0.0, 1.5. IEEE: NaN matches nothing; +0.0 == -0.0 so BOTH
+    // zero emps match the +0.0 dept; 1.5 matches 1.5 → expect 3 rows.
+    let n_f64_jn: i64 = runrows("from emps e join depts d on e.rate == d.cap select e.name", &c, &env, "f64 JOIN run");
+    pi("  f64 join run() rows = %ld\n", n_f64_jn);
+
+    // NaN self-inequality through the live predicate: rate == rate.
+    let n_self: i64 = runrows("from emps e where e.rate == e.rate select e.name", &c, &env, "rate==rate");
+    pi("  where rate==rate rows = %ld (5 rows total, 2 are NaN)\n", n_self);
+
+    // ±0.0 merge, BY RULE or by accident? Both zeros must match the +0.0 dept.
+    let n_zero: i64 = runrows("from emps e join depts d on e.rate == d.cap where d.dname == \"PZD\" select e.name", &c, &env, "zero merge");
+    pi("  zero-merge rows = %ld (expect 2: +0.0 and -0.0)\n", n_zero);
+
+    // ⚠ THE SLICE NEVER PROBED THIS. compile() ACCEPTED the f64 group-by (the
+    // refusal came from incremental(), not compile) — so does the STATIC,
+    // non-incremental run() admit an f64 group key? If it does, rt_key_hash /
+    // rt_eq DO get an RtVal::F in a KEY role and "unreachable" is false.
+    p1("%.*s\n", "== f64 GROUP BY through the NON-INCREMENTAL run() ==");
+    let n_fgrp: i64 = runrows("from emps e group by e.rate aggregate n = count() select (key, n)", &c, &env, "f64 GROUP run");
+    pi("  f64 group-by run() rows = %ld (-1 = refused)\n", n_fgrp);
+    // Same shape, i64 key: the calibration. emps has depts 1,1,2,2,3 → 3 groups.
+    let n_igrp: i64 = runrows("from emps e group by e.dept aggregate n = count() select (key, n)", &c, &env, "i64 GROUP run");
+    pi("  i64 group-by run() rows = %ld (expect 3)\n", n_igrp);
+
+    p1("%.*s\n", "== TWO-COLUMN TRAP: does a projected f64 keep its BITS? ==");
+    let q: Query = match Query::compile("from emps e where e.dept == 1 select e.rate", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(e) => { p1("  proj COMPILE-ERR: %.*s\n", e.message()); return 40i32; }
+    };
+    let rows: QRows = match q.run(&env) {
+        Result::Ok(r) => { r }
+        Result::Err(e2) => { p1("  proj RUN-ERR: %.*s\n", e2.message()); return 41i32; }
+    };
+    let nr: i64 = rows.row_count();
+    pi("  projected rows = %ld\n", nr);
+    let mut i: i64 = 0i64;
+    let mut all_bits_ok: bool = true;
+    while i < nr {
+        let got: f64 = rows.get_f64(i, 0i64);
+        let bits: u64 = f64_to_bits(got);
+        pu("  row bits = 0x%016lx\n", bits);
+        if bits != 0x7ff80000deadbeefu64 { all_bits_ok = false; }
+        i = i + 1i64;
+    }
+
+    p1("%.*s\n", "== VERDICT CODES ==");
+    // Hard assertions (exit codes are the machine-readable part).
+    if s_f64_grp == 2i32 { return 20i32; }            // f64 group key ACCEPTED = the defect
+    if s_i64_grp != 2i32 { return 21i32; }            // calibration: i64 group MUST be accepted
+    if s_str_grp != 2i32 { return 22i32; }            // calibration: str group MUST be accepted
+    if s_f64_jn == 2i32 { return 23i32; }             // f64 join key ACCEPTED = the defect
+    if s_i64_jn != 2i32 { return 24i32; }             // calibration: i64 join MUST be accepted
+    // The f64 refusals must come from INCREMENTAL, not from a parse failure.
+    if s_f64_grp != 1i32 { return 25i32; }            // ⚠ if this fires, exit 17 was a PARSE error
+    if s_f64_jn != 1i32 { return 26i32; }
+    // Live float path.
+    if n_self != 3i64 { return 30i32; }               // NaN != NaN: 3 of 5 survive
+    if n_zero != 2i64 { return 31i32; }               // +0.0 == -0.0 merged
+    if n_f64_jn != 3i64 { return 32i32; }             // 2 zeros + 1.5; NaN matches nothing
+    // Bits survive the projection (no canonicalisation happened).
+    if n_igrp != 3i64 { return 35i32; }               // calibration for the run() group path
+    // n_fgrp: -1 means run() ALSO refuses (slice's claim). Any >=0 means the
+    // static path admitted an f64 group key → "unreachable" is REFUTED.
+    if n_fgrp >= 0i64 { return 36i32; }
+    if nr != 2i64 { return 33i32; }
+    if !all_bits_ok { return 34i32; }                 // payload destroyed
+    p1("%.*s\n", "ALL PROBE ASSERTIONS HELD");
+    return 0i32;
+}
