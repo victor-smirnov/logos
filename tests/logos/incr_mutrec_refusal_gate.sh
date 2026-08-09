@@ -31,6 +31,22 @@
 #                                      for a positive assertion.
 #   `[plan] retraction   -> declined` — and the retraction, specifically, is the
 #                                      thing withheld, on the RECURSION ground.
+#   `[plan] rel dred driver -> EMITTED` — and the four-phase DRed driver IS
+#                                      emitted for BOTH members of the SCC, on a
+#                                      ground that says so and says the surface
+#                                      does not follow from it.
+#
+# ⚠⚠ THE THIRD AXIS IS THE ONE THAT KEEPS THE OTHER TWO HONEST NOW THAT THE
+# DRIVER EXISTS. `__wql_<q>_scc<c>_dred` is a PRIVATE item named by exactly one
+# fixture (`pass/wql_incr_rel_dred_driver.logos`), and that fixture is N = 1 — a
+# single-member SCC. Nothing else in the tree can see whether the driver is
+# emitted for a MUTUALLY RECURSIVE SCC at all, and "emitted once per SCC rather
+# than once per admitted member" is precisely the duplicate-definition class
+# `incr_scc_driver_gate.sh` exists for. Reading the verdict here costs one grep
+# over a trace this gate already takes. It also states, in the emitted ground
+# itself, that no retraction SURFACE follows from the driver — so an editor who
+# flips `incr_retract_eligible` without splitting the three `fail/` doors leaves
+# a ground that contradicts the `retraction -> declined` line two rows above it.
 #
 # Under the P3b restore the first pair vanishes and this gate reds. Under
 # "disable `incr_retract_eligible`'s `rel_backed` clause" the second pair turns
@@ -69,6 +85,7 @@ if [ "$RC" != 0 ]; then
 fi
 grep -F '[plan] incremental ->' "$TMPD/all.err" > "$TMPD/itrace.txt"
 grep -F '[plan] retraction ->'  "$TMPD/all.err" > "$TMPD/rtrace.txt"
+grep -F '[plan] rel dred driver ->' "$TMPD/all.err" > "$TMPD/dtrace.txt"
 
 # query | verdict | a phrase the GROUND must contain (the ANTECEDENT, so a
 # ground reworded into a generic "unsupported" stops matching).
@@ -79,6 +96,16 @@ IEXPECT=(
 REXPECT=(
   "oddq|declined|support ITSELF through a cycle"
   "evenq|declined|support ITSELF through a cycle"
+)
+# ⚠ THE PHRASE IS THE ANTECEDENT AGAIN, and it is chosen to be the sentence that
+# CANNOT survive the surface round unedited: "NO RETRACTION SURFACE FOLLOWS".
+# The day `incr_retract_eligible` admits a rel-backed query, that clause becomes
+# false and this gate reds — which is exactly when the three `fail/` doors must
+# be split and replaced, and the gate that says so is the one already asserting
+# `retraction -> declined` on the same compile.
+DEXPECT=(
+  "oddq|EMITTED|NO RETRACTION SURFACE FOLLOWS"
+  "evenq|EMITTED|NO RETRACTION SURFACE FOLLOWS"
 )
 
 check_rows() {
@@ -111,30 +138,44 @@ check_rows() {
 VIOL=$(check_rows "$TMPD/itrace.txt" "${IEXPECT[@]}")
 VIOL="${VIOL}
 $(check_rows "$TMPD/rtrace.txt" "${REXPECT[@]}")"
+VIOL="${VIOL}
+$(check_rows "$TMPD/dtrace.txt" "${DEXPECT[@]}")"
 VIOL=$(printf '%s' "$VIOL" | grep 'VIOLATION' || true)
 
 # ── THE CANARY: the same matcher over a trace broken four ways ──────────────
 #  1. `oddq`'s incremental EMITTED line is MISSING   (the P3b restore's shape);
 #  2. `evenq`'s retraction says EMITTED, not declined (the disabled clause);
 #  3. `oddq`'s retraction ground is REWORDED generically;
-#  4. `evenq` is absent from the incremental trace entirely (never walked).
+#  4. `evenq` is absent from the incremental trace entirely (never walked);
+#  5. `oddq`'s dred driver says `declined`  (the driver stopped being emitted);
+#  6. `evenq`'s dred ground drops the no-surface clause (the surface flipped
+#     without the doors being split).
 CI="$TMPD/can_i.txt"
 CR="$TMPD/can_r.txt"
+CD="$TMPD/can_d.txt"
 echo "[plan] incremental -> declined on oddq   (something else entirely)" > "$CI"
 {
   echo "[plan] retraction -> declined on oddq   (not supported at this time)"
   echo "[plan] retraction -> EMITTED on evenq   (invert exactly)"
 } > "$CR"
+{
+  echo "[plan] rel dred driver -> declined on oddq   (an aggregate is min/max)"
+  echo "[plan] rel dred driver -> EMITTED on evenq   (the four-phase DRed epoch driver)"
+} > "$CD"
 CANV=$(check_rows "$CI" "${IEXPECT[@]}")
 CANV="${CANV}
 $(check_rows "$CR" "${REXPECT[@]}")"
-# Four independent breakages ⇒ at least four violation lines. Fewer means the
+CANV="${CANV}
+$(check_rows "$CD" "${DEXPECT[@]}")"
+# Six independent breakages ⇒ at least six violation lines. Fewer means the
 # matcher is not looking at what it claims to look at.
 CANN=$(printf '%s' "$CANV" | grep -c 'VIOLATION')
-if [ "$CANN" -lt 4 ]; then
+if [ "$CANN" -lt 6 ]; then
     echo "FAIL: THE CANARY DID NOT SPEAK. A trace with oddq's handle missing,"
-    echo "      evenq's retraction EMITTED, oddq's ground reworded and evenq"
-    echo "      absent produced only ${CANN} violations (expected >= 4), so the"
+    echo "      evenq's retraction EMITTED, oddq's ground reworded, evenq"
+    echo "      absent, oddq's dred driver declined and evenq's dred ground"
+    echo "      stripped of its no-surface clause produced only ${CANN}"
+    echo "      violations (expected >= 6), so the"
     echo "      matcher above is not comparing anything and every green run of"
     echo "      this gate so far means nothing."
     printf '%s\n' "$CANV"

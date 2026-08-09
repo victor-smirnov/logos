@@ -4484,6 +4484,82 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         }
     }
 
+    // ══ THE DRed EPOCH DRIVER'S OWN ADMISSION — P3h ════════════════════════
+    //
+    // ⚠⚠ THIS IS *NOT* THE RETRACTION SURFACE AND IT DOES NOT FLIP ONE.
+    // `incr_retract_eligible` still refuses every rel-backed query, so `retr` is
+    // false here whenever `rel_m >= 0` and NO `<q>_apply` / `<q>_retract` /
+    // `__wd` is emitted. What `dred` decides is whether the PRIVATE four-phase
+    // driver `__wql_<q>_scc<c>_dred` is emitted beside `_od`/`_odp`/`_cpt`/`_i`
+    // — one more emitted item on the same footing phases 1 and 2 already stand
+    // on: provable against a from-scratch oracle by a fixture that names it,
+    // reachable by nobody else. The surface round moves this body into a rel
+    // sub-arm of the `retr` branch; until then the three `fail/` doors
+    // (`wql_incr_rel_no_retract`, `wql_incr_mutrec_no_retract_{odd,even}`) stay
+    // TRUE and UNTOUCHED, because the names they assert absent are still absent.
+    //
+    // ── WHAT IT ASKS, AND WHY EACH CLAUSE HAS ITS OWN GROUND ───────────────
+    //  • `rel_m >= 0` — there are no DRed phases to drive otherwise.
+    //  • `!retr`      — an insert-only surface is the only one that exists for a
+    //                   rel today; the conjunct is redundant against the clause
+    //                   in `incr_retract_eligible` and is written anyway so that
+    //                   flipping that clause cannot silently emit TWO retraction
+    //                   paths for one query.
+    //  • `retract_ok` — D4. A float `sum`/`avg` cannot be folded backwards
+    //                   (`(S+x)-x != S`), that decision is VICTOR'S and OPEN, and
+    //                   the driver's negative fold is exactly the arithmetic it
+    //                   is about. ⚠ THIS PREDICATE HAD NEVER BEEN ASKED OF A REL
+    //                   QUERY BEFORE: `incr_retract_eligible` returns at its
+    //                   `rel_backed` clause BEFORE reaching `retract_ok`, so a
+    //                   float `sum` over a rel had no door at all. It has one
+    //                   here, and it is the SAME derivation — one function, three
+    //                   callers, so they cannot answer differently.
+    //  • no `min`/`max` — the semilattice fold retracts by RESCAN over a
+    //                   per-(group, aggregate) value→multiplicity map, and that
+    //                   map (`__gm_<out>`) is a handle FIELD built only under
+    //                   `want_map = retr && is_mm`. An insert-only handle does
+    //                   not carry it, so the −1 fold has nothing to rescan. This
+    //                   is a MISSING STATE refusal, not an arithmetic one, and it
+    //                   is what keeps `want_map`'s own predicate untouched below:
+    //                   `dred` implies no min/max, so `retr && is_mm` and
+    //                   `sfold && is_mm` are the same bit for every query.
+    let dred: bool = rel_m >= 0i64 && !retr
+                     && retract_ok(aggs, acount, acc)
+                     && !aggs_any_minmax(aggs, acount);
+    // THE SIGNED-FOLD BIT. `retr` decides the SURFACE (which fns exist, whether
+    // `__wd` is a parameter); `sfold` decides only whether the per-aggregate FOLD
+    // is written in its WEIGHTED form (`acc + w·arg`) or its `+1` form. They were
+    // one variable while the only weighted caller was `<q>_apply`; the DRed driver
+    // is a second caller that needs the weighted arithmetic on a surface that has
+    // no weight parameter, so the two questions are named apart.
+    // ⚠ `sfold == retr` FOR EVERY NON-REL QUERY, which is what makes every P1/P2
+    // fixture a control on this split: nothing outside the rel path can move.
+    let sfold: bool = retr || dred;
+    // ── THE AXIS IS TRACED HERE, EXACTLY ONCE PER REL-BACKED QUERY ─────────
+    // ⚠ NOT AT THE EMISSION SITE, and the reason is the rule `incr_eligible`'s
+    // header states and `incr_eligibility_gate.sh` enforces on its own axes: a
+    // verdict traced from the place that ACTS on it is traced only on the branch
+    // that acts, so the REFUSALS go unread — which is how a derived decision
+    // becomes a list nobody wrote down. `emit_incremental` has already returned
+    // if the query is ineligible, so every query that reaches this line is one
+    // whose driver question is real, and it is answered on the channel once.
+    // ⚠ THE QUESTION IS ONLY ASKED OF A REL-BACKED QUERY. A non-rel query has no
+    // phases to drive, so tracing a `declined` for one would report a refusal
+    // about a capability that does not apply — the same noise the `retraction`
+    // axis avoids by not tracing before eligibility.
+    if rel_m >= 0i64 && !retr {
+        if dred {
+            plan_trace("rel dred driver", "EMITTED", bare,
+                       "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. NO RETRACTION SURFACE FOLLOWS — `incr_retract_eligible` still refuses every rel-backed query and this item is reachable only by its mangled name");
+        } else if !retract_ok(aggs, acount, acc) {
+            plan_trace("rel dred driver", "declined", bare,
+                       "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time");
+        } else {
+            plan_trace("rel dred driver", "declined", bare,
+                       "an aggregate is `min`/`max` — it retracts by RESCAN over a per-(group, aggregate) value→multiplicity MAP, and that map is a handle field built only on the RETRACTION surface (`want_map = retr && is_mm`), which a rel-backed query does not have; the −1 fold would have nothing to rescan. A MISSING STATE refusal, not an arithmetic one");
+        }
+    }
+
     // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
     // One pass, four parallel cursors, because every one of them is indexed by
     // the same aggregate and a second loop is a second thing to fall out of step.
@@ -4676,6 +4752,40 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             fnames.push(Ident::new(string_as_str(&totnm[tf])));
             ftys.push(parse_type_of_vec(prm.rel_rowty[tmem[tf]]));
             tf = tf + 1i64;
+        }
+        // ── `__lat` — THE INTERMEDIATE-SET LATCHES, NOW A HANDLE FIELD ──────
+        // ⚠ THIS IS THE MOVE `emit_scc_od_fns`'s header PREDICTED AND DEFERRED:
+        // "there is no retract DRIVER in this slice, so OD, S and RD are the
+        // CALLER's own locals here … when the driver lands it will hide these
+        // three quantities inside itself and they will have to move onto the
+        // handle at that point; `__lat` is the shape they will move in."
+        // The driver lands here, so they move here — same shape, three i64 per
+        // SCC member in signature order (|OD|, |S|, |RD|), written by
+        // `<q>_dred` and by nothing else.
+        //
+        // WHY IT IS NOT ENOUGH TO LEAVE THEM IN THE DRIVER. An answer oracle is
+        // BLIND to this arc — measured twice in `emit_scc_od_fns`: delete phase
+        // 1a's existing-rel⋈DE seed term and the diamond's final ANSWER is
+        // byte-for-byte correct while OD, S and RD all move. Once the driver
+        // hides the four phases, a fixture that can only see the answer can see
+        // nothing; the latch is the only surface on which "the retraction was
+        // INCREMENTAL" is assertable at all.
+        //
+        // ⚠ AND THE `|RD| = -1` SENTINEL IS RETIRED HERE, BY THE DRIVER, which
+        // is the party `_cpt`'s own note names ("WHO RETIRES IT: the epoch
+        // DRIVER, with `__lat.set(3m+2, __tot_<m>.len() - __lat.get(3m+1))`
+        // after the `_i` call"). A `-1` surviving into the handle after a
+        // successful `<q>_dred` therefore means phase 3's accounting did not
+        // run, and the fixture asserts against `-1` for exactly that reason.
+        //
+        // ⚠ EMITTED ONLY UNDER `dred`, i.e. only when the fn that writes it is
+        // emitted too. A field written by nobody is a field a reader has to
+        // trust, which is the objection `emit_scc_od_fns` raised against putting
+        // them on the handle in the first place; it is answered by the field and
+        // its only writer sharing one predicate.
+        if dred {
+            fnames.push(Ident::new("__lat"));
+            ftys.push(parse_type_of_vec("i64"));
         }
     }
     let joined: bool = ch.n == 1i64;
@@ -4887,6 +4997,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // for D4. The number is recorded so the fork is taken on a measurement
         // rather than on this comment's predecessor, which asserted the opposite.
         let is_mm: bool = fnid == AGG_MIN() || fnid == AGG_MAX();
+        // ⚠ `retr` AND NOT `sfold`, AND THE TWO ARE THE SAME BIT HERE BY
+        // CONSTRUCTION. `sfold = retr || dred` and `dred` requires
+        // `!aggs_any_minmax`, so `dred && is_mm` is unsatisfiable: writing
+        // `sfold` would read as a widening and change nothing. `retr` is written
+        // because the map is part of the RETRACTION SURFACE's state (it is
+        // declared, initialized and rescanned only where `<q>_apply` exists),
+        // while `sfold` is about the arithmetic of one fold. See the `min`/`max`
+        // clause on `dred` for why the driver refuses rather than grows a map.
         let want_map: bool = retr && is_mm;
         // ⚠ RECORDED, NOT RE-DERIVED DOWNSTREAM. The constructor a hundred lines
         // below has to initialize exactly the fields declared here, and asking
@@ -5008,7 +5126,12 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // opinions. (The dynamic engine does a bare `gcount += w` with no
             // guard at all; see the ⚠⚠ at `apply_body` for why its silence is
             // not the answer "no error".)
-            if retr {
+            // ⚠ `sfold`, NOT `retr` — see the note on `sfold` where it is
+            // derived. The weighted form is what a SIGNED fold needs, and the
+            // DRed driver folds `__rm_<m>` at −1 on a surface that has no `__wd`.
+            // At `__w == 1` the two forms compute the same number, so every
+            // insert-only fixture in the tree is a control on the widening.
+            if sfold {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), __w)?); });
             } else {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
@@ -5031,7 +5154,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // the MAGNITUDE multiplies and the SIGN of `w` picks add or subtract,
             // which is the same decomposition the dynamic engine makes.
             if str_eq(acct, "u64") {
-                if retr {
+                // `sfold`, for the same reason the `count` fold above reads it.
+                if sfold {
                     folds.push(quote_block! {
                         { let __p: u64 = el_mulu(__wm, (#(arg_f)))?;
                           if __wneg { __h.#n_ga.set(__gi, el_subu(__h.#n_ga.get(__gi), __p)?); }
@@ -5041,7 +5165,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
                 }
             } else {
-                if retr {
+                // `sfold`, for the same reason the `count` fold above reads it.
+                if sfold {
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), el_mul(__w, (#(arg_f)))?)?); });
                 } else {
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
@@ -5323,6 +5448,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             push_vec_new(&mut cb, prm.rel_rowty[tmem[ti]]);
             ti = ti + 1i64;
         }
+        // UNDER THE SAME `dred` THE FIELD WAS DECLARED UNDER — one variable read
+        // twice. A second derivation here that disagreed with the field push is
+        // the `unknown field` diagnostic the `wmap` note above records.
+        if dred {
+            cb.push_str(", __lat: ");
+            push_vec_new(&mut cb, "i64");
+        }
     }
     if joined {
         cb.push_str(", __s0: ");
@@ -5406,6 +5538,79 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         unsafe { logos_emit_item_blob_subst(&qc2); }
     }
 
+    // ══ THE DRed DRIVER'S SHADOW HANDLE — WHAT MAKES `<q>_dred` ATOMIC ═════
+    //
+    // ⚠⚠ THE ERROR CONTRACT IS DECIDED HERE, IN ONE SENTENCE A CALLER CAN USE:
+    // **`<q>_dred` either returns `Ok` and the handle has advanced by exactly one
+    // retraction, or it returns `Err` and the handle is BYTE-IDENTICAL to its
+    // pre-call state — content AND order, in every field.** Not "mostly", not
+    // "the relation but not the groups": the whole handle.
+    //
+    // THE MECHANISM, because a contract whose mechanism is not named is a
+    // promise: the driver takes `__hh: &mut <Handle>`, immediately builds a
+    // FULL LOCAL COPY of it called `__h`, and every phase, every check and both
+    // halves of the signed fold run against that copy. The parameter is written
+    // exactly once, at the very bottom, field by field, after everything that
+    // can fail already has not. There is no `?` between the first commit and the
+    // last, so there is no window in which half the fields have moved.
+    //
+    // ⚠ WHY THE COPY AND NOT THE INSERT PATH'S "LOCALS + COMMIT AT THE END".
+    // `<q>_epoch` gets the relation half transactional for free by building
+    // `__ecp` / `__tt<i>` as locals — but its GROUP FOLD writes `__h.__gk` /
+    // `__h.__gc` / `__h.__ga_*` DIRECTLY, and its own header states the window it
+    // leaves: "a fault inside the GROUP FOLD below leaves the total committed and
+    // some rows folded". On the insert path that window is reachable only by an
+    // arithmetic overflow. On the RETRACTION path it is ordinary, because the
+    // negative fold is where the interesting arithmetic lives — and the
+    // interpreter's `dred` is the measured anti-example for what "leave it half
+    // done" costs: a residual INCOMPARABLE with the specification in both
+    // directions, collateral loss of a fact in a different connected component,
+    // `is_converged()` true in every faulted state, and an ABSORBING faulted
+    // state that re-faults on the very retraction that would clear it. "Silently
+    // inconsistent" is not one of the two answers available.
+    //
+    // ⚠ AND A `__poisoned` BIT IS NAMED AND NOT TAKEN. It is the cheaper of the
+    // two containments (`<q>_apply`'s header prices it) and it is strictly weaker:
+    // a poisoned handle is a handle a caller must throw away, which for a
+    // relation this size means replaying every epoch. The copy costs one extra
+    // O(|edb| + Σ|total| + |groups|) pass per RETRACTION — a cost already paid
+    // FOUR times over by `_od`'s scan of T, `_odp`'s fixpoint, `_cpt`'s two
+    // passes and `_i`'s naïve round 0 — so it buys the stronger contract inside
+    // the noise of what the phases already spend. NO NUMBER IS QUOTED: nothing
+    // here has been timed and the box is shared.
+    //
+    // ⚠ THE FIELD LIST IS BUILT FROM THE SAME `ntm`/`tmem`/`totnm`/`ganm`/`dred`
+    // THE STRUCT AND ITS CONSTRUCTOR WERE BUILT FROM, in the SAME ORDER, by the
+    // same three loops — one derivation read a third time, never re-scanned. A
+    // clone that missed a field would not be a wrong answer: it is
+    // `struct literal '<Q>Incr': missing field …` from inside the generated blob,
+    // which is the diagnostic the `wmap` note above records for exactly this
+    // class of second derivation.
+    let mut dcl:  String = String::new();
+    let mut dlit: String = String::new();
+    let mut dcm:  String = String::new();
+    if dred {
+        dlit.push_str(tyn);
+        dlit.push_str(" { ");
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 0i64, "__gk", key_ty);
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 1i64, "__gc", "i64");
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 2i64, "__edb", prm.tys[rel_sp]);
+        let mut dq: i64 = 0i64;
+        while dq < ntm {
+            push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + dq,
+                             string_as_str(&totnm[dq]), prm.rel_rowty[tmem[dq]]);
+            dq = dq + 1i64;
+        }
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + ntm, "__lat", "i64");
+        let mut dg: i64 = 0i64;
+        while dg < acount {
+            push_clone_field(&mut dcl, &mut dlit, &mut dcm, 4i64 + ntm + dg,
+                             string_as_str(&ganm[dg]), acc[dg]);
+            dg = dg + 1i64;
+        }
+        dlit.push_str(" }");
+    }
+
     // ── <q>_apply(&mut h, src, w, …) — fold a WEIGHTED delta in ────────────
     let pre_f: ExprBlob = prelude_frag(prelude);
     let key_f: ExprBlob = parse_expr(key_body);
@@ -5434,6 +5639,56 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // PAIR weight rather than of the call's.
     let mut eps: String = String::new();
     let mut enm: String = String::new();
+    // ══ THE FOLD CORE — ONE BLOCK, NOW THREE CALLERS ═══════════════════════
+    // `<q>_apply` (both nests of the join arm and the bare-scan arm), the
+    // REL-BACKED `<q>_epoch`, and `<q>_dred`'s two signed halves. It USED to be
+    // built inside the `if retr` arm below, which was correct while `<q>_apply`
+    // was the only caller and is not any more: the DRed driver lives on the
+    // INSERT-ONLY branch and needs exactly this block at `__w = -1`.
+    //
+    // ⚠ IT IS BUILT UNCONDITIONALLY AND SPLICED ONLY WHERE `sfold` HOLDS.
+    // Under `!sfold` the `folds` it closes over are the `+1` forms and `__w`
+    // exists nowhere, so splicing it there would not compile — which is the
+    // honest failure mode. Building it always costs one unused AST and keeps the
+    // `if` that decides WHERE it is spliced separate from the `if` that decides
+    // WHAT the folds are; two `if`s on one predicate is how those two fall out
+    // of step.
+    //
+    // ⚠ WHAT THE CALLER OWES IT: `__w` (the weight of the thing being folded,
+    // NOT the delta's — see the note in the `retr` arm), the row binding the key
+    // and the aggregate arguments read, and a mutable `__n`. What it declares —
+    // `__wneg`, `__wm`, `__k`, `__gi` — dies at its own closing brace, because
+    // `#(core)` in statement position splices a BLOCK.
+    //
+    // ⚠ GUARDS 1 AND 2 ARE DEAD FOR THE DRIVER, AND THAT IS A PROPERTY WORTH
+    // NAMING RATHER THAN A COINCIDENCE. Every row the driver folds at −1 comes
+    // out of `__rm_<m>` — rows `_cpt` removed from a total this same handle
+    // built — so its key was folded in by an earlier epoch and the group count
+    // cannot go below the number of rows being removed. They are therefore
+    // INTERNAL-CONSISTENCY sensors on the driver, not caller diagnostics: if one
+    // ever fires under `<q>_dred`, the group state and the relation have
+    // disagreed, and the shadow handle means it is reported as `Err` with the
+    // caller's handle untouched rather than half-folded.
+    let core: ExprBlob = quote_block! {
+        let __wneg: bool = __w < 0i64;
+        let __wm: u64 = el_wmag(__w)?;
+        let __k: #(keyt_f) = (#(key_f));
+        let mut __gi: i64 = -1i64;
+        let mut __s: i64 = 0i64;
+        while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        if __gi < 0i64 {
+            if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
+            __h.__gk.push(__k);
+            __h.__gc.push(0i64);
+            #( #seeds; )*
+            __gi = __h.__gk.len() - 1i64;
+        }
+        let __gn: i64 = el_add(__h.__gc.get(__gi), __w)?;
+        if __gn < 0i64 { return Result::Err(ElError::RetractAbsent); }
+        __h.__gc.set(__gi, __gn);
+        #( #folds; )*
+        __n = __n + 1i64;
+    };
     if retr {
         // ⚠⚠ A MULTIPLICITY THAT WOULD GO NEGATIVE IS AN ERROR, AND THE
         // INTERPRETER IS NOT THE ORACLE FOR THIS CELL. `logos.mem.deem.incr`
@@ -5478,26 +5733,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // weight and cannot be hoisted, and having one spelling for both shapes
         // is worth an `el_wmag` per row on the bare-scan path. Every P1/P2
         // fixture is the control on that move — same body, same answers.
-        let core: ExprBlob = quote_block! {
-            let __wneg: bool = __w < 0i64;
-            let __wm: u64 = el_wmag(__w)?;
-            let __k: #(keyt_f) = (#(key_f));
-            let mut __gi: i64 = -1i64;
-            let mut __s: i64 = 0i64;
-            while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-            if __gi < 0i64 {
-                if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
-                __h.__gk.push(__k);
-                __h.__gc.push(0i64);
-                #( #seeds; )*
-                __gi = __h.__gk.len() - 1i64;
-            }
-            let __gn: i64 = el_add(__h.__gc.get(__gi), __w)?;
-            if __gn < 0i64 { return Result::Err(ElError::RetractAbsent); }
-            __h.__gc.set(__gi, __gn);
-            #( #folds; )*
-            __n = __n + 1i64;
-        };
+        // ⚠ `core` IS BUILT ABOVE THIS `if`, NOT HERE — see the note at its
+        // definition. It moved out when the DRed driver became a THIRD caller
+        // on a branch this `if` does not reach.
         let mut apply_body: ExprBlob = quote_block! { };
         if joined {
             // The step's `on` predicate as ONE boolean over BOTH row vars — the
@@ -6083,6 +6321,39 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // weight is not expressible rather than merely wrong. The rows
             // folded are `__nws` — the ones this epoch ADDED — so an unchanged
             // saturated fixpoint folds nothing and the answer does not move.
+            //
+            // ⚠⚠ AND UNDER `sfold` THIS BODY FOLDS THROUGH `core` AT `__w = 1`
+            // RATHER THAN THROUGH ITS OWN COPY OF THE GROUP LOGIC. The two are
+            // the same arithmetic — `el_add(gc, 1)` against `gc + 1`, and
+            // `el_add(acc, el_mul(1, arg))` against `el_add(acc, arg)` — and
+            // there is exactly one reason to prefer the shared block: `<q>_dred`
+            // folds the SAME groups of the SAME handle at `__w = -1`, and an
+            // insert side that drifted from the retract side by one `set` is a
+            // defect no single-epoch oracle can see. One block, two signs.
+            // ⚠ THE DIFFERENCE THAT IS NOT COSMETIC: `core` computes `__gc`
+            // through `el_add`, so a group multiplicity that overflows i64 is now
+            // an `Err` on the insert path too instead of a wrap. That is a
+            // STRENGTHENING and no fixture in the tree can reach it (it needs
+            // 2^63 rows in one group); it is recorded because the P1 fixtures are
+            // the control on this substitution and they are the reason it can be
+            // asserted rather than hoped.
+            // Under `!sfold` — a rel-backed query with a float `sum`/`avg` (D4)
+            // or a `min`/`max` — there is no driver, the folds are the `+1`
+            // forms, `__w` exists nowhere, and this body keeps its own copy.
+            if sfold {
+                epoch_body = quote_block! {
+                    #( #pro; )*
+                    let mut __n: i64 = 0i64;
+                    let mut __i0: i64 = 0i64;
+                    while __i0 < __nws.len() {
+                        let #base_vnm: &#(base_ty_f) = &__nws[__i0];
+                        let __w: i64 = 1i64;
+                        #(core);
+                        __i0 = __i0 + 1i64;
+                    }
+                    return Result::Ok(__n);
+                };
+            } else {
             epoch_body = quote_block! {
                 #( #pro; )*
                 let mut __n: i64 = 0i64;
@@ -6106,6 +6377,441 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 }
                 return Result::Ok(__n);
             };
+            }
+
+            // ══════════════════════════════════════════════════════════════
+            // ══ `__wql_<q>_scc<c>_dred` — THE FOUR-PHASE EPOCH DRIVER ═════
+            // ══════════════════════════════════════════════════════════════
+            //
+            // ⚠⚠ WHAT THIS IS AND, FIRST, WHAT IT IS NOT. It is NOT the
+            // retraction SURFACE. `incr_retract_eligible` still refuses every
+            // rel-backed query with recursion as its ground, `<q>_retract` /
+            // `<q>_apply` / `__wd` still do not exist for one, and the three
+            // `fail/` doors that assert those names absent are UNTOUCHED and
+            // still true. This is one more PRIVATE emitted item beside `_od`,
+            // `_odp`, `_cpt` and `_i` — the party that calls those four in order
+            // — reachable only by a fixture naming it, exactly as phases 1 and 2
+            // landed. The surface round moves this body into a rel sub-arm of the
+            // `retr` branch and replaces the doors then; a half-flip now would
+            // leave doors that pin even less than they do today.
+            //
+            // ── WHY IT IS A SEPARATE ITEM AND NOT A FORWARDER ─────────────
+            // The non-rel retraction surface is `<q>_retract(h, …) =
+            // <q>_apply(h, 0, -1, …)` — a pure forwarder through the weighted
+            // primitive. That shape CANNOT express this: a retraction here is
+            // four phases over driver-local state with a signed fold at the end,
+            // not one weight handed to one loop. Emitting it as its own item is
+            // what lets the surface round be a re-parenting rather than a
+            // rewrite.
+            //
+            // ── THE SEQUENCE, AND WHAT EACH ARGUMENT MUST BE ──────────────
+            //   PRES := __edb ∖ DE                    (computed here, once)
+            //   1a  _od (DE,   __rd_<m> := T,   → __od_<m>)
+            //   1b  _odp(PRES,                  → __od_<m> to fixpoint)
+            //   2   _cpt(__od_<m>, __tot_<m>, → __rm_<m>, __lat)
+            //   3   _i  (PRES,  __tot_<m> := S EXACTLY AS `_cpt` LEFT IT)
+            // and `__b0_<m>` captured AFTER `_cpt` returns, because `promote`
+            // only ever APPENDS and `_cpt` SHRINKS — a `b0` taken on the wrong
+            // side of the compact indexes a vector that no longer reaches that
+            // length. `pass/wql_incr_rel_od_phase3.logos` measured that at
+            // exit 40 when the capture moved, and this driver is the transcription
+            // of that fixture's call sequence into emission.
+            //
+            // ── THE SIGNED FOLD, WHICH IS THE PIECE WITH NO PRECEDENT ─────
+            // The insert epoch folds `[__b0 .. len)` at +1 and nothing else. A
+            // retraction must ALSO fold DOWN: `_cpt`'s `__rm_<m>` is `OD ∩ T` in
+            // T's own order — the rows that left — and it is the ONLY artifact
+            // from which they can be recovered (the compact overwrites them in
+            // place; see `_cpt`'s `__rm_<m>` note). Folding only the positive
+            // suffix would leave the RELATION right and the AGGREGATE CELLS
+            // silently stale by `OD ∖ RD`, which is a defect no assertion about
+            // the relation can see.
+            // ⚠ ORDER: THE −1 PASS RUNS FIRST. Both orders reach the same final
+            // cells for `count` and integer `sum`, but `core`'s guard 2 (a group
+            // multiplicity driven below zero) is a sensor on the driver's own
+            // consistency, and running the removals first is what puts the group
+            // at its true intermediate low-water mark instead of masking it with
+            // this epoch's re-derivations.
+            //
+            // ── WHAT `__lat` CARRIES OUT ─────────────────────────────────
+            // Three i64 per member in signature order: |OD|, |S|, |RD|. `_cpt`
+            // writes the first two and pushes `-1` for the third because |RD| is
+            // not a fact in its scope; THIS fn retires that sentinel, which is
+            // precisely the party `_cpt`'s own note names. An answer oracle is
+            // blind to this arc (measured twice in `emit_scc_od_fns`), so the
+            // latch is the only surface on which "the retraction was INCREMENTAL"
+            // is assertable once the driver hides the phases.
+            //
+            // ── COST, NAMED AND NOT MEASURED HERE ────────────────────────
+            // ⚠⚠ DRed IS A PESSIMIZATION TODAY AND THIS FN IS WHERE A CALLER
+            // MEETS THE BILL. Measured 2026-08-08 on an idle box, interleaved in
+            // one process: the whole four-phase retraction costs 1.15–1.9× a
+            // from-scratch recompute over PRES, and it loses WORSE as |RD| grows
+            // — there is no crossover anywhere in the reachable range, so no
+            // hybrid branch was written (a threshold fitted to those numbers would
+            // route every corpus shape to recompute and take the DRed path dark
+            // with no red anywhere). ⚠ NO NUMBER IS RE-MEASURED HERE and none
+            // should be: the box is shared, and a ratio from a shared box is worse
+            // than no ratio because it looks like evidence.
+            // THE REPAIR IS NAMED, NOT TAKEN: the EDB-delta occurrence list in
+            // `emit_scc_fn`'s header, which changes the ENUMERATION (`_i`'s round
+            // 0 is a FULL naïve pass over PRES × S, re-deriving nothing at
+            // |RD| = 0) rather than choosing between two enumerations.
+            //
+            // ── COST THIS FN ADDS ON TOP OF THE PHASES ───────────────────
+            // One O(|edb| × |DE|) pass for PRES and the DE ⊆ EDB check (the same
+            // unindexed `==` the presence gate already pays), one copy of the
+            // handle for atomicity, and one copy of each member total. All three
+            // are inside what `_od`'s scan of T, `_odp`'s fixpoint, `_cpt`'s two
+            // passes and `_i`'s naïve round 0 already spend. NOT WEIGHED — no
+            // byte figure and no clock, deliberately.
+            if dred {
+                let mut dt: String = String::new();
+                dt.push_str("{\n");
+                // ── 0. THE SHADOW HANDLE. See its note above the constructor.
+                dt.push_str(string_as_str(&dcl));
+                dt.push_str("let mut __h: ");
+                dt.push_str(tyn);
+                dt.push_str(" = ");
+                dt.push_str(string_as_str(&dlit));
+                dt.push_str(";\n");
+
+                // ══ 1. `DE ⊆ EDB`, EXACTLY, BEFORE ANY PHASE RUNS ═════════
+                //
+                // ⚠⚠ THE PRECONDITION THE SURFACE MUST ENFORCE RATHER THAN
+                // INHERIT. `_od`'s BASE bodies read the deleted rows DIRECTLY,
+                // so a caller retracting a row it never inserted seeds OD with a
+                // fact the total never held and breaks `OD ⊆ T` — the invariant
+                // `_cpt`'s pass 1 exists to defend. Nothing in the tree checked
+                // it before, because there was no party positioned to: `_od` is
+                // handed DE and a previous total and cannot know what the handle
+                // accumulated. The driver is that party.
+                //
+                // ── THE PRECEDENT, AND WHY THIS IS STRICTLY STRONGER ──────
+                // `8f9a8059` closed the same hole on the NON-REL surface with a
+                // row-FOOTPRINT sensor in `<q>_apply`: before it, `sums_retract`
+                // on a never-inserted row returned `Ok` and left the group
+                // reading −984, and a row retracted under ANOTHER key drove a
+                // group to count 0 which the tombstone guard then DELETED —
+                // silent data loss. That sensor stores `__s0: Vec<fpty>`, a
+                // PROJECTION of the fold's read fields plus the key, and it
+                // carries two ANNOTATED-GREEN degeneracies as a consequence: a
+                // COUNT-ONLY query has an empty argument list, so the footprint
+                // degenerates to the key alone and any row of a live group is
+                // retractable; and a row differing only in a field the fold never
+                // reads is indistinguishable from the row that was inserted.
+                // ⚠ NEITHER DEGENERACY EXISTS HERE, and the reason is a
+                // different store rather than a better check: `__edb` holds the
+                // EXACT input rows, deduplicated, with no weight vector and no
+                // projection. Membership of a full input row in `__edb` is
+                // identity, so the count-only case and the unread-field case are
+                // both decided correctly. The non-rel sensor is deliberately NOT
+                // reused — `incr_row_eq_text` is, which is the same row equality
+                // the presence gate in `<q>_epoch` instantiates.
+                //
+                // ⚠ IT IS AN INDEPENDENT INSTANTIATION (`__ya`/`__yb`, not the
+                // gate's `__c`/`__dv`), its own loops, its own cursors — so
+                // deleting the presence gate does not delete this check with it.
+                // Same rule the `|__edb|` distinctness check follows above.
+                //
+                // ⚠ AND IT IS A CHEAP REFUSAL, WHICH THIS REPO HAS BEEN BURNED BY
+                // BEFORE: it fires before a single row has moved, so "the handle
+                // is untouched" afterwards is a claim about a handle nothing
+                // touched. It is stated here so no fixture mistakes it for the
+                // LATE fault. The late fault is the one that reaches the signed
+                // fold after all four phases have run; see the contract note at
+                // the commit below.
+                //
+                // ⚠ DE IS TREATED AS A SET, and a DUPLICATE INSIDE IT IS NOT AN
+                // ERROR. `__edb` has no multiplicities by construction (the
+                // inbound collapse boundary), so "the same fact retracted twice
+                // in one call" is one retraction, exactly as "the same fact
+                // presented twice" is one insertion. The membership scan answers
+                // the same way for both copies and PRES is idempotent under the
+                // removal, so nothing needs a second opinion.
+                let mut eqd: String = String::new();
+                incr_row_eq_text(ty, ety, "__ya", "__yb", &mut eqd);
+                dt.push_str("let mut __pres: Vec<"); dt.push_str(ety);
+                dt.push_str("> = Vec::<"); dt.push_str(ety); dt.push_str(">::new();\n");
+                dt.push_str("let mut __pi: i64 = 0i64;\n");
+                dt.push_str("while __pi < __h.__edb.len() {\n");
+                dt.push_str("    let __ya: "); dt.push_str(ety); dt.push_str(" = __h.__edb.get(__pi);\n");
+                dt.push_str("    let mut __phit: bool = false;\n");
+                dt.push_str("    let mut __pj: i64 = 0i64;\n");
+                dt.push_str("    while __pj < ("); dt.push_str(prm.names[rel_sp]); dt.push_str(").len() {\n");
+                dt.push_str("        let __yb: "); dt.push_str(ety); dt.push_str(" = ("); dt.push_str(prm.names[rel_sp]); dt.push_str(")[__pj];\n");
+                dt.push_str("        if ("); dt.push_str(string_as_str(&eqd)); dt.push_str(") { __phit = true; }\n");
+                dt.push_str("        __pj = __pj + 1i64;\n");
+                dt.push_str("    }\n");
+                dt.push_str("    if !__phit { __pres.push(__ya); }\n");
+                dt.push_str("    __pi = __pi + 1i64;\n");
+                dt.push_str("}\n");
+                dt.push_str("let mut __dk: i64 = 0i64;\n");
+                dt.push_str("while __dk < ("); dt.push_str(prm.names[rel_sp]); dt.push_str(").len() {\n");
+                dt.push_str("    let __yb: "); dt.push_str(ety); dt.push_str(" = ("); dt.push_str(prm.names[rel_sp]); dt.push_str(")[__dk];\n");
+                dt.push_str("    let mut __fnd: bool = false;\n");
+                dt.push_str("    let mut __dm: i64 = 0i64;\n");
+                dt.push_str("    while __dm < __h.__edb.len() {\n");
+                dt.push_str("        let __ya: "); dt.push_str(ety); dt.push_str(" = __h.__edb.get(__dm);\n");
+                dt.push_str("        if ("); dt.push_str(string_as_str(&eqd)); dt.push_str(") { __fnd = true; }\n");
+                dt.push_str("        __dm = __dm + 1i64;\n");
+                dt.push_str("    }\n");
+                dt.push_str("    if !__fnd { return Result::Err(ElError::RetractAbsent); }\n");
+                dt.push_str("    __dk = __dk + 1i64;\n");
+                dt.push_str("}\n");
+
+                // ── 2. THE PER-MEMBER WORKING STATE ──────────────────────
+                // ⚠ `__tt<i>` IS INDEXED BY POSITION IN `tmem`, THE ORDER
+                // `emit_scc_fn` / `emit_scc_od_fns` PUT THEIR OUT-PARAMS IN, and
+                // it is the same array the insert epoch body reads. Two members
+                // of a mutually recursive pair usually SHARE a row type, so a
+                // swapped pair TYPECHECKS and answers with the relations
+                // exchanged — which is exactly what
+                // `fail/wql_incr_mutrec_no_retract_even.logos` names as the shape
+                // a first-member-instead-of-selected-member bug hides in.
+                let mut d0: i64 = 0i64;
+                while d0 < ntm {
+                    let drt: str = prm.rel_rowty[tmem[d0]];
+                    dt.push_str("let mut __tt"); dt.push_i64(d0);
+                    dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
+                    dt.push_str("let mut __tq"); dt.push_i64(d0); dt.push_str(": i64 = 0i64;\n");
+                    dt.push_str("while __tq"); dt.push_i64(d0); dt.push_str(" < __h.");
+                    dt.push_str(string_as_str(&totnm[d0])); dt.push_str(".len() { __tt");
+                    dt.push_i64(d0); dt.push_str(".push(__h."); dt.push_str(string_as_str(&totnm[d0]));
+                    dt.push_str(".get(__tq"); dt.push_i64(d0); dt.push_str(")); __tq"); dt.push_i64(d0);
+                    dt.push_str(" = __tq"); dt.push_i64(d0); dt.push_str(" + 1i64; }\n");
+                    dt.push_str("let mut __odv"); dt.push_i64(d0);
+                    dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
+                    dt.push_str("let mut __rmv"); dt.push_i64(d0);
+                    dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
+                    d0 = d0 + 1i64;
+                }
+                dt.push_str("let mut __lt: Vec<i64> = Vec::<i64>::new();\n");
+
+                // ── PHASE 1a — `_od`, THE SEED ──────────────────────────
+                // ⚠ THE SLICE PARAMETER CARRIES DE, VERBATIM, which is why the
+                // argument list is `push_param_args` and not a substitution: the
+                // driver's own signature IS the query's parameter list with the
+                // slice bound to the retracted rows, the same convention
+                // `<q>_epoch` uses for the inserted ones. `__rd_<m>` is the
+                // PREVIOUS total, read-only — `_od`'s recursive bodies read it so
+                // they cannot leave T, and that is half of the `OD ⊆ T` argument.
+                dt.push_str("{\n");
+                dt.push_str("__wql_"); dt.push_str(bare); dt.push_str("_scc");
+                dt.push_i64(prm.rel_sccid[rel_m]); dt.push_str("_od(");
+                push_param_args(&mut dt, prm);
+                let mut d1: i64 = 0i64;
+                while d1 < ntm {
+                    if prm.n > 0i64 || d1 > 0i64 { dt.push_str(", "); }
+                    dt.push_str("__tt"); dt.push_i64(d1); dt.push_str(".as_slice()");
+                    d1 = d1 + 1i64;
+                }
+                let mut d2: i64 = 0i64;
+                while d2 < ntm {
+                    dt.push_str(", &mut __odv"); dt.push_i64(d2);
+                    d2 = d2 + 1i64;
+                }
+                dt.push_str(")?;\n");
+                dt.push_str("}\n");
+
+                // ── PHASE 1b — `_odp`, THE PROPAGATION ──────────────────
+                // RECURSIVE BODIES ONLY, over the SURVIVORS, read == write == OD.
+                // ⚠ `_i` CANNOT SERVE HERE and the reason is measured: its round
+                // 0 runs the BASE bodies too, so with the EDB bound to PRES it
+                // would inject every surviving base fact into OD
+                // (`pass/wql_incr_rel_od_phase1.logos`, exit 36).
+                dt.push_str("{\n");
+                dt.push_str("let __ps: &["); dt.push_str(ety); dt.push_str("] = __pres.as_slice();\n");
+                dt.push_str("__wql_"); dt.push_str(bare); dt.push_str("_scc");
+                dt.push_i64(prm.rel_sccid[rel_m]); dt.push_str("_odp(");
+                let mut d3: i64 = 0i64;
+                while d3 < prm.n {
+                    if d3 > 0i64 { dt.push_str(", "); }
+                    if d3 == rel_sp { dt.push_str("__ps"); } else { dt.push_str(prm.names[d3]); }
+                    d3 = d3 + 1i64;
+                }
+                let mut d4: i64 = 0i64;
+                while d4 < ntm {
+                    if prm.n > 0i64 || d4 > 0i64 { dt.push_str(", "); }
+                    dt.push_str("&mut __odv"); dt.push_i64(d4);
+                    d4 = d4 + 1i64;
+                }
+                dt.push_str(")?;\n");
+                dt.push_str("}\n");
+
+                // ── PHASE 2 — `_cpt`, THE COMPACT ───────────────────────
+                // Transactional by construction: a read-only counting pass
+                // refuses `OD ⊄ T` before a single row moves.
+                // ⚠ AND THAT REFUSAL IS UNREACHABLE FROM HERE, WHICH IS A FACT
+                // ABOUT THE DE ⊆ EDB CHECK ABOVE AND WORTH WRITING DOWN. With
+                // DE ⊆ EDB, `_od`'s base bodies read rows of the accumulated
+                // input, every fact they derive is in `lfp(EDB) = T`, its
+                // recursive bodies read T which is closed, and `_odp` extends
+                // along survivor edges inside T — so `OD ⊆ T` holds for every
+                // input this driver can build. `_cpt`'s pass 1 stays as the
+                // defence for the DIRECT callers that phases 1+2 already have
+                // (`pass/wql_incr_rel_od_phase1.logos` calls it with an
+                // out-of-T OD on purpose); it is not the driver's late fault, and
+                // a fixture that tried to make it one would have to bypass the
+                // check that makes the driver correct.
+                dt.push_str("__wql_"); dt.push_str(bare); dt.push_str("_scc");
+                dt.push_i64(prm.rel_sccid[rel_m]); dt.push_str("_cpt(");
+                let mut d5: i64 = 0i64;
+                while d5 < ntm {
+                    if d5 > 0i64 { dt.push_str(", "); }
+                    dt.push_str("__odv"); dt.push_i64(d5); dt.push_str(".as_slice()");
+                    d5 = d5 + 1i64;
+                }
+                let mut d6: i64 = 0i64;
+                while d6 < ntm {
+                    dt.push_str(", &mut __tt"); dt.push_i64(d6);
+                    d6 = d6 + 1i64;
+                }
+                let mut d7: i64 = 0i64;
+                while d7 < ntm {
+                    dt.push_str(", &mut __rmv"); dt.push_i64(d7);
+                    d7 = d7 + 1i64;
+                }
+                dt.push_str(", &mut __lt)?;\n");
+
+                // ── `__b0<i>` — CAPTURED **AFTER** `_cpt` ───────────────
+                let mut d8: i64 = 0i64;
+                while d8 < ntm {
+                    dt.push_str("let __b0"); dt.push_i64(d8); dt.push_str(": i64 = __tt");
+                    dt.push_i64(d8); dt.push_str(".len();\n");
+                    d8 = d8 + 1i64;
+                }
+
+                // ── PHASE 3 — `_i` RE-ENTERED, `__tot := S` ─────────────
+                // ⚠ `__tot := S`, NEVER `∅`. In `_i` the shadow set and the total
+                // are THE SAME VARIABLE (the incr state arm seeds a fresh
+                // `__rs_<m>` by walking `__tot_<m>`), so `tot = 0` means an empty
+                // shadow set, every surviving fact counts as new, and the whole
+                // closure is recomputed — a RIGHT answer with zero
+                // incrementality, which is why `__lat`'s |RD| is asserted and not
+                // only the answer.
+                dt.push_str("{\n");
+                dt.push_str("let __ps2: &["); dt.push_str(ety); dt.push_str("] = __pres.as_slice();\n");
+                dt.push_str("let mut __wcd: Vec<i64> = Vec::<i64>::new();\n");
+                dt.push_str("__wql_"); dt.push_str(bare); dt.push_str("_scc");
+                dt.push_i64(prm.rel_sccid[rel_m]); dt.push_str("_i(");
+                let mut d9: i64 = 0i64;
+                while d9 < prm.n {
+                    if d9 > 0i64 { dt.push_str(", "); }
+                    if d9 == rel_sp { dt.push_str("__ps2"); } else { dt.push_str(prm.names[d9]); }
+                    d9 = d9 + 1i64;
+                }
+                let mut da: i64 = 0i64;
+                while da < ntm {
+                    if prm.n > 0i64 || da > 0i64 { dt.push_str(", "); }
+                    dt.push_str("&mut __tt"); dt.push_i64(da);
+                    da = da + 1i64;
+                }
+                dt.push_str(", &mut __wcd)?;\n");
+                dt.push_str("}\n");
+
+                // ── RETIRE THE `|RD| = -1` SENTINEL ────────────────────
+                // `_cpt` pushes `-1` for |RD| because phase 3 has not run when it
+                // returns, so 0 would read as "phase 3 ran and re-derived
+                // nothing" — a claim it cannot make. The driver is the only party
+                // that knows the post-`_cpt` suffix length, and this is the line
+                // `_cpt`'s own note predicts.
+                let mut db: i64 = 0i64;
+                while db < ntm {
+                    dt.push_str("__lt.set("); dt.push_i64(3i64 * db + 2i64);
+                    dt.push_str(", __tt"); dt.push_i64(db); dt.push_str(".len() - __lt.get(");
+                    dt.push_i64(3i64 * db + 1i64); dt.push_str("));\n");
+                    db = db + 1i64;
+                }
+
+                // ── THE TWO DELTAS, THEN THE COMMIT TO THE SHADOW ──────
+                // ⚠ ONLY THE SELECTED MEMBER IS FOLDED, exactly as on the insert
+                // path: the entry query selects from ONE rel (`rel_m`, found by
+                // `rel_find_src(ch.base_src)`), so its group state is a function
+                // of that member's rows alone. The co-members are MAINTAINED
+                // because the fixpoint needs them and folded by nobody because
+                // nothing asked about them.
+                dt.push_str("let mut __nw: Vec<"); dt.push_str(rty);
+                dt.push_str("> = Vec::<"); dt.push_str(rty); dt.push_str(">::new();\n");
+                dt.push_str("let mut __rk: i64 = __b0"); dt.push_i64(fi); dt.push_str(";\n");
+                dt.push_str("while __rk < __tt"); dt.push_i64(fi); dt.push_str(".len() { __nw.push(__tt");
+                dt.push_i64(fi); dt.push_str(".get(__rk)); __rk = __rk + 1i64; }\n");
+                // ⚠ `__h.__edb` MUST SHRINK. If the driver left the accumulated
+                // input intact, the NEXT insert epoch's round-0 pass over it
+                // would re-derive every retracted fact and the retraction would
+                // silently undo itself one epoch later — a defect invisible to
+                // any single-epoch oracle, which is why the fixture asserts
+                // across epochs and not per call.
+                dt.push_str("__h.__edb = __pres;\n");
+                let mut dc: i64 = 0i64;
+                while dc < ntm {
+                    dt.push_str("__h."); dt.push_str(string_as_str(&totnm[dc]));
+                    dt.push_str(" = __tt"); dt.push_i64(dc); dt.push_str(";\n");
+                    dc = dc + 1i64;
+                }
+                dt.push_str("__h.__lat = __lt;\n");
+                dt.push_str("let __rms: &["); dt.push_str(rty); dt.push_str("] = __rmv");
+                dt.push_i64(fi); dt.push_str(".as_slice();\n");
+                dt.push_str("let __nws: &["); dt.push_str(rty); dt.push_str("] = __nw.as_slice();\n");
+                dt.push_str("}\n");
+
+                let mut dro: Vec<ExprBlob> = vec_new::<ExprBlob>();
+                dro.push(parse_block(string_as_str(&dt)));
+                // ⚠ THE BRACES ARE NOT COSMETIC: `parse_block` wants a BLOCK, and
+                // a bare statement list comes back as a null blob whose only
+                // symptom downstream is `logos_quote_expr_subst: stmt-list splice
+                // — null ptr` plus an undefined function at the call site.
+                // MEASURED here on the first run of this emitter.
+                let mut dcmw: String = String::new();
+                dcmw.push_str("{\n");
+                dcmw.push_str(string_as_str(&dcm));
+                dcmw.push_str("}\n");
+                let dcm_f: ExprBlob = parse_block(string_as_str(&dcmw));
+                // ⚠ SPLICED WITH A REPETITION (`#( #dro; )*`) AND NOT AS
+                // `#(dro)`: `#(x)` in statement position embeds a BLOCK, so every
+                // `let` above would die at its closing brace and `__rms` / `__nws`
+                // would be invisible to the fold loops. The commit is `#(dcm_f)`
+                // — a plain block — precisely because it declares nothing and
+                // needs to see nothing after itself.
+                let dred_body: ExprBlob = quote_block! {
+                    #( #dro; )*
+                    let mut __n: i64 = 0i64;
+                    let mut __i0: i64 = 0i64;
+                    while __i0 < __rms.len() {
+                        let #base_vnm: &#(base_ty_f) = &__rms[__i0];
+                        let __w: i64 = 0i64 - 1i64;
+                        #(core);
+                        __i0 = __i0 + 1i64;
+                    }
+                    let mut __i1: i64 = 0i64;
+                    while __i1 < __nws.len() {
+                        let #base_vnm: &#(base_ty_f) = &__nws[__i1];
+                        let __w: i64 = 1i64;
+                        #(core);
+                        __i1 = __i1 + 1i64;
+                    }
+                    #(dcm_f);
+                    return Result::Ok(__n);
+                };
+                let mut dps: String = String::new();
+                dps.push_str("__hh: &mut ");
+                dps.push_str(tyn);
+                if params_text.len() > 0i64 {
+                    dps.push_str(", ");
+                    dps.push_str(params_text);
+                }
+                let mut dnm: String = String::new();
+                dnm.push_str("-__wql_");
+                dnm.push_str(bare);
+                dnm.push_str("_scc");
+                dnm.push_i64(prm.rel_sccid[rel_m]);
+                dnm.push_str("_dred");
+                // ⚠ NO `plan_trace` HERE — the axis is traced once, beside the
+                // `dred` derivation, so the REFUSALS are on the channel too. See
+                // the note there.
+                emit_fn_quote_blob(string_as_str(&dnm), string_as_str(&dps), "",
+                                   "Result<i64, ElError>", dred_body, prm);
+            }
         } else {
         epoch_body = quote_block! {
             #(pre_f);
@@ -6208,6 +6914,38 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 // `Vec<T>` as a TYPE fragment and `Vec::<T>::new()` as constructor TEXT — the two
 // spellings the handle's field list and its constructor need, composed from the
 // element type's name rather than from a per-type table.
+/// ONE HANDLE FIELD, THREE TEXTS: the local copy that the DRed driver works on,
+/// that copy's slot in the shadow handle's struct literal, and the commit that
+/// writes it back. See the `<q>_dred` shadow-handle note in `emit_incremental`
+/// for the contract these three implement.
+///
+/// ⚠ THE THREE ARE WRITTEN BY ONE FUNCTION FOR THE REASON THIS FILE REPEATS
+/// EVERYWHERE: a field copied but not committed is a silently DISCARDED
+/// retraction, a field committed but not copied is a `missing field` diagnostic,
+/// and the two would be two loops free to fall out of step. One call, one field.
+///
+/// ⚠ THE COMMIT MOVES, IT DOES NOT COPY: `__hh.<f> = __h.<f>;` hands the Vec
+/// over exactly as `<q>_epoch`'s `__h.__edb = __ecp;` does, so the atomicity
+/// costs ONE copy per retraction and not two.
+fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
+                    idx: i64, fld: str, ety: str) {
+    if idx > 0i64 { dlit.push_str(", "); }
+    dcl.push_str("let mut __cp"); dcl.push_i64(idx);
+    dcl.push_str(": Vec<"); dcl.push_str(ety); dcl.push_str("> = ");
+    push_vec_new(dcl, ety);
+    dcl.push_str(";\n");
+    dcl.push_str("let mut __cx"); dcl.push_i64(idx); dcl.push_str(": i64 = 0i64;\n");
+    dcl.push_str("while __cx"); dcl.push_i64(idx);
+    dcl.push_str(" < __hh."); dcl.push_str(fld); dcl.push_str(".len() { __cp");
+    dcl.push_i64(idx); dcl.push_str(".push(__hh."); dcl.push_str(fld);
+    dcl.push_str(".get(__cx"); dcl.push_i64(idx); dcl.push_str(")); __cx");
+    dcl.push_i64(idx); dcl.push_str(" = __cx"); dcl.push_i64(idx);
+    dcl.push_str(" + 1i64; }\n");
+    dlit.push_str(fld); dlit.push_str(": __cp"); dlit.push_i64(idx);
+    dcm.push_str("__hh."); dcm.push_str(fld); dcm.push_str(" = __h.");
+    dcm.push_str(fld); dcm.push_str(";\n");
+}
+
 fn parse_type_of_vec(t: str) -> ExprBlob {
     let mut s: String = String::new();
     s.push_str("Vec<");
@@ -6680,6 +7418,28 @@ fn retract_ok(aggs: &RAggArr, acount: i64, acc: &[str; 8]) -> bool {
         i = i + 1i64;
     }
     return true;
+}
+
+/// Does the aggregate list contain a `min` or a `max`? Asked by the DRed
+/// driver's admission (`dred` in `emit_incremental`) and by nothing else.
+///
+/// ⚠ IT IS A QUESTION ABOUT STATE, NOT ABOUT ARITHMETIC, and that is why it is a
+/// SEPARATE predicate from `retract_ok` rather than a clause inside it.
+/// `retract_ok` answers "does this aggregate run backwards", and `min`/`max` DO
+/// — by rescanning the value→multiplicity map, exactly as its header says. What
+/// the DRed driver lacks is the MAP: `want_map` builds `__gm_<out>` only under
+/// `retr`, and a rel-backed query is on the insert-only surface, so the field
+/// does not exist for the driver's −1 fold to rescan. Folding the two grounds
+/// into one predicate would make `retract_ok` say something false about
+/// `min`/`max` at its other two call sites.
+fn aggs_any_minmax(aggs: &RAggArr, acount: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
+        if fnid == AGG_MIN() || fnid == AGG_MAX() { return true; }
+        i = i + 1i64;
+    }
+    return false;
 }
 
 fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
@@ -8755,6 +9515,10 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // query, `<q>_apply` / `<q>_retract` / `__wd` are still not emitted for one, and
 // `fail/wql_incr_rel_no_retract.logos` still pins that refusal. A caller cannot
 // present a retraction to a recursive query today and that is unchanged here.
+// ⚠ WHAT DID CHANGE SINCE: these four phases now have an EMITTED caller,
+// `__wql_<q>_scc<c>_dred` (see `emit_incremental`'s `dred` predicate), which is
+// still a PRIVATE item nameable only by a fixture. The public surface is exactly
+// as refused as it was.
 // What lands is the one piece of EMISSION phase 1 needs and nothing has: the
 // over-delete driver, provable on its own against a from-scratch oracle.
 //
@@ -8883,14 +9647,18 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // assertable, which is what `incr_rec.logos`'s `od_last` / `cpt_n` / `rdv_n`
 // latches do for the interpreter. `__lat` is their emitted counterpart: cleared
 // on entry, then three i64 per member in SIGNATURE ORDER — |OD|, |S|, |RD|.
-// ⚠ NOT HANDLE FIELDS, AND THE REASON IS AN ORDERING FACT RATHER THAN A TASTE.
-// `emit_rel_fns` runs BEFORE the entry query is lowered (see its own note), so
-// the rel tier does not know the handle struct exists and cannot name its type.
-// Beyond that, there is no retract DRIVER in this slice: OD, S and RD are the
-// CALLER's own locals here, so a handle field would be written by nobody and a
-// reader would have to trust a dead field. When the driver lands it will hide
-// these three quantities inside itself and they will have to move onto the
-// handle at that point; `__lat` is the shape they will move in.
+// ⚠ NOT HANDLE FIELDS *OF THESE THREE FNS*, AND THE REASON IS AN ORDERING FACT
+// RATHER THAN A TASTE. `emit_rel_fns` runs BEFORE the entry query is lowered
+// (see its own note), so the rel tier does not know the handle struct exists and
+// cannot name its type. `__lat` is therefore an out-param HERE and always will
+// be.
+// ⚠ AND THE PREDICTION THIS PARAGRAPH USED TO MAKE HAS SINCE HAPPENED: "when
+// the driver lands it will hide these three quantities inside itself and they
+// will have to move onto the handle at that point; `__lat` is the shape they
+// will move in." The driver landed. `emit_incremental` now declares a `__lat:
+// Vec<i64>` handle field under its `dred` predicate and `__wql_<q>_scc<c>_dred`
+// passes a driver-local Vec to `_cpt` and commits it there — same shape, three
+// i64 per member in signature order, written by the one party that can.
 // ⚠ |OD| IS THE DISTINCT COUNT — `__os_<m>.len()`, not `__od_<m>.len()`. The
 // two agree because `_od` and `_odp` both gate every push on a shadow set, and
 // the latch reporting the SET's cardinality is what would make a regression in
@@ -9048,15 +9816,23 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // fixtures is the FIRST work of the surface round, and half-splitting them now
 // would leave the tree with doors that pin even less. What pins the ground today
 // is `logos_09_incr_mutrec_refusal` (`tier_commit`), also untouched.
-// CONSEQUENCE: the `|RD| = -1` latch STAYS. Phase 3 exists as a call sequence a
-// FIXTURE performs, not as anything the compiler emits, so no emitted code is in
-// a position to fill that slot; see the `-1` push in `_cpt` for who retires it
-// and when.
-// ⚠ WHAT IS NOT DECIDED HERE: the ERROR CONTRACT for a retraction that faults
-// PART WAY (transactional vs poisoned handle) is a contract about the DRIVER,
-// and there is no driver. `_cpt`'s own refusal is transactional, which is the
-// strongest of the two and forecloses nothing; a fault arising inside phase 3's
-// arithmetic is a different question and is not answered by this slice.
+// CONSEQUENCE FOR THE DIRECT CALLERS: the `|RD| = -1` latch STAYS as `_cpt`'s
+// answer, because |RD| is still not a fact in `_cpt`'s scope. ⚠ IT IS NO LONGER
+// UNRETIRED, though: `__wql_<q>_scc<c>_dred` (emitted by `emit_incremental`
+// under its `dred` predicate) overwrites slot `3m+2` after the `_i` call, which
+// is exactly the line the `-1` push in `_cpt` names. A fixture that calls the
+// four phases DIRECTLY still sees the `-1`; one that calls the driver must not,
+// and `pass/wql_incr_rel_dred_driver.logos` asserts both halves.
+// ⚠ THE ERROR CONTRACT IS NOT THIS FN'S TO STATE — it is a contract about the
+// DRIVER — and it has since been stated where it belongs. `<q>_dred` is ATOMIC
+// AT THE HANDLE: every phase runs against a full local copy and the caller's
+// handle is written once, at the end, so an `Err` from any phase or from either
+// half of the signed fold leaves it byte-identical in content and order. See the
+// shadow-handle note in `emit_incremental` for the mechanism and the price, and
+// `pass/wql_incr_rel_dred_driver.logos` block E for the LATE fault that pins it
+// (an `el_mul(-1, i64::MIN)` in the negative fold, reached after all four phases
+// have run). What this fn owns is unchanged: `_cpt`'s own refusal is
+// transactional, which is what makes the driver's contract cheap to keep.
 //
 // An AGGREGATE (lattice) member gets NO od siblings — the fn returns having
 // emitted nothing the moment it sees one. Retraction of a recursive aggregate
