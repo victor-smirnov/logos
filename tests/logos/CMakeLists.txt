@@ -1101,6 +1101,30 @@ set_tests_properties(logos_00_root_coord_lint PROPERTIES
 # fact through the same readers on planted input — including one that must NOT
 # fire on a commented-out emission, because mlir_gen_fn.cpp quotes the old wrong
 # wording verbatim and the lint has to survive its own documentation.
+# ── A CENSUS NOBODY GATES IS A DOCUMENT ABOUT THE PAST ──────────────────────
+# docs/deem-interpreter-deletion-census.md is what P5 (delete the Deem
+# interpreter) is planned against, and it drifted TWICE without a single red:
+# a registry baseline ctest no longer agreed with, and a population rule that
+# missed three fact-store fixtures. Both drifts were mechanically detectable.
+# This pin checks every claim in that file a machine can decide — paths, bare
+# filenames (must resolve to exactly one file), row/`.expected` pairing, the
+# table's own arithmetic, the `ctest -N` baseline, and the affected-file
+# population in BOTH directions. It does NOT read prose and does not judge a
+# class letter. FACT 5 reds whenever any test is added anywhere: that is the
+# design, since §7's whole method is "predict the registry count, then compare".
+add_test(
+    NAME logos_00_census_pin
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/census_pin_gate.sh
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_SOURCE_DIR}/docs/deem-interpreter-deletion-census.md
+            ${CMAKE_CTEST_COMMAND}
+            ${CMAKE_BINARY_DIR}
+)
+set_tests_properties(logos_00_census_pin PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 add_test(
     NAME logos_00_shared_ref_ub_lint
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh

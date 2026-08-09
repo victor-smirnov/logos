@@ -4,9 +4,16 @@ STATUS: **the deletion is REFUSED as scoped.** This file is the measurement that
 census that makes the next attempt cheap. It decides nothing about whether the capability should go —
 that is Victor's call, and §6 is the list he needs to make it.
 
-MEASURED at `9ebb6110` (the tree this file is committed into). Everything below is a grep or a read of
-a named symbol; no line numbers are cited, because they move. Reproduce any row with
-`grep -rnE "^(pub )?(fn|struct) <name>\b" stdlib/`.
+MEASURED at `9ebb6110` (the tree this file was first committed into) and RE-MEASURED WHOLE at `e53962b6`.
+Everything below is a grep or a read of a named symbol; no line numbers are cited, because they move.
+Reproduce any row with `grep -rnE "^(pub )?(fn|struct) <name>\b" stdlib/`.
+
+⚠ **THIS FILE DRIFTED TWICE BEFORE ANYONE NOTICED, AND NOW IT IS PINNED.** §9 declares every claim in
+here that a machine can decide — each path, each bare filename, each table row, the row arithmetic, the
+registry baseline and the affected-file POPULATION — and `tests/logos/census_pin_gate.sh`
+(`logos_00_census_pin`, `tier_commit`) fails when the tree disagrees with any of them. A number in this
+file that no longer matches the repo is now a RED TEST, not a sentence somebody has to re-read.
+The pin does not judge prose: whether a class letter is the right judgement is still a human question.
 
 Scope statement being tested (P5 as written): delete `stdlib/mem/deem/{check,exec,eval,query}.logos`
 (4713 lines as written), keep `incr.logos` and `incr_rec.logos`, triage ~80 fixtures.
@@ -23,7 +30,7 @@ Every symbol below has exactly ONE definition in `stdlib/`:
 
 | symbol | sole definition | in the cut? |
 |---|---|---|
-| `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` | yes |
+| `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` (three files in the tree carry that basename, so this census always writes this one with its path) | yes |
 | `relctx_new` `exec_root` `rt_key_hash` `struct RelCtx` `struct OutTab` | `stdlib/mem/deem/exec.logos` | yes |
 | `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` | yes |
 | `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported at `8c5ad0ea` out of `eval.logos`/`check.logos`/`exec.logos`, survives the cut (§1c) |
@@ -53,6 +60,13 @@ reason `graphsrc.logos` had to survive at all (`incr.logos` and `incr_rec.logos`
 
 plus the type uses (`&Query`, `QPlan`, `RelCtx`, `QRows` in `IncrRec::snapshot`, `ir_check`,
 `dred`, `epoch`; `Chk` now resolves to `tpl.logos` and survives).
+
+⚠ RE-MEASURED at `e53962b6`, four ways, because `grep -c` counts LINES and a call count is about
+OCCURRENCES: 44 / 25 raw lines (the command above, verbatim — confirmed unchanged); 43 / 25 lines with
+`//` comments stripped (`sed 's://.*::'`); **54 / 29 OCCURRENCES** stripped
+(`| grep -oE … | wc -l`). The load-bearing reading is the last one, and it is LARGER than the recorded
+figure, so §1a's conclusion holds a fortiori. A re-measure reported elsewhere as "19 / 21" does not
+reproduce by any of the four readings and is not carried here.
 
 And the loop closes at the entry point: `Query { … }` is CONSTRUCTED at exactly one site in the tree —
 inside `Query::compile` in `stdlib/mem/deem/query.logos`. `impl Query` exists in three files
@@ -86,7 +100,7 @@ is generic (natspec `rel_mod`), so the compiler does not break — the VOCABULAR
 
 ### 1c. the Trama TEMPLATE engine lived in the cut — RESOLVED by the port at `8c5ad0ea`
 
-`pub struct Tpl`, `Tpl::compile`, `Tpl::render` USED to live in `eval.logos` and reach `check.logos`
+`pub struct Tpl`, `Tpl::compile`, `Tpl::render` USED to live in `eval.logos` and reach `stdlib/mem/deem/check.logos`
 (`check_stmts`, `cbinds_new`, `chk_new`, `simplify_all`, `chk_err`) and `eval.logos`
 (`render_stmts`, `rbinds_new`). They now live, whole, in `stdlib/mem/deem/tpl.logos`
 (`eval.logos` no longer exists), so this refusal no longer blocks the cut. It is kept because the
@@ -135,27 +149,39 @@ Outside `tests/` and outside the deem package there are ZERO real uses: every hi
 `stdlib/mem/wql/{catalog_macro,el,lower,mapping_item,plan_walker,rexpr_walk,writ_graph,trama,trama_render}.logos`,
 `tools/peg_gen_cpp/CMakeLists.txt` and `tools/peg_gen_cpp/oracle/run_wql.sh` is a COMMENT.
 (`resolve_source` in `plan_walker.logos` is a local definition with a different signature, not a
-reference to `check.logos`'s.) `catalog_macro.logos` really does `use logos.mem.deem`, but only for
+reference to `stdlib/mem/deem/check.logos`'s.) `catalog_macro.logos` really does `use logos.mem.deem`, but only for
 `SchemaCatalog::from_static` — which survives.
 
 ---
 
-## 3. Fixture census — 82 files
+## 3. Fixture census — 85 files
 
-Population: `grep -rlE "Query::run|Query::compile|\.incremental\(\)|incremental_rec\(\)|Tpl::compile|Tpl::render" tests/logos/`
-= 81 `tests/logos/pass/*.logos` + `tests/logos/rtval_domain_gate.sh`.
+Population, FIRST ATTEMPT (kept because it is the mistake):
+`grep -rlE "Query::run|Query::compile|\.incremental\(\)|incremental_rec\(\)|Tpl::compile|Tpl::render" tests/logos/`
+= 82 files — 81 `tests/logos/pass/*.logos` + `tests/logos/rtval_domain_gate.sh`. Re-measured at
+`e53962b6`: still 82.
 
-⚠ **THE POPULATION IS INCOMPLETE, and by construction.** That grep names the interpreter's ENTRY POINTS,
-not the SYMBOLS in the §2 cut. Re-greped over the cut's own symbols
-(`FactStore|FactHistory|IncrRec|IncrJoin|EngineState|deem_state_*|Tpl|QRows|Query|RelCtx|QPlan|ts_scan|…`),
-`tests/logos/` yields 92 files, and **three of the extra ten are real, non-comment uses that are NOT in
-the table below**: `query_incr_factstore_unit` (`FactStore::new`), `query_incr_factstore_epochs`
-(`FactHistory::new` ×2), `query_incr_factstore_float_identity_unit` (`FactStore::new` + `FactHistory::new`,
-and it reaches `fs_key_enc`). `FactStore` is defined once, in `incr.logos`; `FactHistory` once, in
-`facthistory.logos` — both in the cut. All three die and none is censused, so §6 L5's witness list and
-§7's registry prediction are both three short. The other seven extra files are comment-only hits.
-The census total is therefore **85 affected test files, not 82**, and the correct population rule is
-"grep the CUT's symbols", not "grep the entry points".
+⚠ **THAT POPULATION IS INCOMPLETE, and by construction.** It names the interpreter's ENTRY POINTS, not
+the SYMBOLS in the §2 cut. The correct rule — now the one §9 pins and executes — is to grep `tests/` for
+the cut's own symbols (`CUT-SYMBOL` in §9: 28 names, every one sole-defined in a §2 file). Measured at
+`e53962b6` that yields **92 files**, ten more than the entry-point grep.
+
+Three of the ten are real, non-comment uses and are now rows **83–85** below:
+`query_incr_factstore_unit` (`FactStore::new`), `query_incr_factstore_epochs` (`FactHistory::new` ×2),
+`query_incr_factstore_float_identity_unit` (`FactStore::new` + `FactHistory::new`, and it reaches
+`fs_key_enc`). `FactStore` is defined once, in `stdlib/mem/deem/incr.logos`; `FactHistory` once, in
+`stdlib/lcm/deem/facthistory.logos` — both in the cut, so all three die. They are class A, they carry
+zero `deem` items and zero interpreter entry points, and they are the witnesses §6 L5 was three short of.
+
+The other seven are mentions inside `//` comments or a ledger row, and are declared line by line as
+`NOT-AFFECTED` in §9 — measured, not assumed: with comments stripped (`sed 's://.*::'`) not one of them
+matches a cut symbol. Two of the seven (`deem_incr_join_e2e`, `wql_incr_rel_dred_mutrec_full`) did not
+exist when this census was first written, which is precisely why the population is now derived by a gate
+instead of listed by hand.
+
+⇒ **85 affected test files**, and the population is pinned in BOTH directions: a new fixture that touches
+a cut symbol must become a row or a declared `NOT-AFFECTED` line, and a censused fixture cannot be
+deleted without the pin going red.
 
 Classes:
 
@@ -194,9 +220,9 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 8 | `query_agg_sum_overflow_e2e` | 2 | `s_sum` | B | checked `sum` accumulator on all three engines |
 | 9 | `query_compile_robust_e2e` | 3 | — | A | `Query::compile` robustness defects |
 | 10 | `query_diff_err_e2e` | 2 | `s_ov`,`s_dz`,`s_ok` | B | static ≡ dynamic on ERROR inputs |
-| 11 | `query_diff_fuzz` | 2 | — | C | random VALID query TEXT vs naive oracle — shape fuzzing |
+| 11 | `query_diff_fuzz` | 2 | — | C | 10 query shapes built as TEXT vs a FIXTURE-LOCAL naive oracle; the interpreter is the SUBJECT, the oracle survives the cut — §5 C5 |
 | 12 | `query_diff_static` | 2 | 6 deems | B | three-way static/dynamic/naive over fuzzed data |
-| 13 | `query_diff_str_adv` | 11 | — | C | the STRING-column differential fuzzer; no static analogue exists |
+| 13 | `query_diff_str_adv` | 11 | — | C | the STRING-column differential, 9 shapes, own byte-wise `str_cmp` oracle; no static analogue exists — §5 C5 |
 | 14 | `query_dyn_bool_arith_pinned` | 2 | — | C | `deem.exec.lenient-bool-one` (docs/spec/deem.md) — the rule's only executable witness |
 | 15 | `query_el_arith_err_e2e` | 2 | — | A | EL arithmetic errors are values on the dynamic path |
 | 16 | `query_f64_avg_nan_fuzz` | 3 | 7 deems | B | f64/avg/NaN 3-way, bit-exact |
@@ -225,7 +251,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 39 | `query_lenient_e2e` | 4 | — | C | LENIENT/erased sources + Null propagation (ADR 0012-queue2 §4a); interp count RE-MEASURED 08-09 = 4 ✔; **C3 RULED WITHDRAWN, see §5** |
 | 40 | `query_lenient_null_fuzz_adv` | 3 | — | C | adversarial Null-propagation differential over erased sources; interp count RE-MEASURED 08-09 = 3 ✔; **C3 RULED WITHDRAWN, see §5** |
 | 41 | `query_mapping_runtime_e2e` | 2 | `s_engines` | B | dynamic query consuming a STATIC mapping; the static twin survives |
-| 42 | `query_metamorphic_adv` | 1 | — | C | metamorphic invariants (permutation/duplication) — the METHOD has no static instance |
+| 42 | `query_metamorphic_adv` | 1 | — | C | 10 metamorphic invariants, engine vs ITSELF — NOT a differential: measured blind to a total inversion of the engine's ordered compare — §5 C5 |
 | 43 | `query_minmax_float_seed_leak` | 1 | `q_min`,`q_max` | B | min/max must return a value FROM THE GROUP |
 | 44 | `query_observer_l1` | 2 | — | A | Nous ladder rung 1 — §6 L7 |
 | 45 | `query_order_by_float_static_vs_dynamic` | 2 | `q_asc`,`q_desc` | B | float sort-key parity; the differential collapses to one side |
@@ -266,13 +292,27 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 80 | `wql_u64_sum_scalar_arith` | 7 | — | C | the scalar-arith seam one level below, one cell per operator — **static arm BUILT 2026-08-09** (`pass/wql_arith_u64_tower_e2e`), see §5 C1 |
 | 81 | `wql_value_domain_tiers_measured` | 5 | `sg_sel`,`su_order` | B | the value domain across three engines; becomes two |
 | 82 | `tests/logos/rtval_domain_gate.sh` | 1 | — | G | §7 |
+| 83 | `query_incr_factstore_unit` | 0 | — | A | slice-8 `FactStore` SET semantics + effective-delta emission, WITHOUT the engine — §6 L5 |
+| 84 | `query_incr_factstore_epochs` | 0 | — | A | the `FactHistory` epoch-history layer (ADR 0017 P1) — §6 L5 |
+| 85 | `query_incr_factstore_float_identity_unit` | 0 | — | A | `FsKey` content identity under the PostgreSQL float ruling — §6 L5 |
 
-Totals: **A 31 · B 25 · C 24 · D 1 · G 1**. K flag on 7 files (4, 62, 63, 64, 65, 71, 78).
+Totals: **A 35 · B 24 · C 24 · D 1 · G 1** = 85. K flag on 7 files (4, 62, 63, 64, 65, 71, 78).
+
+⚠ The totals line previously read "A 31 · B 25", and the class column of the table it summarises has
+never said that. Counted off the rows at `e53962b6` — before rows 83–85 were added — the table is
+**A 32 · B 24**, so the summary was wrong in BOTH directions and had been since the B→A correction
+above was applied to the rows and not to the total. This is the third drift found in this file and the
+first one found by a machine: §9 FACT 4 now derives these five numbers from the class column and refuses
+to let the summary and the rows tell two stories.
+(Rows 83–85 have interp count 0 and no `deem` item: they reach the cut through `FactStore`/`FactHistory`
+directly, which is exactly why the entry-point grep could not see them.)
 
 ⚠ The class column is a judgement over a measured signature (interp count, declared `deem` items,
-emitted-handle calls) plus each file's own header block, which every one of the 81 carries and states its
-subject in. It is NOT a full read of 82 files. The B rows in particular still owe the per-fixture
-"does what is left still bite" check that no one has done.
+emitted-handle calls) plus each file's own header block, which every one of the 84 fixtures carries and
+states its subject in. It is NOT a full read of 85 files, and §9 does not check it — the pin decides
+existence and arithmetic, never a judgement. The B rows in particular still owe the per-fixture
+"does what is left still bite" check that no one has done. Rows 11, 13 and 42 have now had that read
+(see §5 C5); it changed two of the three verdicts.
 
 ---
 
@@ -281,8 +321,9 @@ subject in. It is NOT a full read of 82 files. The B rows in particular still ow
 Named, so the next attempt does not have to re-find them:
 `stdlib/mem/wql/` keeps the whole compile path — `el.logos` (`el_ty_stored`, `el_ty_stored_of`,
 `el_wrap_ord_key`), `params.logos` (`stamp_rel_incr_shape`, `native_use_at`), `rexpr_walk.logos`
-(`emit_scc_od_fns`), `writ_graph.logos` (`writ_graph_edges`), `trama_render.logos`, `codegen.logos`,
-`lower.logos`, `plan_walker.logos`, `catalog_macro.logos`. `stdlib/mem/deem/deem.logos` keeps `RtVal`,
+(`emit_scc_od_fns`), `writ_graph.logos` (`writ_graph_edges`), `trama_render.logos`,
+`stdlib/mem/wql/codegen.logos` (a second file of that basename lives under `tools/`, so this one is written with its path), `lower.logos`, `plan_walker.logos`, `catalog_macro.logos`.
+`stdlib/mem/deem/deem.logos` keeps `RtVal`,
 `rt_kind`, `rt_eq`, `SchemaCatalog`.
 
 The static emitted surface is `<q>_apply(&mut h, __src, __w, <params>)` / `<q>_retract` /
@@ -337,6 +378,13 @@ key makes the query trace EMITTED and reds both the verdict row and the DERIVED 
 Rows 14, 59 and 63–67/79 still need siblings of `wql_domain_static_extremes` (`..._static_order_{a,b,c}`,
 `..._static_carrier_positions`, `..._static_u64_sum_accumulator`); until they exist, deleting those rows
 removes the only place the value-domain arc's remaining open defects are written down (see the K flag).
+
+⚠ RE-MEASURED at `e53962b6`: `ls tests/logos/pass/wql_domain_static*` returns exactly ONE fixture,
+`wql_domain_static_extremes`. None of the six sibling names above exists, and neither does
+`wql_domain_static_ordw_origin`, which has been reported elsewhere as already built. The names in this
+paragraph are therefore a TASK LIST, not a description — §9's FACT 1 cannot pin them, because a path that
+does not exist yet is exactly what a requirement is. Whoever builds one must move its name out of this
+sentence and into a row, where the pin can see it.
 
 **C2 — runtime templates** (rows 49, 52, 53, 54, 55). There is no static substitute and none was ever
 designed: `stdlib/mem/wql/trama_render.logos` is the metaprog-side sibling and says so, naming the
@@ -423,12 +471,66 @@ remaining work is fixture rewriting, not capability. Rows 56/57 additionally exe
 `where` over the walk, which `dyn_graph_edges` alone does not replace: what survives of them without the
 interpreter is a walk-only assertion over the same documents.
 
-**C5 — the fuzz method** (rows 11, 13, 42). All three generate query TEXT at runtime; a macro cannot be
-generated at runtime, so the static tier can only fuzz DATA over fixed shapes — which is what
-`query_diff_static` does, and it is strictly weaker (it cannot vary the shape, and it has no string-column
-or lenient-mode instance). Requirement: a metaprog-time shape generator emitting `deem` items, i.e. a
-compile-time fuzzer, or an accepted reduction to fixed-shape/fuzzed-data with the string dimension added
-to `query_diff_static`.
+**C5 — the fuzz method** (rows 11, 13, 42). ⚠ **REWRITTEN at `e53962b6`, and the old paragraph was wrong
+about which side the interpreter is on.** It read: "all three generate query TEXT at runtime; a macro
+cannot be generated at runtime, so the static tier can only fuzz DATA over fixed shapes — which is what
+`query_diff_static` does, and it is strictly weaker". That sentence treats the interpreter as the
+second opinion these fixtures would lose. It is not. Read at the COMPARISON SITE — the only place the
+question is decidable — the interpreter is the SUBJECT in all three, and the three are not one class.
+
+**Rows 11 and 13 have a real, INDEPENDENT oracle, and it is not the interpreter.**
+`query_diff_fuzz` compares at one site, `rows_eq(&mut want, &mut got, ncol)`: `got` comes from
+`Query::compile` + `q.run` (the subject), `want` from nested loops written IN THE FIXTURE
+(`rowget`, `contains`, `cmp`, `nrows_of`, `rows_sort`, `row_lt`) that call nothing from `logos.mem.deem`
+or `logos.std.wql`. `query_diff_str_adv` has the same shape at eight sites (`strv_ms_eq`, `i64ms_eq`,
+`pair_ms_eq`, `strv_seq_eq`) over its own byte-wise `str_cmp`/`str_eq`. Deleting the interpreter removes
+the THING UNDER TEST; the oracle is fixture-local source text and survives untouched.
+
+**Row 42 has no independent oracle at all — by its own construction.** `query_metamorphic_adv` compares
+`rows_eq(&mut got1, &mut got2, ncol)` where BOTH sides are `Query::compile` + `q.run`, and its header
+says so: "Instead of an independent oracle, this probe runs the engine against ITSELF under
+semantics-preserving transforms". Under this repo's own rule — an oracle that shares the algorithm is not
+an oracle — it is a SELF-CONSISTENCY probe, not a differential, and calling it one in the loss ledger
+prices it wrong.
+
+**MEASURED, by control revert.** Two perturbations of the ENGINE, each reverted; predictions stated
+before running.
+* Control 1 — reverse the total order in `rt_cmp` (`stdlib/mem/deem/exec.logos`), the executor's
+  comparison fold. Predicted RED for rows 11 and 13, GREEN for row 42.
+  RESULT: `query_diff_str_adv` RED, `query_metamorphic_adv` GREEN — and `query_diff_fuzz` and
+  `query_diff_static` GREEN, which was WRONG and is the useful part: a scalar `where a < b` in the
+  dynamic tier does not go through `rt_cmp` at all. It is decided in `eval_sexpr`'s ordered-compare arm
+  (`stdlib/mem/deem/eval.logos`), a DIFFERENT fold; `rt_cmp` serves `order by` and the min/max
+  accumulators, which is why only the fixture with an `order by` template noticed. A control that
+  perturbs a fold the subject never reaches is a control that changes nothing.
+* Control 2 — reverse the ordered compare where scalar comparison actually lives: the four
+  `OP_LT/OP_LE/OP_GT/OP_GE` returns of `eval_sexpr`, one site, uniform over str/int/f64.
+  Predicted RED for 11, 13 and 12 (`query_diff_static`, whose dynamic arm is one of three), GREEN for 42.
+  RESULT, exactly as predicted: `query_diff_fuzz` RED (exit **47**), `query_diff_static` RED,
+  `query_diff_str_adv` RED, `query_metamorphic_adv` **GREEN**.
+  Row 42 is blind to a TOTAL INVERSION of every ordered comparison the engine makes, because both of its
+  sides make it. That is the measurement; it is not an inference from reading.
+
+⇒ **What C5 actually requires is not a replacement oracle.** For rows 11 and 13 the METHOD survives the
+deletion and only the HARNESS dies: an independent naive evaluator, over fuzzed data, versus a subject
+that must now be `deem`-emitted code instead of runtime-compiled text. And the shape space is finite and
+small — measured, `query_diff_fuzz` has 10 templates (`rng.upto(10i64)`, 9 `if tmpl ==` arms + the
+trailing else) over 3 column indices and 6 comparison operators, and `query_diff_str_adv` has 9. Ten
+`deem` items written out longhand is not "a compile-time fuzzer"; it is enumeration, and the old
+paragraph's premise ("a macro cannot be generated at runtime", therefore the method is unreachable) does
+not follow from it. `query_diff_static` is the existing instance of exactly this and is weaker only in
+the dimensions nobody has added yet — the string column, and shape count.
+For row 42 the requirement is ZERO: seven of its ten invariants (T0–T3, T7–T9) permute or duplicate
+DATA and need no query text at all, so they port to fixed shapes as they stand; the other three
+(T4/T5/T6 — `&&`, `||`, join commutativity) need two spellings of one query, which over a fixed shape
+set is two `deem` items instead of one. Nothing about row 42 needs a runtime compiler. It needs a second
+opinion, which it has never had.
+
+Requirement, restated: (a) add the string dimension to `query_diff_static` and raise its shape count to
+the ten `query_diff_fuzz` enumerates, keeping the fixture-local naive oracle — that discharges rows 11
+and 13 as a HARNESS port; (b) re-file row 42, which is a self-consistency probe whose deletion loses no
+oracle, and if the metamorphic method is wanted statically, write it against fixed shapes where it costs
+nothing. Neither of these is the "metaprog-time shape generator" the old paragraph asked for.
 
 ---
 
@@ -455,8 +557,13 @@ Victor decides this. Each entry is a shipped capability with no static counterpa
   `<p>_trace`/`_epochs`/`_tail`/`_controls`. §1b.
 * **L10 — runtime query compilation itself**: `Query::compile` over TEXT, re-entrancy over different
   envs, runtime join-tier dispatch, runtime `rel` fixpoint (`query_interp_smoke` enumerates exactly this),
-  lenient/erased binding (§5 C3), and the ORACLE role the interpreter plays for the static tier in the 25
-  class-B differentials — after the cut, 25 fixtures lose their second opinion.
+  lenient/erased binding (§5 C3), and the ORACLE role the interpreter plays for the static tier in the
+  **24** class-B differentials — after the cut, 24 fixtures lose their second opinion. (25 was the old
+  totals line; the class column says 24. §9 FACT 4 now keeps this number and the table together.)
+  ⚠ Read §5 C5 before pricing this entry: in the three fixtures that were examined row by row, the
+  interpreter is the SUBJECT and not the oracle, and in one of them there is no independent oracle at
+  all. "Loses its second opinion" is a claim about a comparison site, and it has to be checked per
+  fixture at the comparison site — the B rows still owe exactly that read (§8).
 * **L11 — the DRed harvest fixtures** (`deem_dred_phases23_spec`, `wql_incr_rec_agg_retract_lattice`,
   `wql_incr_rec_dred_error_window`). ⚠ These were written to preserve knowledge THROUGH P5 and they do
   not: each drives `Query::compile` + `incremental_rec`, so each dies with its subject. Harvest by fixture
@@ -520,8 +627,9 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
   `wql_rel_neg_cycle_abort`.
 * Rows 23/33/35 (`query_incr_guard`, `query_incr_sssp_guard`, `query_incr_tc_guard`) guard the DYNAMIC
   entry points and return `Result::Err` values; the static tier keeps its own door for the same rule
-  (`tests/logos/fail/wql_rel_agg_group_cycle_fail`). A is correct.
-* Registry unmoved by this commit: `ctest -N` 6950 all / 3267 `-LE imported` / 29 `-L '^tier_commit$'`.
+  (`tests/logos/fail/wql_rel_agg_group_cycle_fail.logos`). A is correct.
+* Registry AT `8cf79102`, historical: `ctest -N` 6950 all / 3267 `-LE imported` / 29 `-L '^tier_commit$'`.
+  This is the sentence that went stale; today's numbers are §9's, and they are checked.
   `git diff --stat 9ebb6110 8cf79102 -- stdlib src tests tools abi scripts` is EMPTY, so no emitted
   symbol can have moved; absolute baseline recorded for the next attempt — `wql_rel_sssp_e2e` (rel)
   155 defined symbols, `wql_aggregate_e2e` (non-rel) 283.
@@ -537,3 +645,105 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
 * Whether each class-B remainder still bites once its interpreter arm is gone — per fixture, by breaking
   it and predicting the exit code. This is the largest piece of work the next attempt owes.
 * Build/L4 impact of the cut: no branch of this repo has ever compiled without these files.
+* ⚠ THE C2 PORT IS NOT IN THIS TREE. At `e53962b6` `stdlib/mem/deem/eval.logos` exists (606 lines,
+  `Tpl` inside it) and no template-only module exists beside it; §1c, §2 and §5 C2 describe THAT tree and were
+  re-measured against it. If the template port lands, `logos_00_census_pin` goes red on the bare name
+  `eval.logos` the moment the file disappears — that red is the pin working, and the repair is to rewrite
+  §1c/§2/§5 C2 in the same commit rather than to touch the gate.
+* Rows 11, 13 and 42 have now had the per-fixture read §8 asks for, at the comparison site and with two
+  control reverts (§5 C5). The other 22 class-B rows and the remaining class-C rows have not.
+
+---
+
+## 9. THE PIN — every claim in this file a machine can decide
+
+`tests/logos/census_pin_gate.sh` (`logos_00_census_pin`, label `tier_commit`) reads THIS section and
+this whole file, and fails when the tree disagrees. It exists because the two drifts that actually
+happened were both mechanically detectable and neither was detected: a registry baseline ctest no longer
+agreed with, and a population rule that missed three `FactStore` fixtures. The precedent is
+`tests/logos/shared_ref_ub_lint.sh`, whose PATH rows were caught drifting twice while the sentence beside
+them saying the same thing was never caught at all. A path has an exit code; a sentence does not.
+
+Six facts, each re-proved on a planted census in the same run (seven self-canaries, so a dead reader
+reports the GATE broken rather than the census clean):
+
+1. every `docs/… tests/… stdlib/… src/… tools/… scripts/… abi/…` token in this file names something
+   that exists (braces expanded, globs required to match);
+2. every BARE filename (`incr.logos`, `params.logos`, …) resolves to exactly ONE file in the tree —
+   zero is drift, two or more is an ambiguous sentence that must be written with its path;
+3. every §3 row names a fixture that exists AND has its `.expected` beside it, because registration is
+   a GLOB over `tests/logos/pass/*.expected` and a `.logos` without one never runs;
+4. §3's header count, the number of table rows and the per-class totals are three statements of one
+   number, checked against each other and against the class column actually written in the rows;
+5. the registry baseline below is TODAY's `ctest -N`;
+6. the population is derived from `CUT-SYMBOL` below and held in BOTH directions against the rows plus
+   the `NOT-AFFECTED` declarations.
+
+⚠ **FACT 5 GOES RED WHENEVER ANY TEST IS ADDED ANYWHERE IN THE REPO. THAT IS THE DESIGN.** §7's method
+is "predict the registry count before the cut, compare after", and a prediction against a number nobody
+re-measured is not a prediction. The repair is three lines here, and the gate's failure message prints
+the exact values to paste. If the delta is not the one you expected, the gate has just done its job.
+
+⚠ What the pin does NOT do: it does not read prose, and it does not check a JUDGEMENT. Whether row 42 is
+class C or class A is an argument (§5 C5 changed it), and no gate can settle that. The pin only
+guarantees that the nouns in the argument still exist.
+
+```pin
+# registry — `ctest -N` from the build directory, three ways.
+REGISTRY-ALL         6951
+REGISTRY-NOIMPORTED  3268
+REGISTRY-TIERCOMMIT  30
+
+# §3 table arithmetic.
+CENSUS-ROWS          85
+CLASS-A              35
+CLASS-B              24
+CLASS-C              24
+CLASS-D              1
+CLASS-G              1
+
+# The population rule, executable. Every name here is sole-defined in a §2 file;
+# `grep -rlE "\b(<these>)\b" tests/` is the census's own stated rule, and its
+# answer must be exactly the rows above plus the NOT-AFFECTED lines below.
+CUT-SYMBOL  qplan_new
+CUT-SYMBOL  chk_new
+CUT-SYMBOL  sx_of
+CUT-SYMBOL  check_rexpr
+CUT-SYMBOL  QPlan
+CUT-SYMBOL  Chk
+CUT-SYMBOL  relctx_new
+CUT-SYMBOL  exec_root
+CUT-SYMBOL  rt_key_hash
+CUT-SYMBOL  h_step
+CUT-SYMBOL  RelCtx
+CUT-SYMBOL  OutTab
+CUT-SYMBOL  ts_scan
+CUT-SYMBOL  rbinds_new
+CUT-SYMBOL  eval_sexpr
+CUT-SYMBOL  RBinds
+CUT-SYMBOL  Tpl
+CUT-SYMBOL  Query
+CUT-SYMBOL  QRows
+CUT-SYMBOL  FactStore
+CUT-SYMBOL  FactHistory
+CUT-SYMBOL  IncrRec
+CUT-SYMBOL  IncrJoin
+CUT-SYMBOL  EngineState
+CUT-SYMBOL  deem_state_trace
+CUT-SYMBOL  deem_state_epochs
+CUT-SYMBOL  deem_state_tail
+CUT-SYMBOL  deem_state_controls
+
+# Files the population rule finds whose every match is a COMMENT or a ledger row.
+# Measured: with `sed 's://.*::'` applied, none of these matches a CUT-SYMBOL.
+# Two of them post-date the first census, which is why this list is checked and
+# not remembered.
+NOT-AFFECTED  tests/logos/census_pin_gate.sh                            comment-only
+NOT-AFFECTED  tests/logos/fail/wql_domain_layer_map_param_u8_fail.logos comment-only
+NOT-AFFECTED  tests/logos/pass/deem_incr_join_e2e.logos                 comment-only
+NOT-AFFECTED  tests/logos/pass/wql_alias_element_e2e.logos              comment-only
+NOT-AFFECTED  tests/logos/pass/wql_incr_rel_dred_mutrec_full.logos      comment-only
+NOT-AFFECTED  tests/logos/pass/wql_source_trait_e2e.logos               comment-only
+NOT-AFFECTED  tests/logos/shared_ref_ub.ledger                          ledger-row
+NOT-AFFECTED  tests/logos/wql_shadowed_column_gate.sh                   comment-only
+```
