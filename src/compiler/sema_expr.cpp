@@ -21113,19 +21113,28 @@ void SemaChecker::emit_token_macro_item_site(
 void SemaChecker::seed_builtin_source_impls() {
     // Guarded by a FLAG, not by registry emptiness: user impls are collected
     // BEFORE lowering, so a module with any `impl SourceTrait for T` would
-    // otherwise suppress the Writ/IncrRec seeds entirely.
+    // otherwise suppress the Writ seed entirely.
     if (builtin_sources_seeded_) return;
     builtin_sources_seeded_ = true;
-    // CONTENT-guarded, not just flag-guarded: the canonical declarations now
-    // live in the stdlib (writ_graph.logos / mapping_state.logos, collected
-    // from source OR from the binary module's AST) — when collect already
-    // registered a type's bindings, the seed defers. This fallback survives
-    // only for bootstrap paths that compile without those stdlib modules.
+    // CONTENT-guarded, not just flag-guarded: the canonical declaration now
+    // lives in the stdlib (writ_graph.logos, collected from source OR from the
+    // binary module's AST) — when collect already registered a type's bindings,
+    // the seed defers. This fallback survives only for bootstrap paths that
+    // compile without that stdlib module.
+    //
+    // ⚠ P5 REMOVED THE `IncrRec` HALF OF THIS SEED, AND IT HAD TO GO IN THE SAME
+    // CHANGE AS `stdlib/mem/deem/mapping_state.logos`. The seed was
+    // CONTENT-guarded on the presence of an `IncrRec` entry, i.e. it deferred only
+    // while that file declared `trait EngineState` + `impl EngineState for
+    // IncrRec`. Deleting the file alone would have flipped the guard OFF and
+    // re-registered four materializers — `deem_state_trace` / `_epochs` /
+    // `_tail` / `_controls` — that no longer exist anywhere, so `pub deem
+    // x(e: &IncrRec)` would still have been ACCEPTED by sema and died at link.
+    // The `Writ` half below is a DIFFERENT capability and is untouched.
     const bool have_writ = source_impls_.count("Writ") > 0;
-    const bool have_incr = source_impls_.count("IncrRec") > 0;
     if (::getenv("LOGOS_TRACE_SOURCE_SEED"))
-        std::fprintf(stderr, "[source-seed] stdlib-declared: Writ=%d IncrRec=%d\n",
-                     have_writ ? 1 : 0, have_incr ? 1 : 0);
+        std::fprintf(stderr, "[source-seed] stdlib-declared: Writ=%d\n",
+                     have_writ ? 1 : 0);
     auto mk = [](const char* tr, const char* rel, const char* fn,
                  const char* mod, std::vector<TraitRelCol> cols) {
         SourceRelBind b;
@@ -21140,19 +21149,12 @@ void SemaChecker::seed_builtin_source_impls() {
         "logos.std.wql.writ_graph",
         {{"parent","i64"},{"key","str"},{"idx","i64"},{"child","i64"},
          {"kind","str"},{"tag","i64"},{"vi","i64"},{"vs","str"}}));
-    // trait EngineState { rel trace/epochs/tail/controls } — impl for IncrRec (M5).
-    if (have_incr) return;
-    auto& e = source_impls_["IncrRec"];
-    e.push_back(mk("EngineState", "trace", "deem_state_trace", "logos.mem.deem",
-        {{"epoch","i64"},{"kind","i64"},{"step","i64"},{"delta","i64"},
-         {"total","i64"},{"ns","i64"}}));
-    e.push_back(mk("EngineState", "epochs", "deem_state_epochs", "logos.mem.deem",
-        {{"epoch","i64"},{"ins","i64"},{"del","i64"},{"rounds","i64"},{"ns","i64"}}));
-    e.push_back(mk("EngineState", "tail", "deem_state_tail", "logos.mem.deem",
-        {{"epoch","i64"},{"converged","i64"},{"pending","i64"},{"bound","i64"},
-         {"cutr","i64"}}));
-    e.push_back(mk("EngineState", "controls", "deem_state_controls", "logos.mem.deem",
-        {{"epoch","i64"},{"kind","i64"},{"val","i64"}}));
+    // ⚠ `trait EngineState { rel trace/epochs/tail/controls }` — `impl` for
+    // `IncrRec` (ADR 0016 M5 case S) USED TO BE SEEDED HERE. It is gone with the
+    // interpreter (P5); see the note above. The registry mechanism itself is
+    // generic and unchanged — `Writ`/`GraphSource` above is now its only
+    // instance, which is what `tests/logos/pass/wql_source_trait_e2e.logos`
+    // exercises.
 }
 
 bool SemaChecker::note_deem_plan_inst_(std::string_view callee, TypeRef arg) {

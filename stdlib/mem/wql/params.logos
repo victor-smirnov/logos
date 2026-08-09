@@ -282,8 +282,15 @@ impl MacroParams {
         return !self.is_slice[i];
     }
 
-    // Any `IncrRec` engine-source param present? (drives the emitted chunk's
-    // conditional `use logos.lcm.deem;` — ADR 0016 M5.)
+    // ⚠ THIS COMMENT NAMED A CAPABILITY THAT NO LONGER EXISTS, AND IT WAS ALSO
+    // WRONG ABOUT THE MODULE. It read: "Any `IncrRec` engine-source param
+    // present? (drives the emitted chunk's conditional `use logos.lcm.deem;` —
+    // ADR 0016 M5.)". P5 deleted `IncrRec`, so ENGINE-AS-A-SOURCE (ADR 0016 M5,
+    // case S) is withdrawn — a static `deem` item can no longer take the dynamic
+    // incremental engine as its source type. The MECHANISM below is generic
+    // (natspec `rel_mod` data, see the doc comment) and did not change; only the
+    // vocabulary did. The module the seed actually wrote was `logos.mem.deem`,
+    // never `logos.lcm.deem`, so the parenthesis was stale before the deletion.
     /// The extra `use` decls a generated chunk needs for its native-source
     /// materializers — one per DISTINCT non-empty rel_mod. Replaces the old
     /// has_engine_param flag: which modules a chunk needs is now data carried

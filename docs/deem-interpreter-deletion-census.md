@@ -1,19 +1,53 @@
 # The Deem interpreter deletion (P5) — call-graph blocker, fixture census, loss ledger
 
-STATUS: **the deletion is REFUSED as scoped.** This file is the measurement that refuses it and the
-census that makes the next attempt cheap. It decides nothing about whether the capability should go —
-that is Victor's call, and §6 is the list he needs to make it.
+STATUS: **THE DELETION HAPPENED. THIS FILE IS NOW A POST-MORTEM, AND IT IS STILL
+PINNED.** Everything above §9 is the measurement that preceded the cut, kept as
+written except where a sentence became FALSE — those are corrected in place and
+marked, because a post-mortem that quietly rewrites its own predictions is worth
+less than the predictions were. §3's table is the LOSS LEDGER: all 85 rows stay,
+53 of them declared `GONE-FIXTURE` in the pin block and checked, by FACT 8, to
+be really gone with their `.expected` and with a reason.
 
-MEASURED at `9ebb6110` (the tree this file was first committed into) and RE-MEASURED WHOLE at `e53962b6`.
-Everything below is a grep or a read of a named symbol; no line numbers are cited, because they move.
-Reproduce any row with `grep -rnE "^(pub )?(fn|struct) <name>\b" stdlib/`.
+⚠ **THE RULING ON THE PIN, WHICH WAS THIS ROUND'S TO MAKE AND IS WRITTEN DOWN
+HERE.** After the deletion three of the seven facts became unsatisfiable in their
+old form — FACT 3 (53 rows name files that no longer exist), FACT 5 (the registry
+baseline moved by exactly −53) and FACT 6 (its population rule greps for symbols
+that exist nowhere). The honest options were to RETIRE `logos_00_census_pin` or
+to convert it into a post-mortem whose facts are about the POST-cut world.
+Retirement was refused: this pin is the only machine-checked record of what P5
+cost, and it caught three drifts nobody else caught. So:
 
-⚠ **THIS FILE DRIFTED TWICE BEFORE ANYONE NOTICED, AND NOW IT IS PINNED.** §9 declares every claim in
-here that a machine can decide — each path, each bare filename, each table row, the row arithmetic, the
-registry baseline and the affected-file POPULATION — and `tests/logos/census_pin_gate.sh`
-(`logos_00_census_pin`, `tier_commit`) fails when the tree disagrees with any of them. A number in this
-file that no longer matches the repo is now a RED TEST, not a sentence somebody has to re-read.
-The pin does not judge prose: whether a class letter is the right judgement is still a human question.
+* FACT 3 gained an EXEMPTION (`GONE-FIXTURE`) and FACT 8 was added to check that
+  exemption in the direction it can be abused — the path absent, the `.expected`
+  absent, a reason given. Net: every one of the 85 rows is still checked, one
+  direction or the other, and a row cannot move between them without an edit here.
+* FACT 5 was RE-MEASURED, not relaxed: 6906 / 3223 / 30, a delta of exactly
+  −53 / −53 / 0 against the pre-cut 6959 / 3276 / 30, predicted before the
+  re-configure and measured after.
+* FACT 6 was RE-AIMED from backward to forward. It no longer asks "is the census
+  population complete?" — a question about a table that is now history — but "is
+  the cut still cut?": no `CUT-SYMBOL` is DEFINED under `stdlib/` or named as a
+  string LITERAL under `src/`, and every file under `tests/` that mentions one is
+  a LIVE row or a declared `NOT-AFFECTED` line. The `src/` half is pointed
+  straight at the trap this round had to disarm (§1b).
+* NOTHING WAS WEAKENED AND NO CANARY WAS DROPPED. The `CUT-SYMBOL` list was
+  CORRECTED first (§9); three canaries whose targets the cut removed were
+  RE-POINTED at live ones; two new canaries were added for FACT 8. Nine became
+  eleven.
+
+MEASURED at `9ebb6110` (the tree this file was first committed into), RE-MEASURED
+WHOLE at `e53962b6`, and RE-MEASURED AGAIN after the deletion.
+Everything below is a grep or a read of a named symbol; no line numbers are cited,
+because they move. Reproduce any row with `grep -rnE "^(pub )?(fn|struct) <name>\b" stdlib/`.
+
+⚠ **THIS FILE DRIFTED TWICE BEFORE ANYONE NOTICED, AND NOW IT IS PINNED.** §9
+declares every claim in here that a machine can decide and
+`tests/logos/census_pin_gate.sh` (`logos_00_census_pin`, `tier_commit`) fails when
+the tree disagrees with any of them. A number in this file that no longer matches
+the repo is a RED TEST, not a sentence somebody has to re-read.
+The pin does not judge prose: whether a class letter was the right judgement is
+still a human question, and the class column is now HISTORY — it records how each
+row was priced BEFORE the cut, which is what makes the loss ledger readable.
 
 Scope statement being tested (P5 as written): delete `stdlib/mem/deem/check.logos`, `stdlib/mem/deem/exec.logos`, `stdlib/mem/deem/query.logos`
 (as written it also named `eval.logos`, which the C2 port has since deleted outright — §1c)
@@ -230,7 +264,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 17 | `query_gpath_e2e` | 3 | — | A | gpath sugar ON THE RUNTIME ENGINE; the static gpath has the `wql_*` suite |
 | 18 | `query_incr_budget_e2e` | 2 | — | A | S2 budgeted fixpoint (ADR 0015 §3) — see §6 L2 |
 | 19 | `query_incr_ctl_journal_e2e` | 1 | — | A | S3 control atoms + journal — §6 L3 |
-| 20 | `query_incr_f64_agg_three_engines` | 4 | 4 deems | B | f64 aggregates, three engines, hand-derived constants |
+| 20 | `query_f64_agg_hand_derived` | 4 | 4 deems | B | f64 aggregates, three engines, hand-derived constants |
 | 21 | `query_incr_factstore_e2e_join` | 1 | — | A | FactStore → IncrJoin, two-source seam — §6 L5 |
 | 22 | `query_incr_factstore_e2e_rec` | 1 | — | A | FactStore → IncrRec change capture — §6 L5 |
 | 23 | `query_incr_guard` | 1 | — | A | `Query::incremental` fragment guard |
@@ -255,7 +289,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 42 | `query_metamorphic_adv` | 1 | — | A | 10 metamorphic invariants, engine vs ITSELF — NOT a differential, so nothing is lost: measured GREEN under a total inversion of the engine's ordered compare — §5 C5 |
 | 43 | `query_minmax_float_seed_leak` | 1 | `q_min`,`q_max` | B | min/max must return a value FROM THE GROUP |
 | 44 | `query_observer_l1` | 2 | — | A | Nous ladder rung 1 — §6 L7 |
-| 45 | `query_order_by_float_static_vs_dynamic` | 2 | `q_asc`,`q_desc` | B | float sort-key parity; the differential collapses to one side |
+| 45 | `query_order_by_float_data_key` | 2 | `q_asc`,`q_desc` | B | float sort-key parity; the differential collapses to one side |
 | 46 | `query_parser_robust_advX` | 6 | — | A | adversarial parser probe over `Query::compile` |
 | 47 | `query_proto_observer_l0` | 2 | — | A | Nous ladder rung 0 — §6 L7 |
 | 48 | `query_rec_agg_batch_e2e` | 3 | `sssp`,`longest` | A | regression for a DYNAMIC executor defect; the static arm is the oracle and duplicates `wql_*` coverage (salvageable) |
@@ -270,7 +304,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 57 | `query_tree_source_graph_e2e` | 0 | 14 deems | B | DAG / cycle / leaf-identity / TOM semantics AND the query capabilities over the walk — **rewritten: join, `rel` recursion over a CYCLIC edge set, `order by` and `group by … aggregate` all preserved as slice-sourced deems beside their `&Writ` twins. A `Vec` alone would NOT have replaced them; `DynEdge` + `dyn_graph_edge_rows` is why they survive. 0 interpreter entry points** (C4) |
 | 58 | `query_u64_ordw_origin` | 1 | — | C | `ordw` under/over-carry at the aggregate out-name |
 | 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) |
-| 60 | `wql_agg_avg_bool_three_engines` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
+| 60 | `wql_agg_avg_bool_value_rule` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
 | 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer — its ARITHMETIC positions now have a static arm (**2026-08-09**, `pass/wql_arith_u64_tower_e2e`); the rest still need `..._static_carrier_positions` |
 | 62 | `wql_domain_incr_disagreement` | 9 | — | C K | the incremental tier's three disagreements; block 3b is KNOWN-WRONG — **TRANSCRIBED 2026-08-09** onto `no_join_f64key` (`pass/wql_incr_eligibility_matrix` + `incr_eligibility_gate.sh`), see §5 C1 |
 | 63 | `wql_domain_runtime_extremes` | 3 | — | C | 18 types round-tripped through the dynamic tier; the static twin `tests/logos/pass/wql_domain_static_extremes.logos` covers all 18 plus i128/u128 — **K DROPPED 2026-08-09**, the file's own header says no block asserts a wrong value any more (the `f32` one closed 2026-08-04) |
@@ -284,14 +318,14 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 71 | `wql_graph_root_id_cross_document` | 0 | 5 deems | B K | ⚠ tripwire recording an OPEN root-id defect — **rewritten: the cross-document join is now a two-SLICE deem over two `dyn_graph_edge_rows` walks, so the defect keeps BOTH binding times after the cut; it is still a JOIN, not a hand comparison** (C4) |
 | 72 | `wql_incr_rec_agg_retract_lattice` | 1 | — | A | REGION 4 harvest — lattice head over a recursive rel under retraction; drives the interpreter |
 | 73 | `wql_incr_rec_dred_error_window` | 1 | — | A | REGION 5 harvest — partially-applied-retraction window |
-| 74 | `wql_incr_retract_three_ways` | 4 | 4 deems + handle | B | the static retract surface, checked three ways |
-| 75 | `wql_incr_static_three_ways` | 2 | `q` + handle | B | the static incremental aggregate handle |
+| 74 | `wql_incr_retract_two_ways` | 4 | 4 deems + handle | B | the static retract surface, checked three ways |
+| 75 | `wql_incr_static_two_ways` | 2 | `q` + handle | B | the static incremental aggregate handle |
 | 76 | `wql_mapping_rules_escape_e2e` | 3 | `s_pg` | B | `<M>__rules()` literal pinned byte for byte |
 | 77 | `wql_native_graph_e2e` | 1 | 3 deems | B | native object graph as a `deem!` source |
-| 78 | `wql_tier_capability_disagreement` | 5 | 10 deems | B K | THREE tiers disagree about what they will answer; becomes a two-tier file |
+| 78 | `wql_u64_capability_matrix` | 5 | 10 deems | B K | THREE tiers disagree about what they will answer; becomes a two-tier file |
 | 79 | `wql_u64_sum_accumulator` | 10 | — | C | the `sum` accumulator seam over u64, both failure directions — static arm BUILT 2026-08-09 (`tests/logos/pass/wql_domain_static_u64_sum_accumulator.logos`) for the two cells nothing else asked; the rest is covered and the coverage claim is RE-DERIVED below, not inherited |
 | 80 | `wql_u64_sum_scalar_arith` | 7 | — | C | the scalar-arith seam one level below, one cell per operator — **static arm BUILT 2026-08-09** (`pass/wql_arith_u64_tower_e2e`), see §5 C1 |
-| 81 | `wql_value_domain_tiers_measured` | 5 | `sg_sel`,`su_order` | B | the value domain across three engines; becomes two |
+| 81 | `wql_value_domain_measured` | 5 | `sg_sel`,`su_order` | B | the value domain across three engines; becomes two |
 | 82 | `tests/logos/rtval_domain_gate.sh` | 1 | — | G | §7 |
 | 83 | `query_incr_factstore_unit` | 0 | — | A | slice-8 `FactStore` SET semantics + effective-delta emission, WITHOUT the engine — §6 L5 |
 | 84 | `query_incr_factstore_epochs` | 0 | — | A | the `FactHistory` epoch-history layer (ADR 0017 P1) — §6 L5 |
@@ -737,7 +771,13 @@ Victor decides this. Each entry is a shipped capability with no static counterpa
 
 * `tests/logos/rtval_domain_gate.sh` (`logos_09_rtval_domain`, `tier_commit`, registered in
   `tests/logos/CMakeLists.txt`) globs `*.logos` in `stdlib/mem/deem` and asserts three hard constants:
-  `WANT_VARIANTS="B Error F I Node Null S"`, `WANT_MATCH_SITES=27`, `WANT_KIND_CALLS=27`.
+  `WANT_VARIANTS="B Error F I Node Null S"`, and two counts that MOVED WITH THE CUT and were
+  re-measured rather than relaxed: `WANT_MATCH_SITES` 27 → **16**, `WANT_KIND_CALLS` 27 → **22**.
+  The sites did not become unchecked — the files holding them were deleted. `rt_cmp`, one of the
+  two i32-code branchers item 3 of that gate names, lived in `exec.logos` and is gone; `rt_eq`
+  remains and its defect is unchanged. The gate's header sentence ("`RtVal` is the value of BOTH
+  the dynamic query engine and the incremental one") was REWRITTEN in the same commit, because
+  `RtVal`'s consumers are now the runtime template engine and the graph walker.
   ⚠ The crude per-LINE count first recorded here (eval 11, exec 2, query 1, deem 4) UNDERCOUNTS: by
   OCCURRENCE it is eval **20**, exec **4**, query **1**, deem **4** — 25 of 29 inside the cut, so the
   conclusion holds a fortiori.
@@ -855,13 +895,25 @@ guarantees that the nouns in the argument still exist.
 # through; FACT 7 then requires that it really is absent AND that the line says
 # why. Naming a corpse is allowed; pretending a live file is one is not.
 GONE-FILE  stdlib/mem/deem/eval.logos  deleted at 8c5ad0ea (C2): its whole contents moved to stdlib/mem/deem/tpl.logos
+GONE-FILE  stdlib/mem/deem/check.logos  deleted at P5: the dynamic query CHECKER; its template half had already left for stdlib/mem/deem/tpl.logos
+GONE-FILE  stdlib/mem/deem/exec.logos  deleted at P5: the dynamic EXECUTOR (rt_cmp, exec_root, RelCtx, OutTab, es_scan)
+GONE-FILE  stdlib/mem/deem/query.logos  deleted at P5: Query / QRows, the runtime query-compilation entry point
+GONE-FILE  stdlib/mem/deem/incr.logos  deleted at P5: the DBSP incremental engine (IncrJoin, FactStore, AggState)
+GONE-FILE  stdlib/mem/deem/incr_rec.logos  deleted at P5: the recursive incremental engine (IncrRec, dred)
+GONE-FILE  stdlib/mem/deem/mapping_state.logos  deleted at P5: trait EngineState + the four deem_state_* materializers (L9 / ADR 0016 M5 case S)
+GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the epoch-history layer over FactStore
 
-# registry — `ctest -N` from the build directory, three ways.
-REGISTRY-ALL         6959
-REGISTRY-NOIMPORTED  3276
+# registry — `ctest -N` from the build directory, three ways. RE-MEASURED after
+# the cut: 6959 / 3276 / 30 -> 6906 / 3223 / 30, i.e. exactly -53 / -53 / 0, one
+# ctest per deleted fixture and tier_commit untouched. PREDICTED before the
+# re-configure; the measurement agreed.
+REGISTRY-ALL         6906
+REGISTRY-NOIMPORTED  3223
 REGISTRY-TIERCOMMIT  30
 
-# §3 table arithmetic.
+# §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
+# column records how each row was PRICED before the deletion, so the loss ledger
+# keeps its shape. What changed is which rows are LIVE — see GONE-FIXTURE below.
 CENSUS-ROWS          85
 CLASS-A              38
 CLASS-B              26
@@ -869,26 +921,91 @@ CLASS-C              19
 CLASS-D              1
 CLASS-G              1
 
-# The population rule, executable. Every name here is sole-defined in a §2 file;
-# `grep -rlE "\b(<these>)\b" tests/` is the census's own stated rule, and its
-# answer must be exactly the rows above plus the NOT-AFFECTED lines below.
+# The rows P5 killed, one line each, with a cause of death. FACT 3 skips them and
+# FACT 8 then requires the `.logos` AND its `.expected` to be absent and the line
+# to say why. This is the loss ledger, machine-checked rather than narrated: a
+# restored fixture reds here the same day, and so does a `.logos` deleted while
+# its `.expected` is left behind to register a test with no program.
+GONE-FIXTURE  tests/logos/pass/deem_dred_phases23_spec.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_adv_errvalues.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_compile_robust_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_diff_fuzz.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_diff_str_adv.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_el_arith_err_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_gpath_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_budget_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_ctl_journal_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_factstore_e2e_join.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_factstore_e2e_rec.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_guard.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_join_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_join_fuzz.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_journal_replay.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_nasty_join.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_nasty_sssp.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_nasty_tc.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_prov_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_s4_select_one.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_sssp_fuzz.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_sssp_guard.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_tc_fuzz.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_tc_guard.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_tc_retract.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_trace_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_interp_smoke.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_metamorphic_adv.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_observer_l1.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_parser_robust_advX.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_proto_observer_l0.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_rec_agg_batch_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_run_errors_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_incr_rec_agg_retract_lattice.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_incr_rec_dred_error_window.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_factstore_unit.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_factstore_epochs.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_incr_factstore_float_identity_unit.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_dyn_bool_arith_pinned.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_lenient_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_lenient_null_fuzz_adv.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/query_u64_ordw_origin.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/vfy_nan_key_probe.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_carrier_positions.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_incr_disagreement.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_runtime_extremes.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_runtime_order_a.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_runtime_order_b.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_runtime_order_c.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_domain_u64_order_seams.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_u64_sum_accumulator.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_u64_sum_scalar_arith.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subject at P5 (see its §3 row)
+GONE-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  RENAMED to wql_agg_avg_bool_value_rule.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  RENAMED to query_f64_agg_hand_derived.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  RENAMED to query_order_by_float_data_key.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/wql_incr_static_three_ways.logos  RENAMED to wql_incr_static_two_ways.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/wql_incr_retract_three_ways.logos  RENAMED to wql_incr_retract_two_ways.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/wql_tier_capability_disagreement.logos  RENAMED to wql_u64_capability_matrix.logos at P5: the old name stated a COUNT of engines the cut falsified
+GONE-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  RENAMED to wql_value_domain_measured.logos at P5: the old name stated a COUNT of engines the cut falsified
+
+# The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
+# CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert
+# "every name here is sole-defined in a §2 file" and that was FALSE for nine of
+# the 28: `Tpl`, `Chk`, `chk_new`, `sx_of`, `rbinds_new`, `eval_sexpr` and
+# `RBinds` live in the SURVIVING stdlib/mem/deem/tpl.logos, and `h_step`,
+# `ts_scan` in the SURVIVING stdlib/mem/deem/graphsrc.logos. The list still
+# produced the right answer, by luck — the extra names co-occurred with real ones
+# — which is the failure mode FACT 6 exists to prevent, applied to FACT 6 itself.
+# The nine are dropped and `es_scan` (sole-defined in exec.logos, moved back there
+# at 4569535c precisely so it would die with the engine) is added.
 CUT-SYMBOL  qplan_new
-CUT-SYMBOL  chk_new
-CUT-SYMBOL  sx_of
 CUT-SYMBOL  check_rexpr
 CUT-SYMBOL  QPlan
-CUT-SYMBOL  Chk
 CUT-SYMBOL  relctx_new
 CUT-SYMBOL  exec_root
 CUT-SYMBOL  rt_key_hash
-CUT-SYMBOL  h_step
 CUT-SYMBOL  RelCtx
 CUT-SYMBOL  OutTab
-CUT-SYMBOL  ts_scan
-CUT-SYMBOL  rbinds_new
-CUT-SYMBOL  eval_sexpr
-CUT-SYMBOL  RBinds
-CUT-SYMBOL  Tpl
+CUT-SYMBOL  es_scan
 CUT-SYMBOL  Query
 CUT-SYMBOL  QRows
 CUT-SYMBOL  FactStore
@@ -903,8 +1020,10 @@ CUT-SYMBOL  deem_state_controls
 
 # Files the population rule finds whose every match is a COMMENT or a ledger row.
 # Measured: with `sed 's://.*::'` applied, none of these matches a CUT-SYMBOL.
-# Two of them post-date the first census, which is why this list is checked and
-# not remembered.
+# ⚠ RE-MEASURED AFTER THE CUT AND UNCHANGED — same eleven files. That is not a
+# coincidence worth glossing: the twenty surviving fixtures that mention a cut
+# symbol do so in their own P5 notes and are LIVE ROWS, so they are accounted for
+# by the row column and not by an exemption.
 NOT-AFFECTED  tests/logos/census_pin_gate.sh                            comment-only
 NOT-AFFECTED  tests/logos/incr_eligibility_gate.sh                     comment-only
 NOT-AFFECTED  tests/logos/pass/wql_domain_static_ordw_origin.logos     comment-only

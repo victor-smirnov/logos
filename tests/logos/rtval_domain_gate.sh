@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # rtval_domain_gate.sh <deem-src-dir> <abi-spec> <fallback-ledger>
 #
-# THE DYNAMIC/INCREMENTAL VALUE DOMAIN, PINNED WHERE IT IS ACTUALLY VISIBLE.
+# THE RUNTIME VALUE DOMAIN, PINNED WHERE IT IS ACTUALLY VISIBLE.
 #
-# `RtVal` (stdlib/mem/deem/deem.logos) is the value of BOTH the dynamic query
-# engine (`Query::run`) and the incremental one, and it is PUBLIC: the UDF/UDA
-# registration surface is `fn(&[RtVal]) -> RtVal`. Widening it — an `F32` arm, a
+# ⚠ RE-PINNED 2026-08-09 BY P5, AND THE HEADER SENTENCE HAD TO CHANGE BECAUSE IT
+# STOPPED BEING TRUE. It read: "`RtVal` is the value of BOTH the dynamic query
+# engine (`Query::run`) and the incremental one". P5 deleted both engines
+# (`stdlib/mem/deem/{check,exec,query,incr,incr_rec,mapping_state}.logos`).
+# `RtVal` SURVIVES, in `stdlib/mem/deem/deem.logos`, and it is still PUBLIC —
+# the UDF/UDA registration surface is `fn(&[RtVal]) -> RtVal` and `QEnv` still
+# carries `f_ptrs: [fn(&[RtVal]) -> RtVal; 8]` — but its consumers are now the
+# RUNTIME TEMPLATE ENGINE (`tpl.logos`) and the graph walker (`graphsrc.logos`).
+# The two constants below moved with the population and are RE-MEASURED, not
+# relaxed: the gate reads SOURCE TEXT, so it went red on the deletion with no
+# rebuild, which is the gate working.
+#
+# `RtVal` is the value of the runtime template engine and of the dynamic graph
+# walker, and it is PUBLIC. Widening it — an `F32` arm, a
 # width beside the payload, an opaque value plus a type handle — is on the table.
 # This gate does not decide which; it pins the MEASURED facts that decide
 # whether such a change can land unnoticed.
@@ -50,9 +61,10 @@
 #      returns, through `if rt_kind(l) == 4i32 && …` chains. Match-exhaustiveness
 #      cannot see an `if`, so after a widening `rt_eq` still answers `false` for
 #      two EQUAL values of the new shape — every row its own group in
-#      group-by / distinct / join — and `rt_cmp` still sorts them all at 0.0 (its
-#      unguarded fallthrough is `f64_data_key(rt_f(…))`, and `rt_f`'s or-pattern
-#      answers 0.0 for exactly those arms). A gate that reports only what it can
+#      group-by / distinct / join. (`rt_cmp` had the same shape — an unguarded
+#      fallthrough to `f64_data_key(rt_f(…))`, sorting every new shape at 0.0 —
+#      and it is deleted; the claim is kept here as the record of the class.)
+#      A gate that reports only what it can
 #      fix is the "phase table whose labels agree while the cost sits outside
 #      them all" failure, so the size and shape of this surface is printed
 #      whether the run is green or red, and pinned so that it cannot grow
@@ -104,8 +116,15 @@ trap 'rm -rf "$WORK"' EXIT
 # an extra `F32(f32)` arm — one before the expansion (3 sites named), one after
 # (27 named). Each is a claim someone can re-run.
 WANT_VARIANTS="B Error F I Node Null S"          # sorted; 7 arms
-WANT_MATCH_SITES=27                              # matches whose arms are RtVal patterns
-WANT_KIND_CALLS=27                               # `rt_kind(…)` CALL sites — the residue
+# ⚠ 27/27 → 16/22 at P5 (2026-08-09). NOT a weakening: the sites did not become
+# unchecked, the FILES THAT HELD THEM WERE DELETED. Measured after the cut, by
+# running this gate and reading its own census print: 16 match sites (9 in
+# deem.logos, 2 in graphsrc.logos, 5 in tpl.logos) and 22 `rt_kind` call sites
+# (2 in `rt_eq`, 20 in `eval_sexpr`). `rt_cmp` — named in item 3 below as one of
+# the two i32-code branchers — lived in `exec.logos` and is GONE; `rt_eq` is the
+# one that remains, and its defect is unchanged.
+WANT_MATCH_SITES=16                              # matches whose arms are RtVal patterns
+WANT_KIND_CALLS=22                               # `rt_kind(…)` CALL sites — the residue
 # ⚠ 27, NOT 16, AND THE DIFFERENCE IS A METHOD LESSON. The number carried into
 # this slice was 16, taken from `grep -h 'rt_kind(' *.logos | wc -l` — which
 # counts LINES. `if rt_kind(l) == 0i32 || rt_kind(r) == 0i32` is one line and

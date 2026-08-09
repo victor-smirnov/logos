@@ -106,6 +106,18 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 # is the whole ownership design ("the Any owns the arena"), and a `&AnyBox`
 # earning noalias+readonly would be exactly the wrong answer.
 #
+# 2026-08-09 — P5 DELETED SEVEN ROWS, AND THE LINT IS WHY THEY WERE FOUND. The
+# Deem interpreter and its incremental engine were removed
+# (`stdlib/mem/deem/{check,exec,query,incr,incr_rec,mapping_state}.logos`,
+# `stdlib/lcm/deem/facthistory.logos`), so the TRANSITIVE rows for `FactHistory`,
+# `FactStore`, `IncrJoin`, `IncrRec`, `QRows` and `Query`, plus the count row
+# `stdlib/mem/deem/incr.logos 5`, named files that no longer exist. FACTS 3+4 of
+# `tests/logos/shared_ref_ub_lint.sh` hold this ledger against the tree in BOTH
+# directions, so all seven would have read as `ledger only` and the lint would
+# have gone red. ⚠ THE `stdlib/mem/deem/tpl.logos Tpl` ROW STAYS — `tpl.logos`
+# was ported OUT of the cut precisely to survive it, and that row is the control
+# proving this edit removed corpses and not evidence.
+#
 # FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
@@ -116,14 +128,8 @@ stdlib/lcm/deem/data/bt/cow.logos	LeafNodeForBranch	-
 stdlib/lcm/deem/data/handle.logos	Snap	-
 stdlib/lcm/deem/data/handle.logos	Store	-
 stdlib/lcm/deem/data/store.logos	LockingStore	-
-stdlib/lcm/deem/facthistory.logos	FactHistory	-
 stdlib/mem/any/anybox.logos	AnyBox	-
 stdlib/mem/bt/memstore.logos	SnapDesc	-
-stdlib/mem/deem/incr.logos	FactStore	-
-stdlib/mem/deem/incr.logos	IncrJoin	-
-stdlib/mem/deem/incr_rec.logos	IncrRec	-
-stdlib/mem/deem/query.logos	QRows	-
-stdlib/mem/deem/query.logos	Query	-
 stdlib/mem/deem/tpl.logos	Tpl	-
 stdlib/mem/sync/arc.logos	ArcInner	-
 stdlib/std/io/bytes/bytes.logos	BytesInner	-
@@ -186,7 +192,6 @@ stdlib/lang/writ/wstring.logos	1
 stdlib/lcm/deem/data/bt/node.logos	1
 stdlib/mem/collections/hashmap/hashmap.logos	1
 stdlib/mem/collections/vec/vec.logos	1
-stdlib/mem/deem/incr.logos	5
 stdlib/mem/sync/arc.logos	7
 stdlib/mem/wql/plan.logos	8
 stdlib/mem/writ/parser.logos	1

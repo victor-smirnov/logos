@@ -36,11 +36,20 @@
 #           through — but FACT 7 immediately checks the declaration the OTHER
 #           way, so it buys nothing except the right to name a corpse.
 #
-#   FACT 3  EVERY CENSUS ROW IS A REGISTERED TEST. The §3 table's fixture column
-#           must name a file that exists AND has the `.expected` beside it —
-#           registration is by GLOB over `pass/*.expected`, so a `.logos` with no
-#           `.expected` is a fixture that silently does not run. "A test that
+#   FACT 3  EVERY LIVE CENSUS ROW IS A REGISTERED TEST. The §3 table's fixture
+#           column must name a file that exists AND has the `.expected` beside it
+#           — registration is by GLOB over `pass/*.expected`, so a `.logos` with
+#           no `.expected` is a fixture that silently does not run. "A test that
 #           stops existing" is the failure mode this repo has already met.
+#
+#           EXCEPT a row declared `GONE-FIXTURE` in the pin block. P5 deleted the
+#           interpreter and 53 of the 85 rows died with their subject; the table
+#           keeps them because it IS the loss ledger, and a loss ledger with the
+#           losses removed is a list of survivors. The exemption is not a hole:
+#           FACT 8 immediately checks it the other way, exactly as FACT 7 does for
+#           `GONE-FILE`. Every one of the 85 rows is therefore checked in one
+#           direction or the other, and a row cannot move between the two without
+#           an explicit edit to the pin block.
 #
 #   FACT 4  THE TABLE'S OWN ARITHMETIC. The section header's file count, the
 #           number of table rows, and the per-class totals line are three
@@ -55,13 +64,35 @@
 #           is worth nothing measured against a stale number. The fix is one line
 #           in the pin block, and the failure message prints the exact values.
 #
-#   FACT 6  THE POPULATION, IN BOTH DIRECTIONS. §3 states its own population
-#           rule: grep tests/ for the CUT's symbols, not the interpreter's entry
-#           points. That rule is executed here over the symbol list pinned in the
-#           census itself. Every file it finds must be either a census row or an
-#           explicitly declared NOT-AFFECTED line — and every declared file must
-#           still be found. A new fixture touching the cut cannot be invisible to
-#           the census any more; nor can a censused one be quietly deleted.
+#   FACT 6  THE CUT STAYS CUT, AND THE MENTIONS STAY ACCOUNTED FOR. RE-AIMED BY
+#           P5, FROM BACKWARD TO FORWARD — the one fact whose QUESTION changed
+#           rather than its numbers. It used to ask "is the census population
+#           complete?": grep tests/ for the cut's symbols and require the answer
+#           to be exactly the rows plus the NOT-AFFECTED lines. After the deletion
+#           that is a question about a table that has become history — 53 of the
+#           rows name files that no longer exist, so the old form would have
+#           reported 53 disagreements on a tree where nothing had drifted.
+#           Weakening it was not on the table and neither was deleting it, so it
+#           asks the question that still has teeth:
+#
+#             (i)  NO `CUT-SYMBOL` IS DEFINED ANYWHERE UNDER `stdlib/`, AND NONE
+#                  IS NAMED AS A STRING LITERAL UNDER `src/`. The RESURRECTION
+#                  check. The C++ fallback seed in
+#                  `SemaChecker::seed_builtin_source_impls` hard-named `IncrRec`
+#                  and four `deem_state_*` materializers in string literals and
+#                  was CONTENT-guarded on a stdlib file P5 deleted — so deleting
+#                  the file alone would have re-registered four materializers that
+#                  do not exist, and the program would have died at LINK rather
+#                  than at sema. That is the defect this half is pointed at, and
+#                  it is falsifiable on day one.
+#
+#             (ii) EVERY FILE UNDER tests/ THAT MENTIONS A `CUT-SYMBOL` IS
+#                  ACCOUNTED FOR: a LIVE census row, or a declared NOT-AFFECTED
+#                  line. And every declared NOT-AFFECTED file must still be found
+#                  — that direction is unchanged and is what caught the three
+#                  `FactStore` fixtures. A live row need NOT be found: after the
+#                  rewrite most of them stopped mentioning the cut at all, which
+#                  is what the rewrite was for.
 #
 #   FACT 7  EVERY DECLARED CORPSE IS ACTUALLY DEAD. `GONE-FILE <path> <why>`
 #           exempts a name from FACTS 1 and 2 — so the exemption is checked in
@@ -70,6 +101,17 @@
 #           deleted file is ever restored the census learns about it the same
 #           day. A `GONE-FILE` also has to carry a reason, because "deleted at
 #           <sha>, <why>" is the sentence FACT 2 was going to force anyway.
+#
+#   FACT 8  EVERY DECLARED DEAD FIXTURE IS ACTUALLY DEAD — the abuse direction
+#           FACT 7 guards for files, applied to the §3 rows P5 killed.
+#           `GONE-FIXTURE <path> <why>` exempts a row from FACT 3, so the path
+#           must NOT exist, its `.expected` sibling must NOT exist either (a
+#           `.logos` deleted while its `.expected` survives leaves a registered
+#           test with no program), and the line must carry a reason. The 53-row
+#           loss ledger stays MACHINE-CHECKED instead of turning into prose, and
+#           the failure this repo has already met — a fixture that silently stops
+#           existing — is caught in the opposite direction too: restore one and
+#           this reds the same day.
 #
 # AND IT PROVES ITSELF, in the same run: each fact is re-measured through the
 # SAME reader on a PLANTED census whose answer is known. A pin that cannot fail
@@ -133,10 +175,16 @@ note() { echo "FAIL: $*"; fail=$((fail + 1)); }
 # the paths (for FACT 1 and FACT 7) and their basenames (for FACT 2).
 gone_paths()  { pin_get "$1" GONE-FILE | awk '{print $1}'; }
 gone_bases()  { gone_paths "$1" | sed 's#.*/##'; }
+# The declared dead FIXTURES: `GONE-FIXTURE <repo-relative path>  <why>`.
+gonefx_paths() { pin_get "$1" GONE-FIXTURE | awk '{print $1}'; }
 
 check_paths() {                                   # FACT 1
     local f=$1 p q
-    gone_paths "$f" | sort -u > "$TMPD/gone_p"
+    # A declared corpse may be NAMED by path — FACT 7 (files) and FACT 8
+    # (fixtures) own the check that it really is one. The GONE-FIXTURE lines are
+    # themselves path tokens in this file, so without this they would red FACT 1
+    # by existing.
+    { gone_paths "$f"; gonefx_paths "$f"; } | sort -u > "$TMPD/gone_p"
     while read -r p; do
         [ -n "$p" ] || continue
         grep -qxF "$p" "$TMPD/gone_p" && continue      # declared gone; FACT 7 owns it
@@ -152,7 +200,7 @@ check_paths() {                                   # FACT 1
 
 check_bare() {                                    # FACT 2
     local f=$1 b n
-    gone_bases "$f" | sort -u > "$TMPD/gone_b"
+    { gone_bases "$f"; gonefx_paths "$f" | sed 's#.*/##'; } | sort -u > "$TMPD/gone_b"
     while read -r b; do
         [ -n "$b" ] || continue
         n=$(grep -cxF "$b" "$TMPD/basenames")
@@ -173,10 +221,14 @@ check_bare() {                                    # FACT 2
 
 check_rows() {                                    # FACT 3
     local f=$1 p cls exp
+    gonefx_paths "$f" | sort -u > "$TMPD/gone_fx"
     while IFS=$'\t' read -r p cls; do
         [ -n "$p" ] || continue
+        grep -qxF "$p" "$TMPD/gone_fx" && continue     # declared dead; FACT 8 owns it
         if [ ! -e "$ROOT/$p" ]; then
-            note "census row names \`$p\`, which does not exist."
+            note "census row names \`$p\`, which does not exist.
+      If it died with its subject, say so with a GONE-FIXTURE line in the pin
+      block — that is the exemption, and FACT 8 then checks it the other way."
             continue
         fi
         case "$p" in
@@ -246,29 +298,65 @@ check_registry() {                                # FACT 5
 check_population() {                              # FACT 6
     local f=$1 syms re
     syms=$(pin_get "$f" CUT-SYMBOL | tr '\n' '|' | sed 's/|$//')
-    [ -n "$syms" ] || { note "the pin block declares no CUT-SYMBOL, so §3's
-      population rule ('grep the CUT's symbols, not the entry points') is not
-      executable and the census population is whatever someone remembered."; return; }
+    [ -n "$syms" ] || { note "the pin block declares no CUT-SYMBOL, so the
+      resurrection check and the mention census are not executable and the cut is
+      whatever someone remembered."; return; }
     re="\\b(${syms})\\b"
-    # The grep over tests/ is the expensive part and depends ONLY on the symbol
-    # list, so it is cached per distinct list — the canaries do not perturb it.
+
+    # (i) THE RESURRECTION CHECK.
+    local defs lits
+    defs=$(cd "$ROOT" && grep -rnE "^(pub )?(fn|struct|enum|trait|const|static|type|impl) +(${syms})\\b" \
+             --include='*.logos' stdlib/ 2>/dev/null)
+    if [ -n "$defs" ]; then
+        note "a CUT-SYMBOL is DEFINED again under stdlib/. The cut is the claim
+      this census records; a definition coming back is either the capability being
+      restored (then rewrite the census, do not delete this check) or a name
+      collision (then rename). Sites:"
+        printf '%s\n' "$defs" | sed 's/^/      /'
+    fi
+    lits=$(cd "$ROOT" && grep -rnE "\"(${syms})\"" src/ 2>/dev/null)
+    if [ -n "$lits" ]; then
+        note "a CUT-SYMBOL appears as a STRING LITERAL under src/. The compiler
+      does not resolve those against the stdlib, so a fallback that hard-names a
+      deleted type registers materializers that do not exist and the program dies
+      at LINK, not at sema. Sites:"
+        printf '%s\n' "$lits" | sed 's/^/      /'
+    fi
+
+    # (ii) THE MENTION CENSUS. Cached per distinct symbol list, so the canaries
+    # do not perturb the expensive grep.
     local key
     key=$(printf '%s' "$re" | cksum | tr -d ' /')
     if [ ! -f "$TMPD/pop.$key" ]; then
         (cd "$ROOT" && grep -rlE "$re" tests/ 2>/dev/null) | sort > "$TMPD/pop.$key"
     fi
     cp "$TMPD/pop.$key" "$TMPD/pop_got"
-    { table_rows "$f" | cut -f1; pin_get "$f" NOT-AFFECTED | awk '{print $1}'; } \
-        | sort -u > "$TMPD/pop_want"
-    if ! diff -q "$TMPD/pop_want" "$TMPD/pop_got" > /dev/null; then
-        note "the census population and the tree disagree.
-      A file under tests/ that mentions a symbol from the cut is either a census
-      ROW (it is affected) or a declared NOT-AFFECTED line (the mention is a
-      comment or a ledger entry). Anything else is a fixture nobody weighed —
-      which is how three FactStore fixtures went uncounted, twice."
-        diff "$TMPD/pop_want" "$TMPD/pop_got" \
-            | sed 's/^</  census only: /; s/^>/  tree only:   /' \
-            | grep -E 'census only|tree only'
+    gonefx_paths "$f" | sort -u > "$TMPD/gone_fx6"
+    : > "$TMPD/pop_want"
+    if [ -s "$TMPD/gone_fx6" ]; then
+        table_rows "$f" | cut -f1 | grep -vxF -f "$TMPD/gone_fx6" >> "$TMPD/pop_want"
+    else
+        table_rows "$f" | cut -f1 >> "$TMPD/pop_want"
+    fi
+    pin_get "$f" NOT-AFFECTED | awk '{print $1}' >> "$TMPD/pop_want"
+    sort -u -o "$TMPD/pop_want" "$TMPD/pop_want"
+
+    local extra
+    extra=$(comm -13 "$TMPD/pop_want" "$TMPD/pop_got")
+    if [ -n "$extra" ]; then
+        note "a file under tests/ mentions a symbol from the cut and is neither a
+      LIVE census row nor a declared NOT-AFFECTED line. Anything else is a fixture
+      nobody weighed — which is how three FactStore fixtures went uncounted."
+        printf '%s\n' "$extra" | sed 's/^/      tree only:   /'
+    fi
+    local missing
+    missing=$(pin_get "$f" NOT-AFFECTED | awk '{print $1}' | sort -u \
+              | grep -v '^$' | grep -vxF -f "$TMPD/pop_got")
+    if [ -n "$missing" ]; then
+        note "a declared NOT-AFFECTED file no longer mentions any cut symbol (or
+      no longer exists). The declaration was a MEASURED exemption, so it expires
+      with the mention it exempted; drop the line."
+        printf '%s\n' "$missing" | sed 's/^/      census only: /'
     fi
 }
 
@@ -292,10 +380,34 @@ check_gone() {                                    # FACT 7
     done < <(pin_get "$f" GONE-FILE)
 }
 
+check_gone_fixture() {                            # FACT 8
+    local f=$1 line p why exp
+    while read -r line; do
+        [ -n "$line" ] || continue
+        p=${line%%[[:space:]]*}
+        why=$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]*//')
+        if [ -e "$ROOT/$p" ]; then
+            note "the pin block declares \`$p\` GONE-FIXTURE, but it EXISTS.
+      That declaration exempts the row from FACT 3, so a live fixture declared
+      dead is a hole punched in the pin — and a restored fixture the census still
+      counts as a loss is a ledger that overstates the cost."
+        fi
+        exp="${p%.logos}.expected"
+        if [ -e "$ROOT/$exp" ]; then
+            note "\`$p\` is declared GONE-FIXTURE but \`$exp\` is still there.
+      Registration is a GLOB over *.expected: an orphaned expectation is a
+      registered test with no program."
+        fi
+        [ -n "$why" ] || note "the GONE-FIXTURE line for \`$p\` carries no reason.
+      This table is the LOSS LEDGER; a row with no cause of death records that
+      something was removed and not what was given up."
+    done < <(pin_get "$f" GONE-FIXTURE)
+}
+
 check_all() {
     check_paths "$1"; check_bare "$1"; check_rows "$1"
     check_arithmetic "$1"; check_registry "$1"; check_population "$1"
-    check_gone "$1"
+    check_gone "$1"; check_gone_fixture "$1"
 }
 
 # ── the tree index, once ─────────────────────────────────────────────────────
@@ -337,22 +449,42 @@ canary() {                                        # canary <name> <sed program>
   see. Whatever it is blind to there, it is blind to in the real census."
 }
 
-canary path       's#stdlib/mem/deem/exec\.logos#stdlib/mem/deem/exec_GONE.logos#'
-canary bare       's#`incr\.logos`#`incr_NOSUCH.logos`#'
-canary row        's#^\| 11 \| `query_diff_fuzz`#| 11 | `query_diff_fuzz_nope`#'
+# ⚠ `path` NO LONGER USES exec.logos: P5 deleted it, so it is a declared
+# GONE-FILE and FACT 1 lets it through — the canary would plant nothing. It is
+# re-pointed at the SURVIVING tpl.logos, which is also the file whose survival
+# the whole C2 port was for.
+canary path       's#stdlib/mem/deem/tpl\.logos#stdlib/mem/deem/tpl_GONE.logos#'
+canary bare       's#`graphsrc\.logos`#`graphsrc_NOSUCH.logos`#'
+# ⚠ `row` USED TO TARGET row 11 `query_diff_fuzz`, which P5 deleted: the row is
+# now a declared GONE-FIXTURE that FACT 3 skips, so the canary would have planted
+# a defect nothing looks at. Re-pointed at row 1, a LIVE rewritten fixture.
+canary row        's#^\| 1 \| `adv_rec_tc`#| 1 | `adv_rec_tc_nope`#'
 canary arithmetic 's#^CENSUS-ROWS( +)[0-9]+#CENSUS-ROWS\1999#'
 canary registry   's#^REGISTRY-ALL( +)[0-9]+#REGISTRY-ALL\19999999#'
 canary population 's#^NOT-AFFECTED#NOT-AFFECTED-DISABLED#'
 
-# A canary for the OTHER direction of FACT 6: a row DELETED from the table must
-# read as a population disagreement, not as a smaller census.
-canary row-deleted 's#^\| 13 \| `query_diff_str_adv`.*$##'
+# A canary for the OTHER direction: a LIVE row DELETED from the table must read as
+# a disagreement, not as a smaller census — FACT 4's row count moves and FACT 6
+# then finds a file that mentions a cut symbol and is nobody's row.
+# ⚠ RE-POINTED: it used to sed row 13 `query_diff_str_adv`, which P5 deleted.
+canary row-deleted 's#^\| 4 \| `deem_incr_diff_harness`.*$##'
 
 # FACT 7, both directions. `gone-live` declares a file that IS there — the abuse
 # the exemption invites, and the reason FACT 7 exists at all. `gone-mute` strips
 # the reason. Neither may pass.
-canary gone-live 's#^GONE-FILE( +)stdlib/mem/deem/eval\.logos#GONE-FILE\1stdlib/mem/deem/incr.logos#'
+# ⚠ `gone-live` USED TO PLANT stdlib/mem/deem/incr.logos as its live-file abuse
+# case. After P5 that file is a genuine corpse, so the canary would have asserted
+# nothing at all — it is re-pointed at stdlib/mem/deem/tpl.logos, which survives
+# the cut by construction.
+canary gone-live 's#^GONE-FILE( +)stdlib/mem/deem/eval\.logos#GONE-FILE\1stdlib/mem/deem/tpl.logos#'
 canary gone-mute 's#^(GONE-FILE +stdlib/mem/deem/eval\.logos).*$#\1#'
+
+# FACT 8, both directions, the same shape as FACT 7's pair. `gonefx-live`
+# declares a fixture that IS there — the abuse the FACT 3 exemption invites, and
+# the whole reason FACT 8 exists. `gonefx-mute` strips the reason, which is what
+# turns a loss ledger into a list of removals.
+canary gonefx-live 's#^GONE-FIXTURE( +)tests/logos/pass/query_diff_fuzz\.logos#GONE-FIXTURE\1tests/logos/pass/adv_rec_tc.logos#'
+canary gonefx-mute 's#^(GONE-FIXTURE +tests/logos/pass/query_diff_fuzz\.logos).*$#\1#'
 
 # ── THE REAL CHECK ───────────────────────────────────────────────────────────
 fail=0
@@ -366,12 +498,16 @@ n_syms=$(pin_get "$CENSUS" CUT-SYMBOL | grep -c .)
 n_na=$(pin_get "$CENSUS" NOT-AFFECTED | grep -c .)
 echo "census pin: $(basename "$CENSUS") holds. $n_paths path token(s) and"
 echo "  $n_bare bare filename(s) resolve; $n_rows table rows each name a"
-echo "  registered fixture (.logos + .expected); the header count, the row count"
+echo "  registered fixture (.logos + .expected) unless declared GONE-FIXTURE;"
+echo "  the header count, the row count"
 echo "  and the per-class totals agree; the registry baseline is this tree's"
 echo "  ($CT_ALL all / $CT_NOIMP -LE imported / $CT_TIER tier_commit); and the"
-echo "  population derived from $n_syms pinned cut symbols matches the rows plus"
-echo "  $n_na declared NOT-AFFECTED file(s), in both directions."
+echo "  $n_syms pinned cut symbols are DEFINED nowhere under stdlib/ and named as"
+echo "  a string literal nowhere under src/, and every file under tests/ that"
+echo "  mentions one is a live row or one of $n_na declared NOT-AFFECTED file(s)."
 n_gone=$(pin_get "$CENSUS" GONE-FILE | grep -c .)
+n_gfx=$(pin_get "$CENSUS" GONE-FIXTURE | grep -c .)
 echo "  $n_gone declared GONE-FILE(s) are really gone and each says why."
-echo "  Nine self-canaries live."
+echo "  $n_gfx declared GONE-FIXTURE(s) are gone with their .expected, each with a"
+echo "  cause of death. Eleven self-canaries live."
 exit 0

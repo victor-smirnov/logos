@@ -91,21 +91,28 @@ static bool is_canon_internal_pkg(std::string_view pkg) {
            pkg[kRoot.size()] == '.';
 }
 
-// ── ABI-spec scoping: the Deem query/reasoning-engine internals ──────────────
-// logos.std.deem holds the queue-2 interpreter AND the DBSP incremental engine
-// (IncrJoin / IncrAnti / IncrRec / AggState / FactStore / Arr / ZBatch / ZOut /
-// QRelReg / RelCtx / …) — heavy-development internals that grow a type layout or
-// add a whole type on essentially every incremental slice, falsely tripping the
-// abi-gate as ABI-breaking (the same problem the wql engine had). The ONLY
-// consumer-facing contract is the DYNAMIC-QUERY API: compile a query text
-// against a SchemaCatalog, bind sources into a QEnv, run, read a QRows (QError
-// on failure). Everything else in the package is implementation detail.
+// ── ABI-spec scoping: the Deem reasoning-engine internals ────────────────────
+// ⚠ P5 DELETED THE INTERPRETER AND THE DBSP INCREMENTAL ENGINE, AND THIS SEED
+// SHRANK WITH THEM. `Query` and `QRows` are removed below because the types no
+// longer exist; the compare is a pure `string_view` EXCLUSION predicate, so
+// leaving them would not have been an error — it would have been a seed that
+// lies, and the closure derived from it would have kept admitting `QRelReg` and
+// `QBodyTab` for a reason (`Query.reg`, `Query.bodies`) that had evaporated.
+// The removal is a BREAKING ABI change, taken deliberately with a version bump.
+//
+// logos.mem.deem still holds heavy-development internals (Arr / ZBatch / ZOut /
+// RelCtx / …) that grow a type layout or add a whole type on essentially every
+// slice, falsely tripping the abi-gate as ABI-breaking (the same problem the wql
+// engine had). What is left of the consumer-facing contract is the VALUE +
+// CATALOG surface: `SchemaCatalog`, the `QEnv` binding environment, `QError`,
+// and — through the closure — `RtVal`. Everything else in the package is
+// implementation detail.
 // Expressed as an ALLOWLIST (not a blocklist) so a NEW engine type is excluded
 // automatically — the churn never reaches the spec, no per-slice bump. Matched
 // on the exact TYPE name within the deem package (methods emit per-struct, so an
 // excluded type drops its methods wholesale; free helpers are private already).
 //
-// ⚠ THESE FIVE ARE A SEED, NOT THE POPULATION. Listing them and stopping is what
+// ⚠ THESE THREE ARE A SEED, NOT THE POPULATION. Listing them and stopping is what
 // left `RtVal` — a `pub enum`, the whole `fn(&[RtVal]) -> RtVal` UDF surface —
 // out of the spec while `QEnv`, which is IN the spec, carries
 // `f_ptrs:[fn(&[RtVal]) -> RtVal; 8]`. A recorded type named an unrecorded one
@@ -118,8 +125,7 @@ static bool is_canon_internal_pkg(std::string_view pkg) {
 // survives exactly: a new engine type nothing in the API names is still excluded
 // automatically. Measured cost of the closure: +3 type, +19 sym records.
 static bool is_deem_api_type(std::string_view name) {
-    return name == "Query" || name == "SchemaCatalog" || name == "QEnv" ||
-           name == "QRows" || name == "QError";
+    return name == "SchemaCatalog" || name == "QEnv" || name == "QError";
 }
 // `admitted` (when non-null) is the derived closure of the seed above; the docs
 // EDB passes nullptr and keeps the seed-only behaviour it has always had.
