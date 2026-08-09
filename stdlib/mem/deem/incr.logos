@@ -20,7 +20,8 @@ use logos.lang.cmp;               // DView ordering (container key compare)
 use logos.lang.fabric;            // NodeARC plumbing (data layer)
 use logos.lang.drop;              // container-handle drops (data layer)
 use logos.lang.writ.dview;        // DView — FsCtrCfg/FsJnCfg container-config cell type
-use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.num.float;         // f64_canon_bits — FsKey f64 content IDENTITY;
+                                  // f64_to_bits — the journal VALUE payload
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
 use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
@@ -128,6 +129,33 @@ pub const FS_CTR_ID: u64 = 1u64;
 pub const FsJnCfg: WritStatic = @{ "key": <type:u64>, "value": <type:DView>, "fanout": 16 };
 pub const FS_JN_ID: u64 = 2u64;
 
+// ⚠⚠ DOES `FactStore` SURVIVE P5? MEASURED 2026-08-08, recorded here because the
+// P5 slice needs the answer and finding it again costs a day. SHORT FORM: it
+// survives P5's FILE LIST and dies with the API it is plugged into.
+//   · P5's recorded scope is `exec` + `eval` + `query` + `check` (~4683 lines).
+//     `incr.logos` is NOT on that list, so nothing deletes this struct directly;
+//     the only mentions of "FactStore" inside those four files are one `use`
+//     comment line.
+//   · But its CUSTOMERS are all interpreter-side. Exhaustive over the tree
+//     (`FactStore::new` / `FactHistory::new`): exactly ONE non-test constructor,
+//     `lcm/deem/facthistory.logos:77`. Its two drivers `pump_rec` / `pump_join`
+//     (below) are called only from tests, and they feed `IncrRec` / `IncrJoin`,
+//     which are obtainable only through `Query::incremental(&Query, &QEnv)` —
+//     i.e. through `Query`/`QEnv`/`RtVal`, the surface P5 removes.
+//   · The STATIC tier has no fact store at all: the emitted surface is
+//     `<q>_apply(&mut h, __src, __w, <params>)` (`wql/rexpr_walk.logos`), where
+//     the CALLER supplies typed delta rows — no U1 clamp, no presence set, no
+//     content keying, no arena. A `grep` for `fact|FsKey` over `stdlib/mem/wql`
+//     returns nothing.
+// CONSEQUENCE for P4: "make the fact store typed" has no customer. The deep
+// typing (a row struct + a key tuple instead of `WAny` / `Vec<FsKey>`) needs the
+// schema AT EMISSION, while this struct's whole contract is a schema DISCOVERED
+// at runtime from a `SchemaCatalog` (the ctor validates each key field through
+// `cat.field_ty`). Typing it in P1/P2's sense means being the emitter, which is
+// a different structure than this one. What WAS worth landing is the identity
+// fix at `FsKey` above — a defect, not a widening. Nothing here is written to
+// disk today (measured: no file/mmap/fd under `stdlib/lcm/deem/data/`), so the
+// format questions this file raises are still open and still Victor's.
 pub struct FactStore {
     // Fields are pub: the FactHistory decorator lives in a sibling package
     // (logos.std.deem, lcm-tier) and reads the core live set across the package
@@ -151,6 +179,30 @@ pub struct FactStore {
 // OWNS its bytes (String) so a key tuple is fully self-contained: identity
 // survives even a transient source node, and key_of returns a borrow-free value.
 //   k: 0 null · 1 i64 · 2 f64 · 3 bool · 4 str
+//
+// ⚠ THE f64 ARM IS AN IDENTITY, AND IT IS `f64_canon_bits` — THREE SITES, ONE
+// RULE. Victor's 2026-08-07 decision (PostgreSQL semantics: all zeros ONE
+// element, all NaNs ONE element) governs what counts as the SAME fact, so
+// `fskey_hash`, `fskey_eq` and `fs_key_enc` all canonicalise, and they must
+// agree or the store breaks in one of two ways that were both live before
+// 2026-08-08: a hash that splits a class `find` never merges (a store holding
+// +0.0 accepted −0.0 as a second fact), and an `==` that is false for NaN
+// against itself makes a stored NaN fact unfindable and therefore UNRETRACTABLE.
+//
+// ⚠ CANONICALISING HERE IS LEGITIMATE ONLY BECAUSE FsKey IS TWO-COLUMN, and
+// that is the whole difference from `wql/writ_graph.logos:176`, where one column
+// is both value and key and canonicalising WOULD destroy a stored −0.0 / NaN
+// payload. `FactStore.key` is identity ONLY; `FactStore.node` separately holds
+// the canonical WAny — the original Writ node with its exact bits — so the
+// surviving cell keeps the FIRST arrival's bits, exactly the static tier's rule
+// (`wql/rexpr_walk.logos` kv_e/kb_e). Pinned by
+// `query_incr_factstore_float_identity_unit` (A6 = the two-column claim,
+// block C = the negative case: −1.0, 2.0 and the min subnormal must NOT merge).
+//
+// ⚠ AND THE JOURNAL VALUE PAYLOAD STAYS RAW `f64_to_bits` (`fs_jn_row_enc`
+// below, tag 2): that is the fact's FIELD written for replay, a VALUE and not a
+// key, and canonicalising it would lose the fact's bits on replay. Two columns,
+// two functions — do not unify them.
 pub struct FsKey { k: i32, i: i64, f: f64, b: bool, s: String }
 
 fn fskey_of(v: RtVal) -> FsKey {
@@ -190,7 +242,9 @@ pub fn fs_key_enc(k: &Vec<FsKey>, out: &mut String) {
             let mut b: i64 = 0i64;
             while b < 8i64 { out.push_u8(((v >> 56u64) & 255u64) as u8); v = v << 8u64; b = b + 1i64; }
         } else if e.k == 2i32 {
-            let mut v: u64 = f64_to_bits(e.f);
+            // IDENTITY, not a value: canonical bits, so byte equality ≡ tuple
+            // equality holds against `fskey_eq`'s canonical f64 arm.
+            let mut v: u64 = f64_canon_bits(e.f);
             let mut b: i64 = 0i64;
             while b < 8i64 { out.push_u8(((v >> 56u64) & 255u64) as u8); v = v << 8u64; b = b + 1i64; }
         } else if e.k == 3i32 {
@@ -270,7 +324,10 @@ pub fn fs_rd_u64(bytes: str, at: i64) -> u64 {
 fn fskey_eq(a: &FsKey, b: &FsKey) -> bool {
     if a.k != b.k { return false; }
     if a.k == 1i32 { return a.i == b.i; }
-    if a.k == 2i32 { return a.f == b.f; }
+    // ⚠ NOT `a.f == b.f`. IEEE `==` is false for NaN against ITSELF, so the raw
+    // form made a stored NaN fact unfindable and hence unretractable; it also
+    // disagreed with a raw hash on ±0.0. Canonical bits answer both.
+    if a.k == 2i32 { return f64_canon_bits(a.f) == f64_canon_bits(b.f); }
     if a.k == 3i32 { return a.b == b.b; }
     if a.k == 4i32 { return a.s.eq_string(&b.s); }
     return true;   // both null
@@ -288,7 +345,9 @@ fn fskey_hash(e: &FsKey) -> u64 {
         while i < n { h = h_step(h, str_byte_at(s, i) as u64); i = i + 1i64; }
         return h;
     }
-    if e.k == 2i32 { h = h_step(h, 4u64); h = h_step(h, f64_to_bits(e.f)); return h; }
+    // IDENTITY: canonical bits, so the hash bucket never splits a class that
+    // `fskey_eq` calls one element (a split bucket is a miss `find` never repairs).
+    if e.k == 2i32 { h = h_step(h, 4u64); h = h_step(h, f64_canon_bits(e.f)); return h; }
     h = h_step(h, 0u64);
     return h;
 }
@@ -552,8 +611,12 @@ fn arr_new(var: str) -> Arr {
 // NAMED, AND NOT FIXED HERE. Victor's 2026-08-07 decision — all zeros ONE
 // element, all NaNs ONE element — landed in the STATIC emitter
 // (`wql/rexpr_walk.logos`, `kv_e`/`kb_e` and the retraction-footprint sensor,
-// both keying `f64_canon_bits`). It was NOT applied to this file, for a reason
-// that is about THIS representation and not about the decision: the static
+// both keying `f64_canon_bits`). It was NOT applied to THIS MAP, for a reason
+// that is about THIS representation and not about the decision — 2026-08-08 it
+// WAS applied to `FsKey` in this same file, whose representation differs in the
+// one way that matters (see the ⚠ block at `FsKey`: identity and stored bits are
+// SEPARATE COLUMNS there, so nothing a caller reads back is rewritten). Here the
+// two coincide: the static
 // handle caches the extremum as a VALUE, so a canonical key merges the classes
 // while the cell keeps the first arrival's exact bits; here the cached best is
 // the KEY ITSELF, so canonicalising it would silently rewrite every emitted

@@ -1,0 +1,287 @@
+// A FACT STORE THAT SPLIT −0.0 FROM +0.0 WHILE THE QUERY LANGUAGE CALLED THEM
+// ONE VALUE — and that never found a NaN fact again after storing it.
+//
+// Victor's 2026-08-07 decision (PostgreSQL semantics: all zeros ONE element,
+// all NaNs ONE element) is carried by `f64_canon_bits` and landed in the static
+// emitter. `FsKey` — the fact store's CONTENT IDENTITY (deem/incr.logos) — kept
+// raw `f64_to_bits` in its hash and its container-key encode, and kept IEEE `==`
+// in its element equality. Both halves were wrong, in opposite directions:
+//
+//   ±0.0 : hash SPLIT the class (two buckets) while `==` MERGED it. The hash
+//          decides `find`, so a store holding +0.0 accepted −0.0 as a SECOND,
+//          distinct fact. Below: block A step 2 saw count 2 where the decided
+//          semantics say 1, and the retraction of +0.0 left the store non-empty.
+//   NaN  : `==` is false for NaN against ITSELF, so `fs_key_eq` never matched a
+//          NaN key. Every insert of the same NaN fact appended a NEW slot and
+//          every retraction of it was a silent no-op — a fact that could be
+//          stored and never removed. Block B step 3 is that unretractable fact.
+//
+// ⚠ WHY CANONICALISING THE KEY IS LEGITIMATE HERE AND IS *NOT* LEGITIMATE AT
+// `wql/writ_graph.logos:176`. FsKey is TWO-COLUMN: `FactStore.key` is identity
+// only, and `FactStore.node` separately keeps the canonical WAny — the original
+// Writ node with its exact stored bits. So collapsing the identity classes does
+// not rewrite anything a caller can read back: the surviving cell keeps the
+// FIRST arrival's bits, which is exactly the static tier's rule
+// (`rexpr_walk.logos` kv_e/kb_e). At `writ_graph.logos:176` ONE column is both
+// the value and the key, so canonicalising there would destroy a stored −0.0 /
+// a stored NaN payload; that site is a missing-second-column design item and is
+// deliberately untouched. Assertion A6 below pins the two-column claim: after
+// −0.0 is absorbed, the present set still carries the +0.0 arrival's handle.
+//
+// ⚠ AND THE JOURNAL VALUE PAYLOAD STAYS RAW. `fs_jn_row_enc` (incr.logos:230,
+// tag 2) writes the fact's f64 FIELD for replay; it is a VALUE column, not a
+// key, and canonicalising it would lose the fact's bits on replay. Two columns,
+// two functions — that is the whole content of the fix.
+//
+// ⚠ CALIBRATION — the trap here is a comparator that merges TOO MUCH, which no
+// count over collapsing inputs can detect. Block C is the negative case: −1.0
+// vs 1.0 (a canon that dropped the sign bit rather than only the zero sign),
+// 1.0 vs 2.0, and the tiniest denormal vs +0.0 (a canon that flushed subnormals)
+// must all stay DISTINCT, and the retraction in C must hit the −1.0 slot's own
+// canonical handle and not 1.0's.
+//
+// Every count below is hand-derived from the decided semantics, not read off a
+// second engine. Widen the key back to `f64_to_bits` and block A step 2 reds.
+//
+// exit 0 = FsKey's f64 identity is the decided one.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.num.float;        // f64_from_bits — adversarial NaN payloads
+use logos.std.wql.ir;
+use logos.std.wql.catalog_macro;
+use logos.mem.deem;
+use logos.lcm.deem;              // FactHistory — block D reaches fs_key_enc
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+
+pub schema Meas : code(0x0E08_0000_0000_0002) {
+    id: i64 = 0,
+    v:  f64 = 1,
+}
+resource cat = schema_catalog!{ Meas };
+
+// Build in the store's OWN arena through a raw pointer, so the returned WAny is
+// not lifetime-tied to a borrow of the store (same contract as the sibling
+// query_incr_factstore_unit).
+fn mk(dp: *const Writ, i: i64, x: f64) -> WAny {
+    let d: &Writ = unsafe { &*dp };
+    let m: Meas = d.make::<Meas>();
+    m.id = i; m.v = x;
+    return WAny::ref_to((m.m as i64) as *const u8);
+}
+
+// ⚠ CRUTCH, LABELLED: `build_present` returns a WAny that borrows the store, so
+// reading it must finish before the next mutation. Both probes take the reading
+// into a function so the borrow ends at the call, not at the end of `main`.
+fn present_len(st: &FactStore) -> i64 {
+    let av: WAny = st.build_present();
+    let a: &WArray<WAny> = av.as_array();
+    return a.len();
+}
+
+fn present_raw(st: &FactStore, i: i64) -> i64 {
+    let av: WAny = st.build_present();
+    let a: &WArray<WAny> = av.as_array();
+    return a.get(i).raw();
+}
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+    let kf: [str; 1] = ["v"];
+
+    let mut st: FactStore = match FactStore::new(&c, "Meas", &kf[..], 65536i64) {
+        Result::Ok(s)   => { s }
+        Result::Err(_e) => { return 11i32; }
+    };
+
+    // ── BLOCK A — ±0.0 IS ONE FACT ──────────────────────────────────────────
+    // A1: +0.0 is new.
+    let pz: WAny = mk(st.arena_ptr(), 1i64, 0.0f64);
+    st.insert(pz);
+    let a1: ZBatch = st.take_delta();
+    if a1.len() != 1i64 { return 20i32; }
+    if a1.weight(0i64) != 1i64 { return 21i32; }
+    let canon_z: i64 = a1.row(0i64).raw();
+    if st.count() != 1i64 { return 22i32; }
+
+    // A2: −0.0 is the SAME fact ⇒ present-again ⇒ NO delta, count stays 1.
+    // ⚠ THIS IS THE DISCRIMINATING STEP. Under raw `f64_to_bits` the hash bucket
+    // differs, `find` misses, a second slot is appended: delta len 1, count 2.
+    let mz: WAny = mk(st.arena_ptr(), 2i64, f64_from_bits(0x8000000000000000u64));
+    st.insert(mz);
+    let a2: ZBatch = st.take_delta();
+    if a2.len()  != 0i64 { return 30i32; }
+    if st.count() != 1i64 { return 31i32; }
+    if present_len(&st) != 1i64 { return 32i32; }
+
+    // A3: retracting the +0.0 arrival empties the store — under the split key it
+    // would leave the −0.0 "fact" behind.
+    st.retract(pz);
+    let a3: ZBatch = st.take_delta();
+    if a3.len() != 1i64 { return 40i32; }
+    if a3.weight(0i64) != -1i64 { return 41i32; }
+    if a3.row(0i64).raw() != canon_z { return 42i32; }
+    if st.count() != 0i64 { return 43i32; }
+    if present_len(&st) != 0i64 { return 44i32; }
+
+    // A4: retracting via the −0.0 handle after re-insert also hits the SAME
+    // slot — the class has one member from either side.
+    st.insert(mz);
+    let a4: ZBatch = st.take_delta();
+    if a4.len() != 1i64 { return 50i32; }
+    if a4.weight(0i64) != 1i64 { return 51i32; }
+    if a4.row(0i64).raw() != canon_z { return 52i32; }   // canonical handle is the FIRST arrival's
+    st.retract(pz);
+    if st.count() != 0i64 { return 53i32; }
+    let _a4b: ZBatch = st.take_delta();
+
+    // A6 (two-column claim): re-insert +0.0 alone, then −0.0; the present set
+    // still carries the +0.0 arrival's node, i.e. the STORED bits were not
+    // rewritten by the canonical key. (A5 is the delta already asserted above.)
+    st.insert(pz);
+    let _a6a: ZBatch = st.take_delta();
+    st.insert(mz);
+    if present_len(&st) != 1i64 { return 60i32; }
+    if present_raw(&st, 0i64) != canon_z { return 61i32; }
+    if canon_z != pz.raw() { return 62i32; }             // and that node IS the +0.0 node
+    st.retract(pz);
+    let _a6b: ZBatch = st.take_delta();
+    if st.count() != 0i64 { return 63i32; }
+
+    // ── BLOCK B — ALL NaNs ARE ONE FACT, AND A NaN FACT IS RETRACTABLE ───────
+    let nan_a: f64 = f64_from_bits(0x7FF8000000000001u64);   // quiet, payload 1
+    let nan_b: f64 = f64_from_bits(0xFFF8000000000007u64);   // negative, payload 7
+    let nan_c: f64 = f64_from_bits(0x7FF8000000000001u64);   // the SAME payload as A
+
+    let na: WAny = mk(st.arena_ptr(), 3i64, nan_a);
+    st.insert(na);
+    let b1: ZBatch = st.take_delta();
+    if b1.len() != 1i64 { return 70i32; }
+    let canon_n: i64 = b1.row(0i64).raw();
+    if st.count() != 1i64 { return 71i32; }
+
+    // B2: a DIFFERENT NaN payload is the same fact.
+    let nb: WAny = mk(st.arena_ptr(), 4i64, nan_b);
+    st.insert(nb);
+    let b2: ZBatch = st.take_delta();
+    if b2.len() != 0i64 { return 80i32; }
+    if st.count() != 1i64 { return 81i32; }
+
+    // B3: the SAME payload is the same fact — under IEEE `==` this was a fresh
+    // slot every time, so this step alone had unbounded growth.
+    let nc: WAny = mk(st.arena_ptr(), 5i64, nan_c);
+    st.insert(nc);
+    let b3: ZBatch = st.take_delta();
+    if b3.len() != 0i64 { return 90i32; }
+    if st.count() != 1i64 { return 91i32; }
+
+    // B4: and it is RETRACTABLE, through any member of the class.
+    st.retract(nb);
+    let b4: ZBatch = st.take_delta();
+    if b4.len() != 1i64 { return 100i32; }
+    if b4.weight(0i64) != -1i64 { return 101i32; }
+    if b4.row(0i64).raw() != canon_n { return 102i32; }
+    if st.count() != 0i64 { return 103i32; }
+    if present_len(&st) != 0i64 { return 104i32; }
+
+    // ── BLOCK C — THE NEGATIVE CASE: WHAT MUST *NOT* MERGE ───────────────────
+    // A comparator that answers "equal" too often collapses A and B just as
+    // happily; only distinct values can tell the two apart.
+    let one:  WAny = mk(st.arena_ptr(), 6i64,  1.0f64);
+    let mone: WAny = mk(st.arena_ptr(), 7i64, -1.0f64);
+    let two:  WAny = mk(st.arena_ptr(), 8i64,  2.0f64);
+    let tiny: WAny = mk(st.arena_ptr(), 9i64, f64_from_bits(1u64));   // min subnormal
+    st.insert(one);
+    st.insert(mone);
+    st.insert(two);
+    st.insert(tiny);
+    let c1: ZBatch = st.take_delta();
+    if c1.len() != 4i64 { return 110i32; }        // four DISTINCT facts
+    // ⚠ CRUTCH, LABELLED: the ZBatch borrows the store, so every read off `c1`
+    // must precede the next `st.` call — hence the rows before the count.
+    let canon_one:  i64 = c1.row(0i64).raw();
+    let canon_mone: i64 = c1.row(1i64).raw();
+    if canon_one == canon_mone { return 112i32; }  // −1.0 is not 1.0
+    if st.count() != 4i64 { return 111i32; }
+
+    // C2: the subnormal is not +0.0 — insert +0.0 and it is a FIFTH fact.
+    st.insert(pz);
+    let c2: ZBatch = st.take_delta();
+    if c2.len() != 1i64 { return 120i32; }
+    if st.count() != 5i64 { return 121i32; }
+
+    // C3: re-inserting 1.0 is a no-op (identity still works in the merging
+    // direction while the negatives hold).
+    st.insert(one);
+    let c3: ZBatch = st.take_delta();
+    if c3.len() != 0i64 { return 130i32; }
+    if st.count() != 5i64 { return 131i32; }
+
+    // C4: retracting −1.0 removes −1.0 AND NOT 1.0.
+    st.retract(mone);
+    let c4: ZBatch = st.take_delta();
+    if c4.len() != 1i64 { return 140i32; }
+    if c4.weight(0i64) != -1i64 { return 141i32; }
+    if c4.row(0i64).raw() != canon_mone { return 142i32; }
+    if st.count() != 4i64 { return 143i32; }
+
+    // C5: 1.0 is still there and still retractable on its OWN handle.
+    st.retract(one);
+    let c5: ZBatch = st.take_delta();
+    if c5.len() != 1i64 { return 150i32; }
+    if c5.row(0i64).raw() != canon_one { return 151i32; }
+    if st.count() != 3i64 { return 152i32; }
+    if present_len(&st) != 3i64 { return 153i32; }
+
+    // ── BLOCK D — THE THIRD SITE: THE CONTAINER-KEY ENCODE ───────────────────
+    // `fs_key_enc` is the history container's KEY (lcm FactHistory: the epoch
+    // set's B+tree key and `contains_at`'s probe), and it is the one of the
+    // three sites the in-memory blocks above cannot reach — hash and eq answer
+    // `find` inside the store, the bytes answer the container. Byte equality
+    // must mean tuple equality, so widening ONLY this site back to raw bits
+    // would make `contains_at(−0.0)` miss a class the store itself merged.
+    let mut hi: FactHistory = match FactHistory::new(&c, "Meas", &kf[..], 65536i64) {
+        Result::Ok(s)   => { s }
+        Result::Err(_e) => { return 160i32; }
+    };
+    let hpz:  WAny = mk(hi.arena_ptr(), 1i64,  0.0f64);
+    let hmz:  WAny = mk(hi.arena_ptr(), 2i64, f64_from_bits(0x8000000000000000u64));
+    let hna:  WAny = mk(hi.arena_ptr(), 3i64, nan_a);
+    let hnb:  WAny = mk(hi.arena_ptr(), 4i64, nan_b);
+    let hone: WAny = mk(hi.arena_ptr(), 5i64,  1.0f64);
+
+    // D1 — epoch 0 = { +0.0 }; the −0.0 probe must HIT it through the bytes.
+    hi.insert(hpz);
+    hi.insert(hmz);                       // same fact ⇒ no second key
+    let _hd0: ZBatch = hi.take_delta();   // commits epoch 0
+    if hi.epoch_count() != 1i64 { return 161i32; }
+    if hi.count_at(0i64) != 1i64 { return 162i32; }
+    if !hi.contains_at(0i64, hpz) { return 163i32; }
+    if !hi.contains_at(0i64, hmz) { return 164i32; }   // ⚠ the enc discriminator
+    if hi.contains_at(0i64, hone) { return 165i32; }   // negative: 1.0 is elsewhere
+
+    // D2 — epoch 1 adds a NaN; either payload probes the same key.
+    hi.insert(hna);
+    let _hd1: ZBatch = hi.take_delta();
+    if hi.count_at(1i64) != 2i64 { return 170i32; }
+    if !hi.contains_at(1i64, hna) { return 171i32; }
+    if !hi.contains_at(1i64, hnb) { return 172i32; }   // ⚠ the enc discriminator
+    if hi.contains_at(0i64, hnb) { return 173i32; }    // and epoch 0 is unchanged
+
+    // D3 — retracting through the −0.0 handle removes the class from epoch 2,
+    // while epoch 0 keeps its own set (history is not rewritten).
+    hi.retract(hmz);
+    let _hd2: ZBatch = hi.take_delta();
+    if hi.count_at(2i64) != 1i64 { return 180i32; }
+    if hi.contains_at(2i64, hpz) { return 181i32; }
+    if !hi.contains_at(2i64, hna) { return 182i32; }
+    if hi.count_at(0i64) != 1i64 { return 183i32; }
+    if !hi.contains_at(0i64, hpz) { return 184i32; }
+
+    return 0i32;
+}
