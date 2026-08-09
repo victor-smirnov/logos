@@ -30,6 +30,12 @@
 #           discussed in the present tense); TWO OR MORE means the sentence is
 #           ambiguous and must be written with its path.
 #
+#           EXCEPT: this census's SUBJECT is files that get deleted, so it must
+#           be able to say `eval.logos` after `eval.logos` is gone. A `GONE-FILE`
+#           line in the pin block declares one, and FACTS 1 and 2 then let it
+#           through — but FACT 7 immediately checks the declaration the OTHER
+#           way, so it buys nothing except the right to name a corpse.
+#
 #   FACT 3  EVERY CENSUS ROW IS A REGISTERED TEST. The §3 table's fixture column
 #           must name a file that exists AND has the `.expected` beside it —
 #           registration is by GLOB over `pass/*.expected`, so a `.logos` with no
@@ -56,6 +62,14 @@
 #           explicitly declared NOT-AFFECTED line — and every declared file must
 #           still be found. A new fixture touching the cut cannot be invisible to
 #           the census any more; nor can a censused one be quietly deleted.
+#
+#   FACT 7  EVERY DECLARED CORPSE IS ACTUALLY DEAD. `GONE-FILE <path> <why>`
+#           exempts a name from FACTS 1 and 2 — so the exemption is checked in
+#           the direction that can be abused: the path must NOT exist. Declaring
+#           a live file gone (to silence FACT 1) reds here instead, and if a
+#           deleted file is ever restored the census learns about it the same
+#           day. A `GONE-FILE` also has to carry a reason, because "deleted at
+#           <sha>, <why>" is the sentence FACT 2 was going to force anyway.
 #
 # AND IT PROVES ITSELF, in the same run: each fact is re-measured through the
 # SAME reader on a PLANTED census whose answer is known. A pin that cannot fail
@@ -115,10 +129,17 @@ bare_tokens() {
 fail=0
 note() { echo "FAIL: $*"; fail=$((fail + 1)); }
 
+# The declared corpses: `GONE-FILE <repo-relative path>  <why>`. Two views —
+# the paths (for FACT 1 and FACT 7) and their basenames (for FACT 2).
+gone_paths()  { pin_get "$1" GONE-FILE | awk '{print $1}'; }
+gone_bases()  { gone_paths "$1" | sed 's#.*/##'; }
+
 check_paths() {                                   # FACT 1
     local f=$1 p q
+    gone_paths "$f" | sort -u > "$TMPD/gone_p"
     while read -r p; do
         [ -n "$p" ] || continue
+        grep -qxF "$p" "$TMPD/gone_p" && continue      # declared gone; FACT 7 owns it
         for q in $(eval echo "$ROOT/$p" 2>/dev/null); do
             compgen -G "$q" > /dev/null && continue
             [ -e "$q" ] && continue
@@ -131,9 +152,13 @@ check_paths() {                                   # FACT 1
 
 check_bare() {                                    # FACT 2
     local f=$1 b n
+    gone_bases "$f" | sort -u > "$TMPD/gone_b"
     while read -r b; do
         [ -n "$b" ] || continue
         n=$(grep -cxF "$b" "$TMPD/basenames")
+        # A declared corpse may be named bare, but ONLY while it is really gone:
+        # if the tree has one again, fall through and let the count speak.
+        [ "$n" = 0 ] && grep -qxF "$b" "$TMPD/gone_b" && continue
         if [ "$n" = 0 ]; then
             note "the census writes the bare filename \`$b\`, and no such file
       exists anywhere in the tree. This is the drift shape exactly: a file gets
@@ -247,9 +272,30 @@ check_population() {                              # FACT 6
     fi
 }
 
+check_gone() {                                    # FACT 7
+    local f=$1 line p why
+    while read -r line; do
+        [ -n "$line" ] || continue
+        p=${line%%[[:space:]]*}
+        why=$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]*//')
+        if [ -e "$ROOT/$p" ]; then
+            note "the pin block declares \`$p\` GONE-FILE, but it EXISTS.
+      That declaration exempts the name from FACTS 1 and 2, so a live file
+      declared dead is a hole punched in the pin. Either the file came back (say
+      so in the prose and drop the GONE-FILE line) or the declaration was a way
+      of silencing FACT 1, which is the thing this gate is for."
+        fi
+        [ -n "$why" ] || note "the GONE-FILE line for \`$p\` carries no reason.
+      A corpse is nameable only with its cause of death — the sha that removed it
+      and where its contents went — because that is the sentence a reader needs
+      and FACT 2 was going to force it anyway."
+    done < <(pin_get "$f" GONE-FILE)
+}
+
 check_all() {
     check_paths "$1"; check_bare "$1"; check_rows "$1"
     check_arithmetic "$1"; check_registry "$1"; check_population "$1"
+    check_gone "$1"
 }
 
 # ── the tree index, once ─────────────────────────────────────────────────────
@@ -302,6 +348,12 @@ canary population 's#^NOT-AFFECTED#NOT-AFFECTED-DISABLED#'
 # read as a population disagreement, not as a smaller census.
 canary row-deleted 's#^\| 13 \| `query_diff_str_adv`.*$##'
 
+# FACT 7, both directions. `gone-live` declares a file that IS there — the abuse
+# the exemption invites, and the reason FACT 7 exists at all. `gone-mute` strips
+# the reason. Neither may pass.
+canary gone-live 's#^GONE-FILE( +)stdlib/mem/deem/eval\.logos#GONE-FILE\1stdlib/mem/deem/incr.logos#'
+canary gone-mute 's#^(GONE-FILE +stdlib/mem/deem/eval\.logos).*$#\1#'
+
 # ── THE REAL CHECK ───────────────────────────────────────────────────────────
 fail=0
 check_all "$CENSUS"
@@ -319,5 +371,7 @@ echo "  and the per-class totals agree; the registry baseline is this tree's"
 echo "  ($CT_ALL all / $CT_NOIMP -LE imported / $CT_TIER tier_commit); and the"
 echo "  population derived from $n_syms pinned cut symbols matches the rows plus"
 echo "  $n_na declared NOT-AFFECTED file(s), in both directions."
-echo "  Seven self-canaries live."
+n_gone=$(pin_get "$CENSUS" GONE-FILE | grep -c .)
+echo "  $n_gone declared GONE-FILE(s) are really gone and each says why."
+echo "  Nine self-canaries live."
 exit 0

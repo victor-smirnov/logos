@@ -15,7 +15,8 @@ registry baseline and the affected-file POPULATION — and `tests/logos/census_p
 file that no longer matches the repo is now a RED TEST, not a sentence somebody has to re-read.
 The pin does not judge prose: whether a class letter is the right judgement is still a human question.
 
-Scope statement being tested (P5 as written): delete `stdlib/mem/deem/{check,exec,eval,query}.logos`
+Scope statement being tested (P5 as written): delete `stdlib/mem/deem/check.logos`, `stdlib/mem/deem/exec.logos`, `stdlib/mem/deem/query.logos`
+(as written it also named `eval.logos`, which the C2 port has since deleted outright — §1c)
 (4713 lines as written), keep `incr.logos` and `incr_rec.logos`, triage ~80 fixtures.
 ⚠ `eval.logos` no longer exists (the template port, `8c5ad0ea`); the three surviving named files are
 974+1450+963 = 3387 lines today. §2 carries the re-measured table.
@@ -33,10 +34,10 @@ Every symbol below has exactly ONE definition in `stdlib/`:
 | `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` (three files in the tree carry that basename, so this census always writes this one with its path) | yes |
 | `relctx_new` `exec_root` `rt_key_hash` `struct RelCtx` `struct OutTab` | `stdlib/mem/deem/exec.logos` | yes |
 | `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` | yes |
-| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported at `8c5ad0ea` out of `eval.logos`/`check.logos`/`exec.logos`, survives the cut (§1c) |
+| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported at `8c5ad0ea` out of `eval.logos`/`stdlib/mem/deem/check.logos`/`exec.logos`, survives the cut (§1c) |
 | `ts_scan` `h_step` `es_scan` `struct RowSet` `dyn_graph_edges` | `stdlib/mem/deem/graphsrc.logos` | **NO** — ported at `4569535c` out of `exec.logos`, survives the cut (§5 C4) |
 
-⚠ The last two rows USED to read `eval.logos` + `check.logos` + `exec.logos`, i.e. doomed. Two ports
+⚠ The last two rows USED to read `eval.logos` + `stdlib/mem/deem/check.logos` + `exec.logos`, i.e. doomed. Two ports
 moved those twelve names to files that are not in the cut, so the blocker below now rests on the first
 three rows ONLY. `chk_new` / `sx_of` / `Chk` / `ts_scan` / `h_step` are no longer evidence for it.
 
@@ -118,7 +119,7 @@ replaced runtime templating and has no plan to.
 | file | lines | why it is in the cut |
 |---|---|---|
 Line counts RE-MEASURED by `wc -l` on the MERGED tree, after both ports (`8c5ad0ea` template,
-`4569535c` graph walker) shrank `check.logos` and `exec.logos` and deleted `eval.logos`:
+`4569535c` graph walker) shrank `stdlib/mem/deem/check.logos` and `exec.logos` and deleted `eval.logos`:
 
 | file | lines | why it is in the cut |
 |---|---|---|
@@ -319,7 +320,7 @@ existence and arithmetic, never a judgement. The B rows in particular still owe 
 ## 4. What survives on the static side
 
 Named, so the next attempt does not have to re-find them:
-`stdlib/mem/wql/` keeps the whole compile path — `el.logos` (`el_ty_stored`, `el_ty_stored_of`,
+`stdlib/mem/wql/` keeps the whole compile path — `stdlib/mem/wql/el.logos` (`el_ty_stored`, `el_ty_stored_of`,
 `el_wrap_ord_key`), `params.logos` (`stamp_rel_incr_shape`, `native_use_at`), `rexpr_walk.logos`
 (`emit_scc_od_fns`), `writ_graph.logos` (`writ_graph_edges`), `trama_render.logos`,
 `stdlib/mem/wql/codegen.logos` (a second file of that basename lives under `tools/`, so this one is written with its path), `lower.logos`, `plan_walker.logos`, `catalog_macro.logos`.
@@ -353,18 +354,18 @@ unsigned set was `el_addu` / `el_subu` / `el_mulu` only, written for an aggregat
 unsigned form, `el_arith_ok` returned `ElTy.fits` and therefore refused every `u64` arithmetic node, and
 `infer_emit_ty` laundered every arithmetic node to the class representative `i64`, so a computed `u64`
 key was refused twice over. **CLOSED 2026-08-09**: `el_arith_tower` / `el_tower_join` / `el_tower_repr`
-(el.logos) plus `arith_operand_tower` / `arith_node_tower` (codegen.logos) give the EL a second integer
+(stdlib/mem/wql/el.logos) plus `arith_operand_tower` / `arith_node_tower` (stdlib/mem/wql/codegen.logos) give the EL a second integer
 tower; `el_divu` / `el_remu` were written; `el_int_op_fn` takes the tower. Witnesses:
 
-* `tests/logos/pass/wql_arith_u64_tower_e2e` — division, remainder, a computed `order by` key, the u64
+* `tests/logos/pass/wql_arith_u64_tower_e2e.logos` — division, remainder, a computed `order by` key, the u64
   overflow / underflow / div-by-zero arms and a `sum` over an arithmetic argument, all at 2^63 and
   2^64−1 where the signed reading gives a **different** answer, with an i64 control block;
-* `tests/logos/fail/wql_arith_wide_int_fail` — rewritten to `u128`, the only remaining towerless case;
-* `tests/logos/fail/wql_arith_mixed_tower_fail`, `.../wql_arith_u64_neg_fail` — the two refusals the
+* `tests/logos/fail/wql_arith_wide_int_fail.logos` — rewritten to `u128`, the only remaining towerless case;
+* `tests/logos/fail/wql_arith_mixed_tower_fail.logos`, `tests/logos/fail/wql_arith_u64_neg_fail.logos` — the two refusals the
   second tower creates (a node mixing signednesses; unary `-` over an unsigned value);
-* `tests/logos/fail/wql_cond_branch_types_fail` — row 58's over-carry half, which reached the HOST
+* `tests/logos/fail/wql_cond_branch_types_fail.logos` — row 58's over-carry half, which reached the HOST
   compiler as `if-expression branches have incompatible types: u64 vs i64` from `sema_expr.cpp`, naming
-  neither clause nor column and pointing at a synthesised blob. `check_cond_branches` (codegen.logos)
+  neither clause nor column and pointing at a synthesised blob. `check_cond_branches` (stdlib/mem/wql/codegen.logos)
   now refuses first, naming the clause and both columns.
 
 **Row 62 is TRANSCRIBED, not discharged.** Its live `⚠ KNOWN-WRONG` (block 3b: an equi-join on an `f64`
@@ -390,7 +391,7 @@ sentence and into a row, where the pin can see it.
 designed: `stdlib/mem/wql/trama_render.logos` is the metaprog-side sibling and says so, naming the
 `Tpl::compile` runtime as the other half. To keep the capability, `Tpl` / `Tpl::compile` / `Tpl::render`
 plus their dependencies (`check_stmts`, `cbinds_new`, `simplify_all`, `chk_err`, `render_stmts`,
-`rbinds_new`, `eval_sexpr`, `RBinds`, `Chk`) had to be MOVED out of `eval.logos`/`check.logos` into a
+`rbinds_new`, `eval_sexpr`, `RBinds`, `Chk`) had to be MOVED out of `eval.logos`/`stdlib/mem/deem/check.logos` into a
 template-only module before either file is deleted. That is a port, not a triage. **DONE at `8c5ad0ea`**
 — `stdlib/mem/deem/tpl.logos`, plus `eval_sx` (which this list missed; it lived in `exec.logos` and is
 the sole `RtVal::Error` → `chk_fail_p` boundary) and `check_expr` / `check_root` / `src_elem_ty` /
@@ -423,8 +424,8 @@ lenient about.
 interpreter. It is not deferred and not "unspecified": a `deem` item whose source parameter carries an
 erased Writ slot is now REFUSED at the item, with the ground stated —
 `SemaChecker::enrich_deem_params` (`src/compiler/sema_expr.cpp`), predicate `names_erased_writ_slot_`.
-Doors: `tests/logos/fail/deem_erased_source_fail` (`&[WAny]`, the `bind_source_erased` shape) and
-`tests/logos/fail/deem_erased_node_fail` (`&WAny`, the `bind_node_erased` shape).
+Doors: `tests/logos/fail/deem_erased_source_fail.logos` (`&[WAny]`, the `bind_source_erased` shape) and
+`tests/logos/fail/deem_erased_node_fail.logos` (`&WAny`, the `bind_node_erased` shape).
 
 ⚠ *Why those doors are not the worthless kind.* Before the check both programs ALREADY failed, and neither
 refusal was evidence about erasure: `&[WAny]` died at `<metaprog-blob-subst>:1` with `field read: receiver
@@ -448,7 +449,7 @@ What the old text asked for — "move `ts_scan` (and `QB_TSRC` / `CT_TREESRC` ha
 independent of the executor" — was insufficient AND partly already true, both measured:
 
 * `QB_TSRC` (`deem.logos`, `const QB_TSRC`) and `QEnv::bind_source_tree` were ALREADY in the surviving
-  file; nothing about them needed moving. `CT_TREESRC` appears only in type-checking (`check.logos`,
+  file; nothing about them needed moving. `CT_TREESRC` appears only in type-checking (`stdlib/mem/deem/check.logos`,
   `tpl.logos`) and never in the walker.
 * Moving the FUNCTION would have saved nothing. `ts_scan`'s only caller is the `RExpr::Scan` /`QB_TSRC`
   arm of `exec_rexpr` (`exec.logos`, cut), and every one of the six fixtures reached it through
@@ -500,7 +501,7 @@ before running.
   RESULT: `query_diff_str_adv` RED, `query_metamorphic_adv` GREEN — and `query_diff_fuzz` and
   `query_diff_static` GREEN, which was WRONG and is the useful part: a scalar `where a < b` in the
   dynamic tier does not go through `rt_cmp` at all. It is decided in `eval_sexpr`'s ordered-compare arm
-  (`stdlib/mem/deem/eval.logos`), a DIFFERENT fold; `rt_cmp` serves `order by` and the min/max
+  (then in `eval.logos`, since ported to `stdlib/mem/deem/tpl.logos`), a DIFFERENT fold; `rt_cmp` serves `order by` and the min/max
   accumulators, which is why only the fixture with an `order by` template noticed. A control that
   perturbs a fold the subject never reaches is a control that changes nothing.
 * Control 2 — reverse the ordered compare where scalar comparison actually lives: the four
@@ -612,7 +613,7 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
 * Every sole-definition row of §1a: confirmed by `grep -rnE '^(pub )?(fn|struct) …' stdlib/`. Call counts
   44 / 25 confirmed. `Query { … }` constructed at exactly one site, in `query.logos`'s `Query::compile`.
 * §2 arithmetic AT `8cf79102`: 1672+1472+606+963 = 4713 (P5 as written), +1978+1466+92+514 = **8763**.
-  Confirmed AT THAT TREE and SUPERSEDED at `8c5ad0ea`: the template port shrank `check.logos` to 974 and
+  Confirmed AT THAT TREE and SUPERSEDED at `8c5ad0ea`: the template port shrank `stdlib/mem/deem/check.logos` to 974 and
   `exec.logos` to 1450 and deleted `eval.logos` (606 → gone), so the four-file cut is 974+1450+963 =
   **3387** and the whole-tier cut is +1978+1466+92+514 = **7437**. §2 carries the current table.
 * The three DRed harvest fixtures: `deem_dred_phases23_spec`, `wql_incr_rec_agg_retract_lattice`,
@@ -645,7 +646,7 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
 * Whether each class-B remainder still bites once its interpreter arm is gone — per fixture, by breaking
   it and predicting the exit code. This is the largest piece of work the next attempt owes.
 * Build/L4 impact of the cut: no branch of this repo has ever compiled without these files.
-* ⚠ THE C2 PORT IS NOT IN THIS TREE. At `e53962b6` `stdlib/mem/deem/eval.logos` exists (606 lines,
+* ⚠ THE C2 PORT WAS NOT IN THE TREE THIS SECTION WAS WRITTEN AGAINST. At `e53962b6` `eval.logos` still existed (606 lines,
   `Tpl` inside it) and no template-only module exists beside it; §1c, §2 and §5 C2 describe THAT tree and were
   re-measured against it. If the template port lands, `logos_00_census_pin` goes red on the bare name
   `eval.logos` the moment the file disappears — that red is the pin working, and the repair is to rewrite
@@ -689,9 +690,14 @@ class C or class A is an argument (§5 C5 changed it), and no gate can settle th
 guarantees that the nouns in the argument still exist.
 
 ```pin
+# Files this census discusses that no longer exist. FACTS 1 and 2 let the name
+# through; FACT 7 then requires that it really is absent AND that the line says
+# why. Naming a corpse is allowed; pretending a live file is one is not.
+GONE-FILE  stdlib/mem/deem/eval.logos  deleted at 8c5ad0ea (C2): its whole contents moved to stdlib/mem/deem/tpl.logos
+
 # registry — `ctest -N` from the build directory, three ways.
-REGISTRY-ALL         6951
-REGISTRY-NOIMPORTED  3268
+REGISTRY-ALL         6958
+REGISTRY-NOIMPORTED  3275
 REGISTRY-TIERCOMMIT  30
 
 # §3 table arithmetic.
@@ -739,6 +745,9 @@ CUT-SYMBOL  deem_state_controls
 # Two of them post-date the first census, which is why this list is checked and
 # not remembered.
 NOT-AFFECTED  tests/logos/census_pin_gate.sh                            comment-only
+NOT-AFFECTED  tests/logos/incr_eligibility_gate.sh                     comment-only
+NOT-AFFECTED  tests/logos/pass/wql_domain_static_ordw_origin.logos     comment-only
+NOT-AFFECTED  tests/logos/pass/wql_incr_eligibility_matrix.logos       comment-only
 NOT-AFFECTED  tests/logos/fail/wql_domain_layer_map_param_u8_fail.logos comment-only
 NOT-AFFECTED  tests/logos/pass/deem_incr_join_e2e.logos                 comment-only
 NOT-AFFECTED  tests/logos/pass/wql_alias_element_e2e.logos              comment-only
