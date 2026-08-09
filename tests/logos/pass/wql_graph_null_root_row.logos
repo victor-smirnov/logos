@@ -119,8 +119,10 @@
 // document and the column: 1x = doc1 static count, 2x = doc1 static value,
 // 30 = doc1 dynamic count, 4x = doc1 dynamic value, and 5x/6x/70/8x the same
 // four for doc2, where x is the column's ordinal in
-// (parent, key, idx, child, kind, tag, vi, vs). 1xx = doc3, 2xx = doc4,
-// 3xx = doc5; 9x = setup.
+// (parent, key, idx, child, kind, tag, vi, vs). 9x = setup; 1xx-17x = doc3;
+// 18x-206 = doc4; 210-228 = doc5. ⚠ There is NO 3xx band — an earlier version of
+// this line said `3xx = doc5` and sent anyone debugging a 210 to the wrong
+// document. The bands are contiguous, not decimal-aligned; grep the code.
 package test;
 
 use logos.lang.writ.container;
@@ -450,10 +452,18 @@ fn main() -> i32 {
     let pe: i64 = rows_equal(&dy3, &st3);
     if pe != 0i64 { return (110i64 + pe) as i32; }   // 111 = length … 119 = vs
 
-    // ── ts_row's SALT: two EQUAL scalar leaves, DIFFERENT parents ───────────
-    // Both `seven` leaves sit at ordinal 0 of their map and hold the same value
-    // word, so the ONLY thing separating their synthetic ids is the parent
-    // handle the salt carries. This is the sole observable of that salt.
+    // ── two EQUAL scalar leaves under DIFFERENT parents get DISTINCT ids ────
+    // ⚠ THE GROUND WRITTEN HERE FIRST WAS FALSE, AND MEASURED SO. It claimed
+    // both `seven` leaves sit at ordinal 0 of their map, so that only the parent
+    // handle in `ts_row`'s salt could separate them — i.e. that 121 was the
+    // salt's sole observable. Probed directly: `seven` is at ordinal 1 in `left`
+    // and 2 in `right` (map SLOT order, not insertion order), so the ORDINAL
+    // already separates them and 121 would hold with the salt gone. Confirmed
+    // the other way: perturbing the parent word in BOTH producers at once falls
+    // through 121 to the parity check at 134.
+    // These four assertions are not vacuous — they pin that equal values under
+    // different parents stay distinct — but the SALT is pinned at 112/115, and
+    // that is where a reader chasing it should go.
     if n_key(&dy3, "seven") != 2i64 { return 120i32; }
     let sv_a: i64 = nth_child_by_key(&dy3, "seven", 0i64);
     let sv_b: i64 = nth_child_by_key(&dy3, "seven", 1i64);

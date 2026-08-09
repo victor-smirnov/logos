@@ -243,6 +243,22 @@ fn main() -> i32 {
     let sr: Vec<i64> = match s_reach(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_j) => { return 26i32; } };
     if wr.len() != 10i64 { return 27i32; }
     if sr.len() != 10i64 { return 28i32; }
+    // ⚠ CARDINALITY IS NOT AGREEMENT. Every other leg here ends elementwise and
+    // this one did not: two producers can both return ten ids and disagree on
+    // which ten. The `rel dsc` closure over the cyclic edge set is the only
+    // recursion in this file, so a counting-only check left the one construct
+    // this fixture exists to compare pinned by its LENGTH.
+    //
+    // ⚠ HONEST LIMIT OF 32, MEASURED. I could not construct a perturbation that
+    // 32 alone catches. Shifting every id in `dyn_graph_edge_rows` by a constant
+    // (structure-preserving, so the count stays 10) reds at 17 — an earlier leg
+    // that already compares elementwise. And a perturbation of the RECURSION
+    // moves both sides together: `w_reach` and `s_reach` share the static
+    // engine and differ only in SOURCE KIND (native rel vs slice), so 32 speaks
+    // exactly when the two source kinds diverge on the closure while agreeing on
+    // the base edges. That is the hole it closes; it is a completeness fix, not
+    // a demonstrated new sensor, and it should not be cited as one.
+    if !eq_i64(&wr, &sr) { return 32i32; }
 
     // ── (c) leaf identity: the two `seven` leaves are DISTINCT ids ──────────
     let wv: Vec<(i64, i64)> = match w_seven(&d)            { Result::Ok(v) => { v } Result::Err(_k) => { return 29i32; } };
