@@ -24,13 +24,14 @@ Every symbol below has exactly ONE definition in `stdlib/`:
 | symbol | sole definition | in the cut? |
 |---|---|---|
 | `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` | yes |
-| `relctx_new` `exec_root` `rt_key_hash` `h_step` `struct RelCtx` `struct OutTab` `ts_scan` | `stdlib/mem/deem/exec.logos` | yes |
+| `relctx_new` `exec_root` `rt_key_hash` `struct RelCtx` `struct OutTab` | `stdlib/mem/deem/exec.logos` | yes |
 | `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` | yes |
-| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported out of `eval.logos`/`check.logos`/`exec.logos`, survives the cut |
+| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported at `8c5ad0ea` out of `eval.logos`/`check.logos`/`exec.logos`, survives the cut (§1c) |
+| `ts_scan` `h_step` `es_scan` `struct RowSet` `dyn_graph_edges` | `stdlib/mem/deem/graphsrc.logos` | **NO** — ported at `4569535c` out of `exec.logos`, survives the cut (§5 C4) |
 
-⚠ The last row USED to read `eval.logos` + `check.logos`, i.e. doomed. The port (`8c5ad0ea`) moved
-those seven names to a file that is not in the cut, so the blocker below now rests on the first three
-rows ONLY. `chk_new` / `sx_of` / `Chk` are no longer evidence for it.
+⚠ The last two rows USED to read `eval.logos` + `check.logos` + `exec.logos`, i.e. doomed. Two ports
+moved those twelve names to files that are not in the cut, so the blocker below now rests on the first
+three rows ONLY. `chk_new` / `sx_of` / `Chk` / `ts_scan` / `h_step` are no longer evidence for it.
 
 Real (non-comment) call/type uses in the two files P5 says it keeps — counted by
 `grep -cE "\b(qplan_new|chk_new|sx_of|check_rexpr|relctx_new|exec_root|rt_key_hash|h_step|rbinds_new|eval_sexpr)\("`:
@@ -38,10 +39,17 @@ Real (non-comment) call/type uses in the two files P5 says it keeps — counted 
 * `stdlib/mem/deem/incr.logos` — **44**
 * `stdlib/mem/deem/incr_rec.logos` — **25**
 
-Re-counted over the DOOMED names only (`qplan_new|check_rexpr|relctx_new|exec_root|rt_key_hash|h_step`,
-i.e. dropping the six that the port moved to the surviving `tpl.logos`): **19** and **21**. The refusal
-does not depend on the difference — 19 and 21 are still unsatisfiable after the cut — but the 44/25
-figures are no longer a measurement OF THE CUT and must not be quoted as one.
+Re-counted TWICE, because the doomed set shrank twice:
+
+* after the `tpl.logos` port (`8c5ad0ea`), dropping `chk_new`/`sx_of`/`rbinds_new`/`eval_sexpr`:
+  `qplan_new|check_rexpr|relctx_new|exec_root|rt_key_hash|h_step` → **19** and **21**;
+* after the `graphsrc.logos` port (`4569535c`), which moved `h_step` to a surviving file:
+  `qplan_new|check_rexpr|relctx_new|exec_root|rt_key_hash` → **12** and **18**. ← current
+
+The refusal does not depend on the difference — 12 and 18 are still unsatisfiable after the cut — but
+44/25 and 19/21 are no longer measurements OF THE CUT and must not be quoted as ones. ⚠ Each port
+shrinks this number; re-measure it rather than copying, and note that `h_step` is the load-bearing
+reason `graphsrc.logos` had to survive at all (`incr.logos` and `incr_rec.logos` both call it).
 
 plus the type uses (`&Query`, `QPlan`, `RelCtx`, `QRows` in `IncrRec::snapshot`, `ir_check`,
 `dred`, `epoch`; `Chk` now resolves to `tpl.logos` and survives).
@@ -95,23 +103,27 @@ replaced runtime templating and has no plan to.
 
 | file | lines | why it is in the cut |
 |---|---|---|
-Line counts RE-MEASURED at `8c5ad0ea` (`wc -l`), after the template port shrank `check.logos` and
-`exec.logos` and deleted `eval.logos`:
+Line counts RE-MEASURED by `wc -l` on the MERGED tree, after both ports (`8c5ad0ea` template,
+`4569535c` graph walker) shrank `check.logos` and `exec.logos` and deleted `eval.logos`:
 
 | file | lines | why it is in the cut |
 |---|---|---|
 | `stdlib/mem/deem/check.logos` | 974 | on the list (was 1672; the EL/template checker left for `tpl.logos`) |
-| `stdlib/mem/deem/exec.logos` | 1450 | on the list (was 1472; `eval_sx` left). Also holds `ts_scan`, the dynamic graph walker |
+| `stdlib/mem/deem/exec.logos` | 1167 | on the list (1472 → 1450, `eval_sx` left; → 1167, `ts_scan` and its closure left for `graphsrc.logos`) |
 | `stdlib/mem/deem/query.logos` | 963 | on the list |
 | `stdlib/mem/deem/incr.logos` | 1978 | §1a; also holds `pub struct FactStore`, `IncrJoin` |
 | `stdlib/mem/deem/incr_rec.logos` | 1466 | §1a; `IncrRec` |
 | `stdlib/mem/deem/mapping_state.logos` | 92 | §1b |
 | `stdlib/lcm/deem/facthistory.logos` | 514 | `FactHistory::new` composes `FactStore::new`; sole non-test constructor of `FactStore` |
-| **total** | **7437** | |
+| **total** | **7154** | 974+1167+963+1978+1466+92+514, `wc -l` on the merged tree |
 
-`stdlib/mem/deem/tpl.logos` (1339) is NOT in this table and NOT in the cut: it is the template engine,
-ported out of `eval.logos`/`check.logos`/`exec.logos` at `8c5ad0ea` precisely so it outlives them
-(§1c). `eval.logos` no longer exists.
+Two files are NOT in this table and NOT in the cut, each ported out of it precisely so it outlives it:
+`stdlib/mem/deem/tpl.logos` (1339, the template engine, §1c) and `stdlib/mem/deem/graphsrc.logos`
+(373, the graph walker, §5 C4). `eval.logos` no longer exists.
+
+⚠ **This total has now been wrong three times** (8763 → 8480/7437 → 7154), each time because a port
+moved lines out from under a recorded number. Do not copy it: run `wc -l` over the seven rows.
+The three-file "interpreter proper" cut is 974+1167+963 = **3104**.
 
 `stdlib/mem/deem/deem.logos` (1279) SURVIVES as a file — it holds `RtVal`, `rt_kind`, `rt_eq`,
 `SchemaCatalog`, `QEnv` — but its `QEnv` half loses every consumer: `QEnv` is named in real code only in
@@ -241,7 +253,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 67 | `wql_domain_u64_order_seams` | 9 | — | C | the three INTERMEDIATE facts of the u64 order fix |
 | 68 | `wql_engine_source_e2e` | 1 | 4 deems over `&IncrRec` | D | static `deem` whose SOURCE is the engine — §1b |
 | 69 | `wql_graph_float_root_vi` | 1 | `root_vi`,`root_kind` | B | float-rooted document: static vs dynamic walker |
-| 70 | `wql_graph_null_root_row` | 2 | 8 deems | B | null root row: one vocabulary, two walkers |
+| 70 | `wql_graph_null_root_row` | 0 | 8 deems | B | null root row: one vocabulary, two walkers — **rewritten onto `dyn_graph_edges`, 0 interpreter entry points, SURVIVES the cut whole** (C4) |
 | 71 | `wql_graph_root_id_cross_document` | 1 | 3 deems | B K | ⚠ tripwire recording an OPEN root-id defect |
 | 72 | `wql_incr_rec_agg_retract_lattice` | 1 | — | A | REGION 4 harvest — lattice head over a recursive rel under retraction; drives the interpreter |
 | 73 | `wql_incr_rec_dred_error_window` | 1 | — | A | REGION 5 harvest — partially-applied-retraction window |
@@ -379,12 +391,37 @@ that a broader refusal cannot satisfy them.
 the disposition and pins the static tier's answer. Deleting them is P5's own step, with the ABI bump above.
 
 **C4 — the dynamic graph walker** (rows 56, 57, and the loss half of B rows 6, 69, 70, 71).
-`ts_scan` lives in `exec.logos`. The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is
+**PARTLY DISCHARGED 2026-08-09 — and the requirement as originally written was WRONG, so it is restated
+here rather than ticked off.** The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is
 declared ONE vocabulary across binding times with exactly two implementations — `ts_scan` and
-`writ_graph_edges`. Delete one and the parity claim is unfalsifiable; the four B rows keep only their
-static half. Requirement: move `ts_scan` (and `QB_TSRC` / `CT_TREESRC` handling) into a source module
-independent of the executor, or record that the vocabulary is now single-sourced and the drift class
-those four fixtures caught is reopened.
+`writ_graph_edges`. Delete one and the parity claim is unfalsifiable.
+
+What the old text asked for — "move `ts_scan` (and `QB_TSRC` / `CT_TREESRC` handling) into a source module
+independent of the executor" — was insufficient AND partly already true, both measured:
+
+* `QB_TSRC` (`deem.logos`, `const QB_TSRC`) and `QEnv::bind_source_tree` were ALREADY in the surviving
+  file; nothing about them needed moving. `CT_TREESRC` appears only in type-checking (`check.logos`,
+  `tpl.logos`) and never in the walker.
+* Moving the FUNCTION would have saved nothing. `ts_scan`'s only caller is the `RExpr::Scan` /`QB_TSRC`
+  arm of `exec_rexpr` (`exec.logos`, cut), and every one of the six fixtures reached it through
+  `bind_source_tree` + `Query::compile`/`Query::run` — `Query` is in `query.logos`, also cut. The parity
+  claim was held by the INTERPRETER, not by the walker. **Measured** by severing that arm
+  (`return rs_new();` in place of the `ts_scan` call) on the ported tree: five of the six fixtures went
+  red and only the rewritten one stayed green.
+
+DONE: `ts_scan` and its closure (`ts_edge_row`, `ts_row`, `ts_descend`, `ts_walk`, `ts_is_container`,
+`ts_kind`, `TS_NCOLS`, `es_scan`, plus `RowSet`/`rs_new`/`RS_VARS` and `h_step`) moved byte-identically
+out of `exec.logos` into `stdlib/mem/deem/graphsrc.logos`, which is NOT in the cut, and a public entry
+point `dyn_graph_edges(root: WAny, scratch: &Writ) -> Vec<WritEdgeRow>` was added there — the same row
+type `writ_graph_edges` returns, so the two producers compare directly with no query engine between them.
+Row 70 (`wql_graph_null_root_row`, the fixture that pins all EIGHT columns on two documents) was rewritten
+onto it and survives the cut.
+
+STILL OPEN (the rest of C4): rows 6, 56, 57, 69, 71 still reach the walker only through `Query`, so their
+dynamic halves still die with the interpreter. Their route now exists — `dyn_graph_edges` — and the
+remaining work is fixture rewriting, not capability. Rows 56/57 additionally exercise joins, recursion and
+`where` over the walk, which `dyn_graph_edges` alone does not replace: what survives of them without the
+interpreter is a walk-only assertion over the same documents.
 
 **C5 — the fuzz method** (rows 11, 13, 42). All three generate query TEXT at runtime; a macro cannot be
 generated at runtime, so the static tier can only fuzz DATA over fixed shapes — which is what

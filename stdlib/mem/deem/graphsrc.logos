@@ -1,0 +1,373 @@
+// logos.mem.deem — THE GRAPH SOURCE: the DYNAMIC Writ object-graph walker.
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+//
+// WHY THIS FILE EXISTS SEPARATELY FROM THE EXECUTOR. The graph vocabulary
+// (parent, key, idx, child, kind, tag, vi, vs) is declared ONE vocabulary
+// across binding times, with exactly TWO implementations: the static walker
+// `writ_graph_edges` (logos.std.wql.writ_graph) and the dynamic walker
+// `ts_scan` below. That parity claim is falsifiable only while both exist —
+// with one implementation nothing can disagree. `ts_scan` resided in
+// `exec.logos`, the query interpreter, which is on the P5 deletion list, so
+// the walker is here instead: its subject is Writ traversal, not query
+// execution.
+//
+// AND THE FUNCTION ALONE WOULD NOT HAVE BEEN ENOUGH. Every fixture that
+// measured the dynamic half reached `ts_scan` through exactly one route —
+// `QEnv::bind_source_tree` + `Query::compile`/`Query::run` — and `Query`
+// lives in `query.logos`, also on the cut list. `ts_scan`'s only caller is
+// the `QB_TSRC` arm of `exec_rexpr` (exec.logos, cut). So this file also
+// carries `dyn_graph_edges`, the walker's own public entry point: it takes
+// the same bound root `bind_source_tree` takes and returns the same
+// `Vec<WritEdgeRow>` the static twin returns, so the two producers are
+// directly comparable with no interpreter in between.
+package logos.mem.deem;
+
+
+use logos.lang.writ.container;    // Writ — the interning scratch arena
+use logos.lang.writ.anyval;       // WAny — tag dispatch + type_code
+use logos.lang.writ.wmap;         // WMap<WString, WAny> / WMap<Wu6, WAny>
+use logos.lang.writ.array;        // WArray — array-child iteration
+use logos.lang.writ.wstring;      // WString — map-key payloads
+use logos.lang.num.float;         // f64_to_bits — f64 leaves ride vi as IEEE bits
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.mem.string;             // String — dotted column-name assembly
+use logos.std.wql.writ_graph;     // WG_ROOT_* + WritEdgeRow — THE virtual root
+                                  // edge's coordinates and the shared row type,
+                                  // shared with the static walker and the derive
+use logos.mem.collections.vec;    // Vec — the row cells / the public row list
+use logos.mem.collections.hashmap;// HashMap — the expanded-node set
+
+
+const RS_VARS: i64 = 32i64;   // graph-source scans carry 8 dotted vars each — a 3-step chain + slack fits
+
+// A row set: named columns (row vars) × rows, cells flattened at stride nvars.
+struct RowSet {
+    vars:  [str; 32],
+    nvars: i64,
+    cells: Vec<RtVal>,
+    nrows: i64,
+}
+
+fn rs_new() -> RowSet {
+    return RowSet { vars: [""; 32], nvars: 0i64, cells: vec_new::<RtVal>(), nrows: 0i64 };
+}
+
+// FNV-1a's mixing step. Shared: the walker's synthetic leaf id (ts_edge_row,
+// below) and the executor's key hash (rt_key_hash, exec.logos) fold with the
+// same basis and the same prime, which is why the id rule can be quoted as
+// byte-for-byte the static walker's wg_fnv2.
+fn h_step(h: u64, b: u64) -> u64 { return wrapping_mul(h ^ b, 1099511628211u64); }
+
+// ── VIRTUAL GRAPH SCAN (bind_source_tree, QB_TSRC) ───────────────────────────
+// Writ is a generalized object GRAPH (not even a DAG — cycles are legal);
+// the common case is a tree, so the parent→child edge walk is the default
+// mapping pattern. One row per EDGE, preorder from the bound root:
+//   • every edge is emitted (a shared child appears once per incoming edge);
+//   • a container's children are EXPANDED exactly once (visited set on node
+//     handles) — DAGs don't blow up, cycles terminate;
+//   • CONTAINER child ids are the Writ node handles themselves (stable,
+//     resolvable); SCALAR-LEAF child ids are synthetic — FNV(parent handle,
+//     edge ordinal) — because a leaf's VALUE word is not an identity (two
+//     equal ints are the same Pod word; equal strings may be interned):
+//     leaves need uniqueness, not resolvability.
+// Columns (bound as DOTTED vars "<var>.<col>" — the rel-row spelling; Field
+// eval resolves them via RBinds::find2, no bare row var):
+//   parent, child : i64 ids (see above)
+//   idx           : array position; a TOM field's KEY CODE; −1 under a map
+//   key           : map key ("" otherwise)
+//   kind          : friendly tag — map/arr/tom/str/i64/f64/bool/null, and
+//                   "obj" for any OTHER ref tag (open world: user types are
+//                   visible + joinable but not yet expanded)
+//   tag           : the RAW type_code (the OPEN vocabulary — user tags flow
+//                   through as-is; the single dispatch point of the generic
+//                   walkers, cf. mem.writ.stringify)
+//   vi            : the child's scalar value (i64/f64/bool) or Null
+//   vs            : the child's string value or Null
+// EXTENSIBILITY SEAM: when user types integrate with the tag system as a
+// first-class feature, expansion dispatches per tag through the same table
+// as #[tag_dispatch] (a traverse protocol enumerating (key, idx, child));
+// the builtin arms below become its default registrations.
+// Re-scan semantics: every scan re-walks the document (virtual EDB, no
+// deltas). Joins restart the walk; recursion reads it as an ordinary source.
+
+const TS_NCOLS: i64 = 8i64;
+
+// Is `v` a container this walker knows how to expand?
+fn ts_is_container(v: WAny) -> bool {
+    return v.is_map() || v.is_array() || v.is_tinymap();
+}
+
+// The child's friendly tag for the `kind` column ("obj" = open-world ref).
+fn ts_kind(v: WAny) -> str {
+    if v.is_map()     { return "map"; }
+    if v.is_array()   { return "arr"; }
+    if v.is_tinymap() { return "tom"; }
+    if v.is_string()  { return "str"; }
+    if v.is_null()    { return "null"; }
+    if v.is_bool()    { return "bool"; }
+    if v.is_float()   { return "f64"; }
+    if v.is_int()     { return "i64"; }
+    return "obj";
+}
+
+// Emit one edge row (TS_NCOLS cells, the fixed column order above).
+// `ord` — the edge's ordinal within its parent (leaf-id salt).
+//
+// THE ONLY emitter of a row of this relation: the walk and the VIRTUAL ROOT
+// EDGE both come here. `parent_word` is a WORD and not a WAny because the root
+// edge has no parent NODE — it passes the reserved 0 (see ts_scan). ts_scan
+// used to open-code its own eight pushes, and the copy drifted: it spelled the
+// synthetic child id as the literal `1i64` where this cascade — and both
+// static walkers — say FNV(parent word, ordinal), so every non-container root
+// (null, i64, bool, f64, str) answered `child == 1` dynamically and
+// FNV(0, 0) == 590684067820433389 statically. One relation, one emitter.
+fn ts_edge_row(out: &mut RowSet, parent_word: i64, key: str, idx: i64,
+               child: WAny, ord: i64) {
+    out.cells.push(RtVal::I(parent_word));
+    out.cells.push(RtVal::S(key));
+    out.cells.push(RtVal::I(idx));
+    // container ⇒ the real handle; leaf ⇒ synthetic FNV(parent word, ordinal)
+    // (deterministic across re-scans of the same document). Byte-for-byte the
+    // static walkers' `wg_fnv2` — same offset basis, same prime, same two
+    // steps — because it is the same rule, not a similar one.
+    if ts_is_container(child) {
+        out.cells.push(RtVal::I(child.raw() as i64));
+    } else {
+        let mut hh: u64 = 14695981039346656037u64;
+        hh = h_step(hh, parent_word as u64);
+        hh = h_step(hh, ord as u64);
+        out.cells.push(RtVal::I(hh as i64));
+    }
+    out.cells.push(RtVal::S(ts_kind(child)));
+    out.cells.push(RtVal::I(child.type_code() as i64));
+    let cv: RtVal = wany_to_rt(child);
+    // ONE vocabulary across binding times (the static walkers set it): vi/vs
+    // are TOTAL typed columns with canonical fillers — kind discriminates
+    // which payload is meaningful. Null payloads made rows that don't inhabit
+    // the typed relation (fusion exposed it: a typed rel column rightly
+    // refused them), and nullable columns re-open the "Null == Null?" hole
+    // set-dedup cannot afford. f64 rides as IEEE BITS, same as the static
+    // vocabulary (`writ_graph.logos` wg_walk) — vi is the VALUE, and the
+    // consumer reinterprets it with `f64_from_bits`, so it must not be keyed
+    // through `f64_data_key`: that would silently turn a stored −0.0 into +0.0.
+    //
+    // ⚠ KNOWN GAP, deliberate and NOT closed here. Because this column is both
+    // the value and the Eq/Hash key of the set vocabulary, `distinct`/join over
+    // a float column separates −0.0 from +0.0 and separates two NaNs of
+    // different payload — where PostgreSQL (the semantics `f64_data_key` gives
+    // `order by`) says all three are one value. Closing it needs the value and
+    // the key to stop being the same column; that is an arc, not an edit here.
+    // Unlike the ordering defect this one is DETERMINISTIC — it does not move
+    // with the optimiser — so it is a semantics gap, not a correctness hazard.
+    //
+    // ⚠ AND `f64_canon_bits` (2026-08-07, Victor's decision: all zeros one
+    // element, all NaNs one element) DOES NOT CLOSE IT, so do not read the
+    // incremental map's fix as covering this. There the canonical bits are the
+    // KEY and the value lives beside it, so merging the key costs no identity;
+    // here one column is both, so keying it canonically would DESTROY the −0.0
+    // and the NaN payload this paragraph exists to protect. The gap is a
+    // MISSING SECOND COLUMN, not a missing key function.
+    match cv {
+        RtVal::I(x)  => { out.cells.push(RtVal::I(x)); }
+        RtVal::F(x)  => { out.cells.push(RtVal::I(f64_to_bits(x) as i64)); }
+        RtVal::B(x)  => { out.cells.push(RtVal::I(if x { 1i64 } else { 0i64 })); }
+        // the numeric half of the edge row: a string/node/absent value has no
+        // scalar to carry, and the string half below carries it instead
+        RtVal::S(_) | RtVal::Node(_) | RtVal::Null | RtVal::Error => { out.cells.push(RtVal::I(0i64)); }
+    }
+    match cv {
+        RtVal::S(s2) => { out.cells.push(RtVal::S(s2)); }
+        // the string half: everything non-S was carried by the numeric half
+        RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::Node(_) | RtVal::Null
+          | RtVal::Error => { out.cells.push(RtVal::S("")); }
+    }
+    out.nrows = out.nrows + 1i64;
+}
+
+// The walk's edge: the parent is a real node, so its handle is the salt.
+fn ts_row(out: &mut RowSet, parent: WAny, key: str, idx: i64, child: WAny, ord: i64) {
+    ts_edge_row(out, parent.raw() as i64, key, idx, child, ord);
+}
+
+// Expand `child` unless it was already expanded (graph discipline: edges
+// always emit, expansion happens once — `seen` keys container handles).
+fn ts_descend(child: WAny, out: &mut RowSet, seen: &mut HashMap<u64, i64>) {
+    if !ts_is_container(child) { return; }
+    let hw: u64 = child.raw() as u64;
+    let sp: *mut HashMap<u64, i64> = seen;
+    let hit: *const i64 = unsafe { sp.get(&hw) };
+    if (hit as i64) != 0i64 { return; }        // already expanded (DAG/cycle)
+    unsafe { let _s: *mut i64 = sp.get_or_insert(hw, 1i64); }
+    ts_walk(child, out, seen);
+}
+
+// Preorder edge walk. Recursion depth = document depth.
+fn ts_walk(v: WAny, out: &mut RowSet, seen: &mut HashMap<u64, i64>) {
+    if v.is_map() {
+        let m: &WMap<WString, WAny> = v.as_map();
+        let ns: i64 = m.slots();
+        let mut ord: i64 = 0i64;
+        let mut s: i64 = 0i64;
+        while s < ns {                    // raw slots; empty slots key as null
+            let kv: WAny = m.key_at(s);
+            if !kv.is_null() {
+                let ks: &WString = unsafe { &*(kv.resolve() as *const WString) };
+                let cv: WAny = m.val_at(s);
+                ts_row(out, v, ks.as_str(), 0i64 - 1i64, cv, ord);
+                ts_descend(cv, out, seen);
+                ord = ord + 1i64;
+            }
+            s = s + 1i64;
+        }
+        return;
+    }
+    if v.is_array() {
+        let a: &WArray<WAny> = v.as_array();
+        let n: i64 = a.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let cv: WAny = a.get(i);
+            ts_row(out, v, "", i, cv, i);
+            ts_descend(cv, out, seen);
+            i = i + 1i64;
+        }
+        return;
+    }
+    if v.is_tinymap() {
+        // A TOM (schema'd row / tiny object map): fields edge with idx = the
+        // 6-bit field KEY CODE (names need a catalog — the mapping layer's
+        // future concern, not the walker's).
+        let t: &WMap<Wu6, WAny> = unsafe { &*(v.resolve() as *const WMap<Wu6, WAny>) };
+        let mut ord: i64 = 0i64;
+        let mut k: i64 = 0i64;
+        while k < 52i64 {
+            if t.contains(k as u8) {
+                let cv: WAny = t.get(k as u8);
+                ts_row(out, v, "", k, cv, ord);
+                ts_descend(cv, out, seen);
+                ord = ord + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+}
+
+// The scan entry: dotted column vars (interned into the per-run scratch) +
+// the walk from the bound root.
+fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
+    let mut out: RowSet = rs_new();
+    let cols: [str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
+    let mut c: i64 = 0i64;
+    while c < TS_NCOLS {
+        let mut nm: String = String::new();
+        nm.push_str(var);
+        nm.push_str(".");
+        nm.push_str(cols[c]);
+        out.vars[c] = intern_str(scratch, sstr(&nm));
+        c = c + 1i64;
+    }
+    out.nvars = TS_NCOLS;
+    let root: WAny = WAny::ref_to(root_w as *const u8);
+    // The VIRTUAL ROOT EDGE (parent = 0 → the root node): makes the root
+    // itself queryable (it has no real incoming edge) and anchors graph
+    // paths (`parent == 0`) with no root-handle plumbing. 0 is reserved: no
+    // real node handle is 0. Same contract as writ_graph_edges (static twin),
+    // and now the same EMITTER as the walk: it is a row of this relation, so
+    // every column is filled by the relation's own rule at the root's own
+    // coordinates (parent word 0, ordinal 0). Emitting it by hand here is what
+    // let the child id drift to a literal `1`.
+    //
+    // UNCONDITIONAL, including a NULL root — this side never had a guard, and
+    // the static twin's has been removed, so the relation's CARDINALITY is now
+    // binding-time independent for an empty document as well.
+    //
+    // The COORDINATES are not written here either: WG_ROOT_* (writ_graph) is
+    // the one spelling, shared with the static walker, the
+    // #[derive_graph_source] materializer and gp_build's `parent ==` anchor.
+    ts_edge_row(&mut out, WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, root, WG_ROOT_ORD);
+    let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
+    let sp: *mut HashMap<u64, i64> = &mut seen;
+    unsafe { let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64); }
+    ts_walk(root, &mut out, &mut seen);
+    return out;
+}
+
+// PRE-MATERIALIZED edge rows: the same dotted-column RowSet as ts_scan, but
+// filled from a bound Writ array of 8-element rows (the edge vocabulary) —
+// the runtime consumption path for #[derive_graph_source] materializers.
+fn es_scan(var: str, rows_w: i64, scratch: &Writ) -> RowSet {
+    let mut out: RowSet = rs_new();
+    let cols: [str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
+    let mut c: i64 = 0i64;
+    while c < 8i64 {
+        let mut nm: String = String::new();
+        nm.push_str(var);
+        nm.push_str(".");
+        nm.push_str(cols[c]);
+        out.vars[c] = intern_str(scratch, sstr(&nm));
+        c = c + 1i64;
+    }
+    out.nvars = 8i64;
+    let av: WAny = WAny::ref_to(rows_w as *const u8);
+    if !av.is_array() { return out; }
+    let arr: &WArray<WAny> = av.as_array();
+    let n: i64 = arr.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let row: WAny = arr.get(i);
+        if row.is_array() {
+            let ra: &WArray<WAny> = row.as_array();
+            let mut k: i64 = 0i64;
+            while k < 8i64 {
+                out.cells.push(wany_to_rt(ra.get(k)));
+                k = k + 1i64;
+            }
+            out.nrows = out.nrows + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// ── dyn_graph_edges — THE WALKER'S OWN ENTRY POINT ──────────────────────────
+// The dynamic producer of the shared edge relation, addressed WITHOUT the
+// query interpreter. `root` is the same bound value `QEnv::bind_source_tree`
+// takes; `scratch` is the arena the dotted column names intern into (any live
+// Writ — the document itself will do), exactly as it is under a query run.
+//
+// The return type is `Vec<WritEdgeRow>` — the SAME type `writ_graph_edges`
+// returns, not a RowSet — because the whole point of this entry is that the
+// two producers of one vocabulary are directly comparable, row for row and
+// column for column, by a caller that imports neither engine's internals.
+//
+// The eight cells come back through `ts_scan`, so this is a projection and not
+// a third producer: the root edge, the FNV leaf-id rule and the vi/vs split are
+// all the walk's, unchanged.
+//
+// The cell reads go through `rt_i` / `rt_s` (deem.logos) and NOT through a
+// pair of local projections. Two reasons, and the second is a gate: `ts_edge_row`
+// is the only emitter of a row of this relation and fills every i64 column with
+// RtVal::I and every str column with RtVal::S, so the two existing readers agree
+// with a hand-written one on every value that can reach here — and
+// `logos_09_rtval_domain` pins the NUMBER of `match`-over-RtVal sites under
+// stdlib/mem/deem (27). A projection written here would have been two more,
+// bought nothing, and moved a measured constant.
+pub fn dyn_graph_edges(root: WAny, scratch: &Writ) -> Vec<WritEdgeRow> {
+    let rs: RowSet = ts_scan("e", root.raw(), scratch);
+    let mut out: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
+    let mut r: i64 = 0i64;
+    while r < rs.nrows {
+        let b: i64 = r * rs.nvars;
+        out.push((rt_i(rs.cells.get(b)),
+                  rt_s(rs.cells.get(b + 1i64)),
+                  rt_i(rs.cells.get(b + 2i64)),
+                  rt_i(rs.cells.get(b + 3i64)),
+                  rt_s(rs.cells.get(b + 4i64)),
+                  rt_i(rs.cells.get(b + 5i64)),
+                  rt_i(rs.cells.get(b + 6i64)),
+                  rt_s(rs.cells.get(b + 7i64))));
+        r = r + 1i64;
+    }
+    return out;
+}

@@ -12008,6 +12008,7 @@ sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u16
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__u8
+sym	logos_mem.logos.mem.deem$dyn_graph_edges__f__WAny__ref_Writ
 sym	logos_mem.logos.mem.deem$fs_jn_row_enc__f__ref_SchemaCatalog__i64__WAny__u64__bool__refmut_String
 sym	logos_mem.logos.mem.deem$fs_rd_u64__f__slice_u8__i64
 sym	logos_mem.logos.mem.encoding.base64$base64_decode__f__pcst_u8__i64__refmut_String

@@ -20,6 +20,19 @@
 //     non-container root — null, i64, bool, f64, str — not only a null one,
 //     which is why this file pins a SCALAR-rooted document as well.
 //
+// ⚠ THE DYNAMIC HALF NO LONGER GOES THROUGH THE QUERY INTERPRETER, AND THAT IS
+// THE POINT OF THE REWRITE (2026-08-09). Until now every route into `ts_scan`
+// in this corpus was `QEnv::bind_source_tree` + `Query::compile`/`Query::run`,
+// and `Query` (stdlib/mem/deem/query.logos) is on the P5 deletion list together
+// with `exec.logos`, whose `QB_TSRC` arm was `ts_scan`'s ONLY caller. So the
+// parity claim this file exists to hold was not held by the walker at all — it
+// was held by the interpreter, and would have died with it, leaving the
+// vocabulary single-sourced and this file measuring one implementation against
+// itself. The walker now lives in `stdlib/mem/deem/graphsrc.logos` and has its
+// own entry point, `dyn_graph_edges(root, scratch) -> Vec<WritEdgeRow>` — the
+// same row type `writ_graph_edges` returns — so the two producers are compared
+// directly, with no query engine on either side of the comparison.
+//
 // THE ORACLE IS HAND-DERIVED, NOT AGREEMENT BETWEEN THE ENGINES. Both walkers
 // implement the same vocabulary, so "static == dynamic" certifies a shared
 // fold, not a correct one. Every expectation below is derived here and written
@@ -60,7 +73,7 @@
 //
 // Exit 0 iff every assertion holds. A nonzero code names the side, the
 // document and the column: 1x = doc1 static count, 2x = doc1 static value,
-// 3x = doc1 dynamic count, 4x = doc1 dynamic value, and 5x/6x/7x/8x the same
+// 30 = doc1 dynamic count, 4x = doc1 dynamic value, and 5x/6x/70/8x the same
 // four for doc2, where x is the column's ordinal in
 // (parent, key, idx, child, kind, tag, vi, vs).
 package test;
@@ -72,6 +85,7 @@ use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;
 use logos.std.wql.ir;
 use logos.std.wql.wql;
+use logos.std.wql.writ_graph;
 use logos.mem.deem;
 use logos.lang.result;
 use logos.lang.str;
@@ -87,43 +101,6 @@ pub deem g_kind(g: &Writ)   { from g e select e.kind : str }
 pub deem g_tag(g: &Writ)    { from g e select e.tag }
 pub deem g_vi(g: &Writ)     { from g e select e.vi }
 pub deem g_vs(g: &Writ)     { from g e select e.vs : str }
-
-// The same queries, run by the DYNAMIC engine over the same document. Returns
-// an empty Vec on any engine error; the caller distinguishes that from a
-// legitimately empty answer by the row-count assertion (which wants 1).
-fn dyn_i64(qs: str, root: WAny) -> Vec<i64> {
-    let mut out: Vec<i64> = vec_new::<i64>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", root);
-    let q: Query = match Query::compile(qs, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
-    }
-    return out;
-}
-
-fn dyn_str(qs: str, root: WAny) -> Vec<str> {
-    let mut out: Vec<str> = vec_new::<str>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", root);
-    let q: Query = match Query::compile(qs, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_str(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
-    }
-    return out;
-}
 
 fn main() -> i32 {
     // Hand-derived, see the header. Written once, used by both documents:
@@ -168,39 +145,20 @@ fn main() -> i32 {
     if !str_eq(s7.get(0i64), "") { return 27i32; }
 
     // dynamic, doc1 ────────────────────────────────────────────────────────
+    // `nul` is the value `bind_source_tree` used to receive; `&d` is the
+    // arena the dotted column names intern into, exactly as under a run.
     let nul: WAny = d.root();
-
-    let y0: Vec<i64> = dyn_i64("from g e select e.parent", nul);
-    if y0.len() != 1i64 { return 30i32; }
-    if y0.get(0i64) != 0i64 { return 40i32; }
-
-    let y1: Vec<str> = dyn_str("from g e select e.key", nul);
-    if y1.len() != 1i64 { return 31i32; }
-    if !str_eq(y1.get(0i64), "") { return 41i32; }
-
-    let y2: Vec<i64> = dyn_i64("from g e select e.idx", nul);
-    if y2.len() != 1i64 { return 32i32; }
-    if y2.get(0i64) != 0i64 - 1i64 { return 42i32; }
-
-    let y3: Vec<i64> = dyn_i64("from g e select e.child", nul);
-    if y3.len() != 1i64 { return 33i32; }
-    if y3.get(0i64) != root_id { return 43i32; }
-
-    let y4: Vec<str> = dyn_str("from g e select e.kind", nul);
-    if y4.len() != 1i64 { return 34i32; }
-    if !str_eq(y4.get(0i64), "null") { return 44i32; }
-
-    let y5: Vec<i64> = dyn_i64("from g e select e.tag", nul);
-    if y5.len() != 1i64 { return 35i32; }
-    if y5.get(0i64) != 0i64 { return 45i32; }
-
-    let y6: Vec<i64> = dyn_i64("from g e select e.vi", nul);
-    if y6.len() != 1i64 { return 36i32; }
-    if y6.get(0i64) != 0i64 { return 46i32; }
-
-    let y7: Vec<str> = dyn_str("from g e select e.vs", nul);
-    if y7.len() != 1i64 { return 37i32; }
-    if !str_eq(y7.get(0i64), "") { return 47i32; }
+    let yr: Vec<WritEdgeRow> = dyn_graph_edges(nul, &d);
+    if yr.len() != 1i64 { return 30i32; }
+    let y: WritEdgeRow = yr.get(0i64);
+    if y.0 != 0i64                 { return 40i32; }
+    if !str_eq(y.1, "")            { return 41i32; }
+    if y.2 != 0i64 - 1i64          { return 42i32; }
+    if y.3 != root_id              { return 43i32; }
+    if !str_eq(y.4, "null")        { return 44i32; }
+    if y.5 != 0i64                 { return 45i32; }
+    if y.6 != 0i64                 { return 46i32; }
+    if !str_eq(y.7, "")            { return 47i32; }
 
     // ── document 2: the root is a SCALAR i64 (7) ───────────────────────────
     // Same rule, same (parent = 0, ord = 0), so the same synthetic child id —
@@ -243,37 +201,18 @@ fn main() -> i32 {
     if t7.len() != 1i64 { return 57i32; }
     if !str_eq(t7.get(0i64), "") { return 67i32; }
 
-    let z0: Vec<i64> = dyn_i64("from g e select e.parent", iv);
-    if z0.len() != 1i64 { return 70i32; }
-    if z0.get(0i64) != 0i64 { return 80i32; }
-
-    let z1: Vec<str> = dyn_str("from g e select e.key", iv);
-    if z1.len() != 1i64 { return 71i32; }
-    if !str_eq(z1.get(0i64), "") { return 81i32; }
-
-    let z2: Vec<i64> = dyn_i64("from g e select e.idx", iv);
-    if z2.len() != 1i64 { return 72i32; }
-    if z2.get(0i64) != 0i64 - 1i64 { return 82i32; }
-
-    let z3: Vec<i64> = dyn_i64("from g e select e.child", iv);
-    if z3.len() != 1i64 { return 73i32; }
-    if z3.get(0i64) != root_id { return 83i32; }
-
-    let z4: Vec<str> = dyn_str("from g e select e.kind", iv);
-    if z4.len() != 1i64 { return 74i32; }
-    if !str_eq(z4.get(0i64), "i64") { return 84i32; }
-
-    let z5: Vec<i64> = dyn_i64("from g e select e.tag", iv);
-    if z5.len() != 1i64 { return 75i32; }
-    if z5.get(0i64) != 1i64 { return 85i32; }
-
-    let z6: Vec<i64> = dyn_i64("from g e select e.vi", iv);
-    if z6.len() != 1i64 { return 76i32; }
-    if z6.get(0i64) != 7i64 { return 86i32; }
-
-    let z7: Vec<str> = dyn_str("from g e select e.vs", iv);
-    if z7.len() != 1i64 { return 77i32; }
-    if !str_eq(z7.get(0i64), "") { return 87i32; }
+    // dynamic, doc2 ────────────────────────────────────────────────────────
+    let zr: Vec<WritEdgeRow> = dyn_graph_edges(iv, &d2);
+    if zr.len() != 1i64 { return 70i32; }
+    let z: WritEdgeRow = zr.get(0i64);
+    if z.0 != 0i64                 { return 80i32; }
+    if !str_eq(z.1, "")            { return 81i32; }
+    if z.2 != 0i64 - 1i64          { return 82i32; }
+    if z.3 != root_id              { return 83i32; }
+    if !str_eq(z.4, "i64")         { return 84i32; }
+    if z.5 != 1i64                 { return 85i32; }
+    if z.6 != 7i64                 { return 86i32; }
+    if !str_eq(z.7, "")            { return 87i32; }
 
     return 0i32;
 }
