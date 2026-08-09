@@ -1,0 +1,218 @@
+// A VALUE THAT CAME OUT OF AN AGGREGATE STILL KNOWS IT IS UNSIGNED — asked of
+// the STATIC tier, at the three seams where the claim can be lost.
+//
+// ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
+// `ordw` — "this value's order wrapped" — is a fact about a value's ORIGIN. Two
+// fixtures pin it, and BOTH of them drive the dynamic interpreter through
+// `Query::compile` / `q.run`: `query_u64_ordw_origin` (the aggregate OUT-NAME's
+// under-carry) and `wql_domain_u64_order_seams` (the seeds and the compare).
+// The census of the interpreter deletion (`docs/deem-interpreter-deletion-census.md`,
+// rows 58 and 67) classes both as C — a cell whose only vehicle is the tier that
+// is going away. The static tier already HAS the machinery this question is
+// about — the stored-type lattice `el_ty_stored` / `el_ty_stored_of` and the
+// order key `el_wrap_ord_key`, all in `stdlib/mem/wql/el.logos` — and what it
+// lacked was any fixture that ASKS it. Nothing in the corpus put the
+// out-name question to emitted code at all: `wql_agg_wide_int_arg_e2e` pins the
+// u64 accumulator's ARITHMETIC (`sum`, both overflow directions) and never its
+// ORDER, and `wql_domain_static_extremes` and `wql_key_own_type_e2e` pin
+// `order by` and `group by` over a u64 COLUMN and never over an aggregate's
+// output. Between them sits the exact carrier that was wrong once already.
+//
+// ⚠ THIS IS NOT A PORT. Three of the dynamic fixtures' arms have no static
+// counterpart and are deliberately absent rather than faked:
+//   • THE PLUMB. `wql_domain_u64_order_seams` block 1 asserts `field_ord_wrap`,
+//     a method on the RUNTIME `SchemaCatalog`, which the static tier never
+//     builds: it derives the order bit from the declared field type through
+//     `el_ty_stored_of`, which is module-private (`fn`, not `pub fn`) and so is
+//     not callable from a fixture at all. There is no static counterpart to
+//     assert — the bit is observable here ONLY through an answer, which is what
+//     every block below asks. The plumb stays an open cell of the census, and
+//     naming it as covered would be the fake.
+//   • THE OVER-CARRY. `query_u64_ordw_origin` groups 3/3b key on a MIXED ternary
+//     (`s.p ? s.u : s.v`, u64 against i64). MEASURED on the static tier that
+//     query does not run at all — it is REFUSED, in generated code, as
+//     `if-expression branches have incompatible types: u64 vs i64`, naming
+//     neither the column nor the clause. A refusal with no ground cannot be
+//     pinned as a `fail/` diagnostic without pinning the anti-diagnostic as
+//     correct, so this file asserts the UNMIXED ternary (which the static tier
+//     does admit) and leaves the mixed one to the diagnostic work it needs.
+//   • THE COMPUTED KEY. `order by (s.u / 3)` is arithmetic over a u64 operand,
+//     which the static tier refuses at every clause — the EL's scalar tower is
+//     i64-only (`el_add`/`el_sub`/`el_mul`/`el_div`/`el_rem` all take and return
+//     i64, gated by `el_int_fits_i64`; the unsigned siblings `el_addu`/`el_subu`/
+//     `el_mulu` exist for the aggregate accumulator alone, and there is no
+//     `el_divu`). That refusal is the static tier's answer, and it belongs in a
+//     `fail/` matrix, not in a pass fixture.
+//
+// ── THE THREE ROWS, AND WHY THEY CANNOT AGREE BY ACCIDENT ───────────────────
+// Every number below is hand-written from the unsigned order and the two's
+// complement reading. Nothing here calls `el_ty`, `el_ty_stored_of`,
+// `el_wrap_ord_key` or `agg_acc_ty` to find out what the answer should be — an
+// oracle that shares its rule with the code under test agrees with itself by
+// construction (`feedback_oracle_must_be_independent`).
+//
+//     id 0, g 100:  u = 5                      → i64 bits 5            v =  30
+//     id 1, g 101:  u = 9223372036854775808    → i64 bits i64::MIN     v =  20
+//     id 2, g 102:  u = 18446744073709551615   → i64 bits -1           v =  10
+//
+//   UNSIGNED ascending by u:  ids 0, 1, 2   (groups 100, 101, 102)
+//   SIGNED   ascending by u:  ids 1, 2, 0   (groups 101, 102, 100)
+//   SIGNED   ascending by v:  ids 2, 1, 0   (groups 102, 101, 100)
+// The two readings of `u` are DIFFERENT permutations of the same three rows, and
+// `v`'s own order is a third — so a comparator that stopped reading its key, or
+// read the wrong column, cannot pass every block here.
+//
+// ── WHAT EACH BLOCK RULES OUT ───────────────────────────────────────────────
+//   10s  `order by hi` over `hi = max(s.u)`: the out-name. One row per group, so
+//        `max` is the identity and the only question asked is the ORDER of a
+//        value that came OUT of the fold. This is the under-carry cell.
+//   11s  the same through `min`, the other fold arm.
+//   20s  `having t > 5` on the out-name: the SECOND consumer of the same claim,
+//        and one no fixture anywhere asks. Under a signed reading the three
+//        out-values are 5, -2^63 and -1, NONE of which exceeds 5, so the signed
+//        answer is the EMPTY result and the unsigned answer is two rows.
+//   30s  the SEEDS: `min` and `max` over a group of ONE row must answer that
+//        row's own value. With more than one row a wrong seed is displaced by
+//        some row and the answer comes out right anyway; at one row it cannot
+//        be. Signed seeds under the wrapped compare would answer u64 2^63 for
+//        `max` over {5} — a value present in no row (`el_wrap_ord_least` /
+//        `el_wrap_ord_greatest` carry that derivation).
+//   40s  the COMPARE: one group of three straddling 2^63. Unsigned gives
+//        lo = 5, hi = 2^64-1; signed gives lo = 2^63, hi = 5 — not a near miss.
+//   50s  the UNMIXED ternary as a sort key: both branches are the same u64
+//        column, the claim survives the join, and the key sorts unsigned.
+//   60s  THE CONTROLS, over the i64 column in the same schema and the same
+//        queries. If the wrapped key were applied to the integer CLASS rather
+//        than per type, these would move; they must not. `min`/`max` over v give
+//        10 and 30, and `order by hi` gives 102, 101, 100.
+//
+// EXIT CODES all ≤ 69 — the exit status is 8-bit and a code above 255 comes back
+// as its residue.
+//
+// exit 0 = on the static tier, a u64 aggregate's out-name is ordered and
+//          compared unsigned at both of its consumers, one-row folds answer
+//          their own row, and the signed column did not move.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct R { pub id: i64, pub g: i64, pub u: u64, pub v: i64 }
+
+// ── the out-name, at `order by` ──
+pub deem ordw_max(rs: &[R]) {
+    from rs s group by s.g aggregate hi = max(s.u) select key order by hi }
+pub deem ordw_min(rs: &[R]) {
+    from rs s group by s.g aggregate lo = min(s.u) select key order by lo }
+// ── the out-name, at `having` — the consumer nothing else asks ──
+pub deem ordw_having(rs: &[R]) {
+    from rs s group by s.g aggregate t = max(s.u) having t > 5u64 select key order by t }
+// ── the seeds (one-row groups) and the compare (one group of three) ──
+pub deem ordw_seeds(rs: &[R]) {
+    from rs s group by s.g aggregate lo = min(s.u), hi = max(s.u) select (key, lo, hi) }
+// ── the unmixed ternary as a sort key ──
+pub deem ordw_tern(rs: &[R]) {
+    from rs s select s.id order by (s.g > 0i64 ? s.u : s.u) }
+// ── the signed controls, same shape, same rows ──
+pub deem sign_max(rs: &[R]) {
+    from rs s group by s.g aggregate hi = max(s.v) select key order by hi }
+pub deem sign_seeds(rs: &[R]) {
+    from rs s group by s.g aggregate lo = min(s.v), hi = max(s.v) select (key, lo, hi) }
+
+fn main() -> i32 {
+    // one row per group — the SEED arm and the out-name arms
+    let a: [R; 3] = [R { id: 0i64, g: 100i64, u: 5u64,                     v: 30i64 },
+                     R { id: 1i64, g: 101i64, u: 9223372036854775808u64,   v: 20i64 },
+                     R { id: 2i64, g: 102i64, u: 18446744073709551615u64,  v: 10i64 }];
+    // the same three rows in ONE group — the COMPARE arm
+    let b: [R; 3] = [R { id: 0i64, g: 7i64, u: 5u64,                    v: 30i64 },
+                     R { id: 1i64, g: 7i64, u: 9223372036854775808u64,  v: 20i64 },
+                     R { id: 2i64, g: 7i64, u: 18446744073709551615u64, v: 10i64 }];
+
+    // ══ 10s. THE OUT-NAME AT `order by` — the under-carry cell ═══════════════
+    // Unsigned: 5 < 2^63 < 2^64-1, so groups 100, 101, 102. Signed: 101, 102, 100.
+    let m: Vec<i64> = match ordw_max(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if m.len() != 3i64      { return 11i32; }
+    if m.get(0i64) != 100i64 { return 12i32; }
+    if m.get(1i64) != 101i64 { return 12i32; }
+    if m.get(2i64) != 102i64 { return 12i32; }
+    // the other fold arm — `min` over one-row groups is the same identity
+    let n: Vec<i64> = match ordw_min(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if n.len() != 3i64       { return 14i32; }
+    if n.get(0i64) != 100i64 { return 15i32; }
+    if n.get(1i64) != 101i64 { return 15i32; }
+    if n.get(2i64) != 102i64 { return 15i32; }
+
+    // ══ 20s. THE OUT-NAME AT `having` — the second consumer ══════════════════
+    // Unsigned: 2^63 > 5 and 2^64-1 > 5, so groups 101 and 102 survive, in that
+    // order by `t`. Signed the three out-values are 5, -2^63 and -1: NONE
+    // exceeds 5, so a signed `having` returns NOTHING, and the length check
+    // below is the whole distance between the two readings.
+    let h: Vec<i64> = match ordw_having(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if h.len() != 2i64       { return 21i32; }
+    if h.get(0i64) != 101i64 { return 22i32; }
+    if h.get(1i64) != 102i64 { return 22i32; }
+
+    // ══ 30s. THE SEEDS — a fold over ONE row answers that row ════════════════
+    // Group order is not specified by the query, so each row is matched on its
+    // own key rather than on position.
+    let s: Vec<(i64, u64, u64)> = match ordw_seeds(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    if s.len() != 3i64 { return 31i32; }
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        let k: i64 = s.get(i).0;
+        let mut want: u64 = 0u64;
+        if k == 100i64      { want = 5u64; }
+        else if k == 101i64 { want = 9223372036854775808u64; }
+        else if k == 102i64 { want = 18446744073709551615u64; }
+        else                { return 32i32; }
+        if s.get(i).1 != want { return 33i32; }   // min of a one-row group
+        if s.get(i).2 != want { return 34i32; }   // max of a one-row group
+        i = i + 1i64;
+    }
+
+    // ══ 40s. THE COMPARE — one group of three straddling 2^63 ════════════════
+    // Unsigned: lo = 5, hi = 2^64-1. Signed: lo = 2^63, hi = 5.
+    let c: Vec<(i64, u64, u64)> = match ordw_seeds(&b[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; } };
+    if c.len() != 1i64                              { return 41i32; }
+    if c.get(0i64).0 != 7i64                        { return 42i32; }
+    if c.get(0i64).1 != 5u64                        { return 43i32; }
+    if c.get(0i64).2 != 18446744073709551615u64     { return 44i32; }
+
+    // ══ 50s. THE UNMIXED TERNARY AS A SORT KEY ═══════════════════════════════
+    // `s.g > 0` on every row, so both branches are the same u64 column and the
+    // claim survives the join of the two branch types. Unsigned ids 0, 1, 2;
+    // signed 1, 2, 0. (The MIXED ternary — u64 against i64 — is REFUSED by the
+    // static tier in generated code; see this file's header.)
+    let t: Vec<i64> = match ordw_tern(&b[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    if t.len() != 3i64     { return 51i32; }
+    if t.get(0i64) != 0i64 { return 52i32; }
+    if t.get(1i64) != 1i64 { return 52i32; }
+    if t.get(2i64) != 2i64 { return 52i32; }
+
+    // ══ 60s. THE CONTROLS — the i64 column, same schema, same queries ════════
+    // v is 30 / 20 / 10, so `order by hi` ascending gives groups 102, 101, 100 —
+    // the REVERSE of the u64 answer at 10s. If the wrapped key were applied by
+    // integer CLASS rather than per type these would become 100, 101, 102.
+    let sm: Vec<i64> = match sign_max(&a[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    if sm.len() != 3i64       { return 61i32; }
+    if sm.get(0i64) != 102i64 { return 62i32; }
+    if sm.get(1i64) != 101i64 { return 62i32; }
+    if sm.get(2i64) != 100i64 { return 62i32; }
+    // and the compare over the one group of three: lo = 10, hi = 30.
+    let sc: Vec<(i64, i64, i64)> = match sign_seeds(&b[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 63i32; } };
+    if sc.len() != 1i64        { return 64i32; }
+    if sc.get(0i64).1 != 10i64 { return 65i32; }
+    if sc.get(0i64).2 != 30i64 { return 66i32; }
+
+    return 0i32;
+}
