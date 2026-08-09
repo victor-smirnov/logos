@@ -23,7 +23,7 @@ Every symbol below has exactly ONE definition in `stdlib/`, and that definition 
 |---|---|
 | `qplan_new` `chk_new` `sx_of` `check_rexpr` `struct QPlan` `struct Chk` | `stdlib/mem/deem/check.logos` |
 | `relctx_new` `exec_root` `rt_key_hash` `h_step` `struct RelCtx` `struct OutTab` `ts_scan` | `stdlib/mem/deem/exec.logos` |
-| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` | `stdlib/mem/deem/eval.logos` |
+| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` | `stdlib/mem/deem/tpl.logos` (PORTED out of `eval.logos`) |
 | `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` |
 
 Real (non-comment) call/type uses in the two files P5 says it keeps — counted by
@@ -84,7 +84,7 @@ replaced runtime templating and has no plan to.
 |---|---|---|
 | `stdlib/mem/deem/check.logos` | 1672 | on the list |
 | `stdlib/mem/deem/exec.logos` | 1472 | on the list (also holds `ts_scan`, the dynamic graph walker) |
-| `stdlib/mem/deem/eval.logos` | 606 | on the list (also holds `Tpl`) |
+| `stdlib/mem/deem/tpl.logos` | 1338 | NOT on the list — the template engine, ported out of `eval.logos`/`check.logos`/`exec.logos` |
 | `stdlib/mem/deem/query.logos` | 963 | on the list |
 | `stdlib/mem/deem/incr.logos` | 1978 | §1a; also holds `pub struct FactStore`, `IncrJoin` |
 | `stdlib/mem/deem/incr_rec.logos` | 1466 | §1a; `IncrRec` |

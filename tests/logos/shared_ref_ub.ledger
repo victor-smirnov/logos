@@ -119,12 +119,12 @@ stdlib/lcm/deem/data/store.logos	LockingStore	-
 stdlib/lcm/deem/facthistory.logos	FactHistory	-
 stdlib/mem/any/anybox.logos	AnyBox	-
 stdlib/mem/bt/memstore.logos	SnapDesc	-
-stdlib/mem/deem/eval.logos	Tpl	-
 stdlib/mem/deem/incr.logos	FactStore	-
 stdlib/mem/deem/incr.logos	IncrJoin	-
 stdlib/mem/deem/incr_rec.logos	IncrRec	-
 stdlib/mem/deem/query.logos	QRows	-
 stdlib/mem/deem/query.logos	Query	-
+stdlib/mem/deem/tpl.logos	Tpl	-
 stdlib/mem/sync/arc.logos	ArcInner	-
 stdlib/std/io/bytes/bytes.logos	BytesInner	-
 #

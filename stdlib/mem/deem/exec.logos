@@ -1338,28 +1338,6 @@ fn ot_new(nc: i64) -> OutTab {
     return OutTab { ncols: nc, cells: vec_new::<RtVal>(), nrows: 0i64 };
 }
 
-// exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
-// Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
-// cell, join/group key, aggregate arg). If the evaluation produced a math error
-// (RtVal::Error from checked arithmetic), record it on the Chk sink so run() /
-// render() surface it as a QError, and return Null in its place (the row is
-// then irrelevant — the whole query aborts). Internal (recursive) eval stays on
-// eval_sexpr; only the boundaries convert Error → error.
-// ⚠ THE BOUNDARY NO LONGER MAKES A CLAIM. It used to take a `ua: bool` — "the
-// arithmetic in THIS position is unsigned" — and exactly one of the 16 call
-// sites ever passed true, which is why one expression had two values. The claim
-// is a property of the expression and now rides on its nodes (`SBin.ordw`), so
-// every boundary evaluates the same expression the same way.
-fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
-           scratch: &Writ, chk: *mut Chk) -> RtVal {
-    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
-    if rt_is_err(v) {
-        chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");
-        return RtVal::Null;
-    }
-    return v;
-}
-
 fn exec_root(e: RExpr, cat: &SchemaCatalog, env: &QEnv, qp: &QPlan,
              scratch: &Writ, chk: *mut Chk, rctx: *const RelCtx) -> OutTab {
     if chk_bad(chk) { return ot_new(0i64); }

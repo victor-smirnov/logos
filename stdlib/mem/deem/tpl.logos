@@ -1,0 +1,1339 @@
+// logos.std.deem — THE TEMPLATE ENGINE: `Tpl` (compile-once/render-many), the EL/template STATIC CHECKER (Chk/CBinds/check_root/check_expr/check_stmts/simplify_all) and the tree-walk evaluator (RBinds, eval_root/field_read/eval_sexpr, eval_sx, render_stmts).
+// The engine's subject is TEMPLATES, not the query interpreter — it was moved out of eval.logos/check.logos/exec.logos so it outlives their deletion (P5).
+// One package across several files (see deem.logos for the module-level doc);
+// private items are package-visible, so the split is layout-only.
+package logos.mem.deem;
+
+
+use logos.lang.writ.container;    // Writ / writ_new
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wmap;         // WMap<Wu6, WAny> — TOM reads (schema field gets)
+use logos.lang.writ.array;        // WArray — edge-field iteration
+use logos.lang.writ.wstring;      // WString / as_wstr — string payloads + interning
+use logos.lang.writ.wstatic;      // WritStatic — the rodata metadata-blob handle
+use logos.lang.writ.static_view;  // WView2 — reader over rodata Writ blobs
+use logos.lang.result;            // Result — the error-as-value carrier
+use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
+use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
+use logos.mem.string;             // String
+use logos.lang.mem;               // replace — FactStore::take_delta move-out
+use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
+use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
+use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
+use logos.std.wql.ir;             // SExpr family + WRef (the shared IR)
+use logos.std.wql.el;             // EL_TY_* / OP_* / builtin registry / agg rule table
+use logos.std.wql.optimize;       // simplify_sexpr / simplify_rexpr_ref + TermList analysis
+use logos.std.wql.trama;          // TStmt family + chain_array / next_of_stmt / ttext_str
+use logos.std.wql.trama_parser;   // parse_tpl — the reused generated template parser
+use logos.std.wql.plan;           // RQuery / RQProgram — the surface query plan views
+use logos.std.wql.wql_surface_parser;  // parse_program — the reused generated query parser
+use logos.std.wql.lower;          // lower_rquery_to_rexpr — the reused PLAN→ALGEBRA lowering
+use logos.std.wql.params;         // RelDeps / RelScc / compute_rel_scc — the SHARED
+                                  // (metaprog-free) rel dependency-graph half (I3)
+use logos.mem.collections.vec;    // Vec — row pipelines (unbounded)
+use logos.mem.collections.hashmap;// HashMap — hash-join buckets / distinct sets
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// eval_sexpr — the tree-walk evaluator (ADR §7). Runs on CHECKED IR; data-
+// shape surprises (unset fields, null edges) take the WritField-default path.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Render-time LOCAL bindings (loop vars / set vars) — newest-first lookup,
+// mark/rollback scoping (the CBinds shape, but carrying VALUES).
+struct RBinds {
+    names: [str; 40],
+    kinds: [i32; 40],   // QB_* (QB_NODE stores the ref word)
+    ivals: [i64; 40],
+    fvals: [f64; 40],
+    bvals: [bool; 40],
+    svals: [str; 40],
+    words: [i64; 40],
+    n:     i64,
+}
+fn rbinds_new() -> RBinds {
+    return RBinds {
+        names: [""; 40], kinds: [0i32; 40], ivals: [0i64; 40], fvals: [0.0f64; 40],
+        bvals: [false; 40], svals: [""; 40], words: [0i64; 40], n: 0i64,
+    };
+}
+impl RBinds {
+    fn find(self: &RBinds, name: str) -> i64 {
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            if str_eq(self.names[i], name) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+
+    // Two-part DOTTED lookup ("root.fld") without composing a String — the
+    // runtime twin of the rel-field rewrite's spelling. Tree-source rows bind
+    // their columns as dotted names ("e.parent"); Field eval probes here
+    // before the generic base-eval path. Zero-alloc: length + prefix + '.' +
+    // suffix comparison.
+    fn find2(self: &RBinds, root: str, fld: str) -> i64 {
+        let want: i64 = root.len() + 1i64 + fld.len();
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            let nm: str = self.names[i];
+            if nm.len() == want
+            && str_starts_with(nm, root)
+            && str_byte_at(nm, root.len()) == 46u8   // '.'
+            && str_ends_with(nm, fld) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+    fn val(self: &RBinds, i: i64) -> RtVal {
+        let k: i32 = self.kinds[i];
+        if k == QB_I64  { return RtVal::I(self.ivals[i]); }
+        if k == QB_F64  { return RtVal::F(self.fvals[i]); }
+        if k == QB_BOOL { return RtVal::B(self.bvals[i]); }
+        if k == QB_STR  { return RtVal::S(self.svals[i]); }
+        if k == QB_NODE { return RtVal::Node(WAny::ref_to(self.words[i] as *const u8)); }
+        return RtVal::Null;
+    }
+    // Push a binding holding `v` (scoping is the caller's mark/rollback).
+    fn bind_val(self: &mut RBinds, name: str, v: RtVal) {
+        if self.n >= 40i64 { return; }
+        self.names[self.n] = name;
+        self.set_val(self.n, v);
+        self.n = self.n + 1i64;
+    }
+    // Overwrite slot `i`'s value (per-iteration loop-var rebind).
+    fn set_val(self: &mut RBinds, i: i64, v: RtVal) {
+        match v {
+            RtVal::I(x) => { self.kinds[i] = QB_I64;  self.ivals[i] = x; }
+            RtVal::F(x) => { self.kinds[i] = QB_F64;  self.fvals[i] = x; }
+            RtVal::B(x) => { self.kinds[i] = QB_BOOL; self.bvals[i] = x; }
+            RtVal::S(x) => { self.kinds[i] = QB_STR;  self.svals[i] = x; }
+            RtVal::Node(w) => { self.kinds[i] = QB_NODE; self.words[i] = w.raw(); }
+            RtVal::Null => { self.kinds[i] = 0i32; }
+            RtVal::Error => { self.kinds[i] = 0i32; }   // math error binds as null-ish; boundary aborts
+        }
+    }
+}
+
+// A QEnv binding as an RtVal.
+fn env_val(env: &QEnv, i: i64) -> RtVal {
+    let k: i32 = env.kinds[i];
+    if k == QB_I64   { return RtVal::I(env.ivals[i]); }
+    if k == QB_F64   { return RtVal::F(env.fvals[i]); }
+    if k == QB_BOOL  { return RtVal::B(env.bvals[i]); }
+    if k == QB_STR   { return RtVal::S(env.svals[i]); }
+    if k == QB_NODE  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_SRC   { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_ENODE { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    if k == QB_ESRC  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    return RtVal::Null;
+}
+
+// Root-name value: locals shadow the env. `lb` is a RAW pointer (provenance
+// laundering): the returned RtVal's payloads are COPIES of word-sized views
+// into arenas/rodata, never references into the RBinds storage itself, so the
+// caller's &mut RBinds must not be pinned by the shared read here.
+fn eval_root(name: str, env: &QEnv, lb: *const RBinds) -> RtVal {
+    let lbv: &RBinds = unsafe { &*lb };
+    let li: i64 = lbv.find(name);
+    if li >= 0i64 { return lbv.val(li); }
+    let ei: i64 = env.find(name);
+    if ei >= 0i64 { return env_val(env, ei); }
+    return RtVal::Null;
+}
+
+// One field read — the ONE dynamic read both tiers share (ADR §4):
+//   • a STRING-KEYED Writ map (`is_map`, the lenient row shape) resolves the
+//     field by NAME directly — no catalog; a missing key reads Null and the
+//     value converts by VALUE SHAPE (wany_to_rt — "type surprise" keeps the
+//     runtime shape, CEL-style);
+//   • a schema-stamped TOM whose schema is in the catalog reads by the
+//     cataloged key code — the SAME read the static schema accessors compile
+//     to, WritField defaults included (schema'd data behaves schema'd even
+//     under a lenient binding). FK_ANY (WAny-typed) fields convert by value
+//     shape — unset reads Null (I3: I1 rejected these at check time);
+//   • anything else (unknown schema, unknown field, non-object) reads Null.
+// STRICT bindings never reach the Null arms (the checker resolved every
+// field), so strict semantics are unchanged.
+fn field_read(cat: &SchemaCatalog, w: WAny, fname: str) -> RtVal {
+    if w.is_map() {
+        let sm: &WMap<WString, WAny> = w.as_map();
+        let sv: WAny = sm.get(fname);
+        if sv.is_null() { return RtVal::Null; }
+        return wany_to_rt(sv);
+    }
+    let code: u64 = node_schema_code(w);
+    let si: i64 = cat.sidx_of_code(code);
+    if si < 0i64 { return RtVal::Null; }
+    let fi: i64 = cat.fidx(si, fname);
+    if fi < 0i64 { return RtVal::Null; }
+    let m: &WMap<Wu6, WAny> = tom_at(w);
+    let v: WAny = m.get(cat.f_keys.get(fi) as u8);
+    if cat.f_kinds.get(fi) == (FK_EDGE as i64) || cat.f_kinds.get(fi) == (FK_EARR as i64) {
+        if v.is_null() { return RtVal::Null; }
+        return RtVal::Node(v);
+    }
+    if cat.f_kinds.get(fi) == (FK_ANY as i64) { return wany_to_rt(v); }
+    let t: i32 = cat.f_tys.get(fi) as i32;
+    if t == EL_TY_STR()  { return RtVal::S(wany_str(v)); }
+    if t == EL_TY_BOOL() { return RtVal::B(v.as_bool()); }
+    if t == EL_TY_FLT()  { return RtVal::F(v.as_f64()); }
+    return RtVal::I(v.as_i64());
+}
+
+// ── THE UNSIGNED CLAIM IS READ OFF THE NODE, NOT PASSED DOWN THE POSITION ────
+//
+// The EL normalizes every integer into `i64`, and for a `u64`/`usize` column
+// that conversion is a bijection: the bits survive, the ORDER moves (repaired
+// at the comparison seams by `el_wrap_ord_key`) and so does the OVERFLOW
+// PREDICATE. Both moved functions are selected here by ONE bit, `SBin.ordw`,
+// stamped by `check_expr` as `ct_join_ordw` over the operands.
+//
+// ⚠ THIS USED TO BE A `ua: bool` PARAMETER — A POSITION FLAG — AND THAT IS THE
+// DEFECT IT CARRIED. A flag passed in by the caller says "the arithmetic in
+// THIS POSITION is unsigned", and exactly one caller ever passed `true` (the
+// aggregate argument, off `QPlan.agg_argu`). So ONE EXPRESSION HAD TWO VALUES:
+// measured on a row holding 2^64−1, `s.u / 3` answered 6148914691236517205
+// inside `sum(...)` and 0 in a projection, decided by where it sat and not by
+// what it was. The same split reached the group key, both join keys, `having`,
+// a UDF argument, a template interpolation, every ordered comparison — 26
+// positions passing `false` on a value the checker had already typed.
+//
+// A claim about a value belongs to the value. `check_expr` computes it once per
+// node and writes it there; every position reads the same bit, so there is no
+// position left that can disagree with another. The subtlety the old comment
+// was right about survives unchanged and is now automatic: a ternary's
+// CONDITION, a call's arguments and a comparison's operands are separate nodes
+// with separate claims, so `sum(s.u + (s.v + 1 > 0 ? 1 : 2))` still evaluates
+// the signed `s.v + 1` signed — not because a flag stopped, but because that
+// node's own `ct_join_ordw` is false.
+//
+// What is NOT here: the min/max SEED and FOLD, which choose an identity element
+// before any row is seen and so cannot read a per-row node — they keep
+// `QPlan.agg_argu` / `self.agg_argu`; and the sort COMPARATOR, which ranks
+// already-evaluated keys and keeps `QPlan.sordw`. Those are comparisons over
+// values, not evaluations of expressions.
+fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
+              scratch: &Writ) -> RtVal {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return RtVal::S(wany_str(v)); }
+            if v.is_bool()   { return RtVal::B(v.as_bool()); }
+            if v.is_float()  { return RtVal::F(v.as_f64()); }
+            if v.is_null()   { return RtVal::Null; }
+            return RtVal::I(v.as_i64());
+        }
+        SExpr::Param(p) => { return eval_root(p.name, env, lb); }
+        SExpr::Var(vv)  => { return eval_root(vv.name, env, lb); }
+        SExpr::Field(f) => {
+            let base_ref: WRef<SExpr> = f.base;
+            if base_ref.any().is_null() { return eval_root(f.name, env, lb); }
+            // Tree-source rows have NO bare row-var bind — their columns bind
+            // as DOTTED names ("e.parent"). Probe the dotted spelling first
+            // (zero-alloc find2); miss ⇒ the generic base-eval path below.
+            // A bare root parses as Field{base: null, name} (check_root's
+            // shape), so extract the root name from EITHER spelling.
+            let mut tr_root: str = "";
+            match f.base_expr() {
+                SExpr::Var(bv) => { tr_root = bv.name; }
+                SExpr::Field(bf) => {
+                    let bb: WRef<SExpr> = bf.base;
+                    if bb.any().is_null() { tr_root = bf.name; }
+                }
+                _ => { }
+            }
+            if tr_root.len() > 0i64 {
+                let di: i64 = unsafe { (&*lb).find2(tr_root, f.name) };
+                if di >= 0i64 { return unsafe { (&*lb).val(di) }; }
+            }
+            let base: RtVal = eval_sexpr(f.base_expr(), cat, env, lb, scratch);
+            match base {
+                RtVal::Node(w) => { return field_read(cat, w, f.name); }
+                // a field read off a non-node base is a lenient miss (ADR §4)
+                RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_)
+                  | RtVal::Null | RtVal::Error => { return RtVal::Null; }
+            }
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            // Short-circuit boolean tier.
+            if op == OP_AND() {
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if !rt_truthy(lv) { return RtVal::B(false); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
+            }
+            if op == OP_OR() {
+                let lv: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(lv) { return RtVal::Error; }
+                if rt_truthy(lv) { return RtVal::B(true); }
+                let rv: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+                if rt_is_err(rv) { return RtVal::Error; }
+                return RtVal::B(rt_truthy(rv));
+            }
+            // THE NODE'S OWN CLAIM. For an arithmetic op it selects the overflow
+            // predicate and — for `/` and `%` — the answer; for an ordered
+            // compare it selects the order. The operands carry their own claims
+            // on their own nodes, so nothing is passed down.
+            let aua: bool = b.ordw;
+            let l: RtVal = eval_sexpr(b.lhs_expr(), cat, env, lb, scratch);
+            let r: RtVal = eval_sexpr(b.rhs_expr(), cat, env, lb, scratch);
+            // A math error in either operand propagates (like Null) — the eval
+            // boundary (eval_sx) turns it into a QError.
+            if rt_is_err(l) || rt_is_err(r) { return RtVal::Error; }
+            if op == OP_EQ() { return RtVal::B(rt_eq(l, r)); }
+            if op == OP_NE() { return RtVal::B(!rt_eq(l, r)); }
+            if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
+                // Null never orders (CEL-style, ADR §4): any Null operand
+                // compares FALSE. Strict mode never produces Null operands.
+                if rt_kind(l) == 0i32 || rt_kind(r) == 0i32 { return RtVal::B(false); }
+                // Ordered compare: str via str_cmp; ints exactly; else f64.
+                let mut c: i64 = 0i64;
+                if rt_kind(l) == 4i32 && rt_kind(r) == 4i32 {
+                    c = str_cmp(rt_s(l), rt_s(r)) as i64;
+                } else if rt_kind(l) == 1i32 && rt_kind(r) == 1i32 {
+                    // ⚠ THE ORDERED COMPARE, KEYED. Until the claim reached this
+                    // arm, `where s.u > 5` over a u64 column returned NO rows —
+                    // 2^63 reads as the most negative i64 and 2^64−1 as −1, so
+                    // BOTH extremes failed `> 5` — and the same arm serves
+                    // `having`, every join/edge `on`, a bool projection cell and
+                    // a template `{% if %}`, in both runtime tiers. `aua` is the
+                    // node's `ct_join_ordw`: an unsigned operand beside a neutral
+                    // literal agrees, an unsigned beside a signed does not, and a
+                    // disagreement is DROPPED, which is the signed reading these
+                    // comparisons always had.
+                    let mut li2: i64 = rt_i(l);
+                    let mut ri2: i64 = rt_i(r);
+                    if aua { li2 = el_wrap_ord_key(li2); ri2 = el_wrap_ord_key(ri2); }
+                    if li2 < ri2 { c = -1i64; } else if li2 > ri2 { c = 1i64; }
+                } else {
+                    let lf: f64 = rt_f(l);
+                    let rf: f64 = rt_f(r);
+                    if lf < rf { c = -1i64; } else if lf > rf { c = 1i64; }
+                }
+                if op == OP_LT() { return RtVal::B(c < 0i64); }
+                if op == OP_LE() { return RtVal::B(c <= 0i64); }
+                if op == OP_GT() { return RtVal::B(c > 0i64); }
+                return RtVal::B(c >= 0i64);
+            }
+            // Arithmetic tier: Null PROPAGATES (any Null operand → Null).
+            if rt_kind(l) == 0i32 || rt_kind(r) == 0i32 { return RtVal::Null; }
+            if op == OP_ADD() {
+                if rt_kind(l) == 4i32 || rt_kind(r) == 4i32 {
+                    // string concatenation — interned into the render scratch
+                    let mut t: String = String::new();
+                    t.push_str(rt_s(l));
+                    t.push_str(rt_s(r));
+                    return RtVal::S(intern(scratch, &t));
+                }
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 {
+                    return RtVal::F(rt_f(l) + rt_f(r));   // IEEE f64: no trap
+                }
+                // Integer tier: error-returning (checked) arithmetic — overflow
+                // yields RtVal::Error instead of trapping (EL-script policy).
+                // `aua` (= this node's `ordw`) selects WHICH overflow predicate
+                // is checked; the bits of the answer are the same under both.
+                if aua { match el_wrap_add(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+                match rt_i(l).checked_add(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_SUB() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) - rt_f(r)); }
+                if aua { match el_wrap_sub(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+                match rt_i(l).checked_sub(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_MUL() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) * rt_f(r)); }
+                if aua { match el_wrap_mul(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+                match rt_i(l).checked_mul(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            if op == OP_DIV() {
+                if rt_kind(l) == 2i32 || rt_kind(r) == 2i32 { return RtVal::F(rt_f(l) / rt_f(r)); }
+                // checked_div → None on divide-by-zero AND on i64::MIN / -1.
+                // ⚠ THE UNSIGNED QUOTIENT IS A DIFFERENT NUMBER, not just a
+                // different overflow verdict: (2^64−1)/3 is 6148914691236517205
+                // unsigned and 0 signed, because the i64 division reads the
+                // payload as −1. This arm is the one place where the two
+                // predicates disagree on a VALUE and not only on a refusal.
+                if aua { match el_wrap_div(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+                match rt_i(l).checked_div(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+            }
+            // OP_MOD — integer tier only (checker-enforced). checked_rem → None
+            // on rem-by-zero and i64::MIN % -1.
+            if aua { match el_wrap_rem(rt_i(l), rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+            match rt_i(l).checked_rem(rt_i(r)) { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } }
+        }
+        SExpr::Un(u) => {
+            // The checker gives a unary minus `ordw: false` — negating an
+            // unsigned value leaves that type's domain, so there is nothing for
+            // the claim to be about. Nothing to read here: the operand's own
+            // node carries whatever claim it has, and this node makes none.
+            let a: RtVal = eval_sexpr(u.arg_expr(), cat, env, lb, scratch);
+            if rt_is_err(a) { return RtVal::Error; }
+            if u.op == OP_NOT() { return RtVal::B(!rt_truthy(a)); }
+            match a {
+                RtVal::F(x) => { return RtVal::F(0.0f64 - x); }
+                RtVal::Null => { return RtVal::Null; }   // -Null → Null (ADR §4)
+                // integer negation is checked (i64::MIN negation overflows).
+                // B/S/Node/Error go through `rt_i` too — 0 for the last three,
+                // 1/0 for a bool (the lenient-bool-one rule) — so negation of a
+                // non-numeric lenient value is -0 / -1, not a trap.
+                RtVal::I(_) | RtVal::B(_) | RtVal::S(_) | RtVal::Node(_) | RtVal::Error => { match rt_i(a).checked_neg() { Option::Some(v) => { return RtVal::I(v); } Option::None => { return RtVal::Error; } } }
+            }
+        }
+        SExpr::Cond(c) => {
+            // ⚠ NOTHING IS THREADED THROUGH A TERNARY ANY MORE, AND THAT CLOSES
+            // A HOLE RATHER THAN OPENING ONE. Under the old position flag the
+            // branches inherited the CALLER's claim, so the same branch could be
+            // evaluated unsigned in one position and signed in another. Each
+            // branch is now an expression with its own stamped claim, evaluated
+            // identically wherever the ternary sits. The ternary's own `CTy` —
+            // `ct_join_ordw` over the two branches, which drops the claim when
+            // they disagree — still governs how its VALUE is ordered downstream
+            // (the sort comparator's `qp.sordw`), and that is the rule
+            // `query_u64_ordw_origin` groups 3/3b pin.
+            let cv: RtVal = eval_sexpr(c.cond_expr(), cat, env, lb, scratch);
+            if rt_is_err(cv) { return RtVal::Error; }
+            if rt_truthy(cv) {
+                return eval_sexpr(c.then_expr(), cat, env, lb, scratch);
+            }
+            return eval_sexpr(c.else_expr(), cat, env, lb, scratch);
+        }
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(c.fn_name);
+            let args: SExprArr = c.args_arr();
+            if bfn != BFN_UNKNOWN() {
+                // Builtins are STRING functions: any non-string argument —
+                // Null from a lenient miss, or a runtime type surprise —
+                // yields Null (ADR §4; strict mode guarantees string args).
+                let a0: RtVal = eval_sexpr(args.arg_at(0i64), cat, env, lb, scratch);
+                if rt_kind(a0) != 4i32 { return RtVal::Null; }
+                let mut a1: RtVal = RtVal::S("");
+                if builtin_arity(bfn) > 1i64 {
+                    a1 = eval_sexpr(args.arg_at(1i64), cat, env, lb, scratch);
+                    if rt_kind(a1) != 4i32 { return RtVal::Null; }
+                }
+                if bfn == BFN_LEN() { return RtVal::I(rt_s(a0).len()); }
+                if bfn == BFN_UPPER() {
+                    let u2: String = wql_upper(rt_s(a0));
+                    return RtVal::S(intern(scratch, &u2));
+                }
+                if bfn == BFN_LOWER() {
+                    let l2: String = wql_lower(rt_s(a0));
+                    return RtVal::S(intern(scratch, &l2));
+                }
+                if bfn == BFN_CONTAINS() {
+                    return RtVal::B(str_contains(rt_s(a0), rt_s(a1)));
+                }
+                // BFN_STARTS_WITH
+                return RtVal::B(str_starts_with(rt_s(a0), rt_s(a1)));
+            }
+            // Registered UDF (builtin-first precedence; arity/types checked).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let mut argv: [RtVal; 8] = [RtVal::Null; 8];
+                let na: i64 = args.len();
+                let mut k: i64 = 0i64;
+                while k < na && k < 8i64 {
+                    argv[k] = eval_sexpr(args.arg_at(k), cat, env, lb, scratch);
+                    k = k + 1i64;
+                }
+                let f: QFn = env.f_ptrs[ui];
+                return f(&argv[0i64..na]);
+            }
+            return RtVal::Null;
+        }
+        _ => { return RtVal::Null; }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The RENDER walk — TStmt chain → String (ADR §7 Trama tier).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Append a TText run, decoding the template backslash escapes (`\{` `\}`
+// `` \` `` `\\`) to their bare characters (the emit_escaped de-escape rules,
+// applied directly to the output instead of to generated source).
+fn push_deescaped(out: &mut String, s: str) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 92u8 && i + 1i64 < n {
+            let e: u8 = str_byte_at(s, i + 1i64);
+            if e == 123u8 || e == 125u8 || e == 96u8 || e == 92u8 {
+                out.push_u8(e);
+                i = i + 2i64;
+                continue;
+            }
+        }
+        out.push_u8(c);
+        i = i + 1i64;
+    }
+}
+
+// `lb` is a RAW pointer through the whole walk (the eval reborrow-laundering
+// contract of eval_root — RtVal payloads never point into RBinds storage).
+fn render_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, lb: *mut RBinds,
+                scratch: &Writ, out: &mut String, chk: *mut Chk) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        if chk_bad(chk) { return; }   // a math error in a prior {{…}} aborts the render
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(t) => { push_deescaped(out, ttext_str(&t)); }
+            TStmt::Var(v) => {
+                let val: RtVal = eval_sx(v.expr_expr(), cat, env, lb, scratch, chk);
+                rt_push(out, val);
+            }
+            TStmt::If(i) => {
+                let cv: RtVal = eval_sx(i.expr_expr(), cat, env, lb, scratch, chk);
+                let mark: i64 = unsafe { (&*lb).n };
+                if rt_truthy(cv) {
+                    render_stmts(body_word(&i.body), cat, env, lb, scratch, out, chk);
+                } else {
+                    let altw: i64 = alt_word(&i.alt);
+                    if altw != 0i64 {
+                        render_stmts(altw, cat, env, lb, scratch, out, chk);
+                    }
+                }
+                let lbm: &mut RBinds = unsafe { &mut *lb };
+                lbm.n = mark;
+            }
+            TStmt::For(f) => {
+                let it: RtVal = eval_sx(f.expr_expr(), cat, env, lb, scratch, chk);
+                match it {
+                    RtVal::Node(w) => {
+                        if w.is_array() {
+                            let arr: &WArray<WAny> = w.as_array();
+                            let mark2: i64 = unsafe { (&*lb).n };
+                            unsafe { (&mut *lb).bind_val(f.var, RtVal::Null); }
+                            let slot: i64 = unsafe { (&*lb).n } - 1i64;
+                            let n: i64 = arr.len();
+                            let mut i2: i64 = 0i64;
+                            while i2 < n {
+                                // shape-driven element conversion: schema'd
+                                // nodes stay Node, scalar elements (FK_EARR
+                                // arrays) become their scalar RtVal.
+                                unsafe { (&mut *lb).set_val(slot, wany_to_rt(arr.get(i2))); }
+                                render_stmts(body_word(&f.body), cat, env, lb, scratch, out, chk);
+                                i2 = i2 + 1i64;
+                            }
+                            let lbm2: &mut RBinds = unsafe { &mut *lb };
+                            lbm2.n = mark2;
+                        }
+                        // a single (non-array) edge value: nothing to iterate
+                    }
+                    // a non-node edge value is nothing to iterate → empty loop
+                    RtVal::I(_) | RtVal::F(_) | RtVal::B(_) | RtVal::S(_)
+                      | RtVal::Null | RtVal::Error => { }
+                }
+            }
+            TStmt::Set(s) => {
+                let sv: RtVal = eval_sx(s.expr_expr(), cat, env, lb, scratch, chk);
+                unsafe { (&mut *lb).bind_val(s.var, sv); }
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tpl — compile-once / render-many dynamic template (ADR §3).
+// Owns the parsed IR doc (never-move arena) + a catalog snapshot.
+// ═══════════════════════════════════════════════════════════════════════════
+/// Compiled dynamic template — compile once with `Tpl::compile`, render many with `render`.
+/// Owns the parsed IR and a catalog snapshot; independent of any `QEnv` until render time.
+pub struct Tpl {
+    doc:  Writ,            // owns the Trama AST + embedded SExpr IR
+    head: i64,             // TStmt chain head word (into `doc`'s arena)
+    cat:  SchemaCatalog,   // catalog snapshot (Vec-backed — must stay SMALL,
+                           // see the SchemaCatalog layout note)
+}
+
+impl Tpl {
+    // Parse template TEXT → Trama IR; stitch the statement chain; run the
+    // shared IR optimizer over every embedded expression; run the env-
+    // independent checks. Errors are VALUES. Unknown fn names DEFER to the
+    // render-time strict check (I3 registry unification: templates resolve
+    // UDFs against the SAME env registry queries do — builtin-first, ADR §6;
+    // I1/I2 rejected them eagerly, which made template UDFs impossible).
+    /// Compiles template text against the catalog into a reusable `Tpl`.
+    /// Runs parse, the shared IR optimizer, and the env-independent checks; unknown function
+    /// names defer to the render-time strict check (they may be env-registered UDFs).
+    /// Errors are values (`Result`), never compile diagnostics.
+    pub fn compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, QError> {
+        let doc: Writ = writ_new(4096i64);
+        let tpl_any: WAny = parse_tpl(text, &doc);
+        if tpl_any.is_null() || !tpl_any.is_array() {
+            return Result::Err(qerr("Tpl::compile: template parse error — unbalanced tag or malformed embedded expression"));
+        }
+        let arr: &WArray<WAny> = tpl_any.as_array();
+        let head: i64 = chain_array(arr);
+        simplify_all(head, &doc);
+        let e0: QEnv = QEnv::new();
+        let reg0: QRelReg = qrelreg_new();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        chk.defer_unknown_fn = true;
+        check_stmts(head, cat, &e0, false, &mut lb, &mut chk, &reg0);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(Tpl { doc: doc, head: head, cat: catalog_clone(cat) });
+    }
+
+    /// Renders the template against `env`, returning the output string.
+    /// Runs the full strict check (var→schema resolution, field types) against this env first;
+    /// a math error in an embedded expression aborts the render as a `QError`.
+    /// Re-entrant over different envs (the check is per-env by design).
+    pub fn render(self: &Tpl, env: &QEnv) -> Result<String, QError> {
+        let reg0: QRelReg = qrelreg_new();
+        let mut lb: CBinds = cbinds_new();
+        let mut chk: Chk = chk_new();
+        check_stmts(self.head, &self.cat, env, true, &mut lb, &mut chk, &reg0);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        let scratch: Writ = writ_new(1024i64);
+        let mut rb: RBinds = rbinds_new();
+        let rbp: *mut RBinds = &mut rb;
+        let mut out: String = String::new();
+        // reuse the (passed) chk sink: a math error in a {{ … }} expression
+        // (eval_sx → chk_fail) aborts the render as a QError.
+        render_stmts(self.head, &self.cat, env, rbp, &scratch, &mut out, &mut chk);
+        if chk.failed { return Result::Err(chk_err(chk)); }
+        return Result::Ok(out);
+    }
+}
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATIC CHECK + the render-time Error→QError boundary — MOVED HERE from
+// check.logos (Chk/CBinds/check_root/check_expr/check_stmts/simplify_all,
+// sx_of) and from exec.logos (eval_sx). The query interpreter dies in P5;
+// this half is the TEMPLATE engine and outlives it. Same package, so the
+// move is layout-only: the surviving query files call these names unchanged.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Error latch — the first failure wins; the message is the QError payload.
+// `defer_unknown_fn`: BOTH compile phases set this (I3 registry unification)
+// — an unknown call name may be a UDF registered on the env, which only
+// exists at `run`/`render` (the strict phase then resolves builtin-first,
+// registry-second — ONE resolution path for queries and templates).
+struct Chk { failed: bool, msg: String, defer_unknown_fn: bool }
+fn chk_new() -> Chk { return Chk { failed: false, msg: String::new(), defer_unknown_fn: false }; }
+fn chk_err(c: Chk) -> QError { return QError { msg: c.msg }; }
+fn chk_fail(c: &mut Chk, a: str, b: str, d: str, e: str, f: str) {
+    if c.failed { return; }
+    c.failed = true;
+    c.msg.push_str(a);
+    c.msg.push_str(b);
+    c.msg.push_str(d);
+    c.msg.push_str(e);
+    c.msg.push_str(f);
+}
+
+// The human name of an SBin/SUn operator (diagnostics).
+fn bin_op_name(op: i32) -> str {
+    if op == OP_OR()  { return "||"; }
+    if op == OP_AND() { return "&&"; }
+    if op == OP_EQ()  { return "=="; }
+    if op == OP_NE()  { return "!="; }
+    if op == OP_LT()  { return "<"; }
+    if op == OP_LE()  { return "<="; }
+    if op == OP_GT()  { return ">"; }
+    if op == OP_GE()  { return ">="; }
+    if op == OP_ADD() { return "+"; }
+    if op == OP_SUB() { return "-"; }
+    if op == OP_MUL() { return "*"; }
+    if op == OP_DIV() { return "/"; }
+    return "%";
+}
+
+// Template-local CHECK bindings ({% for %} loop vars, {% set %} vars) —
+// scoped: callers mark/rollback around bodies; lookups scan newest-first.
+const CB_CAP: i64 = 40i64;
+struct CBinds {
+    names: [str; 40],
+    tags:  [i32; 40],
+    codes: [u64; 40],
+    // `CTy.ordw` for the bound value — see the ⚠ at `CTy`. A row variable over a
+    // SCALAR-element array of `u64`, and the `key` of a group by a `u64` column,
+    // are both ordered values whose tag is CT_INT and whose order moved; without
+    // this the bit dies at the binding and an `order by` over either falls back
+    // to the signed compare.
+    ordws: [bool; 40],
+    n:     i64,
+}
+fn cbinds_new() -> CBinds {
+    return CBinds { names: [""; 40], tags: [0i32; 40], codes: [0u64; 40],
+                    ordws: [false; 40], n: 0i64 };
+}
+impl CBinds {
+    fn bind(self: &mut CBinds, name: str, tag: i32, code: u64) {
+        self.bind_o(name, tag, code, false);
+    }
+    fn bind_o(self: &mut CBinds, name: str, tag: i32, code: u64, ordw: bool) {
+        if self.n >= CB_CAP { return; }
+        self.names[self.n] = name;
+        self.tags[self.n]  = tag;
+        self.codes[self.n] = code;
+        self.ordws[self.n] = ordw;
+        self.n = self.n + 1i64;
+    }
+    fn find(self: &CBinds, name: str) -> i64 {
+        let mut i: i64 = self.n - 1i64;
+        while i >= 0i64 {
+            if str_eq(self.names[i], name) { return i; }
+            i = i - 1i64;
+        }
+        return -1i64;
+    }
+}
+
+// The COLLECTION type of a bound source (QB_SRC word): CT_ARR{schema code}
+// for schema'd rows, CT_SARR{elem tag} for scalar elements, CT_UNKNOWN for an
+// EMPTY array (nothing to type — and nothing will be evaluated over it).
+fn src_elem_ty(name: str, word: i64, cat: &SchemaCatalog, chk: &mut Chk) -> CTy {
+    let av: WAny = WAny::ref_to(word as *const u8);
+    if !av.is_array() {
+        chk_fail(chk, "source '", name, "' is not bound to a Writ array", "", "");
+        return ct(CT_UNKNOWN);
+    }
+    let arr: &WArray<WAny> = av.as_array();
+    if arr.len() == 0i64 { return ct(CT_UNKNOWN); }   // empty source: zero rows
+    let e0: WAny = arr.get(0i64);
+    let code: u64 = node_schema_code(e0);
+    if code != 0u64 {
+        if cat.sidx_of_code(code) < 0i64 {
+            chk_fail(chk, "source '", name,
+                     "' has an element schema that is not in the catalog — add it to schema_catalog!",
+                     "", "");
+            return ct(CT_UNKNOWN);
+        }
+        return CTy { t: CT_ARR, code: code, ordw: false, lit: false };
+    }
+    // Scalar elements: type off the first element's value shape.
+    let ev: RtVal = wany_to_rt(e0);
+    match ev {
+        RtVal::S(_s) => { return CTy { t: CT_SARR, code: CT_STR as u64, ordw: false, lit: false }; }
+        RtVal::B(_b) => { return CTy { t: CT_SARR, code: CT_BOOL as u64, ordw: false, lit: false }; }
+        RtVal::F(_f) => { return CTy { t: CT_SARR, code: CT_FLT as u64, ordw: false, lit: false }; }
+        RtVal::I(_i) => { return CTy { t: CT_SARR, code: CT_INT as u64, ordw: false, lit: false }; }
+        // A scalar-element array whose first element is none of the four scalar
+        // shapes is not a typed source. Node = a Writ object that reached the
+        // scalar branch; Null/Error = no shape to read a column type off.
+        RtVal::Node(_) | RtVal::Null | RtVal::Error => {
+            chk_fail(chk, "source '", name,
+                     "' elements are not schema'd Writ objects", "", "");
+            return ct(CT_UNKNOWN);
+        }
+    }
+}
+
+// Resolve a ROOT name (bare ident / $param / loop var) to a checked type.
+// DOTTED rel-column idents ("p.b" — the rel-field rewrite's output) resolve
+// through the CT_RELROW binding of their root var against the rel registry.
+fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+              lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
+    let li: i64 = lb.find(name);
+    if li >= 0i64 { return CTy { t: lb.tags[li], code: lb.codes[li], ordw: lb.ordws[li], lit: false }; }
+    let dot: i64 = dotted_at(name);
+    if dot > 0i64 {
+        let root: str = str_prefix(name, dot);
+        let li2: i64 = lb.find(root);
+        if li2 >= 0i64 && lb.tags[li2] == CT_RELROW {
+            let ri: i64 = lb.codes[li2] as i64;
+            let ci: i64 = qreg_col(reg, ri, str_suffix(name, dot + 1i64));
+            if ci < 0i64 {
+                // Unreachable post-rewrite (the rewrite validated columns);
+                // defensive for hand-built IR.
+                chk_fail(chk, "unknown column '", str_suffix(name, dot + 1i64),
+                         "' on rel '", reg.names[ri], "'");
+                return ct(CT_UNKNOWN);
+            }
+            return ct(reg.ctys.get(reg.coff[ri] + ci) as i32);
+        }
+        return ct(CT_UNKNOWN);
+    }
+    let ei: i64 = env.find(name);
+    if ei >= 0i64 {
+        let k: i32 = env.kinds[ei];
+        if k == QB_I64  { return ct(CT_INT); }
+        if k == QB_F64  { return ct(CT_FLT); }
+        if k == QB_BOOL { return ct(CT_BOOL); }
+        if k == QB_STR  { return ct(CT_STR); }
+        if k == QB_NODE {
+            if env.codes[ei] == 0u64 {
+                chk_fail(chk, "variable '", name,
+                         "' is not bound to a schema'd Writ object", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if cat.sidx_of_code(env.codes[ei]) < 0i64 {
+                chk_fail(chk, "variable '", name,
+                         "' has a schema that is not in the catalog — add it to schema_catalog!",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            return CTy { t: CT_NODE, code: env.codes[ei], ordw: false, lit: false };
+        }
+        if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
+        if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
+        if k == QB_ESRC  { return ct(CT_DYNSRC); }   // lenient collection
+        if k == QB_TSRC  { return ct(CT_TREESRC); }  // virtual tree source
+    }
+    if strict {
+        chk_fail(chk, "unknown variable '", name,
+                 "' — bind it on the QEnv before render", "", "");
+    }
+    return ct(CT_UNKNOWN);
+}
+
+// ⚠ `sx_is_origin` LIVED HERE AND IS RETIRED. It answered "is this expression
+// the VALUE ITSELF — a field, a bound name, a parameter — rather than something
+// computed from one?", and the sort key used it to refuse a computed key the
+// column's signedness. Its whole ground was that the evaluator computed
+// arithmetic signed everywhere but an aggregate argument, so a computed key
+// could not be ordered under a predicate it had not been computed under. The
+// claim now rides on the expression node itself (`SBin.ordw`), the two agree at
+// every position, and a restriction whose stated retirement condition has
+// arrived is a false comment, not a rule. See the Sort arm of `check_rexpr`.
+
+fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+              lb: &CBinds, chk: &mut Chk, reg: &QRelReg) -> CTy {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return ct(CT_STR); }
+            if v.is_bool()   { return ct(CT_BOOL); }
+            if v.is_float()  { return ct(CT_FLT); }
+            // Out-of-range integer literal: the tokenizer poisoned it to i64::MIN
+            // (unrepresentable by a valid non-negative decimal token) — surface a
+            // compile error so Query::compile / Tpl::compile return Err.
+            if v.as_i64() == el_lit_poison() {
+                chk_fail(chk, "integer literal out of range — exceeds i64::MAX (9223372036854775807)", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            // A NON-NEGATIVE integer literal is in the domain of every integer
+            // type the EL admits, so it is evidence for neither signedness and
+            // takes whatever claim its neighbours carry (`ct_join_ordw`). The
+            // tokenizer produces only non-negative literals — `-1` parses as a
+            // unary minus over `1` and that node drops the claim — so the guard
+            // below is about a literal reaching here by another route, not about
+            // a spelling the grammar can produce today.
+            if v.as_i64() >= 0i64 { return ct_lit(CT_INT); }
+            return ct(CT_INT);
+        }
+        SExpr::Param(p) => { return check_root(p.name, cat, env, strict, lb, chk, reg); }
+        SExpr::Var(v)   => { return check_root(v.name, cat, env, strict, lb, chk, reg); }
+        SExpr::Field(f) => {
+            let base_ref: WRef<SExpr> = f.base;
+            if base_ref.any().is_null() {
+                return check_root(f.name, cat, env, strict, lb, chk, reg);
+            }
+            let bt: CTy = check_expr(f.base_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if bt.t == CT_NODE {
+                let si: i64 = cat.sidx_of_code(bt.code);
+                if si < 0i64 {
+                    chk_fail(chk, "field '", f.name,
+                             "': the object's schema is not in the catalog", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let fi: i64 = cat.fidx(si, f.name);
+                if fi < 0i64 {
+                    chk_fail(chk, "unknown field '", f.name, "' on schema '",
+                             cat.s_names.get(si), "'");
+                    return ct(CT_UNKNOWN);
+                }
+                if cat.f_kinds.get(fi) == (FK_EDGE as i64) {
+                    if cat.f_targets.get(fi) == 0u64 {
+                        chk_fail(chk, "edge field '", f.name,
+                                 "' targets a schema missing from the catalog", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    return CTy { t: CT_ARR, code: cat.f_targets.get(fi), ordw: false, lit: false };
+                }
+                if cat.f_kinds.get(fi) == (FK_EARR as i64) {
+                    // scalar-element array edge — CT tags equal EL tags on the
+                    // scalar tier, so the catalog EL type maps across directly.
+                    return CTy { t: CT_SARR, code: cat.f_tys.get(fi) as u64, ordw: cat.f_ordw.get(fi), lit: false };
+                }
+                if cat.f_kinds.get(fi) == (FK_ANY as i64) {
+                    // WAny-typed field on a STRICT schema: resolves LENIENTLY
+                    // (ADR §4) — value shape decided at runtime, may be Null.
+                    return ct(CT_DYN);
+                }
+                // THE SCALAR COLUMN READ — the one place a checked type comes
+                // straight off a declared column, so the one place `ordw` enters
+                // the checker at all. Everything downstream of here either
+                // carries it (an ident binding, the group key, the aggregate
+                // argument, the sort key, an arithmetic result whose operands
+                // agree — `ct_join_ordw`) or drops it.
+                return CTy { t: cat.f_tys.get(fi) as i32, code: 0u64,
+                             ordw: cat.f_ordw.get(fi), lit: false };
+            }
+            if bt.t == CT_DYN {
+                // Lenient base: the field resolves at RUNTIME by name
+                // (field_read's map/TOM arms); a miss reads Null.
+                return ct(CT_DYN);
+            }
+            if bt.t == CT_TREEROW {
+                // A virtual graph-source edge row: the FIXED column table
+                // (bind_source_tree's contract). parent/child are ids
+                // (container = node handle, leaf = synthetic); `tag` is the
+                // RAW type_code (open vocabulary — user tags flow through).
+                // vi/vs are TOTAL typed payload columns with canonical
+                // fillers (0 / ""), `kind` discriminating which is meaningful
+                // — ONE vocabulary with the static walkers; f64 rides vi as
+                // IEEE bits. Typed precisely, so a rel column may consume
+                // them (runtime mapping fusion needs exactly this).
+                if str_eq(f.name, "parent") || str_eq(f.name, "child")
+                || str_eq(f.name, "idx") || str_eq(f.name, "tag")
+                || str_eq(f.name, "vi") { return ct(CT_INT); }
+                if str_eq(f.name, "key") || str_eq(f.name, "kind")
+                || str_eq(f.name, "vs") { return ct(CT_STR); }
+                chk_fail(chk, "unknown tree-source column '", f.name,
+                         "' — a graph edge row has (parent, key, idx, child, kind, tag, vi, vs)",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_ARR || bt.t == CT_SARR || bt.t == CT_DYNSRC
+            || bt.t == CT_TREESRC {
+                chk_fail(chk, "field '", f.name,
+                         "' is read through a collection edge — loop over it with {% for %} first",
+                         "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_RELROW {
+                // Unreachable post-rewrite (rel fields become dotted idents);
+                // defensive for hand-built IR.
+                chk_fail(chk, "field '", f.name,
+                         "' is read off a rel row outside the rel rewrite", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if bt.t == CT_UNKNOWN {
+                // Compile phase: the base is unresolved. With LENIENT bindings
+                // in the language the field may legitimately resolve at run
+                // even when no catalog schema declares it — the strict phase
+                // (which sees the env's binding kinds) owns the rejection.
+                return ct(CT_UNKNOWN);
+            }
+            chk_fail(chk, "field access '.", f.name, "' on a scalar value", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            let lt: CTy = check_expr(b.lhs_expr(), cat, env, strict, lb, chk, reg);
+            let rt: CTy = check_expr(b.rhs_expr(), cat, env, strict, lb, chk, reg);
+            // ⚠ STAMP THE NODE'S OWN CLAIM, AND STAMP IT UNCONDITIONALLY.
+            // `check_expr` runs TWICE over the same IR — a LENIENT compile pass
+            // and a STRICT run pass with the env's bindings visible — and the
+            // strict pass may resolve an operand the lenient one left CT_UNKNOWN.
+            // Writing only the `true` case would leave a stale claim from the
+            // earlier pass whenever the two disagree, so every path through this
+            // arm ends with a write, and this is the one that covers the early
+            // returns below (`chk.failed`, an object operand, a DYN or UNKNOWN
+            // operand): those all mean "no claim", which is `false`.
+            // `WMap<Wu6,_>::set` inserts-or-updates, so re-stamping is idempotent
+            // and does not grow the doc.
+            b.ordw = false;
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if ct_is_obj(lt.t) || ct_is_obj(rt.t) {
+                chk_fail(chk, "operator '", bin_op_name(op),
+                         "' cannot be applied to an object", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            // A DYN operand (lenient) types at RUNTIME: comparisons stay BOOL
+            // (Null compares false), arithmetic goes DYN (Null propagates) —
+            // the ADR §4 table.
+            let open: bool = ct_is_open(lt.t) || ct_is_open(rt.t);
+            let dyn_op: bool = lt.t == CT_DYN || rt.t == CT_DYN;
+            if op == OP_AND() || op == OP_OR() {
+                if (lt.t != CT_BOOL && !ct_is_open(lt.t))
+                   || (rt.t != CT_BOOL && !ct_is_open(rt.t)) {
+                    chk_fail(chk, "'", bin_op_name(op), "' needs bool operands", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                return ct(CT_BOOL);
+            }
+            if op == OP_EQ() || op == OP_NE() {
+                if !open {
+                    let ok: bool = (ct_is_num(lt.t) && ct_is_num(rt.t))
+                                 || (lt.t == CT_STR && rt.t == CT_STR)
+                                 || (lt.t == CT_BOOL && rt.t == CT_BOOL);
+                    if !ok {
+                        chk_fail(chk, "'", bin_op_name(op),
+                                 "' compares values of different types", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                }
+                return ct(CT_BOOL);
+            }
+            if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
+                if !open {
+                    let ok2: bool = (ct_is_num(lt.t) && ct_is_num(rt.t))
+                                  || (lt.t == CT_STR && rt.t == CT_STR);
+                    if !ok2 {
+                        chk_fail(chk, "'", bin_op_name(op),
+                                 "' needs two numbers or two strings", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                }
+                // ⚠ THE ORDERED COMPARE IS A POSITION, and until this line it was
+                // the only integer operation in the tree with no carrier at all —
+                // `where s.u > 5` over a u64 column answered NO rows, because
+                // 2^63 reads as the most negative i64 and 2^64−1 as −1. The
+                // node's VALUE is a bool, so `ordw` here is not a claim about the
+                // result: it is the claim that the two OPERANDS are ranked under
+                // the moved order, i.e. keyed through `el_wrap_ord_key`. The rule
+                // is the same one the arithmetic uses — `ct_join_ordw` — because
+                // the antecedent is the same: an unsigned operand and a neutral
+                // literal agree, an unsigned and a signed operand do not.
+                b.ordw = ct_join_ordw(lt, rt);
+                return ct(CT_BOOL);
+            }
+            if op == OP_ADD() {
+                if lt.t == CT_STR || rt.t == CT_STR {
+                    let other: i32 = if lt.t == CT_STR { rt.t } else { lt.t };
+                    if other != CT_STR && !ct_is_open(other) {
+                        chk_fail(chk, "'+' cannot mix a string with a number", "", "", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    return ct(CT_STR);
+                }
+                // numeric add
+                if (lt.t == CT_BOOL) || (rt.t == CT_BOOL) {
+                    chk_fail(chk, "'+' needs numeric operands", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                if dyn_op { return ct(CT_DYN); }
+                if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+                if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
+                // ⚠ AN INTEGER ARITHMETIC RESULT CARRIES ITS OPERANDS' CLAIM
+                // WHEN THEY AGREE. This used to be an unconditional drop, with
+                // the ground that "what is the signedness of `u64 + i64`" was a
+                // semantics question nobody had decided. The undecided case is
+                // still dropped — that is what `ct_join_ordw` answers false to —
+                // but the DECIDED cases were being dropped with it, and that is
+                // not a deferral, it is an answer: `sum(s.u + s.u)` over a single
+                // row holding 2^62 was REFUSED (2^63 fits u64; the i64 add
+                // overflows), and `sum(s.u + 1)` at 2^64-1 answered 0 with no
+                // error (the payloads are -1 and 1). The runtime reads this
+                // OFF THE NODE (`SBin.ordw`) — it used to read it off
+                // `QPlan.agg_argu` through `eval_sexpr`'s `ua` position flag,
+                // which is why one expression had two values depending on where
+                // it sat.
+                b.ordw = ct_join_ordw(lt, rt);
+                return CTy { t: CT_INT, code: 0u64,
+                             ordw: b.ordw, lit: ct_join_lit(lt, rt) };
+            }
+            // SUB / MUL / DIV / MOD — numeric-only tier.
+            if (!ct_is_open(lt.t) && !ct_is_num(lt.t))
+               || (!ct_is_open(rt.t) && !ct_is_num(rt.t)) {
+                chk_fail(chk, "'", bin_op_name(op), "' needs numeric operands", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if op == OP_MOD() {
+                if lt.t == CT_FLT || rt.t == CT_FLT {
+                    chk_fail(chk, "'%' needs integer operands", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                if dyn_op { return ct(CT_DYN); }
+                if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+                b.ordw = ct_join_ordw(lt, rt);
+                return CTy { t: CT_INT, code: 0u64,
+                             ordw: b.ordw, lit: ct_join_lit(lt, rt) };
+            }
+            if dyn_op { return ct(CT_DYN); }
+            if lt.t == CT_UNKNOWN || rt.t == CT_UNKNOWN { return ct(CT_UNKNOWN); }
+            if lt.t == CT_FLT || rt.t == CT_FLT { return ct(CT_FLT); }
+            b.ordw = ct_join_ordw(lt, rt);
+            return CTy { t: CT_INT, code: 0u64,
+                         ordw: b.ordw, lit: ct_join_lit(lt, rt) };
+        }
+        SExpr::Un(u) => {
+            let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if u.op == OP_NOT() {
+                if at.t != CT_BOOL && !ct_is_open(at.t) {
+                    chk_fail(chk, "'!' needs a bool operand", "", "", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                return ct(CT_BOOL);
+            }
+            // unary minus
+            if !ct_is_open(at.t) && !ct_is_num(at.t) {
+                chk_fail(chk, "unary '-' needs a numeric operand", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            return CTy { t: at.t, code: 0u64, ordw: false, lit: false };
+        }
+        SExpr::Cond(c) => {
+            let cc: CTy = check_expr(c.cond_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            // The condition must be a bool (mirrors a where/having predicate and
+            // the static codegen) — not C-style truthiness over an int/str/obj.
+            // ct_is_open admits the compile-phase-open / lenient DYN cases.
+            if cc.t != CT_BOOL && !ct_is_open(cc.t) {
+                chk_fail(chk, "a ternary condition must be a bool", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            let tt: CTy = check_expr(c.then_expr(), cat, env, strict, lb, chk, reg);
+            let et: CTy = check_expr(c.else_expr(), cat, env, strict, lb, chk, reg);
+            if chk.failed { return ct(CT_UNKNOWN); }
+            if ct_is_obj(tt.t) || ct_is_obj(et.t) {
+                chk_fail(chk, "a ternary branch cannot yield an object", "", "", "", "");
+                return ct(CT_UNKNOWN);
+            }
+            if tt.t == CT_DYN || et.t == CT_DYN { return ct(CT_DYN); }
+            if tt.t == CT_UNKNOWN { return et; }
+            if et.t == CT_UNKNOWN { return tt; }
+            // ⚠ `ordw` IS A CLAIM ABOUT THE VALUE'S ORIGIN, and a ternary has two.
+            // The whole integer family shares one code (CT_INT), so `tt.t == et.t`
+            // holds for a u64 THEN and an i64 ELSE — and returning THEN verbatim
+            // rode u64-ness onto rows that took the i64 branch. MEASURED both ways
+            // with a rebuild each: `order by (s.p ? s.u : s.v)` over rows that ALL
+            // take the i64 branch answered the WRAPPED order, and swapping the
+            // branches flipped the answer. That is a signed reading that was right
+            // before the plumb existed, so it is a regression and not a gap.
+            //
+            // THE RULE, stated because two defects have now sat at hand-decided
+            // `ordw` sites and the next one will too: a `CTy` may claim `ordw`
+            // only where the value's origin is KNOWN to carry it. An operation
+            // that PRESERVES one of its inputs may pass it on when every input
+            // agrees; where they disagree there is no honest answer, so the
+            // claim is DROPPED, which restores the reading this position had
+            // before. `p ? u64 : i64` is still that case and still drops.
+            //
+            // ⚠ THE RULE IS NO LONGER SPELLED OUT HERE. It used to end "there is
+            // no honest answer in a one-integer-code domain", and that clause was
+            // the diagnosis of a domain that was missing its neutral element:
+            // `p ? s.u : 0` had to drop a claim that `p ? s.u : s.u` could keep,
+            // for no reason anyone would defend. `CTy.lit` supplies the missing
+            // state and `ct_join_ordw` is the rule, shared with the arithmetic
+            // tier so the two cannot drift.
+            if tt.t == et.t {
+                if tt.ordw == et.ordw && tt.lit == et.lit { return tt; }
+                return CTy { t: tt.t, code: tt.code,
+                             ordw: ct_join_ordw(tt, et), lit: ct_join_lit(tt, et) };
+            }
+            if ct_is_num(tt.t) && ct_is_num(et.t) { return ct(CT_FLT); }
+            chk_fail(chk, "ternary branches have different types", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Call(c) => {
+            let bfn: i32 = builtin_of_name(c.fn_name);
+            if bfn != BFN_UNKNOWN() {
+                let args: SExprArr = c.args_arr();
+                if args.len() != builtin_arity(bfn) {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name, "'", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let mut i: i64 = 0i64;
+                while i < args.len() {
+                    let at2: CTy = check_expr(args.arg_at(i), cat, env, strict, lb, chk, reg);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    // DYN args pass — at runtime any non-string argument
+                    // (Null included) makes the builtin yield Null (ADR §4).
+                    if at2.t != CT_STR && !ct_is_open(at2.t) {
+                        chk_fail(chk, "'", c.fn_name, "' needs string arguments", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    i = i + 1i64;
+                }
+                return ct(builtin_ret_ty(bfn));   // EL_TY_* == CT_* on the scalar tier
+            }
+            // Not a builtin: the UDF registry (builtin-first precedence, ADR §6).
+            let ui: i64 = env.find_fn(c.fn_name);
+            if ui >= 0i64 {
+                let uargs: SExprArr = c.args_arr();
+                if uargs.len() != env.f_arity[ui] {
+                    chk_fail(chk, "wrong number of arguments for '", c.fn_name,
+                             "' — the registered signature differs", "", "");
+                    return ct(CT_UNKNOWN);
+                }
+                let mut ai: i64 = 0i64;
+                while ai < uargs.len() {
+                    let uat: CTy = check_expr(uargs.arg_at(ai), cat, env, strict, lb, chk, reg);
+                    if chk.failed { return ct(CT_UNKNOWN); }
+                    // EXACT match (no implicit numeric promotion): the UDF
+                    // body pattern-matches the RtVal variant it declared.
+                    // DYN (lenient) args pass UNCHECKED — the RtVal reaches
+                    // the UDF as-is (its match owns the surprise).
+                    let want: i32 = env.f_args[ui * QENV_FN_ARGS + ai];
+                    if !ct_is_open(uat.t) && uat.t != want {
+                        chk_fail(chk, "argument type mismatch for '", c.fn_name,
+                                 "' — the registered signature differs", "", "");
+                        return ct(CT_UNKNOWN);
+                    }
+                    ai = ai + 1i64;
+                }
+                return ct(env.f_ret[ui]);
+            }
+            // Unknown: EVERY compile phase defers (query AND template — I3
+            // registry unification: the registry lives on the env, which only
+            // exists at run/render); the STRICT phase rejects.
+            if !strict && chk.defer_unknown_fn { return ct(CT_UNKNOWN); }
+            chk_fail(chk, "unknown function '", c.fn_name,
+                     "' — not a builtin (len/upper/lower/contains/starts_with) and not registered on the QEnv (register_fn)",
+                     "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Comp(_cp) => {
+            chk_fail(chk, "comprehension expressions are not supported in the dynamic surface — use a rel block", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        SExpr::Tuple(_tp) => {
+            chk_fail(chk, "tuple expressions are not supported in templates", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
+        _ => { return ct(CT_UNKNOWN); }
+    }
+}
+
+// Statement-level check walk (scoped bodies via CBinds mark/rollback).
+fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
+               lb: &mut CBinds, chk: &mut Chk, reg: &QRelReg) {
+    let mut cur: i64 = head;
+    while cur != 0i64 && !chk.failed {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(_t) => { }
+            TStmt::Var(v) => {
+                let t: CTy = check_expr(v.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed && ct_is_obj(t.t) {
+                    chk_fail(chk, "cannot interpolate an object — render its scalar fields instead",
+                             "", "", "", "");
+                }
+            }
+            TStmt::If(i) => {
+                let c: CTy = check_expr(i.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed && ct_is_obj(c.t) {
+                    chk_fail(chk, "an object is not a condition", "", "", "", "");
+                }
+                let mark: i64 = lb.n;
+                check_stmts(body_word(&i.body), cat, env, strict, lb, chk, reg);
+                lb.n = mark;
+                let altw: i64 = alt_word(&i.alt);
+                if altw != 0i64 {
+                    check_stmts(altw, cat, env, strict, lb, chk, reg);
+                    lb.n = mark;
+                }
+            }
+            TStmt::For(f) => {
+                let it: CTy = check_expr(f.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed {
+                    let mark2: i64 = lb.n;
+                    if it.t == CT_ARR {
+                        lb.bind(f.var, CT_NODE, it.code);
+                    } else if it.t == CT_SARR {
+                        // scalar-element array: the loop var binds the SCALAR
+                        lb.bind_o(f.var, it.code as i32, 0u64, it.ordw);
+                    } else if it.t == CT_DYNSRC || it.t == CT_DYN {
+                        // lenient collection: elements type at runtime; a
+                        // non-array value iterates as an EMPTY loop (ADR §4)
+                        lb.bind(f.var, CT_DYN, 0u64);
+                    } else if it.t == CT_UNKNOWN {
+                        lb.bind(f.var, CT_UNKNOWN, 0u64);
+                    } else {
+                        chk_fail(chk, "'{% for %}' needs a collection-valued edge field (a WRef<S> field holding a Writ array)",
+                                 "", "", "", "");
+                    }
+                    if !chk.failed {
+                        check_stmts(body_word(&f.body), cat, env, strict, lb, chk, reg);
+                    }
+                    lb.n = mark2;
+                }
+            }
+            TStmt::Set(s) => {
+                let t2: CTy = check_expr(s.expr_expr(), cat, env, strict, lb, chk, reg);
+                if !chk.failed {
+                    if ct_is_obj(t2.t) {
+                        chk_fail(chk, "'{% set %}' of an object is not supported", "", "", "", "");
+                    } else {
+                        lb.bind_o(s.var, t2.t, t2.code, t2.ordw);
+                    }
+                }
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPTIMIZER REUSE — after parse, run the queue-1 `simplify_sexpr` IR→IR pass
+// on every embedded expression, REBINDING each statement's expr edge to the
+// simplified tree (render then walks the folded IR — `{{ 1 + 2 }}` renders
+// from a single SLit).
+// ═══════════════════════════════════════════════════════════════════════════
+fn simplify_all(head: i64, h: &Writ) {
+    let mut cur: i64 = head;
+    while cur != 0i64 {
+        let e: TStmt = WAny::ref_to(cur as *const u8).view::<TStmt>();
+        match e {
+            TStmt::Text(_t) => { }
+            TStmt::Var(v) => { v.expr = simplify_sexpr(v.expr_expr(), h); }
+            TStmt::Set(s) => { s.expr = simplify_sexpr(s.expr_expr(), h); }
+            TStmt::If(i) => {
+                i.expr = simplify_sexpr(i.expr_expr(), h);
+                simplify_all(body_word(&i.body), h);
+                let altw: i64 = alt_word(&i.alt);
+                if altw != 0i64 { simplify_all(altw, h); }
+            }
+            TStmt::For(f) => {
+                f.expr = simplify_sexpr(f.expr_expr(), h);
+                simplify_all(body_word(&f.body), h);
+            }
+        }
+        cur = next_of_stmt(cur);
+    }
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ QUERY — the relational executor (ADR 0012-queue2 §7, slice I2) ═══
+//
+// `Query::compile(text, &cat)` parses via the REUSED generated surface parser
+// (`wql_surface_parser::parse_program`), rejects rel blocks (I3), lowers via
+// the REUSED `lower_rquery_to_rexpr` and runs the REUSED `simplify_rexpr_ref`
+// relational peephole (queue-1 optimizer verbatim — the empty signal becomes
+// a zero-row fast path). The env-INDEPENDENT half of the checker runs at
+// compile; the FULL strict check + the join-strategy cascade decision run at
+// the top of every `run(&env)` (the I1 compile/render precedent: sources,
+// params and the UDF/UDA registry live on the env). `run` then tree-walks the
+// RExpr algebra over materialized Vec<row> pipelines (ADR §7) and returns a
+// self-contained QRows.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// Raw-pointer latch access for the EXECUTOR tier: exec fns return non-Copy
+// row sets, and the conservative borrow regions would pin a `&mut Chk` for
+// the result's lifetime — the RBinds provenance-laundering idiom applies.
+fn chk_bad(chk: *mut Chk) -> bool { return unsafe { (&*chk).failed }; }
+fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
+    unsafe { chk_fail(&mut *chk, a, b, d, e, f); }
+}
+
+// An SExpr view from a raw arena word (the provenance-laundering idiom).
+fn sx_of(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
+
+// exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
+// Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
+// cell, join/group key, aggregate arg). If the evaluation produced a math error
+// (RtVal::Error from checked arithmetic), record it on the Chk sink so run() /
+// render() surface it as a QError, and return Null in its place (the row is
+// then irrelevant — the whole query aborts). Internal (recursive) eval stays on
+// eval_sexpr; only the boundaries convert Error → error.
+// ⚠ THE BOUNDARY NO LONGER MAKES A CLAIM. It used to take a `ua: bool` — "the
+// arithmetic in THIS position is unsigned" — and exactly one of the 16 call
+// sites ever passed true, which is why one expression had two values. The claim
+// is a property of the expression and now rides on its nodes (`SBin.ordw`), so
+// every boundary evaluates the same expression the same way.
+fn eval_sx(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
+           scratch: &Writ, chk: *mut Chk) -> RtVal {
+    let v: RtVal = eval_sexpr(e, cat, env, lb, scratch);
+    if rt_is_err(v) {
+        chk_fail_p(chk, "arithmetic error (integer overflow or division by zero) in a query expression", "", "", "", "");
+        return RtVal::Null;
+    }
+    return v;
+}

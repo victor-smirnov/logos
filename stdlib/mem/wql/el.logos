@@ -1033,7 +1033,7 @@ pub fn el_wrap_ord_greatest() -> i64 { return -1i64; }
 // convention the corpus already accepts (`max(u64) == −1`).
 //
 // Consumers: the `sum` accumulator in `deem/exec.logos` and `deem/incr.logos`,
-// and the scalar arithmetic tier of `deem/eval.logos` under an aggregate
+// and the scalar arithmetic tier of `deem/tpl.logos` under an aggregate
 // argument the checker typed unsigned.
 pub fn el_wrap_add(a: i64, b: i64) -> Option<i64> {
     match (a as u64).checked_add(b as u64) {
