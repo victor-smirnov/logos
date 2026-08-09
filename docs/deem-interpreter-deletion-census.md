@@ -32,10 +32,10 @@ Every symbol below has exactly ONE definition in `stdlib/`:
 | symbol | sole definition | in the cut? |
 |---|---|---|
 | `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` (three files in the tree carry that basename, so this census always writes this one with its path) | yes |
-| `relctx_new` `exec_root` `rt_key_hash` `struct RelCtx` `struct OutTab` | `stdlib/mem/deem/exec.logos` | yes |
+| `relctx_new` `exec_root` `rt_key_hash` `es_scan` `struct RelCtx` `struct OutTab` | `stdlib/mem/deem/exec.logos` | yes |
 | `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` | yes |
 | `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported at `8c5ad0ea` out of `eval.logos`/`stdlib/mem/deem/check.logos`/`exec.logos`, survives the cut (§1c) |
-| `ts_scan` `h_step` `es_scan` `struct RowSet` `dyn_graph_edges` | `stdlib/mem/deem/graphsrc.logos` | **NO** — ported at `4569535c` out of `exec.logos`, survives the cut (§5 C4) |
+| `ts_scan` `h_step` `struct RowSet` `dyn_graph_edges` `dyn_graph_edge_rows` `struct DynEdge` | `stdlib/mem/deem/graphsrc.logos` | **NO** — ported at `4569535c` out of `exec.logos`, survives the cut (§5 C4). ⚠ `es_scan` came BACK to `exec.logos`: it walks nothing and its only caller is the `QB_EDGE` arm, so here it would have been unreachable and unsensored after the cut (§5 C4 (3)) |
 
 ⚠ The last two rows USED to read `eval.logos` + `stdlib/mem/deem/check.logos` + `exec.logos`, i.e. doomed. Two ports
 moved those twelve names to files that are not in the cut, so the blocker below now rests on the first
@@ -124,17 +124,17 @@ Line counts RE-MEASURED by `wc -l` on the MERGED tree, after both ports (`8c5ad0
 | file | lines | why it is in the cut |
 |---|---|---|
 | `stdlib/mem/deem/check.logos` | 974 | on the list (was 1672; the EL/template checker left for `tpl.logos`) |
-| `stdlib/mem/deem/exec.logos` | 1167 | on the list (1472 → 1450, `eval_sx` left; → 1167, `ts_scan` and its closure left for `graphsrc.logos`) |
+| `stdlib/mem/deem/exec.logos` | 1212 | on the list (1472 → 1450, `eval_sx` left; → 1167, `ts_scan` and its closure left for `graphsrc.logos`; → 1212, `es_scan` came BACK from `graphsrc.logos` beside its only caller — see §5 C4 (3)) |
 | `stdlib/mem/deem/query.logos` | 963 | on the list |
 | `stdlib/mem/deem/incr.logos` | 1978 | §1a; also holds `pub struct FactStore`, `IncrJoin` |
 | `stdlib/mem/deem/incr_rec.logos` | 1466 | §1a; `IncrRec` |
 | `stdlib/mem/deem/mapping_state.logos` | 92 | §1b |
 | `stdlib/lcm/deem/facthistory.logos` | 514 | `FactHistory::new` composes `FactStore::new`; sole non-test constructor of `FactStore` |
-| **total** | **7154** | 974+1167+963+1978+1466+92+514, `wc -l` on the merged tree |
+| **total** | **7199** | 974+1212+963+1978+1466+92+514, `wc -l` on the merged tree |
 
 Two files are NOT in this table and NOT in the cut, each ported out of it precisely so it outlives it:
 `stdlib/mem/deem/tpl.logos` (1339, the template engine, §1c) and `stdlib/mem/deem/graphsrc.logos`
-(373, the graph walker, §5 C4). `eval.logos` no longer exists.
+(389, the graph walker + `DynEdge`/`dyn_graph_edge_rows`, §5 C4). `eval.logos` no longer exists.
 
 ⚠ **This total has now been wrong three times** (8763 → 8480/7437 → 7154), each time because a port
 moved lines out from under a recorded number. Do not copy it: run `wc -l` over the seven rows.
@@ -216,7 +216,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 3 | `deem_dred_phases23_spec` | 3 | — | A | executable spec HARVESTED from `incr_rec::dred`; it drives the interpreter, so it dies with what it harvested |
 | 4 | `deem_incr_diff_harness` | 10 | 8 deems + handle | B K | the differential spine; built around its own demolition |
 | 5 | `deem_incr_static_retract_e2e` | 2 | 5 deems + handle | B | static min/max under retraction; interpreter is one oracle arm |
-| 6 | `derive_graph_source_root_row` | 2 | `cfg_n`, `w_all` | B | virtual-root coordinate triple, 3 producers 1 consumer; loses the `ts_scan` producer |
+| 6 | `derive_graph_source_root_row` | 0 | `cfg_n`, `w_all`, `d_parent`/`d_key`/`d_idx` | B | virtual-root coordinate triple, 3 producers 1 consumer — **rewritten onto `dyn_graph_edge_rows` + slice deems, 0 interpreter entry points; all THREE producers survive** (C4) |
 | 7 | `query_adv_errvalues` | 1 | — | A | ill-typed DYNAMIC queries are values, never crashes |
 | 8 | `query_agg_sum_overflow_e2e` | 2 | `s_sum` | B | checked `sum` accumulator on all three engines |
 | 9 | `query_compile_robust_e2e` | 3 | — | A | `Query::compile` robustness defects |
@@ -266,8 +266,8 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 53 | `query_trama_arith_err_e2e` | 0 | — | C | `Tpl::render` arithmetic errors are values — §6 L8 |
 | 54 | `query_trama_dynamic_e2e` | 0 | — | C | dynamic Trama end to end — §6 L8 |
 | 55 | `query_trama_typecheck_e2e` | 0 | — | C | the runtime template CHECKER — §6 L8 |
-| 56 | `query_tree_source_e2e` | 7 | — | C | virtual tree sources (`bind_source_tree`/`ts_scan`) |
-| 57 | `query_tree_source_graph_e2e` | 10 | — | C | DAG / cycle / leaf-identity semantics of the dynamic walker |
+| 56 | `query_tree_source_e2e` | 0 | 12 deems | B | virtual graph sources — **rewritten: every leg is now a `deem` written TWICE, over `&Writ` and over a `dyn_graph_edge_rows` SLICE, so a single-sourced file became a two-producer differential. The two bound anchors (`root`, `start`) became document-independent query anchors (`parent == 0`; seed on `key == "db"`). ONE LOSS, named: leg (f), `Query::incremental_rec` refusing a tree source — its subject IS `bind_source_tree`, so guard and guarded die together** (C4) |
+| 57 | `query_tree_source_graph_e2e` | 0 | 14 deems | B | DAG / cycle / leaf-identity / TOM semantics AND the query capabilities over the walk — **rewritten: join, `rel` recursion over a CYCLIC edge set, `order by` and `group by … aggregate` all preserved as slice-sourced deems beside their `&Writ` twins. A `Vec` alone would NOT have replaced them; `DynEdge` + `dyn_graph_edge_rows` is why they survive. 0 interpreter entry points** (C4) |
 | 58 | `query_u64_ordw_origin` | 1 | — | C | `ordw` under/over-carry at the aggregate out-name |
 | 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) |
 | 60 | `wql_agg_avg_bool_three_engines` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
@@ -279,9 +279,9 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 66 | `wql_domain_runtime_order_c` | 6 | — | C | `order by` — u64/usize/f32/f64/bool/str (both defects closed here) |
 | 67 | `wql_domain_u64_order_seams` | 9 | — | C | the three INTERMEDIATE facts of the u64 order fix |
 | 68 | `wql_engine_source_e2e` | 1 | 4 deems over `&IncrRec` | D | static `deem` whose SOURCE is the engine — §1b |
-| 69 | `wql_graph_float_root_vi` | 1 | `root_vi`,`root_kind` | B | float-rooted document: static vs dynamic walker |
-| 70 | `wql_graph_null_root_row` | 0 | 8 deems | B | null root row: one vocabulary, two walkers — **rewritten onto `dyn_graph_edges`, 0 interpreter entry points, SURVIVES the cut whole** (C4) |
-| 71 | `wql_graph_root_id_cross_document` | 1 | 3 deems | B K | ⚠ tripwire recording an OPEN root-id defect |
+| 69 | `wql_graph_float_root_vi` | 0 | `root_vi`,`root_kind`,`root_vi_dyn` | B | float-rooted document: static vs dynamic walker — **rewritten onto `dyn_graph_edge_rows` + a slice deem, so the `parent == 0` filter stays a QUERY and not an `if`; 0 interpreter entry points** (C4) |
+| 70 | `wql_graph_null_root_row` | 0 | 8 deems | B | root row + **THE WALKER'S ARMS**: one vocabulary, two walkers — rewritten onto `dyn_graph_edges` and then **WIDENED (C4-finish) with THREE container-rooted documents** (map root over a DAG+cycle graph with a TOM and an array child and two equal leaves under different parents; array root; TOM root). Measured: the two-document form stayed GREEN under both a `ts_row`-salt perturbation and a severed `ts_descend` — it never entered `ts_walk`. Now row-for-row parity with `writ_graph_edges` on all three (C4) |
+| 71 | `wql_graph_root_id_cross_document` | 0 | 5 deems | B K | ⚠ tripwire recording an OPEN root-id defect — **rewritten: the cross-document join is now a two-SLICE deem over two `dyn_graph_edge_rows` walks, so the defect keeps BOTH binding times after the cut; it is still a JOIN, not a hand comparison** (C4) |
 | 72 | `wql_incr_rec_agg_retract_lattice` | 1 | — | A | REGION 4 harvest — lattice head over a recursive rel under retraction; drives the interpreter |
 | 73 | `wql_incr_rec_dred_error_window` | 1 | — | A | REGION 5 harvest — partially-applied-retraction window |
 | 74 | `wql_incr_retract_three_ways` | 4 | 4 deems + handle | B | the static retract surface, checked three ways |
@@ -440,8 +440,8 @@ that a broader refusal cannot satisfy them.
 the disposition and pins the static tier's answer. Deleting them is P5's own step, with the ABI bump above.
 
 **C4 — the dynamic graph walker** (rows 56, 57, and the loss half of B rows 6, 69, 70, 71).
-**PARTLY DISCHARGED 2026-08-09 — and the requirement as originally written was WRONG, so it is restated
-here rather than ticked off.** The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is
+**DISCHARGED 2026-08-09 in two rounds — and the requirement as originally written was WRONG, so it is
+restated here rather than ticked off.** The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is
 declared ONE vocabulary across binding times with exactly two implementations — `ts_scan` and
 `writ_graph_edges`. Delete one and the parity claim is unfalsifiable.
 
@@ -459,18 +459,72 @@ independent of the executor" — was insufficient AND partly already true, both 
   red and only the rewritten one stayed green.
 
 DONE: `ts_scan` and its closure (`ts_edge_row`, `ts_row`, `ts_descend`, `ts_walk`, `ts_is_container`,
-`ts_kind`, `TS_NCOLS`, `es_scan`, plus `RowSet`/`rs_new`/`RS_VARS` and `h_step`) moved byte-identically
+`ts_kind`, `TS_NCOLS`, `es_scan` — which came BACK in the second round, see (3) below — plus
+`RowSet`/`rs_new`/`RS_VARS` and `h_step`) moved byte-identically
 out of `exec.logos` into `stdlib/mem/deem/graphsrc.logos`, which is NOT in the cut, and a public entry
 point `dyn_graph_edges(root: WAny, scratch: &Writ) -> Vec<WritEdgeRow>` was added there — the same row
 type `writ_graph_edges` returns, so the two producers compare directly with no query engine between them.
 Row 70 (`wql_graph_null_root_row`, the fixture that pins all EIGHT columns on two documents) was rewritten
 onto it and survives the cut.
 
-STILL OPEN (the rest of C4): rows 6, 56, 57, 69, 71 still reach the walker only through `Query`, so their
-dynamic halves still die with the interpreter. Their route now exists — `dyn_graph_edges` — and the
-remaining work is fixture rewriting, not capability. Rows 56/57 additionally exercise joins, recursion and
-`where` over the walk, which `dyn_graph_edges` alone does not replace: what survives of them without the
-interpreter is a walk-only assertion over the same documents.
+**C4 FINISHED 2026-08-09 (second round). Three things landed, and the first is the one that mattered.**
+
+**(1) THE ROUTE WAS ONE ROW WIDE, AND THAT WAS MEASURED, NOT SUSPECTED.** Row 70 — the fixture the first
+round rewrote and called the surviving parity claim — binds two documents whose roots are a NEVER-SET
+(null) root and `d2.int(7)`. Both are NON-CONTAINERS, so `ts_walk` takes no arm at all: `ts_row` is never
+called, `ts_descend` is never called, and the only row on either side is the virtual root edge `ts_scan`
+emits directly. Every arm of the walker (`is_map` / `is_array` / `is_tinymap`), the `seen` expansion-once
+set and the leaf-id salt were sensed ONLY by rows 56 and 57, which reach the walker through
+`Query`/`bind_source_tree` and die in P5. The cut would have left the surviving walker's whole body
+unsensored behind a file that calls itself the parity fixture.
+
+Row 70 is now WIDENED with three container-rooted documents — a MAP root over a hand-built object graph
+(a shared child reached from two parents, a `back` edge closing a cycle, a TOM child with SPARSE key
+codes 0/3, an array child, and two EQUAL scalar leaves under DIFFERENT parents), an ARRAY root, and a TOM
+root — each asserted against hand-derived facts AND row-for-row against `writ_graph_edges` on all eight
+columns.
+
+**Proved by perturbing the ENGINE where the thing lives** (`stdlib/mem/deem/graphsrc.logos`), predicting
+the code, and reverting. Before the widening BOTH of the first two left row 70 green:
+
+| perturbation | row 70 | row 57 | row 56 | rows 6/69/71 |
+|---|---|---|---|---|
+| `ts_row` passes a constant parent word instead of `parent.raw()` | 112 (parity, `parent`) | 4 | 25 | green |
+| the FNV SALT alone: `h_step(hh, parent_word)` → `h_step(hh, 0)` | 115 (parity, `child`) | 7 | 31 | green |
+| `ts_descend` severed (`if true { return; }`) | 100 (15 rows → 5) | 2 | 3 | green |
+
+Rows 6/69/71 staying green is not a hole: all three bind NON-container roots, whose single leaf id is the
+root fold FNV(0,0) — invariant under a parent word that is already 0. They sense the ROOT ROW, which is a
+different claim, and row 70 now senses the walk.
+
+**(2) ALL FIVE REMAINING FIXTURES REWRITTEN, WITH ONE NAMED LOSS.** Rows 6, 69 and 71 drop onto
+`dyn_graph_edge_rows` + slice deems (no join loss; row 71's cross-document join stays a JOIN, over two
+slices). Rows 56 and 57 were the hard pair — they exercise joins, `rel` RECURSION over a cyclic edge set,
+`order by` and `group by … aggregate` OVER the walk, and a `Vec<WritEdgeRow>` does not provide any of
+that. It does now: `pub struct DynEdge` + `pub fn dyn_graph_edge_rows` (graphsrc.logos) give the walk
+NAMED columns, which is what a `&[T]` deem source resolves against, so every one of those capabilities is
+preserved as a static deem over the materialized walk — written BESIDE its `&Writ` twin, which turns two
+single-sourced class-C files into two-producer differentials. Two runtime-bound anchors
+(`bind_i64("root", …)`, `bind_i64("start", db_h)`) became document-INDEPENDENT query anchors
+(`where parent == 0`; seed the recursion on `key == "db"`), which is strictly better than what they
+replaced.
+
+⚠ **THE ONE LOSS, named rather than dropped:** row 56 leg (f) asserted that `Query::incremental_rec`
+REFUSES a tree source with a named error ("tree source", `incr_rec.logos` / `incr.logos`). That refusal's
+SUBJECT is `bind_source_tree` itself, an API of `query.logos`. After P5 there is no virtual-source binding
+to refuse, so the guard and the thing it guards are deleted together — the assertion has no caller, not
+merely no route. It was NOT carried forward onto a slice source, because a slice IS materialized and
+"virtual, no delta capture" would be a false statement about it.
+
+**(3) `es_scan` WAS NOT A PRESERVED CAPABILITY, AND IS NO LONGER FILED AS ONE.** It came across with the
+ts_* family because it shares their `RowSet` shape, but it walks nothing — it re-reads rows a caller
+already materialized, out of a word bound by `QEnv::bind_edge_rows`. Its sole caller in the repo is the
+`QB_EDGE` arm of `exec_rexpr`. Post-cut it would have been an unreachable, unsensored function inside the
+SURVIVING file. **Moved back into `exec.logos`, beside its caller, so it dies with the query engine.**
+`RowSet`/`rs_new`/`RS_VARS` stay in `graphsrc.logos`: every external consumer of theirs is also in
+`exec.logos`, so post-cut they are `ts_scan`'s private accumulator (`dyn_graph_edges` projects out of one)
+— internal machinery, not a capability, and correctly unexported. `h_step` is the genuine exception:
+`incr.logos` and `incr_rec.logos` both call it and both survive.
 
 **C5 — the fuzz method** (rows 11, 13, 42). ⚠ **REWRITTEN at `e53962b6`, and the old paragraph was wrong
 about which side the interpreter is on.** It read: "all three generate query TEXT at runtime; a macro
@@ -703,8 +757,8 @@ REGISTRY-TIERCOMMIT  30
 # §3 table arithmetic.
 CENSUS-ROWS          85
 CLASS-A              35
-CLASS-B              24
-CLASS-C              24
+CLASS-B              26
+CLASS-C              22
 CLASS-D              1
 CLASS-G              1
 

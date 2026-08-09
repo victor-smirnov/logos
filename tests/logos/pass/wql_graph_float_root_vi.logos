@@ -45,24 +45,29 @@ use logos.mem.collections.vec;
 pub deem root_vi(g: &Writ)   { from g e where e.parent == 0 select e.vi }
 pub deem root_kind(g: &Writ) { from g e where e.parent == 0 select e.kind : str }
 
-// The same vi query, run by the DYNAMIC engine over the same document.
+// The same `parent == 0` filter over the DYNAMIC walk — and it is the SAME
+// KIND of query as the static one above, not a hand-written loop.
+//
+// ⚠ THE DYNAMIC HALF NO LONGER GOES THROUGH THE QUERY INTERPRETER (2026-08-09).
+// It used to be `QEnv::bind_source_tree` + `Query::compile`/`Query::run`, and
+// both `QEnv` and `Query` live in stdlib/mem/deem/query.logos, on the P5
+// deletion list, while the walker's only caller was the QB_TSRC arm of
+// `exec_rexpr` (exec.logos, also cut). So the parity this file asserts was held
+// by the INTERPRETER: after the cut nothing would ever have disagreed with
+// `writ_graph_edges` again and this file would have compared the static walker
+// with itself. `dyn_graph_edge_rows` (stdlib/mem/deem/graphsrc.logos) is the
+// surviving route — the walk materialized as named-column rows — and a `deem`
+// over that slice keeps the FILTER a query rather than an `if`.
+pub deem root_vi_dyn(edges: &[DynEdge]) { from edges e where e.parent == 0 select e.vi }
+
 // Returns an empty Vec on any engine error; the caller distinguishes that
 // from a legitimately empty answer by the row-count assertion.
-fn dyn_root_vi(root: WAny) -> Vec<i64> {
-    let mut out: Vec<i64> = vec_new::<i64>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", root);
-    let q: Query = match Query::compile("from g e where e.parent == 0 select e.vi", &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
+fn dyn_root_vi(root: WAny, scratch: &Writ) -> Vec<i64> {
+    let rows: Vec<DynEdge> = dyn_graph_edge_rows(root, scratch);
+    match root_vi_dyn(rows.as_slice()) {
+        Result::Ok(v)   => { return v; }
+        Result::Err(_e) => { return vec_new::<i64>(); }
     }
-    return out;
 }
 
 fn main() -> i32 {
@@ -81,7 +86,7 @@ fn main() -> i32 {
     if sv.get(0i64) != bits_2p5 { return 3i32; }
     if f64_from_bits(sv.get(0i64) as u64) != 2.5f64 { return 4i32; }
 
-    let dv: Vec<i64> = dyn_root_vi(fv);
+    let dv: Vec<i64> = dyn_root_vi(fv, &d);
     if dv.len() != 1i64 { return 5i32; }
     if dv.get(0i64) != bits_2p5 { return 6i32; }
 
@@ -102,7 +107,7 @@ fn main() -> i32 {
     // ... and specifically a NEGATIVE zero, not the +0.0 a dropped value gives
     if (f64_to_bits(f64_from_bits(sv2.get(0i64) as u64)) as i64) != bits_neg0 { return 11i32; }
 
-    let dv2: Vec<i64> = dyn_root_vi(nz);
+    let dv2: Vec<i64> = dyn_root_vi(nz, &d2);
     if dv2.len() != 1i64 { return 12i32; }
     if dv2.get(0i64) != bits_neg0 { return 13i32; }
 

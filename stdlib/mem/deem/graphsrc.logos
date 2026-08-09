@@ -293,42 +293,17 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     return out;
 }
 
-// PRE-MATERIALIZED edge rows: the same dotted-column RowSet as ts_scan, but
-// filled from a bound Writ array of 8-element rows (the edge vocabulary) —
-// the runtime consumption path for #[derive_graph_source] materializers.
-fn es_scan(var: str, rows_w: i64, scratch: &Writ) -> RowSet {
-    let mut out: RowSet = rs_new();
-    let cols: [str; 8] = ["parent", "key", "idx", "child", "kind", "tag", "vi", "vs"];
-    let mut c: i64 = 0i64;
-    while c < 8i64 {
-        let mut nm: String = String::new();
-        nm.push_str(var);
-        nm.push_str(".");
-        nm.push_str(cols[c]);
-        out.vars[c] = intern_str(scratch, sstr(&nm));
-        c = c + 1i64;
-    }
-    out.nvars = 8i64;
-    let av: WAny = WAny::ref_to(rows_w as *const u8);
-    if !av.is_array() { return out; }
-    let arr: &WArray<WAny> = av.as_array();
-    let n: i64 = arr.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        let row: WAny = arr.get(i);
-        if row.is_array() {
-            let ra: &WArray<WAny> = row.as_array();
-            let mut k: i64 = 0i64;
-            while k < 8i64 {
-                out.cells.push(wany_to_rt(ra.get(k)));
-                k = k + 1i64;
-            }
-            out.nrows = out.nrows + 1i64;
-        }
-        i = i + 1i64;
-    }
-    return out;
-}
+// `es_scan` USED TO LIVE HERE AND HAS MOVED TO exec.logos (2026-08-09).
+// It was carried into this file with the ts_* family because it shares their
+// RowSet shape, but shape is not subject: es_scan does not WALK anything — it
+// re-reads rows a caller already materialized, out of a word bound by
+// `QEnv::bind_edge_rows`, into the interpreter's own row representation. Its
+// sole caller is the `QB_EDGE` arm of `exec_rexpr`, and after the P5 cut there
+// is no other, so leaving it here would have left an UNREACHABLE, UNSENSORED
+// function inside the surviving file, labelled "preserved capability" when it
+// is not one. The dynamic capability this file preserves is the WALKER, whose
+// surviving entry point is `dyn_graph_edges` below. es_scan is a query-engine
+// concern, so it dies with the query engine; it now sits beside its caller.
 
 // ── dyn_graph_edges — THE WALKER'S OWN ENTRY POINT ──────────────────────────
 // The dynamic producer of the shared edge relation, addressed WITHOUT the
@@ -368,6 +343,47 @@ pub fn dyn_graph_edges(root: WAny, scratch: &Writ) -> Vec<WritEdgeRow> {
                   rt_i(rs.cells.get(b + 6i64)),
                   rt_s(rs.cells.get(b + 7i64))));
         r = r + 1i64;
+    }
+    return out;
+}
+
+// ── DynEdge — THE EDGE ROW WITH ITS COLUMN NAMES ON IT ──────────────────────
+// `WritEdgeRow` is a TUPLE (writ_graph.logos), which is what a hand-written
+// comparison wants and what a DEEM cannot source: a `&[T]` source resolves
+// `e.parent` against T's NAMED fields. So the surviving dynamic route could
+// produce rows but nothing could QUERY them, and every capability the doomed
+// interpreter held over the walk — join, recursion, order by, group by — had
+// no static replacement to move onto.
+//
+// The field names are the vocabulary's own column names, in the vocabulary's
+// own column order, so `from edges e select e.child` reads identically over a
+// materialized dynamic walk and over a `&Writ` static one.
+pub struct DynEdge {
+    pub parent: i64,
+    pub key:    str,
+    pub idx:    i64,
+    pub child:  i64,
+    pub kind:   str,
+    pub tag:    i64,
+    pub vi:     i64,
+    pub vs:     str,
+}
+
+// The DEEM-SOURCEABLE form of the dynamic walk. A PROJECTION of
+// `dyn_graph_edges`, deliberately not a second reader of the RowSet: one
+// producer, one rule, one place where the FNV leaf id and the vi/vs split are
+// decided. Renaming tuple positions to field names is all that happens here,
+// so a divergence between the two forms is impossible by construction rather
+// than by a fixture.
+pub fn dyn_graph_edge_rows(root: WAny, scratch: &Writ) -> Vec<DynEdge> {
+    let t: Vec<WritEdgeRow> = dyn_graph_edges(root, scratch);
+    let mut out: Vec<DynEdge> = vec_new::<DynEdge>();
+    let mut i: i64 = 0i64;
+    while i < t.len() {
+        let r: WritEdgeRow = t.get(i);
+        out.push(DynEdge { parent: r.0, key: r.1, idx: r.2, child: r.3,
+                           kind: r.4, tag: r.5, vi: r.6, vs: r.7 });
+        i = i + 1i64;
     }
     return out;
 }

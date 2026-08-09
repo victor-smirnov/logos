@@ -99,22 +99,25 @@ pub deem cross_kind(a: &Writ, b: &Writ) {
     from a e1 join b e2 on e2.kind == e1.kind select e1.vi
 }
 
-fn dyn2_i64(qs: str, ra: WAny, rb: WAny) -> Vec<i64> {
-    let mut out: Vec<i64> = vec_new::<i64>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", ra);
-    env.bind_source_tree("g2", rb);
-    let q: Query = match Query::compile(qs, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
-    }
-    return out;
+// ── THE DYNAMIC HALF, WITHOUT THE QUERY INTERPRETER (2026-08-09) ────────────
+// Legs 3 and 4 used to bind TWO tree sources into one `QEnv` and compile a
+// cross-source join. `QEnv`/`Query` (stdlib/mem/deem/query.logos) and the
+// walker's only caller (the QB_TSRC arm of `exec_rexpr`, exec.logos) are both
+// on the P5 deletion list, so the OTHER BINDING TIME of this defect — the whole
+// reason the file has legs 3 and 4 at all — would have vanished with them,
+// leaving a tripwire that trips on one engine only.
+//
+// The cross-document join survives as a two-SLICE deem over two independent
+// walks (`dyn_graph_edge_rows`, graphsrc.logos) — the same shape `cross_child`
+// has over two `&Writ`s. The join is still a JOIN, not an `if`: the collision
+// this file records is a property of the JOIN over the `child` column, so
+// replacing it with a hand-written comparison would have retired the measurement
+// while keeping the file.
+pub deem child_ids_dyn(a: &[DynEdge]) {
+    from a e select e.child
+}
+pub deem cross_child_dyn(a: &[DynEdge], b: &[DynEdge]) {
+    from a e1 join b e2 on e2.child == e1.child select e1.vi
 }
 
 fn main() -> i32 {
@@ -161,15 +164,20 @@ fn main() -> i32 {
     // ── legs 3 and 4: the DYNAMIC engine, same two documents ───────────────
     // Same defect at the other binding time — the vocabulary is one vocabulary,
     // and so is its hole.
-    let ya: Vec<i64> = dyn2_i64("from g e select e.child", av, bv);
+    let wa: Vec<DynEdge> = dyn_graph_edge_rows(av, &da);
+    let wb: Vec<DynEdge> = dyn_graph_edge_rows(bv, &db);
+    if wa.len() != 1i64 { return 97i32; }
+    if wb.len() != 1i64 { return 98i32; }
+
+    let ya: Vec<i64> = match child_ids_dyn(wa.as_slice()) { Result::Ok(v) => { v } Result::Err(_e) => { return 97i32; } };
     if ya.len() != 1i64 { return 97i32; }
     if ya.get(0i64) != synth { return 30i32; }
 
-    let yb: Vec<i64> = dyn2_i64("from g2 e select e.child", av, bv);
+    let yb: Vec<i64> = match child_ids_dyn(wb.as_slice()) { Result::Ok(v) => { v } Result::Err(_f) => { return 98i32; } };
     if yb.len() != 1i64 { return 98i32; }
     if yb.get(0i64) != synth { return 31i32; }
 
-    let y: Vec<i64> = dyn2_i64("from g e join g2 e2 on e2.child == e.child select e.vi", av, bv);
+    let y: Vec<i64> = match cross_child_dyn(wa.as_slice(), wb.as_slice()) { Result::Ok(v) => { v } Result::Err(_g) => { return 99i32; } };
     if y.len() != 1i64 { return 40i32; }        // ⚠ the correct answer is 0
     if y.get(0i64) != 7i64 { return 41i32; }
 

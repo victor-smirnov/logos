@@ -101,42 +101,18 @@ fn addr_of(v: &Cfg) -> i64 {
     return (v as *const Cfg) as i64;
 }
 
-// The dynamic engine, one i64 column, over a bound tree. An engine error comes
-// back as an empty Vec; the row-count assertions tell that apart from a real
-// empty answer.
-fn dyn_i64(qs: str, root: WAny) -> Vec<i64> {
-    let mut out: Vec<i64> = vec_new::<i64>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", root);
-    let q: Query = match Query::compile(qs, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_i64(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
-    }
-    return out;
-}
-
-fn dyn_str(qs: str, root: WAny) -> Vec<str> {
-    let mut out: Vec<str> = vec_new::<str>();
-    let c: SchemaCatalog = SchemaCatalog::new();
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", root);
-    let q: Query = match Query::compile(qs, &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return out; } };
-    match q.run(&env) {
-        Result::Ok(rows) => {
-            let mut i: i64 = 0i64;
-            while i < rows.row_count() { out.push(rows.get_str(i, 0i64)); i = i + 1i64; }
-        }
-        Result::Err(_e2) => { }
-    }
-    return out;
-}
+// Producer 2 (leg C) is the DYNAMIC Writ walker. It used to be reached as
+// `QEnv::bind_source_tree` + `Query::compile`/`Query::run`, but `QEnv` and
+// `Query` live in stdlib/mem/deem/query.logos and the walker's only caller was
+// the QB_TSRC arm of `exec_rexpr` (exec.logos) — both on the P5 deletion list.
+// Three producers held by one interpreter is two producers after the cut, and
+// this file's whole subject is that the coordinate triple is agreed by THREE.
+// `dyn_graph_edge_rows` (stdlib/mem/deem/graphsrc.logos) is the walker's own
+// surviving entry point; the columns keep their names, so the queries below
+// are the same queries over the same walk.
+pub deem d_parent(edges: &[DynEdge]) { from edges e select e.parent }
+pub deem d_key(edges: &[DynEdge])    { from edges e select e.key : str }
+pub deem d_idx(edges: &[DynEdge])    { from edges e select e.idx }
 
 fn main() -> i32 {
     let c: Cfg = Cfg { n: 42i64 };
@@ -184,15 +160,20 @@ fn main() -> i32 {
     if wp.get(0i64) != 0i64 { return 23i32; }
 
     // ── leg C: producer 2 (the DYNAMIC Writ walker) — same triple ───────────
-    let cp: Vec<i64> = dyn_i64("from g e select e.parent", iv);
+    // The walk is materialized ONCE and queried three times, exactly as the
+    // three Query runs it replaces re-scanned the same document three times.
+    let dyr: Vec<DynEdge> = dyn_graph_edge_rows(iv, &d);
+    if dyr.len() != 1i64 { return 97i32; }
+
+    let cp: Vec<i64> = match d_parent(dyr.as_slice()) { Result::Ok(v) => { v } Result::Err(_c1) => { return 97i32; } };
     if cp.len() != 1i64 { return 97i32; }
     if cp.get(0i64) != 0i64 { return 30i32; }
 
-    let ck: Vec<str> = dyn_str("from g e select e.key", iv);
+    let ck: Vec<str> = match d_key(dyr.as_slice()) { Result::Ok(v) => { v } Result::Err(_c2) => { return 97i32; } };
     if ck.len() != 1i64 { return 97i32; }
     if !str_eq(ck.get(0i64), "") { return 31i32; }
 
-    let ci: Vec<i64> = dyn_i64("from g e select e.idx", iv);
+    let ci: Vec<i64> = match d_idx(dyr.as_slice()) { Result::Ok(v) => { v } Result::Err(_c3) => { return 97i32; } };
     if ci.len() != 1i64 { return 97i32; }
     if ci.get(0i64) != 0i64 - 1i64 { return 32i32; }
 

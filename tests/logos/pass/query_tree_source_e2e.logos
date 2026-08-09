@@ -1,20 +1,62 @@
-// query_tree_source_e2e — VIRTUAL TREE SOURCES (bind_source_tree, QB_TSRC).
+// query_tree_source_e2e — VIRTUAL GRAPH SOURCES OVER A PARSED DOCUMENT.
 // The no-gratuitous-materialization rule made executable: a JSON-like Writ
 // document is queried DIRECTLY — the scan is a preorder walk emitting one row
 // per edge (parent/child = node handles, key/idx, kind, vi/vs) — no fact
 // tables, no numbering pass, nothing persistent besides the document itself.
+//
+// ⚠⚠ REWRITTEN 2026-08-09 — WHAT THIS FILE USED TO MEASURE AND WHY THAT DIED.
+// Every leg below used to be `QEnv::bind_source_tree` + `Query::compile` +
+// `Query::run`. `QEnv` and `Query` live in stdlib/mem/deem/query.logos and the
+// walker's ONLY caller was the `QB_TSRC` arm of `exec_rexpr` (exec.logos) —
+// both on the P5 deletion list. So this file did not measure the WALKER; it
+// measured the INTERPRETER'S ROUTE TO the walker, and the cut would have taken
+// every assertion in it with the route.
+//
+// The walk itself survives, at `dyn_graph_edges` / `dyn_graph_edge_rows`
+// (stdlib/mem/deem/graphsrc.logos), so each leg is rewritten as a `deem` over
+// the materialized walk — a `&[DynEdge]` slice whose column NAMES are the
+// vocabulary's own, which is why the query text below is the query text above
+// the cut, modulo the source. Two things changed and both are gains:
+//
+//   • THE QUERIES ARE NOW A DIFFERENTIAL. Each leg is written TWICE, once over
+//     `&Writ` (the STATIC walker, logos.std.wql.writ_graph::writ_graph_edges)
+//     and once over the `&[DynEdge]` slice (the DYNAMIC walker's own output).
+//     This file was class C — dynamic only — so a static twin is new evidence,
+//     and it is the evidence the vocabulary's "one vocabulary, two
+//     implementations" claim needs after the interpreter goes.
+//   • THE RUNTIME-BOUND ANCHORS BECAME PART OF THE QUERY. `env.bind_i64("root",
+//     …)` and `bind_i64("start", db_h)` fed a handle computed by the test into
+//     the query. Neither is available to a `deem`, and neither is necessary:
+//     the root is reachable as the VIRTUAL ROOT EDGE (`parent == 0`, the one
+//     document-independent anchor the vocabulary guarantees) and the db subtree
+//     is reachable by seeding the recursion from `key == "db"`. Both rewrites
+//     are strictly document-independent, so they say what the old ones said
+//     without a handle the test had to compute first.
+//
+// ⚠ ONE LEG IS A MEASURED LOSS, NOT A SILENT DROP: the old leg (f) asserted
+// that `Query::incremental_rec` REFUSES a tree source with a named error
+// ("tree source", incr_rec.logos / incr.logos). That refusal's subject is
+// `bind_source_tree` itself — an API of query.logos. After P5 there is no
+// virtual-source binding to refuse, so the assertion has no caller, not merely
+// no route: the guard and the thing it guards are deleted together. It is
+// recorded in the census as a loss whose subject dies with it, and NOT carried
+// forward as a fake assertion over a slice source (a slice IS materialized, so
+// "virtual, no delta capture" would be a false statement about it).
+//
 // Asserts:
 //   (a) flat scan — edge count, kind filter, key filter (typed str column);
-//   (b) vi/vs LENIENT cells — scalar harvest + Null propagation (a map edge's
-//       vi is Null ⇒ comparison false ⇒ row dropped, no error);
+//   (b) vi cells — scalar harvest over the TOTAL typed column (a container or
+//       string edge carries the canonical 0 filler, so it simply fails the
+//       compare — no error, no Null);
 //   (c) hash-join tier — parent/child are TYPED i64 ⇒ a self-join on handles
-//       takes the hash cascade (grandchildren via e1.child == e2.parent);
-//   (d) RECURSION over the virtual source — rel dsc(a,b) computes subtree
-//       membership straight off the document; subtree leaf harvest dsc ⋈ tree;
-//   (e) ORACLE — (c) and (d) agree with a hand-walked reference over the same
-//       parsed document (independent traversal, no Deem);
-//   (f) the incremental paths REJECT a tree source with a named error
-//       (virtual = re-scan; no delta capture).
+//       takes the hash cascade; here a THREE-WAY self-join anchored on the
+//       virtual root edge harvests the root's grandchildren;
+//   (d) RECURSION over the source — rel dsc(a,b) computes subtree membership
+//       straight off the document; subtree leaf harvest dsc ⋈ edges;
+//   (e) ORACLE — (a)…(d) agree with a hand-walked reference over the same
+//       parsed document (independent traversal, no Deem, no walker);
+//   (f) PARITY — every leg answers identically over the static walker and over
+//       the dynamic one, row for row.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -26,14 +68,71 @@ use logos.lang.writ.wstring;
 use logos.mem.writ.parser;
 use logos.lang.rc;
 use logos.std.wql.ir;
+use logos.std.wql.wql;            // the deem handler
+use logos.std.wql.writ_graph;
 use logos.mem.deem;
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;
 
+// ── the queries, once per PRODUCER ──────────────────────────────────────────
+// `&Writ` sources the STATIC walker; `&[DynEdge]` sources the materialized
+// DYNAMIC walk. The bodies are character-identical apart from the row variable
+// binding, which is the point: one vocabulary, two implementations.
+
+// (a) the whole relation — `len()` is its cardinality
+pub deem w_all(g: &Writ)      { from g x select x.child }
+pub deem s_all(e: &[DynEdge]) { from e x select x.child }
+
+// (a) kind filter
+pub deem w_maps(g: &Writ)      { from g x where x.kind == "map" select x.child }
+pub deem s_maps(e: &[DynEdge]) { from e x where x.kind == "map" select x.child }
+
+// (a) key filter over the TYPED str column
+// (a typed str column takes the `: str` annotation, which is a projection
+// annotation and cannot be followed by `order by`; the two values are asserted
+// as a SET below instead of by position)
+pub deem w_eng(g: &Writ)      { from g x where x.key == "engine" select x.vs : str }
+pub deem s_eng(e: &[DynEdge]) { from e x where x.key == "engine" select x.vs : str }
+
+// (b) scalar harvest over the total `vi` column
+pub deem w_ints(g: &Writ)      { from g x where x.vi >= 2 select x.vi order by x.vi }
+pub deem s_ints(e: &[DynEdge]) { from e x where x.vi >= 2 select x.vi order by x.vi }
+
+// (c) THREE-WAY self-join on typed handles, anchored on the virtual root edge:
+// v = (0 → root), a = root's children, b = their children. `parent == 0` is the
+// vocabulary's one document-independent anchor, so no handle is bound in.
+pub deem w_gc(g: &Writ) {
+    from g v join g a on a.parent == v.child join g b on b.parent == a.child
+    where v.parent == 0 select b.child
+}
+pub deem s_gc(e: &[DynEdge]) {
+    from e v join e a on a.parent == v.child join e b on b.parent == a.child
+    where v.parent == 0 select b.child
+}
+
+// (d) RECURSION: the subtree under the `db` edge, then its i64 leaves. Seeded
+// from the EDGE whose key is "db" rather than from a bound handle.
+pub deem w_dbints(g: &Writ) {
+    rel dsc(a: i64, b: i64) {
+        from g s where s.key == "db" select (s.parent, s.child);
+        from dsc d join g x on x.parent == d.b select (d.a, x.child);
+    }
+    from dsc d join g x on x.child == d.b
+    where x.kind == "i64" select x.vi order by x.vi
+}
+pub deem s_dbints(e: &[DynEdge]) {
+    rel dsc(a: i64, b: i64) {
+        from e s where s.key == "db" select (s.parent, s.child);
+        from dsc d join e x on x.parent == d.b select (d.a, x.child);
+    }
+    from dsc d join e x on x.child == d.b
+    where x.kind == "i64" select x.vi order by x.vi
+}
+
 // ── independent reference walk (the oracle): count edges, str leaves, and
-// the subtree edge-set under a named top-level section ──────────────────────
+// the i64 leaves under a named top-level section ────────────────────────────
 struct Ref {
     pub edges:     i64,
     pub str_vals:  i64,
@@ -101,11 +200,51 @@ unsafe fn ref_ints_under(v: WAny) -> i64 {
     return n;
 }
 
-fn run_count(q: &Query, env: &QEnv) -> i64 {
-    match q.run(env) {
-        Result::Ok(rows) => { return rows.row_count(); }
-        Result::Err(_e)  => { return 0i64 - 1i64; }
+// count the root's GRANDCHILD edges (oracle for (c)) — one level below each of
+// the root's own children.
+unsafe fn ref_grandchildren(v: WAny) -> i64 {
+    let mut n: i64 = 0i64;
+    if !v.is_map() { return n; }
+    let m: &WMap<WString, WAny> = v.as_map();
+    let ns: i64 = m.slots();
+    let mut s: i64 = 0i64;
+    while s < ns {
+        if !m.key_at(s).is_null() {
+            let cv: WAny = m.val_at(s);
+            if cv.is_map() {
+                let cm: &WMap<WString, WAny> = cv.as_map();
+                let cns: i64 = cm.slots();
+                let mut t: i64 = 0i64;
+                while t < cns {
+                    if !cm.key_at(t).is_null() { n = n + 1i64; }
+                    t = t + 1i64;
+                }
+            }
+            if cv.is_array() { n = n + cv.as_array().len(); }
+        }
+        s = s + 1i64;
     }
+    return n;
+}
+
+fn eq_i64(a: &Vec<i64>, b: &Vec<i64>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn has_str(a: &Vec<str>, s: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < a.len() { if str_eq(a.get(i), s) { return true; } i = i + 1i64; }
+    return false;
+}
+
+fn eq_str(a: &Vec<str>, b: &Vec<str>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() { if !str_eq(a.get(i), b.get(i)) { return false; } i = i + 1i64; }
+    return true;
 }
 
 fn main() -> i32 {
@@ -120,94 +259,98 @@ fn main() -> i32 {
             cache: { engine: "redis", host: "c1" },
             debug: false
         }"#) };
+    h.set_root(doc);                      // the static walker reads d.root()
 
     let mut rf: Ref = Ref { edges: 0i64, str_vals: 0i64, i64_leaves: 0i64 };
     unsafe { ref_walk(doc, &mut rf); }
 
-    let c: SchemaCatalog = SchemaCatalog::new();   // no schemas needed
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("tree", doc);
+    // THE DYNAMIC WALK, materialized once, with no query engine in the route.
+    let dy: Vec<DynEdge> = dyn_graph_edge_rows(doc, h);
 
     // ── (a) flat scans ──────────────────────────────────────────────────────
-    let q_all: Query = match Query::compile("from tree e select e.child", &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
     // +1: the VIRTUAL ROOT EDGE (parent 0 → root) — the root is queryable
-    if run_count(&q_all, &env) != rf.edges + 1i64 { return 2i32; }
+    let wa: Vec<i64> = match w_all(h)             { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let sa: Vec<i64> = match s_all(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_f) => { return 1i32; } };
+    if wa.len() != rf.edges + 1i64 { return 2i32; }
+    if sa.len() != rf.edges + 1i64 { return 3i32; }
 
-    let q_maps: Query = match Query::compile(
-        r#"from tree e where e.kind == "map" select e.child"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e2) => { return 3i32; } };
-    if run_count(&q_maps, &env) != 4i64 { return 4i32; }   // ROOT(virtual), db, cache, pool
+    let wm: Vec<i64> = match w_maps(h)             { Result::Ok(v) => { v } Result::Err(_g) => { return 4i32; } };
+    let sm: Vec<i64> = match s_maps(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_i) => { return 4i32; } };
+    if wm.len() != 4i64 { return 5i32; }   // ROOT(virtual), db, cache, pool
+    if sm.len() != 4i64 { return 6i32; }
 
-    // key filter over the TYPED str column
-    let q_eng: Query = match Query::compile(
-        r#"from tree e where e.key == "engine" select e.vs"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e3) => { return 5i32; } };
-    match q_eng.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 2i64 { return 6i32; }
-            // both cells are non-null strings (pg / redis)
-            if rows.is_null(0i64, 0i64) || rows.is_null(1i64, 0i64) { return 7i32; }
-        }
-        Result::Err(_e4) => { return 8i32; }
-    }
+    // key filter over the TYPED str column — hand-derived values, ordered
+    let we: Vec<str> = match w_eng(h)             { Result::Ok(v) => { v } Result::Err(_j) => { return 7i32; } };
+    let se: Vec<str> = match s_eng(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_k) => { return 7i32; } };
+    if we.len() != 2i64 { return 8i32; }
+    if !has_str(&we, "pg") { return 9i32; }
+    if !has_str(&we, "redis") { return 10i32; }
+    if !eq_str(&we, &se) { return 11i32; }
+    // and the oracle counted the same string leaves overall
+    if rf.str_vals != 5i64 { return 12i32; }   // api, pg, db1, redis, c1
 
-    // ── (b) vi lenient cells: i64 harvest + Null-propagation drop ───────────
-    let q_ints: Query = match Query::compile(
-        "from tree e where e.vi >= 2 select (e.key, e.vi)", &c)
-    { Result::Ok(v) => { v } Result::Err(_e5) => { return 9i32; } };
-    // i64 leaves ≥ 2: replicas 3, ports 8080+8443, pool.min 2, pool.max 16 = 5
-    // (map/arr/str/bool-false edges all fail the compare via Null/false — no error)
-    if run_count(&q_ints, &env) != 5i64 { return 10i32; }
+    // ── (b) vi cells over the TOTAL typed column ────────────────────────────
+    // i64 leaves ≥ 2: pool.min 2, replicas 3, pool.max 16, ports 8080, 8443.
+    // Every map/arr/str/bool edge carries the canonical 0 filler and simply
+    // fails the compare — no error, no Null.
+    let wi: Vec<i64> = match w_ints(h)             { Result::Ok(v) => { v } Result::Err(_l) => { return 13i32; } };
+    let si: Vec<i64> = match s_ints(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_m) => { return 13i32; } };
+    if wi.len() != 5i64 { return 14i32; }
+    if wi.get(0i64) != 2i64    { return 15i32; }
+    if wi.get(1i64) != 3i64    { return 16i32; }
+    if wi.get(2i64) != 16i64   { return 17i32; }
+    if wi.get(3i64) != 8080i64 { return 18i32; }
+    if wi.get(4i64) != 8443i64 { return 19i32; }
+    if !eq_i64(&wi, &si) { return 20i32; }
+    // The oracle's i64-leaf TOTAL is also 5 — every int leaf in this document
+    // happens to be ≥ 2 — so the filter above admitted all of them and NONE of
+    // the map/arr/str/bool edges. That is the leniency claim stated as a pair of
+    // numbers: had a container edge's 0 filler been e.g. Null-and-error, or had
+    // `debug: false` folded to something ≥ 2, these two would differ.
+    if rf.i64_leaves != 5i64 { return 21i32; }
 
-    // ── (c) hash self-join on typed handles: grandchild edges of the root ───
-    // root handle = the parsed doc's raw word; e1: root→X, e2: X→Y
-    let root_h: i64 = doc.raw() as i64;
-    let mut env2: QEnv = QEnv::new();
-    env2.bind_source_tree("tree", doc);
-    env2.bind_i64("root", root_h);
-    let q_gc: Query = match Query::compile(
-        "from tree e1 join tree e2 on e2.parent == e1.child where e1.parent == root select e2.child", &c)
-    { Result::Ok(v) => { v } Result::Err(_e6) => { return 11i32; } };
+    // ── (c) three-way hash self-join: the root's GRANDCHILDREN ──────────────
+    let wg: Vec<i64> = match w_gc(h)             { Result::Ok(v) => { v } Result::Err(_n) => { return 22i32; } };
+    let sg: Vec<i64> = match s_gc(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_o) => { return 22i32; } };
     // grandchildren: ports[0],ports[1], db.{engine,host,pool}, cache.{engine,host} = 7
-    let gc: i64 = run_count(&q_gc, &env2);
-    if gc != 7i64 { return 12i32; }
+    let want_gc: i64 = unsafe { ref_grandchildren(doc) };
+    if want_gc != 7i64 { return 23i32; }        // the oracle itself, pinned
+    if wg.len() != want_gc { return 24i32; }
+    if sg.len() != want_gc { return 25i32; }
 
-    // ── (d) recursion over the virtual source: subtree i64-leaf harvest ─────
-    let q_db: Query = match Query::compile(
-        r#"from tree e where e.key == "db" select e.child : i64"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e7) => { return 13i32; } };
-    let db_h: i64 = match q_db.run(&env)
-    { Result::Ok(rows) => { if rows.row_count() != 1i64 { return 14i32; } rows.get_i64(0i64, 0i64) }
-      Result::Err(_e8) => { return 15i32; } };
-
-    let q_sub: Query = match Query::compile(
-        r#"rel dsc(a: i64, b: i64) {
-             from tree e select (e.parent, e.child);
-             from dsc d join tree e on e.parent == d.b select (d.a, e.child);
-           }
-           from dsc d join tree e on e.child == d.b
-           where d.a == start && e.kind == "i64" select e.vi"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e9) => { return 16i32; } };
-    let mut env3: QEnv = QEnv::new();
-    env3.bind_source_tree("tree", doc);
-    env3.bind_i64("start", db_h);
-    let sub_ints: i64 = run_count(&q_sub, &env3);
+    // ── (d) recursion over the source: the db subtree's i64 leaves ──────────
+    let wd: Vec<i64> = match w_dbints(h)             { Result::Ok(v) => { v } Result::Err(_p) => { return 26i32; } };
+    let sd: Vec<i64> = match s_dbints(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_q) => { return 26i32; } };
     // ── (e) oracle agreement ────────────────────────────────────────────────
     let want_ints: i64 = unsafe {
-        // resolve db node again by reference walk: root map → "db"
         let m: &WMap<WString, WAny> = doc.as_map();
         ref_ints_under(m.get("db"))
     };
-    if want_ints != 2i64 { return 17i32; }         // pool.min, pool.max
-    if sub_ints != want_ints { return 18i32; }
+    if want_ints != 2i64 { return 27i32; }         // pool.min, pool.max
+    if wd.len() != want_ints { return 28i32; }
+    if wd.get(0i64) != 2i64  { return 29i32; }
+    if wd.get(1i64) != 16i64 { return 30i32; }
+    if !eq_i64(&wd, &sd) { return 31i32; }
 
-    // ── (f) incremental paths reject the virtual source, by name ────────────
-    match q_sub.incremental_rec(&env3) {
-        Result::Ok(_e10)  => { return 19i32; }
-        Result::Err(er) => {
-            if !str_contains(er.message(), "tree source") { return 20i32; }
-        }
+    // ── (f) PARITY, stated once more as a whole-relation claim ─────────────
+    // The two producers must agree on the ENTIRE relation, not only on the
+    // filtered legs above: same cardinality, same rows, same order.
+    let wrows: Vec<WritEdgeRow> = writ_graph_edges(h);
+    let drows: Vec<WritEdgeRow> = dyn_graph_edges(doc, h);
+    if wrows.len() != drows.len() { return 40i32; }
+    let mut i: i64 = 0i64;
+    while i < wrows.len() {
+        let x: WritEdgeRow = wrows.get(i);
+        let y: WritEdgeRow = drows.get(i);
+        if x.0 != y.0        { return 41i32; }
+        if !str_eq(x.1, y.1) { return 42i32; }
+        if x.2 != y.2        { return 43i32; }
+        if x.3 != y.3        { return 44i32; }
+        if !str_eq(x.4, y.4) { return 45i32; }
+        if x.5 != y.5        { return 46i32; }
+        if x.6 != y.6        { return 47i32; }
+        if !str_eq(x.7, y.7) { return 48i32; }
+        i = i + 1i64;
     }
 
     return 0i32;

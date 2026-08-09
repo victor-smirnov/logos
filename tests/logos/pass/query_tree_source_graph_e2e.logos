@@ -1,5 +1,38 @@
-// query_tree_source_graph_e2e — the GRAPH semantics of virtual sources
-// (bind_source_tree over a general Writ object graph, not just a tree).
+// query_tree_source_graph_e2e — the GRAPH semantics of virtual sources over a
+// general Writ object graph, not just a tree, AND THE QUERY CAPABILITIES OVER
+// THE WALK: join, recursion over a CYCLIC edge set, order by, group-by
+// aggregate.
+//
+// ⚠⚠ REWRITTEN 2026-08-09 — WHAT DIED AND WHAT REPLACED IT.
+// Every leg used to be `QEnv::bind_source_tree` + `Query::compile`/`Query::run`.
+// `QEnv`/`Query` (stdlib/mem/deem/query.logos) and the walker's only caller
+// (the `QB_TSRC` arm of `exec_rexpr`, exec.logos) are both on the P5 deletion
+// list, so this file measured the interpreter's ROUTE to the walker and not the
+// walker. `dyn_graph_edge_rows` (stdlib/mem/deem/graphsrc.logos) materializes
+// the same walk as named-column rows, and a `deem` over that slice keeps every
+// capability the interpreter held over it: `from … join … on …`, `rel` with a
+// recursive body, `order by`, `group by … aggregate`. A Vec alone would NOT
+// have replaced them — that is why the slice-sourced form exists.
+//
+// Each leg is written TWICE, once over `&Writ` (the STATIC walker,
+// logos.std.wql.writ_graph::writ_graph_edges) and once over the slice, so the
+// file is now a two-producer differential where it used to be single-sourced.
+//
+// ⚠ THE RUNTIME-BOUND ANCHOR IS GONE AND NOT MISSED. `env.bind_i64("root", …)`
+// and `bind_i64("tom", …)` fed handles the test had computed into the query.
+// A `deem` takes no such binding, and none is needed: the root is reachable as
+// the VIRTUAL ROOT EDGE (`parent == 0` — the vocabulary's one document-
+// independent anchor) and the TOM is reachable by joining through the edge
+// whose `kind` is "tom". Both rewrites are strictly document-independent.
+//
+// ⚠ CARDINALITY IS ASSERTED ON THE PRODUCERS' OWN Vec, NOT THROUGH A `select`.
+// `select` is a SET projection: the two `s` edges carry the SAME child id, so
+// `from g e select e.child` cannot count edges. The old file counted rows out
+// of the interpreter's RowSet, which does not dedup, and the number would have
+// silently changed meaning under a deem. Edge counts below read
+// `writ_graph_edges(...).len()` / `dyn_graph_edges(...).len()` directly; the
+// deems assert the SEMANTICS.
+//
 // Asserts:
 //   (a) DAG — a SHARED container child: every incoming edge emits (the child
 //       appears once per edge), but its children EXPAND exactly once (no
@@ -11,9 +44,11 @@
 //       child ids (a leaf's value word is not an identity: two 7s must not
 //       alias), while a shared CONTAINER keeps one id across its edges;
 //   (d) TOM — a schema'd row (tiny object map) EXPANDS: fields edge with
-//       idx = the field key code;
+//       idx = the field key code, reached by a JOIN through the tom edge;
 //   (e) `tag` column — the raw type_code flows through and matches the
-//       friendly `kind` classification for builtins.
+//       friendly `kind` classification for builtins, counted with a
+//       GROUP BY … AGGREGATE over the walk;
+//   (f) PARITY — the two producers agree on the whole relation, row for row.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -23,30 +58,105 @@ use logos.lang.writ.array;
 use logos.lang.writ.wmap;
 use logos.lang.writ.wstring;
 use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
+use logos.std.wql.wql;            // the deem handler
+use logos.std.wql.writ_graph;
 use logos.mem.deem;
 use logos.lang.result;
 use logos.mem.string;
 use logos.lang.str;
 use logos.mem.collections.vec;
 
-// a schema'd row for the TOM arm (key codes 0 and 3 — deliberately sparse)
+// a schema'd row for the TOM arm (key codes 0 and 3 — deliberately sparse, so
+// `idx` cannot be mistaken for a dense field counter)
 pub schema Meta : code(0x0E11_0000_0000_0001) {
     alpha: i64 = 0,
     beta:  i64 = 3,
 }
-resource cat = schema_catalog!{ Meta };
 
-fn run_count(q: &Query, env: &QEnv) -> i64 {
-    match q.run(env) {
-        Result::Ok(rows) => { return rows.row_count(); }
-        Result::Err(_e)  => { return 0i64 - 1i64; }
+// ── (a)/(c) the `s` edges: TWO of them (parent differs), ONE child identity ──
+pub deem w_s(g: &Writ)      { from g x where x.key == "s" select (x.parent, x.child) }
+pub deem s_s(e: &[DynEdge]) { from e x where x.key == "s" select (x.parent, x.child) }
+
+// ── (a) expansion-once: `shared`'s own child, reached only through it ───────
+pub deem w_x(g: &Writ)      { from g x where x.key == "x" select (x.parent, x.child) }
+pub deem s_x(e: &[DynEdge]) { from e x where x.key == "x" select (x.parent, x.child) }
+
+// ── (b) the cyclic edge: `back` points AT the root, i.e. at the child of the
+// virtual root edge. Expressed as a JOIN so no handle is bound in. ──────────
+pub deem w_back(g: &Writ) {
+    from g v join g b on b.child == v.child
+    where v.parent == 0 && b.key == "back" select b.parent
+}
+pub deem s_back(e: &[DynEdge]) {
+    from e v join e b on b.child == v.child
+    where v.parent == 0 && b.key == "back" select b.parent
+}
+
+// ── (b) RECURSION OVER A CYCLIC EDGE SET. Seeded from the root's own outgoing
+// edges (anchored on the virtual root edge), then closed. Convergence is the
+// assertion: over a cyclic graph a fixpoint that did not dedup would not
+// terminate. `select d.b` is a SET, so this is the reachable-node set. ──────
+pub deem w_reach(g: &Writ) {
+    rel dsc(a: i64, b: i64) {
+        from g v join g x on x.parent == v.child where v.parent == 0 select (v.child, x.child);
+        from dsc d join g x on x.parent == d.b select (d.a, x.child);
     }
+    from dsc d select d.b
+}
+pub deem s_reach(e: &[DynEdge]) {
+    rel dsc(a: i64, b: i64) {
+        from e v join e x on x.parent == v.child where v.parent == 0 select (v.child, x.child);
+        from dsc d join e x on x.parent == d.b select (d.a, x.child);
+    }
+    from dsc d select d.b
+}
+
+// ── (c) the two equal `seven` leaves: distinct ids under distinct parents ───
+pub deem w_seven(g: &Writ)      { from g x where x.key == "seven" select (x.parent, x.child) }
+pub deem s_seven(e: &[DynEdge]) { from e x where x.key == "seven" select (x.parent, x.child) }
+
+// ── (d) the TOM's field edges, reached by a JOIN through the tom edge, with
+// ORDER BY over the walk. idx is the 6-bit key CODE. ────────────────────────
+pub deem w_tom(g: &Writ) {
+    from g t join g f on f.parent == t.child
+    where t.kind == "tom" select (f.idx, f.vi) order by f.idx
+}
+pub deem s_tom(e: &[DynEdge]) {
+    from e t join e f on f.parent == t.child
+    where t.kind == "tom" select (f.idx, f.vi) order by f.idx
+}
+
+// ── (e) GROUP BY … AGGREGATE over the walk: one raw type code for every
+// map-kind edge, and the number of such EDGES. ─────────────────────────────
+pub deem w_maptag(g: &Writ) {
+    from g x where x.kind == "map" group by x.tag aggregate n = count() select (key, n)
+}
+pub deem s_maptag(e: &[DynEdge]) {
+    from e x where x.kind == "map" group by x.tag aggregate n = count() select (key, n)
+}
+pub deem w_tomtag(g: &Writ)      { from g x where x.kind == "tom" select x.tag }
+pub deem s_tomtag(e: &[DynEdge]) { from e x where x.kind == "tom" select x.tag }
+
+fn eq_pairs(a: &Vec<(i64, i64)>, b: &Vec<(i64, i64)>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        if a.get(i).0 != b.get(i).0 { return false; }
+        if a.get(i).1 != b.get(i).1 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn eq_i64(a: &Vec<i64>, b: &Vec<i64>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() { if a.get(i) != b.get(i) { return false; } i = i + 1i64; }
+    return true;
 }
 
 fn main() -> i32 {
     let d: Writ = writ_new(65536i64);
-    let c: SchemaCatalog = cat();
 
     // ── build the GRAPH by hand (the parser only makes trees) ───────────────
     //   root = { left: {...}, right: {...}, meta: <TOM> }
@@ -70,122 +180,105 @@ fn main() -> i32 {
     root.set("meta", WAny::ref_to((meta.m as i64) as *const u8));
     right.set("back", WAny::from(&*root));      // the cycle
     let rootv: WAny = WAny::from(&*root);
+    d.set_root(rootv);
 
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("g", rootv);
-    env.bind_i64("root", rootv.raw() as i64);
+    // THE TWO PRODUCERS, neither of them an interpreter.
+    let st: Vec<WritEdgeRow> = writ_graph_edges(&d);
+    let dyr: Vec<WritEdgeRow> = dyn_graph_edges(rootv, &d);
+    let dy: Vec<DynEdge> = dyn_graph_edge_rows(rootv, &d);
 
     // total edges: VIRTUAL ROOT EDGE (0→root) = 1, root{left,right,meta}=3,
     // left{seven,s}=2, right{seven,s,back}=3, shared{x}=1 (EXPANDED ONCE),
     // meta{alpha,beta}=2 = 12 — termination + DAG-once in one number.
-    let q_all: Query = match Query::compile("from g e select e.child", &c)
-    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
-    if run_count(&q_all, &env) != 12i64 { return 2i32; }
+    if st.len()  != 12i64 { return 1i32; }
+    if dyr.len() != 12i64 { return 2i32; }
+    if dy.len()  != 12i64 { return 3i32; }
 
-    // ── (a) DAG: `s` edges exist from BOTH parents; shared child = ONE id ───
-    let q_s: Query = match Query::compile(
-        r#"from g e where e.key == "s" select e.child : i64"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e2) => { return 3i32; } };
-    match q_s.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 2i64 { return 4i32; }
-            // (c-container) one shared identity across both edges
-            if rows.get_i64(0i64, 0i64) != rows.get_i64(1i64, 0i64) { return 5i32; }
-        }
-        Result::Err(_e3) => { return 6i32; }
+    // ── (f) PARITY over the whole relation, row for row, all eight columns ──
+    let mut i: i64 = 0i64;
+    while i < st.len() {
+        let x: WritEdgeRow = st.get(i);
+        let y: WritEdgeRow = dyr.get(i);
+        if x.0 != y.0        { return 4i32; }
+        if !str_eq(x.1, y.1) { return 5i32; }
+        if x.2 != y.2        { return 6i32; }
+        if x.3 != y.3        { return 7i32; }
+        if !str_eq(x.4, y.4) { return 8i32; }
+        if x.5 != y.5        { return 9i32; }
+        if x.6 != y.6        { return 10i32; }
+        if !str_eq(x.7, y.7) { return 11i32; }
+        i = i + 1i64;
     }
-    // shared's OWN child ("x") appears exactly once (expansion-once)
-    let q_x: Query = match Query::compile(
-        r#"from g e where e.key == "x" select e.child"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e4) => { return 7i32; } };
-    if run_count(&q_x, &env) != 1i64 { return 8i32; }
 
-    // ── (b) cycle: the back edge exists and points AT the root's handle;
-    // a recursive closure over the cyclic edge set converges ──
-    let q_back: Query = match Query::compile(
-        r#"from g e where e.key == "back" && e.child == root select e.parent"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e5) => { return 9i32; } };
-    if run_count(&q_back, &env) != 1i64 { return 10i32; }
-    let q_tc: Query = match Query::compile(
-        r#"rel dsc(a: i64, b: i64) {
-             from g e select (e.parent, e.child);
-             from dsc x join g e on e.parent == x.b select (x.a, e.child);
-           }
-           from dsc x where x.a == root select x.b"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e6) => { return 11i32; } };
-    // reachable-from-root ids: left, right, meta, shared, root(via back),
-    // leaves: left.seven, right.seven, shared.x, meta.alpha, meta.beta = 10
-    if run_count(&q_tc, &env) != 10i64 { return 12i32; }
+    // ── (a) DAG: `s` edges from BOTH parents; shared child = ONE id ─────────
+    let ws: Vec<(i64, i64)> = match w_s(&d)             { Result::Ok(v) => { v } Result::Err(_a) => { return 12i32; } };
+    let ss: Vec<(i64, i64)> = match s_s(dy.as_slice())  { Result::Ok(v) => { v } Result::Err(_b) => { return 12i32; } };
+    if ws.len() != 2i64 { return 13i32; }                 // two DISTINCT edges
+    if ws.get(0i64).0 == ws.get(1i64).0 { return 14i32; } // different parents
+    // (c-container) one shared identity across both edges, and it IS the handle
+    if ws.get(0i64).1 != ws.get(1i64).1 { return 15i32; }
+    if ws.get(0i64).1 != (WAny::from(&*shared).raw() as i64) { return 16i32; }
+    if !eq_pairs(&ws, &ss) { return 17i32; }
+
+    // shared's OWN child ("x") appears exactly once (expansion-once): one edge,
+    // and its parent is the shared handle.
+    let wx: Vec<(i64, i64)> = match w_x(&d)            { Result::Ok(v) => { v } Result::Err(_c) => { return 18i32; } };
+    let sx: Vec<(i64, i64)> = match s_x(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_e) => { return 18i32; } };
+    if wx.len() != 1i64 { return 19i32; }
+    if wx.get(0i64).0 != (WAny::from(&*shared).raw() as i64) { return 20i32; }
+    if !eq_pairs(&wx, &sx) { return 21i32; }
+
+    // ── (b) cycle: the back edge exists and points AT the root's handle ─────
+    let wb: Vec<i64> = match w_back(&d)            { Result::Ok(v) => { v } Result::Err(_f) => { return 22i32; } };
+    let sb: Vec<i64> = match s_back(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_g) => { return 22i32; } };
+    if wb.len() != 1i64 { return 23i32; }
+    if wb.get(0i64) != (WAny::from(&*right).raw() as i64) { return 24i32; }
+    if !eq_i64(&wb, &sb) { return 25i32; }
+
+    // a recursive closure over the CYCLIC edge set converges, and its set is
+    // the reachable-from-root nodes: left, right, meta, shared, root (via
+    // back), and the leaves left.seven, right.seven, shared.x, meta.alpha,
+    // meta.beta = 10.
+    let wr: Vec<i64> = match w_reach(&d)            { Result::Ok(v) => { v } Result::Err(_i) => { return 26i32; } };
+    let sr: Vec<i64> = match s_reach(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_j) => { return 26i32; } };
+    if wr.len() != 10i64 { return 27i32; }
+    if sr.len() != 10i64 { return 28i32; }
 
     // ── (c) leaf identity: the two `seven` leaves are DISTINCT ids ──────────
-    let q_sev: Query = match Query::compile(
-        r#"from g e where e.key == "seven" select e.child : i64"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e7) => { return 13i32; } };
-    match q_sev.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 2i64 { return 14i32; }
-            if rows.get_i64(0i64, 0i64) == rows.get_i64(1i64, 0i64) { return 15i32; }
-        }
-        Result::Err(_e8) => { return 16i32; }
-    }
+    let wv: Vec<(i64, i64)> = match w_seven(&d)            { Result::Ok(v) => { v } Result::Err(_k) => { return 29i32; } };
+    let sv: Vec<(i64, i64)> = match s_seven(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_l) => { return 29i32; } };
+    if wv.len() != 2i64 { return 30i32; }
+    if wv.get(0i64).0 == wv.get(1i64).0 { return 31i32; }   // different parents
+    if wv.get(0i64).1 == wv.get(1i64).1 { return 32i32; }   // DISTINCT ids
+    if !eq_pairs(&wv, &sv) { return 33i32; }
 
     // ── (d) TOM expansion: field edges with idx = the key codes (0 and 3) ───
-    let q_tom: Query = match Query::compile(
-        r#"from g e where e.kind == "tom" select e.child : i64"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_e9) => { return 17i32; } };
-    let mut tom_h: i64 = 0i64;
-    match q_tom.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 1i64 { return 18i32; }
-            tom_h = rows.get_i64(0i64, 0i64);
-        }
-        Result::Err(_ea) => { return 19i32; }
-    }
-    let q_tf: Query = match Query::compile(
-        "from g e where e.parent == tom select (e.idx, e.vi) order by e.idx", &c)
-    { Result::Ok(v) => { v } Result::Err(_eb) => { return 20i32; } };
-    let mut env2: QEnv = QEnv::new();
-    env2.bind_source_tree("g", rootv);
-    env2.bind_i64("tom", tom_h);
-    match q_tf.run(&env2) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 2i64 { return 21i32; }
-            if rows.get_i64(0i64, 0i64) != 0i64 { return 22i32; }   // alpha @ key 0
-            if rows.get_i64(0i64, 1i64) != 100i64 { return 23i32; }
-            if rows.get_i64(1i64, 0i64) != 3i64 { return 24i32; }   // beta @ key 3
-            if rows.get_i64(1i64, 1i64) != 200i64 { return 25i32; }
-        }
-        Result::Err(_ec) => { return 26i32; }
-    }
+    let wt: Vec<(i64, i64)> = match w_tom(&d)            { Result::Ok(v) => { v } Result::Err(_m) => { return 34i32; } };
+    let stm: Vec<(i64, i64)> = match s_tom(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_n) => { return 34i32; } };
+    if wt.len() != 2i64 { return 35i32; }
+    if wt.get(0i64).0 != 0i64   { return 36i32; }   // alpha @ key code 0
+    if wt.get(0i64).1 != 100i64 { return 37i32; }
+    if wt.get(1i64).0 != 3i64   { return 38i32; }   // beta  @ key code 3
+    if wt.get(1i64).1 != 200i64 { return 39i32; }
+    if !eq_pairs(&wt, &stm) { return 40i32; }
 
-    // ── (e) tag column: raw type codes agree with the friendly kinds ────────
-    // every map-kind edge carries the same tag code, and it differs from the
-    // tom edge's tag code (open vocabulary, exact codes not hardcoded here).
-    let q_kt: Query = match Query::compile(
-        r#"from g e where e.kind == "map" group by e.tag aggregate n = count()
-           select (key, n)"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_ed) => { return 27i32; } };
-    let mut map_tag: i64 = 0i64;
-    match q_kt.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 1i64 { return 28i32; }   // ONE code for all maps
-            map_tag = rows.get_i64(0i64, 0i64);
-            // map-kind EDGES: virtual 0→root, root→left, root→right, left→s,
-            // right→s, right→back = 6 (edges, not distinct nodes)
-            if rows.get_i64(0i64, 1i64) != 6i64 { return 29i32; }
-        }
-        Result::Err(_ee) => { return 30i32; }
-    }
-    let q_tt: Query = match Query::compile(
-        r#"from g e where e.kind == "tom" select e.tag : i64"#, &c)
-    { Result::Ok(v) => { v } Result::Err(_ef) => { return 31i32; } };
-    match q_tt.run(&env) {
-        Result::Ok(rows) => {
-            if rows.row_count() != 1i64 { return 32i32; }
-            if rows.get_i64(0i64, 0i64) == map_tag { return 33i32; }
-        }
-        Result::Err(_eg) => { return 34i32; }
-    }
+    // ── (e) tag column, via GROUP BY … AGGREGATE over the walk ─────────────
+    // every map-kind edge carries the same raw type code, and it differs from
+    // the tom edge's (open vocabulary, exact codes not hardcoded here).
+    let wk: Vec<(i64, i64)> = match w_maptag(&d)            { Result::Ok(v) => { v } Result::Err(_o) => { return 41i32; } };
+    let sk: Vec<(i64, i64)> = match s_maptag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_p) => { return 41i32; } };
+    if wk.len() != 1i64 { return 42i32; }           // ONE code for all maps
+    // map-kind EDGES: virtual 0→root, root→left, root→right, left→s,
+    // right→s, right→back = 6 (edges, not distinct nodes)
+    if wk.get(0i64).1 != 6i64 { return 43i32; }
+    if !eq_pairs(&wk, &sk) { return 44i32; }
+    let map_tag: i64 = wk.get(0i64).0;
+
+    let wtt: Vec<i64> = match w_tomtag(&d)            { Result::Ok(v) => { v } Result::Err(_q) => { return 45i32; } };
+    let stt: Vec<i64> = match s_tomtag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_r) => { return 45i32; } };
+    if wtt.len() != 1i64 { return 46i32; }
+    if wtt.get(0i64) == map_tag { return 47i32; }
+    if !eq_i64(&wtt, &stt) { return 48i32; }
 
     return 0i32;
 }

@@ -71,11 +71,56 @@
 //   relation. This is the cardinality the ruling makes binding-time
 //   independent.
 //
+// ⚠⚠ AND THE ROOT ROW IS NOT THE WALKER. THE WIDENING (2026-08-09).
+// Documents 1 and 2 above have NON-CONTAINER roots, so `ts_walk` takes no arm
+// at all: `ts_row` is never called, `ts_descend` is never called, and the only
+// row on either side is the virtual root edge `ts_scan` emits directly. That
+// was MEASURED, not suspected — with only those two documents this file stayed
+// GREEN under two engine perturbations it was believed to cover: replacing
+// `ts_row`'s parent-handle salt with a constant, and severing `ts_descend`
+// outright. The walk's three arms (map / array / tinymap), the `seen`
+// expansion-once set and the leaf-id salt were caught ONLY by
+// query_tree_source_e2e and query_tree_source_graph_e2e, both of which reach
+// the walker through `Query`/`bind_source_tree` and both of which die in P5.
+// Deleting the interpreter would therefore have left every arm of the surviving
+// walker unsensored while this file went on calling itself the parity fixture.
+//
+// So documents 3, 4 and 5 below are CONTAINER-ROOTED and exercise each arm
+// through the surviving route:
+//   doc3 — a MAP root over a hand-built object GRAPH (lifted from
+//          query_tree_source_graph_e2e, which the cut takes): a SHARED child
+//          reached from two parents (DAG), a `back` edge closing a CYCLE, an
+//          array child, a TOM child with SPARSE key codes, and TWO EQUAL
+//          scalar leaves under DIFFERENT parents;
+//   doc4 — an ARRAY root (idx == position, key == "");
+//   doc5 — a TOM root (idx == the 6-bit field key code, not a dense counter).
+//
+// WHAT EACH ASSERTION IS THE SENSOR FOR, since a row count alone is not one:
+//   • the two `seven` leaves must have DISTINCT child ids. This is the ONLY
+//     observable of `ts_row`'s salt: both leaves sit at ordinal 0, both hold
+//     the same value word, so only the PARENT HANDLE separates them. One leaf,
+//     or two leaves under one parent, would not catch a constant salt.
+//   • the `x` edge must appear EXACTLY ONCE though `shared` has two incoming
+//     edges — the `seen` set, i.e. expansion-once. The `s` edges must be TWO
+//     and carry the SAME child id (a container id is its handle).
+//   • the `back` edge must exist and name the root's handle, and the scan must
+//     TERMINATE — a cycle is legal in a Writ graph.
+//   • the TOM's field edges carry idx 0 and 3 (the declared key codes), not 0
+//     and 1: a dense counter would pass a count check and fail this.
+//   • ROW-FOR-ROW PARITY with `writ_graph_edges` over the same document, all
+//     eight columns. Both walkers emit preorder in the same slot order, so the
+//     two Vecs are equal element by element — the strongest form of the one-
+//     vocabulary-two-implementations claim, and the form that survives P5.
+//     It is asserted BESIDE the hand-derived facts above and never instead of
+//     them: agreement between two engines certifies a shared fold, not a
+//     correct one.
+//
 // Exit 0 iff every assertion holds. A nonzero code names the side, the
 // document and the column: 1x = doc1 static count, 2x = doc1 static value,
 // 30 = doc1 dynamic count, 4x = doc1 dynamic value, and 5x/6x/70/8x the same
 // four for doc2, where x is the column's ordinal in
-// (parent, key, idx, child, kind, tag, vi, vs).
+// (parent, key, idx, child, kind, tag, vi, vs). 1xx = doc3, 2xx = doc4,
+// 3xx = doc5; 9x = setup.
 package test;
 
 use logos.lang.writ.container;
@@ -101,6 +146,138 @@ pub deem g_kind(g: &Writ)   { from g e select e.kind : str }
 pub deem g_tag(g: &Writ)    { from g e select e.tag }
 pub deem g_vi(g: &Writ)     { from g e select e.vi }
 pub deem g_vs(g: &Writ)     { from g e select e.vs : str }
+
+// ── the container-rooted half (docs 3/4/5) ──────────────────────────────────
+// A schema'd row for the TOM arm. The key codes are DELIBERATELY SPARSE (0 and
+// 3, not 0 and 1) — `idx` on a TOM field edge is the 6-bit key CODE, and a
+// dense counter would be indistinguishable from it under contiguous codes.
+pub schema Meta : code(0x0E11_0000_0000_0002) {
+    alpha: i64 = 0,
+    beta:  i64 = 3,
+}
+
+// Row-for-row equality of the two producers, all eight columns. Returns 0 on
+// agreement, else the 1-based column ordinal that first disagreed (1 = length).
+fn rows_equal(a: &Vec<WritEdgeRow>, b: &Vec<WritEdgeRow>) -> i64 {
+    if a.len() != b.len() { return 1i64; }
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        let x: WritEdgeRow = a.get(i);
+        let y: WritEdgeRow = b.get(i);
+        if x.0 != y.0            { return 2i64; }
+        if !str_eq(x.1, y.1)     { return 3i64; }
+        if x.2 != y.2            { return 4i64; }
+        if x.3 != y.3            { return 5i64; }
+        if !str_eq(x.4, y.4)     { return 6i64; }
+        if x.5 != y.5            { return 7i64; }
+        if x.6 != y.6            { return 8i64; }
+        if !str_eq(x.7, y.7)     { return 9i64; }
+        i = i + 1i64;
+    }
+    return 0i64;
+}
+
+fn n_key(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if str_eq(r.1, k) { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+// The child id of the `nth` (0-based) row carrying key `k`; −1 if absent.
+fn nth_child_by_key(rs: &Vec<WritEdgeRow>, k: str, nth: i64) -> i64 {
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if str_eq(r.1, k) {
+            if c == nth { return r.3; }
+            c = c + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return 0i64 - 1i64;
+}
+
+fn n_kind(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if str_eq(r.4, k) { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+fn first_child_by_kind(rs: &Vec<WritEdgeRow>, k: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if str_eq(r.4, k) { return r.3; }
+        i = i + 1i64;
+    }
+    return 0i64 - 1i64;
+}
+
+fn n_under(rs: &Vec<WritEdgeRow>, p: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        if rs.get(i).0 == p { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+// `idx` of the nth (0-based, emission order) edge under parent `p`; −2 if absent.
+fn nth_idx_under(rs: &Vec<WritEdgeRow>, p: i64, nth: i64) -> i64 {
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if r.0 == p {
+            if c == nth { return r.2; }
+            c = c + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return 0i64 - 2i64;
+}
+
+// `vi` of the nth (0-based, emission order) edge under parent `p`; −2 if absent.
+fn nth_vi_under(rs: &Vec<WritEdgeRow>, p: i64, nth: i64) -> i64 {
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if r.0 == p {
+            if c == nth { return r.6; }
+            c = c + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return 0i64 - 2i64;
+}
+
+// `key` of the nth (0-based, emission order) edge under parent `p`.
+fn nth_key_under(rs: &Vec<WritEdgeRow>, p: i64, nth: i64) -> str {
+    let mut c: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rs.len() {
+        let r: WritEdgeRow = rs.get(i);
+        if r.0 == p {
+            if c == nth { return r.1; }
+            c = c + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return "<absent>";       // no key below is spelled this way
+}
 
 fn main() -> i32 {
     // Hand-derived, see the header. Written once, used by both documents:
@@ -213,6 +390,187 @@ fn main() -> i32 {
     if z.5 != 1i64                 { return 85i32; }
     if z.6 != 7i64                 { return 86i32; }
     if !str_eq(z.7, "")            { return 87i32; }
+
+    // ══ document 3: a MAP root over a hand-built object GRAPH ═══════════════
+    // The parser only makes trees, so the graph is built by hand (this is the
+    // shape query_tree_source_graph_e2e used, lifted here because that file
+    // reaches the walker only through the interpreter and dies with it):
+    //   shared = { x: 7 }
+    //   left   = { seven: 7, s: shared }
+    //   right  = { seven: 7, s: shared, back: root }      ← `back` is a CYCLE
+    //   meta   = Meta TOM { alpha@0 = 100, beta@3 = 200 } ← SPARSE key codes
+    //   arr    = [10, 20]
+    //   root   = { left, right, meta, arr }
+    let d3: Writ = writ_new(65536i64);
+    let shared: &mut WMap<WString, WAny> = d3.map(4i64);
+    shared.set("x", 7i64);
+    let left: &mut WMap<WString, WAny> = d3.map(4i64);
+    left.set("seven", 7i64);
+    left.set("s", WAny::from(&*shared));
+    let right: &mut WMap<WString, WAny> = d3.map(4i64);
+    right.set("seven", 7i64);
+    right.set("s", WAny::from(&*shared));
+    let meta: Meta = d3.make::<Meta>();
+    meta.alpha = 100i64;
+    meta.beta = 200i64;
+    let arr: &mut WArray<WAny> = d3.array(4i64);
+    arr.push(10i64);
+    arr.push(20i64);
+    let r3: &mut WMap<WString, WAny> = d3.map(8i64);
+    r3.set("left", WAny::from(&*left));
+    r3.set("right", WAny::from(&*right));
+    r3.set("meta", WAny::ref_to((meta.m as i64) as *const u8));
+    r3.set("arr", WAny::from(&*arr));
+    right.set("back", WAny::from(&*r3));            // closes the cycle
+    let rv3: WAny = WAny::from(&*r3);
+    d3.set_root(rv3);
+    if !d3.root().is_map() { return 93i32; }             // setup, not the subject
+
+    // The DYNAMIC producer, addressed WITHOUT the interpreter, and the STATIC
+    // twin over the same document.
+    let dy3: Vec<WritEdgeRow> = dyn_graph_edges(rv3, &d3);
+    let st3: Vec<WritEdgeRow> = writ_graph_edges(&d3);
+
+    // CARDINALITY, hand-counted from the shape above:
+    //   virtual root edge                                     1
+    //   root{left,right,meta,arr}                             4
+    //   left{seven,s}                                         2
+    //   right{seven,s,back}                                   3
+    //   shared{x}   — EXPANDED ONCE though it has two parents  1
+    //   meta{alpha,beta}                                      2
+    //   arr[0],arr[1]                                         2
+    //                                                       = 15
+    // Termination (the cycle) and expansion-once (the DAG) are both in this
+    // one number: a `seen` that never hits would not terminate at all, and a
+    // `seen` keyed per-EDGE would give 16.
+    if dy3.len() != 15i64 { return 100i32; }
+    if st3.len() != 15i64 { return 101i32; }
+
+    // ROW-FOR-ROW PARITY, all eight columns, in emission order.
+    let pe: i64 = rows_equal(&dy3, &st3);
+    if pe != 0i64 { return (110i64 + pe) as i32; }   // 111 = length … 119 = vs
+
+    // ── ts_row's SALT: two EQUAL scalar leaves, DIFFERENT parents ───────────
+    // Both `seven` leaves sit at ordinal 0 of their map and hold the same value
+    // word, so the ONLY thing separating their synthetic ids is the parent
+    // handle the salt carries. This is the sole observable of that salt.
+    if n_key(&dy3, "seven") != 2i64 { return 120i32; }
+    let sv_a: i64 = nth_child_by_key(&dy3, "seven", 0i64);
+    let sv_b: i64 = nth_child_by_key(&dy3, "seven", 1i64);
+    if sv_a == sv_b { return 121i32; }
+    // and neither is the document-independent root fold
+    if sv_a == root_id { return 122i32; }
+    if sv_b == root_id { return 123i32; }
+
+    // ── the DAG: two `s` edges, ONE child identity, and it is the handle ────
+    if n_key(&dy3, "s") != 2i64 { return 130i32; }
+    let sh_a: i64 = nth_child_by_key(&dy3, "s", 0i64);
+    let sh_b: i64 = nth_child_by_key(&dy3, "s", 1i64);
+    if sh_a != sh_b { return 131i32; }
+    if sh_a != (WAny::from(&*shared).raw() as i64) { return 132i32; }
+    // ── ts_descend's `seen`: shared's OWN child is emitted exactly ONCE ─────
+    if n_key(&dy3, "x") != 1i64 { return 133i32; }
+    if n_under(&dy3, sh_a) != 1i64 { return 134i32; }
+
+    // ── the CYCLE: the back edge exists and names the root's handle ─────────
+    if n_key(&dy3, "back") != 1i64 { return 140i32; }
+    if nth_child_by_key(&dy3, "back", 0i64) != (rv3.raw() as i64) { return 141i32; }
+    // the root is expanded once: its four edges, not eight
+    if n_under(&dy3, rv3.raw() as i64) != 4i64 { return 142i32; }
+
+    // ── the TOM arm: idx is the 6-bit KEY CODE (0 and 3), not a counter ─────
+    if n_kind(&dy3, "tom") != 1i64 { return 150i32; }
+    let tom_h: i64 = first_child_by_kind(&dy3, "tom");
+    if n_under(&dy3, tom_h) != 2i64 { return 151i32; }
+    if nth_idx_under(&dy3, tom_h, 0i64) != 0i64 { return 152i32; }
+    if nth_vi_under(&dy3, tom_h, 0i64) != 100i64 { return 153i32; }
+    if nth_idx_under(&dy3, tom_h, 1i64) != 3i64 { return 154i32; }
+    if nth_vi_under(&dy3, tom_h, 1i64) != 200i64 { return 155i32; }
+    if !str_eq(nth_key_under(&dy3, tom_h, 0i64), "") { return 156i32; }
+
+    // ── the ARRAY arm as a CHILD: idx == position, key == "" ────────────────
+    if n_kind(&dy3, "arr") != 1i64 { return 160i32; }
+    let arr_h: i64 = first_child_by_kind(&dy3, "arr");
+    if n_under(&dy3, arr_h) != 2i64 { return 161i32; }
+    if nth_idx_under(&dy3, arr_h, 0i64) != 0i64 { return 162i32; }
+    if nth_vi_under(&dy3, arr_h, 0i64) != 10i64 { return 163i32; }
+    if nth_idx_under(&dy3, arr_h, 1i64) != 1i64 { return 164i32; }
+    if nth_vi_under(&dy3, arr_h, 1i64) != 20i64 { return 165i32; }
+    if !str_eq(nth_key_under(&dy3, arr_h, 0i64), "") { return 166i32; }
+
+    // ── the MAP arm: a map edge's idx is the not-an-array-position filler ───
+    if nth_idx_under(&dy3, rv3.raw() as i64, 0i64) != 0i64 - 1i64 { return 170i32; }
+    if str_eq(nth_key_under(&dy3, rv3.raw() as i64, 0i64), "") { return 171i32; }
+
+    // ══ document 4: an ARRAY root ══════════════════════════════════════════
+    // The array arm reached AT THE ROOT — the virtual root edge's child is a
+    // container, so its id is the handle and not the FNV fold.
+    let d4: Writ = writ_new(65536i64);
+    let a4: &mut WArray<WAny> = d4.array(4i64);
+    a4.push(10i64);
+    a4.push(20i64);
+    a4.push(30i64);
+    let rv4: WAny = WAny::from(&*a4);
+    d4.set_root(rv4);
+    if !d4.root().is_array() { return 94i32; }          // setup, not the subject
+
+    let dy4: Vec<WritEdgeRow> = dyn_graph_edges(rv4, &d4);
+    let st4: Vec<WritEdgeRow> = writ_graph_edges(&d4);
+    if dy4.len() != 4i64 { return 180i32; }             // virtual root + 3 elements
+    if st4.len() != 4i64 { return 181i32; }
+    let pe4: i64 = rows_equal(&dy4, &st4);
+    if pe4 != 0i64 { return (182i64 + pe4) as i32; }
+
+    // the root row: a CONTAINER root takes the handle, NOT the FNV fold
+    let r4: WritEdgeRow = dy4.get(0i64);
+    if r4.0 != 0i64 { return 192i32; }
+    if r4.3 != (rv4.raw() as i64) { return 193i32; }
+    if r4.3 == root_id { return 194i32; }
+    if !str_eq(r4.4, "arr") { return 195i32; }
+
+    let ah: i64 = rv4.raw() as i64;
+    if n_under(&dy4, ah) != 3i64 { return 196i32; }
+    if nth_idx_under(&dy4, ah, 0i64) != 0i64 { return 197i32; }
+    if nth_idx_under(&dy4, ah, 1i64) != 1i64 { return 198i32; }
+    if nth_idx_under(&dy4, ah, 2i64) != 2i64 { return 199i32; }
+    if nth_vi_under(&dy4, ah, 0i64) != 10i64 { return 200i32; }
+    if nth_vi_under(&dy4, ah, 1i64) != 20i64 { return 201i32; }
+    if nth_vi_under(&dy4, ah, 2i64) != 30i64 { return 202i32; }
+    if !str_eq(nth_key_under(&dy4, ah, 0i64), "") { return 203i32; }
+    // ARRAY elements are salted by the parent handle too, and by DIFFERENT
+    // ordinals — three distinct ids for three leaves.
+    let e0: i64 = dy4.get(1i64).3;
+    let e1: i64 = dy4.get(2i64).3;
+    let e2: i64 = dy4.get(3i64).3;
+    if e0 == e1 { return 204i32; }
+    if e1 == e2 { return 205i32; }
+    if e0 == e2 { return 206i32; }
+
+    // ══ document 5: a TOM root ═════════════════════════════════════════════
+    let d5: Writ = writ_new(65536i64);
+    let m5: Meta = d5.make::<Meta>();
+    m5.alpha = 11i64;
+    m5.beta = 22i64;
+    let rv5: WAny = WAny::ref_to((m5.m as i64) as *const u8);
+    if !rv5.is_tinymap() { return 95i32; }              // setup, not the subject
+    d5.set_root(rv5);
+
+    let dy5: Vec<WritEdgeRow> = dyn_graph_edges(rv5, &d5);
+    let st5: Vec<WritEdgeRow> = writ_graph_edges(&d5);
+    if dy5.len() != 3i64 { return 210i32; }             // virtual root + 2 fields
+    if st5.len() != 3i64 { return 211i32; }
+    let pe5: i64 = rows_equal(&dy5, &st5);
+    if pe5 != 0i64 { return (212i64 + pe5) as i32; }
+
+    let th: i64 = rv5.raw() as i64;
+    let r5: WritEdgeRow = dy5.get(0i64);
+    if r5.3 != th { return 222i32; }
+    if !str_eq(r5.4, "tom") { return 223i32; }
+    if n_under(&dy5, th) != 2i64 { return 224i32; }
+    if nth_idx_under(&dy5, th, 0i64) != 0i64 { return 225i32; }   // alpha @ code 0
+    if nth_vi_under(&dy5, th, 0i64) != 11i64 { return 226i32; }
+    if nth_idx_under(&dy5, th, 1i64) != 3i64 { return 227i32; }   // beta  @ code 3
+    if nth_vi_under(&dy5, th, 1i64) != 22i64 { return 228i32; }
 
     return 0i32;
 }
