@@ -1,0 +1,64 @@
+// A `max`-HEADED GROUP OVER A **MUTUALLY RECURSIVE** SCC HAS NO RETRACTION
+// SURFACE — THE N-MEMBER FORM OF `fail/wql_incr_rel_no_retract_minmax.logos`.
+//
+// ⚠⚠ WHY BOTH SHAPES NEED A DOOR. `emit_incremental` reaches its `dred`
+// predicate through `rel_m`, the SELECTED member of the entry's SCC, and the
+// aggregate list it asks `aggs_any_minmax` about belongs to the ENTRY, not to
+// the member. Those two facts are independent, and a refusal derived from one
+// of them can be lost by an edit to the other: the whole `606fc4c0` lesson is
+// that the mutually recursive path was assumed to follow the single-member one
+// and did not. The two `fail/wql_incr_mutrec_no_retract_{odd,even}.logos` doors
+// this replaces asserted a name that is now PRESENT
+// (`pass/wql_incr_mutrec_retract_surface_{odd,even}.logos` are what they
+// became), so the mutrec shape would otherwise have no refusal door left at all.
+//
+// ── THE GROUND ────────────────────────────────────────────────────────────
+// `!aggs_any_minmax(aggs, acount)` in `dred`. `min`/`max` retract by RESCAN over
+// the per-(group, aggregate) value→multiplicity map `__gm_<out>`, which is a
+// handle field built only under `want_map = retr && is_mm` — and `retr` is FALSE
+// for every rel-backed query, mutually recursive or not. MISSING STATE, not
+// arithmetic.
+//
+// ⚠ STRICTLY STRONGER THAN THE DOOR IT REPLACES: `oddq_incremental` and
+// `oddq_epoch` are EMITTED here — the mutually recursive SCC keeps its whole
+// insert capability — so a green run cannot be explained by an upstream refusal
+// that withdrew the handle. That is precisely what a restored `nmem != 1` in
+// `stamp_rel_incr_shape` did to the old doors while they went on passing.
+//
+// CONTROL, PREDICTED: drop `!aggs_any_minmax(aggs, acount)` from `dred`, drop
+// the archives, rebuild the stdlib → `oddq_retract` is emitted, this fixture
+// COMPILES, and a `fail/` test that compiles is a RED test.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem oddq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    from odd p group by p.a aggregate m = max(p.b) select (key, m)
+}
+
+fn main() -> i32 {
+    // ⚠ THESE COMPILE — the handle and the insert epoch exist for the mutually
+    // recursive SCC. Only the retraction is withheld.
+    let mut h: OddqIncr = oddq_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match oddq_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    // ⚠ THE LINE UNDER TEST.
+    match oddq_retract(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 2i32; }
+    }
+    return 0i32;
+}

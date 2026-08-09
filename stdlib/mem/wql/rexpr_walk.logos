@@ -4486,25 +4486,39 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 
     // ══ THE DRed EPOCH DRIVER'S OWN ADMISSION — P3h ════════════════════════
     //
-    // ⚠⚠ THIS IS *NOT* THE RETRACTION SURFACE AND IT DOES NOT FLIP ONE.
-    // `incr_retract_eligible` still refuses every rel-backed query, so `retr` is
-    // false here whenever `rel_m >= 0` and NO `<q>_apply` / `<q>_retract` /
-    // `__wd` is emitted. What `dred` decides is whether the PRIVATE four-phase
-    // driver `__wql_<q>_scc<c>_dred` is emitted beside `_od`/`_odp`/`_cpt`/`_i`
-    // — one more emitted item on the same footing phases 1 and 2 already stand
-    // on: provable against a from-scratch oracle by a fixture that names it,
-    // reachable by nobody else. The surface round moves this body into a rel
-    // sub-arm of the `retr` branch; until then the three `fail/` doors
-    // (`wql_incr_rel_no_retract`, `wql_incr_mutrec_no_retract_{odd,even}`) stay
-    // TRUE and UNTOUCHED, because the names they assert absent are still absent.
+    // ⚠⚠ THIS IS THE RETRACTION SURFACE FOR A REL-BACKED QUERY, AND IT IS THE
+    // ONLY ONE. `dred` decides BOTH the private four-phase driver
+    // `__wql_<q>_scc<c>_dred` (emitted beside `_od`/`_odp`/`_cpt`/`_i`) AND the
+    // public `<q>_retract` that forwards to it — see the forwarder's own note at
+    // the emission site. `retr` STAYS FALSE for a rel: `incr_retract_eligible`
+    // goes on declining, so `<q>_apply` and `__wd` are emitted for NO rel query
+    // and folding a derived row at a caller-supplied weight remains
+    // inexpressible. The flip did not move the arm; it added one item inside it.
+    //
+    // ⚠ THE THREE `fail/` DOORS THAT ASSERTED THOSE NAMES ABSENT ARE GONE, ALL
+    // THREE TOGETHER: `wql_incr_rel_no_retract` and
+    // `wql_incr_mutrec_no_retract_{odd,even}` became
+    // `pass/wql_incr_rel_retract_surface` and
+    // `pass/wql_incr_mutrec_retract_surface_{odd,even}`, which retract a seed
+    // edge and assert the per-epoch RELATION and the `__lat` |OD|/|S|/|RD|
+    // triple — an answer-only fixture is measured blind here. The shapes still
+    // refused kept their doors: `fail/wql_incr_rel_no_retract_minmax`,
+    // `fail/wql_incr_rel_no_retract_float`, `fail/wql_incr_mutrec_outside_rel`.
     //
     // ── WHAT IT ASKS, AND WHY EACH CLAUSE HAS ITS OWN GROUND ───────────────
     //  • `rel_m >= 0` — there are no DRed phases to drive otherwise.
-    //  • `!retr`      — an insert-only surface is the only one that exists for a
-    //                   rel today; the conjunct is redundant against the clause
-    //                   in `incr_retract_eligible` and is written anyway so that
-    //                   flipping that clause cannot silently emit TWO retraction
-    //                   paths for one query.
+    //  • `!retr`      — the two `<q>_retract` emission sites live in mutually
+    //                   exclusive arms of `if retr { … } else { … if dred { … } }`,
+    //                   so the conjunct cannot today be the thing that separates
+    //                   them, and `incr_retract_eligible`'s `rel_backed` EARLY
+    //                   RETURN makes it constant-true besides. ⚠ IT IS NOT
+    //                   PINNABLE AND THIS SAYS SO RATHER THAN CLAIMING A GATE:
+    //                   no fixture can distinguish its presence from its absence
+    //                   while `retr` is false for every rel. CONTROL, not gate:
+    //                   delete the `rel_backed` clause and a rel query reaches
+    //                   the `retr` arm instead, where the SAME `<q>_retract` name
+    //                   is emitted from `applyc` — two competing surfaces, which
+    //                   is what this conjunct is written against.
     //  • `retract_ok` — D4. A float `sum`/`avg` cannot be folded backwards
     //                   (`(S+x)-x != S`), that decision is VICTOR'S and OPEN, and
     //                   the driver's negative fold is exactly the arithmetic it
@@ -4550,7 +4564,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if rel_m >= 0i64 && !retr {
         if dred {
             plan_trace("rel dred driver", "EMITTED", bare,
-                       "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. NO RETRACTION SURFACE FOLLOWS — `incr_retract_eligible` still refuses every rel-backed query and this item is reachable only by its mangled name");
+                       "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. THE PUBLIC RETRACTION SURFACE FOLLOWS — `<q>_retract(&mut h, de, …)`, `<q>_epoch`'s signature exactly, forwarding here; `incr_retract_eligible` still declines (`retr` stays false, so no `<q>_apply` and no `__wd`) and the surface is emitted from this admission instead. ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR: measured 1.15-1.9x a from-scratch recompute over the survivors, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range — the repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
         } else if !retract_ok(aggs, acount, acc) {
             plan_trace("rel dred driver", "declined", bare,
                        "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time");
@@ -6383,26 +6397,26 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // ══ `__wql_<q>_scc<c>_dred` — THE FOUR-PHASE EPOCH DRIVER ═════
             // ══════════════════════════════════════════════════════════════
             //
-            // ⚠⚠ WHAT THIS IS AND, FIRST, WHAT IT IS NOT. It is NOT the
-            // retraction SURFACE. `incr_retract_eligible` still refuses every
-            // rel-backed query with recursion as its ground, `<q>_retract` /
-            // `<q>_apply` / `__wd` still do not exist for one, and the three
-            // `fail/` doors that assert those names absent are UNTOUCHED and
-            // still true. This is one more PRIVATE emitted item beside `_od`,
-            // `_odp`, `_cpt` and `_i` — the party that calls those four in order
-            // — reachable only by a fixture naming it, exactly as phases 1 and 2
-            // landed. The surface round moves this body into a rel sub-arm of the
-            // `retr` branch and replaces the doors then; a half-flip now would
-            // leave doors that pin even less than they do today.
+            // ⚠⚠ WHAT THIS IS. It is the MECHANISM under the public
+            // `<q>_retract`, which is emitted a few lines below as a forwarder
+            // to it and by which every ordinary caller arrives. It stays a
+            // separate PRIVATE item beside `_od`, `_odp`, `_cpt` and `_i`
+            // because `pass/wql_incr_rel_dred_driver.logos` names it directly
+            // and asserts the phase-level contract (the `DE ⊆ EDB` refusal, the
+            // late-fault atomicity block) at a granularity the surface hides.
+            // ⚠ `<q>_apply` and `__wd` STILL DO NOT EXIST for a rel-backed
+            // query: `incr_retract_eligible` goes on declining, `retr` stays
+            // false, and folding a derived row at a caller-supplied weight is
+            // inexpressible rather than merely wrong.
             //
-            // ── WHY IT IS A SEPARATE ITEM AND NOT A FORWARDER ─────────────
+            // ── WHY THE SURFACE IS A FORWARDER AND THIS IS NOT `<q>_apply` ─
             // The non-rel retraction surface is `<q>_retract(h, …) =
-            // <q>_apply(h, 0, -1, …)` — a pure forwarder through the weighted
+            // <q>_apply(h, 0, -1, …)` — a forwarder through the WEIGHTED
             // primitive. That shape CANNOT express this: a retraction here is
             // four phases over driver-local state with a signed fold at the end,
-            // not one weight handed to one loop. Emitting it as its own item is
-            // what lets the surface round be a re-parenting rather than a
-            // rewrite.
+            // not one weight handed to one loop. So the rel `<q>_retract` is
+            // still a forwarder — same signature as `<q>_epoch`, DE in the slice
+            // parameter — but what it forwards to is this, not a weight.
             //
             // ── THE SEQUENCE, AND WHAT EACH ARGUMENT MUST BE ──────────────
             //   PRES := __edb ∖ DE                    (computed here, once)
@@ -6567,8 +6581,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // of a mutually recursive pair usually SHARE a row type, so a
                 // swapped pair TYPECHECKS and answers with the relations
                 // exchanged — which is exactly what
-                // `fail/wql_incr_mutrec_no_retract_even.logos` names as the shape
-                // a first-member-instead-of-selected-member bug hides in.
+                // `pass/wql_incr_mutrec_retract_surface_even.logos` is for: it
+                // retracts through the SECOND member's query, which is where a
+                // first-member-instead-of-selected-member bug hides.
                 let mut d0: i64 = 0i64;
                 while d0 < ntm {
                     let drt: str = prm.rel_rowty[tmem[d0]];
@@ -6811,6 +6826,61 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // the note there.
                 emit_fn_quote_blob(string_as_str(&dnm), string_as_str(&dps), "",
                                    "Result<i64, ElError>", dred_body, prm);
+
+                // ══ `<q>_retract` — THE PUBLIC SURFACE, AND IT IS A FORWARDER
+                //
+                // ⚠⚠ THIS IS THE FLIP, AND IT DOES **NOT** GO THROUGH `retr`.
+                // `incr_retract_eligible` still returns false for every
+                // rel-backed query — deliberately, and the whole `retr` arm
+                // stays unreachable for one. Forcing `retr` true here would be a
+                // WRONG ANSWER and not merely a bigger diff: it drags `__src` /
+                // `__wd` into the signature, makes `<q>_apply` run over the RAW
+                // batch source instead of the maintained total, degrades
+                // `<q>_epoch` to a forwarder (the rel epoch body is emitted
+                // NOWHERE in that arm), and DELETES this driver, because `dred`
+                // itself carries `!retr`. The surface therefore lands where the
+                // mechanism lives: one more emitted item inside `if dred`.
+                //
+                // ⚠ THE SIGNATURE IS `<q>_epoch`'s, EXACTLY. `fps`/`eps` and
+                // `dps` differ only in the handle parameter's NAME (`__h` vs the
+                // driver's `__hh`), and the call below is POSITIONAL, so the
+                // forwarder hands its own `__h` to the driver's `__hh` with no
+                // adapter. DE arrives in the SLICE PARAMETER — the same place
+                // `<q>_epoch` takes the inserts — so a caller cannot tell the
+                // DIRECTION from the signature; it is in the NAME.
+                // ⚠ THE FORK NOT TAKEN: a weight parameter, mirroring the
+                // non-rel `<q>_apply(h, src, w, …)`. That shape cannot express
+                // this — a retraction here is four phases over driver-local
+                // state with a SIGNED fold at the end, not one weight handed to
+                // one loop — and it would drag `__wd` back in.
+                //
+                // ⚠⚠ WHAT A CALLER OF THIS NAME IS BUYING, AND IT IS NOT FREE.
+                // See the EMITTED trace line beside the `dred` derivation: DRed
+                // is a measured PESSIMIZATION (1.15-1.9x a from-scratch
+                // recompute, losing worse as the re-derived set grows, no
+                // crossover in the reachable range). The price used to be named
+                // only in `incr_retract_eligible`'s REFUSAL text, which is
+                // exactly the sentence a user of THIS name never reads.
+                let mut rtps: String = String::new();
+                rtps.push_str("__h: &mut ");
+                rtps.push_str(tyn);
+                if params_text.len() > 0i64 {
+                    rtps.push_str(", ");
+                    rtps.push_str(params_text);
+                }
+                let mut rtnm: String = String::new();
+                prep_derived_name(fn_name, "_retract", &mut rtnm);
+                let mut rtb: String = String::new();
+                rtb.push_str("{\n    return __wql_");
+                rtb.push_str(bare);
+                rtb.push_str("_scc");
+                rtb.push_i64(prm.rel_sccid[rel_m]);
+                rtb.push_str("_dred(__h");
+                if prm.n > 0i64 { rtb.push_str(", "); push_param_args(&mut rtb, prm); }
+                rtb.push_str(");\n}\n");
+                emit_fn_quote_blob(string_as_str(&rtnm), string_as_str(&rtps), "",
+                                   "Result<i64, ElError>",
+                                   parse_block(string_as_str(&rtb)), prm);
             }
         } else {
         epoch_body = quote_block! {
@@ -7456,11 +7526,21 @@ fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
     // it is a second state machine over provenance, not an inverse fold.
     //
     // ⚠⚠ AND THE REFUSAL IS STRUCTURAL, NOT ADVISORY. Returning `false` here
-    // selects the INSERT-ONLY surface: `<q>_apply` and `<q>_retract` are not
-    // emitted at all and `__wd` does not exist in any scope this query emits, so
-    // folding a derived row at a weight is not expressible rather than merely
-    // wrong. `fail/wql_incr_rel_no_retract.logos` calls `<q>_retract` and
-    // requires the compile to FAIL on the missing name — flip this clause and
+    // selects the INSERT-ONLY *WEIGHTED* surface: `<q>_apply` is not emitted at
+    // all and `__wd` does not exist in any scope this query emits, so folding a
+    // derived row at a caller-supplied weight is not expressible rather than
+    // merely wrong.
+    // ⚠⚠ WHAT THIS NO LONGER MEANS, SINCE THE SURFACE ROUND: it does NOT mean
+    // the query has no retraction. A rel-backed query that clears `dred` in
+    // `emit_incremental` gets a PUBLIC `<q>_retract` forwarding to
+    // `__wql_<q>_scc<c>_dred` — the DRed state machine this ground names as the
+    // correct mechanism, now built. This clause's job is to keep that surface
+    // off the INVERSE-FOLD path, not to withhold retraction. The doors that
+    // assert a missing `<q>_retract` are now the shapes `dred` itself refuses
+    // (`fail/wql_incr_rel_no_retract_minmax.logos`,
+    // `fail/wql_incr_rel_no_retract_float.logos`).
+    // Historically: `fail/wql_incr_rel_no_retract.logos` called `<q>_retract` and
+    // required the compile to FAIL on the missing name — flip this clause and
     // that fixture goes green, which is a red gate on the per-commit path.
     // ⚠ AND THAT `fail/` DOOR IS NOT THE LOAD-BEARING ONE — a missing name is
     // true under every refusal that reaches the query. The gate that pins THIS
@@ -9515,10 +9595,12 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // query, `<q>_apply` / `<q>_retract` / `__wd` are still not emitted for one, and
 // `fail/wql_incr_rel_no_retract.logos` still pins that refusal. A caller cannot
 // present a retraction to a recursive query today and that is unchanged here.
-// ⚠ WHAT DID CHANGE SINCE: these four phases now have an EMITTED caller,
-// `__wql_<q>_scc<c>_dred` (see `emit_incremental`'s `dred` predicate), which is
-// still a PRIVATE item nameable only by a fixture. The public surface is exactly
-// as refused as it was.
+// ⚠ WHAT DID CHANGE SINCE: these four phases have an EMITTED caller,
+// `__wql_<q>_scc<c>_dred` (see `emit_incremental`'s `dred` predicate), and THAT
+// caller now has a PUBLIC forwarder `<q>_retract` emitted from the same `dred`
+// admission. The paragraph above describes the slice that landed phase 1, not
+// today's surface: a caller CAN present a retraction to a recursive query, and
+// `pass/wql_incr_rel_retract_surface.logos` is where it is exercised.
 // What lands is the one piece of EMISSION phase 1 needs and nothing has: the
 // over-delete driver, provable on its own against a from-scratch oracle.
 //
@@ -9804,18 +9886,20 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 //       `_cpt`, which violates no fence for the same reason phases 1 and 2 are
 //       emitted today while the entry surface says no.
 //
-// ── OUT OF FENCE HERE, AND THE REFUSAL THAT KEEPS IT OUT ───────────────────
-// THERE IS NO RETRACTION SURFACE AND NO EPOCH DRIVER. `incr_retract_eligible`
-// still refuses every rel-backed query, `<q>_retract` / `<q>_apply` / `__wd`
-// still do not exist for one, and `fail/wql_incr_rel_no_retract.logos` plus
-// `fail/wql_incr_mutrec_no_retract_{odd,even}.logos` still pin that refusal —
-// ALL THREE UNCHANGED IN THIS SLICE, deliberately and not by omission. They are
-// NAME-ABSENT doors (they assert `tc_retract` / `oddq_retract` / `evenq_retract`
-// do not exist), which is true under EVERY refusal that reaches the query, so
-// they pin no particular ground; splitting them and replacing them with positive
-// fixtures is the FIRST work of the surface round, and half-splitting them now
-// would leave the tree with doors that pin even less. What pins the ground today
-// is `logos_09_incr_mutrec_refusal` (`tier_commit`), also untouched.
+// ── WHAT WAS OUT OF FENCE HERE, AND HAS SINCE LANDED ───────────────────────
+// This slice emitted no retraction surface and no epoch driver. Both exist now:
+// `__wql_<q>_scc<c>_dred` and the public `<q>_retract` that forwards to it, both
+// under `emit_incremental`'s `dred`. `<q>_apply` / `__wd` still do not exist for
+// a rel-backed query and `incr_retract_eligible` still declines it, which is the
+// distinction this header should be read for.
+// ⚠ THE THREE NAME-ABSENT DOORS ARE GONE, ALL THREE TOGETHER. They asserted
+// `tc_retract` / `oddq_retract` / `evenq_retract` absent, which was true under
+// EVERY refusal that reached the query and therefore pinned no ground; they are
+// now `pass/wql_incr_rel_retract_surface.logos` and
+// `pass/wql_incr_mutrec_retract_surface_{odd,even}.logos`, which assert the
+// per-epoch relation and the `__lat` triple. The ground is pinned by
+// `logos_09_incr_mutrec_refusal` (`tier_commit`), which reads the ADMITTED
+// sentence for the mutrec shape and for the single-member `tc` shape.
 // CONSEQUENCE FOR THE DIRECT CALLERS: the `|RD| = -1` latch STAYS as `_cpt`'s
 // answer, because |RD| is still not a fact in `_cpt`'s scope. ⚠ IT IS NO LONGER
 // UNRETIRED, though: `__wql_<q>_scc<c>_dred` (emitted by `emit_incremental`
@@ -10456,7 +10540,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // query, and phases 2 and 3 are NOT emitted. See
                 // `emit_scc_od_fns` for what is in fence and what is not.
                 plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
-                           "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, handing back the removed rows in `__rm_<m>`, refusing before it writes if OD⊄T). PHASE 3 IS `_i` RE-ENTERED OVER THE SURVIVOR EDB WITH THE COMPACTED TOTAL — no fourth sibling is emitted for it, and no retraction surface follows.");
+                           "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, handing back the removed rows in `__rm_<m>`, refusing before it writes if OD⊄T). PHASE 3 IS `_i` RE-ENTERED OVER THE SURVIVOR EDB WITH THE COMPACTED TOTAL — no fourth sibling is emitted for it. THE SURFACE THAT FOLLOWS IS `<q>_retract`, emitted under `emit_incremental`'s `dred` and forwarding to `__wql_<q>_scc<c>_dred`, NOT from here.");
                 if !emit_scc_od_fns(rels, c, fn_name, params_text, prm, scc, h) { return false; }
             }
         } else {

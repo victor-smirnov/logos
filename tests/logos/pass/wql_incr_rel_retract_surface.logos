@@ -1,0 +1,419 @@
+// THE PUBLIC RETRACTION SURFACE OF A RECURSIVE `rel` — `tc_retract`.
+//
+// ⚠⚠ THIS FILE WAS `fail/wql_incr_rel_no_retract.logos` AND IT ASSERTED THE
+// OPPOSITE. It called `tc_retract(&mut h, v.as_slice())` and required the
+// compile to FAIL on the missing name; the call text below is the SAME text,
+// and it now compiles and runs. That is deliberate and it is why the file was
+// MOVED rather than deleted: the door and the surface are the same assertion
+// read with opposite sign, and keeping the call line identical is what makes
+// the flip legible in one diff.
+//
+// ⚠⚠ AND ALL THREE DOORS MOVED TOGETHER. `wql_incr_mutrec_no_retract_odd` and
+// `..._even` became `pass/wql_incr_mutrec_retract_surface_{odd,even}` in the
+// same commit. Leaving one behind would leave a fixture asserting a name-absence
+// that has become a name-presence — a `fail/` test that compiles is a RED test,
+// so a half-flip is not a smaller step, it is a broken tree.
+// The shapes that are STILL refused kept doors of their own, re-pointed rather
+// than invented: `fail/wql_incr_rel_no_retract_minmax.logos` (a `max`-headed
+// group over a rel — `aggs_any_minmax` in `dred`, the MISSING-STATE ground),
+// `fail/wql_incr_rel_no_retract_float.logos` (an `avg`, so an `f64`
+// accumulator — `retract_ok`, i.e. Victor's OPEN D4), and
+// `fail/wql_incr_mutrec_outside_rel.logos` (a `rel` outside the recursive SCC,
+// refused upstream in `stamp_rel_incr_shape`).
+//
+// ══ WHAT `tc_retract` IS ═════════════════════════════════════════════════════
+// A FORWARDER, emitted under `emit_incremental`'s `dred` predicate, to the
+// private four-phase DRed driver `__wql_tc_scc0_dred`. Its signature is
+// `tc_epoch`'s exactly — handle plus the query's own parameters, DE in the SLICE
+// parameter — so the DIRECTION lives entirely in the NAME. `retr` is still
+// FALSE for a rel-backed query: `incr_retract_eligible` goes on declining, so
+// `tc_apply` and `__wd` do not exist and no weight can be handed to a fold.
+// The phase-level contract (the `DE ⊆ EDB` refusal, the late-fault atomicity
+// block) is asserted through the private name by
+// `pass/wql_incr_rel_dred_driver.logos`; THIS file asserts what a caller of the
+// PUBLIC name gets.
+//
+// ══ WHY THIS FIXTURE ASSERTS THE INTERMEDIATE SETS AND NOT ONLY THE ANSWER ═══
+// ⚠⚠ AN ANSWER-ONLY FIXTURE IS BLIND HERE, AND THAT IS MEASURED, NOT SUSPECTED.
+// With phase 1a's existing-rel⋈DE seed term deleted, a fixture asserting only
+// the group answer and the relation returned 0 — byte-correct under a broken
+// compiler — while the `__lat` latch reddened. So every cell below checks, at
+// EVERY epoch:
+//   • `tc_snapshot(&h)`  == the group table of `naive_closure(I ∖ R)`;
+//   • `h.__tot_path`     == `naive_closure(I ∖ R)` — the RELATION;
+//   • `h.__edb`          == `I ∖ R` — the accumulated input. Without it a
+//     retraction that never shrank the input heals one epoch later, so every
+//     cell INSERTS AGAIN after retracting;
+//   • `h.__lat`          == (|OD|, |S|, |RD|) — the INTERMEDIATE sets, against
+//     an independent OD oracle AND a hand-written triple, plus `!= -1` on the
+//     |RD| slot separately from `== o_rd` (at |RD| = 0 the sentinel and the
+//     right answer differ only by arithmetic).
+//
+// ══ THE COST THE CALLER OF THIS NAME IS PAYING ═══════════════════════════════
+// ⚠ DRed IS A MEASURED PESSIMIZATION — 1.15–1.9× a from-scratch recompute over
+// the survivors, losing worse as the re-derived set grows, no crossover in the
+// reachable range. The number is NOT re-measured here and there is no clock in
+// this file: the box is shared and a ratio from a shared box looks like evidence
+// and is not. Where it is NAMED is the emitted plan line — `[plan] rel dred
+// driver -> EMITTED on tc (… ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR
+// …)` — which is the sentence a user of `tc_retract` actually reads;
+// `incr_retract_eligible`'s refusal text carries it too, but that sentence is
+// exactly the one this surface's user never sees.
+//
+// ══ THE CELLS — CYCLIC DATA, THREE SHAPES ════════════════════════════════════
+//  1 DIAMOND         1→2, 1→3, 2→4, 3→4; retract (2,4). `(1,4)` is
+//                    OVER-DELETED and RE-DERIVED, so |OD| > |OD ∖ RD| and a
+//                    surface that stopped after the compact answers a relation
+//                    missing a true fact.
+//  2 MID-CHAIN       1→2→3→4→5; retract (3,4). `RD = ∅` — phase 2 alone is
+//                    already right, so a "re-derive on principle" defect shows
+//                    up as a non-empty RD with a CORRECT answer.
+//  3 SELF-SUPPORTING 1→2→3→1; retract (3,1). Every pair walks through the
+//    CYCLE           deleted edge, so `S = ∅`; phase 3 is the entire answer.
+//                    This is the cell the refusal's own ground named — a fact
+//                    that supports ITSELF through a cycle — so it is the one
+//                    that has to be right for the admission to mean anything.
+//
+// CONTROL, and it is the whole point of the file: remove the single
+// `emit_fn_quote_blob` that emits `<q>_retract` from the `if dred` block in
+// `emit_incremental`, drop the archives, rebuild the stdlib → this file fails to
+// compile with `call to undefined function 'tc_retract'`, which is the string
+// its own `.expected` used to hold.
+//
+// exit 0 = the public surface agrees with the from-scratch fixpoint over `I ∖ R`
+// at every epoch on the answer, the relation, the accumulated input and all
+// three latches, on all three cyclic shapes.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate c = count() select (key, c)
+}
+
+// ══ THE ORACLES — no delta, no shadow set, no SCC, no phase ═════════════════
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn naive_closure(es: &[E]) -> Vec<(i64, i64)> {
+    let mut p: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() {
+        pair_uniq(&mut p, es[i].a, es[i].b);
+        i = i + 1i64;
+    }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < p.len() {
+            let pr: (i64, i64) = p.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a {
+                    if pair_uniq(&mut p, pr.0, es[j].b) { grew = true; }
+                }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+    }
+    return p;
+}
+
+// Set equality: mutual containment PLUS equal length, so a DUPLICATE on either
+// side is a disagreement rather than something containment absorbs.
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+// The GROUP TABLE of a relation, written here rather than taken from `tc()` so
+// that the answer check does not compare the emitter against itself.
+fn groups_of(cl: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut ks: Vec<i64> = vec_new::<i64>();
+    let mut cs: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < cl.len() {
+        let p: (i64, i64) = cl.get(i);
+        let mut f: i64 = -1i64;
+        let mut j: i64 = 0i64;
+        while j < ks.len() { if ks.get(j) == p.0 { f = j; } j = j + 1i64; }
+        if f < 0i64 { ks.push(p.0); cs.push(1i64); }
+        else { cs.set(f, cs.get(f) + 1i64); }
+        i = i + 1i64;
+    }
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut k: i64 = 0i64;
+    while k < ks.len() { o.push((ks.get(k), cs.get(k))); k = k + 1i64; }
+    return o;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn edge_has(v: &[E], a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v[i];
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &[E], de: &[E]) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all[i];
+        if !edge_has(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+// Reflexive reachability over a from-scratch closure — `x ⇝* u`.
+fn reach(cl: &Vec<(i64, i64)>, x: i64, u: i64) -> bool {
+    if x == u { return true; }
+    return pair_has(cl, x, u);
+}
+
+// ── THE OD ORACLE. `OD = { f ∈ T : SOME derivation of f uses a row of DE }`,
+// decomposed at the deleted edge: `(x,y) ∈ OD` iff some `(u,v) ∈ DE` has
+// `x ⇝* u` and `v ⇝* y` in the FULL graph. A STRICT superset of
+// `closure(ALL) ∖ closure(PRES)` whenever a fact has a second surviving
+// derivation, which is what makes phase 3 load-bearing rather than decorative.
+fn od_oracle(all: &[E], de: &[E]) -> Vec<(i64, i64)> {
+    let cl: Vec<(i64, i64)> = naive_closure(all);
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < cl.len() {
+        let p: (i64, i64) = cl.get(i);
+        let mut hit: bool = false;
+        let mut j: i64 = 0i64;
+        while j < de.len() {
+            let d: E = de[j];
+            if reach(&cl, p.0, d.a) && reach(&cl, d.b, p.1) { hit = true; }
+            j = j + 1i64;
+        }
+        if hit { o.push((p.0, p.1)); }
+        i = i + 1i64;
+    }
+    return o;
+}
+
+fn edb_copy(h: &TcIncr) -> Vec<E> {
+    let mut o: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < h.__edb.len() { let e: E = h.__edb.get(i); o.push(ed(e.a, e.b)); i = i + 1i64; }
+    return o;
+}
+
+fn tot_copy(h: &TcIncr) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < h.__tot_path.len() { let p: (i64, i64) = h.__tot_path.get(i); o.push((p.0, p.1)); i = i + 1i64; }
+    return o;
+}
+
+fn edges_same(x: &[E], y: &[E]) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() { let e: E = x[i]; if !edge_has(y, e.a, e.b) { return false; } i = i + 1i64; }
+    let mut j: i64 = 0i64;
+    while j < y.len() { let e2: E = y[j]; if !edge_has(x, e2.a, e2.b) { return false; } j = j + 1i64; }
+    return true;
+}
+
+// ══ ONE CHECK OF EVERYTHING, at whatever epoch it is asked. Codes 1..9 ══════
+fn check(h: &TcIncr, cur: &[E]) -> i32 {
+    let cl: Vec<(i64, i64)> = naive_closure(cur);
+    let snap: Vec<(i64, i64)> = match tc_snapshot(h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
+    };
+    let want: Vec<(i64, i64)> = groups_of(&cl);
+    if !same_set(&snap, &want) { return 2i32; }
+    let tot: Vec<(i64, i64)> = tot_copy(h);
+    if !same_set(&tot, &cl) { return 3i32; }
+    let acc: Vec<E> = edb_copy(h);
+    if !edges_same(acc.as_slice(), cur) { return 4i32; }
+    return 0i32;
+}
+
+// ── ONE RETRACTION EPOCH THROUGH THE PUBLIC NAME. Codes 10..19 ─────────────
+fn retract_epoch(h: &mut TcIncr, cur: &mut Vec<E>, de: &[E],
+                 w_od: i64, w_s: i64, w_rd: i64) -> i32 {
+    // The oracles are computed from the PRE-call state: `OD` and `S` are
+    // properties of the total the surface is about to rewrite.
+    let od: Vec<(i64, i64)> = od_oracle(cur.as_slice(), de);
+    let t_all: Vec<(i64, i64)> = naive_closure(cur.as_slice());
+    let pres: Vec<E> = survivors(cur.as_slice(), de);
+    let cl_pres: Vec<(i64, i64)> = naive_closure(pres.as_slice());
+    let o_od: i64 = od.len();
+    let o_s:  i64 = t_all.len() - od.len();
+    let o_rd: i64 = cl_pres.len() - o_s;
+    // ⚠ THE HAND-WRITTEN TRIPLE IS CONFRONTED WITH THE ORACLE BEFORE THE ENGINE
+    // IS ASKED ANYTHING, so a cell whose shape was misread is caught here rather
+    // than blamed on the emitter.
+    if o_od != w_od { return 10i32; }
+    if o_s  != w_s  { return 11i32; }
+    if o_rd != w_rd { return 12i32; }
+
+    // ⚠ THE LINE THAT USED TO BE THE `fail/` DOOR — same call text, opposite
+    // sign. The private `__wql_tc_scc0_dred` is NOT named here on purpose: what
+    // is under test is the PUBLIC forwarder and its signature.
+    match tc_retract(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 13i32; }
+    }
+    let nc: Vec<E> = survivors(cur.as_slice(), de);
+    cur.clear();
+    let mut ci: i64 = 0i64;
+    while ci < nc.len() { let e: E = nc.get(ci); cur.push(ed(e.a, e.b)); ci = ci + 1i64; }
+
+    if h.__lat.len() != 3i64        { return 14i32; }
+    if h.__lat.get(0i64) != o_od    { return 15i32; }
+    if h.__lat.get(1i64) != o_s     { return 16i32; }
+    // ⚠ THE SENTINEL, ASSERTED SEPARATELY FROM THE VALUE. `_cpt` pushes `-1` for
+    // |RD|; only the driver retires it, and at `o_rd == 0` (cell 2) a `-1` and
+    // the right answer differ only by arithmetic.
+    if h.__lat.get(2i64) == 0i64 - 1i64 { return 17i32; }
+    if h.__lat.get(2i64) != o_rd    { return 18i32; }
+    return check(h, cur.as_slice());
+}
+
+fn insert_epoch(h: &mut TcIncr, cur: &mut Vec<E>, de: &[E]) -> i32 {
+    match tc_epoch(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 19i32; }
+    }
+    let mut i: i64 = 0i64;
+    while i < de.len() {
+        let e: E = de[i];
+        if !edge_has(cur.as_slice(), e.a, e.b) { cur.push(ed(e.a, e.b)); }
+        i = i + 1i64;
+    }
+    return check(h, cur.as_slice());
+}
+
+fn main() -> i32 {
+    // ══ CELL 1 — THE DIAMOND ═════════════════════════════════════════════
+    // `T` = {12,13,24,34,14}. Retract (2,4): OD = {24,14} → |OD| = 2, |S| = 3,
+    // `closure(PRES)` = {12,13,34,14} so |RD| = 1 — `(1,4)` comes BACK, from
+    // the OLD survivor row `(1,3)` joined with the OLD surviving edge `(3,4)`.
+    let mut h1: TcIncr = tc_incremental();
+    let mut c1: Vec<E> = vec_new::<E>();
+    let mut d1: Vec<E> = vec_new::<E>();
+    d1.push(ed(1i64, 2i64)); d1.push(ed(1i64, 3i64));
+    d1.push(ed(2i64, 4i64)); d1.push(ed(3i64, 4i64));
+    let a1: i32 = insert_epoch(&mut h1, &mut c1, d1.as_slice());
+    if a1 != 0i32 { return 20i32 + a1; }
+    let mut r1: Vec<E> = vec_new::<E>();
+    r1.push(ed(2i64, 4i64));
+    let b1: i32 = retract_epoch(&mut h1, &mut c1, r1.as_slice(), 2i64, 3i64, 1i64);
+    if b1 != 0i32 { return 40i32 + b1; }
+    // ⚠ INSERT AGAIN ON THE SURVIVOR HANDLE. If `__edb` had not shrunk, this
+    // epoch's round-0 pass over the accumulated input re-derives `(2,4)` and the
+    // retraction silently undoes itself.
+    let mut d1b: Vec<E> = vec_new::<E>();
+    d1b.push(ed(4i64, 5i64));
+    let a1b: i32 = insert_epoch(&mut h1, &mut c1, d1b.as_slice());
+    if a1b != 0i32 { return 60i32 + a1b; }
+
+    // ══ CELL 2 — THE MID-CHAIN ═══════════════════════════════════════════
+    // 1→2→3→4→5, `T` = 10 pairs. Retract (3,4): |OD| = 6, |S| = 4, |RD| = 0.
+    let mut h2: TcIncr = tc_incremental();
+    let mut c2: Vec<E> = vec_new::<E>();
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(1i64, 2i64)); d2.push(ed(2i64, 3i64));
+    d2.push(ed(3i64, 4i64)); d2.push(ed(4i64, 5i64));
+    let a2: i32 = insert_epoch(&mut h2, &mut c2, d2.as_slice());
+    if a2 != 0i32 { return 80i32 + a2; }
+    let mut r2: Vec<E> = vec_new::<E>();
+    r2.push(ed(3i64, 4i64));
+    let b2: i32 = retract_epoch(&mut h2, &mut c2, r2.as_slice(), 6i64, 4i64, 0i64);
+    if b2 != 0i32 { return 100i32 + b2; }
+    // Re-inserting the very edge that was retracted: the strongest `__edb`
+    // witness, since the handle must arrive back at the original 10-pair closure
+    // through a path that has retracted and re-derived.
+    let mut d2b: Vec<E> = vec_new::<E>();
+    d2b.push(ed(3i64, 4i64));
+    let a2b: i32 = insert_epoch(&mut h2, &mut c2, d2b.as_slice());
+    if a2b != 0i32 { return 120i32 + a2b; }
+
+    // ══ CELL 3 — THE SELF-SUPPORTING CYCLE ═══════════════════════════════
+    // 1→2→3→1, `T` = all 9 ordered pairs. Retract (3,1): |OD| = 9, `S = ∅`,
+    // |RD| = 3. The shape the refusal's own ground named.
+    let mut h3: TcIncr = tc_incremental();
+    let mut c3: Vec<E> = vec_new::<E>();
+    let mut d3: Vec<E> = vec_new::<E>();
+    d3.push(ed(1i64, 2i64)); d3.push(ed(2i64, 3i64)); d3.push(ed(3i64, 1i64));
+    let a3: i32 = insert_epoch(&mut h3, &mut c3, d3.as_slice());
+    if a3 != 0i32 { return 140i32 + a3; }
+    let mut r3: Vec<E> = vec_new::<E>();
+    r3.push(ed(3i64, 1i64));
+    let b3: i32 = retract_epoch(&mut h3, &mut c3, r3.as_slice(), 9i64, 0i64, 3i64);
+    if b3 != 0i32 { return 160i32 + b3; }
+    let mut d3b: Vec<E> = vec_new::<E>();
+    d3b.push(ed(3i64, 1i64));
+    let a3b: i32 = insert_epoch(&mut h3, &mut c3, d3b.as_slice());
+    if a3b != 0i32 { return 180i32 + a3b; }
+
+    // ══ THE SURFACE'S OWN REFUSAL, THROUGH THE PUBLIC NAME ═══════════════
+    // `DE ⊆ EDB` is enforced by the driver; a caller reaching it through
+    // `tc_retract` must get the same `Err` and a handle nothing moved. The
+    // driver-level cases live in `pass/wql_incr_rel_dred_driver.logos` block D;
+    // what is asserted HERE is only that the forwarder does not swallow, remap
+    // or pre-empt the error — one row, never inserted.
+    let mut bad: Vec<E> = vec_new::<E>();
+    bad.push(ed(9i64, 9i64));
+    match tc_retract(&mut h3, bad.as_slice()) {
+        Result::Ok(_n) => { return 200i32; }
+        Result::Err(e) => {
+            match e {
+                ElError::RetractAbsent => { }
+                _ => { return 201i32; }
+            }
+        }
+    }
+    let z: i32 = check(&h3, c3.as_slice());
+    if z != 0i32 { return 202i32 + z; }
+    return 0i32;
+}

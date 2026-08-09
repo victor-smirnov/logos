@@ -1,0 +1,66 @@
+// A `min`/`max`-HEADED GROUP OVER A RECURSIVE `rel` HAS NO RETRACTION SURFACE —
+// AND THE REFUSAL IS ABOUT MISSING STATE, NOT ABOUT ARITHMETIC.
+//
+// ⚠⚠ WHY THIS DOOR EXISTS AT ALL. `fail/wql_incr_rel_no_retract.logos` used to
+// assert `tc_retract` absent for EVERY recursive `rel`. That is now false: a
+// `count`- or integer-`sum`-headed group over a rel gets a public `tc_retract`
+// forwarding to `__wql_tc_scc0_dred` (`pass/wql_incr_rel_retract_surface.logos`
+// is the witness). The old door was RE-POINTED rather than deleted, at a shape
+// the emitter still refuses, so that "no retraction surface" goes on being an
+// assertion about a decision instead of a fact nobody makes any more.
+//
+// ── THE GROUND ────────────────────────────────────────────────────────────
+// `emit_incremental`'s `dred` predicate carries `!aggs_any_minmax(aggs, acount)`.
+// `min`/`max` DO run backwards — by rescanning a per-(group, aggregate)
+// value→multiplicity map — but that map, `__gm_<out>`, is a handle field built
+// only under `want_map = retr && is_mm`, and `retr` is FALSE for every
+// rel-backed query (`incr_retract_eligible` declines one). So the state the −1
+// fold would rescan DOES NOT EXIST on this handle. A MISSING-STATE refusal, and
+// it is why `aggs_any_minmax` is a separate predicate from `retract_ok` rather
+// than a clause inside it: `retract_ok` answers "does this aggregate invert",
+// and for `min`/`max` the honest answer there is YES.
+//
+// ⚠ AND THIS DOOR IS STRICTLY STRONGER THAN THE ONE IT REPLACES. `tc_epoch` and
+// `tc_incremental` are EMITTED for this query — only `tc_retract` is withheld —
+// so a green run here cannot be explained by a refusal that withdrew the whole
+// capability. That is exactly the defect measured on the old mutrec doors
+// (`606fc4c0`): restoring a stronger upstream refusal left all three of them
+// passing, so none was evidence about the retraction clause. The two lines
+// below that DO compile are what makes this one's failure mean something.
+//
+// CONTROL, PREDICTED: drop `!aggs_any_minmax(aggs, acount)` from `dred` in
+// `emit_incremental`, drop the archives, rebuild the stdlib → `tc_retract` is
+// emitted, this fixture COMPILES, and a `fail/` test that compiles is a RED test
+// on the per-commit path.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate m = max(p.b) select (key, m)
+}
+
+fn main() -> i32 {
+    // ⚠ THESE TWO LINES COMPILE, AND THAT IS HALF THE ASSERTION: the handle and
+    // the insert epoch exist for a `max`-headed rel query. Only the retraction
+    // is withheld.
+    let mut h: TcIncr = tc_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match tc_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    // ⚠ THE LINE UNDER TEST.
+    match tc_retract(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 2i32; }
+    }
+    return 0i32;
+}

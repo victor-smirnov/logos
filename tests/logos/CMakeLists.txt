@@ -1675,20 +1675,32 @@ set_tests_properties(logos_09_incr_scc_driver_count PROPERTIES
 # ⚠ THIS EXISTS BECAUSE THE THREE `fail/wql_incr_mutrec_*` DOORS WERE MEASURED
 # TO PASS UNDER A STRICTLY STRONGER REFUSAL. Restore P3b's `nmem != 1` — the
 # mutually recursive SCC gets no incremental surface at all — rebuild the stdlib,
-# and all three doors stay GREEN while only `pass/wql_incr_rel_mutrec_epochs.logos`
-# reds. `run_test.sh` fail mode asks that stderr CONTAIN a name-not-found, and the
-# name is missing under every refusal that reaches the query. A green door is
-# therefore not evidence about the retraction clause; this gate is the eligible
-# control the `fail/` files cannot carry, because a file that must not compile has
-# no room for a positive assertion.
+# and all three doors stayed GREEN while only
+# `pass/wql_incr_rel_mutrec_epochs.logos` red. `run_test.sh` fail mode asks that
+# stderr CONTAIN a name-not-found, and the name is missing under every refusal
+# that reaches the query. A green door is therefore not evidence about the
+# retraction clause; this gate is the eligible control the `fail/` files cannot
+# carry, because a file that must not compile has no room for a positive
+# assertion.
 #
-# `tier_commit`: one compile, and the commit that would break it is the same
-# commit that touches these two clauses.
+# ⚠⚠ TWO FIXTURES SINCE THE SURFACE ROUND. The mutrec one pins the N-member
+# shape; `pass/wql_incr_rel_rec_epochs.logos` pins the SINGLE-member `tc` shape,
+# which had NO ground-reading gate anywhere in the tree — every axis here was
+# about a mutually recursive SCC, and `nmem == 1` / `nmem > 1` take different
+# paths through `stamp_rel_incr_shape`. The dred axis also changed its phrase
+# when `<q>_retract` landed (it demanded "NO RETRACTION SURFACE FOLLOWS", which
+# the landing made false, exactly as that axis was designed to do); it now
+# demands the admitted surface AND the PESSIMIZATION price, so a capability
+# cannot become reachable while its cost evaporates.
+#
+# `tier_commit`: two compiles, and the commit that would break it is the same
+# commit that touches these clauses.
 add_test(
     NAME logos_09_incr_mutrec_refusal
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/incr_mutrec_refusal_gate.sh
             $<TARGET_FILE:logosc>
             ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_rel_mutrec_epochs.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_incr_rel_rec_epochs.logos
 )
 set_tests_properties(logos_09_incr_mutrec_refusal PROPERTIES
     TIMEOUT 60

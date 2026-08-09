@@ -1,0 +1,395 @@
+// THE PUBLIC RETRACTION SURFACE OF A MUTUALLY RECURSIVE SCC — DOOR 1 OF 2,
+// FLIPPED. `oddq_retract`.
+//
+// ⚠⚠ THIS FILE WAS `fail/wql_incr_mutrec_no_retract_odd.logos` AND IT ASSERTED
+// THE OPPOSITE. It called `oddq_retract(&mut h, v.as_slice())` and required the
+// compile to FAIL on the missing name. The call text is unchanged; what changed
+// is that `emit_incremental` now emits a public `<q>_retract` inside its `dred`
+// block, forwarding to the four-phase DRed driver `__wql_oddq_scc0_dred`.
+//
+// ⚠⚠ AN SCC OF N MEMBERS HAS N DOORS, AND BOTH MOVED IN THE SAME COMMIT.
+// `pass/wql_incr_mutrec_retract_surface_even.logos` is the other; the
+// single-member shape is `pass/wql_incr_rel_retract_surface.logos`. Flipping
+// one and leaving another as a `fail/` name-absence door would leave a `fail/`
+// test that COMPILES, i.e. a red gate — the three move together or none does.
+//
+// ⚠ WHAT IS *STILL* REFUSED, and the doors that now say so:
+// `fail/wql_incr_rel_no_retract_minmax.logos` (`min`/`max` over a rel — the
+// `__gm_<out>` rescan map is built only under `retr`, so the −1 fold has
+// nothing to rescan: a MISSING-STATE refusal), and
+// `fail/wql_incr_rel_no_retract_float.logos` (an `f64` accumulator — D4, still
+// Victor's OPEN decision). Both keep `<q>_epoch` and refuse only `<q>_retract`,
+// which is a strictly stronger door than the one this file used to be: a
+// name-absence under a refusal that withdrew the WHOLE handle
+// (`fail/wql_incr_mutrec_outside_rel.logos`) proves nothing about the
+// retraction clause specifically.
+//
+// ══ WHY THE MUTUALLY RECURSIVE SHAPE NEEDS ITS OWN SURFACE WITNESS ═══════════
+// The cycle runs THROUGH THE OTHER MEMBER: `odd(1,4)` comes from `even(1,3)`,
+// which comes from `odd(1,2)`, and once the graph has a cycle `odd(1,2)` is
+// re-derivable from `odd(1,4)` in turn. That is the exact shape
+// `incr_retract_eligible`'s ground names — "a derived fact may support ITSELF
+// through a cycle" — so it is the shape the admission has to be right on.
+// ⚠ AND `odd` AND `even` SHARE A ROW TYPE. A driver that maintained the FIRST
+// member where it meant the SELECTED one, or that swapped `__tt0`/`__tt1`,
+// TYPECHECKS and answers with the two relations exchanged. `check` therefore
+// asks each member BY NAME (`__tot_odd`, `__tot_even`), never the answer alone.
+//
+// ══ THE INTERMEDIATE SETS ARE ASSERTED, AND THAT IS NOT OPTIONAL ═════════════
+// ⚠ MEASURED, NOT SUSPECTED: with phase 1a's existing-rel⋈DE seed term deleted,
+// a fixture asserting only the group answer and the relation returned 0 —
+// byte-correct under a broken compiler — while the `__lat` latch reddened. Six
+// slots here (three per member), checked through the two sum identities that
+// need no second OD oracle:
+//     |OD_m| + |S_m|  == |T_m|              (member m's PREVIOUS total)
+//     |S_m|  + |RD_m| == |closure(PRES)_m|  (its NEW one)
+// plus `!= -1` on both |RD| slots, since `_cpt` pushes that sentinel and only
+// the driver retires it. The two members' totals differ in size on every graph
+// below, so a triple written into the other member's slots fails these.
+//
+// ══ THE COST, NAMED WHERE THE CALLER MEETS IT ═══════════════════════════════
+// ⚠ DRed is a measured PESSIMIZATION — 1.15–1.9× a from-scratch recompute,
+// worse as the re-derived set grows, no crossover in the reachable range. NOT
+// re-measured here and no clock in this file (the box is shared). It is named in
+// the EMITTED plan line for this very query, `[plan] rel dred driver -> EMITTED
+// on oddq`, which `tests/logos/incr_mutrec_refusal_gate.sh` reads by its phrase.
+//
+// CONTROL: remove the single `emit_fn_quote_blob` that emits `<q>_retract` from
+// the `if dred` block in `emit_incremental` → this file fails to compile with
+// `call to undefined function 'oddq_retract'`, the string its own `.expected`
+// used to hold.
+//
+// exit 0 = the public surface agrees with a from-scratch alternating-parity
+// closure over `I ∖ R` at every epoch, on BOTH members, on the answer, on the
+// accumulated input and on all six latch slots.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem oddq(es: &[E]) {
+    rel odd(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from even v join es e on v.b == e.a select (v.a, e.b);
+    }
+    rel even(a: i64, b: i64) {
+        from odd o join es e on o.b == e.a select (o.a, e.b);
+    }
+    from odd p group by p.a aggregate c = count() select (key, c)
+}
+
+fn pair_uniq(p: &mut Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return false; }
+        i = i + 1i64;
+    }
+    p.push((a, b));
+    return true;
+}
+
+fn pair_has(p: &Vec<(i64, i64)>, a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < p.len() {
+        let c: (i64, i64) = p.get(i);
+        if c.0 == a && c.1 == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// ── THE ORACLE: parity closure, from scratch, no delta and no phase.
+// odd  = { (a,b) : some walk a→b of ODD length }
+// even = { (a,b) : some walk a→b of EVEN length >= 2 }
+fn parity_odd(es: &[E]) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() { pair_uniq(&mut o, es[i].a, es[i].b); i = i + 1i64; }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < o.len() {
+            let pr: (i64, i64) = o.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a { if pair_uniq(&mut v, pr.0, es[j].b) { grew = true; } }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+        let mut k2: i64 = 0i64;
+        while k2 < v.len() {
+            let pr2: (i64, i64) = v.get(k2);
+            let mut j2: i64 = 0i64;
+            while j2 < es.len() {
+                if pr2.1 == es[j2].a { if pair_uniq(&mut o, pr2.0, es[j2].b) { grew = true; } }
+                j2 = j2 + 1i64;
+            }
+            k2 = k2 + 1i64;
+        }
+    }
+    return o;
+}
+
+fn parity_even(es: &[E]) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < es.len() { pair_uniq(&mut o, es[i].a, es[i].b); i = i + 1i64; }
+    let mut grew: bool = true;
+    while grew {
+        grew = false;
+        let mut k: i64 = 0i64;
+        while k < o.len() {
+            let pr: (i64, i64) = o.get(k);
+            let mut j: i64 = 0i64;
+            while j < es.len() {
+                if pr.1 == es[j].a { if pair_uniq(&mut v, pr.0, es[j].b) { grew = true; } }
+                j = j + 1i64;
+            }
+            k = k + 1i64;
+        }
+        let mut k2: i64 = 0i64;
+        while k2 < v.len() {
+            let pr2: (i64, i64) = v.get(k2);
+            let mut j2: i64 = 0i64;
+            while j2 < es.len() {
+                if pr2.1 == es[j2].a { if pair_uniq(&mut o, pr2.0, es[j2].b) { grew = true; } }
+                j2 = j2 + 1i64;
+            }
+            k2 = k2 + 1i64;
+        }
+    }
+    return v;
+}
+
+fn same_set(x: &Vec<(i64, i64)>, y: &Vec<(i64, i64)>) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() {
+        let c: (i64, i64) = x.get(i);
+        if !pair_has(y, c.0, c.1) { return false; }
+        i = i + 1i64;
+    }
+    let mut j: i64 = 0i64;
+    while j < y.len() {
+        let c2: (i64, i64) = y.get(j);
+        if !pair_has(x, c2.0, c2.1) { return false; }
+        j = j + 1i64;
+    }
+    return true;
+}
+
+fn groups_of(cl: &Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    let mut ks: Vec<i64> = vec_new::<i64>();
+    let mut cs: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < cl.len() {
+        let p: (i64, i64) = cl.get(i);
+        let mut f: i64 = -1i64;
+        let mut j: i64 = 0i64;
+        while j < ks.len() { if ks.get(j) == p.0 { f = j; } j = j + 1i64; }
+        if f < 0i64 { ks.push(p.0); cs.push(1i64); }
+        else { cs.set(f, cs.get(f) + 1i64); }
+        i = i + 1i64;
+    }
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut k: i64 = 0i64;
+    while k < ks.len() { o.push((ks.get(k), cs.get(k))); k = k + 1i64; }
+    return o;
+}
+
+fn ed(a: i64, b: i64) -> E { return E { a: a, b: b }; }
+
+fn edge_has(v: &[E], a: i64, b: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let e: E = v[i];
+        if e.a == a && e.b == b { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn survivors(all: &[E], de: &[E]) -> Vec<E> {
+    let mut out: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < all.len() {
+        let e: E = all[i];
+        if !edge_has(de, e.a, e.b) { out.push(e); }
+        i = i + 1i64;
+    }
+    return out;
+}
+
+fn odd_copy(h: &OddqIncr) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < h.__tot_odd.len() { let p: (i64, i64) = h.__tot_odd.get(i); o.push((p.0, p.1)); i = i + 1i64; }
+    return o;
+}
+
+fn even_copy(h: &OddqIncr) -> Vec<(i64, i64)> {
+    let mut o: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < h.__tot_even.len() { let p: (i64, i64) = h.__tot_even.get(i); o.push((p.0, p.1)); i = i + 1i64; }
+    return o;
+}
+
+fn edb_copy(h: &OddqIncr) -> Vec<E> {
+    let mut o: Vec<E> = vec_new::<E>();
+    let mut i: i64 = 0i64;
+    while i < h.__edb.len() { let e: E = h.__edb.get(i); o.push(ed(e.a, e.b)); i = i + 1i64; }
+    return o;
+}
+
+fn edges_same(x: &[E], y: &[E]) -> bool {
+    if x.len() != y.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < x.len() { let e: E = x[i]; if !edge_has(y, e.a, e.b) { return false; } i = i + 1i64; }
+    let mut j: i64 = 0i64;
+    while j < y.len() { let e2: E = y[j]; if !edge_has(x, e2.a, e2.b) { return false; } j = j + 1i64; }
+    return true;
+}
+
+// ⚠ BOTH MEMBERS BY NAME, plus the accumulated input. Codes 1..9.
+fn check(h: &OddqIncr, cur: &[E]) -> i32 {
+    let wo: Vec<(i64, i64)> = parity_odd(cur);
+    let we: Vec<(i64, i64)> = parity_even(cur);
+    let snap: Vec<(i64, i64)> = match oddq_snapshot(h) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; }
+    };
+    let want: Vec<(i64, i64)> = groups_of(&wo);
+    if !same_set(&snap, &want) { return 2i32; }
+    let go: Vec<(i64, i64)> = odd_copy(h);
+    if !same_set(&go, &wo) { return 3i32; }
+    let ge: Vec<(i64, i64)> = even_copy(h);
+    if !same_set(&ge, &we) { return 4i32; }
+    let acc: Vec<E> = edb_copy(h);
+    if !edges_same(acc.as_slice(), cur) { return 5i32; }
+    return 0i32;
+}
+
+fn ins(h: &mut OddqIncr, cur: &mut Vec<E>, de: &[E]) -> i32 {
+    match oddq_epoch(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 9i32; }
+    }
+    let mut i: i64 = 0i64;
+    while i < de.len() {
+        let e: E = de[i];
+        if !edge_has(cur.as_slice(), e.a, e.b) { cur.push(ed(e.a, e.b)); }
+        i = i + 1i64;
+    }
+    return check(h, cur.as_slice());
+}
+
+// ── ONE RETRACTION EPOCH THROUGH THE PUBLIC NAME. Codes 6..18.
+fn ret(h: &mut OddqIncr, cur: &mut Vec<E>, de: &[E]) -> i32 {
+    // PRE-CALL oracles for BOTH members' latch triples: OD and S are properties
+    // of the totals the surface is about to rewrite.
+    let t_odd: Vec<(i64, i64)> = parity_odd(cur.as_slice());
+    let t_even: Vec<(i64, i64)> = parity_even(cur.as_slice());
+    let pres: Vec<E> = survivors(cur.as_slice(), de);
+    let p_odd: Vec<(i64, i64)> = parity_odd(pres.as_slice());
+    let p_even: Vec<(i64, i64)> = parity_even(pres.as_slice());
+    // ⚠ THE LINE THAT USED TO BE THE `fail/` DOOR — same call text, opposite
+    // sign, and the PUBLIC name rather than `__wql_oddq_scc0_dred`.
+    match oddq_retract(h, de) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 8i32; }
+    }
+    let nc: Vec<E> = survivors(cur.as_slice(), de);
+    cur.clear();
+    let mut ci: i64 = 0i64;
+    while ci < nc.len() { let e: E = nc.get(ci); cur.push(ed(e.a, e.b)); ci = ci + 1i64; }
+    if h.__lat.len() != 6i64 { return 7i32; }
+    if h.__lat.get(2i64) == 0i64 - 1i64 { return 6i32; }
+    if h.__lat.get(5i64) == 0i64 - 1i64 { return 16i32; }
+    let l0: i64 = h.__lat.get(0i64); let l1: i64 = h.__lat.get(1i64); let l2: i64 = h.__lat.get(2i64);
+    let l3: i64 = h.__lat.get(3i64); let l4: i64 = h.__lat.get(4i64); let l5: i64 = h.__lat.get(5i64);
+    if l0 + l1 != t_odd.len()  { return 10i32; }
+    if l1 + l2 != p_odd.len()  { return 11i32; }
+    if l3 + l4 != t_even.len() { return 12i32; }
+    if l4 + l5 != p_even.len() { return 13i32; }
+    return check(h, cur.as_slice());
+}
+
+fn main() -> i32 {
+    // ══ A — A 3-CYCLE. The self-supporting shape the refusal's ground named:
+    // every pair has a walk through the closing edge, and the cycle runs through
+    // the OTHER member. `odd` and `even` differ in size, so a swapped member is
+    // visible in both the relation checks and the latch identities.
+    let mut h: OddqIncr = oddq_incremental();
+    let mut c: Vec<E> = vec_new::<E>();
+    let mut d: Vec<E> = vec_new::<E>();
+    d.push(ed(1i64, 2i64)); d.push(ed(2i64, 3i64)); d.push(ed(3i64, 1i64));
+    let r: i32 = ins(&mut h, &mut c, d.as_slice());
+    if r != 0i32 { return 20i32 + r; }
+    let mut r1: Vec<E> = vec_new::<E>();
+    r1.push(ed(3i64, 1i64));
+    let v1: i32 = ret(&mut h, &mut c, r1.as_slice());
+    if v1 != 0i32 { return 40i32 + v1; }
+    // ⚠ INSERT AGAIN — without `__edb` shrinking, this epoch's round-0 pass over
+    // the accumulated input re-derives everything the retraction removed.
+    let mut d2: Vec<E> = vec_new::<E>();
+    d2.push(ed(3i64, 4i64));
+    let v2: i32 = ins(&mut h, &mut c, d2.as_slice());
+    if v2 != 0i32 { return 60i32 + v2; }
+
+    // ══ B — A DIAMOND, MID-EDGE: two walks reach `4`, one through the retracted
+    // edge, so a fact is OVER-DELETED and RE-DERIVED (|RD| > 0).
+    let mut hb: OddqIncr = oddq_incremental();
+    let mut cb: Vec<E> = vec_new::<E>();
+    let mut db: Vec<E> = vec_new::<E>();
+    db.push(ed(1i64, 2i64)); db.push(ed(1i64, 3i64));
+    db.push(ed(2i64, 4i64)); db.push(ed(3i64, 4i64));
+    let v3: i32 = ins(&mut hb, &mut cb, db.as_slice());
+    if v3 != 0i32 { return 80i32 + v3; }
+    let mut rb: Vec<E> = vec_new::<E>();
+    rb.push(ed(2i64, 4i64));
+    let v4: i32 = ret(&mut hb, &mut cb, rb.as_slice());
+    if v4 != 0i32 { return 100i32 + v4; }
+    let mut db2: Vec<E> = vec_new::<E>();
+    db2.push(ed(2i64, 4i64));
+    let v5: i32 = ins(&mut hb, &mut cb, db2.as_slice());
+    if v5 != 0i32 { return 120i32 + v5; }
+
+    // ══ C — A MID-CHAIN through the SECOND member: 1→2→3→4→5, retract (3,4).
+    let mut hc: OddqIncr = oddq_incremental();
+    let mut cc: Vec<E> = vec_new::<E>();
+    let mut dc: Vec<E> = vec_new::<E>();
+    dc.push(ed(1i64, 2i64)); dc.push(ed(2i64, 3i64));
+    dc.push(ed(3i64, 4i64)); dc.push(ed(4i64, 5i64));
+    let v6: i32 = ins(&mut hc, &mut cc, dc.as_slice());
+    if v6 != 0i32 { return 140i32 + v6; }
+    let mut rc: Vec<E> = vec_new::<E>();
+    rc.push(ed(3i64, 4i64));
+    let v7: i32 = ret(&mut hc, &mut cc, rc.as_slice());
+    if v7 != 0i32 { return 160i32 + v7; }
+
+    // ══ D — THE FORWARDER DOES NOT SWALLOW THE DRIVER'S REFUSAL. `odd(1,4)` is
+    // DERIVED (the odd-length walk 1→2→3→4) and was never an INPUT, so `DE ⊆
+    // EDB` must refuse it through the public name too, leaving the handle where
+    // it was. The driver-level cases are block E of
+    // `pass/wql_incr_rel_dred_driver_mutrec.logos`.
+    let mut bad: Vec<E> = vec_new::<E>();
+    bad.push(ed(1i64, 4i64));
+    match oddq_retract(&mut hc, bad.as_slice()) {
+        Result::Ok(_n) => { return 200i32; }
+        Result::Err(e) => {
+            match e {
+                ElError::RetractAbsent => { }
+                _ => { return 201i32; }
+            }
+        }
+    }
+    let v8: i32 = check(&hc, cc.as_slice());
+    if v8 != 0i32 { return 202i32 + v8; }
+    return 0i32;
+}

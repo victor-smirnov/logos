@@ -1,0 +1,67 @@
+// AN `f64` ACCUMULATOR OVER A RECURSIVE `rel` HAS NO RETRACTION SURFACE — D4,
+// AND IT IS VICTOR'S OPEN DECISION, NOT AN EMITTER'S.
+//
+// ⚠⚠ WHY THIS DOOR EXISTS AT ALL, AND WHY IT IS THE ONE THE FENCE NEEDS.
+// `fail/wql_incr_rel_no_retract.logos` used to assert `tc_retract` absent for
+// EVERY recursive `rel`; that is now false, because a `count`- or
+// integer-`sum`-headed group over a rel gets a public `tc_retract`
+// (`pass/wql_incr_rel_retract_surface.logos`). D4 is explicitly FENCED OUT of
+// that admission, so the refusal it names has to keep a door of its own on the
+// per-commit path — otherwise "D4 is still refused" becomes a sentence in a
+// header with nothing measuring it.
+//
+// ── THE GROUND ────────────────────────────────────────────────────────────
+// `emit_incremental`'s `dred` predicate carries `retract_ok(aggs, acount, acc)`,
+// which returns false when a `sum` or ANY `avg` accumulates in `f64`. `avg` is
+// used here because it reaches an `f64` accumulator from an `i64` COLUMN — a
+// rel column may not be `f64` at all (a rel is a SET and NaN is not reflexive,
+// so the column type is refused upstream with its own message), which makes
+// `avg` the only way to put the D4 arithmetic behind a recursive rel.
+// The driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic the
+// decision is about, and `plan_trace("rel dred driver", "declined", …)` says so
+// on the trace channel with D4 named.
+//
+// ⚠ AND THIS DOOR IS STRICTLY STRONGER THAN THE ONE IT REPLACES. `tc_epoch` and
+// `tc_incremental` ARE emitted for this query; only `tc_retract` is withheld. A
+// name-absence under a refusal that withdrew the whole capability proves nothing
+// about the clause that withheld it — the defect measured on the old mutrec
+// doors (`606fc4c0`) — so the two lines below that DO compile are what make this
+// one's failure evidence about `retract_ok`.
+//
+// CONTROL, PREDICTED: drop `retract_ok(aggs, acount, acc)` from `dred` in
+// `emit_incremental`, drop the archives, rebuild the stdlib → `tc_retract` is
+// emitted, this fixture COMPILES, and a `fail/` test that compiles is a RED test
+// on the per-commit path. ⚠ THAT EDIT WOULD ALSO BE AN ANSWER TO D4, WHICH IS
+// NOT THE EMITTER'S TO GIVE.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct E { pub a: i64, pub b: i64 }
+
+pub deem tc(es: &[E]) {
+    rel path(a: i64, b: i64) {
+        from es e select (e.a, e.b);
+        from path p join es e on p.b == e.a select (p.a, e.b);
+    }
+    from path p group by p.a aggregate m = avg(p.b) select (key, m)
+}
+
+fn main() -> i32 {
+    // ⚠ THESE TWO LINES COMPILE, AND THAT IS HALF THE ASSERTION: the handle and
+    // the insert epoch exist for an `avg`-headed rel query. Only the retraction
+    // is withheld.
+    let mut h: TcIncr = tc_incremental();
+    let mut v: Vec<E> = vec_new::<E>();
+    v.push(E { a: 1i64, b: 2i64 });
+    match tc_epoch(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 1i32; }
+    }
+    // ⚠ THE LINE UNDER TEST.
+    match tc_retract(&mut h, v.as_slice()) {
+        Result::Ok(_n) => { } Result::Err(_e) => { return 2i32; }
+    }
+    return 0i32;
+}
