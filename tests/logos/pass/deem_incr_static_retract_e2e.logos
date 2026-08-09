@@ -29,16 +29,21 @@
 //     the only −0.0 and answers +0.0. Block D2 asks the map itself, where a
 //     cached cell cannot answer for it.
 //
-// ── THE THREE WITNESSES ─────────────────────────────────────────────────────
+// ── THE WITNESSES ───────────────────────────────────────────────────────────
 // "Both engines agree" is not evidence: this arc has measured a three-way
 // differential passing for months while all three sides ran the same wrong
 // fold. So every number here is asserted against
 //   (i)   a HAND-DERIVED constant, written from the input arithmetic;
 //   (ii)  the static BATCH fn `<q>()` over the SURVIVING multiset — a fold that
-//         shares with the retract path only the argument-expression emission;
-//   (iii) the DYNAMIC interpreter's incremental engine driven with a w = −1
-//         `ZBatch` (blocks A and B) — a genuinely separate implementation over
-//         `RtVal`, and a WASTING one: P5 deletes it.
+//         shares with the retract path only the argument-expression emission.
+//
+// ⚠ THERE WAS A THIRD, AND P5 DELETED IT — the DYNAMIC interpreter's incremental
+// engine driven with a w = −1 `ZBatch` over blocks A and B, a genuinely separate
+// implementation over `RtVal`. The old header called it "a WASTING one: P5
+// deletes it", and this is that deletion. Section (iii) is gone from the body;
+// codes 103-117 named it and are retired, not reused. Witness (i) is untouched
+// and is the one that ever decided anything here — the defects this file records
+// were found against hand-derived constants, not against the other engine.
 //
 // ── THE HAND-DERIVED TABLE ──────────────────────────────────────────────────
 // A. u64 column, one group k=0, rows in order 5, 2^63, 2^64−1.
@@ -177,7 +182,7 @@
 // exits 0 and nothing moves. `deem_incr_diff_harness` had already solved this
 // (`spine ok ep=5 cmp=20 cells=300`, pinned) and this file had not.
 // It does now: `main` prints
-//     retract ok chk=110 rows=31
+//     retract ok chk=95 rows=28
 // on the success path and `.expected` pins that line. Both numbers are DERIVED —
 // `chk` is bumped inside `bad`, the chokepoint all 89 predicates below pass
 // through, plus `arm_ok` in the four refusal blocks' accepting arm; `rows`
@@ -216,15 +221,9 @@
 //          what was never inserted.
 package test;
 
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.array;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
 use logos.std.wql.el;    // ElError — the error ARM is asserted by name, not by `_`
 use logos.std.fmt;       // println! — the ceiling guard names the offending code
-use logos.mem.deem;
 use logos.lang.result;
 use logos.lang.num.float;
 use logos.mem.collections.vec;
@@ -233,9 +232,6 @@ struct U { pub k: i64, pub v: u64 }
 struct I { pub k: i64, pub v: i64 }
 struct F { pub k: i64, pub v: f64 }
 
-pub schema UR : code(0x0E71_0000_0000_0001) { k: i64 = 0, v: u64 = 1 }
-pub schema IR : code(0x0E71_0000_0000_0002) { k: i64 = 0, v: i64 = 1 }
-resource cat = schema_catalog!{ UR, IR };
 
 // A. u64 min/max — NO `sum` in this list on purpose: 5 + 2^63 + (2^64−1)
 // overflows u64, and this block is about the ORDER, not about the addition.
@@ -278,15 +274,6 @@ pub deem tq(src: &[I]) { from src s
 fn u1(k: i64, v: u64) -> [U; 1] { return [U { k: k, v: v }]; }
 fn i1(k: i64, v: i64) -> [I; 1] { return [I { k: k, v: v }]; }
 fn f1(k: i64, v: f64) -> [F; 1] { return [F { k: k, v: v }]; }
-
-fn mkU(d: &Writ, k: i64, v: u64) -> WAny {
-    let r: UR = d.make::<UR>(); r.k = k; r.v = v;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
-fn mkI(d: &Writ, k: i64, v: i64) -> WAny {
-    let r: IR = d.make::<IR>(); r.k = k; r.v = v;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
 
 // ── THE CEILING, AS A MECHANISM ─────────────────────────────────────────────
 // `TOP_CODE` is the highest code the assertions below may return. It is a
@@ -338,10 +325,9 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 // difference between "an assertion was dropped" and "a call to the mechanism was
 // dropped", and one number cannot tell them apart.
 //
-// PINNED: `retract ok chk=110 rows=31`. 110 = 102 `if` predicates + 8 accepting
+// PINNED: `retract ok chk=95 rows=28`. 95 = 87 `if` predicates + 8 accepting
 // arms taken through `arm_ok` (E's refusal, E2's `el_subu` borrow, F, G, G2, G3,
-// G3b, G3c); 31 = the rows the 27 snapshots, 3 batch recomputes and 3
-// interpreter snapshots handed back — `assertions` has no loop, so each site
+// G3b, G3c); 28 = the rows the 27 snapshots and 3 batch recomputes handed back — `assertions` has no loop, so each site
 // runs exactly once and the census is a fixed number. HAND-DERIVED FIRST AND
 // MEASURED SECOND, and they agreed; a disagreement would have been evidence
 // about the code, not a licence to write down whatever printed.
@@ -351,6 +337,10 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 // (2026-08-08: 106/28 → 110/31. +4 predicates and +3 snapshots from block D2,
 // the float-KEY merge's own witnesses. Derived from the four new `bad` sites and
 // the three new `fq_snapshot` calls before the run; the run agreed.)
+// (P5: 110/31 → 95/28. −15 executed predicates and −3 interpreter snapshots from
+// deleting section (iii): nine `bad` sites in the u64 half and six in the
+// multiplicity half, and the three `QRows` snapshots those two blocks took.
+// HAND-DERIVED BEFORE THE RUN from the deleted sites, not read off the failure.)
 //
 // ⚠ WHAT THIS DOES NOT COVER, NAMED AT THE MECHANISM RATHER THAN LEFT TO BE
 // FOUND: a census sees an assertion that stops RUNNING, not one that stops
@@ -1002,70 +992,6 @@ fn assertions(t: &mut Tally) -> i32 {
     if bad(t, bcv.len() != c1.len()) { return 100i32; }
     if bad(t, bcv.get(0i64).0 != c1.get(0i64).0) { return 101i32; }
     if bad(t, bcv.get(0i64).4 != c1.get(0i64).4) { return 102i32; }
-
-    // ══ (iii) THE DYNAMIC INTERPRETER, DRIVEN WITH A w = −1 BATCH ═════════
-    // `incremental()` BASE-FILLS from the bound source, so the engine starts at
-    // the same multiset the static handle reached by its first epoch; the
-    // `ZBatch` then retracts the same row. `get_i64` reads a u64 cell's BITS, so
-    // 2^63 comes back as −9223372036854775808 — the constant is the same number.
-    let d: Writ = writ_new(65536i64);
-    let c: SchemaCatalog = cat();
-    let ar: &mut WArray<WAny> = d.array(4i64);
-    let h_big: WAny = mkU(&d, 0i64, 18446744073709551615u64);
-    ar.push(mkU(&d, 0i64, 5u64));
-    ar.push(mkU(&d, 0i64, 9223372036854775808u64));
-    ar.push(h_big);
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("ss", WAny::ref_to(ar as *const WArray<WAny> as *const u8));
-    let dq: Query = match Query::compile(
-        "from ss s group by s.k aggregate c = count(), mn = min(s.v), mx = max(s.v) select (key, c, mn, mx)", &c) {
-        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
-    let mut eng: IncrJoin = match dq.incremental(&e) {
-        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
-    if bad(t, eng.had_error()) { return 103i32; }
-    let ds0: QRows = eng.snapshot();
-    t.rows = t.rows + ds0.row_count();
-    if bad(t, ds0.row_count() != 1i64) { return 104i32; }
-    let mut z: ZBatch = ZBatch::new();
-    let empty: ZBatch = ZBatch::new();
-    z.push(h_big, -1i64);
-    eng.epoch(&z, &empty);
-    if bad(t, eng.had_error()) { return 105i32; }
-    let ds: QRows = eng.snapshot();
-    t.rows = t.rows + ds.row_count();
-    if bad(t, ds.row_count() != 1i64) { return 106i32; }
-    // count = 2, min = 5, max = 2^63 (bits −9223372036854775808)
-    if bad(t, ds.get_i64(0i64, 1i64) != 2i64) { return 107i32; }
-    if bad(t, ds.get_i64(0i64, 2i64) != 5i64) { return 108i32; }
-    if bad(t, ds.get_i64(0i64, 3i64) != -9223372036854775808i64) { return 109i32; }
-    // …and that is bit-for-bit what the static handle answered in block A.
-    if bad(t, ds.get_i64(0i64, 3i64) != (a1.get(0i64).3 as i64)) { return 110i32; }
-    if bad(t, ds.get_i64(0i64, 1i64) != a1.get(0i64).1) { return 111i32; }
-
-    // The MULTIPLICITY cell, of the interpreter: 7 twice and 3, retract one 7.
-    let ar2: &mut WArray<WAny> = d.array(4i64);
-    let h7: WAny = mkI(&d, 0i64, 7i64);
-    ar2.push(h7);
-    ar2.push(mkI(&d, 0i64, 7i64));
-    ar2.push(mkI(&d, 0i64, 3i64));
-    let mut e2: QEnv = QEnv::new();
-    e2.bind_source("ss", WAny::ref_to(ar2 as *const WArray<WAny> as *const u8));
-    let dq2: Query = match Query::compile(
-        "from ss s group by s.k aggregate c = count(), t = sum(s.v), lo = min(s.v), hi = max(s.v) select (key, c, t, lo, hi)", &c) {
-        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
-    let mut eng2: IncrJoin = match dq2.incremental(&e2) {
-        Result::Ok(v)   => { v } Result::Err(_e) => { return 12i32; } };
-    let mut z2: ZBatch = ZBatch::new();
-    z2.push(h7, -1i64);
-    eng2.epoch(&z2, &empty);
-    if bad(t, eng2.had_error()) { return 112i32; }
-    let ds2: QRows = eng2.snapshot();
-    t.rows = t.rows + ds2.row_count();
-    if bad(t, ds2.row_count() != 1i64) { return 113i32; }
-    if bad(t, ds2.get_i64(0i64, 1i64) != 2i64 ) { return 114i32; }
-    if bad(t, ds2.get_i64(0i64, 2i64) != 10i64) { return 115i32; }
-    if bad(t, ds2.get_i64(0i64, 3i64) != 3i64 ) { return 116i32; }
-    if bad(t, ds2.get_i64(0i64, 4i64) != 7i64 ) { return 117i32; }
 
     return 0i32;
 }

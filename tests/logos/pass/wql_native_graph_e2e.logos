@@ -21,7 +21,6 @@ use logos.lang.num.float;
 use logos.lang.writ.anyval;
 use logos.lang.writ.array;
 use logos.lang.writ.wstring;
-use logos.mem.deem;
 use logos.std.io;
 
 #[derive_graph_source]
@@ -42,27 +41,6 @@ pub deem loads(g: &Cfg) {
     from g ** p {f64} select p.vi
 }
 
-// runtime twin: the derive's materializer rows, bound to a DYNAMIC query.
-fn edges_to_source(rows: &Vec<WritEdgeRow>, d: &Writ) -> WAny {
-    let n: i64 = rows.len();
-    let arr: &mut WArray<WAny> = d.array(n + 1i64);
-    let mut i: i64 = 0i64;
-    while i < n {
-        let r: WritEdgeRow = rows.get(i);
-        let row: &mut WArray<WAny> = d.array(8i64);
-        row.push(d.int(r.0));
-        row.push(WAny::from(d.wstring(r.1)));
-        row.push(d.int(r.2));
-        row.push(d.int(r.3));
-        row.push(WAny::from(d.wstring(r.4)));
-        row.push(d.int(r.5));
-        row.push(d.int(r.6));
-        row.push(WAny::from(d.wstring(r.7)));
-        arr.push(WAny::ref_to(row as *const WArray<WAny> as *const u8));
-        i = i + 1i64;
-    }
-    return WAny::ref_to(arr as *const WArray<WAny> as *const u8);
-}
 
 fn main() -> i32 {
     let mut reps: Vec<i64> = vec_new::<i64>();
@@ -86,19 +64,25 @@ fn main() -> i32 {
     let lf: f64 = f64_from_bits(l.get(0i64) as u64);
     if !(lf > 0.74f64 && lf < 0.76f64) { return 8i32; }
 
-    // ── runtime: the SAME materializer rows through a dynamic query ──
+    // ── the materializer's OWN rows, read directly ──
+    // P5 deleted the dynamic executor, so `__gs_edges_Cfg`'s rows can no longer
+    // be re-asked as a query. They are still the thing under test and they are
+    // still read HERE, against the eight-column vocabulary by INDEX (key = col 1,
+    // vi = col 6, `stdlib/mem/wql/writ_graph.logos`'s `WritEdgeRow`): the same
+    // fact the dynamic arm asserted, one binding time short of it. What is lost
+    // is that the derive's rows were legible to a SECOND consumer; the columns
+    // themselves are still pinned, and by position, which the query text was not.
     let rows: Vec<WritEdgeRow> = __gs_edges_Cfg(&cfg);
-    let d: Writ = writ_new(16384i64);
-    let src: WAny = edges_to_source(&rows, &d);
-    let cat: SchemaCatalog = SchemaCatalog::new();
-    let q: Query = match Query::compile(
-        "from g e where e.key == \"port\" select e.vi", &cat)
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 9i32; } };
-    let mut env: QEnv = QEnv::new();
-    env.bind_edge_rows("g", src);
-    let rr: QRows = match q.run(&env)
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 10i32; } };
-    if rr.row_count() != 1i64 { return 11i32; }
-    if rr.get_i64(0i64, 0i64) != 5432i64 { return 12i32; }
+    let mut nport: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < rows.len() {
+        let row: WritEdgeRow = rows.get(i);
+        if str_eq(row.1, "port") {
+            nport = nport + 1i64;
+            if row.6 != 5432i64 { return 12i32; }
+        }
+        i = i + 1i64;
+    }
+    if nport != 1i64 { return 11i32; }
     return 0i32;
 }

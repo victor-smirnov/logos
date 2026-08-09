@@ -1,5 +1,31 @@
-// THE THREE TIERS DISAGREE ABOUT WHAT THEY WILL ANSWER AT ALL — and the tier
-// that DECLINES is the one that gets the answer RIGHT.
+// THE `u64` / `usize` CAPABILITY MATRIX OF THE EMITTED TIER, AT THE EXTREMES.
+//
+// ⚠⚠ THIS FILE WAS `wql_tier_capability_disagreement` AND ITS SUBJECT IS GONE.
+// It existed to record that THREE tiers disagreed about what they would answer
+// at all, and that the tier which DECLINED was the one that got the answer right.
+// P5 deleted two of the three — the dynamic `Query::run` interpreter and the
+// `Query::incremental` engine — so there is no disagreement left to assert and
+// the old name would have claimed one. Blocks D/E (codes 50-69) and the runtime
+// half of block F (codes 75-84) are deleted with them; those codes are retired
+// and NOT reused.
+//
+// ⚠ AND THE ⚠ KNOWN-WRONG PIN THIS FILE CARRIED IS RETIRED RATHER THAN
+// TRANSCRIBED, WHICH IS A RULING AND NOT AN OVERSIGHT. The two `ACCEPTS, WRONG`
+// cells of the matrix below (dynamic `order by` over u64; dynamic and
+// incremental `min`/`max` over u64) were defects IN THE DELETED ENGINES. A
+// recorded wrong answer from code that no longer exists is not an open defect
+// and has nothing to be carried onto: there is no surviving surface that can be
+// asked the question. The one cell whose disagreement DOES outlive its engine —
+// an equi-join on an f64 key admitted by two tiers and refused by the third —
+// was transcribed separately, onto `no_join_f64key` in
+// `tests/logos/pass/wql_incr_eligibility_matrix.logos` and the `declined` row in
+// `tests/logos/incr_eligibility_gate.sh`, and is not this file's.
+//
+// What is left, and it is worth keeping on its own: the emitted tier ACCEPTS a
+// `u64`/`usize` column at every position that compares, projects, aggregates or
+// computes, and is RIGHT at u64's own extremes — 5 < 2^63 < 2^64−1 under the
+// unsigned order, `avg`/`min`/`max`/`sum` at 2^64−1, and the narrow-unsigned
+// widening controls beside them.
 //
 // ⚠⚠ THE EXPECTATION IN THIS FILE *IS* THE DISAGREEMENT. Nothing below asserts a
 // wrong VALUE; every arm asserts a CAPABILITY — "this tier accepts this query and
@@ -62,6 +88,10 @@
 //   aggregate min/max    ACCEPTS, right  ACCEPTS, WRONG ACCEPTS, WRONG
 //   aggregate sum        ACCEPTS, right  ACCEPTS        ACCEPTS
 //   arithmetic `+`       ACCEPTS, right  ACCEPTS        ACCEPTS †
+// ⚠ THE TWO RIGHT-HAND COLUMNS ARE HISTORY AS OF P5 — the engines they describe
+// are deleted. They are kept because the LEFT column is only legible beside them:
+// "the tier that declines is the one that gets it right" was the finding, and a
+// matrix with one column cannot state it. Nothing below executes them.
 //
 // ⚠ TWO ROWS OF THE STATIC COLUMN MOVED ON 2026-08-06 AND THIS FILE DID NOT GO
 // RED, WHICH IS THE SAME MISS AS LAST TIME AND IS RECORDED AS ONE. Both read
@@ -231,9 +261,10 @@
 // error, so each `pub deem` below is itself half of an assertion and its answer
 // is the other half.
 //
-// ── A CONSTRAINT FOR WHOEVER CLOSES THE *RUNTIME* SEAM ──────────────────────
-// (The static seam is closed; this constraint is about the two runtime tiers,
-// whose read-back API is what it describes.)
+// ── A CONSTRAINT THAT EXPIRED WITH ITS SUBJECT (kept as the record) ─────────
+// (The static seam is closed; this constraint was about the two runtime tiers,
+// whose read-back API is what it describes. P5 deleted both, and
+// `stdlib/mem/deem/query.logos` with them, so nothing below can be re-measured.)
 // `QRows` has five getters — get_i64/get_f64/get_bool/get_str/get_node
 // (stdlib/mem/deem/query.logos:68-78) — and none of them is unsigned. There is
 // therefore NO expression in the dynamic API for the value 2^64-1: a corrected
@@ -256,7 +287,9 @@
 // which is ABOVE i64::MAX and therefore not a number an i64 accumulator could
 // have produced at all.
 //
-// ⚠ WHY THE RUNTIME AGGREGATE SOURCE IS {5, 2^63, 10} AND NOT THE EXTREMES. The
+// ⚠ WHY THE RUNTIME AGGREGATE SOURCE WAS {5, 2^63, 10} AND NOT THE EXTREMES —
+// history, since blocks D/E are deleted; kept because it is the reasoning that
+// chose the STATIC blocks' data too. The
 // capability arms had to survive BOTH outcomes of the then-open decision about
 // what `sum` accumulates in (i64 or u64). 5 + 2^63 + 10 is 2^63+15: it overflows
 // NEITHER an i64 accumulator (it lands on i64::MIN+15) NOR a u64 one, so an arm
@@ -278,21 +311,12 @@
 //          over from 85c9433d — disagreements included.
 package test;
 
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.array;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
-use logos.mem.deem;
 use logos.lang.result;
 use logos.lang.str;
 use logos.lang.num.float;
 use logos.mem.collections.vec;
 
-pub schema U : code(0x0E68_0000_0000_0001) { x: u64 = 0, g: i64 = 1, id: i64 = 2 }
-pub schema P : code(0x0E68_0000_0000_0002) { x: isize = 0, g: i64 = 1, id: i64 = 2 }
-resource cat = schema_catalog!{ U, P };
 
 // ── THE STATIC TIER, over the same column types ──────────────────────────────
 // Each of these compiling IS an assertion: the static tier admits a `u64` column
@@ -319,15 +343,6 @@ pub deem max_u32(ss: &[S_u32])   { from ss s group by s.g aggregate a = max(s.x)
 // different message, and worth knowing about when an existing query breaks.
 pub deem mm_u64(ss: &[S_u64g])   { from ss s group by s.g aggregate a = max(s.x), b = min(s.x) select (key, a, b) }
 pub deem sum_u64(ss: &[S_u64g])  { from ss s group by s.g aggregate a = sum(s.x) select a }
-
-fn mku(d: &Writ, xv: u64, gv: i64, i: i64) -> WAny {
-    let r: U = d.make::<U>(); r.x = xv; r.g = gv; r.id = i;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
-fn mkp(d: &Writ, xv: isize, gv: i64, i: i64) -> WAny {
-    let r: P = d.make::<P>(); r.x = xv; r.g = gv; r.id = i;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
 
 fn main() -> i32 {
     // ══ A. THE STATIC TIER ADMITS A `u64` COLUMN WHERE IT IS COMPARED AND
@@ -404,78 +419,8 @@ fn main() -> i32 {
     if m32.len() != 1i64              { return 40i32; }
     if m32.get(0i64) != 4294967295i64 { return 41i32; }   // 2^32-1, unsigned order
 
-    // ══ D/E. THE TWO RUNTIME TIERS ANSWER THE THREE QUESTIONS THE STATIC TIER
-    //       REFUSES. Codes 50-69. NO VALUE IS ASSERTED for `u64` here — the
-    //       values are the comparison seam's and belong to the four files named
-    //       in the header. What is asserted is that the query is accepted and
-    //       produces a row, which is exactly the half a seam fix must NOT move.
-    let d: Writ = writ_new(32768i64);
-    let c: SchemaCatalog = cat();
-    let ua: &mut WArray<WAny> = d.array(4i64);
-    ua.push(mku(&d, 5u64,                   0i64, 0i64));
-    ua.push(mku(&d, 9223372036854775808u64, 0i64, 1i64));
-    ua.push(mku(&d, 10u64,                  0i64, 2i64));
-    let pa: &mut WArray<WAny> = d.array(4i64);
-    pa.push(mkp(&d, 5isize,                    0i64, 0i64));
-    pa.push(mkp(&d, -9223372036854775808isize, 0i64, 1i64));
-    pa.push(mkp(&d, 9223372036854775807isize,  0i64, 2i64));
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("us", WAny::ref_to(ua as *const WArray<WAny> as *const u8));
-    e.bind_source("ps", WAny::ref_to(pa as *const WArray<WAny> as *const u8));
-
-    let qm: Query = match Query::compile(
-        "from us s group by s.g aggregate a = max(s.x), b = min(s.x), t = sum(s.x) select (a, b, t)", &c) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
-    let rm: QRows = match qm.run(&e) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 51i32; } };   // DYNAMIC: answers
-    if rm.row_count() != 1i64 { return 52i32; }
-    if rm.col_count() != 3i64 { return 53i32; }
-    let gm: IncrJoin = match qm.incremental(&e) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 54i32; } };   // INCREMENTAL: answers
-    if gm.had_error() { return 55i32; }
-    let sm: QRows = gm.snapshot();
-    if sm.row_count() != 1i64 { return 56i32; }
-
-    // the arithmetic position, which the static tier ALSO takes now
-    // (`wql_arith_u64_tower_e2e`, in u64's own tower) and both runtime tiers
-    // take. It read "which the static tier also refuses" while that was true.
-    // ⚠ `+ 1` AND NOT `+ s.x`, and the reason is a real Err rather than a
-    // preference: the dynamic tier's `+` is a CHECKED i64 add, so doubling the
-    // 2^63 row is i64::MIN + i64::MIN and the query legitimately fails. That is
-    // the accumulator's own latch, it is the open D1 axis, and an arm asserting
-    // "this tier accepts arithmetic here" must not be decided by it.
-    let qa: Query = match Query::compile("from us s select s.x + 1", &c) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
-    match qa.run(&e) {
-        Result::Ok(_r) => { } Result::Err(_e) => { return 61i32; } }     // DYNAMIC: answers
-    // …and the incremental tier refuses THIS ONE for its SHAPE, not for the
-    // arithmetic: a bare `select` is refused for every column type including
-    // i64 (`wql_domain_incr_disagreement` block 4). The very same arithmetic
-    // inside an aggregate — an incremental-eligible shape — is ACCEPTED, which
-    // is what makes the row above a value-domain cell and not a shape cell.
-    match qa.incremental(&e) {
-        Result::Ok(_g) => { return 62i32; } Result::Err(_e) => { } }     // INCREMENTAL: shape
-    let qz: Query = match Query::compile(
-        "from us s group by s.g aggregate a = sum(s.x + 1) select a", &c) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 63i32; } };
-    match qz.run(&e) {
-        Result::Ok(_r) => { } Result::Err(_e) => { return 64i32; } }     // DYNAMIC: answers
-    match qz.incremental(&e) {
-        Result::Ok(_g) => { } Result::Err(_e) => { return 65i32; } }     // INCREMENTAL: answers
-    // `avg` over the same column, both runtime tiers — the position the static
-    // tier ALSO accepts, so this is the one aggregate row where all three agree.
-    let qv: Query = match Query::compile(
-        "from us s group by s.g aggregate a = avg(s.x) select (key, a)", &c) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 66i32; } };
-    match qv.run(&e) {
-        Result::Ok(_r) => { } Result::Err(_e) => { return 67i32; } }
-    match qv.incremental(&e) {
-        Result::Ok(_g) => { } Result::Err(_e) => { return 68i32; } }
-
-    // ══ F. `isize` — THE CELL THAT CLOSED. Codes 70-89. All three tiers agree
-    //       here now: both runtime tiers give the CORRECT extremes (and will
-    //       keep giving them after any comparison-seam change, because a signed
-    //       comparison is already the right comparison for a signed type), and
+    // ══ F. `isize` — THE CELL THAT CLOSED. Codes 70-74. All three tiers agreed
+    //       here (the runtime halves are deleted with their engines), and
     //       the static tier ANSWERS `sum`/`min`/`max` over an isize column as of
     //       2026-08-05 — `tests/logos/pass/wql_agg_isize_arg_e2e` holds those
     //       values, and this block deliberately does not repeat them. What stays
@@ -490,22 +435,6 @@ fn main() -> i32 {
     if oi.get(0i64) != 1i64 { return 72i32; }   // i64::MIN
     if oi.get(1i64) != 0i64 { return 73i32; }   // 5
     if oi.get(2i64) != 2i64 { return 74i32; }   // i64::MAX
-
-    let qi: Query = match Query::compile(
-        "from ps s group by s.g aggregate a = max(s.x), b = min(s.x) select (a, b)", &c) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 75i32; } };
-    let ri: QRows = match qi.run(&e) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 76i32; } };
-    if ri.row_count() != 1i64                                   { return 77i32; }
-    if ri.get_i64(0i64, 0i64) != 9223372036854775807i64         { return 78i32; }
-    if ri.get_i64(0i64, 1i64) != -9223372036854775808i64        { return 79i32; }
-    let gi: IncrJoin = match qi.incremental(&e) {
-        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
-    if gi.had_error() { return 81i32; }
-    let si: QRows = gi.snapshot();
-    if si.row_count() != 1i64                                   { return 82i32; }
-    if si.get_i64(0i64, 0i64) != 9223372036854775807i64         { return 83i32; }
-    if si.get_i64(0i64, 1i64) != -9223372036854775808i64        { return 84i32; }
 
     // ══ G. THE STATIC TIER ANSWERS `min`/`max` OVER `u64`, AT u64's EXTREMES.
     //       Codes 90-94. This row read REFUSES until 2026-08-06 and the refusal

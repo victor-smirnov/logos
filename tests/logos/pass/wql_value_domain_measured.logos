@@ -1,0 +1,123 @@
+// THE VALUE DOMAIN, MEASURED — a fixture, not a claim.
+//
+// ⚠ THIS FILE WAS `wql_value_domain_tiers_measured` AND IS RENAMED, BECAUSE P5
+// DELETED TWO OF THE THREE TIERS IT MEASURED ACROSS. The dynamic interpreter and
+// the incremental engine are gone; §3, §4 and §5 below went with them, and with
+// §5 goes the ADMISSIBILITY DISAGREEMENT — the measured fact that the two runtime
+// tiers answered "is this type allowed here" differently for an f32/f64 join key.
+// That claim is not carried forward under another name: there is one runtime
+// answer now, and `no_join_f64key` in `tests/logos/pass/wql_incr_eligibility_matrix.logos`
+// is where the surviving half of it is pinned. Exit codes 30-65 named the deleted
+// tiers and are retired, not reused.
+//
+// The query compiler's value domain was written THREE times and only one of them
+// is the language's type system:
+//   1. rel COLUMNS      — the Logos type + a `Hash` trait query (ADR 0024 S1/S2);
+//   2. EXPRESSIONS      — `el_ty_stored` in stdlib/mem/wql/el.logos, 21 rows
+//                         keyed on the type NAME;
+//   3. THE RUNTIME      — `enum RtVal` in stdlib/mem/deem/deem.logos — no widths,
+//                         no user types, ONE float arm. The `RtVal` TYPE survives
+//                         P5; its two consumers do not.
+// Everything below is a CONSEQUENCE of (3) having been narrower than (1) and (2),
+// and every number in it was produced by running this program. Nothing here is
+// inferred from a table.
+//
+// ⚠ CLOSED 2026-08-04 (f32) AND 2026-08-05 (u64 `order by`). NO ARM IN THIS FILE
+// ASSERTS A WRONG ANSWER ANY MORE. Every one of them was written as "what the
+// engine DOES, beside the value it OUGHT to produce", the OUGHT recorded before
+// any fix existed; each fix then made this file RED at exactly the arm it fixed
+// and reproduced the recorded OUGHT, and the arm was rewritten to it. That is
+// the whole discipline and it is why the numbers below are evidence rather than
+// a transcript: nothing here was re-read off a run.
+//
+// ⚠ THE ROOTS WERE NOT `RtVal`, EITHER TIME. f32 was one accessor reading eight
+// bytes out of a four-byte box. u64 was a CATALOG that emitted the column as
+// `"ty":"i64"`, destroying its signedness before any comparison site could ask —
+// so the comparator had two `RtVal::I` and no type, and adding an `RtVal` arm
+// would have closed neither. The remedy is the column's own type name on the
+// blob, `ElTy.ord` derived from it once, and `el_wrap_ord_key` consumed at the
+// comparison seams.
+//
+// ── WHAT WAS MEASURED (1066 TYPE x POSITION x TIER cells, each a compile and,
+//    where it compiled, a run) ────────────────────────────────────────────────
+//   • THE ROOT, and it is one line: `WAny::as_f64` (stdlib/lang/writ/anyval.logos
+//     :329) dereferences the boxed payload as an `f64` WITHOUT asking the Ref's
+//     own type code, which distinguishes W_F32=30 from W_F64=31 and which
+//     `is_float()` twenty lines above DOES read. A boxed f32 therefore comes back
+//     as an f64 whose BITS are the f32's bits — a denormal ~5.1e-315. The dynamic
+//     tier reads every float column through it (`deem/tpl.logos`, `fn field_read`, guarded by
+//     `t == EL_TY_FLT()`, a class tag that cannot tell 32 from 64), so every f32
+//     answer in the dynamic AND incremental tiers is silently garbage.
+//   • u64/usize above 2^63 arrive as NEGATIVE i64 in the dynamic and incremental
+//     tiers (`WAny::as_i64` → `RtVal::I`) — that much is unchanged and is the
+//     reason the read-back path still spells 2^64-1 as -1. What WAS wrong and is
+//     now fixed is every ORDERED comparison built on it: `order by` ranked such a
+//     value below zero and `max` answered the smaller value. The STATIC emitter
+//     always got the same query right, and still refuses the aggregate positions
+//     outright with a diagnostic — that refusal is NOT on this axis and did not
+//     move (`sum` over u64 is a separate, untaken semantics decision).
+//   • The incremental engine REFUSED an equi-join on an f32 or f64 key that the
+//     dynamic engine ACCEPTED (the LOOP tier). Both engines are deleted; the
+//     measurement is history and its arm is gone from this file.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.mem.collections.vec;
+use logos.lang.num.float;
+
+// The schemas stay: §1 reads a boxed f32/f64 out of a Writ-backed schema field,
+// which is the ROOT measurement and has no query in the way.
+pub schema G : code(0x0E60_0000_0000_0002) { y: f32 = 0, id: i64 = 1 }
+pub schema H : code(0x0E60_0000_0000_0003) { z: f64 = 0, id: i64 = 1 }
+
+// The STATIC engine, over the same two columns.
+struct SU { pub x: u64, pub id: i64 }
+struct SG { pub y: f32, pub id: i64 }
+pub deem su_order(ss: &[SU]) { from ss s select s.id order by s.x }
+pub deem sg_sel(ss: &[SG])   { from ss s select s.y }
+
+fn main() -> i32 {
+    let d: Writ = writ_new(32768i64);
+
+    // ══ 1. THE ROOT, WITH NO QUERY IN THE WAY ═════════════════════════════════
+    // A schema field holding 0.1f32, read three ways off the SAME WAny.
+    let gr: G = d.make::<G>(); gr.y = 0.1f32; gr.id = 0i64;
+    let gm: &WMap<Wu6, WAny> = unsafe { &*gr.m };
+    let gv: WAny = gm.get(0u8);
+    if !gv.is_float()                                { return 10i32; }  // the code KNOWS it is a float
+    if f32_to_bits(gv.as_f32()) != 0x3DCCCCCDu32     { return 11i32; }  // CORRECT: 4-byte read
+    // ✅ CLOSED 2026-08-04 (slice A). `as_f64` used to read 8 bytes and never ask
+    // W_F32 vs W_F64, so this answered the f32 pattern zero-extended,
+    // 0x000000003DCCCCCD = 1036831949 — a denormal. The OUGHT below was written
+    // before any fix existed and is bit-for-bit what the dispatch produced.
+    //   0.1f32 widened = 0x3FB999999A000000 = 4591870180174331904
+    if f64_to_bits(gv.as_f64()) != 4591870180174331904u64 { return 12i32; }
+    // and the f64 field beside it is exact, which is why nothing had noticed.
+    let hr: H = d.make::<H>(); hr.z = 0.1f64; hr.id = 0i64;
+    let hm: &WMap<Wu6, WAny> = unsafe { &*hr.m };
+    if f64_to_bits(hm.get(0u8).as_f64()) != f64_to_bits(0.1f64) { return 13i32; }
+
+    // ══ 2. THE STATIC EMITTER IS CORRECT ON BOTH COLUMNS ══════════════════════
+    let us: [SU; 3] = [SU { x: 5u64,                    id: 0i64 },
+                       SU { x: 18446744073709551615u64, id: 1i64 },
+                       SU { x: 9223372036854775808u64,  id: 2i64 }];
+    let so: Vec<i64> = su_order(&us[..]).unwrap();
+    if so.len() != 3i64     { return 20i32; }
+    if so.get(0i64) != 0i64 { return 21i32; }   // 5
+    if so.get(1i64) != 2i64 { return 22i32; }   // 2^63
+    if so.get(2i64) != 1i64 { return 23i32; }   // 2^64-1
+
+    let gs: [SG; 1] = [SG { y: 0.1f32, id: 0i64 }];
+    let sg: Vec<f32> = sg_sel(&gs[..]).unwrap();
+    if sg.len() != 1i64                        { return 24i32; }
+    if f32_to_bits(sg.get(0i64)) != 0x3DCCCCCDu32 { return 25i32; }
+
+    return 0i32;
+}

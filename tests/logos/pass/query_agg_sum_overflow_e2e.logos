@@ -1,55 +1,30 @@
 // query_agg_sum_overflow_e2e — the aggregate SUM ACCUMULATOR is error-returning
 // too. EL scalar arithmetic was made checked earlier, but a `sum(x)` running
 // total accumulates `acc += arg` across rows in the aggregate machinery (not via
-// an EL op), and that plain add trapped (SIGILL) on i64 overflow. Now the
-// accumulator is checked on ALL three executors — dynamic Query::run (→ QError),
-// static deem! (→ Err(ElError)), and the incremental engine (→ had_error()).
+// an EL op), and that plain add trapped (SIGILL) on i64 overflow. The accumulator
+// is checked in the emitted engine: `deem!` returns `Err(ElError)`.
 // Exit 0 iff an overflowing sum errors and a valid sum returns the exact total.
+//
+// P5: the dynamic `Query::run` and incremental arms are GONE with the interpreter.
+// What is left is not parity but a hand-derived answer: the overflow arm asserts
+// `Err` where the defect gave SIGILL, and the valid arm asserts the exact 142,
+// so both halves still bite with one engine. Exit codes 1 and 3 (the two dynamic
+// arms) are retired and NOT reused — a recorded 1 or 3 named the dynamic tier.
 package test;
 
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.array;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
-use logos.mem.deem;
 use logos.lang.result;
 use logos.mem.collections.vec;
 
 struct SA { pub g: i64, pub v: i64 }
-pub schema A : code(0x0E11_0000_0000_0001) { g: i64 = 0, v: i64 = 1 }
-resource cat = schema_catalog!{ A };
 pub deem s_sum(a: &[SA]) { from a x group by x.g aggregate s = sum(x.v) select key * 100 + s : i64 }
 
-fn dyn_rc(qt: str, c: &SchemaCatalog, env: &QEnv) -> i64 {
-    match Query::compile(qt, c) { Result::Ok(q) => { match q.run(env) { Result::Ok(r) => { return r.row_count(); } Result::Err(_e) => { return -1i64; } } } Result::Err(_e2) => { return -1i64; } }
-}
-fn mkrow(d: &Writ, arr: &mut WArray<WAny>, g: i64, v: i64) {
-    let r: A = d.make::<A>(); r.g = g; r.v = v; arr.push(WAny::ref_to((r.m as i64) as *const u8));
-}
-
 fn main() -> i32 {
-    let c: SchemaCatalog = cat();
-
     // ── OVERFLOW: two 5e18 rows in one group → 1e19 > i64::MAX ────────────────
-    let d1: Writ = writ_new(4096i64);
-    let a1: &mut WArray<WAny> = d1.array(4i64);
-    mkrow(&d1, a1, 1i64, 5000000000000000000i64);
-    mkrow(&d1, a1, 1i64, 5000000000000000000i64);
-    let mut e1: QEnv = QEnv::new();
-    e1.bind_source("a", WAny::ref_to(a1 as *const WArray<WAny> as *const u8));
-    if dyn_rc("from a x group by x.g aggregate s = sum(x.v) select (key, s)", &c, &e1) != -1i64 { return 1i32; }  // dynamic errors
     let ov: [SA; 2] = [ SA{g:1i64,v:5000000000000000000i64}, SA{g:1i64,v:5000000000000000000i64} ];
-    match s_sum(&ov[..]) { Result::Ok(_v) => { return 2i32; } Result::Err(_e) => { } }                            // static errors
+    match s_sum(&ov[..]) { Result::Ok(_v) => { return 2i32; } Result::Err(_e) => { } }
 
-    // ── VALID: small values → exact total, both executors ────────────────────
-    let d2: Writ = writ_new(4096i64);
-    let a2: &mut WArray<WAny> = d2.array(4i64);
-    mkrow(&d2, a2, 1i64, 10i64); mkrow(&d2, a2, 1i64, 32i64);   // group 1 → 42
-    let mut e2: QEnv = QEnv::new();
-    e2.bind_source("a", WAny::ref_to(a2 as *const WArray<WAny> as *const u8));
-    if dyn_rc("from a x group by x.g aggregate s = sum(x.v) select (key, s)", &c, &e2) != 1i64 { return 3i32; }   // 1 row, no error
+    // ── VALID: small values → exact total ────────────────────────────────────
     let good: [SA; 2] = [ SA{g:1i64,v:10i64}, SA{g:1i64,v:32i64} ];
     let sv: Vec<i64> = match s_sum(&good[..]) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
     if sv.len() != 1i64 { return 5i32; }

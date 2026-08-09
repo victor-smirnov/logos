@@ -18,18 +18,27 @@
 //      round-trip that dropped a backslash or doubled a quote would still
 //      produce a *plausible* string, so the count/shape assertions the other
 //      mapping tests make would not see it.
-//   §B the text is still USABLE: the dynamic consumer
-//      (`Query::compile_with_mapping`) reparses those very bytes and the query
-//      returns the same rows as the static twin. §A pins the bytes, §B pins
-//      that they mean what they meant.
+//   §B the mapping still MEANS what it meant: the static twin `s_pg` compiles
+//      the same rel at the item seam and returns the one owner.
+//
+// ⚠ P5 — ONE CLAIM IS LOST HERE AND IT IS NAMED, NOT QUIETLY DROPPED. §B used to
+// be the ROUND TRIP: `Query::compile_with_mapping` reparsed the very bytes
+// `Esc__rules()` emits, so the escaped literal was proved COMPILABLE and not
+// merely equal to a string written out here. `compile_with_mapping` is an API of
+// the deleted `stdlib/mem/deem/query.logos`, and the static twin does NOT consume
+// the rules TEXT — it is compiled from the item AST at the `mapping` seam — so
+// after the cut nothing in the tree parses `<M>__rules()` back. §A's byte compare
+// survives whole and is the stronger half (it fails on a single wrong byte); what
+// is gone is the second opinion that those bytes are a program. The
+// `backslash` rel loses its only consumer with it and is kept in the mapping
+// because §A pins its ESCAPED SPELLING, which is the byte the emitter gets wrong.
+// Exit codes 5–11 named the dynamic consumer; retired, not reused.
 package test;
 
 use logos.lang.writ.container;
-use logos.lang.writ.anyval;
 use logos.mem.writ.parser;
 use logos.std.wql.wql;
 use logos.std.wql.mapping_item;
-use logos.mem.deem;
 use logos.mem.collections.vec;
 use logos.lang.str;
 use logos.std.io;
@@ -62,35 +71,19 @@ fn main() -> i32 {
     }
     if !str_eq(Esc__src(), "g") { return 2i32; }
 
-    // ── §B the same bytes, reparsed by the dynamic consumer ───────────────
+    // ── §B the mapping still means what it meant, at the item seam ─────────
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
 
     let st: Vec<i64> = match s_pg(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
     if st.len() != 1i64 { return 4i32; }
-
-    let cat: SchemaCatalog = SchemaCatalog::new();
-    let q: Query = match Query::compile_with_mapping(
-        "from pg p select p.owner", &cat,
-        "w", Esc__rules(), Esc__src())
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 5i32; } };
-    let mut env: QEnv = QEnv::new();
-    env.bind_source_tree("w", doc.root());
-    let rows: QRows = match q.run(&env)
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 6i32; } };
-    if rows.row_count() != st.len() { return 7i32; }
-    if rows.get_i64(0i64, 0i64) != st.get(0i64) { return 8i32; }
-
-    // The backslash rel is not just carried — it is COMPILABLE from the
-    // carried text: `p\g` matches nothing in the document, so it must run and
-    // return zero rows rather than fail to parse.
-    let q2: Query = match Query::compile_with_mapping(
-        "from backslash b select b.owner", &cat,
-        "w", Esc__rules(), Esc__src())
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 9i32; } };
-    let rows2: QRows = match q2.run(&env)
-    { Result::Ok(v) => { v } Result::Err(e) => { println(e.msg.as_str()); return 10i32; } };
-    if rows2.row_count() != 0i64 { return 11i32; }
+    // hand-derived: only `db` carries `engine == "pg"`, and the owner projected
+    // by `select e.parent` is that node's OWN handle, never the reserved
+    // non-handle 0 that the virtual root edge uses
+    // (`stdlib/mem/wql/writ_graph.logos`). MEASURED: a `!= 0` here was the first
+    // spelling of this line and it FAILED at exit 12 when written as `== 0`, so
+    // the assertion is reading a real projected word and not a default.
+    if st.get(0i64) == 0i64 { return 12i32; }
 
     return 0i32;
 }

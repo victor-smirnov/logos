@@ -1,2 +1,2 @@
 exit: 0
-stdout: retract ok chk=110 rows=31
+stdout: retract ok chk=95 rows=28

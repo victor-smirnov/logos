@@ -1,0 +1,77 @@
+// `avg` OVER A `bool` COLUMN — true is 1.0, false is 0.0.
+//
+// THE RULING (Victor, option (c) of three): `avg` ADMITS `bool` as numeric with
+// the value rule true→1.0 / false→0.0, and REFUSES every other non-numeric
+// argument. The other two options were to refuse `bool` as well (which breaks
+// programs that compile and answer today) and to leave the hole open (which
+// lets `avg(str)` keep compiling).
+//
+// ⚠ THE RULE IS NOT INVENTED HERE — IT IS WHAT `as f64` ALREADY MEANS. mlir-gen
+// zero-extends i1 before the conversion on purpose (`sitofp(i1(1))` = -1.0 is
+// wrong, `uitofp(i1(1))` = 1.0 is right). The ruling makes the FRONT END admit it.
+//
+// ⚠ THIS FILE WAS `wql_agg_avg_bool_three_engines` AND IS RENAMED, NOT MERELY
+// EDITED, BECAUSE THE OLD NAME WOULD HAVE BECOME A FALSE STATEMENT. P5 deleted
+// the dynamic `Query::compile` executor and the incremental `Query::incremental`
+// engine; only the static `deem!` emitter is left. The three-engine claim was the
+// point of the old file — admitting bool in the one shared table (`el_quot_ty`)
+// moved all three at once — and IT IS LOST, not preserved under a new spelling.
+// What remains is the VALUE RULE on the surviving engine. The shared table still
+// has a refusal sensor of its own: `tests/logos/fail/wql_agg_uda_f32_arg_fail.logos`.
+//
+// ⚠ THE EXPECTATIONS ARE WRITTEN-OUT CONSTANTS, DERIVED BY HAND, NOT READ OFF A
+// RUN — the discipline `query_minmax_float_seed_leak` states: an oracle that
+// computes the answer by folding just reproduces whichever fold it was written
+// with. By hand, over the group's rows in first-occurrence order:
+//   g=0  { true, true, true, false }  → (1.0+1.0+1.0+0.0)/4 = 3.0/4 = 0.75
+//   g=1  { true }                     → 1.0/1               = 1.0
+//   g=2  { false }                    → 0.0/1               = 0.0
+// All three are exact in binary f64 (3/4 = 0.11₂), so `==` is the right compare
+// and no tolerance is involved.
+//
+// ⚠ 0.0 GETS ITS OWN EXIT CODE. A fix that admits bool in the table but not in
+// the value read makes the engine ACCEPT the query and silently answer 0.0. That
+// failure must be legible AS ITSELF and not as a generic mismatch, so it is
+// asserted before the general compare.
+//
+// exit 0 = the emitted engine answers 0.75 / 1.0 / 0.0.
+// Exit codes 20–37 named the dynamic and incremental engines; retired, not reused.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub b: bool }
+
+pub deem q_avg(ss: &[S]) { from ss s group by s.g aggregate a = avg(s.b) select a : f64 }
+
+// The 3-of-4-true shape, plus a singleton true and a singleton false so that
+// true→1.0 and false→0.0 are each pinned on their own and not only through the
+// quotient.
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, b: true  });
+    v.push(S { g: 0i64, b: true  });
+    v.push(S { g: 0i64, b: true  });
+    v.push(S { g: 0i64, b: false });
+    v.push(S { g: 1i64, b: true  });
+    v.push(S { g: 2i64, b: false });
+    return v;
+}
+
+fn main() -> i32 {
+    let ss: Vec<S> = rows();
+
+    let sv: Vec<f64> = match q_avg(ss.as_slice()) {
+        Result::Ok(v)  => { v }
+        Result::Err(_e) => { return 10i32; }
+    };
+    if sv.len() != 3i64                { return 11i32; }
+    if sv.get(0i64) == 0.0f64          { return 12i32; }   // the 0.0 signature
+    if sv.get(0i64) != 0.75f64         { return 13i32; }
+    if sv.get(1i64) != 1.0f64          { return 14i32; }
+    if sv.get(2i64) != 0.0f64          { return 15i32; }
+
+    return 0i32;
+}

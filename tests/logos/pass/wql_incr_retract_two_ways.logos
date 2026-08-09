@@ -1,4 +1,7 @@
-// RETRACTION ON THE STATIC INCREMENTAL PATH, CHECKED THREE WAYS.
+// RETRACTION ON THE STATIC INCREMENTAL PATH, CHECKED TWO WAYS.
+//
+// ⚠ RENAMED FROM `wql_incr_retract_three_ways` BY P5, BECAUSE THE THIRD WAY IS
+// DELETED AND THE COUNT IN THE NAME WAS LOAD-BEARING.
 //
 // `deem!` now emits, for an aggregate query whose every aggregate can RUN
 // BACKWARDS, a delta primitive that carries a SOURCE TAG and a WEIGHT:
@@ -10,20 +13,30 @@
 //     qa_retract(&mut h, rows)?;               // = qa_apply(h, 0, -1, rows)
 //     let out = qa_snapshot(&h)?;
 //
-// ⚠ THREE WITNESSES, BECAUSE "BOTH ENGINES AGREE" IS NOT SUFFICIENT — the same
-// discipline `wql_incr_static_three_ways` states and for the same measured
-// reason. Every number below is asserted against all three of:
+// ⚠ MORE THAN ONE WITNESS, BECAUSE "BOTH ENGINES AGREE" IS NOT SUFFICIENT — the
+// same discipline `wql_incr_static_two_ways` states and for the same measured
+// reason. Every number below is asserted against both of:
 //
 //   (i)   HAND-DERIVED CONSTANTS, written out in the table below;
 //   (ii)  the static BATCH fn `qa()` over the REMAINING multiset, which is the
 //         correctness spec a retraction is judged against (a handle that has
 //         seen I then R must answer what a batch over I∖R answers);
-//   (iii) the DYNAMIC interpreter's incremental engine driven by a raw signed
-//         `ZBatch`, a genuinely separate implementation over `RtVal`.
 //
-// ⚠ WITNESS (iii) IS THE WASTING ASSET. The interpreter still owns retraction
-// and is scheduled for deletion; while it exists the static answer can be
-// checked against it, and after that no later slice can be validated this way.
+// ⚠ WITNESS (iii) WAS THE DYNAMIC INTERPRETER'S INCREMENTAL ENGINE, driven by a
+// raw signed `ZBatch` — a genuinely separate implementation over `RtVal`. P5
+// DELETED IT, exactly as the old header said would happen. THREE THINGS ARE LOST
+// WITH IT AND ARE NAMED HERE RATHER THAN QUIETLY DROPPED:
+//   · block C's and block D's cross-tier agreement on the retracted totals and
+//     on the EMPTIED GROUP (codes 37-42, 54-58);
+//   · block E's "the same bits, read signed" reading of a `u64` total at 2^63
+//     (codes 71-75) — the u64 claim itself survives in block E's static half;
+//   · block F5/F6's DIVERGENCE PIN — the measured fact that the static tier
+//     answers `RetractAbsent` where the interpreter's `gcount += w` had no error
+//     path at all, and that its `el_wrap_sub` latched on the addend where the
+//     static count guard returned first. That divergence is now unfalsifiable in
+//     one direction, so only the STATIC half (F5's `RetractAbsent`) remains, and
+//     it is no longer evidence about two tiers. Codes 37-42, 54-58, 71-75, 99-105
+//     are retired and NOT reused.
 //
 // ── THE DATA AND THE ANSWERS, BY HAND ──────────────────────────────────────
 //
@@ -80,8 +93,9 @@
 //            different repair, so a different name: `Overflow` said "too large"
 //            about a number that had gone below zero.
 //
-//    ⚠⚠ THIS IS WHERE THE STATIC TIER IS STRICTER THAN THE INTERPRETER, AND
-//    THE DIVERGENCE IS ASSERTED RATHER THAN ASSUMED. Take `qc` (count only):
+//    ⚠⚠ THIS IS WHERE THE STATIC TIER WAS STRICTER THAN THE INTERPRETER. The
+//    interpreter half is DELETED with it (P5), so what follows is HISTORY beside
+//    a live static assertion, not a live comparison. Take `qc` (count only):
 //    insert (3,1), retract it, retract it again.
 //      static      → `Err(RetractAbsent)` — the count would reach −1.
 //      interpreter → `had_error()` FALSE, the group merely absent. Its
@@ -89,8 +103,8 @@
 //                    count update is a bare `gcount += w` with NO ERROR PATH AT
 //                    ALL — which is not the answer "no error", it is "I was
 //                    never asked", so its silence was never agreement.
-//    Both answers are pinned below so that the divergence cannot vanish
-//    silently while the interpreter is being deleted.
+//    Only the STATIC answer is pinned below now; the interpreter's is recorded
+//    here in prose because there is no longer anything to ask.
 //
 //    ⚠ AND THE ORDER OF THE GUARDS IS ITSELF LOAD-BEARING, which is why
 //    `el_subu`'s witness had to be REBUILT rather than kept. The group-count
@@ -183,34 +197,22 @@
 // All of the above is about ONE CODE STANDING FOR TWO STATES. The inverse ran
 // open here too: `.expected` was `exit: 0` with no `stdout:` key, so an
 // assertion that STOPPED RUNNING was invisible. `main` now prints
-//     three ways ok chk=NNN rows=NNN
+//     two ways ok chk=NNN rows=NNN
 // on the success path and `.expected` pins it; both numbers are derived from the
 // checks and the snapshots that actually ran. See the census block below.
 //
-// exit 0 = all three witnesses agree with the table above, under every split.
+// exit 0 = both witnesses agree with the table above, under every split.
 package test;
 
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.array;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
 use logos.std.wql.el;
-use logos.mem.deem;
 use logos.lang.result;
-use logos.mem.string;
-use logos.lang.str;
 use logos.mem.collections.vec;
 use logos.std.fmt;       // println! — the ceiling guard, the census, and the
                          // PARAMETER channel every shared code now carries
 
 struct S { pub g: i64, pub v: i64 }
 struct U { pub g: i64, pub u: u64 }
-
-pub schema SR : code(0x0E45_0000_0000_0011) { g: i64 = 0, v: i64 = 1 }
-pub schema UR : code(0x0E45_0000_0000_0012) { g: i64 = 0, u: u64 = 1 }
-resource cat = schema_catalog!{ SR, UR };
 
 // count + an i64 sum: both invert exactly, so this query gains the weight.
 pub deem qa(ss: &[S]) {
@@ -231,16 +233,6 @@ pub deem qc(ss: &[S]) {
 // stale-seed gate, float identity) is `deem_incr_static_retract_e2e`'s subject.
 pub deem qm(ss: &[S]) {
     from ss s group by s.g aggregate c = count(), lo = min(s.v), hi = max(s.v) select (key, c, lo, hi)
-}
-
-fn qa_text() -> str {
-    return "from ss s group by s.g aggregate c = count(), t = sum(s.v) select (key, c, t)";
-}
-fn qu_text() -> str {
-    return "from us s group by s.g aggregate n = count(), t = sum(s.u) select (key, n, t)";
-}
-fn qc_text() -> str {
-    return "from ss s group by s.g aggregate c = count() select (key, c)";
 }
 
 // ── the row sets ───────────────────────────────────────────────────────────
@@ -298,30 +290,6 @@ fn slice_of(all: &Vec<S>, lo: i64, hi: i64) -> Vec<S> {
     let mut i: i64 = lo;
     while i < hi { v.push(all.get(i)); i = i + 1i64; }
     return v;
-}
-
-// ── the dynamic side: signed ZBatches over a schema row ────────────────────
-fn mkS(d: &Writ, g: i64, v: i64) -> WAny {
-    let r: SR = d.make::<SR>(); r.g = g; r.v = v;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
-fn mkU(d: &Writ, g: i64, u: u64) -> WAny {
-    let r: UR = d.make::<UR>(); r.g = g; r.u = u;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
-fn zb_S(d: &Writ, rs: &Vec<S>, w: i64) -> ZBatch {
-    let mut b: ZBatch = ZBatch::new();
-    let mut i: i64 = 0i64;
-    while i < rs.len() { b.push(mkS(d, rs.get(i).g, rs.get(i).v), w); i = i + 1i64; }
-    return b;
-}
-// The interpreter's snapshot slots are ZOut order, which after a retraction is
-// NOT the group's first-occurrence order — so its rows are looked up BY KEY.
-// -1 = the key is absent, which is itself an assertable fact (the emptied group).
-fn find_key(r: &QRows, k: i64) -> i64 {
-    let mut j: i64 = 0i64;
-    while j < r.row_count() { if r.get_i64(j, 0i64) == k { return j; } j = j + 1i64; }
-    return -1i64;
 }
 
 // One static run: the whole insert stream cut into `parts` contiguous epochs,
@@ -410,13 +378,18 @@ fn check_layout() -> i32 {
 // a split that stops being tried lowers `chk` and `rows` even though every `if`
 // is still in the source — the failure the exit code cannot carry at all,
 // because the run still exits 0.
-// PINNED: `three ways ok chk=187 rows=55`. HAND-DERIVED FIRST AND MEASURED
-// SECOND, and they agreed to the unit: 187 = 87 straight-line predicates + 94
-// loop-executed ones (B 3·3, C 3·3, D 3·2, H 1·7 + 3·3·7) + 6 refusal arms;
-// 55 = the rows the 23 snapshot and batch sites actually returned, `sv`'s three
-// counted seven times and `w1`'s emptied group counted as zero. A disagreement
-// would have been evidence about the code, not a licence to write down whatever
-// printed.
+// PINNED: `two ways ok chk=158 rows=49`. HAND-DERIVED FIRST AND MEASURED
+// SECOND, and they agreed to the unit.
+// ⚠ THE PIN MOVED WITH P5 AND THE ARITHMETIC OF THE MOVE IS WRITTEN OUT, because
+// a census number edited to match a run is not a census. It was
+// `three ways ok chk=187 rows=55` = 87 straight-line predicates + 94
+// loop-executed ones (B 3·3, C 3·3, D 3·2, H 1·7 + 3·3·7) + 6 refusal arms, and
+// 55 rows over 23 snapshot/batch sites. Deleting the interpreter arms removes
+// exactly 29 executed predicates — block C 3 straight-line + 9 loop-executed,
+// block D's interpreter tail 5, block E's interpreter half 5, F5's interpreter
+// half 4, block F6 entirely 3 — and 6 returned rows (C 3, D 2, E 1). So
+// 187 − 29 = 158 = 67 straight-line + 85 loop-executed + 6 refusal arms, and
+// 55 − 6 = 49. PREDICTED BEFORE THE RUN; the run agreed.
 // PROVEN TO BITE, predicted then reverted: delete the innermost metamorphic
 // assertion `sv.get(z).2 != b1.get(z).2` in block H and the run still exits 0
 // but prints `chk=166` — TWENTY-ONE lower for ONE deleted line, because that
@@ -450,12 +423,11 @@ fn main() -> i32 {
     // THE CENSUS, AND IT IS AN ASSERTION: `.expected` pins this line. Printed
     // only on the success path, so a failing run says on stdout what its shared
     // code cannot (the WRONG ARM lines above) and nothing else.
-    if r == 0i32 { println!("three ways ok chk={} rows={}", t.chk, t.rows); }
+    if r == 0i32 { println!("two ways ok chk={} rows={}", t.chk, t.rows); }
     return r;
 }
 
 fn assertions(t: &mut Tally) -> i32 {
-    let c: SchemaCatalog = cat();
     let ins: Vec<S> = ins_rows();
     let ret: Vec<S> = ret_rows();
     let rest: Vec<S> = rest_rows();
@@ -519,48 +491,6 @@ fn assertions(t: &mut Tally) -> i32 {
         i = i + 1i64;
     }
 
-    // ══ C. against the DYNAMIC interpreter, driven by a signed ZBatch ══════
-    // ⚠ THE INSERTS ARRIVE THROUGH THE BASE-FILL AND NOT THROUGH AN `epoch`
-    // OVER AN EMPTY BINDING, AND THAT IS A MEASURED CONSTRAINT ON THE ORACLE
-    // RATHER THAN A STYLE CHOICE. `Query::compile` + `incremental` take the
-    // column's TYPE FACTS from the bound source's rows — with an empty array
-    // bound, `QPlan.agg_argu` comes back false for a `u64` column and the
-    // engine folds it under the SIGNED predicate: measured here as
-    // `max(u64){5, 2^63}` answering 5, and `sum(u64){2^62, 2^62}` latching an
-    // overflow and answering 2^62. Bind the rows, let construction fold them,
-    // and send only the RETRACTIONS through `epoch` — which is what a
-    // retraction test wants anyway, since the insert direction is already
-    // pinned by `wql_incr_static_three_ways`.
-    let d: Writ = writ_new(65536i64);
-    let ins_arr: &mut WArray<WAny> = d.array(ins.len() + 1i64);
-    let mut ai0: i64 = 0i64;
-    while ai0 < ins.len() { ins_arr.push(mkS(&d, ins.get(ai0).g, ins.get(ai0).v)); ai0 = ai0 + 1i64; }
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("ss", WAny::ref_to(ins_arr as *const WArray<WAny> as *const u8));
-    let dq: Query = match Query::compile(qa_text(), &c) {
-        Result::Ok(qq) => { qq } Result::Err(_e) => { return 3i32; }
-    };
-    let mut eng: IncrJoin = match dq.incremental(&e) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 3i32; }
-    };
-    let nothing: ZBatch = ZBatch::new();
-    if bad(t, eng.had_error()) { return 37i32; }
-    let dre: ZBatch = zb_S(&d, &ret, 0i64 - 1i64);
-    eng.epoch(&dre, &nothing);
-    if bad(t, eng.had_error()) { return 38i32; }
-    let dr: QRows = eng.snapshot();
-    t.rows = t.rows + dr.row_count();
-    if bad(t, dr.row_count() != 3i64) { return 39i32; }
-    let mut k: i64 = 0i64;
-    while k < 3i64 {
-        let key: i64 = a1.get(k).0;
-        let j: i64 = find_key(&dr, key);
-        if bad(t, j < 0i64) { return 40i32; }
-        if bad(t, dr.get_i64(j, 1i64) != a1.get(k).1) { return 41i32; }
-        if bad(t, dr.get_i64(j, 2i64) != a1.get(k).2) { return 42i32; }
-        k = k + 1i64;
-    }
-
     // ══ D. THE EMPTIED GROUP — absent, order of the survivors unchanged ════
     let g1: Vec<S> = one_row(1i64, 10i64);
     match qa_retract(&mut h, g1.as_slice()) {
@@ -590,17 +520,6 @@ fn assertions(t: &mut Tally) -> i32 {
         if bad(t, b2.get(m).2 != a2.get(m).2) { return 53i32; }
         m = m + 1i64;
     }
-    // The interpreter drops the same row, for its own reason (`live = false`).
-    let dg1: ZBatch = zb_S(&d, &g1, 0i64 - 1i64);
-    eng.epoch(&dg1, &nothing);
-    if bad(t, eng.had_error()) { return 54i32; }
-    let dr2: QRows = eng.snapshot();
-    t.rows = t.rows + dr2.row_count();
-    if bad(t, dr2.row_count() != 2i64) { return 55i32; }
-    if bad(t, find_key(&dr2, 1i64) >= 0i64) { return 56i32; }
-    if bad(t, find_key(&dr2, 0i64) < 0i64) { return 57i32; }
-    if bad(t, find_key(&dr2, 2i64) < 0i64) { return 58i32; }
-
     // …AND THE TOMBSTONE IS A TOMBSTONE: re-inserting the key brings the group
     // back in its ORIGINAL position, because the slot was kept rather than
     // deleted. A `__gk` entry that had been removed would put g=1 last.
@@ -646,34 +565,6 @@ fn assertions(t: &mut Tally) -> i32 {
     if bad(t, u1.len() != 1i64) { return 68i32; }
     if bad(t, u1.get(0i64).1 != 1i64) { return 69i32; }
     if bad(t, u1.get(0i64).2 != two63) { return 70i32; }
-    // …and the interpreter's total is the SAME BITS, read signed. Same
-    // constraint as block C: the two rows are BOUND, so construction folds them
-    // and the `u64` claim survives into the plan.
-    let ud: Writ = writ_new(65536i64);
-    let uarr: &mut WArray<WAny> = ud.array(4i64);
-    uarr.push(mkU(&ud, 0i64, two63));
-    uarr.push(mkU(&ud, 0i64, 5u64));
-    let mut ue: QEnv = QEnv::new();
-    ue.bind_source("us", WAny::ref_to(uarr as *const WArray<WAny> as *const u8));
-    let uqq: Query = match Query::compile(qu_text(), &c) {
-        Result::Ok(qq) => { qq } Result::Err(_e) => { return 5i32; }
-    };
-    let mut ueng: IncrJoin = match uqq.incremental(&ue) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 5i32; }
-    };
-    if bad(t, ueng.had_error()) { return 71i32; }
-    let mut ur: ZBatch = ZBatch::new();
-    ur.push(mkU(&ud, 0i64, 5u64), 0i64 - 1i64);
-    ueng.epoch(&ur, &nothing);
-    if bad(t, ueng.had_error()) { return 72i32; }
-    let urows: QRows = ueng.snapshot();
-    t.rows = t.rows + urows.row_count();
-    if bad(t, urows.row_count() != 1i64) { return 73i32; }
-    if bad(t, urows.get_i64(0i64, 1i64) != 1i64) { return 74i32; }
-    // 2^63 as an i64 payload — `-9223372036854775808`, written out rather than
-    // computed, which is the spelling the corpus already pins elsewhere.
-    if bad(t, urows.get_i64(0i64, 2i64) != -9223372036854775808i64) { return 75i32; }
-
     // ══ F. RETRACTING WHAT WAS NEVER INSERTED — THREE MISTAKES, THREE NAMES ═
     //
     // F1. THE GROUP COUNT BELOW ZERO. Insert (9,5), retract it, retract it
@@ -887,53 +778,6 @@ fn assertions(t: &mut Tally) -> i32 {
             }
         }
     }
-    // INTERPRETER: the same triple over a count-only query, and it does NOT
-    // report. Bound to the single row (3,1) so construction folds it, then the
-    // SAME retraction twice through `epoch`.
-    let carr: &mut WArray<WAny> = d.array(4i64);
-    carr.push(mkS(&d, 3i64, 1i64));
-    let mut ce: QEnv = QEnv::new();
-    ce.bind_source("ss", WAny::ref_to(carr as *const WArray<WAny> as *const u8));
-    let cqq: Query = match Query::compile(qc_text(), &c) {
-        Result::Ok(qq) => { qq } Result::Err(_e) => { return 7i32; }
-    };
-    let mut ceng: IncrJoin = match cqq.incremental(&ce) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 7i32; }
-    };
-    if bad(t, ceng.had_error()) { return 99i32; }
-    let mut cr: ZBatch = ZBatch::new();
-    cr.push(mkS(&d, 3i64, 1i64), 0i64 - 1i64);
-    ceng.epoch(&cr, &nothing);
-    if bad(t, ceng.had_error()) { return 100i32; }
-    ceng.epoch(&cr, &nothing);
-    // ⚠ THE DIVERGENCE, PINNED. `had_error()` FALSE where the static tier
-    // returned `RetractAbsent`. If a later slice makes the interpreter strict,
-    // or makes the static tier lax, THIS line goes red and says so — which is
-    // the whole reason it is an assertion and not a comment.
-    if bad(t, ceng.had_error()) { return 101i32; }
-    if bad(t, ceng.snapshot().row_count() != 0i64) { return 102i32; }
-
-    // F6. …AND THE u64 SUM'S FAULT IS THE ONE CELL WHERE THE TWO TIERS STILL
-    // AGREE THAT SOMETHING IS WRONG, by different routes. The interpreter has
-    // no count guard, so its `el_wrap_sub(0, 5)` → `None` latches `math_err` on
-    // exactly the addend where the static tier's F1 count guard returned first.
-    // Same input, same verdict "error", different reason — asserted so that the
-    // agreement is not mistaken for the two tiers running the same check.
-    let zarr: &mut WArray<WAny> = ud.array(4i64);
-    zarr.push(mkU(&ud, 9i64, 5u64));
-    let mut ze: QEnv = QEnv::new();
-    ze.bind_source("us", WAny::ref_to(zarr as *const WArray<WAny> as *const u8));
-    let mut zeng: IncrJoin = match uqq.incremental(&ze) {
-        Result::Ok(g) => { g } Result::Err(_e) => { return 7i32; }
-    };
-    if bad(t, zeng.had_error()) { return 103i32; }
-    let mut zr: ZBatch = ZBatch::new();
-    zr.push(mkU(&ud, 9i64, 5u64), 0i64 - 1i64);
-    zeng.epoch(&zr, &nothing);
-    if bad(t, zeng.had_error()) { return 104i32; }
-    zeng.epoch(&zr, &nothing);
-    if bad(t, !zeng.had_error()) { return 105i32; }
-
     // ══ G. THE SOURCE TAG — a tag this query has no source for ═════════════
     //
     // ⚠⚠ THIS BLOCK ASSERTED THE OPPOSITE UNTIL P3, AND THE INVERSION IS THE

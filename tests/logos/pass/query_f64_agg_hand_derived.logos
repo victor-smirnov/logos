@@ -1,0 +1,124 @@
+// f64 AGGREGATES, FOLDED EXACTLY — sum/avg/min/max over an f64 column, against
+// constants DERIVED BY HAND, every one of them exact in binary f64.
+//
+// ⚠ THIS FILE WAS `query_incr_f64_agg_three_engines` AND IS RENAMED BECAUSE ITS
+// SUBJECT NO LONGER EXISTS. It was written for the THIRD engine and for nothing
+// else. `AggState` (`stdlib/mem/deem/incr.logos`) was integer THROUGHOUT —
+// `gsum: Vec<i64>` for sum/avg, `vbest: Vec<i64>` + `vmap: Vec<HashMap<i64,i64>>`
+// for min/max — and every argument entered it through `rt_i`, which is `x as i64`
+// for a float. So the incremental engine answered, on exactly the rows below:
+//        sum          avg          min          max
+//   g0   1.0 (≠2.0)   0.5 (≠1.0)   0.0 (≠0.5)   1.0 (≠1.5)
+//   g1   2.0 (≠2.25)  2.0 (≠2.25)  2.0 (≠2.25)  2.0 (≠2.25)
+//   g2  −1.0 (≠−1.5) −1.0 (≠−1.5) −1.0 (≠−1.5) −1.0 (≠−1.5)
+//   g3   0.0 (≠1.0)   0.0 (≠0.5)   0.0 (≠0.25)  0.0 (≠0.75)
+// while the static and dynamic engines were correct. P5 deleted BOTH the dynamic
+// interpreter and the incremental engine, so the three-way comparison and the
+// engine whose defect this file exists to record are gone together. Keeping the
+// old name would have claimed a comparison the file cannot make.
+//
+// ⚠ AND FOR min/max IT WAS NOT TRUNCATION BUT IDENTITY LOSS, WHICH IS WORSE.
+// The multiplicity map was keyed on the accumulated value, so g3's `0.25` and
+// `0.75` — DISTINCT rows — collided onto the single key `0` with count 2.
+// Group g3 exists in this file for that reason and for no other; it is not a
+// second sample of g0. It is kept because the same collision would be a defect
+// in any future accumulator, and the rows are the cheap part to preserve.
+//
+// WHAT STILL BITES HERE: the static `deem!` fold answering all four aggregates
+// on halves and quarters, compared with `==` against written-out constants —
+// which is the discipline `query_minmax_float_seed_leak` states, and it is
+// INDEPENDENT of any engine because nothing computes the expectations.
+//
+// SCOPE. One pass over the rows. The exactness of an f64 accumulator UNDER
+// RETRACTION was a separate open question about the deleted engine and is not
+// claimed here.
+//
+// exit 0 = the emitted engine agrees with the hand-derived answers.
+// Exit codes 20-58 named the dynamic and incremental engines; retired, not reused.
+package test;
+
+use logos.std.wql.wql;
+use logos.lang.result;
+use logos.mem.collections.vec;
+
+struct S { pub g: i64, pub x: f64 }
+
+// the static `deem!` fold, one aggregate each.
+pub deem q_sum(ss: &[S]) { from ss s group by s.g aggregate a = sum(s.x) select a : f64 }
+pub deem q_avg(ss: &[S]) { from ss s group by s.g aggregate a = avg(s.x) select a : f64 }
+pub deem q_min(ss: &[S]) { from ss s group by s.g aggregate a = min(s.x) select a : f64 }
+pub deem q_max(ss: &[S]) { from ss s group by s.g aggregate a = max(s.x) select a : f64 }
+
+// THE ROWS, and every expectation below is derived from THESE by hand:
+//   g0 { 0.5, 1.5 }    sum 2.0    avg 1.0   min 0.5   max 1.5
+//   g1 { 2.25 }        sum 2.25   avg 2.25  min 2.25  max 2.25
+//   g2 { −1.5 }        sum −1.5   avg −1.5  min −1.5  max −1.5
+//   g3 { 0.25, 0.75 }  sum 1.0    avg 0.5   min 0.25  max 0.75
+// Halves and quarters only: every value, every partial sum and every quotient
+// is representable exactly, so `==` on f64 is the right comparison here.
+// g3's two values BOTH truncate to 0 — that is what makes it the identity probe.
+fn rows() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 0i64, x: 0.5f64  });
+    v.push(S { g: 0i64, x: 1.5f64  });
+    v.push(S { g: 1i64, x: 2.25f64 });
+    v.push(S { g: 2i64, x: 0.0f64 - 1.5f64 });
+    v.push(S { g: 3i64, x: 0.25f64 });
+    v.push(S { g: 3i64, x: 0.75f64 });
+    return v;
+}
+
+fn exp_sum(g: i64) -> f64 {
+    if g == 0i64 { return 2.0f64; }
+    if g == 1i64 { return 2.25f64; }
+    if g == 2i64 { return 0.0f64 - 1.5f64; }
+    return 1.0f64;
+}
+fn exp_avg(g: i64) -> f64 {
+    if g == 0i64 { return 1.0f64; }
+    if g == 1i64 { return 2.25f64; }
+    if g == 2i64 { return 0.0f64 - 1.5f64; }
+    return 0.5f64;
+}
+fn exp_min(g: i64) -> f64 {
+    if g == 0i64 { return 0.5f64; }
+    if g == 1i64 { return 2.25f64; }
+    if g == 2i64 { return 0.0f64 - 1.5f64; }
+    return 0.25f64;
+}
+fn exp_max(g: i64) -> f64 {
+    if g == 0i64 { return 1.5f64; }
+    if g == 1i64 { return 2.25f64; }
+    if g == 2i64 { return 0.0f64 - 1.5f64; }
+    return 0.75f64;
+}
+
+fn main() -> i32 {
+    let ss: Vec<S> = rows();
+
+    // The static surface groups in FIRST-OCCURRENCE order, which for `rows()`
+    // is g0, g1, g2, g3 — so index i carries group i here.
+    let sv: Vec<f64> = match q_sum(ss.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_a) => { return 10i32; }
+    };
+    let av: Vec<f64> = match q_avg(ss.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_b) => { return 11i32; }
+    };
+    let nv: Vec<f64> = match q_min(ss.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_c) => { return 12i32; }
+    };
+    let xv: Vec<f64> = match q_max(ss.as_slice()) {
+        Result::Ok(v) => { v } Result::Err(_d) => { return 13i32; }
+    };
+    if sv.len() != 4i64 || av.len() != 4i64 || nv.len() != 4i64 || xv.len() != 4i64 { return 14i32; }
+    let mut g1: i64 = 0i64;
+    while g1 < 4i64 {
+        if sv.get(g1) != exp_sum(g1) { return 15i32; }
+        if av.get(g1) != exp_avg(g1) { return 16i32; }
+        if nv.get(g1) != exp_min(g1) { return 17i32; }
+        if xv.get(g1) != exp_max(g1) { return 18i32; }
+        g1 = g1 + 1i64;
+    }
+
+    return 0i32;
+}

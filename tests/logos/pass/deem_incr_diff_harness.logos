@@ -2,8 +2,19 @@
 // FROM THE INTERPRETER TO THE STATIC SIDE (built at P0 of the P0-P5 arc; arm (1)
 // repointed at the P1 static incremental engine).
 //
-// ⚠⚠ THIS FILE IS BUILT AROUND ITS OWN DEMOLITION. Read this block before
-// editing anything below it.
+// ⚠⚠ THIS FILE WAS BUILT AROUND ITS OWN DEMOLITION, AND P5 EXECUTED IT. The
+// list below is the plan the file wrote for itself; every item on it has now
+// been carried out, and the plan is kept verbatim so a reader can check the
+// deletion against the instruction rather than against a summary of it.
+//
+// ⚠ THE PLAN WAS RIGHT ABOUT THE ARMS AND WRONG ABOUT ONE DEPENDENCY, WHICH IS
+// WORTH RECORDING BECAUSE IT IS THE KIND OF THING A PLAN MISSES. `run_spine`
+// drove its rows through a `FactStore` (`store.insert` / `store.retract` /
+// `take_delta` / `build_present` / `arena_ptr`), and `FactStore` is defined in
+// `stdlib/mem/deem/incr.logos` — IN THE CUT. The store existed only to feed the
+// interpreter's `ZBatch` pumps, so it went with them and the driver now applies
+// each delta to `rows` alone, through the same `apply_insert`/`apply_retract`
+// that were already there. No assertion moved with it.
 //
 // The interpreter (`exec`+`eval`+`query`+`check`) is being deleted at P5. Until
 // then it is the ORACLE FOR ITS OWN REPLACEMENT: every incremental answer can be
@@ -11,7 +22,8 @@
 // gone and no later slice can be validated this way. So the shape is built now,
 // and it is built so that P5 REMOVES an arm rather than rewrites a harness.
 //
-//   WHAT P5 DELETES FROM THIS FILE, and nothing else:
+//   WHAT P5 DELETED FROM THIS FILE, and nothing else (plus the FactStore
+//   plumbing named above):
 //     · `fn arm_dyn`, `fn arm_dyn_r` and the five `Q*_TEXT()` query strings
 //       they need (plus `RA_TEXT` in §6)
 //     · in `run_spine`: the `q1`…`q5` compiles, the `eng_env`, the five
@@ -371,16 +383,8 @@
 // measured defects that bought.
 package test;
 
-use logos.lang.writ.container;
-use logos.lang.writ.anyval;
-use logos.lang.writ.array;
-use logos.std.wql.ir;
-use logos.std.wql.catalog_macro;
 use logos.std.wql.wql;
-use logos.mem.deem;
 use logos.lang.result;
-use logos.mem.string;
-use logos.lang.str;
 use logos.lang.num.float;
 use logos.mem.collections.vec;
 use logos.std.wql.el;    // ElError — §6 asserts the error ARM by name, not by `_`
@@ -388,11 +392,11 @@ use logos.std.fmt;       // println! — the failure channel that is not eight b
 use logos.std.io;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// THE ROW. `struct Row` is what `deem!` folds; `RowF` is the same row as a Writ
-// schema, which is what the dynamic and incremental tiers read. Two spellings of
-// one row is the price of asking three engines the same question — the same
-// price `query_incr_f64_agg_three_engines` pays.
-//   id — content identity for the FactStore (scalar key, see FactStore::new)
+// THE ROW. `struct Row` is what `deem!` folds. ⚠ IT USED TO HAVE A TWIN: a Writ
+// `schema RowF`, the same row in the spelling the dynamic and incremental tiers
+// read. P5 deleted both tiers and `RowF` with them, so there is one spelling
+// now — which is a simplification bought at the price of the second reader.
+//   id — content identity, formerly the `FactStore` key
 //   g  — the group key. i64 on purpose: a u64 group key is a separate question.
 //   xi — the i64 EXTREMES.  min/max only (see the fold-order razor above).
 //   xs — a non-overflowing i64 set.  count/sum/avg.
@@ -408,16 +412,6 @@ use logos.std.io;
 //        because the language refuses the column.
 // ═══════════════════════════════════════════════════════════════════════════
 struct Row { pub id: i64, pub g: i64, pub xi: i64, pub xs: i64, pub xf: f64, pub xu: u64 }
-
-pub schema RowF : code(0x0E4D_0000_0000_0001) {
-    id: i64 = 0,
-    g:  i64 = 1,
-    xi: i64 = 2,
-    xs: i64 = 3,
-    xf: f64 = 4,
-    xu: u64 = 5
-}
-resource cat = schema_catalog!{ RowF };
 
 // i64's endpoints, built rather than spelled (a bare `-9223372036854775808i64`
 // is a negation of a literal one past i64::MAX).
@@ -652,9 +646,16 @@ fn deltas() -> Vec<Delta> {
 // AND `.expected` PINS STDOUT, which is the half that makes the parameter
 // channel a gate rather than a debug aid: the successful run's own COUNTS are
 // part of the assertion,
-//     spine ok ep=5 cmp=20 cells=300
-// 20 comparisons = 9 (phase A) + 1 (its witness) + 9 (phase B) + 1 (its
-// witness); 300 cells = 162 + 18 + 108 + 12. A comparison that stops running
+//     spine ok ep=5 cmp=8 cells=120
+// 8 comparisons = 3 (phase A) + 1 (its witness) + 3 (phase B) + 1 (its witness);
+// 120 cells = 54 + 18 + 36 + 12.
+// ⚠ P5 MOVED THIS PIN AND THE ARITHMETIC OF THE MOVE IS WRITTEN OUT, because a
+// census number edited to match a run is not a census. It was `cmp=20
+// cells=300` = 9 + 1 + 9 + 1 comparisons and 162 + 18 + 108 + 12 cells; the
+// interpreter supplied TWO of the three comparisons at each of phase A's 3
+// epochs and phase B's 3 turns, at 18 and 12 cells apiece. So cmp loses 12
+// (6 turns x 2) and cells loses 3x2x18 + 3x2x12 = 108 + 72 = 180 → 8 and 120.
+// PREDICTED BEFORE THE RUN. A comparison that stops running
 // lowers a number and the test goes red on stdout even if every remaining
 // comparison passes — which is the one failure `cells_eq` alone cannot see, and
 // the shape this codebase has on record as "a test MISSING from the suite:
@@ -676,11 +677,13 @@ fn EXIT_OVERRUN() -> i32 { return 125i32; }
 fn CLASS_SPAN() -> i32 { return 29i32; }
 // `ovf_block` returns 1..7 and `uavg_block` 1..14, each offset by its base.
 fn OVF_SPAN()   -> i32 { return  7i32; }
-fn UAVG_SPAN()  -> i32 { return 14i32; }
 
 fn OVF_BASE()  -> i32 { return CLASS_SPAN(); }               // 29 → 30..36
-fn UAVG_BASE() -> i32 { return OVF_BASE() + OVF_SPAN(); }    // 36 → 37..50
-fn TOP_CODE()  -> i32 { return UAVG_BASE() + UAVG_SPAN(); }  // 50
+// P5: §5's `UAVG_BASE`/`UAVG_SPAN` are gone with §5, so the top drops 50 → 36.
+// The SPANS are deliberately left wider than what the surviving blocks return —
+// narrowing them would renumber nothing but would invalidate every control
+// revert recorded against 30..36.
+fn TOP_CODE()  -> i32 { return OVF_BASE() + OVF_SPAN(); }    // 36
 
 // THE STATIC HALF OF THE GUARD, run before anything else on every run. Returns
 // 0, or `EXIT_OVERRUN` after printing which part of the layout does not fit.
@@ -1193,97 +1196,15 @@ fn cells_of(r1: &Vec<(i64, i64, i64)>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §3c  ARM (2) — THE INTERPRETER. ⚠ THIS IS THE ONE REMOVABLE ARM. P5 DELETES
-// THIS SECTION AND EVERY CALLER OF IT, AND NOTHING ELSE IN THIS FILE MOVES.
+// §3c  ARM (2) — THE INTERPRETER. DELETED BY P5, AS PLANNED. `Q1_TEXT`..
+// `Q5_TEXT`, `arm_dyn` and `arm_dyn_r` lived here and are gone with
+// `stdlib/mem/deem/query.logos`. The two comparisons they fed — hand-vs-interp
+// and static-vs-interp, at every epoch of both phases — are LOST, and they were
+// the only cross-IMPLEMENTATION evidence in this file. What is left is arm (3)
+// (the hand table) against arm (1) (the maintained static engine) plus arm
+// (batch), which is a different fold of the same tier. Exit codes 21, 22, 11 and
+// 12 named the interpreter comparisons; retired, not reused.
 // ═══════════════════════════════════════════════════════════════════════════
-fn Q1_TEXT() -> str {
-    return "from ss s group by s.g aggregate mn = min(s.xi), mx = max(s.xi) select (key, mn, mx)";
-}
-fn Q2_TEXT() -> str {
-    return "from ss s group by s.g aggregate n = count(), sm = sum(s.xs), av = avg(s.xs) select (key, n, sm, av)";
-}
-fn Q3_TEXT() -> str {
-    return "from ss s group by s.g aggregate sm = sum(s.xf), av = avg(s.xf), mn = min(s.xf), mx = max(s.xf) select (key, sm, av, mn, mx)";
-}
-fn Q4_TEXT() -> str {
-    return "from ss s group by s.g aggregate mn = min(s.xf), mx = max(s.xf) select (key, mn, mx)";
-}
-fn Q5_TEXT() -> str {
-    return "from ss s group by s.g aggregate n = count(), sm = sum(s.xs) select (key, n, sm)";
-}
-
-fn arm_dyn(e1: &IncrJoin, e2: &IncrJoin, e3: &IncrJoin) -> Vec<Cell> {
-    let mut v: Vec<Cell> = vec_new::<Cell>();
-    if e1.had_error() || e2.had_error() || e3.had_error() {
-        v.push(cerr(0i64, 0i32, K_MATH_ERR()));
-        return v;
-    }
-    let s1: QRows = e1.snapshot();
-    let mut i: i64 = 0i64;
-    while i < s1.row_count() {
-        let g: i64 = s1.get_i64(i, 0i64);
-        v.push(ci(g, 0i32, s1.get_i64(i, 1i64)));
-        v.push(ci(g, 1i32, s1.get_i64(i, 2i64)));
-        i = i + 1i64;
-    }
-    let s2: QRows = e2.snapshot();
-    let mut j: i64 = 0i64;
-    while j < s2.row_count() {
-        let g: i64 = s2.get_i64(j, 0i64);
-        v.push(ci(g, 2i32, s2.get_i64(j, 1i64)));
-        v.push(ci(g, 3i32, s2.get_i64(j, 2i64)));
-        v.push(cf(g, 4i32, s2.get_f64(j, 3i64)));
-        j = j + 1i64;
-    }
-    let s3: QRows = e3.snapshot();
-    let mut k: i64 = 0i64;
-    while k < s3.row_count() {
-        let g: i64 = s3.get_i64(k, 0i64);
-        v.push(cf(g, 5i32, s3.get_f64(k, 1i64)));
-        v.push(cf(g, 6i32, s3.get_f64(k, 2i64)));
-        v.push(cf(g, 7i32, s3.get_f64(k, 3i64)));
-        v.push(cf(g, 8i32, s3.get_f64(k, 4i64)));
-        k = k + 1i64;
-    }
-    return v;
-}
-
-// PHASE B's interpreter arm. The engines are driven by the SAME `ZBatch` the
-// store hands e1/e2/e3 — one changelog, five engines — so a `sign = -1` row
-// reaches this arm as a weight of −1 and needs no plumbing of its own. That is
-// the half of "P2 adds table rows, not code" that arms (2) and (3) DID keep.
-fn arm_dyn_r(e1: &IncrJoin, e5: &IncrJoin, e4: &IncrJoin) -> Vec<Cell> {
-    let mut v: Vec<Cell> = vec_new::<Cell>();
-    if e1.had_error() || e5.had_error() || e4.had_error() {
-        v.push(cerr(0i64, 0i32, K_MATH_ERR()));
-        return v;
-    }
-    let s1: QRows = e1.snapshot();
-    let mut i: i64 = 0i64;
-    while i < s1.row_count() {
-        let g: i64 = s1.get_i64(i, 0i64);
-        v.push(ci(g, 0i32, s1.get_i64(i, 1i64)));
-        v.push(ci(g, 1i32, s1.get_i64(i, 2i64)));
-        i = i + 1i64;
-    }
-    let s5: QRows = e5.snapshot();
-    let mut j: i64 = 0i64;
-    while j < s5.row_count() {
-        let g: i64 = s5.get_i64(j, 0i64);
-        v.push(ci(g, 2i32, s5.get_i64(j, 1i64)));
-        v.push(ci(g, 3i32, s5.get_i64(j, 2i64)));
-        j = j + 1i64;
-    }
-    let s4: QRows = e4.snapshot();
-    let mut k: i64 = 0i64;
-    while k < s4.row_count() {
-        let g: i64 = s4.get_i64(k, 0i64);
-        v.push(cf(g, 7i32, s4.get_f64(k, 1i64)));
-        v.push(cf(g, 8i32, s4.get_f64(k, 2i64)));
-        k = k + 1i64;
-    }
-    return v;
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §3d  THE DRIVER.
@@ -1308,13 +1229,6 @@ fn arm_dyn_r(e1: &IncrJoin, e5: &IncrJoin, e4: &IncrJoin) -> Vec<Cell> {
 // the next capability with that property — expect the same split, and prefer a
 // second PHASE over a per-cell exception.
 // ═══════════════════════════════════════════════════════════════════════════
-fn mk_node(dp: *const Writ, d: Delta) -> WAny {
-    let w: &Writ = unsafe { &*dp };
-    let r: RowF = w.make::<RowF>();
-    r.id = d.id; r.g = d.g; r.xi = d.xi; r.xs = d.xs; r.xf = d.xf; r.xu = d.xu;
-    return WAny::ref_to((r.m as i64) as *const u8);
-}
-
 fn apply_insert(rows: &mut Vec<Row>, d: Delta) {
     rows.push(Row { id: d.id, g: d.g, xi: d.xi, xs: d.xs, xf: d.xf, xu: d.xu });
 }
@@ -1475,13 +1389,8 @@ fn apply_retract(rows: &mut Vec<Row>, d: Delta) {
     *rows = fresh;
 }
 
-fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
+fn run_spine(t: &mut Tally) -> i32 {
     let ds: Vec<Delta> = deltas();
-    let kf: [str; 1] = ["id"];
-    let mut store: FactStore = match FactStore::new(c, "RowF", &kf[..], 262144i64) {
-        Result::Ok(s) => { s } Result::Err(_e) => { return 1i32; }
-    };
-    let sp: *const Writ = store.arena_ptr();
     let mut rows: Vec<Row> = vec_new::<Row>();
 
     // ARM (1)'s state. Constructed EMPTY — `<q>_incremental()` does not base-fill
@@ -1500,36 +1409,14 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
     while i0 < nd {
         let d: Delta = ds.get(i0);
         if d.ep == 0i64 {
-            if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
-            else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+            if d.sign > 0i64 { apply_insert(&mut rows, d); }
+            else             { apply_retract(&mut rows, d); }
         }
         i0 = i0 + 1i64;
     }
     let er0: Vec<Row> = ep_inserts(&ds, 0i64);
     let pr0: i32 = pump(&mut h1, &mut h2, &mut h3, &mut h4, &mut h5, &er0);
     if pr0 != 0i32 { return pr0; }
-
-    let q1: Query = match Query::compile(Q1_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 2i32; } };
-    let q2: Query = match Query::compile(Q2_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 3i32; } };
-    let q3: Query = match Query::compile(Q3_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { return 4i32; } };
-    // ⚠ 8 AND 9 ARE ONE CLASS EACH AND THE QUERY IS A PARAMETER. Both codes used
-    // to carry TWO return sites with no `println!`, so "Q4 refused" and "Q5
-    // refused" were the same number with nothing to tell them apart.
-    let q4: Query = match Query::compile(Q4_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { println!("compile refused Q4"); return 8i32; } };
-    let q5: Query = match Query::compile(Q5_TEXT(), c) { Result::Ok(q) => { q } Result::Err(_e) => { println!("compile refused Q5"); return 8i32; } };
-
-    // `eng_env` must OUTLIVE every engine: `incremental()` stores a raw pointer
-    // to it (`envp`) and reads it back on every epoch.
-    let mut eng_env: QEnv = QEnv::new();
-    eng_env.bind_source("ss", store.build_present());
-    let mut e1: IncrJoin = match q1.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 5i32; } };
-    let mut e2: IncrJoin = match q2.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 6i32; } };
-    let mut e3: IncrJoin = match q3.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { return 7i32; } };
-    let mut e4: IncrJoin = match q4.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { println!("incremental() refused e4"); return 9i32; } };
-    let mut e5: IncrJoin = match q5.incremental(&eng_env) { Result::Ok(x) => { x } Result::Err(_e) => { println!("incremental() refused e5"); return 9i32; } };
-    // The base epoch already ran inside `incremental()`; drain the store's
-    // changelog so epoch 1 does not replay it.
-    let _base: ZBatch = store.take_delta();
 
     // ══ PHASE A — epochs 0 .. n_ins_epochs()−1, INSERTS ONLY ═══════════════
     let mut ep: i64 = 0i64;
@@ -1539,18 +1426,11 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
             while ii < nd {
                 let d: Delta = ds.get(ii);
                 if d.ep == ep {
-                    if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
-                    else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+                    if d.sign > 0i64 { apply_insert(&mut rows, d); }
+                    else             { apply_retract(&mut rows, d); }
                 }
                 ii = ii + 1i64;
             }
-            let dz: ZBatch = store.take_delta();
-            let empty: ZBatch = ZBatch::new();
-            e1.epoch(&dz, &empty);
-            e2.epoch(&dz, &empty);
-            e3.epoch(&dz, &empty);
-            e4.epoch(&dz, &empty);
-            e5.epoch(&dz, &empty);
             let er: Vec<Row> = ep_inserts(&ds, ep);
             let pr: i32 = pump(&mut h1, &mut h2, &mut h3, &mut h4, &mut h5, &er);
             if pr != 0i32 { return pr; }
@@ -1558,7 +1438,6 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
 
         let h: Vec<Cell> = arm_hand(ep);
         let s: Vec<Cell> = arm_static(&h1, &h2, &h3);
-        let d2: Vec<Cell> = arm_dyn(&e1, &e2, &e3);
 
         // ⚠ NO `epb`. The epoch and the cell used to be MULTIPLIED INTO the exit
         // code (`20 + (ep*3 + which)*CELLS_SPAN + cell`); they are printed now,
@@ -1567,14 +1446,6 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
         // hand vs static — the assertion that OUTLIVES P5.
         let a: i64 = cmp_cells(t, &h, &s);
         if a != 0i64 { println!("phaseA ep={} hand-vs-static cell={} (len hand={} static={})", ep, a, h.len(), s.len()); return 20i32; }
-        // hand vs interpreter — deleted at P5.
-        let b: i64 = cmp_cells(t, &h, &d2);
-        if b != 0i64 { println!("phaseA ep={} hand-vs-interp cell={} (len hand={} interp={})", ep, b, h.len(), d2.len()); return 21i32; }
-        // static vs interpreter, asserted DIRECTLY and not inferred from "both
-        // matched the table": a differential that only ever runs through an
-        // expectation table stops being a differential the day the table moves.
-        let cc: i64 = cmp_cells(t, &s, &d2);
-        if cc != 0i64 { println!("phaseA ep={} static-vs-interp cell={} (len static={} interp={})", ep, cc, s.len(), d2.len()); return 22i32; }
 
         ep = ep + 1i64;
     }
@@ -1614,18 +1485,11 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
             while ji < nd {
                 let d: Delta = ds.get(ji);
                 if d.ep == rp {
-                    if d.sign > 0i64 { store.insert(mk_node(sp, d)); apply_insert(&mut rows, d); }
-                    else             { store.retract(mk_node(sp, d)); apply_retract(&mut rows, d); }
+                    if d.sign > 0i64 { apply_insert(&mut rows, d); }
+                    else             { apply_retract(&mut rows, d); }
                 }
                 ji = ji + 1i64;
             }
-            let dz: ZBatch = store.take_delta();
-            let empty: ZBatch = ZBatch::new();
-            e1.epoch(&dz, &empty);
-            e2.epoch(&dz, &empty);
-            e3.epoch(&dz, &empty);
-            e4.epoch(&dz, &empty);
-            e5.epoch(&dz, &empty);
             let er: Vec<Row> = ep_inserts(&ds, rp);
             let rr: Vec<Row> = ep_retract_rows(&ds, rp);
             let pr: i32 = pump_r(&mut h1, &mut h4, &mut h5, &er, &rr);
@@ -1634,14 +1498,9 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
 
         let h: Vec<Cell> = arm_hand_r(rp);
         let s: Vec<Cell> = arm_static_r(&h1, &h5, &h4);
-        let d2: Vec<Cell> = arm_dyn_r(&e1, &e5, &e4);
 
         let a: i64 = cmp_cells(t, &h, &s);
         if a != 0i64 { println!("phaseB ep={} hand-vs-static cell={} (len hand={} static={})", rp, a, h.len(), s.len()); return 10i32; }
-        let b: i64 = cmp_cells(t, &h, &d2);
-        if b != 0i64 { println!("phaseB ep={} hand-vs-interp cell={} (len hand={} interp={})", rp, b, h.len(), d2.len()); return 11i32; }
-        let cc: i64 = cmp_cells(t, &s, &d2);
-        if cc != 0i64 { println!("phaseB ep={} static-vs-interp cell={} (len static={} interp={})", rp, cc, s.len(), d2.len()); return 12i32; }
 
         rp = rp + 1i64;
     }
@@ -1686,8 +1545,6 @@ fn run_spine(c: &SchemaCatalog, t: &mut Tally) -> i32 {
 // ═══════════════════════════════════════════════════════════════════════════
 pub deem q_ovf(rs: &[Row]) { from rs s group by s.g aggregate sm = sum(s.xs) select (key, sm) }
 
-fn OVF_TEXT() -> str { return "from ss s group by s.g aggregate sm = sum(s.xs) select (key, sm)"; }
-
 fn ovf_rows() -> Vec<Row> {
     let mut v: Vec<Row> = vec_new::<Row>();
     v.push(Row { id: 0i64, g: 7i64, xi: 0i64, xs: i64_max(), xf: 0.0f64, xu: 0u64 });
@@ -1695,7 +1552,7 @@ fn ovf_rows() -> Vec<Row> {
     return v;
 }
 
-fn ovf_block(c: &SchemaCatalog) -> i32 {
+fn ovf_block() -> i32 {
     let rs: Vec<Row> = ovf_rows();
 
     // arm (1): the whole CALL returns Err(ElError).
@@ -1704,343 +1561,29 @@ fn ovf_block(c: &SchemaCatalog) -> i32 {
     };
     if sc.kind != K_MATH_ERR() { println!("§4 static batch q_ovf kind={} not K_MATH_ERR", sc.kind); return 1i32; }
 
-    let d: Writ = writ_new(8192i64);
-    let arr: &mut WArray<WAny> = d.array(4i64);
-    let mut i: i64 = 0i64;
-    while i < rs.len() {
-        let r: Row = rs.get(i);
-        let n: RowF = d.make::<RowF>();
-        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
-        arr.push(WAny::ref_to((n.m as i64) as *const u8));
-        i = i + 1i64;
-    }
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
-
-    let q: Query = match Query::compile(OVF_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§4 compile OVF_TEXT refused"); return 2i32; } };
-    // arm (2a): the dynamic engine fails the RUN.
-    let dc: Cell = match q.run(&e) {
-        Result::Ok(_r) => { ci(7i64, 3i32, 0i64) } Result::Err(_e) => { cerr(7i64, 3i32, K_MATH_ERR()) }
-    };
-    if dc.kind != K_MATH_ERR() { println!("§4 dynamic run kind={} not K_MATH_ERR", dc.kind); return 3i32; }
-
-    // arm (2b): the incremental engine BUILDS, and LATCHES. Distinguishing that
-    // from a build refusal is the whole reason K_BUILD_ERR is a separate kind.
-    let g: IncrJoin = match q.incremental(&e) {
-        Result::Ok(x) => { x } Result::Err(_e) => { println!("§4 incremental() refused to BUILD q_ovf"); return 4i32; }
-    };
-    let gc: Cell = if g.had_error() { cerr(7i64, 3i32, K_MATH_ERR()) } else { ci(7i64, 3i32, 0i64) };
-    if gc.kind != K_MATH_ERR() { println!("§4 incremental engine did not LATCH: kind={}", gc.kind); return 5i32; }
-
-    // and the three normalize to ONE cell.
-    // ⚠⚠ THESE TWO ARE TAUTOLOGIES AND THE RE-BREAK TABLE OVERSTATES THEM.
-    // MEASURED 2026-08-07 by inverting the second one: it fires and exits 36,
-    // printing `§4 static kind=1 != incremental kind=1` — two EQUAL numbers
-    // under a message claiming they differ. That is the proof, not a nitpick:
-    // the three assertions above already pin `sc.kind`, `dc.kind` and `gc.kind`
-    // each to `K_MATH_ERR()`, so `sc.kind != dc.kind` is false on every reachable
-    // state. Any real three-tier disagreement is caught by 1, 3 or 5 FIRST and
-    // can never reach here. So the header's "proven to bite" entry for 35 and 36
-    // means REACHED (by inverting the condition), which is a weaker fact than the
-    // other 26 entries carry — those fire on a real defect.
-    // They are kept, not deleted: they are the statement "the three tiers
-    // normalize to one kind", and they become live the moment a later slice
-    // repoints §4 at the maintained static engine (the open semantics question
-    // §4's banner flags) or admits a kind other than K_MATH_ERR. Deleting them
-    // would delete the claim; what is corrected here is only the CLAIM ABOUT THE
-    // EVIDENCE. A check that cannot fail is a sentence, and this file's own rule
-    // is to say so where a reader hits it rather than in a commit message.
-    if sc.kind != dc.kind { println!("§4 static kind={} != dynamic kind={}", sc.kind, dc.kind); return 6i32; }
-    if sc.kind != gc.kind { println!("§4 static kind={} != incremental kind={}", sc.kind, gc.kind); return 7i32; }
+    // ⚠ ARMS (2a) AND (2b) — the dynamic run's `Err` and the incremental
+    // engine's LATCH, and the two "the three tiers normalize to ONE kind"
+    // cross-checks — ARE DELETED WITH THE INTERPRETER (codes 3-7, retired).
+    // The two cross-checks were already MEASURED to be tautologies; what is
+    // actually lost is arms (2a)/(2b), i.e. the fact that a `sum` overflow is an
+    // error in EVERY tier and not only in the emitted one. `K_BUILD_ERR` now has
+    // no producer at all; it is left defined because `Cell`'s kind space is the
+    // commensurability layer and narrowing it would be a second change.
     return 0i32;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §5  `avg` OVER A `u64` COLUMN — THE CELL THE SPINE CANNOT HOLD.
-//
-// ⚠ MEASURED DISAGREEMENT, PINNED AS ONE. This is not an assertion that any
-// tier is right; it is an assertion that the three do not agree, so that the
-// disagreement cannot vanish silently while the interpreter is deleted.
-//
-// ⚠STALE UNTIL 2026-08-06, CORRECTED HERE: this said `min`/`max`/`sum` over
-// `u64` are refused at COMPILE time and that `avg` is therefore the ONLY such
-// aggregate all three tiers build. Both halves are false — the refusal closed
-// (header) and the other three build. `avg` is singled out for the OPPOSITE
-// reason: it is the one that still DISAGREES, and it is the exemption:
-// `agg_cast` (stdlib/mem/wql/rexpr_walk.logos:4829-4878, applied at :3996 for
-// the batch fold) makes the static fold write `((s.xu) as f64)` itself, so the
-// argument never meets the i64 tower.
-//
-// ⚠ THERE IS A FOURTH ROUTE NOW AND THIS BLOCK DOES NOT ASK IT. `q_uavg` is
-// incrementally eligible, so `q_uavg_epoch` exists and applies the SAME
-// `agg_cast` arm (rexpr_walk.logos:4406) — it would answer 2^63, agreeing with
-// the static batch and turning a pinned three-way disagreement into a four-way
-// one with a 2-2 split. ⚠ THE SECOND HALF OF THAT REASON — "adding it here
-// would spend exit codes this file no longer has" — EXPIRED ON 2026-08-07 and
-// is struck rather than left standing: §5's span has room and the file has ~70
-// free codes. What remains is the first half alone, which is sufficient: it
-// would restate one fact about `agg_cast` in a second tier's vocabulary. Named
-// as a follow-up, not done here.
-//
-// THE HAND-DERIVED OUGHT, for the group {2^63−1, 2^63}:
-//   the true mean is (2^63−1 + 2^63)/2 = 9223372036854775807.5, whose nearest
-//   f64 is 2^63 = 9223372036854775808.0 (bits 4890909195324358656).
-// THE THREE ROUTES, derived from the code and then measured:
-//   static      — `(x as f64)` per row, UNSIGNED: (2^63 + 2^63)/2 = 2^63. ✓ the OUGHT.
-//   incremental — `avg` shares `sum`'s INTEGER accumulator and the `ordw` arm is
-//                 taken only for fnid 2 (incr.logos:1371-1392, and the comment
-//                 there says so in as many words: "`avg` over an unsigned column
-//                 is wrong on a different axis and is a decision of its own").
-//                 So it adds 9223372036854775807 + (−9223372036854775808) = −1
-//                 and divides by 2: −0.5.
-//   dynamic     — the batch engine gives `avg` its own f64 running total seeded
-//                 at 0.0 (exec.logos:1193) but reads the payload through the
-//                 SIGNED arm, so it adds 2^63 + (−2^63) = 0.0 and divides: 0.0.
-// ⚠ CONTROL, IN THE SAME QUERY, OVER THE SAME ROWS: group {0, 5} — every value
-// below 2^63, where the signed/unsigned distinction cannot bite — must answer
-// 2.5 on ALL THREE. A control that changes nothing is evidence about the stand;
-// this one says the disagreement is about the EXTREME and not about `avg(u64)`.
-//
-// ⚠ IF THIS BLOCK GOES RED BECAUSE THE TIERS NOW AGREE, THAT IS A FIX AND THE
-// BLOCK MUST BE REWRITTEN TO THE OUGHT — not "repaired" by re-reading a run.
-// Same idiom, same reason, as `wql_domain_incr_disagreement`.
+// §5  DELETED BY P5, AS PLANNED. It was `avg` over a `u64` column measured
+// against the interpreter and the incremental engine — a measurement OF the
+// interpreter, with no static half at all. Nothing replaces it.
 // ═══════════════════════════════════════════════════════════════════════════
-pub deem q_uavg(rs: &[Row]) { from rs s group by s.g aggregate av = avg(s.xu) select (key, av) }
-
-fn UAVG_TEXT() -> str { return "from ss s group by s.g aggregate av = avg(s.xu) select (key, av)"; }
-
-fn uavg_rows() -> Vec<Row> {
-    let mut v: Vec<Row> = vec_new::<Row>();
-    v.push(Row { id: 0i64, g: 0i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 0u64 });
-    v.push(Row { id: 1i64, g: 0i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 5u64 });
-    v.push(Row { id: 2i64, g: 1i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 9223372036854775807u64 });
-    v.push(Row { id: 3i64, g: 1i64, xi: 0i64, xs: 0i64, xf: 0.0f64, xu: 9223372036854775808u64 });
-    return v;
-}
-
-fn find_key(r: &QRows, g: i64) -> i64 {
-    let n: i64 = r.row_count();
-    let mut i: i64 = 0i64;
-    while i < n { if r.get_i64(i, 0i64) == g { return i; } i = i + 1i64; }
-    return 0i64 - 1i64;
-}
-
-fn uavg_block(c: &SchemaCatalog) -> i32 {
-    let rs: Vec<Row> = uavg_rows();
-
-    // ── arm (1), static ────────────────────────────────────────────────────
-    let sv: Vec<(i64, f64)> = match q_uavg(rs.as_slice()) {
-        Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 static batch q_uavg Err"); return 1i32; }
-    };
-    if sv.len() != 2i64 { println!("§5 static groups={} not 2", sv.len()); return 2i32; }
-    let mut s_ctl: f64 = 0.0f64;
-    let mut s_ext: f64 = 0.0f64;
-    let mut i: i64 = 0i64;
-    while i < sv.len() {
-        let t: (i64, f64) = sv.get(i);
-        if t.0 == 0i64 { s_ctl = t.1; } else { s_ext = t.1; }
-        i = i + 1i64;
-    }
-    if f64_to_bits(s_ctl) != f64_to_bits(2.5f64) { println!("§5 CONTROL static bits={} not 2.5", f64_to_bits(s_ctl)); return 3i32; }
-    if f64_to_bits(s_ext) != 4890909195324358656u64 { println!("§5 static bits={} not 2^63 (the OUGHT)", f64_to_bits(s_ext)); return 4i32; }
-
-    // ── arms (2), dynamic + incremental, over the same rows ────────────────
-    let d: Writ = writ_new(8192i64);
-    let arr: &mut WArray<WAny> = d.array(8i64);
-    let mut k: i64 = 0i64;
-    while k < rs.len() {
-        let r: Row = rs.get(k);
-        let n: RowF = d.make::<RowF>();
-        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
-        arr.push(WAny::ref_to((n.m as i64) as *const u8));
-        k = k + 1i64;
-    }
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
-
-    let q: Query = match Query::compile(UAVG_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 compile UAVG_TEXT refused"); return 5i32; } };
-    let dr: QRows = match q.run(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 dynamic run Err"); return 6i32; } };
-    let dc: i64 = find_key(&dr, 0i64);
-    let de: i64 = find_key(&dr, 1i64);
-    if dc < 0i64 || de < 0i64 { println!("§5 dynamic lost a group: ctl={} ext={}", dc, de); return 7i32; }
-    if f64_to_bits(dr.get_f64(dc, 1i64)) != f64_to_bits(2.5f64) { println!("§5 CONTROL dynamic bits={} not 2.5", f64_to_bits(dr.get_f64(dc, 1i64))); return 8i32; }
-    if f64_to_bits(dr.get_f64(de, 1i64)) != f64_to_bits(0.0f64) { println!("§5 dynamic bits={} not 0.0 — the pinned disagreement MOVED", f64_to_bits(dr.get_f64(de, 1i64))); return 9i32; }
-
-    let g: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§5 incremental() refused to build q_uavg"); return 10i32; } };
-    if g.had_error() { println!("§5 incremental engine latched"); return 11i32; }
-    let ir: QRows = g.snapshot();
-    let ic: i64 = find_key(&ir, 0i64);
-    let ie: i64 = find_key(&ir, 1i64);
-    if ic < 0i64 || ie < 0i64 { println!("§5 incremental lost a group: ctl={} ext={}", ic, ie); return 12i32; }
-    if f64_to_bits(ir.get_f64(ic, 1i64)) != f64_to_bits(2.5f64) { println!("§5 CONTROL incremental bits={} not 2.5", f64_to_bits(ir.get_f64(ic, 1i64))); return 13i32; }
-    if f64_to_bits(ir.get_f64(ie, 1i64)) != f64_to_bits(0.0f64 - 0.5f64) { println!("§5 incremental bits={} not −0.5 — the pinned disagreement MOVED", f64_to_bits(ir.get_f64(ie, 1i64))); return 14i32; }
-
-    return 0i32;
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §6  RETRACTING WHAT WAS NEVER INSERTED — THE SECOND MEASURED DISAGREEMENT,
-//     AND THE ONE THE SPINE MUST NOT BE MADE TO HIDE.
-//
-// ⚠ THE SPINE DELIBERATELY DOES NOT COVER THIS, AND THAT IS WHY THE BLOCK
-// EXISTS. Phase B compares three arms cell for cell, so it can only be driven
-// with retractions all three arms accept. `8fbea82a`'s DECISION 2 made the
-// static tier STRICTER than the interpreter on exactly one input — a retraction
-// of a row that is not in the multiset — and a spine that only ever fed inputs
-// both tiers accept would be a spine that reports "the tiers agree" about a
-// domain on which they were designed to differ. Same idiom, same reason, as §5.
-//
-// THE INPUT. One group g = 9, three rows carrying xs ∈ {3, 4, 5}, then a
-// retraction of a row carrying xs = 9 — a value that was never inserted, into a
-// group that WAS. The group-count guard cannot see it: 3 − 1 = 2 is legal.
-//
-// THE HAND-DERIVED OUGHT, which is neither tier's answer and is written first:
-//   the multiset {3,4,5} does not contain 9, so removing 9 from it leaves
-//   {3,4,5}. count = 3, min = 3, max = 5. A retraction of an absent row is a
-//   CALLER ERROR, and the two defensible responses are "refuse" and "no-op".
-//
-// THE TWO ROUTES, DERIVED FROM THE CODE BEFORE EITHER WAS RUN:
-//   static — `<q>_apply` checks the group count first (3 → 2, legal, passes),
-//            then folds. `count`'s own accumulator takes `+ __w`. Then `min`'s
-//            multiplicity map: `__cur` for the key 9 is 0, `__nc = 0 + (−1)` is
-//            −1, and `__nc < 0` returns `Err(ElError::RetractAbsent)`
-//            (rexpr_walk.logos:4673-4691). REFUSES. ⚠ And by the contract the
-//            handle is then UNSPECIFIED — `count` was already bumped — so this
-//            block reads NOTHING off it afterwards.
-//   interpreter — `incr.logos:1345` does `gcount += w` with no error path at
-//            all, before any sign is examined: count goes 3 → 2. Then the map
-//            (:1424-1432): `cur` is 0, `nc` is −1 ≤ 0, so `mp.remove(&av)` — a
-//            silent no-op on a key that is not there — and `vbest == av` is
-//            false, so `removed_best` stays false and NO rescan happens. min
-//            and max are untouched. `had_error()` is set only by `rt_is_err` on
-//            the KEY and stays FALSE. ANSWERS (count 2, min 3, max 5).
-//
-// So the interpreter answers 2 where the multiset has 3 rows — silently, with
-// no latch, with the extrema still right, which is the worst shape a wrong
-// answer can take: it is wrong in one column and self-consistent in the others.
-// It is not "no error", it is `aggstate_ensure` running before `w`'s sign is
-// read — "I was never asked".
-//
-// ⚠ IF THIS BLOCK GOES RED BECAUSE THE TIERS NOW AGREE, THAT IS A FIX AND THE
-// BLOCK MUST BE REWRITTEN TO THE OUGHT — not "repaired" by re-reading a run.
-// The direction matters: the interpreter moving to `Err` closes it, the static
-// tier moving to a silent no-op ALSO closes it but drops a diagnosis, and P5
-// deletes the interpreter either way. Whichever happens, it must happen on
-// purpose.
+// §6  DELETED BY P5, AS PLANNED. It measured a DISAGREEMENT with the
+// interpreter over retracting what was never inserted; the static half of it
+// (the `RetractAbsent` refusal) is asserted by
+// `tests/logos/pass/deem_incr_static_retract_e2e.logos`, which survives.
 // ═══════════════════════════════════════════════════════════════════════════
-pub deem q_ra(rs: &[Row]) {
-    from rs s group by s.g aggregate n = count(), mn = min(s.xs), mx = max(s.xs)
-    select (key, n, mn, mx)
-}
-
-fn RA_TEXT() -> str {
-    return "from ss s group by s.g aggregate n = count(), mn = min(s.xs), mx = max(s.xs) select (key, n, mn, mx)";
-}
-
-fn ra_rows() -> Vec<Row> {
-    let mut v: Vec<Row> = vec_new::<Row>();
-    v.push(Row { id: 0i64, g: 9i64, xi: 0i64, xs: 3i64, xf: 0.0f64, xu: 0u64 });
-    v.push(Row { id: 1i64, g: 9i64, xi: 0i64, xs: 4i64, xf: 0.0f64, xu: 0u64 });
-    v.push(Row { id: 2i64, g: 9i64, xi: 0i64, xs: 5i64, xf: 0.0f64, xu: 0u64 });
-    return v;
-}
-
-fn ra_block(c: &SchemaCatalog) -> i32 {
-    let rs: Vec<Row> = ra_rows();
-    // the row that was never inserted — same group, a value not in the multiset
-    let mut ghost: Vec<Row> = vec_new::<Row>();
-    ghost.push(Row { id: 7i64, g: 9i64, xi: 0i64, xs: 9i64, xf: 0.0f64, xu: 0u64 });
-
-    // ── the static handle ──────────────────────────────────────────────────
-    // ⚠ EXIT 27, AND 210 IS RETIRED RATHER THAN RECYCLED AGAIN. These seven
-    // sites all carried 210 with no `println!`, and 210 had ALREADY been one
-    // number for two real failures across `8fbea82a`: before it, "§1 holds a
-    // `sign = -1` row and the static arm has no route for it"; after it, "§6
-    // plumbing". A bisect over this arc — which a later slice runs — reads that
-    // as one failure that came and went. The class now has its own number on the
-    // near side of the boundary and the far side keeps 210; nothing in this file
-    // returns 210 any more, so the two meanings can never be confused again.
-    let mut hs: QRaIncr = q_ra_incremental();
-    match q_ra_epoch(&mut hs, rs.as_slice()) {
-        Result::Ok(_n) => {} Result::Err(_e) => { println!("§6 plumbing: q_ra_epoch Err"); return 27i32; }
-    }
-    let s0: Vec<(i64, i64, i64, i64)> = match q_ra_snapshot(&hs) {
-        Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: q_ra_snapshot Err"); return 27i32; }
-    };
-    if s0.len() != 1i64 { println!("§6 plumbing: static rows={} not 1", s0.len()); return 27i32; }
-
-    // ── the interpreter, over the same rows ────────────────────────────────
-    let d: Writ = writ_new(8192i64);
-    let arr: &mut WArray<WAny> = d.array(4i64);
-    let mut i: i64 = 0i64;
-    while i < rs.len() {
-        let r: Row = rs.get(i);
-        let n: RowF = d.make::<RowF>();
-        n.id = r.id; n.g = r.g; n.xi = r.xi; n.xs = r.xs; n.xf = r.xf; n.xu = r.xu;
-        arr.push(WAny::ref_to((n.m as i64) as *const u8));
-        i = i + 1i64;
-    }
-    // the ghost row lives in the same Writ but is NEVER pushed into `arr`, so
-    // the engine base-fills from three rows and meets the fourth only as a −1.
-    let gn: RowF = d.make::<RowF>();
-    let g0r: Row = ghost.get(0i64);
-    gn.id = g0r.id; gn.g = g0r.g; gn.xi = g0r.xi; gn.xs = g0r.xs;
-    gn.xf = g0r.xf; gn.xu = g0r.xu;
-    let gh: WAny = WAny::ref_to((gn.m as i64) as *const u8);
-
-    let mut e: QEnv = QEnv::new();
-    e.bind_source("ss", WAny::ref_to(arr as *const WArray<WAny> as *const u8));
-    let q: Query = match Query::compile(RA_TEXT(), c) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: compile RA_TEXT Err"); return 27i32; } };
-    let mut eng: IncrJoin = match q.incremental(&e) { Result::Ok(x) => { x } Result::Err(_e) => { println!("§6 plumbing: RA incremental() Err"); return 27i32; } };
-    if eng.had_error() { println!("§6 plumbing: RA engine latched at construction"); return 27i32; }
-    let i0: QRows = eng.snapshot();
-    if i0.row_count() != 1i64 { println!("§6 plumbing: interpreter rows={} not 1", i0.row_count()); return 27i32; }
-
-    // ⚠ THE CONTROL, BEFORE THE RETRACTION. The two tiers must AGREE here, or
-    // the disagreement measured below is about something else entirely. A
-    // control that changes nothing is evidence about the stand.
-    // ⚠ EXIT 26 (was 235), AND EACH READING NAMES ITSELF. Six sites shared one
-    // number with nothing printed, so "the static tier lost the group key" and
-    // "the interpreter's max is wrong" were indistinguishable — in the block
-    // whose entire job is to say WHICH tier answers WHAT.
-    let t0: (i64, i64, i64, i64) = s0.get(0i64);
-    if t0.0 != 9i64 { println!("§6 control: static key={} not 9", t0.0); return 26i32; }
-    if t0.1 != 3i64 || t0.2 != 3i64 || t0.3 != 5i64 { println!("§6 control: static (n,mn,mx)=({},{},{}) not (3,3,5)", t0.1, t0.2, t0.3); return 26i32; }
-    if i0.get_i64(0i64, 0i64) != 9i64 { println!("§6 control: interp key={} not 9", i0.get_i64(0i64, 0i64)); return 26i32; }
-    if i0.get_i64(0i64, 1i64) != 3i64 { println!("§6 control: interp n={} not 3", i0.get_i64(0i64, 1i64)); return 26i32; }
-    if i0.get_i64(0i64, 2i64) != 3i64 { println!("§6 control: interp mn={} not 3", i0.get_i64(0i64, 2i64)); return 26i32; }
-    if i0.get_i64(0i64, 3i64) != 5i64 { println!("§6 control: interp mx={} not 5", i0.get_i64(0i64, 3i64)); return 26i32; }
-
-    // ── the static tier REFUSES, by name ───────────────────────────────────
-    match q_ra_retract(&mut hs, ghost.as_slice()) {
-        Result::Ok(_n) => { println!("§6 static ACCEPTED a retraction of an absent row"); return 16i32; }
-        Result::Err(er) => {
-            match er {
-                ElError::RetractAbsent => {}
-                ElError::Underflow  => { println!("§6 static Err arm = Underflow");  return 17i32; }
-                ElError::Overflow   => { println!("§6 static Err arm = Overflow");   return 17i32; }
-                ElError::DivByZero  => { println!("§6 static Err arm = DivByZero");  return 17i32; }
-                ElError::SrcUnknown => { println!("§6 static Err arm = SrcUnknown"); return 17i32; }
-            }
-        }
-    }
-    // ⚠ `hs` IS UNSPECIFIED FROM HERE. Nothing below reads it.
-
-    // ── the interpreter DOES NOT, and answers a count the multiset denies ──
-    let mut z: ZBatch = ZBatch::new();
-    let empty: ZBatch = ZBatch::new();
-    z.push(gh, 0i64 - 1i64);
-    eng.epoch(&z, &empty);
-    if eng.had_error() { println!("§6 interpreter LATCHED an error — the divergence closed"); return 18i32; }
-    let i1: QRows = eng.snapshot();
-    if i1.row_count() != 1i64 { println!("§6 interpreter dropped the group"); return 19i32; }
-    // count: 2. THE MULTISET STILL HAS THREE ROWS. This is the disagreement.
-    if i1.get_i64(0i64, 1i64) != 2i64 { println!("§6 interpreter count={} not 2", i1.get_i64(0i64, 1i64)); return 19i32; }
-    // …and the extrema are untouched, which is what makes the wrong count quiet.
-    if i1.get_i64(0i64, 2i64) != 3i64 { println!("§6 interpreter min={} not 3", i1.get_i64(0i64, 2i64)); return 19i32; }
-    if i1.get_i64(0i64, 3i64) != 5i64 { println!("§6 interpreter max={} not 5", i1.get_i64(0i64, 3i64)); return 19i32; }
-    return 0i32;
-}
 
 fn main() -> i32 {
     // ⚠⚠ THE STATIC HALF OF THE CEILING GUARD, BEFORE ANY WORK. See the
@@ -2051,7 +1594,6 @@ fn main() -> i32 {
     let lay: i32 = check_layout();
     if lay != 0i32 { return lay; }
 
-    let c: SchemaCatalog = cat();
     let mut t: Tally = Tally { cmp: 0i64, cells: 0i64 };
 
     // ⚠ THE DYNAMIC HALF: EVERY BLOCK'S RETURN IS CHECKED AGAINST ITS DECLARED
@@ -2059,28 +1601,15 @@ fn main() -> i32 {
     // layout fits; only this proves the block stayed inside what it declared. A
     // block that grows a code past its span exits `EXIT_OVERRUN` and prints the
     // offending number, instead of silently landing on the next block's code.
-    let a: i32 = run_spine(&c, &mut t);
+    let a: i32 = run_spine(&mut t);
     if a != 0i32 {
         if a > CLASS_SPAN() { println!("EXIT-CODE OVERRUN: run_spine returned {} > CLASS_SPAN {}", a, CLASS_SPAN()); return EXIT_OVERRUN(); }
         return a;
     }
-    let b: i32 = ovf_block(&c);
+    let b: i32 = ovf_block();
     if b != 0i32 {
         if b > OVF_SPAN() { println!("EXIT-CODE OVERRUN: §4 returned {} > OVF_SPAN {}", b, OVF_SPAN()); return EXIT_OVERRUN(); }
         return OVF_BASE() + b;
-    }
-    let u: i32 = uavg_block(&c);
-    if u != 0i32 {
-        if u > UAVG_SPAN() { println!("EXIT-CODE OVERRUN: §5 returned {} > UAVG_SPAN {}", u, UAVG_SPAN()); return EXIT_OVERRUN(); }
-        return UAVG_BASE() + u;
-    }
-    // ⚠ `ra_block` returns CLASS codes directly (16..19, 26, 27) — it shares
-    // `run_spine`'s number space rather than owning a base, which is why its
-    // return is checked against the same span.
-    let r: i32 = ra_block(&c);
-    if r != 0i32 {
-        if r > CLASS_SPAN() { println!("EXIT-CODE OVERRUN: ra_block returned {} > CLASS_SPAN {}", r, CLASS_SPAN()); return EXIT_OVERRUN(); }
-        return r;
     }
     // THE CENSUS, and it is an assertion: `.expected` pins this line. See the
     // exit-code block — the state space outgrew eight bits at this slice, so the
