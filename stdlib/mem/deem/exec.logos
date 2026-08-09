@@ -438,6 +438,17 @@ fn rt_cmp(l: RtVal, r: RtVal, ordw: bool) -> i64 {
 // wrapping_mul: FNV intentionally wraps (bare `*` overflow-traps, Rust parity).
 fn h_step(h: u64, b: u64) -> u64 { return wrapping_mul(h ^ b, 1099511628211u64); }
 
+// ⚠ THE "ONLY THE HASHABLE TIER REACHES THIS" SENTENCE ABOVE IS A CHECKED FACT,
+// NOT DECORATION (verified 2026-08-08). It is what makes the degenerate F arm
+// below safe: an f64 `group by` key is refused at `check.logos:1164`, and an f64
+// equi-join key is forced to QT_LOOP at `check.logos:1401` and then rejected at
+// `incr.logos:1887` — both before any arrangement is built, so no RtVal::F ever
+// reaches this function in its KEY role. `query_incr_guard` pins both refusals
+// (exit 8 = join key, exit 17 = group key); those are this comment's sensors.
+// Admitting an f64 key means fixing THIS arm and `rt_eq`'s float arm
+// (`deem.logos:1044`, a VALUE equality only) together — and see `incr.logos:195`
+// first: `AggState.keyv` is one column, so the answer is a two-column split or a
+// fence, not an in-place canonicalisation.
 fn rt_key_hash(v: RtVal) -> u64 {
     let mut h: u64 = 14695981039346656037u64;
     match v {

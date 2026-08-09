@@ -91,6 +91,14 @@ fn main() -> i32 {
     if accepts("from emps e join emps m on e.dept == m.dept select e.name", &c, &env) { return 7i32; }
     // REJECT: f64 join key → loop tier (not hash-arrangeable).
     if accepts("from emps e join depts d on e.rate == d.cap select e.name", &c, &env) { return 8i32; }
+    // REJECT: f64 GROUP BY key (check.logos:1164). This is the sensor for the
+    // engine's uncanonicalised key pair — `rt_key_hash` (exec.logos:441) hashes
+    // every RtVal::F to the bare tag-0 bucket and `rt_eq`'s float arm
+    // (deem.logos:1044) is raw IEEE `==`, so an f64 group key WOULD give a new
+    // group per NaN row and an unretractable fact. It is safe only because it is
+    // refused here. The day that refusal goes, this line goes RED — which is
+    // exactly the day that pair becomes a defect. See incr.logos:195.
+    if accepts("from emps e group by e.rate aggregate n = count() select (key, n)", &c, &env) { return 17i32; }
     // REJECT: a rel block (reg.n != 0 — recursion/rels out of slice-1).
     if accepts("rel r(x: i64) { from emps e select e.dept; } from r p select p.x", &c, &env) { return 9i32; }
     // REJECT: no join at all (single scan).

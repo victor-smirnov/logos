@@ -193,7 +193,25 @@ pub struct FactStore {
 //   k: 0 null · 1 i64 · 2 f64 · 3 bool · 4 str
 //
 // ⚠ THE f64 ARM IS AN IDENTITY, AND IT IS `f64_canon_bits` — THREE SITES, ONE
-// RULE. Victor's 2026-08-07 decision (PostgreSQL semantics: all zeros ONE
+// RULE, AND THE THREE ARE `fskey_hash`, `fskey_eq` AND `fs_key_enc`. That is the
+// count for FsKey and for NOTHING ELSE: it is NOT a completeness claim about the
+// interpreter's engine, which has its own key pair (`rt_key_hash`,
+// `exec.logos:441`, and `rt_eq`, `deem.logos:1044`) that deliberately does NOT
+// canonicalise. Two measured reasons, 2026-08-08, and both must fall before that
+// pair is touched:
+//   · an f64 key is REFUSED before either is ever reached on a key path — a
+//     `group by` f64 key at `check.logos:1164` ("a `group by` key cannot be
+//     f64"), an f64 equi-join key at `check.logos:1401` (forced to QT_LOOP) and
+//     then `incr.logos:1887` ("not hash-arrangeable"). Pinned by
+//     `query_incr_guard` (exit 8 = the join key, exit 17 = the group key).
+//   · `AggState.keyv` (below) is ONE column, not two: `aggstate_find` compares
+//     it with `rt_eq` and the SAME cell is read back and EMITTED as the delta
+//     row's group-key column (`incr.logos:1583`). That is the
+//     `wql/writ_graph.logos:176` shape, not FsKey's — canonicalising there would
+//     DESTROY a stored −0.0 / NaN payload on read-back. If an f64 group key is
+//     ever admitted, the answer is a two-column split or a fence, never an
+//     in-place `f64_canon_bits`.
+// Victor's 2026-08-07 decision (PostgreSQL semantics: all zeros ONE
 // element, all NaNs ONE element) governs what counts as the SAME fact, so
 // `fskey_hash`, `fskey_eq` and `fs_key_enc` all canonicalise, and they must
 // agree or the store breaks in one of two ways that were both live before
