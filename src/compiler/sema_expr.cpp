@@ -21152,9 +21152,15 @@ void SemaChecker::seed_builtin_source_impls() {
     // ⚠ `trait EngineState { rel trace/epochs/tail/controls }` — `impl` for
     // `IncrRec` (ADR 0016 M5 case S) USED TO BE SEEDED HERE. It is gone with the
     // interpreter (P5); see the note above. The registry mechanism itself is
-    // generic and unchanged — `Writ`/`GraphSource` above is now its only
-    // instance, which is what `tests/logos/pass/wql_source_trait_e2e.logos`
-    // exercises.
+    // generic and unchanged — `Writ`/`GraphSource` above is now its only BUILT-IN
+    // instance, exercised by `tests/logos/pass/wql_writ_graph_e2e.logos` and
+    // `tests/logos/pass/wql_gpath_e2e.logos`. (`wql_source_trait_e2e.logos`
+    // exercises the OPEN mechanism with user types — it never names `Writ`
+    // outside a comment; an earlier wording here cited it for the built-in.)
+    //
+    // ⚠ Restoring the deleted block makes sema ACCEPT `pub deem probe(e: &IncrRec)`
+    // and `logosc` then emits `call to undefined function 'deem_state_trace'` —
+    // a COMPILER diagnostic, not a link failure. Measured by control revert.
 }
 
 bool SemaChecker::note_deem_plan_inst_(std::string_view callee, TypeRef arg) {

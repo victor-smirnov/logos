@@ -1,0 +1,143 @@
+// `rt_eq`'s FLOAT ARM, through the only position that still reaches it.
+//
+// ⚠ WHY THIS FILE EXISTS. `fn rt_eq` lives in the surviving
+// `stdlib/mem/deem/deem.logos`; after P5 its only call sites in the whole tree
+// are `stdlib/mem/deem/tpl.logos`'s `OP_EQ()`/`OP_NE()` arms, reached through
+// `Tpl::compile` + `Tpl::render`. The fixture that pinned this arm —
+// `tests/logos/pass/vfy_nan_key_probe.logos`, census row 59 — was deleted with
+// the interpreter, and the census priced that row for its OTHER half (the
+// PROVENANCE of the f64 refusals, which really did die with `check.logos`).
+// The surviving-behaviour half went unpriced and unpinned, and the deleted
+// file's own header had said so: "a future 'fix' that canonicalised `rt_eq`
+// would have been caught by no test at all." That sentence became true the day
+// the file was removed. This restores the sensor at the surviving position.
+//
+// ⚠ AND THE RULE IS DELIBERATELY THE OPPOSITE OF THE KEY RULE, which is why
+// canonicalising here would look like a tidy-up. Float MAP KEYS follow
+// PostgreSQL semantics (`f64_canon_bits`, `stdlib/lang/num/float.logos`): all
+// NaNs are one element, `-0.0` and `+0.0` are one element. `rt_eq` is not a
+// key — it is VALUE equality inside a rendered template, and it is raw IEEE
+// `==` on the f64 the two `RtVal`s carry. So the two rules DISAGREE on exactly
+// two inputs, and both disagreements are asserted below:
+//
+//   input          f64_canon_bits (KEY)   rt_eq (VALUE)   asserted at
+//   NaN vs NaN     equal                  FALSE           20, 21
+//   -0.0 vs +0.0   equal                  TRUE            30, 31
+//
+// A third block pins the MIXED arm (`lk == 1 && rk == 2`): an int compared to a
+// float is compared AS f64, not rejected and not truncated.
+//
+// Distinct exit codes: 1x compile/render plumbing, 2x NaN, 3x signed zero,
+// 4x mixed int/float, 5x the ordinary equal/unequal control.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.catalog_macro;   // schema_catalog!
+use logos.mem.deem;                // SchemaCatalog / QEnv / Tpl / QError
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.num.float;          // f64_from_bits / f64_to_bits / f64_canon_bits
+
+pub schema Pair : code(0x0A02_0000_0000_0031) {
+    a: f64 = 0,
+    b: f64 = 1,
+    n: i64 = 2,
+}
+
+impl Pair { pub fn as_any(self: &Pair) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+resource cat = schema_catalog!{ Pair };
+
+fn str_view(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// Render `tpl` over a Pair and hand back the text; `bad` on any failure.
+fn render_over(tpl: &Tpl, p: &Pair, bad: i32, out: &mut i32) -> String {
+    let mut env: QEnv = QEnv::new();
+    env.bind_node("p", p.as_any());
+    match tpl.render(&env) {
+        Result::Ok(s) => { return s; }
+        Result::Err(_e) => { *out = bad; return String::new(); }
+    }
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(4096i64);
+    let c: SchemaCatalog = cat();
+
+    // `{{ }}` renders a bool as true/false, so the template IS the assertion.
+    let teq: Tpl = match Tpl::compile("{% if p.a == p.b %}Y{% else %}N{% endif %}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_e) => { return 10i32; }
+    };
+    let tne: Tpl = match Tpl::compile("{% if p.a != p.b %}Y{% else %}N{% endif %}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_f) => { return 11i32; }
+    };
+    let tmix: Tpl = match Tpl::compile("{% if p.n == p.a %}Y{% else %}N{% endif %}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_g) => { return 12i32; }
+    };
+    let mut rc: i32 = 0i32;
+
+    // ── 2x — NaN: rt_eq is RAW ==, so NaN != NaN. The KEY rule says equal. ──
+    let nanp: Pair = d.make::<Pair>();
+    nanp.a = f64_from_bits(0x7FF8000000000001u64);   // a NaN
+    nanp.b = f64_from_bits(0x7FF8000000000002u64);   // a DIFFERENT NaN payload
+    nanp.n = 0i64;
+    // the two rules genuinely disagree here — if this stops holding, the
+    // disagreement asserted below is no longer about anything
+    if f64_canon_bits(nanp.a) != f64_canon_bits(nanp.b) { return 19i32; }
+    let s20: String = render_over(&teq, &nanp, 20i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s20), "N") { return 20i32; }   // NaN == NaN is FALSE
+    let s21: String = render_over(&tne, &nanp, 21i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s21), "Y") { return 21i32; }   // NaN != NaN is TRUE
+
+    // ── 3x — signed zero: rt_eq says -0.0 == +0.0, and so does the key ─────
+    let zp: Pair = d.make::<Pair>();
+    zp.a = -0.0f64;
+    zp.b = 0.0f64;
+    zp.n = 0i64;
+    // the bits DIFFER; only the comparison makes them one value
+    if f64_to_bits(zp.a) == f64_to_bits(zp.b) { return 29i32; }
+    let s30: String = render_over(&teq, &zp, 30i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s30), "Y") { return 30i32; }
+    let s31: String = render_over(&tne, &zp, 31i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s31), "N") { return 31i32; }
+
+    // ── 4x — the MIXED arm: i64 vs f64 compared AS f64 ────────────────────
+    let mp: Pair = d.make::<Pair>();
+    mp.a = 7.0f64;
+    mp.b = 7.0f64;
+    mp.n = 7i64;
+    let s40: String = render_over(&tmix, &mp, 40i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s40), "Y") { return 40i32; }
+    // and NOT by truncation: 7 vs 7.5 must be unequal
+    let mp2: Pair = d.make::<Pair>();
+    mp2.a = 7.5f64;
+    mp2.b = 7.5f64;
+    mp2.n = 7i64;
+    let s41: String = render_over(&tmix, &mp2, 41i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s41), "N") { return 41i32; }
+
+    // ── 5x — the ordinary control: plain unequal floats, plain equal floats ─
+    let op: Pair = d.make::<Pair>();
+    op.a = 1.5f64;
+    op.b = 2.5f64;
+    op.n = 0i64;
+    let s50: String = render_over(&teq, &op, 50i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s50), "N") { return 50i32; }
+    op.b = 1.5f64;
+    let s51: String = render_over(&teq, &op, 51i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s51), "Y") { return 51i32; }
+
+    return 0i32;
+}

@@ -189,7 +189,7 @@ reference to `stdlib/mem/deem/check.logos`'s.) `catalog_macro.logos` really does
 
 ---
 
-## 3. Fixture census — 85 files
+## 3. Fixture census — 86 files
 
 Population, FIRST ATTEMPT (kept because it is the mistake):
 `grep -rlE "Query::run|Query::compile|\.incremental\(\)|incremental_rec\(\)|Tpl::compile|Tpl::render" tests/logos/`
@@ -303,7 +303,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 56 | `query_tree_source_e2e` | 0 | 12 deems | B | virtual graph sources — **rewritten: every leg is now a `deem` written TWICE, over `&Writ` and over a `dyn_graph_edge_rows` SLICE, so a single-sourced file became a two-producer differential. The two bound anchors (`root`, `start`) became document-independent query anchors (`parent == 0`; seed on `key == "db"`). ONE LOSS, named: leg (f), `Query::incremental_rec` refusing a tree source — its subject IS `bind_source_tree`, so guard and guarded die together** (C4) |
 | 57 | `query_tree_source_graph_e2e` | 0 | 14 deems | B | DAG / cycle / leaf-identity / TOM semantics AND the query capabilities over the walk — **rewritten: join, `rel` recursion over a CYCLIC edge set, `order by` and `group by … aggregate` all preserved as slice-sourced deems beside their `&Writ` twins. A `Vec` alone would NOT have replaced them; `DynEdge` + `dyn_graph_edge_rows` is why they survive. 0 interpreter entry points** (C4) |
 | 58 | `query_u64_ordw_origin` | 1 | — | C | `ordw` under/over-carry at the aggregate out-name |
-| 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) |
+| 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) — ⚠ THE ROW WAS UNDER-PRICED. The file also held the ONLY pin on `rt_eq`'s surviving float arm, which its own header named as the thing a future canonicalising 'fix' would break unseen. The provenance half really died with `stdlib/mem/deem/check.logos`; the behaviour half did not, and was re-pinned at row 86 |
 | 60 | `wql_agg_avg_bool_value_rule` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
 | 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer — its ARITHMETIC positions now have a static arm (**2026-08-09**, `pass/wql_arith_u64_tower_e2e`); the rest still need `..._static_carrier_positions` |
 | 62 | `wql_domain_incr_disagreement` | 9 | — | C K | the incremental tier's three disagreements; block 3b is KNOWN-WRONG — **TRANSCRIBED 2026-08-09** onto `no_join_f64key` (`pass/wql_incr_eligibility_matrix` + `incr_eligibility_gate.sh`), see §5 C1 |
@@ -330,8 +330,9 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 83 | `query_incr_factstore_unit` | 0 | — | A | slice-8 `FactStore` SET semantics + effective-delta emission, WITHOUT the engine — §6 L5 |
 | 84 | `query_incr_factstore_epochs` | 0 | — | A | the `FactHistory` epoch-history layer (ADR 0017 P1) — §6 L5 |
 | 85 | `query_incr_factstore_float_identity_unit` | 0 | — | A | `FsKey` content identity under the PostgreSQL float ruling — §6 L5 |
+| 86 | `query_tpl_float_eq_identity` | 0 | — | A | `rt_eq`'s FLOAT arm at the only position that still reaches it (`Tpl::render`'s `OP_EQ`/`OP_NE`). Written AFTER the cut, because row 59 was priced for its provenance half and its surviving-behaviour half went unpinned — see row 59 |
 
-Totals: **A 38 · B 26 · C 19 · D 1 · G 1** = 85. K flag on 4 files (4, 62, 71, 78).
+Totals: **A 39 · B 26 · C 19 · D 1 · G 1** = 86. K flag on 4 files (4, 62, 71, 78).
 
 ⚠ **THE K FLAG ON ROWS 63, 64 AND 65 WAS STALE AND IS DROPPED (2026-08-09).** It was
 re-derived rather than inherited. `K` means the row's fixture asserts an answer that is KNOWN to be
@@ -907,15 +908,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # the cut: 6959 / 3276 / 30 -> 6906 / 3223 / 30, i.e. exactly -53 / -53 / 0, one
 # ctest per deleted fixture and tier_commit untouched. PREDICTED before the
 # re-configure; the measurement agreed.
-REGISTRY-ALL         6906
-REGISTRY-NOIMPORTED  3223
+REGISTRY-ALL         6907
+REGISTRY-NOIMPORTED  3224
 REGISTRY-TIERCOMMIT  30
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger
 # keeps its shape. What changed is which rows are LIVE — see GONE-FIXTURE below.
-CENSUS-ROWS          85
-CLASS-A              38
+CENSUS-ROWS          86
+CLASS-A              39
 CLASS-B              26
 CLASS-C              19
 CLASS-D              1
@@ -979,13 +980,13 @@ GONE-FIXTURE  tests/logos/pass/wql_domain_u64_order_seams.logos  died with its s
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_accumulator.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_u64_sum_scalar_arith.logos  died with its subject at P5 (see its §3 row)
 GONE-FIXTURE  tests/logos/pass/wql_engine_source_e2e.logos  died with its subject at P5 (see its §3 row)
-GONE-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  RENAMED to wql_agg_avg_bool_value_rule.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  RENAMED to query_f64_agg_hand_derived.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  RENAMED to query_order_by_float_data_key.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/wql_incr_static_three_ways.logos  RENAMED to wql_incr_static_two_ways.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/wql_incr_retract_three_ways.logos  RENAMED to wql_incr_retract_two_ways.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/wql_tier_capability_disagreement.logos  RENAMED to wql_u64_capability_matrix.logos at P5: the old name stated a COUNT of engines the cut falsified
-GONE-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  RENAMED to wql_value_domain_measured.logos at P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/wql_agg_avg_bool_three_engines.logos  tests/logos/pass/wql_agg_avg_bool_value_rule.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/query_incr_f64_agg_three_engines.logos  tests/logos/pass/query_f64_agg_hand_derived.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/query_order_by_float_static_vs_dynamic.logos  tests/logos/pass/query_order_by_float_data_key.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/wql_incr_static_three_ways.logos  tests/logos/pass/wql_incr_static_two_ways.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/wql_incr_retract_three_ways.logos  tests/logos/pass/wql_incr_retract_two_ways.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/wql_tier_capability_disagreement.logos  tests/logos/pass/wql_u64_capability_matrix.logos  P5: the old name stated a COUNT of engines the cut falsified
+RENAMED-FIXTURE  tests/logos/pass/wql_value_domain_tiers_measured.logos  tests/logos/pass/wql_value_domain_measured.logos  P5: the old name stated a COUNT of engines the cut falsified
 
 # The population rule, executable, in the form FACT 6 now uses. ⚠ THIS LIST WAS
 # CORRECTED BEFORE THE FACT WAS RE-AIMED, because its own comment used to assert

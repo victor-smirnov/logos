@@ -82,9 +82,15 @@
 #                  and four `deem_state_*` materializers in string literals and
 #                  was CONTENT-guarded on a stdlib file P5 deleted — so deleting
 #                  the file alone would have re-registered four materializers that
-#                  do not exist, and the program would have died at LINK rather
-#                  than at sema. That is the defect this half is pointed at, and
-#                  it is falsifiable on day one.
+#                  do not exist. ⚠ MEASURED by control revert, not assumed:
+#                  restoring only the `have_incr` block makes sema ACCEPT
+#                  `pub deem probe(e: &IncrRec)` and `logosc` then emits
+#                  `call to undefined function 'deem_state_trace'`. A COMPILER
+#                  diagnostic from <metaprog-blob-subst>, never a link failure and
+#                  never a miscompile — three earlier writings of this paragraph
+#                  said "died at LINK" and were wrong about the stage. The teeth
+#                  are unaffected: this half checks the string LITERAL, not where
+#                  the failure lands.
 #
 #             (ii) EVERY FILE UNDER tests/ THAT MENTIONS A `CUT-SYMBOL` IS
 #                  ACCOUNTED FOR: a LIVE census row, or a declared NOT-AFFECTED
@@ -112,6 +118,16 @@
 #           the failure this repo has already met — a fixture that silently stops
 #           existing — is caught in the opposite direction too: restore one and
 #           this reds the same day.
+#
+#   FACT 9  A RENAME IS NOT A DEATH. `RENAMED-FIXTURE <old> <new> <why>`. P5
+#           renamed seven live fixtures whose names stated a COUNT of engines the
+#           cut falsified, and declared all seven GONE-FIXTURE — which FACT 8
+#           accepts, because it asks only that the OLD path be absent and a rename
+#           satisfies that exactly. So seven live fixtures were exempted from
+#           FACTS 1-3 for nothing, their new names went unchecked, and the loss
+#           ledger counted seven deaths it never paid. This token exempts <old>
+#           and then REQUIRES <new> to exist WITH its `.expected`, and reds if
+#           <old> is still there (then it was a copy, not a rename).
 #
 # AND IT PROVES ITSELF, in the same run: each fact is re-measured through the
 # SAME reader on a PLANTED census whose answer is known. A pin that cannot fail
@@ -177,6 +193,13 @@ gone_paths()  { pin_get "$1" GONE-FILE | awk '{print $1}'; }
 gone_bases()  { gone_paths "$1" | sed 's#.*/##'; }
 # The declared dead FIXTURES: `GONE-FIXTURE <repo-relative path>  <why>`.
 gonefx_paths() { pin_get "$1" GONE-FIXTURE | awk '{print $1}'; }
+# The RENAMED fixtures: `RENAMED-FIXTURE <old> <new>  <why>`. A rename is NOT a
+# death, and GONE-FIXTURE cannot tell them apart: FACT 8 only asks that the old
+# path be absent, which a rename satisfies. So a renamed-but-live fixture
+# declared GONE reads as a loss the ledger never paid, and its new name goes
+# unchecked. This token exempts <old> from FACTS 1/2/3 and REQUIRES <new>.
+renfx_old()  { pin_get "$1" RENAMED-FIXTURE | awk '{print $1}'; }
+renfx_pairs(){ pin_get "$1" RENAMED-FIXTURE; }
 
 check_paths() {                                   # FACT 1
     local f=$1 p q
@@ -184,7 +207,7 @@ check_paths() {                                   # FACT 1
     # (fixtures) own the check that it really is one. The GONE-FIXTURE lines are
     # themselves path tokens in this file, so without this they would red FACT 1
     # by existing.
-    { gone_paths "$f"; gonefx_paths "$f"; } | sort -u > "$TMPD/gone_p"
+    { gone_paths "$f"; gonefx_paths "$f"; renfx_old "$f"; } | sort -u > "$TMPD/gone_p"
     while read -r p; do
         [ -n "$p" ] || continue
         grep -qxF "$p" "$TMPD/gone_p" && continue      # declared gone; FACT 7 owns it
@@ -200,7 +223,7 @@ check_paths() {                                   # FACT 1
 
 check_bare() {                                    # FACT 2
     local f=$1 b n
-    { gone_bases "$f"; gonefx_paths "$f" | sed 's#.*/##'; } | sort -u > "$TMPD/gone_b"
+    { gone_bases "$f"; { gonefx_paths "$f"; renfx_old "$f"; } | sed 's#.*/##'; } | sort -u > "$TMPD/gone_b"
     while read -r b; do
         [ -n "$b" ] || continue
         n=$(grep -cxF "$b" "$TMPD/basenames")
@@ -221,7 +244,7 @@ check_bare() {                                    # FACT 2
 
 check_rows() {                                    # FACT 3
     local f=$1 p cls exp
-    gonefx_paths "$f" | sort -u > "$TMPD/gone_fx"
+    { gonefx_paths "$f"; renfx_old "$f"; } | sort -u > "$TMPD/gone_fx"
     while IFS=$'\t' read -r p cls; do
         [ -n "$p" ] || continue
         grep -qxF "$p" "$TMPD/gone_fx" && continue     # declared dead; FACT 8 owns it
@@ -331,7 +354,7 @@ check_population() {                              # FACT 6
         (cd "$ROOT" && grep -rlE "$re" tests/ 2>/dev/null) | sort > "$TMPD/pop.$key"
     fi
     cp "$TMPD/pop.$key" "$TMPD/pop_got"
-    gonefx_paths "$f" | sort -u > "$TMPD/gone_fx6"
+    { gonefx_paths "$f"; renfx_old "$f"; } | sort -u > "$TMPD/gone_fx6"
     : > "$TMPD/pop_want"
     if [ -s "$TMPD/gone_fx6" ]; then
         table_rows "$f" | cut -f1 | grep -vxF -f "$TMPD/gone_fx6" >> "$TMPD/pop_want"
@@ -404,10 +427,34 @@ check_gone_fixture() {                            # FACT 8
     done < <(pin_get "$f" GONE-FIXTURE)
 }
 
+check_renamed_fixture() {                         # FACT 9
+    local f=$1 line old new why exp
+    while read -r line; do
+        [ -n "$line" ] || continue
+        old=$(printf '%s' "$line" | awk '{print $1}')
+        new=$(printf '%s' "$line" | awk '{print $2}')
+        why=$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]*//')
+        [ -n "$new" ] || { note "the RENAMED-FIXTURE line for \`$old\` names no
+      new path. A rename with no destination is a deletion written politely."; continue; }
+        [ -e "$ROOT/$old" ] && note "\`$old\` is declared RENAMED-FIXTURE but STILL
+      EXISTS. Then it was copied, not renamed, and the old path is exempted from
+      FACTS 1-3 for nothing."
+        exp="${new%.logos}.expected"
+        [ -e "$ROOT/$new" ] || note "\`$old\` is declared RENAMED to \`$new\`, which
+      does NOT exist. This is the hole GONE-FIXTURE could not see: it asks only
+      that the old path be absent, which a rename satisfies, so a rename whose
+      destination was never written reads as a clean death."
+        [ -e "$ROOT/$exp" ] || note "\`$new\` has no \`$exp\`. Registration is a GLOB
+      over *.expected — a renamed fixture that lost its expectation is a test
+      that silently stopped running, under a name the census believes is live."
+        [ -n "$why" ] || note "the RENAMED-FIXTURE line for \`$old\` carries no reason."
+    done < <(renfx_pairs "$f")
+}
+
 check_all() {
     check_paths "$1"; check_bare "$1"; check_rows "$1"
     check_arithmetic "$1"; check_registry "$1"; check_population "$1"
-    check_gone "$1"; check_gone_fixture "$1"
+    check_gone "$1"; check_gone_fixture "$1"; check_renamed_fixture "$1"
 }
 
 # ── the tree index, once ─────────────────────────────────────────────────────
@@ -486,6 +533,16 @@ canary gone-mute 's#^(GONE-FILE +stdlib/mem/deem/eval\.logos).*$#\1#'
 canary gonefx-live 's#^GONE-FIXTURE( +)tests/logos/pass/query_diff_fuzz\.logos#GONE-FIXTURE\1tests/logos/pass/adv_rec_tc.logos#'
 canary gonefx-mute 's#^(GONE-FIXTURE +tests/logos/pass/query_diff_fuzz\.logos).*$#\1#'
 
+# FACT 9, all three directions. `renfx-dest` points a rename at a destination
+# that was never written — the exact hole GONE-FIXTURE could not see, because it
+# asks only that the OLD path be absent and a rename satisfies that.
+# `renfx-live` leaves the old path in place (a copy, not a rename).
+# `renfx-exp` makes the destination lose its .expected, i.e. a test that
+# silently stopped running under a name the census believes is live.
+canary renfx-dest 's#^(RENAMED-FIXTURE +\S+ +)tests/logos/pass/wql_incr_static_two_ways\.logos#\1tests/logos/pass/wql_incr_static_NOSUCH.logos#'
+canary renfx-live 's#^RENAMED-FIXTURE( +)tests/logos/pass/wql_incr_static_three_ways\.logos#RENAMED-FIXTURE\1tests/logos/pass/adv_rec_tc.logos#'
+canary renfx-mute 's#^(RENAMED-FIXTURE +\S+ +\S+).*$#\1#'
+
 # ── THE REAL CHECK ───────────────────────────────────────────────────────────
 fail=0
 check_all "$CENSUS"
@@ -509,5 +566,5 @@ n_gone=$(pin_get "$CENSUS" GONE-FILE | grep -c .)
 n_gfx=$(pin_get "$CENSUS" GONE-FIXTURE | grep -c .)
 echo "  $n_gone declared GONE-FILE(s) are really gone and each says why."
 echo "  $n_gfx declared GONE-FIXTURE(s) are gone with their .expected, each with a"
-echo "  cause of death. Eleven self-canaries live."
+echo "  cause of death. Fourteen self-canaries live."
 exit 0

@@ -16,7 +16,6 @@ use logos.lang.result;            // Result — the error-as-value carrier
 use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
 use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
 use logos.mem.string;             // String
-use logos.lang.mem;               // replace — FactStore::take_delta move-out
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
@@ -1290,18 +1289,13 @@ fn simplify_all(head: i64, h: &Writ) {
     }
 }
 // ═══════════════════════════════════════════════════════════════════════════
-// ═══ QUERY — the relational executor (ADR 0012-queue2 §7, slice I2) ═══
+// ═══ THE ERROR SINK AND THE EL BOUNDARY (ADR 0012-queue2 §7) ═══
 //
-// `Query::compile(text, &cat)` parses via the REUSED generated surface parser
-// (`wql_surface_parser::parse_program`), rejects rel blocks (I3), lowers via
-// the REUSED `lower_rquery_to_rexpr` and runs the REUSED `simplify_rexpr_ref`
-// relational peephole (queue-1 optimizer verbatim — the empty signal becomes
-// a zero-row fast path). The env-INDEPENDENT half of the checker runs at
-// compile; the FULL strict check + the join-strategy cascade decision run at
-// the top of every `run(&env)` (the I1 compile/render precedent: sources,
-// params and the UDF/UDA registry live on the env). `run` then tree-walks the
-// RExpr algebra over materialized Vec<row> pipelines (ADR §7) and returns a
-// self-contained QRows.
+// ⚠ THIS BANNER USED TO DESCRIBE `Query::compile` / `q.run` — the relational
+// executor, slice I2. P5 deleted it (census §6 L10). What survives below is the
+// half the TEMPLATE engine shares: the `Chk` error sink and `eval_sx`, the EL
+// boundary that converts a checked-arithmetic `RtVal::Error` into a recorded
+// QError. Nothing here executes a query any more.
 // ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -1316,7 +1310,6 @@ fn chk_fail_p(chk: *mut Chk, a: str, b: str, d: str, e: str, f: str) {
 // An SExpr view from a raw arena word (the provenance-laundering idiom).
 fn sx_of(w: i64) -> SExpr { return WAny::ref_to(w as *const u8).view::<SExpr>(); }
 
-// exec_root — RLimit?( RDistinct?( RProj( pipeline ) ) ).
 // Evaluate an EL expression at a query BOUNDARY (filter predicate, projection
 // cell, join/group key, aggregate arg). If the evaluation produced a math error
 // (RtVal::Error from checked arithmetic), record it on the Chk sink so run() /

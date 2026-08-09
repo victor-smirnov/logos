@@ -1,17 +1,15 @@
-// logos.std.deem — the PUBLIC runtime query/template API (ADR 0012-queue2 §3,
-// slices I1–I3). Query/template TEXT arrives at RUNTIME, is parsed by the SAME
-// peg-generated parsers the static queue uses, checked against a SchemaCatalog
-// (queue-1-generated schema metadata), lowered/optimized by the SAME
-// `lower_rquery_to_rexpr` / `simplify_*` IR passes, and executed by a
-// tree-walk evaluator over the schema'd Writ IR. No metacall, no codegen.
+// logos.mem.deem — the PUBLIC runtime TEMPLATE API (ADR 0012-queue2 §3, slice
+// I1). Template TEXT arrives at RUNTIME, is parsed by the SAME peg-generated
+// parsers the static queue uses, checked against a SchemaCatalog (queue-1
+// generated schema metadata), and evaluated by a tree walk over the schema'd
+// Writ IR. No metacall, no codegen.
 //
-// I3 adds: dynamic `rel` blocks with the SEMI-NAÏVE fixpoint re-hosted as an
-// interpreter loop (SCC condensation + stratification at Query::compile —
-// the SAME graph algorithm as the static walker, shared via
-// logos.std.wql.params), and LENIENT mode (bind_node_erased /
-// bind_source_erased + catalog FK_ANY fields): fields on erased sources
-// resolve at runtime by NAME, misses yield RtVal::Null, and Null propagates
-// CEL-style (see ADR 0012-queue2 §4 for the exact table).
+// ⚠ THIS HEADER USED TO DESCRIBE A QUERY ENGINE. P5 deleted it. `Query`,
+// `QRows`, `Query::compile`, `q.run`, the dynamic `rel` fixpoint and LENIENT
+// mode (`bind_node_erased` / `bind_source_erased` + catalog FK_ANY, CEL-style
+// Null propagation) are GONE — census §6 rows L9/L10 and §5 C3. What survives
+// here is `SchemaCatalog`, `QEnv`, `RtVal` and the value helpers; the template
+// engine itself lives beside it in `stdlib/mem/deem/tpl.logos`.
 //
 //   let cat: SchemaCatalog = cat();          // resource cat = schema_catalog!{ Emp, … };
 //   let t: Tpl = Tpl::compile("Hello {{ e.name }}", &cat)?;   // Result<Tpl, QError>
@@ -19,17 +17,19 @@
 //   env.bind_node("e", emp_any);             // a schema'd Writ object (TOM)
 //   let s: String = t.render(&env)?;         // Result<String, QError>
 //
-//   let q: Query = Query::compile("from emps e where e.age >= n select e.name", &cat)?;
-//   env.bind_source("emps", emps_warray);    // a Writ ARRAY of schema'd rows
-//   env.bind_i64("n", 40);
-//   let rows: QRows = q.run(&env)?;          // compile-once / run-many
+// ⚠ `QEnv::bind_source_erased` / `bind_node_erased` / `bind_source_tree` are
+// still compiled and still exported, and have ZERO callers anywhere in the
+// tree. They are the only writers of the QB_ENODE / QB_ESRC / QB_TSRC kind
+// codes, so the `tpl.logos` arms that READ those codes cannot be entered by any
+// program in this corpus. UNTESTED SURFACE, not live capability — removing them
+// is a further capability decision and a further ABI break.
 //
 // DESIGN NOTES:
 //   • This package is the ABI-carried stability surface (logos.std.wql.* stays
 //     ABI-excluded engine internals). Public types: SchemaCatalog, QEnv, Tpl,
-//     Query, QRows, QError, RtVal (+ the QFn/QAgg* fn-ptr aliases — the
-//     UDF/UDA registration surface, ADR §6). The evaluator internals stay
-//     private.
+//     QError, RtVal (+ the QFn/QAgg* fn-ptr aliases — the UDF/UDA registration
+//     surface, ADR §6). `Query` and `QRows` were removed at P5. The evaluator
+//     internals stay private.
 //   • ERRORS ARE VALUES (Result + message), never compile diagnostics — the
 //     caller is a running program (ADR §3). `Tpl::compile` runs the
 //     env-INDEPENDENT checks (parse, unknown fn/arity, comprehension/tuple
@@ -71,7 +71,6 @@ use logos.lang.result;            // Result — the error-as-value carrier
 use logos.lang.option;            // Option — HashMapKeys iterator item (SEMILATTICE rescan)
 use logos.lang.panic;             // panic — recursive-aggregate convergence guard (slice-7)
 use logos.mem.string;             // String
-use logos.lang.mem;               // replace — FactStore::take_delta move-out
 use logos.lang.num.float;         // f64_to_bits — FsKey f64 content-hash
 use logos.lang.str;               // str_eq / str_cmp / str_contains / str_starts_with / …
 use logos.lang.arith;             // wrapping_mul — the FNV mix wraps by design
