@@ -22676,6 +22676,32 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                                IrEntry::Program, enrich, natspec, tparams_text);
 }
 
+// ── the ERASED Writ slot, by NAME ─────────────────────────────────────────
+// `WAny` is Writ's heterogeneous slot (stdlib/lang/writ/anyval.logos) and
+// `WAnyMut` its mutable form: a runtime-typed value whose contents are known
+// only by inspecting a tag. Erasure is a property of the ELEMENT, not of the
+// outer shell — `&WAny` (an erased node), `&[WAny]` (an erased source, the
+// exact shape `bind_source_erased` took), `WArray<WAny>`, `Vec<WAny>` are all
+// the same fact — so the test is "does this type mention the slot anywhere",
+// over identifier tokens rather than over a spelling of the container.
+static bool names_erased_writ_slot_(std::string_view ty) {
+    size_t i = 0;
+    while (i < ty.size()) {
+        unsigned char c = static_cast<unsigned char>(ty[i]);
+        if (!(std::isalpha(c) || c == '_')) { ++i; continue; }
+        size_t j = i;
+        while (j < ty.size()) {
+            unsigned char d = static_cast<unsigned char>(ty[j]);
+            if (!(std::isalnum(d) || d == '_')) break;
+            ++j;
+        }
+        std::string_view id = ty.substr(i, j - i);
+        if (id == "WAny" || id == "WAnyMut") return true;
+        i = j;
+    }
+    return false;
+}
+
 bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                                      std::string& params_text,
                                      std::string& raw_text,
@@ -22896,6 +22922,42 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                             return false;
                         }
                     }
+                }
+                // ── C3 (P5): an ERASED source has NO static form ──────────
+                // The interpreter carried a lenient tier: `QEnv::bind_source_erased`
+                // / `bind_node_erased` typed a binding `dyn`, fields resolved at
+                // RUNTIME by name, a miss read as `RtVal::Null` and Null
+                // propagated CEL-style. Nothing in the static tier answers that:
+                // a rel column type is stamped concretely by native_source_spec
+                // from the `Src` impl's trait args and must implement `Hash`/`Eq`
+                // (sema_collect's rel-column check), so there is no `dyn` column
+                // and therefore no place for Null propagation to attach.
+                //
+                // Without this arm the refusal was NOT a refusal about erasure:
+                // `t: &[WAny]` reached the emitted blob and failed as
+                // `<metaprog-blob-subst>:1: field read: receiver is not a struct
+                // (got &WAny)` — unlocated, and grounded in a rule about structs
+                // rather than about the withdrawn capability. Refuse HERE, at the
+                // item, and say WHY.
+                //
+                // Gated on `one.empty()`: a type that DOES register a source impl
+                // keeps it. Only an unregistered, erased-slot-bearing source
+                // parameter reaches this.
+                if (one.empty() && names_erased_writ_slot_(key)) {
+                    error(std::format(
+                        "{}: parameter `{}: {}` binds an ERASED Writ value as a "
+                        "query source: a deem relation's columns are typed at "
+                        "COMPILE time (every column type must implement "
+                        "`Hash`/`Eq`; the static tier has no `dyn` column), so an "
+                        "erased element has no column vocabulary and CEL-style "
+                        "Null propagation has nowhere to attach. Lenient binding "
+                        "(`QEnv::bind_source_erased` / `bind_node_erased`, ADR "
+                        "0012-queue2 §4a) was an INTERPRETER-only surface and is "
+                        "withdrawn with the interpreter — give the source "
+                        "concrete column types (a `Src` impl, or `&[RowTy]` over "
+                        "a struct row).",
+                        callee_label, pn, pt));
+                    return false;
                 }
                 natspec += one;
             }

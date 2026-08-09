@@ -210,8 +210,8 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 36 | `query_incr_tc_retract` | 1 | — | A | slice-6 mark-based delete-rederive |
 | 37 | `query_incr_trace_e2e` | 2 | — | A | S1 trace reification — §6 L1 |
 | 38 | `query_interp_smoke` | 4 | — | A | the interpreter's runtime-unique behaviours, by construction |
-| 39 | `query_lenient_e2e` | 4 | — | C | LENIENT/erased sources + Null propagation (ADR 0012-queue2 §4a) |
-| 40 | `query_lenient_null_fuzz_adv` | 3 | — | C | adversarial Null-propagation differential over erased sources |
+| 39 | `query_lenient_e2e` | 4 | — | C | LENIENT/erased sources + Null propagation (ADR 0012-queue2 §4a); interp count RE-MEASURED 08-09 = 4 ✔; **C3 RULED WITHDRAWN, see §5** |
+| 40 | `query_lenient_null_fuzz_adv` | 3 | — | C | adversarial Null-propagation differential over erased sources; interp count RE-MEASURED 08-09 = 3 ✔; **C3 RULED WITHDRAWN, see §5** |
 | 41 | `query_mapping_runtime_e2e` | 2 | `s_engines` | B | dynamic query consuming a STATIC mapping; the static twin survives |
 | 42 | `query_metamorphic_adv` | 1 | — | C | metamorphic invariants (permutation/duplication) — the METHOD has no static instance |
 | 43 | `query_minmax_float_seed_leak` | 1 | `q_min`,`q_max` | B | min/max must return a value FROM THE GROUP |
@@ -305,11 +305,46 @@ the sole `RtVal::Error` → `chk_fail_p` boundary) and `check_expr` / `check_roo
 `bin_op_name` / `chk_new` / `chk_fail` / `chk_bad` / `chk_fail_p` / `sx_of` / `CB_CAP` / `impl CBinds`.
 Rows 49, 52, 53, 54, 55 are therefore no longer C-class losses.
 
-**C3 — lenient / erased sources** (rows 39, 40). `QEnv::bind_source_erased` and `QEnv::bind_node_erased`
-(in `deem.logos`, which survives) have no caller after the cut and no static analogue: a `deem` item's
-source is a typed slice, so there is nothing to be lenient about. Requirement: either a static
-erased-source item form, or an explicit ruling that CEL-style Null propagation over string-keyed rows is
-withdrawn from the language.
+**C3 — lenient / erased sources** (rows 39, 40) — **RULED: WITHDRAWN, and the withdrawal is now PINNED.**
+`QEnv::bind_source_erased` and `QEnv::bind_node_erased` (in `deem.logos`, which survives) have no caller
+after the cut and no static analogue: a `deem` item's source is a typed slice, so there is nothing to be
+lenient about.
+
+*What was measured, 2026-08-09* (each claim re-grepped, since this document is pinned by no gate):
+
+- **The capability is LIVE but TEST-ONLY.** `bind_source_erased` / `bind_node_erased` have ZERO callers in
+  `stdlib/` and ZERO in `src/`; the only call sites in the tree are five, in exactly the two fixtures this
+  row names — `tests/logos/pass/query_lenient_e2e.logos` and
+  `tests/logos/pass/query_lenient_null_fuzz_adv.logos`. So "no caller after the cut" is true, but
+  "already dead code" would be FALSE: the cut withdraws a tested capability, not an unused one.
+- **Both symbols are ABI-exported** (`abi/logos.abi`: `QEnv__bind_node_erased__f__refmut_QEnv__slice_u8__WAny`,
+  `QEnv__bind_source_erased__f__refmut_QEnv__slice_u8__WAny`). Removing the methods is an ABI BREAK —
+  authorised, but it must be a deliberate regenerate + version bump, not a side effect of deleting a file.
+- **Why no static form exists, and it is two missing features, not a slice.** (i) There is no erased COLUMN:
+  `SemaChecker::native_source_spec` stamps every rel column type concretely from the `Src` impl's trait
+  args, and `sema_collect.cpp`'s rel-column check refuses any column type that does not implement `Hash`
+  (`rel item(v: WAny)` → ``a rel column type must implement `Hash` ``, exit 1). With no `dyn` column there
+  is nowhere for the CEL Null table (`docs/spec/deem.md`) to attach. (ii) There is no runtime BY-NAME field
+  resolution: field access is typed against the concrete column type.
+
+*The ruling.* CEL-style Null propagation over string-keyed rows is **withdrawn from the language** with the
+interpreter. It is not deferred and not "unspecified": a `deem` item whose source parameter carries an
+erased Writ slot is now REFUSED at the item, with the ground stated —
+`SemaChecker::enrich_deem_params` (`src/compiler/sema_expr.cpp`), predicate `names_erased_writ_slot_`.
+Doors: `tests/logos/fail/deem_erased_source_fail` (`&[WAny]`, the `bind_source_erased` shape) and
+`tests/logos/fail/deem_erased_node_fail` (`&WAny`, the `bind_node_erased` shape).
+
+⚠ *Why those doors are not the worthless kind.* Before the check both programs ALREADY failed, and neither
+refusal was evidence about erasure: `&[WAny]` died at `<metaprog-blob-subst>:1` with `field read: receiver
+is not a struct (got &WAny)` — unlocated, grounded in a rule about structs — and `&WAny` died with the
+stdlib walker's ``source `t` is not a slice``, a statement about SHAPE that covers `t: &i64` equally. Each
+`.expected` therefore pins the LINE of the offending item plus the ground clause (compile-time column
+typing; the withdrawn binding named). MEASURED both ways: perturbing the predicate in the compiler reddens
+both doors, and so does a perturbation that withdraws the whole `deem` ITEM form — the second is the check
+that a broader refusal cannot satisfy them.
+
+*What is NOT claimed.* The `QEnv` methods and their two pass fixtures are still present; this ruling states
+the disposition and pins the static tier's answer. Deleting them is P5's own step, with the ABI bump above.
 
 **C4 — the dynamic graph walker** (rows 56, 57, and the loss half of B rows 6, 69, 70, 71).
 `ts_scan` lives in `exec.logos`. The graph vocabulary (parent, key, idx, child, kind, tag, vi, vs) is

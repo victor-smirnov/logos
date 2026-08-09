@@ -626,6 +626,8 @@ By default every dynamic source is declared with a schema code and `e.field` res
 
 *Divergence:* EXTENSION over the strict surface — CEL/JMESPath-style lenient `null` propagation, restricted to explicitly-erased bindings (D4 "lenient → queue-2"); a `WAny`-typed field on a strict schema also resolves leniently.
 
+⚠ *Binding-time scope, MEASURED 2026-08-09.* This clause is INTERPRETER-ONLY and has no static-tier form: a `deem` ITEM's rel columns are stamped concretely (`SemaChecker::native_source_spec`) and must implement `Hash`/`Eq`, so there is no `dyn` column and nothing for the table above to attach to. A `deem` item whose source parameter carries an erased Writ slot (`&WAny`, `&[WAny]`, …) is REFUSED at the item, naming that ground — see `tests/logos/fail/deem_erased_source_fail` / `deem_erased_node_fail`, and the C3 ruling in `docs/deem-interpreter-deletion-census.md` §5, which withdraws this clause with the interpreter.
+
 *Evidence:* ADR 0012-queue2 §4/§4a (the Null propagation table); `stdlib/std/deem/deem.logos#L572-L590` (`bind_node_erased`/`bind_source_erased`), `L1666-L1671` (comparison/equality Null rules), `L1690-L1725` (arithmetic/negation → Null), `L1738-L1763` (builtins on non-string → Null), erased field read `L1589-L1600`
 
 ### `deem.exec.lenient-bool-one` — a bool is worth ONE wherever a lenient value is read as a number

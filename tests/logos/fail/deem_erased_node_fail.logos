@@ -1,0 +1,22 @@
+// C3 (P5), the OTHER withdrawn entry point: an ERASED NODE.
+//
+// `QEnv::bind_node_erased` bound a single runtime-typed Writ value whose fields
+// resolved by NAME at run time. `t: &WAny` is that shape, and it is refused on
+// the SAME ground as the erased array — the static tier types columns at
+// compile time — which is why both spellings must reach the same clause: a
+// check that only saw `&[WAny]` would leave the node half to a different,
+// weaker refusal.
+//
+// ⚠ It had one. Before the check this program failed with the stdlib walker's
+// `wql!: source `t` is not a slice — declare it as `t: &[RowTy]``: true, but a
+// statement about SHAPE that would equally cover `t: &i64`, saying nothing
+// about erasure and nothing about the capability being withdrawn.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.writ.anyval;
+
+pub deem q(t: &WAny) { from t r select r.x }
+
+fn main() -> i32 { return 0i32; }

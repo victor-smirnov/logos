@@ -1,0 +1,31 @@
+// C3 (P5, the Deem-interpreter deletion): an ERASED SOURCE has no static form,
+// and the refusal must say so WHERE the query is and WHY.
+//
+// `&[WAny]` is exactly the shape the withdrawn `QEnv::bind_source_erased` took:
+// an array of runtime-typed Writ slots, fields resolved by NAME at run time,
+// a miss reading as `RtVal::Null` and Null propagating CEL-style. The static
+// tier has no counterpart: a rel column type is stamped concretely from the
+// `Src` impl's trait args and must implement `Hash`/`Eq`, so there is no `dyn`
+// column for Null propagation to attach to.
+//
+// ⚠ WHAT THIS DOOR IS FOR. Before the check, this program DID fail — with
+// `<metaprog-blob-subst>:1: field read: receiver is not a struct (got &WAny)`,
+// a diagnostic located inside a synthesized blob and grounded in a rule about
+// structs. A door asserting THAT would have stayed green under a refusal that
+// withdrew the whole `deem` item form. The expectation below therefore pins the
+// LINE of the offending item and the GROUND CLAUSE — compile-time column typing
+// and the withdrawn lenient binding by name — not the mere absence of a name.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.writ.anyval;
+
+struct P { pub v: i64 }
+
+// The typed twin compiles: what is refused is ERASURE, not `deem` itself.
+pub deem fine(xs: &[P]) { from xs x select x.v }
+
+pub deem q(t: &[WAny]) { from t r select r.x }
+
+fn main() -> i32 { return 0i32; }
