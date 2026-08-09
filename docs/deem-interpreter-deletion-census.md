@@ -221,9 +221,9 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 8 | `query_agg_sum_overflow_e2e` | 2 | `s_sum` | B | checked `sum` accumulator on all three engines |
 | 9 | `query_compile_robust_e2e` | 3 | — | A | `Query::compile` robustness defects |
 | 10 | `query_diff_err_e2e` | 2 | `s_ov`,`s_dz`,`s_ok` | B | static ≡ dynamic on ERROR inputs |
-| 11 | `query_diff_fuzz` | 2 | — | C | 10 query shapes built as TEXT vs a FIXTURE-LOCAL naive oracle; the interpreter is the SUBJECT, the oracle survives the cut — §5 C5 |
-| 12 | `query_diff_static` | 2 | 6 deems | B | three-way static/dynamic/naive over fuzzed data |
-| 13 | `query_diff_str_adv` | 11 | — | C | the STRING-column differential, 9 shapes, own byte-wise `str_cmp` oracle; no static analogue exists — §5 C5 |
+| 11 | `query_diff_fuzz` | 2 | — | A | 10 query shapes built as TEXT vs a FIXTURE-LOCAL naive oracle; the interpreter is the SUBJECT and the METHOD is now ported to row 12 — §5 C5 |
+| 12 | `query_diff_static` | 2 | 10 deems | B | TEN shapes: 6 numeric three-way + 4 STRING shapes that are static-vs-naive only, already in post-cut form; the C5 discharge — §5 C5 |
+| 13 | `query_diff_str_adv` | 11 | — | A | the STRING-column differential, 9 shapes; its four folds now have a static analogue in row 12 with an oracle that does not call `str_cmp` — §5 C5 |
 | 14 | `query_dyn_bool_arith_pinned` | 2 | — | C | `deem.exec.lenient-bool-one` (docs/spec/deem.md) — the rule's only executable witness |
 | 15 | `query_el_arith_err_e2e` | 2 | — | A | EL arithmetic errors are values on the dynamic path |
 | 16 | `query_f64_avg_nan_fuzz` | 3 | 7 deems | B | f64/avg/NaN 3-way, bit-exact |
@@ -252,7 +252,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 39 | `query_lenient_e2e` | 4 | — | C | LENIENT/erased sources + Null propagation (ADR 0012-queue2 §4a); interp count RE-MEASURED 08-09 = 4 ✔; **C3 RULED WITHDRAWN, see §5** |
 | 40 | `query_lenient_null_fuzz_adv` | 3 | — | C | adversarial Null-propagation differential over erased sources; interp count RE-MEASURED 08-09 = 3 ✔; **C3 RULED WITHDRAWN, see §5** |
 | 41 | `query_mapping_runtime_e2e` | 2 | `s_engines` | B | dynamic query consuming a STATIC mapping; the static twin survives |
-| 42 | `query_metamorphic_adv` | 1 | — | C | 10 metamorphic invariants, engine vs ITSELF — NOT a differential: measured blind to a total inversion of the engine's ordered compare — §5 C5 |
+| 42 | `query_metamorphic_adv` | 1 | — | A | 10 metamorphic invariants, engine vs ITSELF — NOT a differential, so nothing is lost: measured GREEN under a total inversion of the engine's ordered compare — §5 C5 |
 | 43 | `query_minmax_float_seed_leak` | 1 | `q_min`,`q_max` | B | min/max must return a value FROM THE GROUP |
 | 44 | `query_observer_l1` | 2 | — | A | Nous ladder rung 1 — §6 L7 |
 | 45 | `query_order_by_float_static_vs_dynamic` | 2 | `q_asc`,`q_desc` | B | float sort-key parity; the differential collapses to one side |
@@ -297,7 +297,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 84 | `query_incr_factstore_epochs` | 0 | — | A | the `FactHistory` epoch-history layer (ADR 0017 P1) — §6 L5 |
 | 85 | `query_incr_factstore_float_identity_unit` | 0 | — | A | `FsKey` content identity under the PostgreSQL float ruling — §6 L5 |
 
-Totals: **A 35 · B 24 · C 24 · D 1 · G 1** = 85. K flag on 4 files (4, 62, 71, 78).
+Totals: **A 38 · B 26 · C 19 · D 1 · G 1** = 85. K flag on 4 files (4, 62, 71, 78).
 
 ⚠ **THE K FLAG ON ROWS 63, 64 AND 65 WAS STALE AND IS DROPPED (2026-08-09).** It was
 re-derived rather than inherited. `K` means the row's fixture asserts an answer that is KNOWN to be
@@ -327,7 +327,8 @@ emitted-handle calls) plus each file's own header block, which every one of the 
 states its subject in. It is NOT a full read of 85 files, and §9 does not check it — the pin decides
 existence and arithmetic, never a judgement. The B rows in particular still owe the per-fixture
 "does what is left still bite" check that no one has done. Rows 11, 13 and 42 have now had that read
-(see §5 C5); it changed two of the three verdicts.
+(see §5 C5); all three left class C — 11 and 13 because the METHOD was ported into row 12 and measured
+to bite there, 42 because it never had an oracle to lose.
 
 ---
 
@@ -625,6 +626,71 @@ and 13 as a HARNESS port; (b) re-file row 42, which is a self-consistency probe 
 oracle, and if the metamorphic method is wanted statically, write it against fixed shapes where it costs
 nothing. Neither of these is the "metaprog-time shape generator" the old paragraph asked for.
 
+### 5.C5b — BUILT, and the per-fold control the previous round got wrong
+
+(a) is now built rather than argued. `tests/logos/pass/query_diff_static.logos` carries TEN shapes:
+the six numeric ones it already had (`sf`/`sj`/`sa`/`sg`/`sm`/`sd`, exit codes 40–45), plus four STRING
+shapes (`ss_lt`/`ss_join`/`ss_grp`/`ss_ord`, exit codes 46–49) that run FIRST, in a loop of their own,
+with **no dynamic arm at all** — they are already in post-cut form. The string pool is
+`query_diff_str_adv`'s: the empty string, the prefix chain `a`/`aa`/`aaa`, `B` (byte 66) against `a`
+(byte 97) so byte order and case order disagree, plus a per-iteration pool SPAN that forces collisions,
+duplicate keys and empty sources. The fuzzed string LITERAL survives as a fuzzed dimension without one
+`deem` item per pool entry by being a typed `str` PARAM (`ss_lt(a: &[SS], q: str)`), the
+`wql_typed_params_e2e` spelling.
+
+**The oracle is `b_cmp`, a byte loop over `str_byte_at` written in the fixture — deliberately NOT
+`str_cmp`.** Sema lowers the emitted engine's `str` relationals to `logos.lang.str::str_cmp`, so an
+oracle that called it would share the exact fold under test in the very dimension being added. Control 6
+below is the measurement of that, not an assurance.
+
+**THE STATIC TIER HAS FOUR COMPARE FOLDS, NOT ONE.** This is why Control 1 of the previous round
+("reverse `rt_cmp`") changed nothing for the static side, and why one perturbation cannot control this
+fixture. Each string shape is aimed at one fold, and each fold was perturbed on its own, in the ENGINE,
+with the exit code PREDICTED BEFORE THE RUN and the edit reverted afterwards. The fixture stops at its
+first disagreement and the string loop runs first, so the exit code names the shape — a control that
+reddens a fold the shape never reaches would show up as the WRONG code, not as a pass.
+
+(Deliberately NOT a markdown table: §9's reader treats every table row in this file as a census row.)
+
+```control
+#  perturbation (in the ENGINE, reverted after)                         predicted   measured
+1  emit_binop  (stdlib/mem/wql/codegen.logos): OP_LT <-> OP_GT          46          46
+2  emit_binop: OP_GE -> " < " only                                      40          40
+3  the JS_HASH build insert in build_phase_frag                         47          47
+   (stdlib/mem/wql/rexpr_walk.logos) pushes payload 0i64, not the row
+4  the batch group fold's key match in rexpr_walk.logos:                48          48
+   `__g_key.get(__s) == __k` -> `!=`
+5  sort_perm_frag (rexpr_walk.logos) ascending comparator: `>` -> `<`   49          49
+6  str_cmp (stdlib/lang/str/str.logos) totally inverted                 RED, 46|49  46
+```
+
+Read the rows against each other. Control 1 reddens the `str` ordered compare and NOT the join, group or
+order-by shapes — `emit_binop` is not where an equi-join decides equality, which is the mistake the
+earlier `rt_cmp` control made in the dynamic tier. Control 2 reddens a numeric shape while all four
+string shapes pass, so the codes discriminate and the string loop is not merely being skipped. Control 3
+is the fold `emit_binop` cannot reach: the join's answer comes from a HashMap built by `build_phase_frag`
+and probed through `bucket_lookup_frag`. Control 4 is the group key, Control 5 the sort key — three folds
+that a single inversion of the scalar comparator leaves untouched.
+
+**Control 6 is the oracle-independence measurement.** `str_cmp` is the function every `str` relational
+in the emitted engine is lowered to. If the fixture's naive arm called it — as `query_diff_str_adv`'s
+`s_lt` does — both sides of the comparison would move together under a total inversion and the fixture
+would stay GREEN, exactly the way row 42 stayed green under Control 2 of the previous round. It went RED
+at 46. The oracle did not move with the engine, in the one dimension where sharing was most likely.
+
+⇒ Rows 11 and 13 leave class C for **A**. Their subject is the interpreter (measured at the comparison
+site, above); their METHOD — fuzzed data against a fixture-local naive evaluator — now exists on the
+static side and is measured to bite there, per fold. Row 12 stays class B and is the file that carries it.
+
+(b) **Row 42 is re-filed C → A.** Both sides of its comparison site
+`rows_eq(&mut got1, &mut got2, ncol)` are `Query::compile` + `q.run`, and Control 2 of the previous round
+— inverting the four `OP_LT/OP_LE/OP_GT/OP_GE` returns of `eval_sexpr`, i.e. every ordered comparison the
+engine makes — left it **GREEN** while rows 11, 12 and 13 all went RED. A fixture that cannot see a total
+inversion of the operation it is exercising is not losing an oracle when its subject is deleted, because
+it never had one. Class C prices a LOSS; there is none here. ⚠ This letter is a JUDGEMENT and §9's pin
+does not check it (§9 says so explicitly); the control revert above is the argument, quoted so a reader
+can disagree with it on evidence.
+
 ---
 
 ## 6. THE LOSS LEDGER — what the tree gives up if P5 proceeds anyway
@@ -656,7 +722,10 @@ Victor decides this. Each entry is a shipped capability with no static counterpa
   ⚠ Read §5 C5 before pricing this entry: in the three fixtures that were examined row by row, the
   interpreter is the SUBJECT and not the oracle, and in one of them there is no independent oracle at
   all. "Loses its second opinion" is a claim about a comparison site, and it has to be checked per
-  fixture at the comparison site — the B rows still owe exactly that read (§8).
+  fixture at the comparison site — the B rows still owe exactly that read (§8). Row 12 has now had it
+  and answers in the other direction too: its four STRING shapes never had a dynamic arm, and six
+  engine-side control reverts (§5.C5b) show the static tier is differentially tested per fold without
+  one.
 * **L11 — the DRed harvest fixtures** (`deem_dred_phases23_spec`, `wql_incr_rec_agg_retract_lattice`,
   `wql_incr_rec_dred_error_window`). ⚠ These were written to preserve knowledge THROUGH P5 and they do
   not: each drives `Query::compile` + `incremental_rec`, so each dies with its subject. Harvest by fixture
@@ -794,9 +863,9 @@ REGISTRY-TIERCOMMIT  30
 
 # §3 table arithmetic.
 CENSUS-ROWS          85
-CLASS-A              35
+CLASS-A              38
 CLASS-B              26
-CLASS-C              22
+CLASS-C              19
 CLASS-D              1
 CLASS-G              1
 
