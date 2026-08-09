@@ -109,6 +109,31 @@ EXPECT=(
   # the whole capability, leaves that door GREEN. This row is the one that fails
   # if the clause stops being the OUTSIDE-SCC clause.
   "no_rel_outside|declined|OUTSIDE this recursive SCC"
+  # ⚠ THE AGGREGATE-HEADED SCC, AND THE THIRD OF `stamp_rel_incr_shape`'s SIX
+  # ANTECEDENTS TO GET A SENSOR. Until this row, `any_agg` had been READ and
+  # never exercised: deleting the clause admits an aggregate-headed SCC and emits
+  # a driver calling `_od`/`_odp`/`_cpt` that `emit_scc_od_fns` never emitted for
+  # it, and NOTHING in the corpus went red. ⚠ CALIBRATED TWICE, BECAUSE THE
+  # OBVIOUS CONTROL DOES NOT EXERCISE THIS ROW: deleting the `else if any_agg`
+  # arm and rebuilding makes the FIXTURE FAIL TO COMPILE (`undefined variable
+  # '__rel_dist_sl'` in `__wql_no_rel_agg_scc0_i`), so the gate reds at its
+  # "must COMPILE" door and never reaches the matcher. The matcher itself was
+  # calibrated by rewording the ground to "not supported yet", which answered
+  # "VIOLATION: the ground for 'no_rel_agg' does not name 'AGGREGATE rel'" with
+  # no other row moving. Both controls reverted, tree re-measured green.
+  #
+  # The phrase is "AGGREGATE rel" and not "min/max": the antecedent is that a
+  # MEMBER OF THE SCC has a semilattice head whose total is MATERIALIZED after
+  # the loop, so a ground reworded down to the aggregate's flavour would stop
+  # naming the thing the `_i` variant cannot seed.
+  #
+  # ⚠ AND THE OTHER THREE UNPINNED ANTECEDENTS GET NO ROW HERE BECAUSE NO
+  # COMPILING PROGRAM REACHES THEM — `mask_u != 0i64` requires a rel outside the
+  # SCC and `nmem != prm.rel_n` refuses first; a native or streaming rel emits no
+  # dep edge and cannot sit on a cycle. The derivation is recorded beside
+  # `no_rel_agg` in the fixture; what pins them is the chain's ORDER, and a
+  # reorder is what would make them observable.
+  "no_rel_agg|declined|AGGREGATE rel"
 )
 
 # ── THE SECOND AXIS: may the handle be run BACKWARDS? ───────────────────────
@@ -245,6 +270,9 @@ CAN="$TMPD/canary.txt"
   echo "[plan] incremental -> declined on no_rel_oneshot   (the source is a NON-RECURSIVE declared \`rel\` — it materializes through the one-shot helper)"
   echo "[plan] incremental -> declined on no_rel_join   (a JOIN-POSITION source is a DECLARED \`rel\` — the handle's joined side is stored as a weighted Z-set)"
   echo "[plan] incremental -> declined on no_rel_outside   (the program declares a \`rel\` OUTSIDE this recursive SCC — the entry prelude then has several materialization steps)"
+  # CLEAN on purpose — the canary is a controlled experiment, and a row missing
+  # from it would be indistinguishable from a row this matcher cannot read.
+  echo "[plan] incremental -> declined on no_rel_agg   (a member of the recursive SCC is an AGGREGATE rel (a min/max semilattice head) — its total is MATERIALIZED after the loop)"
 } > "$CAN"
 CANV=$(check_rows "$CAN" "${EXPECT[@]}")
 printf '%s' "$CANV" > "$TMPD/canary.violations"

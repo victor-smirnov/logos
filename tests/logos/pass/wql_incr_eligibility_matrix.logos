@@ -54,6 +54,11 @@ struct V { pub g: i64, pub z: i64 }
 // refusal: `E`'s fields are both `i64`, so `incr_row_ty_ok` would ADMIT it, and
 // the only thing standing between these queries and a handle is the rel clause.
 struct E { pub a: i64, pub b: i64 }
+// `W` is a WEIGHTED edge, for the aggregate-headed rel below. It is not a reuse
+// of `E` because the min head folds over `x.d + e.w` and needs a third column;
+// its fields are all `i64`, so `incr_row_ty_ok` would ADMIT its row type and the
+// only thing standing between that query and a handle is the aggregate clause.
+struct W { pub src: i64, pub dst: i64, pub w: i64 }
 
 // ── ELIGIBLE — the control, and the only one with derived fns to call ───────
 pub deem ok_basic(ss: &[S]) {
@@ -219,6 +224,68 @@ pub deem no_rel_outside(es: &[E]) {
     }
     from spath p group by p.a aggregate c = count() select (key, c)
 }
+// ⚠ AN AGGREGATE-HEADED RECURSIVE SCC — THE CLAUSE THAT WAS PINNED BY NOTHING
+// AND THE ONLY ONE OF ITS FOUR NEIGHBOURS A FIXTURE CAN REACH.
+//
+// `stamp_rel_incr_shape` refuses a recursive SCC on six antecedents, in one
+// `if`/`else if` chain: `!scc.rec` · `nmem != prm.rel_n` · `any_agg` ·
+// `any_native` · `any_stream` · `mask_u != 0i64`. Only the first two had a
+// fixture (`no_rel_oneshot`, `no_rel_outside`). Measured consequence of that
+// gap, on THIS clause: deleting `any_agg` admits an aggregate-headed SCC and
+// emits a driver over state `emit_scc_od_fns` never emitted for it — and,
+// before this query existed, RED NOTHING.
+//
+// ⚠ THE CALIBRATION CAME BACK WITH A DIFFERENT CODE THAN PREDICTED, AND THE
+// MEASURED ONE IS RECORDED RATHER THAN THE GUESS. Deleting the `else if
+// any_agg` arm from `stamp_rel_incr_shape`, dropping the prebuilt archives and
+// rebuilding does NOT produce a "declined verdict missing" violation: the
+// admitted SCC makes the fixture FAIL TO COMPILE, and the gate reds at its
+// first door instead —
+//   FAIL: the fixture must COMPILE … logosc exit 1
+//   <metaprog-blob-subst>:1: error [fn __wql_no_rel_agg_scc0_i]:
+//       undefined variable '__rel_dist_sl'
+// i.e. the emitted `_i` driver names a binding the aggregate emission path
+// never makes. That door is a real red, but it does not exercise this row's
+// MATCHER, so the matcher was calibrated separately: with the clause restored
+// and its ground reworded to "not supported yet", the gate answered
+//   VIOLATION: the ground for 'no_rel_agg' does not name 'AGGREGATE rel'
+// and no other row moved. Both controls were reverted and the tree re-measured
+// green.
+//
+// ⚠ THE OTHER THREE ARE NOT MERELY UNWITNESSED, THEY ARE UNREACHABLE, and the
+// derivation belongs beside the fixture that could not be written for them:
+//   • `mask_u != 0i64` — `scc.dep_mask[k]` is set only where
+//     `scc.comp[f] != scc.comp[t]`, i.e. a rel exists OUTSIDE the SCC, so
+//     `nmem != prm.rel_n` has already refused every shape that reaches it.
+//     Its argument-list load-bearingness for the driver is real and is
+//     DISCHARGED BY THE OUT-OF-SCC CLAUSE, not by itself.
+//   • `any_native` / `any_stream` — a native rel (`rel_native[idx] = true`) has
+//     no parse-side bodies, hence no dep edge out of it, hence cannot lie on a
+//     cycle; if it is a SEPARATE rel in the program, `nmem != prm.rel_n` fires
+//     first. Both routes are closed, so no compiling program reaches them.
+// They are defence against a future REORDER of the chain. What pins them is
+// this derivation and the chain's order, not a fixture — and saying so here is
+// the honest version of "four cheap axes".
+//
+// ⚠ AND THE SHAPE IS DELIBERATELY SINGLE-SLICE-PARAM. A rel-backed query with
+// two slice params is refused further down `incr_eligible` ("EXACTLY ONE slice
+// parameter"), which is a DIFFERENT clause; seeding `dist` from `ws` itself
+// keeps `any_agg` the only thing standing between this query and a handle, so
+// the gate's row cannot be satisfied by the wrong refusal. `plan_walker`'s
+// `check_stratified` forces a recursive min head to be its OWN component ("a
+// recursive min/max aggregate must be its OWN recursive component"), so
+// `rec` holds, `nmem == prm.rel_n == 1`, and `any_agg` is the FIRST clause in
+// the chain that can fire.
+pub deem no_rel_agg(ws: &[W]) {
+    rel dist(node: i64, d: i64) {
+        from ws b where b.src == 1 select (b.src, 0);
+        from dist x join ws e on e.src == x.node
+            group by e.dst
+            aggregate d = min(x.d + e.w)
+            select (e.dst, d);
+    }
+    from dist r group by r.node aggregate m = min(r.d) select (key, m)
+}
 
 fn rows() -> Vec<S> {
     let mut v: Vec<S> = vec_new::<S>();
@@ -261,6 +328,19 @@ fn erows() -> Vec<E> {
     v.push(E { a: 2i64, b: 3i64 });
     v.push(E { a: 3i64, b: 1i64 });
     v.push(E { a: 1i64, b: 2i64 });   // duplicate — a rel is a SET
+    return v;
+}
+
+// A WEIGHTED graph WITH A CYCLE (2→3→2), so the min head has to relax more than
+// once and a fixpoint that stopped after one round would answer differently:
+// the first round gives d(3) = 9 through 1→3, and only the second improves it to
+// 8 through 1→2→3. Node 1 has no in-edge, so its only derivation is the seed.
+fn wrows() -> Vec<W> {
+    let mut v: Vec<W> = vec_new::<W>();
+    v.push(W { src: 1i64, dst: 2i64, w: 7i64 });
+    v.push(W { src: 1i64, dst: 3i64, w: 9i64 });
+    v.push(W { src: 3i64, dst: 2i64, w: 2i64 });
+    v.push(W { src: 2i64, dst: 3i64, w: 1i64 });
     return v;
 }
 
@@ -484,6 +564,31 @@ fn main() -> i32 {
             if v.get(0i64).1 != 1i64 { return 91i32; }
         }
         Result::Err(_e) => { return 89i32; }
+    }
+    // ── THE AGGREGATE-HEADED SCC: DECLINED, AND THE BATCH STILL RUNS THE WHOLE
+    // ── LATTICE FIXPOINT ────────────────────────────────────────────────────
+    // By hand on the (min,+) lattice, source 1: d(1)=0 (seed only); d(2)=min(7,
+    // d(3)+2); d(3)=min(9, d(2)+1). Least fixpoint: d(2)=7, d(3)=8 — and 8 is
+    // reachable ONLY by relaxing 1→2→3 AFTER 1→3 already gave 9, so a head that
+    // absorbed one round and stopped answers 9 here. Group ORDER is the fold's
+    // first-occurrence order and is not what this row is about, so each pair is
+    // matched by NODE and all three must be present exactly once.
+    let ww: Vec<W> = wrows();
+    match no_rel_agg(ww.as_slice()) {
+        Result::Ok(v) => {
+            if v.len() != 3i64 { return 92i32; }
+            let mut seen: i64 = 0i64;
+            let mut i: i64 = 0i64;
+            while i < 3i64 {
+                let p: (i64, i64) = v.get(i);
+                if p.0 == 1i64 { if p.1 != 0i64 { return 93i32; } seen = seen + 1i64; }
+                if p.0 == 2i64 { if p.1 != 7i64 { return 94i32; } seen = seen + 1i64; }
+                if p.0 == 3i64 { if p.1 != 8i64 { return 95i32; } seen = seen + 1i64; }
+                i = i + 1i64;
+            }
+            if seen != 3i64 { return 96i32; }
+        }
+        Result::Err(_e) => { return 97i32; }
     }
     return 0i32;
 }
