@@ -273,10 +273,10 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 60 | `wql_agg_avg_bool_three_engines` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
 | 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer — its ARITHMETIC positions now have a static arm (**2026-08-09**, `pass/wql_arith_u64_tower_e2e`); the rest still need `..._static_carrier_positions` |
 | 62 | `wql_domain_incr_disagreement` | 9 | — | C K | the incremental tier's three disagreements; block 3b is KNOWN-WRONG — **TRANSCRIBED 2026-08-09** onto `no_join_f64key` (`pass/wql_incr_eligibility_matrix` + `incr_eligibility_gate.sh`), see §5 C1 |
-| 63 | `wql_domain_runtime_extremes` | 3 | — | C K | 18 types round-tripped through the dynamic tier (static twin: `wql_domain_static_extremes`) |
-| 64 | `wql_domain_runtime_order_a` | 6 | — | C K | `order by` — i8/i16/i32/i64/isize/i24 |
-| 65 | `wql_domain_runtime_order_b` | 6 | — | C K | `order by` — i56/u8/u16/u32/u24/u56 |
-| 66 | `wql_domain_runtime_order_c` | 6 | — | C | `order by` — u64/usize/f32/f64/bool/str (both defects closed here) |
+| 63 | `wql_domain_runtime_extremes` | 3 | — | C | 18 types round-tripped through the dynamic tier; the static twin `tests/logos/pass/wql_domain_static_extremes.logos` covers all 18 plus i128/u128 — **K DROPPED 2026-08-09**, the file's own header says no block asserts a wrong value any more (the `f32` one closed 2026-08-04) |
+| 64 | `wql_domain_runtime_order_a` | 6 | — | C | `order by` — i8/i16/i32/i64/isize/i24; static twin `tests/logos/pass/wql_domain_static_extremes.logos` (its `ord_T` items ask the same permutation of emitted code) — **K DROPPED 2026-08-09**, see below |
+| 65 | `wql_domain_runtime_order_b` | 6 | — | C | `order by` — i56/u8/u16/u32/u24/u56; static twin `tests/logos/pass/wql_domain_static_extremes.logos` — **K DROPPED 2026-08-09**, see below |
+| 66 | `wql_domain_runtime_order_c` | 6 | — | C | `order by` — u64/usize/f32/f64/bool/str (both defects closed here); static twin `tests/logos/pass/wql_domain_static_extremes.logos` |
 | 67 | `wql_domain_u64_order_seams` | 9 | — | C | the three INTERMEDIATE facts of the u64 order fix |
 | 68 | `wql_engine_source_e2e` | 1 | 4 deems over `&IncrRec` | D | static `deem` whose SOURCE is the engine — §1b |
 | 69 | `wql_graph_float_root_vi` | 0 | `root_vi`,`root_kind`,`root_vi_dyn` | B | float-rooted document: static vs dynamic walker — **rewritten onto `dyn_graph_edge_rows` + a slice deem, so the `parent == 0` filter stays a QUERY and not an `if`; 0 interpreter entry points** (C4) |
@@ -289,7 +289,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 76 | `wql_mapping_rules_escape_e2e` | 3 | `s_pg` | B | `<M>__rules()` literal pinned byte for byte |
 | 77 | `wql_native_graph_e2e` | 1 | 3 deems | B | native object graph as a `deem!` source |
 | 78 | `wql_tier_capability_disagreement` | 5 | 10 deems | B K | THREE tiers disagree about what they will answer; becomes a two-tier file |
-| 79 | `wql_u64_sum_accumulator` | 10 | — | C | the `sum` accumulator seam over u64, both failure directions |
+| 79 | `wql_u64_sum_accumulator` | 10 | — | C | the `sum` accumulator seam over u64, both failure directions — static arm BUILT 2026-08-09 (`tests/logos/pass/wql_domain_static_u64_sum_accumulator.logos`) for the two cells nothing else asked; the rest is covered and the coverage claim is RE-DERIVED below, not inherited |
 | 80 | `wql_u64_sum_scalar_arith` | 7 | — | C | the scalar-arith seam one level below, one cell per operator — **static arm BUILT 2026-08-09** (`pass/wql_arith_u64_tower_e2e`), see §5 C1 |
 | 81 | `wql_value_domain_tiers_measured` | 5 | `sg_sel`,`su_order` | B | the value domain across three engines; becomes two |
 | 82 | `tests/logos/rtval_domain_gate.sh` | 1 | — | G | §7 |
@@ -297,7 +297,21 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 84 | `query_incr_factstore_epochs` | 0 | — | A | the `FactHistory` epoch-history layer (ADR 0017 P1) — §6 L5 |
 | 85 | `query_incr_factstore_float_identity_unit` | 0 | — | A | `FsKey` content identity under the PostgreSQL float ruling — §6 L5 |
 
-Totals: **A 35 · B 24 · C 24 · D 1 · G 1** = 85. K flag on 7 files (4, 62, 63, 64, 65, 71, 78).
+Totals: **A 35 · B 24 · C 24 · D 1 · G 1** = 85. K flag on 4 files (4, 62, 71, 78).
+
+⚠ **THE K FLAG ON ROWS 63, 64 AND 65 WAS STALE AND IS DROPPED (2026-08-09).** It was
+re-derived rather than inherited. `K` means the row's fixture asserts an answer that is KNOWN to be
+wrong, beside a fixed-signature arm that fires when the defect closes. Measured, per file:
+`tests/logos/pass/wql_domain_runtime_extremes.logos` opens "NO BLOCK HERE ASSERTS A WRONG VALUE ANY
+MORE" (its `f32` block closed 2026-08-04); `tests/logos/pass/wql_domain_runtime_order_c.logos` opens
+"NO BLOCK IN THIS FILE ASSERTS A WRONG ORDER ANY MORE" (f32 2026-08-04, u64/usize 2026-08-05) — and
+that file is row **66**, which was never K-flagged. In `tests/logos/pass/wql_domain_runtime_order_a.logos`
+and `tests/logos/pass/wql_domain_runtime_order_b.logos` the string `KNOWN-WRONG` occurs ONLY in the
+family-header prose describing the idiom and in the exit-code legend ("+1, on KNOWN-WRONG columns
+only"); NO block body carries one, and neither file can: parts a and b hold the signed widths and the
+unsigned widths BELOW 64 bits, where the signed compare and the column's own compare agree by
+construction. Both defects this family ever carried lived in part **c**. The old totals line
+overstated the arc's open defects by three.
 
 ⚠ The totals line previously read "A 31 · B 25", and the class column of the table it summarises has
 never said that. Counted off the rows at `e53962b6` — before rows 83–85 were added — the table is
@@ -376,16 +390,40 @@ asserted on the group totals) plus the matching `declined` row in `tests/logos/i
 whose control is `ok_join` — the same shape, i64 key, EMITTED. It fails-if-fixed: admitting an f64 join
 key makes the query trace EMITTED and reds both the verdict row and the DERIVED retract count.
 
-Rows 14, 59 and 63–67/79 still need siblings of `wql_domain_static_extremes` (`..._static_order_{a,b,c}`,
-`..._static_carrier_positions`, `..._static_u64_sum_accumulator`); until they exist, deleting those rows
-removes the only place the value-domain arc's remaining open defects are written down (see the K flag).
+**THE STATIC-SIBLING TASK LIST, RE-MEASURED 2026-08-09.** This paragraph used to name six wished-for
+files. Three of them should never be built and two of the remaining questions turned out to be answered
+elsewhere; what was left is one fixture, and it exists. Each verdict below was measured against the
+tree, not carried forward:
 
-⚠ RE-MEASURED at `e53962b6`: `ls tests/logos/pass/wql_domain_static*` returns exactly ONE fixture,
-`wql_domain_static_extremes`. None of the six sibling names above exists, and neither does
-`wql_domain_static_ordw_origin`, which has been reported elsewhere as already built. The names in this
-paragraph are therefore a TASK LIST, not a description — §9's FACT 1 cannot pin them, because a path that
-does not exist yet is exactly what a requirement is. Whoever builds one must move its name out of this
-sentence and into a row, where the pin can see it.
+- `..._static_order_a` / `_b` / `_c` (rows 63–66) — **STRUCK, the question is already answered.**
+  `tests/logos/pass/wql_domain_static_extremes.logos` declares twenty `struct S_T` + `pub deem sel_T` +
+  `pub deem ord_T` triples — the eighteen types rows 64/65/66 name, plus `i128`/`u128` — and each `ord_T`
+  is `select s.id order by s.x` over the same 1,3,0,2 placement the runtime family uses. Three more files
+  would each red for a fact that file reds for first, which is noise, not coverage. The citation now
+  lives in rows 63–66 where FACT 1 pins it.
+- `..._static_u64_sum_accumulator` (row 79) — **BUILT**, `tests/logos/pass/wql_domain_static_u64_sum_accumulator.logos`,
+  and it is deliberately small. The inherited claim "largely covered by `wql_agg_wide_int_arg_e2e` blocks
+  A/B/C/E" was re-derived block by block: blocks 1/3/4/5 of `tests/logos/pass/wql_u64_sum_accumulator.logos`
+  are indeed covered there, block 7 (min/max over u64) by
+  `tests/logos/pass/wql_tier_capability_disagreement.logos` block G, and the widths by
+  `tests/logos/pass/wql_agg_arg_seam_e2e.logos` — but only at {10, 20, 40}, a total that FITS `u8` and so
+  discriminates nothing. The two cells nothing asked are the new file's subject: `order by sum(u64)` (the
+  aggregate out-name of `sum` carrying its argument's unsigned claim, with a `max` control and an i64
+  twin over the same 64 bits producing the OTHER permutation) and the narrow widths at a total that
+  leaves the column (`sum(u8)` of {200,100,0} = 300, `sum(u32)` of {4e9,4e9,0} = 8000000000).
+- ⚠ **AND ROW 79's "BOTH FAILURE DIRECTIONS" DOES NOT MEAN WHAT THE SENTENCE SUGGESTS.** The obvious
+  static shape for the under-carry — one epoch of {5}, then `<q>_retract` of {9} over a `u64` `sum` —
+  returns `Err` and leaves the snapshot at 5, and it is NOT the borrow: MEASURED 2026-08-09 the arm is
+  `ElError::RetractAbsent`, and the i64 TWIN of the same call, where 5 − 9 = −4 needs no borrow at all,
+  returns `RetractAbsent` too. Retraction refuses any row the accumulator never folded and a sum over
+  folded rows cannot exceed the total, so `el_subu`'s borrow is unreachable through that surface — which
+  is exactly what `tests/logos/pass/deem_incr_static_retract_e2e.logos` block E and
+  `tests/logos/pass/wql_incr_retract_three_ways.logos` F1/F2 already pin BY ARM NAME, with `Underflow`
+  named there as the WRONG answer and the borrow asserted at `el_subu` where it lives. Pinning that `Err`
+  as "the under-carry" would have recorded a cheap refusal as an expensive one.
+- Rows 14, 59 and 61 (`..._static_carrier_positions`) are still open and are the remaining task list.
+  A name here is a REQUIREMENT, not a description: §9's FACT 1 cannot pin a path that does not exist yet,
+  so whoever builds one moves its name out of this sentence and into a row, where the pin can see it.
 
 **C2 — runtime templates** (rows 49, 52, 53, 54, 55). There is no static substitute and none was ever
 designed: `stdlib/mem/wql/trama_render.logos` is the metaprog-side sibling and says so, naming the
@@ -750,8 +788,8 @@ guarantees that the nouns in the argument still exist.
 GONE-FILE  stdlib/mem/deem/eval.logos  deleted at 8c5ad0ea (C2): its whole contents moved to stdlib/mem/deem/tpl.logos
 
 # registry — `ctest -N` from the build directory, three ways.
-REGISTRY-ALL         6958
-REGISTRY-NOIMPORTED  3275
+REGISTRY-ALL         6959
+REGISTRY-NOIMPORTED  3276
 REGISTRY-TIERCOMMIT  30
 
 # §3 table arithmetic.

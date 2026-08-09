@@ -1,0 +1,203 @@
+// THE `sum` ACCUMULATOR SEAM OVER `u64`, ASKED OF THE STATIC TIER — the two
+// cells of `tests/logos/pass/wql_u64_sum_accumulator.logos` that emitted code
+// was never asked, and the i64 twin that makes each of them a finding.
+//
+// ── WHY THIS FILE EXISTS, AND WHY IT IS SMALLER THAN ITS NAME SUGGESTS ──────
+// `docs/deem-interpreter-deletion-census.md` row 79 classes
+// `wql_u64_sum_accumulator` as C — a cell whose only vehicle is the interpreter
+// that P5 deletes — and the census's §5 C1 paragraph asked for a whole static
+// sibling, on the inherited claim that the row was "largely covered by
+// `wql_agg_wide_int_arg_e2e` blocks A/B/C/E". That claim was never re-measured.
+// RE-MEASURED 2026-08-09, per block of the runtime fixture, by reading the
+// static corpus rather than by trusting the sentence:
+//
+//   block 1 (false NEGATIVE: the true u64 sum exceeds u64, the i64 add does
+//     not overflow)                    — `wql_agg_wide_int_arg_e2e` block B.
+//   block 3 (false POSITIVE: the sum fits u64, the i64 add overflows)
+//                                      — `wql_agg_wide_int_arg_e2e` block A.
+//   block 4 (a true u64 overflow)      — `wql_agg_wide_int_arg_e2e` block C.
+//   block 5 (the signed controls)      — `wql_agg_wide_int_arg_e2e` 30s.
+//   block 7 (min/max over u64)         — `wql_tier_capability_disagreement`
+//                                        block G (`mm_u64`), and its `sum`
+//                                        above i64::MAX in block H.
+//   THE UNDER-CARRY DIRECTION          — `deem_incr_static_retract_e2e` block E
+//                                        and `wql_incr_retract_three_ways` F1/F2,
+//                                        which is where it actually lives; see
+//                                        the paragraph below, because the shape
+//                                        the census asked for does not reach it.
+//
+// What was left, measured, is TWO cells. They are here, with their controls,
+// and nothing already held elsewhere is copied in beside them: a red must name
+// one (position, question) cell, and a file that re-asserts six covered facts
+// reds for a fact some other file reds for first.
+//
+// ── ⚠ THE UNDER-CARRY ARM IS NOT REACHED BY "RETRACT MORE THAN YOU PUT IN" ──
+// The obvious static shape for row 79's second failure direction — one epoch of
+// {5}, then `totals_retract` of {9} over a `u64` `sum` — DOES come back `Err`
+// and DOES leave the snapshot at 5. MEASURED 2026-08-09, and it is NOT the
+// under-carry: the arm is `ElError::RetractAbsent`, the multiset guard, and the
+// i64 TWIN of the same call — where 5 − 9 = −4 is perfectly representable and no
+// borrow exists — returns `ElError::RetractAbsent` too. A refusal that fires
+// identically on the type that cannot underflow is evidence about the guard, not
+// about the arithmetic. `el_subu` (`stdlib/mem/wql/el.logos`) is `Underflow`'s
+// only producer, retraction refuses any row the accumulator never folded, and a
+// sum over folded rows can never exceed the total — so through this surface the
+// borrow is unreachable, which is exactly what `deem_incr_static_retract_e2e`
+// block E already pins BY ARM NAME (`Underflow` there is the WRONG answer, and
+// `el_subu`'s borrow is asserted where it lives instead). Pinning that Err here
+// as "the under-carry" would have recorded a cheap refusal as an expensive one.
+//
+// ── WHAT IS PINNED HERE ─────────────────────────────────────────────────────
+// 10s/20s/30s — `order by sum(s.u)`: THE AGGREGATE OUT-NAME OF `sum` CARRIES
+//   ITS ARGUMENT'S UNSIGNED CLAIM. Three SINGLETON groups (keys 10/11/12), so
+//   `sum` is the identity and the only thing under test is the order key of a
+//   value that came out of an aggregate. u = 5, 2^63, 2^64−1:
+//     unsigned ascending → keys 10, 11, 12
+//     signed   ascending → keys 11, 12, 10   (a DIFFERENT permutation, so this
+//                                             block cannot pass by coincidence)
+//   The `max` control beside it (20s) answered 10, 11, 12 even before the
+//   runtime fix, because an aggregate that RETURNS its argument's type must pass
+//   the argument's claim on and `max` was already admitted where `sum` was not —
+//   so `sum` agreeing with `max` is the finding, not the setup. The 30s block is
+//   the i64 TWIN over the SAME 64 BITS (5, −2^63, −1 are the i64 spellings of
+//   the three u64 values) and must produce the signed permutation: it is what
+//   says the 10s answer is the column's own order and not the only order the
+//   engine has. `wql_domain_static_ordw_origin` asks this of `max`/`min`/`having`
+//   and deliberately not of `sum`.
+//
+// 60s/70s — THE WIDTHS THAT MUST NOT MOVE, AT THE VALUES THAT DISCRIMINATE.
+//   The rule the u64 arm implements is ADD UNDER THE COLUMN'S OWN OVERFLOW
+//   PREDICATE, and a literal reading of "add in the column's own type" is
+//   refuted by a narrow column: `sum(u8)` over {200, 100, 0} must answer 300 —
+//   u8 arithmetic would make that an overflow error — because a `u8` widens into
+//   `i64` LOSSLESSLY (`el_int_fits_i64`), so the i64 predicate IS the column's
+//   predicate on the widened value. `sum(u32)` over {4e9, 4e9, 0} = 8000000000
+//   is the same statement one width up, above `u32`'s ceiling and far below
+//   `i64`'s. `wql_agg_arg_seam_e2e` already sums `u8`/`u32` columns, but over
+//   {10, 20, 40}: a total of 70 fits `u8` and so distinguishes nothing.
+//   `max(s.b8)` = 200 is the control that the narrow column itself still reads
+//   back, and it also records the out-TYPE: a narrow column's aggregate answers
+//   `Vec<i64>`, not `Vec<u8>` — the accumulator's type, not the column's.
+//
+// ⚠ EVERY NUMBER BELOW IS A HAND-DERIVED CONSTANT. Nothing here asks `el_ty`,
+// `el_ty_stored` or `el_wrap_ord_key` what the lattice holds, and nothing folds
+// an answer with the arithmetic the query compiler folds it with — an oracle
+// that shares the algorithm with the code under test agrees with itself by
+// construction (`feedback_oracle_must_be_independent`).
+//   2^63     = 9223372036854775808        i64 -9223372036854775808
+//   2^64 - 1 = 18446744073709551615       i64 -1
+//   200 + 100 + 0             = 300           (> u8::MAX  = 255)
+//   4000000000 + 4000000000   = 8000000000    (> u32::MAX = 4294967295)
+//
+// ── PROVED TO BITE, BY PERTURBING THE ENGINE WHERE EACH CLAIM LIVES ────────
+// Three perturbations, each in `stdlib/mem/wql/`, each rebuilt from source with
+// the stale archives removed first (a `ctest` over prebuilt archives cannot tell
+// a revert from a non-revert), each reverted after:
+//   A. `agg_acc_ty` (`stdlib/mem/wql/el.logos`), the `EL_ORD_WRAP` row, "u64" →
+//      "i64". RED — and not where predicted: `check_agg_operand` refuses the
+//      `u64` argument outright ("`sum` over a value of type `u64` — the
+//      aggregate accumulates in `i64` … `el_norm_cast` … REINTERPRETS rather
+//      than converts"), so the admission guard fires before any order can be
+//      wrong. Recorded because it is the honest result: the two guards are
+//      layered, and this file's 10s block is downstream of the refusal.
+//   B. `stamp_agg_out_types` (`stdlib/mem/wql/rexpr_walk.logos`),
+//      `ty.set_ty_named(a.out, acc[i])` → `…, "i64"` — the accumulator stays
+//      `u64`, only the out-name's RECORDED type moves, which is precisely the
+//      carrier the 10s block is about. RED at the 10s and 20s lets, naming the
+//      cell: "expected Vec<(i64, u64)>, got Vec<(i64, i64)>".
+//   C. `agg_acc_ty`'s FITS row, "i64" → the argument's own type name — the
+//      literal reading of "add in the column's own type". RED at the 60s and 70s
+//      lets only: "expected Vec<i64>, got Vec<u8>" / "got Vec<u32>".
+//
+// EXIT CODES: 10s `order by sum(u64)`, 20s the `max` control, 30s the i64 twin,
+// 60s the `u8` width and its `max` control, 70s the `u32` width. All ≤ 72.
+//
+// exit 0 = a `sum` over a `u64` column orders by u64's order at the out-name,
+//          and a narrow unsigned column still accumulates in i64.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct R { pub id: i64, pub g: i64, pub u: u64, pub v: i64, pub b8: u8, pub b32: u32 }
+
+// ── the out-name of `sum`, as a sort key ──
+pub deem sum_ord(rs: &[R]) {
+    from rs s group by s.g aggregate t = sum(s.u) select (key, t) order by t }
+// ── the control: `max` over the SAME rows, which was already right ──
+pub deem max_ord(rs: &[R]) {
+    from rs s group by s.g aggregate t = max(s.u) select (key, t) order by t }
+// ── the i64 twin over the same 64 bits, which must NOT agree ──
+pub deem sign_ord(rs: &[R]) {
+    from rs s group by s.g aggregate t = sum(s.v) select (key, t) order by t }
+// ── the narrow widths ──
+pub deem s8(rs: &[R])  { from rs s group by s.g aggregate t = sum(s.b8)  select t }
+pub deem mx8(rs: &[R]) { from rs s group by s.g aggregate t = max(s.b8)  select t }
+pub deem s32(rs: &[R]) { from rs s group by s.g aggregate t = sum(s.b32) select t }
+
+fn main() -> i32 {
+    // Three SINGLETON groups: `sum` is the identity, so the block is about the
+    // ORDER of the out-name and about nothing else. `v` holds the i64 spelling
+    // of the very same 64 bits as `u`.
+    let sr: [R; 3] = [
+        R { id: 0i64, g: 10i64, u: 5u64,                    v: 5i64,                    b8: 0u8, b32: 0u32 },
+        R { id: 1i64, g: 11i64, u: 9223372036854775808u64,  v: -9223372036854775808i64, b8: 0u8, b32: 0u32 },
+        R { id: 2i64, g: 12i64, u: 18446744073709551615u64, v: -1i64,                   b8: 0u8, b32: 0u32 }];
+
+    // ══ 10s. `order by sum(u64)` — unsigned ascending is 10, 11, 12 ═════════
+    let a: Vec<(i64, u64)> = match sum_ord(&sr[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if a.len() != 3i64        { return 11i32; }
+    if a.get(0i64).0 != 10i64 { return 12i32; }
+    if a.get(1i64).0 != 11i64 { return 13i32; }
+    if a.get(2i64).0 != 12i64 { return 14i32; }
+    // …and the values themselves survived the accumulator bit for bit.
+    if a.get(0i64).1 != 5u64                    { return 15i32; }
+    if a.get(1i64).1 != 9223372036854775808u64  { return 16i32; }
+    if a.get(2i64).1 != 18446744073709551615u64 { return 17i32; }
+
+    // ══ 20s. THE CONTROL: `max` over the same rows, same permutation ════════
+    //    A guard that only ever answers one way is not a guard; this arm says
+    //    the 10s answer is the one an already-correct aggregate gives.
+    let b: Vec<(i64, u64)> = match max_ord(&sr[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if b.len() != 3i64        { return 21i32; }
+    if b.get(0i64).0 != 10i64 { return 22i32; }
+    if b.get(1i64).0 != 11i64 { return 23i32; }
+    if b.get(2i64).0 != 12i64 { return 24i32; }
+
+    // ══ 30s. THE i64 TWIN — the SAME bits, the OTHER order ══════════════════
+    //    5 > −1 > −2^63 signed, so ascending is keys 11, 12, 10. If this block
+    //    ever answered 10, 11, 12 the engine would be sorting everything
+    //    unsigned and the 10s block would be passing for the wrong reason.
+    let c: Vec<(i64, i64)> = match sign_ord(&sr[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    if c.len() != 3i64        { return 31i32; }
+    if c.get(0i64).0 != 11i64 { return 32i32; }
+    if c.get(1i64).0 != 12i64 { return 33i32; }
+    if c.get(2i64).0 != 10i64 { return 34i32; }
+    if c.get(0i64).1 != -9223372036854775808i64 { return 35i32; }
+    if c.get(1i64).1 != -1i64                   { return 36i32; }
+    if c.get(2i64).1 != 5i64                    { return 37i32; }
+
+    // ══ 60s/70s. THE NARROW WIDTHS, AT A TOTAL THAT LEAVES THE COLUMN ═══════
+    let w: [R; 3] = [
+        R { id: 0i64, g: 7i64, u: 0u64, v: 0i64, b8: 200u8, b32: 4000000000u32 },
+        R { id: 1i64, g: 7i64, u: 0u64, v: 0i64, b8: 100u8, b32: 4000000000u32 },
+        R { id: 2i64, g: 7i64, u: 0u64, v: 0i64, b8:   0u8, b32:          0u32 }];
+    let d: Vec<i64> = match s8(&w[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    if d.len() != 1i64       { return 61i32; }
+    if d.get(0i64) != 300i64 { return 62i32; }
+    let e: Vec<i64> = match mx8(&w[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 63i32; } };
+    if e.len() != 1i64       { return 64i32; }
+    if e.get(0i64) != 200i64 { return 65i32; }
+    let f: Vec<i64> = match s32(&w[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 70i32; } };
+    if f.len() != 1i64              { return 71i32; }
+    if f.get(0i64) != 8000000000i64 { return 72i32; }
+
+    return 0i32;
+}
