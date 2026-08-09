@@ -276,9 +276,35 @@ MIN_BASELINE_DEFS=3676
 #                 17906 fields, 6300 defs
 # The empty program's 3676/9810/3676 held on the same build on which four
 # disagreements were sitting one `use logos.lang.writ.container;` away.
-MIN_STDLIB_TYPES=6314
-MIN_STDLIB_FIELDS=17906
-MIN_STDLIB_DEFS=6300
+#
+# ⚠ RE-MEASURED 2026-08-09, AFTER P5 DELETED THE DEEM INTERPRETER:
+#   [layout-gate] stdlib baseline over 188 DERIVED packages: 6060 struct types,
+#                 16948 fields, 6048 defs
+# −254 types / −958 fields / −252 defs. The package count is UNCHANGED at 188 —
+# `logos.mem.deem` still exists, with three files instead of ten — so this is a
+# population that shrank, not a derivation that broke, and the two readings are
+# distinguishable here exactly because MIN_STDLIB_PKGS is a separate floor.
+#
+# The 7 deleted files declare only 24 `struct`s between them. The other ~230 are
+# INSTANTIATIONS: `incr.logos`'s `FsCtrCfg`/`FsJnCfg` were the stdlib's ONLY
+# instantiators of the `logos.lcm.deem.data` B-tree/CoW plane, so the whole
+# plane's derived types went with them — the same cause the ABI check priced
+# independently at 642 breaking removals, of which only 8 are under
+# `logos.mem.deem` itself.
+#
+# ⚠ ATTRIBUTED BY CONTROL, not by argument: the same commit removed two dead
+# `use logos.lang.mem;` lines from the surviving `deem.logos`/`tpl.logos`. Put
+# them back, rebuild, re-run — 6060/16948/6048, byte-identical. The drop is the
+# deletion and nothing else.
+#
+# ⚠ AND NOTE WHERE THIS WAS CAUGHT. This gate is `tier_full`, so it runs at L4
+# and not at L1/L2 — every agent in the P5 rounds ran L1+L2 and none of them
+# could have seen it. The floors below are the values this gate ACTUALLY SAW on
+# the post-cut tree, not a fraction of them; a floor set to a fraction is the
+# hole documented for MIN_LATTICE_DELTA below.
+MIN_STDLIB_TYPES=6060
+MIN_STDLIB_FIELDS=16948
+MIN_STDLIB_DEFS=6048
 # The DERIVATION's own floor: how many `package` declarations the stdlib tree
 # yields. MEASURED 2026-08-01: 188. An empty or truncated list gives back the
 # empty program, whose clean report reads identically.
