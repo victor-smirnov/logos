@@ -7481,7 +7481,7 @@ fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
     // below is unchanged for the same reason: what is missing is still the
     // mechanism, not a preference.
     if rel_backed {
-        return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold");
+        return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold. \u26a0 AND DRed IS A PESSIMIZATION TODAY: measured 1.15-1.9x a from-scratch recompute, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range \u2014 so admitting this shape is not a free capability, and the price must be named to the caller at the moment it becomes reachable. The repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
     }
     if !retract_ok(aggs, acount, acc) {
         return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
