@@ -706,7 +706,31 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
 
     if (MODE STREQUAL pass)
         logos_pass_extra_args(${BASE} EXTRA)
-        set(_timeout 30)
+        # ⚠ VICTOR, 2026-08-08: THE BOX IS SHARED BY DESIGN. «Он разделяемый.
+        # Поэтому сборку надо делать так, чтобы таймауты не мешали. Они должны
+        # быть разумно большими. Когда надо будет что-то бенчмаркать, машина
+        # будет переведена в эксклюзивный режим.»
+        # This is an EXPLICIT EXCEPTION to the project's standing rule against
+        # raising any tolerance, for TIMEOUTS ONLY, and it carries its reason:
+        # on a shared box a timeout measures the NEIGHBOURS, not the code.
+        #
+        # THE PRINCIPLE, which is what keeps this from being a weakening:
+        # A TIMEOUT MUST CATCH A GENUINE HANG AND NOTHING ELSE. A hang is
+        # unbounded, so a cap far above worst realistic contention loses no
+        # detection power at all — it only stops the cap from reporting on the
+        # machine.
+        #
+        # MEASURED 2026-08-08, why 30 was not enough: `wql_incr_retract_three_ways`
+        # takes 10.1-10.3 s standalone, and the paragraph below already records
+        # contention at ~4x — 10 x 4 = 40 > 30, before any co-tenant. It
+        # false-reddened THREE separate L4 runs, and on the third the box was
+        # otherwise idle, so the suite's OWN parallelism (corpus -j12, gates
+        # -j$(nproc)) is enough to do it. The earlier attribution to a co-tenant
+        # was incomplete and is corrected here.
+        # 120 gives the 10 s worst case ~12x and the sub-second median ~120x+.
+        # ⚠ NOT unbounded, and that is deliberate: CI needs a bound and a hang
+        # must still be caught.
+        set(_timeout 120)
         # A test that FORGES A CONTAINER FAMILY runs the metaclass factory and
         # costs 6-9s alone against a suite median well under one. Under the full
         # `ctest -j12` those overshoot the 30s limit and fail as TIMEOUT — a
@@ -727,11 +751,20 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         # still catching a genuine hang.
         file(READ "${LOGOS_FILE}" _src)
         if (_src MATCHES "logos\\.lcm\\.canon\\.(metaclass|container_item)")
-            set(_timeout 60)
+            # Raised 60 -> 180 with the base, and it has to move WITH it: a
+            # family-forging body is 6-9 s where the median is well under one,
+            # so leaving it at 60 would put the heavy tier BELOW the ordinary
+            # one. Same ratio as the base, same reason.
+            set(_timeout 180)
         endif()
     else()
         logos_fail_extra_args(${BASE} EXTRA)
-        set(_timeout 15)
+        # A `fail` test stops at the diagnostic and never links or runs, so its
+        # body is the smallest in the suite — but it contends for the same cores
+        # as everything else, and 15 s is the tightest cap in the tree. Raised
+        # for the shared-box reason above, not because any fail test has been
+        # observed slow.
+        set(_timeout 60)
     endif()
 
     # The Rust-derived conformance ports (tests/imported/) are 55% of the suite
@@ -1292,7 +1325,7 @@ if (FILECHECK_BIN)
                     ${CHK_FILE}
         )
         set_tests_properties(${_test_name} PROPERTIES
-            TIMEOUT 30
+            TIMEOUT 120
             LABELS  "logos;ir_snapshot;suite_ir;tier_commit"
             ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
         )
@@ -1315,7 +1348,7 @@ else()
                 ${CMAKE_COMMAND} -E false
     )
     set_tests_properties(logos_07_ir_snapshot_UNAVAILABLE PROPERTIES
-        TIMEOUT 30
+        TIMEOUT 120
         LABELS  "logos;ir_snapshot;suite_ir;tier_commit"
     )
     message(WARNING
@@ -1351,12 +1384,17 @@ foreach(EXP_FILE IN LISTS SPEC_PASS_EXPECTED)
     # covers only the tests one registration path happens to reach is the same
     # blindness it exists to remove. (MEASURED: pat_6 stayed red on the full
     # suite while its ledger row was green, because this loop did not set it.)
+    # ⚠ TIMEOUTS 120/60 HERE ARE THE SHARED-BOX CAPS — the ground is written out
+    # once at `_timeout` in the main corpus loop above (search `THE BOX IS
+    # SHARED BY DESIGN`). Short form: a timeout must catch a genuine HANG and
+    # nothing else, a hang is unbounded, and on a shared box a tight cap reports
+    # on the neighbours. Raised together so no loop is tighter than another.
     set(_spec_env "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
     list(APPEND _spec_env "LOGOS_MLIRGEN_BUG_LEDGER=${CMAKE_CURRENT_SOURCE_DIR}/mlir_gen_bug.ledger")
     add_test(NAME ${_test_name}
         COMMAND ${TEST_RUNNER} pass $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
     set_tests_properties(${_test_name} PROPERTIES
-        TIMEOUT 30 LABELS "logos;corpus;pass;suite_spec"
+        TIMEOUT 120 LABELS "logos;corpus;pass;suite_spec"
         ENVIRONMENT "${_spec_env}")
 endforeach()
 
@@ -1371,7 +1409,7 @@ foreach(EXP_FILE IN LISTS SPEC_FAIL_EXPECTED)
     add_test(NAME ${_test_name}
         COMMAND ${TEST_RUNNER} fail $<TARGET_FILE:logosc> ${LOGOS_FILE} ${EXP_FILE})
     set_tests_properties(${_test_name} PROPERTIES
-        TIMEOUT 15 LABELS "logos;corpus;fail;suite_spec"
+        TIMEOUT 60 LABELS "logos;corpus;fail;suite_spec"
         ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}")
 endforeach()
 
@@ -1843,7 +1881,7 @@ add_test(
             $<TARGET_FILE:logosc>
 )
 set_tests_properties(logos_09_diag_json_format PROPERTIES
-    TIMEOUT 30
+    TIMEOUT 120
     LABELS  "logos;diag;suite_diag;tier_full"
 )
 
