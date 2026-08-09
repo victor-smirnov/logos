@@ -35,7 +35,7 @@
 //     own type code, which distinguishes W_F32=30 from W_F64=31 and which
 //     `is_float()` twenty lines above DOES read. A boxed f32 therefore comes back
 //     as an f64 whose BITS are the f32's bits — a denormal ~5.1e-315. The dynamic
-//     tier reads every float column through it (`deem/eval.logos:179`, guarded by
+//     tier reads every float column through it (`deem/tpl.logos`, `fn field_read`, guarded by
 //     `t == EL_TY_FLT()`, a class tag that cannot tell 32 from 64), so every f32
 //     answer in the dynamic AND incremental tiers is silently garbage.
 //   • u64/usize above 2^63 arrive as NEGATIVE i64 in the dynamic and incremental

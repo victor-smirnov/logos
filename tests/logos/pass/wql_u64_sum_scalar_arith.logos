@@ -5,7 +5,7 @@
 // ── WHY THIS IS A SECOND SEAM AND NOT THE SAME ONE ──────────────────────────
 // The accumulator adds a row's value into a running total; this file is about
 // what computes the row's value in the first place. `sum(s.u + 1)` runs the
-// `+` in `deem/eval.logos`'s tree-walk evaluator, which has no plan and no
+// `+` in `deem/tpl.logos`'s tree-walk evaluator (`eval_sexpr`), which has no plan and no
 // catalog reach — it sees two `RtVal::I` payloads and a checked i64 add — and
 // it fails in both directions for exactly the reason the accumulator did:
 //

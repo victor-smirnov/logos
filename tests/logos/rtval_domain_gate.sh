@@ -21,6 +21,9 @@
 #          deem.logos [fn rt_kind]:    match is not exhaustive — missing F32
 #          deem.logos [fn rt_truthy]:  match is not exhaustive — missing F32
 #          eval.logos [fn RBinds__set_val]: … — missing F32
+#      (`eval.logos` was the file's name in 2026-08; the template port `8c5ad0ea`
+#      renamed it to `tpl.logos`. This gate globs `<deem-src-dir>/*.logos`, so it
+#      followed the rename with no edit — the name above is the historical record.)
 #      — while the other 24 compiled SILENTLY, each absorbing the new arm as
 #      Null / 0 / 0.0 / "" / a null node. A wrong answer, not a compile error: a
 #      three-site tripwire in front of a 27-site surface.

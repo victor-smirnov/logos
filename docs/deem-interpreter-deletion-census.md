@@ -9,7 +9,9 @@ a named symbol; no line numbers are cited, because they move. Reproduce any row 
 `grep -rnE "^(pub )?(fn|struct) <name>\b" stdlib/`.
 
 Scope statement being tested (P5 as written): delete `stdlib/mem/deem/{check,exec,eval,query}.logos`
-(4713 lines), keep `incr.logos` and `incr_rec.logos`, triage ~80 fixtures.
+(4713 lines as written), keep `incr.logos` and `incr_rec.logos`, triage ~80 fixtures.
+⚠ `eval.logos` no longer exists (the template port, `8c5ad0ea`); the three surviving named files are
+974+1450+963 = 3387 lines today. §2 carries the re-measured table.
 
 ---
 
@@ -17,14 +19,18 @@ Scope statement being tested (P5 as written): delete `stdlib/mem/deem/{check,exe
 
 ### 1a. The four doomed files are the SUBSTRATE of `incr.logos` / `incr_rec.logos`
 
-Every symbol below has exactly ONE definition in `stdlib/`, and that definition is in a doomed file:
+Every symbol below has exactly ONE definition in `stdlib/`:
 
-| symbol | sole definition |
-|---|---|
-| `qplan_new` `chk_new` `sx_of` `check_rexpr` `struct QPlan` `struct Chk` | `stdlib/mem/deem/check.logos` |
-| `relctx_new` `exec_root` `rt_key_hash` `h_step` `struct RelCtx` `struct OutTab` `ts_scan` | `stdlib/mem/deem/exec.logos` |
-| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` | `stdlib/mem/deem/tpl.logos` (PORTED out of `eval.logos`) |
-| `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` |
+| symbol | sole definition | in the cut? |
+|---|---|---|
+| `qplan_new` `check_rexpr` `struct QPlan` | `stdlib/mem/deem/check.logos` | yes |
+| `relctx_new` `exec_root` `rt_key_hash` `h_step` `struct RelCtx` `struct OutTab` `ts_scan` | `stdlib/mem/deem/exec.logos` | yes |
+| `struct Query` `struct QRows` | `stdlib/mem/deem/query.logos` | yes |
+| `rbinds_new` `eval_sexpr` `struct RBinds` `struct Tpl` `chk_new` `sx_of` `struct Chk` | `stdlib/mem/deem/tpl.logos` | **NO** — ported out of `eval.logos`/`check.logos`/`exec.logos`, survives the cut |
+
+⚠ The last row USED to read `eval.logos` + `check.logos`, i.e. doomed. The port (`8c5ad0ea`) moved
+those seven names to a file that is not in the cut, so the blocker below now rests on the first three
+rows ONLY. `chk_new` / `sx_of` / `Chk` are no longer evidence for it.
 
 Real (non-comment) call/type uses in the two files P5 says it keeps — counted by
 `grep -cE "\b(qplan_new|chk_new|sx_of|check_rexpr|relctx_new|exec_root|rt_key_hash|h_step|rbinds_new|eval_sexpr)\("`:
@@ -32,8 +38,13 @@ Real (non-comment) call/type uses in the two files P5 says it keeps — counted 
 * `stdlib/mem/deem/incr.logos` — **44**
 * `stdlib/mem/deem/incr_rec.logos` — **25**
 
-plus the type uses (`&Query`, `QPlan`, `Chk`, `RelCtx`, `QRows` in `IncrRec::snapshot`, `ir_check`,
-`dred`, `epoch`).
+Re-counted over the DOOMED names only (`qplan_new|check_rexpr|relctx_new|exec_root|rt_key_hash|h_step`,
+i.e. dropping the six that the port moved to the surviving `tpl.logos`): **19** and **21**. The refusal
+does not depend on the difference — 19 and 21 are still unsatisfiable after the cut — but the 44/25
+figures are no longer a measurement OF THE CUT and must not be quoted as one.
+
+plus the type uses (`&Query`, `QPlan`, `RelCtx`, `QRows` in `IncrRec::snapshot`, `ir_check`,
+`dred`, `epoch`; `Chk` now resolves to `tpl.logos` and survives).
 
 And the loop closes at the entry point: `Query { … }` is CONSTRUCTED at exactly one site in the tree —
 inside `Query::compile` in `stdlib/mem/deem/query.logos`. `impl Query` exists in three files
@@ -65,11 +76,13 @@ capability is a static-tier feature that cannot outlive `IncrRec`. `stdlib/mem/w
 comment that names it (on `native_use_at`, "Any `IncrRec` engine-source param present?"); the mechanism itself
 is generic (natspec `rel_mod`), so the compiler does not break — the VOCABULARY does.
 
-### 1c. `eval.logos` is also the Trama TEMPLATE engine
+### 1c. the Trama TEMPLATE engine lived in the cut — RESOLVED by the port at `8c5ad0ea`
 
-`pub struct Tpl`, `Tpl::compile`, `Tpl::render` live in `eval.logos` and reach `check.logos`
+`pub struct Tpl`, `Tpl::compile`, `Tpl::render` USED to live in `eval.logos` and reach `check.logos`
 (`check_stmts`, `cbinds_new`, `chk_new`, `simplify_all`, `chk_err`) and `eval.logos`
-(`render_stmts`, `rbinds_new`). This is a separate SHIPPED public capability, not part of the Datalog
+(`render_stmts`, `rbinds_new`). They now live, whole, in `stdlib/mem/deem/tpl.logos`
+(`eval.logos` no longer exists), so this refusal no longer blocks the cut. It is kept because the
+REASON stands: this is a separate SHIPPED public capability, not part of the Datalog
 arc: five fixtures use `Tpl` and never mention `Query` (`query_rtval_ops_e2e`, `query_tpl_udf_e2e`,
 `query_trama_arith_err_e2e`, `query_trama_dynamic_e2e`, `query_trama_typecheck_e2e`).
 `stdlib/mem/wql/trama.logos` and `trama_render.logos` both describe themselves as the STATIC sibling of
@@ -82,15 +95,23 @@ replaced runtime templating and has no plan to.
 
 | file | lines | why it is in the cut |
 |---|---|---|
-| `stdlib/mem/deem/check.logos` | 1672 | on the list |
-| `stdlib/mem/deem/exec.logos` | 1472 | on the list (also holds `ts_scan`, the dynamic graph walker) |
-| `stdlib/mem/deem/tpl.logos` | 1338 | NOT on the list — the template engine, ported out of `eval.logos`/`check.logos`/`exec.logos` |
+Line counts RE-MEASURED at `8c5ad0ea` (`wc -l`), after the template port shrank `check.logos` and
+`exec.logos` and deleted `eval.logos`:
+
+| file | lines | why it is in the cut |
+|---|---|---|
+| `stdlib/mem/deem/check.logos` | 974 | on the list (was 1672; the EL/template checker left for `tpl.logos`) |
+| `stdlib/mem/deem/exec.logos` | 1450 | on the list (was 1472; `eval_sx` left). Also holds `ts_scan`, the dynamic graph walker |
 | `stdlib/mem/deem/query.logos` | 963 | on the list |
 | `stdlib/mem/deem/incr.logos` | 1978 | §1a; also holds `pub struct FactStore`, `IncrJoin` |
 | `stdlib/mem/deem/incr_rec.logos` | 1466 | §1a; `IncrRec` |
 | `stdlib/mem/deem/mapping_state.logos` | 92 | §1b |
 | `stdlib/lcm/deem/facthistory.logos` | 514 | `FactHistory::new` composes `FactStore::new`; sole non-test constructor of `FactStore` |
-| **total** | **8763** | |
+| **total** | **7437** | |
+
+`stdlib/mem/deem/tpl.logos` (1339) is NOT in this table and NOT in the cut: it is the template engine,
+ported out of `eval.logos`/`check.logos`/`exec.logos` at `8c5ad0ea` precisely so it outlives them
+(§1c). `eval.logos` no longer exists.
 
 `stdlib/mem/deem/deem.logos` (1279) SURVIVES as a file — it holds `RtVal`, `rt_kind`, `rt_eq`,
 `SchemaCatalog`, `QEnv` — but its `QEnv` half loses every consumer: `QEnv` is named in real code only in
@@ -277,8 +298,12 @@ the only place the value-domain arc's open defects are written down (see the K f
 designed: `stdlib/mem/wql/trama_render.logos` is the metaprog-side sibling and says so, naming the
 `Tpl::compile` runtime as the other half. To keep the capability, `Tpl` / `Tpl::compile` / `Tpl::render`
 plus their dependencies (`check_stmts`, `cbinds_new`, `simplify_all`, `chk_err`, `render_stmts`,
-`rbinds_new`, `eval_sexpr`, `RBinds`, `Chk`) must be MOVED out of `eval.logos`/`check.logos` into a
-template-only module before either file is deleted. That is a port, not a triage.
+`rbinds_new`, `eval_sexpr`, `RBinds`, `Chk`) had to be MOVED out of `eval.logos`/`check.logos` into a
+template-only module before either file is deleted. That is a port, not a triage. **DONE at `8c5ad0ea`**
+— `stdlib/mem/deem/tpl.logos`, plus `eval_sx` (which this list missed; it lived in `exec.logos` and is
+the sole `RtVal::Error` → `chk_fail_p` boundary) and `check_expr` / `check_root` / `src_elem_ty` /
+`bin_op_name` / `chk_new` / `chk_fail` / `chk_bad` / `chk_fail_p` / `sx_of` / `CB_CAP` / `impl CBinds`.
+Rows 49, 52, 53, 54, 55 are therefore no longer C-class losses.
 
 **C3 — lenient / erased sources** (rows 39, 40). `QEnv::bind_source_erased` and `QEnv::bind_node_erased`
 (in `deem.logos`, which survives) have no caller after the cut and no static analogue: a `deem` item's
@@ -371,7 +396,10 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
 
 * Every sole-definition row of §1a: confirmed by `grep -rnE '^(pub )?(fn|struct) …' stdlib/`. Call counts
   44 / 25 confirmed. `Query { … }` constructed at exactly one site, in `query.logos`'s `Query::compile`.
-* §2 arithmetic: 1672+1472+606+963 = 4713 (P5 as written), +1978+1466+92+514 = **8763**. Confirmed.
+* §2 arithmetic AT `8cf79102`: 1672+1472+606+963 = 4713 (P5 as written), +1978+1466+92+514 = **8763**.
+  Confirmed AT THAT TREE and SUPERSEDED at `8c5ad0ea`: the template port shrank `check.logos` to 974 and
+  `exec.logos` to 1450 and deleted `eval.logos` (606 → gone), so the four-file cut is 974+1450+963 =
+  **3387** and the whole-tier cut is +1978+1466+92+514 = **7437**. §2 carries the current table.
 * The three DRed harvest fixtures: `deem_dred_phases23_spec`, `wql_incr_rec_agg_retract_lattice`,
   `wql_incr_rec_dred_error_window` each declare ZERO `deem` items and each reaches `Query::compile` +
   `q.incremental_rec(&env)`. L11 stands: harvest by fixture does not survive.
