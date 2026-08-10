@@ -5472,16 +5472,30 @@ void Mono::populate_trait_engine_() {
         // (see mono.cpp's concrete_impls_ insert, which carries the measurement
         // of why THAT alias is load-bearing).
         //
-        // ⚠ THIS ONE'S NECESSITY AND HARM ARE BOTH UNMEASURED, and that is not a
-        // guess: disabling it (`if (false)`) and rebuilding leaves all three
-        // trait-identity fixtures GREEN, including
-        // `tests/logos/pass/trait_ident_bare_alias_bound.logos`, which is the
-        // fixture that DOES red when the concrete alias goes. So nothing in the
-        // corpus distinguishes this insert's presence from its absence, in
-        // either direction — the same state the concrete alias was in on the day
-        // a round deleted it as "necessity without a consumer" and would have
-        // shipped a real regression. Do not repeat that here: find the consumer
-        // or find the harm, and MEASURE it, before touching this.
+        // ⚠ THIS ALIAS IS LOAD-BEARING — MEASURED, AND ITS CONSUMER IS PINNED.
+        // It used to read "necessity and harm both unmeasured", on the ground
+        // that `if (false)` left every trait-identity fixture green. That green
+        // was NOT weak evidence, it was NO evidence: instrumenting
+        // blanket_impls_ showed the guarded branch NEVER EXECUTED in any of
+        // them (nine rows, every one `canon == bare`), so the corpus was
+        // reporting on a branch it never entered.
+        // The consumer now exists: `tests/logos/pass/trait_blanket_bare_alias_bound.logos`
+        // with the archive `tests/logos/trait_blanket_chain/bmid`. Alias ON:
+        // `satisfies(Error, i64) = 1`, rc 0. Alias OFF: `= 0`, rc 1, "void call
+        // statement DROPPED — the method `Holder$…$G1$i64__store` had no
+        // instantiation" — the same gate (Mono::drain_method_worklist →
+        // method_bound_ok → mono_concrete_satisfies_bound → mono_has_impl_recursive)
+        // that drops HashMap$…__insert when the CONCRETE alias goes.
+        // Three properties are each necessary, each measured by removal: the
+        // losing trait must be declared by a LINKED package (the stdlib is
+        // collected first and always KEEPS the bare slot, so no stdlib homonym
+        // can reach this branch); the bounded template must live in the
+        // ARCHIVE; and the biting call must be a void method as a bare
+        // statement. Full derivation: docs/internals/trait-identity-bare-aliases.md.
+        // ⚠ It is a FALSE-NEGATIVE hedge over one raw key, exactly like the
+        // concrete alias in mono.cpp, and the two must retire TOGETHER — which
+        // needs `canonical_bound_trait` mirrored into LIR (push_tbound /
+        // ImplView), a format-touching change. Neither may go alone.
         const std::string& b_canon =
             bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait;
         if (b_canon != bi.trait_name) {

@@ -1166,8 +1166,18 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # This hunk conflicted LOUDLY only because each slice also wrote its own comment
 # block. Had the comments matched, the identical values would have merged
 # silently and this ledger would have come up ONE SHORT.
-REGISTRY-ALL         6924
-REGISTRY-NOIMPORTED  3241
+# The merged tree measured 6924 / 3241 / 31 exactly, as written above.
+# THEN the merge itself exposed one more defect and closed it, adding a third
+# fixture: the B-mv-03 refusal was DECLARATION-ORDER dependent — `fn f<T: Hash>`
+# written above `pub trait Hash` reverted silently to the pre-B-mv-03 MLIR
+# verifier failure. Fixed at pass-0 trait pre-registration (sema_collect.cpp);
+# pinned by tests/logos/fail/trait_ident_homonym_bound_decl_order.{logos,expected}.
+# +1 / +1 / 0 again — a fail fixture carries no tier_commit label. RE-MEASURED
+# on the tree that carries all three, `ctest -N` three ways, after re-configure,
+# and the name verified individually with
+#   ctest -N -R trait_ident_homonym_bound_decl_order
+REGISTRY-ALL         6925
+REGISTRY-NOIMPORTED  3242
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

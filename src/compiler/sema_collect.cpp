@@ -476,9 +476,43 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                 // trait packages arrive later in `asts`. collect_trait
                 // (pass2) populates the body and treats this pre-existing
                 // empty entry as a no-op (see traits_.count(tname) guard).
+                // B-mv-03 (declaration-order facet): the placeholder must go
+                // under the key `collect_trait` will USE, not always the bare
+                // one. A trait whose bare slot is already claimed by a
+                // DIFFERENT package's trait will be registered by collect_trait
+                // under `pkg::Name` (the B-mv-02 branch below at
+                // "bare_taken_by_other"). If pass-0 merely skipped it — which
+                // is what the `!traits_.count(tname)` guard alone did — then
+                // between pass-0 and that trait's own collect_trait the trait
+                // EXISTS UNDER NO KEY AT ALL, and every trait-name resolution
+                // in that window silently answers with the OTHER homonym.
+                // MEASURED, and this is not hypothetical: `fn f<T: Hash>(…)`
+                // written ABOVE `pub trait Hash` in the same package captured
+                // `canonical_trait = "Hash"` (the stdlib's) via
+                // read_trait_bound_args → canonical_trait_name's
+                // not-yet-collected fallback, admitted `i64` into the bound,
+                // and died in the MLIR verifier with
+                //   'func.call' op 'i64__tag' does not reference a valid function
+                // — the exact pre-B-mv-03 defect, reappearing purely because
+                // of item order. The failure direction is always PERMISSIVE
+                // (a bound admits too much, never too little), so no green
+                // corpus could see it: it has to be closed here, at the
+                // registration, not sensed downstream.
+                // The two passes agree on WHO owns the bare slot because both
+                // walk `asts` in the same order and both give it to the
+                // incumbent — so a placeholder written qualified here is read
+                // back as `predeclared` by collect_trait's duplicate check and
+                // is a no-op there, exactly like a bare one.
                 if (item.has_key(la::NAME.code)) {
                     auto tname = std::string(str_of(item.get(la::NAME.code)));
-                    if (!traits_.count(tname)) {
+                    auto bit = traits_.find(tname);
+                    const bool bare_taken_by_other =
+                        !tname.empty() && bit != traits_.end() &&
+                        !bit->second.package.empty() &&
+                        bit->second.package != cur_package_;
+                    const std::string key = bare_taken_by_other
+                        ? sema_key(cur_package_, tname) : tname;
+                    if (!traits_.count(key)) {
                         SemaTraitInfo placeholder{};
                         placeholder.package = cur_package_;
                         placeholder.predeclared = true;
@@ -492,7 +526,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                             placeholder.is_pub = !pv.is_null() && pv.is_value() &&
                                                  pv.as_value<uint8_t>() != 0;
                         }
-                        traits_[tname] = std::move(placeholder);
+                        traits_[key] = std::move(placeholder);
                     }
                 }
             }

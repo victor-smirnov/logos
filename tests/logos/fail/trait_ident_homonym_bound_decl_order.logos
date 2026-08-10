@@ -1,0 +1,62 @@
+// THE SAME REFUSAL, WITH THE BOUND WRITTEN ABOVE THE TRAIT IT NAMES.
+//
+// This file is `trait_ident_homonym_bound_refused.logos` with ONE difference:
+// `fn hmid_tag<T: Hash>` is written BEFORE `pub trait Hash`. Nothing else moves
+// — same package, same single TU, same stdlib `Hash` owning the bare registry
+// slot, same expectation string.
+//
+// WHY IT EXISTS. B-mv-03 captures a bound's trait IDENTITY at the site the
+// bound is WRITTEN (SemaChecker::read_trait_bound_args → canonical_trait_name).
+// That capture reads `traits_`, and `traits_` is filled in item order, so a
+// forward reference used to resolve against a registry that did not yet contain
+// the local trait. MEASURED on the merged tree before the pass-0 fix:
+//   · trait first (the sibling file): refused at the bound, with the ground.
+//   · fn first  (this file):          NOT refused — full sema, full mono, full
+//     mlir-gen, then `error: 'func.call' op 'i64__tag' does not reference a
+//     valid function`, rc 1. Exactly the pre-B-mv-03 defect, back purely
+//     because of the order two items are written in.
+//
+// ⚠ WHY A GREEN CORPUS COULD NEVER HAVE FOUND THIS. The mis-resolution is
+// always PERMISSIVE: an unresolved bound falls back to the bare spelling, which
+// admits the OTHER homonym's impls. A bound that admits too much never turns a
+// working program red, so nothing in a passing suite is disturbed by it — the
+// hole is only visible from a program that MUST be refused and is not. That is
+// why the fix lives at the registration (pass-0 pre-registers the trait under
+// the key collect_trait will use) and not in a downstream sensor.
+//
+// ⚠ WHAT THIS FILE DOES NOT PIN. Not the MLIR verifier message above — that is
+// the DEFECT, and a `fail/` door holding it would be a green test asserting a
+// defect. `.expected` carries the sema refusal and its ground, which the
+// verifier failure cannot satisfy: it never names a trait at all.
+//
+// LINK ORDER, stated as ground exactly as the sibling states it: single TU, no
+// `-l` archive, so the stdlib's `logos.lang.hash::Hash` is collected FIRST and
+// owns the bare slot; THIS package's `Hash` lives under its qualified key. The
+// mirror link order (an archive's homonym owning the bare slot) is NOT closed
+// by either file — see the sibling's closing note.
+//
+// The legitimate direction is exercised in this same file: `hmid_tag(S{..})`
+// must still bind through the package-local `Hash`. If the fix had refused
+// every `Hash` bound instead of separating the two traits, the first call would
+// be the one that failed, and the ground below would not be printed for it.
+package trait_ident_homonym_bound_refused;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+// ⚠ WRITTEN ABOVE THE TRAIT ON PURPOSE. Do not "tidy" this by moving it below
+// the trait declaration — that is the sibling file, and it asks a question this
+// one does not.
+fn hmid_tag<T: Hash>(x: T) -> i64 { return x.tag(); }
+
+pub trait Hash { fn tag(&self) -> i64; }
+
+pub struct S { pub a: i32, }
+impl Hash for S { fn tag(&self) -> i64 { return 91i64; } }
+
+fn main() -> i32 {
+    let ok: i64 = hmid_tag(S { a: 1i32 });   // the legitimate direction
+    let bad: i64 = hmid_tag(5i64);           // i64 implements the STDLIB Hash
+    if ok != 91i64 { return 41; }
+    if bad != 91i64 { return 42; }
+    return 0i32;
+}
