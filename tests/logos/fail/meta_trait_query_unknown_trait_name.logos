@@ -7,9 +7,22 @@
 // The old behaviour: `has_trait::<i64, NoSuchTraitAnywhere>()` compiled clean,
 // exit 0, and folded to `false` — a TYPO was indistinguishable from a genuine
 // absence of the impl, and worse, a spelling that some unrelated impl happens
-// to be keyed under folds to `true` and the derivation reading it emits calls
-// to methods that do not exist. The trait position of a trait query is carried
-// to mono as a bare STRING; nothing resolved it against anything.
+// to be keyed under folds to `true` and the derivation reading it emits code
+// under a capability the type does not have. The trait position of a trait
+// query is carried to mono as a bare STRING; nothing resolved it against
+// anything.
+//
+// ⚠ THIS PARAGRAPH USED TO SAY "emits calls to methods that do not exist".
+// That sentence is REFUTED BY MEASUREMENT (2026-08-10): metaprog-emitted
+// source re-enters the full front end, on both emission routes —
+// `fail/trait_query_emit_uncheckable_method` pins the Emitter/push_str route
+// (`<metaprog>`) and `fail/trait_query_quote_item_uncheckable_method` pins the
+// quote_item!/metacall blob-substitution route (`<metaprog-blob-subst>`); each
+// refuses the bad call at sema. A false YES buys a compile error, or — see
+// `pass/trait_query_emit_homonym_method` — a call that lands on a real but
+// unrelated same-named method. It is a wrong boolean, not memory-unsafety.
+// THE ASSERTION BELOW IS UNAFFECTED: it pins the loud refusal, which is right
+// under either reading.
 //
 // ⚠ THE EXPECTATION ASSERTS THE GROUND, NOT AN ABSENCE. It names the intrinsic,
 // the offending trait, AND the package the compiler searched. A `fail/` door

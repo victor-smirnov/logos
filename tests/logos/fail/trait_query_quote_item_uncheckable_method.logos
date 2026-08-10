@@ -1,0 +1,70 @@
+// THE SECOND EMISSION ROUTE. `fail/trait_query_emit_uncheckable_method.logos`
+// measured that a metaprog handler which builds SOURCE TEXT (`Emitter` +
+// `buf.push_str` + `commit`) has that text re-sema'd, so a false trait answer
+// buys a compile error and never a dangling call. That file said, in its own
+// words, that the quote forms — which splice an AST rather than text — "were
+// not separately reddened", and that the honest verdict was therefore "not
+// constructible across the MEASURED shapes", not impossibility.
+//
+// THIS FILE MEASURES THE OTHER SHAPE. There is no `Emitter` and no `push_str`
+// anywhere below: `gen` returns a `QuoteItemBlob` built by `quote_item!` and a
+// top-level `metacall` splices it. The boolean out of `has_trait::<Marked,
+// Clone>()` chooses WHICH blob is returned, and the true arm's blob calls
+// `p.clone()` against `Plain`, which has NO `impl Clone`. Byte for byte, that
+// is the item a false YES about `Plain` would have spliced.
+//
+// MEASURED 2026-08-10, and how much work the compiler had already done: all of
+// it up to sema of the spliced item. The metaprog JIT compiled the program, the
+// metacall RAN, asked the query, took the branch, built the blob, and the blob
+// was substituted into the module. The catch is sema OF THE SPLICED ITEM:
+//
+//     <metaprog-blob-subst>:N: error [fn h_quote_go]: method call:
+//     'Plain' has no method 'clone'
+//
+// ⚠ WHY THE EXPECTATION NAMES `h_quote_go` AND NOT THE `<metaprog-blob-subst>`
+// MARKER. The marker line carries a LINE NUMBER that is the source line of the
+// `quote_item!` in THIS file — editing the comment you are reading would move
+// it, i.e. the expectation would self-invalidate. `h_quote_go` is declared
+// NOWHERE except inside that blob, so a diagnostic naming it can only have come
+// from sema of the spliced item; and this file contains no text-emission path at
+// all, so it cannot be satisfied by the route the sibling fixture pins.
+//
+// WHAT GOES RED IF THIS FIXTURE EVER BREAKS: a blob-substitution path that
+// reaches codegen without re-running method resolution.
+//
+// CONTROLS MEASURED 2026-08-10, restored and re-run green before the next:
+//   · ENGINE, not fixture — forcing `answer = false` at the `__has_trait__`
+//     fold in `Mono::clone_expr`'s intrinsic chain (src/compiler/mono_clone.cpp)
+//     makes `gen` return the SAFE blob; the module then compiles clean (rc 0)
+//     and this door reds. That is the proof the door is aimed at the emission
+//     the query chooses, not at some unrelated refusal.
+//   · ENGINE — renaming the diagnostic at the `"method call: '{}' has no
+//     method '{}'"` site in `SemaChecker` (src/compiler/sema_expr.cpp) reds this
+//     door on the expectation while leaving
+//     `pass/trait_query_emit_homonym_method` green.
+package trait_query_quote_item_uncheckable_method;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+
+pub struct Marked { pub a: i32, }
+impl Clone for Marked { fn clone(&self) -> Marked { return Marked { a: self.a }; } }
+
+// Deliberately NO `impl Clone`.
+pub struct Plain { pub a: i32, }
+
+fn gen() -> QuoteItemBlob {
+    // THE BOOLEAN CHOOSES WHAT IS SPLICED.
+    let yes: bool = has_trait::<Marked, Clone>();
+    if yes {
+        return quote_item! { pub fn h_quote_go(p: &Plain) -> i32 { let q: Plain = p.clone(); return q.a; } };
+    }
+    return quote_item! { pub fn h_quote_go(p: &Plain) -> i32 { return p.a; } };
+}
+
+metacall gen();
+
+fn main() -> i32 {
+    let p: Plain = Plain { a: 7i32 };
+    return h_quote_go(&p) - 7i32;
+}

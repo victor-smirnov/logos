@@ -1140,6 +1140,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # the cut: 6959 / 3276 / 30 -> 6906 / 3223 / 30, i.e. exactly -53 / -53 / 0, one
 # ctest per deleted fixture and tier_commit untouched. PREDICTED before the
 # re-configure; the measurement agreed.
+# ⚠ THE VALUE BELOW WAS MEASURED ON THE MERGED TREE, not taken from a slice.
+# Three slices each wrote their own total against the SAME base, so the merge
+# conflicted LOUDLY here — unlike the previous round, where two slices wrote the
+# BYTE-IDENTICAL hunk and git merged it silently one short.
+REGISTRY-ALL         6920
+REGISTRY-NOIMPORTED  3237
 REGISTRY-ALL         6919
 REGISTRY-NOIMPORTED  3236
 REGISTRY-TIERCOMMIT  31

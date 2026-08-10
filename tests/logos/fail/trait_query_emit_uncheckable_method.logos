@@ -28,18 +28,19 @@
 // route (a new Emitter mode, a quote form that installs a resolved AST) reaches
 // codegen without re-checking method resolution, THIS is the file that turns.
 //
-// SCOPE, HONESTLY: this pins the push_str/commit route, which is the route the
-// probe measured. `quote_block!`/`quote_ty!` splice into the AST and are sema'd
-// on the same path; that was not separately reddened. "Not constructible across
-// the measured shapes, with a mechanism" — not a proof of impossibility.
+// SCOPE: this pins the push_str/commit route. The AST-splice route is pinned
+// SEPARATELY by `fail/trait_query_quote_item_uncheckable_method.logos`, which
+// contains no Emitter at all — a `quote_item!` blob chosen by the same boolean
+// and spliced by a top-level `metacall`, refused at `<metaprog-blob-subst>`.
+// MEASURED 2026-08-10 on the verification pass; before it, this paragraph read
+// "that was not separately reddened", and the verdict was correctly the weaker
+// "not constructible across the measured shapes". Two routes are now measured;
+// that is still not a proof of impossibility over all future splice paths.
 //
-// ⚠ TWO FIXTURES STILL CARRY THE SENTENCE THIS ONE REFUTES, in their prose
-// only: `fail/meta_trait_query_unknown_trait_name.logos` and
-// `fail/meta_trait_query_homonym_trait_name.logos` both say a false answer
-// "emits calls to methods that do not exist". Their ASSERTIONS are unaffected
-// (they pin the loud refusal, which is right either way); the phrase is what is
-// wrong, and it is left standing here rather than edited because those files
-// are outside this slice's fence. Whoever takes task #29 should fix the phrase.
+// The two fixtures that carried the refuted sentence in their prose —
+// `fail/meta_trait_query_unknown_trait_name.logos` and
+// `fail/meta_trait_query_homonym_trait_name.logos` — were corrected on the same
+// pass (comment only; their expectations were right either way).
 //
 // The sibling `pass/trait_query_emit_homonym_method.logos` pins the OTHER half:
 // what a false YES CAN do is land on a real-but-unrelated method.
