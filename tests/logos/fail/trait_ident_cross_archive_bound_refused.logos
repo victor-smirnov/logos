@@ -1,0 +1,45 @@
+// A BOUND THAT CROSSES AN ARCHIVE BOUNDARY KEEPS ITS TRAIT'S IDENTITY.
+//
+// `trait_ident_chain.lhom` declares its own `trait Hash` — a homonym of the
+// stdlib's `logos.lang.hash::Hash` — implements it for `f64` only, and exports
+// `pub fn lhom_tag<T: Hash>(x: T) -> i64`. `i64` implements the STDLIB `Hash`
+// and not lhom's, so `lhom_tag(5i64)` must be REFUSED.
+//
+// ⚠ WHAT WAS WRONG, AND IT WAS NOT WHERE IT LOOKED. The reported symptom was a
+// compiler SIGSEGV on this shape. It did not reproduce; what reproduced, every
+// time, was worse-behaved than a crash and quieter: the call was ADMITTED, ran
+// through all of sema and all of mono, and died in the MLIR verifier with
+//     error: 'func.call' op 'i64__tag' does not reference a valid function
+// while the control — the identical archive with its trait renamed `MyHash` —
+// refused cleanly, rc 1. Measured on an equivalent archive pair built for the
+// purpose, both arms, before and after.
+//
+// ROOT: a traits_ REGISTRY KEY IS NOT AN IDENTITY. The registry files whichever
+// homonym is collected first under the BARE name, so the incumbent's "canonical"
+// key was the string `Hash` — the very key every OTHER homonym's impl is also
+// filed under as its raw bare-text alias. A bound over one trait therefore read
+// the other's impls, in whichever direction the collection order happened to
+// point. The identity is now `pkg::Trait` for EVERY trait that resolves
+// (`impl_key_trait`), so it cannot collide with a raw alias, and the raw key
+// keeps serving the compiler's own bare-text probes untouched.
+//
+// ⚠ THE ADMIT HALF IS ELSEWHERE AND MUST STAY GREEN. This expectation cannot
+// distinguish "the two Hashes were separated" from "every Hash bound is now
+// refused" — those print the same line. What rules the second out:
+//   · tests/logos/pass/trait_ident_pkg_chain.logos — links both archives and
+//     drives the LEGITIMATE direction, `hmid_tag(2.5f64)` through `lhom_tag`,
+//     i.e. this same bound satisfied by the type that really implements it.
+//   · tests/logos/pass/trait_ident_bare_alias_bound.logos — a hash container
+//     instantiating in a program that links this same homonym archive.
+// A red in either of those is not this behaviour; it is over-refusal.
+//
+// ⚠ NOT PINNED: the MLIR verifier line above. That is the defect, and a `fail/`
+// door holding it would be a green test asserting one.
+package test;
+use trait_ident_chain.lhom;
+
+fn main() -> i32 {
+    let v: i64 = lhom_tag(5i64);   // i64 implements the STDLIB Hash, not lhom's
+    if v != 8712i64 { return 1i32; }
+    return 0i32;
+}

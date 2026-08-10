@@ -3624,8 +3624,12 @@ private:
     // permissive path survives only where identity is genuinely unknown.
     // This also retires the `q.find("::")` text-guess — a substring probe used
     // to classify a key is the shape that produced the separator-class bug.
-    static bool blanket_implements(const BlanketImpl& bi, const std::string& q) {
-        return bi.query_trait() == q;
+    // ⚠ NORMALISE BOTH SIDES. Either side may arrive as a bare-text probe, a
+    // traits_ registry key (BARE for the homonym that owns the bare slot), or
+    // an already-qualified identity. Comparing the strings as they arrive made
+    // the answer depend on which spelling the caller happened to hold.
+    bool blanket_implements(const BlanketImpl& bi, const std::string& q) const {
+        return impl_key_trait(bi.query_trait()) == impl_key_trait(q);
     }
 
     // ── Package-qualified symbol lookup helpers ───────────────────
@@ -3850,6 +3854,32 @@ private:
     // assoc) or looked up, so a user trait and a same-named stdlib/prelude trait
     // route to DISTINCT entries. Falls back to the bare name when unresolved
     // (forward refs / not-yet-collected) — callers then behave as before.
+    // ── The IMPL-REGISTRY identity of a trait, ALWAYS package-qualified ──
+    //
+    // ⚠ A REGISTRY KEY IS NOT AN IDENTITY, and conflating them was a live
+    // defect. `canonical_trait_name` returns the traits_ KEY, which is the BARE
+    // name for whichever homonym owns the bare slot. Using that as the impl-key
+    // identity means the incumbent's identity key is `Hash::i64` — the exact
+    // string every OTHER homonym's impl is also filed under as its raw
+    // bare-text alias. So a bound over the incumbent hit the newcomer's alias,
+    // and vice versa.
+    // MEASURED: an archive declaring `trait Hash` + `pub fn ord2_tag<T: Hash>`,
+    // consumer calls `ord2_tag(5i64)` ⇒ admitted, then
+    //   error: 'func.call' op 'i64__tag' does not reference a valid function
+    // while the control (archive trait renamed `MyHash`) refuses cleanly, rc 1.
+    // The identity below is `pkg::Name` for EVERY trait that resolves, so it
+    // can never equal another trait's bare alias, and the raw key keeps serving
+    // the ~50 bare-text probes untouched.
+    // Composed structurally from the trait's own `package` + `name`, NOT by
+    // probing the key for a `::` substring — a substring test over a key space
+    // is the shape that produced the separator-class bug.
+    std::string impl_key_trait(std::string_view regkey) const {
+        auto it = traits_.find(std::string(regkey));
+        if (it == traits_.end()) return std::string(regkey);
+        const auto& ti = it->second;
+        if (ti.package.empty() || ti.name.empty()) return std::string(regkey);
+        return sema_key(ti.package, ti.name);
+    }
     std::string canonical_trait_name(std::string_view name) {
         auto it = find_trait_iter_scoped(name);
         if (it != traits_.end()) return it->first;

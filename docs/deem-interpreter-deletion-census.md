@@ -1193,8 +1193,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # plus the non-registering archive tests/logos/trait_blanket_chain/bprobe.
 # +2 / +2 / 0. RE-MEASURED after re-configure, three ways, names verified with
 #   ctest -N -R trait_blanket_homonym
-REGISTRY-ALL         6927
-REGISTRY-NOIMPORTED  3244
+# And a FOURTH, chasing the reported cross-archive SIGSEGV: the crash did not
+# reproduce; the ADMISSION did, every time, and it is quieter than a crash.
+# ROOT: a traits_ REGISTRY KEY IS NOT AN IDENTITY. The registry gives the BARE
+# name to whichever homonym is collected first, so the incumbent's "canonical"
+# key was the same string every OTHER homonym's impl is filed under as its raw
+# bare-text alias — a bound over one trait read the other's impls, in whichever
+# direction collection order pointed. Identity is now `pkg::Trait` for every
+# trait that resolves (`impl_key_trait`), so it cannot collide with a raw alias.
+# ⚠ The narrowing is deliberately NOT applied inside `sema_has_impl_recursive`:
+# that primitive is also called by hardcoded COMPILER probes ("a rel column must
+# implement Hash"), which name a stdlib trait by bare text — narrowing it made
+# trait_ident_bare_alias_bound red. The union stays there; the narrowing lives
+# where the caller's intent is known.
+# +1: tests/logos/fail/trait_ident_cross_archive_bound_refused.{logos,expected}
+# (links the existing lhom archive; no new archive). Proved to BITE by reverting
+# the identity composition to the registry key — that fixture, and ONLY it, went
+# red; restore rebuilt and re-run green before continuing.
+REGISTRY-ALL         6928
+REGISTRY-NOIMPORTED  3245
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

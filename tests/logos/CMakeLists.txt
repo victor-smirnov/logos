@@ -780,6 +780,9 @@ function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_WQLMAP_USERS wql_mapping_cross_module_priv_fail wql_mapping_cross_module_modvis_fail)
     # The refusal half of the homonym-blanket pair — see libbprobe.a above.
     set(FAIL_TRAIT_BPROBE_USERS trait_blanket_homonym_bound_refused)
+    # A bound crossing an ARCHIVE boundary must keep its trait's identity —
+    # lhom declares its own `Hash` and implements it for f64 only.
+    set(FAIL_TRAIT_IDENT_CHAIN_USERS trait_ident_cross_archive_bound_refused)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST FAIL_WQLMAP_USERS)
@@ -790,6 +793,8 @@ function(logos_fail_extra_args BASE OUT_VAR)
         set(_extra -l ${COEX_BIN})
     elseif (BASE IN_LIST FAIL_TRAIT_BPROBE_USERS)
         set(_extra -l ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
+    elseif (BASE IN_LIST FAIL_TRAIT_IDENT_CHAIN_USERS)
+        set(_extra -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
     else()
         set(_extra "")
     endif()
