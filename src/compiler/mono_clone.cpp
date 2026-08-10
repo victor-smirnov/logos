@@ -203,7 +203,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     if (!visited.insert(cycle_key).second) return true;
 
     auto has_explicit = [&](const std::string& name) -> bool {
-        return concrete_impls_.count(std::string(trait_name) + "::" + name) > 0;
+        return has_concrete_impl_(trait_name, name);
     };
 
     switch (tv.kind()) {
@@ -261,8 +261,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
             return true;
         // Fst = no-Drop (mirror of the sema rule): an own Drop impl kills it.
         if (trait_name == "Fst" &&
-            (concrete_impls_.count("Drop::" + cn) ||
-             concrete_impls_.count("Drop::" + base)))
+            (has_concrete_impl_("Drop", cn) || has_concrete_impl_("Drop", base)))
             return false;
         // Locate the struct definition. Look in out_ first (post-mono shape),
         // then in_ (pre-mono templates).
@@ -299,7 +298,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::Enum: {
         if (trait_name == "Fst") {
             std::string en{tv.enum_name()};
-            if (concrete_impls_.count("Drop::" + en)) return false;
+            if (has_concrete_impl_("Drop", en)) return false;
         }
         std::string ename{tv.enum_name()};
         if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
@@ -5450,20 +5449,15 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
 // new impls or blankets land mid-pass.
 void Mono::populate_trait_engine_() {
     trait_engine_ = trait_engine::TraitEngine{};   // fresh
-    // (D) direct impls — concrete_impls_ keys are "trait::type".
-    // ── SEPARATOR CLASS: CLASSIFIED SAFE BY CONSTRUCTION ─────────────────
-    // `::` is not a legal identifier character, and the left operand is a bare
-    // `impl.trait_name()` (never path-qualified) — so the FIRST `::` is always
-    // the one composed at mono.cpp's concrete_impls_ insert. `find` (not
-    // `rfind`) is REQUIRED because the RIGHT operand may itself contain `::`
-    // (an AssocType target mangles `Base::Name`). The optional trait-arg
-    // suffix is sanitized to `[A-Za-z0-9_]` at the compose site and cannot
-    // inject a `::`. Do not "harden" this into a registry match.
-    for (auto& k : concrete_impls_) {
-        auto pos = k.find("::");
-        if (pos == std::string::npos) continue;
-        trait_engine_.add_impl(k.substr(0, pos), k.substr(pos + 2));
-    }
+    // (D) direct impls — concrete_impls_ is keyed by the PAIR
+    // (trait identity, target type). It used to be a composed "trait::type"
+    // string that this loop split back apart at the first "::"; the trait side
+    // is now an identity that can itself be `pkg::Name`, so there is no
+    // separator that could be split correctly. See the concrete_impls_
+    // declaration in mono_impl.hpp for why the pair (and not another
+    // separator) is the fix.
+    for (auto& [k_trait, k_target] : concrete_impls_)
+        trait_engine_.add_impl(k_trait, k_target);
     // (B) blanket impls — preserve "all bounds in one AND" semantics:
     // primary bound first, then extras. Empty primary bound +
     // empty extras is the "unconditional impl-for-all" case, which
@@ -5473,7 +5467,16 @@ void Mono::populate_trait_engine_() {
         std::vector<std::string> bounds;
         if (!bi.bound_trait.empty()) bounds.push_back(bi.bound_trait);
         for (auto& eb : bi.extra_bounds) bounds.push_back(eb);
-        trait_engine_.add_blanket(bi.trait_name, std::move(bounds));
+        // Register under the trait IDENTITY, plus the bare spelling as an
+        // alias when they differ — same superset rule as the concrete facts
+        // (see mono.cpp's concrete_impls_ insert).
+        const std::string& b_canon =
+            bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait;
+        if (b_canon != bi.trait_name) {
+            auto bounds_alias = bounds;
+            trait_engine_.add_blanket(bi.trait_name, std::move(bounds_alias));
+        }
+        trait_engine_.add_blanket(b_canon, std::move(bounds));
     }
     // (S) shape-auto: closure types satisfy Fn / FnMut / FnOnce.
     // Sprint 5.5 keystone — the engine can answer
@@ -5494,11 +5497,8 @@ void Mono::populate_trait_engine_() {
     // are validated at instantiation, as with generic-struct impls).
     {
         StrSet slice_traits;
-        for (auto& k : concrete_impls_) {
-            auto pos = k.find("::$slice$");
-            if (pos == std::string::npos) continue;
-            slice_traits.insert(k.substr(0, pos));
-        }
+        for (auto& [k_trait, k_target] : concrete_impls_)
+            if (k_target.starts_with("$slice$")) slice_traits.insert(k_trait);
         for (auto& tn : slice_traits) {
             trait_engine_.add_shape_auto_impl(tn, "slice",
                 [](std::string_view n) {
@@ -5642,10 +5642,9 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         if (sct.kind() == LogosType::Kind::Slice ||
             sct.kind() == LogosType::Kind::UnsizedSlice) {
             TypeRef el = sct.elem();
-            std::string ek = trait_name + "::$slice$"
-                + (el ? type_str(el) : std::string("?"));
-            if (concrete_impls_.count(ek)) return true;
-            if (concrete_impls_.count(trait_name + "::$slice$T")) return true;
+            std::string ek = "$slice$" + (el ? type_str(el) : std::string("?"));
+            if (has_concrete_impl_(trait_name, ek)) return true;
+            if (has_concrete_impl_(trait_name, "$slice$T")) return true;
         }
     }
 

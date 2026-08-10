@@ -1,0 +1,54 @@
+// TWO TRAITS SPELLED `Hash` ARE TWO TRAITS, AND THE QUERY ANSWERS ABOUT THE
+// ONE IT NAMES. Both directions, in one file.
+//
+// ── THIS FILE WAS A `fail/` DOOR, AND ITS RETIREMENT IS DELIBERATE ──────────
+// At 9868ddf3 this program COMPILED and answered YES for `i64`: the trait
+// position reached mono as a bare STRING and mono's facts were keyed by the
+// bare `impl` trait name, so this package's `Hash` and `logos.lang.hash::Hash`
+// occupied ONE fact key and `impl Hash for i64` in the stdlib answered for a
+// trait nothing here implements. Task 25 replaced that wrong VALUE with a loud
+// REFUSAL ("trait name 'Hash' is ambiguous"), which was honest but was not an
+// answer. The fact key is now the PAIR (trait identity, target type) — see
+// Mono::concrete_impls_ and impl_keys::CANONICAL_TRAIT — so the honest answer
+// exists and the door is retired INTO A PASS, with the answer asserted, not
+// deleted. The `fail/` doors for a name that denotes NO trait
+// (meta_trait_query_unknown_trait_name, ..._of_unknown_trait_name) keep their
+// grounds untouched: those names still resolve to nothing.
+//
+// ⚠ ROW 1 IS THE ONE THAT WAS WRONG. `i64` implements the STDLIB `Hash`, and
+// nothing implements the `Hash` declared below except `Local`. A compiler that
+// still collapsed the two spellings onto one key answers 1 here.
+// ⚠ ROW 2 IS THE CONTROL, AND IT IS NOT DECORATION. Without it, a compiler
+// that had simply stopped answering — resolved every local homonym to a trait
+// with no facts, or folded the intrinsic to a constant `false` — would look
+// correct on row 1 alone. Row 2 can only be 1 if the LOCAL trait's own impl
+// fact was found under the LOCAL trait's identity.
+//
+// RESIDUAL, MEASURED, NOT CLOSED HERE: mono also inserts each fact under the
+// impl's BARE spelling as an alias, because every legacy BOUND check still
+// hands mono bare bound-trait text. So the mirror of row 1 — a module with no
+// local `Hash` asking about `Local` — would still see this package's impl
+// through the alias. Closing that needs bound trait names canonicalised at
+// emit. Do not read this file as pinning that direction; it does not.
+package meta_trait_query_homonym_trait_name;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub trait Hash { fn utterly_unrelated_method(&self) -> i64; }
+
+pub struct Local { pub a: i32, }
+impl Hash for Local { fn utterly_unrelated_method(&self) -> i64 { return 7i64; } }
+
+fn main() -> i32 {
+    // The stdlib's `impl Hash for i64` belongs to a DIFFERENT trait that merely
+    // shares the spelling. This package's `Hash` is not implemented for i64.
+    let a: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+    // CONTROL: the LOCAL trait's own impl must be found.
+    let b: i32 = if has_trait::<Local, Hash>() { 1i32 } else { 0i32 };
+    printi("i64_localHash=%d\n", a);
+    printi("Local_localHash=%d\n", b);
+    if a != 0i32 { return 41; }
+    if b != 1i32 { return 42; }
+    return 0i32;
+}

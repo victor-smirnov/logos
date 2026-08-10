@@ -1,0 +1,55 @@
+// A BLANKET BOUND OVER A PACKAGE-LOCAL HOMONYM TRAIT.
+//
+// `Hash` is the collision: `logos.lang.hash::Hash` owns the bare registry slot,
+// so THIS package's `Hash` is filed under `trait_ident_homonym_bound::Hash`
+// (B-mv-02). Mono now keys its impl facts by that IDENTITY
+// (impl_keys::CANONICAL_TRAIT → Mono::concrete_impls_, a pair), while a BOUND
+// still reaches mono as bare TEXT. This file is the shape where those two meet.
+//
+// ⚠ WHAT THIS FILE IS NOT. It was written to be the SENSOR for mono.cpp's
+// bare-spelling alias insert, and it is NOT one — MEASURED, both arms: with
+// the alias disabled it is still green, because sema (not mono's fact table)
+// decides which concretes a blanket admits. An earlier attempt, a plain
+// generic bound `fn tag_of<T: Hash>(x: T) -> i64 { x.tag() }`, was likewise
+// green with the alias off. The alias survives as a behaviour-preserving
+// hedge with no witness, and mono.cpp says so at the insert. Do not cite this
+// file as evidence that the alias is load-bearing.
+//
+// ⚠ WHAT IT DID EXPOSE, AND WHY THE BLANKET BODY DOES NOT CALL `tag()`. The
+// bound is conflated on the SEMA side: `impl<T: Hash> Marker for T` admits the
+// stdlib `Hash`'s concretes (`i32`, `i64`, …) into `Marker` as well as this
+// package's `S`. With the body written as `return self.tag();` this program
+// dies at `'func.call' op 'i32__tag' does not reference a valid function` — an
+// MLIR verifier failure, not a diagnostic — and it does so with mono's alias
+// ON *and* OFF, which is what locates the defect in sema. Canonicalising bound
+// trait names at emit is what closes it; that is not this slice, and this file
+// deliberately does NOT assert the defect as an expectation.
+//
+// What it therefore pins, and it is worth pinning: with the fact table keyed
+// by trait identity, a package-local homonym trait still carries a working
+// blanket and its own impl still dispatches. A canonicalisation that dropped
+// the local trait's facts entirely would red here.
+package trait_ident_homonym_bound;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub trait Hash { fn tag(&self) -> i64; }
+
+pub struct S { pub a: i32, }
+impl Hash for S { fn tag(&self) -> i64 { return 91i64; } }
+
+pub trait Marker { fn m(&self) -> i64; }
+impl<T: Hash> Marker for T { fn m(&self) -> i64 { return 91i64; } }
+
+fn call_marker<U: Marker>(x: U) -> i64 { return x.m(); }
+
+fn main() -> i32 {
+    let v: i64 = call_marker(S { a: 1i32 });
+    let d: i64 = S { a: 1i32 }.tag();
+    printi("tag=%d\n", v as i32);
+    printi("direct=%d\n", d as i32);
+    if v != 91i64 { return 41; }
+    if d != 91i64 { return 42; }
+    return 0i32;
+}

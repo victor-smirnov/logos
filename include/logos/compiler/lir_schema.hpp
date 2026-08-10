@@ -707,6 +707,15 @@ inline constexpr Key LIFETIME_OUTLIVES    {"LIFETIME_OUTLIVES",    14}; // Array
 // the `__kassoc_` accessor FUNCTION; a length needs the raw number, which mono
 // has no other way to reach (module/assoc const values live only in sema).
 inline constexpr Key ASSOC_CONSTS         {"ASSOC_CONSTS",         15}; // Array<RelPtr<assoc_const sub-map>>
+// Trait IDENTITY (not spelling) for this impl: the sema traits_ registry key
+// the impl's trait name resolved to in the impl's own scope — the bare name for
+// a trait that owns the bare slot, or `pkg::Name` for a same-name trait that a
+// B-mv-02 collision pushed under its package-qualified key. TRAIT_NAME above is
+// the SPELLING at the impl site and stays bare; two traits spelled `Hash`
+// collide there and are distinct here. Mono keys its fact table by this.
+// Sparse: absent on impls emitted by older front-ends / when unresolved, in
+// which case readers fall back to TRAIT_NAME (the pre-canonical behaviour).
+inline constexpr Key CANONICAL_TRAIT      {"CANONICAL_TRAIT",      16}; // Varchar (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

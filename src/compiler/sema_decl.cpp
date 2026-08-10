@@ -2063,6 +2063,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     TypeRef impl_target_typeref = target_resolved;
 
     ib.str(ik::TRAIT_NAME, trait_name);
+    // Trait IDENTITY beside the spelling (impl_keys::CANONICAL_TRAIT). traits_
+    // is fully collected by the time decls lower, so canonical_trait_name
+    // resolves here without threading SemaImplInfo::canonical_trait through.
+    // Written only when it DIFFERS from the bare spelling — an impl of the
+    // trait that owns the bare slot needs no extra bytes, and mono's
+    // ImplView::canonical_trait() falls back to trait_name().
+    if (!trait_name.empty()) {
+        std::string canon = canonical_trait_name(trait_name);
+        if (canon != trait_name) ib.str(ik::CANONICAL_TRAIT, canon);
+    }
     ib.str(ik::TARGET_TYPE, target);
     // CP-cm-16 follow-up: full impl-target pattern with TypeVars unsubstituted.
     // Set for generic-target impls (`impl<T,E> ... for Foo<Vec<T>, E>`) so

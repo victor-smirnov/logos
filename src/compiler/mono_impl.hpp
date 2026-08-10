@@ -17,7 +17,9 @@
 
 #include <cstdlib>
 #include <format>
+#include <set>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -395,6 +397,9 @@ private:
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
     struct BlanketImplInfo {
         std::string trait_name;
+        // Trait IDENTITY (impl_keys::CANONICAL_TRAIT); == trait_name for a
+        // trait that owns the bare slot.
+        std::string canonical_trait;
         std::string bound_trait;                  // primary (first) bound
         std::vector<std::string> extra_bounds;    // bounds[1..] for AND-filter
         std::string target_typevar;
@@ -433,10 +438,29 @@ private:
     bool blanket_tmpl_built_ = false;
     void ensure_blanket_tmpl_index();
 
-    // Set of (trait::type) keys: concrete types that implement each trait.
-    // Populated from out_.impls (non-blanket) so the blanket fallback can
-    // verify a concrete type satisfies the bound.
-    StrSet concrete_impls_;
+    // Concrete types that implement each trait, keyed by the PAIR
+    // (trait identity, target type). Populated from out_.impls (non-blanket)
+    // so the blanket fallback can verify a concrete type satisfies the bound.
+    //
+    // ── WHY A PAIR AND NOT A COMPOSED STRING ─────────────────────────────
+    // This was `StrSet` of `trait + "::" + target` until the trait side became
+    // an IDENTITY (impl_keys::CANONICAL_TRAIT), which is spelled `pkg::Name`
+    // for a trait that lost the bare slot to a B-mv-02 collision. The old key
+    // was split back apart one function later (populate_trait_engine_) at the
+    // FIRST "::", an invariant that held only because the left operand was
+    // always a bare identifier — and registry packages spell with DOTS
+    // (`logos.lang.hash::Hash`), so a canonical left operand splits at the
+    // PACKAGE separator. That is the SEPARATOR CLASS verbatim (`find("__")`
+    // was a GUESS; closed at 2bdd8f25). There is no "safer separator": the
+    // fix is to never compose, so there is nothing to split and no invariant
+    // for a comment to protect. trait_engine::TraitEngine already keys by
+    // std::pair<TraitName, TypeName>, so the pair propagates unchanged.
+    using ImplFactKey = std::pair<std::string, std::string>;
+    std::set<ImplFactKey> concrete_impls_;
+    bool has_concrete_impl_(std::string_view trait, std::string_view target) const {
+        return concrete_impls_.count(ImplFactKey{std::string(trait),
+                                                 std::string(target)}) > 0;
+    }
 
     // Sprint 5: side-by-side trait_engine driving the same queries as
     // mono_has_impl_recursive. Populated lazily from concrete_impls_ +

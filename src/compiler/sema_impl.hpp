@@ -3640,19 +3640,24 @@ private:
         return std::string(name);
     }
     // ── Trait identity for the mono-time trait QUERY intrinsics ──────────
-    // `has_trait::<T, Tr>()` and `has_trait_of::<Tr>(t)` carry the trait as a
-    // BARE STRING down to mono, where the facts are keyed by the bare `impl`
-    // trait name (Mono::populate_trait_engine_ splits concrete_impls_ keys at
-    // the first "::"). A trait query can therefore only ever denote the trait
-    // that OWNS THE BARE SPELLING — it is text, not a resolved item. Two
-    // consequences, both of which these two helpers exist to make LOUD:
-    //   · a name that denotes no trait at all is still answered, `false` or
-    //     even `true` when some unrelated impl is keyed under that spelling;
-    //   · when two packages declare a trait of the same bare name (B-mv-02
-    //     puts the newcomer under `pkg::Name` and leaves the incumbent bare),
-    //     the query cannot say WHICH — a package-local `trait Hash` reads the
-    //     stdlib `Hash`'s impl facts and answers YES for a trait nothing in
-    //     the program implements.
+    // `has_trait::<T, Tr>()` and `has_trait_of::<Tr>(t)` carry the trait to
+    // mono as a STRING argument. That string is now the trait's IDENTITY — the
+    // traits_ registry key — not the spelling written at the query site, and
+    // mono's fact table is keyed by the same identity (impl_keys::
+    // CANONICAL_TRAIT → Mono::concrete_impls_, a PAIR). So two packages that
+    // each declare `trait Hash` are two traits with two fact sets, and a query
+    // naming one cannot read the other's impls.
+    // What is still refused, and why:
+    //   · a name that denotes NO trait anywhere — it would otherwise be
+    //     answered `false`, or even `true` when some unrelated impl happens to
+    //     be keyed under that spelling;
+    //   · a name that denotes SEVERAL traits and does not resolve to any of
+    //     them in this scope (neither local, nor imported, nor the bare slot).
+    // RESIDUAL, measured, NOT closed here: mono also inserts each fact under
+    // the impl's BARE spelling as an alias, because every legacy BOUND check
+    // still hands mono bare bound-trait text. A query naming the trait that
+    // owns the BARE slot therefore still sees a homonym's impls through that
+    // alias. Closing it means canonicalising bound trait names at emit.
     // ⚠ NOT an import check. Resolution falls back to the bare slot exactly
     // as find_trait_iter_scoped does, so a module that does NOT import the
     // trait's package keeps answering — capability is a property of the type,
@@ -3675,11 +3680,26 @@ private:
         std::sort(out.begin(), out.end());
         return out;
     }
-    // Refuse a trait query whose trait NAME cannot honestly be answered by the
-    // bare-keyed impl table. `intrinsic` is spelled into the message.
-    // Returns true when the query may proceed.
-    bool check_trait_query_name(std::string_view intrinsic, std::string_view name) {
+    // Resolve the trait NAME written at a query site to the trait IDENTITY that
+    // mono's fact table is keyed by, or refuse loudly. `intrinsic` is spelled
+    // into the message. Returns nullopt iff a diagnostic was emitted.
+    std::optional<std::string>
+    resolve_trait_query_name(std::string_view intrinsic, std::string_view name) {
         auto keys = trait_keys_spelling(name);
+        if (keys.size() == 1) {
+            // Unique spelling: use THAT key even when scoped resolution would
+            // miss it (a trait living only under `pkg::Name` whose package the
+            // asker does not import). Import-invariant by construction.
+            return keys[0];
+        }
+        if (!keys.empty()) {
+            // Several traits share the bare spelling. Resolve exactly as any
+            // other trait name in this scope does — local package, then
+            // imports, then the bare slot.
+            std::string canon = canonical_trait_name(name);
+            if (std::find(keys.begin(), keys.end(), canon) != keys.end())
+                return canon;
+        }
         if (keys.empty()) {
             std::string where = cur_package_.empty()
                 ? std::string("the global trait registry")
@@ -3693,26 +3713,24 @@ private:
                 "{}: '{}' does not name a trait; looked in {}, imported packages [{}], "
                 "and the global trait registry",
                 intrinsic, name, where, imps));
-            return false;
+            return std::nullopt;
         }
-        if (keys.size() > 1) {
-            std::string list;
-            for (auto& k : keys) {
-                if (!list.empty()) list += ", ";
-                auto it = traits_.find(k);
-                list += (it != traits_.end() && !it->second.package.empty() &&
-                         k.find("::") == std::string::npos)
-                            ? it->second.package + "::" + std::string(name)
-                            : k;
-            }
-            error(std::format(
-                "{}: trait name '{}' is ambiguous — it names {} distinct traits ({}); "
-                "a trait query matches by bare name and the impl table cannot "
-                "distinguish them",
-                intrinsic, name, keys.size(), list));
-            return false;
+        // keys.size() > 1 and none of them is what the name resolves to here:
+        // the query names several traits and no scope rule picks one.
+        std::string list;
+        for (auto& k : keys) {
+            if (!list.empty()) list += ", ";
+            auto it = traits_.find(k);
+            list += (it != traits_.end() && !it->second.package.empty() &&
+                     k.find("::") == std::string::npos)
+                        ? it->second.package + "::" + std::string(name)
+                        : k;
         }
-        return true;
+        error(std::format(
+            "{}: trait name '{}' is ambiguous — it names {} distinct traits ({}) "
+            "and resolves to none of them in this scope",
+            intrinsic, name, keys.size(), list));
+        return std::nullopt;
     }
     bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
     bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }

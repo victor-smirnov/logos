@@ -288,7 +288,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         });
         if (impl.is_blanket()) {
             BlanketImplInfo info;
-            info.trait_name     = std::string(impl.trait_name());
+            info.trait_name      = std::string(impl.trait_name());
+            info.canonical_trait = std::string(impl.canonical_trait());
             info.bound_trait    = std::string(impl.bound_trait());
             for (auto sv : impl.extra_bounds()) info.extra_bounds.emplace_back(sv);
             info.target_typevar = std::string(impl.target_type());
@@ -334,8 +335,41 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (!targ_sfx.empty())
                     assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
             });
-            if (!impl_trait.empty())
-                concrete_impls_.insert(impl_trait + "::" + impl_target);
+            // The FACT is keyed by trait IDENTITY, so two traits spelled alike
+            // are two facts and a query naming one cannot read the other's
+            // impls. The BARE spelling is inserted as an ALIAS whenever it
+            // differs: every legacy bound check still hands mono bare
+            // bound-trait TEXT (mono_has_impl_recursive call sites in
+            // Mono::clone_struct_def / Mono::mono_concrete_satisfies_bound and
+            // the blanket pass), so dropping the alias would silently lose
+            // those lookups. The alias makes the fact set a strict SUPERSET of
+            // the pre-canonical one — no bound check that passed can now fail —
+            // and it is exactly the residual: a query naming the BARE-slot
+            // trait still sees a homonym's impls through it. Closing that
+            // direction means canonicalising bound trait names at emit, which
+            // is a separate slice.
+            //
+            // ⚠ THE ALIAS HAS NO WITNESS, AND THAT IS RECORDED HERE BECAUSE
+            // THE PERTURBATION WAS ATTEMPTED, NOT ARGUED. Disabling this
+            // insert and running the whole corpus (`ctest -LE imported`) gave
+            // 3233/3233 GREEN. Two fixtures were written specifically to red
+            // it and neither did: a plain generic bound (`fn f<T: Hash>`) —
+            // sema resolves that and mono is never asked — and a blanket
+            // `impl<T: Hash> Marker for T` over a package-local homonym `Hash`
+            // (tests/logos/pass/trait_ident_homonym_bound.logos), green with
+            // the alias ON *and* OFF because sema, not mono's fact table,
+            // decides which concretes a blanket admits. The alias is therefore
+            // kept as a strictly behaviour-PRESERVING hedge for the ten
+            // bare-text mono_has_impl_recursive call sites, NOT as a
+            // sensor-backed claim; and the bound-side conflation it looks like
+            // it compensates for is measurably SEMA-side (see that fixture's
+            // header for the `i32__tag` miscompile it exposed).
+            if (!impl_trait.empty()) {
+                std::string impl_canon(impl.canonical_trait());
+                concrete_impls_.insert({impl_canon, impl_target});
+                if (impl_canon != impl_trait)
+                    concrete_impls_.insert({impl_trait, impl_target});
+            }
         }
     }
 

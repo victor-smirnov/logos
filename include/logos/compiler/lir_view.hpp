@@ -1289,6 +1289,13 @@ struct ImplView {
     std::string_view target_type() const noexcept {
         return detail::read_string(self, lir_schema::impl_keys::TARGET_TYPE.code);
     }
+    // Trait IDENTITY — see impl_keys::CANONICAL_TRAIT. Falls back to the bare
+    // spelling when the key is absent, so a reader that keys facts by identity
+    // degrades to the pre-canonical behaviour instead of losing the impl.
+    std::string_view canonical_trait() const noexcept {
+        auto ct = detail::read_string(self, lir_schema::impl_keys::CANONICAL_TRAIT.code);
+        return ct.empty() ? trait_name() : ct;
+    }
     std::string_view bound_trait() const noexcept {
         return detail::read_string(self, lir_schema::impl_keys::BOUND_TRAIT.code);
     }
