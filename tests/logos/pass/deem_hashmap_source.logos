@@ -8,15 +8,29 @@
 // operation. Nothing in the planner knows this type; it reads the same
 // declaration a generated Memoria family writes.
 //
-// The two queries below take different paths for reasons the plan can state:
+// The two queries below take different paths for reasons the plan can state.
+// VERBATIM, re-measured 2026-08-10 under LOGOS_TRACE_PLAN=1 — and asserted, by
+// tests/logos/ctr_access_path_gate.sh, which is why the exact text matters:
 //
-//   [plan] m -> hashmap_at on key  (an operation EXACT for that comparison —
-//                                   the residual filter is redundant and was dropped)
-//   [plan] m -> scan on key        (the source declares no operation covering
-//                                   that comparison on that column)
+//   [plan] m -> hashmap_at [one key] on key   (an operation EXACT for that
+//                                comparison — the residual filter is redundant
+//                                and was dropped)
+//   [plan] m -> scan [every row]   (the source declares no operation covering
+//                                that comparison on that column)
+//
+// ⚠ The scan line carries NO column. `AccessPlan::scan` records the antecedent
+// and nothing else — there is no chosen operation, so there is no column the
+// access is on. This comment said `scan on key` for months and nothing checked
+// it; a comment is not a measurement, which is the whole reason for the gate.
 //
 // A model with `can_seek` as one boolean could not express either line: it
 // would have to claim a hash table can seek, or that it cannot be probed.
+//
+// ⚠ AND THE ANSWERS BELOW CANNOT TELL THE TWO PATHS APART. A plan that failed to
+// narrow keeps the query's own filter, so `at_key` returns the same single row
+// either way. This fixture is therefore blind to the degradation it exists to
+// demonstrate, by construction — the trace and the emitted call are the only
+// witnesses, and the gate above asserts both.
 package test;
 
 use logos.std.wql.wql;

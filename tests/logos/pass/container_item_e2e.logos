@@ -54,6 +54,17 @@ pub deem big<V>(v: Vector<V>) {
     from v e where e.val > 10 select (e.pos, e.val)
 }
 
+// The SAME family, filtered on the ORDINAL instead of the element. `pos` is a
+// declared column of the positional hub rel and the family declares
+// `op row.pos ge = __ctr_from_…  exact`, so this one lands by `seek` and the
+// filter is retired — while `big` above, filtering on a column no operation
+// covers, is a DECLARED scan. Two queries, one container, and the difference is
+// visible only in the plan and the emitted call: both return the right rows.
+// The access path of both is asserted by tests/logos/ctr_access_path_gate.sh.
+pub deem tail<V>(v: Vector<V>) {
+    from v e where e.pos >= 2 select (e.pos, e.val)
+}
+
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
@@ -78,5 +89,13 @@ fn main() -> i32 {
     }
     if !seen25 { return 4i32; }
     if !seen42 { return 5i32; }
+
+    // The POSITIONAL narrowing over the same container: the suffix from
+    // position 2, in position order (a vector HAS one, so order is asserted).
+    let t: Vec<(i64, u64)> = match tail(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if t.len() != 2i64 { return 7i32; }
+    if t.get(0i64).0 != 2i64 || t.get(0i64).1 != 7u64  { return 8i32; }
+    if t.get(1i64).0 != 3i64 || t.get(1i64).1 != 42u64 { return 9i32; }
     return 0i32;
 }

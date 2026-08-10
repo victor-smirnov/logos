@@ -1576,6 +1576,31 @@ set_tests_properties(logos_09_plan_size_asked PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# CONTAINER ACCESS-PATH gate (ADR 0024 S6): WHICH rows the container was asked
+# for — the plan's decision AND the emitted call, over three sources.
+#
+# ⚠ The pushdown is landed; the SENSOR was missing, and its absence is the reason
+# this gate exists. A plan that fails to narrow keeps the query's own filter and
+# returns exactly the same rows, so every fixture over these paths — which assert
+# only the answer — stays green while the access silently degrades to a full
+# scan. The only witnesses are the trace and the artifact, and both are asserted.
+#
+# ⚠ Timing is not available: this measures the SHAPE of the demand (which
+# producer, which bound, from which position), never a duration.
+add_test(
+    NAME logos_09_ctr_access_path
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/ctr_access_path_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_source_size.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_hashmap_source.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/container_item_e2e.logos
+)
+set_tests_properties(logos_09_ctr_access_path PROPERTIES
+    TIMEOUT 180
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # JOIN-ORDER gate (ADR 0024 S4): the emitted fn carries BOTH join orders and one
 # run-time discriminant, the plan reports the decision AND both refusals, and the
 # sort that makes the two orders interchangeable is total.

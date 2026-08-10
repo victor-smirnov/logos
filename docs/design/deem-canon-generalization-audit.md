@@ -43,6 +43,13 @@ one descent and `skip` is an index bump (both landed in `1f2dabe1`).
 Blocked by #3: the planner narrows on a column, and the position is not a column
 Canon knows about.
 
+⚠ Both sentences above are the 2026-07-27 STATE, kept because this list keeps its
+entries. RE-MEASURED 2026-08-10: the positional family declares
+`op row.pos eq/ge/le … exact` beside its walk, and `from v e where e.pos >= 2`
+compiles to `__ctr_from_<Family>(v, 2i64)` with the filter retired — measured on
+`tests/logos/pass/container_item_e2e.logos`, asserted by
+`tests/logos/ctr_access_path_gate.sh`.
+
 ## 3. The position is a column NOTHING declares — DISSOLVED (S6)
 
 `PositionalSource<V>` projects `row(pos: i64, val: V)`, but `container Series<V>
@@ -359,6 +366,52 @@ degraded).
 that signal, so the derived `impl Hash` does not exist when the check looks. A
 hand-written impl is admitted. This is the extension path the universal query
 compiler is built on (§S6), so it matters more than its size suggests.
+
+## 15. NO TEST COULD TELL A PUSHDOWN FROM A FULL SCAN — CLOSED (2026-08-10)
+
+Items 1–3 are closed, and closing them created a defect of the shape this audit
+keeps finding — one level up, in the TESTS.
+
+Re-measuring the standing claim ("`__ctr_rows_X` is a loop `seek(i)` over the
+whole `size()`, so the filter never reaches storage") found it false at both
+emission sites: a walk, three narrowing constructors, a declaration, and one
+descent through `bt_cur_seek_key`. What no measurement could find was a test that
+would notice if that stopped being true.
+
+**Because a plan that fails to narrow keeps the query's own filter and returns
+exactly the same rows.** Narrowing is an optimisation, so it is answer-invariant
+BY CONSTRUCTION — and every fixture over these paths asserted the answer:
+`conuco/memoria/tests/ctr_plan_pushdown.logos` and `ctr_vec_pos_pushdown.logos`
+compare against a reference walked through the container's own cursor;
+`deem_hashmap_source.logos`, `deem_source_size.logos`,
+`deem_three_domain_join.logos` and `deem_cross_domain_join.logos` carry the
+expected `[plan]` line in a COMMENT. One of those comments had been wrong for
+months (`scan on key` — a scan records no column, because there is no chosen
+operation to be on one). Every one of them would have stayed green with the whole
+access-path plane reduced to `__ctr_rows_`.
+
+⚠ **THE GENERAL SHAPE: an optimisation cannot be pinned by its result.** The
+only witnesses are what was DECIDED and what was EMITTED, and both had to be
+asserted, because either alone can lie — a plan that recorded a narrowing while
+the emitter called the full-scan producer passes the first half.
+`tests/logos/ctr_access_path_gate.sh` asserts the plan trace under
+`LOGOS_TRACE_PLAN=1` AND the `--gen-dir` artifact: the producer, the bound
+literal, the ABSENCE of the full-scan producer for the narrowed rel, the retired
+filter (the bound occurs exactly once, inside the call) and — the other
+direction — the KEPT filter of a rel that declared no covering operation.
+
+⚠ And it cannot be a timing test. The box is shared; the property asserted is
+the SHAPE of the demand — which producer, which bound, from which position —
+which is a fact about the artifact rather than about the machine. That is a
+constraint worth generalizing: "how many rows was the container asked for" is
+checkable everywhere "how long did it take" is not.
+
+Neutrality (the S6 acceptance criterion) is asserted in the same gate rather
+than asserted about: one line grammar must match a generated ordered-map family,
+a generated positional family, and the hand-written `impl MapSource` in
+`stdlib/mem/collections/hashmap/hashmap.logos`. If the planner ever learned to
+treat a factory declaration differently from a written one, the count of matches
+would move.
 
 ---
 

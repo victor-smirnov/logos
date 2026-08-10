@@ -888,12 +888,47 @@ than unconverted residue:
     two positions. Closing it wants a package on the quote channel and a raw-group
     reifier beside `parse_block`/`parse_params`.
 
-**S6 — DECLARED OPERATION SETS.** Capability stops being derived from node
-structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific) and
-becomes declared per source. `can_seek` as one boolean is already known wrong:
-`HashMap` answers `==` in O(1) and cannot answer `>` at all. Two independent
-capabilities — point probe and ordered positioning — plus order and exactness as
-facts of their own. A library `TreeMap<K,V>` joins here, by declaration.
+**S6 — DECLARED OPERATION SETS — LANDED.** Capability stopped being derived from
+node structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific)
+and is declared per source. `can_seek` as one boolean was known wrong: `HashMap`
+answers `==` in O(1) and cannot answer `>` at all. The remedy went further than
+"two independent capabilities": the unit of declaration is one (COLUMN,
+COMPARISON) pair with an exactness flag —
+
+    op <rel>.<col> <cmp> = <fn> [exact];
+
+so "point probe" and "ordered positioning" are not two booleans either, they are
+which pairs a source happens to declare. `HashMap` declares `op entry.key eq =
+hashmap_at exact` and nothing else; a generated ordered-map family declares
+`eq`/`ge`/`le`; the positional family declares the same three on `pos`. Covering
+is one function, `ap_covers`, and the planner reads the declarations — it never
+consults `canon_can_seek`, which survives as a container-classification verdict
+consumed by `canon_verdicts` alone. A library `TreeMap<K,V>` joins by
+declaration.
+
+⚠ **S6r — RE-MEASURED 2026-08-10, AND ONE HALF WAS MISSING.** The standing claim
+that "`__ctr_rows_X` is a loop `seek(i)` over the whole `size()`, so the query
+filter never reaches storage" is FALSE and has been for some time: both emission
+sites in `stdlib/lcm/canon/container_item.logos` emit a walk plus three
+narrowing constructors and a declaration, and the ordered family lands through
+`seek_key` → `bt_cur_seek_key`, which is ONE descent (`Branch::find_child` +
+summed `Branch::count_at`, then `Leaf::lower_bound`) and keeps the leaf, so a
+range demand never pays rank-then-seek.
+
+What was missing was a SENSOR, and its absence is the more instructive finding.
+**A plan that fails to narrow keeps the query's own filter and returns exactly
+the same rows.** So every fixture over these paths — all of which assert only the
+ANSWER — would stay green while a pushdown silently degraded to a full scan.
+Two of them carried the expected `[plan]` line in a COMMENT, asserted by nothing,
+and one of those comments was wrong (`scan on key`; a scan records no column).
+`tests/logos/ctr_access_path_gate.sh` closes it, timing-free, by asserting the
+SHAPE of the demand on both sides — the plan's account under `LOGOS_TRACE_PLAN=1`
+and the emitted call in the `--gen-dir` dump, including the bound literal, the
+absence of the full-scan producer for the narrowed rel, and the retirement of the
+filter an exact access made redundant. Neutrality is asserted rather than
+asserted about: ONE line grammar has to match Canon's generated ordered-map
+family, Canon's generated positional family, and the hand-written `impl
+MapSource` in `stdlib/mem/collections/hashmap/hashmap.logos`.
 
 ## Consequences
 
