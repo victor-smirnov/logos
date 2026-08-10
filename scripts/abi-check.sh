@@ -90,7 +90,17 @@ BASE="${1:-origin/main}"
 # (361, above the unchanged 359 floor) and needed no edit — which is exactly why
 # these are PER CATEGORY: one category shrinking by design does not license the
 # others to go silent.
-MIN_SYM=12061
+# ⚠ MIN_SYM LOWERED 12061 -> 12058 on 2026-08-09, and this is its "say why".
+# TASK 24 removed the three erased/virtual `QEnv` binds — `bind_node_erased`,
+# `bind_source_erased`, `bind_source_tree` (`stdlib/mem/deem/deem.logos`) — which
+# were exported, had ZERO callers anywhere in the tree, and were the only writers
+# of the kind codes their `tpl.logos` reader arms switched on (census §5 C3). The
+# emitted spec therefore loses exactly 3 `sym` records, MEASURED, one per removed
+# method; `type`/`vtable`/`schema` are unchanged at 361/115/2. Same reasoning as
+# the P5 lowering recorded just above: this floor is a "this is not a blob" bound, not a
+# coverage claim, and it is set to the value measured on the tree that carries
+# the deliberate removal — not rounded down, so it still refuses anything thinner.
+MIN_SYM=12058
 MIN_TYPE=359
 MIN_VTABLE=115
 MIN_SCHEMA=2

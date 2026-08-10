@@ -123,8 +123,8 @@ fn env_val(env: &QEnv, i: i64) -> RtVal {
     if k == QB_STR   { return RtVal::S(env.svals[i]); }
     if k == QB_NODE  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
     if k == QB_SRC   { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
-    if k == QB_ENODE { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
-    if k == QB_ESRC  { return RtVal::Node(WAny::ref_to(env.words[i] as *const u8)); }
+    // QB_ENODE / QB_ESRC had arms here. Nothing writes those codes any more —
+    // `QEnv::bind_node_erased` / `bind_source_erased` are removed (deem.logos).
     return RtVal::Null;
 }
 
@@ -777,9 +777,11 @@ fn check_root(name: str, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             return CTy { t: CT_NODE, code: env.codes[ei], ordw: false, lit: false };
         }
         if k == QB_SRC   { return src_elem_ty(name, env.words[ei], cat, chk); }
-        if k == QB_ENODE { return ct(CT_DYN); }      // lenient root (ADR §4)
-        if k == QB_ESRC  { return ct(CT_DYNSRC); }   // lenient collection
-        if k == QB_TSRC  { return ct(CT_TREESRC); }  // virtual tree source
+        // The QB_ENODE -> CT_DYN, QB_ESRC -> CT_DYNSRC and QB_TSRC -> CT_TREESRC
+        // arms stood here and are removed with the three binds that were their
+        // only writers. CT_DYN itself SURVIVES and is still produced below, by
+        // the catalog FK_ANY field arm of `check_expr` — a `WAny` column on a
+        // strict schema — which is a different, live route.
     }
     if strict {
         chk_fail(chk, "unknown variable '", name,
@@ -878,8 +880,13 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                 return ct(CT_DYN);
             }
             if bt.t == CT_TREEROW {
-                // A virtual graph-source edge row: the FIXED column table
-                // (bind_source_tree's contract). parent/child are ids
+                // A virtual graph-source edge row: the FIXED column table.
+                // ⚠ CT_TREEROW HAS NO PRODUCER LEFT — its writer was the
+                // executor's tree/edge scan arm, cut at P5 (census §5 C4),
+                // BEFORE the erased binds were removed. This arm is therefore
+                // dead for a reason that predates that removal; it is left in
+                // place rather than folded into an unrelated change.
+                // parent/child are ids
                 // (container = node handle, leaf = synthetic); `tag` is the
                 // RAW type_code (open vocabulary — user tags flow through).
                 // vi/vs are TOTAL typed payload columns with canonical
@@ -897,8 +904,9 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                          "", "");
                 return ct(CT_UNKNOWN);
             }
-            if bt.t == CT_ARR || bt.t == CT_SARR || bt.t == CT_DYNSRC
-            || bt.t == CT_TREESRC {
+            // CT_DYNSRC and CT_TREESRC were disjuncts here; both tags are gone
+            // (no producer left). CT_ARR / CT_SARR are catalog-produced and stay.
+            if bt.t == CT_ARR || bt.t == CT_SARR {
                 chk_fail(chk, "field '", f.name,
                          "' is read through a collection edge — loop over it with {% for %} first",
                          "", "");
@@ -1229,9 +1237,10 @@ fn check_stmts(head: i64, cat: &SchemaCatalog, env: &QEnv, strict: bool,
                     } else if it.t == CT_SARR {
                         // scalar-element array: the loop var binds the SCALAR
                         lb.bind_o(f.var, it.code as i32, 0u64, it.ordw);
-                    } else if it.t == CT_DYNSRC || it.t == CT_DYN {
-                        // lenient collection: elements type at runtime; a
-                        // non-array value iterates as an EMPTY loop (ADR §4)
+                    } else if it.t == CT_DYN {
+                        // lenient value (an FK_ANY catalog column): elements type
+                        // at runtime; a non-array value iterates as an EMPTY loop
+                        // (ADR §4). The CT_DYNSRC disjunct went with the tag.
                         lb.bind(f.var, CT_DYN, 0u64);
                     } else if it.t == CT_UNKNOWN {
                         lb.bind(f.var, CT_UNKNOWN, 0u64);

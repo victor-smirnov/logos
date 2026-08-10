@@ -10642,10 +10642,7 @@ sym	logos_mem..logos.mem.deem.QEnv__bind_edge_rows__f__refmut_QEnv__slice_u8__WA
 sym	logos_mem..logos.mem.deem.QEnv__bind_f64__f__refmut_QEnv__slice_u8__f64
 sym	logos_mem..logos.mem.deem.QEnv__bind_i64__f__refmut_QEnv__slice_u8__i64
 sym	logos_mem..logos.mem.deem.QEnv__bind_node__f__refmut_QEnv__slice_u8__WAny
-sym	logos_mem..logos.mem.deem.QEnv__bind_node_erased__f__refmut_QEnv__slice_u8__WAny
 sym	logos_mem..logos.mem.deem.QEnv__bind_source__f__refmut_QEnv__slice_u8__WAny
-sym	logos_mem..logos.mem.deem.QEnv__bind_source_erased__f__refmut_QEnv__slice_u8__WAny
-sym	logos_mem..logos.mem.deem.QEnv__bind_source_tree__f__refmut_QEnv__slice_u8__WAny
 sym	logos_mem..logos.mem.deem.QEnv__bind_str__f__refmut_QEnv__slice_u8__slice_u8
 sym	logos_mem..logos.mem.deem.QEnv__new__f__void
 sym	logos_mem..logos.mem.deem.QEnv__register_agg__f__refmut_QEnv__slice_u8__fn() -> RtVal__fn(RtVal, RtVal) -> RtVal__fn(RtVal) -> RtVal__slice_u8__slice_u8

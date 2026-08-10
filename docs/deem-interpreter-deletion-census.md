@@ -551,8 +551,51 @@ typing; the withdrawn binding named). MEASURED both ways: perturbing the predica
 both doors, and so does a perturbation that withdraws the whole `deem` ITEM form — the second is the check
 that a broader refusal cannot satisfy them.
 
-*What is NOT claimed.* The `QEnv` methods and their two pass fixtures are still present; this ruling states
-the disposition and pins the static tier's answer. Deleting them is P5's own step, with the ABI bump above.
+*What is NOT claimed (as of the ruling).* The `QEnv` methods and their two pass fixtures were still present;
+the ruling stated the disposition and pinned the static tier's answer. Deleting them was P5's own step, with
+the ABI bump above.
+
+**C3 CLOSED, 2026-08-09 (TASK 24) — the plumbing is removed, and one sentence above was already stale.**
+The two pass fixtures went with the cut (`query_lenient_e2e` / `query_lenient_null_fuzz_adv` are §3 rows 39
+and 40, both GONE-FIXTURE), so at the time of this step the erased binds had ZERO callers of ANY kind. What
+was removed, and what was proved before removing each piece:
+
+- **Three `QEnv` methods** — `bind_node_erased`, `bind_source_erased`, `bind_source_tree`
+  (`stdlib/mem/deem/deem.logos`). Zero non-comment references under `stdlib/`, `tests/`, `src/`, `tools/`;
+  every surviving mention is a comment, a fixture header note, or the compiler's own refusal MESSAGE.
+- **The kind codes they alone wrote** — `QB_ENODE` / `QB_ESRC` / `QB_TSRC`. Proved by ENUMERATION, not by
+  sampling: `deem.logos` has exactly ten `self.kinds[i] =` sites, one per `bind_*` method, and after the
+  three removals no site writes any of the three values. The numbers are NOT re-packed.
+- **The reader arms in `stdlib/mem/deem/tpl.logos`** — the two `env_val` arms, the three `check_root` arms
+  (`QB_ENODE -> CT_DYN`, `QB_ESRC -> CT_DYNSRC`, `QB_TSRC -> CT_TREESRC`), and the CASCADE those two tags
+  left behind: `CT_DYNSRC`/`CT_TREESRC` had no other producer, so the collection-edge refusal drops those
+  two disjuncts (keeping `CT_ARR`/`CT_SARR`, which the catalog produces), `ct_is_obj` drops `CT_DYNSRC`,
+  and the `TStmt::For` arm drops it too.
+- ⚠ **`CT_DYN` WAS KEPT, and keeping it is the measured part.** It has a producer INDEPENDENT of erased
+  binding — the catalog `FK_ANY` field arm of `check_expr` (a `WAny` column on a strict schema) — so the
+  `CT_DYN` field read, the `dyn_op` arithmetic, the ternary arm and the `For` arm's `CT_DYN` branch all
+  stay reachable. Deleting them would have been the "reader arm something else can still reach" failure.
+- ⚠ **The walker was NOT touched, and that it CANNOT have been is measured, not assumed.**
+  `stdlib/mem/deem/graphsrc.logos` names `QEnv` only in comments, `use`s no module that carries it, and its
+  entry points `dyn_graph_edges` / `dyn_graph_edge_rows` take a raw `WAny` root (`ts_scan` takes the root
+  WORD). `bind_source_tree` was one way IN to that walker under the old engine, not the walker.
+
+*ABI, with the differ CALIBRATED first.* Three exported records go —
+`QEnv__bind_node_erased__f__refmut_QEnv__slice_u8__WAny` and its `bind_source_erased` and
+`bind_source_tree` twins (`QEnv__bind_edge_rows__…` SURVIVES). Calibration, before trusting any verdict:
+`QEnv::bind_edge_rows` was removed IN THE SOURCE, the stdlib rebuilt, and the emitted spec compared with
+the committed one — `sym` 12061 → 12060, `--abi-diff` printed exactly that one record as `[BREAKING]` and
+exited **1**; the plant was then restored and the tree re-measured clean. So the emitter really does drop a
+record when a method leaves, and the differ really does read that as breaking. Version 0.38.0 → **0.39.0**.
+⚠ `MIN_SYM` in `scripts/abi-check.sh` sat EXACTLY at 12061 — the post-P5 measurement — so a three-record
+removal trips the "this is not a blob" floor. It is lowered to the newly measured 12058 with the reason
+recorded there, exactly as P5 lowered it from 12368.
+
+*Adjacent deadness NOT caused by this step, recorded so nobody later credits it here.* `QEnv::bind_edge_rows`
+still writes `QB_EDGE`, and `QB_EDGE` has no reader at all — its reader was the `QB_EDGE` arm of
+`exec_rexpr`, cut at P5 with `exec.logos`. `CT_TREEROW` likewise has no producer since that same cut. Both
+were already dead BEFORE this step and are left in place; folding them in would have let a later reader
+believe the erased-bind removal killed them.
 
 **C4 — the dynamic graph walker** (rows 56, 57, and the loss half of B rows 6, 69, 70, 71).
 **DISCHARGED 2026-08-09 in two rounds — and the requirement as originally written was WRONG, so it is

@@ -6,8 +6,8 @@
 //
 // ⚠ THIS HEADER USED TO DESCRIBE A QUERY ENGINE. P5 deleted it. `Query`,
 // `QRows`, `Query::compile`, `q.run`, the dynamic `rel` fixpoint and LENIENT
-// mode (`bind_node_erased` / `bind_source_erased` + catalog FK_ANY, CEL-style
-// Null propagation) are GONE — census §6 rows L9/L10 and §5 C3. What survives
+// mode (the erased binds + catalog FK_ANY, CEL-style Null propagation over an
+// erased ROOT) are GONE — census §6 rows L9/L10 and §5 C3. What survives
 // here is `SchemaCatalog`, `QEnv`, `RtVal` and the value helpers; the template
 // engine itself lives beside it in `stdlib/mem/deem/tpl.logos`.
 //
@@ -17,12 +17,18 @@
 //   env.bind_node("e", emp_any);             // a schema'd Writ object (TOM)
 //   let s: String = t.render(&env)?;         // Result<String, QError>
 //
-// ⚠ `QEnv::bind_source_erased` / `bind_node_erased` / `bind_source_tree` are
-// still compiled and still exported, and have ZERO callers anywhere in the
-// tree. They are the only writers of the QB_ENODE / QB_ESRC / QB_TSRC kind
-// codes, so the `tpl.logos` arms that READ those codes cannot be entered by any
-// program in this corpus. UNTESTED SURFACE, not live capability — removing them
-// is a further capability decision and a further ABI break.
+// ⚠ `QEnv::bind_source_erased` / `bind_node_erased` / `bind_source_tree` ARE
+// NOW REMOVED, with the `tpl.logos` arms that read the QB_ENODE / QB_ESRC /
+// QB_TSRC codes they alone wrote, and the CT_DYNSRC / CT_TREESRC checked types
+// those arms alone produced. They were exported but had ZERO callers anywhere
+// in the tree, so neither side of that interface was reachable by any program
+// in this corpus — no test could have noticed a break in either. ABI 0.38.0 ->
+// 0.39.0, three `sym` records removed, deliberately (census §5 C3).
+// ⚠ What did NOT go with them: the dynamic GRAPH capability. `bind_source_tree`
+// was one WAY IN to the walker, not the walker — `dyn_graph_edges` /
+// `dyn_graph_edge_rows` in `stdlib/mem/deem/graphsrc.logos` take a raw `WAny`
+// root, name no `QEnv` type and import no binding, and six live fixtures reach
+// them that way.
 //
 // DESIGN NOTES:
 //   • This package is the ABI-carried stability surface (logos.std.wql.* stays
@@ -511,20 +517,17 @@ const QB_BOOL:  i32 = 3i32;
 const QB_STR:   i32 = 4i32;
 const QB_NODE:  i32 = 5i32;
 const QB_SRC:   i32 = 6i32;   // a query SOURCE: a Writ ARRAY of schema'd rows
-const QB_ENODE: i32 = 7i32;   // an ERASED node (lenient, ADR §4): fields resolve
-                              // at runtime by NAME; misses read as Null
-const QB_ESRC:  i32 = 8i32;   // an ERASED source: a Writ array of lenient rows
-const QB_TSRC:  i32 = 9i32;   // a TREE source (bind_source_tree): a Writ VALUE
-                              // (map/array root) scanned VIRTUALLY — one row
-                              // per EDGE of the tree, no materialization (the
-                              // no-gratuitous-materialization rule). Columns
-                              // are fixed: (parent, key, idx, child, kind,
-                              // vi, vs) — see the checker's CT_TREEROW table.
+// 7 (QB_ENODE), 8 (QB_ESRC) and 9 (QB_TSRC) were the erased-node / erased-source
+// / virtual-tree-source kinds. Their only writers were the three `QEnv` binds
+// removed below; the codes are gone with them. The remaining numbers are NOT
+// re-packed — a kind code is data a reader switches on, and renumbering it buys
+// nothing and invalidates every note that cites a value.
 
 const QB_EDGE:  i32 = 10i32;  // PRE-MATERIALIZED edge rows (bind_edge_rows):
-                              // a Writ array of 8-element rows in the SAME
-                              // graph-edge vocabulary as QB_TSRC — the runtime
-                              // twin of a #[derive_graph_source] materializer.
+                              // a Writ array of 8-element rows in the graph-edge
+                              // vocabulary (parent, key, idx, child, kind, tag,
+                              // vi, vs) — the runtime twin of a
+                              // #[derive_graph_source] materializer.
 
 const QENV_CAP: i64 = 24i64;
 // UDF/UDA registry capacities (metadata tables — rows are Vec-backed).
@@ -650,55 +653,21 @@ impl QEnv {
         self.codes[i] = 0u64;
     }
 
-    // ── LENIENT binds (ADR §4, the D4 queue-2 half) ─────────────────────────
-    /// Binds `name` to an erased (lenient) node: `name.field` resolves at runtime by name.
-    /// A string-keyed Writ map gets by key; a schema-stamped TOM whose schema is in the catalog
-    /// gets by the cataloged key; anything else (missing key, unknown schema, non-object) reads
-    /// as `RtVal::Null`, which propagates CEL-style through operators. No catalog entry needed.
-    pub fn bind_node_erased(self: &mut QEnv, name: str, node: WAny) {
-        let i: i64 = self.slot(name);
-        if i < 0i64 { return; }
-        self.kinds[i] = QB_ENODE;
-        self.words[i] = node.raw();
-        self.codes[i] = 0u64;
-    }
-
-    /// Binds `name` to an erased source: a Writ array of lenient rows (string-keyed maps /
-    /// arbitrary Writ values). Scans bind the row var leniently; field types are unknown at
-    /// compile, so lenient rows never serve as hash-join keys (such joins take the loop tier).
-    pub fn bind_source_erased(self: &mut QEnv, name: str, arr: WAny) {
-        let i: i64 = self.slot(name);
-        if i < 0i64 { return; }
-        self.kinds[i] = QB_ESRC;
-        self.words[i] = arr.raw();
-        self.codes[i] = 0u64;
-    }
-
-    /// Binds `name` to a GRAPH source: a Writ value (container root) scanned
-    /// VIRTUALLY — the scan walks the object graph from the root, one row per
-    /// EDGE, nothing materialized (the document IS the fact base). Writ is a
-    /// generalized object graph (cycles legal): every edge emits; a node's
-    /// children EXPAND exactly once (visited set) — DAGs don't duplicate,
-    /// cycles terminate. Row columns are fixed: `parent`/`child` (i64 ids —
-    /// containers carry their Writ handle, scalar leaves a synthetic
-    /// FNV(parent, ordinal) id: a leaf's value word is not an identity),
-    /// `idx` (array position / TOM field key code, −1 under a map), `key`
-    /// (map key, "" otherwise), `kind` (friendly tag: map/arr/tom/str/i64/
-    /// f64/bool/null, "obj" for other ref tags — open world), `tag` (the RAW
-    /// type_code — user tags flow through), `vi` (the child's scalar payload:
-    /// i64 value, bool as 0/1, f64 as IEEE-754 BITS; canonical 0 otherwise),
-    /// `vs` (the child's string payload; canonical "" otherwise). vi/vs are
-    /// TOTAL typed columns — `kind` discriminates which payload is meaningful
-    /// (one vocabulary with the static walkers; no Nulls, set-dedup stays
-    /// two-valued). Re-scan semantics: no deltas, not incrementally
-    /// maintainable (use FactStore for the live-fact path).
-    pub fn bind_source_tree(self: &mut QEnv, name: str, root: WAny) {
-        let i: i64 = self.slot(name);
-        if i < 0i64 { return; }
-        self.kinds[i] = QB_TSRC;
-        self.words[i] = root.raw();
-        self.codes[i] = 0u64;
-    }
+    // ⚠ THE ERASED/VIRTUAL BINDS LIVED HERE AND ARE REMOVED (census §5 C3).
+    // `bind_node_erased` (QB_ENODE), `bind_source_erased` (QB_ESRC) and
+    // `bind_source_tree` (QB_TSRC) were the ONLY writers of those three kind
+    // codes, and after P5 cut the query engine they had zero callers anywhere
+    // in `stdlib/`, `tests/`, `src/` or `tools/` — so the `tpl.logos` arms that
+    // READ the codes could not be entered by any program in this corpus.
+    // Unreachable on both sides of the interface, with no test that would have
+    // noticed a break; the erased CAPABILITY itself was already ruled WITHDRAWN
+    // (census §5 C3, refused at the item by `SemaChecker::enrich_deem_params`,
+    // with two doors under `tests/logos/fail/`). Removing three exported
+    // symbols is an ABI BREAK, taken deliberately with the version bump.
+    // ⚠ The dynamic GRAPH capability did NOT go with `bind_source_tree`: the
+    // walker's surviving entry points `dyn_graph_edges` / `dyn_graph_edge_rows`
+    // (`stdlib/mem/deem/graphsrc.logos`) take a raw `WAny` root and never touch
+    // `QEnv` — measured, and six live fixtures reach them.
 
     /// Binds PRE-MATERIALIZED graph-edge rows under `name` — the runtime twin
     /// of a `#[derive_graph_source]` materializer: `rows` is a Writ ARRAY of
@@ -1125,9 +1094,10 @@ const CT_RELROW:  i32 = 14i32;   // a rel row var (I3); code = rel registry idx.
                                  // (the compile-time rel-field rewrite).
 const CT_DYN:     i32 = 15i32;   // a LENIENT value (ADR §4): type unknown at
                                  // check time; runtime value may be Null.
-const CT_DYNSRC:  i32 = 16i32;   // an ERASED source/collection: rows bind DYN.
-const CT_TREESRC: i32 = 17i32;   // a TREE source (bind_source_tree): scanned
-                                 // virtually, one row per edge.
+// 16 (CT_DYNSRC, the erased source/collection) and 17 (CT_TREESRC, the virtual
+// tree source) are GONE: their only producers were the `QB_ESRC` / `QB_TSRC`
+// arms of `check_root`, which went with the three removed `QEnv` binds. Not
+// re-packed, for the reason given at QB_EDGE.
 const CT_TREEROW: i32 = 18i32;   // a tree-source row var: fixed columns
                                  // (parent/child/idx: i64 · key/kind: str ·
                                  // vi/vs: dyn) — typed by the checker table.
@@ -1175,7 +1145,7 @@ fn ct_join_lit(a: CTy, b: CTy) -> bool { return a.lit && b.lit; }
 fn ct_is_num(t: i32) -> bool { return t == CT_INT || t == CT_FLT; }
 fn ct_is_obj(t: i32) -> bool {
     return t == CT_NODE || t == CT_ARR || t == CT_SARR
-        || t == CT_RELROW || t == CT_DYNSRC;
+        || t == CT_RELROW;
 }
 // A tag every scalar-position check should wave through: the value is typed
 // at RUNTIME (compile-phase unknown, or a lenient value).
