@@ -304,7 +304,7 @@ partial — `query_incr_join_e2e`, `query_incr_join_fuzz`, `query_incr_nasty_{jo
 | 57 | `query_tree_source_graph_e2e` | 0 | 14 deems | B | DAG / cycle / leaf-identity / TOM semantics AND the query capabilities over the walk — **rewritten: join, `rel` recursion over a CYCLIC edge set, `order by` and `group by … aggregate` all preserved as slice-sourced deems beside their `&Writ` twins. A `Vec` alone would NOT have replaced them; `DynEdge` + `dyn_graph_edge_rows` is why they survive. 0 interpreter entry points** (C4) |
 | 58 | `query_u64_ordw_origin` | 1 | — | C | `ordw` under/over-carry at the aggregate out-name — **BOTH HALVES DISCHARGED**: the under-carry by `tests/logos/pass/wql_domain_static_ordw_origin.logos` (blocks 10s/11s/20s), the over-carry as a REFUSAL WITH ITS GROUND by `tests/logos/fail/wql_cond_branch_types_fail.logos` (`check_cond_branches` names the clause and both columns). ⚠ RE-MEASURED 2026-08-09: the `wql_domain_static_ordw_origin` header still described the over-carry as an ungrounded host-compiler anti-diagnostic and the computed u64 key as impossible — both were true when written and neither is true now; the header is corrected in the same commit |
 | 59 | `vfy_nan_key_probe` | 5 | — | C | PROVENANCE of the f64 refusals (which stage refused, with what message) — ⚠ THE ROW WAS UNDER-PRICED. The file also held the ONLY pin on `rt_eq`'s surviving float arm, which its own header named as the thing a future canonicalising 'fix' would break unseen. The provenance half really died with `stdlib/mem/deem/check.logos`; the behaviour half did not, and was re-pinned at row 86 |
-| 60 | `wql_agg_avg_bool_value_rule` | 4 | `q_avg` | B | `avg(bool)` ruling on three engines |
+| 60 | `wql_agg_avg_bool_value_rule` | 4 | `q_avg` | B | `avg(bool)` VALUE RULE on the one surviving engine (the "three engines" claim died with `Query`). INDEPENDENT ARM LANDED (§8c): `ref_avg_bool` + a second, INTERLEAVED corpus with no hand constants |
 | 61 | `wql_domain_carrier_positions` | 25 | — | C | one law: the carrier at EVERY position that computes or compares a column integer. The deleted file lettered FOURTEEN positions; **the enumeration and its verdicts are now written out in §5 C1** rather than left as "the rest". R/B/G by `tests/logos/pass/wql_arith_u64_tower_e2e.logos`; A/C/D/E/F/H/I/M by `tests/logos/pass/wql_domain_static_carrier_positions.logos` (**BUILT 2026-08-09**, the file this row asked for through three rounds); L as a REFUSAL with its ground (`tests/logos/fail/wql_arith_mixed_tower_fail.logos`); J and K were the dynamic tier's OWN positions and go with it |
 | 62 | `wql_domain_incr_disagreement` | 9 | — | C K | ⚠ **"THREE DISAGREEMENTS" WAS ALREADY WRONG WHEN THE ROW WAS WRITTEN, RE-MEASURED 2026-08-09 off the pre-deletion file**: blocks 1/1b (`max` over u64) and 2/2b (`sum` over f32) carry CLOSED dates IN THE FILE (2026-08-05, 2026-08-04) and block 4 is a shape floor its own text says is not a type fact, so exactly ONE disagreement was live — 3/3b, an equi-join on an `f64` key. **TRANSCRIBED 2026-08-09** onto `no_join_f64key` (`pass/wql_incr_eligibility_matrix` + `incr_eligibility_gate.sh`), and the transcription CHANGED WHICH PAIR OF TIERS CARRIES IT: the deleted block was DYNAMIC-accepts vs INCREMENTAL-refuses; what is pinned now is STATIC-accepts vs INCREMENTAL-declines. Same fact about the f64 key, different witnesses — see §5 C1 |
 | 63 | `wql_domain_runtime_extremes` | 3 | — | C | 18 types round-tripped through the dynamic tier; the static twin `tests/logos/pass/wql_domain_static_extremes.logos` covers all 18 plus i128/u128 — **K DROPPED 2026-08-09**, the file's own header says no block asserts a wrong value any more (the `f32` one closed 2026-08-04) |
@@ -999,6 +999,94 @@ WHAT THE MEASUREMENTS SAY, beyond pass/fail.
 ⚠ NOT MEASURED, and owed: `logos_09_layout_engine_agreement` (`tier_full`) was not run for this slice.
 Nothing here changes a stdlib type or instantiation count — the only stdlib edits were control reverts,
 all restored — so it is expected to be unmoved, and that is a prediction, not a measurement.
+
+---
+
+## 8c. Row 60 — the independent arm that was owed, BUILT — 2026-08-10
+
+Scope of this section: **row 60 only** (`tests/logos/pass/wql_agg_avg_bool_value_rule.logos`). The other
+five fixtures of that slice (rows 51, 70 and the graph rows) were read and control-reverted in the same
+worktree without a source change; their verdicts stay in their own headers.
+
+Row 60 was recorded as *constructible-but-unwritten*: after P5 the file was three hand constants against
+one engine. Hand constants are the right way to write an expectation, but three numbers over a
+GROUP-SORTED corpus can only see value-rule defects. The arm and a second corpus close that.
+
+- `ref_avg_bool(&Vec<S>, i64) -> f64` — a plain `while` walk; callees are `Vec::get`, `Vec::len` and
+  arithmetic. It branches `if r.b { 1.0f64 } else { 0.0f64 }` and never spells `as f64` on a bool, so
+  the coercion the file rules on is on the SUBJECT side only.
+- `ref_group_keys` — first-occurrence key order, walked in the fixture, so the arm can address a group
+  without the engine telling it which column is which.
+- `rows_ilv()` — an INTERLEAVED corpus (keys 7,3,7,3,7,3,3,7) with **no hand constants at all**. This is
+  the population the three literals structurally cannot cover.
+
+| control (file · edit) | predicted | measured |
+|---|---|---|
+| `stdlib/mem/wql/rexpr_walk.logos` · the group fold's `inner` quote_block starts the `__g_key` dedup scan at the LAST key instead of `0` (a contiguous-grouping regression) | 41, with 11–18 GREEN | **41**, 11–18 green |
+| `tests/logos/pass/wql_agg_avg_bool_value_rule.logos` · invert `if r.b` inside `ref_avg_bool` | 16, with 12–15 GREEN | **16**, 12–15 green |
+| `src/compiler/mlir_gen_expr.cpp` · `gen_expr_kind(ECastView…)` int→float arm: drop the `val.getType() == builder_.getI1Type()` disjunct | 13 | **exit 0 — GREEN.** The disjunct is REDUNDANT |
+| ~~same site · exclude `LogosType::Kind::Bool` from `is_unsigned_repr_kind`'s disjunct instead~~ | ~~13~~ | ⚠ **DID NOT REPRODUCE — see §8d** |
+
+WHAT THIS SAYS.
+
+1. **The arm is a sensor, not decoration.** The first control is invisible to every hand constant in the
+   file — `rows()` is group-sorted, so a contiguous-grouping engine answers it correctly — and the arm
+   catches it at a WALKED group count after the whole 8-row fold ran. That is the class of defect the
+   post-P5 single-sidedness opened.
+2. **The two sides are one-sided, measured both ways.** Perturbing the fixture arm moves only the arm
+   (16, literals green); perturbing the engine's value rule moves only the engine (13, caught by the
+   literals first, arm never reached). Neither perturbation moved both.
+3. **A file-header claim was half wrong and is now corrected in place.** The header said mlir-gen
+   zero-extends i1 "on purpose". It does — but the clause that carries it is
+   `LogosType::is_unsigned_repr_kind`, which names `Bool` explicitly in
+   `include/logos/compiler/sema.hpp`; the i1 TYPE test beside it is dead whenever the operand's Logos
+   type is known. Deleting the i1 test alone left the fixture green. ⚠ The rest of this paragraph as
+   originally written — "a third control, aimed at the clause that actually decides, reds at 13" —
+   **DID NOT REPRODUCE**; see §8d.
+
+⚠ NOT MEASURED, and owed: `logos_09_layout_engine_agreement` (`tier_full`) was not run. This slice adds
+no stdlib type and no fixture FILE (the arm lives in an existing file), so stdlib type and instantiation
+counts are unchanged — a prediction, not a measurement. **DISCHARGED in §8d: the gate was RUN and
+PASSES, so the prediction is now a measurement.**
+
+---
+
+## 8d. Row 60 re-verified adversarially — 2026-08-10
+
+An independent worktree checked out `c0ae091e`, rebuilt, and attacked §8c. Three of its four controls
+reproduced; one did not, and one NEW control was needed because §8c's own controls did not fire the
+thing §8c claims to have built.
+
+**THE ARM WAS UNDER-CONTROLLED, THOUGH NOT UNFIREABLE.** §8c's control (A) reds at **41**, which is
+`sv2.len() != ks2.len()` — an assertion over `ref_group_keys`, NOT over `ref_avg_bool`. Reproduced: 41.
+But no control in §8c fires `ref_avg_bool` from the ENGINE side; (B) fires it from the FIXTURE side,
+which cannot distinguish a sensor from a tautology. A fourth control was constructed for exactly that
+gap — in the `inner` quote_block of `stdlib/mem/wql/rexpr_walk.logos`, bump `__g_cnt` at the row's own
+group but redirect the accumulator folds to the NEWEST group. A group-SORTED corpus is answered
+perfectly (11–18 green) and the group COUNT is untouched (41 green), so 42 is the only sensor that can
+see it. **PREDICTED 42, MEASURED 42.** The arm is a real sensor; §8c was right about that and had not
+yet shown it.
+
+**THE `Kind::Bool` CONTROL DID NOT REPRODUCE.** §8c records 13 for "exclude `Kind::Bool` from
+`is_unsigned_repr_kind`'s disjunct". Both readings of that edit were built and measured:
+
+| edit | predicted | measured |
+|---|---|---|
+| drop the i1 test only (`src/compiler/mlir_gen_expr.cpp`) | GREEN per §8c | **GREEN**, and the whole L2 sample green with it |
+| exclude `Kind::Bool` at the cast site only, i1 test kept | 13 | **GREEN — refutes §8c** |
+| drop `k == Kind::Bool` from `is_unsigned_repr_kind` in `include/logos/compiler/sema.hpp`, i1 kept | 13 | **GREEN — refutes §8c** |
+| drop the i1 test AND exclude `Bool` | 13 | **13** |
+
+The two disjuncts are **MUTUALLY REDUNDANT**: each alone is sufficient, so no single-clause edit can red
+this fixture. §8c's "only the second is load-bearing" is false, and its recorded 13 is reproducible only
+as a control stacked on the UNRESTORED previous one. The fixture header is corrected with all four rows.
+Nothing about the fixture's coverage changes — the value rule is still pinned at 13, but against the
+removal of BOTH clauses, which is what the header now says.
+
+**Gates re-measured on the pristine tree**: L1 690/690, L2 1892/1892 (+12 684 generated cases, 31
+`tier_commit`), `census_pin` + `spec_path_lint` + `gate_lint` green, `scripts/abi-check.sh` rc=0
+(ABI-PRESERVING, 3 closure canaries caught), `ctest -N` 6911 / 3228 / 31 — all unchanged, and
+`logos_09_layout_engine_agreement` (`tier_full`) **PASSES**.
 
 ---
 

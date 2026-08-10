@@ -10,6 +10,32 @@
 // zero-extends i1 before the conversion on purpose (`sitofp(i1(1))` = -1.0 is
 // wrong, `uitofp(i1(1))` = 1.0 is right). The ruling makes the FRONT END admit it.
 //
+// ⚠ AND THE CLAUSE THAT CARRIES IT IS NOT THE ONE THE SENTENCE ABOVE SUGGESTS.
+// The int→float arm of `MLIRGenImpl::gen_expr_kind(ECastView, …)` decides
+// `src_unsigned` from TWO disjuncts: an i1 TYPE test on the MLIR value, and
+// `LogosType::is_unsigned_repr_kind(op_ty)`, which names `Bool` explicitly
+// (`include/logos/compiler/sema.hpp`).
+//
+// ⚠ RE-MEASURED 2026-08-10, AND THE EARLIER READING OF IT WAS WRONG. This header
+// used to say "only the second is load-bearing" and cite a 13 for excluding
+// `Kind::Bool` from it. NEITHER disjunct is uniquely load-bearing: they are
+// MUTUALLY REDUNDANT, and each ALONE is sufficient. Four builds, each predicted
+// before it was run, each reverted:
+//   · drop the i1 type test only ............................. GREEN (exit 0)
+//   · exclude `Kind::Bool` at THIS SITE only, i1 test kept ... GREEN (exit 0)
+//   · drop `k == Kind::Bool` from `is_unsigned_repr_kind`
+//     itself in `include/logos/compiler/sema.hpp`, i1 kept ... GREEN (exit 0)
+//   · drop the i1 test AND exclude `Bool` ..................... RED, exit 13
+// So the value rule IS pinned by this file, but only against the removal of
+// BOTH clauses; no single-clause edit here can red it. The earlier "13" is
+// reproducible only as the LAST line above — i.e. as a control applied on top of
+// the previous one rather than after restoring it.
+// Corollary, measured separately: with the i1 test deleted the ENTIRE L2 sample
+// is green (1892/1892 + 12 684 generated cases + 31 gates), so that disjunct is
+// dead across the corpus, not merely here. Deleting it is NOT licensed by this
+// file — the `Bool` clause in `is_unsigned_repr_kind` would then be the only
+// thing standing between `sitofp(i1 1)` and -1.0, which is exit 13 above.
+//
 // ⚠ THIS FILE WAS `wql_agg_avg_bool_three_engines` AND IS RENAMED, NOT MERELY
 // EDITED, BECAUSE THE OLD NAME WOULD HAVE BECOME A FALSE STATEMENT. P5 deleted
 // the dynamic `Query::compile` executor and the incremental `Query::incremental`
@@ -33,6 +59,49 @@
 // the value read makes the engine ACCEPT the query and silently answer 0.0. That
 // failure must be legible AS ITSELF and not as a generic mismatch, so it is
 // asserted before the general compare.
+//
+// ⚠ THE SECOND ARM (`ref_avg_bool`) IS AN INDEPENDENT ORACLE, NOT A SECOND ENGINE.
+// P5 removed the second implementation, so what was a three-engine differential
+// became hand constants against one engine. The constants pin the ANSWER but not
+// the RULE: they are three numbers, and a value read that is wrong in a way the
+// three shapes happen not to separate would keep them green. `ref_avg_bool` walks
+// the `Vec<S>` with a plain `while` loop and reaches NOTHING in `logos.std.wql`,
+// nothing in `logos.mem.deem`, and nothing the emitter emits — its callees are
+// `Vec::get`, `Vec::len` and arithmetic. Critically it does NOT spell `as f64` on
+// a bool: it branches `if r.b { 1.0f64 } else { 0.0f64 }`, so the very coercion
+// this file rules on is on the SUBJECT side only. Inverting that branch here does
+// not move the engine, and breaking the engine's bool value read does not move
+// this. It is asserted BESIDE the literals, never instead of them.
+//
+// ⚠ FOUR CONTROLS, EACH PREDICTED BEFORE IT WAS RUN, EACH RESTORED:
+//  (A) engine-side, INVISIBLE TO THE LITERALS: in the group fold's `inner`
+//      quote_block (`stdlib/mem/wql/rexpr_walk.logos`) start the `__g_key` dedup
+//      scan at the LAST key instead of 0 — a contiguous-grouping regression.
+//      `rows()` is group-sorted, so 11–18 stay GREEN; the interleaved corpus
+//      splits into 7 groups. PREDICTED 41, MEASURED 41. This is the whole reason
+//      the second corpus exists: no hand constant in this file can see it.
+//  (B) fixture-side: invert `if r.b` in `ref_avg_bool`. PREDICTED 16, MEASURED 16
+//      — with 12–15 green, so the two sides are one-sided, not a shared fold.
+//  (C) engine-side value rule. ⚠ AS ORIGINALLY WRITTEN THIS CONTROL DID NOT
+//      REPRODUCE — see the RE-MEASURED block at the top. The `Kind::Bool`
+//      exclusion ALONE is GREEN; what reds at 13 is dropping the i1 test AND
+//      excluding `Bool`. PREDICTED 13, MEASURED 13 for that two-clause edit —
+//      the literals catch the value rule FIRST, which is the right order and
+//      says the arm did NOT move with the engine.
+//  (D) engine-side, INVISIBLE TO THE LITERALS **AND TO 41** — the control that
+//      fires `ref_avg_bool` itself rather than `ref_group_keys`. In the same
+//      `inner` quote_block, after `__g_cnt` is bumped at the row's own group,
+//      redirect the accumulator folds to the NEWEST group
+//      (`__gi = __g_key.len() - 1i64;` before `#( #folds; )*`). On a
+//      group-SORTED corpus the row's group always IS the newest, so `rows()` is
+//      answered perfectly and 11–18 stay green; the group COUNT is untouched, so
+//      41 stays green too. On the interleaved corpus group 7 collects only its
+//      first row: sum 1 over count 4 = 0.25 against a walked 0.75.
+//      PREDICTED 42, MEASURED 42. (A) alone would NOT have shown this: (A) is
+//      caught by `ref_group_keys` at the count. This one needs the WALKED VALUE.
+// The catches are VALUE catches, not row-count refusals: (A) is caught at a
+// walked group COUNT after the whole 8-row fold ran, (B) and (C) at a projected
+// f64 after scan, group, fold and finalize.
 //
 // exit 0 = the emitted engine answers 0.75 / 1.0 / 0.0.
 // Exit codes 20–37 named the dynamic and incremental engines; retired, not reused.
@@ -60,6 +129,65 @@ fn rows() -> Vec<S> {
     return v;
 }
 
+// THE SECOND CORPUS — INTERLEAVED, and deliberately WITHOUT hand constants.
+// `rows()` is sorted by group, so every defect it can show is a value-rule defect
+// and the three literals already see those. The shapes the literals CANNOT see are
+// the ones where a group's rows are not contiguous: the emitted fold finds a group
+// by a linear `__g_key` scan (`rexpr_walk.logos`, the `inner` quote_block), and a
+// regression that looked only at the newest key would answer `rows()` correctly
+// and split every group here. This corpus exists to be read by `ref_avg_bool`
+// alone. Keys 7 and 3, four rows each, both averages exact in binary f64
+// (7 → t,f,t,t = 3/4; 3 → f,t,t,f = 2/4), and the two 3-rows in the middle are
+// ADJACENT on purpose so a contiguity defect cannot be dismissed as "it merged
+// nothing".
+fn rows_ilv() -> Vec<S> {
+    let mut v: Vec<S> = vec_new::<S>();
+    v.push(S { g: 7i64, b: true  });
+    v.push(S { g: 3i64, b: false });
+    v.push(S { g: 7i64, b: false });
+    v.push(S { g: 3i64, b: true  });
+    v.push(S { g: 7i64, b: true  });
+    v.push(S { g: 3i64, b: true  });
+    v.push(S { g: 3i64, b: false });
+    v.push(S { g: 7i64, b: true  });
+    return v;
+}
+
+// First-occurrence order of the group keys, walked in the fixture. This is the
+// output order the emitted group-row phase produces; recomputing it here is what
+// lets the arm address a group WITHOUT the engine telling it which group a column
+// belongs to.
+fn ref_group_keys(ss: &Vec<S>) -> Vec<i64> {
+    let mut ks: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < ss.len() {
+        let k: i64 = ss.get(i).g;
+        let mut seen: bool = false;
+        let mut j: i64 = 0i64;
+        while j < ks.len() { if ks.get(j) == k { seen = true; } j = j + 1i64; }
+        if !seen { ks.push(k); }
+        i = i + 1i64;
+    }
+    return ks;
+}
+
+// The independent arm. No `as f64` on a bool anywhere in it; no wql/deem callee.
+fn ref_avg_bool(ss: &Vec<S>, g: i64) -> f64 {
+    let mut sum: f64 = 0.0f64;
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < ss.len() {
+        let r: S = ss.get(i);
+        if r.g == g {
+            if r.b { sum = sum + 1.0f64; } else { sum = sum + 0.0f64; }
+            n = n + 1i64;
+        }
+        i = i + 1i64;
+    }
+    if n == 0i64 { return 0.0f64; }
+    return sum / (n as f64);
+}
+
 fn main() -> i32 {
     let ss: Vec<S> = rows();
 
@@ -72,6 +200,32 @@ fn main() -> i32 {
     if sv.get(0i64) != 0.75f64         { return 13i32; }
     if sv.get(1i64) != 1.0f64          { return 14i32; }
     if sv.get(2i64) != 0.0f64          { return 15i32; }
+
+    // The independent arm, group by group. 16/17/18 are ITS exit codes; a red
+    // here with 13/14/15 green would mean the constants and the walk disagree,
+    // which cannot happen unless the fixture itself is wrong — and a red here
+    // WITH 13/14/15 red says the engine moved, not the constants.
+    if sv.get(0i64) != ref_avg_bool(&ss, 0i64) { return 16i32; }
+    if sv.get(1i64) != ref_avg_bool(&ss, 1i64) { return 17i32; }
+    if sv.get(2i64) != ref_avg_bool(&ss, 2i64) { return 18i32; }
+
+    // ── the interleaved corpus: the arm is the ONLY sensor here ─────────────
+    // 40+ because 20–37 are retired names and must not be reused.
+    let ss2: Vec<S> = rows_ilv();
+    let ks2: Vec<i64> = ref_group_keys(&ss2);
+
+    let sv2: Vec<f64> = match q_avg(ss2.as_slice()) {
+        Result::Ok(v)  => { v }
+        Result::Err(_e) => { return 40i32; }
+    };
+    // Not `!= 2i64`: the expected count is WALKED, so this line stays true if the
+    // corpus is ever edited. A group split shows up here first.
+    if sv2.len() != ks2.len() { return 41i32; }
+    let mut i2: i64 = 0i64;
+    while i2 < ks2.len() {
+        if sv2.get(i2) != ref_avg_bool(&ss2, ks2.get(i2)) { return 42i32 + (i2 as i32); }
+        i2 = i2 + 1i64;
+    }
 
     return 0i32;
 }
