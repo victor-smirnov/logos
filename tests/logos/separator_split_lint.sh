@@ -72,8 +72,24 @@ EXEMPT_BASENAME=mangled_name.hpp
 # about text — censusable. `::` is not: the grammar refuses `impl pkg::Trait for T`
 # (MEASURED: `syntax error near 'impl'`, rc 4), so a `::` split is safe exactly as
 # long as nothing composes a QUALIFIED name into that operand — a whole-program
-# invariant, which a per-site regex cannot see and a per-site READ can. That read
-# is filed as its own task rather than faked here.
+# invariant, which a per-site regex cannot see and a per-site READ can.
+#
+# ⚠ THAT READ IS DONE: docs/internals/composed-key-splits.md classifies all 12,
+# per site, with the enclosing symbol and the operand's provenance. Outcome:
+# eleven split a `SemaChecker::sema_key(pkg, name)` key and take the PACKAGE half
+# (`read_package_name` joins with "." — a package can never contain `::`), the
+# twelfth takes no substring at all, and the invariant now has TWO checks instead
+# of a comment: `SemaChecker::sema_key` rejects a qualified `pkg` operand, and
+# `SemaChecker::check_symbol_key_separators` rejects any STORED key carrying more
+# than one `::` (which is what the `rfind` sites need, and which also covers keys
+# built by a raw `+ "::" +`). Both were proved to bite; see the doc.
+#
+# ⚠ AND THE READ FOUND THE PATTERN TO BE INCOMPLETE, not merely noisy: the
+# StableLayout field check in `SemaChecker::compute_auto_copy_types` recovers an
+# `impls_` key's target by fixed-prefix `substr("StableLayout::".size())` — the
+# `concrete_impls_` shape exactly, with ZERO occurrences of `find("::")`. A
+# `find`-keyed lint cannot see it. So the blanket alternation would be a rubber
+# stamp AND blind; do not re-propose it without answering that.
 PATTERN='\.(find|rfind)\("__"\)|starts_with\("__"\)|ends_with\("__"\)'
 
 count_file() {

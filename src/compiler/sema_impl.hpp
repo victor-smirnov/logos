@@ -1297,12 +1297,110 @@ private:
     ImportScope cur_imports_;
 
     // Qualified key: "pkg::name" or "name" if pkg empty
+    //
+    // ⚠ THE PACKAGE HALF IS CHECKED HERE. Eleven sites across sema.cpp /
+    // sema_collect.cpp / this header take a symbol-table key apart again at
+    // `::` — `SemaCache::reset_user_state`, `take_snapshot`, `install_snapshot`,
+    // `run` (×3), `compute_auto_copy_types`, the StableLayout field check, the
+    // B-at-01 annotation census, `check_recursive_value_types` (×2). Every one
+    // of them cuts to recover the PACKAGE half, and every one is correct only
+    // while the key holds AT MOST ONE separator. That is a whole-program
+    // property, and a whole-program property defended by a comment is exactly
+    // how `Mono::concrete_impls_` stayed a latent miscompile for as long as it
+    // did: its `k.find("::")` rested on a comment asserting the left operand is
+    // a bare trait name. So: a CHECK, not a comment.
+    //
+    // Package spellings cannot contain `::` by construction —
+    // `SemaChecker::read_package_name` joins `la::mod::PATH_PARTS` with `"."` —
+    // and this asserts that where a future qualified package would first
+    // arrive. Always-on (not NDEBUG-gated): a check that vanishes in the
+    // shipping build is not the instrument this class needs.
+    //
+    // ⚠ AND THE `name` HALF IS **NOT** CHECKED HERE — MEASURED, not assumed.
+    // Checking it aborts the stdlib build immediately:
+    //   sema_key(pkg='logos.lang.fabric', name='PrimVec$G1$DT::Prim')
+    // from `lookup_qualified_` ← `find_struct_by_name` ← `lower_field_read`.
+    // sema_key is BOTH the key composer (at the ~20 collect/insert sites) and
+    // the PROBE composer (`lookup_qualified_` builds a candidate key per
+    // package), and the probe's `name` is a user-written type spelling, which
+    // for an un-normalised associated-type projection legitimately contains
+    // `::`. Such a probe never matches and never inserts, so it is harmless —
+    // but it means "no operand is qualified" is FALSE as a global statement.
+    // The property the splitters actually need is about the keys that are
+    // STORED, and it is enforced over the stored keys by
+    // `check_symbol_key_separators` (called from `run`), which is blind to who
+    // composed them and therefore also covers keys built by raw `+ "::" +`.
+    [[noreturn]] static void sema_key_qualified_operand(
+            const char* which, std::string_view pkg, std::string_view name) {
+        std::fprintf(stderr,
+            "logosc INTERNAL: sema_key(%s) operand is already qualified: "
+            "pkg='%.*s' name='%.*s'\n"
+            "  The symbol-table key \"pkg::name\" is split back apart at `::` by "
+            "eleven sites in sema; a qualified operand makes every one of those "
+            "splits cut in the wrong place. Carry the parts (a pair/tuple key) "
+            "instead of composing a string that must be re-parsed.\n",
+            which, (int)pkg.size(), pkg.data(), (int)name.size(), name.data());
+        std::abort();
+    }
     static std::string sema_key(std::string_view pkg, std::string_view name) {
+        if (pkg.find("::") != std::string_view::npos)
+            sema_key_qualified_operand("pkg", pkg, name);
         if (pkg.empty()) return std::string(name);
         std::string r;
         r.reserve(pkg.size() + 2 + name.size());
         r.append(pkg); r.append("::"); r.append(name);
         return r;
+    }
+
+    // THE STORED-KEY INVARIANT the `rfind("::")` splitters depend on.
+    //
+    // Two different cuts are in use over these tables and they only agree while
+    // a key holds AT MOST ONE separator:
+    //   * FIRST cut (`key.find("::")`) — `SemaCache::reset_user_state` and
+    //     `take_snapshot`'s `erase_pkg_key`; wants only a separator-free PACKAGE
+    //     half, which `sema_key`'s own check above already guarantees.
+    //   * LAST cut (`key.rfind("::")`) — `install_snapshot`'s const-index
+    //     rebuild over `module_consts_`, `run`'s `bare_of` over
+    //     `structs_`/`enums_`, `run`'s layout-recording sweep and
+    //     `compute_auto_copy_types` and the StableLayout field scan over
+    //     `structs_`, `sema_collect`'s B-at-01 census over `datatypes_`, and
+    //     `check_recursive_value_types` over `structs_`/`enums_`.
+    // A key with TWO separators makes those two cuts disagree — the first cut
+    // yields the real package, the last yields `pkg::Outer` as the "package"
+    // and a fragment as the "bare name". That is the `Mono::concrete_impls_`
+    // failure mode exactly, and nothing about the text of either call site
+    // reveals it; only the population of the map does. So the check is over the
+    // POPULATION, not over the call sites, and it is therefore blind to which
+    // composer built the key — including keys built by a raw `+ "::" +` rather
+    // than by `sema_key`.
+    //
+    // NOT audited, deliberately: `explicit_type_codes_` (keyed
+    // `pkg::Name<Args>`, whose `<Args>` may legitimately carry `::`) and
+    // `type_aliases_`/`generic_consts_`, which are only ever FIRST-cut; and
+    // `traits_`, whose one `::` site (`resolve_trait_query_name`) is a
+    // `== npos` presence test that extracts no substring.
+    void check_symbol_key_separators() const {
+        auto audit = [](const char* which, const auto& map) {
+            for (auto& kv : map) {
+                std::string_view k(kv.first);
+                auto a = k.find("::");
+                if (a == std::string_view::npos) continue;
+                if (k.find("::", a + 2) == std::string_view::npos) continue;
+                std::fprintf(stderr,
+                    "logosc INTERNAL: %s key '%.*s' carries more than one `::`\n"
+                    "  Sema recovers the package half of these keys with BOTH "
+                    "find(\"::\") and rfind(\"::\"); with two separators the two "
+                    "cuts disagree and the bare name silently becomes a fragment. "
+                    "Carry the parts (a pair/tuple key) instead of a string that "
+                    "must be re-parsed.\n",
+                    which, (int)k.size(), k.data());
+                std::abort();
+            }
+        };
+        audit("structs_", structs_);
+        audit("enums_", enums_);
+        audit("datatypes_", datatypes_);
+        audit("module_consts_", module_consts_);
     }
 
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names

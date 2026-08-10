@@ -2603,6 +2603,12 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // `pkg::name` (or bare); the owning pkg comes from the SemaInfo. Must be
     // byte-identical to the sets mono/mlir_gen build from prog.structs/enums so
     // definition==use across phases (and across builds in a dependency chain).
+    // Collect is finished, so the symbol tables hold every key this run will
+    // split. Audit them BEFORE the first `rfind("::")` consumer below (and
+    // before the snapshot that carries them into the next call's
+    // install_snapshot, whose const-index rebuild is another one).
+    check_symbol_key_separators();
+
     {
         auto bare_of = [](const std::string& key) -> std::string_view {
             auto p = key.rfind("::");
