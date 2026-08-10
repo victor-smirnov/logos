@@ -64,14 +64,66 @@ fn rows() -> Vec<S> {
     return v;
 }
 
-// Compared through the DATA key, so "all NaNs are one value" is the assertion
-// rather than a payload accident — but every non-NaN is still pinned exactly,
-// because the data key is injective on values.
+// ⚠ THE EXPECTATIONS WERE CONSTANTS BUT THE EQUALITY WAS NOT. Until 2026-08-09
+// this comparison spelled `f64_data_key(got) != f64_data_key(want)` — and
+// `f64_data_key` is EXACTLY what the emitted min/max fold compares through
+// (`stdlib/mem/wql/rexpr_walk.logos` emits `if f64_data_key(__v) < f64_data_key(…)`
+// at both the batch and the incremental improve sites). So the hand-written
+// constants were checked against the engine THROUGH THE ENGINE'S OWN COMPARATOR,
+// and the file inherited the very sharing its header warns about.
+//
+// MEASURED 2026-08-09 — CONTROL-REVERT, at the function, not at a call site:
+// `f64_data_key` in `stdlib/lang/num/float.logos` was made to return 0 for every
+// input (a total order that calls every float equal), archives dropped, stdlib
+// rebuilt. THE FILE AS IT STOOD AT `a4028326` EXITED 0. Green, on an engine
+// whose `min`/`max` could no longer improve past their seed. Codes 10/11/30/31
+// all went blind at once and NOT because the two sides agreed on a wrong answer
+// — because the COMPARISON ITSELF was destroyed: `f64_data_key(a) != f64_data_key(b)`
+// is false for every a, b, so `same` returned true whatever the engine said.
+// Codes 20/21 survived only because they use raw `==` on f64, and the wrong
+// answers happened not to be the sentinel they name.
+// With the two arms below in place the same control gives **exit 10** — `pg_eq`
+// fires first, at min over { NaN, 1.0 }; `same_bits` is the second net and would
+// have caught it at 14 had `pg_eq` passed. MEASURED both ways, same build.
+// A SECOND control — `0 - f64_total_key(x)`, an order-REVERSING key that is still
+// injective and total — reds BOTH versions at 10, and says so: the old equality
+// was defeated only by a key that stopped separating values, not by a key that
+// merely ordered them wrongly. Naming which control a sensor survives is the
+// point of running two.
+//
+// Two arms replace it, and NEITHER can be moved by the comparator:
+//
+//   `pg_eq`   — PostgreSQL VALUE equality written out from the rule (all NaNs
+//               one value, −0.0 == +0.0, IEEE elsewhere). `x != x` IS the IEEE
+//               NaN test, so this function calls NOTHING: not `f64_data_key`,
+//               not `f64_total_key`, no stdlib entry at all.
+//   `same_bits` — bit identity. This is the header's own claim stated exactly:
+//               `min`/`max` must return A VALUE FROM THE GROUP, so the answer
+//               must be bit-identical to the row it came from, payload and all.
+//               It shares only `f64_to_bits`, a reinterpret cast with no
+//               comparison in it — a degenerate ORDER cannot make it agree.
+//               Nothing here is over-strict: every wanted cell below is a
+//               bit-for-bit copy of a row value.
+fn pg_eq(a: f64, b: f64) -> bool {
+    let an: bool = a != a;
+    let bn: bool = b != b;
+    if an || bn { return an && bn; }   // all NaNs are one value, equal to nothing else
+    return a == b;                     // `==` already calls -0.0 and +0.0 equal
+}
 fn same(got: &Vec<f64>, want: &Vec<f64>) -> bool {
     if got.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < want.len() {
-        if f64_data_key(got.get(i)) != f64_data_key(want.get(i)) { return false; }
+        if !pg_eq(got.get(i), want.get(i)) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+fn same_bits(got: &Vec<f64>, want: &Vec<f64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        if f64_to_bits(got.get(i)) != f64_to_bits(want.get(i)) { return false; }
         i = i + 1i64;
     }
     return true;
@@ -95,6 +147,12 @@ fn main() -> i32 {
     let gmax: Vec<f64> = q_max(ss.as_slice()).unwrap();
     if !same(&gmin, &want_min) { return 10i32; }
     if !same(&gmax, &want_max) { return 11i32; }
+    // …and bit-identically, which is the "a value FROM THE GROUP" claim itself:
+    // every wanted cell above is a bit-for-bit copy of a row value, NaN payload
+    // included, so nothing here is over-strict. Codes 12/13 named the deleted
+    // dynamic arms and are NOT reused.
+    if !same_bits(&gmin, &want_min) { return 14i32; }
+    if !same_bits(&gmax, &want_max) { return 15i32; }
 
     // ⚠ The sentinel itself, asserted directly: f64::MAX must not appear in any
     // answer. This is the assertion that fails loudest if a seed ever leaks
@@ -116,6 +174,8 @@ fn main() -> i32 {
     if !same(&q_min(t.as_slice()).unwrap(), &w2) { return 30i32; }
     let mut w3: Vec<f64> = vec_new::<f64>(); w3.push(mx);
     if !same(&q_max(t.as_slice()).unwrap(), &w3) { return 31i32; }
+    if !same_bits(&q_min(t.as_slice()).unwrap(), &w2) { return 32i32; }
+    if !same_bits(&q_max(t.as_slice()).unwrap(), &w3) { return 33i32; }
 
     return 0i32;
 }

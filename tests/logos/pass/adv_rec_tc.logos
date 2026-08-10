@@ -8,6 +8,22 @@
 // interpreter was a THIRD reading of the same question, and it was the SUBJECT of
 // the two arms that go (exit 20, exit 40), not the oracle of the two that stay.
 // Exit codes 20 and 40 are retired, not reused.
+//
+// ⚠ CONTROL, MEASURED 2026-08-09 — the claim above is now a measurement. The
+// emitted SCC fixpoint was broken WHERE IT LIVES: in `emit_scc_fn`
+// (`stdlib/mem/wql/rexpr_walk.logos`) the emitted loop's exit test
+// `if #(exitc) { break; }` was made unconditional (`|| true`), so every rel
+// stops after promoting its SEEDS and derives no round-1 row. That leaves `tc`
+// equal to the edge set and `odd` equal to the edges, i.e. exactly the answer a
+// fixpoint that forgot to iterate would give. Archives dropped, stdlib rebuilt.
+// PREDICTED: exit 10. MEASURED: **exit 10** — the `tc` arm, which is the first
+// of the two. `naive_tc` (Floyd–Warshall over a Vec<bool>) did not move with
+// it — a differential whose oracle shared the fixpoint would have gone green
+// here, and that is the whole reason this file survives P5 as a test.
+// ⚠ SCOPE, stated: the SAME control left `deem_incr_diff_harness` green (it
+// declares no `rel`) and reddened `deem_dred_od_rw_split` at exit 64.
+// Work done before the catch: both arms ran to quiescence over the whole graph
+// and the comparison is a sorted multiset of PATH VALUES, not a row count.
 package test;
 
 use logos.std.wql.wql;

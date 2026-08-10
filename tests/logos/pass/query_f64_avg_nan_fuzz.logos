@@ -254,6 +254,18 @@ fn main() -> i32 {
     return 0i32;
 }
 
+// PostgreSQL float ORDER, written out from the rule and reaching no stdlib
+// function: `a` strictly precedes `b` iff `a` is not NaN and either `b` is NaN
+// (NaN is greater than every number) or `a < b`. All NaNs are one value, so
+// NaN-vs-NaN is neither `<` nor `>`; `-0.0 == +0.0` needs no clause because
+// IEEE `<` already answers false both ways. This is `f64_data_key`'s order
+// WITHOUT `f64_data_key`.
+fn pg_ord_lt(a: f64, b: f64) -> bool {
+    if a != a { return false; }        // `x != x` IS the IEEE NaN test
+    if b != b { return true; }
+    return a < b;
+}
+
 // naive per-int-group aggregate over f64 values; fn: 2=sum 3=min 4=max 5=avg.
 // Accumulates in INPUT order per group (matches engine accumulation order).
 fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
@@ -285,23 +297,51 @@ fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
         // implementation, so all three sides agreed on the same wrong answer
         // (min over { +inf } = f64::MAX, a value in no row). An oracle that
         // shares the algorithm under test is not an oracle.
+        //
+        // ⚠ 2026-08-09: that rewrite fixed the ALGORITHM sharing and LEFT THE KEY
+        // sharing. It ranked candidates by `f64_data_key` — the very function the
+        // emitted fold compares through (`stdlib/mem/wql/rexpr_walk.logos` emits
+        // `if f64_data_key(__v) < f64_data_key(…)`) — so the oracle's notion of
+        // "extreme" was the engine's. `pg_ord_lt` below is that order written out
+        // from the rule instead: NaN is greater than every number and equal to
+        // every NaN, `-0.0 == +0.0` needs no clause because IEEE `<` already
+        // answers false both ways, IEEE elsewhere. It calls NOTHING — `x != x` is
+        // the IEEE NaN test — so no stdlib entry is on its path.
+        //
+        // ⚠ HONESTY ABOUT WHAT THIS COST AND WHAT IT BOUGHT: TWO control-reverts
+        // of `f64_data_key` in `stdlib/lang/num/float.logos` were run on 2026-08-09
+        // (archives dropped, stdlib rebuilt, both fixture versions run on the SAME
+        // build), and NEITHER separates the old arm from this one:
+        //   · collapse — `return 0i64` for every input: OLD **18**, NEW **18**.
+        //   · reverse  — `0 - f64_total_key(x)`, still injective and total:
+        //                OLD **18**, NEW **18**.
+        // The reason is `f_bits`: this file compares BIT PATTERNS, and under a
+        // wrong order the engine stops displacing its SEED, so it answers a value
+        // present in no row. Any oracle that returns a row value disagrees with
+        // that, however it ranked. So the sharing was real and this fuzz was never
+        // blind to it — the rewrite removes a dependency, it does not repair a
+        // measured hole. Contrast `tests/logos/pass/query_minmax_float_seed_leak.logos`,
+        // whose EQUALITY went through the key: under the collapse control it
+        // exited 0 and now exits 10. That is where the same hazard was fatal.
         if fnid == 3i64 || fnid == 4i64 {
-            let mut bk: i64 = 0i64; let mut have: bool = false;
+            let mut best: f64 = 0.0f64; let mut have: bool = false;
             let mut r3: i64 = 0i64;
             while r3 < n {
                 if gs.get(r3) == k {
-                    let ky: i64 = f64_data_key(poolf(vi.get(r3)));
-                    if !have { bk = ky; have = true; }
-                    else if fnid == 3i64 { if ky < bk { bk = ky; } }
-                    else                 { if ky > bk { bk = ky; } }
+                    let x1: f64 = poolf(vi.get(r3));
+                    if !have { best = x1; have = true; }
+                    else if fnid == 3i64 { if pg_ord_lt(x1, best) { best = x1; } }
+                    else                 { if pg_ord_lt(best, x1) { best = x1; } }
                 }
                 r3 = r3 + 1i64;
             }
+            // FIRST value equal to the extreme, so the tie-break is row order —
+            // the same tie-break a one-pass strict-improve fold implements.
             let mut r4: i64 = 0i64;
             while r4 < n {
                 if gs.get(r4) == k {
                     let x2: f64 = poolf(vi.get(r4));
-                    if f64_data_key(x2) == bk { acc = x2; break; }
+                    if !pg_ord_lt(x2, best) && !pg_ord_lt(best, x2) { acc = x2; break; }
                 }
                 r4 = r4 + 1i64;
             }
@@ -313,8 +353,18 @@ fn naive_agg(gs: &Vec<i64>, vi: &Vec<i64>, fnid: i64) -> Vec<f64> {
     return out;
 }
 
+// ⚠ UNCALLED — grep says `naive_group_fkey_count` has no call site in this file,
+// and an oracle nobody asks is silence, not agreement. It is the oracle for
+// `group by` on an f64 KEY, which BOTH tiers reject outright (see the note in
+// `main`), so the shape it answers is never generated: `rng.upto(8i64)` picks
+// 0-7 and only 0-6 are handled. Kept, not deleted, because the day an f64
+// group key is admitted this is the answer it must produce — but it is pinning
+// nothing today and the comment must not pretend otherwise.
+//
 // naive group-by f64 key with `==` semantics (NaN each own group), count per
-// group, first-occurrence order.  Mirrors dynamic rt_eq linear-scan grouping.
+// group, first-occurrence order. (It used to be described as mirroring the
+// dynamic `rt_eq` linear scan; P5 deleted `rt_eq` with the interpreter, so the
+// grouping here is written from `==` and mirrors nothing that still exists.)
 fn naive_group_fkey_count(vi: &Vec<i64>) -> Vec<i64> {
     let n: i64 = vi.len();
     let mut kf: Vec<f64> = vec_new::<f64>();

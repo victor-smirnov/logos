@@ -17,6 +17,21 @@
 // `stdlib/mem/wql/el.logos`), so an oracle that called it would share the exact
 // fold under test. `b_cmp` below is a local byte loop over `str_byte_at`.
 //
+// ⚠ MEASURED, NOT ASSERTED (2026-08-09). The paragraph above was a READING until
+// this control was run: in `stdlib/lang/str/str.logos`, inside `str_cmp` ITSELF —
+// not at a call site — the four returned signs were swapped (`ca < cb` returns
+// `1i32`, `ca > cb` returns `-1i32`, and the two length arms likewise), leaving
+// `str_eq` untouched so that only ORDER moves and equality does not. Archives
+// dropped, stdlib rebuilt. PREDICTED: red at 46 or 49, and the numeric shapes
+// 0-5 silent. MEASURED: **exit 46** — shape 6, the ordered compare on a `str`
+// column, and the str loop runs BEFORE the numeric one so 40+shape was never
+// reached. The oracle did NOT move with the implementation — `b_cmp` reads bytes
+// through `str_byte_at` and decides the order itself, so a wrong `str_cmp` shows
+// up as a DISAGREEMENT rather than as two sides agreeing on the wrong answer.
+// Work done before the catch: the engine had filtered a whole fuzzed table and
+// returned the wrong ROW SET, and the check is a multiset comparison of values —
+// not a length check, which the wrong answer would often have passed.
+//
 // ── THE FOUR COMPARE FOLDS THE STATIC TIER ACTUALLY HAS ──────────────────────
 // A single perturbation cannot control this fixture, and pretending otherwise
 // is how the previous round's control changed nothing:

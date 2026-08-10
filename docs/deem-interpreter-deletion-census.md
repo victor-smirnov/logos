@@ -855,6 +855,66 @@ Re-measured independently at `8cf79102` (build green, clang-20, `LOGOS_EMIT_SHAR
   §1c/§2/§5 C2 in the same commit rather than to touch the gate.
 * Rows 11, 13 and 42 have now had the per-fixture read §8 asks for, at the comparison site and with two
   control reverts (§5 C5). The other 22 class-B rows and the remaining class-C rows have not.
+  ⚠ SUPERSEDED IN PART by §8b: thirteen more class-B rows have now had that read, with four control
+  reverts. What remains unread is nine class-B rows and the class-C rows.
+
+---
+
+## 8b. Thirteen class-B rows read at the comparison site — 2026-08-09
+
+Rows 1, 12, 16, 43 and nine others (`tests/logos/pass/adv_rec_tc.logos`,
+`tests/logos/pass/deem_dred_od_rw_split.logos`, `tests/logos/pass/deem_incr_diff_harness.logos`,
+`tests/logos/pass/deem_incr_static_retract_e2e.logos`, `tests/logos/pass/derive_graph_source_root_row.logos`,
+`tests/logos/pass/query_agg_sum_overflow_e2e.logos`, `tests/logos/pass/query_diff_err_e2e.logos`,
+`tests/logos/pass/query_diff_static.logos`, `tests/logos/pass/query_f64_avg_nan_fuzz.logos`,
+`tests/logos/pass/query_f64_agg_hand_derived.logos`, `tests/logos/pass/query_mapping_runtime_e2e.logos`,
+`tests/logos/pass/query_minmax_float_seed_leak.logos`,
+`tests/logos/pass/query_order_by_float_data_key.logos`). Verdicts live in each file's header; the
+measurements are here.
+
+FOUR CONTROL REVERTS, each at the function where the decision LIVES, never at a call site. Archives
+dropped and the stdlib rebuilt for each; every fixture below was run on the same build as its claim.
+
+| control (file · edit) | predicted | measured |
+|---|---|---|
+| `stdlib/lang/str/str.logos` · `str_cmp` returns the opposite sign, `str_eq` untouched | `query_diff_static` red 46 or 49 | **46** (shape 6, the ordered `str` compare); numeric shapes silent |
+| `stdlib/mem/wql/rexpr_walk.logos` · `emit_scc_fn`'s emitted `if #(exitc) { break; }` made unconditional | `adv_rec_tc` red 10 | **10**; also `deem_dred_od_rw_split` **64** and `query_mapping_runtime_e2e` **4** |
+| `stdlib/lang/num/float.logos` · `f64_data_key` returns `0` for every input | `query_minmax_float_seed_leak` red | **exit 0 — GREEN, blind**, at `a4028326`; **10** after the repair below |
+| `stdlib/lang/num/float.logos` · `f64_data_key` returns `0 - f64_total_key(x)` (injective, order-reversed) | separates the old and new oracle arms of `query_f64_avg_nan_fuzz` | **it does not**: 18 both ways |
+
+WHAT THE MEASUREMENTS SAY, beyond pass/fail.
+
+1. **The str hazard was avoided and the avoidance is now measured.** `query_diff_static`'s oracle is
+   `b_cmp`, a byte loop over `str_byte_at`; inverting `str_cmp` moved the ENGINE and not the oracle.
+   That is what independence looks like when it is measured.
+2. **The float hazard was NOT avoided, in one file, and it was fatal there.**
+   `query_minmax_float_seed_leak` wrote its expectations as constants — correctly — and then compared
+   them with `f64_data_key(got) != f64_data_key(want)`, the engine's own comparator. A key that
+   collapses every float to one value does not make the two sides agree on a wrong answer; it destroys
+   the comparison, and the fixture went green over an engine answering `min` over `{ NaN, 1.0 }` with
+   NaN. Repaired in-file with two arms that reach no stdlib order at all (`pg_eq`, `same_bits`).
+3. **A control that fails to separate is still a measurement.** The order-reversed key was run
+   specifically to show that `query_f64_avg_nan_fuzz`'s old min/max oracle shared the engine's ranking.
+   It reds both versions at 18, because that file compares BIT PATTERNS and a mis-ordered fold stops
+   displacing its seed — so it answers a value in no row, which any row-returning oracle contradicts.
+   The sharing was real; the hole was not. The rewrite stands as a dependency removal, not as a repair,
+   and its header says exactly that.
+4. **The strongest surviving oracle in the thirteen is `adv_rec_tc`**: mutual recursion with an
+   INDEPENDENT fixpoint (`naive_odd`) on the other side.
+5. **`query_metamorphic_adv`'s failure mode did not recur here.** No fixture in the thirteen compares
+   the emitted engine with itself. Two compare BATCH against INCREMENTAL — `deem_incr_diff_harness`
+   check 23, `deem_incr_static_retract_e2e` codes 38/39 — and both say in their own headers that those
+   are law evaluators over one emitter, not oracles.
+6. **`query_mapping_runtime_e2e` lost its subject, not just its arm.** It was a PARITY test between
+   `Query::compile_with_mapping` and the static twin; `Query` is gone, so there is ONE consumer and the
+   question "do the two agree" is dead. No oracle was manufactured for it.
+7. **`deem_dred_od_rw_split` is still a differential** (arm A against `automaton_od`, a closed form
+   written in the file) but only on one tier; its checks 22/23/24 are lost, as its header states. Its
+   controls belong to the DRed slice and were not re-run here.
+
+⚠ NOT MEASURED, and owed: `logos_09_layout_engine_agreement` (`tier_full`) was not run for this slice.
+Nothing here changes a stdlib type or instantiation count — the only stdlib edits were control reverts,
+all restored — so it is expected to be unmoved, and that is a prediction, not a measurement.
 
 ---
 
