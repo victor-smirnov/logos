@@ -7,7 +7,12 @@
 // feature applies to native objects unchanged: `**` descent, gpath sugar
 // ([*]), {kind} filters, joins, and (by construction) generic mappings.
 // Asserts: nested-struct descent finds db.port via `**`; [*] enumerates a
-// Vec field. Ordering machinery under test: the deem! sites' natspec is
+// Vec field; and — see THE INDEPENDENT ARM at the end of main — that the
+// derive's materializer emits EXACTLY the nine rows `Cfg`'s shape implies,
+// all eight columns each, against an enumeration written by hand in this
+// fixture. The query assertions and the direct read of `__gs_edges_Cfg` are
+// both the SUBJECT; only that arm is an oracle for it.
+// Ordering machinery under test: the deem! sites' natspec is
 // seeded BY CONVENTION from the annotation one metaprog round before the
 // derive's emitted impl collects (identical re-registration = confirmation).
 package test;
@@ -84,5 +89,102 @@ fn main() -> i32 {
         i = i + 1i64;
     }
     if nport != 1i64 { return 11i32; }
+
+    // ── THE INDEPENDENT ARM ────────────────────────────────────────────────
+    // Everything above this line reads `__gs_edges_Cfg` — through the three
+    // `deem` sites, which resolve to it via the derive's
+    // `impl GraphSource for Cfg { rel edge = __gs_edges_Cfg; }`, and then
+    // directly. So the loop above is a SELF-COMPARISON at the layer it names:
+    // it checks the query machinery above the materializer (`**` descent,
+    // `{kind}` filter, `[*]`) against the materializer, and the materializer
+    // against itself. Against the derive's own column vocabulary the fixture
+    // had no oracle at all.
+    //
+    // `expect_rows` is that oracle. It reaches NOTHING in logos.std.wql,
+    // logos.mem.deem or the emitted engine: every column is either a literal
+    // written here or an address this fixture takes itself. Taking an address
+    // is not an algorithm — there is no second implementation of `&x` to share
+    // — so `&c.db as *const Db` spelled here and spelled in
+    // `derive_graph_source_hook` are the same fact arrived at independently,
+    // which is exactly what a hand constant cannot be for a heap identity.
+    // The f64 leaf's `vi` is the LITERAL bit pattern of 0.75 and not
+    // `f64_to_bits(0.75f64)`, so "vi carries the IEEE bits" is pinned by a
+    // constant rather than by the same call the emitter makes; likewise the
+    // root edge is written `(0, "", -1, …)` rather than through
+    // `WG_ROOT_PARENT`/`WG_ROOT_KEY`/`WG_ROOT_IDX` — sharing a constant is
+    // right for a second EMITTER and wrong for an ORACLE.
+    //
+    // The match is a MULTISET match, per expected row: the walk ORDER is not
+    // the contract, the row SET is. Codes 21..29 name WHICH expected edge has
+    // no partner, so a catch lands on a row and a column, not on a count; 20
+    // is the count itself, and it can only fire when nothing else does.
+    //
+    // MEASURED BITE, on a defect NOTHING ELSE IN THE TREE SEES. Control:
+    // in `derive_graph_source_hook`'s `str` branch
+    // (stdlib/mem/compiler/metaprog/derive_graph_source.logos) the `vs` column
+    // `v.#f` -> `""`. PREDICTED exit 22 (expected row 1, `name`, vs "prod",
+    // finds no partner) with codes 1..12 silent, since no query here selects a
+    // `str` leaf and the `rows` loop above reads only columns 1 and 6.
+    // MEASURED exit 22. HOW MUCH WORK THE BROKEN CODE HAD DONE: everything —
+    // the walker descended into `Db`, enumerated the `Vec`, and produced all
+    // NINE rows with correct parents, children, kinds, idx and `vi`; the catch
+    // is one string column of one row, and it is a VALUE catch, not a count.
+    let exp: Vec<WritEdgeRow> = expect_rows(&cfg);
+    if rows.len() != exp.len() { return 20i32; }
+    let mut used: Vec<i64> = vec_new::<i64>();
+    let mut z: i64 = 0i64;
+    while z < rows.len() { used.push(0i64); z = z + 1i64; }
+    let mut e: i64 = 0i64;
+    while e < exp.len() {
+        let want: WritEdgeRow = exp.get(e);
+        let mut hit: bool = false;
+        let mut a: i64 = 0i64;
+        while a < rows.len() {
+            if used.get(a) == 0i64 && row_eq(rows.get(a), want) {
+                used.set(a, 1i64);
+                hit = true;
+                break;
+            }
+            a = a + 1i64;
+        }
+        if !hit { return 21i32 + (e as i32); }
+        e = e + 1i64;
+    }
     return 0i32;
+}
+
+// All eight columns, by position, of the row vocabulary `WritEdgeRow` names
+// (`stdlib/mem/wql/writ_graph.logos`): (parent, key, idx, child, kind, tag,
+// vi, vs). Three of them are `str` and compare through `str_eq` — a wrong byte
+// in `kind` or `vs` is a miss, not a rounding.
+fn row_eq(a: WritEdgeRow, b: WritEdgeRow) -> bool {
+    return a.0 == b.0 && str_eq(a.1, b.1) && a.2 == b.2 && a.3 == b.3
+        && str_eq(a.4, b.4) && a.5 == b.5 && a.6 == b.6 && str_eq(a.7, b.7);
+}
+
+// The nine edges the SHAPE of `Cfg` implies, enumerated by hand:
+//   root -> Cfg              (virtual root edge, parent 0, idx -1)
+//   Cfg  -> name  (str leaf, vs = "prod")
+//   Cfg  -> Db    (struct)   -> host (str), port (i64), load (f64 bits)
+//   Cfg  -> replicas (kind "arr", a NODE) -> two i64 elements at idx 0 and 1
+// Scalar leaves carry idx -1; Vec elements carry their POSITION and an empty
+// key. Both facts are asserted here and by nothing else in the tree.
+fn expect_rows(c: &Cfg) -> Vec<WritEdgeRow> {
+    let idc: i64 = (c as *const Cfg) as i64;
+    let idd: i64 = (&c.db as *const Db) as i64;
+    let vid: i64 = (&c.replicas as *const Vec<i64>) as i64;
+    let s = c.replicas.as_slice();
+    let mut e: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
+    e.push((0i64, "", -1i64, idc, "struct", 0i64, 0i64, ""));
+    e.push((idc, "name", -1i64, (&c.name as *const str) as i64, "str", 0i64, 0i64, "prod"));
+    e.push((idc, "db", -1i64, idd, "struct", 0i64, 0i64, ""));
+    e.push((idd, "host", -1i64, (&c.db.host as *const str) as i64, "str", 0i64, 0i64, "h1"));
+    e.push((idd, "port", -1i64, (&c.db.port as *const i64) as i64, "i64", 0i64, 5432i64, ""));
+    // 0.75f64 == 0x3FE8000000000000.
+    e.push((idd, "load", -1i64, (&c.db.load as *const f64) as i64, "f64", 0i64,
+            4604930618986332160i64, ""));
+    e.push((idc, "replicas", -1i64, vid, "arr", 0i64, 0i64, ""));
+    e.push((vid, "", 0i64, (&s[0i64] as *const i64) as i64, "i64", 0i64, 9001i64, ""));
+    e.push((vid, "", 1i64, (&s[1i64] as *const i64) as i64, "i64", 0i64, 9002i64, ""));
+    return e;
 }
