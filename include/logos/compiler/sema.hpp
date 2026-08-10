@@ -709,6 +709,20 @@ struct LogosTypeBuilder {
 
 struct TraitBound {
     std::string                   trait_name;  // e.g. "Into", "Add"
+    // B-mv-03: the trait IDENTITY this bound denotes — the `traits_` registry
+    // key `trait_name` resolves to IN THE SCOPE WHERE THE BOUND WAS WRITTEN
+    // (bare for a trait that uniquely owns the bare slot, `pkg::Name` for a
+    // same-name trait a B-mv-02 collision pushed under its qualified key).
+    // ⚠ WHY IT IS A FIELD AND NOT A CALL AT THE CHECK SITE: bounds are CHECKED
+    // at the USE site (SemaChecker::check_type_bounds is reached from
+    // sema_expr.cpp call/method paths and from sema.cpp struct/type paths),
+    // where `cur_imports_` is the CALLER's import view — canonicalising there
+    // would answer differently depending on who calls the generic. Captured at
+    // read time by SemaChecker::read_trait_bound_args, the same pattern
+    // SemaImplInfo::canonical_trait already uses at collect_impl.
+    // Empty ⇒ never captured (a bound built outside read_trait_bound_args);
+    // consumers fall back to `trait_name`, i.e. the pre-B-mv-03 behaviour.
+    std::string                   canonical_trait;
     std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
     // L1: lifetime args at trait-bound position (e.g. `Foo<'a>` → ["a"]).
     // Parsed but not enforced (no region inference); needed so the

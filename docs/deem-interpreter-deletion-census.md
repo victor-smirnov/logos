@@ -1148,8 +1148,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # non-registering package archives (trait_ident_chain/{lhom,hmid}). PREDICTED
 # 6921 / 3238 / 31 before the re-configure; `ctest -N` three ways agreed exactly,
 # and the new name was verified individually with `ctest -N -R trait_ident`.
-REGISTRY-ALL         6922
-REGISTRY-NOIMPORTED  3239
+# Task 33 (B-mv-03, the impl-registry identity key) added ONE fail fixture,
+# tests/logos/fail/trait_ident_homonym_bound_refused.logos + .expected.
+# PREDICTED 6923 / 3240 / 31 before the re-configure — +1 / +1 / 0, a fail
+# fixture carries no tier_commit label; `ctest -N` three ways agreed exactly and
+# the new name was verified individually as test #5400 with
+# `ctest -N -R trait_ident_homonym_bound_refused`.
+REGISTRY-ALL         6923
+REGISTRY-NOIMPORTED  3240
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

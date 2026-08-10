@@ -7001,16 +7001,19 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
         if (bi.method_name != std::string(method_name)) continue;
         if (!bi.bound_trait.empty()) {
             logos::compiler::StrSet seen_pri;
-            if (!sema_has_impl_recursive(bi.bound_trait, type_name,
+            // B-mv-03: ask by IDENTITY. `assoc_eqs_satisfied` keeps the RAW
+            // spelling — it looks the assoc types up under the `$blanket$` key
+            // collect_impl registered, which is composed from the raw text.
+            if (!sema_has_impl_recursive(bi.query_bound_trait(), type_name,
                                          base_name, seen_pri)) continue;
             // ADR 0008: assoc-type-equality clauses on the primary bound.
             if (!assoc_eqs_satisfied(bi.bound_trait, type_name,
                                       base_name, bi.primary_assoc_eqs)) continue;
         }
         bool extras_ok = true;
-        for (auto& eb : bi.extra_bounds) {
+        for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
             logos::compiler::StrSet seen_eb;
-            if (!sema_has_impl_recursive(eb, type_name,
+            if (!sema_has_impl_recursive(bi.query_extra_bound(ei), type_name,
                                          base_name, seen_eb)) { extras_ok = false; break; }
         }
         if (!extras_ok) continue;

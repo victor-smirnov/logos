@@ -1403,6 +1403,66 @@ private:
         audit("module_consts_", module_consts_);
     }
 
+    // B-mv-03: the impl registry carries TWO key spellings for one impl — the
+    // RAW `Trait::Target` that ~50 bare-text probes across sema compose, and
+    // the IDENTITY `pkg::Trait::Target` that a canonicalised bound asks with.
+    // Carrying both is a deliberate choice (re-keying would move the bare slot
+    // under a homonym and silence the `Drop::`/`Copy::`/`Index::` gates), and a
+    // carried split needs a MECHANICAL check, not a comment — a comment is what
+    // protected the last separator invariant, and it did not.
+    //
+    // THE INVARIANT: an impl whose trait identity differs from its written
+    // spelling is filed under BOTH keys. If the alias insert in collect_impl is
+    // dropped, weakened, or made conditional on something else, the identity
+    // probes go quiet — a bound refusal that finds nothing looks exactly like a
+    // bound that was never asked — and this aborts instead.
+    //
+    // Over the POPULATION, not the call sites: it is blind to which composer
+    // built the key, so it holds for entries that entered through the `str` →
+    // `&[u8]` alias and for impls re-entering from a binary dependency's LIR
+    // just as it does for the primary insert.
+    void check_impl_registry_key_identity() const {
+        for (auto& kv : impls_) {
+            const auto& info = kv.second;
+            if (info.canonical_trait.empty() ||
+                info.canonical_trait == info.trait_name) continue;
+            const std::string bare  = info.trait_name + "::" + info.target_type;
+            const std::string ident = info.canonical_trait + "::" + info.target_type;
+            // The entry under `kv.first` proves one of the two exists; require
+            // the OTHER. (`kv.first` may be neither when the target was mangled
+            // on the way in — `$ref_`/`&[u8]` — so check both explicitly.)
+            bool have_bare  = impls_.count(bare) != 0  || kv.first == bare;
+            bool have_ident = impls_.count(ident) != 0 || kv.first == ident;
+            if (have_bare && have_ident) continue;
+            std::fprintf(stderr,
+                "logosc INTERNAL: impls_ entry '%s' is filed under only %s key\n"
+                "  impl '%s' for '%s' resolves to trait identity '%s'. The registry "
+                "must hold BOTH the raw key '%s' (bare-text probes: Drop::, Copy::, "
+                "Index::, the prefix-strip sweeps) and the identity key '%s' (a "
+                "canonicalised bound's lookup). One without the other means a bound "
+                "over a homonym trait silently answers from the wrong trait's impls, "
+                "or answers nothing at all and reads as a clean refusal.\n",
+                kv.first.c_str(), have_bare ? "the raw" : "the identity",
+                info.trait_name.c_str(), info.target_type.c_str(),
+                info.canonical_trait.c_str(), bare.c_str(), ident.c_str());
+            std::abort();
+        }
+    }
+
+    // B-mv-03: the GROUND for a bound refusal — WHICH trait the written name
+    // denotes here and WHERE the registry was consulted. Empty when the bound's
+    // trait owns the bare slot: there is no homonym to disambiguate and the
+    // message would only add noise.
+    std::string bound_lookup_ground(const TraitBound& b) const {
+        if (b.canonical_trait.empty() || b.canonical_trait == b.trait_name)
+            return {};
+        return std::format(
+            " — here '{}' denotes the trait registered as '{}', and the impl "
+            "registry was searched under that identity; a different same-named "
+            "trait owns the bare name '{}' and its impls do NOT satisfy this bound",
+            b.trait_name, b.canonical_trait, b.trait_name);
+    }
+
     uint32_t     tmp_var_count_ = 0;   // for generating unique internal names
 
     uint32_t get_line(writ::TinyMapView node) noexcept {
@@ -3498,6 +3558,30 @@ private:
         std::string target_typevar;             // e.g. "T"
         std::string bound_trait;                // primary bound, e.g. "Primitive"
         std::vector<std::string> extra_bounds;  // bounds[1..] for AND-filter
+        // B-mv-03: trait IDENTITIES for `trait_name` / `bound_trait` /
+        // `extra_bounds`, captured in collect_impl where the DECLARING scope is
+        // live. Empty ⇒ not captured; the query helpers below fall back to the
+        // raw spelling, i.e. the pre-B-mv-03 behaviour.
+        // ⚠ `bound_trait` itself must stay RAW: it is spelled into the
+        // `$blanket$<trait>$<bound>$<target>` registration key at three sites in
+        // collect_impl and read back by the assoc-type resolver in sema.cpp and
+        // by the completeness check. Canonicalising THAT string would desync the
+        // key from its own registration. The identity lives in a sibling field.
+        std::string canonical_trait;
+        std::string canonical_bound_trait;
+        std::vector<std::string> canonical_extra_bounds;
+        // The name to ASK the impl registry with.
+        const std::string& query_trait() const {
+            return canonical_trait.empty() ? trait_name : canonical_trait;
+        }
+        const std::string& query_bound_trait() const {
+            return canonical_bound_trait.empty() ? bound_trait : canonical_bound_trait;
+        }
+        const std::string& query_extra_bound(size_t i) const {
+            return (i < canonical_extra_bounds.size() &&
+                    !canonical_extra_bounds[i].empty())
+                       ? canonical_extra_bounds[i] : extra_bounds[i];
+        }
         std::string method_name;                // e.g. "storage_new"
         std::string mangled_name;               // target_typevar + "__" + method_name
         // ADR 0008: associated-type equality clauses on the primary bound and
@@ -3509,6 +3593,17 @@ private:
             std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
     };
     std::vector<BlanketImpl> blanket_impls_;
+    // B-mv-03: does this blanket implement the trait the query names?
+    // A query carrying an IDENTITY (`pkg::Trait` — from
+    // TraitBound::canonical_trait or BlanketImpl::canonical_bound_trait)
+    // matches on identity, so a homonym's blanket cannot answer for the
+    // bare-slot trait. A BARE query keeps matching the raw spelling, which is
+    // exactly the pre-B-mv-03 union — the ~50 bare-text probes across sema are
+    // unchanged by construction, not by hope.
+    static bool blanket_implements(const BlanketImpl& bi, const std::string& q) {
+        if (q.find("::") != std::string::npos) return bi.query_trait() == q;
+        return bi.trait_name == q;
+    }
 
     // ── Package-qualified symbol lookup helpers ───────────────────
 

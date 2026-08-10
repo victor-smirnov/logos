@@ -377,16 +377,35 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // because the consumer's `Hash` resolves to `logos.lang.hash::Hash`
             // and reads the canonical key, never the bare one.
             //
-            // ⚠ WHAT IS STILL WRONG IS NOT HERE, AND IS NOT THIS. In the same
-            // consumer, `hmid_tag(5i64)` — a generic whose bound is lhom's
-            // `Hash` — is ADMITTED for `i64`, which implements only the stdlib
-            // `Hash`, and dies at `'func.call' op 'i64__tag' does not reference
-            // a valid function` (rc 1). MEASURED WITH THE ALIAS ON AND OFF:
-            // byte-identical. The seam is SemaChecker::collect_impl, which keys
-            // `impls_` as `trait_name + "::" + target` with the RAW spelling
-            // ("impls_ stays bare-keyed", its own comment) — one key space for
-            // two traits. Canonicalising THAT is the root fix and it is ~116
-            // impls_/impls_all_ sites; it is not this slice.
+            // ⚠ WHAT IS STILL WRONG IS NOT HERE, AND IS NOT THIS — RE-MEASURED
+            // AFTER B-mv-03, WHICH CLOSED HALF OF IT. The seam was
+            // SemaChecker::collect_impl keying `impls_` as
+            // `trait_name + "::" + target` from the RAW spelling — one key space
+            // for two traits. B-mv-03 ADDED a second, identity-keyed entry
+            // (`pkg::Trait::Target`) and taught bounds to carry the identity they
+            // denoted where they were WRITTEN (TraitBound::canonical_trait,
+            // BlanketImpl::canonical_bound_trait). A single-TU bound over a
+            // package-local homonym is now REFUSED with a ground —
+            // tests/logos/fail/trait_ident_homonym_bound_refused.logos.
+            // TWO THINGS SURVIVE, BOTH MEASURED, BOTH ON MONO'S SIDE OR BELOW:
+            //  · THE MIRROR LINK ORDER IS UNCHANGED. In the pkg_chain consumer
+            //    (`-l libhmid.a -l liblhom.a`) LHOM's `Hash` owns the BARE slot,
+            //    so its bound composes the raw key — and the stdlib's
+            //    `impl Hash for i64` is still filed there too, because the raw
+            //    key is RETAINED on purpose for the ~50 bare-text stdlib gates.
+            //    `hmid_tag(5i64)` in that TU still dies at
+            //    `'func.call' op 'i64__tag' does not reference a valid function`,
+            //    rc 1. Closing it means converting those gates to ask by
+            //    identity, not deleting the raw key.
+            //  · MONO STILL OVER-INSTANTIATES A BLANKET. With the blanket body
+            //    written `return self.tag();`, `trait_ident_homonym_bound.logos`
+            //    dies at `'i32__tag'` even though nothing in it calls `Marker`
+            //    with an `i32` — mono instantiates over its own fact table, and
+            //    the bound reaches it as RAW TEXT. MEASURED WITH THE ALIAS BELOW
+            //    ON AND OFF: byte-identical, so the alias is not the admitter.
+            //    That needs the identity mirrored to LIR (a
+            //    `canonical_bound_trait` twin of `ImplView::canonical_trait()`
+            //    plus the same on `push_tbound`) and is format-touching.
             if (!impl_trait.empty()) {
                 std::string impl_canon(impl.canonical_trait());
                 concrete_impls_.insert({impl_canon, impl_target});
@@ -412,6 +431,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // deletion came to look safe.
                 // The alias goes when bound trait names are canonicalised at emit,
                 // not before, and the two must land together.
+                // ⚠ RE-MEASURED AT B-mv-03 (the sema-side canonicalisation) AND
+                // STILL LOAD-BEARING: with this insert disabled and the sema fix
+                // in place, `tests/logos/pass/trait_ident_bare_alias_bound.logos`
+                // goes RED and the other two trait_ident fixtures stay green —
+                // the same asymmetry as before. Sema canonicalisation alone does
+                // NOT retire it, because mono's bound text never passes through
+                // `resolve_trait_query_name`. Restored and the restore proven
+                // green in the same round.
                 if (impl_canon != impl_trait)
                     concrete_impls_.insert({impl_trait, impl_target});
             }

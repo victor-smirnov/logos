@@ -15,20 +15,60 @@
 // hedge with no witness, and mono.cpp says so at the insert. Do not cite this
 // file as evidence that the alias is load-bearing.
 //
-// ⚠ WHAT IT DID EXPOSE, AND WHY THE BLANKET BODY DOES NOT CALL `tag()`. The
-// bound is conflated on the SEMA side: `impl<T: Hash> Marker for T` admits the
-// stdlib `Hash`'s concretes (`i32`, `i64`, …) into `Marker` as well as this
-// package's `S`. With the body written as `return self.tag();` this program
-// dies at `'func.call' op 'i32__tag' does not reference a valid function` — an
-// MLIR verifier failure, not a diagnostic — and it does so with mono's alias
-// ON *and* OFF, which is what locates the defect in sema. Canonicalising bound
-// trait names at emit is what closes it; that is not this slice, and this file
-// deliberately does NOT assert the defect as an expectation.
+// ⚠ WHAT IT DID EXPOSE — HALF NOW CLOSED (B-mv-03), HALF NOT, AND THE SPLIT IS
+// MEASURED. The bound was conflated on the SEMA side: `impl<T: Hash> Marker for
+// T` admitted the stdlib `Hash`'s concretes (`i32`, `i64`, …) into `Marker` as
+// well as this package's `S`.
+//
+//   · CLOSED, and ASSERTED next door. A bound over this package's `Hash` no
+//     longer admits a type that implements only the stdlib `Hash`. `impls_` now
+//     ALSO files each impl under the trait's IDENTITY key
+//     (`pkg::Trait::Target`, SemaChecker::collect_impl), and a bound carries the
+//     identity it denoted WHERE IT WAS WRITTEN (TraitBound::canonical_trait,
+//     captured in SemaChecker::read_trait_bound_args) — so
+//     `SemaChecker::check_type_bounds` and `SemaChecker::sema_has_impl_recursive`
+//     ask for one homonym and MISS the other. `hmid_tag(5i64)` and
+//     `call_marker(1i32)` are now REFUSALS with a ground naming the trait; the
+//     door is `tests/logos/fail/trait_ident_homonym_bound_refused.logos`.
+//     ⚠ THE ADDITIVE ALIAS IS MECHANICALLY CHECKED, not asserted in a comment:
+//     `SemaChecker::check_impl_registry_key_identity` (called from `run`) aborts
+//     if an impl is ever filed under only one of the two keys. Disabling the
+//     alias insert makes THIS file abort the compiler, rc 134 — measured.
+//
+//   · NOT CLOSED, and that is why the blanket body still does not call `tag()`.
+//     With the body written as `return self.tag();` this program STILL dies at
+//     `'func.call' op 'i32__tag' does not reference a valid function` — measured
+//     after B-mv-03, and measured again with mono's concrete bare alias
+//     DISABLED: byte-identical, so the alias is not the admitter either. Nothing
+//     in this TU calls `Marker` with an `i32`; MONO instantiates the blanket
+//     over every type its own fact table says implements `Hash`, and mono's
+//     blanket bound reaches it as RAW TEXT — `mono_has_impl_recursive` /
+//     `mono_concrete_satisfies_bound` never pass through
+//     `resolve_trait_query_name`. Closing that needs the identity MIRRORED to
+//     LIR (a `canonical_bound_trait` twin of the existing
+//     `ImplView::canonical_trait()`, plus the same on `push_tbound`); it is a
+//     format-touching addition and it is NOT in the B-mv-03 slice. This file
+//     therefore still does NOT assert that shape.
 //
 // What it therefore pins, and it is worth pinning: with the fact table keyed
 // by trait identity, a package-local homonym trait still carries a working
 // blanket and its own impl still dispatches. A canonicalisation that dropped
-// the local trait's facts entirely would red here.
+// the local trait's facts entirely would red here. That is now the LIVE
+// control on B-mv-03 — the cheapest wrong way to make the refusal next door
+// go green is to stop finding the local trait's impls at all, and this file is
+// what says no.
+//
+// ⚠ LINK ORDER IS PART OF THE GROUND. Single-TU, no `-l` archive: the stdlib's
+// `logos.lang.hash::Hash` is collected first and owns the bare registry slot,
+// so THIS package's `Hash` is the pkg-qualified homonym. The MIRROR order — an
+// archive's homonym owning the bare slot and the STDLIB's being qualified — is
+// `tests/logos/pass/trait_ident_pkg_chain.logos`, and B-mv-03 does NOT close
+// the bound defect there: `hmid_tag(5i64)` in that TU still reaches the MLIR
+// verifier (measured). The reason is structural, not an oversight — the raw
+// `Trait::Target` key is RETAINED on purpose so the ~50 bare-text stdlib gates
+// (`Drop::`, `Copy::`, `Index::`, `StableLayout::`, the prefix-strip sweeps)
+// keep resolving, and that retained key is where the union still lives. Closing
+// the mirror order means converting those gates to ask by identity too.
 package trait_ident_homonym_bound;
 
 extern fn printf(fmt: *const u8, ...) -> i32;

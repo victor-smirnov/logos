@@ -1,0 +1,55 @@
+// A GENERIC BOUND OVER A PACKAGE-LOCAL HOMONYM TRAIT IS REFUSED AT THE BOUND.
+//
+// ⚠ LINK ORDER IS PART OF THE GROUND, AND THIS FILE STATES IT. Which of two
+// same-name traits owns the BARE registry slot is decided by COLLECTION ORDER
+// (B-mv-02 gives the slot to whoever is collected first). This fixture is
+// SINGLE-TU with no `-l` archive, so the stdlib's `logos.lang.hash::Hash` is
+// collected FIRST and owns the bare slot, and THIS package's `Hash` is the
+// one pushed under its package-qualified key `trait_ident_homonym_bound_refused::Hash`.
+// The diagnostic below names that qualified key, so the file also pins the
+// direction of the collision — a different link order would move the slot and
+// this test would not merely change message, it would be asking a different
+// question. The MIRROR link order (an archive's homonym owning the bare slot)
+// is `tests/logos/pass/trait_ident_pkg_chain.logos`, and it is NOT closed —
+// see the note at the bottom.
+//
+// WHAT IS PINNED. `hmid_tag` is generic over THIS package's `Hash`. `i64`
+// implements the STDLIB `Hash` and not this one, so `hmid_tag(5i64)` must be
+// REFUSED, with a ground that says which trait the written name denotes and
+// that the registry was searched under that identity.
+//
+// ⚠ WHAT IT DELIBERATELY DOES NOT PIN. Before B-mv-03 this program compiled
+// past sema and died in the MLIR verifier at
+//     error: 'func.call' op 'i64__tag' does not reference a valid function
+// — measured at 0236c697, rc 1. That string is the DEFECT, not the behaviour,
+// and a `fail/` door holding it would be a green test asserting a defect. The
+// expectation below is the sema REFUSAL and its ground; it cannot be satisfied
+// by the verifier failure, which never mentions the trait at all.
+//
+// ⚠ THE REFUSAL MUST BE THE ONE WITH THE GROUND, NOT ANY REFUSAL. `fail/`
+// matching is substring containment, so `.expected` carries the whole clause
+// naming the qualified trait identity. A compiler that refused every `Hash`
+// bound — the failure mode of a fix that dropped the local trait's impls
+// instead of separating them — would not print that clause, and the LEGITIMATE
+// direction is held green next door: `tests/logos/pass/trait_ident_homonym_bound.logos`
+// still compiles and runs `call_marker(S{..})` and `S{..}.tag()` through this
+// same package-local `Hash`. Both files must move together or the pair is lying.
+package trait_ident_homonym_bound_refused;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+pub trait Hash { fn tag(&self) -> i64; }
+
+pub struct S { pub a: i32, }
+impl Hash for S { fn tag(&self) -> i64 { return 91i64; } }
+
+// Generic over THIS package's Hash. Legitimate for S; refused for i64.
+fn hmid_tag<T: Hash>(x: T) -> i64 { return x.tag(); }
+
+fn main() -> i32 {
+    let ok: i64 = hmid_tag(S { a: 1i32 });   // the legitimate direction
+    let bad: i64 = hmid_tag(5i64);           // i64 implements the STDLIB Hash
+    if ok != 91i64 { return 41; }
+    if bad != 91i64 { return 42; }
+    return 0i32;
+}

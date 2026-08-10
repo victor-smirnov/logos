@@ -829,16 +829,21 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
         break;
     }
     for (auto& bi : blanket_impls_) {
-        if (bi.trait_name != trait_name) continue;
+        if (!blanket_implements(bi, trait_name)) continue;
         if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
         // Per-attempt copy: a failed candidate must not poison `seen`
         // for the next sibling candidate.
         logos::compiler::StrSet attempt = seen;
+        // B-mv-03: recurse on the bound's IDENTITY. This is THE conflation
+        // site: `impl<T: Hash> Marker for T` next to a package-local
+        // `trait Hash` used to recurse on the bare text "Hash", hit the
+        // stdlib Hash's `i32`/`i64` impls, and admit them into `Marker`.
         bool ok = bi.bound_trait.empty()
-            || sema_has_impl_recursive(bi.bound_trait, concrete, concrete_alt, attempt);
+            || sema_has_impl_recursive(bi.query_bound_trait(), concrete, concrete_alt, attempt);
         if (ok) {
-            for (auto& eb : bi.extra_bounds)
-                if (!sema_has_impl_recursive(eb, concrete, concrete_alt, attempt)) {
+            for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
+                if (!sema_has_impl_recursive(bi.query_extra_bound(ei), concrete,
+                                             concrete_alt, attempt)) {
                     ok = false; break;
                 }
         }
@@ -918,6 +923,16 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         }
 
         for (auto& bound : tp.bounds) {
+            // B-mv-03: `btn` is the trait IDENTITY this bound denotes — the
+            // registry key spelling, captured where the bound was WRITTEN (see
+            // TraitBound::canonical_trait). Every key composed below and every
+            // traits_/blanket probe uses it; only DIAGNOSTICS keep
+            // `bound.trait_name`, because a message must echo what the user
+            // wrote. For a trait that owns the bare slot the two strings are
+            // equal, so this loop is byte-identical to its pre-B-mv-03 self on
+            // every program with no homonym.
+            const std::string& btn = bound.canonical_trait.empty()
+                                         ? bound.trait_name : bound.canonical_trait;
             // M7-mt-03: `Sized` is a compiler-builtin marker. Logos has no
             // unsized types yet, so every concrete type satisfies it; the
             // bound is admitted as a no-op (matches `T: Sized` being
@@ -944,20 +959,20 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // key instead of the plain one below.
             if (bound.on_ref_subject) {
                 std::string rk = (bound.is_ref_mut ? "$mut_ref_" : "$ref_") + concrete_str;
-                if (impls_.count(bound.trait_name + "::" + rk)) continue;
+                if (impls_.count(btn + "::" + rk)) continue;
                 if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 error(std::format("'{}': type '{}{}' does not implement trait '{}' "
-                                  "required by parameter '&{}'",
+                                  "required by parameter '&{}'{}",
                       target_name, bound.is_ref_mut ? "&mut " : "&", concrete_str,
-                      bound.trait_name, tp.name));
+                      bound.trait_name, tp.name, bound_lookup_ground(bound)));
                 continue;
             }
             // Auto trait: synthesize satisfaction from field types.
-            auto trit = traits_.find(bound.trait_name);
+            auto trit = traits_.find(btn);
             if (trit != traits_.end() && trit->second.is_auto) {
                 StrSet visited;
                 last_offender_ = {};
-                if (is_auto_trait_satisfied(concrete, bound.trait_name, visited)) continue;
+                if (is_auto_trait_satisfied(concrete, btn, visited)) continue;
                 if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
                 if (!last_offender_.field_name.empty()) {
                     error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
@@ -975,8 +990,8 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
                 continue;
             }
-            auto key1 = bound.trait_name + "::" + concrete_str;
-            auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
+            auto key1 = btn + "::" + concrete_str;
+            auto key2 = unwrapped_name.empty() ? "" : btn + "::" + unwrapped_name;
             // Parametrized bound `T: Trait<Args>`: the impls_ registry is keyed
             // `Trait::Self` and SINGLE-valued, so a Self-name hit proves only that
             // SOME `Trait` impl exists — NOT one with the right type-args (a type
@@ -1042,10 +1057,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (cv.kind() == LogosType::Kind::Struct ||
                     cv.kind() == LogosType::Kind::ZonedStruct) {
                     if (!cv.struct_name().empty())
-                        key_bare = bound.trait_name + "::" + std::string(cv.struct_name());
+                        key_bare = btn + "::" + std::string(cv.struct_name());
                 } else if (cv.kind() == LogosType::Kind::Enum) {
                     if (!cv.enum_name().empty())
-                        key_bare = bound.trait_name + "::" + std::string(cv.enum_name());
+                        key_bare = btn + "::" + std::string(cv.enum_name());
                 }
                 for (auto* kp : {&key1, &key2, &key_bare}) {
                     if (kp->empty()) continue;
@@ -1208,7 +1223,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // makes every `T: X` automatically implement the bound trait.
             bool via_blanket = false;
             for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != bound.trait_name) continue;
+                if (!blanket_implements(bi, btn)) continue;
                 auto bound_satisfied = [&](const std::string& bt) {
                     // A blanket's own bound may be an AUTO trait (Fst/Send/…) —
                     // the string-recursive impl lookup can't see structural
@@ -1223,10 +1238,11 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 };
                 // Unbounded blanket (`impl<T> Trait for T {}`) trivially satisfies
                 // every concrete type. Bounded blanket: primary + all extras must hold.
-                if (!bi.bound_trait.empty() && !bound_satisfied(bi.bound_trait)) continue;
+                if (!bi.bound_trait.empty() && !bound_satisfied(bi.query_bound_trait()))
+                    continue;
                 bool all_extra = true;
-                for (auto& eb : bi.extra_bounds)
-                    if (!bound_satisfied(eb)) { all_extra = false; break; }
+                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
+                    if (!bound_satisfied(bi.query_extra_bound(ei))) { all_extra = false; break; }
                 if (!all_extra) continue;
                 // ADR 0008: assoc-type equality clauses must hold.
                 if (!assoc_eqs_satisfied(bi.bound_trait, concrete_str,
@@ -1246,7 +1262,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Struct ||
                  cv.kind() == LogosType::Kind::ZonedStruct) &&
                 !cv.struct_name().empty()) {
-                auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
+                auto key3 = btn + "::" + std::string(cv.struct_name());
                 if (type_args_ok && impls_.count(key3)) continue;
             }
             // Slice-impl bound satisfaction (the Sized-partition pattern):
@@ -1258,10 +1274,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Slice ||
                  cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
                 TypeRef selem = cv.elem();
-                std::string ekey = bound.trait_name + "::$slice$"
+                std::string ekey = btn + "::$slice$"
                     + (selem ? type_str(selem) : std::string("?"));
                 if (impls_.count(ekey)) continue;
-                if (impls_.count(bound.trait_name + "::$slice$T")) continue;
+                if (impls_.count(btn + "::$slice$T")) continue;
             }
             // Slice-impl bound satisfaction (the Sized-partition pattern):
             // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
@@ -1272,10 +1288,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if ((cv.kind() == LogosType::Kind::Slice ||
                  cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
                 TypeRef selem = cv.elem();
-                std::string ekey = bound.trait_name + "::$slice$"
+                std::string ekey = btn + "::$slice$"
                     + (selem ? type_str(selem) : std::string("?"));
                 if (impls_.count(ekey)) continue;
-                if (impls_.count(bound.trait_name + "::$slice$T")) continue;
+                if (impls_.count(btn + "::$slice$T")) continue;
             }
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the
@@ -1286,10 +1302,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // Variadic form `impl<A...> Trait for (A...)` registers under
             // `$tuple$variadic` — accept any tuple arity.
             if (cv.kind() == LogosType::Kind::Tuple && type_args_ok) {
-                auto key_variadic = bound.trait_name + "::$tuple$variadic";
+                auto key_variadic = btn + "::$tuple$variadic";
                 if (impls_.count(key_variadic)) continue;
                 size_t arity = cv.tuple_elems().size();
-                auto key_arity = bound.trait_name + "::$tuple$"
+                auto key_arity = btn + "::$tuple$"
                                  + std::to_string(arity);
                 if (impls_.count(key_arity)) {
                     // Recursive bound check: every element must itself
@@ -1308,20 +1324,20 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         // Simpler: peek by reusing the same key-lookup
                         // logic against the element type.
                         std::string e_str = type_str(e);
-                        std::string ek1 = bound.trait_name + "::" + e_str;
+                        std::string ek1 = btn + "::" + e_str;
                         if (impls_.count(ek1)) continue;
                         // Tuple element is itself a tuple → arity key.
                         if (TypeRef(e).kind() == LogosType::Kind::Tuple) {
                             size_t a2 = TypeRef(e).tuple_elems().size();
-                            if (impls_.count(bound.trait_name + "::$tuple$"
+                            if (impls_.count(btn + "::$tuple$"
                                              + std::to_string(a2)))
                                 continue;
                         }
                         // Auto trait short-circuit.
-                        auto tit2 = traits_.find(bound.trait_name);
+                        auto tit2 = traits_.find(btn);
                         if (tit2 != traits_.end() && tit2->second.is_auto) {
                             StrSet visited;
-                            if (is_auto_trait_satisfied(e, bound.trait_name, visited))
+                            if (is_auto_trait_satisfied(e, btn, visited))
                                 continue;
                         }
                         all_elems_ok = false;
@@ -1375,7 +1391,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
             // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
             if (LogosType::is_fn_value_kind(cv.kind()) &&
-                impls_.count(bound.trait_name + "::$fnptr$" +
+                impls_.count(btn + "::$fnptr$" +
                              std::to_string(cv.closure_params().size())))
                 continue;
             // G158-7: a `dyn Trait` trait object satisfies a `T: Trait` bound —
@@ -1393,7 +1409,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 std::function<bool(const std::string&)> reaches =
                     [&](const std::string& tn) -> bool {
                         if (!seen.insert(tn).second) return false;
-                        if (tn == bound.trait_name) return true;
+                        if (tn == btn) return true;
                         auto it = traits_.find(tn);
                         if (it == traits_.end()) return false;
                         for (auto& s : it->second.supertraits)
@@ -1420,7 +1436,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                             TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
                         ? pfx + concrete_struct_name(pt)
                         : pfx + concrete_str;
-                if (impls_.count(bound.trait_name + "::" + mangled)) continue;
+                if (impls_.count(btn + "::" + mangled)) continue;
             }
             // ADR 0021 Phase 4a: a factory-backed metaclass marker's trait
             // impl is GENERATED by the mono→factory drain, which runs after
@@ -1433,8 +1449,9 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 continue;
             }
             if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
-            error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
-                  target_name, concrete_str, bound.trait_name, tp.name));
+            error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'{}",
+                  target_name, concrete_str, bound.trait_name, tp.name,
+                  bound_lookup_ground(bound)));
         }
     }
 }
@@ -3410,6 +3427,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
     bool is_blanket = false;
     std::string blanket_bound_trait;
     std::vector<std::string> blanket_extra_bounds;
+    // B-mv-03: identities parallel to the two above (see BlanketImpl).
+    // `blanket_trait_canonical` is the identity of the trait BEING implemented;
+    // resolved here rather than reusing `coh_trait` (computed at the bottom of
+    // this function) only because the pushes below happen first. Same call, same
+    // scope, so the two agree by construction — `check_impl_registry_key_identity`
+    // is what makes "by construction" mechanical rather than asserted.
+    std::string blanket_trait_canonical =
+        trait_name.empty() ? std::string() : canonical_trait_name(trait_name);
+    std::string blanket_bound_canonical;
+    std::vector<std::string> blanket_extra_canonical;
     // ADR 0008: associated-type equality clauses parallel to the bound list.
     std::vector<std::pair<std::string, TypeRef>> blanket_primary_assoc_eqs;
     std::vector<std::pair<std::string,
@@ -3420,9 +3447,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 is_blanket = true;
                 if (!tp.bounds.empty()) {
                     blanket_bound_trait = tp.bounds[0].trait_name;
+                    // B-mv-03: the bound's IDENTITY, already captured on the
+                    // TraitBound at read time (read_trait_bound_args) in THIS
+                    // impl's declaring scope. THIS is the string the blanket
+                    // walk asks the registry with — `impl<T: Hash> Marker for T`
+                    // written next to a package-local `trait Hash` must admit
+                    // that Hash's concretes and not the stdlib Hash's.
+                    blanket_bound_canonical = tp.bounds[0].canonical_trait;
                     blanket_primary_assoc_eqs = tp.bounds[0].assoc_eqs;
                     for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
                         blanket_extra_bounds.push_back(tp.bounds[bi].trait_name);
+                        blanket_extra_canonical.push_back(tp.bounds[bi].canonical_trait);
                         blanket_extra_assoc_eqs.emplace_back(
                             tp.bounds[bi].trait_name, tp.bounds[bi].assoc_eqs);
                     }
@@ -3675,6 +3710,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bi_rec.target_typevar = target;
                     bi_rec.bound_trait = blanket_bound_trait;
                     bi_rec.extra_bounds = blanket_extra_bounds;
+                    // B-mv-03: trait IDENTITIES alongside the raw spellings.
+                    bi_rec.canonical_trait = blanket_trait_canonical;
+                    bi_rec.canonical_bound_trait = blanket_bound_canonical;
+                    bi_rec.canonical_extra_bounds = blanket_extra_canonical;
                     bi_rec.method_name = mname;
                     bi_rec.mangled_name = mangled;
                     bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
@@ -3803,6 +3842,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
         bi_rec.target_typevar = target;
         bi_rec.bound_trait = blanket_bound_trait;
         bi_rec.extra_bounds = blanket_extra_bounds;
+        // B-mv-03: trait IDENTITIES alongside the raw spellings.
+        bi_rec.canonical_trait = blanket_trait_canonical;
+        bi_rec.canonical_bound_trait = blanket_bound_canonical;
+        bi_rec.canonical_extra_bounds = blanket_extra_canonical;
         // method_name / mangled_name intentionally empty — this is a
         // satisfaction-only marker, not a method-dispatch entry.
         bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
@@ -4068,6 +4111,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         bi_rec.target_typevar = target;
                         bi_rec.bound_trait = blanket_bound_trait;
                         bi_rec.extra_bounds = blanket_extra_bounds;
+                        // B-mv-03: trait IDENTITIES alongside the raw spellings.
+                        bi_rec.canonical_trait = blanket_trait_canonical;
+                        bi_rec.canonical_bound_trait = blanket_bound_canonical;
+                        bi_rec.canonical_extra_bounds = blanket_extra_canonical;
                         bi_rec.method_name = m.name;
                         bi_rec.mangled_name = def_reg_target + "__" + m.name;
                         bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
@@ -4252,6 +4299,28 @@ void SemaChecker::collect_impl(TinyMapView node) {
         impls_[key] = info;
         impls_all_[key].push_back(info);   // ALL impls (impls_ is last-wins)
         if (!cur_from_binary_) user_impl_keys_.insert(key);
+        // B-mv-03: ALSO file the impl under the trait's IDENTITY key
+        // (`pkg::Trait::Target`). This is ADDITIVE by construction — for a
+        // trait that owns the bare slot `coh_trait == trait_name` and nothing
+        // is inserted at all, so every existing bare-text probe, every
+        // prefix-strip (`"Copy::"`, `"StableLayout::"`, the sole-concrete
+        // inference in sema_expr.cpp) and every impls_all_ enumeration sees a
+        // byte-identical map. What it BUYS: a bound that carries a canonical
+        // trait (TraitBound::canonical_trait / BlanketImpl::canonical_bound_trait)
+        // can ask for ONE homonym's impls and MISS the other's — which is the
+        // refusal this fix exists to produce.
+        // ⚠ NOT a replacement of the bare key: ~50 probes across sema compose
+        // a bare stdlib trait name (`Drop::`, `Index::`, `Deref::`, …) and are
+        // correct only because that trait owns the bare slot. Re-keying would
+        // move the slot under a homonym and silence them; the split is carried,
+        // not chosen away. `check_impl_registry_key_identity` (sema_impl.hpp)
+        // mechanically checks that the two spaces stay in step.
+        if (coh_trait != trait_name && !coh_trait.empty()) {
+            std::string ckey = coh_trait + "::" + target;
+            impls_[ckey] = info;
+            impls_all_[ckey].push_back(info);
+            if (!cur_from_binary_) user_impl_keys_.insert(ckey);
+        }
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
         // Register an alias entry so satisfaction checks find the impl.
@@ -4261,7 +4330,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                trait_type_args, trait_lt_args, impl_lt_params,
                                impl_lt_outlives, impl_doc, {}};
             impls_[trait_name + "::&[u8]"] = alias;
-            impls_all_[trait_name + "::&[u8]"].push_back(std::move(alias));
+            impls_all_[trait_name + "::&[u8]"].push_back(alias);
+            if (coh_trait != trait_name && !coh_trait.empty()) {
+                impls_[coh_trait + "::&[u8]"] = alias;
+                impls_all_[coh_trait + "::&[u8]"].push_back(alias);
+            }
         }
     }
 }
@@ -5801,8 +5874,14 @@ void SemaChecker::check_supertrait_impls() {
         for (auto& super : tit->second.supertraits) {
             if (super.trait_name == "Copy") continue;
             // Bug 3: verify supertrait name is a known trait before checking impls.
-            if (!traits_.count(super.trait_name)) continue;  // already reported above
-            std::string super_key = super.trait_name + "::" + target;
+            // B-mv-03: ask by the supertrait's IDENTITY, captured on the
+            // TraitBound when the trait declaration was read. `trait Child: Hash`
+            // written next to a package-local `Hash` requires THAT Hash, not
+            // whichever homonym holds the bare registry slot.
+            const std::string& super_q = super.canonical_trait.empty()
+                                             ? super.trait_name : super.canonical_trait;
+            if (!traits_.count(super_q)) continue;  // already reported above
+            std::string super_key = super_q + "::" + target;
             if (impls_.count(super_key)) continue;
             // Blanket-derived supertrait satisfaction: if a blanket
             // `impl<T: BoundTrait> SuperTrait for T` exists and `target`
@@ -5811,14 +5890,16 @@ void SemaChecker::check_supertrait_impls() {
             // the blanket-aware lookup in check_type_bounds (line ~282).
             bool via_blanket = false;
             for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != super.trait_name) continue;
+                if (!blanket_implements(bi, super_q)) continue;
                 logos::compiler::StrSet seen_pri;
                 if (!bi.bound_trait.empty() &&
-                    !sema_has_impl_recursive(bi.bound_trait, target, "", seen_pri)) continue;
+                    !sema_has_impl_recursive(bi.query_bound_trait(), target, "", seen_pri))
+                    continue;
                 bool all_extra = true;
-                for (auto& eb : bi.extra_bounds) {
+                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
                     logos::compiler::StrSet seen_eb;
-                    if (!sema_has_impl_recursive(eb, target, "", seen_eb)) { all_extra = false; break; }
+                    if (!sema_has_impl_recursive(bi.query_extra_bound(ei), target, "", seen_eb))
+                        { all_extra = false; break; }
                 }
                 if (all_extra) { via_blanket = true; break; }
             }

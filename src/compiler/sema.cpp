@@ -2608,6 +2608,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // before the snapshot that carries them into the next call's
     // install_snapshot, whose const-index rebuild is another one).
     check_symbol_key_separators();
+    check_impl_registry_key_identity();
 
     {
         auto bare_of = [](const std::string& key) -> std::string_view {
@@ -3845,14 +3846,19 @@ bool SemaChecker::assoc_eqs_satisfied(
         // to a concrete type before the equality check.
         if (!found) {
             for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != trait_name) continue;
+                if (!blanket_implements(bi, trait_name)) continue;
                 logos::compiler::StrSet seen_pri;
+                // B-mv-03: satisfaction asks by IDENTITY; the `$blanket$` key
+                // built below stays on the RAW `bi.bound_trait`, because that
+                // is the spelling collect_impl registered the assoc type under.
                 bool ok = bi.bound_trait.empty()
-                    || sema_has_impl_recursive(bi.bound_trait, concrete_name, base_name, seen_pri);
+                    || sema_has_impl_recursive(bi.query_bound_trait(), concrete_name,
+                                               base_name, seen_pri);
                 if (ok) {
-                    for (auto& eb : bi.extra_bounds) {
+                    for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
                         logos::compiler::StrSet seen_eb;
-                        if (!sema_has_impl_recursive(eb, concrete_name, base_name, seen_eb)) {
+                        if (!sema_has_impl_recursive(bi.query_extra_bound(ei), concrete_name,
+                                                     base_name, seen_eb)) {
                             ok = false; break;
                         }
                     }
@@ -4545,6 +4551,15 @@ void SemaChecker::finalize_relaxed_bounds(TypeParam& tp) {
 }
 
 void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
+    // B-mv-03: capture the trait IDENTITY here, in the DECLARING scope. Every
+    // TraitBound that a bound-check ever consults is built through this
+    // function (type-param bounds, where-clause bounds, ref-subject bounds,
+    // supertrait bounds, `impl Trait` position), so this one line is the whole
+    // capture. `canonical_trait_name` falls back to the bare spelling for a
+    // trait not yet collected (forward ref) — the bound then behaves exactly
+    // as it did before this field existed.
+    if (!tb.trait_name.empty())
+        tb.canonical_trait = canonical_trait_name(tb.trait_name);
     // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true
     // for the `?IDENT` form. Only `?Sized` is semantically valid; other
     // relaxed names are rejected when bound list is finalized on the

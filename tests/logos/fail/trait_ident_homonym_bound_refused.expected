@@ -1,0 +1,1 @@
+'hmid_tag': type 'i64' does not implement trait 'Hash' required by parameter 'T' — here 'Hash' denotes the trait registered as 'trait_ident_homonym_bound_refused::Hash', and the impl registry was searched under that identity; a different same-named trait owns the bare name 'Hash' and its impls do NOT satisfy this bound
