@@ -4372,6 +4372,8 @@ For a fully concrete tuple T = (T0,..,Tn-1), `tuple_all_eq::<T>(a,b)` expands to
 
 `has_trait::<T, Trait>()` requires two type arguments and yields `bool`: whether concrete T implements Trait, resolved at mono against the same impl tables (concrete + recursive blanket lookup) that drive method dispatch. The second argument is read by its identifier name only (passed as a string literal arg), not resolved as a type. Missing T or empty Trait name is a compile error.
 
+The trait NAME is nevertheless CHECKED at sema against the traits in scope (`SemaChecker::check_trait_query_name`), and two spellings are compile errors rather than answers, because the bare-keyed impl table cannot answer them honestly: a name that denotes no trait at all (in the current package, any imported or re-exported package, or the bare registry slot), and a name that denotes MORE THAN ONE trait — a package-local `trait Hash` alongside `logos.lang.hash::Hash`, which `Mono::populate_trait_engine_` collapses onto one fact key. Resolution deliberately falls back to the bare slot, so a module that does not import the trait's package still answers: capability is a property of the type, not of the asker's import view.
+
 *Divergence:* Logos addition.
 
 *Related:* `intrinsic.has-trait-of.type-method`

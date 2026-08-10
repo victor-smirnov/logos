@@ -1,0 +1,1 @@
+has_trait_of::<Trait>(t): 'NoSuchTraitAnywhere' does not name a trait; looked in package 'meta_trait_query_of_unknown_trait_name', imported packages [

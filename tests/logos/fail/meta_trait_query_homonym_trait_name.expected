@@ -1,0 +1,1 @@
+has_trait::<T, Trait>(): trait name 'Hash' is ambiguous — it names 2 distinct traits (logos.lang.hash::Hash, meta_trait_query_homonym_trait_name::Hash); a trait query matches by bare name and the impl table cannot distinguish them

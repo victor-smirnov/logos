@@ -1140,8 +1140,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # the cut: 6959 / 3276 / 30 -> 6906 / 3223 / 30, i.e. exactly -53 / -53 / 0, one
 # ctest per deleted fixture and tier_commit untouched. PREDICTED before the
 # re-configure; the measurement agreed.
-REGISTRY-ALL         6911
-REGISTRY-NOIMPORTED  3228
+REGISTRY-ALL         6914
+REGISTRY-NOIMPORTED  3231
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

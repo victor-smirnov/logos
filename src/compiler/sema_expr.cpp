@@ -5035,6 +5035,11 @@ lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
         error("has_trait_of::<Trait>(t) requires one trait type argument");
         return error_expr();
     }
+    // The trait position is TEXT all the way to mono (see
+    // SemaChecker::check_trait_query_name). Refuse the spellings the impl
+    // table cannot honestly answer instead of folding a wrong constant.
+    if (!check_trait_query_name("has_trait_of::<Trait>(t)", trait_name))
+        return error_expr();
     std::vector<lir::LExprPtr> rargs;
     if (node.has_key(la::ARGS)) {
         AnyVal av = node.get(la::ARGS.code);
@@ -5921,6 +5926,11 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("has_trait::<T, Trait>() requires two type arguments");
             return error_expr();
         }
+        // The trait position is TEXT all the way to mono (see
+        // SemaChecker::check_trait_query_name). Refuse the spellings the impl
+        // table cannot honestly answer instead of folding a wrong constant.
+        if (!check_trait_query_name("has_trait::<T, Trait>()", trait_name))
+            return error_expr();
         std::vector<TypeRef> targs; targs.push_back(elem);
         std::vector<lir::LExprPtr> rargs;
         LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;

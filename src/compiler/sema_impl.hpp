@@ -3639,6 +3639,81 @@ private:
         if (it != traits_.end()) return it->first;
         return std::string(name);
     }
+    // ── Trait identity for the mono-time trait QUERY intrinsics ──────────
+    // `has_trait::<T, Tr>()` and `has_trait_of::<Tr>(t)` carry the trait as a
+    // BARE STRING down to mono, where the facts are keyed by the bare `impl`
+    // trait name (Mono::populate_trait_engine_ splits concrete_impls_ keys at
+    // the first "::"). A trait query can therefore only ever denote the trait
+    // that OWNS THE BARE SPELLING — it is text, not a resolved item. Two
+    // consequences, both of which these two helpers exist to make LOUD:
+    //   · a name that denotes no trait at all is still answered, `false` or
+    //     even `true` when some unrelated impl is keyed under that spelling;
+    //   · when two packages declare a trait of the same bare name (B-mv-02
+    //     puts the newcomer under `pkg::Name` and leaves the incumbent bare),
+    //     the query cannot say WHICH — a package-local `trait Hash` reads the
+    //     stdlib `Hash`'s impl facts and answers YES for a trait nothing in
+    //     the program implements.
+    // ⚠ NOT an import check. Resolution falls back to the bare slot exactly
+    // as find_trait_iter_scoped does, so a module that does NOT import the
+    // trait's package keeps answering — capability is a property of the type,
+    // not of the asker's import view (tests/logos/pass/
+    // meta_trait_query_without_import.logos and ..._emit_import_view.logos
+    // pin that, and both must stay green).
+    // Every traits_ key spelling `name` bare or as `pkg::name`.
+    std::vector<std::string> trait_keys_spelling(std::string_view name) const {
+        std::vector<std::string> out;
+        if (name.empty()) return out;
+        const std::string suffix = "::" + std::string(name);
+        for (auto& kv : traits_) {
+            std::string_view k{kv.first};
+            if (k == name ||
+                (k.size() > suffix.size() && k.substr(k.size() - suffix.size()) == suffix))
+                out.push_back(kv.first);
+        }
+        // traits_ is a hash map: sort so the DIAGNOSTIC is byte-stable across
+        // runs and a fail fixture can pin the trait list it names.
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+    // Refuse a trait query whose trait NAME cannot honestly be answered by the
+    // bare-keyed impl table. `intrinsic` is spelled into the message.
+    // Returns true when the query may proceed.
+    bool check_trait_query_name(std::string_view intrinsic, std::string_view name) {
+        auto keys = trait_keys_spelling(name);
+        if (keys.empty()) {
+            std::string where = cur_package_.empty()
+                ? std::string("the global trait registry")
+                : std::format("package '{}'", cur_package_);
+            std::string imps;
+            for (auto& p : effective_import_pkgs()) {
+                if (!imps.empty()) imps += ", ";
+                imps += p;
+            }
+            error(std::format(
+                "{}: '{}' does not name a trait; looked in {}, imported packages [{}], "
+                "and the global trait registry",
+                intrinsic, name, where, imps));
+            return false;
+        }
+        if (keys.size() > 1) {
+            std::string list;
+            for (auto& k : keys) {
+                if (!list.empty()) list += ", ";
+                auto it = traits_.find(k);
+                list += (it != traits_.end() && !it->second.package.empty() &&
+                         k.find("::") == std::string::npos)
+                            ? it->second.package + "::" + std::string(name)
+                            : k;
+            }
+            error(std::format(
+                "{}: trait name '{}' is ambiguous — it names {} distinct traits ({}); "
+                "a trait query matches by bare name and the impl table cannot "
+                "distinguish them",
+                intrinsic, name, keys.size(), list));
+            return false;
+        }
+        return true;
+    }
     bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
     bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }
     bool has_enum(std::string_view name)     { return find_enum_by_name(name).second     != nullptr; }

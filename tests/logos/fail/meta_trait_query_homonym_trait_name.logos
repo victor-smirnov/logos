@@ -1,0 +1,36 @@
+// A LOCAL `trait Hash` MUST NOT SILENTLY ANSWER FOR THE STDLIB'S `Hash`.
+//
+// MEASURED at 9868ddf3, before the fix: this exact program COMPILED and the
+// query answered YES — `main` returned 1. Nothing in it implements the trait
+// declared three lines below; `impl Hash for i64` lives in
+// stdlib/lang/hash/hash.logos and belongs to a DIFFERENT trait that merely
+// shares the spelling. The work done before the wrong answer was ALL of it:
+// sema lowered the call, mono folded it to a `true` constant, and the linked
+// binary ran and returned 1. Nothing was refused; a value was wrong.
+//
+// A false YES is the dangerous direction. Under-derivation is quiet and
+// harmless; a false admission is what makes a capability derivation emit calls
+// to methods that do not exist.
+//
+// WHY THE ANSWER IS A DIAGNOSTIC AND NOT "the local trait, answered
+// correctly": the trait position of a query reaches mono as a bare STRING, and
+// mono's facts are keyed by the bare `impl` trait name too
+// (Mono::populate_trait_engine_ splits concrete_impls_ keys at the first
+// "::"). Both traits named `Hash` therefore occupy ONE fact key and the impl
+// table cannot tell them apart in either direction. Canonicalising both sides
+// is a larger arc; refusing the ambiguous query is the honest answer the
+// present table can give, and it is loud.
+//
+// ⚠ THE EXPECTATION NAMES BOTH TRAITS. A door that only demanded "error", or
+// only the word `Hash`, would be satisfied by a compiler that had withdrawn
+// `has_trait` entirely, or by the arity diagnostic, or by a parse error here.
+// Naming `logos.lang.hash::Hash` AND this package's own `Hash` can only be
+// produced by a check that found two distinct traits under one spelling.
+package meta_trait_query_homonym_trait_name;
+
+pub trait Hash { fn utterly_unrelated_method(&self) -> i64; }
+
+fn main() -> i32 {
+    if has_trait::<i64, Hash>() { return 1i32; }
+    return 0i32;
+}

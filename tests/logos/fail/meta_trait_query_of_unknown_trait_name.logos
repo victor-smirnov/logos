@@ -1,0 +1,23 @@
+// THE SECOND DOOR: `has_trait_of::<Tr>(t)` reads its trait the same way.
+//
+// `has_trait_of` is lowered by SemaChecker::lower_intrinsic_has_trait_of, a
+// DIFFERENT function from the `has_trait` branch of
+// SemaChecker::lower_intrinsic_call, and it read `la::NAME` off its type-arg
+// with no resolution of its own. A fix applied only to `has_trait` would leave
+// this form answering a name that denotes no trait — which is why this file
+// exists next to `meta_trait_query_unknown_trait_name` rather than being
+// folded into it.
+//
+// The `Clone` line is the control: the same intrinsic, same argument shape, a
+// real trait — it must still compile, or this fixture is only measuring a
+// compiler that refuses `has_trait_of` outright.
+package meta_trait_query_of_unknown_trait_name;
+
+pub struct Boxed { pub a: i32, }
+impl Clone for Boxed { fn clone(&self) -> Boxed { return Boxed { a: self.a }; } }
+
+fn main() -> i32 {
+    let real: i32 = if has_trait_of::<Clone>(type_of::<Boxed>()) { 1i32 } else { 0i32 };
+    let bogus: i32 = if has_trait_of::<NoSuchTraitAnywhere>(type_of::<Boxed>()) { 1i32 } else { 0i32 };
+    return real + bogus;
+}

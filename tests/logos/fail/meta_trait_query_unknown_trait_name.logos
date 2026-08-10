@@ -1,0 +1,32 @@
+// A TRAIT NAME THAT EXISTS NOWHERE MUST NOT BE ANSWERED.
+//
+// This is the case `tests/logos/pass/meta_trait_query_blind_unknown_trait.logos`
+// recorded as a pinned DEFECT and told its successor to move here once the
+// compiler started diagnosing it. It did; this is that move.
+//
+// The old behaviour: `has_trait::<i64, NoSuchTraitAnywhere>()` compiled clean,
+// exit 0, and folded to `false` — a TYPO was indistinguishable from a genuine
+// absence of the impl, and worse, a spelling that some unrelated impl happens
+// to be keyed under folds to `true` and the derivation reading it emits calls
+// to methods that do not exist. The trait position of a trait query is carried
+// to mono as a bare STRING; nothing resolved it against anything.
+//
+// ⚠ THE EXPECTATION ASSERTS THE GROUND, NOT AN ABSENCE. It names the intrinsic,
+// the offending trait, AND the package the compiler searched. A `fail/` door
+// that only demanded the word "error", or only the trait's name, would also be
+// satisfied by a compiler that had deleted `has_trait` outright, by the
+// arity diagnostic, and by a parse error on this file — none of which is
+// evidence that the trait NAME was looked up and found missing.
+package meta_trait_query_unknown_trait_name;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+fn main() -> i32 {
+    // CONTROL (compiles, and must keep compiling): the same intrinsic on the
+    // same type with a REAL trait. If this line were the one that failed, the
+    // fixture would be measuring a compiler that refuses every trait query.
+    let real: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+    // THE DEFECT, now a diagnostic.
+    let bogus: i32 = if has_trait::<i64, NoSuchTraitAnywhere>() { 1i32 } else { 0i32 };
+    return real + bogus;
+}

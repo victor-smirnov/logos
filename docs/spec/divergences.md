@@ -1392,7 +1392,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ### `intrinsic.has-trait.t-trait-bool` — has_trait queries impl tables
 - **Divergence**: Logos addition.
-- **Rule**: `has_trait::<T, Trait>()` requires two type arguments and yields `bool`: whether concrete T implements Trait, resolved at mono against the same impl tables (concrete + recursive blanket lookup) that drive method dispatch. The second argument is read by its identifier name only (passed as a string literal arg), not resolved as a type. Missing T or empty Trait name is a compile error.
+- **Rule**: `has_trait::<T, Trait>()` requires two type arguments and yields `bool`: whether concrete T implements Trait, resolved at mono against the same impl tables (concrete + recursive blanket lookup) that drive method dispatch. The second argument is read by its identifier name only (passed as a string literal arg), not resolved as a type. Missing T or empty Trait name is a compile error. The NAME is checked at sema by `SemaChecker::check_trait_query_name` (shared with `has_trait_of`): a spelling that denotes no trait in scope, and one that denotes two distinct traits (a package-local homonym of a stdlib trait), are compile errors rather than answers, since `Mono::populate_trait_engine_` keys its facts by the bare trait name and collapses homonyms onto one key. Lookup falls back to the bare registry slot, so the answer stays independent of the asker's imports.
 - **Source**: `src/compiler/sema_expr.cpp#L5235-L5270`
 
 ### `intrinsic.is-data-plain-of.copyable-predicate` — is_data_plain_of predicates DataPlain layout

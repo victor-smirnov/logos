@@ -1,0 +1,60 @@
+// A TRAIT QUERY NAMES A TRAIT — AND A LOCAL TRAIT IS STILL A TRAIT.
+//
+// `has_trait::<T, Tr>()` / `has_trait_of::<Tr>(t)` now REFUSE a trait name that
+// denotes no trait, and one that denotes more than one (see the two
+// `meta_trait_query_*_trait_name` files in tests/logos/fail/). This is the
+// other side of that door: a package-LOCAL trait with a name nothing else
+// spells resolves, and both query forms answer about it correctly.
+//
+// ⚠ THE CONTROL IS A RENAME, NOT A MISSING IMPORT — and that is not laziness.
+// Trait resolution for a query deliberately falls back to the bare registry
+// slot (SemaChecker::find_trait_iter_scoped), because capability is a property
+// of the TYPE, not of the asker's import view: `meta_trait_query_without_import`
+// and `meta_trait_query_emit_import_view` pin that a module which does NOT
+// import the trait's package gets the SAME answers. So dropping an import
+// cannot make a query stop resolving and would be a control that changes
+// nothing. The perturbation that DOES fire is misspelling the trait at the
+// query site, and `meta_trait_query_unknown_trait_name` (fail/) holds it.
+//
+// The `Plain` rows are the control on the answer itself: a compiler that
+// answered YES to everything — which is exactly what the pre-fix compiler did
+// for a shadowed name — would pass the `Marked` rows alone.
+package meta_trait_query_local_trait_resolves;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+// A name deliberately spelled so that nothing in the stdlib collides with it.
+pub trait LocalMarkT25 { fn mark_t25(&self) -> i32; }
+
+pub struct Marked { pub a: i32, }
+impl LocalMarkT25 for Marked { fn mark_t25(&self) -> i32 { return self.a; } }
+
+pub struct Plain { pub a: i32, }
+
+fn main() -> i32 {
+    // Keyword form over the LOCAL trait.
+    let m: i32 = if has_trait::<Marked, LocalMarkT25>() { 1i32 } else { 0i32 };
+    let p: i32 = if has_trait::<Plain,  LocalMarkT25>() { 1i32 } else { 0i32 };
+    // Type-value form must agree — it reads the trait name through the same
+    // check (SemaChecker::lower_intrinsic_has_trait_of).
+    let mo: i32 = if has_trait_of::<LocalMarkT25>(type_of::<Marked>()) { 1i32 } else { 0i32 };
+    let po: i32 = if has_trait_of::<LocalMarkT25>(type_of::<Plain>())  { 1i32 } else { 0i32 };
+    // A stdlib trait in the same file: the check did not narrow queries to
+    // locally-declared traits. `Hash` reaches this package through the prelude
+    // and `impl Hash for i64` lives in stdlib/lang/hash/hash.logos.
+    let h: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+
+    printi("marked=%d\n", m);
+    printi("plain=%d\n",  p);
+    printi("marked_of=%d\n", mo);
+    printi("plain_of=%d\n",  po);
+    printi("i64_hash=%d\n",  h);
+
+    if m  != 1i32 { return 41; }
+    if p  != 0i32 { return 42; }
+    if mo != 1i32 { return 43; }
+    if po != 0i32 { return 44; }
+    if h  != 1i32 { return 45; }
+    return 0i32;
+}
