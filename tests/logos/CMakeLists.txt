@@ -638,7 +638,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_THREE_LAYER_USERS three_layer_chain)
     # Homonym trait across package archives: the consumer links both, and
     # must NOT see lhom's `Hash` impls through the bare registry slot.
-    set(LOCAL_TRAIT_IDENT_CHAIN_USERS trait_ident_pkg_chain)
+    set(LOCAL_TRAIT_IDENT_CHAIN_USERS trait_ident_pkg_chain trait_ident_bare_alias_bound)
     # The Freeze-predicate behavioural guard. Its mutators live in
     # libub_boundary.a (built at -O2) because a parameter attribute only has
     # teeth while the call is still a call — see the fixture's comment above.

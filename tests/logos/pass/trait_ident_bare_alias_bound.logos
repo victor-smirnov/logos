@@ -1,0 +1,63 @@
+// THE BARE-SPELLING ALIAS IN `Mono`'s IMPL INDEX, PINNED BY ITS FALSE-NEGATIVE
+// DIRECTION — the one the corpus could not see.
+//
+// ⚠ WHY THIS FILE EXISTS. Mono files every concrete impl fact TWICE: once under
+// the trait's canonical identity, and once under its BARE spelling as an alias
+// (`Mono::Mono`'s impl-indexing loop, `if (impl_canon != impl_trait)`). A round
+// on 2026-08-10 measured that the alias does NOT produce the wrong ANSWER it was
+// suspected of — a query naming the bare-slot trait does not see a homonym's
+// impls — and deleted it as "necessity without a consumer", on a corpus that
+// stayed green.
+//
+// The consumer is on the OTHER SIDE, and green was not evidence about it. The
+// bare-text `mono_has_impl_recursive` / `mono_concrete_satisfies_bound` call
+// sites do NOT go through `resolve_trait_query_name`: they pass the blanket's
+// RAW `bi.bound_trait` text. So removing the alias cannot cause a false
+// positive — it causes a false NEGATIVE, a bound that stops being satisfied and
+// a method that stops being instantiated.
+//
+// MEASURED, both arms, full rebuild each:
+//   alias ON  → rc 0, this file returns 0
+//   alias OFF → `logosc` rc 1:
+//     "void call statement DROPPED — the method 'HashMap$G2$i64$i64__insert'
+//      had no instantiation, so the whole call was silently discarded
+//      (mono never demanded the callee)"
+//   and identically for `HashMap<(i64,i64),i64>` through `impl<A: Hash, B: Hash>
+//   Hash for (A,B)`.
+//
+// ⚠ AND THE SHAPE IS THE POINT: no OTHER corpus member links a homonym archive
+// AND uses a hash container, so the class was invisible to L4 BY CONSTRUCTION.
+// A green suite said nothing about it, which is exactly how the deletion came to
+// look safe. That is what this file changes.
+//
+// ⚠ THIS FIXTURE PINS A HEDGE, NOT A RULE. The alias is a superset that hides a
+// real conflation one layer down (`SemaChecker::collect_impl` keys `impls_` as
+// `trait_name + "::" + target` from the RAW spelling — one key space for two
+// traits). When bound trait names are canonicalised at emit, the alias goes AND
+// this fixture must be re-derived against the canonical bound, not deleted:
+// what it asserts — that a hash container still instantiates in a program that
+// links a homonym archive — must remain true.
+//
+// The import of `trait_ident_chain.hmid` is load-bearing: it drags in `lhom`,
+// whose own `trait Hash` takes the BARE registry slot in this translation unit
+// (B-mv-02 gives it to whoever is collected first, and an archive's decls land
+// before the stdlib's). Without that import the stdlib `Hash` owns the bare slot
+// and the alias is a no-op, so the file would pin nothing.
+package test;
+
+use trait_ident_chain.hmid;
+use logos.mem.collections.hashmap;
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = hashmap_new::<i64, i64>();
+    unsafe { m.insert(1i64, 2i64); }
+    if m.len() != 1i64 { return 1i32; }
+
+    // the tuple key exercises `impl<A: Hash, B: Hash> Hash for (A, B)` — a
+    // BLANKET bound over the same bare spelling, the second shape measured.
+    let mut t: HashMap<(i64, i64), i64> = hashmap_new::<(i64, i64), i64>();
+    unsafe { t.insert((3i64, 4i64), 5i64); }
+    if t.len() != 1i64 { return 2i32; }
+
+    return 0i32;
+}

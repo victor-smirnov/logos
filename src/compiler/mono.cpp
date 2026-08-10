@@ -387,9 +387,34 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // ("impls_ stays bare-keyed", its own comment) — one key space for
             // two traits. Canonicalising THAT is the root fix and it is ~116
             // impls_/impls_all_ sites; it is not this slice.
-            if (!impl_trait.empty())
-                concrete_impls_.insert({std::string(impl.canonical_trait()),
-                                        impl_target});
+            if (!impl_trait.empty()) {
+                std::string impl_canon(impl.canonical_trait());
+                concrete_impls_.insert({impl_canon, impl_target});
+                // ⚠ THE BARE ALIAS IS RESTORED, AND IT IS LOAD-BEARING — MEASURED.
+                // The slice that removed it measured only the FALSE-POSITIVE
+                // direction (does a query see a homonym's impls? no, it does not)
+                // and concluded "necessity without a consumer". The consumer is on
+                // the other side: the bare-text `mono_has_impl_recursive` /
+                // `mono_concrete_satisfies_bound` call sites do NOT go through
+                // `resolve_trait_query_name` — they pass the blanket's RAW
+                // `bi.bound_trait` text. Removing the alias can therefore only
+                // produce FALSE NEGATIVES, and it does:
+                //   `use trait_ident_chain.hmid` + `HashMap<i64,i64>` insert/len
+                //   → alias ON: rc 0, prints len=1
+                //   → alias OFF: rc 1, `mlir_gen: internal: void call statement
+                //     DROPPED — the method 'HashMap$G2$i64$i64__insert' had no
+                //     instantiation`
+                // reproduced identically for `HashMap<(i64,i64),i64>` through
+                // `impl<A: Hash, B: Hash> Hash for (A,B)`.
+                // ⚠ NO CORPUS MEMBER links a homonym archive AND uses a hash
+                // container, so this class is invisible to L4 BY CONSTRUCTION — a
+                // green suite is not evidence about it, which is exactly how the
+                // deletion came to look safe.
+                // The alias goes when bound trait names are canonicalised at emit,
+                // not before, and the two must land together.
+                if (impl_canon != impl_trait)
+                    concrete_impls_.insert({impl_trait, impl_target});
+            }
         }
     }
 

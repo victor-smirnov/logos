@@ -5469,7 +5469,19 @@ void Mono::populate_trait_engine_() {
         for (auto& eb : bi.extra_bounds) bounds.push_back(eb);
         // Register under the trait IDENTITY, plus the bare spelling as an
         // alias when they differ — same superset rule as the concrete facts
-        // (see mono.cpp's concrete_impls_ insert).
+        // (see mono.cpp's concrete_impls_ insert, which carries the measurement
+        // of why THAT alias is load-bearing).
+        //
+        // ⚠ THIS ONE'S NECESSITY AND HARM ARE BOTH UNMEASURED, and that is not a
+        // guess: disabling it (`if (false)`) and rebuilding leaves all three
+        // trait-identity fixtures GREEN, including
+        // `tests/logos/pass/trait_ident_bare_alias_bound.logos`, which is the
+        // fixture that DOES red when the concrete alias goes. So nothing in the
+        // corpus distinguishes this insert's presence from its absence, in
+        // either direction — the same state the concrete alias was in on the day
+        // a round deleted it as "necessity without a consumer" and would have
+        // shipped a real regression. Do not repeat that here: find the consumer
+        // or find the harm, and MEASURE it, before touching this.
         const std::string& b_canon =
             bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait;
         if (b_canon != bi.trait_name) {

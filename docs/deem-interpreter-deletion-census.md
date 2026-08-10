@@ -1148,8 +1148,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # non-registering package archives (trait_ident_chain/{lhom,hmid}). PREDICTED
 # 6921 / 3238 / 31 before the re-configure; `ctest -N` three ways agreed exactly,
 # and the new name was verified individually with `ctest -N -R trait_ident`.
-REGISTRY-ALL         6921
-REGISTRY-NOIMPORTED  3238
+REGISTRY-ALL         6922
+REGISTRY-NOIMPORTED  3239
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
