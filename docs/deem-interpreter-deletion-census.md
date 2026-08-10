@@ -1146,8 +1146,6 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # BYTE-IDENTICAL hunk and git merged it silently one short.
 REGISTRY-ALL         6920
 REGISTRY-NOIMPORTED  3237
-REGISTRY-ALL         6919
-REGISTRY-NOIMPORTED  3236
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

@@ -3717,6 +3717,21 @@ private:
         }
         // keys.size() > 1 and none of them is what the name resolves to here:
         // the query names several traits and no scope rule picks one.
+        //
+        // ⚠ BELIEVED UNREACHABLE, AND THAT BELIEF IS ARGUED, NOT MEASURED — which
+        // is why the branch stays. The argument: `collect_trait` (sema_collect.cpp,
+        // the B-mv-02 block) registers a `pkg::Name` key ONLY when a bare incumbent
+        // already holds the slot, so whenever `trait_keys_spelling` returns >1 the
+        // bare key is among them; and `canonical_trait_name`'s last step is
+        // `traits_.find(name)` on exactly that bare key, which therefore succeeds.
+        // No input was constructed that reaches here, and nothing asserts the
+        // message below.
+        // ⚠ A green corpus is the ABSENCE OF A WITNESS, not a proof — this arc
+        // already shipped one false unreachability claim ("there is no char fixture
+        // that reds this line"; there was). So: do NOT delete this on the strength
+        // of a green run. If it ever fires, the invariant above has changed —
+        // some path now registers a `pkg::Name` trait with no bare incumbent —
+        // and THAT is the thing to go and read, not this diagnostic.
         std::string list;
         for (auto& k : keys) {
             if (!list.empty()) list += ", ";

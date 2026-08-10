@@ -47,6 +47,33 @@ LEDGER=${2:?usage: separator_split_lint.sh <src/compiler dir> <ledger>}
 EXEMPT_BASENAME=mangled_name.hpp
 
 # A "split" is any of the shapes that cut a composed name at the separator.
+#
+# ⚠ `::` JOINED THE PATTERN 2026-08-10, AND IT WAS NOT HYPOTHETICAL. `Mono`'s
+# `concrete_impls_` keyed facts by the composed string `"trait::type"` and
+# `populate_trait_engine_` split it with `k.find("::")`, guarded by a comment
+# arguing the left operand is always a BARE `impl.trait_name()`. Canonicalising
+# trait identity puts a path-qualified `pkg::Hash` on that left — and the
+# invariant the comment rested on is gone, silently. The repair was to stop
+# composing a string at all (the set is now a `std::pair`), and BOTH parse sites
+# were deleted with it. This line exists so the next `::` split is seen the day
+# it is written rather than the day it is canonicalised.
+#
+# ⚠ AND `::` IS DELIBERATELY *NOT* IN THE PATTERN — I added it, MEASURED the
+# result, and took it out. It matches 12 sites (sema.cpp 8, sema_impl.hpp 3,
+# sema_collect.cpp 1), and most are the LEGITIMATE use: parsing a real path
+# `pkg::item` at the character that separates a path. A composed-key split and a
+# path parse are not syntactically distinguishable, so a blanket `::` alternation
+# turns this ledger into a rubber stamp — twelve entries nobody can argue about
+# individually, which is precisely what the "A NEW ENTRY IS NOT A FORMALITY" rule
+# in the ledger exists to prevent.
+#
+# The two characters are unsafe for DIFFERENT reasons and want different
+# instruments. `__` is legal INSIDE an identifier, so a split there is a guess
+# about text — censusable. `::` is not: the grammar refuses `impl pkg::Trait for T`
+# (MEASURED: `syntax error near 'impl'`, rc 4), so a `::` split is safe exactly as
+# long as nothing composes a QUALIFIED name into that operand — a whole-program
+# invariant, which a per-site regex cannot see and a per-site READ can. That read
+# is filed as its own task rather than faked here.
 PATTERN='\.(find|rfind)\("__"\)|starts_with\("__"\)|ends_with\("__"\)'
 
 count_file() {

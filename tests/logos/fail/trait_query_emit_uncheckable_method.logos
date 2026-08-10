@@ -39,7 +39,7 @@
 //
 // The two fixtures that carried the refuted sentence in their prose —
 // `fail/meta_trait_query_unknown_trait_name.logos` and
-// `fail/meta_trait_query_homonym_trait_name.logos` — were corrected on the same
+// `pass/meta_trait_query_homonym_trait_name.logos` (it was in `fail/` when this line was written; the homonym became ANSWERABLE and the door was retired into `pass/` with both directions asserted) — were corrected on the same
 // pass (comment only; their expectations were right either way).
 //
 // The sibling `pass/trait_query_emit_homonym_method.logos` pins the OTHER half:
