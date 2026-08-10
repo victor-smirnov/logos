@@ -3837,8 +3837,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         mlir::dyn_cast<mlir::FloatType>(target)) {
         // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
         // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
-        bool src_unsigned = (val.getType() == builder_.getI1Type()) ||
-            (op_ty && LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind()));
+        //
+        // ⚠ THE TWO DISJUNCTS BELOW ARE MUTUALLY REDUNDANT ACROSS THE WHOLE
+        // CORPUS, MEASURED 2026-08-10: delete either one alone and L2
+        // (1892/1892), the 12684-case generated tier and all 31 gates stay
+        // GREEN. Only removing BOTH reds anything, and then only
+        // `tests/logos/pass/wql_agg_avg_bool_value_rule.logos` at exit 13.
+        // So a two-step "cleanup" — drop one, see green, drop the other later,
+        // see green because the first is already gone — silently reintroduces
+        // `sitofp(i1 1) = -1.0`. That is why they are ONE named expression
+        // instead of two clauses a reader can prune independently.
+        //
+        // They are not gratuitously equal: the VALUE test answers when no Logos
+        // type reached this site (`op_ty == nullptr`), the KIND test answers for
+        // a Logos `bool`/`char`/unsigned whose MLIR value is not i1. Neither
+        // case is exercised by the corpus today — that is the open half, and it
+        // is why NEITHER may be deleted on the strength of a green run.
+        const auto value_is_unsigned_for_fp = [&](mlir::Value v, auto t) {
+            return (v.getType() == builder_.getI1Type())
+                || (t && LogosType::is_unsigned_repr_kind(TypeRef(t).kind()));
+        };
+        bool src_unsigned = value_is_unsigned_for_fp(val, op_ty);
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);
