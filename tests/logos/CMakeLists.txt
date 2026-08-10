@@ -417,6 +417,33 @@ add_custom_command(
 add_custom_target(trait_ident_chain_binary ALL DEPENDS
     ${TRAIT_IDENT_CHAIN_LHOM_BIN} ${TRAIT_IDENT_CHAIN_HMID_BIN})
 
+# trait_blanket_chain: the BLANKET-alias twin of trait_ident_chain, ONE tier.
+#   libbmid.a  declares `trait Error` — a homonym of `logos.lang.error::Error`,
+#              which owns the bare registry slot because the stdlib is collected
+#              first — plus a BLANKET impl of it and a BOUNDED generic template
+#              `impl<T: Error> Holder<T>`.
+# The consumer (tests/logos/pass/trait_blanket_bare_alias_bound.logos) links this
+# one archive, so `Holder<i64>::store` reaches mono only through the method
+# worklist and its bound is checked against the BARE spelling "Error" — the only
+# program in the corpus where `Mono::populate_trait_engine_`'s blanket-alias
+# branch both fires AND decides an outcome. See the fixture header for both arms.
+set(TRAIT_BLANKET_CHAIN_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/trait_blanket_chain)
+set(TRAIT_BLANKET_CHAIN_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(TRAIT_BLANKET_CHAIN_BMID_MANIFEST ${TRAIT_BLANKET_CHAIN_DIR}/bmid.module)
+set(TRAIT_BLANKET_CHAIN_BMID_BIN ${TRAIT_BLANKET_CHAIN_OUT_DIR}/libbmid.a)
+file(GLOB TRAIT_BLANKET_CHAIN_BMID_SOURCES ${TRAIT_BLANKET_CHAIN_DIR}/bmid/*.logos)
+add_custom_command(
+    OUTPUT  ${TRAIT_BLANKET_CHAIN_BMID_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${TRAIT_BLANKET_CHAIN_BMID_MANIFEST}
+            -o ${TRAIT_BLANKET_CHAIN_BMID_BIN}
+    DEPENDS logosc ${TRAIT_BLANKET_CHAIN_BMID_MANIFEST} ${TRAIT_BLANKET_CHAIN_BMID_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libbmid.a (trait_blanket_chain)"
+)
+add_custom_target(trait_blanket_chain_binary ALL DEPENDS
+    ${TRAIT_BLANKET_CHAIN_BMID_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -639,6 +666,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # Homonym trait across package archives: the consumer links both, and
     # must NOT see lhom's `Hash` impls through the bare registry slot.
     set(LOCAL_TRAIT_IDENT_CHAIN_USERS trait_ident_pkg_chain trait_ident_bare_alias_bound)
+    # The BLANKET-alias twin: one archive whose `trait Error` lost the bare
+    # registry slot to the stdlib's, so its blanket impl is the only row in the
+    # program for which mono's alias branch fires.
+    set(LOCAL_TRAIT_BLANKET_CHAIN_USERS trait_blanket_bare_alias_bound)
     # The Freeze-predicate behavioural guard. Its mutators live in
     # libub_boundary.a (built at -O2) because a parameter attribute only has
     # teeth while the call is still a call — see the fixture's comment above.
@@ -697,6 +728,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${THREE_LAYER_HI_BIN} -l ${THREE_LAYER_MID_BIN} -l ${THREE_LAYER_LOW_BIN})
     elseif (BASE IN_LIST LOCAL_TRAIT_IDENT_CHAIN_USERS)
         set(_extra -l ${TRAIT_IDENT_CHAIN_HMID_BIN} -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
+    elseif (BASE IN_LIST LOCAL_TRAIT_BLANKET_CHAIN_USERS)
+        set(_extra -l ${TRAIT_BLANKET_CHAIN_BMID_BIN})
     else()
         set(_extra "")
     endif()

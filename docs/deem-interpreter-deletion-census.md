@@ -1150,12 +1150,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # and the new name was verified individually with `ctest -N -R trait_ident`.
 # Task 33 (B-mv-03, the impl-registry identity key) added ONE fail fixture,
 # tests/logos/fail/trait_ident_homonym_bound_refused.logos + .expected.
-# PREDICTED 6923 / 3240 / 31 before the re-configure — +1 / +1 / 0, a fail
-# fixture carries no tier_commit label; `ctest -N` three ways agreed exactly and
-# the new name was verified individually as test #5400 with
-# `ctest -N -R trait_ident_homonym_bound_refused`.
-REGISTRY-ALL         6923
-REGISTRY-NOIMPORTED  3240
+# On its OWN tree it predicted and measured 6923 / 3240 / 31 — +1 / +1 / 0, a
+# fail fixture carries no tier_commit label.
+# Task 32 added ONE pass fixture (tests/logos/pass/trait_blanket_bare_alias_bound.logos)
+# plus one non-registering package archive (trait_blanket_chain/bmid). On its OWN
+# tree it also predicted and measured 6923 / 3240 / 31.
+# ⚠ THE TWO SLICES WROTE THE SAME TOTAL AGAINST THE SAME BASE. The merged tree
+# carries BOTH fixtures, so the merged total is 6924 / 3241 / 31, NOT 6923 —
+# the value below was RE-MEASURED on the merged tree with `ctest -N` three ways
+# after a re-configure, and both new names were verified individually BY NAME:
+#   ctest -N -R trait_ident_homonym_bound_refused
+#   ctest -N -R trait_blanket_bare_alias_bound
+# The slices' ordinals (#5400 and #5326) were worktree-local and are NOT recorded
+# here: each commit inserts a test the other did not have, so both shift on merge.
+# This hunk conflicted LOUDLY only because each slice also wrote its own comment
+# block. Had the comments matched, the identical values would have merged
+# silently and this ledger would have come up ONE SHORT.
+REGISTRY-ALL         6924
+REGISTRY-NOIMPORTED  3241
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

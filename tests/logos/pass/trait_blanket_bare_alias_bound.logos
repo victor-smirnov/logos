@@ -1,0 +1,99 @@
+// THE BLANKET-SPELLING ALIAS IN `Mono::populate_trait_engine_`, PINNED BY ITS
+// FALSE-NEGATIVE DIRECTION — the twin of `trait_ident_bare_alias_bound.logos`,
+// for the other of mono's two bare-spelling aliases.
+//
+// ⚠ WHY THIS FILE EXISTS. `Mono::populate_trait_engine_` files every BLANKET
+// impl twice: under the trait's canonical identity, and under its BARE spelling
+// as an alias (`if (b_canon != bi.trait_name)`). On 2026-08-10 that insert was
+// recorded as UNMEASURABLE IN BOTH DIRECTIONS: disabling it (`if (false)`) left
+// all three trait-identity fixtures green, including
+// `tests/logos/pass/trait_ident_bare_alias_bound.logos` — the one that DOES red
+// when the CONCRETE alias goes. That is the exact state the concrete alias was
+// in on the day a round nearly deleted it as "necessity without a consumer".
+//
+// THE REASON THE CORPUS WAS BLIND, MEASURED, NOT ARGUED. An instrumented
+// `populate_trait_engine_` (a print on every blanket row: bare, canon, and
+// whether the alias branch is taken) says that in `trait_ident_bare_alias_bound`
+// — the homonym-archive program built for precisely this seam — the entire
+// blanket population is NINE rows (Any, Container x2, ContainerOrd x2,
+// Datatype x2, Into, TryInto) and EVERY ONE has `canon == bare`. The alias
+// branch never executes in that program. Its green under `if (false)` was not
+// weak evidence; it was NO evidence, because the code under test never ran.
+//
+// AND WHY NO ARCHIVE-HOMONYM PROGRAM CAN REACH IT. `SemaChecker::collect_trait`
+// (B-mv-02) keeps the INCUMBENT in the bare registry slot and pushes the
+// newcomer under `pkg::Name`; MEASURED here, the stdlib is collected FIRST even
+// when an archive declaring a homonym `trait Any` is linked — the stdlib's
+// `impl<T> Any for T` still comes out `bare == canon == "Any"`, branch not
+// taken. So the trait that LOSES the bare slot is never the stdlib's; it is
+// whoever is collected LAST. That is why this fixture's losing trait is
+// declared by a linked package of its own rather than by the stdlib.
+//
+// ⚠ LINK ORDER, STATED AS PART OF THE GROUND. Consumer links exactly one
+// archive: `-l libbmid.a` (tests/logos/CMakeLists.txt,
+// `LOCAL_TRAIT_BLANKET_CHAIN_USERS`). `trait_blanket_chain.bmid` declares
+// `trait Error`, a homonym of `logos.lang.error::Error`. Because the stdlib is
+// collected first — which is a property of the compiler and NOT of the `-l`
+// sequence, there being only one archive to order — bmid's trait is filed as
+// `trait_blanket_chain.bmid::Error` and its blanket is the one row in the whole
+// program with `bare="Error"`, `canon="trait_blanket_chain.bmid::Error"`, i.e.
+// the only row for which the alias branch fires. Verified by instrumentation.
+//
+// THE MECHANISM THIS PINS. `Holder`'s impl is BOUNDED (`impl<T: Error>`) and
+// lives in the ARCHIVE, so in this program `Holder<i64>::store` exists only as
+// a template and is reached only through `Mono::drain_method_worklist` →
+// `Mono::method_bound_ok` → `Mono::mono_concrete_satisfies_bound("Error", i64)`
+// → `Mono::mono_has_impl_recursive`, which is a bare passthrough to
+// `trait_engine_.satisfies` — the RAW bound text, never
+// `SemaChecker::resolve_trait_query_name`. Backtrace captured under gdb; it is
+// the SAME gate, reached by the SAME path, that dropped
+// `HashMap$G2$i64$i64__insert` when the concrete alias was removed.
+//
+// MEASURED, both arms, full rebuild each (`rm -f build/lib/logos/liblogos-*.a`
+// then `cmake --build`), instrumented so the query itself is visible:
+//   alias ON  → `satisfies(Error, i64) = 1`; logosc rc 0; program exits 0
+//   alias OFF → `satisfies(Error, i64) = 0`; logosc rc 1:
+//     "mlir_gen: internal: void call statement DROPPED — the method
+//      'Holder$Mm23b6613ad003ddcc$G1$i64__store' had no instantiation, so the
+//      whole call was silently discarded (mono never demanded the callee)"
+//   restore → `satisfies(Error, i64) = 1` again, rc 0. Perturbation proven live
+//   by a second print INSIDE the guarded block, absent in the OFF arm.
+//
+// ⚠ TWO NEGATIVE RESULTS THAT SHAPE THIS FILE, so the next reader does not
+// re-derive them:
+//   1. IN-PACKAGE IS NOT ENOUGH. The identical trait + blanket + bounded impl
+//      written in the CONSUMER's own file also drives the query to 0 with the
+//      alias off — and the program still compiles and runs correctly, because
+//      the method has a second, non-worklist instantiation path in its own
+//      translation unit. The archive is what removes that path.
+//   2. A VALUE-USING CALL IS NOT ENOUGH. `h.get()` in an expression survives
+//      the false negative. The biting shape is a VOID method called as a BARE
+//      STATEMENT — the same shape as the discarded `m.insert(...)` in the
+//      concrete alias's pin. Both forms are present below; only `store` bites.
+//
+// ⚠ THIS FIXTURE PINS A HEDGE, NOT A RULE — same caveat as its sibling. The
+// alias is a superset over a raw key (`SemaChecker::collect_impl` keys `impls_`
+// as `trait_name + "::" + target` from the RAW spelling). When bound trait names
+// are canonicalised at emit, the alias goes AND this fixture must be RE-DERIVED
+// against the canonical bound, not deleted: what it asserts — that a bounded
+// impl template from an archive whose bound-trait lost the bare slot still
+// instantiates — must remain true.
+package test;
+
+use trait_blanket_chain.bmid;
+
+fn main() -> i32 {
+    let h: Holder<i64> = make_holder(5i64);
+
+    // THE BITING CALL: void method, bare statement. Its instantiation is gated
+    // by `method_bound_ok`, and nothing else demands it.
+    let mut x: i64 = 0i64;
+    h.store(&mut x);
+    if x != 7311i64 { return 1i32; }
+
+    // The value-using twin, kept deliberately: it asks the SAME question and
+    // survives the false negative, which is the second negative result above.
+    if h.get() != 7311i64 { return 2i32; }
+
+    return 0i32;
+}

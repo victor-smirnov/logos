@@ -1,0 +1,63 @@
+// trait_blanket_chain — the package that OWNS the losing trait and the bounded
+// template, so the consumer's only route to the method is mono's WORKLIST.
+//
+// `Error` here is a HOMONYM of `logos.lang.error::Error`. The stdlib is
+// collected first in every build, so B-mv-02 keeps the stdlib in the bare
+// registry slot and files THIS one as `trait_blanket_chain.bmid::Error`. Its
+// blanket impl is therefore the one case where
+// `Mono::populate_trait_engine_`'s alias branch (`b_canon != bi.trait_name`)
+// executes: bare="Error", canon="trait_blanket_chain.bmid::Error".
+//
+// `Holder`'s impl is BOUNDED on that trait and lives HERE, in an archive, so in
+// the consumer `Holder<i64>::get` exists only as a template and is reached only
+// through `Mono::drain_method_worklist` → `method_bound_ok`, which asks
+// `mono_concrete_satisfies_bound("Error", i64)` with the RAW bound text. That
+// is the same gate, reached by the same path, that dropped
+// `HashMap$G2$i64$i64__insert` when the CONCRETE alias was removed.
+//
+// ⚠ IN-PACKAGE IS NOT ENOUGH, MEASURED: with the identical trait + blanket +
+// bounded impl written in the consumer's own file, `method_bound_ok` still
+// answers false with the alias off — the same `satisfies("Error","i64") = 0` —
+// and the program STILL compiles and runs correctly, because the method has a
+// second, non-worklist instantiation path in its own translation unit. The
+// archive is what removes that second path.
+//
+// ⚠ AND A SECOND MEASURED NEGATIVE: `get`, whose result is USED, survives the
+// false negative; only `store` — void, called as a bare statement — reports it.
+// Both are kept so the distinction stays visible.
+//
+// ⚠ THE HARM ARM IS NOT THIS ALIAS'S, MEASURED. Replace this package's body
+// with `use logos.lang.error; pub fn err_probe<T: Error>(x: T) -> i64 { … }`
+// (bound = the STDLIB Error) and give the CONSUMER its own `trait Error` plus
+// `impl<T: Copy> Error for T`; `err_probe(5i64)` is then wrongly admitted and
+// dies at `'func.call' op 'i64__source' does not reference a valid function` —
+// the `i64__tag` shape. MEASURED IDENTICAL WITH THIS ALIAS ON AND OFF, while
+// the same consumer WITHOUT its local trait gets the CORRECT refusal
+// ("'err_probe': type 'i64' does not implement trait 'Error' required by
+// parameter 'T'"). So the wrong admission happens in sema, over the raw-keyed
+// `SemaChecker::collect_impl` `impls_`, before mono is asked — it is the ROOT's
+// harm, not the blanket alias's. Not landed as a fixture: it is red today, and
+// pinning it would be asserting the defect.
+
+package trait_blanket_chain.bmid;
+
+use logos.lang.clone;
+
+pub trait Error { fn bping(&self) -> i64; }
+
+// The BLANKET whose bare-spelling registration is under test. Bounded rather
+// than unconditional so the engine row carries a real bounds list.
+impl<T: Copy> Error for T { fn bping(&self) -> i64 { return 7311i64; } }
+
+pub struct Holder<T> { pub v: T }
+
+impl<T: Error> Holder<T> {
+    pub fn get(&self) -> i64 { return self.v.bping(); }
+    // VOID method, called as a bare statement by the consumer: this is the
+    // shape whose loss the compiler reports as "void call statement DROPPED —
+    // the method had no instantiation", the exact diagnostic the concrete
+    // alias's removal produced for `HashMap$G2$i64$i64__insert`.
+    pub fn store(&self, out: &mut i64) { *out = self.v.bping(); }
+}
+
+pub fn make_holder<T>(v: T) -> Holder<T> { return Holder { v: v }; }
