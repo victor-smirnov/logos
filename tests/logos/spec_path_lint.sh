@@ -55,22 +55,31 @@ fail=0
 note() { echo "FAIL: $*"; fail=$((fail + 1)); }
 
 check_paths() {
-    local p q hit
+    local p q
     gone_paths "$@" | sort -u > "$TMPD/gone"
     while read -r p; do
         [ -n "$p" ] || continue
         grep -qxF "$p" "$TMPD/gone" && continue     # declared gone; the corpse check owns it
-        hit=0
         # brace lists and globs both go through the shell, like the census gate
         for q in $(eval echo "$p" 2>/dev/null); do
-            if compgen -G "$q" > /dev/null 2>&1 || [ -e "$q" ]; then hit=$((hit+1)); else
-                note "the spec names \`$q\`, which does not exist.
+            if compgen -G "$q" > /dev/null 2>&1 || [ -e "$q" ]; then continue; fi
+            note "the spec names \`$q\`, which does not exist.
       Either it moved (fix the Evidence line) or it was deleted — and then the
       rule beside it is describing a language that is gone. If the spec must
       still discuss it, declare it: <!-- spec-gone: $q — why -->"
-            fi
         done
-        [ "$hit" -ge 0 ] || true
+        # ⚠ THERE IS DELIBERATELY NO "DID IT EXPAND TO NOTHING" CHECK, and the
+        # first version of this loop had one — `[ "$hit" -ge 0 ] || true`, which
+        # `logos_00_gate_lint` correctly flagged as vacuous (R6). Replacing it
+        # with `[ "$cand" -ge 1 ]` was no better: MEASURED, `eval echo` on every
+        # form this regex can produce yields at least the token itself —
+        # `docs/x{}`, `docs/nomatch*`, `docs/spec/{a` all echo back unchanged —
+        # so a zero count is UNREACHABLE and the check could never fire. A guard
+        # that cannot fire is the defect one level up, so it is gone; every token
+        # reaches the existence test above, which is the assertion.
+        # (Command substitution inside `eval` is not a hazard here: the token
+        # regex admits no `$` and no backtick, so nothing in a spec file can be
+        # executed by this expansion.)
     done < <(path_tokens "$@")
 }
 
