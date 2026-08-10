@@ -1,0 +1,85 @@
+// THE OTHER HALF OF THE FALSE-YES QUESTION: what a wrong trait answer CAN do.
+//
+// `fail/trait_query_emit_uncheckable_method.logos` pins that handler-emitted
+// source is sema-checked, so a false YES cannot leave a dangling call. This
+// file pins what SURVIVES that check: the emitted call lands on a real, linked
+// method — chosen by ordinary method resolution, which never consults the trait
+// query at all.
+//
+// ⚠ PRECISION ABOUT THE WORD "HOMONYM". The defect in
+// `Mono::populate_trait_engine_` (src/compiler/mono_clone.cpp) is about two
+// TRAITS SPELLED ALIKE in two packages colliding on one composed "trait::type"
+// fact key; that needs two packages and is not what this single file builds.
+// What this file builds is the consequence shape: two DISTINCT traits declaring
+// a method of the SAME NAME, where a false YES would make a metaprogram emit
+// the call under the wrong trait's authority. `Ay` and `Bee` both declare `go`;
+// `Subj` implements only `Bee`; the handler emits `s.go()` as if `Ay` were the
+// implemented one.
+//
+// MEASURED: it compiles and runs, printing `go=99` — `Bee::go`. Nothing in the
+// emitted text names a trait, and method resolution reached the single impl on
+// the receiver's concrete type. So the worst outcome of the trait-query defect
+// is WRONG SEMANTICS on a same-spelled method, never a missing symbol.
+//
+// WHAT THIS IS A SENSOR FOR: task #29 canonicalises the fact side (pair-keyed
+// facts instead of a composed string). If that work also moves METHOD
+// RESOLUTION — if a canonical trait identity starts gating which `go` a
+// receiver can reach — this fixture turns red, and that is the signal that the
+// resolution rule, not just the fact key, changed.
+//
+// The `ay=`/`bee=` rows are the control: at the QUERY site the two traits ARE
+// distinguished (0 and 1). Without them, `go=99` alone would also be printed by
+// a compiler in which the query answered nothing at all.
+//
+// CONTROLS MEASURED 2026-08-10, each restored and re-run green before the next:
+//   · emitting `return s.a;` instead of `return s.go();` → `go=1`, exit 41 (the
+//     `go=` row is load-bearing, not decoration);
+//   · moving the impl to `impl Ay for Subj` → `ay=1 bee=0`, exit 42 — and
+//     `go=99` STILL, i.e. the emitted call followed the impl, never the query.
+package trait_query_emit_homonym_method;
+
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+pub trait Ay { fn go(&self) -> i32; }
+pub trait Bee { fn go(&self) -> i32; }
+
+pub struct Subj { pub a: i32, }
+impl Bee for Subj { fn go(&self) -> i32 { return 99i32; } }
+
+#[metaprog_handler("tqeh")]
+fn tqeh_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub fn h_go(s: &Subj) -> i32 { return s.go(); }");
+    em.commit();
+    return;
+}
+
+#[tqeh]
+pub struct Anchor { pub z: i32, }
+
+unsafe fn main() -> i32 {
+    let s: Subj = Subj { a: 1i32 };
+    printi("go=%d\n", h_go(&s));
+
+    let m_ay: i32  = if has_trait::<Subj, Ay>()  { 1i32 } else { 0i32 };
+    let m_bee: i32 = if has_trait::<Subj, Bee>() { 1i32 } else { 0i32 };
+    printi("ay=%d\n",  m_ay);
+    printi("bee=%d\n", m_bee);
+
+    if h_go(&s) != 99i32 { return 41; }
+    if m_ay  != 0i32 { return 42; }
+    if m_bee != 1i32 { return 43; }
+    return 0i32;
+}

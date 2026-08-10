@@ -1,0 +1,103 @@
+// THE SENSOR FOR "A FALSE TRAIT ANSWER EMITS A CALL TO A METHOD THAT DOES NOT
+// EXIST" — the sentence that made the trait-query defect read as latent
+// memory-unsafety. MEASURED 2026-08-10: it is not reproducible, and THIS
+// FIXTURE PINS THE REASON IT IS NOT.
+//
+// The dangerous shape is not `if has_trait::<…>() { … }` in ordinary code —
+// there a wrong constant only selects a branch sema already type-checked. The
+// dangerous shape is a metaprogram where THE BOOLEAN CHOOSES WHAT SOURCE IS
+// GENERATED. That is this file: `#[metaprog_handler("tqeu")]` asks the query,
+// and in the true arm splices `p.clone()` against `Plain`, which has NO
+// `impl Clone`. Byte for byte, that is what a false YES out of mono's composed
+// `"trait::type"` fact key would produce (see the homonym case in
+// `Mono::populate_trait_engine_`, src/compiler/mono_clone.cpp).
+//
+// WHAT THE COMPILER DOES, AND HOW MUCH WORK IT HAD ALREADY DONE: everything up
+// to sema of the emitted module. The metaprog JIT compiled the program, the
+// handler RAN, asked the query, took the branch, built the bad text, committed
+// it, and the emitted module PARSED. The catch is sema OF THE EMITTED SOURCE:
+//
+//     <metaprog>:1: error [fn h_go]: method call: 'Plain' has no method 'clone'
+//
+// ⇒ handler-emitted source re-enters the full front end. A false YES buys a
+// COMPILE ERROR, never a dangling call. That is the whole downgrade: the
+// trait-query defect is a wrong boolean, not memory-unsafety.
+//
+// WHAT GOES RED IF THIS FIXTURE EVER BREAKS: an emission path that skips sema.
+// This test is green today because the check exists; if some future splice
+// route (a new Emitter mode, a quote form that installs a resolved AST) reaches
+// codegen without re-checking method resolution, THIS is the file that turns.
+//
+// SCOPE, HONESTLY: this pins the push_str/commit route, which is the route the
+// probe measured. `quote_block!`/`quote_ty!` splice into the AST and are sema'd
+// on the same path; that was not separately reddened. "Not constructible across
+// the measured shapes, with a mechanism" — not a proof of impossibility.
+//
+// ⚠ TWO FIXTURES STILL CARRY THE SENTENCE THIS ONE REFUTES, in their prose
+// only: `fail/meta_trait_query_unknown_trait_name.logos` and
+// `fail/meta_trait_query_homonym_trait_name.logos` both say a false answer
+// "emits calls to methods that do not exist". Their ASSERTIONS are unaffected
+// (they pin the loud refusal, which is right either way); the phrase is what is
+// wrong, and it is left standing here rather than edited because those files
+// are outside this slice's fence. Whoever takes task #29 should fix the phrase.
+//
+// The sibling `pass/trait_query_emit_homonym_method.logos` pins the OTHER half:
+// what a false YES CAN do is land on a real-but-unrelated method.
+//
+// CONTROLS MEASURED 2026-08-10, each restored and re-run green before the next:
+//   · the QUERY ANSWER is what chooses the emission — swapping the subject to
+//     `has_trait::<Plain, Clone>()` (false) emits the safe arm, logosc prints
+//     `logosc: wrote /dev/null` and the test goes red (rc 1);
+//   · the EMITTED TEXT is what is checked — replacing the true arm's body with
+//     `return p.a;` also compiles clean and reds the test (rc 1).
+// The fixture is additionally self-controlling on the handler firing: if the
+// trigger never ran, `h_go` would not exist and the diagnostic would be about
+// an unknown name, not about `clone`.
+package trait_query_emit_uncheckable_method;
+
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+pub struct Marked { pub a: i32, }
+impl Clone for Marked { fn clone(&self) -> Marked { return Marked { a: self.a }; } }
+
+// Deliberately NO `impl Clone`.
+pub struct Plain { pub a: i32, }
+
+#[metaprog_handler("tqeu")]
+fn tqeu_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+
+    // THE BOOLEAN CHOOSES WHAT IS GENERATED. It is true here; the emitted call
+    // is aimed at `Plain`, so the text is exactly the text a FALSE YES about
+    // `Plain` would have produced.
+    let yes: bool = has_trait::<Marked, Clone>();
+
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    if yes {
+        em.buf.push_str("pub fn h_go(p: &Plain) -> i32 { let q: Plain = p.clone(); return q.a; }");
+    } else {
+        em.buf.push_str("pub fn h_go(p: &Plain) -> i32 { return p.a; }");
+    }
+    em.commit();
+    return;
+}
+
+// The trigger sits on a type that is not the query subject.
+#[tqeu]
+pub struct Anchor { pub z: i32, }
+
+unsafe fn main() -> i32 {
+    let p: Plain = Plain { a: 7i32 };
+    return h_go(&p) - 7i32;
+}
