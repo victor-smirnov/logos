@@ -441,8 +441,32 @@ add_custom_command(
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Building test fixture: libbmid.a (trait_blanket_chain)"
 )
+#   libbprobe.a  the MIRROR of bmid: it declares NO homonym and exports
+#              `bare_probe<T: Error>` bounded by the STDLIB `logos.lang.error::Error`,
+#              so the bound's identity IS the bare registry slot. Two consumers
+#              link it, and both declare their own `trait Error` + blanket:
+#              fail/trait_blanket_homonym_bound_refused (the local blanket must
+#              NOT answer the stdlib bound — it compiled rc 0 before the fix)
+#              and pass/trait_blanket_homonym_bound_admits (a real stdlib-Error
+#              implementor must still be admitted with the homonym in scope).
+#              The pair is what separates "homonym separated out" from "every
+#              Error bound refused"; the fail door's message alone cannot.
+#              `Ok1`/`make_ok1` live in the archive because a file declaring its
+#              own `Error` cannot spell the stdlib one (no qualified-impl form).
+set(TRAIT_BLANKET_CHAIN_BPROBE_MANIFEST ${TRAIT_BLANKET_CHAIN_DIR}/bprobe.module)
+set(TRAIT_BLANKET_CHAIN_BPROBE_BIN ${TRAIT_BLANKET_CHAIN_OUT_DIR}/libbprobe.a)
+file(GLOB TRAIT_BLANKET_CHAIN_BPROBE_SOURCES ${TRAIT_BLANKET_CHAIN_DIR}/bprobe/*.logos)
+add_custom_command(
+    OUTPUT  ${TRAIT_BLANKET_CHAIN_BPROBE_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${TRAIT_BLANKET_CHAIN_BPROBE_MANIFEST}
+            -o ${TRAIT_BLANKET_CHAIN_BPROBE_BIN}
+    DEPENDS logosc ${TRAIT_BLANKET_CHAIN_BPROBE_MANIFEST} ${TRAIT_BLANKET_CHAIN_BPROBE_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libbprobe.a (trait_blanket_chain)"
+)
 add_custom_target(trait_blanket_chain_binary ALL DEPENDS
-    ${TRAIT_BLANKET_CHAIN_BMID_BIN})
+    ${TRAIT_BLANKET_CHAIN_BMID_BIN} ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
 
 set(LOGOS_SUITE_ORDER
     smoke
@@ -670,6 +694,9 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # registry slot to the stdlib's, so its blanket impl is the only row in the
     # program for which mono's alias branch fires.
     set(LOCAL_TRAIT_BLANKET_CHAIN_USERS trait_blanket_bare_alias_bound)
+    # The MIRROR archive: no homonym of its own, bound over the STDLIB `Error`.
+    # The consumer declares the homonym, and its blanket must not answer.
+    set(LOCAL_TRAIT_BPROBE_USERS trait_blanket_homonym_bound_admits)
     # The Freeze-predicate behavioural guard. Its mutators live in
     # libub_boundary.a (built at -O2) because a parameter attribute only has
     # teeth while the call is still a call — see the fixture's comment above.
@@ -730,6 +757,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${TRAIT_IDENT_CHAIN_HMID_BIN} -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
     elseif (BASE IN_LIST LOCAL_TRAIT_BLANKET_CHAIN_USERS)
         set(_extra -l ${TRAIT_BLANKET_CHAIN_BMID_BIN})
+    elseif (BASE IN_LIST LOCAL_TRAIT_BPROBE_USERS)
+        set(_extra -l ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
     else()
         set(_extra "")
     endif()
@@ -749,6 +778,8 @@ function(logos_fail_extra_args BASE OUT_VAR)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     set(FAIL_COEX_USERS cross_pkg_ambiguous_call cross_pkg_const_ambiguous)
     set(FAIL_WQLMAP_USERS wql_mapping_cross_module_priv_fail wql_mapping_cross_module_modvis_fail)
+    # The refusal half of the homonym-blanket pair — see libbprobe.a above.
+    set(FAIL_TRAIT_BPROBE_USERS trait_blanket_homonym_bound_refused)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST FAIL_WQLMAP_USERS)
@@ -757,6 +788,8 @@ function(logos_fail_extra_args BASE OUT_VAR)
         set(_extra "")  # post-C4: metaprog is in liblstdlib.a as AST-only
     elseif (BASE IN_LIST FAIL_COEX_USERS)
         set(_extra -l ${COEX_BIN})
+    elseif (BASE IN_LIST FAIL_TRAIT_BPROBE_USERS)
+        set(_extra -l ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
     else()
         set(_extra "")
     endif()

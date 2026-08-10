@@ -1,0 +1,37 @@
+// THE ADMIT SIDE OF THE HOMONYM-BLANKET PAIR: separating two same-named traits
+// must not cost the REAL one its answer.
+//
+// Same archive, same local homonym `trait Error` + `impl<T: Copy> Error for T`
+// as tests/logos/fail/trait_blanket_homonym_bound_refused.logos. The difference
+// is the argument: `Ok1` really implements the STDLIB `logos.lang.error::Error`,
+// which is the trait `bare_probe<T: Error>` is bounded by. So this call MUST
+// compile and run, with the homonym sitting right there in scope.
+//
+// `Ok1` is defined in the ARCHIVE because a file that declares its own `Error`
+// has no way to spell the stdlib one — there is no qualified-impl form — so the
+// implementor cannot be written here. That is a spelling constraint, not a
+// weakening: the bound, the homonym and the call all still meet in this file.
+//
+// ⚠ WHY THIS FILE IS LOAD-BEARING. Its sibling's expectation is byte-identical
+// to what a compiler that refused EVERY `Error` bound would print, so the fail
+// door alone cannot tell "the homonym was separated out" from "the local
+// trait's facts were dropped". This file is the half that can: over-refusal
+// reds HERE and nowhere else. The two move together or the pair is lying.
+//
+// The local blanket also still answers its OWN bound — `5i64.eping()` — which
+// pins that identity matching narrowed the query to the right trait rather than
+// disabling the blanket wholesale.
+package test;
+use trait_blanket_chain.bprobe;
+
+pub trait Error { fn eping(&self) -> i64; }
+impl<T: Copy> Error for T { fn eping(&self) -> i64 { return 4242i64; } }
+
+fn main() -> i32 {
+    // The STDLIB Error bound, satisfied by a type that really implements it.
+    let v: i64 = bare_probe(make_ok1(1i64));
+    if v != 7i64 { return 1i32; }
+    // The local homonym still answers its own bound.
+    if 5i64.eping() != 4242i64 { return 2i32; }
+    return 0i32;
+}

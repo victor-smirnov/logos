@@ -1,0 +1,25 @@
+// A package generic over the STDLIB `Error`, declaring NO homonym of its own.
+//
+// It exists so a CONSUMER's same-named trait can be caught trying to answer
+// this bound. `bare_probe` is bounded by `logos.lang.error::Error`, resolved
+// here where no other `Error` is in scope, so the bound's identity IS the bare
+// slot — which is the case that used to be permissive: a bare query matched
+// blanket impls by raw spelling, and any package's `trait Error` + blanket
+// satisfied it.
+//
+// `Ok1` + `make_ok1` live here rather than in the consumer for a spelling
+// reason, not a design one: a consumer that declares its own `trait Error`
+// cannot spell the stdlib one to write `impl Error for E` (there is no
+// qualified-impl form), and the ADMIT half of the pair needs the homonym and a
+// genuine stdlib-Error implementor in the same program.
+package trait_blanket_chain.bprobe;
+use logos.lang.error;
+use logos.lang.option;
+
+pub fn bare_probe<T: Error>(x: T) -> i64 { return 7i64; }
+
+pub struct Ok1 { pub code: i64 }
+impl Error for Ok1 {
+    fn source(&self) -> Option<&dyn Error> { return Option::None; }
+}
+pub fn make_ok1(c: i64) -> Ok1 { return Ok1 { code: c }; }

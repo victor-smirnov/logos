@@ -4558,6 +4558,18 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // capture. `canonical_trait_name` falls back to the bare spelling for a
     // trait not yet collected (forward ref) — the bound then behaves exactly
     // as it did before this field existed.
+    // ⚠ THAT FALLBACK IS PERMISSIVE, AND IT WAS ONCE REACHABLE FOR A REAL
+    // TRAIT. `fn f<T: Hash>` written ABOVE `pub trait Hash` in the same package
+    // took it, denoted the STDLIB `Hash`, admitted `i64`, and died in the MLIR
+    // verifier — the whole point of this field, undone by item order. The hole
+    // is closed at the REGISTRATION, not here: pass-0 in sema_collect.cpp now
+    // pre-registers every TRAIT_DEF under the key collect_trait will use
+    // (qualified when the bare slot belongs to another package), so every trait
+    // in the compilation exists under its final key before any bound is read.
+    // Pinned by tests/logos/fail/trait_ident_homonym_bound_decl_order.logos.
+    // What the fallback still covers is a name that denotes NO collected trait
+    // at all — and a permissive answer there is what the pre-existing bound
+    // check already gave.
     if (!tb.trait_name.empty())
         tb.canonical_trait = canonical_trait_name(tb.trait_name);
     // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true

@@ -1,0 +1,3 @@
+module bprobe
+version 0.1
+root tests/logos/trait_blanket_chain/bprobe/

@@ -1,0 +1,46 @@
+// A LOCAL BLANKET MAY NOT ANSWER A BOUND OVER THE STDLIB TRAIT IT SHADOWS.
+//
+// `trait_blanket_chain.bprobe::bare_probe<T: Error>` is bounded by the STDLIB
+// `logos.lang.error::Error`, resolved in a package that declares no homonym —
+// so the bound's identity IS the bare registry slot. THIS file declares its own
+// `trait Error` plus `impl<T: Copy> Error for T`, which admits `i64`. That
+// blanket belongs to a DIFFERENT trait and must not satisfy the archive's bound:
+// `bare_probe(5i64)` must be REFUSED.
+//
+// ⚠ WHAT WAS ACTUALLY WRONG, MEASURED ON THE MERGED TREE BEFORE THE FIX.
+// `blanket_implements` matched a BARE query by raw spelling, on the stated
+// reasoning that a bare query must keep the pre-B-mv-03 union. But a query is
+// bare exactly when the bound's trait OWNS the bare slot — which for every
+// stdlib trait is always — so the raw arm was not a narrow legacy path, it was
+// the main path for the whole stdlib. Arms:
+//     with the local trait+blanket   rc 0, COMPILED   ← the defect
+//     control, local trait deleted   rc 1, refused    ← correct
+// The two differ only by the presence of the homonym, which is what makes the
+// admission the homonym's doing and not something about `i64`.
+//
+// ⚠ WHY THE CONTROL IS NOT ENOUGH ON ITS OWN, AND WHAT CARRIES IT.
+// The expectation below is byte-identical to what the control prints — a
+// compiler that refused EVERY `Error` bound would satisfy this door. That
+// failure mode (over-refusal, the local trait's facts dropped instead of
+// separated) is held out by two green files that must move with this one:
+//   · tests/logos/pass/trait_blanket_homonym_bound_admits.logos — the SAME
+//     homonym + blanket in the same file, plus a type that implements the
+//     STDLIB `Error`; `bare_probe` on it must still compile and run.
+//   · tests/logos/pass/trait_blanket_bare_alias_bound.logos — a local blanket
+//     serving its OWN package's bound through an archive.
+// A refusal here with either of those red is not this behaviour, it is the
+// over-refusal wearing its message.
+//
+// ⚠ NOT PINNED: the MLIR verifier failure this used to become downstream. That
+// is the defect, and a `fail/` door on it would be a green test asserting one.
+package test;
+use trait_blanket_chain.bprobe;
+
+pub trait Error { fn eping(&self) -> i64; }
+impl<T: Copy> Error for T { fn eping(&self) -> i64 { return 4242i64; } }
+
+fn main() -> i32 {
+    let v: i64 = bare_probe(5i64);   // i64 implements THIS Error, not the stdlib's
+    if v != 7i64 { return 41; }
+    return 0i32;
+}

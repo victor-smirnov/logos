@@ -3600,9 +3600,32 @@ private:
     // bare-slot trait. A BARE query keeps matching the raw spelling, which is
     // exactly the pre-B-mv-03 union — the ~50 bare-text probes across sema are
     // unchanged by construction, not by hope.
+    // ⚠ MATCH ON IDENTITY IN BOTH DIRECTIONS. This used to read
+    //     if (q.find("::") != npos) return bi.query_trait() == q;
+    //     return bi.trait_name == q;              // bare query → raw match
+    // on the reasoning that a BARE query must keep the pre-B-mv-03 union so the
+    // ~50 bare-text probes stay unchanged. MEASURED, and that reasoning is
+    // wrong in the direction that matters: a query is bare exactly when the
+    // bound's trait OWNS the bare slot — which, for every stdlib trait, is
+    // always. So the raw arm let any package's homonym blanket answer for the
+    // stdlib trait's bound.
+    //   package epk (no homonym):  pub fn err_probe<T: Error>(x: T) -> i64
+    //   consumer:  pub trait Error {…}  +  impl<T: Copy> Error for T
+    //              err_probe(5i64)  ⇒  rc 0, COMPILED.
+    //   control (same consumer, local trait deleted) ⇒ rc 1, the correct
+    //   refusal "'err_probe': type 'i64' does not implement trait 'Error'".
+    // The bare arm was the whole difference.
+    // Identity matching does NOT narrow the bare-text probes: a blanket whose
+    // trait owns the bare slot has `canonical_trait == trait_name`, so it still
+    // answers a bare query. What stops answering is precisely a blanket whose
+    // trait was pushed under `pkg::Name` by the B-mv-02 collision — a DIFFERENT
+    // trait that was never entitled to answer. An uncaptured canonical falls
+    // back to the raw spelling in query_trait(), i.e. the old behaviour, so the
+    // permissive path survives only where identity is genuinely unknown.
+    // This also retires the `q.find("::")` text-guess — a substring probe used
+    // to classify a key is the shape that produced the separator-class bug.
     static bool blanket_implements(const BlanketImpl& bi, const std::string& q) {
-        if (q.find("::") != std::string::npos) return bi.query_trait() == q;
-        return bi.trait_name == q;
+        return bi.query_trait() == q;
     }
 
     // ── Package-qualified symbol lookup helpers ───────────────────

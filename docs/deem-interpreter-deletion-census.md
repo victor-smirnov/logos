@@ -1176,8 +1176,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # on the tree that carries all three, `ctest -N` three ways, after re-configure,
 # and the name verified individually with
 #   ctest -N -R trait_ident_homonym_bound_decl_order
-REGISTRY-ALL         6925
-REGISTRY-NOIMPORTED  3242
+# And the merge exposed a THIRD, on the blanket side of the same root, found by
+# re-running a claim the task-32 report recorded as "red today, not landable":
+# it was no longer red the way the report said, and the reason was worse.
+# `blanket_implements` matched a BARE query by raw spelling. A query is bare
+# exactly when the bound's trait OWNS the bare slot — for every stdlib trait,
+# always — so ANY package's `trait Error` + blanket satisfied a bound over
+# `logos.lang.error::Error`. MEASURED, with the control: consumer with the local
+# homonym rc 0 (compiled), the same consumer with the homonym deleted rc 1
+# (correctly refused). Fixed by matching on identity in both directions, which
+# also retires the `q.find("::")` text-guess. TWO fixtures, a refusal and an
+# admission, because the refusal's message is byte-identical to what an
+# over-refusing compiler would print and cannot stand alone:
+#   tests/logos/fail/trait_blanket_homonym_bound_refused.{logos,expected}
+#   tests/logos/pass/trait_blanket_homonym_bound_admits.{logos,expected}
+# plus the non-registering archive tests/logos/trait_blanket_chain/bprobe.
+# +2 / +2 / 0. RE-MEASURED after re-configure, three ways, names verified with
+#   ctest -N -R trait_blanket_homonym
+REGISTRY-ALL         6927
+REGISTRY-NOIMPORTED  3244
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

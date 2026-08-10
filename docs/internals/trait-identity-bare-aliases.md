@@ -109,6 +109,33 @@ Not landed as a fixture: it is red today, and a `fail/` door on
 `'i64__source' does not reference a valid function` would be asserting the
 defect.
 
+### ⚠ RE-MEASURED AFTER THE MERGE — the paragraph above is superseded
+
+The claim "it is red today" was re-run on the merged tree and did not hold, and
+what replaced it was worse than a red. Reconstructed with a body that does NOT
+call a trait method (`pub fn err_probe<T: Error>(x: T) -> i64 { return 7i64; }`
+in an archive), the consumer that declares its own `trait Error` +
+`impl<T: Copy> Error for T` **compiled, rc 0** — no verifier failure to notice,
+because nothing had to be instantiated. The wrong ADMISSION was the whole
+defect; the MLIR error was only the loudest of its symptoms.
+
+Control, the same consumer with its local trait deleted: **rc 1**, the correct
+`'err_probe': type 'i64' does not implement trait 'Error' required by parameter
+'T'`. The two arms differ only by the presence of the homonym.
+
+Root, and it is NOT the raw `impls_` key: `blanket_implements` matched a **bare**
+query by raw spelling, on the reasoning that a bare query must preserve the
+pre-B-mv-03 union for the ~50 bare-text probes. But a query is bare exactly when
+the bound's trait **owns the bare slot** — for every stdlib trait, always — so
+that arm was the main path, not a legacy corner. Fixed by matching on identity
+in both directions (`bi.query_trait() == q`), which costs the bare-text probes
+nothing: a blanket whose trait owns the bare slot has `canonical_trait ==
+trait_name` and still answers. Landed with a PAIR of fixtures —
+`fail/trait_blanket_homonym_bound_refused` and
+`pass/trait_blanket_homonym_bound_admits` — because the refusal's message is
+byte-identical to what an over-refusing compiler prints, so the fail door cannot
+carry the claim alone.
+
 ## CONSEQUENCE
 
 Neither alias may be removed on its own. Both are false-negative hedges over one
