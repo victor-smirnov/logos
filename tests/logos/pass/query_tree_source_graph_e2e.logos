@@ -249,52 +249,62 @@ fn main() -> i32 {
     // recursion in this file, so a counting-only check left the one construct
     // this fixture exists to compare pinned by its LENGTH.
     //
-    // ⚠ HONEST LIMIT OF 32, MEASURED. I could not construct a perturbation that
-    // 32 alone catches. Shifting every id in `dyn_graph_edge_rows` by a constant
+    // ⚠ HONEST LIMIT OF 29, MEASURED. I could not construct a perturbation that
+    // 29 alone catches. Shifting every id in `dyn_graph_edge_rows` by a constant
     // (structure-preserving, so the count stays 10) reds at 17 — an earlier leg
     // that already compares elementwise. And a perturbation of the RECURSION
     // moves both sides together: `w_reach` and `s_reach` share the static
-    // engine and differ only in SOURCE KIND (native rel vs slice), so 32 speaks
+    // engine and differ only in SOURCE KIND (native rel vs slice), so 29 speaks
     // exactly when the two source kinds diverge on the closure while agreeing on
     // the base edges. That is the hole it closes; it is a completeness fix, not
     // a demonstrated new sensor, and it should not be cited as one.
-    if !eq_i64(&wr, &sr) { return 32i32; }
+    //
+    // ⚠ THIS CODE WAS 32 AND SO WAS THE LEAF-IDENTITY CHECK BELOW (2026-08-10).
+    // Two unrelated assertions returned the same value, so a run that exited 32
+    // named neither of them and the limit recorded in this very comment was a
+    // statement about an AMBIGUOUS code. The recursion parity now exits 29 (the
+    // slot its own leg left free at 26/27/28) and everything from the old 29
+    // downstream shifted up by one, restoring "a nonzero code names the first
+    // failure" as a readable property of this file. MEASURED after the renumber:
+    // breaking the recursion parity alone exits 29, breaking leaf identity alone
+    // exits 33 — two DIFFERENT codes where both used to give 32.
+    if !eq_i64(&wr, &sr) { return 29i32; }
 
     // ── (c) leaf identity: the two `seven` leaves are DISTINCT ids ──────────
-    let wv: Vec<(i64, i64)> = match w_seven(&d)            { Result::Ok(v) => { v } Result::Err(_k) => { return 29i32; } };
-    let sv: Vec<(i64, i64)> = match s_seven(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_l) => { return 29i32; } };
-    if wv.len() != 2i64 { return 30i32; }
-    if wv.get(0i64).0 == wv.get(1i64).0 { return 31i32; }   // different parents
-    if wv.get(0i64).1 == wv.get(1i64).1 { return 32i32; }   // DISTINCT ids
-    if !eq_pairs(&wv, &sv) { return 33i32; }
+    let wv: Vec<(i64, i64)> = match w_seven(&d)            { Result::Ok(v) => { v } Result::Err(_k) => { return 30i32; } };
+    let sv: Vec<(i64, i64)> = match s_seven(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_l) => { return 30i32; } };
+    if wv.len() != 2i64 { return 31i32; }
+    if wv.get(0i64).0 == wv.get(1i64).0 { return 32i32; }   // different parents
+    if wv.get(0i64).1 == wv.get(1i64).1 { return 33i32; }   // DISTINCT ids
+    if !eq_pairs(&wv, &sv) { return 34i32; }
 
     // ── (d) TOM expansion: field edges with idx = the key codes (0 and 3) ───
-    let wt: Vec<(i64, i64)> = match w_tom(&d)            { Result::Ok(v) => { v } Result::Err(_m) => { return 34i32; } };
-    let stm: Vec<(i64, i64)> = match s_tom(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_n) => { return 34i32; } };
-    if wt.len() != 2i64 { return 35i32; }
-    if wt.get(0i64).0 != 0i64   { return 36i32; }   // alpha @ key code 0
-    if wt.get(0i64).1 != 100i64 { return 37i32; }
-    if wt.get(1i64).0 != 3i64   { return 38i32; }   // beta  @ key code 3
-    if wt.get(1i64).1 != 200i64 { return 39i32; }
-    if !eq_pairs(&wt, &stm) { return 40i32; }
+    let wt: Vec<(i64, i64)> = match w_tom(&d)            { Result::Ok(v) => { v } Result::Err(_m) => { return 35i32; } };
+    let stm: Vec<(i64, i64)> = match s_tom(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_n) => { return 35i32; } };
+    if wt.len() != 2i64 { return 36i32; }
+    if wt.get(0i64).0 != 0i64   { return 37i32; }   // alpha @ key code 0
+    if wt.get(0i64).1 != 100i64 { return 38i32; }
+    if wt.get(1i64).0 != 3i64   { return 39i32; }   // beta  @ key code 3
+    if wt.get(1i64).1 != 200i64 { return 40i32; }
+    if !eq_pairs(&wt, &stm) { return 41i32; }
 
     // ── (e) tag column, via GROUP BY … AGGREGATE over the walk ─────────────
     // every map-kind edge carries the same raw type code, and it differs from
     // the tom edge's (open vocabulary, exact codes not hardcoded here).
-    let wk: Vec<(i64, i64)> = match w_maptag(&d)            { Result::Ok(v) => { v } Result::Err(_o) => { return 41i32; } };
-    let sk: Vec<(i64, i64)> = match s_maptag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_p) => { return 41i32; } };
-    if wk.len() != 1i64 { return 42i32; }           // ONE code for all maps
+    let wk: Vec<(i64, i64)> = match w_maptag(&d)            { Result::Ok(v) => { v } Result::Err(_o) => { return 42i32; } };
+    let sk: Vec<(i64, i64)> = match s_maptag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_p) => { return 42i32; } };
+    if wk.len() != 1i64 { return 43i32; }           // ONE code for all maps
     // map-kind EDGES: virtual 0→root, root→left, root→right, left→s,
     // right→s, right→back = 6 (edges, not distinct nodes)
-    if wk.get(0i64).1 != 6i64 { return 43i32; }
-    if !eq_pairs(&wk, &sk) { return 44i32; }
+    if wk.get(0i64).1 != 6i64 { return 44i32; }
+    if !eq_pairs(&wk, &sk) { return 45i32; }
     let map_tag: i64 = wk.get(0i64).0;
 
-    let wtt: Vec<i64> = match w_tomtag(&d)            { Result::Ok(v) => { v } Result::Err(_q) => { return 45i32; } };
-    let stt: Vec<i64> = match s_tomtag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_r) => { return 45i32; } };
-    if wtt.len() != 1i64 { return 46i32; }
-    if wtt.get(0i64) == map_tag { return 47i32; }
-    if !eq_i64(&wtt, &stt) { return 48i32; }
+    let wtt: Vec<i64> = match w_tomtag(&d)            { Result::Ok(v) => { v } Result::Err(_q) => { return 46i32; } };
+    let stt: Vec<i64> = match s_tomtag(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_r) => { return 46i32; } };
+    if wtt.len() != 1i64 { return 47i32; }
+    if wtt.get(0i64) == map_tag { return 48i32; }
+    if !eq_i64(&wtt, &stt) { return 49i32; }
 
     return 0i32;
 }
