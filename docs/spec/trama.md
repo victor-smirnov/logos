@@ -1,6 +1,6 @@
 # Trama
 
-> Scope: Trama, Logos's Jinja2-derived template language, in both surfaces — the STATIC `trama!(params){ body }` compile-time token-macro (lowered via metacall to a native render fn) and the DYNAMIC `Tpl::compile(text, &cat)?.render(&env)?` runtime API (package `logos.std.deem`). Source layers: the template grammar `stdlib/std/wql/grammars/trama.peg` (→ generated `stdlib/std/wql/trama_parser.logos`), the schema family + shared chain-walk `stdlib/std/wql/trama.logos`, the static handler `stdlib/std/wql/trama_render.logos`, and the dynamic engine `stdlib/std/deem/deem.logos`; intent from `ADR 0012` (§6/§10.2 surface + constructs) and `ADR 0012-queue2-interpreter` (§4a Null semantics, §3 dynamic API). The embedded `{{ … }}` / tag expression sublanguage is EL (CEL semantics + Logos comprehension syntax) — its canonical rules live in [deem.md](deem.md) under the `el.*` rule ids; Trama specifies only the template layer and its ONE coupling to EL (the `WRef<SExpr>` expression edge). This section contains only rules whose `domain` is `trama`. Each rule's `id` is its permanent linkable address.
+> Scope: Trama, Logos's Jinja2-derived template language, in both surfaces — the STATIC `trama!(params){ body }` compile-time token-macro (lowered via metacall to a native render fn) and the DYNAMIC `Tpl::compile(text, &cat)?.render(&env)?` runtime API (package `logos.std.deem`). Source layers: the template grammar `stdlib/mem/wql/grammars/trama.peg` (→ generated `stdlib/mem/wql/trama_parser.logos`), the schema family + shared chain-walk `stdlib/mem/wql/trama.logos`, the static handler `stdlib/mem/wql/trama_render.logos`, and the dynamic engine `stdlib/mem/deem/deem.logos`; intent from `ADR 0012` (§6/§10.2 surface + constructs) and `ADR 0012-queue2-interpreter` (§4a Null semantics, §3 dynamic API). The embedded `{{ … }}` / tag expression sublanguage is EL (CEL semantics + Logos comprehension syntax) — its canonical rules live in [deem.md](deem.md) under the `el.*` rule ids; Trama specifies only the template layer and its ONE coupling to EL (the `WRef<SExpr>` expression edge). This section contains only rules whose `domain` is `trama`. Each rule's `id` is its permanent linkable address.
 
 ## Embedded expression sublanguage (EL)
 
@@ -10,7 +10,7 @@ Every `{{ … }}` interpolation and every `{% if/for/set … %}` tag expression 
 
 *Divergence:* Jinja2 has an untyped ad-hoc expression grammar; Trama delegates to EL, a strongly-typed (static surface) / strictly-checked (dynamic surface) CEL-class language shared verbatim with the `deem` / `Query` sibling surfaces.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L227-L232` (`expr <- el::expr`); `stdlib/std/wql/trama.logos#L7-L9` (the EXPRESSION seam); `ADR 0012 §seam`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L227-L232` (`expr <- el::expr`); `stdlib/mem/wql/trama.logos#L7-L9` (the EXPRESSION seam); `ADR 0012 §seam`
 
 ## Surface — the `trama!` resource macro (STATIC)
 
@@ -20,7 +20,7 @@ The static surface is `resource <name> = trama!(<params>){ <template> };`; `#[to
 
 *Divergence:* EXTENSION over Jinja2 — a template is a first-class named, compiled Logos function, not a runtime-loaded file; a missing binding name is a compile error (`trama!: needs a binding name`).
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L557-L567`, `#L644-L657`; `ADR 0012 §6`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L557-L567`, `#L644-L657`; `ADR 0012 §6`
 
 ### `trama.surface.params-form` — Params are a real Logos parameter list
 
@@ -28,13 +28,13 @@ The static surface is `resource <name> = trama!(<params>){ <template> };`; `#[to
 
 *Divergence:* Replaces Jinja2's dynamic, untyped context dict with a typed, compiler-checked parameter list — the params ARE the type source (the old `data`/`with` DSL header is GONE).
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L569-L578`, `#L644-L650`; `logos.std.wql.params::parse_macro_params`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L569-L578`, `#L644-L650`; `logos.std.wql.params::parse_macro_params`
 
 ### `trama.surface.render-fn-shape` — Generated render function body
 
 The emitted fn opens `let mut __out: String = String::new();`, walks the Trama AST appending to `__out`, and closes `return __out;`; every construct lowers to native Logos statements (`__out.push_str(…)` / `push_i64` / `push_str(wql_f64_to_str(…))`, `if`, indexed `while`, `let`).
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L22-L26`, `#L646-L654`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L22-L26`, `#L646-L654`
 
 ### `trama.surface.in-package-use` — In-CU macro consumption
 
@@ -42,13 +42,13 @@ A stdlib module may consume `trama!` from a SIBLING module of the same `--emit-m
 
 *Divergence:* EXTENSION — no Jinja2 analogue; a language-integration property of the token-macro machinery.
 
-*Evidence:* `stdlib/std/wql/trama_selfuse.logos#L1-L23`
+*Evidence:* `stdlib/mem/wql/trama_selfuse.logos#L1-L23`
 
 ### `trama.surface.bootstrap-limit` — `trama_render` cannot template itself
 
 The `trama_render` handler module can NEVER consume `trama!` (a bootstrap cycle: the handler would depend on its own expansion); every other in-CU module may.
 
-*Evidence:* `stdlib/std/wql/trama_selfuse.logos#L7-L8`
+*Evidence:* `stdlib/mem/wql/trama_selfuse.logos#L7-L8`
 
 ## Body delimiters and escaping
 
@@ -58,13 +58,13 @@ The `trama_render` handler module can NEVER consume `trama!` (a bootstrap cycle:
 
 *Divergence:* EXTENSION over Jinja2's single delimiter convention; the choice is a Logos-source ergonomic (brace-body vs quoted).
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L94-L123`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L94-L123`
 
 ### `trama.body.backtick-form` — Backtick body avoids inner-quote escaping
 
 The backtick `` `…` `` form lets the template contain bare `"` EL string literals (`{{ "(" + city + ")" }}`, `{% if x == "NYC" %}`) without escaping; it is the recommended form when embedded EL string literals are used, while the `"…"` form stays for simple templates with no inner quotes.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L94-L123`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L94-L123`
 
 ### `trama.body.delimiterless` — Delimiter-less body is edge-trimmed
 
@@ -72,7 +72,7 @@ When the first non-space byte is neither `"` (34) nor backtick (96), the WHOLE b
 
 *Divergence:* EXTENSION — Jinja2 has no brace-body notion; edge-trim is a Logos-source concession, opt-out via a quoted form.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L105-L116`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L105-L116`
 
 ### `trama.body.escapes` — Backslash escapes `\{ \} \` \\`
 
@@ -80,7 +80,7 @@ A raw text run may escape `\{`, `\}`, `` \` ``, and `\\`; the backslash SURVIVES
 
 *Divergence:* EXTENSION — Jinja2 escapes differently (`{% raw %}` / `{{ '{{' }}`); Trama uses C-style backslash escapes for the four template metacharacters.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L154-L161`; `stdlib/std/wql/trama_render.logos#L139-L154` (`emit_escaped`); `stdlib/std/deem/deem.logos#L1790-L1808` (`push_deescaped`)
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L154-L161`; `stdlib/mem/wql/trama_render.logos#L139-L154` (`emit_escaped`); `stdlib/mem/deem/deem.logos#L1790-L1808` (`push_deescaped`)
 
 ## Template constructs
 
@@ -90,7 +90,7 @@ A run of bytes up to the next `{{`/`{%` (a bare `{` not opening a tag stays text
 
 *Divergence:* Conformant with Jinja2 literal text, modulo the escape rules of `trama.body.escapes`.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L181` (`TEXT => TText`); `stdlib/std/wql/trama.logos#L45-L48`; `stdlib/std/wql/trama_render.logos#L376-L382`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L181` (`TEXT => TText`); `stdlib/mem/wql/trama.logos#L45-L48`; `stdlib/mem/wql/trama_render.logos#L376-L382`
 
 ### `trama.tag.interpolate` — `{{ expr }}` → `TVar`, per-type formatting
 
@@ -98,7 +98,7 @@ A run of bytes up to the next `{{`/`{%` (a bare `{` not opening a tag stays text
 
 *Divergence:* Jinja2 renders via a single dynamic `str()`/`__str__`; Trama routes on the STATICALLY inferred type, and a Null (lenient, dynamic only) renders as the empty string (`trama.dynamic.null-render`).
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L184-L187`; `stdlib/std/wql/trama_render.logos#L383-L423`; `stdlib/std/deem/deem.logos#L812-L825` (`rt_push`); `logos.std.wql.el::wql_f64_to_str`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L184-L187`; `stdlib/mem/wql/trama_render.logos#L383-L423`; `stdlib/mem/deem/deem.logos#L812-L825` (`rt_push`); `logos.std.wql.el::wql_f64_to_str`
 
 ### `trama.tag.if` — `{% if %}/{% elif %}/{% else %}/{% endif %}` → `TIf`
 
@@ -106,7 +106,7 @@ A run of bytes up to the next `{{`/`{%` (a bare `{` not opening a tag stays text
 
 *Divergence:* Conformant with Jinja2 `if`/`elif`/`else`/`endif` and truthiness; `elif`→nested-`if` is an internal desugaring, not observable.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L204-L221`; `stdlib/std/wql/trama.logos#L59-L64`; `stdlib/std/wql/trama_render.logos#L450-L491`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L204-L221`; `stdlib/mem/wql/trama.logos#L59-L64`; `stdlib/mem/wql/trama_render.logos#L450-L491`
 
 ### `trama.tag.if-const-fold` — Static const-condition collapses to the taken branch
 
@@ -114,7 +114,7 @@ When the static optimizer const-folds a `{% if %}` condition to a const BOOL, on
 
 *Divergence:* EXTENSION — a compile-time optimization with no Jinja2 analogue.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L456-L477`; `logos.std.wql.optimize::sexpr_const`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L456-L477`; `logos.std.wql.optimize::sexpr_const`
 
 ### `trama.tag.for` — `{% for v in coll %}/{% endfor %}` → `TFor`
 
@@ -122,7 +122,7 @@ When the static optimizer const-folds a `{% if %}` condition to a const BOOL, on
 
 *Divergence:* Conformant with Jinja2 `{% for v in seq %}`, but STRONGLY typed — the loop var's element type is resolved (static) / shape-driven (dynamic); Jinja `loop.*` helpers are not provided (EXTENSION gap).
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L193-L199`; `stdlib/std/wql/trama.logos#L53-L58`; `stdlib/std/wql/trama_render.logos#L492-L544`; `stdlib/std/deem/deem.logos#L1835-L1861`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L193-L199`; `stdlib/mem/wql/trama.logos#L53-L58`; `stdlib/mem/wql/trama_render.logos#L492-L544`; `stdlib/mem/deem/deem.logos#L1835-L1861`
 
 ### `trama.tag.set` — `{% set v = expr %}` → `TSet`
 
@@ -130,7 +130,7 @@ When the static optimizer const-folds a `{% if %}` condition to a const BOOL, on
 
 *Divergence:* Conformant with Jinja2 `{% set %}`; the binding is a typed Logos `let` (static) rather than a dynamic context write.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L189-L191`; `stdlib/std/wql/trama.logos#L65-L69`; `stdlib/std/wql/trama_render.logos#L424-L449`; `stdlib/std/deem/deem.logos#L1862-L1865`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L189-L191`; `stdlib/mem/wql/trama.logos#L65-L69`; `stdlib/mem/wql/trama_render.logos#L424-L449`; `stdlib/mem/deem/deem.logos#L1862-L1865`
 
 ### `trama.tag.whitespace-control` — `{%- -%}` / `{{- -}}` trim variants
 
@@ -138,7 +138,7 @@ Each tag delimiter has a whitespace-control variant (`{{-`/`-}}`, `{%-`/`-%}`) t
 
 *Divergence:* Conformant with Jinja2 whitespace-control markers.
 
-*Evidence:* `stdlib/std/wql/grammars/trama.peg#L19`, `#L127-L135`, `#L184-L187`, `#L224-L225`; lexed as `TrTK_{L,R}{STMT,MUST}_TRIM` in `stdlib/std/wql/trama_parser.logos#L28-L31`, `#L164-L223`
+*Evidence:* `stdlib/mem/wql/grammars/trama.peg#L19`, `#L127-L135`, `#L184-L187`, `#L224-L225`; lexed as `TrTK_{L,R}{STMT,MUST}_TRIM` in `stdlib/mem/wql/trama_parser.logos#L28-L31`, `#L164-L223`
 
 ### `trama.ast.chain` — Statements are a `next`-linked `TStmt` chain
 
@@ -146,7 +146,7 @@ A template block is a null-terminated singly-linked chain: every `TStmt` carries
 
 *Divergence:* EXTENSION — an IR representation detail, not surface-observable; Trama's AST is a first-class Writ schema tree (category `0x0013`), dogfooding ADR 0011.
 
-*Evidence:* `stdlib/std/wql/trama.logos#L17-L19`, `#L45-L73` (schemas), `#L220-L234` (`chain_array`)
+*Evidence:* `stdlib/mem/wql/trama.logos#L17-L19`, `#L45-L73` (schemas), `#L220-L234` (`chain_array`)
 
 ## Typing and reflection (STATIC)
 
@@ -156,13 +156,13 @@ A param whose core type resolves to a schema struct is REFLECTED (`stamp_types_f
 
 *Divergence:* Replaces Jinja2's untyped attribute access with schema-driven static field typing.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L600-L624`; `logos.std.wql.reflect::stamp_types_from_schema`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L600-L624`; `logos.std.wql.reflect::stamp_types_from_schema`
 
 ### `trama.typing.scalar-params` — Scalar/str params render directly
 
 A scalar or `str` param (`greeting: str`) gets its EL value-type set directly (`el_ty_of_name`), so a bare `{{ greeting }}` renders with the correct push (str vs bool/f64/i64) and the param name is usable directly in the template.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L611-L616`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L611-L616`
 
 ### `trama.typing.recursive-loop-reflection` — Loop vars reflect through the schema
 
@@ -170,7 +170,7 @@ A scalar or `str` param (`greeting: str`) gets its EL value-type set directly (`
 
 *Divergence:* EXTENSION — static, schema-driven loop-variable typing with no Jinja2 analogue; a struct element binds BY REFERENCE (`let v: &Ty = &(iter)[__i];`) to avoid moving out of an index.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L298-L345` (`reflect_loops`), `#L509-L533` (by-ref element binding)
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L298-L345` (`reflect_loops`), `#L509-L533` (by-ref element binding)
 
 ### `trama.typing.udfs-from-module` — Top-level fns are template UDFs
 
@@ -178,7 +178,7 @@ The module's top-level fns are registered as UDFs (`stamp_udfs_from_module`), so
 
 *Divergence:* EXTENSION over Jinja2 filters/globals — arbitrary type-checked Logos functions, resolved builtin-first.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L625-L628`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L625-L628`
 
 ### `trama.typing.errors-are-diagnostics` — Static errors are compile diagnostics
 
@@ -186,7 +186,7 @@ On the static surface, unknown-function / arity / tuple-in-render errors are lat
 
 *Divergence:* EXTENSION — Jinja2 surfaces errors at render time; the static surface fails the BUILD.
 
-*Evidence:* `stdlib/std/wql/trama_render.logos#L390-L398`, `#L561-L562`, `#L575-L576`, `#L584`
+*Evidence:* `stdlib/mem/wql/trama_render.logos#L390-L398`, `#L561-L562`, `#L575-L576`, `#L584`
 
 ## Dynamic surface — `Tpl::compile` / `render` (RUNTIME)
 
@@ -196,7 +196,7 @@ The runtime API is `Tpl::compile(text: str, cat: &SchemaCatalog) -> Result<Tpl, 
 
 *Divergence:* EXTENSION — Jinja2's canonical mode; here the template TEXT arrives at RUNTIME but is parsed by the SAME generated `parse_tpl` and rendered by the SAME shared chain-walk as the static surface.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L1882-L1923`; `ADR 0012-queue2 §3`
+*Evidence:* `stdlib/mem/deem/deem.logos#L1882-L1923`; `ADR 0012-queue2 §3`
 
 ### `trama.dynamic.errors-are-values` — Errors are `QError` values, not diagnostics
 
@@ -204,13 +204,13 @@ On the dynamic surface every error is a `Result::Err(QError)` VALUE (a positione
 
 *Divergence:* Inverts the static surface (`trama.typing.errors-are-diagnostics`); this is the ADR §3 "errors are values" contract for runtime text.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L88-L119` (`QError`), `#L1889-L1904`; `ADR 0012-queue2 §3`
+*Evidence:* `stdlib/mem/deem/deem.logos#L88-L119` (`QError`), `#L1889-L1904`; `ADR 0012-queue2 §3`
 
 ### `trama.dynamic.strict-check` — Strict typing against catalog + env
 
 Compile is env-independent (unresolvable roots type UNKNOWN, deferred; unknown fn names defer to render); render is STRICT — every template root name must resolve to a `QEnv` binding and every field to a catalog entry, with the full EL type lattice applied.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L41-L49`, `#L840-L846`, `#L1889-L1914`; `ADR 0012-queue2 §4`
+*Evidence:* `stdlib/mem/deem/deem.logos#L41-L49`, `#L840-L846`, `#L1889-L1914`; `ADR 0012-queue2 §4`
 
 ### `trama.dynamic.udf-registry` — Templates share the query UDF registry
 
@@ -218,15 +218,19 @@ Template UDFs resolve at render against the SAME env UDF/UDA registry that `Quer
 
 *Divergence:* EXTENSION — Jinja2 filters/globals are a template-only namespace; here templates and queries share one function registry.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L592-L662`; `ADR 0012-queue2 §6`, `§I3`
+*Evidence:* `stdlib/mem/deem/deem.logos#L592-L662`; `ADR 0012-queue2 §6`, `§I3`
 
 ### `trama.dynamic.lenient-erased` — Erased bindings enable lenient render
 
-Lenient-ness is a per-BINDING property: `env.bind_node_erased(name, node)` / `env.bind_source_erased(name, arr)` type the root as `dyn`; fields on an erased value resolve at RUNTIME by name and misses yield `RtVal::Null`, which propagates CEL-style.
+⚠ **WITHDRAWN 2026-08-09.** It read: lenient-ness is a per-BINDING property — `env.bind_node_erased(name, node)` / `env.bind_source_erased(name, arr)` type the root as `dyn`; fields on an erased value resolve at RUNTIME by name and misses yield `RtVal::Null`, which propagates CEL-style.
+
+Both binds were removed (task 24), together with `bind_source_tree` and the `QB_ENODE`/`QB_ESRC`/`QB_TSRC` kind codes and their reader arms. They were exported, had ZERO callers anywhere in the tree, and were the only writers of the codes their reader arms switched on, so both sides of that interface were unreachable. The erased-source CAPABILITY itself had already been ruled withdrawn at P5 (census §5 C3, with two `fail/` doors and a located refusal in `src/compiler/sema_expr.cpp`). ABI 0.38.0 → 0.39.0.
+
+⚠ `CT_DYN` SURVIVES and is not part of this withdrawal: it has an independent producer (the catalog `FK_ANY` field arm of `check_expr`), so the `dyn` FIELD READ, `dyn_op`, the ternary arm and the `{% for %}` branch all stay reachable. What is gone is erased BINDING, not lenient VALUES.
 
 *Divergence:* EXTENSION over both Jinja2 and the static surface (which is strict-only, D4); this is the ADR §4a lenient half for erased/untyped data.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L570-L590` (`bind_node_erased`/`bind_source_erased`); `ADR 0012-queue2 §4a`
+*Evidence:* removed at task 24; the `abi/logos.abi` records `QEnv__bind_source_erased__f__refmut_QEnv__slice_u8__WAny` and its `bind_node_erased` twin are gone. Historical: `ADR 0012-queue2 §4a`. ⚠ The path this line used to cite, `stdlib/mem/deem/deem.logos`, never existed — the package has always been `stdlib/mem/deem/`.
 
 ### `trama.dynamic.null-render` — `Null` renders as the empty string
 
@@ -234,7 +238,7 @@ In lenient mode a `{{ x }}` whose value is `RtVal::Null` renders as the EMPTY st
 
 *Divergence:* EXTENSION — CEL-style Null semantics (`ADR 0012-queue2 §4a` propagation table) with no static-surface analogue; strict bindings never produce Null.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L814-L825` (Null → no push), `#L1821-L1834`, `#L1835-L1860`; `ADR 0012-queue2 §4a` (`{{ x }}` render → empty string; `{% if %}`/`{% for %}` rows)
+*Evidence:* `stdlib/mem/deem/deem.logos#L814-L825` (Null → no push), `#L1821-L1834`, `#L1835-L1860`; `ADR 0012-queue2 §4a` (`{{ x }}` render → empty string; `{% if %}`/`{% for %}` rows)
 
 ### `trama.dynamic.str-ownership` — Rendered strings view a per-render scratch arena
 
@@ -242,4 +246,4 @@ Computed strings (concat/upper/lower) produced during render are interned into a
 
 *Divergence:* EXTENSION — a runtime memory-management detail, not surface-observable.
 
-*Evidence:* `stdlib/std/deem/deem.logos#L44-L48`, `#L827-L838` (`intern`), `#L1916-L1921`
+*Evidence:* `stdlib/mem/deem/deem.logos#L44-L48`, `#L827-L838` (`intern`), `#L1916-L1921`

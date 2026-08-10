@@ -1125,6 +1125,25 @@ set_tests_properties(logos_00_census_pin PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# The LANGUAGE SPEC's Evidence lines, checked for their nouns. `docs/spec/*.md`
+# said `stdlib/std/wql/…` throughout — the PACKAGE name written as a directory,
+# for a directory (`stdlib/mem/wql/`) that has always been the real one — and
+# roughly thirty Evidence lines pointed at paths that had never existed, through
+# every review this repo has run. P5 then deleted five more files it cites. No
+# gate read `docs/spec/` in any direction, which is why prose there outlived
+# prose in the census. This checks ONLY that every path token names something
+# real (brace lists and globs expanded), with a `<!-- spec-gone: path — why -->`
+# declaration for files the spec must still discuss after deletion, checked in
+# the abuse direction. It judges no rule and no claim.
+add_test(
+    NAME logos_00_spec_path_lint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/spec_path_lint.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_spec_path_lint PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 add_test(
     NAME logos_00_shared_ref_ub_lint
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shared_ref_ub_lint.sh

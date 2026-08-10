@@ -895,7 +895,7 @@ Evidence: `src/compiler/sema_collect.cpp#L415-L434`
 
 `[pub] mapping M(param: Type, …) { [pub] rel r(col: ty, …) { <rules> } … }` (MAPPING_DEF: PARAMS = PARAM array, FIELDS = REL_DEF array) declares a PURE RULE MODULE — a named, typed, reusable vocabulary of domain relations over a source shape. A mapping is a DEFINITION, never an executable: it emits no per-rel fns (the historical `M::rel(args)` direct-call surface is retired — it conflated definition with query, re-materialized dependency rels per call, and made concrete and generic mappings different animals); it is queried THROUGH — statically by fusion (`deem q(w: M) { … }`) or dynamically via its runtime artifacts (`<M>__rules()` / `<M>__src()` + `Query::compile_with_mapping`). Rel BODIES are syntax-checked at the item (the compiler parses them) and semantically validated at first consumption, uniformly with generic mappings.
 
-Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_mapping_def/mapping_def/rel_def), `src/compiler/sema_expr.cpp` (lower_mapping_def), `stdlib/std/wql/mapping_item.logos`
+Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_mapping_def/mapping_def/rel_def), `src/compiler/sema_expr.cpp` (lower_mapping_def), `stdlib/mem/wql/mapping_item.logos`
 
 ### `item.mapping.rel-contextual-keyword` — `rel` is contextual inside a mapping body
 

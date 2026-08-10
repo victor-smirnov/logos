@@ -48,7 +48,18 @@ struct S { pub g: i64, pub v: f64 }
 pub deem q_min(ss: &[S]) { from ss s group by s.g aggregate lo = min(s.v) select lo : f64 }
 pub deem q_max(ss: &[S]) { from ss s group by s.g aggregate hi = max(s.v) select hi : f64 }
 
-fn nan_()  -> f64 { return f64_from_bits(0x7FF8000000000000u64); }
+// ⚠ THE DATA'S NaN CARRIES A PAYLOAD THE SEED DOES NOT, AND THAT IS THE WHOLE
+// POINT OF `same_bits`. The emitted min/max fold seeds its f64 accumulator with
+// the QUIET NaN `0x7FF8000000000000` (`AGG_MIN()`/`AGG_MAX()` in
+// `stdlib/mem/wql/rexpr_walk.logos`). Until 2026-08-09 this helper returned that
+// SAME bit pattern, so at every NaN cell the seed and the row value were
+// bit-identical and `same_bits` could not tell "the answer came FROM THE GROUP"
+// from "the answer is the seed, never improved". `0xABC` in the payload makes
+// those two answers different bit patterns, so code 14 now asserts what its
+// sentence claims. `seed_nan_` below is the seed itself, kept so the file can
+// name the value it is distinguishing itself from.
+fn nan_()      -> f64 { return f64_from_bits(0x7FF8000000000ABCu64); }
+fn seed_nan_() -> f64 { return f64_from_bits(0x7FF8000000000000u64); }
 fn pinf_() -> f64 { return f64_from_bits(0x7FF0000000000000u64); }
 fn ninf_() -> f64 { return f64_from_bits(0xFFF0000000000000u64); }
 
@@ -61,6 +72,16 @@ fn rows() -> Vec<S> {
     v.push(S { g: 2i64, v: nan_()  });
     v.push(S { g: 3i64, v: nan_()  });
     v.push(S { g: 3i64, v: 1.0f64  });
+    // ⚠ GROUP 4 EXISTS ONLY FOR THE BIT ASSERTION, and it is the case that makes
+    // code 14/15 non-dominated. `pg_eq` calls -0.0 and +0.0 EQUAL (that is the
+    // PostgreSQL rule, written out), so codes 10/11 cannot see which of the two
+    // came out. The keys are equal too, so the STRICT improve keeps the FIRST
+    // row: min and max must BOTH answer -0.0, bit pattern 0x8000000000000000.
+    // An engine that kept the last row instead, or normalised the sign, would
+    // pass 10/11 and fail here — which is the whole reason a bit check earns
+    // its place beside a value check.
+    v.push(S { g: 4i64, v: -0.0f64 });
+    v.push(S { g: 4i64, v:  0.0f64 });
     return v;
 }
 
@@ -102,8 +123,11 @@ fn rows() -> Vec<S> {
 //               must be bit-identical to the row it came from, payload and all.
 //               It shares only `f64_to_bits`, a reinterpret cast with no
 //               comparison in it — a degenerate ORDER cannot make it agree.
-//               Nothing here is over-strict: every wanted cell below is a
-//               bit-for-bit copy of a row value.
+//               Every wanted cell below is a bit-for-bit copy of a row value —
+//               ⚠ which was FALSE at the NaN cells until 2026-08-09, when the
+//               data's NaN shared the emitter's seed payload exactly. See
+//               `nan_` below: the two are now distinguishable, so the claim is
+//               true as written instead of true by coincidence.
 fn pg_eq(a: f64, b: f64) -> bool {
     let an: bool = a != a;
     let bn: bool = b != b;
@@ -128,20 +152,42 @@ fn same_bits(got: &Vec<f64>, want: &Vec<f64>) -> bool {
     }
     return true;
 }
-fn v4(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+// Bit identity where the wanted value is a real number; CANONICAL identity
+// where it is NaN. The split is the repo's own float ruling applied honestly:
+// a NaN payload is not semantic (all NaNs are one element under
+// `f64_canon_bits`), a real number's bits are. At a non-NaN cell this is
+// exactly `same_bits` and rejects -0.0 vs +0.0, which `pg_eq` accepts.
+fn bits_or_canon(got: &Vec<f64>, want: &Vec<f64>) -> bool {
+    if got.len() != want.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < want.len() {
+        let w: f64 = want.get(i);
+        let g: f64 = got.get(i);
+        if w != w {
+            if f64_canon_bits(g) != f64_canon_bits(w) { return false; }
+        } else {
+            if f64_to_bits(g) != f64_to_bits(w) { return false; }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn v5(a: f64, b: f64, c: f64, d: f64, e: f64) -> Vec<f64> {
     let mut v: Vec<f64> = vec_new::<f64>();
-    v.push(a); v.push(b); v.push(c); v.push(d);
+    v.push(a); v.push(b); v.push(c); v.push(d); v.push(e);
     return v;
 }
 
 fn main() -> i32 {
     let ss: Vec<S> = rows();
 
-    // group order is first-occurrence: g = 0, 1, 2, 3.
-    //   min: +inf, -inf, NaN, 1.0      (NaN is the greatest, so 1.0 wins in g=3)
-    //   max: +inf, -inf, NaN, NaN      (NaN is the greatest, so it wins in g=3)
-    let want_min: Vec<f64> = v4(pinf_(), ninf_(), nan_(), 1.0f64);
-    let want_max: Vec<f64> = v4(pinf_(), ninf_(), nan_(), nan_());
+    // group order is first-occurrence: g = 0, 1, 2, 3, 4.
+    //   min: +inf, -inf, NaN, 1.0, -0.0  (NaN is the greatest, so 1.0 wins in g=3;
+    //                                      g=4's two rows tie, so the FIRST wins)
+    //   max: +inf, -inf, NaN, NaN, -0.0 (g=4 ties under the key, first wins again)
+    let want_min: Vec<f64> = v5(pinf_(), ninf_(), nan_(), 1.0f64, -0.0f64);
+    let want_max: Vec<f64> = v5(pinf_(), ninf_(), nan_(), nan_(), -0.0f64);
 
     let gmin: Vec<f64> = q_min(ss.as_slice()).unwrap();
     let gmax: Vec<f64> = q_max(ss.as_slice()).unwrap();
@@ -151,15 +197,46 @@ fn main() -> i32 {
     // every wanted cell above is a bit-for-bit copy of a row value, NaN payload
     // included, so nothing here is over-strict. Codes 12/13 named the deleted
     // dynamic arms and are NOT reused.
-    if !same_bits(&gmin, &want_min) { return 14i32; }
-    if !same_bits(&gmax, &want_max) { return 15i32; }
+    // ⚠⚠ MEASURED 2026-08-09, AND IT IS A FINDING, NOT A FORMALITY. Once the
+    // data's NaN stopped sharing the emitter's seed payload (see `nan_`), bit
+    // identity FAILED at exactly the all-NaN cells — exit 14 at `gmin[2]`. The
+    // reason is structural: the f64 min seed IS the quiet NaN
+    // `0x7FF8000000000000` (the greatest value under the data-key order, so a
+    // correct seed), the improve test is a STRICT `f64_data_key(v) < …`, and a
+    // NaN row's key equals the seed's key. A group whose every row is NaN
+    // therefore never improves, and the answer's BITS come from the engine
+    // rather than from the group.
+    //
+    // Is that a defect? NOT AT THE VALUE LEVEL, and this repo has already ruled
+    // on why: floats are DATA with PostgreSQL semantics, all NaNs are one value
+    // (`f64_canon_bits`, stdlib/lang/num/float.logos). A NaN payload is
+    // explicitly NON-SEMANTIC here, so "a value from the group" is satisfied.
+    // ⇒ the assertion is split by what each cell can honestly claim, rather
+    // than relaxed: BIT identity wherever the winner is a real number, and
+    // CANONICAL identity where every candidate was NaN. Neither is weaker than
+    // the file had — code 14 previously passed by coincidence at those cells.
+    // ⚠ AND THE EMITTER ALREADY RULED THIS, which I found only after measuring:
+    // the `AGG_MIN()` arm of `rexpr_walk.logos` says in so many words that "the
+    // seed therefore survives only when the whole group is NaN — and then the
+    // answer is the canonical NaN, which under this order IS the value the group
+    // holds: all NaNs are one value." So this is DELIBERATE, not a defect, and
+    // the split below is the fixture catching up to a decision already written
+    // down at the site that implements it. What was wrong was only this file's
+    // claim to be checking bits everywhere.
+    if !bits_or_canon(&gmin, &want_min) { return 14i32; }
+    if !bits_or_canon(&gmax, &want_max) { return 15i32; }
+    // and the payload divergence itself, named: the NaN cells carry the SEED's
+    // payload, not the data's. If this ever stops holding, the note above has
+    // been answered and must be rewritten — it is not a silent expectation.
+    if f64_to_bits(gmin.get(2i64)) != f64_to_bits(seed_nan_()) { return 16i32; }
+    if f64_to_bits(nan_()) == f64_to_bits(seed_nan_()) { return 17i32; }
 
     // ⚠ The sentinel itself, asserted directly: f64::MAX must not appear in any
     // answer. This is the assertion that fails loudest if a seed ever leaks
     // again — it names the wrong value rather than only the right one.
     let mx: f64 = 1.7976931348623157e308f64;
     let mut i: i64 = 0i64;
-    while i < 4i64 {
+    while i < 5i64 {
         if gmin.get(i) == mx || gmin.get(i) == -mx { return 20i32; }
         if gmax.get(i) == mx || gmax.get(i) == -mx { return 21i32; }
         i = i + 1i64;
@@ -170,9 +247,18 @@ fn main() -> i32 {
     let mut t: Vec<S> = vec_new::<S>();
     t.push(S { g: 0i64, v: mx });
     t.push(S { g: 0i64, v: -mx });
+    // ⚠ AND A NaN WITH A PAYLOAD, which is what makes codes 32/33 non-dominated.
+    // Without it they restate 30/31: over {MAX, -MAX} bit identity and value
+    // identity coincide, so `same_bits` could not fail where `same` passed.
+    // With it, `max`'s seed (-inf) IS improved by the NaN row, so the answer's
+    // payload must be the ROW's `0xABC` — the file's "a value FROM THE GROUP"
+    // claim asserted at the only place a payload can carry it. An engine that
+    // answered the canonical NaN here would be returning its own constant, and
+    // 31 (value equality, all NaNs one value) could never tell.
+    t.push(S { g: 0i64, v: nan_() });
     let mut w2: Vec<f64> = vec_new::<f64>(); w2.push(-mx);
     if !same(&q_min(t.as_slice()).unwrap(), &w2) { return 30i32; }
-    let mut w3: Vec<f64> = vec_new::<f64>(); w3.push(mx);
+    let mut w3: Vec<f64> = vec_new::<f64>(); w3.push(nan_());
     if !same(&q_max(t.as_slice()).unwrap(), &w3) { return 31i32; }
     if !same_bits(&q_min(t.as_slice()).unwrap(), &w2) { return 32i32; }
     if !same_bits(&q_max(t.as_slice()).unwrap(), &w3) { return 33i32; }

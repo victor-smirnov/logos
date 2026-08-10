@@ -218,19 +218,19 @@ Whether `schema_type_code` is verified follows from the access's static type: an
 
 *Divergence:* EXTENSION — a typed pointer into a Writ graph (Cap'n-Proto struct-pointer-shaped); the type is phantom, no Rust equivalent.
 
-*Evidence:* `stdlib/std/wql/ir.logos#L29-L43`
+*Evidence:* `stdlib/mem/wql/ir.logos#L29-L43`
 
 ### `writ.edge.wref-writfield` — `WRef<S>` is a schema field via identity WritField
 
 `impl<S> WritField for WRef<S>` is the identity over the underlying `WAny`: `from_wany(v) = WRef { h: v }`, `to_wany(self) = self.h`. A `lhs: WRef<S>` schema field therefore stores/loads exactly like any other field with zero conversion — the edge value is the target's raw `WAny` ref. `writfield_type_name` routes a struct field type through its BARE template name (`WRef`), which mono retargets to the concrete `WRef$G1$S__from_wany`/`__to_wany` at the call.
 
-*Evidence:* `stdlib/std/wql/ir.logos#L45-L49`; `src/compiler/sema_expr.cpp#L9358-L9373` (`writfield_type_name` struct case)
+*Evidence:* `stdlib/mem/wql/ir.logos#L45-L49`; `src/compiler/sema_expr.cpp#L9358-L9373` (`writfield_type_name` struct case)
 
 ### `writ.edge.resolve-view` — Consume a `WRef<S>` via `.any().view::<S>()`
 
 A consumer resolves an edge to a concrete view with `r.any().view::<S>()` — take the erased `WAny`, then trusted-bind it to `S` (the child type is statically the edge target, so no code check). The producer wires an edge by writing the target node's raw `WAny` ref straight into the parent's map slot (`b.lhs = WRef::<S>::from_any(child.as_ref())`), often with no `WRef` value materialised at all. A node's `as_ref()` yields `WAny::ref_to((self.m as i64) as *const u8)` — the arena TOM outlives the local view, so the ref is not dangling (provenance laundered through `i64`).
 
-*Evidence:* `stdlib/std/wql/ir.logos#L80-L89`, `stdlib/std/wql/ir.logos#L149-L166`
+*Evidence:* `stdlib/mem/wql/ir.logos#L80-L89`, `stdlib/mem/wql/ir.logos#L149-L166`
 
 ### `writ.edge.readonly-mono-seam` — A read-only `WRef<S>` field forces its generic methods to be cloned
 
@@ -336,4 +336,4 @@ Calling a `WAny` accessor as a `method_call` on a `&WAny` (enum) receiver return
 
 A node's `as_ref()` returns `WAny::ref_to((self.m as i64) as *const u8)`: the cast through `i64` launders the pointer provenance. The `WAny` ref targets the TOM in the Writ arena (which outlives the local view), so the returned ref is NOT a dangling reference to the temporary view — without the launder the borrow checker conservatively rejects the escaping raw ptr. Use this idiom (mirrored across every IR node's `as_ref` and `arg_any`) when a view method must yield an edge handle that outlives the view.
 
-*Evidence:* `stdlib/std/wql/ir.logos#L149-L166`, `stdlib/std/wql/ir.logos#L91-L104`
+*Evidence:* `stdlib/mem/wql/ir.logos#L149-L166`, `stdlib/mem/wql/ir.logos#L91-L104`

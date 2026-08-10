@@ -249,15 +249,20 @@ fn main() -> i32 {
     // recursion in this file, so a counting-only check left the one construct
     // this fixture exists to compare pinned by its LENGTH.
     //
-    // ⚠ HONEST LIMIT OF 29, MEASURED. I could not construct a perturbation that
-    // 29 alone catches. Shifting every id in `dyn_graph_edge_rows` by a constant
-    // (structure-preserving, so the count stays 10) reds at 17 — an earlier leg
-    // that already compares elementwise. And a perturbation of the RECURSION
-    // moves both sides together: `w_reach` and `s_reach` share the static
-    // engine and differ only in SOURCE KIND (native rel vs slice), so 29 speaks
-    // exactly when the two source kinds diverge on the closure while agreeing on
-    // the base edges. That is the hole it closes; it is a completeness fix, not
-    // a demonstrated new sensor, and it should not be cited as one.
+    // ⚠ THE "HONEST LIMIT" RECORDED HERE WAS AN UNDERSTATEMENT, AND IS WITHDRAWN.
+    // It said no perturbation exists that 29 alone catches, on the strength of
+    // ONE failed attempt: shifting EVERY id in `dyn_graph_edge_rows` by a
+    // constant reds at 17, an earlier leg that already compares elementwise.
+    // The attempt was too coarse. Shifting only the `seven` children —
+    // `if str_eq(r.1, "seven") { r.3 + 4096 }` in `dyn_graph_edge_rows`
+    // (stdlib/mem/deem/graphsrc.logos) — leaves every earlier leg agreeing and
+    // reds HERE, at 29, MEASURED. So this IS a sensor, not only a completeness
+    // fix: it catches a divergence confined to the closure.
+    // What remains true is the SHAPE of what it can see. `w_reach` and `s_reach`
+    // share the static engine and differ only in SOURCE KIND (native rel vs
+    // slice), so 29 speaks when the two source kinds disagree on the closure
+    // while agreeing on the base edges — not when the recursion algorithm itself
+    // is wrong, which moves both arms together.
     //
     // ⚠ THIS CODE WAS 32 AND SO WAS THE LEAF-IDENTITY CHECK BELOW (2026-08-10).
     // Two unrelated assertions returned the same value, so a run that exited 32
@@ -265,9 +270,18 @@ fn main() -> i32 {
     // statement about an AMBIGUOUS code. The recursion parity now exits 29 (the
     // slot its own leg left free at 26/27/28) and everything from the old 29
     // downstream shifted up by one, restoring "a nonzero code names the first
-    // failure" as a readable property of this file. MEASURED after the renumber:
-    // breaking the recursion parity alone exits 29, breaking leaf identity alone
-    // exits 33 — two DIFFERENT codes where both used to give 32.
+    // failure" as a readable property of this file.
+    // ⚠ AND THE SECOND HALF OF THAT SENTENCE WAS WRONG. It claimed "breaking
+    // leaf identity alone exits 33", measured by perturbing this fixture's OWN
+    // projection — the wrong side, a control that changes the subject rather
+    // than the engine. Collapsing leaf identity where it LIVES, in BOTH
+    // producers coordinately (`h_step(hh, parent_word)` → `h_step(hh, 0)` in
+    // graphsrc.logos, `wg_fnv2(parent_word, ord)` → `wg_fnv2(0, ord)` in
+    // stdlib/mem/wql/writ_graph.logos), exits **27** — the recursion leg's
+    // CARDINALITY check, because merging the two `seven` nodes shrinks the
+    // reachable set from 10 to 9. So leg (c)'s own codes are SHADOWED: a real
+    // leaf-identity defect is reported by leg (b) before leg (c) is reached.
+    // 33 is reachable only from a defect that spares the reachable-set size.
     if !eq_i64(&wr, &sr) { return 29i32; }
 
     // ── (c) leaf identity: the two `seven` leaves are DISTINCT ids ──────────
