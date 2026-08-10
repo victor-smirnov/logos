@@ -1,0 +1,97 @@
+// THE MIRROR DIRECTION: a query naming the trait that owns the BARE registry
+// slot must not see a HOMONYM's impls.
+//
+// Shape — three packages, two of them binary archives:
+//   trait_ident_chain.lhom  declares its OWN `trait Hash` and `impl Hash for f64`
+//   trait_ident_chain.hmid  `depends lhom`, NO `prelude` line
+//   THIS package           uses only `hmid` — `lhom::Hash` is never in scope here
+//
+// Two traits spelled `Hash` are in this TU's registry, but only ONE is reachable
+// by that spelling from here: the stdlib's, `logos.lang.hash::Hash` (lhom's is
+// reachable only from a package that imports lhom, and this one does not). The
+// stdlib implements it for the integer types, `bool` and `str` — NOT for `f64`
+// (stdlib/lang/hash/hash.logos). So the correct answer to
+// `has_trait::<f64, Hash>()` is NO.
+//
+// ⚠ THIS FIXTURE IS GREEN AT ed17f0c8, AND THAT IS THE FINDING. It was built to
+// red — the task it came from asserted the shipped compiler prints
+// `f64_stdlibHash=1` here, through Mono::Mono's bare-spelling alias
+// (`concrete_impls_.insert({impl_trait, impl_target})` under
+// `impl_canon != impl_trait`). MEASURED at ed17f0c8, alias present: it prints 0.
+// Instrumenting the insert on THIS consumer shows why the direction is the other
+// way round from the one predicted:
+//     lhom's   `impl Hash for f64` → trait=Hash canon=Hash
+//     stdlib's `impl Hash for i64` → trait=Hash canon=logos.lang.hash::Hash
+// In this TU LHOM's trait owns the bare registry slot and the STDLIB one is the
+// pkg-qualified homonym (B-mv-02 gives the slot to whoever is collected first,
+// and an archive's trait decls land before the stdlib's). So the alias filed the
+// STDLIB facts under bare `Hash`, while the query below resolves `Hash` to
+// `logos.lang.hash::Hash` and reads the canonical key — the wrong entry existed
+// and nothing read it. The alias is retired on that measurement, not on this
+// fixture: THE FIXTURE IS NOT ITS SENSOR AND MUST NOT BE CITED AS ONE.
+//
+// ⚠ WHAT IS ACTUALLY WRONG, REPRODUCED, AND NOT ASSERTED HERE. Add
+//     let bad: i64 = hmid_tag(5i64);
+// to main and this program compiles past sema and dies at
+//     error: 'func.call' op 'i64__tag' does not reference a valid function
+//     logosc: MLIR generation failed                       (exit code 1)
+// `i64` implements the STDLIB `Hash`, not lhom's, so the bound on `hmid_tag`
+// should have been REFUSED with a diagnostic. Measured with mono's alias ON and
+// OFF: byte-identical, so the seam is not mono. It is `SemaChecker::collect_impl`,
+// which keys `impls_` as `trait_name + "::" + target` from the RAW spelling —
+// one key space for two traits — and `sema_has_impl_recursive` then reports
+// `Hash::i64` as a hit. Canonicalising `impls_` is the fix and touches ~116
+// impls_/impls_all_ sites. NOT asserted as an expectation here: a `fail/` door
+// pinning today's MLIR verifier failure would be asserting the defect.
+//
+// ⚠ ROW 2 IS A CONTROL AGAINST A COMPILER THAT SIMPLY STOPPED ANSWERING. `i64` does
+// implement the stdlib `Hash`; folding the intrinsic to a constant `false`, or
+// resolving `Hash` to a trait with no facts, would satisfy row 1 for the wrong
+// reason and reds here.
+//
+// ⚠ ROW 3 IS THE CONTROL THAT LHOM'S FACT IS ACTUALLY LOADED. `lhom_tag` and
+// `hmid_tag` are BOTH generic over lhom's `Hash` on purpose: a non-generic
+// `hmid_tag(x: f64)` would monomorphise lhom's impl inside hmid's own archive and
+// this consumer would never need the fact. Without this row, `f64_stdlibHash=0`
+// could mean "the fact was never loaded from the archive" rather than "the fact is
+// correctly keyed" — a green sensor proving nothing. Independently confirmed by
+// instrumentation: lhom's `impl Hash for f64` IS in this TU's fact table.
+//
+// ⚠ ROWS 4/5 ASK THE SAME QUESTION FROM THE OTHER SIDE OF THE SLOT. `Hash` inside
+// hmid denotes LHOM's trait, and hmid's queries fold during hmid's own
+// --emit-module. Measured there: hmid's mono input carries lhom's `impl Hash for
+// f64` and NO stdlib Hash facts at all, so `i64_lhomHash=0` is correct but is NOT
+// evidence about keying — it is evidence about which facts were present. Recorded
+// so no one later reads row 4 as pinning trait identity.
+package trait_ident_pkg_chain;
+
+use trait_ident_chain.hmid;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+fn main() -> i32 {
+    // ROW 1 — the one that was predicted to answer 1 and does not. `Hash` here is
+    // the stdlib trait; f64 does not implement it.
+    let a: i32 = if has_trait::<f64, Hash>() { 1i32 } else { 0i32 };
+    // ROW 2 — control: the stdlib trait's own facts are still readable.
+    let b: i32 = if has_trait::<i64, Hash>() { 1i32 } else { 0i32 };
+    // ROW 3 — control: lhom's homonym impl IS present in this TU's fact table.
+    let c: i64 = hmid_tag(2.5f64);
+    // ROWS 4/5 — the query asked from HMID, where `Hash` denotes LHOM's trait.
+    let d: i32 = hmid_i64_is_lhom_hash();
+    let e: i32 = hmid_f64_is_lhom_hash();
+
+    printi("f64_stdlibHash=%d\n", a);
+    printi("i64_stdlibHash=%d\n", b);
+    printi("lhom_tag=%d\n", c as i32);
+    printi("i64_lhomHash=%d\n", d);
+    printi("f64_lhomHash=%d\n", e);
+
+    if a != 0i32    { return 41; }
+    if b != 1i32    { return 42; }
+    if c != 8712i64 { return 43; }
+    if d != 0i32    { return 44; }
+    if e != 1i32    { return 45; }
+    return 0i32;
+}

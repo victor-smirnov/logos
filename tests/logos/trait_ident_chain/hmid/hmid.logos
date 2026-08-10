@@ -1,0 +1,27 @@
+// trait_ident_chain, middle tier: depends on lhom and re-exports a way to
+// reach lhom's trait WITHOUT naming it. The consumer uses only this package,
+// so `trait_ident_chain.lhom::Hash` is never in the consumer's import view.
+//
+// ⚠ NO `prelude` LINE IN hmid.module, deliberately: the consumer must not
+// acquire lhom's names transitively.
+
+package trait_ident_chain.hmid;
+
+use trait_ident_chain.lhom;
+
+// GENERIC on purpose: a non-generic `hmid_tag(x: f64)` would monomorphise
+// lhom's `impl Hash for f64` HERE, and the consumer would never need the fact
+// in its own table — the control would prove nothing about the consumer.
+pub fn hmid_tag<T: Hash>(x: T) -> i64 { return lhom_tag(x); }
+
+// `Hash` HERE denotes lhom's trait (imported). `i64` implements the STDLIB
+// `Hash`, not this one — the correct answer is NO. Folded at mono time in
+// THIS package's compilation, returned to the consumer as a plain i32.
+pub fn hmid_i64_is_lhom_hash() -> i32 {
+    if has_trait::<i64, Hash>() { return 1i32; }
+    return 0i32;
+}
+pub fn hmid_f64_is_lhom_hash() -> i32 {
+    if has_trait::<f64, Hash>() { return 1i32; }
+    return 0i32;
+}

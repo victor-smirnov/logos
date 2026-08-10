@@ -3751,11 +3751,18 @@ private:
     //     be keyed under that spelling;
     //   · a name that denotes SEVERAL traits and does not resolve to any of
     //     them in this scope (neither local, nor imported, nor the bare slot).
-    // RESIDUAL, measured, NOT closed here: mono also inserts each fact under
-    // the impl's BARE spelling as an alias, because every legacy BOUND check
-    // still hands mono bare bound-trait text. A query naming the trait that
-    // owns the BARE slot therefore still sees a homonym's impls through that
-    // alias. Closing it means canonicalising bound trait names at emit.
+    // ⚠ THE "RESIDUAL" THAT USED TO BE CLAIMED HERE WAS RE-MEASURED AND IS
+    // GONE. It read: mono also inserts each fact under the impl's BARE
+    // spelling as an alias, so a query naming the bare-slot trait still sees a
+    // homonym's impls. That alias was retired in Mono::Mono after
+    // tests/logos/pass/trait_ident_pkg_chain.logos (three packages, two binary
+    // archives) measured the mirror direction ANSWERING CORRECTLY with the
+    // alias still in place. What the same probe DID reproduce is on the BOUND
+    // side and does not pass through this function: `impls_` is keyed by the
+    // RAW trait spelling in SemaChecker::collect_impl, so one key space holds
+    // two homonym traits and a generic bound admits the wrong trait's
+    // concretes. See that fixture's header and the comment at the retired
+    // alias in mono.cpp.
     // ⚠ NOT an import check. Resolution falls back to the bare slot exactly
     // as find_trait_iter_scoped does, so a module that does NOT import the
     // trait's package keeps answering — capability is a property of the type,

@@ -1,0 +1,4 @@
+module hmid
+version 0.1
+root tests/logos/trait_ident_chain/hmid/
+depends lhom

@@ -24,12 +24,16 @@
 // correct on row 1 alone. Row 2 can only be 1 if the LOCAL trait's own impl
 // fact was found under the LOCAL trait's identity.
 //
-// RESIDUAL, MEASURED, NOT CLOSED HERE: mono also inserts each fact under the
-// impl's BARE spelling as an alias, because every legacy BOUND check still
-// hands mono bare bound-trait text. So the mirror of row 1 — a module with no
-// local `Hash` asking about `Local` — would still see this package's impl
-// through the alias. Closing that needs bound trait names canonicalised at
-// emit. Do not read this file as pinning that direction; it does not.
+// THE MIRROR OF ROW 1 IS PINNED ELSEWHERE, AND THE RESIDUAL ONCE RECORDED HERE
+// DID NOT SURVIVE RE-MEASUREMENT. This header used to say that mono's
+// bare-spelling ALIAS left the mirror direction wrong. It was measured on
+// tests/logos/pass/trait_ident_pkg_chain.logos — three packages, two of them
+// binary archives, the asker importing neither the homonym's package nor its
+// trait — and the answers were CORRECT with the alias still in place; the alias
+// is now retired (see Mono::Mono). What the same probe reproduced instead is
+// the BOUND side, and it is the `i32__tag` shape named below: `impls_` is keyed
+// by the RAW trait spelling in SemaChecker::collect_impl, so a bound over one
+// `Hash` admits the other's concretes. Still not this file's business.
 package meta_trait_query_homonym_trait_name;
 
 extern fn printf(fmt: *const u8, ...) -> i32;

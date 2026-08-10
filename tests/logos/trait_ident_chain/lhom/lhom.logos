@@ -1,0 +1,21 @@
+// trait_ident_chain, bottom tier: a package that declares its OWN `Hash`
+// and implements it for `f64`.
+//
+// `logos.lang.hash::Hash` owns the bare registry slot, so THIS trait is
+// filed under `trait_ident_chain.lhom::Hash` (B-mv-02). Nothing in the
+// stdlib implements `Hash` for `f64` (see stdlib/lang/hash/hash.logos:
+// i8..i128, u8..u128, usize/isize, bool, str — no float), which is what
+// makes `f64` the discriminating probe type for the consumer.
+//
+// `lhom_tag` is GENERIC over the local `Hash` on purpose: the consumer
+// instantiates it, so the instantiation forces this package's impl fact
+// to be present in the CONSUMER's mono table. That is the positive
+// control for the consumer's negative assertion.
+
+package trait_ident_chain.lhom;
+
+pub trait Hash { fn tag(&self) -> i64; }
+
+impl Hash for f64 { fn tag(&self) -> i64 { return 8712i64; } }
+
+pub fn lhom_tag<T: Hash>(x: T) -> i64 { return x.tag(); }

@@ -1144,8 +1144,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # Three slices each wrote their own total against the SAME base, so the merge
 # conflicted LOUDLY here — unlike the previous round, where two slices wrote the
 # BYTE-IDENTICAL hunk and git merged it silently one short.
-REGISTRY-ALL         6920
-REGISTRY-NOIMPORTED  3237
+# Task 30 added ONE pass fixture (tests/logos/pass/trait_ident_pkg_chain.logos) plus two
+# non-registering package archives (trait_ident_chain/{lhom,hmid}). PREDICTED
+# 6921 / 3238 / 31 before the re-configure; `ctest -N` three ways agreed exactly,
+# and the new name was verified individually with `ctest -N -R trait_ident`.
+REGISTRY-ALL         6921
+REGISTRY-NOIMPORTED  3238
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

@@ -335,41 +335,61 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (!targ_sfx.empty())
                     assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
             });
+            // ⚠ assoc_impls_ is keyed by the BARE `impl_trait` in BOTH inserts
+            // above — it never consults impl.canonical_trait(), so two traits
+            // spelled alike share one associated-type key space. That is a real
+            // conflation and it is NOT the bare-spelling alias retired below:
+            // the `!targ_sfx.empty()` insert is G156-1's plain-key fallback for
+            // a non-suffixed projection, and deleting it would lose bare
+            // `<P as Trait>::A` lookups. Canonicalising assoc_impls_ belongs
+            // with the impls_ canonicalisation named below, not apart from it.
+            //
             // The FACT is keyed by trait IDENTITY, so two traits spelled alike
             // are two facts and a query naming one cannot read the other's
-            // impls. The BARE spelling is inserted as an ALIAS whenever it
-            // differs: every legacy bound check still hands mono bare
-            // bound-trait TEXT (mono_has_impl_recursive call sites in
-            // Mono::clone_struct_def / Mono::mono_concrete_satisfies_bound and
-            // the blanket pass), so dropping the alias would silently lose
-            // those lookups. The alias makes the fact set a strict SUPERSET of
-            // the pre-canonical one — no bound check that passed can now fail —
-            // and it is exactly the residual: a query naming the BARE-slot
-            // trait still sees a homonym's impls through it. Closing that
-            // direction means canonicalising bound trait names at emit, which
-            // is a separate slice.
+            // impls.
             //
-            // ⚠ THE ALIAS HAS NO WITNESS, AND THAT IS RECORDED HERE BECAUSE
-            // THE PERTURBATION WAS ATTEMPTED, NOT ARGUED. Disabling this
-            // insert and running the whole corpus (`ctest -LE imported`) gave
-            // 3233/3233 GREEN. Two fixtures were written specifically to red
-            // it and neither did: a plain generic bound (`fn f<T: Hash>`) —
-            // sema resolves that and mono is never asked — and a blanket
-            // `impl<T: Hash> Marker for T` over a package-local homonym `Hash`
-            // (tests/logos/pass/trait_ident_homonym_bound.logos), green with
-            // the alias ON *and* OFF because sema, not mono's fact table,
-            // decides which concretes a blanket admits. The alias is therefore
-            // kept as a strictly behaviour-PRESERVING hedge for the ten
-            // bare-text mono_has_impl_recursive call sites, NOT as a
-            // sensor-backed claim; and the bound-side conflation it looks like
-            // it compensates for is measurably SEMA-side (see that fixture's
-            // header for the `i32__tag` miscompile it exposed).
-            if (!impl_trait.empty()) {
-                std::string impl_canon(impl.canonical_trait());
-                concrete_impls_.insert({impl_canon, impl_target});
-                if (impl_canon != impl_trait)
-                    concrete_impls_.insert({impl_trait, impl_target});
-            }
+            // ── THE BARE-SPELLING ALIAS IS GONE, AND ITS REMOVAL IS MEASURED ──
+            // Until this commit each fact was ALSO inserted under the impl's
+            // bare `trait_name` whenever that differed from the canonical one,
+            // as a hedge for the bare-text mono_has_impl_recursive call sites.
+            // What that hedge actually stored, instrumented on the
+            // tests/logos/trait_ident_chain consumer (a package that reaches
+            // lhom's homonym `Hash` only through hmid):
+            //   lhom's `impl Hash for f64`  → trait=Hash  canon=Hash
+            //   stdlib's `impl Hash for i64`→ trait=Hash  canon=logos.lang.hash::Hash
+            // i.e. in THAT translation unit lhom's trait owns the bare registry
+            // slot and the STDLIB one is the pkg-qualified homonym, so the alias
+            // filed EVERY stdlib Hash fact under `Hash` — lhom's identity. A
+            // wrong entry, sitting in the table, waiting for a query that
+            // resolves to the bare slot.
+            //
+            // Necessity: no consumer. The earlier round recorded `ctest -LE
+            // imported` 3233/3233 green with the insert DISABLED behind a flag;
+            // this round DELETED it and measured L1 (691/691) + L2 + the four
+            // tier_commit gates + every trait-identity fixture green, so the
+            // absence of a consumer is now measured against a deleted line, not
+            // a disabled one. ⚠ L4 is the PARENT's run, not this one.
+            // Harm the alias was suspected of: NOT reproduced either. The
+            // mirror-direction probe this slice built —
+            // tests/logos/pass/trait_ident_pkg_chain.logos, three packages, two
+            // of them binary archives — answers `has_trait::<f64, Hash>() = 0`
+            // and `has_trait::<i64, Hash>() = 1` CORRECTLY with the alias ON,
+            // because the consumer's `Hash` resolves to `logos.lang.hash::Hash`
+            // and reads the canonical key, never the bare one.
+            //
+            // ⚠ WHAT IS STILL WRONG IS NOT HERE, AND IS NOT THIS. In the same
+            // consumer, `hmid_tag(5i64)` — a generic whose bound is lhom's
+            // `Hash` — is ADMITTED for `i64`, which implements only the stdlib
+            // `Hash`, and dies at `'func.call' op 'i64__tag' does not reference
+            // a valid function` (rc 1). MEASURED WITH THE ALIAS ON AND OFF:
+            // byte-identical. The seam is SemaChecker::collect_impl, which keys
+            // `impls_` as `trait_name + "::" + target` with the RAW spelling
+            // ("impls_ stays bare-keyed", its own comment) — one key space for
+            // two traits. Canonicalising THAT is the root fix and it is ~116
+            // impls_/impls_all_ sites; it is not this slice.
+            if (!impl_trait.empty())
+                concrete_impls_.insert({std::string(impl.canonical_trait()),
+                                        impl_target});
         }
     }
 

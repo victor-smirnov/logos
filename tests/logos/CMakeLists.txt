@@ -378,6 +378,45 @@ add_custom_command(
 add_custom_target(three_layer_binary ALL DEPENDS
     ${THREE_LAYER_LOW_BIN} ${THREE_LAYER_MID_BIN} ${THREE_LAYER_HI_BIN})
 
+# trait_ident_chain: the HOMONYM-ACROSS-ARCHIVES chain, same recipe as
+# three_layer above, two tiers instead of three — the third tier is the
+# consumer fixture tests/logos/pass/trait_ident_pkg_chain.logos itself.
+#   liblhom.a  declares its own `trait Hash` + `impl Hash for f64`
+#   libhmid.a  manifest `depends lhom`, and DELIBERATELY NO `prelude` line,
+#              so the consumer never acquires lhom's names transitively.
+# The consumer links BOTH archives (lhom's facts must reach mono; only its
+# IMPORT VIEW must stay clean) and asks `has_trait::<f64, Hash>()` about the
+# stdlib `Hash` that owns the bare registry slot.
+set(TRAIT_IDENT_CHAIN_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/trait_ident_chain)
+set(TRAIT_IDENT_CHAIN_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(TRAIT_IDENT_CHAIN_LHOM_MANIFEST ${TRAIT_IDENT_CHAIN_DIR}/lhom.module)
+set(TRAIT_IDENT_CHAIN_HMID_MANIFEST ${TRAIT_IDENT_CHAIN_DIR}/hmid.module)
+set(TRAIT_IDENT_CHAIN_LHOM_BIN ${TRAIT_IDENT_CHAIN_OUT_DIR}/liblhom.a)
+set(TRAIT_IDENT_CHAIN_HMID_BIN ${TRAIT_IDENT_CHAIN_OUT_DIR}/libhmid.a)
+file(GLOB TRAIT_IDENT_CHAIN_LHOM_SOURCES ${TRAIT_IDENT_CHAIN_DIR}/lhom/*.logos)
+file(GLOB TRAIT_IDENT_CHAIN_HMID_SOURCES ${TRAIT_IDENT_CHAIN_DIR}/hmid/*.logos)
+add_custom_command(
+    OUTPUT  ${TRAIT_IDENT_CHAIN_LHOM_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${TRAIT_IDENT_CHAIN_LHOM_MANIFEST}
+            -o ${TRAIT_IDENT_CHAIN_LHOM_BIN}
+    DEPENDS logosc ${TRAIT_IDENT_CHAIN_LHOM_MANIFEST} ${TRAIT_IDENT_CHAIN_LHOM_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: liblhom.a (trait_ident_chain)"
+)
+add_custom_command(
+    OUTPUT  ${TRAIT_IDENT_CHAIN_HMID_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${TRAIT_IDENT_CHAIN_HMID_MANIFEST}
+            -L ${TRAIT_IDENT_CHAIN_OUT_DIR}
+            -o ${TRAIT_IDENT_CHAIN_HMID_BIN}
+    DEPENDS logosc ${TRAIT_IDENT_CHAIN_HMID_MANIFEST} ${TRAIT_IDENT_CHAIN_HMID_SOURCES} ${TRAIT_IDENT_CHAIN_LHOM_BIN} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libhmid.a (trait_ident_chain; depends lhom)"
+)
+add_custom_target(trait_ident_chain_binary ALL DEPENDS
+    ${TRAIT_IDENT_CHAIN_LHOM_BIN} ${TRAIT_IDENT_CHAIN_HMID_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -597,6 +636,9 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # Phase 1 of three-layer stdlib split: consumer pulls hi (which
     # depends mid + low via manifest, both resolved by emit_module).
     set(LOCAL_THREE_LAYER_USERS three_layer_chain)
+    # Homonym trait across package archives: the consumer links both, and
+    # must NOT see lhom's `Hash` impls through the bare registry slot.
+    set(LOCAL_TRAIT_IDENT_CHAIN_USERS trait_ident_pkg_chain)
     # The Freeze-predicate behavioural guard. Its mutators live in
     # libub_boundary.a (built at -O2) because a parameter attribute only has
     # teeth while the call is still a call — see the fixture's comment above.
@@ -653,6 +695,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${LAZY_LOWER_BIN} -l ${LAZY_UPPER_BIN})
     elseif (BASE IN_LIST LOCAL_THREE_LAYER_USERS)
         set(_extra -l ${THREE_LAYER_HI_BIN} -l ${THREE_LAYER_MID_BIN} -l ${THREE_LAYER_LOW_BIN})
+    elseif (BASE IN_LIST LOCAL_TRAIT_IDENT_CHAIN_USERS)
+        set(_extra -l ${TRAIT_IDENT_CHAIN_HMID_BIN} -l ${TRAIT_IDENT_CHAIN_LHOM_BIN})
     else()
         set(_extra "")
     endif()

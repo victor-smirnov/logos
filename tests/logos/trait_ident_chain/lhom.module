@@ -1,0 +1,3 @@
+module lhom
+version 0.1
+root tests/logos/trait_ident_chain/lhom/
