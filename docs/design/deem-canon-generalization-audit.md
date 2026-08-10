@@ -367,7 +367,7 @@ that signal, so the derived `impl Hash` does not exist when the check looks. A
 hand-written impl is admitted. This is the extension path the universal query
 compiler is built on (§S6), so it matters more than its size suggests.
 
-## 15. NO TEST COULD TELL A PUSHDOWN FROM A FULL SCAN — CLOSED (2026-08-10)
+## 15. NO TEST OVER THE CONTAINER PATHS COULD TELL A PUSHDOWN FROM A FULL SCAN — CLOSED (2026-08-10)
 
 Items 1–3 are closed, and closing them created a defect of the shape this audit
 keeps finding — one level up, in the TESTS.
@@ -375,8 +375,18 @@ keeps finding — one level up, in the TESTS.
 Re-measuring the standing claim ("`__ctr_rows_X` is a loop `seek(i)` over the
 whole `size()`, so the filter never reaches storage") found it false at both
 emission sites: a walk, three narrowing constructors, a declaration, and one
-descent through `bt_cur_seek_key`. What no measurement could find was a test that
-would notice if that stopped being true.
+descent through `bt_cur_seek_key`. What no measurement could find was a test OVER THESE
+PATHS that would notice if that stopped being true.
+
+⚠ **THE FIRST WORDING OF THIS ITEM WAS AN OVERSTATEMENT AND IS WITHDRAWN.** It
+said no test anywhere could tell the two apart. `tests/logos/pass/deem_pushdown_all_shapes.logos`
+already could, and had been able to for as long as it existed: it counts pulls
+through a `static mut PULLED` and asserts a floor over 200 rows, covering the
+join and aggregate arms. MEASURED by the verifier — under the same Control C that
+deletes the JOIN base's narrowing, it PREDICTED and MEASURED **exit 7**. The
+narrow claim (the CONTAINER paths had no such sensor) survives; the broad one did
+not, and the technique it presents as new — count rows, never duration — already
+existed in this tree, uncited.
 
 **Because a plan that fails to narrow keeps the query's own filter and returns
 exactly the same rows.** Narrowing is an optimisation, so it is answer-invariant

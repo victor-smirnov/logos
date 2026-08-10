@@ -1594,6 +1594,7 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_source_size.logos
             ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_hashmap_source.logos
             ${CMAKE_CURRENT_SOURCE_DIR}/pass/container_item_e2e.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_cross_domain_join.logos
 )
 set_tests_properties(logos_09_ctr_access_path PROPERTIES
     TIMEOUT 180

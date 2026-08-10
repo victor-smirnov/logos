@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ctr_access_path_gate.sh LOGOSC SIZE_FIXTURE HASHMAP_FIXTURE VECTOR_FIXTURE
+# ctr_access_path_gate.sh LOGOSC SIZE_FIXTURE HASHMAP_FIXTURE VECTOR_FIXTURE JOIN_FIXTURE
 #
 # WHICH ROWS THE CONTAINER WAS ASKED FOR — the property every pushdown fixture in
 # this tree was blind to.
@@ -89,6 +89,7 @@ LOGOSC="$1"
 SIZE_FIXTURE="$2"
 HASHMAP_FIXTURE="$3"
 VECTOR_FIXTURE="$4"
+JOIN_FIXTURE="$5"
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -208,6 +209,30 @@ want_emit vector '= __ctr_rows_[A-Za-z0-9_]+\(v\);' 1 \
 want_emit vector '> 10u64' 1 \
     "the scanned query lost the filter it could not push down"
 
+# ── 3b. A CONTAINER UNDER A **JOIN** ────────────────────────────────────────
+#
+# ⚠ THIS ARM EXISTS BECAUSE THE GATE SHIPPED WITHOUT IT AND A CONTROL WALKED
+# STRAIGHT THROUGH. Sections 1-3 compile only `RQuery::Simple` fixtures, so
+# `plan_decide_access`'s `RQuery::Join` arm was covered by nothing: giving it
+# `""` instead of `jq.a_name` deletes the JOIN base's narrowing entirely — the
+# trace falls to `scan [every row] (no filter reaches this rel)` and the emitter
+# binds the full-scan producer — and this gate PASSED 10/10 while it did.
+# The join is not an exotic case: it is the shape the whole direction is for
+# ("one query may join a Memoria container, Writ and mem").
+compile join "$JOIN_FIXTURE"
+want_plan join \
+    '^\[plan\] c -> __ctr_from_[A-Za-z0-9_]+ \[a range\] on key' \
+    "the JOIN base's key range did not reach the container — plan_decide_access's Join arm is unsensed"
+want_emit join '__ctr_rows_[A-Za-z0-9_]+\(c\)' 0 \
+    "the JOIN base fell back to the full-scan producer"
+# The join's own GROUND, which differs from sections 1-3 and is why the
+# neutrality grammar below stops at the access: the operation is exact, but the
+# filter spans more than this source, so it is KEPT rather than retired. A plan
+# that dropped it here would be unsound.
+want_plan join \
+    'on key   \(an operation exact for that comparison, but the filter ranges over more than this source, so it stays\)' \
+    "the join's residual filter was not recorded as KEPT — an exact op does not license dropping a filter that spans two sources"
+
 # ── 4. NEUTRALITY, MECHANIZED ───────────────────────────────────────────────
 #
 # One grammar, three provenances: two families Canon's factory emits and one
@@ -215,8 +240,18 @@ want_emit vector '> 10u64' 1 \
 # contribute exactly one narrowed access, matched by the SAME expression. If the
 # planner ever learned to treat a generated declaration differently from a
 # written one, this is the assertion that would notice.
-NEUTRAL='^\[plan\] [a-z_]+ -> [A-Za-z0-9_]+ \[(one key|a range)\] on [a-z_]+   \(an operation EXACT for that comparison'
-for tag in size hashmap vector; do
+# ⚠ THE GRAMMAR MATCHES THE ACCESS, NOT THE GROUND, AND THAT SPLIT IS THE POINT.
+# It used to end at `(an operation EXACT for that comparison` — the ground of the
+# case where the residual filter is also DROPPED. Adding the join arm showed that
+# conflated two independent claims: a JOIN base narrows exactly the same way and
+# then reports `an operation exact …, but the filter ranges over more than this
+# source, so it stays`. Same access, different fate for the filter. Neutrality is
+# about the ACCESS being spelled identically whoever declared the source; the
+# ground belongs to the per-arm assertions above, where each is checked with its
+# own text. Cutting the pattern here is not a relaxation — it moves one claim to
+# where it can be stated exactly instead of approximately.
+NEUTRAL='^\[plan\] [a-z_]+ -> [A-Za-z0-9_]+ \[(one key|a range)\] on [a-z_]+'
+for tag in size hashmap vector join; do
     grep -E "$NEUTRAL" "$TMPD/$tag.err" > "$TMPD/$tag.neutral" || true
     n=$(wc -l < "$TMPD/$tag.neutral")
     if [ "$n" -ne 1 ]; then
@@ -228,7 +263,7 @@ done
 
 if [ "$fail" -ne 0 ]; then
     echo "---- traces ----"
-    for tag in size hashmap vector; do
+    for tag in size hashmap vector join; do
         echo "== $tag"; grep '^\[plan\]' "$TMPD/$tag.err" || true
     done
     exit 1
