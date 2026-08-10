@@ -1,0 +1,208 @@
+// `deem.exec.lenient-bool-one` — THE RULE'S EXECUTABLE WITNESS, RESTORED AT THE
+// ONE SURFACE THAT SURVIVED THE CUT.
+//
+// ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
+// The rule (`docs/spec/deem.md`, `deem.exec.lenient-bool-one`) says a bool is
+// worth ONE in every numeric spelling of a LENIENT value. Two functions carry
+// it, `rt_i` and `rt_f` in `stdlib/mem/deem/deem.logos`, each through a named
+// `RtVal::B(b)` arm. Its only end-to-end witness was
+// `tests/logos/pass/query_dyn_bool_arith_pinned.logos` (census row 14), deleted
+// with the interpreter at P5, and the spec text was amended to record that "no
+// fixture drives their `B` arms". That sentence is what this file retires.
+//
+// ⚠ THE OTHER HALF OF THE OLD WORDING IS A DIFFERENT RULE AND IS ALREADY PINNED
+// elsewhere — `avg(bool)` by `tests/logos/pass/wql_agg_avg_bool_value_rule.logos`
+// (census row 60). Conflating the two is what produced the "two spellings of one
+// rule" shape the arc was about. This file asks ONLY the lenient-arithmetic half.
+//
+// ── THE ROUTE, SYMBOL BY SYMBOL (each name grepped in the tree) ─────────────
+// A bool cannot reach `rt_i`/`rt_f` by accident: `check_expr`'s `OP_ADD` arm in
+// `stdlib/mem/deem/tpl.logos` refuses a statically-bool operand outright
+// (`'+' needs numeric operands`). The arms are reachable only where the checker
+// does NOT know the type, and the tree has exactly one such column shape left:
+//
+//   1. `schema_catalog!` classifies a field whose declared type is not a
+//      canonical EL value type as ERASED — `add_field_src` (deem.logos) sets
+//      `FK_ANY` when `el_ty(ty).canon` is false. `WAny` is such a type.
+//   2. `check_expr`'s `SExpr::Field` arm answers `ct(CT_DYN)` for an `FK_ANY`
+//      field on a STRICT schema (ADR §4, lenient resolution).
+//   3. `OP_ADD`'s bool guard tests `lt.t == CT_BOOL`, which CT_DYN is not, so it
+//      does not fire; `dyn_op` is true and the node types as `CT_DYN`.
+//   4. At render, `field_read`'s `FK_ANY` line calls `wany_to_rt`, whose
+//      `if v.is_bool() { return RtVal::B(v.as_bool()); }` produces the bool.
+//   5. `eval_sexpr`'s `OP_ADD` arm branches on `rt_kind`. `rt_kind(RtVal::B)` is
+//      3, not 2, so an INT literal on the other side takes the integer tier
+//      (`rt_i(l).checked_add(rt_i(r))` → `rt_i`'s B arm) and a FLOAT literal
+//      takes `RtVal::F(rt_f(l) + rt_f(r))` → `rt_f`'s B arm. One binding, two
+//      arms, decided by the literal's shape.
+//
+// ⚠ THIS DELIBERATELY DOES NOT USE `QEnv::bind_node_erased`. That is the other
+// route to `CT_DYN` and it is the subject of an open task of its own (the erased
+// binding surface, zero callers); a witness for THIS rule must not die if that
+// surface is withdrawn. `bind_node` over a strict schema with one `WAny` column
+// reaches the same arms and depends on nothing under review.
+//
+// ── WHAT EACH BLOCK ASSERTS, AND THE WRONG VALUE IT NAMES ───────────────────
+// The catch is by VALUE, not by a name being absent, and every block says what
+// the tree answers with the arm DELETED (its arm falls through to the shared
+// non-numeric line, which reads 0 / 0.0):
+//
+//   block   expression            with the arm   WITHOUT it   arm
+//   2x      `{{ p.any + 1 }}`     "2"            "1"          rt_i  RtVal::B
+//   3x      `p.any + 0.5 == 1.5`  Y              N            rt_f  RtVal::B
+//   3x      `p.any + 0.5 == 0.5`  N              Y            rt_f  RtVal::B
+//
+// Block 1x is the SHAPE CONTROL and it is load-bearing: it renders the column
+// bare and requires "true". Without it, `{{ p.any + 1 }} == "2"` would also hold
+// for a cell that had silently become the INTEGER 1, i.e. for a tree where the
+// question is no longer about a bool at all.
+//
+// Block 4x is the FALSE control: false must be worth ZERO, not "not one" — it
+// separates "the arm answers 1" from "the arm answers the bool".
+//
+// Block 5x is THE GROUND, and it is why this file is not a door that merely
+// asserts an absence. It pins the WAIVER that lets blocks 1–4 run at all: the
+// SAME `+ 1` over a statically-typed `bool` column of the SAME schema is REFUSED
+// with `'+' needs numeric operands`, asserted by message text. So a change that
+// made bools numeric everywhere — which would keep blocks 1–4 green — reds here.
+// ⚠ THE REFUSAL LANDS AT RENDER, NOT AT COMPILE, AND THAT COST A ROUND. The
+// first version of this block asked `Tpl::compile` and got `Ok`, i.e. it very
+// nearly recorded "there is no refusal": `check_stmts` runs at compile with an
+// EMPTY env, an unbound root is `CT_UNKNOWN`, and `ct_is_open` admits it. Both
+// halves are asserted below — the compile MUST succeed and the render MUST
+// fail — so the deferral is part of the pin rather than a detail that made an
+// earlier draft wrong.
+//
+// Distinct exit codes: 1x shape, 2x the int arm, 3x the float arm, 4x false,
+// 5x the ground, 9x plumbing.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;          // WAny
+use logos.std.wql.catalog_macro;     // schema_catalog!
+use logos.mem.deem;                  // SchemaCatalog / QEnv / Tpl / QError
+use logos.lang.result;
+use logos.mem.string;
+use logos.lang.str;
+
+// `any` is declared `WAny` — registered ERASED (FK_ANY) by `add_field_src`, so
+// its type is decided at RENDER time. `sb` is declared `bool` — registered as a
+// scalar, so its type is decided at CHECK time. Same schema, same value, two
+// answers: that difference is the whole subject of this file.
+pub schema Cell : code(0x0A02_0000_0000_0041) {
+    any: WAny = 0,
+    sb:  bool = 1,
+}
+
+impl Cell { pub fn as_any(self: &Cell) -> WAny { return WAny::ref_to((self.m as i64) as *const u8); } }
+
+resource cat = schema_catalog!{ Cell };
+
+fn str_view(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// Render `tpl` over a Cell and hand back the text; `bad` on any render failure.
+fn render_over(tpl: &Tpl, p: &Cell, bad: i32, out: &mut i32) -> String {
+    let mut env: QEnv = QEnv::new();
+    env.bind_node("p", p.as_any());
+    match tpl.render(&env) {
+        Result::Ok(s) => { return s; }
+        Result::Err(_e) => { *out = bad; return String::new(); }
+    }
+}
+
+fn main() -> i32 {
+    let d: Writ = writ_new(4096i64);
+    let c: SchemaCatalog = cat();
+
+    let tbare: Tpl = match Tpl::compile("{{ p.any }}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_a) => { return 90i32; }
+    };
+    let tint: Tpl = match Tpl::compile("{{ p.any + 1 }}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_b) => { return 91i32; }
+    };
+    // The float arm is asked by COMPARISON, not by rendering the f64: the text
+    // of a float is a formatting decision and this file is about a value.
+    let tf15: Tpl = match Tpl::compile("{% if p.any + 0.5 == 1.5 %}Y{% else %}N{% endif %}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_e) => { return 92i32; }
+    };
+    let tf05: Tpl = match Tpl::compile("{% if p.any + 0.5 == 0.5 %}Y{% else %}N{% endif %}", &c) {
+        Result::Ok(v) => { v }  Result::Err(_f) => { return 93i32; }
+    };
+
+    let mut rc: i32 = 0i32;
+
+    let t: Cell = d.make::<Cell>();
+    t.any = WAny::from(true);
+    t.sb  = true;
+
+    // ── 1x — THE SHAPE CONTROL: the cell really is a BOOL ──────────────────
+    // `rt_push` (deem.logos) prints `RtVal::B` as "true"/"false" and `RtVal::I`
+    // as its digits, so this one render separates the two readings.
+    let s10: String = render_over(&tbare, &t, 19i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s10), "true") { return 10i32; }
+
+    // ── 2x — `rt_i`'s B arm: true + 1 == 2 (WITHOUT the arm: "1") ──────────
+    let s20: String = render_over(&tint, &t, 29i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s20), "2") { return 20i32; }
+
+    // ── 3x — `rt_f`'s B arm: true + 0.5 == 1.5 (WITHOUT the arm: 0.5) ──────
+    let s30: String = render_over(&tf15, &t, 39i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s30), "Y") { return 30i32; }
+    // and the wrong value asserted BY NAME: it must NOT be 0.5
+    let s31: String = render_over(&tf05, &t, 38i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s31), "N") { return 31i32; }
+
+    // ── 4x — the FALSE control: false is worth ZERO in both spellings ──────
+    let f: Cell = d.make::<Cell>();
+    f.any = WAny::from(false);
+    f.sb  = false;
+    let s40: String = render_over(&tbare, &f, 49i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s40), "false") { return 40i32; }
+    let s41: String = render_over(&tint, &f, 48i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s41), "1") { return 41i32; }     // 0 + 1
+    let s42: String = render_over(&tf05, &f, 47i32, &mut rc);
+    if rc != 0i32 { return rc; }
+    if !str_eq(str_view(&s42), "Y") { return 42i32; }     // 0.0 + 0.5 == 0.5
+
+    // ── 5x — THE GROUND: the same `+ 1` over the STATICALLY-BOOL column is
+    // refused at COMPILE time, and by the message that names why. This is what
+    // makes blocks 1–4 evidence about the lenient waiver rather than about
+    // bools being numeric.
+    // ⚠ AND IT IS ASKED AT RENDER, NOT AT COMPILE, AND THAT IS MEASURED RATHER
+    // THAN ASSUMED. `Tpl::compile` runs `check_stmts` with an EMPTY env and
+    // `strict` false — an unbound root is `CT_UNKNOWN`, which `ct_is_open`
+    // admits — so `{{ p.sb + 1 }}` COMPILES. The typed refusal happens on the
+    // first render, where the env binds `p` and `check_root` can answer
+    // `CT_BOOL`. Asking `Tpl::compile` for this refusal returned Ok and would
+    // have recorded "no refusal exists" — the compile call is kept below as the
+    // control that says so.
+    let tbad: Tpl = match Tpl::compile("{{ p.sb + 1 }}", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_h) => { return 50i32; }   // the deferral is part of the claim
+    };
+    let mut benv: QEnv = QEnv::new();
+    benv.bind_node("p", t.as_any());
+    match tbad.render(&benv) {
+        Result::Ok(_s) => { return 51i32; }    // admitted ⇒ the waiver is not a waiver
+        Result::Err(e) => {
+            if !str_contains(e.message(), "needs numeric operands") { return 52i32; }
+        }
+    }
+    // and the ERASED spelling of the same expression renders on the same env:
+    // the two differ only in which column they read, so 51/52 above cannot be
+    // holding for a reason unrelated to the column's declared type.
+    match tint.render(&benv) {
+        Result::Ok(_s) => { }
+        Result::Err(_e) => { return 53i32; }
+    }
+
+    return 0i32;
+}

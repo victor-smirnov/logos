@@ -1,0 +1,262 @@
+// THE CARRIER AT EVERY POSITION THAT COMPUTES OR COMPARES A COLUMN INTEGER —
+// asked of the STATIC tier, at the positions the arithmetic arm did not reach.
+//
+// ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
+// Census row 61 (`docs/deem-interpreter-deletion-census.md`) is one law, not one
+// query: `value_at(P, E) == value_at(aggregate_argument, E)` for every u64-valued
+// expression E and every position P. The defect it was written for was a
+// POSITION FLAG — one expression whose value depended on where it sat — and the
+// only proof against that shape is the same expression asked at every position.
+// Its fixture, `tests/logos/pass/wql_domain_carrier_positions.logos`, drove the
+// interpreter and died at P5. `..._static_carrier_positions` has been named as
+// the replacement in the census through three rounds and was never built,
+// because until 2026-08-09 the static tier could not COMPUTE a u64 arithmetic
+// node at all (`el_divu`/`el_remu` did not exist).
+//
+// `tests/logos/pass/wql_arith_u64_tower_e2e.logos` then bought three of the
+// fourteen positions the deleted file enumerated — R (the aggregate argument),
+// B (the projection cell) and G (the sort key). This file is the rest of the
+// enumeration, and it exists as a SEPARATE file because those three are about
+// whether the tower computes and these are about whether every clause reaches it.
+//
+// ── THE POSITIONS, AND WHERE EACH IS ANSWERED ───────────────────────────────
+// The deleted file's blocks were lettered; the letters are kept so the two can
+// be read against each other.
+//
+//   R  aggregate ARGUMENT (the reference)  wql_arith_u64_tower_e2e `summed`
+//   A  the WHERE filter                    ── block A below
+//   B  the PROJECTION cell                 wql_arith_u64_tower_e2e `divd`/`remd`/…
+//   C  the GROUP KEY, computed             ── block C below
+//   D  HAVING over a computed aggregate    ── block D below
+//   E  a TERNARY in a projection           ── block E below
+//   F  a BOOL cell in a projection         ── block F below
+//   G  the SORT KEY                        wql_arith_u64_tower_e2e `by_div`
+//   H  the JOIN KEY, computed              ── block H below
+//   I  a UDF ARGUMENT                      ── block I below
+//   J  the TEMPLATE tier                   the dynamic tier's own, gone with it
+//   K  the INCREMENTAL tier                the dynamic tier's own, gone with it
+//   L  the claim is DROPPED where the
+//      operands disagree                   tests/logos/fail/wql_arith_mixed_tower_fail
+//   M  the BIT-EXACT positions (equality,
+//      dedup) over a COMPUTED key          ── block M below
+//
+// ⚠ POSITION I NEARLY WENT INTO THIS FILE AS A REFUSAL, AND THAT WOULD HAVE
+// BEEN WRONG. The first probe of it was `select thrice(s.u / 3u64)` with
+// `fn thrice(x: u64) -> u64`, which IS refused — but for the RETURN type, not
+// for the argument: a user function's `u64` return cannot cross back into the
+// EL's i64 normalization faithfully, and that refusal is separately pinned at
+// `tests/logos/fail/wql_udf_wide_int_ret_fail.logos`. Asked with an `i64`
+// return, so that the return refusal cannot mask the question, the ARGUMENT
+// position is admitted and computes unsigned — block I. A refusal recorded
+// against the wrong half of a signature is a cheap refusal read as an expensive
+// one, which is exactly the trap this row set has already sprung once.
+//
+// ── WHY THESE ROWS AND NOT SMALLER ONES ─────────────────────────────────────
+// ⚠ EVERY ASSERTION BELOW IS CHOSEN SO THE SIGNED READING GIVES A DIFFERENT
+// ANSWER, NOT MERELY A DIFFERENT TYPE. The three u values and their quotients,
+// written out by hand — nothing here calls `el_divu`, `el_ty` or any survey
+// artifact to find out what the answer should be:
+//
+//   u = 18446744073709551615 (2^64−1)   as i64: −1         / 3 → 6148914691236517205   signed: 0
+//   u =  9223372036854775808 (2^63)     as i64: i64::MIN   / 3 → 3074457345618258602   signed: −3074457345618258602
+//   u =                    7            as i64: 7          / 3 → 2                     signed: 2
+//
+// THRESHOLD = 1000000000000000000 (1e18) sits between 2 and 3074457345618258602,
+// so under the unsigned reading the two big rows clear it and under the signed
+// reading NOTHING does — every filter/having block below is empty-vs-two-rows,
+// not a near miss.
+//
+// ── THE i64 CONTROL IS IN THIS FILE, OVER THE SAME 64 BITS ──────────────────
+// Block X repeats blocks A, C and F over an `i64` column holding −1, i64::MIN
+// and 7 — the SAME bit patterns as `u`. Every answer there must be the signed
+// one. Without it this file could not tell a per-TYPE wrap key from a wrap key
+// applied to the whole integer CLASS, and applying it to the class is the
+// mirror-image defect: it would silently move every i64 query in the tree.
+//
+// EXIT CODES all ≤ 99 — the exit status is 8-bit.
+//
+// exit 0 = one u64 expression has ONE value at eight positions, and the signed
+//          column beside it did not move.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct R    { pub id: i64, pub g: i64, pub p: i64, pub u: u64, pub v: i64 }
+struct Side { pub k: u64, pub b: i64 }
+
+// ── A. THE FILTER ──
+pub deem pos_where(rs: &[R]) {
+    from rs s where s.u / 3u64 > 1000000000000000000u64 select s.id }
+// ── C. THE GROUP KEY, COMPUTED ──
+pub deem pos_gkey(rs: &[R]) {
+    from rs s group by s.u / 3u64 aggregate n = count() select key order by key }
+// ── D. `having` OVER AN AGGREGATE OF A COMPUTED ARGUMENT ──
+pub deem pos_having(rs: &[R]) {
+    from rs s group by s.g aggregate t = sum(s.u / 3u64) having t > 1000000000000000000u64 select t }
+// ── E. A TERNARY IN A PROJECTION — both branches u64-derived ──
+pub deem pos_tern(rs: &[R]) {
+    from rs s select (s.p > 0i64 ? s.u / 3u64 : s.u) }
+// ── F. A BOOL CELL IN A PROJECTION ──
+pub deem pos_bool(rs: &[R]) {
+    from rs s select s.u / 3u64 > 1000000000000000000u64 }
+// ── H. THE JOIN KEY, COMPUTED ──
+pub deem pos_join(xs: &[R], ys: &[Side]) {
+    from xs x join ys y on x.u / 3u64 == y.k select (x.id, y.b) }
+// ── I. A UDF ARGUMENT — the RETURN is i64 so the return-type refusal
+//      (fail/wql_udf_wide_int_ret_fail) cannot stand in for the answer ──
+pub fn topbit(x: u64) -> i64 { if x > 1000000000000000000u64 { return 1i64; } return 0i64; }
+pub deem pos_udfarg(rs: &[R]) {
+    from rs s select topbit(s.u / 3u64) }
+// ── M. DEDUP OVER A COMPUTED KEY ──
+pub deem pos_dist(rs: &[R]) {
+    from rs s select distinct s.u / 3u64 }
+
+// ── X. THE SIGNED CONTROLS, same shapes, same 64 bits ──
+pub deem sgn_where(rs: &[R]) {
+    from rs s where s.v / 3i64 > 1000000000000000000i64 select s.id }
+pub deem sgn_gkey(rs: &[R]) {
+    from rs s group by s.v / 3i64 aggregate n = count() select key order by key }
+pub deem sgn_bool(rs: &[R]) {
+    from rs s select s.v / 3i64 > 1000000000000000000i64 }
+
+fn main() -> i32 {
+    // `g` is 1 on every row so block D sees ONE group; `p` selects the ternary
+    // branch in block E; `v` holds the SAME 64 bits as `u`.
+    let rs: [R; 3] = [
+        R { id: 1i64, g: 1i64, p: 1i64, u: 18446744073709551615u64, v:                   -1i64 },
+        R { id: 2i64, g: 1i64, p: 1i64, u:  9223372036854775808u64, v: -9223372036854775808i64 },
+        R { id: 3i64, g: 1i64, p: 0i64, u:                    7u64, v:                    7i64 },
+    ];
+
+    // ══ A. THE FILTER ═══════════════════════════════════════════════════════
+    // Unsigned: 6148914691236517205 and 3074457345618258602 clear 1e18, 2 does
+    // not → ids 1 and 2. Signed: the quotients are 0, −3074457345618258602 and
+    // 2 → NO row clears it and the answer is EMPTY.
+    let a: Vec<i64> = match pos_where(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    if a.len() != 2i64    { return 11i32; }
+    if a.get(0i64) != 1i64 { return 12i32; }
+    if a.get(1i64) != 2i64 { return 13i32; }
+
+    // ══ C. THE COMPUTED GROUP KEY ═══════════════════════════════════════════
+    // Three one-row groups either way, so the COUNT proves nothing and the
+    // VALUES and their ORDER are the assertion. Unsigned ascending:
+    // 2 < 3074457345618258602 < 6148914691236517205, i.e. rows 3, 2, 1.
+    // Signed ascending: −3074457345618258602 < 0 < 2, i.e. rows 2, 1, 3 — a
+    // DIFFERENT permutation of DIFFERENT values.
+    // ⚠ The binding is `Vec<u64>`: a key vector collected as i64 does not type
+    // check against it at all, so the type is asserted by the binding and the
+    // values by the three comparisons.
+    let c: Vec<u64> = match pos_gkey(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if c.len() != 3i64                       { return 21i32; }
+    if c.get(0i64) != 2u64                   { return 22i32; }
+    if c.get(1i64) != 3074457345618258602u64 { return 23i32; }
+    if c.get(2i64) != 6148914691236517205u64 { return 24i32; }
+
+    // ══ D. `having` OVER AN AGGREGATE OF A COMPUTED ARGUMENT ════════════════
+    // One group. 6148914691236517205 + 3074457345618258602 + 2
+    //          = 9223372036854775809, which is i64::MAX + 2 — A VALUE THE
+    // SIGNED TOWER CANNOT REPRESENT AT ALL. So this block asserts more than an
+    // order: the accumulator, the argument's arithmetic and the `having`
+    // comparison must ALL be unsigned for this number to exist. The signed
+    // reading sums to −3074457345618258600, fails `> 1e18`, and answers EMPTY.
+    let d: Vec<u64> = match pos_having(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 30i32; } };
+    if d.len() != 1i64                       { return 31i32; }
+    if d.get(0i64) != 9223372036854775809u64 { return 32i32; }
+
+    // ══ E. A TERNARY IN A PROJECTION ════════════════════════════════════════
+    // `p` is 1 on rows 1 and 2 (then-branch, the quotient) and 0 on row 3
+    // (else-branch, the column itself), so BOTH branches are taken and the node
+    // is not a disguised one-armed expression.
+    let e: Vec<u64> = match pos_tern(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 40i32; } };
+    if e.len() != 3i64                       { return 41i32; }
+    if e.get(0i64) != 6148914691236517205u64 { return 42i32; }   // signed: 0
+    if e.get(1i64) != 3074457345618258602u64 { return 43i32; }   // signed: negative
+    if e.get(2i64) != 7u64                   { return 44i32; }
+
+    // ══ F. A BOOL CELL IN A PROJECTION ══════════════════════════════════════
+    // The compare is the SAME one block A's filter uses, read out as a value
+    // instead of consumed as a predicate — the "one expression, two values"
+    // shape asked of the two consumers that could disagree.
+    let f: Vec<bool> = match pos_bool(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 50i32; } };
+    if f.len() != 3i64 { return 51i32; }
+    if !f.get(0i64)    { return 52i32; }    // signed: false
+    if !f.get(1i64)    { return 53i32; }    // signed: false
+    if f.get(2i64)     { return 54i32; }    // 2 > 1e18 is false under BOTH
+
+    // ══ H. THE COMPUTED JOIN KEY ════════════════════════════════════════════
+    // ⚠ THE DECOY IS WHAT MAKES THIS A MEASUREMENT. `y.k = 0` is what row 1's
+    // quotient would be under the SIGNED reading, so a static tier that
+    // computed the key signed does not merely miss the pair — it produces the
+    // OTHER one. One pair, and it must be b = 77.
+    let ys: [Side; 2] = [
+        Side { k: 6148914691236517205u64, b: 77i64 },
+        Side { k:                    0u64, b: 88i64 },
+    ];
+    let h: Vec<(i64, i64)> = match pos_join(&rs[..], &ys[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 60i32; } };
+    if h.len() != 1i64 { return 61i32; }
+    let h0: (i64, i64) = h.get(0i64);
+    if h0.0 != 1i64  { return 62i32; }
+    if h0.1 != 77i64 { return 63i32; }
+
+    // ══ I. A UDF ARGUMENT ═══════════════════════════════════════════════════
+    // `topbit` is a HOST function: the query has to hand it a real `u64`, so a
+    // laundered i64 does not merely give a different answer, it hands the
+    // function the wrong number. Under the signed reading the arguments are 0,
+    // −3074457345618258602 and 2 and every answer is 0.
+    let i: Vec<i64> = match pos_udfarg(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 64i32; } };
+    if i.len() != 3i64     { return 65i32; }
+    if i.get(0i64) != 1i64 { return 66i32; }
+    if i.get(1i64) != 1i64 { return 67i32; }
+    if i.get(2i64) != 0i64 { return 68i32; }
+
+    // ══ M. DEDUP OVER A COMPUTED KEY ════════════════════════════════════════
+    // The bit-exact tier: equality and dedup do not consult an ORDER, so this
+    // block is the one the deleted file asserted UNMOVED — but over a COMPUTED
+    // key, which is where "unmoved" can still be wrong (a key computed signed
+    // is a different key). Row 4 repeats row 1's `u`, so the dedup does work:
+    // four rows, three distinct quotients.
+    let rd: [R; 4] = [
+        R { id: 1i64, g: 1i64, p: 1i64, u: 18446744073709551615u64, v:                   -1i64 },
+        R { id: 2i64, g: 1i64, p: 1i64, u:  9223372036854775808u64, v: -9223372036854775808i64 },
+        R { id: 3i64, g: 1i64, p: 0i64, u:                    7u64, v:                    7i64 },
+        R { id: 4i64, g: 1i64, p: 1i64, u: 18446744073709551615u64, v:                   -1i64 },
+    ];
+    let m: Vec<u64> = match pos_dist(&rd[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 70i32; } };
+    if m.len() != 3i64                       { return 71i32; }
+    if m.get(0i64) != 6148914691236517205u64 { return 72i32; }
+    if m.get(1i64) != 3074457345618258602u64 { return 73i32; }
+    if m.get(2i64) != 2u64                   { return 74i32; }
+
+    // ══ X. THE SIGNED CONTROLS — the same 64 bits, the other tower ══════════
+    // If the wrapped key were applied to the integer CLASS rather than per
+    // type, every one of these would move. `v` holds exactly the bits `u` does.
+    let x1: Vec<i64> = match sgn_where(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 80i32; } };
+    if x1.len() != 0i64 { return 81i32; }   // no signed quotient clears 1e18
+
+    let x2: Vec<i64> = match sgn_gkey(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 82i32; } };
+    if x2.len() != 3i64                        { return 83i32; }
+    if x2.get(0i64) != -3074457345618258602i64 { return 84i32; }
+    if x2.get(1i64) != 0i64                    { return 85i32; }
+    if x2.get(2i64) != 2i64                    { return 86i32; }
+
+    let x3: Vec<bool> = match sgn_bool(&rs[..]) {
+        Result::Ok(v) => { v } Result::Err(_e) => { return 87i32; } };
+    if x3.len() != 3i64 { return 88i32; }
+    if x3.get(0i64)     { return 89i32; }
+    if x3.get(1i64)     { return 90i32; }
+    if x3.get(2i64)     { return 91i32; }
+
+    return 0i32;
+}

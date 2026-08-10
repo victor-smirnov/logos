@@ -1,0 +1,129 @@
+// THE PLUMB — a column's SIGNEDNESS reaches the runtime catalog, asserted
+// separately from anything that consumes it.
+//
+// ── WHY THIS FILE EXISTS, AND WHY IT IS NOT THE FILE THE CENSUS EXPECTED ────
+// Census row 67 (`wql_domain_u64_order_seams`) named three INTERMEDIATE facts of
+// the u64 order fix. Two — THE SEEDS (a one-row fold answers its own row) and
+// THE COMPARE (one group straddling 2^63) — were re-asked of the static tier at
+// blocks 30s and 40s of `tests/logos/pass/wql_domain_static_ordw_origin.logos`.
+// The third, THE PLUMB, was recorded there as having no counterpart, on the
+// ground that it asserts `field_ord_wrap`, "a method on the RUNTIME
+// `SchemaCatalog`, which the static tier never builds", and that the static
+// tier's own carrier `el_ty_stored_of` is module-private (`fn`, not `pub fn` —
+// still true, `stdlib/mem/wql/el.logos`).
+//
+// ⚠ THAT CONCLUSION WAS WRONG, AND THE MEASUREMENT IS ONE GREP. `SchemaCatalog`
+// and `SchemaCatalog::field_ord_wrap` did NOT die with the interpreter: they
+// live in `stdlib/mem/deem/deem.logos`, which survives P5, and `field_ord_wrap`
+// is `pub` — its own docstring says it is public "so a fixture can pin that the
+// fact REACHED the runtime catalog, separately from anything that consumes it".
+// So the plumb was never a lost capability; it was an unasked question about a
+// surface that is still here. This file asks it.
+//
+// ── THE CHAIN, SYMBOL BY SYMBOL (each name grepped) ─────────────────────────
+// The signedness has to survive a lattice that deliberately COLLAPSES it:
+//   1. `classify_field_type` (`stdlib/mem/wql/catalog_macro.logos`) emits `ty`
+//      = the CLASS representative (`el_class_repr`) and `src` = the field's own
+//      declared name — `src` only when it differs, so this fact exists in the
+//      blob only because someone added a second entry for it.
+//   2. `SchemaCatalog::add_field_src` (deem.logos) decides FK_SCALAR/FK_ANY from
+//      `ty` and sets `f_ordw` from `el_ord_wraps(src)` — the ONLY consumer of
+//      `src`, and it is deliberately kept out of the kind decision.
+//   3. `el_ord_wraps(name)` is `el_ty(name).ord == EL_ORD_WRAP()`.
+//   4. `field_ord_wrap` reads `f_ordw` back.
+// A blob written before `src` existed reads it back as "" and every derived fact
+// defaults to the class's — i.e. to the pre-fix answer — so this file's `false`
+// rows are as load-bearing as its `true` ones: they are what a total loss of the
+// entry would ALSO produce for the u64 column, and blocks 1/3 separate the two.
+//
+// ⚠ THIS FILE ASSERTS THE PLUMB AND NOTHING ELSE, ON PURPOSE. The consumers are
+// asserted elsewhere (`wql_domain_static_ordw_origin`, `wql_arith_u64_tower_e2e`,
+// `wql_domain_static_carrier_positions`). The plumb and its consumers must fail
+// INDEPENDENTLY: a consumer test reds for a broken plumb too, so a tree with
+// only consumer tests cannot say which of the two moved.
+//
+// ⚠ AND THE ORACLE IS NOT `el_ord_wraps`. Every expectation below is a literal
+// `true`/`false` written from the type's name. Asking `el_ord_wraps` what the
+// answer should be would be an oracle that shares the rule with the code under
+// test, which is this repo's recorded way of agreeing with itself.
+//
+// exit 0 = the declared width and signedness of every field below reached the
+//          runtime catalog, and the collapse to the class representative did not
+//          take them with it.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.std.wql.catalog_macro;   // schema_catalog!
+use logos.mem.deem;                // SchemaCatalog
+use logos.lang.str;
+
+// The two families the EL's order lattice separates, plus the shapes that are
+// not integers at all. `u64`/`usize` WRAP (their order moves when normalized
+// into i64); every other declared type here does not.
+pub schema Col : code(0x0A02_0000_0000_0051) {
+    u64f:   u64   = 0,
+    usizef: usize = 1,
+    i64f:   i64   = 2,
+    u32f:   u32   = 3,
+    i32f:   i32   = 4,
+    u8f:    u8    = 5,
+    strf:   str   = 6,
+    boolf:  bool  = 7,
+    f64f:   f64   = 8,
+}
+
+resource cat = schema_catalog!{ Col };
+
+fn main() -> i32 {
+    let c: SchemaCatalog = cat();
+
+    // ══ 1. THE WRAPPING PAIR ════════════════════════════════════════════════
+    // `u64` and `usize` are the only two declared types whose ORDER moves. Both
+    // collapse to the same class representative as `i64`, so if `src` were lost
+    // anywhere in the chain these would read false.
+    if !c.field_ord_wrap("Col", "u64f")   { return 10i32; }
+    if !c.field_ord_wrap("Col", "usizef") { return 11i32; }
+
+    // ══ 2. THE SIGNED TWIN, IN THE SAME SCHEMA ══════════════════════════════
+    // Same class, same width, same blob — the bit that must NOT be set. Without
+    // this row, a `field_ord_wrap` that answered `true` for every integer would
+    // pass block 1.
+    if c.field_ord_wrap("Col", "i64f") { return 20i32; }
+
+    // ══ 3. THE NARROW WIDTHS — unsigned but NOT wrapping ════════════════════
+    // ⚠ THIS IS THE BLOCK THAT MAKES THE FILE ABOUT THE ORDER AND NOT ABOUT THE
+    // WORD "UNSIGNED". `u32` and `u8` widen into i64 LOSSLESSLY: every value
+    // they hold is non-negative in i64 and their order survives, so the answer
+    // is false even though the type is unsigned. An implementation that keyed
+    // off the leading `u` of the name passes blocks 1 and 2 and reds here.
+    if c.field_ord_wrap("Col", "u32f") { return 30i32; }
+    if c.field_ord_wrap("Col", "u8f")  { return 31i32; }
+    if c.field_ord_wrap("Col", "i32f") { return 32i32; }
+
+    // ══ 4. THE NON-INTEGER SHAPES ═══════════════════════════════════════════
+    // Not in the integer lattice at all; the question has no content for them
+    // and the answer must be the harmless one rather than a leftover.
+    if c.field_ord_wrap("Col", "strf")  { return 40i32; }
+    if c.field_ord_wrap("Col", "boolf") { return 41i32; }
+    if c.field_ord_wrap("Col", "f64f")  { return 42i32; }
+
+    // ══ 5. THE ABSENT PROBES ════════════════════════════════════════════════
+    // An unknown field and an unknown schema answer false rather than reading
+    // some neighbour's bit — `field_ord_wrap`'s two `< 0` guards. Without these
+    // the file could not distinguish "the fact is false" from "the lookup
+    // missed and false is the default", which is the same false for a reader.
+    if c.field_ord_wrap("Col", "nosuch") { return 50i32; }
+    if c.field_ord_wrap("Nope", "u64f")  { return 51i32; }
+
+    // ══ 6. THE LOOKUP REALLY RESOLVES — the control for block 5 ═════════════
+    // If `sidx_of_name`/`fidx` were broken, blocks 2, 3 and 4 would all pass by
+    // missing, and block 1 would be the only red. The field KEYS below come
+    // from the same two lookups and are the numbers this file's schema declares.
+    if c.field_key("Col", "u64f") != 0i64 { return 60i32; }
+    if c.field_key("Col", "i64f") != 2i64 { return 61i32; }
+    if c.field_key("Col", "f64f") != 8i64 { return 62i32; }
+    if c.field_key("Col", "nosuch") != -1i64 { return 63i32; }
+
+    return 0i32;
+}

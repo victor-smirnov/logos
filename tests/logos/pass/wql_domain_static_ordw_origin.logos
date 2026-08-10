@@ -29,20 +29,30 @@
 //     every block below asks. The plumb stays an open cell of the census, and
 //     naming it as covered would be the fake.
 //   • THE OVER-CARRY. `query_u64_ordw_origin` groups 3/3b key on a MIXED ternary
-//     (`s.p ? s.u : s.v`, u64 against i64). MEASURED on the static tier that
-//     query does not run at all — it is REFUSED, in generated code, as
-//     `if-expression branches have incompatible types: u64 vs i64`, naming
-//     neither the column nor the clause. A refusal with no ground cannot be
-//     pinned as a `fail/` diagnostic without pinning the anti-diagnostic as
-//     correct, so this file asserts the UNMIXED ternary (which the static tier
-//     does admit) and leaves the mixed one to the diagnostic work it needs.
-//   • THE COMPUTED KEY. `order by (s.u / 3)` is arithmetic over a u64 operand,
-//     which the static tier refuses at every clause — the EL's scalar tower is
-//     i64-only (`el_add`/`el_sub`/`el_mul`/`el_div`/`el_rem` all take and return
-//     i64, gated by `el_int_fits_i64`; the unsigned siblings `el_addu`/`el_subu`/
-//     `el_mulu` exist for the aggregate accumulator alone, and there is no
-//     `el_divu`). That refusal is the static tier's answer, and it belongs in a
-//     `fail/` matrix, not in a pass fixture.
+//     (`s.p ? s.u : s.v`, u64 against i64). The static tier REFUSES that query,
+//     and this file asserts the UNMIXED ternary instead (block 50s).
+//     ⚠ CORRECTED 2026-08-09, AND THE CORRECTION IS THE POINT. This paragraph
+//     used to say the refusal came from the HOST compiler as `if-expression
+//     branches have incompatible types: u64 vs i64` — `src/compiler/sema_expr.cpp`
+//     reading a synthesised blob, naming neither the clause nor either column —
+//     and concluded that "a refusal with no ground cannot be pinned". That is no
+//     longer the tree. `check_cond_branches` (`stdlib/mem/wql/codegen.logos`),
+//     hooked into `check_calls`' `SExpr::Cond` arm, now refuses FIRST and names
+//     both, and the refusal is pinned with its ground at
+//     `tests/logos/fail/wql_cond_branch_types_fail`. So the over-carry half of
+//     census row 58 is DISCHARGED — a pass arm here plus a grounded fail arm
+//     there — and it is absent from this file because it belongs in `fail/`, not
+//     because nothing can ask it.
+//   • THE COMPUTED KEY — ⚠ NO LONGER ABSENT, AND THIS FILE IS NOT ITS ARM.
+//     This paragraph used to say `order by (s.u / 3)` was refused at every
+//     clause because the EL's scalar tower was i64-only and `el_divu` did not
+//     exist. Both facts changed on 2026-08-09: `el_arith_tower` / `el_tower_join`
+//     / `el_tower_repr` (`stdlib/mem/wql/el.logos`) gave the EL a second integer
+//     tower and `el_divu` / `el_remu` were written. The computed u64 sort key is
+//     now ASSERTED, in `tests/logos/pass/wql_arith_u64_tower_e2e.logos`
+//     (`by_div`, `order by s.u / 3u64`), together with the projection and the
+//     aggregate-argument positions. It stays out of THIS file because this file
+//     is about a value that came out of an AGGREGATE, not about arithmetic.
 //
 // ── THE THREE ROWS, AND WHY THEY CANNOT AGREE BY ACCIDENT ───────────────────
 // Every number below is hand-written from the unsigned order and the two's
