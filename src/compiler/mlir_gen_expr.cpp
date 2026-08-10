@@ -3835,29 +3835,87 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     }
     if (mlir::dyn_cast<mlir::IntegerType>(val.getType()) &&
         mlir::dyn_cast<mlir::FloatType>(target)) {
-        // Bool (i1) must be zero-extended before conversion: sitofp(i1(1)) = -1.0 (wrong),
-        // uitofp(i1(1)) = 1.0 (correct).  Treat i1 the same as unsigned integers.
+        // Bool must be ZERO-extended before the conversion: sitofp(i1 1) = -1.0
+        // (wrong), uitofp(i1 1) = 1.0 (correct). `Kind::Bool` is named inside
+        // `LogosType::is_unsigned_repr_kind` (include/logos/compiler/sema.hpp)
+        // for exactly this reason, so ONE test decides the whole question here.
         //
-        // ⚠ THE TWO DISJUNCTS BELOW ARE MUTUALLY REDUNDANT ACROSS THE WHOLE
-        // CORPUS, MEASURED 2026-08-10: delete either one alone and L2
-        // (1892/1892), the 12684-case generated tier and all 31 gates stay
-        // GREEN. Only removing BOTH reds anything, and then only
-        // `tests/logos/pass/wql_agg_avg_bool_value_rule.logos` at exit 13.
-        // So a two-step "cleanup" — drop one, see green, drop the other later,
-        // see green because the first is already gone — silently reintroduces
-        // `sitofp(i1 1) = -1.0`. That is why they are ONE named expression
-        // instead of two clauses a reader can prune independently.
+        // ── A SECOND DISJUNCT USED TO STAND BESIDE THIS ONE, AND IT IS DELETED
+        //    BY MEASUREMENT, NOT BY TASTE. ────────────────────────────────────
+        // The deleted clause was a VALUE test, `val.getType() == i1`, and the
+        // two were MUTUALLY REDUNDANT across the whole corpus (recorded at the
+        // parent commit, 2026-08-10, and the kind-side half re-verified here as
+        // control C1): dropping either one ALONE left L2, the generated tier
+        // and all 31 gates green, so a two-step cleanup — drop one, see green,
+        // drop the other months later, see green because the first is already
+        // gone — would silently reintroduce `sitofp(i1 1) = -1.0`. Two clauses
+        // that cover each other are not two guards; they are one guard and one
+        // booby trap, and the trap is what a green run hides.
         //
-        // They are not gratuitously equal: the VALUE test answers when no Logos
-        // type reached this site (`op_ty == nullptr`), the KIND test answers for
-        // a Logos `bool`/`char`/unsigned whose MLIR value is not i1. Neither
-        // case is exercised by the corpus today — that is the open half, and it
-        // is why NEITHER may be deleted on the strength of a green run.
-        const auto value_is_unsigned_for_fp = [&](mlir::Value v, auto t) {
-            return (v.getType() == builder_.getI1Type())
-                || (t && LogosType::is_unsigned_repr_kind(TypeRef(t).kind()));
-        };
-        bool src_unsigned = value_is_unsigned_for_fp(val, op_ty);
+        // What separates them is the case each answers ALONE:
+        //  · the VALUE test alone answers when NO Logos type reached this site
+        //    (`op_ty == nullptr`);
+        //  · the KIND test alone answers for a `bool`/`char`/unsigned whose MLIR
+        //    value is not i1.
+        // The KIND test's private case is WITNESSED and common —
+        // `tests/logos/pass/cast_unsigned_to_float.logos` (u56 2^55, u128 2^63),
+        // `uint_to_f64.logos`, `int_signedness_cast_unsigned.logos` (u64 max)
+        // all go negative under `sitofp` — measured as C4 below. The VALUE
+        // test's private case is what was measured away:
+        //
+        //  (1) INSTRUMENTED COUNT, 2026-08-10. A counter at this arm, logging
+        //      every call where `op_ty` is null OR the two clauses disagree, run
+        //      over the stdlib build AND `ctest -LE imported` (3231/3231 green,
+        //      the generated tier and all 31 gates included): 23 disagreements,
+        //      EVERY ONE of them `null_op_ty=0 v=0 k=1` — a non-i1 unsigned, the
+        //      KIND test answering alone. ZERO calls with a null `op_ty`. ZERO
+        //      calls with an i1 value whose Logos kind is not unsigned-repr.
+        //  (2) DERIVATION, which is why (1) is not a coincidence of the corpus:
+        //      `Kind::Bool` is the ONLY kind `logos_to_mlir` maps to i1
+        //      (`src/compiler/mlir_gen_types.cpp`, the sole `getI1Type()` there),
+        //      and `Bool ∈ is_unsigned_repr_kind`. So whenever `op_ty` is
+        //      PRESENT, `val.getType() == i1` IMPLIES the KIND test — the VALUE
+        //      test could only ever add coverage in the null-`op_ty` case.
+        //  (3) A null Logos type IS representable in mlir-gen — `lir_mirror.cpp`
+        //      writes the type attribute under `if (ty)`, and the same counter
+        //      caught 6 null-source coercions in the SAME run — but all six were
+        //      at the `coerce_numeric` call in `MLIRGenImpl::gen_arr_lit`
+        //      (`src/compiler/mlir_gen.cpp`), which passes no source type, from
+        //      bare int literals in
+        //      `tests/logos/pass/writ_as_array_variants.logos` (`let buf7:
+        //      [f32; 3] = [1, 2, 3];`), never here. And an i1 cannot reach that
+        //      site either: `let a: [f64; 2] = [true, false];` is refused by
+        //      sema — "expected [f64; 2], got [bool; 2]" (measured).
+        // Deleting this clause is therefore not "cleanup on a green run": it
+        // makes the remaining clause SINGLY load-bearing, and THAT is what the
+        // fixtures now prove. Three controls, each predicted, each restored:
+        //  · C1, on the TWO-clause code: exclude `Kind::Bool` here alone.
+        //    PREDICTED green, MEASURED green — `bool_as_f32`,
+        //    `wql_agg_avg_bool_value_rule` and the three unsigned fixtures all
+        //    pass. That is the redundancy reproducing, and it is why no
+        //    single-clause edit could red this site before.
+        //  · C3, on THIS code: exclude `Kind::Bool` here alone. PREDICTED red,
+        //    MEASURED `bool_as_f32` exit 40 (expected 42 — `true as f32` came
+        //    back -1.0) and `wql_agg_avg_bool_value_rule` exit 13, with the
+        //    three unsigned fixtures still green. One-sided, so bool is pinned
+        //    by itself.
+        //  · C4, on THIS code: force `src_unsigned` false. PREDICTED all five
+        //    red; MEASURED all five red — `bool_as_f32` 40,
+        //    `cast_unsigned_to_float` 1, `int_signedness_cast_unsigned` 21
+        //    (predicted 81 from a stale note — the fixture's own first unsigned
+        //    check is 21), `uint_to_f64` 1, `wql_agg_avg_bool_value_rule` 13.
+        // Each catch is a VALUE catch after the whole program ran, not a
+        // compile refusal: the wrong `sitofp` compiles and links fine.
+        //
+        // ⚠ ONE MEMBER OF THE SURVIVING TEST IS UNOBSERVABLE HERE AND NO FIXTURE
+        // CAN CHANGE THAT. `is_unsigned_repr_kind` also names `Kind::Char`, which
+        // `logos_to_mlir` lowers to i32, and every Unicode scalar is ≤ 0x10FFFF —
+        // positive in i32 — so `sitofp` and `uitofp` agree on EVERY legal char.
+        // A char cast is a green test under either lowering. That is a property
+        // of the value range, not a gap in the corpus; do not go looking for the
+        // char fixture that reds this line, there is none.
+        bool src_unsigned = op_ty &&
+            LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind());
         if (src_unsigned)
             return builder_.create<mlir::arith::UIToFPOp>(loc_, target, val);
         return builder_.create<mlir::arith::SIToFPOp>(loc_, target, val);

@@ -842,7 +842,30 @@ private:
         // float → float (truncate or extend)
         if (mlir::isa<mlir::FloatType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
             return coerce_float(v, to);
-        // int → float: use unsigned op for unsigned Logos types
+        // int → float: use unsigned op for unsigned Logos types.
+        //
+        // ⚠ THE SAME QUESTION IS DECIDED IN `gen_expr_kind(ECastView, …)`
+        // (`src/compiler/mlir_gen_expr.cpp`) AND THE TWO SITES MUST AGREE. Both
+        // now ask ONE thing — `is_unsigned_repr_kind` on the SOURCE Logos type,
+        // which names `Kind::Bool` so that `uitofp(i1 1) = 1.0` rather than
+        // `sitofp(i1 1) = -1.0`. Do NOT "harden" this by adding an
+        // `v.getType() == i1` disjunct: that clause stood at the ECast site,
+        // was measured mutually redundant with the kind test, and was deleted
+        // there on 2026-08-10 — the long comment at that site carries the
+        // counts. Two clauses that imply each other are one guard plus a trap.
+        //
+        // The one thing this site has that the ECast site does not is a NULL
+        // source type: the same instrumented run measured 6 calls here with
+        // `src_lt == nullptr` (all from `MLIRGenImpl::gen_arr_lit`, bare int
+        // literals in `let buf7: [f32; 3] = [1, 2, 3];`,
+        // `tests/logos/pass/writ_as_array_variants.logos`) against 0 at the
+        // ECast site. Every one of the six was a non-i1 value, and an i1 cannot
+        // arrive here at all: sema refuses every implicit bool→float shape —
+        // `[f64; 2] = [true, false]`, `S { f: true }` with `f: f64`,
+        // `let a: f64 = if c { true } else { false }` and passing a `bool` to an
+        // `f64` parameter were each measured refused. A bool reaches a float
+        // only through `as`, i.e. through the ECast site, where its type is
+        // present.
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to)) {
             bool src_unsigned = src_lt &&
                 LogosType::is_unsigned_repr_kind(TypeRef(src_lt).kind());

@@ -10,31 +10,31 @@
 // zero-extends i1 before the conversion on purpose (`sitofp(i1(1))` = -1.0 is
 // wrong, `uitofp(i1(1))` = 1.0 is right). The ruling makes the FRONT END admit it.
 //
-// ⚠ AND THE CLAUSE THAT CARRIES IT IS NOT THE ONE THE SENTENCE ABOVE SUGGESTS.
-// The int→float arm of `MLIRGenImpl::gen_expr_kind(ECastView, …)` decides
-// `src_unsigned` from TWO disjuncts: an i1 TYPE test on the MLIR value, and
+// ⚠ AND THE CLAUSE THAT CARRIES IT — RESOLVED 2026-08-10, AND THE SITE HAS
+// CHANGED SINCE THIS HEADER FIRST DESCRIBED IT. The int→float arm of
+// `MLIRGenImpl::gen_expr_kind(ECastView, …)` used to decide `src_unsigned` from
+// TWO disjuncts: an i1 TYPE test on the MLIR value, and
 // `LogosType::is_unsigned_repr_kind(op_ty)`, which names `Bool` explicitly
-// (`include/logos/compiler/sema.hpp`).
+// (`include/logos/compiler/sema.hpp`). They were MUTUALLY REDUNDANT — each
+// alone sufficient — so no single-clause edit could red this file, and the four
+// builds recorded here (drop the i1 test: GREEN; exclude `Kind::Bool` at the
+// site: GREEN; drop `Bool` from `is_unsigned_repr_kind`: GREEN; drop the i1 test
+// AND exclude `Bool`: RED 13) were the evidence of exactly that.
 //
-// ⚠ RE-MEASURED 2026-08-10, AND THE EARLIER READING OF IT WAS WRONG. This header
-// used to say "only the second is load-bearing" and cite a 13 for excluding
-// `Kind::Bool` from it. NEITHER disjunct is uniquely load-bearing: they are
-// MUTUALLY REDUNDANT, and each ALONE is sufficient. Four builds, each predicted
-// before it was run, each reverted:
-//   · drop the i1 type test only ............................. GREEN (exit 0)
-//   · exclude `Kind::Bool` at THIS SITE only, i1 test kept ... GREEN (exit 0)
-//   · drop `k == Kind::Bool` from `is_unsigned_repr_kind`
-//     itself in `include/logos/compiler/sema.hpp`, i1 kept ... GREEN (exit 0)
-//   · drop the i1 test AND exclude `Bool` ..................... RED, exit 13
-// So the value rule IS pinned by this file, but only against the removal of
-// BOTH clauses; no single-clause edit here can red it. The earlier "13" is
-// reproducible only as the LAST line above — i.e. as a control applied on top of
-// the previous one rather than after restoring it.
-// Corollary, measured separately: with the i1 test deleted the ENTIRE L2 sample
-// is green (1892/1892 + 12 684 generated cases + 31 gates), so that disjunct is
-// dead across the corpus, not merely here. Deleting it is NOT licensed by this
-// file — the `Bool` clause in `is_unsigned_repr_kind` would then be the only
-// thing standing between `sitofp(i1 1)` and -1.0, which is exit 13 above.
+// THE I1 VALUE TEST IS NOW DELETED, and the remaining clause is SINGLY
+// load-bearing. What licensed the deletion was not a green run: an instrumented
+// counter at the arm, run over the stdlib build and `ctest -LE imported`
+// (3231/3231), logged 23 disagreements between the two clauses, EVERY one of
+// them a non-i1 unsigned (the kind test answering alone) and NONE with a null
+// `op_ty` — the i1 test's only private case. `Kind::Bool` is also the only kind
+// `logos_to_mlir` maps to i1, so with `op_ty` present the i1 test could never
+// have said anything the kind test did not. The counts and the derivation live
+// at the site.
+// CONSEQUENCE FOR THIS FILE: excluding `Kind::Bool` at the site is now a
+// SINGLE-CLAUSE edit that reds it at 13 (measured), and reds
+// `tests/logos/pass/bool_as_f32.logos` at 40 in the same build — that fixture
+// pins `true as f32 == 1.0` directly at the cast, where this one pins it through
+// the aggregate. Two independent sensors, one clause.
 //
 // ⚠ THIS FILE WAS `wql_agg_avg_bool_three_engines` AND IS RENAMED, NOT MERELY
 // EDITED, BECAUSE THE OLD NAME WOULD HAVE BECOME A FALSE STATEMENT. P5 deleted
