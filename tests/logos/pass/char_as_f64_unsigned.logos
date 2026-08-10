@@ -1,0 +1,53 @@
+package char_as_f64_unsigned;
+// `char as f64` IS AN **UNSIGNED** CONVERSION, AND THIS FILE IS THE SENSOR THAT
+// SAYS SO. It pins the `Kind::Char` member of `LogosType::is_unsigned_repr_kind`
+// (`include/logos/compiler/sema.hpp`) at the int→float arm of
+// `MLIRGenImpl::gen_expr_kind(ECastView, …)` (`src/compiler/mlir_gen_expr.cpp`).
+//
+// ⚠ IT EXISTS BECAUSE THE SITE CLAIMED IT COULD NOT. Until 2026-08-10 the arm
+// carried, in prose, an ABSOLUTE: "`is_unsigned_repr_kind` also names
+// `Kind::Char`, which `logos_to_mlir` lowers to i32, and every Unicode scalar is
+// ≤ 0x10FFFF — positive in i32 — so `sitofp` and `uitofp` agree on EVERY legal
+// char … do not go looking for the char fixture that reds this line, there is
+// none." The premise is about LEGAL chars. It is the CAST that is not checked:
+// `u32 as char` is accepted today with no range test (there is no char arm in
+// any cast-validity check — this is the open cast blocklist→allowlist arc), so a
+// `char` holding 0xFFFFFFFF is constructible in a program the compiler accepts,
+// and at that value the two lowerings differ by the whole word.
+//
+//   uitofp(i32 0xFFFFFFFF) = 4294967295.0   → exit 7   (what the engine means)
+//   sitofp(i32 0xFFFFFFFF) =         -1.0   → exit 8   (the defect)
+//
+// MEASURED, not argued. Control, applied where the thing lives — drop
+// `k == Kind::Char` from `is_unsigned_repr_kind` in
+// `include/logos/compiler/sema.hpp`, rebuild, restore, re-prove:
+//   · PREDICTED 8, MEASURED 8 for this file.
+//   · L1 690/690, L2 1894/1894, the 12 684-case generated tier and all 31 gates
+//     were GREEN under that same edit — i.e. before this file existed the
+//     `Kind::Char` member had NO sensor anywhere in the corpus, and the site's
+//     own note was the reason nobody looked.
+//   · `bool_as_f32` and `wql_agg_avg_bool_value_rule` stayed GREEN under it, so
+//     this sensor is one-sided: it pins Char and only Char, and the two bool
+//     sensors pin Bool and only Bool.
+// The catch is a VALUE catch: the wrong `sitofp` compiles, links and runs to
+// completion — the whole program executes and then answers 8.
+//
+// ⚠ WHAT WOULD RETIRE THIS FILE, AND HOW IT MUST BE RETIRED. The witness rides
+// on `u32 as char` being unchecked. If the cast allowlist lands and refuses it,
+// this file stops COMPILING — and that is a real signal, not noise: at that
+// moment `Kind::Char` genuinely becomes unobservable at this arm again (every
+// remaining char is ≤ 0x10FFFF, positive in i32, and the two lowerings agree).
+// The correct response is then to move this program to `tests/logos/fail/` as a
+// sensor for the refusal, and to restore the "no fixture can red the Char
+// member" note at the site — with THIS file named as the reason it was ever
+// removed. Do NOT delete it silently; a check that stopped being constructible
+// is a fact about the language, and the site must say which change made it so.
+
+fn main() -> i32 {
+    let big: u32 = 4294967295;
+    let c: char = big as char;
+    let f: f64 = c as f64;
+    if f == 4294967295.0 { return 7; }   // uitofp — the unsigned rule holds
+    if f == -1.0 { return 8; }           // sitofp — Kind::Char lost from the test
+    return 9;                            // neither: the arm changed shape entirely
+}

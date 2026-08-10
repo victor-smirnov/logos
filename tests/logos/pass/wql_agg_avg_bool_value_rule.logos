@@ -35,6 +35,17 @@
 // `tests/logos/pass/bool_as_f32.logos` at 40 in the same build — that fixture
 // pins `true as f32 == 1.0` directly at the cast, where this one pins it through
 // the aggregate. Two independent sensors, one clause.
+// ⚠ RE-VERIFIED 2026-08-10 BY A SECOND ROUTE, and the deletion survives it. The
+// counter that licensed it was FAIL-OPEN (it logged and continued). It was
+// replaced by a FAIL-CLOSED probe — `llvm::report_fatal_error` at this arm on
+// exactly the deleted clause's private case (`val` is i1 AND the kind test says
+// signed) — first CALIBRATED by widening it to every i1, which aborted the
+// compile of this file and of `bool_as_f32`, and then run over the whole stdlib
+// build and `ctest -LE imported`: 3231/3231 GREEN, ZERO aborts. The same probe
+// at `MLIRGenImpl::coerce_numeric` also never fired, so "an i1 cannot arrive
+// there" is measured, not only argued; seven implicit bool→float shapes were
+// separately measured refused by sema (array list, array repeat, struct field,
+// if-branch, call argument, return, assignment).
 //
 // ⚠ THIS FILE WAS `wql_agg_avg_bool_three_engines` AND IS RENAMED, NOT MERELY
 // EDITED, BECAUSE THE OLD NAME WOULD HAVE BECOME A FALSE STATEMENT. P5 deleted
@@ -82,12 +93,19 @@
 //      the second corpus exists: no hand constant in this file can see it.
 //  (B) fixture-side: invert `if r.b` in `ref_avg_bool`. PREDICTED 16, MEASURED 16
 //      — with 12–15 green, so the two sides are one-sided, not a shared fold.
-//  (C) engine-side value rule. ⚠ AS ORIGINALLY WRITTEN THIS CONTROL DID NOT
-//      REPRODUCE — see the RE-MEASURED block at the top. The `Kind::Bool`
-//      exclusion ALONE is GREEN; what reds at 13 is dropping the i1 test AND
-//      excluding `Bool`. PREDICTED 13, MEASURED 13 for that two-clause edit —
-//      the literals catch the value rule FIRST, which is the right order and
-//      says the arm did NOT move with the engine.
+//  (C) engine-side value rule. ⚠ THIS ENTRY DESCRIBED THE TWO-CLAUSE COMPILER
+//      AND WAS LEFT BEHIND WHEN THE BLOCK AT THE TOP WAS REWRITTEN — it said
+//      "the `Kind::Bool` exclusion ALONE is GREEN", pointed at a "RE-MEASURED
+//      block at the top" that no longer says that, and so CONTRADICTED lines
+//      33-37 of this same file for one commit. RE-STATED FOR THE CODE THAT IS
+//      ACTUALLY BUILT, and measured at the shared PREDICATE rather than at the
+//      call site: drop `k == Kind::Bool` from `LogosType::is_unsigned_repr_kind`
+//      in `include/logos/compiler/sema.hpp` — PREDICTED 13, MEASURED 13 here,
+//      and 40 in `tests/logos/pass/bool_as_f32.logos` in the same build, with
+//      `cast_unsigned_to_float`, `uint_to_f64` and `int_signedness_cast_unsigned`
+//      all GREEN. ONE clause, ONE edit, TWO sensors: that is what the i1
+//      deletion bought, and it is now recorded against the definition every
+//      other lowering site reads rather than against one `if`.
 //  (D) engine-side, INVISIBLE TO THE LITERALS **AND TO 41** — the control that
 //      fires `ref_avg_bool` itself rather than `ref_group_keys`. In the same
 //      `inner` quote_block, after `__g_cnt` is bumped at the row's own group,

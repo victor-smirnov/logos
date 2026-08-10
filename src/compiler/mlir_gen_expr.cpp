@@ -3907,13 +3907,44 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // Each catch is a VALUE catch after the whole program ran, not a
         // compile refusal: the wrong `sitofp` compiles and links fine.
         //
-        // ⚠ ONE MEMBER OF THE SURVIVING TEST IS UNOBSERVABLE HERE AND NO FIXTURE
-        // CAN CHANGE THAT. `is_unsigned_repr_kind` also names `Kind::Char`, which
-        // `logos_to_mlir` lowers to i32, and every Unicode scalar is ≤ 0x10FFFF —
-        // positive in i32 — so `sitofp` and `uitofp` agree on EVERY legal char.
-        // A char cast is a green test under either lowering. That is a property
-        // of the value range, not a gap in the corpus; do not go looking for the
-        // char fixture that reds this line, there is none.
+        // ⚠ THE `Kind::Char` MEMBER OF THE SURVIVING TEST WAS CALLED UNOBSERVABLE
+        // HERE, AND THAT WAS WRONG — CORRECTED 2026-08-10 BY CONSTRUCTING THE
+        // WITNESS. This comment used to end "do not go looking for the char
+        // fixture that reds this line, there is none", arguing that
+        // `logos_to_mlir` lowers `Kind::Char` to i32 and every Unicode scalar is
+        // ≤ 0x10FFFF, hence positive, hence `sitofp` ≡ `uitofp`. The premise is
+        // about LEGAL chars; what is not checked is the CAST. `u32 as char` is
+        // accepted today with no range test (no char arm exists in any
+        // cast-validity check — the open blocklist→allowlist arc), so a `char`
+        // holding 0xFFFFFFFF is reachable in an accepted program, and there the
+        // two lowerings differ by the whole word: uitofp 4294967295.0 vs sitofp
+        // -1.0. `tests/logos/pass/char_as_f64_unsigned.logos` is that fixture.
+        // CONTROL, applied to `is_unsigned_repr_kind` itself
+        // (`include/logos/compiler/sema.hpp`), not to this line: drop
+        // `k == Kind::Char` → that fixture PREDICTED 8, MEASURED 8, while L1
+        // 690/690, L2 1894/1894, the 12 684-case generated tier and all 31 gates
+        // stayed GREEN — so before it was written the member had no sensor at
+        // all, and this note was the reason nobody went looking. An
+        // unobservability claim is a prediction; write it only after failing to
+        // build the witness, and name what you tried.
+        // The SAME control on `k == Kind::Bool` reds `bool_as_f32` at 40 and
+        // `wql_agg_avg_bool_value_rule` at 13 (measured), which is the
+        // single-clause bite the deletion above was for — measured at the shared
+        // predicate rather than at this call site.
+        //
+        // ⚠ AND THE DELETED CLAUSE IS STILL LIVE TWICE, BOTH IN INT→INT ARMS.
+        // `fi.getWidth() == 1 ||` stands in this same function's int→int
+        // widening arm (see the `ExtUIOp`/`ExtSIOp` pair above) and in
+        // `MLIRGenImpl::coerce_int` (`src/compiler/mlir_gen_impl.hpp`), with the
+        // identical shape — a value test OR-ed with the kind test. Removing the
+        // one in this function alone left L2 1894/1894 + 12 684 + 31 gates GREEN
+        // (measured 2026-08-10), i.e. it is the same "one guard plus a booby
+        // trap" pattern this arm was cleaned of, not yet cleaned there. It is
+        // NOT deleted here: unlike this arm, `coerce_int` is called with no
+        // source type from many sites, so its width-1 disjunct may be the only
+        // thing choosing `zext` for a bool — that is a separate measurement,
+        // owed before either is touched. Recorded so the next reader does not
+        // mistake this arm's tidiness for the file's.
         bool src_unsigned = op_ty &&
             LogosType::is_unsigned_repr_kind(TypeRef(op_ty).kind());
         if (src_unsigned)
