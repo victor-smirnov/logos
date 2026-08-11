@@ -1,3 +1,36 @@
+// ⚠ RE-DERIVED: THE ALIAS THIS FILE WAS BUILT TO PIN NO LONGER EXISTS.
+//
+// It was written as the false-negative sensor for the blanket bare-spelling
+// alias in `Mono::populate_trait_engine_`. That alias has been REMOVED, and
+// this file was deliberately kept and re-derived rather than deleted, because
+// the PROGRAM it constructs still pins a real invariant, and a harder one:
+//
+//   a blanket impl declared in a linked ARCHIVE, over a trait of that archive's
+//   own that LOST the bare registry slot, must still satisfy the archive's
+//   bounded template — reaching mono only through the method worklist — so that
+//   `Holder<i64>::store` is instantiated and the program runs.
+//
+// That is now answered by the trait IDENTITY carried through LIR
+// (impl_keys::IDENTITY_BOUND_TRAIT), not by a second bare-keyed copy of every
+// blanket row. If it reds, the identity is not reaching mono — which is the
+// same failure the alias used to mask, one layer up.
+//
+// HOW THE REMOVAL WAS MEASURED, because the previous round's identical-looking
+// green meant nothing. A print inside the guarded block reports it firing TEN
+// times while compiling THIS file, so the branch is genuinely reached here;
+// removing it then left the corpus fully green (L2 1908/1908). Reached AND
+// no-op is a measurement. Green over a branch that never ran, which is what the
+// history below records, is not.
+//
+// ⚠ ITS CONCRETE TWIN IS STILL IN THE TREE. Disabling the alias in `Mono::Mono`
+// alone still breaks the build and reds `trait_ident_pkg_chain` with a WRONG
+// ANSWER (exit 45) — so the two were never one hedge, and "they must retire
+// together" was an assumption, not a finding. See the comment at the removal
+// site in mono_clone.cpp.
+//
+// ── The original header follows; it is the record of how the blind spot was
+// ── found, and it is why this program is shaped the way it is.
+//
 // THE BLANKET-SPELLING ALIAS IN `Mono::populate_trait_engine_`, PINNED BY ITS
 // FALSE-NEGATIVE DIRECTION — the twin of `trait_ident_bare_alias_bound.logos`,
 // for the other of mono's two bare-spelling aliases.

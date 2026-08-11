@@ -471,6 +471,30 @@ private:
                                                  std::string(target)}) > 0;
     }
 
+    // ── Bare trait spelling → every IDENTITY declared under it ──────────
+    //
+    // Mono's own probes name stdlib traits by BARE TEXT — has_concrete_impl_
+    // ("Drop", …), ("Copy", …), the auto-trait names — because they are written
+    // into the compiler, not read from a program. Facts are filed under the
+    // always-qualified identity `pkg::Trait`, so a bare probe would find
+    // nothing; that gap is what mono's bare ALIAS used to paper over by filing
+    // every fact a second time under its spelling.
+    // ⚠ THE ALIAS AND THIS INDEX ARE NOT EQUIVALENT, and the difference is the
+    // whole point. The alias made the bare key answer for EVERYONE, so an
+    // IDENTITY query could also land on it and read a homonym's impls. This
+    // index is consulted ONLY when the query carries no identity, so a probe
+    // still sees every trait spelled `Drop` (its pre-existing meaning) while an
+    // identity query can reach exactly one trait and nothing else.
+    // Built from out_.traits, which already carries name() and pkg() — no new
+    // LIR key, no export from sema.
+    StrMap<std::vector<std::string>> bare_trait_ids_;
+    bool bare_trait_ids_built_ = false;
+    void build_bare_trait_index_();
+    // Every identity registered under `bare`, most specific first; always
+    // includes `bare` itself last so a trait with no package (or one that never
+    // reached out_.traits) is still reachable.
+    std::vector<std::string> bare_trait_identities_(const std::string& bare);
+
     // Sprint 5: side-by-side trait_engine driving the same queries as
     // mono_has_impl_recursive. Populated lazily from concrete_impls_ +
     // blanket_impls_ on first use; cleared & repopulated when those
@@ -1091,7 +1115,43 @@ private:
     // via any chain of blanket_impls_? Per-attempt copy of `seen` keeps
     // sibling blanket candidates from poisoning each other (see
     // method_bound_ok's local has_impl, factored here for reuse).
-    bool mono_has_impl_recursive(const std::string& trait_name,
+    // ── The trait side of an impl question, carrying BOTH spellings ──
+    //
+    // ⚠ ONE STRING CANNOT ANSWER BOTH QUESTIONS, and pretending it could is
+    // this arc's recurring defect. A caller either knows WHICH trait it means
+    // (a user bound, which carries an identity `pkg::Trait` captured where it
+    // was written) or it names a trait by bare compiler-internal text ("Fst",
+    // "Drop", a rel-column probe) and means the stdlib's. Facts are filed under
+    // the identity; the bare text is what auto-trait handling and the legacy
+    // out_.impls scans are keyed by.
+    // `has_identity` is a comparison of two CARRIED strings — not a substring
+    // probe for `::`, which is the shape that produced the separator-class bug.
+    // Implicitly constructible from a plain string, so every existing call site
+    // keeps its exact pre-identity behaviour and narrowing is done one site at
+    // a time, each with its own measurement.
+    struct TraitQuery {
+        std::string spelling;
+        std::string identity;
+        bool has_identity = false;
+        TraitQuery(std::string s)
+            : spelling(std::move(s)), identity(spelling) {}
+        TraitQuery(std::string s, std::string i)
+            : spelling(std::move(s)),
+              identity(i.empty() ? spelling : std::move(i)),
+              has_identity(!identity.empty() && identity != spelling) {}
+        // The string to ask the FACT TABLES with.
+        const std::string& key() const { return identity; }
+        // Does an impl declaring `decl_spelling` with identity `decl_identity`
+        // answer this query? Identity-to-identity when the query knows which
+        // trait it means; spelling-to-spelling when it does not.
+        bool matches(std::string_view decl_spelling,
+                     std::string_view decl_identity) const {
+            return has_identity ? decl_identity == identity
+                                : decl_spelling == spelling;
+        }
+    };
+
+    bool mono_has_impl_recursive(const TraitQuery& q,
                                  const std::string& concrete_name,
                                  StrSet& seen);
 
@@ -1111,7 +1171,7 @@ private:
     // false. Used by method_bound_ok to close the
     // `Option<Vec<NoFoo>>` cascade (see
     // [[baghunt-mono-blanket-bound-recursion]]).
-    bool mono_concrete_satisfies_bound(const std::string& trait_name,
+    bool mono_concrete_satisfies_bound(const TraitQuery& q,
                                        TypeRef concrete,
                                        StrSet& seen);
 

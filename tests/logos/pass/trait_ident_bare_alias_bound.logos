@@ -1,3 +1,36 @@
+// ⚠ RE-DERIVED: THE ALIAS THIS FILE WAS BUILT TO PIN NO LONGER EXISTS.
+//
+// It was the false-negative sensor for mono's CONCRETE bare-spelling alias.
+// That alias is now gone — both of mono's bare aliases are — and this file was
+// kept and re-derived rather than deleted, because the program it constructs
+// still pins a real invariant and a sharper one:
+//
+//   a HASH CONTAINER must instantiate in a program that links an archive
+//   declaring its own homonym `trait Hash`. `HashMap<i64,i64>::insert` reaches
+//   mono only through the method worklist, and its bound must be satisfied by
+//   the STDLIB `Hash` — not refused because a homonym occupies the name, and
+//   not admitted through a bare-keyed duplicate of every fact.
+//
+// That now rests on two things: facts keyed by the always-qualified identity,
+// and `Mono::bare_trait_identities_` resolving the compiler's own bare-text
+// probes. If this file reds, one of those two is broken — which is the same
+// failure the alias used to mask.
+//
+// HOW THE REMOVAL WAS MEASURED, because THIS alias was once deleted on a green
+// suite and that deletion was a real regression. A print inside the guarded
+// block reports it firing 475 times while compiling THIS file (452 for
+// trait_ident_pkg_chain), so the branch was emphatically live. Removing it then
+// left the build complete and the corpus green — L2 1908/1908, L4 clean.
+// Reached AND no-op is a measurement. A green suite over a branch nobody proved
+// was reached is not, and both of this arc's mistakes live in that gap.
+//
+// ⚠ THE NOTE BELOW ABOUT "no corpus member links a homonym archive AND uses a
+// hash container" IS WHY THIS FILE EXISTS AT ALL — it was written to be that
+// member. It still is. Do not delete it on the grounds that the alias is gone.
+//
+// ── The original header follows; it is the record of how the blind spot was
+// ── found, and why this program has the shape it has.
+//
 // THE BARE-SPELLING ALIAS IN `Mono`'s IMPL INDEX, PINNED BY ITS FALSE-NEGATIVE
 // DIRECTION — the one the corpus could not see.
 //

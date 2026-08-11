@@ -202,8 +202,16 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     auto cycle_key = type_str(tv) + "::" + std::string(trait_name);
     if (!visited.insert(cycle_key).second) return true;
 
+    // Auto-trait names arrive as bare compiler text ("Fst", "Send", …), so ask
+    // every identity declared under the spelling — facts are identity-keyed and
+    // the bare duplicate that used to answer here is gone.
+    auto has_any_ = [&](std::string_view tn, const std::string& target) -> bool {
+        for (auto& id : bare_trait_identities_(std::string(tn)))
+            if (has_concrete_impl_(id, target)) return true;
+        return false;
+    };
     auto has_explicit = [&](const std::string& name) -> bool {
-        return has_concrete_impl_(trait_name, name);
+        return has_any_(trait_name, name);
     };
 
     switch (tv.kind()) {
@@ -261,7 +269,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
             return true;
         // Fst = no-Drop (mirror of the sema rule): an own Drop impl kills it.
         if (trait_name == "Fst" &&
-            (has_concrete_impl_("Drop", cn) || has_concrete_impl_("Drop", base)))
+            (has_any_("Drop", cn) || has_any_("Drop", base)))
             return false;
         // Locate the struct definition. Look in out_ first (post-mono shape),
         // then in_ (pre-mono templates).
@@ -298,7 +306,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::Enum: {
         if (trait_name == "Fst") {
             std::string en{tv.enum_name()};
-            if (has_concrete_impl_("Drop", en)) return false;
+            if (has_any_("Drop", en)) return false;
         }
         std::string ename{tv.enum_name()};
         if (has_explicit(ename) || has_explicit(type_str(tv))) return true;
@@ -4231,12 +4239,15 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             if (!btmpl) continue;
                             StrSet bseen;
                             if (!bi.bound_trait.empty() &&
-                                !mono_concrete_satisfies_bound(bi.bound_trait, inner_rt, bseen))
+                                !mono_concrete_satisfies_bound(
+                                    TraitQuery(bi.bound_trait, bi.identity_bound_trait),
+                                    inner_rt, bseen))
                                 continue;
                             bool extra_ok = true;
                             for (auto& eb : bi.extra_bounds) {
                                 StrSet es;
-                                if (!mono_concrete_satisfies_bound(eb, inner_rt, es))
+                                if (!mono_concrete_satisfies_bound(
+                                        TraitQuery(eb, std::string()), inner_rt, es))
                                     { extra_ok = false; break; }
                             }
                             if (!extra_ok) continue;
@@ -5483,38 +5494,39 @@ void Mono::populate_trait_engine_() {
         // (see mono.cpp's concrete_impls_ insert, which carries the measurement
         // of why THAT alias is load-bearing).
         //
-        // ⚠ THIS ALIAS IS LOAD-BEARING — MEASURED, AND ITS CONSUMER IS PINNED.
-        // It used to read "necessity and harm both unmeasured", on the ground
-        // that `if (false)` left every trait-identity fixture green. That green
-        // was NOT weak evidence, it was NO evidence: instrumenting
-        // blanket_impls_ showed the guarded branch NEVER EXECUTED in any of
-        // them (nine rows, every one `canon == bare`), so the corpus was
-        // reporting on a branch it never entered.
-        // The consumer now exists: `tests/logos/pass/trait_blanket_bare_alias_bound.logos`
-        // with the archive `tests/logos/trait_blanket_chain/bmid`. Alias ON:
-        // `satisfies(Error, i64) = 1`, rc 0. Alias OFF: `= 0`, rc 1, "void call
-        // statement DROPPED — the method `Holder$…$G1$i64__store` had no
-        // instantiation" — the same gate (Mono::drain_method_worklist →
-        // method_bound_ok → mono_concrete_satisfies_bound → mono_has_impl_recursive)
-        // that drops HashMap$…__insert when the CONCRETE alias goes.
-        // Three properties are each necessary, each measured by removal: the
-        // losing trait must be declared by a LINKED package (the stdlib is
-        // collected first and always KEEPS the bare slot, so no stdlib homonym
-        // can reach this branch); the bounded template must live in the
-        // ARCHIVE; and the biting call must be a void method as a bare
-        // statement. Full derivation: docs/internals/trait-identity-bare-aliases.md.
-        // ⚠ It is a FALSE-NEGATIVE hedge over one raw key, exactly like the
-        // concrete alias in mono.cpp, and the two must retire TOGETHER — which
-        // needs `canonical_bound_trait` mirrored into LIR (push_tbound /
-        // ImplView), a format-touching change. Neither may go alone.
+        // ── THE BLANKET BARE ALIAS IS GONE. MEASURED, ONE ALIAS AT A TIME. ──
+        //
+        // It filed every blanket row a SECOND time under the trait's bare
+        // spelling, so a query carrying raw text still found it. Every consumer
+        // of that hedge now carries an identity: the blanket's own bound
+        // (impl_keys::IDENTITY_BOUND_TRAIT / IDENTITY_EXTRA_BOUNDS), the eager
+        // candidate list, mono_subst's assoc-type fallback, and method_bound_ok
+        // via TraitQuery. With the alias removed the corpus is fully green —
+        // L2 1908/1908 — and `tests/logos/pass/trait_blanket_bare_alias_bound.logos`
+        // passes on its own merits rather than on this insert.
+        //
+        // ⚠ AND THAT GREEN IS EVIDENCE THIS TIME, WHICH IT WAS NOT BEFORE. The
+        // last round read the same green and it meant nothing: a print inside
+        // the guarded block showed it NEVER EXECUTED in any fixture (nine
+        // blanket rows, all `canon == bare`). The same instrumentation now
+        // reports the branch firing TEN times while compiling that fixture, so
+        // its removal is a measured no-op and not an unobserved one. Anyone
+        // reintroducing a bare alias here owes the same print.
+        //
+        // ⚠ ITS CONCRETE TWIN IN Mono::Mono IS STILL THERE, AND ON PURPOSE.
+        // Disabling THAT one alone still breaks the build (libsd_dst_mod.a) and
+        // reds trait_ident_pkg_chain with a WRONG ANSWER, exit 45. The two are
+        // NOT the same hedge, which is what "they must retire together" got
+        // wrong: this one served queries that can carry an identity, while the
+        // concrete one serves mono's hardcoded bare-text probes
+        // (`has_concrete_impl_("Drop", …)`, "Copy", …). Mono has no trait
+        // registry, so it cannot turn `"Drop"` into `logos.lang.drop::Drop`;
+        // giving it one is the next arc, and until then the concrete alias is
+        // what answers those probes.
         const std::string& b_canon =
             bi.identity_trait.empty()
                 ? (bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait)
                 : bi.identity_trait;
-        if (b_canon != bi.trait_name) {
-            auto bounds_alias = bounds;
-            trait_engine_.add_blanket(bi.trait_name, std::move(bounds_alias));
-        }
         trait_engine_.add_blanket(b_canon, std::move(bounds));
     }
     // (S) shape-auto: closure types satisfy Fn / FnMut / FnOnce.
@@ -5622,11 +5634,43 @@ TypeRef Mono::mono_typeref_by_name_(const std::string& n) {
 // `seen` parameter is kept for source compatibility but ignored —
 // the engine has its own per-query cycle guard. Existing call sites
 // pass a StrSet by reference; we don't break them.
-bool Mono::mono_has_impl_recursive(const std::string& trait_name,
+void Mono::build_bare_trait_index_() {
+    if (bare_trait_ids_built_) return;
+    bare_trait_ids_built_ = true;
+    for (auto td : out_.traits) {
+        std::string n(td.name());
+        if (n.empty()) continue;
+        std::string pkg(td.pkg());
+        if (pkg.empty()) continue;              // bare itself is appended below
+        std::string id = pkg + "::" + n;
+        auto& v = bare_trait_ids_[n];
+        if (std::find(v.begin(), v.end(), id) == v.end()) v.push_back(id);
+    }
+}
+
+std::vector<std::string> Mono::bare_trait_identities_(const std::string& bare) {
+    build_bare_trait_index_();
+    std::vector<std::string> out;
+    if (auto it = bare_trait_ids_.find(bare); it != bare_trait_ids_.end())
+        out = it->second;
+    // The spelling itself stays last: a trait with no PKG, or one that never
+    // reached out_.traits (binary-only decls), is still answerable.
+    out.push_back(bare);
+    return out;
+}
+
+bool Mono::mono_has_impl_recursive(const TraitQuery& q,
                                    const std::string& concrete_name,
                                    StrSet& /*seen*/) {
     if (trait_engine_dirty_) populate_trait_engine_();
-    return trait_engine_.satisfies(trait_name, concrete_name);
+    // A query that KNOWS which trait it means asks for exactly that one.
+    if (q.has_identity) return trait_engine_.satisfies(q.identity, concrete_name);
+    // A bare compiler probe means "some trait spelled this" — its pre-existing
+    // meaning. Ask every identity declared under the spelling instead of
+    // relying on a bare-keyed duplicate of every fact.
+    for (auto& id : bare_trait_identities_(q.spelling))
+        if (trait_engine_.satisfies(id, concrete_name)) return true;
+    return false;
 }
 
 // `impl Trait for &T` / `&mut T` registers under collect_impl's
@@ -5659,9 +5703,13 @@ std::string Mono::ref_target_key(TypeRef t) {
 //      recursively check every bound against the substituted arg.
 //   4) If any impl satisfies all its bounds against the concrete's
 //      type-args, return true. Otherwise false.
-bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
+bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
                                          TypeRef concrete,
                                          StrSet& seen) {
+    // Local alias: the bare SPELLING is what the auto-trait names and the
+    // legacy out_.impls scans below are keyed by; `q.key()` is what the fact
+    // tables are keyed by. Both are used, deliberately, and never swapped.
+    const std::string& trait_name = q.spelling;
     if (!concrete) return false;
 
     // AUTO traits (Fst/Send/Sync/Unpin) are satisfied structurally, not by
@@ -5682,8 +5730,12 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
             sct.kind() == LogosType::Kind::UnsizedSlice) {
             TypeRef el = sct.elem();
             std::string ek = "$slice$" + (el ? type_str(el) : std::string("?"));
-            if (has_concrete_impl_(trait_name, ek)) return true;
-            if (has_concrete_impl_(trait_name, "$slice$T")) return true;
+            for (auto& id : (q.has_identity
+                                 ? std::vector<std::string>{q.identity}
+                                 : bare_trait_identities_(q.spelling))) {
+                if (has_concrete_impl_(id, ek)) return true;
+                if (has_concrete_impl_(id, "$slice$T")) return true;
+            }
         }
     }
 
@@ -5746,9 +5798,9 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         }
         // Concrete per-type impl (`impl Hash for (i64, str)`) — boundless
         // by construction; the key match is the whole check.
-        if (mono_has_impl_recursive(trait_name, full, seen)) return true;
-        bool per_arity = mono_has_impl_recursive(trait_name, cname, seen);
-        bool variadic  = mono_has_impl_recursive(trait_name, "$tuple$variadic", seen);
+        if (mono_has_impl_recursive(q, full, seen)) return true;
+        bool per_arity = mono_has_impl_recursive(q, cname, seen);
+        bool variadic  = mono_has_impl_recursive(q, "$tuple$variadic", seen);
         if (!per_arity && !variadic) return false;
         if (ct.tuple_elems().empty()) return true;
         // Deep check: walk matching impls; per-arity form unifies its
@@ -5757,7 +5809,7 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         // the pack param's bounds here.
         const TypePoolImpl* tp_pool = out_.type_pool.impl();
         for (auto& cand : out_.impls) {
-            if (cand.trait_name() != trait_name) continue;
+            if (!q.matches(cand.trait_name(), cand.identity_trait())) continue;
             bool is_var = variadic && cand.target_type() == "$tuple$variadic";
             bool is_ar  = per_arity && cand.target_type() == cname;
             if (!is_var && !is_ar) continue;
@@ -5775,7 +5827,9 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
                             if (TypeRef(e).kind() == LogosType::Kind::TypeVar)
                                 continue;   // still abstract — outer mono resolves
                             if (!mono_concrete_satisfies_bound(
-                                    std::string(tb.trait_name()), e, seen)) {
+                                    TraitQuery(std::string(tb.trait_name()),
+                                               std::string(tb.identity_trait())),
+                                    e, seen)) {
                                 all_ok = false;
                                 return;
                             }
@@ -5797,7 +5851,9 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
                     itp.each_bound([&](lir_view::FnTraitBoundView tb) {
                         if (!all_ok) return;
                         if (!mono_concrete_satisfies_bound(
-                                std::string(tb.trait_name()), inner, seen))
+                                TraitQuery(std::string(tb.trait_name()),
+                                           std::string(tb.identity_trait())),
+                                inner, seen))
                             all_ok = false;
                     });
                 });
@@ -5806,7 +5862,7 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         }
         return false;
     }
-    if (!mono_has_impl_recursive(trait_name, cname, seen)) return false;
+    if (!mono_has_impl_recursive(q, cname, seen)) return false;
     if (ct.kind() != LogosType::Kind::Struct &&
         ct.kind() != LogosType::Kind::ZonedStruct &&
         ct.kind() != LogosType::Kind::Enum)
@@ -5823,7 +5879,7 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
     // step-1 check.
     const TypePoolImpl* impl_pool = out_.type_pool.impl();
     for (auto& cand : out_.impls) {
-        if (cand.trait_name()  != trait_name) continue;
+        if (!q.matches(cand.trait_name(), cand.identity_trait())) continue;
         if (cand.target_type() != cname)      continue;
         if (cand.impl_type_params_empty())  return true;   // direct concrete
         TypeRef pat{cand.target_typeref(impl_pool)};
@@ -5853,7 +5909,9 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
                         return;
                     all_ok = false; return;
                 }
-                if (!mono_concrete_satisfies_bound(std::string(tb.trait_name()), inner, seen))
+                if (!mono_concrete_satisfies_bound(
+                        TraitQuery(std::string(tb.trait_name()),
+                                   std::string(tb.identity_trait())), inner, seen))
                     all_ok = false;
             });
         });
@@ -5911,9 +5969,9 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
         // checking T satisfies its own bound). Recurse via
         // mono_concrete_satisfies_bound; see
         // [[baghunt-mono-blanket-bound-recursion]].
-        auto concrete_has_impl = [&](const std::string& trait) {
+        auto concrete_has_impl = [&](const TraitQuery& q) {
             StrSet seen;
-            return mono_concrete_satisfies_bound(trait, concrete, seen);
+            return mono_concrete_satisfies_bound(q, concrete, seen);
         };
         struct MBound {
             std::string trait_name;
@@ -5970,21 +6028,19 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
                     return false;
                 continue;
             }
-            // ⚠ ASKED BY THE SPELLING, DELIBERATELY, AND THE ATTEMPT TO NARROW
-            // IT IS MEASURED. `tb.identity` is carried here and is correct, but
-            // switching this probe to it BREAKS THE STDLIB BUILD:
-            //   error: 'func.call' op
-            //     'Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt' does not reference
-            //     a valid function
-            // — `concrete_has_impl` answers from tables that are not all keyed
-            // by identity yet (notably the raw `concrete_impls_` alias and the
-            // out_.impls scans), so an identity query goes unanswered and a
-            // legitimate method is dropped. Narrowing this is the LAST step of
-            // retiring the two bare aliases, not a step that can precede it:
-            // every fact table the probe reaches has to be identity-keyed
-            // first. Do not "fix" this by deleting the alias — that is the same
-            // false-negative direction, one layer down.
-            if (!concrete_has_impl(tb.trait_name)) return false;
+            // Asks with BOTH spellings: the fact tables by IDENTITY, the
+            // legacy out_.impls scans and the auto-trait names by the WRITTEN
+            // name. An earlier attempt narrowed this to the identity ALONE and
+            // broke the stdlib build —
+            //   'Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt' does not reference a
+            //   valid function
+            // — because those scans still compared spellings, so the query went
+            // unanswered and a legitimate method was DROPPED, the same
+            // false-negative direction the bare aliases used to hedge. The
+            // tables were identity-keyed FIRST (TraitQuery::matches); only then
+            // could this carry both.
+            if (!concrete_has_impl(TraitQuery(tb.trait_name, tb.identity)))
+                return false;
             // B62/B63: HRTB satisfaction — universal-position + bijectivity
             // checks. Bound binders (any non-empty, non-'static lifetime in
             // type_args) must align with impl-level lifetime params, and the

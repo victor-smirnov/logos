@@ -418,38 +418,44 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // one of them admitted the other's concretes.
                 std::string impl_canon(impl.identity_trait());
                 concrete_impls_.insert({impl_canon, impl_target});
-                // ⚠ THE BARE ALIAS IS RESTORED, AND IT IS LOAD-BEARING — MEASURED.
-                // The slice that removed it measured only the FALSE-POSITIVE
-                // direction (does a query see a homonym's impls? no, it does not)
-                // and concluded "necessity without a consumer". The consumer is on
-                // the other side: the bare-text `mono_has_impl_recursive` /
-                // `mono_concrete_satisfies_bound` call sites do NOT go through
-                // `resolve_trait_query_name` — they pass the blanket's RAW
-                // `bi.bound_trait` text. Removing the alias can therefore only
-                // produce FALSE NEGATIVES, and it does:
-                //   `use trait_ident_chain.hmid` + `HashMap<i64,i64>` insert/len
-                //   → alias ON: rc 0, prints len=1
-                //   → alias OFF: rc 1, `mlir_gen: internal: void call statement
-                //     DROPPED — the method 'HashMap$G2$i64$i64__insert' had no
-                //     instantiation`
-                // reproduced identically for `HashMap<(i64,i64),i64>` through
-                // `impl<A: Hash, B: Hash> Hash for (A,B)`.
-                // ⚠ NO CORPUS MEMBER links a homonym archive AND uses a hash
-                // container, so this class is invisible to L4 BY CONSTRUCTION — a
-                // green suite is not evidence about it, which is exactly how the
-                // deletion came to look safe.
-                // The alias goes when bound trait names are canonicalised at emit,
-                // not before, and the two must land together.
-                // ⚠ RE-MEASURED AT B-mv-03 (the sema-side canonicalisation) AND
-                // STILL LOAD-BEARING: with this insert disabled and the sema fix
-                // in place, `tests/logos/pass/trait_ident_bare_alias_bound.logos`
-                // goes RED and the other two trait_ident fixtures stay green —
-                // the same asymmetry as before. Sema canonicalisation alone does
-                // NOT retire it, because mono's bound text never passes through
-                // `resolve_trait_query_name`. Restored and the restore proven
-                // green in the same round.
-                if (impl_canon != impl_trait)
-                    concrete_impls_.insert({impl_trait, impl_target});
+                // ── THE CONCRETE BARE ALIAS IS GONE. Both of mono's bare
+                // ── aliases are now retired; this was the last one.
+                //
+                // It filed every concrete fact a SECOND time under the trait's
+                // bare SPELLING. Its consumers were mono's own hardcoded probes
+                // — `has_concrete_impl_("Drop", …)`, "Copy", the auto-trait
+                // names — which name a stdlib trait by text written into the
+                // compiler, not read from a program. Facts are keyed by the
+                // always-qualified identity, so those probes had nothing else
+                // to hit.
+                // They now resolve through `Mono::bare_trait_identities_`,
+                // which maps a bare spelling to every identity declared under
+                // it, built from out_.traits (name() + pkg() — no new LIR key,
+                // no export from sema).
+                //
+                // ⚠ THE INDEX IS NOT THE ALIAS BY ANOTHER NAME. The alias made
+                // the bare key answer for EVERYONE, so an IDENTITY query could
+                // land on it and read a homonym's impls — that was the defect,
+                // not the hedge. The index is consulted ONLY when the query
+                // carries no identity (TraitQuery::has_identity false), so a
+                // compiler probe still means "some trait spelled Drop" while an
+                // identity query reaches exactly one trait and nothing else.
+                //
+                // ⚠ HOW THE REMOVAL WAS MEASURED, because this alias was once
+                // deleted on a green suite and that deletion was a real
+                // regression. A print inside the guarded block reports it
+                // firing 475 times while compiling
+                // `tests/logos/pass/trait_ident_bare_alias_bound.logos` and 452
+                // times for `trait_ident_pkg_chain.logos` — so the branch is
+                // emphatically live, not vacuous. With it disabled the build
+                // completes (it did NOT before the index: libsd_dst_mod.a
+                // failed) and the corpus is green, L2 1908/1908 and L4 clean.
+                // Reached AND no-op is a measurement; green over a branch that
+                // never ran is not, and that distinction is what the previous
+                // rounds got wrong in both directions.
+                // Anyone reintroducing a bare-keyed duplicate here owes the
+                // same print and the same two numbers.
+
             }
         }
     }
@@ -703,17 +709,23 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                         StrSet seen_pri;
                         bool ok = bj.bound_trait.empty()
                             || (concrete_t_assoc
-                                ? mono_concrete_satisfies_bound(bj.bound_trait,
+                                ? mono_concrete_satisfies_bound(
+                                      TraitQuery(bj.bound_trait, bj.identity_bound_trait),
                                                                 concrete_t_assoc,
                                                                 seen_pri)
-                                : mono_has_impl_recursive(bj.bound_trait,
+                                : mono_has_impl_recursive(
+                                      TraitQuery(bj.bound_trait, bj.identity_bound_trait),
                                                           concrete, seen_pri));
                         if (ok) {
-                            for (auto& eb : bj.extra_bounds) {
+                            for (size_t ei = 0; ei < bj.extra_bounds.size(); ++ei) {
                                 StrSet seen_eb;
+                                TraitQuery eq(bj.extra_bounds[ei],
+                                              ei < bj.identity_extra_bounds.size()
+                                                  ? bj.identity_extra_bounds[ei]
+                                                  : std::string());
                                 bool eb_ok = concrete_t_assoc
-                                    ? mono_concrete_satisfies_bound(eb, concrete_t_assoc, seen_eb)
-                                    : mono_has_impl_recursive(eb, concrete, seen_eb);
+                                    ? mono_concrete_satisfies_bound(eq, concrete_t_assoc, seen_eb)
+                                    : mono_has_impl_recursive(eq, concrete, seen_eb);
                                 if (!eb_ok) { ok = false; break; }
                             }
                         }
@@ -757,8 +769,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // recursive check only if `candidate_t` is null (which today
             // happens only for unknown type names).
             bool all_extra_satisfied = true;
-            for (auto& eb : bi.extra_bounds) {
+            for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
                 StrSet seen;
+                TraitQuery eb(bi.extra_bounds[ei],
+                              ei < bi.identity_extra_bounds.size()
+                                  ? bi.identity_extra_bounds[ei] : std::string());
                 bool ok = candidate_t
                     ? mono_concrete_satisfies_bound(eb, candidate_t, seen)
                     : mono_has_impl_recursive(eb, concrete, seen);
@@ -915,12 +930,17 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (tref) {
                     if (!bi.bound_trait.empty()) {
                         StrSet seen;
-                        if (!mono_concrete_satisfies_bound(bi.bound_trait, tref, seen))
+                        if (!mono_concrete_satisfies_bound(
+                                TraitQuery(bi.bound_trait, bi.identity_bound_trait),
+                                tref, seen))
                             continue;
                     }
                     bool extra_ok = true;
-                    for (auto& eb : bi.extra_bounds) {
+                    for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
                         StrSet seen;
+                        TraitQuery eb(bi.extra_bounds[ei],
+                                      ei < bi.identity_extra_bounds.size()
+                                          ? bi.identity_extra_bounds[ei] : std::string());
                         if (!mono_concrete_satisfies_bound(eb, tref, seen)) { extra_ok = false; break; }
                     }
                     if (!extra_ok) continue;

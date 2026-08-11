@@ -1,11 +1,18 @@
 # The two bare-spelling aliases in mono, and what each one is worth
 
-Status: **measured 2026-08-10**, both aliases, both directions. This file is the
-record of the measurement, not a design. It exists because both aliases spent
-time in the state "green corpus, no witness either way", and one of them was
-nearly deleted on that basis.
+Status: **CLOSED 2026-08-10 — both aliases are removed.** Read the final section
+first; everything before it is the record of how they were measured, kept
+because the two failure modes it documents are the reusable part.
 
-## THE ROOT THEY BOTH HEDGE
+⚠ The body below describes the tree AS IT WAS. Statements in the present tense
+("mono files every fact twice", "neither may be removed on its own") were true
+when written and are not now. Each superseded claim is marked where it stands.
+
+This file is the record of a measurement, not a design. It exists because both
+aliases spent time in the state "green corpus, no witness either way", one was
+nearly deleted on that basis, and the other was declared unmeasurable on it.
+
+## THE ROOT THEY BOTH HEDGE (superseded: the root was fixed, see the closing section)
 
 `SemaChecker::collect_impl` (`src/compiler/sema_collect.cpp`) keys `impls_` as
 `trait_name + "::" + target` from the **raw spelling**, two lines below where
@@ -26,8 +33,8 @@ stdlib's; it is whoever is collected last.
 
 | | site | fixture | verdict |
 |---|---|---|---|
-| CONCRETE | `Mono::Mono`, impl-indexing loop, `if (impl_canon != impl_trait) concrete_impls_.insert(...)` | `tests/logos/pass/trait_ident_bare_alias_bound.logos` | load-bearing |
-| BLANKET | `Mono::populate_trait_engine_`, `if (b_canon != bi.trait_name) trait_engine_.add_blanket(...)` | `tests/logos/pass/trait_blanket_bare_alias_bound.logos` | load-bearing |
+| CONCRETE | `Mono::Mono`, impl-indexing loop, `if (impl_canon != impl_trait) concrete_impls_.insert(...)` | `tests/logos/pass/trait_ident_bare_alias_bound.logos` | load-bearing **then**; REMOVED |
+| BLANKET | `Mono::populate_trait_engine_`, `if (b_canon != bi.trait_name) trait_engine_.add_blanket(...)` | `tests/logos/pass/trait_blanket_bare_alias_bound.logos` | load-bearing **then**; REMOVED |
 
 Both are consumed through the **same door**: `Mono::mono_has_impl_recursive` is
 `return trait_engine_.satisfies(trait_name, concrete_name);` — the trait name is
@@ -136,9 +143,52 @@ trait_name` and still answers. Landed with a PAIR of fixtures —
 byte-identical to what an over-refusing compiler prints, so the fail door cannot
 carry the claim alone.
 
-## CONSEQUENCE
+## CONSEQUENCE (superseded — see the closing section)
 
 Neither alias may be removed on its own. Both are false-negative hedges over one
 raw key, both now have a fixture that reds when they go, and the harm they were
 suspected of is not theirs. They come out **with** the canonicalisation of the
 bound trait name, and the two fixtures get re-derived at that time.
+
+## ✅ CLOSED — BOTH ALIASES ARE GONE, AND THEY DID NOT GO TOGETHER
+
+The prediction above got one thing right and one thing wrong. Right: the harm
+was not theirs, and the fixtures were re-derived rather than deleted. Wrong:
+**"neither may be removed on its own" was an assumption, not a finding.** The
+two hedged different things, and measuring them one at a time — with the other
+restored and a green checkpoint between — is what separated them.
+
+| | consumers | retired when |
+|---|---|---|
+| BLANKET | queries that can carry an identity: the blanket's own bound, the eager candidate list, mono_subst's assoc fallback, method_bound_ok via `TraitQuery` | the identity reached mono through LIR (`IDENTITY_BOUND_TRAIT`, `IDENTITY_EXTRA_BOUNDS`, `TB_IDENTITY`) |
+| CONCRETE | mono's OWN hardcoded probes — `has_concrete_impl_("Drop", …)`, `"Copy"`, the auto-trait names — text written into the compiler, which can never carry an identity | `Mono::bare_trait_identities_` gave those probes a bare-spelling → identities index, built from `out_.traits` (`name()` + `pkg()`) |
+
+**The index is not the alias renamed.** The alias made the bare key answer for
+*everyone*, so an identity query could land on it and read a homonym's impls —
+that was the defect, not the hedge. The index is consulted **only** when the
+query carries no identity, so a compiler probe still means "some trait spelled
+`Drop`" while an identity query reaches exactly one trait.
+
+**How each removal was measured**, because this arc contains both failure modes:
+a green suite over a branch that never executed (the blanket alias, previously
+called "unmeasurable"), and a deletion on a green suite that shipped a real
+regression (the concrete alias). Both were closed with a print **inside** the
+guarded block, proving the branch live before believing any green:
+
+```
+blanket alias   fires 10  times compiling trait_blanket_bare_alias_bound
+concrete alias  fires 475 times compiling trait_ident_bare_alias_bound
+                fires 452 times compiling trait_ident_pkg_chain
+```
+
+Reached **and** no-op is a measurement. Green over an unproven branch is not.
+
+**Ordering was the content, not a detail.** Narrowing `concrete_has_impl` before
+the fact tables were identity-keyed broke the stdlib build
+(`Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt`); disabling the concrete alias before
+the index existed broke `libsd_dst_mod.a` and reddened `trait_ident_pkg_chain`
+with a **wrong answer**, exit 45. Each step only became safe after the previous
+one landed.
+
+Both fixtures survive with rewritten headers stating what they pin now. Neither
+was deleted: each is still the only corpus member of its shape.
