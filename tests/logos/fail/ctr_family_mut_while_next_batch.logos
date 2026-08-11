@@ -1,0 +1,51 @@
+// ADR 0025 S0 (§7 rung 1) — MUTATING THE CONTAINER WHILE A BATCH PULLED
+// THROUGH §1's PINNED SIGNATURE (`next_batch()` / `BatchStream::next`) LIVES.
+//
+// THIS FIXTURE IS THE HOLE, PINNED. It is the out-of-tree scratch repro that
+// measured compiler defect D1 on 2026-08-11, copied in VERBATIM so the program
+// that found the defect now lives where a gate reads it instead of in a
+// sandbox directory nothing checks — and it now REFUSES. Until D1 closed, borrow
+// provenance died at ANY by-value hop: `Option::Some(b)` takes the batch by
+// value, so the loan the batch carried on the leaf was laundered and this
+// program COMPILED, reading a leaf that `insert`'s `tree_release` had freed.
+// The loan now follows the HOLDER graph (`borrow_check.cpp`), so composition
+// into the `Option` and extraction by `unwrap` both keep it.
+//
+// SO THIS IS A DIFFERENT SURFACE FROM fail/ctr_family_mut_while_batch, which
+// pins the SPLIT pull (`advance()` + `batch(&c)`): that door was sound before
+// D1 because it never wraps the batch in an `Option`. This one pins that the
+// PROTOCOL's own door — the one a consumer generic over `BatchStream` has to
+// use — is sound too. Both must stay: they are two different laundering
+// routes to the same freed leaf, and a checker can lose one without the other.
+//
+// The admit twin is pass/ctr_family_next_batch_then_mut: this refusal message
+// is byte-identical to what an over-refusing checker prints (one that never
+// ends the batch's borrow would red the twin with the same words while making
+// the container unusable after its first scan), so neither half stands alone.
+package ctr_family_mut_while_next_batch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    let mut s = c.leaf_batches();
+    let b = s.next_batch().unwrap();    // batch out of the Option — two by-value hops
+    c.insert(2u64, 20u64);              // …and THIS must be refused
+    if b.len() > 0u64 { return 0i32; }
+    return 1i32;
+}

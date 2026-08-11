@@ -1,0 +1,19 @@
+// D1 / door 2a — COMPOSITION through an enum literal. `Option::Some(c.mk())`
+// captures the payload's borrow into `ob` for `ob`'s lifetime. Before the fix
+// the loan channel had no EnumLitData case (StructLit/TupleLit/ArrLit did), so
+// the borrow was transient and this compiled. PAIRED WITH pass/bc_d1_consumed_to_scalar_admits.
+package bc_d1_enum_lit_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let ob: Option<B> = Option::Some(c.mk());
+    c.bump();
+    let b: B = ob.unwrap();
+    return *b.p as i32;
+}

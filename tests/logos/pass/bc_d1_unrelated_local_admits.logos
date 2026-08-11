@@ -1,0 +1,21 @@
+// ADMIT TWIN guarding against a rule that ties EVERY borrow-carrying value to
+// EVERY live local: the value here borrows `x`, not `c`, so mutating `c` while
+// it is live is legal. inherit_loans only ever ADDS a holder to an EXISTING
+// loan record, which is why an unrelated local cannot be dragged in.
+package bc_d1_unrelated_local_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let x: i64 = 7i64;
+    let ob: Option<B> = Option::Some(B { p: &x });
+    c.bump();
+    let b: B = ob.unwrap();
+    if *b.p != 7i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

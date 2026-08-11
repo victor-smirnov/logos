@@ -1,0 +1,23 @@
+// D1 / door 8b — a borrow-carrying value STORED into a container. `push` takes
+// `&mut self` and the value BY VALUE; the receiver had no way to inherit the
+// argument's loans, so the borrow died at the end of the push statement.
+// CONSERVATIVE BY CONSTRUCTION: Logos signatures carry no lifetimes, so a
+// `&mut self` method that does not store its argument is indistinguishable from
+// one that does — Rust refuses those too. PAIRED WITH
+// pass/bc_d1_container_last_use_admits, which pins that this is NLL, not lexical.
+package bc_d1_container_push_held;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    vs.push(c.mk());
+    c.bump();
+    return *vs.get(0u64).p as i32;
+}

@@ -1,0 +1,22 @@
+// D1 / door 10 — TWO-LEVEL holder chain, the mechanism behind the ADR 0025
+// batch-cursor hole: `c.iter()` gave `s` a loan on `c`, `s.get()` recorded a
+// loan on `s` — and `c`'s loan was NLL-released at `s`'s last use. A loan now
+// follows the HOLDER graph (inherit_loans), so `b` holds c's loan directly.
+package bc_d1_holder_chain_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct S { b: B }
+impl S { fn get(&self) -> B { return self.b; } }
+impl C { fn iter(&self) -> S { return S { b: self.mk() }; } }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let s: S = c.iter();
+    let b: B = s.get();
+    c.bump();
+    return *b.p as i32;
+}

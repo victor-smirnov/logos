@@ -1280,8 +1280,55 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # and no tier_commit label rides that path) BEFORE the re-configure; `ctest -N`
 # three ways agreed exactly, and each of the five names was verified individually
 # with `ctest -N -R <name>`.
-REGISTRY-ALL         6936
-REGISTRY-NOIMPORTED  3253
+#
+# 2026-08-11 — D1 CLOSED, and the `Option<B>` laundering recorded as a hole two
+# entries up IS NOW PINNED, so that sentence no longer describes this tree.
+# Borrow provenance used to die at ANY by-value hop; a loan now follows the
+# HOLDER graph (borrow_check.cpp inherit_loans / bc_hop_roots), so composition
+# into an enum literal, extraction by unwrap / field read / match binding,
+# pass-through by a by-value fn, and a store into a container all keep it.
+# 13 fixtures, one PAIR per door — 8 `fail/bc_d1_*` refusals and 5
+# `pass/bc_d1_*_admits` twins, because the refusal message is byte-identical to
+# what an OVER-refusing checker prints and neither half stands alone. One twin,
+# pass/bc_d1_residency_exempt_return_admits, exists to red if a future rule keys
+# on a type NAME instead of is_borrow_carrying_type() and re-captures the
+# residency-holder escape hatch.
+# PREDICTED 6949 / 3266 / 31 (+13 / +13 / 0 — same `.expected` glob path, no
+# tier_commit label rides it) BEFORE the re-configure; `ctest -N` three ways
+# agreed exactly.
+#
+# 2026-08-11 (same day, SEPARATE step) — THE PROTOCOL DOOR RE-PINNED. D1 above
+# closed the checker; this step pins what that buys at ADR 0025's own §1
+# signature, +2 fixtures:
+#   * fail/ctr_family_mut_while_next_batch — the out-of-tree scratch repro that
+#     measured D1, brought IN-TREE verbatim so it stops living in a sandbox that
+#     no gate reads. It compiled rc=0 on 262398ac and now refuses with "cannot
+#     borrow 'c' as mutable: 'c' has shared borrows" (message taken from the
+#     actual run, not predicted).
+#     It is a DIFFERENT SURFACE from fail/ctr_family_mut_while_batch, which pins
+#     the SPLIT pull (`advance()` + `batch(&c)`) and never wraps the batch in an
+#     `Option`: two laundering routes to the same freed leaf, and a checker can
+#     lose one without the other, so both stay.
+#   * pass/ctr_family_next_batch_then_mut — the admit twin, same shape with the
+#     batch's and the stream's scope CLOSED before the mutation. It must COMPILE
+#     AND RUN: `batches == 1`, `sum == 33`, and `sum2 == 6` so the scan AFTER the
+#     mutation SEES it. Without this half the refusal message above is
+#     indistinguishable from an over-refusing checker that carried the loan into
+#     the `Option` and never released it — a dead container reads exactly like a
+#     closed hole.
+# PREDICTED 6951 / 3268 / 31 (+2 / +2 / 0 off the 6949 line above — the same
+# `.expected` glob, no tier_commit label on either). ⚠ HONEST SEQUENCE, because
+# the ledger's rule is predict-BEFORE-reconfigure and that is not what happened
+# here: the two fixtures were already on disk and already registered when this
+# step began, so the +2 is ledger ARITHMETIC checked against a build tree that
+# had seen them, not a prediction made before their first registration. What was
+# actually re-run: a fresh `cmake -S . -B build`, then `ctest -N` three ways
+# (6951 / 3268 / 31, agreeing exactly with the arithmetic), then each of the two
+# names verified individually with `ctest -N -R <name>` (1 each). A prediction
+# that could not have been wrong is weaker evidence than one that could; the
+# three-way agreement and the per-name checks are the part that carries weight.
+REGISTRY-ALL         6951
+REGISTRY-NOIMPORTED  3268
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

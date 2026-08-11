@@ -1,0 +1,25 @@
+// D1 / door 4 — a MATCH ARM BINDING is an extraction out of the scrutinee.
+// propagate_pat_sources fed only the §B6/E0597 channel; the loan channel never
+// learned the binding was a holder. Written in the EXPRESSION form on purpose:
+// the statement form refuses by scope accident (the mutation sits inside the
+// match, where the outer frame's loan is not yet released), so only this shape
+// actually measures the rule. PAIRED WITH pass/bc_d1_match_scalar_admits.
+package bc_d1_match_binding_escapes;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let ob: Option<B> = Option::Some(c.mk());
+    let b: B = match ob {
+        Option::Some(bb) => bb,
+        Option::None => B { p: &z }
+    };
+    c.bump();
+    return *b.p as i32;
+}

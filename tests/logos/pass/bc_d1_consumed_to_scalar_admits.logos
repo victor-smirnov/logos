@@ -1,0 +1,26 @@
+// ADMIT TWIN for fail/bc_d1_enum_lit_held and fail/bc_d1_byvalue_fn_held.
+// A refusal message alone cannot tell separation from over-refusal, so every D1
+// door is pinned in a PAIR. Here the borrow-carrying value is CONSUMED: `eat`
+// returns a scalar, and the scalar wrapped in `Option::Some` carries nothing.
+// This is what the "result type must itself carry borrows" gate on the by-value
+// argument rule protects — key the rule on the argument alone and this reds.
+package bc_d1_consumed_to_scalar_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn eat(x: B) -> i64 { return *x.p; }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let n: i64 = eat(c.mk());
+    let m: i64 = *c.mk().p;
+    let on: Option<i64> = Option::Some(m);
+    c.bump();
+    if n != 1i64 { return 1; }
+    if on.unwrap() != 1i64 { return 2; }
+    if c.v != 2i64 { return 3; }
+    return 0;
+}

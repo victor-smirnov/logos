@@ -1,0 +1,20 @@
+// D1 / door 3 — EXTRACTION through a BY-VALUE-self method. `unwrap` consumes
+// `self`, so result_borrows_self is false and nothing tied the result to the
+// receiver: the loan died at `ob`'s last use while `b` still reached the borrow.
+// This is the shape ADR 0025 §5 deviated around (batch pull split into
+// advance()+batch(&c) because the pinned next() could not be checked).
+package bc_d1_unwrap_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let ob: Option<B> = Option::Some(c.mk());
+    let b: B = ob.unwrap();
+    c.bump();
+    return *b.p as i32;
+}

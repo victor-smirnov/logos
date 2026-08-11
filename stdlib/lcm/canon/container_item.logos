@@ -1911,22 +1911,37 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 /// Land on the next LEAF and make its window current; `false` =
                 /// exhausted. ONE descent, per leaf.
                 ///
-                /// THE PULL IS SPLIT IN TWO ON PURPOSE, and the reason is
-                /// measured, not stylistic. `Option<B>` LAUNDERS THE BORROW:
-                /// `Option::Some(b)` is a generic constructor taking `b` BY
-                /// VALUE, so the batch's provenance — the whole point of §7
-                /// rung 1 — ends at the wrapping. Probes, 2026-08-11, on this
-                /// family: with the batch held (or even still inside the
-                /// un-unwrapped `Option`) across `c.insert(…)`, the program
-                /// COMPILES; the same program with the batch taken through
-                /// `advance()` + `batch()` is refused
-                /// (`cannot borrow 'c' as mutable: 'c' has shared borrows`).
-                /// `insert` `tree_release`s the old tree, so the admitted form
-                /// reads a freed leaf. `next_batch` below still exists — it is
-                /// ADR §1's pinned signature and the trait's — but THIS pair is
-                /// the sound door and is what the emitted scan loop must use
-                /// until the checker carries provenance through a generic
-                /// by-value argument.
+                /// THE PULL IS SPLIT IN TWO, and the reason it was split HAS
+                /// SINCE BEEN FIXED — read both halves before copying this
+                /// shape.
+                ///
+                /// AS FIRST MEASURED (2026-08-11, this family): `Option<B>`
+                /// LAUNDERED THE BORROW. `Option::Some(b)` is a generic
+                /// constructor taking `b` BY VALUE, and provenance died at any
+                /// by-value hop, so the batch's borrow — the whole point of §7
+                /// rung 1 — ended at the wrapping: with the batch held (or
+                /// still inside the un-unwrapped `Option`) across
+                /// `c.insert(…)`, the program COMPILED, and `insert`
+                /// `tree_release`s the old tree, so that admitted form read a
+                /// freed leaf.
+                ///
+                /// THAT WAS A COMPILER DEFECT (D1), NOT A PROPERTY OF THE
+                /// PROTOCOL, AND IT IS CLOSED (same day). A loan now follows
+                /// the HOLDER graph, so composition into the `Option` and
+                /// extraction by `unwrap` both keep it. `next_batch()` is
+                /// SOUND: the identical program is now refused with
+                /// `cannot borrow 'c' as mutable: 'c' has shared borrows`,
+                /// pinned as `fail/ctr_family_mut_while_next_batch` (the repro
+                /// verbatim) with its admit twin
+                /// `pass/ctr_family_next_batch_then_mut`.
+                ///
+                /// SO THE SPLIT IS NO LONGER A SOUNDNESS WORKAROUND. Both doors
+                /// are sound; this one is the ergonomic form (no `Option` per
+                /// leaf, and a witness-checked container argument). Both keep
+                /// their own refusal PAIR — `fail/ctr_family_mut_while_batch`
+                /// for this door, the pair above for `next_batch` — because
+                /// they are two different laundering routes to the same freed
+                /// leaf and a checker can lose one without the other.
                 pub fn advance(self: &mut #bsid) -> bool {
                     if self.at >= self.endr { return false; }
                     unsafe {
@@ -1994,11 +2009,15 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                            "leaf batch: the container witness is not this stream's container");
                     return #bmkfn(&self.nv, self.clo as u64, self.chi as u64);
                 }
-                /// ADR §1's pinned pull, and the trait's. ⚠ THE RESULT IS NOT
-                /// BORROW-TIED — see `advance`: the `Option` wrapping drops the
-                /// provenance. Kept because the protocol is the vocabulary and
-                /// a consumer generic over `BatchStream` has no other door;
-                /// `advance()` + `batch()` is the one to emit.
+                /// ADR §1's pinned pull, and the trait's. THE RESULT IS
+                /// BORROW-TIED (re-measured 2026-08-11 after D1 closed — see
+                /// `advance` for the history: the `Option` wrapping used to
+                /// drop the provenance and no longer does). Holding the batch
+                /// across a mutation is refused through THIS door too, pinned
+                /// by `fail/ctr_family_mut_while_next_batch` +
+                /// `pass/ctr_family_next_batch_then_mut`. So the trait door is
+                /// no longer a hole, and a consumer generic over `BatchStream`
+                /// — which has no other door — is as safe as the inherent one.
                 pub fn next_batch(self: &mut #bsid) -> Option<#bbid> {
                     if !self.advance() { return Option::None; }
                     unsafe {

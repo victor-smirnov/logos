@@ -1,0 +1,25 @@
+// ADMIT TWIN for fail/bc_d1_match_binding_escapes. The arm binding is
+// borrow-carrying, but what LEAVES the match is a scalar — nothing reaches the
+// arena past the match, so the loan is free to die at the scrutinee's last use.
+// propagate_pat_loans gates on the BINDING's type and the value flowing out is
+// gated separately, which is what keeps this admitted.
+package bc_d1_match_scalar_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let ob: Option<B> = Option::Some(c.mk());
+    let n: i64 = match ob {
+        Option::Some(bb) => *bb.p,
+        Option::None => 0i64
+    };
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

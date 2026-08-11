@@ -129,6 +129,50 @@ carries the extra argument. Making `b.col_k()` legal is a borrow-checker
 change (transitive provenance through a borrow-carrying local), not a batch
 change — recorded as an axis, not adopted here.
 
+⚠⚠ HALF OF THE AXIS ABOVE IS CLOSED — re-measured 2026-08-11, same day, after
+D1. The paragraph stands as the HISTORY (it is why v1 is spelled
+`pdt_col(&leaf, &b, k)`), but it stated ONE rule for two hops — "a free function
+… takes the merged provenance of its REFERENCE arguments, and a method's result
+takes its receiver's — and in both cases the provenance stops after ONE hop" —
+and the two halves have come apart. A loan now follows the HOLDER graph, and
+MEASURED, with the two probes differing in exactly one line:
+
+* **METHOD RECEIVER — RE-EXPORTS NOW.** The receiver's result takes everything
+  the receiver transitively carries. `fail/bc_d1_holder_chain_held` pins it
+  generically (`s.get()` on a borrow-carrying local, held across `c.bump()`,
+  refused). CONCRETELY on this plane, on `{N}LeafBatch::keys()` — a real method
+  returning a real `PdtCol` — `let kc = b.keys(); c.insert(…); kc.at(0)` is
+  REFUSED with `cannot borrow 'c' as mutable: 'c' has shared borrows`, through
+  the two by-value hops of `next_batch().unwrap()` and then the method.
+  Controlled by a ONE-LINE perturbation: make `kc` dead after the insert and the
+  same program COMPILES, so the refusal is the COLUMN's loan reaching `c`, not
+  the batch's left over. **So `b.col_k()` as a method IS now expressible and
+  would tie — the answer to the question this ⚠ was raised to ask is YES.**
+* **FREE-FN `&`-ARG — STILL DROPS. The original claim survives here, and this
+  is the hop that is still open.** A free fn whose only reference argument is a
+  borrow-CARRYING local still contributes that local's own borrow and not what
+  the local carries: `fn thru(b: &B) -> B { B { p: b.p } }`, then
+  `let b1 = thru(&b0); c.bump(); *b1.p` COMPILES. Controlled: hold `b0` itself
+  live across the `bump` as well and it refuses, so the admit is precisely the
+  `&`-arg hop and not a scope artefact. The same shape one line different — the
+  hop written as a METHOD instead — is refused (previous bullet). That
+  asymmetry is a compiler defect, D1's residue, not a decision: it is recorded
+  here and NOT pinned as a fixture, because pinning an admit would write the
+  laundering down as intended.
+
+Consequently `cols_batch`'s `&NodeView`-not-`&ColRef` rooting (recorded at the
+constructor in `stdlib/mem/bt/batch.logos`) is STILL REQUIRED — it is a free
+function, so it sits on the hop that still drops.
+
+Nothing is respelled here. The v1 witness form stays exactly as it is: rewriting
+`pdt_col`'s signature is S1's reconciliation (which also has to decide
+`ColsBatch`'s multi-slot form, §5), and doing it in a docs step would be a
+spelling change measured by nothing. What changed is the CONSTRAINT, which is
+what this ADR records. Note also that the witness argument was never only a
+borrow device — it is the pointer-identity check against the slot
+(`cols_batch`'s `slot` field, abuse direction measured), so dropping it stays a
+separate question from whether the borrow ties.
+
 **The batch is ONE FORM FOR ALL STORES (Victor, 2026-08-10).** PdtBuffer has
 no dyn and needs none: a leaf's column region has the same shape whichever
 store resolved the block, so `ColsBatch`/`PdtCol` are one concrete type per
@@ -193,22 +237,41 @@ family's type has no spelling a human can write, so the free form has no door
 for a hand-written consumer). MEASURED against the container's own per-row
 cursor over 1000 entries in 4K leaves: same rows, same order, same sums, and
 **8 `next()` calls for 1000 rows** — per LEAF, not per row. Three deviations
-were forced, and all three are the SAME defect at different sites:
+were forced. Two of them were the SAME compiler defect (D1) at different sites
+and are re-measured below on the tree that closed it — the first is GONE, the
+second survives only as a pointer-identity check; the third was never a defect
+at all. Each bullet carries its own re-measurement:
 
-* **`Option<B>` LAUNDERS THE BORROW.** `Option::Some(b)` takes the batch BY
-  VALUE, and provenance does not survive a by-value generic constructor: with
-  the batch (or the un-unwrapped `Option`) held across `insert`, the program
-  COMPILES — i.e. §7 rung 1 is not enforced through §1's pinned signature. The
-  emitted pull is therefore SPLIT: `advance(&mut self) -> bool` +
-  `batch(&self, c: &{N}) -> {N}LeafBatch`, which is refused
-  (`cannot borrow 'c' as mutable: 'c' has shared borrows`) with the batch alive
-  and admitted with its scope closed. `next_batch`/`BatchStream::next` remain —
-  the protocol IS the vocabulary — with the hole stated at the method.
-* **`&self` DOES NOT TIE EITHER**, for the §2 reason: one hop. A `&{N}LeafWalk`
-  argument contributes the borrow of the stream LOCAL, not the `&{N}` borrow
-  that local carries — so `batch()` takes the container as a WITNESS, checked
-  by pointer identity (abuse direction measured: a witness from another
-  container traps, SIGABRT 134), exactly as `pdt_col` takes the leaf.
+* **`Option<B>` LAUNDERED THE BORROW — FIXED, re-measured 2026-08-11 (same
+  day).** As first measured: `Option::Some(b)` takes the batch BY VALUE and
+  provenance did not survive a by-value generic constructor, so the batch (or
+  the un-unwrapped `Option`) held across `insert` COMPILED — §7 rung 1 was not
+  enforced through §1's own pinned signature. THAT WAS A COMPILER DEFECT (D1),
+  not a property of the protocol, and it is closed: a loan follows the HOLDER
+  graph, so composition into the `Option` and extraction by `unwrap` both keep
+  it. `next_batch()` is now SOUND — the trait door is no longer a hole. Pinned
+  as a PAIR: `fail/ctr_family_mut_while_next_batch` (the D1 repro verbatim, now
+  refused with `cannot borrow 'c' as mutable: 'c' has shared borrows`) +
+  `pass/ctr_family_next_batch_then_mut` (scope closed, compiles AND answers —
+  and its second scan SEES the mutation, so the door did not lose its results
+  to the fix). The SPLIT pull `advance(&mut self) -> bool` +
+  `batch(&self, c: &{N}) -> {N}LeafBatch` STAYS — it is now an ergonomic form
+  and a witness-checked one, not a soundness workaround — and keeps its own
+  pair (`fail/ctr_family_mut_while_batch` + `pass/ctr_family_batch_then_mut`).
+  Both pairs stay: they are two different laundering routes to the same freed
+  leaf and a checker can lose one without the other.
+* **`&self` DID NOT TIE EITHER — re-measured 2026-08-11, and this reason is now
+  HALF stale.** As written: a `&{N}LeafWalk` argument contributes the borrow of
+  the stream LOCAL, not the `&{N}` borrow that local carries, so `batch()` takes
+  the container as a WITNESS. After D1 the hop matters, and `batch(&self, …)`
+  sits on the RECEIVER hop, which re-exports now (§2 ⚠⚠, probes `p3`/`p2`: the
+  method form refuses, the free-fn `&`-arg form still admits). So the witness is
+  no longer load-bearing FOR THE BORROW at this site. **It stays anyway**, for
+  the reason it was always also doing: it is the pointer-identity check (abuse
+  direction measured — a witness from another container traps, SIGABRT 134), and
+  that check is not something the borrow rule replaces. Whether the argument can
+  be dropped is an ERGONOMIC question for S1, not a soundness one, and it must
+  not be dropped without replacing the identity check.
 * **The batch is a PAIR of `ColsBatch`es, not one.** This family's leaf keeps
   key and value in two separate single-column slots, and a `ColsBatch` is one
   SLOT's window. Nothing is re-implemented — both halves go through

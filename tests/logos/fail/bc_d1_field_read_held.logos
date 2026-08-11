@@ -1,0 +1,19 @@
+// D1 / door 5b — EXTRACTION by FIELD READ. Constructing `Wrap { b: c.mk() }`
+// was already refused; reading the borrow-carrying field back OUT of the holder
+// inherited nothing, so the loan died at `w`'s last use.
+package bc_d1_field_read_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let w: Wrap = Wrap { b: c.mk() };
+    let b: B = w.b;
+    c.bump();
+    return *b.p as i32;
+}

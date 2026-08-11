@@ -1,0 +1,19 @@
+// D1 / door 7a — PASS-THROUGH by value. take_ref_borrows::Call recursed only
+// into `is_ref_kind` args, so a by-value borrow-carrying argument contributed
+// nothing even when the RESULT carries borrows too. The result-is-bc gate is
+// what keeps pass/bc_d1_consumed_to_scalar_admits admitted.
+package bc_d1_byvalue_fn_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn id(x: B) -> B { return x; }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = id(c.mk());
+    c.bump();
+    return *b.p as i32;
+}

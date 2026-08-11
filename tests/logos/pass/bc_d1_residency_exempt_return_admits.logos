@@ -1,0 +1,25 @@
+// The residency-holder EXEMPTION, checked in the direction it EXISTS for.
+// `H` holds an Rc share that keeps the arena alive, so `H` is deliberately NOT
+// borrow-carrying (ts_.residency_exempt) and returning it past the referent is
+// the laundered-escape hatch. Every D1 rule gates on is_borrow_carrying_type()
+// rather than a raw name test precisely so this keeps compiling; a rule keyed on
+// "is this an Option/Vec/wrapper by name" would re-capture Held/HeldAny and red
+// this test. The ABUSE direction — extracting the borrow back out of an exempt
+// wrapper and holding it across a mutation — is closed by the loan channel one
+// level up, and is NOT exempted.
+package bc_d1_residency_exempt_return_admits;
+use logos.lang.rc;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct H { h: Rc<i64>, b: B }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+fn make(c: &C) -> H { return H { h: rc_new::<i64>(7i64), b: c.mk() }; }
+fn main() -> i32 {
+    let c: C = C { v: 1i64 };
+    let hh: H = make(&c);
+    if *hh.b.p != 1i64 { return 1; }
+    return 0;
+}

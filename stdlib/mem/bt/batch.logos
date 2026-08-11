@@ -204,6 +204,18 @@ pub struct ColsBatch {
 /// (`error [fn main]: cannot borrow 'nv' as mutable: 'nv' has shared borrows`)
 /// with this one. Rooting every constructor at the leaf keeps the tie one hop
 /// long, which is the length the checker actually enforces.
+///
+/// RE-MEASURED 2026-08-11, after compiler defect D1 closed (a loan now follows
+/// the HOLDER graph): THIS RATIONALE STILL HOLDS, and deliberately so — do not
+/// "modernize" it away. D1 fixed the METHOD-RECEIVER hop and the by-value hops,
+/// not the FREE-FN `&`-ARG hop, and `cols_batch*` are free functions. Probe,
+/// same shape one line apart: `fn thru(b: &B) -> B { B { p: b.p } }` then
+/// `let b1 = thru(&b0); c.bump(); *b1.p` COMPILES (controlled — hold `b0`
+/// itself live across the `bump` and it refuses, so the admit is the `&`-arg
+/// hop, not a scope artefact), while the same hop written as a method on `B`
+/// is REFUSED. That asymmetry is D1's residue and is recorded in ADR 0025 §2's
+/// second ⚠. Until it closes, a `&ColRef`-rooted constructor would launder
+/// exactly as it did before.
 pub fn cols_batch_at(nv: &NodeView, slot: u32, lo: u64, hi: u64) -> ColsBatch {
     let b: PdtBuf = nv.col(slot).as_buf();
     assert(lo <= hi, "cols_batch_at: inverted window");

@@ -1,0 +1,24 @@
+// D1 in the §B6/E0597 channel — a SEPARATE defect from the loan channel, with
+// the identical shape: collect_ref_sources tied a call's result only to its
+// PLAIN-REF arguments and had no FieldRead/TupleIndex/IndexRead case at all.
+// So a borrow-carrying value read out of a holder escaped its referent's SCOPE
+// even where no mutation exists for the loan channel to catch.
+// PAIRED WITH pass/bc_d1_scope_escape_scalar_admits.
+package bc_d1_scope_escape_field_read;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct Wrap { b: B }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+fn main() -> i32 {
+    let z: i64 = 0i64;
+    let mut b: B = B { p: &z };
+    {
+        let c: C = C { v: 1i64 };
+        let w: Wrap = Wrap { b: c.mk() };
+        b = w.b;
+    }
+    return *b.p as i32;
+}
