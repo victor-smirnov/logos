@@ -198,12 +198,19 @@ exactly two properties:
    ("the entry stays until the LAST wrapper closes"). No new increments on the
    read path — not per block, batch, or cursor.
 3. *Owned cursor — the only place counting is added, opt-in.* A cursor that
-   must cross a scope (task handoff, REPL, the future streaming query OUTPUT)
-   clones the wrapper: one pin per cursor LIFETIME. It is legal ONLY over a
-   COMMITTED snapshot (`status == SNAP_COMMITTED`, one branch at open): it
-   borrows no `&C`, so stability must come from immutability. It is the only
-   Send shape. One walk core, two constructors — the owned form wraps the
-   borrowed one plus the pin token, never a second implementation.
+   must cross a scope (task handoff, REPL, a query stream ESCAPING its
+   caller's scope) clones the wrapper: one pin per cursor LIFETIME. It is
+   legal ONLY over a COMMITTED snapshot (`status == SNAP_COMMITTED`, one
+   branch at open): it borrows no `&C`, so stability must come from
+   immutability. It is the only Send shape. One walk core, two constructors —
+   the owned form wraps the borrowed one plus the pin token, never a second
+   implementation.
+   ⚠ A STREAMING QUERY OUTPUT IS NOT AUTOMATICALLY THIS CASE. A stream a
+   `deem` RETURNS crosses the query FN's boundary, not the caller's scope: as
+   a borrow-carrying return value tied to the source arguments
+   (`-> impl BatchStream<B> + '_` — the shape family producers already have),
+   it composes into pipelines under rung 1–2 with ZERO counting. Rung 3 is
+   reached only when the stream ESCAPES the handle's scope. §12.
 
 **Why not RC-per-cursor:** a join probe opens a cursor PER OUTER ROW
 (`__ctr_at_(c,k)`); counting there is per-row traffic bought for nothing BC
@@ -245,6 +252,12 @@ container⟂store split); the emitted query shape is one for all stores.
 6. A borrow-carrying cursor must be unable to cross a task boundary — the
    owned form is the only Send shape. The concurrency model has no such
    predicate yet; it must grow one.
+7. (§12) A generator API on pinned fibers: create/resume/yield plus
+   KILL-ON-DROP — dropping a fiber-backed stream must kill the fiber and run
+   its frame's drops, or the leaf pin leaks with the frame.
+8. (§12) Borrows THROUGH a fiber: a fiber-backed stream handle is
+   borrow-carrying over the deem's source arguments; the fiber must not
+   outlive them — the fiber-side half of requirement 6.
 
 **Known limit, stated:** two handles to the SAME container in one snapshot
 alias past BC — the same limit view.logos declares intra-node. Backstop is a
@@ -284,6 +297,47 @@ consumes them; source hub traits (`OrderedMapSource` etc.) move OUT of
 `logos.mem.bt.map` into the query plane's own module, closing the recorded
 "vocabulary rooted in one supplier" defect.
 
+## 12. Deem-call pipelines and the fiber-backed pull form
+
+Today every query copies its result into a returned `Vec` — correct, poorly
+composable: `q2` over `q1`'s result pays a full materialization at the seam.
+With batch streams both halves of composition exist on this plane:
+
+* CONSUMING a stream: a `deem` source parameter whose type is a batch stream —
+  the S4c path as it stands (membership-checked, planned as non-`Rewind`,
+  non-`SizedStream`).
+* RETURNING a stream: `deem q(m: &Hs…) -> impl BatchStream<B> + '_` — a
+  borrow-carrying return tied to the source arguments. Pipelines within one
+  scope are rung 1–2 (zero counting, §7); only an ESCAPING stream is rung 3.
+
+**The fiber form is what makes RETURNING general.** The emitter produces
+push-shaped bodies (`__out.push(row)` inside a fused nest). Inverting an
+arbitrary push body into a pull stream without fibers is a CPS/state-machine
+transform of every emitted shape — a compiler in its own right. A fiber
+sidesteps it: the body runs AS EMITTED and `yield <batch>` replaces the push.
+A sort inside, a fixpoint, a two-phase aggregate — all stream out with no
+body rewrite. The batch protocol is what prices this in: **one suspend per
+BATCH (= leaf), never per row** — per-row generators were the classic
+objection, and batching amortizes it by the fanout. An empty batch is the
+liveness tick for budgeted/anytime execution.
+
+The plan chooses the form and records the ground, like every decision on this
+plane:
+
+* `direct` — single-loop streamable plans: the stream is a state struct (the
+  Walk shape), no fiber, no cost;
+* `fiber` — any other body; the trace names why the direct form was refused.
+
+Caveats, stated: the "metacall JIT has no fibers" constraint (GOTTPOFF) is
+about COMPILE-TIME metaprogram execution and does not apply — these fibers
+run in emitted RUNTIME code, where fibers are the concurrency model.
+Requirements 7–8 (§7) are the substrate this form owes. Not v1: recorded so
+S5 designs against it instead of rediscovering it.
+
+Reach, one sentence: operator-as-fiber over batch deltas is the runtime shape
+of the DBSP netlist and of Hest's dataflow — Deem pipelines and Hest converge
+on this plane.
+
 ## Axes ledger
 
 source-kind × layout(rows/cols) × batch bound(leaf/whole/epoch) ×
@@ -312,8 +366,12 @@ scan shape; every other cell is declared, not silently absent.
   Gate: an `order by` over the seek column emits NO `Sort` node and the trace
   says why.
 * **S4 — aggregates fold single-pass** (with the emitter unification).
-* **S5 — WritWalk batches; weighted batches** (the DBSP seam); owned cursor +
-  streaming query output as its consumer.
+* **S5 — streaming query output + pipelines (§12).** `-> impl BatchStream`
+  return surface: `direct` form for single-loop plans; the `fiber` form needs
+  Memoria API req. 7–8 first. Pipeline fixture: two chained deems, oracle =
+  pull count (one drain, no seam materialization) + same rows. Owned cursor
+  as the escape shape.
+* **S6 — WritWalk batches; weighted batches** (the DBSP seam §10).
 
 ## Consequences
 
