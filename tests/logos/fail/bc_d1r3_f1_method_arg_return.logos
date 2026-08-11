@@ -1,0 +1,20 @@
+// D1 round 3 / F1 — the same by-value hop, METHOD-CALL spelling. prov_of's
+// Code::MethodCall arm consulted the RECEIVER and nothing else, so a by-value
+// borrow-carrying ARGUMENT rooted at a fn-local escaped: the receiver `i` is
+// a &-param here, precisely so the value-local fallback CANNOT be what makes
+// this refuse — only the argument can. F1 and F2 are one defect seen from two
+// sides (the receiver was privileged, the arguments invisible); both are
+// closed by merging exactly the operands the callee's BORROW-FLOW SUMMARY
+// says reach the result. `Id::thru(&self, b: B) -> B` summarises as
+// result<-{b}: elision cannot tell you that, the body can.
+package bc_d1r3_f1_method_arg_return;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+struct Id { z: i64 }
+impl Id { fn thru(&self, b: B) -> B { return b; } }
+fn leak(i: &Id) -> B { let c: C = C { v: 1i64 }; return i.thru(c.mk()); }
+fn main() -> i64 { let i: Id = Id { z: 0i64 }; let b: B = leak(&i); return *b.p; }

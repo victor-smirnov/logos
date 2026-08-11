@@ -1,0 +1,22 @@
+// ADMIT TWIN for fail/bc_d1r3_f0_call_byval_return (F0) — and, in the same
+// text, for fail/bc_d1r3_f1_method_arg_return (F1) and the F2 over-refusal:
+// this IS the free-fn spelling whose method-call twin used to refuse.
+// The by-value hop across a Call is identical; only the ROOT of the borrow
+// differs — here it is the `&C` PARAM, which outlives the call, so returning
+// the B is legal and must stay legal. Without this half the F0 refusal is
+// indistinguishable from "any by-value bc argument poisons the result".
+package bc_d1r3_f0_param_root_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+fn idb(b: B) -> B { return b; }
+fn thru(c: &C) -> B { let b: B = c.mk(); return idb(b); }
+fn main() -> i32 {
+    let c: C = C { v: 1i64 };
+    let b: B = thru(&c);
+    if *b.p != 1i64 { return 1; }
+    return 0;
+}

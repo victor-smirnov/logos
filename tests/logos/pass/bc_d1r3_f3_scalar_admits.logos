@@ -1,0 +1,23 @@
+// DIRECTION CONTROL for fail/bc_d1r3_f3_outparam_stash (F3): the same shape —
+// a `&`-param read inside a callee and pushed through a `&mut` out-param —
+// where what is pushed is a SCALAR COPY. Nothing is carried, so the summary
+// reports NO flow (measured: `result<-0`, no out-flow) and the mutation stays
+// legal. Without this half the F3 rule is indistinguishable from "any &-param
+// alongside a &mut param ties them together", which would refuse most of the
+// ecosystem's fill/copy helpers.
+package bc_d1r3_f3_scalar_admits;
+use logos.mem.collections.vec;
+struct C { v: i64 }
+impl C {
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn fill(v: &mut Vec<i64>, c: &C) { v.push(c.v); }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<i64> = Vec::new();
+    fill(&mut vs, &c);
+    c.bump();
+    if *vs.get(0u64) != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

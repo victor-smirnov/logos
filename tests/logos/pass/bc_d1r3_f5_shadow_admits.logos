@@ -1,0 +1,32 @@
+// D1 round 3 / F5 — A LOOKUP KEY IS NOT AN IDENTITY, third instance in this
+// codebase. Loan expiry keyed on the holder's NAME (last_use_line_ /
+// holders_last_use), so the SHADOWING `let b: i64 = 5i64;` — a different
+// binding that merely reuses the spelling — revived the dead B-holder's loan
+// through the `return z + b;` at the end, and the mutation was refused.
+// Fixed by keying the lifetime lookup on the BINDING IDENTITY (the dense slot
+// sema already assigns). `holder` stays a NAME for every structural comparison
+// (inherit_loans, pop_scope re-homing, is_loan_holder); only the last-use
+// lookup is slot-keyed, and a use site that knows no slot (AddrOf, closure
+// captures, the *Write receivers) still charges EVERY binding of that name —
+// so the change discriminates shadowing and nothing else.
+// CONTROLS: fail/bc_d1r3_f5_shadow_held (the loan really IS held — still red);
+// renaming the shadow to `k` always admitted, which is what localised it.
+package bc_d1r3_f5_shadow_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    let z: i64 = *b.p;
+    let b: i64 = 5i64;
+    c.bump();
+    if z != 1i64 { return 1; }
+    if b != 5i64 { return 2; }
+    if c.v != 2i64 { return 3; }
+    return 0;
+}

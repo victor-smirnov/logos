@@ -1,0 +1,32 @@
+// ADMIT TWIN for fail/bc_d1r3_f1_method_arg_return (F1) — the METHOD-CALL
+// spelling of the by-value hop, kept legal. Byte-for-byte the same call
+// `i.thru(c.mk())` as the refusal; the ONLY difference is the ROOT of the
+// borrow the argument carries: a `&C` PARAM here instead of a fn-local. The
+// receiver is a `&Id` param in BOTH files, so neither the receiver's kind nor
+// the presence of a by-value borrow-carrying argument can be what decides —
+// only where the argument's loan is rooted. Without this half, F1's refusal is
+// indistinguishable from "a method call with a by-value bc argument never
+// returns anything you may keep", which would refuse every forwarding method
+// in the ecosystem.
+// KEEP-RED NEIGHBOURS (must still refuse, verified alongside this admit):
+// fail/bc_d1r3_f1_method_arg_return, fail/bc_d1r3_f0_call_byval_return.
+// VALUES are asserted, not just exit 0: the returned B must still read 4
+// through its borrow after the hop.
+package bc_d1r3_f1_method_arg_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+}
+struct Id { z: i64 }
+impl Id { fn thru(&self, b: B) -> B { return b; } }
+fn hop(i: &Id, c: &C) -> B { return i.thru(c.mk()); }
+fn main() -> i32 {
+    let i: Id = Id { z: 0i64 };
+    let c: C = C { v: 4i64 };
+    let b: B = hop(&i, &c);
+    if *b.p != 4i64 { return 1; }
+    if i.z != 0i64 { return 2; }
+    return 0;
+}

@@ -1,0 +1,24 @@
+// D1 round 3 / F6 — the REFUSE half of the place-write pair, added with the
+// fix so the corrected admit twin (pass/bc_d1r2_place_write_field_admits, whose
+// third assertion is now restored) cannot be mistaken for the loan channel
+// having gone quiet on place writes. Same program, last use of `w` moved AFTER
+// the mutation: the loan on `c` is still live and the mutation must be refused.
+// The F6 fix keys ref_borrow_sources_ by PLACE ("w", "w.b", "w.b.p") so a write
+// erases the sources it overwrites; it does not touch who HOLDS the new loan.
+package bc_d1r3_f6_place_write_use_after_mut;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let mut w: Wrap = Wrap { b: B { p: &z } };
+    w.b = c.mk();
+    c.bump();
+    return *w.b.p;
+}

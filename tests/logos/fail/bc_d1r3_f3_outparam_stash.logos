@@ -1,0 +1,36 @@
+// D1 round 3 / F3 — the door-F RESIDUE, and the finding that needed a new
+// capability rather than a new rule. Round 2's two "value stored across a
+// call" rules (door 8b, door F) both read the CALL SITE and both need a
+// by-value borrow-carrying value to be VISIBLE there. Here there is none: the
+// B is MANUFACTURED inside the callee out of its own `&`-param and stored
+// through its `&mut` out-param, so `stash2(&c, &mut vs)` looked inert and
+// `c.bump()` was accepted with the borrow still readable through `vs`.
+//
+// Closed by a per-function BORROW-FLOW SUMMARY computed from the callee's LIR
+// (borrow_flow_summary.inc): for each parameter, which sinks its loans reach —
+// the result and/or each `&mut` parameter. `stash2` summarises as out1<-{0}.
+// The summary is a round-robin FIXPOINT over the whole program, chosen so that
+// ordinary recursion needs no permissive default; the permissive answer is
+// confined to bodies that genuinely are not present (extern / unmaterialized
+// ExternalRef / ambiguous indirect dispatch) and is written down there.
+//
+// TWO DIRECTION CONTROLS, both required and both green:
+//   pass/bc_d1r3_f3_scalar_admits          — a callee that carries NOTHING
+//   pass/bc_d1r3_f3_read_before_mut_admits — the same call, read first
+package bc_d1r3_f3_outparam_stash;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash2(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

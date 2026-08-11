@@ -1,0 +1,27 @@
+// ADMIT TWIN for fail/bc_d1r3_f3_outparam_stash (F3): the loan the summary
+// installs is an ORDINARY NLL loan held by the out-param's root binding, not a
+// lexical lock. Move the last read of `vs` BEFORE the mutation and the loan
+// retires, exactly as it does for a directly-taken borrow. Without this half a
+// checker that made every summarised out-param flow immortal would look
+// identical to the fix. Values are asserted: the read must see the PRE-mutation
+// 1, the counter the POST-mutation 2.
+package bc_d1r3_f3_read_before_mut_admits;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash2(&c, &mut vs);
+    let n: i64 = *vs.get(0u64).p;
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

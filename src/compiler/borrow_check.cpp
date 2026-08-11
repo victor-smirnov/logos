@@ -600,6 +600,19 @@ struct BorrowRecord {
     // duplicated records, so the shared_borrows counter stays balanced and a
     // `mut` loan cannot be released twice.)
     std::vector<std::string> co_holders;
+    // D1 round 3 / F5 — A LOOKUP KEY IS NOT AN IDENTITY (third instance in
+    // this codebase; see also the registry-key and canon-name arcs). `holder`
+    // is a NAME, and a name is re-used by shadowing: `let b: B = c.mk(); let
+    // z = *b.p; let b: i64 = 5i64; c.bump(); return z + b;` used to refuse,
+    // because `note_use("b", <last line>)` from the SHADOWING i64 binding
+    // revived the dead B-holder's loan. The BINDING IDENTITY is the dense
+    // per-function slot sema already assigns (StateMap slots); `holder` stays
+    // a name for every structural comparison (inherit_loans, pop_scope
+    // re-homing, is_loan_holder), and only the LIFETIME lookup keys on the
+    // slot. NO_SLOT means "no identity available" → the old, conservative
+    // name-keyed lookup.
+    uint32_t              holder_slot = 0xFFFFFFFFu;
+    std::vector<uint32_t> co_holder_slots;   // parallel to co_holders
 };
 
 // B83: a tracked field borrow recorded in the current scope. On pop,
@@ -613,6 +626,8 @@ struct FieldBorrow {
     std::string holder;
     uint32_t    target_slot = 0xFFFFFFFFu;  // Phase-1: dense slot of `target`
     std::vector<std::string> co_holders;    // D1 — see BorrowRecord::co_holders
+    uint32_t              holder_slot = 0xFFFFFFFFu;  // F5 — see BorrowRecord
+    std::vector<uint32_t> co_holder_slots;            // parallel to co_holders
 };
 
 struct ScopeFrame {
@@ -778,6 +793,110 @@ static void merge_loans(StateMap& base, StateMap& other,
 // in borrow_check() and shared (const) across every per-function BorrowChecker.
 // (It used to be a per-instance `mutable` map rebuilt lazily inside each of the
 // N BorrowCheckers → O(N × total_fns) rebuild storm, the top malloc cost.)
+static bool bc_is_borrow_carrying_type(const TypeSets& ts_, TypeRef t) {
+    if (!t) return false;
+    auto k = t.kind();
+    std::string nm;
+    if (k == LogosType::Kind::Enum)                 // WAny: the niche-enum form (F3)
+        nm = std::string(t.enum_name());
+    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+        nm = std::string(t.struct_name());
+    // Laundered escape package (`Held<T>`/`HeldAny`: holds an Rc/Arc holder
+    // that keeps the arena alive) — never borrow-carrying, including via its
+    // type-args (`Held<WArray<WAny>>`). Same exemption the definition-side
+    // closure applies; without it the container-element rule below would
+    // reject returning the escape hatch — its whole purpose.
+    //
+    // D1 — the exemption checked in the ABUSE direction (exempt type
+    // WRAPPING a borrow-carrying type). DECISION: the exemption still wins
+    // HERE, unconditionally, and the type-arg recursion below is not
+    // reached. This function answers an ESCAPE question ("may this value
+    // leave the referent's scope? — yes, the Rc/Arc share keeps the arena
+    // alive"), and that answer is unchanged.
+    //
+    // ROUND 2 — WHAT THE OLD TEXT CLAIMED, AND WHAT IS ACTUALLY TRUE. It
+    // claimed the abuse direction was closed "one level up, by the loan
+    // channel". MEASURED: that holds ONLY when the wrapper is built in the
+    // frame that later mutates — `let hh = H { h: rc_new(7), b: c.mk() };
+    // c.bump()` refuses (/tmp/bcm/c2_rc_exempt.logos, X1) because the loan
+    // was recorded right there. Built in a CALLEE it did not: `fn make(c:
+    // &C) -> H { … }; let hh = make(&c); let b = hh.b; c.bump()` compiled
+    // (X2), and `Option<H>` inherited the same false through the type-arg
+    // recursion (X3). The reason was that the loan channel gated on THIS
+    // function and therefore inherited the exemption too — and, one level
+    // deeper, that `residency_exempt` is applied at REGISTRATION, so `H`
+    // never entered `borrow_carrying` at all.
+    //
+    // FIX (and the decision): the loan channel now has its own predicate,
+    // `loan_carrying_type` over `TypeSets::loan_carrying` — the same
+    // structural closure computed WITHOUT the residency skip. A loan says
+    // "the arena is still being READ"; an Rc share says "the arena is still
+    // ALIVE". Those are different claims, and only the second is what the
+    // hatch exists to assert. So:
+    //   /tmp/bcm/c4_exempt_return.logos  rc=0 — return H past the arena
+    //                                     (the hatch's purpose: a RETURN
+    //                                      gate, which still asks THIS fn)
+    //   /tmp/bcm/c2_rc_exempt.logos      rc=1 — in-frame abuse (unchanged)
+    //   X2 (exempt built in a callee)    rc=1 — was rc=0, closed by the
+    //                                     loan-channel predicate
+    //   X3 (Option<H>)                   rc=1 — same, through type-args
+    // NO HOLE IS KNOWN TO REMAIN in the abuse direction; if one turns up,
+    // it belongs in `loan_carrying`, not here.
+    // Consequently EVERY D1 rule gates on this function rather than on a
+    // raw name test — a name test would re-capture Held/HeldAny and kill
+    // c4. See also: this function was MEASURED non-guilty for D1 and is
+    // otherwise unchanged. It already implements "bc if the name is in the
+    // set OR any type-arg is bc"; the mangled `Option__B` / `X$G1$Y` forms
+    // never reach it (TypeRefs keep their type-args post-mono, and all name
+    // munging lives in reg_bc_name at registration), which is why
+    // `Option<B>` is bc here by the type-arg recursion and not by name.
+    if (!nm.empty() && ts_.residency_exempt.count(nm) > 0) return false;
+    if (!nm.empty() && ts_.borrow_carrying.count(nm) > 0) return true;
+    // A generic CONTAINER of a borrow-carrying element carries its elements'
+    // borrows (`Vec<WAny>`, `Option<WAny>`, `Box<WAny>`) — even though the
+    // buffer sits behind an owning pointer / the payload is a type-param, the
+    // value transitively holds a Ref into an arena. (A raw `*mut WAny` has no
+    // type-args → stays unchecked, like box_leak — Rust parity.)
+    for (auto a : t.type_args())
+        if (bc_is_borrow_carrying_type(ts_, a)) return true;
+    // D1 round 2, Door G — the STRUCTURAL containers. A tuple and an array
+    // hold their element types outside `type_args()`: `(B, i64)` came back
+    // NOT borrow-carrying (measured — the destructure's `let __destruct_1:
+    // (B,i64) = __destruct_0` spill was not routed through
+    // take_ref_borrows at all, so the hop chain broke one step before the
+    // binding). The container rule above already says a `Vec<B>` / `Box<B>`
+    // carries its elements' borrows; a tuple or an array is the same claim
+    // with the elements spelled structurally instead of as type-args.
+    if (k == LogosType::Kind::Tuple) {
+        for (auto e : t.tuple_elems())
+            if (bc_is_borrow_carrying_type(ts_, TypeRef(e))) return true;
+        return false;
+    }
+    if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+        return bc_is_borrow_carrying_type(ts_, t.elem());
+    return false;
+}
+
+static bool bc_loan_carrying_type(const TypeSets& ts_, TypeRef t) {
+    if (!t) return false;
+    auto k = t.kind();
+    std::string nm;
+    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+        nm = std::string(t.struct_name());
+    if (!nm.empty() && ts_.loan_carrying.count(nm) > 0) return true;
+    for (auto a : t.type_args())
+        if (bc_loan_carrying_type(ts_, a)) return true;
+    if (k == LogosType::Kind::Tuple) {
+        for (auto e : t.tuple_elems())
+            if (bc_loan_carrying_type(ts_, TypeRef(e))) return true;
+        return false;
+    }
+    if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+        return bc_loan_carrying_type(ts_, t.elem());
+    return false;
+}
+
 struct FnIndex {
     std::unordered_map<std::string, lir_view::FunctionView>              by_name;
     std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_base;
@@ -803,6 +922,8 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     // trait-impl methods (Index, Deref, …) live on prog.functions / struct methods.
     return idx;
 }
+
+#include "borrow_flow_summary.inc"
 
 // ── BorrowChecker ───────────────────────────────────────────────────────────
 
@@ -900,6 +1021,16 @@ class BorrowChecker {
     std::string                     pending_esc_holder_;
     std::unordered_set<uint32_t>    rehomed_slots_;
     std::unordered_set<std::string> rehomed_names_;
+    // F6 (D1 round 3) — keyed by PLACE, not by binding. Same lesson as F5:
+    // a per-binding key standing in for a per-place identity. `let mut w =
+    // Wrap { b: B { p: &z } }; w.b = c.mk();` recorded ref_borrow_sources_["w"]
+    // = {z} at the `let` and MERGED at the field write, so "the source of w.b
+    // was replaced" was structurally inexpressible: `z` stayed a source of `w`,
+    // place_write_loans re-rooted the c-loan onto `z` as a co-holder, and a
+    // later read of `z` — the loan's TARGET — kept the loan on `c` alive.
+    // Keys are now dotted places ("w", "w.b", "w.b.p"); a write to a place
+    // erases that place AND everything under it, and every consumer that wants
+    // a binding's sources unions over the subtree (ref_sources_under).
     std::unordered_map<std::string, std::vector<std::string>> ref_borrow_sources_;
     std::unordered_map<std::string, uint32_t>                 ref_borrow_line_;
     struct DanglingRef { std::string source; uint32_t borrow_line; };
@@ -928,6 +1059,22 @@ class BorrowChecker {
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
     std::unordered_map<std::string, uint32_t> last_use_line_;
+    // F5 (identity, not key): the same three facts split by what the use site
+    // could tell us about WHICH binding was used.
+    //   last_use_slot_      — uses through a VarRef, which carries the dense
+    //                         binding slot. Discriminates shadowed bindings.
+    //   last_use_unslotted_ — uses through a site with only a NAME (AddrOf,
+    //                         ClosureBox captures, the *Write receivers).
+    //                         Charged to EVERY binding of that name: we cannot
+    //                         tell them apart, so we stay conservative.
+    //   last_use_line_      — max over both. Used when the HOLDER itself has
+    //                         no slot, i.e. the pre-F5 behaviour, unchanged.
+    std::unordered_map<uint32_t,    uint32_t> last_use_slot_;
+    std::unordered_map<std::string, uint32_t> last_use_unslotted_;
+    // Slot of the CURRENTLY-live binding of each name, so a loan can capture
+    // its holder's identity at record time (declare_var runs AFTER the RHS is
+    // walked, so the `let` arm pre-seeds this).
+    std::unordered_map<std::string, uint32_t> cur_slot_of_;
     // Max statement line visited so far — the NLL release point after a
     // COMPOUND statement (its uses extend past its start line).
     uint32_t max_line_seen_ = 0;
@@ -1127,11 +1274,13 @@ class BorrowChecker {
         if (!frame.declared.empty()) {
             std::unordered_set<std::string> dying;
             for (auto& n : frame.declared) dying.insert(n);
-            for (auto& [binding, sources] : ref_borrow_sources_) {
+            for (auto& [place, sources] : ref_borrow_sources_) {
+                // F6: keys are PLACES; the binding that dangles is the root.
+                std::string binding = place_root(place);
                 if (dying.count(binding) || dangling_.count(binding)) continue;
                 for (auto& src : sources) {
                     if (!dying.count(src)) continue;
-                    dangling_[binding] = DanglingRef{ src, ref_borrow_line_[binding] };
+                    dangling_[binding] = DanglingRef{ src, ref_borrow_line_[place] };
                     break;
                 }
             }
@@ -1142,8 +1291,7 @@ class BorrowChecker {
             prov_.erase(name);
             dropck_borrow_sources_.erase(name);
             dropck_binding_line_.erase(name);
-            ref_borrow_sources_.erase(name);
-            ref_borrow_line_.erase(name);
+            erase_ref_sources_under(name);   // F6: the whole place subtree
             dangling_.erase(name);
         }
         scopes_.pop_back();
@@ -1152,6 +1300,20 @@ class BorrowChecker {
     void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
         var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
         if (!scopes_.empty()) scopes_.back().declared.push_back(name);
+        note_binding_slot(name, slot);    // F5
+    }
+
+    // F5: identity of the binding a name currently denotes. Loans capture it
+    // at record time; a later shadowing `let` of the same name overwrites the
+    // map but cannot reach loans already recorded.
+    void note_binding_slot(const std::string& name, uint32_t slot) {
+        if (name.empty()) return;
+        cur_slot_of_[name] = slot;
+    }
+    uint32_t slot_of_binding(const std::string& name) const {
+        if (name.empty()) return NO_SLOT;
+        auto it = cur_slot_of_.find(name);
+        return it == cur_slot_of_.end() ? NO_SLOT : it->second;
     }
 
     // ── B87 dropck helpers ───────────────────────────────────────────────
@@ -1229,55 +1391,108 @@ class BorrowChecker {
     // so pop_scope can flag `name` dangling if it outlives one of them. Clears
     // any stale dangling/sources first (a rebind re-owns). Only records when the
     // value actually borrows a local — pure moves/copies record nothing.
+    // ── F6: PLACE keys ────────────────────────────────────────────────────
+    static std::string place_of(const std::string& root, const std::string& path) {
+        return path.empty() ? root : root + "." + path;
+    }
+    static bool place_under(const std::string& place, const std::string& root) {
+        return place == root ||
+               (place.size() > root.size() &&
+                place.compare(0, root.size(), root) == 0 &&
+                place[root.size()] == '.');
+    }
+    static std::string place_root(const std::string& place) {
+        auto d = place.find('.');
+        return d == std::string::npos ? place : place.substr(0, d);
+    }
+    // Every local a binding (or sub-place) may borrow from, unioned over the
+    // whole place subtree. This is what the pre-F6 `ref_borrow_sources_[root]`
+    // lookup meant; it now has to be computed rather than read.
+    std::vector<std::string> ref_sources_under(const std::string& root) const {
+        std::vector<std::string> out;
+        if (root.empty()) return out;
+        for (auto& [pl, srcs] : ref_borrow_sources_) {
+            if (!place_under(pl, root)) continue;
+            for (auto& s : srcs)
+                if (std::find(out.begin(), out.end(), s) == out.end())
+                    out.push_back(s);
+        }
+        return out;
+    }
+    // A write to `place` replaces what that place holds — and everything
+    // reachable THROUGH it. This is the erase the pre-F6 merge never did.
+    void erase_ref_sources_under(const std::string& place) {
+        if (place.empty()) return;
+        for (auto it = ref_borrow_sources_.begin(); it != ref_borrow_sources_.end();)
+            it = place_under(it->first, place) ? ref_borrow_sources_.erase(it) : std::next(it);
+        for (auto it = ref_borrow_line_.begin(); it != ref_borrow_line_.end();)
+            it = place_under(it->first, place) ? ref_borrow_line_.erase(it) : std::next(it);
+    }
+    void store_ref_sources(const std::string& place,
+                           std::vector<std::pair<std::string, std::string>> pairs,
+                           const std::string& self_name, uint32_t ln) {
+        for (auto& [sub, src] : pairs) {
+            if (src == self_name) continue;   // a binding never borrows ITSELF
+            auto& dst = ref_borrow_sources_[place_of(place, sub)];
+            if (std::find(dst.begin(), dst.end(), src) == dst.end())
+                dst.push_back(src);
+            ref_borrow_line_[place_of(place, sub)] = ln;
+        }
+    }
+
     void record_ref_sources(const std::string& name, lir_view::ExprRef val,
                             uint32_t ln) {
         dangling_.erase(name);
-        ref_borrow_sources_.erase(name);
-        ref_borrow_line_.erase(name);
+        erase_ref_sources_under(name);
         if (!val) return;
-        std::vector<std::string> sources;
-        collect_ref_sources(val, sources);
-        if (sources.empty()) return;
-        // A binding never borrows ITSELF (a reborrow `let r2 = &*r` roots at r,
-        // but recording r as r2's source is fine; recording name==source is not).
-        sources.erase(std::remove(sources.begin(), sources.end(), name),
-                      sources.end());
-        if (sources.empty()) return;
-        ref_borrow_sources_[name] = std::move(sources);
-        ref_borrow_line_[name] = ln;
+        std::vector<std::pair<std::string, std::string>> pairs;
+        collect_ref_sources_paths(val, std::string{}, pairs);
+        store_ref_sources(name, std::move(pairs), name, ln);
     }
 
-    // §B6: ADD borrow sources to a binding without clearing existing ones — for
-    // a field/tuple write `root.f = &x` that stores a borrow into ONE field while
-    // other fields keep their borrows. (record_ref_sources overwrites; this
-    // merges.) Params are filtered by collect_ref_sources.
-    void add_ref_sources(const std::string& name, lir_view::ExprRef val,
-                         uint32_t ln) {
+    // §B6: record the borrow sources stored INTO one place of a binding — for
+    // a field/tuple write `root.f = &x`. Sibling fields keep their own sources
+    // because they live under their own keys; `root.f`'s previous sources are
+    // REPLACED, not merged (F6: the merge made an overwritten borrow immortal).
+    // Params are filtered by collect_ref_sources.
+    void add_ref_sources(const std::string& name, const std::string& path,
+                         lir_view::ExprRef val, uint32_t ln) {
         if (name.empty() || !val) return;
-        std::vector<std::string> sources;
-        collect_ref_sources(val, sources);
-        sources.erase(std::remove(sources.begin(), sources.end(), name),
-                      sources.end());
-        if (sources.empty()) return;
-        auto& dst = ref_borrow_sources_[name];
-        for (auto& s : sources)
-            if (std::find(dst.begin(), dst.end(), s) == dst.end())
-                dst.push_back(s);
-        ref_borrow_line_[name] = ln;
+        std::string place = place_of(name, path);
+        erase_ref_sources_under(place);
+        std::vector<std::pair<std::string, std::string>> pairs;
+        collect_ref_sources_paths(val, std::string{}, pairs);
+        store_ref_sources(place, std::move(pairs), name, ln);
     }
 
     // Like collect_borrow_locals but also follows borrow-returning calls to
     // their borrowed local (receiver / ref args) for §B6 source tracking.
-    void collect_ref_sources(lir_view::ExprRef e,
-                             std::vector<std::string>& out) const {
+    //
+    // F6: the PATH-carrying form. `out` collects (sub-path, source) pairs so
+    // `Wrap { b: B { p: &z } }` records the source `z` at sub-path "b.p"
+    // instead of at the bare binding — which is what lets a later `w.b = …`
+    // erase exactly the sources that write replaces. Only the aggregate
+    // LITERAL cases extend the path (they are the only ones that know which
+    // field a value lands in); every other case forwards it unchanged.
+    void collect_ref_sources_paths(
+            lir_view::ExprRef e, const std::string& path,
+            std::vector<std::pair<std::string, std::string>>& out) const {
         if (!e) return;
         using EC = lir_schema::expr::Code;
         const auto* pool = prog_.type_pool.impl();
+        auto emit = [&](std::string src) {
+            for (auto& pr : out)
+                if (pr.first == path && pr.second == src) return;
+            out.emplace_back(path, std::move(src));
+        };
+        auto sub = [&](const std::string& p) {
+            return path.empty() ? p : path + "." + p;
+        };
         switch (e.kind()) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
                 if (var_has(NO_SLOT, n) && !param_names_.count(n))
-                    out.push_back(std::move(n));
+                    emit(std::move(n));
                 return;
             }
             case EC::AddrOfTemp: {
@@ -1286,23 +1501,32 @@ class BorrowChecker {
                     lir_view::EAddrOfTempView{e}.inner(), pool);
                 if (!bp.root.empty() && var_has(bp.root_slot, bp.root) &&
                     !param_names_.count(bp.root))
-                    out.push_back(bp.root);
+                    emit(bp.root);
                 return;
             }
             case EC::StructLit:
-                lir_view::EStructLitView{e}.each_field_value(
-                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                lir_view::EStructLitView{e}.each_field(
+                    [&](std::string_view fname, lir_view::ExprRef fv) {
+                        collect_ref_sources_paths(
+                            fv, fname.empty() ? path : sub(std::string(fname)), out);
+                    });
                 return;
-            case EC::TupleLit:
+            case EC::TupleLit: {
+                uint32_t idx = 0;
                 lir_view::ETupleLitView{e}.each_elem(
-                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                    [&](lir_view::ExprRef fv) {
+                        collect_ref_sources_paths(fv, sub(std::to_string(idx++)), out);
+                    });
                 return;
+            }
             case EC::ArrLit:
+                // Whole-element granularity: an array index is not a static
+                // path component here, so every element lands on `path`.
                 lir_view::EArrLitView{e}.each_elem(
-                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                    [&](lir_view::ExprRef fv) { collect_ref_sources_paths(fv, path, out); });
                 return;
             case EC::Cast:
-                collect_ref_sources(lir_view::ECastView{e}.operand(), out);
+                collect_ref_sources_paths(lir_view::ECastView{e}.operand(), path, out);
                 return;
             case EC::MethodCall: {
                 lir_view::EMethodCallView v{e};
@@ -1315,7 +1539,7 @@ class BorrowChecker {
                 bool fat   = !plain && is_ref_kind(rt);
                 bool bc    = is_borrow_carrying_type(rt);
                 if (plain || bc || (fat && result_borrows_self(v))) {
-                    collect_ref_sources(v.receiver(), out);
+                    collect_ref_sources_paths(v.receiver(), path, out);
                     v.each_arg([&](lir_view::ExprRef a) {
                         // D1: a BY-VALUE borrow-carrying argument carries its
                         // sources exactly like a plain-ref one — the same rule
@@ -1324,14 +1548,14 @@ class BorrowChecker {
                         // returning a scalar still ties nothing.
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool))))
-                            collect_ref_sources(a, out);
+                            collect_ref_sources_paths(a, path, out);
                     });
                 }
                 return;
             }
             case EC::EnumLitData:
                 lir_view::EEnumLitDataView{e}.each_payload(
-                    [&](lir_view::ExprRef pl) { collect_ref_sources(pl, out); });
+                    [&](lir_view::ExprRef pl) { collect_ref_sources_paths(pl, path, out); });
                 return;
             // D1 (door 5b in the §B6 channel): reading a borrow-carrying value
             // OUT of an aggregate unwraps the provenance the construction
@@ -1341,26 +1565,30 @@ class BorrowChecker {
             // borrow-carrying holder copies a value, not a borrow.
             case EC::FieldRead:
                 if (is_borrow_carrying_type(e.type(pool)))
-                    collect_ref_sources(lir_view::EFieldReadView{e}.receiver(), out);
+                    collect_ref_sources_paths(
+                        lir_view::EFieldReadView{e}.receiver(), path, out);
                 return;
             case EC::TupleIndex:
                 if (is_borrow_carrying_type(e.type(pool)))
-                    collect_ref_sources(lir_view::ETupleIndexView{e}.receiver(), out);
+                    collect_ref_sources_paths(
+                        lir_view::ETupleIndexView{e}.receiver(), path, out);
                 return;
             case EC::IndexRead:
                 if (is_borrow_carrying_type(e.type(pool)))
-                    collect_ref_sources(lir_view::EIndexReadView{e}.receiver(), out);
+                    collect_ref_sources_paths(
+                        lir_view::EIndexReadView{e}.receiver(), path, out);
                 return;
             case EC::IfExpr: {
                 lir_view::EIfExprView v{e};
-                collect_ref_sources(v.then_val(), out);
-                collect_ref_sources(v.else_val(), out);
+                collect_ref_sources_paths(v.then_val(), path, out);
+                collect_ref_sources_paths(v.else_val(), path, out);
                 return;
             }
             case EC::BlockExpr:
                 // `if c { &x } else { … }` lowers each branch to a block whose
                 // TAIL is the borrow — recurse into the result expr.
-                collect_ref_sources(lir_view::EBlockExprView{e}.result(), out);
+                collect_ref_sources_paths(
+                    lir_view::EBlockExprView{e}.result(), path, out);
                 return;
             case EC::Call: {
                 // Free fn returning a borrow ties it to its ref args (elision).
@@ -1370,7 +1598,7 @@ class BorrowChecker {
                         // D1: by-value borrow-carrying args too (`id(c.mk())`).
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool))))
-                            collect_ref_sources(a, out);
+                            collect_ref_sources_paths(a, path, out);
                     });
                 return;
             }
@@ -1379,14 +1607,23 @@ class BorrowChecker {
             // an aliased borrow can't escape a referent's scope via a copy.
             case EC::VarRef: {
                 std::string n(lir_view::EVarRefView{e}.name());
-                if (auto it = ref_borrow_sources_.find(n);
-                    it != ref_borrow_sources_.end())
-                    for (auto& s : it->second) out.push_back(s);
+                for (auto& s : ref_sources_under(n)) emit(s);
                 return;
             }
             default:
                 return;
         }
+    }
+
+    // Flat form — every source, path discarded. Used by the consumers that
+    // only ask "does this expression borrow a local at all?".
+    void collect_ref_sources(lir_view::ExprRef e,
+                             std::vector<std::string>& out) const {
+        std::vector<std::pair<std::string, std::string>> pairs;
+        collect_ref_sources_paths(e, std::string{}, pairs);
+        for (auto& pr : pairs)
+            if (std::find(out.begin(), out.end(), pr.second) == out.end())
+                out.push_back(pr.second);
     }
 
     // ── Field-path borrow operations (B83) ───────────────────────────────
@@ -1510,7 +1747,8 @@ class BorrowChecker {
         else        it->shared_field_borrows[path]++;
         if (!scopes_.empty())
             scopes_.back().field_borrows.push_back(
-                {target, std::move(path), is_mut, holder, target_slot});
+                {target, std::move(path), is_mut, holder, target_slot,
+                 {}, slot_of_binding(holder), {}});
     }
 
     // ── Borrow operations ─────────────────────────────────────────────────
@@ -1596,7 +1834,9 @@ class BorrowChecker {
                 }
                 it->mut_reservations++;
                 if (!scopes_.empty())
-                    scopes_.back().borrows.push_back({target, is_mut, holder, target_slot});
+                    scopes_.back().borrows.push_back(
+                        {target, is_mut, holder, target_slot,
+                         {}, slot_of_binding(holder), {}});
                 return;
             }
             if (it->shared_borrows > 0) {
@@ -1622,7 +1862,70 @@ class BorrowChecker {
             ++it->shared_borrows;
         }
         if (!scopes_.empty())
-            scopes_.back().borrows.push_back({target, is_mut, holder, target_slot});
+            scopes_.back().borrows.push_back(
+                {target, is_mut, holder, target_slot,
+                 {}, slot_of_binding(holder), {}});
+    }
+
+
+    // ── D1 round 3 / F3: the loan channel's OUT-PARAM rule ────────────────
+    //
+    // Round 2 closed two shapes where a borrow travels INTO a binding across a
+    // call: door 8b (a by-value borrow-carrying ARGUMENT to a `&mut self`
+    // method) and door F (its free-fn mirror, a by-value bc arg alongside a
+    // `&mut` arg). Both read the CALL SITE, and both need a bc value to be
+    // visible there. F3's residue has none: `fn stash2(c: &C, v: &mut Vec<B>)
+    // { v.push(c.mk()); }` MANUFACTURES the B inside the callee out of its own
+    // `&`-param, so `stash2(&c, &mut vs); c.bump(); *vs.get(0).p` compiled —
+    // nothing at the call site is by-value bc, and no signature-only rule can
+    // see it. The callee's BORROW-FLOW SUMMARY can: stash2 summarises as
+    // `out1 <- {0}` (measured), i.e. param 0's loans reach out-param 1.
+    //
+    // The rule: for every (source i → out-param j) the summary reports, the
+    // loans of operand i become held by operand j's root binding — recorded
+    // through the SAME machinery the two earlier doors use (inherit_loans for a
+    // loan the operand already holds, take_ref_borrows/record_only for one the
+    // operand expression itself creates), not a fork of it.
+    //
+    // DIRECTION CONTROLS (both measured): f3_stash_leak must REFUSE, while
+    // f3_scalar_control (`fn fill(v: &mut Vec<i64>, c: &C) { v.push(c.v); }`
+    // — an i64 is copied, nothing is carried, summary `result<-0` with no
+    // out-flow) and f3_stash_admit_twin (read BEFORE the mutation, so NLL
+    // retires the loan) must stay ADMITTED.
+    std::string flow_operand_root(lir_view::ExprRef a) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!a) return {};
+        if (a.kind() == Code::AddrOf) return std::string(EAddrOfView{a}.var_name());
+        bool dummy = false;
+        return place_write_root(
+            a.kind() == Code::AddrOfTemp ? EAddrOfTempView{a}.inner() : a, dummy);
+    }
+    void apply_flow_outparams(const FlowSummary* fs,
+                              const std::vector<lir_view::ExprRef>& ops,
+                              uint32_t line) {
+        if (!fs) return;                       // documented (a)-(d) hole
+        const auto* pool = prog_.type_pool.impl();
+        for (size_t j = 0; j < ops.size() && j < fs->nparams; ++j) {
+            if (!fs->is_outparam[j] || !fs->to_outparam[j]) continue;
+            std::string dst = flow_operand_root(ops[j]);
+            if (dst.empty() || !var_has(NO_SLOT, dst)) continue;
+            for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i) {
+                if (i == j || !(fs->to_outparam[j] & (1ull << i))) continue;
+                lir_view::ExprRef src = ops[i];
+                if (!src) continue;
+                TypeRef st = src.type(pool);
+                // Nothing to move if the operand cannot carry a borrow at all.
+                if (!is_ref_kind(st) && !loan_carrying_type(st) &&
+                    !is_borrow_carrying_type(st))
+                    continue;
+                std::vector<std::string> roots;
+                bc_hop_roots(src, roots);
+                for (auto& r : roots) inherit_loans(r, dst, line);
+                // record_only: visit_args already visited the operand.
+                take_ref_borrows(src, line, dst, /*record_only=*/true);
+            }
+        }
     }
 
     // ── D1: loans follow the HOLDER graph ─────────────────────────────────
@@ -1631,15 +1934,38 @@ class BorrowChecker {
     // With inheritance a loan may have several holders; it expires only once
     // ALL of them are past. Missing holders count as 0 (never-used binding),
     // exactly as the single-holder lookup did.
-    uint32_t holders_last_use(const std::string& holder,
-                              const std::vector<std::string>& co) const {
+    // F5: one holder's last use, keyed by its IDENTITY when it has one.
+    uint32_t one_holder_last_use(const std::string& name, uint32_t slot) const {
+        if (slot == NO_SLOT) {   // no identity available — pre-F5 behaviour
+            auto it = last_use_line_.find(name);
+            return it == last_use_line_.end() ? 0u : it->second;
+        }
         uint32_t lu = 0;
-        if (auto it = last_use_line_.find(holder); it != last_use_line_.end())
+        if (auto it = last_use_slot_.find(slot); it != last_use_slot_.end())
             lu = it->second;
-        for (auto& h : co)
-            if (auto it = last_use_line_.find(h); it != last_use_line_.end())
-                lu = std::max(lu, it->second);
+        // Uses that named the binding without a slot could be THIS binding;
+        // they stay charged to it. Only uses that named a DIFFERENT slot of
+        // the same name are dropped — which is exactly the shadowing defect.
+        if (auto it = last_use_unslotted_.find(name); it != last_use_unslotted_.end())
+            lu = std::max(lu, it->second);
+        // Fire-count measured on f5_shadow_overrefuse: the discriminating
+        // branch (name-keyed lu 15 > identity lu 12) fires twice, once per
+        // release_dead_borrows sweep past the shadowing `let`.
         return lu;
+    }
+    uint32_t holders_last_use(const std::string& holder, uint32_t holder_slot,
+                              const std::vector<std::string>& co,
+                              const std::vector<uint32_t>& co_slots) const {
+        uint32_t lu = one_holder_last_use(holder, holder_slot);
+        for (size_t i = 0; i < co.size(); ++i)
+            lu = std::max(lu, one_holder_last_use(
+                co[i], i < co_slots.size() ? co_slots[i] : NO_SLOT));
+        return lu;
+    }
+    template <class Rec>
+    uint32_t holders_last_use(const Rec& r) const {
+        return holders_last_use(r.holder, r.holder_slot,
+                                r.co_holders, r.co_holder_slots);
     }
 
     // D1 (the by-value-hop defect): `from` holds one or more loans and a
@@ -1683,11 +2009,13 @@ class BorrowChecker {
                    std::find(rec.co_holders.begin(), rec.co_holders.end(), from)
                        != rec.co_holders.end();
         };
+        uint32_t to_slot = slot_of_binding(to);   // F5
         auto add_to = [&](auto& rec) {
             if (rec.holder == to) return;
             if (std::find(rec.co_holders.begin(), rec.co_holders.end(), to)
                 != rec.co_holders.end()) return;
             rec.co_holders.push_back(to);
+            rec.co_holder_slots.push_back(to_slot);
             ++inherit_fired_;
         };
         for (auto& frame : scopes_) {
@@ -1881,12 +2209,57 @@ class BorrowChecker {
         for (size_t i = 0; i < names.size(); ++i) {
             TypeRef t = i < types.size() ? types[i] : TypeRef(nullptr);
             if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
+                erase_ref_sources_under(names[i]);
                 ref_borrow_sources_[names[i]] = srcs;
                 ref_borrow_line_[names[i]] = ln;
             }
         }
     }
 
+
+
+    // D1 round 3 — the PROVENANCE counterpart of propagate_pat_sources /
+    // propagate_pat_loans. A pattern binding is an EXTRACTION out of the
+    // scrutinee, so it borrows exactly what the scrutinee borrows. Without
+    // this the binding was a bare declared local with no prov_ entry, and
+    // `value_local_root` therefore called it call-local storage — which only
+    // started to matter once F0/F1 let a by-value borrow-carrying ARGUMENT
+    // carry provenance: `fn scan_of(e: RExpr) -> RScan { match e {
+    // RExpr::Filter(f) => { return scan_of(f.input_expr()); } … } }`
+    // (stdlib/mem/wql) then reported the recursive call as returning a borrow
+    // of the local `f`, for every arm. Measured on the full stdlib build.
+    // Recording an EMPTY provenance is meaningful: it says "this binding's
+    // provenance is known and it is the scrutinee's", which is what stops the
+    // value-local fallback from guessing.
+    void propagate_pat_prov(lir_view::PatRef pr, lir_view::ExprRef scrut) {
+        using namespace lir_view;
+        if (!pr || !scrut) return;
+        const auto* pool = prog_.type_pool.impl();
+        // GATED exactly like propagate_pat_sources: only a BORROW-CARRYING
+        // scrutinee hands its provenance to its bindings. Two measurements
+        // fixed this boundary, both on the full stdlib build:
+        //   * ungated + propagating is_local reddened
+        //     `Option<&[u8]>::unwrap_or_else` — `self` is by-value call-local
+        //     storage, but the `&[u8]` pulled out of it is a COPY of a stored
+        //     reference and returning it is legal (`Option<&[u8]>` is not
+        //     borrow-carrying: a `&T` type-arg is Kind::Ref, not a bc NAME);
+        //   * gating on "the scrutinee is not a value-local root" left
+        //     `scan_of` red, because a by-value bc param IS such a root.
+        // A plain owned local/param scrutinee is therefore left to
+        // value_local_root, which keeps `match owned { S(f) => return &f.g }`
+        // refusing.
+        TypeRef st = scrut.type(pool);
+        if (!is_borrow_carrying_type(st) && !loan_carrying_type(st)) return;
+        RefProv sp = prov_of(scrut);
+        auto bind = [&](std::string_view b) {
+            if (b.empty() || b == "_") return;
+            prov_[std::string(b)] = sp;
+        };
+        if (pr.kind() == lir_schema::pat::Code::VariantData)
+            PatVariantDataView{pr}.each_binding(bind);
+        else if (pr.kind() == lir_schema::pat::Code::Wild)
+            bind(PatWildView{pr}.name());
+    }
 
     // D1 (door 4): the LOAN counterpart of propagate_pat_sources. A pattern
     // binding EXTRACTS a piece of the scrutinee; when that piece carries
@@ -2035,87 +2408,7 @@ class BorrowChecker {
     // A `#[borrow_carrying]` type (WAny): a value that may hold a Ref into an arena.
     // Escape-tracked like a reference — see prov_of MethodCall/Call + Let/return gates.
     bool is_borrow_carrying_type(TypeRef t) const {
-        if (!t) return false;
-        auto k = t.kind();
-        std::string nm;
-        if (k == LogosType::Kind::Enum)                 // WAny: the niche-enum form (F3)
-            nm = std::string(t.enum_name());
-        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            nm = std::string(t.struct_name());
-        // Laundered escape package (`Held<T>`/`HeldAny`: holds an Rc/Arc holder
-        // that keeps the arena alive) — never borrow-carrying, including via its
-        // type-args (`Held<WArray<WAny>>`). Same exemption the definition-side
-        // closure applies; without it the container-element rule below would
-        // reject returning the escape hatch — its whole purpose.
-        //
-        // D1 — the exemption checked in the ABUSE direction (exempt type
-        // WRAPPING a borrow-carrying type). DECISION: the exemption still wins
-        // HERE, unconditionally, and the type-arg recursion below is not
-        // reached. This function answers an ESCAPE question ("may this value
-        // leave the referent's scope? — yes, the Rc/Arc share keeps the arena
-        // alive"), and that answer is unchanged.
-        //
-        // ROUND 2 — WHAT THE OLD TEXT CLAIMED, AND WHAT IS ACTUALLY TRUE. It
-        // claimed the abuse direction was closed "one level up, by the loan
-        // channel". MEASURED: that holds ONLY when the wrapper is built in the
-        // frame that later mutates — `let hh = H { h: rc_new(7), b: c.mk() };
-        // c.bump()` refuses (/tmp/bcm/c2_rc_exempt.logos, X1) because the loan
-        // was recorded right there. Built in a CALLEE it did not: `fn make(c:
-        // &C) -> H { … }; let hh = make(&c); let b = hh.b; c.bump()` compiled
-        // (X2), and `Option<H>` inherited the same false through the type-arg
-        // recursion (X3). The reason was that the loan channel gated on THIS
-        // function and therefore inherited the exemption too — and, one level
-        // deeper, that `residency_exempt` is applied at REGISTRATION, so `H`
-        // never entered `borrow_carrying` at all.
-        //
-        // FIX (and the decision): the loan channel now has its own predicate,
-        // `loan_carrying_type` over `TypeSets::loan_carrying` — the same
-        // structural closure computed WITHOUT the residency skip. A loan says
-        // "the arena is still being READ"; an Rc share says "the arena is still
-        // ALIVE". Those are different claims, and only the second is what the
-        // hatch exists to assert. So:
-        //   /tmp/bcm/c4_exempt_return.logos  rc=0 — return H past the arena
-        //                                     (the hatch's purpose: a RETURN
-        //                                      gate, which still asks THIS fn)
-        //   /tmp/bcm/c2_rc_exempt.logos      rc=1 — in-frame abuse (unchanged)
-        //   X2 (exempt built in a callee)    rc=1 — was rc=0, closed by the
-        //                                     loan-channel predicate
-        //   X3 (Option<H>)                   rc=1 — same, through type-args
-        // NO HOLE IS KNOWN TO REMAIN in the abuse direction; if one turns up,
-        // it belongs in `loan_carrying`, not here.
-        // Consequently EVERY D1 rule gates on this function rather than on a
-        // raw name test — a name test would re-capture Held/HeldAny and kill
-        // c4. See also: this function was MEASURED non-guilty for D1 and is
-        // otherwise unchanged. It already implements "bc if the name is in the
-        // set OR any type-arg is bc"; the mangled `Option__B` / `X$G1$Y` forms
-        // never reach it (TypeRefs keep their type-args post-mono, and all name
-        // munging lives in reg_bc_name at registration), which is why
-        // `Option<B>` is bc here by the type-arg recursion and not by name.
-        if (!nm.empty() && ts_.residency_exempt.count(nm) > 0) return false;
-        if (!nm.empty() && ts_.borrow_carrying.count(nm) > 0) return true;
-        // A generic CONTAINER of a borrow-carrying element carries its elements'
-        // borrows (`Vec<WAny>`, `Option<WAny>`, `Box<WAny>`) — even though the
-        // buffer sits behind an owning pointer / the payload is a type-param, the
-        // value transitively holds a Ref into an arena. (A raw `*mut WAny` has no
-        // type-args → stays unchecked, like box_leak — Rust parity.)
-        for (auto a : t.type_args())
-            if (is_borrow_carrying_type(a)) return true;
-        // D1 round 2, Door G — the STRUCTURAL containers. A tuple and an array
-        // hold their element types outside `type_args()`: `(B, i64)` came back
-        // NOT borrow-carrying (measured — the destructure's `let __destruct_1:
-        // (B,i64) = __destruct_0` spill was not routed through
-        // take_ref_borrows at all, so the hop chain broke one step before the
-        // binding). The container rule above already says a `Vec<B>` / `Box<B>`
-        // carries its elements' borrows; a tuple or an array is the same claim
-        // with the elements spelled structurally instead of as type-args.
-        if (k == LogosType::Kind::Tuple) {
-            for (auto e : t.tuple_elems())
-                if (is_borrow_carrying_type(TypeRef(e))) return true;
-            return false;
-        }
-        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
-            return is_borrow_carrying_type(t.elem());
-        return false;
+        return bc_is_borrow_carrying_type(ts_, t);
     }
 
     // ── D1 round 2, Door E + EXEMPT: the LOAN channel's own predicate ──────
@@ -2138,23 +2431,7 @@ class BorrowChecker {
     // iterator past its arena (c4_exempt_return, the hatch's actual purpose)
     // goes through the return gate and is untouched.
     bool loan_carrying_type(TypeRef t) const {
-        if (!t) return false;
-        auto k = t.kind();
-        std::string nm;
-        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            nm = std::string(t.struct_name());
-        if (!nm.empty() && ts_.loan_carrying.count(nm) > 0) return true;
-        for (auto a : t.type_args())
-            if (loan_carrying_type(a)) return true;
-        if (k == LogosType::Kind::Tuple) {
-            for (auto e : t.tuple_elems())
-                if (loan_carrying_type(TypeRef(e))) return true;
-            return false;
-        }
-        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
-            return loan_carrying_type(t.elem());
-        return false;
+        return bc_loan_carrying_type(ts_, t);
     }
 
     // Door E — the CONSTRUCTION/coercion site. `Box::new(c.mk())` erased into
@@ -2302,11 +2579,36 @@ class BorrowChecker {
         using Code = lir_schema::expr::Code;
         ExprRef cur = e;
         if (cur && cur.kind() == Code::AddrOfTemp) cur = EAddrOfTempView{cur}.inner();
+        // A projection whose receiver is a RAW POINTER is a raw deref in
+        // disguise — `e.key` / `e[i]` with `e: *const Entry` is spelled without
+        // a `*` but means exactly `(*e).key`. The explicit-Deref arm below
+        // already returns {} for it (Rust parity: the pointee is not tied to
+        // the local holding the pointer); F4's return gate is the first caller
+        // that reaches these shapes, and without this the whole raw-pointer
+        // iterator idiom (`HashMapKeys::next` → `let e: *const Entry = …;
+        // return Option::Some(&e.key);`) was reported as returning a borrow of
+        // the local `e`. MEASURED: 6 stdlib iterator families.
+        auto recv_is_rawptr = [&](ExprRef r) {
+            return r && r.type(pool) &&
+                   r.type(pool).kind() == LogosType::Kind::Ptr;
+        };
         while (cur) {
             Code k = cur.kind();
-            if (k == Code::FieldRead)  { cur = EFieldReadView{cur}.receiver();  continue; }
-            if (k == Code::TupleIndex) { cur = ETupleIndexView{cur}.receiver(); continue; }
-            if (k == Code::IndexRead)  { cur = EIndexReadView{cur}.receiver();  continue; }
+            if (k == Code::FieldRead)  {
+                auto r = EFieldReadView{cur}.receiver();
+                if (recv_is_rawptr(r)) return {};
+                cur = r; continue;
+            }
+            if (k == Code::TupleIndex) {
+                auto r = ETupleIndexView{cur}.receiver();
+                if (recv_is_rawptr(r)) return {};
+                cur = r; continue;
+            }
+            if (k == Code::IndexRead)  {
+                auto r = EIndexReadView{cur}.receiver();
+                if (recv_is_rawptr(r)) return {};
+                cur = r; continue;
+            }
             if (k == Code::Deref) {
                 auto op = EDerefView{cur}.operand();
                 if (op && op.type(pool) &&
@@ -2432,11 +2734,36 @@ class BorrowChecker {
             if (var_has(NO_SLOT, n)) out.push_back(std::move(n));
             return;
         }
+        // A projection whose receiver is a RAW POINTER is a raw deref in
+        // disguise — `e.key` / `e[i]` with `e: *const Entry` is spelled without
+        // a `*` but means exactly `(*e).key`. The explicit-Deref arm below
+        // already returns {} for it (Rust parity: the pointee is not tied to
+        // the local holding the pointer); F4's return gate is the first caller
+        // that reaches these shapes, and without this the whole raw-pointer
+        // iterator idiom (`HashMapKeys::next` → `let e: *const Entry = …;
+        // return Option::Some(&e.key);`) was reported as returning a borrow of
+        // the local `e`. MEASURED: 6 stdlib iterator families.
+        auto recv_is_rawptr = [&](ExprRef r) {
+            return r && r.type(pool) &&
+                   r.type(pool).kind() == LogosType::Kind::Ptr;
+        };
         while (cur) {
             Code k = cur.kind();
-            if (k == Code::FieldRead)  { cur = EFieldReadView{cur}.receiver();  continue; }
-            if (k == Code::TupleIndex) { cur = ETupleIndexView{cur}.receiver(); continue; }
-            if (k == Code::IndexRead)  { cur = EIndexReadView{cur}.receiver();  continue; }
+            if (k == Code::FieldRead)  {
+                auto r = EFieldReadView{cur}.receiver();
+                if (recv_is_rawptr(r)) return;
+                cur = r; continue;
+            }
+            if (k == Code::TupleIndex) {
+                auto r = ETupleIndexView{cur}.receiver();
+                if (recv_is_rawptr(r)) return;
+                cur = r; continue;
+            }
+            if (k == Code::IndexRead)  {
+                auto r = EIndexReadView{cur}.receiver();
+                if (recv_is_rawptr(r)) return;
+                cur = r; continue;
+            }
             if (k == Code::Deref) {
                 auto op = EDerefView{cur}.operand();
                 if (op && op.type(pool) &&
@@ -2514,10 +2841,28 @@ class BorrowChecker {
                     return {{}, /*is_local=*/true, /*is_temp=*/false};
                 return {};  // unknown — conservative-accept
             }
-            case Code::FieldRead:
-                return prov_of(EFieldReadView{e}.receiver());
-            case Code::Deref:
-                return prov_of(EDerefView{e}.operand());
+            case Code::FieldRead: {
+                // A projection THROUGH a raw pointer is a raw deref (see
+                // value_local_root's identical rule): the pointee is not tied
+                // to the local holding the pointer. Rust parity.
+                auto r = EFieldReadView{e}.receiver();
+                if (r && r.type(pool) && r.type(pool).kind() == LogosType::Kind::Ptr)
+                    return {};
+                return prov_of(r);
+            }
+            case Code::Deref: {
+                // Same rule for an explicit `*p`. MEASURED on the full stdlib
+                // build (NOT on ctest, which links prebuilt archives):
+                // `Iterator::reduce`'s deliberate launder
+                // `let init: Item = *((&v) as *const Item);` propagated `v`'s
+                // is_local through Deref→Cast→AddrOf, and once F4's return gate
+                // started asking about `Option<&T>` returns at all, every
+                // `SliceIter::reduce` instantiation was refused.
+                auto op = EDerefView{e}.operand();
+                if (op && op.type(pool) && op.type(pool).kind() == LogosType::Kind::Ptr)
+                    return {};
+                return prov_of(op);
+            }
             case Code::TupleIndex:
                 return prov_of(ETupleIndexView{e}.receiver());
             case Code::Cast:
@@ -2561,21 +2906,67 @@ class BorrowChecker {
                     if (fat && !is_borrow_carrying_type(rt) &&
                         !result_borrows_self(v)) return {};
                 }
-                RefProv rp = prov_of(v.receiver());
+                // D1 round 3 / F1 + F2 — the receiver is an OPERAND, not a
+                // privileged one. Two defects, one site:
+                //   F1 (under-refusal): this case read ONLY the receiver, so a
+                //     by-value borrow-carrying ARGUMENT rooted at a fn-local
+                //     escaped — `fn leak(i: &Id) -> B { let c = C{v:1};
+                //     return i.thru(c.mk()); }` compiled. The LOAN channel
+                //     (collect_ref_sources' MethodCall arm) already took
+                //     by-value bc args; the two channels disagreed at the same
+                //     expression kind and the loan channel was right.
+                //   F2 (over-refusal): the value-local fallback below adopted
+                //     the receiver's locality UNCONDITIONALLY once the result
+                //     carried borrows, so an unrelated value-local receiver
+                //     made the result look local — `fn thru(c: &C) -> B { let
+                //     i = Id{z:0}; return i.th(c.mk()); }` refused while the
+                //     identical program in FREE-FN spelling admitted.
+                // Both are "the operand that actually contributes", and the
+                // callee's BORROW-FLOW SUMMARY is what says which operand does
+                // (`Id::thru(&self, b: B) -> B` summarises as result<-{b},
+                // measured). Elision cannot answer it: `&self -> B` ties the
+                // result to self by the declared contract even when the body
+                // returns its argument. With no summary (the documented (a)-(d)
+                // hole) every clause below keeps its pre-F3 behaviour.
+                const FlowSummary* fs = flow_of_method(v);
+                RefProv rp = {};
+                bool recv_contributes = true;
+                if (fs) {
+                    recv_contributes = (fs->to_result & 1ull) != 0;
+                    std::vector<ExprRef> ops;
+                    ops.push_back(v.receiver());
+                    v.each_arg([&](ExprRef a){ ops.push_back(a); });
+                    for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
+                        if (fs->to_result & (1ull << i))
+                            rp = merge_prov(rp, prov_of(ops[i]));
+                } else {
+                    rp = prov_of(v.receiver());
+                    // F1's half that does NOT depend on a summary: a by-VALUE
+                    // borrow-carrying argument carries its provenance exactly
+                    // like a plain-ref one.
+                    v.each_arg([&](ExprRef a) {
+                        if (!a) return;
+                        TypeRef at = a.type(pool);
+                        if (!is_ref_kind(at) && is_borrow_carrying_type(at))
+                            rp = merge_prov(rp, prov_of(a));
+                    });
+                }
                 // A by-VALUE-self adapter (`.enumerate()` / `.filter()` —
                 // `self: Self`) CONSUMES the receiver: a temporary receiver
                 // is moved INTO the result, not dropped at stmt end. Its
                 // carried borrow (v.iter()'s borrow of v) flows through via
                 // the recursive prov, but no E0716 temp applies. Only a
                 // ref-self method's result points INTO the temporary.
-                if (is_temporary_value_expr(v.receiver()) &&
+                if (recv_contributes && is_temporary_value_expr(v.receiver()) &&
                     method_self_kind(v) != 0)
                     rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s
                 // `self` is `h` directly, not `&h`) — prov_of(VarRef) doesn't flag
                 // value-locals, so catch it here: a `&T`/borrow-carrying result of a
-                // method on a value-local receiver borrows that local.
-                if (rp.params.empty() && !rp.is_local && !rp.is_temp &&
+                // method on a value-local receiver borrows that local. F2: only
+                // when the receiver actually reaches the result.
+                if (recv_contributes && rp.params.empty() && !rp.is_local &&
+                    !rp.is_temp &&
                     !value_local_root(v.receiver(), pool).empty())
                     rp.is_local = true;
                 return rp;
@@ -2587,11 +2978,38 @@ class BorrowChecker {
                 // empty → freely returnable.) Non-borrow-carrying = caller-owned.
                 if (!is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv merged = {};
-                // Plain `&`/`&mut` args only — a by-value slice arg
+                // D1 round 3 / F0 — this arm merged provenance only from
+                // `is_plain_ref_kind` args, so a by-VALUE borrow-carrying
+                // argument contributed NOTHING: `fn idb(b: B) -> B { return b;
+                // } fn leak() -> B { let c = C{v:1}; let b = c.mk();
+                // return idb(b); }` compiled, while `return b;` directly
+                // refused and both wrapper twins (Option::Some(b),
+                // Wrap{b:..}) refused. `Box::new` is such a Call. The LOAN
+                // channel's Call arm already took by-value bc args — the two
+                // channels disagreed at the same expression kind.
+                //
+                // With a summary, merge exactly the args the callee's body
+                // lets reach the result; without one (the documented (a)-(d)
+                // hole) keep the plain-ref rule AND add the by-value bc args,
+                // which is the loan channel's rule.
+                ECallView cv{e};
+                if (const FlowSummary* fs = flow_of_call(cv.callee())) {
+                    size_t i = 0;
+                    cv.each_arg([&](ExprRef a) {
+                        if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
+                            merged = merge_prov(merged, prov_of(a));
+                        ++i;
+                    });
+                    return merged;
+                }
+                // Plain `&`/`&mut` args — a by-value slice arg
                 // (`tv_build(h, name.as_str(), …)`) is a copied borrow with the
                 // element's lifetime; it is not a capture channel for the result.
-                ECallView{e}.each_arg([&](ExprRef a) {
-                    if (a && is_plain_ref_kind(a.type(pool)))
+                cv.each_arg([&](ExprRef a) {
+                    if (!a) return;
+                    TypeRef at = a.type(pool);
+                    if (is_plain_ref_kind(at) ||
+                        (!is_ref_kind(at) && is_borrow_carrying_type(at)))
                         merged = merge_prov(merged, prov_of(a));
                 });
                 return merged;
@@ -2629,13 +3047,216 @@ class BorrowChecker {
 
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
 
+    // ── D1 round 3 / F4: the return gate's mirror of door E ────────────────
+    //
+    // `is_borrow_carrying_type` answers an ESCAPE question about a TYPE, and an
+    // OWNED ERASED WRAPPER's type says nothing: `Box<dyn Fn() -> i64>` is
+    // neither a ref kind nor a bc NAME, and neither is `Box<&i64>` (its arg is
+    // Kind::Ref, not a `#[borrow_carrying]` name). So check_return_value
+    // early-returned and a closure capturing a fn-local borrow — or a plain
+    // `Box::new(&c.v)` — walked straight out of the function (measured rc=0 on
+    // both; `&dyn` returns were pinned all along by spec/fail/region_diag_1).
+    //
+    // Round 2 met the same class at the CONSTRUCTION site (door E) and answered
+    // it the same way: read the RESULT KIND, not the type name — a value that
+    // retains a borrowing operand still holds its borrow whatever its erased
+    // type now claims. This is that rule on the return channel. The wrong easy
+    // answer, rejected for the same reason as at door E, is "any dyn type-arg
+    // is borrow-carrying": that refuses the whole Arc<dyn Snapshot> ecosystem.
+    //
+    // What counts as a retained BORROWING operand here is wider than door E's
+    // by-value-bc test, because a plain `&T` operand is exactly what
+    // `Box<&i64>` retains.
+    // The RETURN TYPE half of F4's gate, and the half that keeps it narrow.
+    // MEASURED: gating on the returned EXPRESSION alone (does it retain a
+    // borrowing operand?) over-refused 66 L2 tests — every `impl Debug::fmt`
+    // doing `return s.finish();` where `s: DebugStruct` holds a `&mut
+    // Formatter`, every `Result<(), Error>` built off a `&self` receiver. The
+    // returned VALUE retaining a reference is not the question; the question is
+    // whether the return TYPE HIDES one. `Box<&i64>` and `Box<dyn Fn() -> i64>`
+    // do — a Ref or an erased dyn/closure sits inside an owned wrapper, and
+    // is_borrow_carrying_type answers "no" because neither is a bc NAME.
+    // `Result<(), Error>` does not: its type-args are a unit tuple and a plain
+    // struct, so nothing about it can outlive the callee's frame.
+    static bool type_hides_borrow(TypeRef t) {
+        if (!t) return false;
+        using K = LogosType::Kind;
+        auto hides = [](TypeRef a) {
+            if (!a) return false;
+            switch (a.kind()) {
+                // ERASED payloads only. A bare `&T` type-arg (`Option<&T>`,
+                // `Result<&T,E>`) is deliberately NOT here — see
+                // `retains_direct_local_borrow` below for why, and for the
+                // narrower gate that does cover `Box<&i64>`.
+                case K::TraitObject: case K::UnsizedDyn:
+                case K::Closure:     case K::ImplTrait:
+                    return true;
+                default: return false;
+            }
+        };
+        for (auto a : t.type_args())
+            if (hides(a) || type_hides_borrow(a)) return true;
+        if (t.kind() == K::Tuple) {
+            for (auto e : t.tuple_elems())
+                if (hides(TypeRef(e)) || type_hides_borrow(TypeRef(e))) return true;
+            return false;
+        }
+        if (t.kind() == K::Array)
+            return hides(t.elem()) || type_hides_borrow(t.elem());
+        return false;
+    }
+    // ── F4: THE DOCUMENTED RESIDUAL HOLE ──────────────────────────────────
+    //
+    // `fn leak(n: i64) -> Box<&i64> { let c = C{v:n}; return Box::new(&c.v); }`
+    // STILL COMPILES, and that is a recorded decision, not an oversight.
+    //
+    // The gate above fires on ERASED payloads (dyn / closure / impl-Trait),
+    // which is F4 as reported: the return type says nothing, so the type-driven
+    // early-out never asked. A bare `&T` type-arg (`Box<&i64>`, `Option<&T>`,
+    // `Result<&T,E>`) is a different animal — the type DOES name a reference,
+    // and the reason those returns are not checked is that prov_of's answer for
+    // them rests on `value_local_root`, which is far too coarse for the class.
+    // Two attempts were built and MEASURED on the full `cmake --build` (ctest
+    // links prebuilt archives and sees none of this):
+    //   1. adding Ref/Slice to the erased list → `Iterator::reduce` red for
+    //      EVERY SliceIter instantiation: it returns `Option<Item>` with
+    //      `Item = &T` off a by-VALUE local iterator, and the value-local
+    //      fallback calls that local. It is not — the pointee is the caller's
+    //      slice.
+    //   2. a narrower "the construction retained a DIRECT `&local`" gate →
+    //      `stdlib/mem/wql::scan_of` red on all eleven arms (a `&self` autoref
+    //      receiver reads as a direct borrow), then, once receivers were
+    //      excluded, `PdtBuf::select_fw_op` / `select_bw_op` /
+    //      `decide_join_step` in stdlib/mem/pkd.
+    // Each attempt traded a real leak for a wave of refusals of correct code.
+    // The brief's constraint (a) settles it: over-refusing the ecosystem is
+    // worse than a documented residual hole. Closing this one properly needs a
+    // PRECISE answer to "does this reference point into call-local storage?",
+    // i.e. value_local_root replaced by real region provenance — a separate
+    // arc, not a gate tweak. The leak is `Box<&local>` and its Option/Result
+    // siblings; the erased-wrapper half (fail/bc_d1r3_f4_closure_local) is
+    // closed and pinned.
+    // What the returned expression RETAINS. Wider than door E's by-value-bc
+    // test at the construction site, because an erased wrapper can retain a
+    // plain `&T` or a closure just as well as a bc value.
+    bool retains_borrowing_operand(lir_view::ExprRef e) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!e) return false;
+        const auto* pool = prog_.type_pool.impl();
+        if (!type_retains_values(e.type(pool))) return false;
+        bool found = false;
+        auto one = [&](ExprRef a) {
+            if (!a || found) return;
+            TypeRef at = a.type(pool);
+            if (is_ref_kind(at) || loan_carrying_type(at) ||
+                is_borrow_carrying_type(at)) { found = true; return; }
+            if (a.kind() == Code::ClosureBox || retains_borrowing_operand(a))
+                found = true;
+        };
+        switch (e.kind()) {
+            case Code::Call:       ECallView{e}.each_arg(one); break;
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                one(v.receiver());
+                v.each_arg(one);
+                break;
+            }
+            case Code::StructLit:   EStructLitView{e}.each_field_value(one); break;
+            case Code::TupleLit:    ETupleLitView{e}.each_elem(one); break;
+            case Code::ArrLit:      EArrLitView{e}.each_elem(one); break;
+            case Code::EnumLitData: EEnumLitDataView{e}.each_payload(one); break;
+            case Code::Cast:        one(ECastView{e}.operand()); break;
+            case Code::ClosureBox:  return true;
+            default: break;
+        }
+        return found;
+    }
+
+    // Provenance THROUGH an erased wrapper: prov_of's own arms are gated on
+    // the RESULT being ref/bc, which is precisely what an erased wrapper is
+    // not, so they return {}. Walk the retained operands instead.
+    RefProv prov_of_retained(lir_view::ExprRef e) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        RefProv merged = {};
+        if (!e) return merged;
+        const auto* pool = prog_.type_pool.impl();
+        auto one = [&](ExprRef a) {
+            if (!a) return;
+            TypeRef at = a.type(pool);
+            if (is_ref_kind(at) || loan_carrying_type(at) ||
+                is_borrow_carrying_type(at)) {
+                merged = merge_prov(merged, prov_of(a));
+                return;
+            }
+            merged = merge_prov(merged, prov_of_retained(a));
+        };
+        switch (e.kind()) {
+            // A CALL's retained operands are exactly the ones its borrow-flow
+            // summary says reach the result. MEASURED: without this, the
+            // metaprog-emitted `fn ss_grp(a: &[SS]) -> Result<Vec<(str,i64)>,
+            // ElError> { let __pl = …; return ss_grp_run(&__pl, a); }` was
+            // refused because the plain `&__pl` argument — a borrow of a local
+            // that the result never touches — looked like retained provenance.
+            // No summary ⇒ every borrowing operand, the pre-F4 conservatism.
+            case Code::Call: {
+                ECallView cv{e};
+                const FlowSummary* fs = flow_of_call(cv.callee());
+                if (fs) {
+                    size_t i = 0;
+                    cv.each_arg([&](ExprRef a) {
+                        if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
+                            one(a);
+                        ++i;
+                    });
+                } else {
+                    cv.each_arg(one);
+                }
+                break;
+            }
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                if (const FlowSummary* fs = flow_of_method(v)) {
+                    std::vector<ExprRef> ops;
+                    ops.push_back(v.receiver());
+                    v.each_arg([&](ExprRef a){ ops.push_back(a); });
+                    for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
+                        if (fs->to_result & (1ull << i)) one(ops[i]);
+                } else {
+                    one(v.receiver());
+                    v.each_arg(one);
+                }
+                break;
+            }
+            case Code::StructLit:   EStructLitView{e}.each_field_value(one); break;
+            case Code::TupleLit:    ETupleLitView{e}.each_elem(one); break;
+            case Code::ArrLit:      EArrLitView{e}.each_elem(one); break;
+            case Code::EnumLitData: EEnumLitDataView{e}.each_payload(one); break;
+            case Code::Cast:        one(ECastView{e}.operand()); break;
+            case Code::ClosureBox:
+                // A closure that CAPTURES a borrow of a local carries it out.
+                EClosureBoxView{e}.each_capture_name([&](std::string_view cap) {
+                    std::string n(cap);
+                    if (auto it = prov_.find(n); it != prov_.end())
+                        merged = merge_prov(merged, it->second);
+                });
+                break;
+            default: break;
+        }
+        return merged;
+    }
+
     void check_return_value(lir_view::ExprRef er, uint32_t line) {
-        if (!ret_type_ ||
-            (!is_ref_kind(ret_type_) && !is_borrow_carrying_type(ret_type_)))
-            return;
+        if (!ret_type_) return;
+        bool typed_gate = is_ref_kind(ret_type_) || is_borrow_carrying_type(ret_type_);
+        bool retention_gate = !typed_gate && type_hides_borrow(ret_type_) &&
+                              retains_borrowing_operand(er);
+        if (!typed_gate && !retention_gate) return;
 
         RefProv prov = prov_of(er);
-
+        if (retention_gate && !prov.is_local && !prov.is_temp && prov.params.empty())
+            prov = prov_of_retained(er);   // F4
         // 1. Definitely local / temporary → always dangling.
         if (prov.is_local || prov.is_temp) {
             std::string src;
@@ -3216,9 +3837,21 @@ class BorrowChecker {
     // each named local is read. The borrow checker uses this to release
     // borrows whose holder's last use has passed — making borrows non-lexical.
     void note_use(std::string name, uint32_t line) {
+        note_use_slot(NO_SLOT, std::move(name), line);
+    }
+    // F5: `slot` is the dense binding slot when the use site knows it
+    // (VarRef), NO_SLOT otherwise.
+    void note_use_slot(uint32_t slot, std::string name, uint32_t line) {
         if (name.empty()) return;
-        auto& slot = last_use_line_[name];
-        if (line > slot) slot = line;
+        auto& any = last_use_line_[name];
+        if (line > any) any = line;
+        if (slot == NO_SLOT) {
+            auto& u = last_use_unslotted_[name];
+            if (line > u) u = line;
+        } else {
+            auto& s = last_use_slot_[slot];
+            if (line > s) s = line;
+        }
     }
 
     void scan_uses_expr(lir_view::ExprRef e, uint32_t line) {
@@ -3227,7 +3860,8 @@ class BorrowChecker {
         using Code = lir_schema::expr::Code;
         switch (e.kind()) {
             case Code::VarRef:
-                note_use(std::string(EVarRefView{e}.name()), line);
+                note_use_slot(EVarRefView{e}.var_slot(),
+                              std::string(EVarRefView{e}.name()), line);
                 break;
             case Code::AddrOf:
                 note_use(std::string(EAddrOfView{e}.var_name()), line);
@@ -3496,7 +4130,7 @@ class BorrowChecker {
         auto it = frame.borrows.begin();
         while (it != frame.borrows.end()) {
             if (it->holder.empty()) { ++it; continue; }
-            uint32_t lu = holders_last_use(it->holder, it->co_holders);
+            uint32_t lu = holders_last_use(*it);
             if (lu <= cur_line) {
                 auto sit = var_find(it->target_slot, it->target);
                 if (sit != nullptr) {
@@ -3513,7 +4147,7 @@ class BorrowChecker {
         auto fit2 = frame.field_borrows.begin();
         while (fit2 != frame.field_borrows.end()) {
             if (fit2->holder.empty()) { ++fit2; continue; }
-            uint32_t lu = holders_last_use(fit2->holder, fit2->co_holders);
+            uint32_t lu = holders_last_use(*fit2);
             if (lu <= cur_line) {
                 if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {
                     if (fit2->is_mut)
@@ -3778,9 +4412,9 @@ class BorrowChecker {
             }
         }
         if (!through_ref) return;
-        auto srcs = ref_borrow_sources_.find(root);
-        if (srcs == ref_borrow_sources_.end()) return;
-        for (auto& src : srcs->second) {
+        std::vector<std::string> srcs = ref_sources_under(root);
+        if (srcs.empty()) return;
+        for (auto& src : srcs) {
             if (src == root) continue;
             // NOT plain inherit_loans: a record whose TARGET is `src` itself is
             // the `&mut src` borrow that `root` was FORMED from. Making src a
@@ -3798,6 +4432,7 @@ class BorrowChecker {
                 if (std::find(rec.co_holders.begin(), rec.co_holders.end(), src)
                     != rec.co_holders.end()) return;
                 rec.co_holders.push_back(src);
+                rec.co_holder_slots.push_back(slot_of_binding(src));
                 ++inherit_fired_;
             };
             for (auto& frame : scopes_) {
@@ -3827,6 +4462,11 @@ class BorrowChecker {
                 // so its by-ref captures register as borrows held by `name` (the
                 // closure var) — released at the closure's last use (NLL).
                 bool is_closure_t = t && t.kind() == LogosType::Kind::Closure;
+                // F5: the loans recorded while walking the RHS take `name` as
+                // their holder, but declare_var runs only AFTER. Publish the
+                // binding's identity first so those loans capture the NEW
+                // slot, not the shadowed one's.
+                note_binding_slot(name, v.var_slot());
                 // An aggregate LITERAL RHS (`let g = Guard { r: &mut snap }`,
                 // tuple/array of borrows) may CAPTURE a borrow into the binding
                 // even when the binding's nominal type isn't itself flagged
@@ -4023,7 +4663,7 @@ class BorrowChecker {
                 // §B6: `root.f = &x` stores a borrow into root — record so a
                 // later use of root after x dies is E0597 (field sibling of the
                 // struct-literal case).
-                add_ref_sources(recv_nm, v.value(), ln);
+                add_ref_sources(recv_nm, field_nm, v.value(), ln);  // F6: at the PLACE
                 // Door A: the loan counterpart of the line above.
                 place_write_loans(recv_nm, v.value(), ln,
                                   /*through_ref=*/prov_.count(recv_nm) > 0);
@@ -4089,7 +4729,15 @@ class BorrowChecker {
                 std::string cf_nm(v.receiver());
                 check_live(cf_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
-                add_ref_sources(cf_nm, v.value(), ln);  // §B6
+                {   // F6: the written place is receiver.mid[.extra…].field
+                    std::string cf_path(v.mid_field());
+                    v.each_extra([&](std::string_view ex) {
+                        if (!ex.empty()) cf_path += "." + std::string(ex);
+                    });
+                    if (!v.field().empty())
+                        cf_path += (cf_path.empty() ? "" : ".") + std::string(v.field());
+                    add_ref_sources(cf_nm, cf_path, v.value(), ln);  // §B6
+                }
                 place_write_loans(cf_nm, v.value(), ln,   // Door A
                                   /*through_ref=*/prov_.count(cf_nm) > 0);
                 break;
@@ -4193,7 +4841,7 @@ class BorrowChecker {
                         std::string root(EVarRefView{c}.name());
                         uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
                         if (var_has(root_slot, root) && !param_names_.count(root))
-                            add_ref_sources(root, v.value(), ln);
+                            add_ref_sources(root, std::string{}, v.value(), ln);
                     }
                     // Door A: the loan counterpart. `*<place> = c.mk()` — the
                     // place's root binding holds the stored borrow. Uses the
@@ -4217,7 +4865,8 @@ class BorrowChecker {
                 std::string tw_nm(v.receiver());
                 check_live(tw_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
-                add_ref_sources(tw_nm, v.value(), ln);  // §B6
+                add_ref_sources(tw_nm, std::to_string(v.index()),
+                                v.value(), ln);  // §B6 (F6: at the PLACE)
                 place_write_loans(tw_nm, v.value(), ln,   // Door A
                                   /*through_ref=*/prov_.count(tw_nm) > 0);
                 break;
@@ -4249,6 +4898,7 @@ class BorrowChecker {
                         bc_hop_roots(sc, roots);
                     declare_pat_bindings(v.pat());
                     propagate_pat_sources(v.pat(), srcs, ln);  // §B6
+                    propagate_pat_prov(v.pat(), v.scrut());   // D1 r3
                     propagate_pat_loans(v.pat(), roots, ln);   // D1
                 } else {
                     declare_pat_bindings(v.pat());
@@ -4442,6 +5092,7 @@ class BorrowChecker {
                     push_scope();
                     declare_pat_bindings(arm.pat());
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
+                    propagate_pat_prov(arm.pat(), v.scrut());             // D1 r3
                     propagate_pat_loans(arm.pat(), scrut_hop_roots, ln);  // D1
                     StateMap before_guard = states_;
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
@@ -4529,9 +5180,25 @@ public:
                   const lir::LProgram& prog, const TypeSets& ts,
                   const FnIndex& fn_index,
                   bool exclusivity_only = false,
-                  const RegionInferer* ri = nullptr)
+                  const RegionInferer* ri = nullptr,
+                  const FlowSummaryMap* flows = nullptr)
         : diags_(diags), fn_name_(std::move(fn_name)), prog_(prog), ts_(ts),
-          fn_index_(fn_index), ri_(ri), exclusivity_only_(exclusivity_only) {}
+          fn_index_(fn_index), ri_(ri), flows_(flows),
+          exclusivity_only_(exclusivity_only) {}
+    // D1 round 3 / F3: post-mono borrow-flow summaries (null pre-mono).
+    const FlowSummaryMap* flows_ = nullptr;
+
+    // The callee's summary for a Call / MethodCall, or null when the body is
+    // not available (the documented (a)-(d) hole — every consumer then keeps
+    // its pre-F3 signature-elision behaviour).
+    const FlowSummary* flow_of_call(std::string_view symbol) const {
+        return flows_ ? resolve_call_flow(*flows_, symbol) : nullptr;
+    }
+    const FlowSummary* flow_of_method(lir_view::EMethodCallView v) const {
+        return flows_ ? resolve_method_flow(*flows_, fn_index_,
+                                            prog_.type_pool.impl(), v)
+                      : nullptr;
+    }
     // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
     // tracking is imprecise (TypeVar values + generic method-call move
     // semantics → false positives like a spurious "use of moved 'out'"). In
@@ -4553,6 +5220,9 @@ public:
         param_names_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
+        last_use_slot_.clear();        // F5 — slots are per-FUNCTION dense ids
+        last_use_unslotted_.clear();
+        cur_slot_of_.clear();
         max_line_seen_ = 0;   // per-fn: a prior fn's higher lines must not
                               // count as "already visited" for NLL release
         // Per-body ref / dropck / dangling tracking. Borrow-checking is
@@ -4962,7 +5632,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         // record so a later use after that local dies is E0597
                         // (a `Vec<&T>` / view-buffer outliving its sources).
                         if (by_value_bc || stored_ref_elem)
-                            add_ref_sources(rn, a, line);
+                            add_ref_sources(rn, std::string{}, a, line);
                         // D1 door 8b — the LOAN counterpart of the capture-flow
                         // taint above. `vs.push(c.mk())` moves a borrow-carrying
                         // value INTO the receiver, so the receiver becomes a
@@ -4991,6 +5661,13 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     if (!cap.params.empty() || cap.is_local || cap.is_temp)
                         prov_[rn] = merge_prov(prov_[rn], cap);
                 }
+            }
+            {   // D1 round 3 / F3 — the method-call spelling. Receiver first,
+                // so operand i lines up with param i in the summary.
+                std::vector<ExprRef> ops;
+                ops.push_back(v.receiver());
+                v.each_arg([&](ExprRef a){ ops.push_back(a); });
+                apply_flow_outparams(flow_of_method(v), ops, line);
             }
             break;
         }
@@ -5070,6 +5747,11 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                                          /*record_only=*/true);
                     });
                 }
+            }
+            {   // D1 round 3 / F3 — the body-informed out-param rule.
+                std::vector<ExprRef> ops;
+                cv.each_arg([&](ExprRef a){ ops.push_back(a); });
+                apply_flow_outparams(flow_of_call(cv.callee()), ops, line);
             }
             break;
         }
@@ -5277,6 +5959,33 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     // Escape-analysis callee index — built ONCE here, shared (const) by every
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).
     const FnIndex fn_index = build_fn_index(prog);
+    // D1 round 3 / F3 — borrow-flow summaries. POST-mono only: the pre-mono
+    // generic-template pass runs exclusivity-only over TypeVar bodies, where
+    // neither the bc-type predicates nor callee resolution mean anything.
+    // Computed ONCE here (the whole program is in hand), consumed by every
+    // per-function checker below.
+    FlowSummaryMap flows;
+    if (!generic_templates_only) {
+        FlowSummarizer fs(prog, ts, fn_index, flows);
+        fs.run();
+        if (const char* df = std::getenv("LOGOS_DUMP_FLOWS")) {
+            std::string filt(df);
+            for (auto& [nm, s] : flows) {
+                if (filt != "1" && nm.find(filt) == std::string::npos) continue;
+                if (!s.available) { fprintf(stderr, "[flow] %s: UNAVAILABLE\n", nm.c_str()); continue; }
+                if (filt == "1" && !s.to_result && [&]{
+                        for (auto m : s.to_outparam) if (m) return false;
+                        return true; }()) continue;
+                fprintf(stderr, "[flow] %s: result<-%#llx", nm.c_str(),
+                        (unsigned long long)s.to_result);
+                for (uint32_t j = 0; j < s.nparams; ++j)
+                    if (s.to_outparam[j])
+                        fprintf(stderr, " out%u<-%#llx", j,
+                                (unsigned long long)s.to_outparam[j]);
+                fprintf(stderr, "  (rounds=%u)\n", fs.rounds_used());
+            }
+        }
+    }
 
     auto check = [&](lir_view::FunctionView fn) {
         if (fn.is_extern())           return;
@@ -5307,7 +6016,8 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
             ri.analyze(fn, prog);
         BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name())),
                       prog, ts, fn_index, /*exclusivity_only=*/generic_templates_only,
-                      generic_templates_only ? nullptr : &ri).check(fn);
+                      generic_templates_only ? nullptr : &ri,
+                      generic_templates_only ? nullptr : &flows).check(fn);
         if (generic_templates_only) return;
         if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name())));

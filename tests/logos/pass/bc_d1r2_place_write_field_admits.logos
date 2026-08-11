@@ -7,18 +7,28 @@
 // VALUES are asserted, not just the exit code: `n` must be the PRE-mutation 1
 // (the borrow was read while it was live) and `c.v` the POST-mutation 2.
 //
-// ⚠ ONE ASSERTION IS DELIBERATELY ABSENT, and it is a MEASURED OVER-REFUSAL,
-// not a shortcut. Adding `if z != 9i64 { return 3; }` after the mutation makes
-// THIS program refuse with the same "cannot borrow 'c' as mutable" — reading
-// `z`, the referent of the borrow `w` held BEFORE the place write overwrote it,
-// keeps the loan on `c` alive past `w`'s real last use (isolated: `y`, an
-// unrelated local of the same type, does not do it; /tmp/bcp/p_z vs p_y). So a
-// use of a loan's TARGET is being counted as a use of its HOLDER. That is a
-// separate defect from Door A — it needs its own probe pair and its own control
-// — and it is recorded here rather than pinned, because pinning the refusal
-// would write the over-refusal down as intended behaviour. The Door F twin
-// (pass/bc_d1r2_call_out_param_admits) DOES carry the `z` assertion and is
-// green, which is what localises this to the direct place-write spelling.
+// D1 round 3 / F6 — THE THIRD ASSERTION IS NOW PRESENT. It was withheld here
+// as a measured OVER-REFUSAL: `if z != 9i64 { return 3; }` after the mutation
+// used to refuse with "cannot borrow 'c' as mutable", because a use of the
+// loan's TARGET (`z`, the referent the place write overwrote) was counted as a
+// use of its HOLDER. Mechanism: ref_borrow_sources_ was keyed per BINDING with
+// no field path, so `w.b = c.mk()` could not express "the source of w.b was
+// replaced"; the stale source `z` survived, place_write_loans re-rooted it onto
+// the c-loan as a co-holder, and holders_last_use then maxed over `z`'s later
+// read. Fixed by keying ref_borrow_sources_ by PLACE ("w", "w.b", "w.b.p") so a
+// write erases the subtree it overwrites (borrow_check.cpp: place_of /
+// place_under / erase_ref_sources_under / collect_ref_sources_paths).
+// Controls kept at the fix: an unrelated same-typed local never triggered it;
+// the plain-assign spelling (`b = c.mk()`) always admitted because SAssign
+// ERASED where FieldWrite MERGED; a &-param source never triggered it. The
+// Door F twin (pass/bc_d1r2_call_out_param_admits) carried this assertion all
+// along, which is what localised the defect to the direct place-write spelling.
+// KEEP-RED NEIGHBOURS — restoring an assertion into an admit is an INVERTED
+// pin, so it is only evidence while the refusals over the SAME rule stay red.
+// Verified red alongside it: fail/bc_d1r2_place_write_field_held (Door A's own
+// leak), fail/bc_d1r3_f6_place_write_use_after_mut (this exact program with the
+// last use of `w` AFTER the mutation) and fail/bc_d1r3_f6_place_write_source_escapes
+// (the dangling-source direction, which the PLACE keys had to preserve).
 package bc_d1r2_place_write_field_admits;
 #[borrow_carrying]
 struct B { p: &i64 }
@@ -37,5 +47,6 @@ fn main() -> i32 {
     c.bump();
     if n != 1i64 { return 1; }
     if c.v != 2i64 { return 2; }
+    if z != 9i64 { return 3; }
     return 0;
 }

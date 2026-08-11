@@ -1,0 +1,16 @@
+// ADMIT TWIN for the two F4 refusals: the identical erased return type
+// (`Box<dyn Fn() -> i64>`) with the closure capturing a by-VALUE parameter
+// instead of a borrow of a local. Nothing escapes, and returning a boxed
+// closure is the whole point of the type — a gate that fired on the RETURN
+// TYPE alone would kill it, which is why the gate also asks what the returned
+// expression actually retains.
+package bc_d1r3_f4_closure_param_admits;
+use logos.mem.boxed;
+fn mkf(n: i64) -> Box<dyn Fn() -> i64> {
+    return Box::new(move || -> i64 { return n; });
+}
+fn main() -> i32 {
+    let f: Box<dyn Fn() -> i64> = mkf(3i64);
+    if f() != 3i64 { return 1; }
+    return 0;
+}

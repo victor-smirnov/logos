@@ -1366,21 +1366,80 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # Snapshot>` ecosystem is what the wrong easy answer would have refused), and
 # pass/bc_d1r2_ref_arg_hop_admits keeps a consuming `&`-arg call with a scalar
 # result admitted.
-# ⚠ ONE ASSERTION WAS DROPPED, RECORDED, AND NOT PINNED: in the Door A twin,
-# reading `z` — the referent of the borrow the place write OVERWROTE — after the
-# mutation refuses ("cannot borrow 'c' as mutable"), while an unrelated local of
-# the same type does not. A use of a loan's TARGET is being counted as a use of
-# its HOLDER. That is a distinct over-refusal, it is written into the twin's
-# header, and it is NOT pinned in either direction: pinning the refusal would
-# write the defect down as intended, and pinning an admit would need the fix
-# first. It belongs to a later step with its own probe pair.
-# PREDICTED 6967 / 3284 / 31 (+16 / +16 / 0 off the 6951 line above) BEFORE the
-# re-configure — same `.expected` glob as every bc_d1 pair, all 16 local (none
-# under tests/imported, so ALL and -LE imported move together), and no
-# tier_commit label rides a corpus fixture. Measured after `cmake -S . -B build`
-# with `ctest -N` three ways; the counts below are the measurement.
-REGISTRY-ALL         6967
-REGISTRY-NOIMPORTED  3284
+# ⚠ THE DROPPED ASSERTION IS BACK — D1 ROUND 3 / F6. The Door A twin's `if z
+# != 9i64 { return 3; }` was withheld here as a measured over-refusal (a use of
+# a loan's TARGET counted as a use of its HOLDER). Root cause: ref_borrow_sources_
+# was keyed per BINDING with no field path, so `w.b = c.mk()` could not express
+# "the source of w.b was replaced" and the stale source survived to be re-rooted
+# onto the new loan as a co-holder. The map is now keyed by PLACE and the
+# assertion is restored in pass/bc_d1r2_place_write_field_admits, with both
+# directions pinned (fail/bc_d1r3_f6_place_write_use_after_mut and
+# fail/bc_d1r3_f6_place_write_source_escapes).
+# PREDICTED 6981 / 3298 / 31 (+14 / +14 / 0 off the 6967 line), MEASURED
+# 6980 / 3297 / 31 (+13 / +13 / 0), and the ONE-ROW GAP IS THE FINDING: the
+# fourteenth fixture was fail/bc_d1r3_f4_box_ref_local, and it was WITHDRAWN
+# rather than pinned. `Box::new(&c.v)` returned past its local still compiles;
+# both gates built to catch it (a Ref/Slice type-arg in the erased list; a
+# narrower "the construction retained a direct &local") were measured on the
+# full `cmake --build` and each traded that leak for a wave of refusals of
+# CORRECT code — `Iterator::reduce` for every SliceIter, then
+# stdlib/mem/wql::scan_of on all eleven arms, then three PdtBuf/pkd functions.
+# Per the standing rule that over-refusing the ecosystem is worse than a
+# documented residual hole, the hole is written into borrow_check.cpp
+# ("F4: THE DOCUMENTED RESIDUAL HOLE") and is NOT pinned in either direction —
+# pinning the admit would write the leak down as intended. The erased-wrapper
+# half IS closed and pinned (fail/bc_d1r3_f4_closure_local).
+# D1 round 3 therefore pins six findings as 14 `bc_d1r3_*` fixtures, one ledger
+# line each — LAUNDERING findings pinned as refuse+admit PAIRS, fixed
+# OVER-REFUSALS pinned INVERTED (the admit is the pin; the neighbouring refusals
+# are its keep-red control and are named in its header):
+#   F0 fail/bc_d1r3_f0_call_byval_return        by-value bc arg across a free
+#                                               Call laundered the return
+#   F0 pass/bc_d1r3_f0_param_root_admits        same hop, borrow rooted at a
+#                                               &-PARAM — stays admitted, VALUES
+#   F1 fail/bc_d1r3_f1_method_arg_return        MethodCall consulted the
+#                                               receiver only; the arg escaped
+#   F1 pass/bc_d1r3_f1_method_arg_admits        same call, arg rooted at a
+#                                               &-param, receiver &-param in
+#                                               BOTH halves — VALUES
+#   F2 pass/bc_d1r3_f2_recv_local_admits        INVERTED: an unrelated VALUE
+#                                               receiver used to poison the
+#                                               result. Keep-red: F1/F0 fails
+#   F3 fail/bc_d1r3_f3_outparam_stash           B manufactured IN the callee and
+#                                               stored through its &mut param
+#   F3 pass/bc_d1r3_f3_scalar_admits            direction control: callee
+#                                               carries NOTHING (result<-0)
+#   F3 pass/bc_d1r3_f3_read_before_mut_admits   same call, read BEFORE the
+#                                               mutation — NLL, not a lock
+#   F4 fail/bc_d1r3_f4_closure_local            erased `Box<dyn Fn()->i64>`
+#                                               capturing a &local
+#   F4 pass/bc_d1r3_f4_closure_param_admits     identical return type, capture
+#                                               by VALUE — the gate reads the
+#                                               retention, not the type name
+#   F5 pass/bc_d1r3_f5_shadow_admits            INVERTED: name-keyed loan expiry
+#                                               revived a dead holder through a
+#                                               SHADOW. Keep-red named below
+#   F5 fail/bc_d1r3_f5_shadow_held              its keep-red control: the loan
+#                                               really IS held
+#   F6 fail/bc_d1r3_f6_place_write_use_after_mut  last use AFTER the mutation
+#   F6 fail/bc_d1r3_f6_place_write_source_escapes dangling-source direction the
+#                                               PLACE keys had to preserve
+# F6's ADMIT half is not a new file: it is the restored third assertion in
+# pass/bc_d1r2_place_write_field_admits (unchanged registry count), and that
+# file now names the two F6 refusals above as its keep-red control.
+# Same `.expected` glob as every bc_d1 pair, all 14 local (none under
+# tests/imported, so ALL and -LE imported move together), and no tier_commit
+# label rides a corpus fixture.
+# SEQUENCE, honestly: 13 of the 14 were on disk and measured at 6980 / 3297 / 31
+# in the step above. This step adds exactly ONE fixture pair
+# (pass/bc_d1r3_f1_method_arg_admits + its `.expected`) — F1 had a refusal and
+# no admit of its own, which left "method call with a by-value bc argument"
+# pinned in one direction only. PREDICTED 6981 / 3298 / 31 (+1 / +1 / 0 off the
+# 6980 measurement) BEFORE `cmake -S . -B build`; measured after it with
+# `ctest -N` three ways, plus `ctest -N -R bc_d1r3` = 14. The counts below are
+# the measurement.
+REGISTRY-ALL         6981
+REGISTRY-NOIMPORTED  3298
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

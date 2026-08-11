@@ -1,0 +1,21 @@
+// D1 round 3 / F6, the OTHER direction: §B6's dangling-source detection must
+// survive the move to PLACE keys. `t.b` is overwritten inside an inner scope
+// with a borrow of `q`, a local of that scope; when the scope ends, `t` holds a
+// dangling borrow and the next use of `t` is E0597. Path-qualifying the source
+// map must not lose the relation — only re-point it at the right place, and a
+// SIBLING field (`t.a`, still borrowing `c`) keeps its own sources under its
+// own key rather than being erased along with `t.b`.
+package bc_d1r3_f6_place_write_source_escapes;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+struct Two { a: B, b: B }
+fn main() -> i64 {
+    let c: C = C { v: 1i64 };
+    let mut t: Two = Two { a: B { p: &c.v }, b: B { p: &c.v } };
+    {
+        let q: i64 = 7i64;
+        t.b = B { p: &q };
+    }
+    return *t.b.p;
+}

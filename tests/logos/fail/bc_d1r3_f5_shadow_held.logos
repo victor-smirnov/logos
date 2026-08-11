@@ -1,0 +1,20 @@
+// CONTROL for pass/bc_d1r3_f5_shadow_admits (F5). Same shape, but the loan is
+// GENUINELY still held at the mutation: `b2` inherits the borrow from `b` and
+// is read afterwards. Keying loan expiry by binding identity instead of by
+// name must not weaken this — if it did, the F5 admit would read exactly like
+// a checker that had simply stopped tracking hopped loans.
+package bc_d1r3_f5_shadow_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    let b2: B = b;
+    c.bump();
+    return *b2.p;
+}
