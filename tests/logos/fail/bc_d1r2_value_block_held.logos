@@ -1,0 +1,23 @@
+// D1 round 2 / Door B — pop_scope released a loan whose HOLDER is an OUTER
+// binding. A loan record lived in the frame it was recorded in and died at that
+// frame's `}`; with the holder graph that assumption is false. Here the loan is
+// taken inside a block used as a VALUE while the holder is the enclosing `let`
+// binding, which does not exist yet when the inner frame pops — so the record
+// died one line before the binding that holds it was born, and `c.bump()` saw
+// zero shared borrows. Fixed by RE-HOMING an escaping record into the enclosing
+// frame (not by deferring release, which would make the loan immortal); the
+// same defect in its branch spelling needs the join-side merge_loans.
+package bc_d1r2_value_block_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = { let t: B = c.mk(); t };
+    c.bump();
+    return *b.p;
+}

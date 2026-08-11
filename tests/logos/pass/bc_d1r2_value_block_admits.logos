@@ -1,0 +1,24 @@
+// ADMIT TWIN for fail/bc_d1r2_value_block_held (Door B). The re-homed loan
+// must still EXPIRE: it is handed to the enclosing frame precisely so the
+// ordinary NLL rule retires it at its holder's last use. Here `b`'s last use
+// precedes the mutation and the program compiles AND runs. This is the half
+// that separates "re-home" from "never release" — a deferral that left the
+// record in a dead frame would refuse every later mutation of `c` and still
+// print the same message as the fix.
+package bc_d1r2_value_block_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = { let t: B = c.mk(); t };
+    let n: i64 = *b.p;
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

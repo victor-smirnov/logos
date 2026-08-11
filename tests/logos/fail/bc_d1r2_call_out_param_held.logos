@@ -1,0 +1,27 @@
+// D1 round 2 / Door F — the free-CALL mirror of the MethodCall capture flow.
+// Round 1 taught MethodCall that a by-value borrow-carrying ARGUMENT stored
+// through a `&mut` receiver keeps the loan alive at the receiver's root;
+// Code::Call had no such mirror, so the same store written as a free function
+// with an out-parameter — `stash(&mut w, c.mk())` — recorded nothing and the
+// loan died with the temporary. The rule is one-sided on purpose: the `&mut`
+// ROOT becomes the holder (that is where the value was stored), which is also
+// why routing whole calls was rejected — an `&mut` argument is an OUT parameter
+// as often as it is a borrow source.
+package bc_d1r2_call_out_param_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn stash(w: &mut Wrap, x: B) { w.b = x; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let mut w: Wrap = Wrap { b: B { p: &z } };
+    stash(&mut w, c.mk());
+    c.bump();
+    return *w.b.p;
+}

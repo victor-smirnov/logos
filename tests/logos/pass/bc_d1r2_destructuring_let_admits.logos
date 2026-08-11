@@ -1,0 +1,23 @@
+// ADMIT TWIN for fail/bc_d1r2_destructuring_let_held (Door G). The tuple now
+// carries its elements' borrows structurally, and each destructured binding
+// inherits — so this twin pins that the NON-borrow-carrying binding of the same
+// pattern is not thereby frozen either: `n` is a plain i64 and both bindings
+// simply die before the mutation. VALUES asserted so a checker that dropped the
+// element instead of releasing the loan cannot pass by producing garbage.
+package bc_d1r2_destructuring_let_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let (b, n): (B, i64) = (c.mk(), 5i64);
+    let m: i64 = *b.p + n;
+    c.bump();
+    if m != 6i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

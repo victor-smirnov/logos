@@ -1,0 +1,30 @@
+// ADMIT TWIN for fail/bc_d1r2_ref_arg_hop_held (RESIDUE). The `&`-arg hop is
+// gated twice — the walk runs only when the RESULT can carry borrows, and
+// inheriting from a binding that holds no loan is a no-op — so a CONSUMING free
+// function with a scalar result must stay admitted. Both directions are in this
+// one program: `sum(&b0)` returns an i64 and ties nothing (the mutation after
+// it is legal precisely because `b0` is dead), and the re-exporting `thru` is
+// used with its result dead before the mutation. If the hop had been written as
+// "any `&` argument freezes its root", the second half would refuse.
+package bc_d1r2_ref_arg_hop_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn thru(b: &B) -> B { return B { p: b.p }; }
+fn sum(b: &B) -> i64 { return *b.p + 10i64; }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let b0: B = c.mk();
+    let b1: B = thru(&b0);
+    let n: i64 = *b1.p;
+    let s: i64 = sum(&b0);
+    c.bump();
+    if n != 1i64 { return 1; }
+    if s != 11i64 { return 2; }
+    if c.v != 2i64 { return 3; }
+    return 0;
+}

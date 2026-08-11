@@ -1,0 +1,24 @@
+// D1 round 2 / Door D — a CLOSURE CAPTURE did not inherit the captured
+// binding's loans. The capture registered a borrow OF `b`, which says the
+// closure reads `b`; it says nothing about what `b` itself holds, and a
+// closure's type is Kind::Closure so the borrow-carrying gate at the top of
+// take_ref_borrows never fired for the closure binding either. So the loan on
+// `c` was released at `b`'s last use — the closure's own construction line —
+// while the closure could still deref it after the mutation. The capture is now
+// a HOP: the closure binding joins the holder set. (A `move` closure takes the
+// ownership hop instead, which already existed.)
+package bc_d1r2_closure_capture_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    let f = || -> i64 { return *b.p; };
+    c.bump();
+    return f();
+}

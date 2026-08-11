@@ -1,0 +1,22 @@
+// D1 round 2 / Door C — `let … else` had NO case in visit_stmt at all. Not a
+// missing hop: the statement kind was never visited, so its scrutinee was not
+// even walked and the binding it introduces inherited nothing. The refutable
+// destructure is the same extraction as `ob.unwrap()` (pinned by
+// fail/bc_d1_unwrap_held) written as a statement, and it laundered the loan the
+// unwrap spelling could not. Pinned here because a statement kind that is
+// silently skipped is invisible to every rule the checker will ever grow.
+package bc_d1r2_let_else_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let ob: Option<B> = Option::Some(c.mk());
+    let Option::Some(b) = ob else { return 0i64; };
+    c.bump();
+    return *b.p;
+}

@@ -1327,8 +1327,60 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # names verified individually with `ctest -N -R <name>` (1 each). A prediction
 # that could not have been wrong is weaker evidence than one that could; the
 # three-way agreement and the per-name checks are the part that carries weight.
-REGISTRY-ALL         6951
-REGISTRY-NOIMPORTED  3268
+#
+# 2026-08-11 (same day, SEPARATE step) — D1 ROUND 2 PINNED. The adversarial pass
+# over round 1 found EIGHT more laundering routes and the implement step closed
+# them; this step pins each one as a PAIR, +16 fixtures, 8 `fail/bc_d1r2_*` and
+# 8 `pass/bc_d1r2_*_admits`:
+#   Door A  place_write_field   — a place WRITE recorded no loan (`w.b = c.mk()`;
+#                                 one rule covers seven statement spellings).
+#   Door B  value_block         — pop_scope killed a loan whose HOLDER is an
+#                                 outer binding (block-as-value spelling).
+#   Door C  let_else            — `let … else` had NO visit_stmt case at all.
+#   Door G  destructuring_let   — the `__destruct_*` spill was unrouted AND its
+#                                 tuple type read as non-borrow-carrying.
+#   Door D  closure_capture     — a capture borrowed the binding but inherited
+#                                 none of the loans the binding held.
+#   Door F  call_out_param      — Code::Call had no mirror of MethodCall's
+#                                 capture flow (`stash(&mut w, c.mk())`).
+#   RESIDUE ref_arg_hop         — a `&B` argument was skipped by the hop walk;
+#                                 the METHOD spelling of the same program was
+#                                 refused. ADR 0025 §2's second ⚠ recorded this
+#                                 as open and deliberately UNPINNED; it is now
+#                                 closed, pinned here, and the ADR is superseded
+#                                 in place.
+#   Door E  dyn_erasure         — `Box<dyn Get>` has no type NAME, so erasure
+#                                 dropped what `Box<B>` carried.
+# NO DOOR IS SKIPPED, and that is MEASURED rather than assumed: the parent's
+# door list would be worth nothing here if some door had already been refusing
+# for a round-1 reason, so all 8 leak programs were run against a CONTROL REVERT
+# of src/compiler/borrow_check.cpp (round-1 checker, rebuilt) — ALL EIGHT
+# COMPILED rc=0 with no diagnostic, and all 16 are green again on the restored
+# tree. Every fixture therefore pins a refusal that did not exist before this
+# arc, and none is a rename of a round-1 pin.
+# Each pass twin asserts VALUES, not just exit 0, because the refusal message is
+# byte-identical to what an OVER-refusing checker prints: the leak half alone
+# cannot tell "hole closed" from "loan now immortal". Two twins carry an extra
+# control in the same file — pass/bc_d1r2_dyn_erasure_admits uses a `Box<dyn
+# Get>` over a NON-borrow-carrying value AFTER the mutation (the `Arc<dyn
+# Snapshot>` ecosystem is what the wrong easy answer would have refused), and
+# pass/bc_d1r2_ref_arg_hop_admits keeps a consuming `&`-arg call with a scalar
+# result admitted.
+# ⚠ ONE ASSERTION WAS DROPPED, RECORDED, AND NOT PINNED: in the Door A twin,
+# reading `z` — the referent of the borrow the place write OVERWROTE — after the
+# mutation refuses ("cannot borrow 'c' as mutable"), while an unrelated local of
+# the same type does not. A use of a loan's TARGET is being counted as a use of
+# its HOLDER. That is a distinct over-refusal, it is written into the twin's
+# header, and it is NOT pinned in either direction: pinning the refusal would
+# write the defect down as intended, and pinning an admit would need the fix
+# first. It belongs to a later step with its own probe pair.
+# PREDICTED 6967 / 3284 / 31 (+16 / +16 / 0 off the 6951 line above) BEFORE the
+# re-configure — same `.expected` glob as every bc_d1 pair, all 16 local (none
+# under tests/imported, so ALL and -LE imported move together), and no
+# tier_commit label rides a corpus fixture. Measured after `cmake -S . -B build`
+# with `ctest -N` three ways; the counts below are the measurement.
+REGISTRY-ALL         6967
+REGISTRY-NOIMPORTED  3284
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

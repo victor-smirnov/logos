@@ -1,0 +1,26 @@
+// D1 round 2 / Door A — a PLACE WRITE records no loan. Round 1 hooked
+// take_ref_borrows at `let` and at the two match sites, so every WRITE spelling
+// of the same hop was invisible: `w.b = c.mk()` stored the borrow into `w` and
+// the loan on `c` was never recorded at all. Seven statement kinds shared the
+// defect (plain assign, field assign, chained field assign, index assign, tuple
+// element write, deref-place write, and assign under if/while) — one rule,
+// place_write_loans over the written place's ROOT, closes them together; this
+// fixture pins the field spelling and pass/bc_d1r2_place_write_field_admits is
+// its NLL twin.
+package bc_d1r2_place_write_field_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let mut w: Wrap = Wrap { b: B { p: &z } };
+    w.b = c.mk();
+    c.bump();
+    return *w.b.p;
+}

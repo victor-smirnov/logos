@@ -1,0 +1,29 @@
+// ADMIT TWIN for fail/bc_d1r2_call_out_param_held (Door F). The `&mut` root is
+// the holder, so the loan retires at the ROOT's last use — read `w` before the
+// mutation and the program compiles and runs. It also pins the direction the
+// rule must NOT take: an `&mut` argument does not become a lexical borrow of
+// the callee's by-value operands for the rest of the frame. VALUES asserted so
+// that a checker which stored the wrong thing (the pre-call `&z` field, say)
+// cannot pass on the exit code alone.
+package bc_d1r2_call_out_param_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn stash(w: &mut Wrap, x: B) { w.b = x; }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let mut w: Wrap = Wrap { b: B { p: &z } };
+    stash(&mut w, c.mk());
+    let n: i64 = *w.b.p;
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    if z != 9i64 { return 3; }
+    return 0;
+}

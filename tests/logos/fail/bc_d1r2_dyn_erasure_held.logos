@@ -1,0 +1,26 @@
+// D1 round 2 / Door E — DYN ERASURE defeats the type test. The borrow-carrying
+// question is answered off a type NAME, and only Enum/Struct/ZonedStruct have
+// one: `Box<B>` is borrow-carrying, `Box<dyn Get>` is not, and the two differ
+// by exactly the coercion. So boxing `c.mk()` behind a trait object dropped the
+// loan while the object could still deref it through `g()`.
+// The wrong easy answer is "every dyn type-arg is borrow-carrying" — that
+// refuses every non-bc dyn user, and `Arc<dyn Snapshot>` is a live consumer.
+// The rule is at the ERASURE SITE instead: a result that RETAINS a by-value
+// loan-carrying operand holds its borrow, whatever the erased type now says.
+package bc_d1r2_dyn_erasure_held;
+use logos.mem.boxed;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+trait Get { fn g(&self) -> i64; }
+impl Get for B { fn g(&self) -> i64 { return *self.p; } }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let d: Box<dyn Get> = Box::new(c.mk());
+    c.bump();
+    return d.g();
+}

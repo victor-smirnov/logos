@@ -1,0 +1,22 @@
+// D1 round 2 / Door G — a DESTRUCTURING `let` loses the loan. Two causes, and
+// both had to go: the statement has no single binding name for the hop to hold
+// (it is lowered to a `__destruct_*` spill plus one `let` per binding, and the
+// spill was not routed through take_ref_borrows), and the spill's TYPE is a
+// tuple — whose element types live outside `type_args()`, so `(B, i64)` came
+// back NOT borrow-carrying and would have broken the chain one step later
+// anyway. The tuple/array structural case now recurses, and the destructure
+// propagates to each binding through the pattern.
+package bc_d1r2_destructuring_let_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let (b, n): (B, i64) = (c.mk(), 5i64);
+    c.bump();
+    return *b.p + n;
+}

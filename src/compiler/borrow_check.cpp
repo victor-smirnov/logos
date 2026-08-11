@@ -58,6 +58,14 @@ struct TypeSets {
     // (`Held<WArray<WAny>>`). Mirror of the holds_residency_holder exemption,
     // consulted by the use-site type walk too.
     std::unordered_set<std::string> residency_exempt;
+    // D1 round 2, EXEMPT — the LOAN channel's own closure: `borrow_carrying`
+    // computed WITHOUT the residency skip. `residency_exempt` is applied at
+    // REGISTRATION (a struct with an Rc/Arc field never enters
+    // `borrow_carrying`, so neither do its containers), which is why the
+    // use-site exemption check was never the whole story: `H { h: Rc<i64>, b: B
+    // }` was invisible to the loan channel too. Escape gates keep asking
+    // `borrow_carrying` / `residency_exempt`; only the loan channel asks this.
+    std::unordered_set<std::string> loan_carrying;
     // Name → def indices (built once in build_type_sets). Replace the per-type
     // linear scans of prog.structs / struct_specializations / enums that made
     // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
@@ -223,6 +231,53 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                 });
             });
             if (hit) { reg_bc_name(ed_name, /*strip_generic=*/false); bc_changed = true; }
+        }
+    }
+    // ── The loan-channel closure (see TypeSets::loan_carrying) ────────────
+    // Same fixpoint, seeded from `borrow_carrying`, with holds_residency_holder
+    // NOT skipped: an Rc/Arc share keeps the arena ALIVE, which is an escape
+    // fact; it does not stop the contained borrow from reading that arena.
+    ts.loan_carrying = ts.borrow_carrying;
+    {
+        auto reg_lc_name = [&](const std::string& name) {
+            ts.loan_carrying.insert(name);
+            std::string_view n = name;
+            if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+                ts.loan_carrying.insert(std::string(n.substr(dot + 1)));
+        };
+        auto type_is_lc = [&](TypeRef t) -> bool {
+            auto n = type_bc_name(t);
+            if (!n.empty() && ts.loan_carrying.count(n) > 0) return true;
+            if (!t) return false;
+            for (auto a : t.type_args()) {
+                auto an = type_bc_name(a);
+                if (!an.empty() && ts.loan_carrying.count(an) > 0) return true;
+            }
+            return false;
+        };
+        bool lc_changed = true;
+        while (lc_changed) {
+            lc_changed = false;
+            auto consider = [&](lir_view::StructView sd) {
+                if (ts.loan_carrying.count(std::string(sd.name()))) return;
+                for (auto& f : sd.fields())
+                    if (type_is_lc(f.type(prog.type_pool.impl()))) {
+                        reg_lc_name(std::string(sd.name())); lc_changed = true; return;
+                    }
+            };
+            for (auto& sd : prog.structs)                 consider(sd);
+            for (auto& sd : prog.struct_specializations)  consider(sd);
+            for (auto& ed : prog.enums) {
+                std::string ed_name(ed.name());
+                if (ts.loan_carrying.count(ed_name)) continue;
+                bool hit = false;
+                ed.each_variant([&](lir_view::EnumVariantView var) {
+                    if (hit) return;
+                    var.each_payload_type(prog.type_pool.impl(),
+                                          [&](TypeRef pt) { if (type_is_lc(pt)) hit = true; });
+                });
+                if (hit) { reg_lc_name(ed_name); lc_changed = true; }
+            }
         }
     }
     // Name → def indices for O(1) by-name lookup (first-def-wins).
@@ -683,6 +738,39 @@ static void merge_moves(StateMap& base, StateMap& other) {
     });
 }
 
+// D1 round 2, Door B — the JOIN half of the same defect. A loan RECORD can now
+// outlive the frame it was recorded in (pop_scope re-homes it when a holder is
+// an outer binding), but the borrow COUNTERS live in the VarState map, which
+// `if` and the loop passes save and RESTORE wholesale across a branch. So the
+// record survived while the evidence for it was rolled back and `c.bump()`
+// still saw zero shared borrows (measured: B1 re-homed target=c holder=b and
+// STILL compiled). Carry the accumulators forward: a borrow live on ANY path
+// is live after the join.
+//
+// Restricted to `targets` — the vars some re-homed record actually borrows.
+// A loan that dies inside the branch was already released there (pop_scope /
+// NLL) and never reaches this set, so no branch-local borrow is prolonged and
+// no program outside Door B's shape changes behaviour.
+static void merge_loans(StateMap& base, StateMap& other,
+                        const std::unordered_set<uint32_t>& slots,
+                        const std::unordered_set<std::string>& names) {
+    if (slots.empty() && names.empty()) return;
+    other.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+        bool wanted = (slot != StateMap::NO_SLOT) ? slots.count(slot) > 0
+                                                  : names.count(std::string(name)) > 0;
+        if (!wanted) return;
+        auto& b = base.at_id(slot, name);
+        if (st.shared_borrows   > b.shared_borrows)   b.shared_borrows   = st.shared_borrows;
+        if (st.mut_reservations > b.mut_reservations) b.mut_reservations = st.mut_reservations;
+        if (st.mut_borrowed) b.mut_borrowed = true;
+        for (auto& [p, n] : st.shared_field_borrows) {
+            auto& cur = b.shared_field_borrows[p];
+            if (n > cur) cur = n;
+        }
+        for (auto& p : st.mut_field_borrows) b.mut_field_borrows.insert(p);
+    });
+}
+
 // ── Function index (escape analysis) ────────────────────────────────────────
 // Program-global symbol→callee maps consulted by escape analysis
 // (`result_borrows_self` / `method_self_kind`). The index depends ONLY on the
@@ -807,6 +895,11 @@ class BorrowChecker {
     // source locals is recorded in `dangling_`; the FIRST subsequent use of it
     // is rejected (E0597) — matching NLL (a stored borrow that is never used
     // after its referent dies is fine; only the use is the error).
+    // Door B: vars targeted by a loan that outlived its recording frame. The
+    // branch-join loan merge is restricted to these (see merge_loans).
+    std::string                     pending_esc_holder_;
+    std::unordered_set<uint32_t>    rehomed_slots_;
+    std::unordered_set<std::string> rehomed_names_;
     std::unordered_map<std::string, std::vector<std::string>> ref_borrow_sources_;
     std::unordered_map<std::string, uint32_t>                 ref_borrow_line_;
     struct DanglingRef { std::string source; uint32_t borrow_line; };
@@ -901,6 +994,82 @@ class BorrowChecker {
 
     void pop_scope() {
         if (scopes_.empty()) return;
+        {
+            // ── D1 round 2, Door B: a loan whose HOLDER outlives this frame ──
+            // pop_scope released every record recorded in the frame, on the
+            // assumption that a loan's holder is always frame-local. With the
+            // D1 holder graph that is false: `let b: B; if z > 0 { b = c.mk();
+            // } c.bump(); *b.p` records the loan inside the `if` frame while
+            // the holder `b` lives in the enclosing one, so the loan died at
+            // the inner `}` and the mutation was admitted. Same for while /
+            // for-each bodies and for a block used as a VALUE
+            // (`let b: B = { let t: B = c.mk(); t };`).
+            //
+            // DESIGN CHOICE — RE-HOME, not "release only when all holders die".
+            // The two differ in what happens to the record afterwards: pure
+            // deferral leaves it in a frame that no longer exists, so nothing
+            // would ever release it (a loan that never expires refuses every
+            // later mutation — over-refusal, and NLL would be dead for it).
+            // Re-homing hands the record to the ENCLOSING frame, where the
+            // ordinary NLL rule (release_dead_borrows over holders_last_use)
+            // still retires it at its holders' last use and the enclosing
+            // pop_scope still releases it. So the loan's LIFETIME becomes what
+            // the holder graph says, and no other mechanism changes.
+            //
+            // The test is on the HOLDER SET, not the target: a record survives
+            // this pop iff some holder (holder or a co_holder) is not declared
+            // in this frame. A wholly frame-local loan releases exactly as
+            // before — which is what keeps the twins refusing/admitting:
+            //   Bt1 (same statement at fn top level)      rc=1, unchanged
+            //   Bt2 (block with no inner binding)         rc=1, unchanged
+            //   K1  (loan rooted at an unrelated local)   rc=0, unchanged
+            if (scopes_.size() >= 2 && !suppress_reports_) {
+                auto& frame = scopes_.back();
+                auto& parent = scopes_[scopes_.size() - 2];
+                // "Outer" means declared in a frame that SURVIVES this pop —
+                // not merely "absent from this frame". A co-holder declared in
+                // an already-popped DEEPER frame (`while { let b = s.batch(&c);
+                // let kc = b.keys(); … }` inside a block holding `s`) is gone,
+                // and treating it as outer re-homed a loan that must die here:
+                // measured as pass/ctr_family_batch_then_mut, the admit twin
+                // whose whole job is to prove the batch's borrow ENDS.
+                bool any_held = false;
+                for (auto& br : frame.borrows)       if (!br.holder.empty()) any_held = true;
+                for (auto& fb : frame.field_borrows) if (!fb.holder.empty()) any_held = true;
+                std::unordered_set<std::string> outer;
+                if (any_held) {
+                    for (size_t fi = 0; fi + 1 < scopes_.size(); ++fi)
+                        outer.insert(scopes_[fi].declared.begin(),
+                                     scopes_[fi].declared.end());
+                    // The value-block result holder is not declared ANYWHERE
+                    // yet — the enclosing `let` declares it after the RHS is
+                    // visited — so it cannot be found by scanning frames. It
+                    // is, by construction, about to live in the enclosing one.
+                    if (!pending_esc_holder_.empty())
+                        outer.insert(pending_esc_holder_);
+                }
+                auto escapes = [&](const auto& rec) {
+                    if (rec.holder.empty()) return false;   // lexical: unchanged
+                    if (outer.count(rec.holder)) return true;
+                    for (auto& h : rec.co_holders)
+                        if (outer.count(h)) return true;
+                    return false;
+                };
+                auto move_out = [&](auto& vec, auto& dst) {
+                    for (auto it = vec.begin(); it != vec.end(); ) {
+                        if (escapes(*it)) {
+                            if (it->target_slot != StateMap::NO_SLOT)
+                                rehomed_slots_.insert(it->target_slot);
+                            else rehomed_names_.insert(it->target);
+                            dst.push_back(std::move(*it));
+                            it = vec.erase(it); }
+                        else ++it;
+                    }
+                };
+                move_out(frame.borrows,       parent.borrows);
+                move_out(frame.field_borrows, parent.field_borrows);
+            }
+        }
         auto& frame = scopes_.back();
         // Release borrows held by this scope.
         for (auto& br : frame.borrows) {
@@ -1881,18 +2050,39 @@ class BorrowChecker {
         //
         // D1 — the exemption checked in the ABUSE direction (exempt type
         // WRAPPING a borrow-carrying type). DECISION: the exemption still wins
-        // here, unconditionally, and the type-arg recursion below is NOT
-        // reached. It is a statement about ESCAPE ("this value may leave the
-        // referent's scope, because the Rc/Arc share keeps the arena alive"),
-        // not a claim that the contained borrow ceased to exist. The abuse
-        // it would otherwise enable — launder a borrow through an exempt
-        // wrapper, extract it back out, then mutate the referent — is closed
-        // one level up instead, by the loan channel: a loan taken while
-        // BUILDING the wrapper is held by the wrapper's binding, and the D1
-        // hop rules make an extracted borrow-carrying field inherit it. So the
-        // hatch stays open for what it is for and shut for what it is not:
-        //   /tmp/bcm/c4_exempt_return.logos  rc=0 (return H past the arena)
-        //   /tmp/bcm/c5_exempt_abuse.logos   rc=1 (`let b = hh.b; c.bump()`)
+        // HERE, unconditionally, and the type-arg recursion below is not
+        // reached. This function answers an ESCAPE question ("may this value
+        // leave the referent's scope? — yes, the Rc/Arc share keeps the arena
+        // alive"), and that answer is unchanged.
+        //
+        // ROUND 2 — WHAT THE OLD TEXT CLAIMED, AND WHAT IS ACTUALLY TRUE. It
+        // claimed the abuse direction was closed "one level up, by the loan
+        // channel". MEASURED: that holds ONLY when the wrapper is built in the
+        // frame that later mutates — `let hh = H { h: rc_new(7), b: c.mk() };
+        // c.bump()` refuses (/tmp/bcm/c2_rc_exempt.logos, X1) because the loan
+        // was recorded right there. Built in a CALLEE it did not: `fn make(c:
+        // &C) -> H { … }; let hh = make(&c); let b = hh.b; c.bump()` compiled
+        // (X2), and `Option<H>` inherited the same false through the type-arg
+        // recursion (X3). The reason was that the loan channel gated on THIS
+        // function and therefore inherited the exemption too — and, one level
+        // deeper, that `residency_exempt` is applied at REGISTRATION, so `H`
+        // never entered `borrow_carrying` at all.
+        //
+        // FIX (and the decision): the loan channel now has its own predicate,
+        // `loan_carrying_type` over `TypeSets::loan_carrying` — the same
+        // structural closure computed WITHOUT the residency skip. A loan says
+        // "the arena is still being READ"; an Rc share says "the arena is still
+        // ALIVE". Those are different claims, and only the second is what the
+        // hatch exists to assert. So:
+        //   /tmp/bcm/c4_exempt_return.logos  rc=0 — return H past the arena
+        //                                     (the hatch's purpose: a RETURN
+        //                                      gate, which still asks THIS fn)
+        //   /tmp/bcm/c2_rc_exempt.logos      rc=1 — in-frame abuse (unchanged)
+        //   X2 (exempt built in a callee)    rc=1 — was rc=0, closed by the
+        //                                     loan-channel predicate
+        //   X3 (Option<H>)                   rc=1 — same, through type-args
+        // NO HOLE IS KNOWN TO REMAIN in the abuse direction; if one turns up,
+        // it belongs in `loan_carrying`, not here.
         // Consequently EVERY D1 rule gates on this function rather than on a
         // raw name test — a name test would re-capture Held/HeldAny and kill
         // c4. See also: this function was MEASURED non-guilty for D1 and is
@@ -1910,6 +2100,191 @@ class BorrowChecker {
         // type-args → stays unchecked, like box_leak — Rust parity.)
         for (auto a : t.type_args())
             if (is_borrow_carrying_type(a)) return true;
+        // D1 round 2, Door G — the STRUCTURAL containers. A tuple and an array
+        // hold their element types outside `type_args()`: `(B, i64)` came back
+        // NOT borrow-carrying (measured — the destructure's `let __destruct_1:
+        // (B,i64) = __destruct_0` spill was not routed through
+        // take_ref_borrows at all, so the hop chain broke one step before the
+        // binding). The container rule above already says a `Vec<B>` / `Box<B>`
+        // carries its elements' borrows; a tuple or an array is the same claim
+        // with the elements spelled structurally instead of as type-args.
+        if (k == LogosType::Kind::Tuple) {
+            for (auto e : t.tuple_elems())
+                if (is_borrow_carrying_type(TypeRef(e))) return true;
+            return false;
+        }
+        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+            return is_borrow_carrying_type(t.elem());
+        return false;
+    }
+
+    // ── D1 round 2, Door E + EXEMPT: the LOAN channel's own predicate ──────
+    // is_borrow_carrying_type answers an ESCAPE question ("may this value leave
+    // the referent's scope?") and therefore lets ts_.residency_exempt win: an
+    // Rc/Arc-holding wrapper may escape, because the share keeps the arena
+    // alive. The comment there claimed the ABUSE direction was closed by the
+    // loan channel — but the loan channel gated on THE SAME function, so the
+    // exemption silenced it too. That claim held only while the wrapper was
+    // built in the caller's own frame (X1, rc=1, the loan on `c` is right
+    // there); built in a CALLEE it leaked (X2 `let hh = make(&c); let b = hh.b;
+    // c.bump()` rc=0) and `Option<H>` inherited the same FALSE (X3).
+    //
+    // DECISION: exemption-wins stays, but only for what it is ABOUT. Escape
+    // gates keep is_borrow_carrying_type; the loan channel asks
+    // loan_carrying_type, which is the same structural test with the residency
+    // exemption NOT applied. A loan is a statement about the ARENA still being
+    // read, and an Rc share does not stop the read — it only guarantees the
+    // arena is alive, which is a different claim. Returning an Rc-holding
+    // iterator past its arena (c4_exempt_return, the hatch's actual purpose)
+    // goes through the return gate and is untouched.
+    bool loan_carrying_type(TypeRef t) const {
+        if (!t) return false;
+        auto k = t.kind();
+        std::string nm;
+        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            nm = std::string(t.struct_name());
+        if (!nm.empty() && ts_.loan_carrying.count(nm) > 0) return true;
+        for (auto a : t.type_args())
+            if (loan_carrying_type(a)) return true;
+        if (k == LogosType::Kind::Tuple) {
+            for (auto e : t.tuple_elems())
+                if (loan_carrying_type(TypeRef(e))) return true;
+            return false;
+        }
+        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+            return loan_carrying_type(t.elem());
+        return false;
+    }
+
+    // Door E — the CONSTRUCTION/coercion site. `Box::new(c.mk())` erased into
+    // `Box<dyn Get>` has a result type that says nothing: type_bc_name only
+    // names Enum/Struct/ZonedStruct, and `dyn Get` is none of them, so
+    // `Box<dyn Get>` was not borrow-carrying while `Box<B>` was (E1 rc=0 vs
+    // Et1 rc=1 — the type-arg-name pair is exact).
+    //
+    // DESIGN CHOICE, and the wrong easy answer is "treat every dyn type-arg as
+    // borrow-carrying": that would refuse every non-bc dyn user, and the
+    // Arc<dyn Snapshot> ecosystem is the live consumer. The honest rule is at
+    // the site where the erasure HAPPENS: a value that RETAINS a by-value
+    // borrow-carrying operand still holds its borrow, whatever its result type
+    // now says. So the hop runs on the operand, not on the erased type.
+    //
+    // "Retains" is read off the RESULT KIND: an aggregate/pointer/dyn result
+    // can hold the operand, a scalar result cannot. That is exactly what keeps
+    // the consuming control admitted — `fn eat(x: B) -> i64` returns an i64,
+    // which retains nothing (Ea1, rc=0 before and after).
+    static bool type_retains_values(TypeRef t) {
+        if (!t) return false;
+        using K = LogosType::Kind;
+        switch (t.kind()) {
+            case K::Struct: case K::ZonedStruct: case K::Enum: case K::Tuple:
+            case K::Array:  case K::Slice:       case K::UnsizedSlice:
+            case K::TraitObject: case K::UnsizedDyn: case K::ImplTrait:
+            case K::DstRef: case K::TaggedPtr:   case K::Closure:
+            case K::Ptr:    case K::Ref:         case K::MutRef:
+                return true;
+            default: return false;
+        }
+    }
+    bool retains_loan_carrying_operand(lir_view::ExprRef e) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!e) return false;
+        const auto* pool = prog_.type_pool.impl();
+        if (!type_retains_values(e.type(pool))) return false;
+        bool found = false;
+        auto by_value_bc = [&](ExprRef a) {
+            if (!a || found) return;
+            TypeRef at = a.type(pool);
+            if (!is_ref_kind(at) && loan_carrying_type(at)) found = true;
+        };
+        switch (e.kind()) {
+            case Code::Call:       ECallView{e}.each_arg(by_value_bc); break;
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                by_value_bc(v.receiver());
+                v.each_arg(by_value_bc);
+                break;
+            }
+            case Code::StructLit:
+                EStructLitView{e}.each_field_value(by_value_bc); break;
+            case Code::TupleLit:  ETupleLitView{e}.each_elem(by_value_bc); break;
+            case Code::ArrLit:    EArrLitView{e}.each_elem(by_value_bc);  break;
+            case Code::EnumLitData:
+                EEnumLitDataView{e}.each_payload(by_value_bc); break;
+            case Code::Cast:      by_value_bc(ECastView{e}.operand());    break;
+            default: break;
+        }
+        return found;
+    }
+
+    // Door E / EXEMPT — the RETENTION record. The hop alone does not close
+    // these two: at `let hh = make(&c)` / `let d = Box::new(c.mk())` the root
+    // `c` holds no loan YET — the loan is the one this very expression creates
+    // — so there is nothing to inherit. What is needed is take_ref_borrows'
+    // other effect: record the operand's borrow with the BINDING as holder.
+    //
+    // Applied to the OPERANDS, one at a time, rather than by routing the whole
+    // expression, so that `&mut` arguments can be excluded. Routing everything
+    // was measured and over-refuses: `let res: GpRes = gp_build(…, &mut sa, …);
+    // … sa.len()` (stdlib/mem/wql/lower.logos) then held `&mut sa` for the rest
+    // of the function. A `&mut` argument is an OUT parameter as often as it is
+    // a borrow source, and when the callee stores INTO it the loan is recorded
+    // by Door F's rule (the &mut root becomes the holder) — which is the right
+    // holder for that case anyway. Shared refs and by-value loan-carrying
+    // operands are the ones the RESULT can retain.
+    void retain_operand_loans(lir_view::ExprRef e, const std::string& holder,
+                              uint32_t ln) {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!e || holder.empty()) return;
+        const auto* pool = prog_.type_pool.impl();
+        auto one = [&](ExprRef op) {
+            if (!op) return;
+            TypeRef ot = op.type(pool);
+            if (!ot) return;
+            if (ot.kind() == LogosType::Kind::MutRef) return;   // out-param: not ours
+            if (!is_ref_kind(ot) && !loan_carrying_type(ot)) return;
+            take_ref_borrows(op, ln, holder, /*record_only=*/true);
+        };
+        switch (e.kind()) {
+            case Code::Call:       ECallView{e}.each_arg(one); break;
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                one(v.receiver());
+                v.each_arg(one);
+                break;
+            }
+            case Code::StructLit:  EStructLitView{e}.each_field_value(one); break;
+            case Code::TupleLit:   ETupleLitView{e}.each_elem(one);         break;
+            case Code::ArrLit:     EArrLitView{e}.each_elem(one);           break;
+            case Code::EnumLitData:EEnumLitDataView{e}.each_payload(one);   break;
+            case Code::Cast:       one(ECastView{e}.operand());             break;
+            default: break;
+        }
+    }
+
+    // D1 round 2, Door B (for-each): the HOP-ROOT gate, not a bc classification.
+    // `for e in vs.iter()` desugars to `let it = vs.iter(); loop { match
+    // it.next() { Some(e) => …, None => break } }`, so the iteration binding is
+    // a match-arm binding and the scrutinee type is `Option<&B>`. That type is
+    // NOT borrow-carrying by is_borrow_carrying_type — `&B` is Kind::Ref, has
+    // no bc NAME and exposes no type-args — so the scrutinee-side gate refused
+    // to even look for hop roots and the arm binding inherited nothing
+    // (measured: bc=0 roots=0 at the desugared match).
+    //
+    // This predicate is deliberately NOT is_borrow_carrying_type and is used
+    // ONLY to decide whether to LOOK for hop roots. It cannot over-refuse on
+    // its own: propagate_pat_loans still gates each BINDING on its own type,
+    // and inheriting from a binding that holds no loan is a no-op. Keeping it
+    // separate is what stops `Option<&i64>` from becoming "borrow-carrying"
+    // everywhere else (return gates, escape analysis, the residency exemption).
+    bool type_may_carry_borrow(TypeRef t) const {
+        if (!t) return false;
+        if (is_ref_kind(t) || loan_carrying_type(t)) return true;
+        for (auto a : t.type_args())
+            if (type_may_carry_borrow(a)) return true;
         return false;
     }
 
@@ -1982,11 +2357,25 @@ class BorrowChecker {
         if (!e) return;
         const auto* pool = prog_.type_pool.impl();
         switch (e.kind()) {
+            // D1 round 2, RESIDUE — a PLAIN-REF argument rooted at a loan
+            // holder. The hop already followed a method's RECEIVER and every
+            // BY-VALUE borrow-carrying argument, but a `&B` argument was
+            // skipped because `&B` is Kind::Ref and is_borrow_carrying_type
+            // says no. So `fn thru(b: &B) -> B { B { p: b.p } }; let b1 =
+            // thru(&b0)` re-exported nothing and only recorded a borrow of
+            // `b0` ITSELF — the loan `b0` held died at its last use, while the
+            // method spelling `b0.thru2()` refused (Rt1, the exact twin).
+            //
+            // Gated twice over, which is why it cannot over-refuse: the caller
+            // runs this walk only when the RESULT carries borrows, and
+            // inheriting from a binding that holds no loan is a no-op. A
+            // consuming call (`fn eat(x: B) -> i64`) has a scalar result and
+            // never gets here.
             case Code::MethodCall: {
                 EMethodCallView v{e};
                 bc_hop_roots(v.receiver(), out);
                 v.each_arg([&](ExprRef a) {
-                    if (a && is_borrow_carrying_type(a.type(pool)))
+                    if (a && type_may_carry_borrow(a.type(pool)))
                         bc_hop_roots(a, out);
                 });
                 return;
@@ -1994,7 +2383,7 @@ class BorrowChecker {
             case Code::Call: {
                 ECallView v{e};
                 v.each_arg([&](ExprRef a) {
-                    if (a && is_borrow_carrying_type(a.type(pool)))
+                    if (a && type_may_carry_borrow(a.type(pool)))
                         bc_hop_roots(a, out);
                 });
                 return;
@@ -2392,7 +2781,12 @@ class BorrowChecker {
         // carry borrows ties nothing (the consuming-fn control `fn eat(B) ->
         // i64` stays admitted), and inheriting from a binding that holds no
         // loan is a no-op, so the rule can only extend a REAL loan's life.
-        if (!holder.empty() && is_borrow_carrying_type(e.type(pool))) {
+        // Gate: loan_carrying_type, NOT is_borrow_carrying_type — the loan
+        // channel does not honour the residency exemption (see
+        // loan_carrying_type). The ERASURE case is caught one level up, at the
+        // Let/Assign routing gate, because the erased type only appears on the
+        // BINDING: `Box::new(c.mk())` still has type `Box<B>` here.
+        if (!holder.empty() && loan_carrying_type(e.type(pool))) {
             std::vector<std::string> roots;
             bc_hop_roots(e, roots);
             for (auto& r : roots) inherit_loans(r, holder, line);
@@ -2694,7 +3088,7 @@ class BorrowChecker {
                 // carries them on to `holder` through the top-of-function hop
                 // rule, exactly as `ob.unwrap()` does.
                 std::vector<std::string> scrut_roots;
-                if (v.scrut() && is_borrow_carrying_type(v.scrut().type(pool)))
+                if (v.scrut() && type_may_carry_borrow(v.scrut().type(pool)))
                     bc_hop_roots(v.scrut(), scrut_roots);
                 v.each_arm([&](EMatchArmRef arm) {
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
@@ -2705,7 +3099,9 @@ class BorrowChecker {
             }
             case Code::BlockExpr: {
                 EBlockExprView v{e};
-                if (auto br = v.block()) visit_block(br);
+                // Door B: hand the escaping result+holder to visit_block so the
+                // hop runs before the frame pops (see visit_block).
+                if (auto br = v.block()) visit_block(br, v.result(), holder);
                 take_ref_borrows(v.result(), line, holder);
                 break;
             }
@@ -2750,6 +3146,19 @@ class BorrowChecker {
                         take_field_borrow(root, NO_SLOT, rel, is_mut, line);
                         check_live(root, line);
                     }
+                    // D1 round 2, Door D: the capture is a HOP. Registering a
+                    // borrow of the capture root says "the closure reads b";
+                    // it says nothing about the loans `b` itself holds, and a
+                    // closure's type is Kind::Closure so the bc gate at the top
+                    // of take_ref_borrows never fires for it either. So `let b
+                    // = c.mk(); let g = || *b.p; c.bump(); g()` released the
+                    // loan on `c` at `b`'s last use — which is the closure's
+                    // construction line — while the closure could still deref
+                    // it. The closure binding joins the holder set, exactly as
+                    // a struct field or a match binding does. A `move` closure
+                    // returns above, before this: it OWNS the value, and the
+                    // ownership hop is the by-value rule, not the capture one.
+                    if (!holder.empty()) inherit_loans(root, holder, line);
                     ++i;
                 });
                 break;
@@ -3120,7 +3529,15 @@ class BorrowChecker {
         }
     }
 
-    void visit_block(lir_view::BlockRef br) {
+    // esc_result/esc_holder — Door B, the block-as-VALUE shape. `let b: B = {
+    // let t: B = c.mk(); t };` records the loan with holder `t`, declared in
+    // THIS frame; the result then escapes to `b` in the enclosing one. The
+    // BlockExpr arm of take_ref_borrows ran its hop AFTER visit_block returned,
+    // i.e. after pop_scope had already released the loan, so nothing was left
+    // to inherit. Doing the hop before the pop lets `b` join the holder set,
+    // which is exactly what makes the record escape the frame.
+    void visit_block(lir_view::BlockRef br, lir_view::ExprRef esc_result = {},
+                     const std::string& esc_holder = {}) {
         push_scope();
         // NLL release cursor: a COMPOUND statement (while/if/block) spans past
         // its start line — a holder whose last use sits INSIDE the body
@@ -3139,16 +3556,43 @@ class BorrowChecker {
             visit_stmt(sr);
             cursor = std::max(cursor, max_line_seen_);
             max_line_seen_ = std::max(saved, max_line_seen_);
-            release_dead_borrows(cursor);
+            // Door B, value-block: with an escaping result the per-statement
+            // NLL release is what kills the loan first — `let b: B = { let t: B
+            // = c.mk(); t };` is ONE line, so `t`'s last use is not past the
+            // `let t` statement and the loan is released before the result can
+            // hand it on. Inside a value block with a holder, defer release to
+            // the pop; the pop then releases the frame-local loans exactly as
+            // the lexical rule would and re-homes the escaping ones.
+            if (esc_holder.empty()) release_dead_borrows(cursor);
         });
+        if (esc_result && !esc_holder.empty() &&
+            is_borrow_carrying_type(esc_result.type(prog_.type_pool.impl()))) {
+            std::vector<std::string> roots;
+            bc_hop_roots(esc_result, roots);
+            for (auto& r : roots) inherit_loans(r, esc_holder, cursor);
+        }
+        pending_esc_holder_ = esc_holder;
         pop_scope();
+        pending_esc_holder_.clear();
     }
 
     // Analyse a loop body: outer variables moved/borrowed inside are propagated.
     // loop_vars are local to the loop iteration.
+    // var_loan_roots — Door B, the for-each shape. The ITERATION BINDING is an
+    // extraction from the iterated container (`for e in vs.iter()` with
+    // vs: Vec<B>): whatever loans the container's holder bindings hold are
+    // reachable through `e`, exactly as for a match arm binding
+    // (propagate_pat_loans) or a field read. Without it `b = *e` inside the
+    // body hopped from a binding that held nothing and the loan died with the
+    // container's last use — the `for` line — while `b` lived on.
     void visit_loop_body(lir_view::BlockRef body,
                          const std::vector<std::string>& loop_vars = {},
-                         std::string_view label = {}) {
+                         std::string_view label = {},
+                         const std::vector<std::string>& var_loan_roots = {}) {
+        auto seed_loop_var_loans = [&]() {
+            if (loop_vars.empty()) return;
+            for (auto& r : var_loan_roots) inherit_loans(r, loop_vars.front(), 0);
+        };
         auto pre_s = states_;
         auto pre_p = prov_;
 
@@ -3164,6 +3608,7 @@ class BorrowChecker {
         suppress_reports_ = true;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
+        seed_loop_var_loans();
         bool saved_div = cur_diverged_;
         cur_diverged_ = false;
         body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
@@ -3200,6 +3645,7 @@ class BorrowChecker {
         cur_diverged_ = false;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
+        seed_loop_var_loans();
         body.each_stmt([&](lir_view::StmtRef sr) { visit_stmt(sr); });
         cur_diverged_ = saved_div;
         pop_scope();
@@ -3216,10 +3662,150 @@ class BorrowChecker {
         //    Provenance merges conservatively (the loop may run 0+ times).
         states_ = pre_s;
         prov_   = pre_p;
+        merge_loans(states_, post2_s, rehomed_slots_, rehomed_names_);  // Door B
         if (bottom_reachable) loop_propagate_moves(states_, post2_s, pre_s);
         for (auto& cs : frame2.continue_states) loop_propagate_moves(states_, cs, pre_s);
         for (auto& bs : frame2.break_states)    loop_propagate_moves(states_, bs, pre_s);
         merge_provs(prov_, post2_p);
+    }
+
+    // ── D1 round 2, Door A: a PLACE WRITE records the loan ─────────────────
+    // `w.b = c.mk()` STORES a borrow-carrying value into `w` exactly as
+    // `b = c.mk()` stores it into `b`. Code::Assign routes its RHS through
+    // take_ref_borrows with holder = the assigned binding; the seven other
+    // place-write statement kinds (FieldWrite / TupleWrite / IndexWrite /
+    // FieldIndexWrite / ChainFieldWrite / DerefFieldWrite / DerefWrite) only
+    // ran a consuming visit, so no loan was ever recorded and the referent
+    // could be mutated on the next line (`w.b = c.mk(); c.bump(); *w.b.p`).
+    //
+    // The rule: the destination place's ROOT binding becomes the holder. A
+    // write to `w.b` / `t.0` / `a[i]` / `o.i.b` makes the stored borrow
+    // reachable through the whole root, so the root's lifetime is the loan's.
+    // This is Assign's routing, one level of place indirection out.
+    //
+    // Through a REFERENCE root (`(*r).b = …`, r: &mut Wrap) the root binding
+    // is the reference itself, whose own last use IS the write statement — NLL
+    // would retire the loan immediately. The §B6 source map already records
+    // what `r` was formed from, so the referent joins as a co-holder
+    // (through_ref); inheritance only ever EXTENDS a loan's life.
+    //
+    // record_only: every caller has already run its own consuming visit of the
+    // value (move tracking); a second visit would report a double move.
+    // Root of a written PLACE, for Door A's DerefWrite spelling. Deliberately
+    // NOT extract_borrow_place: that one is shared with the conflict-check
+    // pass and has no TupleIndex step, so `t.0 = …` came back with an empty
+    // root (measured — A2 recorded nothing while A1/A3/A4 did). This walk is
+    // write-destination-only and crosses field / tuple / index / ref-deref
+    // steps; a RAW-pointer deref stops it (Rust parity, as everywhere else).
+    // `through_ref` reports whether a reference was crossed, so the referent
+    // can co-hold (see place_write_loans).
+    std::string place_write_root(lir_view::ExprRef e, bool& through_ref) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        through_ref = false;
+        ExprRef cur = e;
+        while (cur) {
+            Code k = cur.kind();
+            if (k == Code::FieldRead)       { cur = EFieldReadView{cur}.receiver();  continue; }
+            if (k == Code::TupleIndex)      { cur = ETupleIndexView{cur}.receiver(); continue; }
+            if (k == Code::IndexRead)       { cur = EIndexReadView{cur}.receiver();  continue; }
+            if (k == Code::SliceIndex)      { cur = ESliceIndexView{cur}.slice();    continue; }
+            if (k == Code::Deref) {
+                auto op = EDerefView{cur}.operand();
+                if (!op) break;
+                auto ot = op.type(pool);
+                if (ot && ot.kind() == LogosType::Kind::Ptr) return {};  // raw: unchecked
+                through_ref = true;
+                cur = op;
+                continue;
+            }
+            break;
+        }
+        if (cur && cur.kind() == Code::VarRef)
+            return std::string(EVarRefView{cur}.name());
+        return {};
+    }
+
+    void place_write_loans(const std::string& root, lir_view::ExprRef val,
+                           uint32_t ln, bool through_ref) {
+        if (root.empty() || !val) return;
+        // Mirror Assign's GATE as well as its routing. Assign only routes a RHS
+        // that is a ref, an aggregate literal, or (via prov_) a ref binding;
+        // routing UNCONDITIONALLY ties every `&`/`&mut` argument of an ordinary
+        // call to the destination, and the destination outlives the statement.
+        // Measured on stdlib: `st_hasres[i] = emit_step_texts(…, &mut
+        // st_build[i], …)` inside a `while` — the arg borrows became loans held
+        // by `st_hasres`, so iteration 2 reported "already mutably borrowed"
+        // four times. A call whose RESULT carries no borrow stores no borrow.
+        using EC = lir_schema::expr::Code;
+        TypeRef vt = val.type(prog_.type_pool.impl());
+        bool agg_lit = val.kind() == EC::StructLit || val.kind() == EC::TupleLit ||
+                       val.kind() == EC::ArrLit    || val.kind() == EC::EnumLitData;
+        if (!agg_lit && !is_ref_kind(vt) && !is_borrow_carrying_type(vt)) return;
+        size_t nb = scopes_.empty() ? 0 : scopes_.back().borrows.size();
+        size_t nf = scopes_.empty() ? 0 : scopes_.back().field_borrows.size();
+        take_ref_borrows(val, ln, root, /*record_only=*/true);
+        // A SELF-REFERENTIAL place write borrows out of the very root it stores
+        // into: `self.cu = cp.next(&self.cu)` — the cursor is replaced by one
+        // derived from the old cursor. Holding that loan against `root` makes
+        // it immortal (the root outlives every statement), so the NEXT write to
+        // the same place reports "already borrowed": measured as 16 L2 reds in
+        // the ctr_family Walk::next / VecWalk::next iterators. The read of the
+        // old value ends when the call returns; only borrows of OTHER roots
+        // survive in the stored value. Undo the ones taken against `root`.
+        if (!scopes_.empty()) {
+            auto& fr = scopes_.back();
+            for (size_t i = fr.borrows.size(); i > nb; --i) {
+                auto& br = fr.borrows[i - 1];
+                if (br.target != root) continue;
+                if (auto it = var_find(br.target_slot, br.target); it != nullptr) {
+                    if (br.is_mut) it->mut_borrowed = false;
+                    else if (it->shared_borrows > 0) --it->shared_borrows;
+                }
+                fr.borrows.erase(fr.borrows.begin() + (i - 1));
+            }
+            for (size_t i = fr.field_borrows.size(); i > nf; --i) {
+                auto& fb = fr.field_borrows[i - 1];
+                if (fb.target != root) continue;
+                if (auto it = var_find(fb.target_slot, fb.target); it != nullptr) {
+                    if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
+                    else if (auto sb = it->shared_field_borrows.find(fb.path);
+                             sb != it->shared_field_borrows.end() && --sb->second <= 0)
+                        it->shared_field_borrows.erase(sb);
+                }
+                fr.field_borrows.erase(fr.field_borrows.begin() + (i - 1));
+            }
+        }
+        if (!through_ref) return;
+        auto srcs = ref_borrow_sources_.find(root);
+        if (srcs == ref_borrow_sources_.end()) return;
+        for (auto& src : srcs->second) {
+            if (src == root) continue;
+            // NOT plain inherit_loans: a record whose TARGET is `src` itself is
+            // the `&mut src` borrow that `root` was FORMED from. Making src a
+            // co-holder of its own borrow makes that borrow immortal and
+            // refuses every later use of src — measured on A5
+            // ((*r).b = c.mk(); … *w.b.p) as a spurious second diagnostic
+            // "cannot use 'w' while it is mutably borrowed". Only loans of
+            // OTHER referents travel through the reference.
+            auto reroot = [&](auto& rec) {
+                if (rec.target == src) return;
+                if (rec.holder != root &&
+                    std::find(rec.co_holders.begin(), rec.co_holders.end(), root)
+                        == rec.co_holders.end()) return;
+                if (rec.holder == src) return;
+                if (std::find(rec.co_holders.begin(), rec.co_holders.end(), src)
+                    != rec.co_holders.end()) return;
+                rec.co_holders.push_back(src);
+                ++inherit_fired_;
+            };
+            for (auto& frame : scopes_) {
+                for (auto& br : frame.borrows)       reroot(br);
+                for (auto& fb : frame.field_borrows) reroot(fb);
+            }
+        }
+        (void)ln;
     }
 
     void visit_stmt(lir_view::StmtRef sr) {
@@ -3266,6 +3852,28 @@ class BorrowChecker {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
+                    // Door E / EXEMPT — the HOP ONLY, deliberately not the
+                    // routing. When the LOAN channel says the value carries a
+                    // borrow but the ESCAPE classification does not (an erased
+                    // `Box<dyn Get>` built from a bc value; an exempt `H` whose
+                    // field is bc), the binding must join the holder set — but
+                    // it must NOT acquire take_ref_borrows' other effect, which
+                    // is to record a fresh borrow for every `&`/`&mut`
+                    // ARGUMENT with this binding as holder. Routing the whole
+                    // thing was measured and it over-refuses: `let res: GpRes =
+                    // gp_build(…, &mut sa, …); … sa.len()` in
+                    // stdlib/mem/wql/lower.logos then held `&mut sa` for the
+                    // rest of the function ("cannot borrow 'sa': 'sa' is
+                    // already mutably borrowed"). Inheritance can only extend
+                    // an EXISTING loan, so the hop alone cannot do that.
+                    if (loan_carrying_type(t) ||
+                        loan_carrying_type(val.type(pool)) ||
+                        retains_loan_carrying_operand(val)) {
+                        std::vector<std::string> roots;
+                        bc_hop_roots(val, roots);
+                        for (auto& r : roots) inherit_loans(r, name, ln);
+                        retain_operand_loans(val, name, ln);
+                    }
                 }
                 declare_var(name, v.var_slot());  // Phase-1
                 if (auto it = var_find(v.var_slot(), name); it != nullptr)
@@ -3336,6 +3944,14 @@ class BorrowChecker {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
+                    // Door E / EXEMPT — hop only; see the Let case above.
+                    if (loan_carrying_type(val.type(pool)) ||
+                        retains_loan_carrying_operand(val)) {
+                        std::vector<std::string> roots;
+                        bc_hop_roots(val, roots);
+                        for (auto& r : roots) inherit_loans(r, name, ln);
+                        retain_operand_loans(val, name, ln);
+                    }
                 }
                 if (var_has(NO_SLOT, name)) {
                     // Re-own: value state (moves/borrows) resets, but the
@@ -3408,6 +4024,9 @@ class BorrowChecker {
                 // later use of root after x dies is E0597 (field sibling of the
                 // struct-literal case).
                 add_ref_sources(recv_nm, v.value(), ln);
+                // Door A: the loan counterpart of the line above.
+                place_write_loans(recv_nm, v.value(), ln,
+                                  /*through_ref=*/prov_.count(recv_nm) > 0);
                 break;
             }
 
@@ -3433,6 +4052,9 @@ class BorrowChecker {
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                // Door A: `a[i] = c.mk()` stores the borrow into `a`.
+                place_write_loans(nm, v.value(), ln,
+                                  /*through_ref=*/prov_.count(nm) > 0);
                 break;
             }
 
@@ -3455,23 +4077,34 @@ class BorrowChecker {
                 check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                // Door A: `o.f[i] = c.mk()` stores the borrow into `o`.
+                place_write_loans(nm, v.value(), ln,
+                                  /*through_ref=*/prov_.count(nm) > 0);
                 break;
             }
 
             // ── Chain field write: recv.mid.field = value ────────────────
             case Code::ChainFieldWrite: {
                 SChainFieldWriteView v{sr};
-                check_live(std::string(v.receiver()), ln);
+                std::string cf_nm(v.receiver());
+                check_live(cf_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
-                add_ref_sources(std::string(v.receiver()), v.value(), ln);  // §B6
+                add_ref_sources(cf_nm, v.value(), ln);  // §B6
+                place_write_loans(cf_nm, v.value(), ln,   // Door A
+                                  /*through_ref=*/prov_.count(cf_nm) > 0);
                 break;
             }
 
             // ── Deref-field write: (*recv).field = value ─────────────────
             case Code::DerefFieldWrite: {
                 SDerefFieldWriteView v{sr};
-                check_live(std::string(v.receiver()), ln);
+                std::string df_nm(v.receiver());
+                check_live(df_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                // Door A: the destination root is the REFERENCE — its referent
+                // (from the §B6 source map) co-holds, or the loan would retire
+                // at this very statement.
+                place_write_loans(df_nm, v.value(), ln, /*through_ref=*/true);
                 break;
             }
 
@@ -3562,6 +4195,16 @@ class BorrowChecker {
                         if (var_has(root_slot, root) && !param_names_.count(root))
                             add_ref_sources(root, v.value(), ln);
                     }
+                    // Door A: the loan counterpart. `*<place> = c.mk()` — the
+                    // place's root binding holds the stored borrow. Uses the
+                    // FULL place walk (field / tuple / index / deref), not the
+                    // pure-field one above: `a[i] = …` and `(*r).f = …` both
+                    // land here and both store into their root.
+                    bool wref = false;
+                    std::string wroot = place_write_root(atv.inner(), wref);
+                    if (!wroot.empty())
+                        place_write_loans(wroot, v.value(), ln,
+                                          wref || prov_.count(wroot) > 0);
                 }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
@@ -3571,9 +4214,56 @@ class BorrowChecker {
             // ── Tuple field write: var.N = value ──────────────────────────
             case Code::TupleWrite: {
                 STupleWriteView v{sr};
-                check_live(std::string(v.receiver()), ln);
+                std::string tw_nm(v.receiver());
+                check_live(tw_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
-                add_ref_sources(std::string(v.receiver()), v.value(), ln);  // §B6
+                add_ref_sources(tw_nm, v.value(), ln);  // §B6
+                place_write_loans(tw_nm, v.value(), ln,   // Door A
+                                  /*through_ref=*/prov_.count(tw_nm) > 0);
+                break;
+            }
+
+            // ── let-else: `let Some(b) = ob else { … };` ──────────────────
+            // D1 round 2, Door C. visit_stmt had NO case for this statement at
+            // all: the scrutinee was never visited, the bindings never
+            // declared, and propagate_pat_loans therefore never ran — so the
+            // let-else spelling of the match extraction leaked what the match
+            // spelling refuses (Ct1_matchout_twin, the same program written as
+            // `match`, rc=1 throughout). Nothing here is new machinery: it is
+            // the Match arm's three steps (visit scrutinee, declare bindings,
+            // propagate §B6 sources + D1 loans) minus the arm loop.
+            //
+            // The bindings live in the ENCLOSING scope — that is the whole
+            // point of let-else — so they are declared with no push_scope. The
+            // else block MUST diverge (sema enforces it), so its state does not
+            // reach the following statements: visit it for its own diagnostics,
+            // then restore.
+            case Code::LetElse: {
+                SLetElseView v{sr};
+                if (auto sc = v.scrut()) {
+                    visit(sc, /*consuming=*/false, ln);
+                    std::vector<std::string> srcs;
+                    collect_ref_sources(sc, srcs);
+                    std::vector<std::string> roots;
+                    if (type_may_carry_borrow(sc.type(pool)))
+                        bc_hop_roots(sc, roots);
+                    declare_pat_bindings(v.pat());
+                    propagate_pat_sources(v.pat(), srcs, ln);  // §B6
+                    propagate_pat_loans(v.pat(), roots, ln);   // D1
+                } else {
+                    declare_pat_bindings(v.pat());
+                }
+                v.each_guard([&](ExprRef g) { visit(g, /*consuming=*/true, ln); });
+                if (auto eb = v.else_block()) {
+                    auto saved_s = states_;
+                    auto saved_p = prov_;
+                    bool saved_div = cur_diverged_;
+                    cur_diverged_ = false;
+                    visit_block(eb);
+                    states_ = saved_s;
+                    prov_   = saved_p;
+                    cur_diverged_ = saved_div;
+                }
                 break;
             }
 
@@ -3612,6 +4302,9 @@ class BorrowChecker {
                     cur_diverged_ = saved_div;
                 } else {
                     merge_moves(states_, then_s);
+                    // Door B: a loan re-homed out of a branch frame keeps its
+                    // record; its counters must survive the state restore too.
+                    merge_loans(states_, then_s, rehomed_slots_, rehomed_names_);
                     merge_provs(prov_,   then_p);
                     cur_diverged_ = saved_div;
                 }
@@ -3644,9 +4337,52 @@ class BorrowChecker {
             }
 
             // ── Scoping block ─────────────────────────────────────────────
-            case Code::Block:
-                if (auto b = SBlockView{sr}.body()) visit_block(b);
+            // D1 round 2, Door G. A destructuring `let` has no statement kind
+            // of its own: sema's lower_let_pat emits a TRANSPARENT SBlock
+            // wrapping `let __destruct_0 = <rhs>; let __destruct_1 =
+            // __destruct_0; let b = __destruct_1.0; let n = __destruct_1.1;`
+            // (FieldRead / IndexRead accessors for the struct- and
+            // array-pattern spellings; the same shape in all four). borrow_check
+            // pushed a scope for it anyway, so `b` and `n` were declared in a
+            // frame that closed one statement later and their loans died there
+            // — while sema had put those very bindings in the OUTER scope. The
+            // twins prove the loan itself is recorded: `let t = (c.mk(), 5);
+            // let b = t.0;` refuses (Gt1), and so does the array spelling
+            // (Gt2); only the destructured form leaked.
+            //
+            // `transparent` is a CARRIED FACT, not a heuristic: sema sets it
+            // exactly on wrappers it synthesised for bindings that belong to
+            // the enclosing scope. Honouring it makes the LIR agree with the
+            // scope sema already assigned. This is NOT an alternative to Door
+            // B's re-homing — B1/B2/B3/B4 are user-written blocks that are
+            // genuinely opaque and stay so; each fix closes shapes the other
+            // cannot (measured: after B, G1/G2/G3 were still rc=0).
+            case Code::Block: {
+                SBlockView bv{sr};
+                if (auto b = bv.body()) {
+                    if (bv.transparent()) {
+                        // ONE release at the end, not one per inner statement:
+                        // the wrapper is a single SOURCE statement, so all four
+                        // lets carry the same line and the NLL cursor would
+                        // retire `__destruct_0`'s loan the moment the spill was
+                        // recorded — before `b` could inherit it. Measured: the
+                        // transparent branch fired on G1/G2/G3 and all three
+                        // still compiled until the release moved out here.
+                        uint32_t cursor = 0;
+                        b.each_stmt([&](lir_view::StmtRef s2) {
+                            uint32_t saved = max_line_seen_;
+                            max_line_seen_ = lir_view::stmt_line(s2);
+                            visit_stmt(s2);
+                            cursor = std::max(cursor, max_line_seen_);
+                            max_line_seen_ = std::max(saved, max_line_seen_);
+                        });
+                        release_dead_borrows(cursor);
+                    } else {
+                        visit_block(b);
+                    }
+                }
                 break;
+            }
 
             // ── For-each loop ─────────────────────────────────────────────
             case Code::ForEach: {
@@ -3670,7 +4406,7 @@ class BorrowChecker {
                 // too — a pattern binding is an EXTRACTION out of the
                 // scrutinee, the same hop as `ob.unwrap()`.
                 std::vector<std::string> scrut_hop_roots;
-                if (is_borrow_carrying_type(v.scrut().type(pool)))
+                if (type_may_carry_borrow(v.scrut().type(pool)))
                     bc_hop_roots(v.scrut(), scrut_hop_roots);
                 auto saved_s = states_;
                 auto saved_p = prov_;
@@ -4280,6 +5016,61 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 }
             }
             visit_args(cv);
+            // ── D1 round 2, Door F: the free-call mirror of the capture flow ──
+            // The MethodCall arm above has this rule (door 8b): a BY-VALUE
+            // borrow-carrying argument passed to a `&mut self` method may be
+            // STORED in the receiver, so the receiver joins the value's holder
+            // set. A free function retains through a `&mut` ARGUMENT instead —
+            // `fn stash(w: &mut Wrap, x: B) { w.b = x; } stash(&mut w, c.mk());
+            // c.bump(); *w.b.p` — and no such rule existed, so the loan died at
+            // the call statement. Same conservatism, same justification: Logos
+            // signatures carry no lifetimes, so a `&mut` parameter that stores
+            // the value is indistinguishable from one that does not, and Rust
+            // refuses the ambiguous form too.
+            //
+            // Restricted to `&mut` roots: storing requires mutation, so a
+            // shared-ref argument cannot retain (that is what keeps
+            // R1/thru-style read-only pass-throughs out of this rule — they are
+            // handled by the RESIDUE rule at the by-value arg site instead).
+            {
+                std::vector<std::string> bc_roots;
+                std::vector<std::pair<std::string, uint32_t>> mut_roots;
+                cv.each_arg([&](ExprRef a) {
+                    if (!a) return;
+                    TypeRef at = a.type(pool);
+                    if (!is_ref_kind(at) && is_borrow_carrying_type(at)) {
+                        bc_hop_roots(a, bc_roots);
+                        return;
+                    }
+                    if (at && at.kind() == LogosType::Kind::MutRef) {
+                        std::string mr;
+                        if (a.kind() == Code::AddrOf)
+                            mr = std::string(EAddrOfView{a}.var_name());
+                        else {
+                            bool dummy = false;
+                            mr = place_write_root(
+                                a.kind() == Code::AddrOfTemp
+                                    ? EAddrOfTempView{a}.inner() : a, dummy);
+                        }
+                        if (!mr.empty() && var_has(NO_SLOT, mr))
+                            mut_roots.emplace_back(mr, 0u);
+                    }
+                });
+                for (auto& [mr, ms] : mut_roots) {
+                    (void)ms;
+                    for (auto& r : bc_roots) inherit_loans(r, mr, line);
+                }
+                if (!mut_roots.empty()) {
+                    cv.each_arg([&](ExprRef a) {
+                        if (!a) return;
+                        TypeRef at = a.type(pool);
+                        if (is_ref_kind(at) || !is_borrow_carrying_type(at)) return;
+                        // record_only: visit_args already visited the argument.
+                        take_ref_borrows(a, line, mut_roots.front().first,
+                                         /*record_only=*/true);
+                    });
+                }
+            }
             break;
         }
 

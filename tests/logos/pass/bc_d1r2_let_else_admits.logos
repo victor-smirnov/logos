@@ -1,0 +1,23 @@
+// ADMIT TWIN for fail/bc_d1r2_let_else_held (Door C). The `let … else` binding
+// now inherits the scrutinee's loans; it must also release them. `b`'s last use
+// precedes the mutation, so the program compiles and runs. Both halves of the
+// else-arm are exercised: the Some path is taken (asserted by the value), and
+// the else arm is a real diverging block.
+package bc_d1r2_let_else_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let ob: Option<B> = Option::Some(c.mk());
+    let Option::Some(b) = ob else { return 9; };
+    let n: i64 = *b.p;
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

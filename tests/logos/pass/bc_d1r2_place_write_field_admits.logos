@@ -1,0 +1,41 @@
+// ADMIT TWIN for fail/bc_d1r2_place_write_field_held (Door A). Same place
+// write, same holder graph — only the last use of the written place moves
+// BEFORE the mutation, so NLL retires the loan and `c.bump()` is legal. Without
+// this half the refusal above is indistinguishable from a checker that made
+// every assignment target a lexical borrow of its RHS root: a place write that
+// can never be released again reds nothing and reads exactly like the fix.
+// VALUES are asserted, not just the exit code: `n` must be the PRE-mutation 1
+// (the borrow was read while it was live) and `c.v` the POST-mutation 2.
+//
+// ⚠ ONE ASSERTION IS DELIBERATELY ABSENT, and it is a MEASURED OVER-REFUSAL,
+// not a shortcut. Adding `if z != 9i64 { return 3; }` after the mutation makes
+// THIS program refuse with the same "cannot borrow 'c' as mutable" — reading
+// `z`, the referent of the borrow `w` held BEFORE the place write overwrote it,
+// keeps the loan on `c` alive past `w`'s real last use (isolated: `y`, an
+// unrelated local of the same type, does not do it; /tmp/bcp/p_z vs p_y). So a
+// use of a loan's TARGET is being counted as a use of its HOLDER. That is a
+// separate defect from Door A — it needs its own probe pair and its own control
+// — and it is recorded here rather than pinned, because pinning the refusal
+// would write the over-refusal down as intended behaviour. The Door F twin
+// (pass/bc_d1r2_call_out_param_admits) DOES carry the `z` assertion and is
+// green, which is what localises this to the direct place-write spelling.
+package bc_d1r2_place_write_field_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Wrap { b: B }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let z: i64 = 9i64;
+    let mut w: Wrap = Wrap { b: B { p: &z } };
+    w.b = c.mk();
+    let n: i64 = *w.b.p;
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}

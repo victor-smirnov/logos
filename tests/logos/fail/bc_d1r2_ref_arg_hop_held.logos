@@ -1,0 +1,26 @@
+// D1 round 2 / RESIDUE — a PLAIN-REF argument rooted at a loan holder. This is
+// the hop ADR 0025 §2 recorded as OPEN after round 1 and deliberately did NOT
+// pin, because pinning an admitted laundering writes it down as intended: the
+// hop walk followed a method's RECEIVER and every BY-VALUE borrow-carrying
+// argument, but a `&B` argument was skipped — `&B` is Kind::Ref and the
+// borrow-carrying test says no — so `thru(&b0)` re-exported nothing and only
+// borrowed `b0` itself, whose loan then died at its last use. The METHOD
+// spelling of the identical program was refused; the asymmetry was the defect.
+// Closed by asking "may this type carry a borrow?" at the hop-root gate only.
+// This fixture is now the refusal, and the ADR paragraph is superseded.
+package bc_d1r2_ref_arg_hop_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn thru(b: &B) -> B { return B { p: b.p }; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let b0: B = c.mk();
+    let b1: B = thru(&b0);
+    c.bump();
+    return *b1.p;
+}

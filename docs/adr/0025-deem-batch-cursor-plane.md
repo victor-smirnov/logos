@@ -129,8 +129,12 @@ carries the extra argument. Making `b.col_k()` legal is a borrow-checker
 change (transitive provenance through a borrow-carrying local), not a batch
 change — recorded as an axis, not adopted here.
 
-⚠⚠ HALF OF THE AXIS ABOVE IS CLOSED — re-measured 2026-08-11, same day, after
-D1. The paragraph stands as the HISTORY (it is why v1 is spelled
+⚠⚠ THE AXIS ABOVE IS CLOSED — first half after D1 round 1, second half after D1
+round 2, both re-measured 2026-08-11. This heading read "HALF OF THE AXIS ABOVE
+IS CLOSED" and is corrected in place: the two bullets below were written one
+round apart, the second one carries its own supersession, and the state of the
+tree is now that BOTH hops re-export. The paragraph stands as the HISTORY (it is
+why v1 is spelled
 `pdt_col(&leaf, &b, k)`), but it stated ONE rule for two hops — "a free function
 … takes the merged provenance of its REFERENCE arguments, and a method's result
 takes its receiver's — and in both cases the provenance stops after ONE hop" —
@@ -149,20 +153,39 @@ MEASURED, with the two probes differing in exactly one line:
   the batch's left over. **So `b.col_k()` as a method IS now expressible and
   would tie — the answer to the question this ⚠ was raised to ask is YES.**
 * **FREE-FN `&`-ARG — STILL DROPS. The original claim survives here, and this
-  is the hop that is still open.** A free fn whose only reference argument is a
-  borrow-CARRYING local still contributes that local's own borrow and not what
-  the local carries: `fn thru(b: &B) -> B { B { p: b.p } }`, then
-  `let b1 = thru(&b0); c.bump(); *b1.p` COMPILES. Controlled: hold `b0` itself
-  live across the `bump` as well and it refuses, so the admit is precisely the
-  `&`-arg hop and not a scope artefact. The same shape one line different — the
-  hop written as a METHOD instead — is refused (previous bullet). That
-  asymmetry is a compiler defect, D1's residue, not a decision: it is recorded
-  here and NOT pinned as a fixture, because pinning an admit would write the
-  laundering down as intended.
+  is the hop that is still open.** ⚠ **SUPERSEDED IN PLACE — CLOSED by D1 round
+  2, re-measured 2026-08-11, same day.** The paragraph is kept as the history
+  because it is what the sentence below about `&NodeView` was derived FROM; as
+  a description of the tree it is now false. It said: a free fn whose only
+  reference argument is a borrow-CARRYING local contributes that local's own
+  borrow and not what the local carries — `fn thru(b: &B) -> B { B { p: b.p } }`
+  then `let b1 = thru(&b0); c.bump(); *b1.p` COMPILES, while the same hop
+  written as a METHOD is refused. That asymmetry was a compiler defect, not a
+  decision, and it was recorded here and NOT pinned, because pinning an admit
+  would write the laundering down as intended.
+  **POST-FIX VERDICT: the `&`-arg is a hop like any other.** The hop-root walk
+  gated on "is this argument borrow-CARRYING?", which is false for `&B`
+  (Kind::Ref); it now asks "may this type carry a borrow?" at that gate only, so
+  a plain-ref argument rooted at a loan holder re-exports what the holder
+  carries. The free-fn and method spellings agree. The program above is REFUSED
+  and is pinned as `fail/bc_d1r2_ref_arg_hop_held` — the admit could not be
+  pinned, the refusal can be — with `pass/bc_d1r2_ref_arg_hop_admits` as its
+  twin, which keeps a CONSUMING `&`-arg call (scalar result) admitted so the
+  refusal cannot be mistaken for a checker that freezes every `&` argument's
+  root. CONTROL REVERT (round-1 checker rebuilt): the leak program compiled
+  rc=0, so the pin is a new refusal and not a rename of a round-1 one.
 
 Consequently `cols_batch`'s `&NodeView`-not-`&ColRef` rooting (recorded at the
-constructor in `stdlib/mem/bt/batch.logos`) is STILL REQUIRED — it is a free
-function, so it sits on the hop that still drops.
+constructor in `stdlib/mem/bt/batch.logos`) is NO LONGER FORCED by the checker.
+Measured on this plane's own two-hop shape (`/tmp/bcr2/S1_{colref,nodeview}_
+root.logos`: `let cr = nv.col(); let b = cols_batch_cr(&cr); nv.put_cell();
+*b.q`): the `&ColRef`-rooted constructor is now rc=1 `cannot borrow 'nv' as
+mutable` where it was rc=0, and the `&NodeView`-rooted one is rc=1 as before.
+So `&NodeView` STAYS, but as a DESIGN choice — it keeps the tie one hop long
+and states the dependency the batch actually has — and S1 is now free to pick
+the source that reads best rather than the one the checker tolerated. The
+refusal probe above is the control any such change must keep at rc=1. The same
+verdict is recorded at the constructor itself.
 
 Nothing is respelled here. The v1 witness form stays exactly as it is: rewriting
 `pdt_col`'s signature is S1's reconciliation (which also has to decide

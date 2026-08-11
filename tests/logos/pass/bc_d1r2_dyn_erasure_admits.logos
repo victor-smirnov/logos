@@ -1,0 +1,36 @@
+// ADMIT TWIN for fail/bc_d1r2_dyn_erasure_held (Door E). Two things must stay
+// admitted, and both are here:
+//   * the erased box whose LAST USE precedes the mutation — the retention
+//     record is a loan, so NLL still retires it;
+//   * a `Box<dyn Get>` built from a value that carries NO borrow (`Plain`),
+//     used AFTER the mutation. This is the over-refusal control for the wrong
+//     easy answer ("treat every dyn type-arg as borrow-carrying"), which would
+//     refuse this line while printing the same message as the fix on the leak
+//     program. The dyn ecosystem consumer this protects is `Arc<dyn Snapshot>`.
+// VALUES asserted: the erased read is the PRE-mutation 1, the plain dyn call
+// still answers after it, and `c.v` shows the mutation happened.
+package bc_d1r2_dyn_erasure_admits;
+use logos.mem.boxed;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Plain { n: i64 }
+trait Get { fn g(&self) -> i64; }
+impl Get for B { fn g(&self) -> i64 { return *self.p; } }
+impl Get for Plain { fn g(&self) -> i64 { return self.n; } }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let d: Box<dyn Get> = Box::new(c.mk());
+    let n: i64 = d.g();
+    let q: Box<dyn Get> = Box::new(Plain { n: 7i64 });
+    c.bump();
+    let m: i64 = q.g();
+    if n != 1i64 { return 1; }
+    if m != 7i64 { return 2; }
+    if c.v != 2i64 { return 3; }
+    return 0;
+}

@@ -205,17 +205,25 @@ pub struct ColsBatch {
 /// with this one. Rooting every constructor at the leaf keeps the tie one hop
 /// long, which is the length the checker actually enforces.
 ///
-/// RE-MEASURED 2026-08-11, after compiler defect D1 closed (a loan now follows
-/// the HOLDER graph): THIS RATIONALE STILL HOLDS, and deliberately so — do not
-/// "modernize" it away. D1 fixed the METHOD-RECEIVER hop and the by-value hops,
-/// not the FREE-FN `&`-ARG hop, and `cols_batch*` are free functions. Probe,
-/// same shape one line apart: `fn thru(b: &B) -> B { B { p: b.p } }` then
-/// `let b1 = thru(&b0); c.bump(); *b1.p` COMPILES (controlled — hold `b0`
-/// itself live across the `bump` and it refuses, so the admit is the `&`-arg
-/// hop, not a scope artefact), while the same hop written as a method on `B`
-/// is REFUSED. That asymmetry is D1's residue and is recorded in ADR 0025 §2's
-/// second ⚠. Until it closes, a `&ColRef`-rooted constructor would launder
-/// exactly as it did before.
+/// RE-MEASURED 2026-08-11 (D1 round 1): the rationale held, because D1 round 1
+/// fixed the METHOD-RECEIVER hop and the by-value hops but not the FREE-FN
+/// `&`-ARG hop, and `cols_batch*` are free functions.
+///
+/// RE-MEASURED AGAIN after D1 round 2, which CLOSED that residue: a plain-ref
+/// argument rooted at a loan holder now re-exports the loans it holds, so the
+/// free-fn and method spellings finally agree. THE CONSTRAINT NO LONGER
+/// BINDS. Probe pair, /tmp/bcr2/S1_{colref,nodeview}_root.logos — the exact
+/// two-hop shape (`let cr = nv.col(); let b = cols_batch_cr(&cr);
+/// nv.put_cell(); *b.q`) and its one-hop control:
+///     &ColRef-rooted   rc=1  "cannot borrow 'nv' as mutable"   (was rc=0)
+///     &NodeView-rooted rc=1  same diagnostic                   (unchanged)
+///
+/// VERDICT FOR S1: `&NodeView` stays, but as a DESIGN choice, not a checker
+/// workaround — rooting at the leaf keeps the tie one hop long and states the
+/// dependency the batch actually has. A `&ColRef`-rooted constructor would now
+/// be sound too; that is a licence for S1 to pick the source that reads best,
+/// not an instruction to change this one. If it is ever changed, the refusal
+/// probe above is the control that must stay rc=1.
 pub fn cols_batch_at(nv: &NodeView, slot: u32, lo: u64, hi: u64) -> ColsBatch {
     let b: PdtBuf = nv.col(slot).as_buf();
     assert(lo <= hi, "cols_batch_at: inverted window");

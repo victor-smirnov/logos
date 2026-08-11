@@ -1,0 +1,25 @@
+// ADMIT TWIN for fail/bc_d1r2_closure_capture_held (Door D). The closure
+// binding is now a loan HOLDER, so its own last use is what releases: call `f`
+// before the mutation and nothing is live across it. This is the half that
+// stops the capture rule from degenerating into "a closure freezes everything
+// it reads for the rest of the function" — that over-refusal would print the
+// same message as the fix on the leak program, and only an admitted twin
+// separates them. The value pins that the read happened PRE-mutation.
+package bc_d1r2_closure_capture_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    let f = || -> i64 { return *b.p; };
+    let n: i64 = f();
+    c.bump();
+    if n != 1i64 { return 1; }
+    if c.v != 2i64 { return 2; }
+    return 0;
+}
