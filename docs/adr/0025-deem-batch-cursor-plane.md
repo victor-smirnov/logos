@@ -262,12 +262,13 @@ substitution left on the query side.
 6. A borrow-carrying cursor must be unable to cross a task boundary — the
    owned form is the only Send shape. The concurrency model has no such
    predicate yet; it must grow one.
-7. (§12) A generator API on pinned fibers: create/resume/yield plus
-   KILL-ON-DROP — dropping a fiber-backed stream must kill the fiber and run
-   its frame's drops, or the leaf pin leaks with the frame.
-8. (§12) Borrows THROUGH a fiber: a fiber-backed stream handle is
-   borrow-carrying over the deem's source arguments; the fiber must not
-   outlive them — the fiber-side half of requirement 6.
+7. (§12, PARKED until the `queued` form) A lazy-producer API — a generator on
+   pinned fibers or a task feeding a bounded queue — with KILL-ON-DROP:
+   dropping the stream must stop the producer and run its frame's drops, or
+   the leaf pin leaks with the frame.
+8. (§12, PARKED until the `queued` form) Borrows THROUGH the producer: the
+   stream handle is borrow-carrying over the deem's source arguments; the
+   producer must not outlive them — the producer-side half of requirement 6.
 
 **Known limit, stated:** two handles to the SAME container in one snapshot
 alias past BC — the same limit view.logos declares intra-node. Backstop is a
@@ -345,33 +346,35 @@ With batch streams both halves of composition exist on this plane:
   borrow-carrying return tied to the source arguments. Pipelines within one
   scope are rung 1–2 (zero counting, §7); only an ESCAPING stream is rung 3.
 
-**The fiber form is what makes RETURNING general.** The emitter produces
-push-shaped bodies (`__out.push(row)` inside a fused nest). Inverting an
-arbitrary push body into a pull stream without fibers is a CPS/state-machine
-transform of every emitted shape — a compiler in its own right. A fiber
-sidesteps it: the body runs AS EMITTED and `yield <batch>` replaces the push.
-A sort inside, a fixpoint, a two-phase aggregate — all stream out with no
-body rewrite. The batch protocol is what prices this in: **one suspend per
-BATCH (= leaf), never per row** — per-row generators were the classic
-objection, and batching amortizes it by the fanout. An empty batch is the
-liveness tick for budgeted/anytime execution.
-
-The plan chooses the form and records the ground, like every decision on this
-plane:
+**RETURNING in general is a push/pull inversion, and the inverter is a
+QUEUE (Victor, 2026-08-10: fibers deferred — do not complicate yet).** The
+emitter produces push-shaped bodies (`__out.push(row)` inside a fused nest).
+Between that body and a pull consumer stands a queue — and **a `Vec` IS the
+degenerate queue**: eager producer, no bound. So the forms, in order of
+arrival:
 
 * `direct` — single-loop streamable plans: the stream is a state struct (the
-  Walk shape), no fiber, no cost;
-* `fiber` — any other body; the trace names why the direct form was refused.
+  Walk shape), no queue at all, no cost. Exists from S5 day one.
+* `buffered` — ANY other body, NOW: the body runs as emitted into a `Buffer`,
+  and the Buffer is served through the same `impl BatchStream` return type.
+  Semantically a `Drain` at the output seam, and the plan records it as one
+  (`"buffered: body is not single-loop"`), so the seam materialization the
+  pipeline was meant to remove is at least VISIBLE while it remains.
+* `queued` — LATER, the upgrade this paragraph exists to reserve: the `Vec`
+  becomes a bounded queue fed incrementally; who stands on the producer side
+  (a fiber `yield`ing per batch, a task) is decided THEN, not now. The
+  surface does not move: all three forms inhabit the same return type, so
+  the upgrade swaps an implementation, never a caller.
 
-Caveats, stated: the "metacall JIT has no fibers" constraint (GOTTPOFF) is
-about COMPILE-TIME metaprogram execution and does not apply — these fibers
-run in emitted RUNTIME code, where fibers are the concurrency model.
-Requirements 7–8 (§7) are the substrate this form owes. Not v1: recorded so
-S5 designs against it instead of rediscovering it.
-
-Reach, one sentence: operator-as-fiber over batch deltas is the runtime shape
-of the DBSP netlist and of Hest's dataflow — Deem pipelines and Hest converge
-on this plane.
+What survives of the fiber analysis, recorded for the `queued` step so it is
+not rediscovered: one suspend per BATCH (= leaf), never per row — batching is
+what prices a lazy producer in; an empty batch is the liveness tick for
+budgeted/anytime execution; the GOTTPOFF "no fibers in metacall JIT"
+constraint is compile-time-only and does not apply to emitted runtime code;
+requirements 7–8 (§7) are the substrate the producer side will owe — PARKED
+until `queued`, not v1 obligations. Operator-over-batch-queues is the runtime
+shape of the DBSP netlist and of Hest's dataflow — Deem pipelines and Hest
+converge on this plane when `queued` lands.
 
 ## Axes ledger
 
@@ -404,10 +407,12 @@ scan shape; every other cell is declared, not silently absent.
   says why.
 * **S4 — aggregates fold single-pass** (with the emitter unification).
 * **S5 — streaming query output + pipelines (§12).** `-> impl BatchStream`
-  return surface: `direct` form for single-loop plans; the `fiber` form needs
-  Memoria API req. 7–8 first. Pipeline fixture: two chained deems, oracle =
-  pull count (one drain, no seam materialization) + same rows. Owned cursor
-  as the escape shape.
+  return surface, TWO forms now: `direct` for single-loop plans, `buffered`
+  (Vec-as-degenerate-queue behind the same type, recorded as a Drain) for
+  every other body; `queued` deferred with req. 7–8. Pipeline fixture: two
+  chained deems, oracle = pull count (direct-over-direct: no seam
+  materialization; buffered: exactly one, and the plan SAYS so) + same rows.
+  Owned cursor as the escape shape.
 * **S6 — WritWalk batches; weighted batches** (the DBSP seam §10).
 
 ## Consequences
