@@ -643,6 +643,11 @@ struct FnTraitBoundView {
     std::vector<std::string_view> hrtb_binders() const noexcept {
         return detail::read_string_array(self, lir_schema::fn_tbound_keys::TB_HRTB_BINDERS.code);
     }
+    // The bound's always-qualified trait identity; falls back to the spelling.
+    std::string_view identity_trait() const noexcept {
+        auto it = detail::read_string(self, lir_schema::fn_tbound_keys::TB_IDENTITY.code);
+        return it.empty() ? trait_name() : it;
+    }
     // Derived (not stored): trait is one of Fn / FnMut / FnOnce.
     bool is_fn_family() const noexcept {
         auto t = trait_name();
@@ -1295,6 +1300,23 @@ struct ImplView {
     std::string_view canonical_trait() const noexcept {
         auto ct = detail::read_string(self, lir_schema::impl_keys::CANONICAL_TRAIT.code);
         return ct.empty() ? trait_name() : ct;
+    }
+    // Always-qualified IMPL-REGISTRY identity — see impl_keys::IDENTITY_TRAIT.
+    // Degrades to canonical_trait() (and thence to the spelling) on archives
+    // that predate the key.
+    std::string_view identity_trait() const noexcept {
+        auto it = detail::read_string(self, lir_schema::impl_keys::IDENTITY_TRAIT.code);
+        return it.empty() ? canonical_trait() : it;
+    }
+    std::string_view identity_bound_trait() const noexcept {
+        auto it = detail::read_string(self,
+                      lir_schema::impl_keys::IDENTITY_BOUND_TRAIT.code);
+        return it.empty() ? bound_trait() : it;
+    }
+    std::vector<std::string_view> identity_extra_bounds() const noexcept {
+        auto v = detail::read_string_array(self,
+                     lir_schema::impl_keys::IDENTITY_EXTRA_BOUNDS.code);
+        return v.empty() ? extra_bounds() : v;
     }
     std::string_view bound_trait() const noexcept {
         return detail::read_string(self, lir_schema::impl_keys::BOUND_TRAIT.code);

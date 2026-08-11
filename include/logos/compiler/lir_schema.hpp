@@ -559,6 +559,9 @@ namespace fn_tbound_keys {
 inline constexpr Key TB_TRAIT_NAME   {"TB_TRAIT_NAME",   1};  // Varchar
 inline constexpr Key TB_TYPE_ARGS    {"TB_TYPE_ARGS",    2};  // Array<RelPtr<LogosType>>
 inline constexpr Key TB_HRTB_BINDERS {"TB_HRTB_BINDERS", 3};  // Array<Varchar> — for<'a> binders
+// The bound's trait IDENTITY (`pkg::Trait`, always qualified), captured in the
+// scope the bound was WRITTEN. Sparse; readers fall back to TB_TRAIT_NAME.
+inline constexpr Key TB_IDENTITY     {"TB_IDENTITY",     4};  // Varchar (sparse)
 } // namespace fn_tbound_keys
 
 // where_type_bounds sub-map keys (own space) — pair (subject type, trait name).
@@ -716,6 +719,20 @@ inline constexpr Key ASSOC_CONSTS         {"ASSOC_CONSTS",         15}; // Array
 // Sparse: absent on impls emitted by older front-ends / when unresolved, in
 // which case readers fall back to TRAIT_NAME (the pre-canonical behaviour).
 inline constexpr Key CANONICAL_TRAIT      {"CANONICAL_TRAIT",      16}; // Varchar (sparse)
+// The IMPL-REGISTRY IDENTITY of this impl's trait: `pkg::Trait`, ALWAYS
+// package-qualified. ⚠ NOT the same thing as CANONICAL_TRAIT above, which is the
+// sema traits_ REGISTRY key and is BARE for whichever homonym owns the bare
+// slot — the same string every other homonym's impl carries as its raw alias.
+// Mono keys its fact table by THIS one, so two `Hash` traits cannot answer for
+// each other. Sparse: absent from archives emitted by older front-ends, in
+// which case readers fall back to CANONICAL_TRAIT and then TRAIT_NAME, i.e. the
+// pre-identity behaviour rather than a lost impl.
+inline constexpr Key IDENTITY_TRAIT       {"IDENTITY_TRAIT",       17}; // Varchar (sparse)
+// Identity twins of BOUND_TRAIT / EXTRA_BOUNDS for a BLANKET impl's own bounds
+// (`impl<T: Hash> Marker for T`). Without these the bound reaches mono as raw
+// text and mono admits whichever homonym's concretes are filed under it.
+inline constexpr Key IDENTITY_BOUND_TRAIT {"IDENTITY_BOUND_TRAIT", 18}; // Varchar (sparse)
+inline constexpr Key IDENTITY_EXTRA_BOUNDS{"IDENTITY_EXTRA_BOUNDS",19}; // Array<Varchar> (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

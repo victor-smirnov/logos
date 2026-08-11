@@ -5464,9 +5464,20 @@ void Mono::populate_trait_engine_() {
     // mono_has_impl_recursive returned true for. Represent as a
     // blanket with empty bounds list (engine returns true).
     for (auto& bi : blanket_impls_) {
+        // ⚠ THE BOUNDS ARE IDENTITIES. `impl<T: Hash> Marker for T` written
+        // beside a package-local `trait Hash` used to register the bound as the
+        // raw text "Hash", so the engine answered it with the STDLIB Hash's
+        // concretes and mono instantiated `i32__tag` for a `Marker` nothing
+        // calls on an i32 — a legitimate program failing to compile.
         std::vector<std::string> bounds;
-        if (!bi.bound_trait.empty()) bounds.push_back(bi.bound_trait);
-        for (auto& eb : bi.extra_bounds) bounds.push_back(eb);
+        if (!bi.bound_trait.empty())
+            bounds.push_back(bi.identity_bound_trait.empty() ? bi.bound_trait
+                                                             : bi.identity_bound_trait);
+        for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
+            bounds.push_back(ei < bi.identity_extra_bounds.size() &&
+                                     !bi.identity_extra_bounds[ei].empty()
+                                 ? bi.identity_extra_bounds[ei]
+                                 : bi.extra_bounds[ei]);
         // Register under the trait IDENTITY, plus the bare spelling as an
         // alias when they differ — same superset rule as the concrete facts
         // (see mono.cpp's concrete_impls_ insert, which carries the measurement
@@ -5497,7 +5508,9 @@ void Mono::populate_trait_engine_() {
         // needs `canonical_bound_trait` mirrored into LIR (push_tbound /
         // ImplView), a format-touching change. Neither may go alone.
         const std::string& b_canon =
-            bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait;
+            bi.identity_trait.empty()
+                ? (bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait)
+                : bi.identity_trait;
         if (b_canon != bi.trait_name) {
             auto bounds_alias = bounds;
             trait_engine_.add_blanket(bi.trait_name, std::move(bounds_alias));
@@ -5904,6 +5917,11 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
         };
         struct MBound {
             std::string trait_name;
+            // The bound's always-qualified trait identity (TB_IDENTITY), so a
+            // bound checked here asks for ONE trait's facts. The raw spelling
+            // is kept beside it because auto-trait lookup and the trait-decl
+            // scan below are keyed by the DECLARED name.
+            std::string identity;
             bool is_fn_family;
             std::vector<TypeRef> type_args;
             std::vector<std::string> hrtb_binders;
@@ -5912,6 +5930,7 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
         itp.each_bound([&](lir_view::FnTraitBoundView tbv) {
             MBound mb;
             mb.trait_name = std::string(tbv.trait_name());
+            mb.identity   = std::string(tbv.identity_trait());
             mb.is_fn_family = tbv.is_fn_family();
             mb.type_args = tbv.type_args(mbo_pool);
             for (auto b : tbv.hrtb_binders()) mb.hrtb_binders.push_back(std::string(b));
@@ -5951,6 +5970,20 @@ bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
                     return false;
                 continue;
             }
+            // ⚠ ASKED BY THE SPELLING, DELIBERATELY, AND THE ATTEMPT TO NARROW
+            // IT IS MEASURED. `tb.identity` is carried here and is correct, but
+            // switching this probe to it BREAKS THE STDLIB BUILD:
+            //   error: 'func.call' op
+            //     'Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt' does not reference
+            //     a valid function
+            // — `concrete_has_impl` answers from tables that are not all keyed
+            // by identity yet (notably the raw `concrete_impls_` alias and the
+            // out_.impls scans), so an identity query goes unanswered and a
+            // legitimate method is dropped. Narrowing this is the LAST step of
+            // retiring the two bare aliases, not a step that can precede it:
+            // every fact table the probe reaches has to be identity-keyed
+            // first. Do not "fix" this by deleting the alias — that is the same
+            // false-negative direction, one layer down.
             if (!concrete_has_impl(tb.trait_name)) return false;
             // B62/B63: HRTB satisfaction — universal-position + bijectivity
             // checks. Bound binders (any non-empty, non-'static lifetime in

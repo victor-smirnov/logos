@@ -1210,8 +1210,28 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # (links the existing lhom archive; no new archive). Proved to BITE by reverting
 # the identity composition to the registry key — that fixture, and ONLY it, went
 # red; restore rebuilt and re-run green before continuing.
-REGISTRY-ALL         6928
-REGISTRY-NOIMPORTED  3245
+# And a FIFTH: mono's eager blanket pass built its candidate list by comparing
+# trait SPELLINGS, so `impl<T: Hash> Marker for T` beside a package-local
+# `trait Hash` cloned the blanket for every type implementing the STDLIB Hash
+# and emitted calls to methods that do not exist ('i32__tag'). A legitimate
+# program failing to compile — reproduced by me on this tree before the fix.
+# The identity now reaches mono through LIR (impl_keys::IDENTITY_TRAIT /
+# IDENTITY_BOUND_TRAIT / IDENTITY_EXTRA_BOUNDS, fn_tbound_keys::TB_IDENTITY, all
+# SPARSE with documented fallbacks, so an older archive degrades to the previous
+# behaviour instead of losing impls).
+# +1: tests/logos/pass/trait_blanket_homonym_no_overinstantiation.{logos,expected}
+# — it pins COMPILABILITY plus the value that only the local trait can produce,
+# so a "fix" that dropped the local facts fails it too. Proved to BITE by
+# restoring the spelling comparison: that fixture, and ONLY it, went red;
+# restore rebuilt and re-run green.
+# ⚠ THE TWO MONO BARE ALIASES ARE STILL IN. Narrowing the LAST probe
+# (`concrete_has_impl` in method_bound_ok) to the identity BREAKS THE STDLIB
+# BUILD — 'Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt' does not reference a valid
+# function — because not every table that probe reaches is identity-keyed yet.
+# That measurement is recorded at the call site. Retiring the aliases is the
+# step AFTER those tables, not before.
+REGISTRY-ALL         6929
+REGISTRY-NOIMPORTED  3246
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

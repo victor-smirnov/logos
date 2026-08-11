@@ -448,12 +448,21 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             for (auto& bi : blanket_impls_) {
                 if (bi.trait_name != tv.trait_name()) continue;
                 StrSet seen_pri;
+                // Ask by IDENTITY — the raw text here admitted a homonym's
+                // concretes into this blanket's assoc-type resolution.
+                const std::string& pri_q = bi.identity_bound_trait.empty()
+                                               ? bi.bound_trait
+                                               : bi.identity_bound_trait;
                 if (!bi.bound_trait.empty() &&
-                    !mono_has_impl_recursive(bi.bound_trait, concrete_base, seen_pri)) continue;
+                    !mono_has_impl_recursive(pri_q, concrete_base, seen_pri)) continue;
                 bool all_extra = true;
-                for (auto& eb : bi.extra_bounds) {
+                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
                     StrSet seen_eb;
-                    if (!mono_has_impl_recursive(eb, concrete_base, seen_eb)) {
+                    const std::string& eq = ei < bi.identity_extra_bounds.size() &&
+                                                    !bi.identity_extra_bounds[ei].empty()
+                                                ? bi.identity_extra_bounds[ei]
+                                                : bi.extra_bounds[ei];
+                    if (!mono_has_impl_recursive(eq, concrete_base, seen_eb)) {
                         all_extra = false; break;
                     }
                 }

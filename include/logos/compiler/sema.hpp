@@ -723,6 +723,17 @@ struct TraitBound {
     // Empty ⇒ never captured (a bound built outside read_trait_bound_args);
     // consumers fall back to `trait_name`, i.e. the pre-B-mv-03 behaviour.
     std::string                   canonical_trait;
+    // The IMPL-REGISTRY identity: `pkg::Trait`, ALWAYS package-qualified.
+    // ⚠ DISTINCT FROM `canonical_trait`, AND THE DIFFERENCE IS A DEFECT CLASS.
+    // `canonical_trait` is the traits_ REGISTRY key, which is the BARE name for
+    // whichever homonym owns the bare slot — i.e. the same string every OTHER
+    // homonym's impl is filed under as its raw bare-text alias. Composing an
+    // impls_ key from it made a bound over one trait read the other's impls.
+    // This field is what impl-registry keys and mono's fact table are built
+    // from; `canonical_trait` stays the registry key because traits_ lookups
+    // and the auto-trait probe are keyed by THAT. Empty ⇒ never captured;
+    // consumers fall back to `trait_name`.
+    std::string                   identity_trait;
     std::vector<TypeRef> type_args;   // e.g. Into<i32> -> [i32]
     // L1: lifetime args at trait-bound position (e.g. `Foo<'a>` → ["a"]).
     // Parsed but not enforced (no region inference); needed so the

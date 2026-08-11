@@ -2072,6 +2072,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (!trait_name.empty()) {
         std::string canon = canonical_trait_name(trait_name);
         if (canon != trait_name) ib.str(ik::CANONICAL_TRAIT, canon);
+        // ⚠ AND THE ALWAYS-QUALIFIED IDENTITY BESIDE IT. `canon` above is the
+        // traits_ REGISTRY key and is BARE for whichever homonym owns the bare
+        // slot, so mono keying its fact table by it put two traits in one slot.
+        std::string ident = impl_key_trait(canon);
+        if (ident != trait_name) ib.str(ik::IDENTITY_TRAIT, ident);
     }
     ib.str(ik::TARGET_TYPE, target);
     // CP-cm-16 follow-up: full impl-target pattern with TypeVars unsubstituted.
@@ -2192,6 +2197,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 if (!tp.bounds.empty()) {
                     impl_bound_trait = tp.bounds[0].trait_name;
                     ib.str(ik::BOUND_TRAIT, tp.bounds[0].trait_name);
+                    // The blanket's own bound, by identity. Without this the
+                    // bound reaches mono as raw text and mono admits whichever
+                    // homonym's concretes happen to be filed under it — which
+                    // is how `impl<T: Hash> Marker for T` instantiated
+                    // `i32__tag` for a Marker nobody called on an i32.
+                    if (!tp.bounds[0].identity_trait.empty() &&
+                        tp.bounds[0].identity_trait != tp.bounds[0].trait_name)
+                        ib.str(ik::IDENTITY_BOUND_TRAIT, tp.bounds[0].identity_trait);
                     if (!tp.bounds[0].assoc_eqs.empty()) {
                         auto a = ib.array(ik::PRIMARY_ASSOC_EQS);
                         for (auto& [n, t] : tp.bounds[0].assoc_eqs) {
@@ -2202,9 +2215,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                     if (tp.bounds.size() > 1) {
                         auto eb = ib.array(ik::EXTRA_BOUNDS);
+                        auto ieb = ib.array(ik::IDENTITY_EXTRA_BOUNDS);
                         auto ee = ib.array(ik::EXTRA_ASSOC_EQS);
                         for (size_t bi = 1; bi < tp.bounds.size(); ++bi) {
                             eb.push_str(tp.bounds[bi].trait_name);
+                            // Positional twin of EXTRA_BOUNDS — same length, so
+                            // a reader may index the two together. Falls back to
+                            // the spelling when the identity was not captured.
+                            ieb.push_str(tp.bounds[bi].identity_trait.empty()
+                                             ? tp.bounds[bi].trait_name
+                                             : tp.bounds[bi].identity_trait);
                             auto m = ee.submap(EXTRA_EQ_SCHEMA, 4);
                             m.str_always(eek::EE_TRAIT, tp.bounds[bi].trait_name);
                             if (!tp.bounds[bi].assoc_eqs.empty()) {

@@ -171,6 +171,11 @@ public:
     writ::AnyVal tbound_av(const TraitBound& tb) {
         auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 7));
         put(map_off, tbk::TB_TRAIT_NAME, put_string(tb.trait_name));
+        // The bound's always-qualified trait identity, so a bound that crosses
+        // an archive boundary still denotes the trait it was WRITTEN against.
+        // Sparse: written only when it differs from the spelling.
+        if (!tb.identity_trait.empty() && tb.identity_trait != tb.trait_name)
+            put(map_off, tbk::TB_IDENTITY, put_string(tb.identity_trait));
         auto a = type_array(tb.type_args);
         if (!a.is_null()) put(map_off, tbk::TB_TYPE_ARGS, a);
         if (!tb.hrtb_binders.empty()) {

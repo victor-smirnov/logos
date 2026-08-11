@@ -1,0 +1,50 @@
+// A BLANKET BOUNDED BY A PACKAGE-LOCAL TRAIT MUST NOT BE CLONED FOR TYPES THAT
+// ONLY IMPLEMENT THE STDLIB HOMONYM.
+//
+// `impl<T: Hash> Marker for T` is bounded by THIS package's `Hash`, which only
+// `S` implements. Nothing here calls `Marker` on an `i32`. The program must
+// compile and run.
+//
+// ⚠ WHAT THIS PINS IS COMPILABILITY, AND THAT IS THE WHOLE POINT. Before the
+// fix this file did not produce a wrong answer — it did not produce a program
+// at all:
+//     error: 'func.call' op 'i32__tag' does not reference a valid function
+//     rc 1
+// Mono's eager blanket pass built its candidate list by comparing the impl's
+// trait SPELLING with the blanket's bound SPELLING, so every type implementing
+// the STDLIB `Hash` (i32, i64, …) was collected as a candidate, the blanket
+// body was cloned for each, and the clone called `tag()` — a method of THIS
+// package's `Hash` that an `i32` does not have. Both sides now compare the
+// always-qualified trait IDENTITY.
+//
+// ⚠ THE ASSERTION IS NOT DECORATION. `s.mark()` must return 91 — the value that
+// only reaches it through THIS package's `Hash::tag`. A fix that made the
+// program compile by dropping the local trait's facts would either fail to
+// resolve `mark` or route it elsewhere, and the `return 1` arm catches that.
+// The blanket must still work; it must merely stop working for the wrong types.
+//
+// ⚠ NOT PINNED: the verifier line above. It is the defect. A pass fixture that
+// somehow encoded it would be asserting one.
+//
+// Single TU, no archive: the stdlib is collected first and owns the bare `Hash`
+// registry slot, so this package's `Hash` is the one under a qualified key.
+// That is stated because it decides WHICH of the two is the homonym here, and
+// the mirror (an archive's trait owning the bare slot) is a different question
+// — see tests/logos/fail/trait_ident_cross_archive_bound_refused.logos.
+package trait_blanket_homonym_no_overinstantiation;
+
+pub trait Hash { fn tag(&self) -> i64; }
+pub trait Marker { fn mark(&self) -> i64; }
+
+pub struct S { pub a: i32 }
+impl Hash for S { fn tag(&self) -> i64 { return 91i64; } }
+
+// The blanket. Its body calls the BOUND's method, which is what turns a wrong
+// candidate list into an unresolvable call rather than a silent wrong answer.
+impl<T: Hash> Marker for T { fn mark(&self) -> i64 { return self.tag(); } }
+
+fn main() -> i32 {
+    let s: S = S { a: 1i32 };
+    if s.mark() != 91i64 { return 1i32; }
+    return 0i32;
+}

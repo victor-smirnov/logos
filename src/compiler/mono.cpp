@@ -290,8 +290,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             BlanketImplInfo info;
             info.trait_name      = std::string(impl.trait_name());
             info.canonical_trait = std::string(impl.canonical_trait());
+            info.identity_trait  = std::string(impl.identity_trait());
             info.bound_trait    = std::string(impl.bound_trait());
+            info.identity_bound_trait = std::string(impl.identity_bound_trait());
             for (auto sv : impl.extra_bounds()) info.extra_bounds.emplace_back(sv);
+            for (auto sv : impl.identity_extra_bounds())
+                info.identity_extra_bounds.emplace_back(sv);
             info.target_typevar = std::string(impl.target_type());
             impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
                 info.assoc_types[std::string(ae.name())] = ae.type(impl_pool);
@@ -407,7 +411,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             //    `canonical_bound_trait` twin of `ImplView::canonical_trait()`
             //    plus the same on `push_tbound`) and is format-touching.
             if (!impl_trait.empty()) {
-                std::string impl_canon(impl.canonical_trait());
+                // ⚠ THE FACT'S KEY IS THE ALWAYS-QUALIFIED IDENTITY, not the
+                // sema registry key. `canonical_trait()` is BARE for whichever
+                // homonym owns the bare slot, so keying facts by it filed two
+                // different traits' impls in one slot and a blanket bounded by
+                // one of them admitted the other's concretes.
+                std::string impl_canon(impl.identity_trait());
                 concrete_impls_.insert({impl_canon, impl_target});
                 // ⚠ THE BARE ALIAS IS RESTORED, AND IT IS LOAD-BEARING — MEASURED.
                 // The slice that removed it measured only the FALSE-POSITIVE
@@ -625,9 +634,20 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 if (ed.type_params_empty()) candidates.push_back(std::string(ed.name()));
         } else {
             // Direct concrete impls of bound_trait.
+            // ⚠ MATCHED BY IDENTITY, NOT BY SPELLING. This comparison used the
+            // raw trait text on both sides, so `impl<T: Hash> Marker for T`
+            // written beside a package-local `trait Hash` collected EVERY type
+            // implementing the STDLIB `Hash` as a candidate, cloned the blanket
+            // body for each, and emitted calls to methods that do not exist:
+            //     error: 'func.call' op 'i32__tag' does not reference a valid function
+            // rc 1 — a legitimate program failing to compile. MEASURED on a
+            // three-declaration single-TU program before and after.
+            const std::string bound_q = bi.identity_bound_trait.empty()
+                                            ? bi.bound_trait
+                                            : bi.identity_bound_trait;
             for (auto& impl : out_.impls) {
                 if (impl.is_blanket()) continue;
-                if (impl.trait_name() != bi.bound_trait) continue;
+                if (impl.identity_trait() != bound_q) continue;
                 candidates.push_back(std::string(impl.target_type()));
             }
             // Chain-satisfiers: types whose bound_trait impl is itself
@@ -644,8 +664,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 StrSet seen;
                 auto tref = build_concrete_typeref(cn);
                 bool ok = tref
-                    ? mono_concrete_satisfies_bound(bi.bound_trait, tref, seen)
-                    : mono_has_impl_recursive(bi.bound_trait, cn, seen);
+                    ? mono_concrete_satisfies_bound(bound_q, tref, seen)
+                    : mono_has_impl_recursive(bound_q, cn, seen);
                 if (ok) {
                     candidates.push_back(cn);
                     already.insert(cn);

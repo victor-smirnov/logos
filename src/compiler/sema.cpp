@@ -4570,8 +4570,13 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // What the fallback still covers is a name that denotes NO collected trait
     // at all — and a permissive answer there is what the pre-existing bound
     // check already gave.
-    if (!tb.trait_name.empty())
+    if (!tb.trait_name.empty()) {
         tb.canonical_trait = canonical_trait_name(tb.trait_name);
+        // The always-qualified identity, captured in the SAME scope and at the
+        // same moment — so the two can never disagree about which trait the
+        // written name denoted.
+        tb.identity_trait  = impl_key_trait(tb.canonical_trait);
+    }
     // Phase 1: `?Trait` relaxed-bound marker. Grammar emits RELAXED=true
     // for the `?IDENT` form. Only `?Sized` is semantically valid; other
     // relaxed names are rejected when bound list is finalized on the

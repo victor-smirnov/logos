@@ -400,6 +400,15 @@ private:
         // Trait IDENTITY (impl_keys::CANONICAL_TRAIT); == trait_name for a
         // trait that owns the bare slot.
         std::string canonical_trait;
+        // ⚠ THE ALWAYS-QUALIFIED IDENTITIES (impl_keys::IDENTITY_*). Distinct
+        // from `canonical_trait` above, which is a sema REGISTRY key and is BARE
+        // for whichever homonym owns the bare slot — keying the trait engine by
+        // that put two same-named traits in one slot, so a blanket bounded by a
+        // package-local `Hash` admitted every type implementing the STDLIB
+        // `Hash` and instantiated methods that do not exist.
+        std::string identity_trait;
+        std::string identity_bound_trait;
+        std::vector<std::string> identity_extra_bounds;
         std::string bound_trait;                  // primary (first) bound
         std::vector<std::string> extra_bounds;    // bounds[1..] for AND-filter
         std::string target_typevar;
