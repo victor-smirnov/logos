@@ -85,6 +85,37 @@ pub trait Snapshot {
     /// Rebinds this snapshot to the default branch `master` (Memoria
     /// `set_as_master`).
     fn set_as_master(self: &Self) { self.set_as_branch("master"); }
+
+    // ── The two-part pin contract (ADR 0025 §7) — store-invariant ────────
+    //
+    // Zero-copy batches borrow a leaf's in-memory image, so a cursor needs
+    // exactly two properties, at two altitudes:
+    //   "snapshot alive"      (snapshot) — the snapshot's tree shares are not
+    //                         released while pinned;
+    //   "leaf image resident" (batch = leaf) — this leaf's bytes stay mapped
+    //                         while a batch borrows them.
+    // Both are methods HERE — on the erased public tier — so emitted query
+    // code is one CODE for every store, with no per-store substitution.
+    // Frequency invariant: `snap_pin` is per-cursor-LIFETIME (the owned form
+    // only), `leaf_pin` is per-LEAF; neither is ever per-row.
+    //
+    // The defaults are the MemoryStore column of the §7 table: existence is
+    // already the wrapper hold (`remove` keeps the entry until the last
+    // wrapper closes), and handles ARE addresses — no eviction, so residency
+    // is a no-op. A disk store (SWMR/OLTP) overrides: GC root / epoch for
+    // the first part, cache-page pin (the ARC + BC pair) for the second.
+
+    /// Pins this snapshot's existence beyond the borrow chain — the OWNED
+    /// cursor's part (§7 rung 3). Borrowed cursors never call it: their
+    /// existence rides the handle's wrapper hold.
+    fn snap_pin(self: &Self) { }
+    /// Releases a `snap_pin`.
+    fn snap_unpin(self: &Self) { }
+    /// Pins one leaf's in-memory image for the lifetime of a batch borrowing
+    /// it. `leaf` is the leaf's block address in this store's terms.
+    fn leaf_pin(self: &Self, leaf: *const u8) { }
+    /// Releases a `leaf_pin` — the batch's Drop/advance.
+    fn leaf_unpin(self: &Self, leaf: *const u8) { }
 }
 
 /// A container handle bound to a snapshot's storage (Map/Vector/Queue/…).

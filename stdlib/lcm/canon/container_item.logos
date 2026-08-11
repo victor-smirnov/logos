@@ -1184,7 +1184,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             pub static fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> #nm {
                 return #nm { snap: snap.clone_ref(), ctr_id: ctr_id };
             }
-            pub fn insert(self: &#nm, key: #(kid), val: #(vi)) {
+            // Mutators take `&mut self` — ADR 0025 §7 rung 1: stability while
+            // reading is the borrow checker's job, so a mutation must be an
+            // EXCLUSIVE borrow. The old `&self` spelling ("several clones of
+            // one handle may write; the snapshot is the owner") admitted
+            // `insert` while a live cursor held the adopted leaf that
+            // `tree_release` below frees — a dangling view, not a stale
+            // position. The data-plane sibling (ContainerRef + BtIter) has
+            // carried this contract from day one; this brings the canon
+            // family plane up to it.
+            pub fn insert(self: &mut #nm, key: #(kid), val: #(vi)) {
                 unsafe {
                     // root_of_mut privatizes this snapshot's directory path to
                     // the container FIRST (acquiring ownership of the roots on
@@ -1225,7 +1234,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// None→None no-op). Same walk discipline as insert: CoW
             /// privatization, root repoint, root-split graft. `f` may run
             /// again if the leaf splits — keep it pure.
-            pub fn with_entry(self: &#nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) {
+            pub fn with_entry(self: &mut #nm, key: #(kid), f: fn(Option<#(vo)>) -> Option<#(vi)>) {
                 unsafe {
                     let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let cur: u64 = self.snap.snapshot_id();
@@ -1372,7 +1381,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// between two adjacent existing keys. False = rejected
             /// (unsorted or interleaving), tree untouched. CoW walk — same
             /// privatize/repoint discipline as insert.
-            pub fn insert_batch(self: &#nm, buf: &#bufid) -> bool {
+            pub fn insert_batch(self: &mut #nm, buf: &#bufid) -> bool {
                 unsafe {
                     let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let r: BtssBatchRet = btss_batch_insert::<#nd>(self.ms(), e.root, e.level,
@@ -1391,7 +1400,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// weight fits (the C++ remove-then-merge discipline under
             /// exact admission); the root collapses while it is a
             /// one-child branch.
-            pub fn remove(self: &#nm, key: #(kid)) -> bool {
+            pub fn remove(self: &mut #nm, key: #(kid)) -> bool {
                 unsafe {
                     let e: DirEntry = self.ms().root_of_mut(self.ctr_id);
                     let r: BtssRemRet = btss_remove::<#nd>(self.ms(), e.root, e.level,
@@ -1492,6 +1501,15 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         // volume family's `value()` returns a &[u8] view whose borrow must
         // run through `self` — a view derived from a locally adopted leaf
         // would be a dangling reference, and borrowck says so.
+        //
+        // #[borrow_carrying] — ADR 0025 §7 rung 1 (req. 1): every constructor
+        // (`seek`/`seek_key`/`next`/`prev`/`skip`) takes `&#nm`, so the cursor
+        // records a SHARED borrow of the container. A mutator (`&mut self`
+        // since the same change) while this cursor lives is now a compile
+        // error. Not a style point: `insert` repoints the root and
+        // `tree_release`s the old tree, freeing the very leaf this cursor
+        // adopted — the danger is a dangling view, not a stale position.
+        #[borrow_carrying]
         pub struct #cid { pub found: bool, lf: #lid, idx: u32, at: u64 }
         impl #cid {
             pub fn valid(self: &#cid) -> bool { return self.found; }
@@ -1616,6 +1634,13 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             /// The upper bound is an `Option`, not a flag beside a value: an
             /// unbounded walk has no key to put there, and inventing one would
             /// mean every reader has to know which field is meaningless.
+            // #[borrow_carrying] — ADR 0025 §7 rung 1 (req. 1). The raw
+            // `*const #nm` stays as the MECHANISM (movement is a container
+            // method); the borrow checker now carries the CONTRACT the doc
+            // above used to state as prose ("drained inside the scope that
+            // lent it the container") — a mutation through the handle while
+            // this walk lives is a compile error.
+            #[borrow_carrying]
             pub struct #itid {
                 c: *const #nm,
                 cu: #cid,
@@ -2143,7 +2168,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
             }
-            pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
+            pub fn insert(self: &mut #nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
                     let mut t: Btfl<2, #nd> = self.tree_mut();
                     // multimap container: one key entry + `vals` as stream 1
@@ -2167,7 +2192,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
             /// and its structure symbols. False = absent (nothing mutated).
             /// The touched node merges with a neighbor under exact weight
             /// admission; the root collapses while it is a one-child branch.
-            pub fn remove(self: &#nm, key: u64) -> bool {
+            pub fn remove(self: &mut #nm, key: u64) -> bool {
                 unsafe {
                     let mut t: Btfl<2, #nd> = self.tree_mut();
                     let ok: bool = btfl_remove::<#nd>(self.ms(), &mut t, key);
@@ -2272,7 +2297,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
             /// Batch insert: entries strictly ascending by key, landing
             /// WHOLE between two adjacent existing keys. False = rejected
             /// (unsorted or interleaving), tree untouched.
-            pub fn insert_batch(self: &#nm, buf: &#mbufid) -> bool {
+            pub fn insert_batch(self: &mut #nm, buf: &#mbufid) -> bool {
                 unsafe {
                     let mut t: Btfl<2, #nd> = self.tree();
                     let ok: bool = btfl_batch_insert::<#nd>(self.ms(), &mut t, &buf.inner);
@@ -2310,7 +2335,14 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
         use logos.mem.bt.meta;           // the container SCHEMA document plane
         use logos.lang.writ.wstatic;     // WritStatic — the schema document handle
         use logos.lang.panic;
+        // #[borrow_carrying] — ADR 0025 §7 rung 1 (req. 1): both hold a raw
+        // leaf pointer that a mutation through the handle can free. The key
+        // cursor borrows the container; the value cursor is opened from
+        // `&#kcid`, so its borrow reaches the container THROUGH the key
+        // cursor — one chain, no second rule.
+        #[borrow_carrying]
         pub struct #kcid { pub found: bool, leaf: *mut u8, kidx: u32 }
+        #[borrow_carrying]
         pub struct #vcid { pub found: bool, leaf: *mut u8, vidx: u32 }
         impl #kcid {
             pub fn valid(self: &#kcid) -> bool { return self.found; }
@@ -2396,6 +2428,9 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             leaf_bytes: u32,
             branch_bytes: u32,
         }
+        // #[borrow_carrying] — same class as the ordered family's cursor: a
+        // raw leaf pointer a mutation can free, now a recorded shared borrow.
+        #[borrow_carrying]
         pub struct #cid { pub found: bool, leaf: *mut u8, idx: u32, at: u64 }
         impl #cid {
             pub fn valid(self: &#cid) -> bool { return self.found; }
@@ -2481,7 +2516,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
             }
-            pub fn append(self: &#nm, v: #(vt)) {
+            pub fn append(self: &mut #nm, v: #(vt)) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_append::<#nd>(self.ms(), &mut t, v as u64);
@@ -2503,7 +2538,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             /// `pos == size()` appends). Fragmentation is chosen by the
             /// weight calculus at the 90% fill target — no trial insertion,
             /// no block restores.
-            pub fn insert(self: &#nm, pos: u64, buf: &BtvecBuf) {
+            pub fn insert(self: &mut #nm, pos: u64, buf: &BtvecBuf) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_buf::<#nd>(self.ms(), &mut t, pos, buf);
@@ -2513,7 +2548,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
                     }
                 }
             }
-            pub fn insert_at(self: &#nm, pos: u64, v: #(vt)) {
+            pub fn insert_at(self: &mut #nm, pos: u64, v: #(vt)) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_insert_at::<#nd>(self.ms(), &mut t, pos, v as u64);
@@ -2526,7 +2561,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             /// Remove the entry at `pos` (traps past the end). The touched
             /// node merges with a neighbor under exact weight admission;
             /// the root collapses while it is a one-child branch.
-            pub fn remove_at(self: &#nm, pos: u64) {
+            pub fn remove_at(self: &mut #nm, pos: u64) {
                 unsafe {
                     let mut t: Btvec<#nd> = self.tree_mut();
                     btvec_remove_at::<#nd>(self.ms(), &mut t, pos);
@@ -2634,6 +2669,9 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob) {
             /// family's walk holds one: movement needs the root, so it is a
             /// container method, and a cursor holding the borrow would tie
             /// every cursor to the container's lifetime.
+            // #[borrow_carrying] — same contract as the ordered family's
+            // walk: the raw pointer is the mechanism, the borrow is the rule.
+            #[borrow_carrying]
             pub struct #vitid {
                 c: *const #nm,
                 cu: #cid,

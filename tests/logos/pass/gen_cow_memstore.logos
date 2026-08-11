@@ -30,7 +30,7 @@ fn main() -> i32 {
     // ── version A: create container #1, fill [0, N) ──────────────────────
     let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s0.snapshot_id() != 1u64 { return 1i32; }
-    let m0 = create_ctr::<typeof(GenCow)>(&s0, 1u64);
+    let mut m0 = create_ctr::<typeof(GenCow)>(&s0, 1u64);
     let mut k: u64 = 0u64;
     while k < n { m0.insert(k, k + 7u64); k = k + 1u64; }
     if m0.size() != n { return 2i32; }
@@ -39,7 +39,7 @@ fn main() -> i32 {
     // ── version B: branch from A, append [N, 2N) — CoW copies the path ───
     let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s1.snapshot_id() != 2u64 { return 3i32; }
-    let m1 = open_ctr::<typeof(GenCow)>(&s1, 1u64);
+    let mut m1 = open_ctr::<typeof(GenCow)>(&s1, 1u64);
     if m1.get_or(0u64, 0xFFFFu64) != 7u64 { return 4i32; }
     if m1.get_or(n - 1u64, 0xFFFFu64) != (n - 1u64) + 7u64 { return 5i32; }
     k = n;

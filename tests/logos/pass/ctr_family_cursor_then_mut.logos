@@ -1,0 +1,46 @@
+// THE ADMIT TWIN of fail/ctr_family_mut_while_cursor.logos — the same program
+// with the cursor's scope CLOSED before the mutation, and it must compile AND
+// answer correctly.
+//
+// The refusal message over there ("cannot borrow 'c' as mutable") is
+// byte-identical to what an over-refusing borrow checker prints — a checker
+// that tied the cursor's borrow to the wrong region, or never ended it, would
+// red the same fixture with the same words. Only this pair separates "the
+// cursor's borrow ends with its scope" from "the container is unusable once
+// seeked" (feedback_permissive_defects_invisible_to_green).
+//
+// The values are not decoration: the re-seek after the mutation must SEE the
+// mutation (35 at key 3), proving the second seek reads the updated tree
+// rather than a cached landing.
+package ctr_family_cursor_then_mut;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    c.insert(2u64, 20u64);
+    {
+        let cu = c.seek(0u64);      // shared borrow of `c`…
+        if !cu.valid() { return 1i32; }
+        if cu.key() != 1u64 || cu.value() != 10u64 { return 2i32; }
+    }                               // …ends HERE, with the scope
+    c.insert(3u64, 35u64);          // admitted: no live cursor
+    let cu2 = c.seek(2u64);         // 0-based ordinal: the third entry
+    if !cu2.valid() { return 3i32; }
+    if cu2.key() != 3u64 || cu2.value() != 35u64 { return 4i32; }
+    return 0i32;
+}

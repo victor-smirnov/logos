@@ -22,7 +22,7 @@ pub deem big<V>(v: Boxes<V>) {
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c = create_ctr::<typeof(Boxes::<u64>)>(&snap, 1u64);
+    let mut c = create_ctr::<typeof(Boxes::<u64>)>(&snap, 1u64);
     c.append(3u64);
     c.append(25u64);
     c.append(7u64);

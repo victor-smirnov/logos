@@ -253,6 +253,23 @@ substitution left on the query side.
    snapshot (`dyn Snapshot`, §7b) — the knot of ladder rung 2, generalized on
    day one rather than at store #2. **First slice: without it the borrow
    chain does not close.**
+   ⚠ SUPERSEDED AS A DESCRIPTION OF THE TREE (re-measured 2026-08-11): the
+   sentence above was stale when written. The generated handle has been
+   `{snap: Arc<dyn Snapshot>, ctr_id}` — an OWNER of the generalized wrapper,
+   two-tier interface included — since `c03c30c3`, an ancestor of the very
+   tree this ADR was measured on. Rung 2 therefore existed already; what did
+   NOT exist was rung 1, and it was missing on BOTH sides: the generated
+   mutators took `&self` and the generated cursors held raw pointers with no
+   recorded borrow, so `insert` while a cursor held the adopted leaf was
+   admitted — a dangling view, since `insert` `tree_release`s the old tree.
+   Landed with req. 1 below: mutators take `&mut self`, all six generated
+   cursor/walk types are `#[borrow_carrying]`, and the refusal is pinned as a
+   PAIR (`fail/ctr_family_mut_while_cursor` + `pass/ctr_family_cursor_then_mut`)
+   because it is a conjunction — either half alone stays permissive.
+   Declared, not closed here: `tree()` / `block()` still hand out raw views
+   around the borrow (the privileged tier's hatch), and
+   `create_ctr_rc`/`open_ctr_rc` (zero consumers, measured) cannot mutate
+   through `Rc` at all under the new signatures.
 3. The Snapshot seam vocabulary gains the two-part pin capability (the table
    above), spelled per store by the emitter.
 4. `remove()`/future GC currently see only the wrapper count; after (2)

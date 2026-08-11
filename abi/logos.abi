@@ -10112,6 +10112,8 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_ctr_meta__f__ref_Memory
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_ctr_user_meta__f__ref_MemorySnapshot__u64
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__has_parent__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__inc_rc__f__ref_MemorySnapshot__pmut_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__leaf_pin__f__ref_MemorySnapshot__pcst_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__leaf_unpin__f__ref_MemorySnapshot__pcst_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__node_alloc__f__ref_MemorySnapshot__u32__u32
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__node_free__f__ref_MemorySnapshot__pmut_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__release_block__f__ref_MemorySnapshot__MemBlockPtr__u32
@@ -10124,6 +10126,8 @@ sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_as_master__f__ref_Memor
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_ctr_user_meta__f__ref_MemorySnapshot__u64__pcst_u8
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_root__f__ref_MemorySnapshot__u64__pmut_u8__u32
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__set_root_meta__f__ref_MemorySnapshot__u64__pmut_u8__u32__pcst_u8
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snap_pin__f__ref_MemorySnapshot
+sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snap_unpin__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snapshot_id__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snapshot_parent__f__ref_MemorySnapshot
 sym	logos_mem..logos.mem.bt.memstore.MemorySnapshot__snapshot_uid__f__ref_MemorySnapshot
@@ -12520,7 +12524,7 @@ vtable	logos.mem.bt.map.MapSource	slots=[]
 vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]
 vtable	logos.mem.bt.map.OrderedMapSource	slots=[]
 vtable	logos.mem.bt.map.PositionalSource	slots=[]
-vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master]
+vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,snap_pin,snap_unpin,leaf_pin,leaf_unpin]
 vtable	logos.mem.bt.map.Store	slots=[]
 vtable	logos.mem.bt.node.NodeProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]
 vtable	logos.mem.bt.stream.InStream	slots=[read_all,read_u8,read_u32,read_u64]

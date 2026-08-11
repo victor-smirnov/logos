@@ -68,7 +68,7 @@ pub deem tail<V>(v: Vector<V>) {
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
+    let mut c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
     c.append(5u64);
     c.append(25u64);
     c.append(7u64);

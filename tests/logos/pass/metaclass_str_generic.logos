@@ -54,7 +54,7 @@ fn main() -> i32 {
     let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     // ── create + fill through the CONCRETE declaration handle ──
-    let jc = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
+    let mut jc = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
     jc.insert(1u64, "opened");
     jc.insert(2u64, "funded");
     // Scale: 300 keys with a short VLE value — forces volume-leaf splits.
@@ -68,7 +68,7 @@ fn main() -> i32 {
     // ── read through the GENERIC alias PMap<u64, str> ──
     // Resolves to the SAME @hs family (C1 unification), so it opens the very
     // container the concrete decl created — NOT a fresh/foreign one.
-    let jg = open_ctr::<PMap<u64, str>>(&mut s1, JOURNAL);
+    let mut jg = open_ctr::<PMap<u64, str>>(&mut s1, JOURNAL);
     if jg.size() != 302u64 { return 2i32; }
     if !beq(jg.get_or(1u64), "opened") { return 3i32; }
     if !beq(jg.get_or(2u64), "funded") { return 4i32; }

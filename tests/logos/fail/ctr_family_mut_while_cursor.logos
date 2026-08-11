@@ -1,0 +1,51 @@
+// A CANON-FAMILY CURSOR IS A BORROW, AND A MUTATION WHILE IT LIVES IS REFUSED.
+//
+// ADR 0025 §7 rung 1 (req. 1). The generated cursor holds the ADOPTED LEAF —
+// `insert` repoints the root and `tree_release`s the old tree, freeing the
+// very leaf a live cursor reads through. Before this contract the program
+// below compiled: the danger was a dangling view, not a stale position.
+//
+// The refusal is the CONJUNCTION of two changes and fires only with both:
+//   - the cursor struct is #[borrow_carrying] (opened from `&c`, records a
+//     shared borrow of the container);
+//   - `insert` takes `&mut self` (a mutation is an EXCLUSIVE borrow).
+// With only the first, `insert(&self)` takes another shared borrow — admitted.
+// With only the second, the cursor records no borrow at all — admitted. So a
+// green here is evidence about the PAIR, and this fixture is the only witness
+// that the #[borrow_carrying] written inside the family's quote_item survived
+// metaprog emission: nothing else in the corpus holds a cursor across a
+// mutation.
+//
+// The admit twin is tests/logos/pass/ctr_family_cursor_then_mut.logos —
+// the same program with the cursor's scope closed before the mutation. The
+// refusal message alone cannot tell this guard from an over-refusing borrow
+// checker; the pair can (feedback_permissive_defects_invisible_to_green).
+//
+// The data-plane sibling (fail/data_mut_while_iter.logos) pins the same
+// contract for ContainerRef + BtIter; this one pins it for the METAPROG-
+// GENERATED family, which carried no borrow at all until ADR 0025.
+package ctr_family_mut_while_cursor;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    let cu = c.seek(0u64);          // cursor: shared borrow of `c`, holds the leaf
+    c.insert(2u64, 20u64);          // ERROR: `c` has a live cursor
+    if cu.valid() { return 0; }
+    return 1;
+}

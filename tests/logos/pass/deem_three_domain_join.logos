@@ -89,7 +89,7 @@ fn main() -> i32 {
 
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
     let mut k: i64 = 0i64;
     while k < 6i64 { c.insert(k, k * 10i64); k = k + 1i64; }
 

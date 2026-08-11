@@ -1230,8 +1230,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # function — because not every table that probe reaches is identity-keyed yet.
 # That measurement is recorded at the call site. Retiring the aliases is the
 # step AFTER those tables, not before.
-REGISTRY-ALL         6929
-REGISTRY-NOIMPORTED  3246
+# ADR 0025 prerequisite (req. 1 + §7 rung 1) added a PAIR:
+# fail/ctr_family_mut_while_cursor (+ .expected) and
+# pass/ctr_family_cursor_then_mut (+ .expected). The pair is the point: the
+# refusal is a CONJUNCTION (borrow-carrying cursor AND `&mut self` mutators) and
+# either half alone stays permissive — invisible to the previously-green corpus,
+# in which NO test held a cursor across a mutation. The fail half is also the
+# only witness that #[borrow_carrying] written inside the family's quote_item
+# survives metaprog emission. PREDICTED 6931 / 3248 / 31 before the
+# re-configure; `ctest -N` three ways agreed exactly.
+REGISTRY-ALL         6931
+REGISTRY-NOIMPORTED  3248
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
