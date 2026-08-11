@@ -1,0 +1,227 @@
+// ADR 0025 S0 (§5) — THE EMITTED LEAF-BATCH PRODUCER, against the container's
+// own PER-ROW cursor as the oracle.
+//
+// The oracle is independent of the batch plane: `seek(0)` + `next(&cur)` is the
+// row-at-a-time surface the walk itself rides, and it descends per leaf
+// boundary only. Three claims are measured, not one:
+//   * SAME ROWS, SAME ORDER — key/value sums and a monotone check, over a
+//     container spanning >= 3 leaves (1000 entries, 4K leaves).
+//   * PER LEAF, NOT PER ROW — the number of `advance()` calls is the LEAF
+//     count, not the row count. Pinned exactly (8 for this shape) as well as
+//     structurally (>= 3, and < rows): the exact number is the whole content
+//     of §5's claim, and a change of fanout or leaf layout that moves it must
+//     be RE-MEASURED here rather than absorbed by a tolerance.
+//   * THE NARROWED LANDINGS agree with the same bound applied to the cursor
+//     walk, and SizedStream::size() equals the rows they actually yield.
+//
+// CONTROL (emitter side, measured then reverted and re-run green): replacing
+// the in-leaf trim `hi = lb` with `hi = cnt` in the family's `advance()` reds
+// this fixture at code 12 — so the green is not vacuous about the bound being
+// trimmed INSIDE a leaf, which is the point of code 21.
+package ctr_family_leaf_batches;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 1000u64;
+// The MEASURED leaf count for this shape (1000 entries of two u64 columns in
+// 4K leaf blocks), asserted below. It is the number the §5 claim is about:
+// with the per-row walk it would be 1000.
+const LEAVES: u64 = 8u64;
+
+// Drain the leaf-batch stream: rows, key sum, value sum, batch count, and
+// whether keys came out strictly ascending. Packed into one u64 quad by the
+// caller's four accumulators — Logos has no tuple return here, so the stream
+// is drained inline at each call site instead.
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the per-row cursor ──────────────────────────────────────
+    let mut rows_w: u64 = 0u64;
+    let mut ksum_w: u64 = 0u64;
+    let mut vsum_w: u64 = 0u64;
+    let mut ord_w: bool = true;
+    {
+        let mut cu = c.seek(0u64);
+        let mut prev: u64 = 0u64;
+        while cu.valid() {
+            let k: u64 = cu.key();
+            if rows_w > 0u64 && k <= prev { ord_w = false; }
+            prev = k;
+            ksum_w = ksum_w + k; vsum_w = vsum_w + cu.value(); rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+
+    // ── the leaf-batch stream, full scan ────────────────────────────────
+    let mut rows_b: u64 = 0u64;
+    let mut ksum_b: u64 = 0u64;
+    let mut vsum_b: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    let mut ord_b: bool = true;
+    let mut empty_b: u64 = 0u64;
+    let mut sz: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        sz = s.size();
+        let mut prevb: u64 = 0u64;
+        loop {
+            if s.advance() {
+                {
+                    let b = s.batch(&c);   // the SOUND door: witness-checked, borrow-tied
+                    batches = batches + 1u64;
+                    let n: u64 = b.len();
+                    if n == 0u64 { empty_b = empty_b + 1u64; }
+                    let kc: PdtCol = b.keys();          // resolve-once, per column per BATCH
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = 0u64;
+                    while j < n {
+                        let k: u64 = kc.at(j);
+                        if rows_b > 0u64 && k <= prevb { ord_b = false; }
+                        prevb = k;
+                        ksum_b = ksum_b + k; vsum_b = vsum_b + vc.at(j);
+                        rows_b = rows_b + 1u64; j = j + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+
+    // ── narrowed landings: from / upto / at ─────────────────────────────
+    let lo_k: u64 = 700u64;      // an interior key (700 = entry 350)
+    let hi_k: u64 = 1300u64;     // an interior key (1300 = entry 650)
+    let mut rows_from: u64 = 0u64;
+    let mut sz_from: u64 = 0u64;
+    let mut kmin_from: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_from(lo_k);
+        sz_from = s.size();
+        let mut first: bool = true;
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let n: u64 = b.len();
+                    let kc: PdtCol = b.keys();
+                    let mut j: u64 = 0u64;
+                    while j < n {
+                        if first { kmin_from = kc.at(j); first = false; }
+                        rows_from = rows_from + 1u64; j = j + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+    let mut rows_upto: u64 = 0u64;
+    let mut sz_upto: u64 = 0u64;
+    let mut kmax_upto: u64 = 0u64;
+    let mut batches_upto: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_upto(hi_k);
+        sz_upto = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    batches_upto = batches_upto + 1u64;
+                    let n: u64 = b.len();
+                    let kc: PdtCol = b.keys();
+                    let mut j: u64 = 0u64;
+                    while j < n { kmax_upto = kc.at(j); rows_upto = rows_upto + 1u64; j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+    let mut rows_at: u64 = 0u64;
+    let mut sz_at: u64 = 0u64;
+    let mut val_at: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_at(hi_k);
+        sz_at = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let n: u64 = b.len();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = 0u64;
+                    while j < n { val_at = vc.at(j); rows_at = rows_at + 1u64; j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+    // A MISSING key: the odd keys were never inserted.
+    let mut rows_miss: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_at(701u64);
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap(); rows_miss = rows_miss + b.len();
+                }
+            } else { break; }
+        }
+    }
+    // Landed::seek — re-land a live stream, then drain the suffix.
+    let mut rows_seek: u64 = 0u64;
+    let mut sz_seek: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        s.seek(lo_k);
+        sz_seek = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap(); rows_seek = rows_seek + b.len();
+                }
+            } else { break; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_b != rows_w { return 2i32; }
+    if ksum_b != ksum_w || vsum_b != vsum_w { return 3i32; }
+    if !ord_w || !ord_b { return 4i32; }
+    if sz != N { return 5i32; }
+    if batches < 3u64 { return 6i32; }              // >= 3 leaves spanned
+    if batches >= rows_b { return 7i32; }           // per LEAF, not per row
+    if batches != LEAVES { return 22i32; }          // …and per leaf EXACTLY
+    if empty_b != 0u64 { return 8i32; }             // a full scan yields no empty leaf here
+    if rows_from != N - 350u64 { return 9i32; }     // keys 700,702,… = entries 350..999
+    if sz_from != rows_from { return 10i32; }
+    if kmin_from != lo_k { return 11i32; }
+    if rows_upto != 651u64 { return 12i32; }        // keys 0..1300 inclusive = entries 0..650
+    if sz_upto != rows_upto { return 13i32; }
+    if kmax_upto != hi_k { return 14i32; }
+    if rows_at != 1u64 { return 15i32; }
+    if sz_at != 1u64 { return 16i32; }
+    if val_at != 6500u64 { return 17i32; }          // entry 650 → val 6500
+    if rows_miss != 0u64 { return 18i32; }
+    if rows_seek != rows_from { return 19i32; }
+    if sz_seek != rows_from { return 20i32; }
+    if batches_upto < 2u64 { return 21i32; }        // the bound is trimmed INSIDE a leaf
+    return 0i32;
+}

@@ -1,0 +1,313 @@
+// logos.mem.bt.batch — `ColsBatch` / `PdtCol`: the COLUMNAR batch of ADR 0025
+// §2, in READ mode.
+//
+// A batch is a typed VIEW over storage, never a copy: `ColsBatch` is one
+// leaf's row window `[lo, hi)` plus the per-column wrappers over that leaf's
+// own PdtBuf slots. Nothing is built — no intermediate view-buffer, no Vec of
+// columns, no allocation per leaf — so the cost of handing a leaf to a query
+// loop is the cost of copying three machine words.
+//
+// ── READ MODE vs WRITE MODE (ADR §2, the one design decision here) ──────────
+//
+// `stdlib/mem/bt/view.logos` re-resolves `(allocator, slot)` on EVERY call and
+// caches no payload pointer. That idiom exists because a WRITE can resize a
+// slot and shift every later one: under mutation a cached address is not
+// merely stale, it is a dangling one, and the re-resolve makes the staleness
+// inexpressible.
+//
+// A read batch is the other mode of the same wrapper, and it is the mode that
+// may cache. It is legal exactly because of the §7 pin ladder, rung 1: every
+// constructor here takes `&NodeView`, so the batch and its columns are
+// `#[borrow_carrying]`-tied to a SHARED borrow of the LEAF, and no `&mut`
+// (hence no resize, hence no shift) can happen while any part of the batch
+// lives — the borrow checker rejects it, the same way it rejects holding a
+// `ColRef` across a resize. Add the §7 altitude theorem (a block reachable
+// from the snapshot is live, and immutable once committed) and the cached
+// pointer is sound for the batch's whole lifetime.
+//
+// MEASURED, both halves (2026-08-11, scratch probes, then removed):
+//   * REFUSES — `let b = cols_batch(&nv, 0); nv.put_cell(…); pdt_col(&nv,&b,0)`
+//     ⇒ `error [fn main]: cannot borrow 'nv' as mutable: 'nv' has shared
+//     borrows`; likewise with the `PdtCol` (not the batch) held across it.
+//   * ADMITS — the same program without the mutation reads rows 20 and 12 of a
+//     3-row leaf through a `[1,3)` window and exits 79 (control at 78: red).
+// The pair is what makes the claim: a refusal alone cannot tell separation
+// from over-refusal.
+//
+// THIS IS NOT A LICENCE TO COPY THE CACHE INTO WRITE-PATH CODE. The write path
+// keeps view.logos's per-call resolution; what is written here is the read
+// half, and the borrow is what separates them.
+//
+// ── WHY THE COLUMN KIND IS IN THE TYPE, NOT IN A FIELD ──────────────────────
+//
+// FSE and VLE columns are two types (`PdtCol`, `PdtColVar`), not one type with
+// a `kind` field. A field would put a branch inside `at(i)` — i.e. at PER-ROW
+// frequency, the one frequency ADR §7b's invariant forbids anything variable
+// to sit at. The emitter already knows the column's kind from the source's
+// declaration and spells the access accordingly (§2), so the discrimination
+// happens once, at monomorphization, and the inner loop is straight-line.
+//
+// NOT v1, deliberately (ADR §2): selection vectors (a filtered batch without a
+// copy) and write mode. Both are recorded axes, not omissions.
+
+package logos.mem.bt.batch;
+
+use logos.lang.slice;             // slice_from_raw — the resolved payload as a slice
+use logos.lang.panic;             // assert
+use logos.mem.pkd.pdtbuf;         // PdtBuf / PdtDim / PDT_DIM_FSE / PDT_DIM_VLE
+use logos.mem.bt.view;            // NodeView / ColRef — the leaf borrow the batch hangs from
+
+// ── PdtCol: a fixed-size (FSE) column, resolved ONCE ────────────────────────
+
+/// One FSE column of a leaf window: the payload pointer and the row count,
+/// both resolved at CONSTRUCTION (`pdt_col`) and never again.
+///
+/// `base` already points at the window's FIRST row (`lo`), so `at(i)` is one
+/// indexed load with a bounds assert and no offset arithmetic beyond `i` —
+/// the `&[T]` inner loop of ADR §1, over the leaf's own bytes.
+///
+/// `#[borrow_carrying]`: `pdt_col` takes the leaf's `&NodeView`, so the cached
+/// `base` cannot outlive the shared borrow that forbids the resize which would
+/// invalidate it (§7 rung 1).
+#[borrow_carrying]
+pub struct PdtCol {
+    /// Payload of (column, dim 0), already advanced to row `lo`. RESOLVED ONCE.
+    base: *mut u64,
+    /// Rows in the window — `hi - lo`, NOT the slot's capacity (see `cols_batch_at`).
+    len: u64,
+}
+
+impl PdtCol {
+    /// Rows in this column's window. Equal to the batch's `len()` for every column.
+    pub fn len(self: &PdtCol) -> u64 { return self.len; }
+
+    /// Row `i` of the window (0-based WITHIN the window, not within the leaf).
+    pub fn at(self: &PdtCol, i: u64) -> u64 {
+        assert(i < self.len, "PdtCol::at: row past the batch window");
+        unsafe { return *self.base.add(i as u32); }
+    }
+
+    /// The whole window as a slice — the resolve-once payoff spelled as the
+    /// row-major batch's own surface, so a consumer that already has an `&[u64]`
+    /// loop (ADR §1's degenerate case) needs no second spelling.
+    pub fn cells(self: &PdtCol) -> &[u64] {
+        unsafe { return slice_from_raw::<u64>(self.base, self.len as i64); }
+    }
+}
+
+// ── PdtColVar: a variable-length (VLE) column, resolved ONCE ────────────────
+
+/// One VLE column of a leaf window: the offsets table and the payload base,
+/// both resolved at CONSTRUCTION (`pdt_col_var`); the span of row `i`
+/// is COMPUTED on access from the two cached pointers.
+///
+/// This is the str-view case: ADR §2 names "VLE/DST", and there is no separate
+/// DST dimension kind on this tree — `PDT_DIM_FSE` and `PDT_DIM_VLE` are the
+/// only two (`pdtbuf.logos`), and a str view IS the VLE one.
+///
+/// Offsets are LEAF-absolute, so the window start `lo` is kept as a field and
+/// added per access rather than folded into the pointer: `offs[lo + i]` and
+/// `offs[lo + i + 1]` are both needed, and the terminator at `offs[size]` is
+/// what makes the last row's length readable at all.
+#[borrow_carrying]
+pub struct PdtColVar {
+    /// Offsets table of (column, dim): capacity + 1 cells, [0, size] live. RESOLVED ONCE.
+    offs: *mut u32,
+    /// Payload base of (column, dim). RESOLVED ONCE.
+    pay: *mut u8,
+    /// Leaf-absolute row of the window start — offsets are indexed by it.
+    lo: u64,
+    /// Rows in the window.
+    len: u64,
+}
+
+impl PdtColVar {
+    /// Rows in this column's window.
+    pub fn len(self: &PdtColVar) -> u64 { return self.len; }
+
+    /// Byte length of row `i` of the window.
+    pub fn len_at(self: &PdtColVar, i: u64) -> u64 {
+        assert(i < self.len, "PdtColVar::len_at: row past the batch window");
+        let r: u32 = (self.lo + i) as u32;
+        unsafe { return (*self.offs.add(r + 1u32) as u64) - (*self.offs.add(r) as u64); }
+    }
+
+    /// Row `i` of the window as a byte span — the C++ `Span(data + offs[row],
+    /// offs[row+1] - offs[row])` (vle_tools.hpp:126), off the CACHED bases.
+    pub fn at(self: &PdtColVar, i: u64) -> &[u8] {
+        assert(i < self.len, "PdtColVar::at: row past the batch window");
+        let r: u32 = (self.lo + i) as u32;
+        unsafe {
+            let a: u64 = *self.offs.add(r) as u64;
+            let b: u64 = *self.offs.add(r + 1u32) as u64;
+            return slice_from_raw::<u8>(self.pay.byte_add(a as i64), (b - a) as i64);
+        }
+    }
+}
+
+// ── ColsBatch: one leaf window ──────────────────────────────────────────────
+
+/// The columnar batch of ADR 0025 §2: a leaf's row window `[lo, hi)`, from
+/// which per-column wrappers are drawn.
+///
+/// Holds the leaf's `PdtBuf` BY VALUE (it is `Copy`; `ColRef::as_buf()` hands
+/// one out), which is what makes the resolve-once pointers of `pdt_col` /
+/// `pdt_col_var` expressible at all: a slice taken through `ColRef`'s per-call
+/// `buf()` would reference a temporary, and the compiler refuses it —
+/// `error [fn ColRef__values]: cannot return reference to local variable '?':
+/// dangling reference`, exactly what the `ColRef::row_byte` comment in
+/// `view.logos` already states. Storing the handle moves that resolution into
+/// this frame, where the borrow keeps it valid.
+///
+/// NEVER `dyn` (§7b): the batch is ONE concrete shape for all stores, which is
+/// precisely what lets the layers above it (the snapshot seam, the container
+/// interfaces) go `dyn` without putting a dispatch at per-row frequency. The
+/// batch is the currency that crosses the dyn boundary; it does not cross it
+/// as a trait object.
+///
+/// `#[borrow_carrying]`: its constructors take `&NodeView` — the leaf — so the
+/// batch records a shared borrow of the leaf and no mutation can run while it
+/// lives (§7 rung 1).
+#[borrow_carrying]
+pub struct ColsBatch {
+    /// The leaf's column slot, resolved ONCE from `(allocator, slot)`.
+    buf: PdtBuf,
+    /// Which slot it was resolved from — kept so a column constructor can CHECK
+    /// its `&NodeView` witness (see `pdt_col`) instead of trusting it.
+    slot: u32,
+    /// Window start, leaf-absolute.
+    lo: u64,
+    /// Window end (exclusive), leaf-absolute.
+    hi: u64,
+}
+
+/// The batch over rows `[lo, hi)` of the leaf's slot `slot`.
+///
+/// The bounds are checked against the leaf's LIVE row count `size()` here, once
+/// per batch — never per row, and never against the slot's capacity. That
+/// distinction is load-bearing: `PdtBuf::values()` hands back
+/// `element_size(blk)/8` = CAPACITY cells (its doc comment says `size()`;
+/// measured 2026-08-11, and `PdtBuf::get` is guarded only by its own
+/// `row < size()` assert), so a batch that trusted a slot-wide slice would read
+/// dead cells past the end. Every column view below is built from the WINDOW
+/// length instead, and the window is bounded by `size()` right here.
+///
+/// WHY THE CONSTRUCTOR TAKES `&NodeView` AND NOT `&ColRef`. `ColRef` is the
+/// leaf's shared column view and would read as the natural source. MEASURED
+/// 2026-08-11: it does not tie. A free function returning a `#[borrow_carrying]`
+/// value takes the merged provenance of its REFERENCE arguments
+/// (`docs/spec/ownership.md`, `borrow.call.free-fn-result-provenance`), and a
+/// `&ColRef` argument contributes the borrow of the ColRef LOCAL, not the
+/// NodeView borrow that local itself carries — provenance is not re-exported
+/// through a second hop. The refusal probe (batch alive across
+/// `nv.put_cell`) COMPILED with a `&ColRef`-rooted constructor and is rejected
+/// (`error [fn main]: cannot borrow 'nv' as mutable: 'nv' has shared borrows`)
+/// with this one. Rooting every constructor at the leaf keeps the tie one hop
+/// long, which is the length the checker actually enforces.
+pub fn cols_batch_at(nv: &NodeView, slot: u32, lo: u64, hi: u64) -> ColsBatch {
+    let b: PdtBuf = nv.col(slot).as_buf();
+    assert(lo <= hi, "cols_batch_at: inverted window");
+    assert(hi <= b.size(), "cols_batch_at: window past the leaf's live rows");
+    return ColsBatch { buf: b, slot: slot, lo: lo, hi: hi };
+}
+
+/// The batch over the WHOLE leaf slot — the unbounded scan's first window.
+pub fn cols_batch(nv: &NodeView, slot: u32) -> ColsBatch {
+    let b: PdtBuf = nv.col(slot).as_buf();
+    return ColsBatch { buf: b, slot: slot, lo: 0u64, hi: b.size() };
+}
+
+impl ColsBatch {
+    /// Rows in the window. `0` is LEGAL and is not an end (ADR §1): an empty
+    /// leaf and an empty window are both ordinary ticks.
+    pub fn len(self: &ColsBatch) -> u64 { return self.hi - self.lo; }
+
+    /// Window start, leaf-absolute — what a cursor reports as its position.
+    pub fn lo(self: &ColsBatch) -> u64 { return self.lo; }
+
+    /// Window end (exclusive), leaf-absolute.
+    pub fn hi(self: &ColsBatch) -> u64 { return self.hi; }
+
+    /// The leaf slot this window was resolved from.
+    pub fn slot(self: &ColsBatch) -> u32 { return self.slot; }
+
+    /// Columns the leaf's slot carries; the column constructors take an index
+    /// below this.
+    pub fn columns(self: &ColsBatch) -> u32 { return self.buf.columns(); }
+
+    // The two resolutions below are PRIVATE, and that is the whole point: as
+    // methods they are one hop too far from the leaf to be borrow-tied (see
+    // `cols_batch_at`), so a `pub fn col(&self, …)` here would hand out a
+    // PdtCol whose cached pointer survives the next `&mut NodeView` — a
+    // permissive hole no green test could ever show. The public door is
+    // `pdt_col` / `pdt_col_var`, which carry the leaf witness.
+
+    fn resolve_fse(self: &ColsBatch, column: u32) -> PdtCol {
+        assert(column < self.buf.columns(), "ColsBatch: column out of range");
+        let d: PdtDim = self.buf.dim_at(0u32);
+        assert(d.kind == PDT_DIM_FSE,
+               "ColsBatch: dimension 0 is variable-length — use pdt_col_var");
+        assert(d.elem_size == 8u32, "ColsBatch: cells are narrowed to u64");
+        unsafe {
+            // cell_ptr(column, 0, lo) IS the resolve: slot payload base plus
+            // lo * elem_size. At lo == size it is the one-past-the-end address
+            // of an empty window, which `at` can never dereference (len == 0).
+            let base: *mut u8 = self.buf.cell_ptr(column, 0u32, self.lo);
+            return PdtCol { base: base as *mut u64, len: self.hi - self.lo };
+        }
+    }
+
+    fn resolve_vle(self: &ColsBatch, column: u32, dim: u32) -> PdtColVar {
+        assert(column < self.buf.columns(), "ColsBatch: column out of range");
+        let d: PdtDim = self.buf.dim_at(dim);
+        assert(d.kind == PDT_DIM_VLE,
+               "ColsBatch: dimension is fixed-size — use pdt_col");
+        unsafe {
+            return PdtColVar {
+                offs: self.buf.offsets(column, dim),
+                pay: self.buf.payload(column, dim),
+                lo: self.lo,
+                len: self.hi - self.lo,
+            };
+        }
+    }
+
+    // The witness check behind `pdt_col`/`pdt_col_var`. An exemption has to be
+    // checked in the ABUSE direction: `leaf` exists to lend the column view a
+    // borrow of the node, so a caller could pass ANY NodeView — including one
+    // over a different node — and launder the tie into a lie. Re-resolving the
+    // slot through the witness and comparing block addresses makes that trap
+    // instead. Cost: one allocator lookup per column per BATCH — the same
+    // frequency as the resolve it guards, never per row.
+    fn check_witness(self: &ColsBatch, leaf: &NodeView) {
+        unsafe {
+            assert(leaf.col(self.slot).as_buf().block_ptr() == self.buf.block_ptr(),
+                   "batch column: the NodeView witness names a different node");
+        }
+    }
+}
+
+/// The FSE column `column` of `b`, RESOLVED HERE: one `(allocator, slot)`
+/// lookup plus the window offset, paid once per batch per column, never per row.
+///
+/// `leaf` is the node the batch was built over — it is what ties the returned
+/// `PdtCol` to the leaf's borrow (see `cols_batch_at` for why the batch alone
+/// cannot do it), and it is CHECKED, not assumed. Passing the same `&NodeView`
+/// the batch came from is the only legal call.
+///
+/// Cells are narrowed to 8 bytes, as the rest of `PdtBuf`'s u64 surface is
+/// (`values`/`get`/`set` carry the same assert) — widening the cell domain is
+/// the value-domain arc's job, not this batch's.
+pub fn pdt_col(leaf: &NodeView, b: &ColsBatch, column: u32) -> PdtCol {
+    b.check_witness(leaf);
+    return b.resolve_fse(column);
+}
+
+/// The VLE column `(column, dim)` of `b`, RESOLVED HERE: the offsets table and
+/// the payload base, both cacheable (`PdtBuf::offsets` / `PdtBuf::payload`),
+/// paid once per batch per column; `at(i)` then computes the span. `leaf` is
+/// the checked borrow witness, exactly as in `pdt_col`.
+pub fn pdt_col_var(leaf: &NodeView, b: &ColsBatch, column: u32, dim: u32) -> PdtColVar {
+    b.check_witness(leaf);
+    return b.resolve_vle(column, dim);
+}

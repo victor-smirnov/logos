@@ -67,8 +67,10 @@ Sorted by current package name within each layer. Sub-table for
 | `std.compiler.metaprog` | `logos.lang.metaprog` | Compile-time only — never runs in user runtime. |
 | `std.compiler.tokens` | `logos.lang.tokens` | Token-list types for metaprog input. |
 | `std.math` | `logos.lang.math` | Free functions over primitives. No alloc. |
+| — (new) | `logos.lang.stream` | ADR 0025 batch-stream vocabulary: `BatchStream<B>` + capabilities (`Rewind`, `SizedStream`, `OrderedBy<K>`, `Landed<K>`) + `RowsBatch<R>` = `&[R]`. The batched sibling of `logos.lang.iter`; no legacy counterpart. Not in the prelude — `next` would collide with `Iterator::next`. |
 
-**Count: 24 packages → lang** (after merges: ~20 distinct target packages).
+**Count: 24 packages → lang** (after merges: ~20 distinct target packages;
+`logos.lang.stream` is a new package with no legacy source, outside the count).
 
 ### → logos.mem (heap, no-OS)
 
@@ -97,8 +99,10 @@ Sorted by current package name within each layer. Sub-table for
 | `std.encoding.hex` | `logos.mem.encoding.hex` | Allocates output buffer. |
 | `std.encoding.csv` | `logos.mem.encoding.csv` | Parses into containers. |
 | `std.encoding.json` | `logos.mem.encoding.json` | Heavy Writ/container allocation. |
+| — (new) | `logos.mem.stream` | ADR 0025 §4 `Buffer<R>`: the degenerate one-packet stream over an OWNED `Vec<R>`. Splits from `logos.lang.stream` for the tier rule — the traits are no-alloc, the one heap-owning impl is not. |
 
-**Count: ~23 packages → mem** (plus 17 from Writ — see sub-section below).
+**Count: ~23 packages → mem** (plus 17 from Writ — see sub-section below;
+`logos.mem.stream` is a new package with no legacy source, outside the count).
 
 ### → logos.std (full)
 

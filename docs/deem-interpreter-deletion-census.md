@@ -1239,8 +1239,49 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # only witness that #[borrow_carrying] written inside the family's quote_item
 # survives metaprog emission. PREDICTED 6931 / 3248 / 31 before the
 # re-configure; `ctest -N` three ways agreed exactly.
-REGISTRY-ALL         6931
-REGISTRY-NOIMPORTED  3248
+# ADR 0025 S0 (vocabulary + Buffer + leaf batches) added FIVE fixtures — four
+# pass, one fail — and each pins a different claim of the slice:
+#  · pass/stream_buffer_degenerate — §4's base case: a Vec built OUTSIDE the
+#    stream vocabulary, read only through BatchStream/Rewind/SizedStream. One
+#    packet then None, rewind re-yields the same VALUES (asserted, not counted),
+#    size free and unmoved by consumption, and an EMPTY buffer still yielding one
+#    empty batch before None (§1's legal tick). Control: perturbing one expected
+#    value reds it at that value's code, so the green is not the harness's.
+#  · pass/ctr_family_leaf_batches — §5, the emitted leaf-batch producer against
+#    the container's OWN per-row cursor as an independent oracle: same rows, same
+#    order, same sums; the four landings (full/at/from/upto) with SizedStream
+#    agreeing with the rows each yields; and the batch count pinned EXACTLY at
+#    the leaf count (8 for 1000 entries in 4K leaves) — with the per-row walk it
+#    would be 1000. Derived from the A3 scratch oracle, whose emitter-side
+#    control (in-leaf trim `hi = lb` → `hi = cnt`) reds it at code 12.
+#  · pass/stream_caps_trait_query — the S0 GATE ("trait-membership questions
+#    answerable from the planner"), asked through the metaprog `has_trait` seam
+#    the `join_key_caps` comment names, over `typeof(c.leaf_batches())`: the four
+#    §3 capabilities answered YES, Rewind answered NO, and a local `impl Rewind`
+#    control so the NO cannot be a blanket false. The answer then SELECTS the
+#    code path (free `size()` vs the drain the plan would otherwise insert) and
+#    which arm ran is asserted. Its header records the layer S1 must lift the
+#    query to (a NAME-keyed form: `join_key_caps_named` holds a `str`, and no
+#    query takes one) and the MEASURED hole it must not pin: `has_trait` answers
+#    0 for a GENERIC type whose bare name is AMBIGUOUS tree-wide — `Buffer`
+#    (logos.mem.stream vs logos.lang.fabric) gets a `$M` module fingerprint in
+#    its identity while a generic impl registers its target under the bare
+#    spelling. Control in ONE program: VecIter/Iterator and Vec/Index — same
+#    tier, same imported-generic shape, unambiguous names — answer 1.
+#  · fail/ctr_family_mut_while_batch + pass/ctr_family_batch_then_mut — §7 rung 1
+#    for the BATCH, a surface that did not exist when the req.1 cursor pair
+#    landed. `insert` while a batch lives is refused; with the scope closed it is
+#    admitted and the next scan SEES the insert. Measured that the refusal is the
+#    BATCH's: delete the `s.batch(&c)` line and the same program compiles (the
+#    stream's borrow ended at its last use); use the stream after the mutation
+#    and the diagnostic returns. The `Option<B>` pull's laundering is deliberately
+#    NOT pinned — it is a recorded hole, not intended behaviour.
+# PREDICTED 6936 / 3253 / 31 (+5 / +5 / 0 — the glob registers by `.expected`,
+# and no tier_commit label rides that path) BEFORE the re-configure; `ctest -N`
+# three ways agreed exactly, and each of the five names was verified individually
+# with `ctest -N -R <name>`.
+REGISTRY-ALL         6936
+REGISTRY-NOIMPORTED  3253
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

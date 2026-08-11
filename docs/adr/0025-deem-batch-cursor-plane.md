@@ -110,6 +110,25 @@ a new row in that function, not a new branch in every consumer. Selection
 vectors (filtered batch without copy) are deliberately NOT in v1 — recorded as
 an axis.
 
+⚠ THE COLUMN ACCESSOR IS NOT A METHOD ON THE BATCH — measured 2026-08-11,
+landing `stdlib/mem/bt/batch.logos`. The spelling above says `b.col_k()`, but a
+column drawn as a METHOD of the batch is NOT borrow-tied to the leaf: a free
+function returning a `#[borrow_carrying]` value takes the merged provenance of
+its REFERENCE arguments, and a method's result takes its receiver's — and in
+both cases the provenance stops after ONE hop, so a `&ColsBatch` argument
+contributes the borrow of the batch LOCAL, not the `&NodeView` borrow that
+local carries. Probes: with a `&ColRef`- or `&ColsBatch`-rooted constructor the
+"mutate the leaf while the batch/column lives" program COMPILES; with every
+constructor rooted at `&NodeView` it is refused (`cannot borrow 'nv' as
+mutable: 'nv' has shared borrows`). Hence the v1 spelling is
+`pdt_col(&leaf, &b, k).at(i)` — the leaf is passed as a borrow WITNESS and is
+checked (the batch keeps its slot and re-resolves through the witness once per
+column, per batch) so the witness cannot be laundered with an unrelated node.
+One emitter function still, one row per layout; only the column-access row
+carries the extra argument. Making `b.col_k()` legal is a borrow-checker
+change (transitive provenance through a borrow-carrying local), not a batch
+change — recorded as an axis, not adopted here.
+
 **The batch is ONE FORM FOR ALL STORES (Victor, 2026-08-10).** PdtBuffer has
 no dyn and needs none: a leaf's column region has the same shape whichever
 store resolved the block, so `ColsBatch`/`PdtCol` are one concrete type per
@@ -164,6 +183,42 @@ a leaf-batch stream. `next()` hands out the CURRENT leaf's window as a
 descends for the next leaf. One descent per LEAF instead of a container method
 per row; n/fanout descents per scan — the asymptotics the CoW no-sibling-
 pointer rule already imposes, with the per-row constant gone.
+
+LANDED (S0, 2026-08-11) in the ordered_map family emitter
+(`stdlib/lcm/canon/container_item.logos`), BESIDE the per-row `{N}Walk`, which
+stays until S1: `{N}LeafBatch` (one leaf window) + `{N}LeafWalk` (the stream)
+with the four landings of the per-row form, as free fns (`__ctr_brows_`/`bat_`/
+`bfrom_`/`bupto_`) and as handle methods (`leaf_batches[_at/_from/_upto]` — a
+family's type has no spelling a human can write, so the free form has no door
+for a hand-written consumer). MEASURED against the container's own per-row
+cursor over 1000 entries in 4K leaves: same rows, same order, same sums, and
+**8 `next()` calls for 1000 rows** — per LEAF, not per row. Three deviations
+were forced, and all three are the SAME defect at different sites:
+
+* **`Option<B>` LAUNDERS THE BORROW.** `Option::Some(b)` takes the batch BY
+  VALUE, and provenance does not survive a by-value generic constructor: with
+  the batch (or the un-unwrapped `Option`) held across `insert`, the program
+  COMPILES — i.e. §7 rung 1 is not enforced through §1's pinned signature. The
+  emitted pull is therefore SPLIT: `advance(&mut self) -> bool` +
+  `batch(&self, c: &{N}) -> {N}LeafBatch`, which is refused
+  (`cannot borrow 'c' as mutable: 'c' has shared borrows`) with the batch alive
+  and admitted with its scope closed. `next_batch`/`BatchStream::next` remain —
+  the protocol IS the vocabulary — with the hole stated at the method.
+* **`&self` DOES NOT TIE EITHER**, for the §2 reason: one hop. A `&{N}LeafWalk`
+  argument contributes the borrow of the stream LOCAL, not the `&{N}` borrow
+  that local carries — so `batch()` takes the container as a WITNESS, checked
+  by pointer identity (abuse direction measured: a witness from another
+  container traps, SIGABRT 134), exactly as `pdt_col` takes the leaf.
+* **The batch is a PAIR of `ColsBatch`es, not one.** This family's leaf keeps
+  key and value in two separate single-column slots, and a `ColsBatch` is one
+  SLOT's window. Nothing is re-implemented — both halves go through
+  `batch.logos`'s constructors, its `size()` trim and its witness check — but
+  S1 must decide whether `ColsBatch` grows a multi-slot form or the leaf grows
+  a two-column slot. The delta is recorded at the type, not silently married.
+
+Reading the batch through the TRAIT method also binds the arm at the trait's
+declared parameter (the `deem_ctr_family_streams` defect, verbatim), which is
+the second reason the inherent door exists.
 
 No compilation firewall exists in Logos Memoria — the batch type is the leaf's
 own typed view, fully inlined into the query code: zero-copy AND
@@ -350,6 +405,40 @@ consumes them; source hub traits (`OrderedMapSource` etc.) move OUT of
 `logos.mem.bt.map` into the query plane's own module, closing the recorded
 "vocabulary rooted in one supplier" defect.
 
+LANDED (S0, 2026-08-11) as the sibling module `logos.lang.stream`
+(`stdlib/lang/stream/stream.logos`): `BatchStream<B>`, `Rewind`,
+`SizedStream`, `OrderedBy<K>`, `Landed<K>`, and `RowsBatch<R>` — which is a
+type ALIAS for `&[R]`, not a wrapper: the slice already carries the whole
+batch surface (`len()`, `[i]`) the scan loop uses, so `impl BatchStream<&[R]>`
+and `impl BatchStream<RowsBatch<R>>` are the same impl. TWO deviations from
+"one module" were forced and are recorded here rather than in the code alone:
+
+* `Buffer<R>` (§4) does NOT live with the traits. The lang tier is
+  no-alloc/no-OS and `Vec` is `logos.mem.collections.vec`, so the degenerate
+  stream is `logos.mem.stream` (`stdlib/mem/stream/buffer.logos`). It OWNS its
+  `Vec` — a Buffer is the RESULT of a materialization, and a Buffer borrowing
+  its rows would not have materialized anything; the BATCH it hands out
+  borrows (rung 1, §7: `push` while a batch lives is a borrow-check error).
+  It implements `BatchStream` + `Rewind` + `SizedStream` and deliberately NOT
+  `OrderedBy<K>` — an unsorted `Vec` has no order fact, and the `Sort`
+  adapter's output type is what will carry it (S2).
+* The module is NOT re-exported from `logos.lang.prelude`. `BatchStream::next`
+  and `Iterator::next` share name and receiver shape, so an implicit prelude
+  import would make `it.next()` ambiguous tree-wide. Consumers write
+  `use logos.lang.stream;`.
+
+`ColsBatch`/`PdtCol` (`stdlib/mem/bt/batch.logos`) and the family's leaf-batch
+producer (§5, LANDED) close the S0 items; the hub-trait move
+(`OrderedMapSource` etc.) is a later slice and was NOT started here. One import
+edge was forced by the producer: `logos.mem.bt.map` — the hub every declaring
+unit already imports — now carries `logos.mem.bt.view` and `logos.mem.bt.batch`,
+because a generated struct's FIELD types are resolved before its own emitted
+`use` can load a module (`error [struct …LeafBatch]: unknown type 'ColsBatch'`
+on every existing container test, measured). `logos.lang.stream` is deliberately
+NOT hubbed: it appears only in impl headers, which resolve from the generated
+unit's own `use`, and hubbing it would make `it.next()` ambiguous for every
+consumer of the map hub — the same collision that keeps it out of the prelude.
+
 ## 12. Deem-call pipelines and the fiber-backed pull form
 
 Today every query copies its result into a returned `Vec` — correct, poorly
@@ -408,6 +497,36 @@ scan shape; every other cell is declared, not silently absent.
   `ColsBatch`/`PdtCol` (read mode); `Buffer`; the family emits a leaf-batch
   producer beside the per-row walk (both live; the per-row form dies in S1).
   Gate: trait-membership questions answerable from the planner.
+  **DONE 2026-08-11, gate ANSWERED WITH TWO HOLES NAMED.** Fixtures:
+  `pass/stream_buffer_degenerate` (§4's one-packet base case, values asserted),
+  `pass/ctr_family_leaf_batches` (§5 against the container's own per-row cursor;
+  batch count pinned EXACTLY at the leaf count, 8 for 1000 entries),
+  `pass/stream_caps_trait_query` (the gate: `has_trait` over
+  `typeof(c.leaf_batches())` answers `BatchStream`/`SizedStream`/`OrderedBy`/
+  `Landed` yes and `Rewind` no, with a local `impl Rewind` control so the no is
+  not a blanket false, and the answer SELECTS the code path), and the batch's
+  own rung-1 pair `fail/ctr_family_mut_while_batch` +
+  `pass/ctr_family_batch_then_mut`. The two holes, both recorded at the fixture
+  and owed by S1:
+  * **The query needs a type SPELLED at the call site.** `has_trait::<T, Tr>()`
+    takes a type, `has_trait_of::<Tr>(t: Type)` takes a `Type` mono can only
+    recover from a spelled type — and `join_key_caps_named`, the seam §3 names,
+    holds a type NAME (`StepKey.ktn`, a `str`). S1 owes a name-keyed query or a
+    `Type`-valued type environment on the plan IR; until then the capability
+    rows there stay a hand-written table.
+  * **`has_trait` answers 0 for a generic type whose bare name is AMBIGUOUS
+    tree-wide** — which `Buffer` is (`logos.mem.stream` vs
+    `logos.lang.fabric`). G156-1 folds a module fingerprint into the type's
+    identity (`Buffer$M…$G1$i64`, visible in the emitted symbols) while a
+    GENERIC impl registers its target under the bare spelling written in the
+    source, so the two keys never meet and the query says "no impl" instead of
+    erroring. Control in one program: `VecIter`/`Iterator` and `Vec`/`Index` —
+    same tier, same imported-generic shape, unambiguous names — answer 1, while
+    `Buffer`/`Rewind` answers 0 against an impl that demonstrably works. The
+    fixture therefore does NOT assert the Buffer half: writing 0 down would pin
+    the defect. The repair belongs on the IMPL side (qualify the generic impl's
+    target key with its module, as the concrete arm already does); widening the
+    QUERY to also try the unsuffixed name would re-conflate homonyms.
 * **S1 — one scan shape.** The emitter's three scan branches collapse; slices
   ride as one-packet streams. Gates: slice-source codegen byte-comparable OR
   measured equal (objdump/callgrind — the S4k standard); Memoria scan via leaf

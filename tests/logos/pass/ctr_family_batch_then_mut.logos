@@ -1,0 +1,67 @@
+// THE ADMIT TWIN of fail/ctr_family_mut_while_batch.logos (ADR 0025 §7 rung 1):
+// the same shape with the batch's — and the stream's — scope CLOSED before the
+// mutation. It must compile AND answer correctly.
+//
+// "cannot borrow 'c' as mutable" is byte-identical to what an over-refusing
+// checker prints, and a checker that never ended the batch's borrow would red
+// the fail half with the same words while making the container unusable after
+// its first scan. Only this pair separates the two.
+//
+// The values are the second half of the point: the scan AFTER the mutation
+// must SEE the mutation (sum2 covers the inserted key), so the batch plane is
+// reading the live tree and not a landing cached at construction.
+package ctr_family_batch_then_mut;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    c.insert(2u64, 20u64);
+
+    let mut sum: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        while s.advance() {
+            let b = s.batch(&c);
+            let kc: PdtCol = b.keys();
+            let vc: PdtCol = b.vals();
+            let n: u64 = b.len();
+            let mut j: u64 = 0u64;
+            while j < n { sum = sum + kc.at(j) + vc.at(j); j = j + 1u64; }
+        }
+    }                                   // the batch's and the stream's borrows end HERE
+
+    c.insert(3u64, 35u64);              // admitted: nothing is reading the tree
+
+    let mut sum2: u64 = 0u64;
+    {
+        let mut s2 = c.leaf_batches();
+        while s2.advance() {
+            let b = s2.batch(&c);
+            let kc: PdtCol = b.keys();
+            let n: u64 = b.len();
+            let mut j: u64 = 0u64;
+            while j < n { sum2 = sum2 + kc.at(j); j = j + 1u64; }
+        }
+    }
+
+    if sum  != 33u64 { return 1i32; }   // (1+10) + (2+20)
+    if sum2 != 6u64  { return 2i32; }   // 1+2+3 — the second scan SEES the insert
+    return 0i32;
+}

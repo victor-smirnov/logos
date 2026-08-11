@@ -1,0 +1,117 @@
+// Logos standard library — logos.mem.stream
+//
+// `Buffer<R>` — the DEGENERATE batch stream of ADR 0025 §4: today's `Vec`,
+// read as a stream that hands out its whole contents as ONE packet.
+//
+// "A Vec is an eagerly-drained stream, never the reverse" stops being a
+// comment here and becomes the type lattice: `Buffer` is what `Drain` /
+// `Sort` / `Arrange` (§4) produce, and it implements every capability a
+// materialized relation actually has — `Rewind` (the rows are still there),
+// `SizedStream` (the length is a field). It does NOT implement `OrderedBy<K>`:
+// a plain `Vec` carries no order fact, and faking one would put the lie the
+// trait exists to prevent right into the vocabulary. The `Sort` adapter's
+// output type — a sorted buffer — is what will carry `OrderedBy`, when Sort
+// lands (§4, S2).
+//
+// WHY IT IS HERE AND NOT NEXT TO THE TRAITS: the vocabulary is language tier
+// (`logos.lang.stream`, ADR §11), but the lang tier is no-alloc/no-OS and
+// `Vec` is `logos.mem.collections.vec`. The traits and the borrowed batch view
+// stay above the allocator; the one implementation that OWNS heap rows lives
+// at mem tier.
+
+package logos.mem.stream;
+
+use logos.lang.option;
+use logos.lang.stream;
+use logos.mem.collections.vec;
+
+// OWNERSHIP: `Buffer<R>` OWNS its `Vec<R>` — it is not `#[borrow_carrying]`.
+// That is the right default for the degenerate stream because a Buffer is the
+// RESULT of a materialization: `Drain` exists precisely to end a borrow (the
+// source was read-once, or its leaf pin must be released before the next
+// pass), so a Buffer that borrowed its rows from somewhere else would not have
+// materialized anything. Owning also makes it the one shape that can outlive
+// the source scope — the `buffered` output form of §12 returns exactly this.
+//
+// The BATCH it hands out does borrow: `next()` returns `RowsBatch<R>` = `&[R]`
+// pointing into the owned buffer, tied by the compiler to the `&mut self` of
+// the call. That is rung 1 of the pin ladder (§7) with nothing to pin: no
+// counter, and a `push` while a batch lives is a borrow-check error, not a
+// convention.
+
+/// The degenerate batch stream (ADR 0025 §4): an owned `Vec<R>` served as ONE packet.
+///
+/// Yields the whole buffer as a single `RowsBatch<R>`, then `None`. This is what the
+/// `Drain`/`Sort`/`Arrange` adapters produce and what a `Vec`-shaped source becomes,
+/// so the "is it a slice or a stream?" branch disappears: it is always a stream, and
+/// a `Vec` is the one-packet case.
+///
+/// Implements `Rewind` and `SizedStream`. Not `OrderedBy<K>`: an unsorted buffer has
+/// no order fact to declare.
+pub struct Buffer<R> {
+    /// The materialized rows. Owned: a Buffer is the result of a materialization (§4).
+    rows: Vec<R>,
+    /// False until the single packet has been handed out; `rewind` clears it.
+    sent: bool,
+}
+
+impl<R> Buffer<R> {
+    /// Wraps materialized rows as a one-packet stream, positioned at the start.
+    pub fn from_vec(rows: Vec<R>) -> Buffer<R> {
+        return Buffer { rows: rows, sent: false };
+    }
+
+    /// An empty buffer — the stream that yields one empty batch, then `None`.
+    pub fn new() -> Buffer<R> {
+        // `Vec::<R>::new()`, not `Vec::new()`: the bare form infers the element
+        // type from nothing here and lands on the impl's own parameter name
+        // ("return type mismatch — expected Buffer<R>, got Buffer<T>").
+        return Buffer { rows: Vec::<R>::new(), sent: false };
+    }
+
+    /// Appends a row. Producer-side surface: the `buffered` output form (§12) fills a
+    /// Buffer with the emitted push-shaped body, then serves it through `BatchStream`.
+    pub fn push(&mut self, row: R) {
+        self.rows.push(row);
+    }
+
+    /// Borrows all rows at once, independent of the stream position (`Rewind` + `SizedStream`
+    /// already say the rows stay put). The random-access face of the same storage.
+    pub fn as_slice(&self) -> &[R] {
+        return self.rows.as_slice();
+    }
+
+    /// Gives the rows back as a `Vec`, consuming the stream.
+    // `self: Self`, not the Rust-style bare `self`: bare by-value `self` is a
+    // syntax error here ("syntax error near 'self'"); the by-value receiver is
+    // spelled explicitly, as in `logos.lang.ops` (`fn add(self: Self, …)`).
+    pub fn into_vec(self: Self) -> Vec<R> {
+        return self.rows;
+    }
+}
+
+// One packet: the whole buffer, then exhaustion. An EMPTY buffer still yields
+// one `Some(empty)` before `None` — §1 says an empty batch is a legal tick, and
+// making the empty case yield nothing at all would make "no rows" indistinguishable
+// from a stream that never ran.
+impl<R> BatchStream<RowsBatch<R>> for Buffer<R> {
+    fn next(&mut self) -> Option<RowsBatch<R>> {
+        if self.sent { return Option::None; }
+        self.sent = true;
+        return Option::Some(self.rows.as_slice());
+    }
+}
+
+// Re-landing a materialized buffer is free: the rows were never given up.
+impl<R> Rewind for Buffer<R> {
+    fn rewind(&mut self) {
+        self.sent = false;
+    }
+}
+
+// The length is a field — no drain, no walk.
+impl<R> SizedStream for Buffer<R> {
+    fn size(&self) -> u64 {
+        return self.rows.len() as u64;
+    }
+}

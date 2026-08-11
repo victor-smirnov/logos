@@ -1,0 +1,88 @@
+// ADR 0025 S0 — `Buffer<R>` IS THE ONE-PACKET STREAM (§4), measured as one.
+//
+// The claim this pins is the type lattice's base case: "a Vec is an eagerly-
+// drained stream, never the reverse". So the buffer is built OUTSIDE the
+// stream vocabulary (a plain `Vec`, filled by hand) and then read ONLY through
+// `BatchStream` / `Rewind` / `SizedStream` — if the degenerate case needed a
+// door of its own, this program could not be written.
+//
+// Four properties, and the values are asserted, not just the counts: a count
+// alone cannot tell a batch that borrows the buffer from one that hands back
+// an empty window of the right length.
+//   1. EXACTLY ONE PACKET — `next()` yields the whole `Vec` as one
+//      `RowsBatch<R>` (= `&[R]`, §2: the slice IS the batch), then `None`.
+//   2. REWIND RE-YIELDS IT — the rows were never given up, so a second pass
+//      sees the same values in the same order (this is what makes `Buffer`
+//      the repair `Drain` inserts for a non-`Rewind` source, §4).
+//   3. `SizedStream::size` == the number of rows, without draining: read
+//      BEFORE the first pull, and again after exhaustion, where it must not
+//      have moved — `size` is a property of the relation, not a cursor.
+//   4. AN EMPTY BUFFER STILL YIELDS ONE EMPTY BATCH before `None` (§1: an
+//      empty batch is a legal tick, and "no rows" must not be spellable the
+//      same way as "the stream never ran").
+package stream_buffer_degenerate;
+
+use logos.lang.option;
+use logos.lang.stream;      // BatchStream / Rewind / SizedStream / RowsBatch
+use logos.mem.stream;       // Buffer
+use logos.mem.collections.vec;
+
+// The rows, built without the stream vocabulary: this is the "external Vec"
+// half of the claim — a materialized relation someone else produced.
+fn rows() -> Vec<i64> {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(11i64);
+    v.push(22i64);
+    v.push(33i64);
+    return v;
+}
+
+// One pass over the stream, checked against the three known values. Returns 0
+// on agreement, or the failure code of the first disagreement.
+fn drain_and_check(b: &mut Buffer<i64>, code: i32) -> i32 {
+    let ob = b.next();
+    if !ob.is_some() { return code; }
+    {
+        let s: &[i64] = ob.unwrap();
+        if s.len() != 3i64 { return code + 1i32; }
+        if s[0i64] != 11i64 { return code + 2i32; }
+        if s[1i64] != 22i64 { return code + 3i32; }
+        if s[2i64] != 33i64 { return code + 4i32; }
+    }
+    // …and EXACTLY one packet: the second pull is the end, not another window.
+    let ob2 = b.next();
+    if ob2.is_some() { return code + 5i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut b: Buffer<i64> = Buffer::<i64>::from_vec(rows());
+
+    // (3) free size, BEFORE any pull.
+    if b.size() != 3u64 { return 1i32; }
+
+    // (1) one packet, then None.
+    let r1: i32 = drain_and_check(&mut b, 10i32);
+    if r1 != 0i32 { return r1; }
+
+    // (3) …and the size did not move when the stream was consumed.
+    if b.size() != 3u64 { return 2i32; }
+
+    // (2) rewind re-lands: the same packet, the same values, again.
+    b.rewind();
+    let r2: i32 = drain_and_check(&mut b, 20i32);
+    if r2 != 0i32 { return r2; }
+
+    // (4) the empty buffer: ONE empty batch (a legal tick), then None.
+    let mut e: Buffer<i64> = Buffer::<i64>::new();
+    if e.size() != 0u64 { return 3i32; }
+    let oe = e.next();
+    if !oe.is_some() { return 4i32; }        // NOT None — the tick must exist
+    {
+        let es: &[i64] = oe.unwrap();
+        if es.len() != 0i64 { return 5i32; }
+    }
+    let oe2 = e.next();
+    if oe2.is_some() { return 6i32; }
+    return 0i32;
+}

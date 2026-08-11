@@ -1524,6 +1524,18 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 assert(self.found, "cursor: value() past the end");
                 return self.lf.val_at(self.idx);
             }
+            /// The BLOCK of the leaf this landing descended to, and the row's
+            /// index INSIDE it — the descent's two products, which the per-row
+            /// surface above consumes one row at a time and then throws away.
+            /// The leaf-batch plane (ADR 0025 §5) needs exactly them: a whole
+            /// leaf window per descent instead of a container method per row.
+            /// A raw block, not the adopted leaf: `#lid` is handed out through
+            /// `adopt`, and a batch producer re-adopts it anyway to reach the
+            /// node's column region.
+            pub fn leaf_block(self: &#cid) -> *mut u8 { return self.lf.block(); }
+            /// Row index of this cursor WITHIN its leaf (`pos()` is the global
+            /// ordinal; this is the window offset a batch starts at).
+            pub fn leaf_idx(self: &#cid) -> u32 { return self.idx; }
         }
         impl #nm {
             /// Cursor at the `pos`-th entry in KEY ORDER (0-based). Past the
@@ -1725,6 +1737,365 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
             }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
+
+        // ── ADR 0025 §5: the LEAF-BATCH producer, BESIDE the per-row walk ───
+        //
+        // Same four landings as `#itid`, one type, and one descent per LEAF
+        // instead of a container method per row: `next()` hands out the
+        // CURRENT leaf's window `[lo, hi)` as a batch — `hi` trimmed INSIDE
+        // the leaf through the leaf's own `lower_bound` — and then lands on
+        // the next leaf by ORDINAL. n/fanout descents per scan, which is the
+        // asymptotics the CoW no-sibling-pointer rule already imposes, with
+        // the per-row constant gone.
+        //
+        // BOTH FORMS LIVE (S0 scope). The per-row `#itid` above is what the
+        // `rel entry` declaration still names and what every current consumer
+        // calls; this producer is not wired into `OrderedMapSource` yet. S1
+        // collapses the emitter's scan branches onto this one and retires the
+        // per-row form; until then a silent switch would move the whole query
+        // plane on an unmeasured leg.
+        let mut bb_s: String = String::new();
+        bb_s.push_str(name); bb_s.push_str("LeafBatch");
+        let bbid: Ident = Ident::new(bb_s.as_str());
+        let mut bs_s: String = String::new();
+        bs_s.push_str(name); bs_s.push_str("LeafWalk");
+        let bsid: Ident = Ident::new(bs_s.as_str());
+        let mut bmk_s: String = String::new();
+        bmk_s.push_str("__ctr_leafbatch_"); bmk_s.push_str(name);
+        let bmkfn: Ident = Ident::new(bmk_s.as_str());
+        let mut brows_s: String = String::new();
+        brows_s.push_str("__ctr_brows_"); brows_s.push_str(name);
+        let browsfn: Ident = Ident::new(brows_s.as_str());
+        let mut bat_s: String = String::new();
+        bat_s.push_str("__ctr_bat_"); bat_s.push_str(name);
+        let batfn: Ident = Ident::new(bat_s.as_str());
+        let mut bfrom_s: String = String::new();
+        bfrom_s.push_str("__ctr_bfrom_"); bfrom_s.push_str(name);
+        let bfromfn: Ident = Ident::new(bfrom_s.as_str());
+        let mut bupto_s: String = String::new();
+        bupto_s.push_str("__ctr_bupto_"); bupto_s.push_str(name);
+        let buptofn: Ident = Ident::new(bupto_s.as_str());
+        // The value column's u64 cell → the declared value type. A `bool`
+        // column is not a cast (`as bool` does not exist): the leaf's own
+        // `val_at` reads it as `!= 0`, and the batch reads the same cell, so
+        // the conversion has to be spelled the same way here.
+        let vconv: ExprBlob = if str_eq(vty, "bool") {
+            parse_expr("__raw != 0u64")
+        } else {
+            let mut vc_s: String = String::new();
+            vc_s.push_str("__raw as "); vc_s.push_str(vty);
+            parse_expr(vc_s.as_str())
+        };
+        let lq: QuoteItemBlob = quote_item! {
+            use logos.lang.option;
+            use logos.lang.panic;
+            use logos.lang.stream;        // BatchStream / SizedStream / OrderedBy / Landed
+            use logos.mem.bt.view;        // NodeView — the leaf region the batch borrows
+            use logos.mem.bt.batch;       // ColsBatch / PdtCol — the columnar batch (ADR §2)
+            use logos.mem.pkd.pdtbuf;
+            /// One leaf's row window, as the columnar batch of ADR 0025 §2.
+            ///
+            /// DELTA VS A BARE `ColsBatch`, RECORDED (S1 reconciles it): a
+            /// `ColsBatch` is one leaf SLOT's window, and this family's leaf
+            /// keeps key and value in two SEPARATE single-column slots
+            /// (`kc()` = slot 0, `vc()` = slot 1 — the PkdArray retirement),
+            /// so a row spans two of them. The batch is therefore a PAIR of
+            /// `ColsBatch`es over the same window, not one — the marriage is
+            /// not forced: nothing here re-implements the batch, and both
+            /// halves resolve through `batch.logos`'s own constructors, with
+            /// its window/`size()` trim and its witness check. What S1 has to
+            /// decide is whether `ColsBatch` grows a multi-slot form or the
+            /// family's leaf grows a two-column slot; either way THIS type
+            /// keeps its surface (`len`/`keys`/`vals`).
+            ///
+            /// The `NodeView` is held BY VALUE so `keys()`/`vals()` can hand
+            /// out `PdtCol`s at all: `pdt_col` needs the leaf witness as a
+            /// REFERENCE argument, and a witness resolved into a local of the
+            /// accessor would make the returned column a reference to that
+            /// local (measured: `error: cannot return reference to local
+            /// variable '?': dangling reference`). It launders nothing — the
+            /// constructor takes `&NodeView`, so the batch itself is
+            /// `#[borrow_carrying]`-tied to the leaf's shared borrow (§7 rung
+            /// 1), and `pdt_col` re-checks the witness against the slot it
+            /// resolved from.
+            #[borrow_carrying]
+            pub struct #bbid {
+                /// The leaf's region — the borrow root, and the checked
+                /// witness `pdt_col` demands.
+                nv: NodeView,
+                /// The KEY column's slot window, resolved once for the batch.
+                kb: ColsBatch,
+                /// The VALUE column's slot window, same window.
+                vb: ColsBatch,
+                /// Rows in the window — `hi - lo`, never the slot capacity.
+                n: u64,
+            }
+            /// The batch over rows `[lo, hi)` of `leaf`. Rooted at `&NodeView`
+            /// for the same reason every constructor in `batch.logos` is: a
+            /// borrow-carrying result takes the provenance of its REFERENCE
+            /// arguments, and that provenance is not re-exported through a
+            /// second hop.
+            pub fn #bmkfn(leaf: &NodeView, lo: u64, hi: u64) -> #bbid {
+                return #bbid {
+                    nv: *leaf,
+                    kb: cols_batch_at(leaf, 0u32, lo, hi),
+                    vb: cols_batch_at(leaf, 1u32, lo, hi),
+                    n: hi - lo,
+                };
+            }
+            impl #bbid {
+                /// Rows in the window. `0` is a legal tick, not an end (§1).
+                pub fn len(self: &#bbid) -> u64 { return self.n; }
+                /// The key column, RESOLVED HERE: one `(allocator, slot)`
+                /// lookup plus the window offset. The scan loop hoists this
+                /// out of the row loop — that hoist IS the resolve-once of
+                /// ADR §2, and it is why `key_at` below is not the scan shape.
+                pub fn keys(self: &#bbid) -> PdtCol { return pdt_col(&self.nv, &self.kb, 0u32); }
+                /// The value column, same contract.
+                pub fn vals(self: &#bbid) -> PdtCol { return pdt_col(&self.nv, &self.vb, 0u32); }
+                /// Row `i`'s key, for a POINT read (a probe, a bound check).
+                /// Re-resolves the column, so a loop over rows must hoist
+                /// `keys()` instead of calling this per row.
+                pub fn key_at(self: &#bbid, i: u64) -> #(kid) { return self.keys().at(i) as #(kid); }
+                /// Row `i`'s value — same point-read contract as `key_at`.
+                pub fn val_at(self: &#bbid, i: u64) -> #(vo) {
+                    let __raw: u64 = self.vals().at(i);
+                    return #(vconv);
+                }
+            }
+            /// The relation as a stream of LEAF BATCHES (ADR 0025 §5) — the
+            /// batched sibling of `#itid`, with the same four landings and the
+            /// same bound.
+            ///
+            /// The container is held as a raw pointer for the same reason the
+            /// per-row walk holds one (movement needs the root, which is a
+            /// container method), and `#[borrow_carrying]` for the same reason
+            /// too: a mutation through the handle while this stream lives
+            /// would `tree_release` the very leaf the outstanding batch reads.
+            ///
+            /// POSITION IS AN ORDINAL, not a saved cursor: `next()` re-lands
+            /// by `at` and takes the leaf whole. That is one descent per leaf
+            /// — the same descent count `bt_cur_next` pays at a leaf boundary,
+            /// with the per-row bumps in between removed.
+            #[borrow_carrying]
+            pub struct #bsid {
+                c: *const #nm,
+                /// The CURRENT leaf's region: the batch handed out by `next()`
+                /// hangs off THIS field, which is what ties it to the stream
+                /// (and through the stream, to `&#nm`).
+                nv: NodeView,
+                /// Next row ordinal to land on.
+                at: u64,
+                /// Exclusive ordinal bound of the landing — computed at
+                /// construction from the landing cursor and the key bound, in
+                /// descents, never by walking. It is what makes `SizedStream`
+                /// honest for the NARROWED landings too: a stream that
+                /// answered `c.size()` for an `upto` bound would be declaring
+                /// a capability it does not have.
+                endr: u64,
+                /// Rows the stream yields from its landing — `SizedStream`.
+                n0: u64,
+                /// The upper KEY bound (`None` = to the end), exactly as the
+                /// per-row walk carries it. This is what trims `hi` inside the
+                /// leaf; `endr` is its ordinal shadow and the two are
+                /// cross-checked on the trimming batch.
+                hi: Option<#(kid)>,
+                /// The CURRENT window inside `nv`, leaf-local. Kept as state so
+                /// the batch can be handed out by a `&self` method (`batch`)
+                /// instead of being born inside the `&mut self` pull — that is
+                /// what keeps the borrow (see `advance`).
+                clo: u32,
+                chi: u32,
+            }
+            impl #bsid {
+                /// Land on the next LEAF and make its window current; `false` =
+                /// exhausted. ONE descent, per leaf.
+                ///
+                /// THE PULL IS SPLIT IN TWO ON PURPOSE, and the reason is
+                /// measured, not stylistic. `Option<B>` LAUNDERS THE BORROW:
+                /// `Option::Some(b)` is a generic constructor taking `b` BY
+                /// VALUE, so the batch's provenance — the whole point of §7
+                /// rung 1 — ends at the wrapping. Probes, 2026-08-11, on this
+                /// family: with the batch held (or even still inside the
+                /// un-unwrapped `Option`) across `c.insert(…)`, the program
+                /// COMPILES; the same program with the batch taken through
+                /// `advance()` + `batch()` is refused
+                /// (`cannot borrow 'c' as mutable: 'c' has shared borrows`).
+                /// `insert` `tree_release`s the old tree, so the admitted form
+                /// reads a freed leaf. `next_batch` below still exists — it is
+                /// ADR §1's pinned signature and the trait's — but THIS pair is
+                /// the sound door and is what the emitted scan loop must use
+                /// until the checker carries provenance through a generic
+                /// by-value argument.
+                pub fn advance(self: &mut #bsid) -> bool {
+                    if self.at >= self.endr { return false; }
+                    unsafe {
+                        let cp: &#nm = &*self.c;
+                        let cu: #cid = cp.seek(self.at);      // ONE descent, per LEAF
+                        if !cu.valid() { return false; }
+                        let lf: #lid = #lid::adopt(cu.leaf_block());
+                        let lo: u32 = cu.leaf_idx();
+                        let cnt: u32 = lf.count();
+                        let mut hi: u32 = cnt;
+                        match self.hi {
+                            Option::Some(h) => {
+                                // The bound lands INSIDE the leaf: one binary
+                                // search over the leaf's key column, not a
+                                // per-row compare. `lower_bound` is the first
+                                // key >= h; the walk's bound is inclusive, so
+                                // an equal run belongs to the window (the
+                                // loop runs zero times on unique keys, which
+                                // is what this family's upsert guarantees).
+                                let mut lb: u32 = lf.lower_bound(h);
+                                while lb < cnt && lf.key_at(lb) == h { lb = lb + 1u32; }
+                                hi = lb;
+                            }
+                            Option::None => { }
+                        }
+                        // `endr` said rows remain, so the trim must leave at
+                        // least one — if it does not, the ordinal bound and
+                        // the key bound disagree, and one of them is lying
+                        // about which rows this stream owns.
+                        assert(hi > lo, "leaf batch: the key bound and the ordinal bound disagree");
+                        let n: u64 = (hi - lo) as u64;
+                        self.nv = node_view_at(cu.leaf_block());
+                        self.clo = lo;
+                        self.chi = hi;
+                        if hi < cnt {
+                            // Trimmed inside the leaf ⇒ every later key exceeds
+                            // the bound ⇒ this is the last batch.
+                            assert(self.at + n == self.endr,
+                                   "leaf batch: key-trimmed window disagrees with the row count");
+                            self.at = self.endr;
+                        } else {
+                            self.at = self.at + n;
+                        }
+                        return true;
+                    }
+                }
+                /// The CURRENT leaf window as a batch. Before the first
+                /// `advance()` the window is empty, which is a legal batch
+                /// (§1), not an error.
+                ///
+                /// `c` IS THE BORROW WITNESS, and it is CHECKED — the same
+                /// device, for the same reason, as `pdt_col`'s `leaf` argument
+                /// (ADR §2). MEASURED 2026-08-11: `&self` alone does NOT tie
+                /// the batch to the container. Provenance stops after ONE hop,
+                /// so a `&#bsid` argument contributes the borrow of the STREAM
+                /// LOCAL, not the `&#nm` borrow that local carries: with
+                /// `batch(&self)` the program that mutates the container while
+                /// the batch lives COMPILES; with the container passed here it
+                /// is refused (`cannot borrow 'c' as mutable: 'c' has shared
+                /// borrows`). Unchecked, the witness would be a laundering
+                /// hatch — any handle would lend its borrow to a batch over
+                /// another container — so the pointer identity is asserted.
+                pub fn batch(self: &#bsid, c: &#nm) -> #bbid {
+                    assert(c as *const #nm == self.c,
+                           "leaf batch: the container witness is not this stream's container");
+                    return #bmkfn(&self.nv, self.clo as u64, self.chi as u64);
+                }
+                /// ADR §1's pinned pull, and the trait's. ⚠ THE RESULT IS NOT
+                /// BORROW-TIED — see `advance`: the `Option` wrapping drops the
+                /// provenance. Kept because the protocol is the vocabulary and
+                /// a consumer generic over `BatchStream` has no other door;
+                /// `advance()` + `batch()` is the one to emit.
+                pub fn next_batch(self: &mut #bsid) -> Option<#bbid> {
+                    if !self.advance() { return Option::None; }
+                    unsafe {
+                        let cp: &#nm = &*self.c;
+                        return Option::Some(self.batch(cp));
+                    }
+                }
+            }
+            impl BatchStream<#bbid> for #bsid {
+                fn next(self: &mut #bsid) -> Option<#bbid> { return self.next_batch(); }
+            }
+            /// Free: the count is a landing-time property (the container's own
+            /// `size` for an unbounded scan, an ordinal difference for a
+            /// narrowed one), never a walk. It is the TOTAL from the landing —
+            /// consumption does not change it, and `seek` re-derives it.
+            impl SizedStream for #bsid {
+                fn size(self: &#bsid) -> u64 { return self.n0; }
+            }
+            /// A family walk IS ordered: the batches arrive in key order and
+            /// each batch is a leaf window, sorted by key inside. This is the
+            /// order fact the ten representations recorded nowhere (ADR §3) —
+            /// an `order by` over the key column can now be a no-op.
+            impl OrderedBy<#(kid)> for #bsid { }
+            /// The landing constructors' shape, as a capability: `seek` is the
+            /// same one-descent `seek_key` they use, applied to a live stream.
+            /// The key bound is NOT changed by a seek — seeking past it leaves
+            /// the stream exhausted, which is the trait's stated contract.
+            impl Landed<#(kid)> for #bsid {
+                fn seek(self: &mut #bsid, k: #(kid)) {
+                    unsafe {
+                        let cp: &#nm = &*self.c;
+                        let cu: #cid = cp.seek_key(k);
+                        let st: u64 = cu.pos();
+                        self.at = st;
+                        self.n0 = if self.endr > st { self.endr - st } else { 0u64 };
+                    }
+                }
+            }
+            /// The full projection as leaf batches.
+            pub fn #browsfn(c: &#nm) -> #bsid {
+                let cu: #cid = c.seek(0u64);
+                let n: u64 = c.size();
+                return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
+                               at: 0u64, endr: n, n0: n, hi: Option::None,
+                               clo: 0u32, chi: 0u32 };
+            }
+            /// A POINT probe: the rows whose key equals `k` — at most one for
+            /// this family, so the ordinal bound is the landing plus a hit.
+            pub fn #batfn(c: &#nm, k: #(kid)) -> #bsid {
+                let cu: #cid = c.seek_key(k);
+                let st: u64 = cu.pos();
+                let mut e: u64 = st;
+                if cu.valid() { if cu.key() == k { e = st + 1u64; } }
+                return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
+                               at: st, endr: e, n0: e - st, hi: Option::Some(k),
+                               clo: 0u32, chi: 0u32 };
+            }
+            /// A SUFFIX of the key order: land on the lower bound in one
+            /// descent, then take leaves to the end.
+            pub fn #bfromfn(c: &#nm, lo: #(kid)) -> #bsid {
+                let cu: #cid = c.seek_key(lo);
+                let n: u64 = c.size();
+                let st: u64 = cu.pos();
+                return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
+                               at: st, endr: n,
+                               n0: if n > st { n - st } else { 0u64 },
+                               hi: Option::None, clo: 0u32, chi: 0u32 };
+            }
+            /// A PREFIX of the key order: start at the first leaf and stop ON
+            /// the bound. The extra `seek_key` here is the price of an honest
+            /// `size()` — one descent at landing, not a walk — and it is the
+            /// only landing that pays it.
+            /// The same four landings AS METHODS. The declaration plane names
+            /// FREE fns (`rel`/`op` travel that way, and S1's emitter will
+            /// name these), but a family's type has no spelling a human can
+            /// write and its generated fns carry the content-hash family name,
+            /// so a hand-written consumer — a test, an oracle, a caller
+            /// holding `<typeof(C) as CtrFamily>::Handle` — has no door to the
+            /// free form at all. These are one-line forwards, not a second
+            /// implementation.
+            impl #nm {
+                pub fn leaf_batches(self: &#nm) -> #bsid { return #browsfn(self); }
+                pub fn leaf_batches_at(self: &#nm, k: #(kid)) -> #bsid { return #batfn(self, k); }
+                pub fn leaf_batches_from(self: &#nm, lo: #(kid)) -> #bsid { return #bfromfn(self, lo); }
+                pub fn leaf_batches_upto(self: &#nm, hi: #(kid)) -> #bsid { return #buptofn(self, hi); }
+            }
+            pub fn #buptofn(c: &#nm, hi: #(kid)) -> #bsid {
+                let cb: #cid = c.seek_key(hi);
+                let mut e: u64 = cb.pos();
+                if cb.valid() { if cb.key() == hi { e = e + 1u64; } }
+                let c0: #cid = c.seek(0u64);
+                return #bsid { c: c as *const #nm, nv: node_view_at(c0.leaf_block()),
+                               at: 0u64, endr: e, n0: e, hi: Option::Some(hi),
+                               clo: 0u32, chi: 0u32 };
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&lq); }
     }
 }
 

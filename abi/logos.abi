@@ -171,6 +171,9 @@ sym	logos.mem.bt.alg.NodeBatch__type_id__g__ref_T
 sym	logos.mem.bt.alg.NodeOp__type_id__g__ref_T
 sym	logos.mem.bt.alg.NodeSchema__type_id__g__ref_T
 sym	logos.mem.bt.alg.StreamDescr__type_id__g__ref_T
+sym	logos.mem.bt.batch.ColsBatch__type_id__g__ref_T
+sym	logos.mem.bt.batch.PdtColVar__type_id__g__ref_T
+sym	logos.mem.bt.batch.PdtCol__type_id__g__ref_T
 sym	logos.mem.bt.blockptr.MemBlockPtr__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BfCol__type_id__g__ref_T
 sym	logos.mem.bt.btfl.BtflBuf__type_id__g__ref_T
@@ -9143,6 +9146,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__Child
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CivilTime
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CloneRefusal
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ColMut
+sym	logos_lang.logos.lang.any$type_id_of__g__void__ColsBatch
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConnTask
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ConvertError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__CowProfile
@@ -9230,6 +9234,8 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseFloatError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__ParseIntError
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Parser
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtBuf
+sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtCol
+sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtColVar
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtDescr
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtDim
 sym	logos_lang.logos.lang.any$type_id_of__g__void__PdtFind
@@ -10046,6 +10052,17 @@ sym	logos_mem..logos.mem.any.anybox.AnyBox__wstring_ptr__f__ref_AnyBox
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__deref__g__ref_Box$G1$T
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__deref_mut__g__refmut_Box$G1$T
 sym	logos_mem..logos.mem.boxed.Box$G1$SnapDesc__drop__g__Box$G1$T
+sym	logos_mem..logos.mem.bt.batch.ColsBatch__columns__f__ref_ColsBatch
+sym	logos_mem..logos.mem.bt.batch.ColsBatch__hi__f__ref_ColsBatch
+sym	logos_mem..logos.mem.bt.batch.ColsBatch__len__f__ref_ColsBatch
+sym	logos_mem..logos.mem.bt.batch.ColsBatch__lo__f__ref_ColsBatch
+sym	logos_mem..logos.mem.bt.batch.ColsBatch__slot__f__ref_ColsBatch
+sym	logos_mem..logos.mem.bt.batch.PdtColVar__at__f__ref_PdtColVar__u64
+sym	logos_mem..logos.mem.bt.batch.PdtColVar__len__f__ref_PdtColVar
+sym	logos_mem..logos.mem.bt.batch.PdtColVar__len_at__f__ref_PdtColVar__u64
+sym	logos_mem..logos.mem.bt.batch.PdtCol__at__f__ref_PdtCol__u64
+sym	logos_mem..logos.mem.bt.batch.PdtCol__cells__f__ref_PdtCol
+sym	logos_mem..logos.mem.bt.batch.PdtCol__len__f__ref_PdtCol
 sym	logos_mem..logos.mem.bt.blockptr.MemBlockPtr__block_size__f__ref_MemBlockPtr
 sym	logos_mem..logos.mem.bt.blockptr.MemBlockPtr__child_slot__f__ref_MemBlockPtr
 sym	logos_mem..logos.mem.bt.blockptr.MemBlockPtr__clone__f__ref_MemBlockPtr
@@ -11221,6 +11238,10 @@ sym	logos_mem.logos.mem.bt.alg$sd_child__f__void
 sym	logos_mem.logos.mem.bt.alg$sd_fse__f__u32__bool
 sym	logos_mem.logos.mem.bt.alg$sd_ssrle__f__u32
 sym	logos_mem.logos.mem.bt.alg$sd_vle__f__void
+sym	logos_mem.logos.mem.bt.batch$cols_batch__f__ref_NodeView__u32
+sym	logos_mem.logos.mem.bt.batch$cols_batch_at__f__ref_NodeView__u32__u64__u64
+sym	logos_mem.logos.mem.bt.batch$pdt_col__f__ref_NodeView__ref_ColsBatch__u32
+sym	logos_mem.logos.mem.bt.batch$pdt_col_var__f__ref_NodeView__ref_ColsBatch__u32__u32
 sym	logos_mem.logos.mem.bt.blockptr$block_from_addr__f__pmut_u8
 sym	logos_mem.logos.mem.bt.blockptr$block_null__f__void
 sym	logos_mem.logos.mem.bt.btfl$btfl_buf_new__f__void
@@ -12248,6 +12269,9 @@ type	logos.mem.bt.alg.NodeBatch	fields=[ops:Vec<NodeOp>]
 type	logos.mem.bt.alg.NodeOp	fields=[op:u32,stream:u32,pos:u64,n:u64,datum:u32]
 type	logos.mem.bt.alg.NodeSchema	fields=[streams:Vec<StreamDescr>]
 type	logos.mem.bt.alg.StreamDescr	fields=[kind:u32,width:u32,alphabet:u32,ordered:bool]
+type	logos.mem.bt.batch.ColsBatch	fields=[buf:PdtBuf,slot:u32,lo:u64,hi:u64]
+type	logos.mem.bt.batch.PdtCol	fields=[base:*mut u64,len:u64]
+type	logos.mem.bt.batch.PdtColVar	fields=[offs:*mut u32,pay:*mut u8,lo:u64,len:u64]
 type	logos.mem.bt.blockptr.MemBlockPtr	fields=[addr:*mut u8]
 type	logos.mem.bt.btfl.BfCol	fields=[mem:*mut u8,cap:u64]
 type	logos.mem.bt.btfl.Btfl	fields=[root:*mut u8,level:u32,leaf_bytes:u32,branch_bytes:u32]
@@ -12337,6 +12361,7 @@ type	logos.mem.pkd.sseq.SsrleSelect	fields=[idx:u64,rank:u64]
 type	logos.mem.pkd.sseq.SsrleUpdate	fields=[runs:Vec<SsrleRun>,code_units:u64,block_size:u32]
 type	logos.mem.pkd.ssrle.SsrleFindRun	fields=[run_idx:i64,local_offset:u64,offset:u64]
 type	logos.mem.pkd.ssrle.SsrleRun	fields=[pattern:u64,pattern_length:u32,run_length:u64]
+type	logos.mem.stream.Buffer	fields=[rows:Vec<R>,sent:bool]
 type	logos.mem.string.String	fields=[data:*mut u8,nbytes:i64,cap:i64]
 type	logos.mem.sync.Arc	fields=[inner:*mut ArcInner<T>]
 type	logos.mem.sync.ArcInner	fields=[strong:AtomicI32,weak:AtomicI32,val:T]
@@ -12504,6 +12529,11 @@ vtable	logos.lang.panic.RefUnwindSafe	slots=[]
 vtable	logos.lang.panic.UnwindSafe	slots=[]
 vtable	logos.lang.range.Step	slots=[step_forward,step_backward,step_lt]
 vtable	logos.lang.str.Pattern	slots=[find_in,match_len]
+vtable	logos.lang.stream.BatchStream	slots=[next]
+vtable	logos.lang.stream.Landed	slots=[seek]
+vtable	logos.lang.stream.OrderedBy	slots=[]
+vtable	logos.lang.stream.Rewind	slots=[rewind]
+vtable	logos.lang.stream.SizedStream	slots=[size]
 vtable	logos.lang.try_trait.FromResidual	slots=[from_residual]
 vtable	logos.lang.try_trait.Try	slots=[branch]
 vtable	logos.lang.writ.array.WArrTag	slots=[arr_code]

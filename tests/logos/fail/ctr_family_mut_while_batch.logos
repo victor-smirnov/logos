@@ -1,0 +1,59 @@
+// ADR 0025 S0 (§7 rung 1) — MUTATING THE CONTAINER WHILE A LEAF BATCH LIVES.
+//
+// The batch is a VIEW into the leaf's own PdtBuf slots — zero copy — and
+// `insert` `tree_release`s the tree the leaf hangs off, so an admitted program
+// here reads freed memory. Rung 1 says this is a BORROW-CHECK error and never
+// a counter: the batch is `#[borrow_carrying]`-tied to the stream, the stream
+// to `&C`, and the mutators take `&mut self`.
+//
+// THIS IS A DIFFERENT SURFACE FROM fail/ctr_family_mut_while_cursor, which the
+// req.1 prerequisite landed: that one holds the per-row CURSOR, this one holds
+// the BATCH — a type that did not exist then, reached through the split pull
+// (`advance()` + `batch(&c)`) that S0's producer emits.
+//
+// ⚠ AND IT IS THE SPLIT PULL ON PURPOSE. The `Option<B>` form of §1
+// (`next_batch()` / `BatchStream::next`) does NOT refuse the same program:
+// `Option::Some(b)` takes the batch BY VALUE and provenance does not survive a
+// by-value generic constructor, so the borrow is laundered and the mutation is
+// admitted (measured 2026-08-11, recorded at the emitter's `advance` and in
+// ADR §5). That hole is NOT pinned by this pair — pinning it would write the
+// laundering down as intended behaviour. It closes when the borrow checker
+// carries provenance through a generic by-value argument.
+//
+// The admit twin is pass/ctr_family_batch_then_mut: the refusal message here
+// is byte-identical to what an over-refusing checker prints, so neither half
+// stands alone.
+//
+// AND THE REFUSAL IS THE BATCH'S, not the stream's — measured by deleting the
+// `s.batch(&c)` line from THIS program: it then COMPILES, because the stream's
+// borrow ends at its last use (`advance()` above the insert). Hold the stream
+// live ACROSS the mutation instead (advance again below it) and the same
+// diagnostic returns, so both borrows are real; this fixture is the one that
+// pins the BATCH's.
+package ctr_family_mut_while_batch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    let mut s = c.leaf_batches();
+    let ok: bool = s.advance();
+    let b = s.batch(&c);              // the batch borrows the leaf…
+    c.insert(3u64, 30u64);            // …so THIS must be refused
+    return if ok { b.len() as i32 } else { 9i32 };
+}

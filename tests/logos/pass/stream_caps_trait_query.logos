@@ -1,0 +1,150 @@
+// ADR 0025 S0 GATE — "trait-membership questions answerable from the planner".
+//
+// §3 says a capability EXISTS exactly when the producer's return type
+// implements the capability trait ("a declaration can lie about code; a type
+// cannot"), and that the planner asks this through metaprog trait queries —
+// the seam `join_key_caps` (stdlib/mem/wql/join_sel.logos) anticipates, whose
+// comment reads "the structural-key version swaps its body for metaprog
+// has_trait queries". This fixture asks the question through THAT query and
+// BRANCHES on the answer, the way a planner would.
+//
+// ── WHICH LAYER ANSWERS TODAY, AND WHICH LAYER S1 MUST LIFT IT TO ──────────
+//
+// TODAY: `has_trait::<T, Trait>()` — a mono-time fold against the impl tables
+// (the same tables that drive method dispatch). It needs T SPELLED at the call
+// site, as a type: a literal type name, or `typeof(expr)` over a value of it.
+// That is exactly enough for a metaprogram that has the value in hand, which
+// is why this fixture can be written at all: the family's stream type has no
+// name a human can spell, and `typeof(c.leaf_batches())` is the only door.
+//
+// S1 MUST LIFT IT TO A NAME-KEYED FORM. `join_key_caps_named(name: str)` — the
+// seam the ADR names — holds a type NAME (`StepKey.ktn`, a `str` carried on
+// the IR node), not a type, and there is no query that takes one: neither
+// `has_trait::<T, Tr>()` (needs a spelled type) nor `has_trait_of::<Tr>(t:
+// Type)` (needs a `Type` value, which mono recovers only from a
+// `__type_uid_of__` literal — again a spelled type). So S1 owes either a
+// `has_trait_named(name: str, Trait)` query or a `Type`-valued type
+// environment on the plan IR. Until then the capability rows in
+// `join_key_caps_named` stay a hand-written table, and this fixture is the
+// closest layer that CAN ask.
+//
+// ── A MEASURED HOLE IN THE SEAM, RECORDED HERE RATHER THAN PINNED GREEN ────
+//
+// `has_trait` answers FALSE for a GENERIC type whose bare name is AMBIGUOUS
+// tree-wide. `Buffer` is such a name — `logos.mem.stream::Buffer<R>` (§4's
+// degenerate stream) and `logos.lang.fabric::Buffer<DT>` — so G156-1 folds a
+// module fingerprint into the type's identity (`Buffer$M<fp>$G1$i64`, visible
+// in the emitted symbols) while a GENERIC impl registers its target under the
+// BARE spelling written in the source (`impl<R> Rewind for Buffer<R>` → key
+// "Buffer", sema_decl's GENERIC_INST arm). The two keys never meet, and the
+// query answers "no impl" instead of erroring. MEASURED 2026-08-11 with its
+// control IN ONE PROGRAM: `has_trait::<VecIter<i32>, Iterator>()` and
+// `has_trait::<Vec<i32>, Index>()` — same tier, same imported-generic shape,
+// UNAMBIGUOUS names, no `$M` in their symbols — answer 1, while
+// `has_trait::<Buffer<i64>, Rewind>()` answers 0 against an impl that exists
+// and works (pass/stream_buffer_degenerate calls `rewind()` and observes the
+// re-yield). So the Buffer half of the S0 gate is NOT asserted here: a green
+// test writing down 0 for "does Buffer implement Rewind" would pin the defect.
+// The repair belongs on the IMPL side (qualify the generic impl's target key
+// with its module, as the concrete arm already does) — widening the QUERY to
+// also try the unsuffixed name would re-conflate homonyms, which is the defect
+// the identity arc has been closing all week.
+package stream_caps_trait_query;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;      // BatchStream / Rewind / SizedStream / OrderedBy / Landed
+use logos.lang.option;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 400u64;
+
+// THE CONTROL FOR EVERY NEGATIVE ANSWER BELOW. `has_trait` returning 0 for a
+// trait is indistinguishable from a query that cannot see impls at all (it is
+// exactly the Buffer hole recorded in the header), so the fixture also asks a
+// question whose answer must be 1 through the SAME trait: a local type that
+// implements `Rewind`. Without it, "the family walk is not Rewind" would pass
+// on a compiler that answered 0 to everything.
+pub struct Replayer { pub n: u64 }
+impl Rewind for Replayer {
+    fn rewind(&mut self) { self.n = 0u64; }
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    let mut s = c.leaf_batches();
+
+    // ── the four questions §3 asks about a source ─────────────────────────
+    if !has_trait::<typeof(s), BatchStream>() { return 1i32; }
+    if !has_trait::<typeof(s), SizedStream>() { return 2i32; }
+    if !has_trait::<typeof(s), OrderedBy>()   { return 3i32; }
+    if !has_trait::<typeof(s), Landed>()      { return 4i32; }
+    // …and the one it must answer NO to: a family walk is single-pass, and §4
+    // says the repair for a second use is an inserted `Drain`, not a rewind.
+    if has_trait::<typeof(s), Rewind>()       { return 5i32; }
+    // the control that makes that NO mean something.
+    if !has_trait::<Replayer, Rewind>()       { return 6i32; }
+
+    // ── BRANCH ON THE ANSWER, as the planner does ─────────────────────────
+    // `SizedStream` present ⇒ the row count is free; absent ⇒ the plan must
+    // drain to learn it. Both arms are written, the answer picks one, and
+    // which arm ran is asserted — otherwise a future 0 from the seam would
+    // silently take the expensive path and still pass.
+    let mut n: u64 = 0u64;
+    let mut via_size: bool = false;
+    if has_trait::<typeof(s), SizedStream>() {
+        n = s.size();
+        via_size = true;
+    } else {
+        while s.advance() {
+            let b = s.batch(&c);
+            n = n + b.len();
+        }
+    }
+    if !via_size { return 7i32; }
+    if n != N { return 8i32; }
+
+    // ── the ORDER answer, checked against the rows it promises ────────────
+    // `OrderedBy<K>` carries no method: it is a promise about the `next()`
+    // sequence. §3's harvest (an `order by` over this column emits no Sort) is
+    // only sound if the promise holds, so the fixture takes the branch the
+    // answer selects and MEASURES what it claimed: keys strictly ascending,
+    // across batch boundaries as well as inside a batch.
+    if !has_trait::<typeof(s), OrderedBy>() { return 9i32; }
+    let mut rows: u64 = 0u64;
+    let mut prev: u64 = 0u64;
+    while s.advance() {
+        let b = s.batch(&c);
+        let kc: PdtCol = b.keys();
+        let m: u64 = b.len();
+        let mut j: u64 = 0u64;
+        while j < m {
+            let k: u64 = kc.at(j);
+            if rows > 0u64 && k <= prev { return 10i32; }
+            prev = k;
+            rows = rows + 1u64;
+            j = j + 1u64;
+        }
+    }
+    if rows != N { return 11i32; }
+    // The declared size and the delivered rows are the same number — a
+    // `SizedStream` that over- or under-reports is a lie the planner cannot
+    // detect any other way.
+    if rows != n { return 12i32; }
+    return 0i32;
+}

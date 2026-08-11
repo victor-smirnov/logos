@@ -1,0 +1,133 @@
+// Logos standard library — logos.lang.stream
+//
+// The batch-stream vocabulary of ADR 0025 (`docs/adr/0025-deem-batch-cursor-plane.md`):
+// one logical data representation for query execution — a stream of bounded
+// batches of typed rows — plus the orthogonal capability traits that record
+// what a stream can do.
+//
+// WHY IT LIVES AT THE LANGUAGE TIER (ADR 0025 §11 [REC]): these are
+// general-language notions, the batched sibling of `Iterator`
+// (`logos.lang.iter`) the way `ExactSizeIterator` is a sibling in Rust core.
+// Rooting them in one supplier (`logos.mem.bt.map`, the query plane, a single
+// container family) is the recorded "vocabulary rooted in one supplier"
+// defect — every new source would re-declare its own spelling and every
+// consumer would branch on which one it holds. The query plane CONSUMES this
+// module; it does not own it.
+//
+// The lang tier is no-alloc/no-OS (`stdlib/lang/logos.module`, tier `lang`),
+// so only the protocol, the capabilities and the BORROWED batch view live
+// here. `Buffer<R>` — the degenerate one-packet stream over a `Vec` (ADR §4)
+// — needs the heap and therefore sits one tier up in `logos.mem.stream`
+// (`stdlib/mem/stream/buffer.logos`).
+//
+// Not in the prelude on purpose: `BatchStream::next` and `Iterator::next` have
+// the same name and receiver shape, so putting this module in the implicit
+// prelude would make `it.next()` ambiguous for every iterator in the tree.
+// Consumers write `use logos.lang.stream;`.
+
+package logos.lang.stream;
+
+use logos.lang.option;
+
+// ── The pull protocol (ADR 0025 §1) ─────────────────────────────────────────
+//
+// The pull unit is a BATCH, not a row. Row-at-a-time is a CONSUMER pattern
+// (the inner loop), not the protocol:
+//
+//     while let Option::Some(b) = s.next() {
+//         let n: i64 = b.len() as i64;
+//         let mut i: i64 = 0 as i64;
+//         while i < n { /* clauses over b @ i */ i = i + (1 as i64); }
+//     }
+//
+// A heap slice is a stream of EXACTLY ONE batch — the whole `&[T]` — so the
+// old indexed loop is literally the inner loop of the degenerate case.
+
+/// A stream of bounded batches of typed rows: the one pull protocol of ADR 0025.
+///
+/// `next` returns:
+/// * `Option::None` — the stream is EXHAUSTED. Terminal: no further call is defined
+///   unless the stream is also `Rewind` and has been rewound.
+/// * `Option::Some(b)` with `b.len() == 0` — a LEGAL tick, not an end: an empty leaf,
+///   an empty epoch (ADR §10), a no-progress/keepalive tick of a budgeted producer.
+///   A consumer must treat it as "no rows this time, ask again", never as termination.
+///
+/// The batch `B` is a typed VIEW over storage (`RowsBatch<R>` row-major, `ColsBatch`
+/// columnar), never a copy, and never `dyn` (§7b): the inner loop over a batch is
+/// monomorphic and inlined, so no dispatch sits at per-row frequency.
+pub trait BatchStream<B> {
+    /// Pulls the next batch; `None` = exhausted, `Some(empty)` = a legal no-rows tick.
+    fn next(&mut self) -> Option<B>;
+}
+
+// ── Capabilities (ADR 0025 §3) ──────────────────────────────────────────────
+//
+// Capabilities are ORTHOGONAL TRAITS on the stream type, not shapes. Existence
+// of a capability = trait membership, asked by the planner via metaprog trait
+// queries: a declaration can lie about code, a type cannot (the S4c lesson).
+// Cost, exactness and the operation set stay DECLARATIONS (`op … exact`,
+// `size <rel> = <fn>`, ADR 0024 S6) because cost is data-dependent and
+// inexpressible as a type.
+
+/// The stream can be re-landed and replayed from the start: multi-pass.
+///
+/// Consuming a non-`Rewind` stream twice is a plan-level error whose repair is an
+/// inserted `Drain` with its ground (§4) — this trait is what replaces the
+/// `plan_mark_single_pass` side-channel proof with typing.
+pub trait Rewind {
+    /// Re-lands the stream at the beginning; the next `next()` yields the first batch again.
+    fn rewind(&mut self);
+}
+
+/// The stream knows its row count for free — without draining it.
+///
+/// Free means O(1)-ish and side-effect-free: a declared container `size`, a `Vec`
+/// length. A source that would have to walk to answer must NOT implement this.
+pub trait SizedStream {
+    /// Total number of rows the stream will yield, without consuming it.
+    fn size(&self) -> u64;
+}
+
+/// Marker: batches arrive in `K` order, and each batch is sorted by `K` internally.
+///
+/// The order fact that today's ten representations record nowhere (family walks and
+/// `BTreeMapIter` have it physically; `HashMapIter` does not). Immediate harvest:
+/// an `order by` over a column whose source already declares this order is a NO-OP.
+/// Carries no method: it is a promise about the `next()` sequence, checked by the
+/// producer's own tests, not by a signature.
+pub trait OrderedBy<K> {}
+
+/// Ordered positioning: the stream can jump to key `K` (the landing constructors' shape).
+///
+/// Only meaningful together with `OrderedBy<K>` — seeking a stream with no `K` order
+/// is a request nothing can answer. `seek` past the last key leaves the stream exhausted
+/// (the next `next()` is `None`), never a panic.
+pub trait Landed<K> {
+    /// Positions the stream at the first row with key `>= k`.
+    fn seek(&mut self, k: K);
+}
+
+// ── The row-major batch (ADR 0025 §2) ───────────────────────────────────────
+//
+// THE BARE SLICE IS THE BATCH. §2 spells the row-major batch `RowsBatch<R>` =
+// `&[R]`, and in Logos that equality can be literal rather than a wrapper:
+// `&[R]` already carries `len()` and `[i]`, which is the whole batch surface
+// the emitted scan loop uses. A struct wrapper would add a field to unwrap at
+// every access, a lifetime knot to re-tie, and a second spelling of `len` —
+// paying for nothing. So `RowsBatch<R>` is an ALIAS, and
+// `impl BatchStream<&[R]> for …` / `impl BatchStream<RowsBatch<R>> for …` are
+// the same impl (both spellings measured compiling, 2026-08-11).
+//
+// The alias still earns its place: it is the name the emitter and the ADR use,
+// and it is where a future selection-vector or bounds-carrying row batch would
+// land WITHOUT touching the impls that spell it by name (selection vectors are
+// deliberately out of v1 — recorded as an axis).
+
+/// The row-major batch of ADR 0025 §2: a borrowed window of `R` rows.
+///
+/// Literally `&[R]` — the slice IS the batch (`len()` + `[i]` is the whole surface
+/// the scan loop needs), so heap collections, fixpoint outputs and deltas hand out
+/// their storage directly and the batch costs nothing to build. The columnar
+/// counterpart (`ColsBatch`/`PdtCol` over a Memoria leaf's PdtBuf slots) is a
+/// separate type, selected by the source's declaration, not by a branch.
+pub type RowsBatch<R> = &[R];

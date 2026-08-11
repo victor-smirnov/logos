@@ -25,6 +25,22 @@ use logos.mem.bt.node;
 // a metaprog-emitted `use` cannot itself load a module, so this import
 // carries the edge into every generated unit's module graph.
 use logos.mem.bt.btss;
+// ADR 0025 §5: the generated family's leaf-batch producer holds `NodeView`,
+// `ColsBatch` and `PdtCol` IN ITS FIELDS, and a field type is resolved when the
+// generated unit is collected — before its own emitted `use` can carry a
+// module in. Same hub edge as node/btss above, for the same reason; without it
+// every container-declaring unit in the tree would have to spell these imports
+// itself (measured: `error [struct …LeafBatch]: unknown type 'ColsBatch'` on
+// every existing container test).
+//
+// `logos.lang.stream` is deliberately NOT hubbed here: the capability traits
+// resolve fine from the generated unit's own `use` (they appear only in impl
+// headers, not in field types), and hubbing them would put `BatchStream::next`
+// in scope for every unit that says `use logos.mem.bt.map;` — making
+// `it.next()` ambiguous exactly the way ADR 0025 §11 keeps the module out of
+// the prelude to avoid.
+use logos.mem.bt.view;
+use logos.mem.bt.batch;
 use logos.mem.collections.vec;   // Vec — the Multimap boundary signatures
 use logos.lang.option;           // Option — the WITH_ENTRY quad signature
 use logos.lang.panic;            // assert — the with_entry default
