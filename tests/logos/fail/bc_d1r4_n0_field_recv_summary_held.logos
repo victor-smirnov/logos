@@ -1,0 +1,28 @@
+// D1 round 4 / N0 — the borrow-flow summary of a callee reached through a FIELD
+// PROJECTION receiver. `k.v.push(...)`: the receiver expression's VALUE type is
+// `Vec<B>` while the callee's self parameter is `&mut Vec<B>`, so
+// resolve_method_flow's receiver narrowing matched ZERO candidates and the
+// by_base agree() fallback met an UNAVAILABLE `Vec<i32>::push` sibling and
+// returned nullptr — the permissive route. The twin with the container as a
+// PARAMETER ROOT (fail/bc_d1r3_f3_stash_leak family) refused all along; this is
+// the same program with the container one field-step away.
+// PAIRED WITH pass/bc_d1r4_n0_field_recv_admits (read before the mutation).
+package bc_d1r4_n0_field_recv_summary_held;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Keep { v: Vec<B> }
+fn stash3(c: &C, k: &mut Keep) { k.v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let e: Vec<B> = Vec::new();
+    let mut k: Keep = Keep { v: e };
+    stash3(&c, &mut k);
+    c.bump();
+    return *k.v.get(0u64).p;
+}

@@ -1,0 +1,35 @@
+// D1 round 4 / N1 — door 8b's receiver guard read the SPELLING (`recv.kind() ==
+// VarRef`) instead of asking for the place ROOT, so a container reached as a
+// STRUCT FIELD never inherited the argument's loans. The local-Vec twin
+// (fail/bc_d1_container_push_held) refused all along on the same statement.
+//
+// ⚠ REDUNDANTLY COVERED — measured, do not read this fixture as an N1 control.
+// An earlier draft of this comment claimed "no callee summary is involved";
+// the per-rule control matrix refutes it. With N1 reverted ALONE this program
+// still refuses, with the identical diagnostic, because the N0 peel resolves
+// `Vec$G1$B__push` to `result<-0 out0<-0x2` and the out-param flow channel
+// taints the root on its own (LOGOS_DUMP_FLOWS=Vec confirms the resolution).
+// It flips only when N0 AND N1 are reverted together. N1's unique witness is
+// fail/bc_d1r4_n1_field_ref_elem_outlives, whose `&i64` element type has no
+// flow-summary counterpart. This fixture still pins real unsoundness — keep it —
+// but a regression that deleted door 8b's place-root extraction would NOT
+// redden it.
+// PAIRED WITH pass/bc_d1r4_n1_field_container_admits.
+package bc_d1r4_n1_field_container_push_held;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Keep { v: Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let e: Vec<B> = Vec::new();
+    let mut k: Keep = Keep { v: e };
+    k.v.push(c.mk());
+    c.bump();
+    return *k.v.get(0u64).p;
+}

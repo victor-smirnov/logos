@@ -1,0 +1,9 @@
+// Admit control for the two bare-closure-return refusals: a closure that
+// captures only an i64 PARAMETER escapes nothing, and the widened gate must
+// leave it alone. (The gate opens on the return type; the refusal still needs
+// retention + local/temp provenance.)
+package bc_d1r4_n2_bare_closure_admits;
+fn mkf(n: i64) -> || -> i64 {
+    return move || -> i64 { return n; };
+}
+fn main() -> i64 { let f = mkf(3i64); if f() != 3i64 { return 1i64; } return 0i64; }

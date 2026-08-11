@@ -105,6 +105,45 @@ static const FlowSummary* resolve_method_flow(const FlowSummaryMap& flows,
         return first;
     };
 
+    // D1 round 4 / N0 — THE PEEL, AND WHY IT IS A SECOND TIER RATHER THAN A
+    // WIDENING. `fn stash3(c: &C, k: &mut Keep) { k.v.push(c.mk()); }` compiled.
+    // The receiver is a FIELD PROJECTION, so `recv.type(pool)` is the
+    // expression's VALUE type `Vec<B>`, while `ps[0].type(pool)` of the callee
+    // is the self parameter's type `&mut Vec<B>`. The comparison below is
+    // pointer identity over interned types, so it narrowed to ZERO candidates
+    // for EVERY field-projection receiver of a generic method, and control fell
+    // to `agree(it->second)` — where the program held both
+    // `Vec$G1$B__push` (result<-0 out0<-0x2) and `Vec$G1$i32__push`
+    // (UNAVAILABLE). agree() returns nullptr on the first unavailable sibling,
+    // so this was not even a value disagreement: narrowing WOULD have found the
+    // right summary, and the permissive (d) route was taken for want of a peel.
+    //
+    // The exact tier runs FIRST and still decides whenever it can. That is what
+    // keeps a `&self` overload distinguishable from a `&mut self` overload of
+    // the same name on the same base type, and `Vec<B>` from `&Vec<B>` — and it
+    // is what the param-root spelling (`fn stash2(c: &C, v: &mut Vec<B>)`,
+    // receiver `v` a VarRef of type `&mut Vec<B>`) already matches on today, so
+    // the peel must not disturb it. Hence: peel BOTH sides, and only when the
+    // exact tier came back empty.
+    //
+    // The peeled tier can only ever SHRINK the candidate set relative to the
+    // `agree(it->second)` fallback it replaces, never grow it, so it cannot
+    // admit a summary that the fallback would have rejected on disagreement
+    // grounds alone — and a peeled tie between two genuinely different
+    // specializations still goes through agree(): ambiguity ⇒ nullptr ⇒ the
+    // documented (d) hole, never a guess.
+    //
+    // NOT a consumer concern: ps[0].type is read ONLY inside this loop (all
+    // five consumers of the resolved summary — summary_of_method's two callers,
+    // the two flow_of_method sites in prov, and apply_flow_outparams — read the
+    // receiver-first OPERAND indexing convention, which the peel does not
+    // touch).
+    auto peel = [](TypeRef t) {
+        while (t && (t.kind() == LogosType::Kind::Ref ||
+                     t.kind() == LogosType::Kind::MutRef))
+            t = t.pointee();
+        return t;
+    };
     if (recv_t) {
         std::vector<lir_view::FunctionView> narrowed;
         for (lir_view::FunctionView f : it->second) {
@@ -113,6 +152,14 @@ static const FlowSummary* resolve_method_flow(const FlowSummaryMap& flows,
             if (ps[0].type(pool) == recv_t) narrowed.push_back(f);
         }
         if (!narrowed.empty()) return agree(narrowed);
+        if (TypeRef rb = peel(recv_t)) {
+            for (lir_view::FunctionView f : it->second) {
+                auto ps = f.params();
+                if (ps.empty()) continue;
+                if (peel(ps[0].type(pool)) == rb) narrowed.push_back(f);
+            }
+            if (!narrowed.empty()) return agree(narrowed);
+        }
     }
     return agree(it->second);
 }

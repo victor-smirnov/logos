@@ -1,0 +1,22 @@
+// Admit control for fail/bc_d1r4_n1_field_container_push_held — read before the
+// mutation. NLL, not lexical.
+package bc_d1r4_n1_field_container_admits;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Keep { v: Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let e: Vec<B> = Vec::new();
+    let mut k: Keep = Keep { v: e };
+    k.v.push(c.mk());
+    let n: i64 = *k.v.get(0u64).p;
+    c.bump();
+    if n != 1i64 { return 1i64; }
+    return 0i64;
+}

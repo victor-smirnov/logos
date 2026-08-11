@@ -1,0 +1,21 @@
+// D1 round 4 / N2 — a BARE closure return type. type_hides_borrow asked hides()
+// of the type's TYPE-ARGS, tuple elements and array element, and never of the
+// type ITSELF, so a top-level Kind::Closure return answered false, the retention
+// gate never opened, and retains_borrowing_operand's `case ClosureBox` was never
+// reached. The identical body returned as `Box<dyn Fn() -> i64>`
+// (fail/... twin) refused only because the Closure then sat in a type-ARG.
+// PAIRED WITH pass/bc_d1r4_n2_bare_closure_admits.
+package bc_d1r4_n2_bare_closure_return_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn leak() -> || -> i64 {
+    let c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    return move || -> i64 { return *b.p; };
+}
+fn main() -> i64 { let f = leak(); return f(); }

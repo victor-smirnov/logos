@@ -3078,7 +3078,41 @@ class BorrowChecker {
     // is_borrow_carrying_type answers "no" because neither is a bc NAME.
     // `Result<(), Error>` does not: its type-args are a unit tuple and a plain
     // struct, so nothing about it can outlive the callee's frame.
-    static bool type_hides_borrow(TypeRef t) {
+    //
+    // D1 round 4 / N2 + N3 — TWO PLACES THIS GATE NEVER LOOKED. It asked
+    // `hides()` of the type's TYPE-ARGS, tuple elements and array element, and
+    // of nothing else. Two consequences, both measured:
+    //   N2 — a BARE closure return type. `fn leak() -> || -> i64 { let c = …;
+    //        let b = c.mk(); return move || -> i64 { return *b.p; }; }` has a
+    //        top-level Kind::Closure return type with no type-args at all, so
+    //        the gate answered false, the retention gate never opened, and the
+    //        walk that would have caught it (retains_borrowing_operand's
+    //        `case ClosureBox: return true`) was never reached. The identical
+    //        body wrapped in `Box<dyn Fn() -> i64>` refused — only because the
+    //        Closure then sat in a type-ARG. The hole is TYPE-shaped, not
+    //        provenance-shaped: the same return capturing a plain `&i64` of a
+    //        local, with no borrow-carrying struct anywhere, compiled too.
+    //   N3 — a closure in a plain struct FIELD of a returned struct.
+    //        `struct H { f: || -> i64 }` has no type-args either, and struct
+    //        fields were not walked at all, so `return H { f: move || …*b.p };`
+    //        compiled while the same struct holding the bc value DIRECTLY
+    //        refused. The closure payload, not the struct, lost provenance.
+    // Both are fixed HERE and only here: once the gate opens, the existing
+    // machinery already resolves the rest (prov_of_retained's `one` recurses
+    // into prov_of_retained for a non-ref field value, and prov_of_retained
+    // has the ClosureBox arm that reads the capture's provenance out of prov_ —
+    // the same bridge the loan channel's round-2 door D uses).
+    //
+    // The struct walk needs a CYCLE guard that the type-arg/tuple/array
+    // recursion never did: a struct may reach itself through a field
+    // (`struct N { next: Box<N> }`), and the type-arg step would otherwise
+    // recurse forever. `seen` is by struct NAME, which is also what
+    // struct_by_name / spec_by_name are keyed by.
+    bool type_hides_borrow(TypeRef t) const {
+        std::unordered_set<std::string> seen;
+        return type_hides_borrow_(t, seen);
+    }
+    bool type_hides_borrow_(TypeRef t, std::unordered_set<std::string>& seen) const {
         if (!t) return false;
         using K = LogosType::Kind;
         auto hides = [](TypeRef a) {
@@ -3094,15 +3128,37 @@ class BorrowChecker {
                 default: return false;
             }
         };
+        // N2: the type ITSELF. A `hides()` kind reaching this function as the
+        // whole return type is the same fact as one reaching it as a type-arg.
+        if (hides(t)) return true;
         for (auto a : t.type_args())
-            if (hides(a) || type_hides_borrow(a)) return true;
+            if (hides(a) || type_hides_borrow_(a, seen)) return true;
         if (t.kind() == K::Tuple) {
             for (auto e : t.tuple_elems())
-                if (hides(TypeRef(e)) || type_hides_borrow(TypeRef(e))) return true;
+                if (hides(TypeRef(e)) || type_hides_borrow_(TypeRef(e), seen)) return true;
             return false;
         }
         if (t.kind() == K::Array)
-            return hides(t.elem()) || type_hides_borrow(t.elem());
+            return hides(t.elem()) || type_hides_borrow_(t.elem(), seen);
+        // N3: struct FIELDS. Same claim as the type-arg step, spelled
+        // structurally — `struct H { f: || -> i64 }` hides exactly what
+        // `Box<dyn Fn() -> i64>` hides.
+        if (t.kind() == K::Struct || t.kind() == K::ZonedStruct) {
+            std::string sname(t.struct_name());
+            if (sname.empty() || !seen.insert(sname).second) return false;
+            auto walk = [&](lir_view::StructView sd) {
+                if (!sd) return false;
+                for (auto& f : sd.fields()) {
+                    TypeRef ft = f.type(prog_.type_pool.impl());
+                    if (hides(ft) || type_hides_borrow_(ft, seen)) return true;
+                }
+                return false;
+            };
+            auto sit = ts_.struct_by_name.find(sname);
+            if (sit != ts_.struct_by_name.end() && walk(sit->second)) return true;
+            auto pit = ts_.spec_by_name.find(sname);
+            if (pit != ts_.spec_by_name.end() && walk(pit->second)) return true;
+        }
         return false;
     }
     // ── F4: THE DOCUMENTED RESIDUAL HOLE ──────────────────────────────────
@@ -5604,11 +5660,36 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // &mut self + BY-VALUE borrow-carrying args: `&self` reads can't capture
             // and `&x` ref-args aren't moved in, so neither taints (keeps
             // `v.contains(&x)` / `v.len()` clean).
-            if (auto recv = v.receiver();
-                recv && recv.kind() == Code::VarRef && method_self_kind(v) == 2) {
-                std::string rn(lir_view::EVarRefView{recv}.name());
-                uint32_t rn_slot = lir_view::EVarRefView{recv}.var_slot();  // Phase-1
-                if (var_has(rn_slot, rn)) {
+            // D1 round 4 / N1 — THE RECEIVER IS A PLACE, NOT A BINDING. The
+            // guard used to be `recv.kind() == Code::VarRef`, so a container
+            // reached as a STRUCT FIELD never inherited the loan and no callee
+            // was involved at all: `let mut k = Keep{v:e}; k.v.push(c.mk());
+            // c.bump(); *k.v.get(0).p` compiled, and so did the nested
+            // `k.i.v.push(...)`, while the local-Vec twin refused. The rule
+            // above is about which BINDING becomes the holder; a projection has
+            // one — its place root — and the VarRef test was reading the
+            // spelling instead of asking for it.
+            //
+            // place_write_root is the existing walk for exactly this (field /
+            // tuple / index / ref-deref steps, raw-pointer deref stops it), and
+            // NO_SLOT + var_has(NO_SLOT, name) is the existing by-name lookup
+            // that apply_flow_outparams' flow_operand_root already uses for the
+            // same reason. A VarRef receiver keeps its Phase-1 slot so the
+            // currently-working local-Vec path is byte-for-byte unchanged.
+            //
+            // `elems` below deliberately keeps reading `recv.type(pool)` — the
+            // CONTAINER's type (`k.v` → `Vec<B>`), not the root's (`k` →
+            // `Keep`). Reading the root's type there would silently change the
+            // stored_ref_elem arm to test membership in the wrong type-arg list.
+            if (auto recv = v.receiver(); recv && method_self_kind(v) == 2) {
+                bool recv_is_var = recv.kind() == Code::VarRef;
+                bool rn_thru = false;
+                std::string rn = recv_is_var
+                    ? std::string(lir_view::EVarRefView{recv}.name())
+                    : place_write_root(recv, rn_thru);
+                uint32_t rn_slot = recv_is_var                       // Phase-1
+                    ? lir_view::EVarRefView{recv}.var_slot() : NO_SLOT;
+                if (!rn.empty() && var_has(rn_slot, rn)) {
                     RefProv cap = {};
                     // §B6: element types of the receiver container (`Vec<&T>` →
                     // [&T]). A by-value arg whose type IS an element type is being

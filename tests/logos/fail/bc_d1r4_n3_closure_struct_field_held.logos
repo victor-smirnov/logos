@@ -1,0 +1,22 @@
+// D1 round 4 / N3 — a closure in a plain struct FIELD of a returned struct.
+// `struct H { f: || -> i64 }` has no type-args, and type_hides_borrow walked no
+// struct fields at all, so the gate stayed shut while the same struct holding
+// the borrow-carrying value DIRECTLY refused: the closure PAYLOAD, not the
+// struct, lost provenance. Once the gate opens, prov_of_retained's `one`
+// recurses into the field value and lands on its existing ClosureBox arm.
+// PAIRED WITH pass/bc_d1r4_n3_closure_struct_field_admits.
+package bc_d1r4_n3_closure_struct_field_held;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { f: || -> i64 }
+fn leak() -> H {
+    let c: C = C { v: 1i64 };
+    let b: B = c.mk();
+    return H { f: move || -> i64 { return *b.p; } };
+}
+fn main() -> i64 { let h: H = leak(); let g = h.f; return g(); }

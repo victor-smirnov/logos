@@ -1,0 +1,24 @@
+// Admit control for fail/bc_d1r4_n0_field_recv_summary_held: identical program
+// with the read BEFORE the mutation, so NLL retires the loan. Pins that the
+// peeled narrowing tier refuses a USE-AFTER-MUTATION, not the call itself.
+package bc_d1r4_n0_field_recv_admits;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Keep { v: Vec<B> }
+fn stash3(c: &C, k: &mut Keep) { k.v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let e: Vec<B> = Vec::new();
+    let mut k: Keep = Keep { v: e };
+    stash3(&c, &mut k);
+    let n: i64 = *k.v.get(0u64).p;
+    c.bump();
+    if n != 1i64 { return 1i64; }
+    return 0i64;
+}

@@ -1,0 +1,10 @@
+// Admit control for fail/bc_d1r4_n3_closure_struct_field_held: the same struct
+// carrying a closure that captures only an i64 parameter. The struct-FIELD walk
+// added to type_hides_borrow must not turn every struct with a closure field
+// into a refusal.
+package bc_d1r4_n3_closure_struct_field_admits;
+struct H { f: || -> i64 }
+fn mkh(n: i64) -> H {
+    return H { f: move || -> i64 { return n; } };
+}
+fn main() -> i64 { let h: H = mkh(3i64); let g = h.f; if g() != 3i64 { return 1i64; } return 0i64; }

@@ -1,0 +1,11 @@
+// D1 round 4 / N2, second spelling — the SAME hole with no #[borrow_carrying]
+// struct anywhere: a bare closure return capturing a plain `&i64` of a local.
+// Pins that the defect was TYPE-shaped (the gate never asked about the return
+// type itself), not provenance-shaped.
+package bc_d1r4_n2_bare_closure_plain_ref_held;
+fn leak() -> || -> i64 {
+    let x: i64 = 5i64;
+    let b: &i64 = &x;
+    return move || -> i64 { return *b; };
+}
+fn main() -> i64 { let f = leak(); return f(); }

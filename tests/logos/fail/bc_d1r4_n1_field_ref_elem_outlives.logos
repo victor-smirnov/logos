@@ -1,0 +1,20 @@
+// D1 round 4 / N1 — THE WITNESS THAT ONLY N1 CLOSES. Door 8b's `stored_ref_elem`
+// arm (a `&`-typed argument whose type IS the container's element type is being
+// STORED, so add_ref_sources records the receiver as outliving the referent) has
+// no borrow-flow-summary counterpart: with the N1 place-root extraction reverted
+// and the N0 peel left in, this program compiles; with N0 reverted and N1 left
+// in, it refuses. The local-Vec twin below the fold refuses in every
+// configuration, which is the control that the rule was already right for a
+// VarRef receiver and only ever missed the projection spelling.
+package bc_d1r4_n1_field_ref_elem_outlives;
+use logos.mem.collections.vec;
+struct Keep { v: Vec<&i64> }
+fn main() -> i64 {
+    let e: Vec<&i64> = Vec::new();
+    let mut k: Keep = Keep { v: e };
+    {
+        let n: i64 = 7i64;
+        k.v.push(&n);
+    }
+    return **k.v.get(0u64);
+}

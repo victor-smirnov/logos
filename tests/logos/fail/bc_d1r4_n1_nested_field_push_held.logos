@@ -1,0 +1,28 @@
+// D1 round 4 / N1, the NESTED projection: the place root is two field steps
+// away (`k.i.v.push(...)`). place_write_root crosses both, so the root binding
+// `k` inherits — a one-step-only fix would have left this admitting.
+//
+// ⚠ REDUNDANTLY COVERED — same measured caveat as its one-step sibling
+// fail/bc_d1r4_n1_field_container_push_held: reverting N1 ALONE leaves this
+// refusing, because the N0 peel resolves `Vec$G1$B__push` (out0<-0x2) and the
+// out-param flow channel carries it. It flips only under the N0+N1 revert, so
+// it is a soundness pin, not an attribution control for door 8b.
+package bc_d1r4_n1_nested_field_push_held;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { v: Vec<B> }
+struct Keep { i: Inner }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let e: Vec<B> = Vec::new();
+    let mut k: Keep = Keep { i: Inner { v: e } };
+    k.i.v.push(c.mk());
+    c.bump();
+    return *k.i.v.get(0u64).p;
+}

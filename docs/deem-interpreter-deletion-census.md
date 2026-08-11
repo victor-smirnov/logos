@@ -1438,8 +1438,30 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # 6980 measurement) BEFORE `cmake -S . -B build`; measured after it with
 # `ctest -N` three ways, plus `ctest -N -R bc_d1r3` = 14. The counts below are
 # the measurement.
-REGISTRY-ALL         6981
-REGISTRY-NOIMPORTED  3298
+#
+# D1 ROUND 4 (N0/N1/N2/N3) adds ELEVEN fixtures — 7 refusals + 4 admits, all
+# local (none under tests/imported, so ALL and -LE imported move together), no
+# tier_commit label on any of them:
+#   fail/bc_d1r4_n0_field_recv_summary_held     N0 — the peel; field-projection
+#                                               receiver of a generic method
+#   fail/bc_d1r4_n1_field_container_push_held   N1 — door 8b's place root
+#   fail/bc_d1r4_n1_nested_field_push_held      N1 — two field steps
+#   fail/bc_d1r4_n1_field_ref_elem_outlives     N1 — THE WITNESS ONLY N1 CLOSES
+#                                               (stored_ref_elem/add_ref_sources
+#                                               has no summary counterpart)
+#   fail/bc_d1r4_n2_bare_closure_return_held    N2 — bare closure return type
+#   fail/bc_d1r4_n2_bare_closure_plain_ref_held N2 — same, no bc struct at all
+#   fail/bc_d1r4_n3_closure_struct_field_held   N3 — closure in a struct FIELD
+#   pass/bc_d1r4_n0_field_recv_admits           read before the mutation (NLL)
+#   pass/bc_d1r4_n1_field_container_admits      read before the mutation (NLL)
+#   pass/bc_d1r4_n2_bare_closure_admits         captures an i64 PARAM only
+#   pass/bc_d1r4_n3_closure_struct_field_admits struct w/ closure field, no
+#                                               borrow captured
+# PREDICTED 6992 / 3309 / 31 (+11 / +11 / 0) BEFORE re-running cmake; the gate
+# then measured exactly that, which is the prediction earning its keep rather
+# than a number copied out of a failure message.
+REGISTRY-ALL         6992
+REGISTRY-NOIMPORTED  3309
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
