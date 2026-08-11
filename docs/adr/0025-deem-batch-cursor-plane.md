@@ -110,6 +110,12 @@ a new row in that function, not a new branch in every consumer. Selection
 vectors (filtered batch without copy) are deliberately NOT in v1 — recorded as
 an axis.
 
+**The batch is ONE FORM FOR ALL STORES (Victor, 2026-08-10).** PdtBuffer has
+no dyn and needs none: a leaf's column region has the same shape whichever
+store resolved the block, so `ColsBatch`/`PdtCol` are one concrete type per
+config — which is exactly what lets the layers ABOVE it go dyn (§7b) without
+a per-row cost. The batch is the currency that crosses the dyn boundary.
+
 ## 3. Capabilities
 
 ```logos
@@ -231,18 +237,22 @@ CoW RC as the primary mechanism — they combine an ARC block cache with a
 tracing GC. Residency-during-use is the **ARC + BC pair**: BC yields
 deterministic pin windows (batch borrow = pin; Drop/advance = unpin — a leaked
 pin is unspellable), ARC evicts only among unpinned pages. One pin pair per
-batch, i.e. per leaf — never per row or per access. The emitter substitutes
-the pin type per store (the emitter-parameterized decision of the
-container⟂store split); the emitted query shape is one for all stores.
+batch, i.e. per leaf — never per row or per access. Both pin parts are
+METHODS ON THE GENERALIZED `dyn Snapshot` (§7b) — a uniform call whose body
+is a no-op in MemoryStore — so the emitted query code is not merely one shape
+for all stores: it is one CODE, store-agnostic, with no per-store
+substitution left on the query side.
 
 **Requirements this puts on the Memoria API (none exists today):**
 
 1. `Walk`-style cursors hold `*const C` — a convention, checked by nothing.
    Becomes a `#[borrow_carrying]` tie to `&C`.
 2. The handle `{snap: *mut MemorySnapshot, ctr_id}` is a raw pointer with no
-   tie to the wrapper whose Drop releases trees. Becomes owner of (or borrower
-   from) the wrapper — the knot of ladder rung 2. **First slice: without it
-   the borrow chain does not close.**
+   tie to the wrapper whose Drop releases trees — AND it names a concrete
+   store. Becomes owner of (or borrower from) a wrapper of the GENERALIZED
+   snapshot (`dyn Snapshot`, §7b) — the knot of ladder rung 2, generalized on
+   day one rather than at store #2. **First slice: without it the borrow
+   chain does not close.**
 3. The Snapshot seam vocabulary gains the two-part pin capability (the table
    above), spelled per store by the emitter.
 4. `remove()`/future GC currently see only the wrapper count; after (2)
@@ -262,6 +272,31 @@ container⟂store split); the emitted query shape is one for all stores.
 **Known limit, stated:** two handles to the SAME container in one snapshot
 alias past BC — the same limit view.logos declares intra-node. Backstop is a
 store-level check, not the type system.
+
+## 7b. The dyn boundary (Victor, 2026-08-10: "предусмотри это сразу")
+
+The store-facing surfaces are generalized NOW, not at store #2:
+
+* **`dyn Snapshot`** — for container work every store's snapshot has the SAME
+  API; the handle holds a wrapper of `dyn Snapshot` (the `Arc<dyn Snapshot>`
+  shape `store_fork_arc` already returns), and the two pin parts (§7) are its
+  methods. This SUPERSEDES the container⟂store deferral ("`trait Snapshot`
+  stays a minimal marker; capability→trait when store #2 arrives") for the
+  INTERFACE; the emitter-parameterized decision (b) survives only INSIDE the
+  container family's implementation, where per-store node specifics live.
+* **`dyn` container interfaces** — a family's consumer-facing surface (the
+  landing constructors, the batch source) hides which store implements it:
+  `next_batch(&mut) -> Option<ColsBatch>` is dyn-able precisely because the
+  batch is one concrete form (§2). Payoff: a compiled query binds the CONFIG,
+  not the store — one binding serves every store carrying that family.
+* **The batch itself — never dyn.** PdtBuffer is one shape for all stores;
+  the inner loop over a batch is monomorphic and inlined.
+
+**The frequency invariant that prices this:** every dyn call sits at
+per-query (open, landing), per-descent-node (`get_child`), or per-LEAF
+(`next_batch`, pin/unpin) frequency. **No dyn call is per-row.** The batch
+protocol is what holds that line — which is the second reason (after §12's
+fiber suspend) that the batch, not the row, had to be the protocol unit.
 
 ## 8. Aggregates (later slice)
 
@@ -357,7 +392,9 @@ scan shape; every other cell is declared, not silently absent.
   ride as one-packet streams. Gates: slice-source codegen byte-comparable OR
   measured equal (objdump/callgrind — the S4k standard); Memoria scan via leaf
   batches, oracle = same rows against the container's own per-row cursor +
-  descent count (leaves, not rows). Requires Memoria API req. 1–2.
+  descent count (leaves, not rows). Requires Memoria API req. 1–2 — req. 2 in
+  its §7b form (`dyn Snapshot` in the handle), so the dyn boundary lands here,
+  not as a later migration.
 * **S2 — adapters as plan nodes.** `Drain`/`Sort`/`Arrange` in AccessPlan with
   grounds; delete the side-channel booleans and `plan_mark_single_pass`;
   `explain()` names every materialization. Gate: the refusal census (why-
