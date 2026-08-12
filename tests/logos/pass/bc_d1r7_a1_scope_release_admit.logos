@@ -1,0 +1,41 @@
+// D1 round 7 / R7a RULE 1 — ADMIT CONTROL (ii): THE INHERITED LOAN STILL DIES.
+//
+// The second way the new root goes wrong: a loan that is inherited across the
+// hop but never RETRACTED. Rule 1 touches only the roots a result inherits
+// from; retraction is untouched, so scope exit must still release — and that
+// sentence is worth a program, because a checker that closes D1 by making
+// loans immortal passes every fail fixture in this arc while making the
+// container unusable after its first read.
+//
+// Same hop as fail/bc_d1r7_a1_pull_through_reborrow, with the reborrow, the
+// holder and the read all INSIDE a scope that closes before the mutation.
+// Values asserted on both sides of `bump()`: the pre-mutation read must see
+// 1, the post-mutation container must see 2.
+package bc_d1r7_a1_scope_release_admit;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+#[borrow_carrying]
+struct S { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk_s(&self) -> S { return S { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+impl S {
+    fn pull(&mut self) -> B { return B { p: self.p }; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut seen: i64 = 0i64;
+    {
+        let mut s: S = c.mk_s();
+        let mut r: &mut S = &mut s;   // the hop…
+        let b: B = r.pull();          // …the inherited loan…
+        seen = *b.p;                  // …read BEFORE the mutation
+    }                                 // …and released HERE, with the scope
+    c.bump();                         // must be ADMITTED
+    if seen != 1i64 { return 1i32; }
+    if c.v != 2i64 { return 2i32; }
+    return 0i32;
+}

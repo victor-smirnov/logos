@@ -1,0 +1,44 @@
+// D1 round 7 / R7b — THE DEFERRAL MUST NOT SWALLOW A BAD PROGRAM.
+//
+// R7b answers an Error-typed RHS by binding the pattern's names at error_t()
+// and staying SILENT. Silence is the whole mechanism, and it is also the whole
+// risk: a deferral that never escalates is not a fix, it is a permissive hole
+// that admits every wrong destructure in the language, and — being permissive
+// — it would be invisible to a green corpus by construction.
+//
+// This is that hole's probe, in the rule's own idiom. `c.seek(0u64)` is the
+// deferred RHS of the finding, the branch FIRES on it (measured with a
+// fire-count print inside the branch: 1 fire at this line, then removed), and
+// the strict round must then REJECT the pattern for real, because `LedCur` is
+// not the name of anything: the family instance is content-hashed, so the
+// cursor is `Hs…Cur` and the tidy name the finding was first written with does
+// not exist. The round-0 error ("rhs must be a struct, got '<error>'") is gone;
+// what is asserted here is the round-N one, which names both sides.
+//
+// The `.expected` deliberately stops before the hashed name — the hash is a
+// function of the container's definition, and a fixture that pinned it would
+// be asserting the mangler, not the rule.
+package bc_d1r7_b1_destructure_name_mismatch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    let LedCur { found, .. } = c.seek(0u64);   // deferred in round 0, WRONG in round N
+    if !found { return 1i32; }
+    return 0i32;
+}

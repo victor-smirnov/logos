@@ -1,0 +1,39 @@
+// D1 round 7 / R7a RULE 2 — A SHARED REBORROW IS A REBORROW.
+//
+// `is_reborrow_ref_kind` in src/compiler/borrow_check.cpp. Before it, three
+// doors (`note_reborrow`, `prescan_reborrow_place`, `note_reborrow_place`)
+// admitted Kind::MutRef ONLY, so `let r: &S = &s;` was recorded NOWHERE:
+// `note_reborrow name=r referent=<empty>`, no `alias_use` at all. `s`'s last
+// use stayed at the `&s` line, so c's loan was released one line EARLIER than
+// in the `&mut` leak of fail/bc_d1r7_a1_pull_through_reborrow, `c.bump()` was
+// admitted, and `*b.p` read a mutated `c`.
+//
+// The `&mut`/`&` distinction says what may be DONE through the reference, not
+// whether the referent stays borrowed; for the live-range and provenance
+// questions borrow_check.cpp asks, a shared reborrow is exactly as
+// load-bearing. This is its OWN rule and its own fixture pair because it
+// touches the NLL live range of every `let r = &x;` in the corpus, which the
+// `&mut` rule does not — the admit half is pass/bc_d1r7_a2_shared_read_then_
+// mut_admit, and the whole L2 corpus is the second admit control.
+package bc_d1r7_a2_shared_reborrow;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+#[borrow_carrying]
+struct S { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk_s(&self) -> S { return S { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+impl S {
+    fn peek(&self) -> B { return B { p: self.p }; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut s: S = c.mk_s();         // `s` holds c's loan
+    let r: &S = &s;                  // a SHARED reborrow — still a reborrow
+    let b: B = r.peek();
+    c.bump();                        // must refuse: `b` is read below
+    return *b.p;
+}

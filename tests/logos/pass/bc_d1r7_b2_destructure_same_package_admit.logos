@@ -1,0 +1,34 @@
+// D1 round 7 / R7b RESIDUE — THE ADMIT HALF: PRIVATE IS PER PACKAGE, NOT PER
+// FIELD.
+//
+// The privacy check added to lower_let_pat is `check_pub_access`, the same
+// helper the field READ and the struct LITERAL use, so its exemption is the
+// same one: a package may take its OWN types apart, `pub` or not. That
+// exemption has to be checked in the ABUSE direction and in the ordinary one,
+// because an over-refusing version of this check reds nothing in the arc's
+// fail half and everything in real code — every `let Foo { a, b } = foo;` in
+// the corpus is written inside the package that declares `Foo`.
+//
+// Three shapes, all of them same-package and all of them private-by-default:
+// the plain destructure, the RENAMED binding (`a: x`), and the `..` rest, whose
+// skipped fields must not be checked into existence. Values asserted, so a
+// deferral or a mis-bind that compiled would still answer wrong.
+package bc_d1r7_b2_destructure_same_package_admit;
+
+struct Priv { a: i64, b: i64, c: i64 }
+pub struct Mixed { pub open: i64, shut: i64 }
+
+fn main() -> i32 {
+    let p: Priv = Priv { a: 1i64, b: 2i64, c: 3i64 };
+    let Priv { a, b, c } = p;
+    if a != 1i64 || b != 2i64 || c != 3i64 { return 1i32; }
+
+    let q: Priv = Priv { a: 4i64, b: 5i64, c: 6i64 };
+    let Priv { a: x, .. } = q;                 // rename + rest
+    if x != 4i64 { return 2i32; }
+
+    let m: Mixed = Mixed { open: 7i64, shut: 8i64 };
+    let Mixed { open, shut } = m;              // one pub, one not: both own-package
+    if open != 7i64 || shut != 8i64 { return 3i32; }
+    return 0i32;
+}

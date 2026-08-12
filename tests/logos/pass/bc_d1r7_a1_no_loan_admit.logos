@@ -1,0 +1,43 @@
+// D1 round 7 / R7a RULE 1 — ADMIT CONTROL (i): INHERITING FROM A BINDING THAT
+// HOLDS NO LOAN IS A NO-OP.
+//
+// Rule 1 adds a NAME (the reborrow's referent) to the roots a call result
+// inherits from. The way such a rule goes wrong is not by refusing its own
+// fail fixture — it cannot, that half is invisible to it — but by making the
+// extra root mean something it does not: any `&mut` local in the program
+// becoming a carrier of any live loan.
+//
+// Here `t` reborrows a local that holds a loan of `n`, a plain stack i64, and
+// NOT of `c`. `r.pull()` inherits from `t` — which holds nothing of c's — so
+// `c.bump()` must be ADMITTED, and the values must come out right: a checker
+// that turned the new root into a blanket "anything reborrowed keeps every
+// loan alive" reds here with the SAME message the fail half asserts.
+//
+// VALUES, not just compilation: `*b.p` is read AFTER the mutation, so a
+// checker that silently rehomed the loan onto the wrong binding would still
+// compile and this program would answer 1 or 2.
+package bc_d1r7_a1_no_loan_admit;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+#[borrow_carrying]
+struct S { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk_s(&self) -> S { return S { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+impl S {
+    fn pull(&mut self) -> B { return B { p: self.p }; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let n: i64 = 5i64;
+    let mut t: S = S { p: &n };       // holds a loan of `n`, none of `c`
+    let mut r: &mut S = &mut t;       // the same HOP as the fail half…
+    let b: B = r.pull();              // …inheriting a loan that is not c's
+    c.bump();                         // must be ADMITTED
+    if *b.p != 5i64 { return 1i32; }
+    if c.v != 2i64 { return 2i32; }
+    return 0i32;
+}

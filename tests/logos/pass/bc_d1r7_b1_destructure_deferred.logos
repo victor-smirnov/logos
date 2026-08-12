@@ -1,0 +1,75 @@
+// D1 round 7 / R7b — A DESTRUCTURING `let` OVER A DEFERRED RHS.
+//
+// `SemaChecker::lower_let_pat` (src/compiler/sema_stmt.cpp) used to answer an
+// Error-typed RHS with a HARD error — "let <struct-pat> = expr: rhs must be a
+// struct, got '<error>'" plus one "undefined variable" per bound name — and
+// that error aborts the unit BEFORE the post-drain re-sema round that types an
+// ADR 0021 factory-backed chain for real. So a destructuring `let` was the
+// last door in the language that a container family's deferred types could not
+// go through, and the SAME rhs bound by an ordinary `let` and read
+// field-by-field compiled. R7b answers an Error RHS the way round 6 taught
+// build_pattern_variant_data to: not "not a struct", NOT YET KNOWN — bind the
+// pattern's names at error_t(), stay silent, and let the strict round type it.
+//
+// THE DOOR MEASURED. `b.keys()` is a `PdtCol` returned by a metaprog-emitted
+// batch whose receiver type is a content-hashed family instance; in sema round
+// 0 the whole `create_ctr::<typeof(Led)>(…)` → `leaf_batches()` →
+// `next_batch()` → `unwrap()` chain is Kind::Error. The deferral branch FIRES
+// here — measured with a fire-count print inside the branch, which counted 1,
+// then removed — and the strict round resolves the pattern against `PdtCol`.
+//
+// A STATED MATRIX GAP, because it is a property of this fixture and not of the
+// rule: the pattern binds NO names. Every field of every struct reachable
+// through a deferred family chain is private to its defining package
+// (`PdtCol::base/len` to `logos.mem.bt.batch`), and the family's own cursor and
+// batch types — whose `found` field IS `pub` — are named by content hash
+// (`Hs352959f3caf5b795Cur`), which no source file can spell and no fixture
+// should pin. So the binding half of the deferred destructure is unpinnable
+// today; what this fixture pins is that the door OPENS and the unit survives
+// it, and fail/bc_d1r7_b1_destructure_name_mismatch pins that deferring does
+// not swallow a genuinely bad program. Closing the gap needs a pub-field
+// struct on a deferred chain, i.e. a stdlib change, not a test change.
+//
+// VALUES, not just compilation: the same chain is read for real around the
+// destructure (two rows, keys 1+2, vals 10+20 ⇒ sum 33), so a deferral that
+// left the unit half-typed would answer wrong instead of compiling silently.
+package bc_d1r7_b1_destructure_deferred;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    c.insert(2u64, 20u64);
+
+    let mut n: u64 = 0u64;
+    let mut sum: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        let b = s.next_batch().unwrap();
+        let PdtCol { .. } = b.keys();      // THE DOOR: rhs is Kind::Error in round 0
+        let kc: PdtCol = b.keys();
+        let vc: PdtCol = b.vals();
+        n = b.len();
+        let mut j: u64 = 0u64;
+        while j < n { sum = sum + kc.at(j) + vc.at(j); j = j + 1u64; }
+    }
+    if n != 2u64 { return 1i32; }
+    if sum != 33u64 { return 2i32; }   // (1+10) + (2+20)
+    return 0i32;
+}

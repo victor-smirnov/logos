@@ -1530,8 +1530,59 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   pass/bc_d1r6_d2_generic_param_admit       legitimate `T` binding, VALUES asserted
 # PREDICTED 7031 / 3348 / 31 (+1 / +1 / 0) BEFORE re-running cmake; the gate then
 # measured exactly that, three ways.
-REGISTRY-ALL         7031
-REGISTRY-NOIMPORTED  3348
+#
+# D1 round 7 lands FOUR rules — R7a rule 1 (a call result inherits the loans of
+# a named reborrow's REFERENT, not just of the terminal name), R7a rule 2 (a
+# SHARED reborrow is a reborrow: `&` joins `&mut` at all three recording doors),
+# R7b (a destructuring `let` over an Error-typed rhs DEFERS instead of erroring
+# out of the unit), R7b's residue (field privacy is checked at the destructuring
+# `let`, the third door after the field read and the struct literal) — and until
+# now they were PINNED BY NOTHING: the corpus stopped at bc_d1r6_*, every round-7
+# probe lived in /tmp, and each rule's control revert therefore reddened exactly
+# zero tests. TEN corpus fixtures, no gate, five refusing and five admitting:
+#   fail/bc_d1r7_a1_pull_through_reborrow      rule 1, THE FINDING VERBATIM
+#   fail/bc_d1r7_a1_family_next_batch_reborrow rule 1, the ADR 0025 customer:
+#                                              `r.next_batch().unwrap()` held
+#                                              across `insert` behind a named
+#                                              reborrow — emitted types, hashed
+#                                              instance, freed leaf
+#   fail/bc_d1r7_a2_shared_reborrow            rule 2, `let r: &S = &s;`
+#   fail/bc_d1r7_b1_destructure_name_mismatch  R7b, the deferral ESCALATES
+#   fail/bc_d1r7_b2_destructure_private_field  the residue, the permissive hole
+#   pass/bc_d1r7_a1_no_loan_admit              rule 1 ac1: no loan ⇒ no-op
+#   pass/bc_d1r7_a1_scope_release_admit        rule 1 ac2: the loan still dies
+#   pass/bc_d1r7_a2_shared_read_then_mut_admit rule 2's over-refusal direction
+#   pass/bc_d1r7_b1_destructure_deferred       R7b, the door OPENS (PdtCol over a
+#                                              factory-backed chain), values asserted
+#   pass/bc_d1r7_b2_destructure_same_package_admit  privacy is per PACKAGE
+# THE ATTRIBUTION MATRIX, measured one revert at a time with a restored green
+# checkpoint between every pair (four reverts, four restores, eight builds):
+#   rule 1 OUT → 3 red (a1_pull, a1_family, a2_shared)      restore → 0 red
+#   rule 2 OUT → 1 red (a2_shared)                          restore → 0 red
+#   R7b    OUT → 2 red (b1_deferred, b1_name_mismatch)      restore → 0 red
+#   residue OUT→ 1 red (b2_private_field)                   restore → 0 red
+# Each rule is individually load-bearing: rule 2's revert reds ONLY its own
+# fixture, and rule 1's two fixtures stay green under it, so the one fixture the
+# two rules SHARE (a2_shared needs the shared reborrow recorded AND the referent
+# inherited) does not have to separate them. The R7b branch was additionally
+# measured from the inside with a fire-count print — 1 fire in each of the two
+# b1 fixtures, 0 in the privacy pair and 0 in pass/ctr_family_cursor_then_mut,
+# which is what makes the residue an INDEPENDENT finding and not a side effect
+# of the deferral — then removed.
+# STATED MATRIX GAP: pass/bc_d1r7_b1_destructure_deferred binds NO names. Every
+# field reachable through a deferred family chain is private to its defining
+# package, and the emitted types whose fields are `pub` are named by content hash
+# (`Hs…Cur`), which no source file can spell. The BINDING half of the deferred
+# destructure is therefore unpinnable until a pub-field struct exists on a
+# deferred chain — a stdlib change, not a test change. What is pinned today: the
+# door opens, the unit survives, the values come out right, and the fail twin
+# proves the deferral still escalates.
+# PREDICTED 7041 / 3358 / 31 (+10 / +10 / 0 — ten `.expected` files under
+# tests/logos/{pass,fail}, which the corpus glob registers one test each, and no
+# new gate, so tier_commit is unmoved) BEFORE re-running cmake; the gate then
+# measured exactly that, three ways.
+REGISTRY-ALL         7041
+REGISTRY-NOIMPORTED  3358
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

@@ -1,0 +1,49 @@
+// D1 round 7 / R7a RULE 1, THE ADR 0025 CUSTOMER SPELLING.
+//
+// fail/ctr_family_mut_while_next_batch pins the same freed-leaf read with the
+// stream named directly (`s.next_batch().unwrap()`). This file changes ONE
+// line — the stream is pulled through a named reborrow `let r = &mut s;` —
+// and until R7a rule 1 that single line laundered the loan and the program
+// COMPILED: `insert` repoints the root and `tree_release`s the old tree,
+// freeing the very leaf the batch adopted, and `b.len()` then read it.
+//
+// It is here as a SECOND fail fixture, not as a duplicate of the hand-written
+// skeleton in fail/bc_d1r7_a1_pull_through_reborrow, because the generated
+// container family is the rule's actual consumer: `leaf_batches()`,
+// `next_batch()` and `unwrap()` are all metaprog-emitted, the receiver type is
+// a content-hashed instance, and a rule that works on a hand-written `impl`
+// but not on the emitted one closes nothing that ADR 0025 needs closed. Two
+// spellings of one loan, and a checker can lose either without the other.
+//
+// The admit twin for THIS surface is pass/ctr_family_next_batch_then_mut (the
+// same scan with the stream's scope closed before the mutation, values
+// asserted): the refusal message below is byte-identical to what an
+// over-refusing checker prints, so neither half stands alone.
+package bc_d1r7_a1_family_next_batch_reborrow;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    let mut s = c.leaf_batches();
+    let r = &mut s;                     // the NAMED reborrow — the only difference
+    let b = r.next_batch().unwrap();    // two by-value hops, now BEHIND a hop
+    c.insert(2u64, 20u64);              // …and THIS must still be refused
+    if b.len() > 0u64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,31 @@
+// D1 round 7 / R7b RESIDUE — FIELD PRIVACY, THE THIRD DOOR.
+//
+// A PERMISSIVE defect, found because R7b's deferral let a probe REACH
+// lower_let_pat's field loop for the first time, and independent of it — this
+// program's RHS is a fully RESOLVED cross-package `String` and never enters
+// the deferral branch at all. MEASURED: this exact destructure compiled, rc=0,
+// while the very same read spelled `s.nbytes` refuses with «'nbytes' is
+// private to package 'logos.mem.string'». Privacy was enforced at the field
+// READ (sema_expr's check_pub_access) and at the struct LITERAL, and a
+// destructuring `let` walked past both — so `let String { data, nbytes, cap }
+// = s;` was a supported way to take a package's private representation apart,
+// raw heap pointer included.
+//
+// Permissive defects are invisible to a green corpus by construction: nothing
+// that compiles today stops compiling when the hole is closed, which is why
+// this fixture exists at all and why it comes in a pair with
+// pass/bc_d1r7_b2_destructure_same_package_admit — the check must fire ACROSS
+// a package boundary and stay silent INSIDE one, and the refusal message alone
+// cannot tell those two apart.
+package bc_d1r7_b2_destructure_private_field;
+
+use logos.mem.string;
+
+fn main() -> i32 {
+    let s: String = String::from("abc");
+    let String { data, nbytes, cap } = s;   // three private fields, three refusals
+    if nbytes != 3i64 { return 1i32; }
+    if cap < 3i64 { return 2i32; }
+    if data == 0 { return 3i32; }
+    return 0i32;
+}

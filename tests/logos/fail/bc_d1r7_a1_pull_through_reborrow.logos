@@ -1,0 +1,50 @@
+// D1 round 7 / R7a RULE 1, THE FINDING VERBATIM — the loan must survive the
+// HOP through a named reborrow.
+//
+// The rule (`collect_result_roots` in src/compiler/borrow_check.cpp) adds the
+// REFERENT of a named reborrow to the roots a call result inherits from. Its
+// defect was measured on exactly this program: the reborrow `r -> s` IS
+// recorded and DOES extend s's NLL live range, so the loan is not lost for
+// lack of a live range — what never happened is INHERITANCE across the hop.
+// The walk handed back the terminal name `r`, `b` co-held only the loan OF
+// `s`, and the record `target=c holder=s co=[]` was RELEASED at the `pull()`,
+// one line before `c.bump()`:
+//
+//   line=20 target=c holder=s co=[]  lu=20 RELEASE   (the leak)
+//   line=19 target=c holder=s co=[b] lu=21 keep      (the alias-free twin)
+//
+// so `c.bump()` was ADMITTED and `*b.p` read through a pointer into a `c` that
+// had been mutated under it. THE TWO TWINS THAT MAKE THIS A DEFECT AND NOT A
+// DESIGN: the same program with the reborrow spelled away — `s.pull()`
+// directly, or `(&mut s).pull()` inline — REFUSED. Only the NAMED spelling
+// laundered the loan, so the verdict depended on what the program SPELLS.
+//
+// THE ADMIT HALVES, which is what separates this from an over-refusing
+// checker printing the same words: pass/bc_d1r7_a1_no_loan_admit (a reborrow
+// of a binding that holds no loan of `c` inherits nothing) and
+// pass/bc_d1r7_a1_scope_release_admit (the loan still dies at scope exit).
+// The generated-type spelling — the ADR 0025 customer — is
+// fail/bc_d1r7_a1_family_next_batch_reborrow.
+package bc_d1r7_a1_pull_through_reborrow;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+#[borrow_carrying]
+struct S { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk_s(&self) -> S { return S { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+impl S {
+    fn pull(&mut self) -> B { return B { p: self.p }; }
+    fn peek(&self) -> B { return B { p: self.p }; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut s: S = c.mk_s();         // `s` holds c's loan
+    let mut r: &mut S = &mut s;      // the HOP: `r` IS `s`
+    let b: B = r.pull();             // …so `b` must inherit c's loan THROUGH it
+    c.bump();                        // must refuse: `b` is read below
+    return *b.p;
+}

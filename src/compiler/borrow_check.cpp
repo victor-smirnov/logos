@@ -2988,21 +2988,57 @@ class BorrowChecker {
             return r && r.type(pool) &&
                    r.type(pool).kind() == LogosType::Kind::Ptr;
         };
+        // ── D1 round 7 / R7a: THE HOP MUST LOOK THROUGH A NAMED REBORROW ───
+        //
+        // THE DEFECT (measured, LOGOS_R7A_TRACE at note_reborrow / its alias
+        // chase / release_dead_borrows, then reverted). For
+        //   let mut s: S = c.mk_s();        // s holds c's loan
+        //   let mut r: &mut S = &mut s;
+        //   let b: B = r.pull(); c.bump(); *b.p
+        // the reborrow IS recorded and DOES extend s's NLL live range
+        // (`alias_use r -> s`), so the brief's "extend the live range" shape is
+        // already in place. What never happens is LOAN INHERITANCE across the
+        // hop: this walk hands back the terminal name `r`, so `b` co-holds only
+        // the loan OF s, and the record `target=c holder=s co=[]` is RELEASED
+        // at the pull — one line before the mutation. Verbatim:
+        //   line=20 target=c holder=s co=[]  lu=20 RELEASE   (leak)
+        //   line=19 target=c holder=s co=[b] lu=21 keep      (alias-free twin)
+        // Same signature in every spelling: `(*r).pull()`, `&mut *r` two-level,
+        // and `h.r.pull()` (where `reborrow_of_["h.r"]=s` is recorded but never
+        // consulted). The alias-free twin (a0) and the inline twin
+        // `(&mut s).pull()` (a6) both refuse — this rule converges the named
+        // spellings onto the verdict they already give.
+        //
+        // WHY IT CANNOT OVER-REFUSE ON ITS OWN. It only ADDS a name to the
+        // roots; the caller runs the walk only when the result carries borrows,
+        // inherit_loans ADDS a co-holder to an existing record (never creates,
+        // never strengthens), and inheriting from a binding that holds no loan
+        // is a no-op (ac1). Retraction is untouched, so scope exit still
+        // releases (ac2).
+        //
+        // The dotted FIELD path is collected exactly as place_write_root does
+        // it (outermost first, invalidated by an index/tuple step, NOT by a
+        // reference deref) so `h.r.pull()` resolves through the place map.
+        std::vector<std::string> path_fields;
+        bool path_ok = true;
         while (cur) {
             Code k = cur.kind();
             if (k == Code::FieldRead)  {
                 auto r = EFieldReadView{cur}.receiver();
                 if (recv_is_rawptr(r)) return;
+                if (path_ok) path_fields.emplace_back(EFieldReadView{cur}.field());
                 cur = r; continue;
             }
             if (k == Code::TupleIndex) {
                 auto r = ETupleIndexView{cur}.receiver();
                 if (recv_is_rawptr(r)) return;
+                path_ok = false;
                 cur = r; continue;
             }
             if (k == Code::IndexRead)  {
                 auto r = EIndexReadView{cur}.receiver();
                 if (recv_is_rawptr(r)) return;
+                path_ok = false;
                 cur = r; continue;
             }
             if (k == Code::Deref) {
@@ -3016,8 +3052,14 @@ class BorrowChecker {
         }
         if (cur && cur.kind() == Code::VarRef) {
             std::string n(EVarRefView{cur}.name());
-            if (var_has(EVarRefView{cur}.var_slot(), n) || is_loan_holder(n))
-                out.push_back(std::move(n));
+            bool tracked = var_has(EVarRefView{cur}.var_slot(), n) || is_loan_holder(n);
+            // R7a: the REFERENT, resolved through the binding map (rehome, 8
+            // hops — a4's `&mut *r`) and the place map (a3's `h.r`).
+            std::string ref = resolve_place_reborrow(n, path_fields, path_ok);
+            if (tracked) out.push_back(n);
+            if (!ref.empty() && ref != n &&
+                (var_has(NO_SLOT, ref) || is_loan_holder(ref)))
+                out.push_back(std::move(ref));
         }
     }
 
@@ -4303,7 +4345,7 @@ class BorrowChecker {
     void prescan_reborrow_place(const std::string& place, lir_view::ExprRef val) {
         if (place.empty() || !val) return;
         TypeRef vt = val.type(prog_.type_pool.impl());
-        if (!vt || vt.kind() != LogosType::Kind::MutRef) return;
+        if (!is_reborrow_ref_kind(vt)) return;   // R7a rule 2 (was MutRef only)
         std::string r = prescan_referent(val);
         if (!r.empty() && r != place) reborrow_prescan_[place] = std::move(r);
     }
@@ -4311,8 +4353,7 @@ class BorrowChecker {
         using Code = lir_schema::expr::Code;
         if (name.empty() || !val) return;
         TypeRef vt = val.type(prog_.type_pool.impl());
-        if ((t && t.kind() == LogosType::Kind::MutRef) ||
-            (vt && vt.kind() == LogosType::Kind::MutRef)) {
+        if (is_reborrow_ref_kind(t) || is_reborrow_ref_kind(vt)) {   // R7a rule 2
             std::string r = prescan_referent(val);
             if (!r.empty() && r != name) reborrow_prescan_[name] = std::move(r);
         }
@@ -5012,10 +5053,30 @@ class BorrowChecker {
     // Record (or retract) the reborrow edge for a binding. Called from `let`
     // and from assignment; a write that is NOT a reborrow retracts, so the map
     // never outlives the fact.
+    // ── D1 round 7 / R7a, SECOND RULE: A SHARED REBORROW IS A REBORROW ────
+    //
+    // THE DEFECT (measured). `let mut s: S = c.mk_s(); let r: &S = &s; let b:
+    // B = r.peek(); c.bump(); *b.p` ADMITS while its alias-free twin
+    // `s.peek()` REFUSES. Traced: `note_reborrow name=r referent=<empty>` and
+    // NO alias_use at all — both this gate and prescan_reborrow's admitted
+    // only Kind::MutRef, so a shared reborrow was recorded NOWHERE. `s`'s last
+    // use stayed at the `&s` line, so c's loan was released one line EARLIER
+    // than in the `&mut` leak.
+    //
+    // The `&mut`/`&` distinction is about what may be DONE through the
+    // reference, not about whether the referent stays borrowed — for the
+    // live-range and provenance questions this file asks, a shared reborrow is
+    // exactly as load-bearing. Measured as its OWN rule (separate build, own
+    // probe pair) because it touches the NLL live range of every `let r = &x;`
+    // in the corpus, which the `&mut` rule does not.
+    static bool is_reborrow_ref_kind(TypeRef t) {
+        return t && (t.kind() == LogosType::Kind::MutRef ||
+                     t.kind() == LogosType::Kind::Ref);
+    }
     void note_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
         if (name.empty()) return;
         std::string r;
-        if (t && t.kind() == LogosType::Kind::MutRef) r = reborrow_referent(val);
+        if (is_reborrow_ref_kind(t)) r = reborrow_referent(val);
         if (!r.empty() && r != name) reborrow_of_[name] = std::move(r);
         else                          reborrow_of_.erase(name);
         // G0 — SAME CONCEPT, ONE PROJECTION DEEPER. Re-binding `name` retracts
@@ -5056,7 +5117,7 @@ class BorrowChecker {
         const auto* pool = prog_.type_pool.impl();
         std::string r;
         TypeRef vt = val ? val.type(pool) : TypeRef(nullptr);
-        if (vt && vt.kind() == LogosType::Kind::MutRef) r = reborrow_referent(val);
+        if (is_reborrow_ref_kind(vt)) r = reborrow_referent(val);   // R7a rule 2
         if (!r.empty() && r != place) reborrow_of_[place] = rehome_reborrow(std::move(r));
         else                           reborrow_of_.erase(place);
     }

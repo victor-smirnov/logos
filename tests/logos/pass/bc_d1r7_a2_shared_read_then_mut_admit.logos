@@ -1,0 +1,39 @@
+// D1 round 7 / R7a RULE 2 — THE ADMIT HALF of fail/bc_d1r7_a2_shared_reborrow.
+//
+// Rule 2 makes `let r: &S = &s;` a recorded reborrow, which EXTENDS the NLL
+// live range of every shared-reborrowed binding in the program. That is a
+// change in the refusing direction applied to the most common statement in the
+// language, so its over-refusal direction needs a program of its own: a shared
+// reborrow whose reader finishes BEFORE the mutation must still be admitted.
+//
+// Same shape as the fail half, scope closed before `bump()`, values asserted
+// on both sides. A checker that recorded the shared reborrow and then never
+// released it reds here with the same words the fail half asserts.
+package bc_d1r7_a2_shared_read_then_mut_admit;
+
+#[borrow_carrying]
+struct B { p: &i64 }
+#[borrow_carrying]
+struct S { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk_s(&self) -> S { return S { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+impl S {
+    fn peek(&self) -> B { return B { p: self.p }; }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut seen: i64 = 0i64;
+    {
+        let mut s: S = c.mk_s();
+        let r: &S = &s;               // the SHARED reborrow…
+        let b: B = r.peek();
+        seen = *b.p;                  // …read BEFORE the mutation
+    }
+    c.bump();                         // must be ADMITTED
+    if seen != 1i64 { return 1i32; }
+    if c.v != 2i64 { return 2i32; }
+    return 0i32;
+}

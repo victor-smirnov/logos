@@ -1500,6 +1500,82 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
+    // ── D1 round 7 / R7b: THE DESTRUCTURING LET IS THE LAST D2 DOOR ───────
+    //
+    // THE DEFECT (measured, and it REJECTS A CORRECT PROGRAM — not merely a
+    // degraded diagnostic). `let LedCur { found, lf, idx, at } = c.seek(0u64);`
+    // over an ADR-0021 factory-backed chain gives, in round 0:
+    //   let <struct-pat> = expr: rhs must be a struct, got '<error>'
+    //   undefined variable 'found' / 'idx' / 'at'      (the cascade)
+    // and the HARD error aborts the unit before the post-drain re-sema that
+    // would have typed the chain for real. The SAME rhs bound by an ordinary
+    // `let cu = c.seek(0u64);` and read field-by-field COMPILES — so this door
+    // is the only thing separating a compiling program from a refused one.
+    //
+    // THE FIX is exactly the one build_pattern_variant_data got in round 6:
+    // an Error-typed RHS is not "not a struct", it is NOT YET KNOWN. Bind the
+    // pattern's names at `error_t()` and stay silent; uses of an error-typed
+    // value are already silent, so round 0 emits nothing and the strict round
+    // types the destructure for real (a still-deferring round is escalated by
+    // the driver — the deferral cannot swallow a genuinely bad program).
+    // The names are given LIR lets too, so nothing downstream sees a name the
+    // pattern promised and no statement produced.
+    if (TypeRef(rhs_type).kind() == LogosType::Kind::Error) {
+        std::vector<lir_view::StmtRef> eblk;
+        std::string etmp = std::format("__dst_{}", destruct_counter_++);
+        define(etmp, rhs_type);
+        {
+            lir::SLet sl;
+            sl.name = etmp; sl.type = rhs_type; sl.is_mut = false;
+            sl.value = std::move(rhs);
+            eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        std::function<void(TinyMapView)> bind_deferred = [&](TinyMapView pat) {
+            if (!pat.has_key(la::ITEMS)) return;
+            auto items_av = pat.get(la::ITEMS.code);
+            if (!items_av.is_pointer()) return;
+            auto fitems = map_of(items_av);
+            if (!fitems.has_key(la::ITEMS)) return;
+            auto fields = arr_of(fitems.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < fields.size(); ++i) {
+                auto fav = fields.get(i);
+                if (!fav.is_pointer()) continue;
+                auto fnode = map_of(fav);
+                int32_t fc = code_of(fnode);
+                std::string bind_name;
+                TinyMapView sub{};
+                bool has_sub = false;
+                if (fc == la::PAT_FIELD) {
+                    bind_name = std::string(str_of(fnode.get(la::NAME.code)));
+                    if (fnode.has_key(la::VALUE)) {
+                        sub = map_of(fnode.get(la::VALUE.code));
+                        has_sub = true;
+                    }
+                } else if (fc == la::PAT_WILD && fnode.has_key(la::NAME)) {
+                    bind_name = std::string(str_of(fnode.get(la::NAME.code)));
+                } else continue;   // PAT_REST and friends bind nothing
+                if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
+                    bind_name = std::string(str_of(sub.get(la::NAME.code)));
+                    has_sub = false;   // simple alias
+                }
+                if (has_sub && code_of(sub) == la::PAT_STRUCT) {
+                    bind_deferred(sub);   // nested destructure, same deferral
+                    continue;
+                }
+                if (bind_name.empty() || bind_name == "_") continue;
+                define(bind_name, error_t());
+                lir::SLet sl;
+                sl.name = bind_name; sl.type = error_t(); sl.is_mut = false;
+                sl.value = builder().var_ref(etmp, rhs_type);
+                eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            }
+        };
+        bind_deferred(pat_node);
+        lir::SBlock sb;
+        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
+        sb.body = lir_mirror_block(*cur_prog_, eblk);
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
         TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
         error(std::format("let <struct-pat> = expr: rhs must be a struct, got '{}'",
@@ -1610,6 +1686,28 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             if (!ft) {
                 error(std::format("struct '{}': unknown field '{}'", recv_sname, fname));
                 continue;
+            }
+            // ── D1 round 7 / R7b RESIDUE: FIELD PRIVACY, ONE DOOR DOWN ────
+            //
+            // A PERMISSIVE defect, found because R7b's deferral let a probe
+            // REACH this path for the first time, and independent of it —
+            // MEASURED on a fully RESOLVED cross-package RHS (which never
+            // enters the deferral branch): `let String { data, nbytes, cap } =
+            // s;` compiled (rc=0) while the very same read spelled
+            // `s.nbytes` refuses with «'nbytes' is private to package
+            // 'logos.mem.string'». So privacy was enforced at the field READ
+            // (sema_expr's check_pub_access) and at the struct LITERAL, but a
+            // destructuring `let` walked straight past both. Same check, same
+            // helper, at the third door.
+            {
+                auto [fpkg, fsi] = find_struct_by_name(recv_sname);
+                (void)fpkg;
+                if (fsi)
+                    for (auto& f : fsi->fields)
+                        if (f.name == fname) {
+                            check_pub_access(f.is_pub, fsi->package, fname);
+                            break;
+                        }
             }
             // Substitute generic type-args.
             {
