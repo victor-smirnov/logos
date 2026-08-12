@@ -1,0 +1,32 @@
+// D1 round 10 / SP0-SP2, ADMIT direction — the widened U2 gate and the new
+// DerefWrite alias door must not make every aggregate-carrying callee retain.
+// Here the same three shapes run (compose-in, copy-out, field retarget) over a
+// payload that carries NO borrow, so nothing flows and the later mutation of
+// `c` is legal. This is the control that separates "the summary now reaches
+// the out-param" from "the summary now refuses everything".
+package bc_d1r10_sp_scalar_payload_admit;
+use logos.mem.collections.vec;
+struct C { v: i64 }
+impl C {
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct IV { r: &mut Vec<i64> }
+struct MV { i: IV }
+fn work(v: &mut Vec<i64>, w: &mut Vec<i64>, u: &mut Vec<i64>) {
+    let inn: IV = IV { r: v };
+    let mut h: MV = MV { i: inn };
+    let mut back: IV = h.i;
+    back.r.push(7i64);
+    let mut g: IV = IV { r: u };
+    g.r = w;
+    g.r.push(8i64);
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<i64> = Vec::new();
+    let mut ws: Vec<i64> = Vec::new();
+    let mut us: Vec<i64> = Vec::new();
+    work(&mut vs, &mut ws, &mut us);
+    c.bump();                        // must be ADMITTED
+    return c.v;
+}

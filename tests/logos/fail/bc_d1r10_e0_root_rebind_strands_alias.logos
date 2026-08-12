@@ -1,0 +1,33 @@
+// D1 round 10 / E0 — a ROOT REBIND stranded a still-live alias. `erase_under`
+// is right about the PLACE it erases (`h.m.i.r` now names `ws`), but `s` was
+// recorded one hop deep (`s -> [h.m.i.r]`), so the retraction took the only
+// edge by which `s` still reached `vs`. The fix is RESOLVE-THEN-FREEZE at
+// record time — the same rule `note_reborrow_place` already applied to a
+// stored place, now applied to a binding — with the closure ordered
+// TERMINAL-FIRST, because `endpoint()` is a one-name view that reads the
+// front and a retargetable intermediate must not be that answer. Before:
+// `target=c holder=ws lu=21 cur=21 RELEASE`. After: holder=vs, kept past the
+// bump. The no-rebind control refused all along.
+package bc_d1r10_e0_root_rebind_strands_alias;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Mid { i: Inner }
+struct Outer { m: Mid }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let mut h: Outer = Outer { m: Mid { i: Inner { r: &mut vs } } };
+    let s: &mut Vec<B> = h.m.i.r;
+    h = Outer { m: Mid { i: Inner { r: &mut ws } } };
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

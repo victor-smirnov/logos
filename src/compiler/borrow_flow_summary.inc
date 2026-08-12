@@ -492,7 +492,21 @@ private:
         const auto* pool = prog_.type_pool.impl();
         each_ref_store(name, val, [&](const std::string& place,
                                       lir_view::ExprRef v) {
-            if (!v || !is_mut_ref(v.type(pool))) return;   // U2
+            // U2 — D1 round 10 / SP0+SP1: the gate now also admits a stored
+            // AGGREGATE that transitively holds a `&mut`. r9's own measurement
+            // retired a DIFFERENT and narrower widening (Ref|MutRef, whose
+            // extra edges are shared reborrows that can never be written
+            // through, hence no consumer); this one has its consumer measured:
+            //   h.i = inn;        // gate=REJECT, edge h -> inn never added
+            //   let inn = h.i;    // gate=REJECT, edge inn -> h never added
+            // In both, `inn.r -> v` WAS recorded and the deposit landed on the
+            // OTHER root, so each_root never crossed and the summary was lost
+            // WHOLE (LOGOS_DUMP_FLOWS printed no line at all for the callee).
+            // An aggregate holding a `&mut` is a write path, which is exactly
+            // what an alias edge is consumed for.
+            if (!v) return;
+            TypeRef vt_u2 = v.type(pool);
+            if (!is_mut_ref(vt_u2) && !bc_holds_mut_ref_type(ts_, vt_u2)) return;   // U2
             std::string dst = ref_place_root(place);
             if (dst.empty() || dst == "_" || is_materialized_temp_name(dst)) return;
             std::vector<std::string> srcs;
@@ -1018,7 +1032,38 @@ private:
                 break;
             }
             case Code::DerefWrite: {
+                // ── D1 round 10 / SP2, and the END of "a door per position" ──
+                // Seven place-write statement kinds fed `add_taint`; only two
+                // (Assign, FieldWrite) also fed `alias_`. Measured on SP2's
+                // witness: `h.r = w` (a reference FIELD store, h.r: &mut) does
+                // NOT lower to FieldWrite — FieldWrite occurs ZERO times in
+                // that program — it lowers to DerefWrite, six rows of it, and
+                // this door had no note_alias, so the edge h -> w was never
+                // created and the deposit stayed on the ORIGINAL referent
+                // (`out1<-0x5`, no out2). The lowering was SETTLED BY
+                // EXECUTION, not assumed: `struct IV { r: &mut i64 }; h.r = w;
+                // *h.r = 9;` over a=1,b=2 exits 19 (b written), so it is a
+                // reference REBIND, not `*h.r = *w` — the missing out2 is a
+                // real defect and not an artifact of the spelling.
+                // THE OTHER FIVE DOORS STAY add_taint-ONLY, and that is a
+                // MEASURED decision, not an oversight. note_alias was written
+                // into ChainFieldWrite / TupleWrite / DerefFieldWrite /
+                // IndexWrite / FieldIndexWrite as well, and then removed: over
+                // stdlib `mem` + `std` those five fired ZERO times (13855 +
+                // 2481 rows, ALL DerefWrite), and every nested-place spelling
+                // tried for a witness — `h.m.i = Inner{…}`, `t.0 = Inner{…}` —
+                // ALSO lowers to DerefWrite. A door that never executes cannot
+                // be measured green; a widening with no consumer is a hedge.
+                // (Re-open this with a program that reaches one of them.)
+                //
+                // The alias instance is MONOTONE by policy, so after this the
+                // summary carries BOTH h -> v and h -> w and sets out1 and
+                // out2: over-approximate, and that is the direction this
+                // analysis is allowed to err in. Generations / a flow-
+                // sensitive view are the price of the remaining precision and
+                // are not paid until a witness shows OVER-refusal.
                 SDerefWriteView v{sr};
+                note_alias(root_of(v.ptr()), v.value());            // r10 / 1c
                 add_taint(root_of(v.ptr()), taint_of(v.value()));
                 call_effects(v.value());
                 break;

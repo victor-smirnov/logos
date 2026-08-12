@@ -1,0 +1,32 @@
+// D1 round 10 / SP1 — the same U2 gate, the other direction: a recorded
+// aggregate COPIED OUT (`let inn = h.i;`). Instrumented before the fix:
+// `place=inn gate=REJECT srcs=[h.i]`, so `inn -> h` was never added; `h.i.r ->
+// v` was recorded and charged to root `h`, but the deposit goes to root `inn`
+// and each_root(inn) = {inn}. SP0 and SP1 are ONE root — a FEEDING gate, not a
+// keying problem, which is why the summarizer stays NAME-keyed (r10's design
+// answer, measured: taint_ is parameter-name-shaped at both ends and
+// root-collapsed in the interior by root_of and taint_of's receiver recursion).
+package bc_d1r10_sp1_aggregate_copied_out;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Mid { i: Inner }
+struct Outer { m: Mid }
+fn stash3(c: &C, v: &mut Vec<B>) {
+    let mut h: Mid = Mid { i: Inner { r: v } };
+    let inn: Inner = h.i;
+    inn.r.push(c.mk());
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash3(&c, &mut vs);
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

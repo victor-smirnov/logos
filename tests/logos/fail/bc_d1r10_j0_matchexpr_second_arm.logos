@@ -1,0 +1,21 @@
+// D1 round 10 / J0 — the match EXPRESSION join carries the same arm fold and
+// had the same first-arm-only accident. Control-reverted: with the join's
+// loan merge removed this file compiles (rc=0) and the other three J0
+// witnesses still refuse, so this site has its own consumer.
+package bc_d1r10_j0_matchexpr_second_arm;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let k: i64 = match c.v { 0i64 => 0i64, _ => { stash(&c, &mut vs); 1i64 } };
+    c.bump();                        // must be REFUSED
+    return k + *vs.get(0u64).p;
+}

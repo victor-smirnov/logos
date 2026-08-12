@@ -1683,8 +1683,68 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   a shape that stops compiling, or one whose read picks up the
 #   post-mutation value, moves the exit code instead of hiding in a sum. An
 #   edit, not an addition, so the +2 stands.
-REGISTRY-ALL         7061
-REGISTRY-NOIMPORTED  3378
+#
+# D1 round 10: PREDICTED 7074 / 3391 / 31 (+13 / +13 / 0 off round 9's final
+# 7061 / 3378 / 31 — THIRTEEN new `.expected` files, no new gate), stated
+# before the reconfigure and then measured three ways (`ctest -N`, `-LE
+# imported`, `-L '^tier_commit$'`) = 7074 / 3391 / 31, agreeing exactly. The
+# decomposition, one line per file, written WITH the numbers this time (round
+# 9's paragraph above is the reason that sentence is now part of the step):
+#   fail/bc_d1r10_j0_while_call_summary    — J0, a summary-raised loan dropped
+#                                            at the `while` join
+#   fail/bc_d1r10_j0_for_call_summary      — J0, the `for` spelling (a second
+#                                            statement kind into the same join)
+#   fail/bc_d1r10_j0_if_empty_else         — J0, the ONE-ARMED `if`; the
+#                                            both-arms shape hid it
+#   fail/bc_d1r10_j0_match_second_arm      — J0 at the match STATEMENT join,
+#                                            which never merged loans at all
+#   fail/bc_d1r10_j0_matchexpr_second_arm  — J0 at the match EXPRESSION join
+#   fail/bc_d1r10_j0_ifexpr_then_arm       — J0 at the if EXPRESSION join
+#   fail/bc_d1r10_e0_root_rebind_strands_alias — E0, a root rebind's
+#                                            `erase_under` stranding a live
+#                                            alias recorded one hop deep
+#   fail/bc_d1r10_sp0_aggregate_composed_in — SP0, a recorded aggregate
+#                                            composed INTO another aggregate
+#   fail/bc_d1r10_sp1_aggregate_copied_out — SP1, the same U2 gate, copied OUT
+#   fail/bc_d1r10_sp2_field_retarget       — SP2, the callee-side field
+#                                            retarget (a DerefWrite door with
+#                                            no alias edge)
+#   pass/bc_d1r10_j0_region_scoped_admit   — J0's admit control: the
+#                                            region-local loan the deleted
+#                                            restriction was written to protect
+#   pass/bc_d1r10_e0_rebind_alias_dead_admit — E0's admit control: the freeze
+#                                            must not make an alias immortal
+#   pass/bc_d1r10_sp_scalar_payload_admit  — SP0-SP2's admit control, all three
+#                                            shapes over a borrow-free payload
+# The six J0 files are SIX SITES, not one finding spelled six ways: each was
+# control-reverted at its own join and each refuses only with its own merge
+# restored. The three SP shapes share ONE admit control, on the round-8/9
+# precedent — distinct objects and distinct contributions inside one file, so a
+# shape that stops compiling moves the exit code instead of hiding in a sum.
+#
+# D1 round 10, MATRIX GAP — STATED, NOT CLOSED, because closing it is a design
+# decision and not an omission. SP0/SP1's fix is the U2 gate widened to "the
+# stored value IS, or transitively CONTAINS, a `&mut`", fed by the ONE store
+# enumeration; that enumeration recurses into a STRUCT literal only. Measured,
+# not inferred, with a two-program separation over the same skeleton:
+#   • struct spelling — `let inn = Inner{r:v}; let h = Hold{i:inn}; let mut y =
+#     h.i; y.r.push(c.mk());` — rc=1, and LOGOS_DUMP_FLOWS prints
+#     `result<-0 out1<-0x1 (rounds=3)` for the callee;
+#   • ENUM spelling — the same body with `let e = E::A(inn);` and the payload
+#     taken back out through a match arm — rc=0 (the caller's `c.bump()`
+#     compiles), and the callee gets NO summary line at all, which is SP0's own
+#     signature ("the summary was lost WHOLE").
+# ROOT, located: an enum payload has no field NAME, so the place-keyed
+# enumeration in `src/compiler/borrow_check.cpp` has nothing to name it with,
+# and a positional component (`e.0`) would have to be agreed by BOTH graph
+# instances — the checker retracts by place, the summarizer charges to root —
+# so it is a round-11 step with its own control revert, not a line to append
+# here. It is a PRE-EXISTING permissive hole, not a round-10 regression: round
+# 10 only ADDED alias edges, and the struct twin admitted at HEAD too (that is
+# exactly what SP0/SP1 are). Recorded so the next round starts from a witness
+# instead of re-deriving one.
+REGISTRY-ALL         7074
+REGISTRY-NOIMPORTED  3391
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

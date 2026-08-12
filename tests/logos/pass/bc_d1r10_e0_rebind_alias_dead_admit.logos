@@ -1,0 +1,27 @@
+// D1 round 10 / E0, ADMIT direction — freezing the closure must not make an
+// alias immortal. Here `s`'s last use is BEFORE the root rebind, so the loan
+// on `c` is NLL-dead at the rebind and nothing survives it. Measured with the
+// freeze in place: still rc=0. (Census: the freeze widened or reordered ZERO
+// source lists across lang/mem/lcm/std, so its only consumer is E0's shape.)
+package bc_d1r10_e0_rebind_alias_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Mid { i: Inner }
+struct Outer { m: Mid }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let mut h: Outer = Outer { m: Mid { i: Inner { r: &mut vs } } };
+    let s: &mut Vec<B> = h.m.i.r;
+    s.push(c.mk());
+    h = Outer { m: Mid { i: Inner { r: &mut ws } } };
+    return h.m.i.r.len() as i64;     // must be ADMITTED
+}

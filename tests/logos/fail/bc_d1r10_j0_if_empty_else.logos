@@ -1,0 +1,24 @@
+// D1 round 10 / J0, third region form — `if` with no else. When BOTH arms
+// raise the loan the join is irrelevant (post-if `states_` is the else arm's
+// and already carries it), which is why the corpus's existing both-arms
+// witness refused and hid this one: only the one-armed if reaches the
+// restriction.
+package bc_d1r10_j0_if_empty_else;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    if c.v > 0i64 {
+        stash(&c, &mut vs);
+    }
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

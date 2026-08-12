@@ -66,6 +66,15 @@ struct TypeSets {
     // }` was invisible to the loan channel too. Escape gates keep asking
     // `borrow_carrying` / `residency_exempt`; only the loan channel asks this.
     std::unordered_set<std::string> loan_carrying;
+    // D1 round 10 / SP0+SP1 — the structural closure "this type IS, or
+    // transitively CONTAINS, a `&mut`". The summarizer's U2 gate asks it: a
+    // store of a whole AGGREGATE that holds a `&mut` (`h.i = inn`, `let inn =
+    // h.i`) is an alias-creating store exactly as a bare `&mut` store is, and
+    // gating on the stored value being itself a `&mut` made those two shapes
+    // invisible — the summary was then lost WHOLE. Narrower than
+    // `loan_carrying` on purpose: this set answers "can a deposit be WRITTEN
+    // through this value", which is what an alias edge is consumed for.
+    std::unordered_set<std::string> holds_mut_ref;
     // Name → def indices (built once in build_type_sets). Replace the per-type
     // linear scans of prog.structs / struct_specializations / enums that made
     // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
@@ -277,6 +286,54 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                                           [&](TypeRef pt) { if (type_is_lc(pt)) hit = true; });
                 });
                 if (hit) { reg_lc_name(ed_name); lc_changed = true; }
+            }
+        }
+    }
+    // ── holds_mut_ref: same fixpoint shape, seeded by a literal `&mut` field ─
+    {
+        auto has_mut = [&](TypeRef t) -> bool {
+            return t && t.kind() == LogosType::Kind::MutRef;
+        };
+        auto type_is_hm = [&](TypeRef t) -> bool {
+            if (has_mut(t)) return true;
+            auto n = type_bc_name(t);
+            if (!n.empty() && ts.holds_mut_ref.count(n) > 0) return true;
+            if (!t) return false;
+            for (auto a : t.type_args()) {
+                if (has_mut(a)) return true;
+                auto an = type_bc_name(a);
+                if (!an.empty() && ts.holds_mut_ref.count(an) > 0) return true;
+            }
+            return false;
+        };
+        auto reg_hm_name = [&](const std::string& name) {
+            ts.holds_mut_ref.insert(name);
+            std::string_view n = name;
+            if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+                ts.holds_mut_ref.insert(std::string(n.substr(dot + 1)));
+        };
+        bool hm_changed = true;
+        while (hm_changed) {
+            hm_changed = false;
+            auto consider = [&](lir_view::StructView sd) {
+                if (ts.holds_mut_ref.count(std::string(sd.name()))) return;
+                for (auto& f : sd.fields())
+                    if (type_is_hm(f.type(prog.type_pool.impl()))) {
+                        reg_hm_name(std::string(sd.name())); hm_changed = true; return;
+                    }
+            };
+            for (auto& sd : prog.structs)                 consider(sd);
+            for (auto& sd : prog.struct_specializations)  consider(sd);
+            for (auto& ed : prog.enums) {
+                std::string ed_name(ed.name());
+                if (ts.holds_mut_ref.count(ed_name)) continue;
+                bool hit = false;
+                ed.each_variant([&](lir_view::EnumVariantView var) {
+                    if (hit) return;
+                    var.each_payload_type(prog.type_pool.impl(),
+                                          [&](TypeRef pt) { if (type_is_hm(pt)) hit = true; });
+                });
+                if (hit) { reg_hm_name(ed_name); hm_changed = true; }
             }
         }
     }
@@ -762,18 +819,27 @@ static void merge_moves(StateMap& base, StateMap& other) {
 // STILL compiled). Carry the accumulators forward: a borrow live on ANY path
 // is live after the join.
 //
-// Restricted to `targets` — the vars some re-homed record actually borrows.
-// A loan that dies inside the branch was already released there (pop_scope /
-// NLL) and never reaches this set, so no branch-local borrow is prolonged and
-// no program outside Door B's shape changes behaviour.
-static void merge_loans(StateMap& base, StateMap& other,
-                        const std::unordered_set<uint32_t>& slots,
-                        const std::unordered_set<std::string>& names) {
-    if (slots.empty() && names.empty()) return;
+// D1 round 10, J0 — the restriction to `rehomed_slots_`/`rehomed_names_` is
+// DELETED. It was wrong-sided: it separated PROVENANCE (was the counter raised
+// by Door B's re-homing, or by a CALL SUMMARY?) and not lifetime. Measured, a
+// fire print inside this function over the whole stdlib (lang/mem/lcm/std):
+// 99 rows arrive with a raised counter — 59 were carried, 40 dropped — and
+// `base.has_id(slot,name)` was TRUE for all 99. The region-local population
+// the restriction was written to protect is EMPTY at this site: such a loan is
+// already released by pop_scope / NLL inside the region and never arrives,
+// exactly as the paragraph above says. So `fn stash(c:&C,v:&mut Vec<B>)` called
+// inside `while` / `for` / `if`-with-empty-else raised the counter, the join
+// threw it away, and `c.bump()` after the region compiled (J0 witnesses
+// j0_while_leak / j0_for_leak / j0_if_empty_else_leak, all rc=0 → rc=1 here).
+//
+// The residency test below is the discriminator that IS real ("the loan's
+// target outlives the region" = the target binding existed before it), and it
+// is written as a guard rather than assumed: today it holds 99/99, and if a
+// future change starts delivering region-local rows they are dropped instead
+// of resurrecting a dead binding's slot.
+static void merge_loans(StateMap& base, StateMap& other) {
     other.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
-        bool wanted = (slot != StateMap::NO_SLOT) ? slots.count(slot) > 0
-                                                  : names.count(std::string(name)) > 0;
-        if (!wanted) return;
+        if (!base.has_id(slot, name)) return;
         auto& b = base.at_id(slot, name);
         if (st.shared_borrows   > b.shared_borrows)   b.shared_borrows   = st.shared_borrows;
         if (st.mut_reservations > b.mut_reservations) b.mut_reservations = st.mut_reservations;
@@ -894,6 +960,29 @@ static bool bc_loan_carrying_type(const TypeSets& ts_, TypeRef t) {
     }
     if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
         return bc_loan_carrying_type(ts_, t.elem());
+    return false;
+}
+
+// D1 round 10 / SP0+SP1 — "a deposit could be written through this value":
+// the value IS a `&mut`, or it is an aggregate that transitively holds one.
+static bool bc_holds_mut_ref_type(const TypeSets& ts_, TypeRef t) {
+    if (!t) return false;
+    auto k = t.kind();
+    if (k == LogosType::Kind::MutRef) return true;
+    std::string nm;
+    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+        nm = std::string(t.struct_name());
+    if (!nm.empty() && ts_.holds_mut_ref.count(nm) > 0) return true;
+    for (auto a : t.type_args())
+        if (bc_holds_mut_ref_type(ts_, a)) return true;
+    if (k == LogosType::Kind::Tuple) {
+        for (auto e : t.tuple_elems())
+            if (bc_holds_mut_ref_type(ts_, TypeRef(e))) return true;
+        return false;
+    }
+    if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+        return bc_holds_mut_ref_type(ts_, t.elem());
     return false;
 }
 
@@ -1275,11 +1364,11 @@ class BorrowChecker {
     // source locals is recorded in `dangling_`; the FIRST subsequent use of it
     // is rejected (E0597) — matching NLL (a stored borrow that is never used
     // after its referent dies is fine; only the use is the error).
-    // Door B: vars targeted by a loan that outlived its recording frame. The
-    // branch-join loan merge is restricted to these (see merge_loans).
+    // (D1 round 10, J0: `rehomed_slots_`/`rehomed_names_` lived here to restrict
+    //  the branch-join loan merge to Door B's own targets. The restriction was
+    //  measured wrong-sided and deleted, and with it the only consumer of the
+    //  two sets, so the sets are gone too — see merge_loans.)
     std::string                     pending_esc_holder_;
-    std::unordered_set<uint32_t>    rehomed_slots_;
-    std::unordered_set<std::string> rehomed_names_;
     // F6 (D1 round 3) — keyed by PLACE, not by binding. Same lesson as F5:
     // a per-binding key standing in for a per-place identity. `let mut w =
     // Wrap { b: B { p: &z } }; w.b = c.mk();` recorded ref_borrow_sources_["w"]
@@ -1490,9 +1579,6 @@ class BorrowChecker {
                 auto move_out = [&](auto& vec, auto& dst) {
                     for (auto it = vec.begin(); it != vec.end(); ) {
                         if (escapes(*it)) {
-                            if (it->target_slot != StateMap::NO_SLOT)
-                                rehomed_slots_.insert(it->target_slot);
-                            else rehomed_names_.insert(it->target);
                             dst.push_back(std::move(*it));
                             it = vec.erase(it); }
                         else ++it;
@@ -5200,7 +5286,7 @@ class BorrowChecker {
         //    Provenance merges conservatively (the loop may run 0+ times).
         states_ = pre_s;
         prov_   = pre_p;
-        merge_loans(states_, post2_s, rehomed_slots_, rehomed_names_);  // Door B
+        merge_loans(states_, post2_s);   // J0: every raised counter crosses
         if (bottom_reachable) loop_propagate_moves(states_, post2_s, pre_s);
         for (auto& cs : frame2.continue_states) loop_propagate_moves(states_, cs, pre_s);
         for (auto& bs : frame2.break_states)    loop_propagate_moves(states_, bs, pre_s);
@@ -5380,6 +5466,54 @@ class BorrowChecker {
         return t && (t.kind() == LogosType::Kind::MutRef ||
                      t.kind() == LogosType::Kind::Ref);
     }
+    // ── D1 round 10 / E0: RESOLVE-THEN-FREEZE, FOR A BINDING TOO ───────────
+    //
+    // A recorded source list is snapshotted to the TRANSITIVE CLOSURE of what
+    // it names AT RECORD TIME. `note_reborrow_place` already did this, with the
+    // argument that a stored reference keeps naming what it named at the store
+    // even if the intermediate binding is later retargeted. E0 is that same
+    // sentence for a `let` binding, and the shape that measured it:
+    //   let s: &mut Vec<B> = h.m.i.r;               // s -> [h.m.i.r]
+    //   h = Outer { m: Mid { i: Inner { r: &mut ws } } };   // erase_under("h")
+    //   s.push(c.mk()); c.bump();                   // COMPILED (rc=0)
+    // `note_reborrow` recorded the one-hop place and nothing else, so the root
+    // rebind's retraction — which is CORRECT for `h.m.i.r` itself, that place
+    // now names `ws` — took the only edge by which `s` still reached `vs`, and
+    // each_root(s) died at an unmapped place.
+    //
+    // WHY FREEZE AND NOT RE-HOME. Re-homing dependents inside `erase_under`
+    // would have to run at every retraction and would re-introduce the stale
+    // referent r2/r3 close: a place that IS retargeted must stop naming its old
+    // target, and only a node that captured the target BEFORE the retarget may
+    // keep it. Freezing at record time says exactly that and says it once, in
+    // the same place for a binding and for a stored place.
+    void freeze_ref_closure(const std::string& key, std::vector<std::string>& s) {
+        if (s.empty()) return;
+        std::vector<std::string> cl;
+        for (auto& src : s)
+            reborrow_of_.each_root(src, [&](const std::string& n) {
+                if (n != key && std::find(cl.begin(), cl.end(), n) == cl.end())
+                    cl.push_back(n);
+            });
+        // TERMINAL FIRST — and this ordering is the half that closes E0. The
+        // closure is a SET for every consumer that takes one (hop roots,
+        // co-holders: U0's lesson that the INTERMEDIATE is what holds the
+        // loan), but `endpoint()` is a single-name VIEW and reads the FRONT.
+        // Measured: with the closure recorded source-order, `let s = h.m.i.r`
+        // froze `s -> [h.m.i.r, vs]`, and after `h = Outer{…&mut ws}` the front
+        // edge `h.m.i.r` RE-RESOLVED into the fresh value — the loan came out
+        // `target=c holder=ws`, and ws's last use is the push line, so NLL
+        // released it before `c.bump()` (dump: `holder=ws lu=21 cur=21
+        // RELEASE`, against the no-rebind control's `holder=vs lu=22 keep`).
+        // A member that was TERMINAL when the snapshot was taken cannot be
+        // re-resolved by a later retarget, so it is the honest answer for the
+        // one-name view; the retargetable intermediates stay in the set.
+        std::stable_partition(cl.begin(), cl.end(), [&](const std::string& n) {
+            auto* v = reborrow_of_.find(n);
+            return !v || v->empty();
+        });
+        s.swap(cl);
+    }
     void note_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
         if (name.empty()) return;
         std::vector<std::string> s;
@@ -5394,6 +5528,7 @@ class BorrowChecker {
         // type. A widening with no consumer is a hedge, so the gate still
         // reads only `t`; U3's actual missing half is note_place_copy below.
         if (is_reborrow_ref_kind(t)) s = ref_sources_of(val);
+        freeze_ref_closure(name, s);            // E0
         reborrow_of_.set(name, std::move(s));   // empty ⇒ retract
         // G0 — SAME CONCEPT, ONE PROJECTION DEEPER. Re-binding `name` retracts
         // every place recorded UNDER it: the old struct value is gone, so
@@ -5476,15 +5611,7 @@ class BorrowChecker {
         // r = &mut other;` must not move `h.r` onto `other`) — that was
         // rehome_reborrow's job here. To the CLOSURE, because the endpoint
         // alone is U0's defect one projection deeper: `r` holds the loan.
-        if (!s.empty()) {
-            std::vector<std::string> cl;
-            for (auto& src : s)
-                reborrow_of_.each_root(src, [&](const std::string& n) {
-                    if (n != place && std::find(cl.begin(), cl.end(), n) == cl.end())
-                        cl.push_back(n);
-                });
-            s.swap(cl);
-        }
+        freeze_ref_closure(place, s);
         reborrow_of_.set(place, std::move(s));
         // ── D1 round 9 / N0: A PLACE HOLDS WHAT A BINDING HOLDS ────────────
         //
@@ -6349,9 +6476,9 @@ class BorrowChecker {
                     cur_diverged_ = saved_div;
                 } else {
                     merge_moves(states_, then_s);
-                    // Door B: a loan re-homed out of a branch frame keeps its
-                    // record; its counters must survive the state restore too.
-                    merge_loans(states_, then_s, rehomed_slots_, rehomed_names_);
+                    // A loan raised on EITHER path keeps its record; its
+                    // counters must survive the state restore too (J0).
+                    merge_loans(states_, then_s);
                     merge_provs(prov_,   then_p);
                     cur_diverged_ = saved_div;
                 }
@@ -6533,6 +6660,14 @@ class BorrowChecker {
                             if (st.moved && saved_s.has_id(slot, name))
                                 merged_s->at_id(slot, name) = st;
                         });
+                        // J0 — the match join used to fold only `st.moved` from
+                        // arms 2..n, so arm 1's counters survived BY ACCIDENT
+                        // (`merged_s = states_` copies whole VarStates) and every
+                        // later arm's were discarded. Measured: the same program
+                        // refused with `stash` in arm 1 and COMPILED with it in
+                        // arm 2. This join never calls merge_loans through the
+                        // `if` path, so fixing merge_loans alone left it open.
+                        merge_loans(*merged_s, states_);
                         merge_provs(*merged_p, prov_);
                     }
                 });
@@ -7261,6 +7396,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             prov_   = saved_p;
             visit(v.else_val(), consuming, line);
             merge_moves(states_, then_s);
+            merge_loans(states_, then_s);   // J0: same rule as the if STATEMENT
             merge_provs(prov_,   then_p);
             break;
         }
@@ -7298,6 +7434,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         if (st.moved && saved_s.has_id(slot, name))
                             merged_s->at_id(slot, name) = st;
                     });
+                    merge_loans(*merged_s, states_);   // J0, as the match STMT
                     merge_provs(*merged_p, prov_);
                 }
             });

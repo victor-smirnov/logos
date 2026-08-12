@@ -1,0 +1,39 @@
+// D1 round 10 / SP2 — a callee-side field RETARGET attributed the deposit to
+// the ORIGINAL referent: the summary came out `out1<-0x5` with NO out2 (the
+// bit for the vec actually written). ROOT, measured: `h.r = w` does not lower
+// to FieldWrite at all — FieldWrite occurs ZERO times in this program — it
+// lowers to DerefWrite, whose door called add_taint with no note_alias, so the
+// edge `h -> w` was never created. Same class as SP0/SP1: a missing FEEDING
+// door, not the cost of the monotone policy.
+//
+// THE LOWERING WAS SETTLED BY EXECUTION before choosing the fix, because it
+// decides whether out1 is wrong at all: `struct IV { r: &mut i64 }; let mut h
+// = IV{r:v}; h.r = w; *h.r = 9;` over a=1,b=2 exits 19, i.e. `b` was written —
+// a reference REBIND, not `*h.r = *w`. Control-reverted: with the DerefWrite
+// door's note_alias removed this file compiles again (rc=0) while SP0/SP1 and
+// the no-retarget control keep their verdicts.
+package bc_d1r10_sp2_field_retarget;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Mid { i: Inner }
+struct Outer { m: Mid }
+fn retarget(c: &C, v: &mut Vec<B>, w: &mut Vec<B>) {
+    let mut h: Inner = Inner { r: v };
+    h.r = w;
+    h.r.push(c.mk());
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    retarget(&c, &mut vs, &mut ws);
+    c.bump();                        // must be REFUSED
+    return *ws.get(0u64).p;
+}
