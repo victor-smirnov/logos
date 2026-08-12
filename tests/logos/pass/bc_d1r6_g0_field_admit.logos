@@ -1,0 +1,30 @@
+// D1 round 6 / G0 — THE ADMIT TWIN of fail/bc_d1r6_g0_field_reborrow.
+//
+// Byte-for-byte the same program with the read moved BEFORE the mutation.
+// "cannot borrow 'c' as mutable" is what an over-refusing checker prints too:
+// a place-keyed reborrow map that never RETRACTS, or one that made every
+// struct holding a `&mut` permanently borrow its referent, would red this half
+// with those same words. Only the pair separates a closed hole from a struct
+// that can never be used after its first write.
+package bc_d1r6_g0_field_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct RB { r: &mut Vec<B> }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    {
+        let mut h: RB = RB { r: &mut vs };
+        h.r.push(c.mk());
+    }
+    let x: i64 = *vs.get(0u64).p;    // the read happens FIRST — nothing is held after it
+    c.bump();                        // admitted
+    if x != 1i64 { return 1i32; }    // and the value came out right
+    return 0i32;
+}

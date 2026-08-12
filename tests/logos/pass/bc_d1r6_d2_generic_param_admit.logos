@@ -1,0 +1,66 @@
+// D1 round 6 / D2 — THE ADMIT TWIN of pass/ctr_family_match_next_batch.
+//
+// `mentions_unresolved_param` in SemaChecker::build_pattern_variant_data
+// (src/compiler/sema_stmt.cpp) is a REFUSAL to bind an arm payload at the
+// enum's declared parameter. A rule that only ever refuses more is invisible
+// to the refusing fixture: the over-refusal direction needs its own program,
+// and this is it. It ran as a throwaway /tmp probe during round 6 — a probe
+// that lives in /tmp dies with the session and vouches for nothing, so it is
+// promoted here, where the matrix can point at it.
+//
+// THE LEGITIMATE `T` BINDING.
+//
+// The fix binds a payload at error_t() when it still names an enum type-param
+// that `subst` did NOT bind. The over-refusal direction is a program where
+// binding at `T` is CORRECT: inside `fn f<T>(o: Option<T>)` the scrutinee IS
+// `Option<T>` with type_args=[T], so subst maps the enum's param onto the fn's
+// own param and the mention is RESOLVED. If the walker mis-reads that as
+// unresolved, `x` becomes error-typed and every use goes silent — the arm
+// stops type-checking for real and the VALUE comes out wrong.
+//
+// Values are asserted, not just compilation: a silent error_t() payload would
+// still compile and would return the wrong number.
+package bc_d1r6_d2_generic_param_admit;
+use logos.lang.option;
+
+fn first_or<T>(o: Option<T>, d: T) -> T {
+    match o {
+        Option::Some(x) => { return x; }
+        Option::None    => { return d; }
+    }
+}
+
+struct P { a: i64, b: i64 }
+
+fn pair_sum(o: Option<P>) -> i64 {
+    match o {
+        Option::Some(p) => { return p.a + p.b; }
+        Option::None    => { return -1i64; }
+    }
+}
+
+fn nested(o: Option<Option<i64>>) -> i64 {
+    match o {
+        Option::Some(inner) => {
+            match inner {
+                Option::Some(v) => { return v; }
+                Option::None    => { return -2i64; }
+            }
+        }
+        Option::None => { return -3i64; }
+    }
+}
+
+fn main() -> i32 {
+    let a: i64 = first_or::<i64>(Option::Some(7i64), 0i64);
+    if a != 7i64 { return 1i32; }
+    let b: i64 = first_or::<i64>(Option::None, 5i64);
+    if b != 5i64 { return 2i32; }
+    let c: i64 = pair_sum(Option::Some(P { a: 3i64, b: 4i64 }));
+    if c != 7i64 { return 3i32; }
+    let d: i64 = nested(Option::Some(Option::Some(9i64)));
+    if d != 9i64 { return 4i32; }
+    let e: i64 = nested(Option::Some(Option::None));
+    if e != -2i64 { return 5i32; }
+    return 0i32;
+}

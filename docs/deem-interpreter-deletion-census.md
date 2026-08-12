@@ -1508,8 +1508,30 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # no registration and needs no ledger line.
 # PREDICTED 7021 / 3338 / 31 (+12 / +12 / 0) BEFORE re-running cmake; the gate
 # then measured exactly that, three ways.
-REGISTRY-ALL         7021
-REGISTRY-NOIMPORTED  3338
+#
+# D1 round 6 (G0 field-place reborrow, G1 fn-pointer summaries, D2 arm binding
+# over a deferred scrutinee) adds NINE corpus fixtures and no gate:
+#   pass/ctr_family_match_next_batch          the `match` door on a family stream
+#   pass/bc_d1r6_g0_field_admit               G0's admit twin
+#   pass/bc_d1r6_g1_fnptr_scalar_admit        G1's admit twin (scalar callee)
+#   fail/bc_d1r6_g0_field_reborrow            `h.r` IS `vs`
+#   fail/bc_d1r6_g0_reborrow_use_after_mut    the re-homed loan must not shorten
+#   fail/bc_d1r6_g1_fnptr_result              result half through a fn pointer
+#   fail/bc_d1r6_g1_fnptr_outparam            out-param half
+#   fail/bc_d1r6_g1_fnptr_reassigned          two callees ⇒ unresolvable
+#   fail/bc_d1r6_g1_fnptr_opaque              the SUMMARY was empty, not the site
+# PREDICTED 7030 / 3347 / 31 (+9 / +9 / 0); the gate measured exactly that.
+#
+# D1 round 6, MATRIX CLOSURE: the D2 rule's over-refusal direction was measured
+# with a probe in /tmp, i.e. by an artefact that dies with the session and can
+# vouch for nothing afterwards. A refusal rule is invisible to its own refusing
+# fixture, so the admit half is the only thing that separates "closed hole" from
+# "the arm stopped type-checking". Promoted into the corpus, ONE more fixture:
+#   pass/bc_d1r6_d2_generic_param_admit       legitimate `T` binding, VALUES asserted
+# PREDICTED 7031 / 3348 / 31 (+1 / +1 / 0) BEFORE re-running cmake; the gate then
+# measured exactly that, three ways.
+REGISTRY-ALL         7031
+REGISTRY-NOIMPORTED  3348
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

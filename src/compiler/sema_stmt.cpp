@@ -3938,9 +3938,52 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                                 k < TypeRef(enum_scrut).type_args().size(); ++k)
                 subst[einfo.type_params[k].name] = TypeRef(enum_scrut).type_args()[k];
         }
+        // D2: an arm payload must NEVER bind at the enum's DECLARED type
+        // parameter. `subst` above is populated only when the (peeled)
+        // scrutinee is a Kind::Enum carrying type_args; every other shape —
+        // an Error-typed scrutinee (ADR 0021 factory-backed deferral, or a
+        // cascade after an earlier hard error), a scrutinee whose args were
+        // not inferred yet, a partially-applied generic — falls through with
+        // `subst` empty or incomplete and used to hand the DECLARED `T` to
+        // define(). The arm body then reports `type parameter 'T' has no
+        // trait bound providing method '…'`, a HARD error that aborts the
+        // unit BEFORE the post-drain re-sema round that would have typed the
+        // chain correctly.
+        //
+        // `error_t()` is the honest answer for an unresolved payload: it
+        // rides the existing error-propagation rule (uses of an error-typed
+        // value are silent), so round 0 stays quiet and the strict round
+        // types the arm for real. Legitimate `T` bindings are unaffected —
+        // inside `fn f<T>(o: Option<T>)` the scrutinee IS `Option<T>` with
+        // type_args = [T], so `subst` maps the enum's param onto the fn's
+        // own param and the result below is NOT an unresolved mention.
+        auto mentions_unresolved_param = [&](TypeRef t) {
+            if (eit == enums_.end()) return false;
+            auto& einfo2 = eit->second;
+            if (einfo2.type_params.empty()) return false;
+            auto rec = [&](auto&& self, TypeRef tv) -> bool {
+                if (!tv) return false;
+                if (TypeRef(tv).kind() == LogosType::Kind::TypeVar) {
+                    auto nm = std::string(TypeRef(tv).type_var_name());
+                    for (auto& tp : einfo2.type_params)
+                        if (tp.name == nm && subst.find(nm) == subst.end())
+                            return true;
+                    return false;
+                }
+                for (auto a : TypeRef(tv).type_args()) if (self(self, a)) return true;
+                if (TypeRef(tv).pointee() && self(self, TypeRef(tv).pointee())) return true;
+                if (TypeRef(tv).elem() && self(self, TypeRef(tv).elem())) return true;
+                for (auto e : TypeRef(tv).tuple_elems()) if (self(self, e)) return true;
+                for (auto p : TypeRef(tv).closure_params()) if (self(self, p)) return true;
+                if (TypeRef(tv).closure_ret() && self(self, TypeRef(tv).closure_ret())) return true;
+                return false;
+            };
+            return rec(rec, t);
+        };
         for (auto pt : vinfo->payload_types) {
             auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);
             if (TypeRef(ct).kind() == LogosType::Kind::Void) continue;  // () unit — no field
+            if (mentions_unresolved_param(ct)) ct = error_t();
             binding_types.push_back(ct);
         }
     }

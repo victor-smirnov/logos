@@ -636,6 +636,30 @@ private:
                     ? EClosureCallView{e}.callee() : EFnPtrCallView{e}.callee();
                 if (!callee) return 0;
                 TypeRef ct = callee.type(pool);
+                // ── D1 round 6 / G1: A GENUINE FN POINTER IS NOT SILENT ───
+                // The `return 0` below was written for the CLOSURE rule, but
+                // it also swallowed every real fn-pointer call — so a function
+                // whose ONLY borrow-flow edge is an indirect call summarised as
+                // carrying NOTHING. Measured: `fn via(g: fn(&C) -> B, c: &C,
+                // vs: &mut Vec<B>) { vs.push(g(c)); }` produced an empty
+                // summary, so `via(mkd, &c, &mut vs); c.bump();` leaked in the
+                // CALLER even though the caller's own call is an ordinary Call.
+                // Fixing only the call sites in borrow_check.cpp cannot reach
+                // this one: the fact is missing from the summary itself.
+                //
+                // A fn pointer inside a body being summarised is opaque here
+                // (typically a PARAMETER — the very shape that motivates this),
+                // so it takes the documented (d) route: `call_result_taint`
+                // with a null summary ties the result to every borrowing
+                // operand. That is the same conservatism a summary-less direct
+                // Call already gets, and it can only EXTEND a loan.
+                if (ct && ct.kind() == LogosType::Kind::FnPtr) {
+                    if (!can_carry(t)) return 0;
+                    std::vector<ExprRef> args;
+                    EFnPtrCallView{e}.each_arg([&](ExprRef a){ args.push_back(a); });
+                    return call_result_taint(/*s=*/nullptr, args,
+                                             /*has_recv=*/false, t);
+                }
                 if (!ct || ct.kind() != LogosType::Kind::Closure) return 0;
                 if (!can_carry(t)) return 0;
                 uint64_t m = taint_of(callee);

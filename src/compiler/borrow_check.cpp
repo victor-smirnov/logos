@@ -1061,6 +1061,31 @@ class BorrowChecker {
     // exclusivity-only / generic-template mode (region_infer is
     // imprecise on TypeVars).
     const RegionInferer* ri_ = nullptr;
+    // ── D1 round 6 / G0: THE ALIAS SET THE NLL PRE-PASS MUST SEE ──────────
+    // Flow-INSENSITIVE union of `place -> referent` reborrow edges over the
+    // whole body, keyed by dotted place exactly like `reborrow_of_`. It exists
+    // only to EXTEND lifetimes: a use of a reborrow (`r`, or a struct holding
+    // one, `h`) is a use of the referent, because the referent stays borrowed
+    // for as long as the reborrow may be used. Without it, re-homing a loan
+    // onto the referent SHORTENS the loan — the referent's own name may never
+    // appear again — and `h.r.push(c.mk()); c.bump(); *h.r.get(0).p` flips from
+    // refuse to admit. Measured: it did, and the plain-local twin
+    // (`let r = &mut vs; r.push(c.mk()); c.bump(); *r.get(0).p`) had that same
+    // hole ALREADY, from round 5's binding-keyed re-home. One rule closes both.
+    // Union (never retracted) is the safe direction here: it can only extend.
+    std::unordered_map<std::string, std::string> reborrow_prescan_;
+    // ── D1 round 6 / G1: WHICH FUNCTION DOES THIS FN POINTER NAME ─────────
+    // A fn-pointer local assigned EXACTLY ONCE from a named function resolves
+    // statically; anything else (reassigned, or arriving as a parameter) is
+    // unresolvable and takes the conservative route. Both maps are built by
+    // the same whole-body pre-pass as reborrow_prescan_, so the answer does
+    // not depend on where in the body the call sits relative to the binding —
+    // and a binding written in two branches is `multi` no matter which branch
+    // the walk is in. The stored value is already the MANGLED symbol: sema
+    // lowers `let g: fn(&C) -> B = mkd;` to a VarRef whose name IS
+    // `pkg$mkd__f__ref_C`, the exact string `flow_of_call` resolves.
+    std::unordered_map<std::string, std::string> fnptr_sym_;
+    std::unordered_set<std::string>              fnptr_multi_;
     // Phase 9 (NLL): max line at which each local variable is read.
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
@@ -1906,6 +1931,57 @@ class BorrowChecker {
         bool dummy = false;
         return place_write_root(
             a.kind() == Code::AddrOfTemp ? EAddrOfTempView{a}.inner() : a, dummy);
+    }
+    // ── D1 round 2 Door F + round 3 F3, as ONE callable unit ──────────────
+    // The elision half (a by-value borrow-carrying argument may be STORED
+    // through a `&mut` argument) and the body-informed half (the callee's
+    // summary says which arg reaches which out-param) were written inline in
+    // the Code::Call arm. G1 needs BOTH at Code::FnPtrCall — including for a
+    // pointer that does not resolve, which is precisely the case where only
+    // the elision half can speak. Extracted verbatim; `ops` is the argument
+    // list in order.
+    void apply_call_outparam_rules(const std::vector<lir_view::ExprRef>& ops,
+                                   const FlowSummary* fs, uint32_t line) {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        std::vector<std::string> bc_roots;
+        std::vector<std::pair<std::string, uint32_t>> mut_roots;
+        for (auto a : ops) {
+            if (!a) continue;
+            TypeRef at = a.type(pool);
+            if (!is_ref_kind(at) && is_borrow_carrying_type(at)) {
+                bc_hop_roots(a, bc_roots);
+                continue;
+            }
+            if (at && at.kind() == LogosType::Kind::MutRef) {
+                std::string mr;
+                if (a.kind() == Code::AddrOf)
+                    mr = std::string(EAddrOfView{a}.var_name());
+                else {
+                    bool dummy = false;
+                    mr = place_write_root(
+                        a.kind() == Code::AddrOfTemp
+                            ? EAddrOfTempView{a}.inner() : a, dummy);
+                }
+                if (!mr.empty() && var_has(NO_SLOT, mr))
+                    mut_roots.emplace_back(mr, 0u);
+            }
+        }
+        for (auto& [mr, ms] : mut_roots) {
+            (void)ms;
+            for (auto& r : bc_roots) inherit_loans(r, mr, line);
+        }
+        if (!mut_roots.empty())
+            for (auto a : ops) {
+                if (!a) continue;
+                TypeRef at = a.type(pool);
+                if (is_ref_kind(at) || !is_borrow_carrying_type(at)) continue;
+                // record_only: visit_args already visited the argument.
+                take_ref_borrows(a, line, mut_roots.front().first,
+                                 /*record_only=*/true);
+            }
+        apply_flow_outparams(fs, ops, line);   // D1 round 3 / F3
     }
     void apply_flow_outparams(const FlowSummary* fs,
                               const std::vector<lir_view::ExprRef>& ops,
@@ -3052,6 +3128,31 @@ class BorrowChecker {
                 TypeRef rt = e.type(pool);
                 if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return {};
                 const std::vector<std::string>* caps = closure_caps_of(call_callee(e));
+                // G1: a GENUINE fn pointer has no captures — this is where the
+                // result half leaked. Consult the resolved callee's summary,
+                // and fall back to Call's summary-less rule (plain-ref args +
+                // by-value borrow-carrying args) when it does not resolve.
+                if (!caps && e.kind() == Code::FnPtrCall) {
+                    EFnPtrCallView fv{e};
+                    RefProv merged = {};
+                    if (const FlowSummary* fs = flow_of_fnptr(fv.callee())) {
+                        size_t i = 0;
+                        fv.each_arg([&](ExprRef a) {
+                            if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
+                                merged = merge_prov(merged, prov_of(a));
+                            ++i;
+                        });
+                        return merged;
+                    }
+                    fv.each_arg([&](ExprRef a) {
+                        if (!a) return;
+                        TypeRef at = a.type(pool);
+                        if (is_plain_ref_kind(at) ||
+                            (!is_ref_kind(at) && is_borrow_carrying_type(at)))
+                            merged = merge_prov(merged, prov_of(a));
+                    });
+                    return merged;
+                }
                 if (!caps) return {};
                 RefProv merged = {};
                 for (auto& cap : *caps) {
@@ -3489,6 +3590,24 @@ class BorrowChecker {
                 }
                 break;
             }
+            // G1: the fn-pointer twin of the arm above. A resolved pointer uses
+            // the real summary; an unresolvable one takes `each_arg(one)` —
+            // exactly what a summary-less direct Call takes.
+            case Code::FnPtrCall: {
+                EFnPtrCallView fv{e};
+                const FlowSummary* fs = flow_of_fnptr(fv.callee());
+                if (fs) {
+                    size_t i = 0;
+                    fv.each_arg([&](ExprRef a) {
+                        if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
+                            one(a);
+                        ++i;
+                    });
+                } else {
+                    fv.each_arg(one);
+                }
+                break;
+            }
             case Code::MethodCall: {
                 EMethodCallView v{e};
                 if (const FlowSummary* fs = flow_of_method(v)) {
@@ -3701,11 +3820,39 @@ class BorrowChecker {
             case Code::ClosureCall:
             case Code::FnPtrCall: {
                 TypeRef rt = e.type(pool);
+                const auto* caps = closure_caps_of(call_callee(e));
                 if (is_ref_kind(rt) || is_borrow_carrying_type(rt))
-                    if (const auto* caps = closure_caps_of(call_callee(e)))
+                    if (caps)
                         for (auto& c : *caps)
                             if (var_has(NO_SLOT, c) && !param_names_.count(c))
                                 take_borrow(c, NO_SLOT, /*is_mut=*/false, line, holder);
+                // G1 — the LOAN half. A genuine fn pointer (no captures) takes
+                // Code::Call's argument rule: an argument that can reach the
+                // result contributes its borrows to the holder. `vs.push(g(&c))`
+                // recorded NOTHING here, which is the leak. Gated the same way
+                // (`res_bc`), so a scalar-returning pointer still ties nothing.
+                if (!caps && e.kind() == Code::FnPtrCall) {
+                    EFnPtrCallView fv{e};
+                    const FlowSummary* fs = flow_of_fnptr(fv.callee());
+                    bool res_bc = is_borrow_carrying_type(rt);
+                    size_t i = 0;
+                    fv.each_arg([&](ExprRef a) {
+                        size_t ix = i++;
+                        if (!a) return;
+                        if (fs && ix < fs->nparams && !(fs->to_result & (1ull << ix)))
+                            return;
+                        if (is_ref_kind(a.type(pool)) ||
+                            (res_bc && is_borrow_carrying_type(a.type(pool))))
+                            // record_only: the trailing `visit(e, consuming)`
+                            // below already visits every argument. Letting this
+                            // one visit too reported a DOUBLE MOVE — measured on
+                            // stdlib `Result::unwrap_or_else`, whose body is
+                            // `return f(e);`: "use of moved value 'e'". The
+                            // Code::Call arm has no trailing visit, which is why
+                            // it can pass record_only through unchanged.
+                            take_ref_borrows(a, line, holder, /*record_only=*/true);
+                    });
+                }
                 if (!record_only) visit(e, /*consuming=*/true, line);
                 break;
             }
@@ -4134,6 +4281,121 @@ class BorrowChecker {
     // Phase 9 (NLL): pre-pass over fn body computing the max line at which
     // each named local is read. The borrow checker uses this to release
     // borrows whose holder's last use has passed — making borrows non-lexical.
+    // G0 — the pre-pass's own referent extractor. `reborrow_referent` cannot be
+    // reused here: it consults `var_has` / `param_names_`, which are populated
+    // by the MAIN pass and are empty while this one runs. The pre-pass only
+    // ever extends a lifetime, so it can afford to be looser about which names
+    // are locals; a name that is not one simply never holds a loan.
+    std::string prescan_referent(lir_view::ExprRef val) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!val) return {};
+        std::string r;
+        if (val.kind() == Code::AddrOf)          r = std::string(EAddrOfView{val}.var_name());
+        else if (val.kind() == Code::AddrOfTemp) r = extract_borrow_place(
+                                                         EAddrOfTempView{val}.inner(),
+                                                         prog_.type_pool.impl()).root;
+        else if (val.kind() == Code::VarRef)     r = std::string(EVarRefView{val}.name());
+        else return {};
+        if (r.empty() || is_materialized_temp_name(r)) return {};
+        return r;
+    }
+    void prescan_reborrow_place(const std::string& place, lir_view::ExprRef val) {
+        if (place.empty() || !val) return;
+        TypeRef vt = val.type(prog_.type_pool.impl());
+        if (!vt || vt.kind() != LogosType::Kind::MutRef) return;
+        std::string r = prescan_referent(val);
+        if (!r.empty() && r != place) reborrow_prescan_[place] = std::move(r);
+    }
+    void prescan_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
+        using Code = lir_schema::expr::Code;
+        if (name.empty() || !val) return;
+        TypeRef vt = val.type(prog_.type_pool.impl());
+        if ((t && t.kind() == LogosType::Kind::MutRef) ||
+            (vt && vt.kind() == LogosType::Kind::MutRef)) {
+            std::string r = prescan_referent(val);
+            if (!r.empty() && r != name) reborrow_prescan_[name] = std::move(r);
+        }
+        if (val.kind() == Code::StructLit)
+            lir_view::EStructLitView{val}.each_field(
+                [&](std::string_view fname, lir_view::ExprRef fv) {
+                    if (!fname.empty())
+                        prescan_reborrow_place(name + "." + std::string(fname), fv);
+                });
+    }
+    // A use of `n` is a use of everything `n` reborrows — `n` itself when it IS
+    // a reborrow, and every place recorded UNDER it (a struct that holds a
+    // `&mut` keeps the referent borrowed while the struct is live). Chasing is
+    // hop-bounded, matching rehome_reborrow.
+    void note_reborrow_alias_uses(const std::string& n, uint32_t line) {
+        if (n.empty() || reborrow_prescan_.empty()) return;
+        auto chase = [&](std::string cur) {
+            for (int hop = 0; hop < 8; ++hop) {
+                auto it = reborrow_prescan_.find(cur);
+                if (it == reborrow_prescan_.end() || it->second == cur) break;
+                cur = it->second;
+                note_use(cur, line);
+            }
+        };
+        chase(n);
+        std::string pfx = n + ".";
+        for (auto& kv : reborrow_prescan_)
+            if (kv.first.size() > pfx.size() &&
+                kv.first.compare(0, pfx.size(), pfx) == 0) {
+                note_use(kv.second, line);
+                chase(kv.second);
+            }
+    }
+    // ── D1 round 6 / G1 ───────────────────────────────────────────────────
+    //
+    // THE DEFECT. `flow_of_call` was reached ONLY from the Code::Call and
+    // Code::MethodCall arms, so an indirect call through a fn POINTER consulted
+    // no summary at all — and, unlike the closure case, got no elision fallback
+    // either: it received NOTHING. Measured: `let g: fn(&C) -> B = mkd;
+    // vs.push(g(&c)); c.bump(); *vs.get(0).p` rc=0 against rc=1 for the direct
+    // `vs.push(mkd(&c))`, with mkd's summary IDENTICAL (`result<-0x1`) in both
+    // programs. Same for the out-param half through `stash2`.
+    //
+    // Resolution rule (the task's, and Rust's): a fn-pointer local assigned
+    // exactly ONCE from a named function IS that function — resolve it and use
+    // its real summary. Reassigned or opaque (a parameter) ⇒ unresolvable ⇒ the
+    // documented (d) conservative route, which for a fn pointer means the SAME
+    // elision the summary-less Call already takes (every borrowing operand can
+    // reach the result / the `&mut` out-params), not silence.
+    void prescan_fnptr(const std::string& name, TypeRef t, lir_view::ExprRef val) {
+        using Code = lir_schema::expr::Code;
+        if (name.empty() || !val) return;
+        TypeRef vt = val.type(prog_.type_pool.impl());
+        // Kind::FnItem is the per-instantiation fn-ITEM type (logos-core 1.4):
+        // `let g: fn(&C) -> B = mkd;` has declared type FnPtr but VALUE type
+        // FnItem, and a later `g = mkd2;` has NO declared type at all — so
+        // testing FnPtr alone silently skipped every REASSIGNMENT and left the
+        // binding looking single-assigned. Measured: `g` resolved to `mkd`
+        // twice and `mkd2` was never seen, i.e. the multi-callee guard could
+        // not fire. Both kinds count.
+        auto is_fnish = [](TypeRef k) {
+            return k && (k.kind() == LogosType::Kind::FnPtr ||
+                         k.kind() == LogosType::Kind::FnItem);
+        };
+        if (!is_fnish(t) && !is_fnish(vt)) return;
+        std::string sym;
+        if (val.kind() == Code::VarRef) sym = std::string(lir_view::EVarRefView{val}.name());
+        if (sym.empty()) { fnptr_multi_.insert(name); return; }   // unresolvable value
+        auto it = fnptr_sym_.find(name);
+        if (it == fnptr_sym_.end()) fnptr_sym_[name] = std::move(sym);
+        else if (it->second != sym) fnptr_multi_.insert(name);    // two callees
+    }
+    // The callee's summary for a FnPtrCall, or null when the pointer does not
+    // resolve to exactly one named function.
+    const FlowSummary* flow_of_fnptr(lir_view::ExprRef callee) const {
+        using Code = lir_schema::expr::Code;
+        if (!callee || callee.kind() != Code::VarRef) return nullptr;
+        std::string n(lir_view::EVarRefView{callee}.name());
+        if (fnptr_multi_.count(n)) return nullptr;
+        auto it = fnptr_sym_.find(n);
+        if (it == fnptr_sym_.end()) return nullptr;
+        return flow_of_call(it->second);
+    }
     void note_use(std::string name, uint32_t line) {
         note_use_slot(NO_SLOT, std::move(name), line);
     }
@@ -4160,9 +4422,11 @@ class BorrowChecker {
             case Code::VarRef:
                 note_use_slot(EVarRefView{e}.var_slot(),
                               std::string(EVarRefView{e}.name()), line);
+                note_reborrow_alias_uses(std::string(EVarRefView{e}.name()), line);  // G0
                 break;
             case Code::AddrOf:
                 note_use(std::string(EAddrOfView{e}.var_name()), line);
+                note_reborrow_alias_uses(std::string(EAddrOfView{e}.var_name()), line);  // G0
                 break;
             case Code::AddrOfTemp:
                 scan_uses_expr(EAddrOfTempView{e}.inner(), line);
@@ -4304,12 +4568,24 @@ class BorrowChecker {
         if (!sr) return;
         uint32_t ln = stmt_line(sr);
         switch (sr.kind()) {
-            case Code::Let:
-                scan_uses_expr(SLetView{sr}.value(), ln);
+            case Code::Let: {
+                SLetView lv{sr};
+                prescan_reborrow(std::string(lv.name()), lv.type(prog_.type_pool.impl()),
+                                 lv.value());                        // G0
+                prescan_fnptr(std::string(lv.name()), lv.type(prog_.type_pool.impl()),
+                              lv.value());                           // G1
+                scan_uses_expr(lv.value(), ln);
                 break;
-            case Code::Assign:
-                scan_uses_expr(SAssignView{sr}.value(), ln);
+            }
+            case Code::Assign: {
+                SAssignView av{sr};
+                prescan_reborrow(std::string(av.name()), TypeRef(nullptr),
+                                 av.value());                        // G0
+                prescan_fnptr(std::string(av.name()), TypeRef(nullptr),
+                              av.value());                           // G1
+                scan_uses_expr(av.value(), ln);
                 break;
+            }
             case Code::Return:
                 scan_uses_expr(SReturnView{sr}.value(), ln);
                 break;
@@ -4319,6 +4595,9 @@ class BorrowChecker {
             case Code::FieldWrite: {
                 SFieldWriteView v{sr};
                 note_use(std::string(v.receiver()), ln);
+                if (!std::string(v.receiver()).empty() && !std::string(v.field()).empty())
+                    prescan_reborrow_place(std::string(v.receiver()) + "." +
+                                           std::string(v.field()), v.value());   // G0
                 scan_uses_expr(v.value(), ln);
                 break;
             }
@@ -4637,17 +4916,30 @@ class BorrowChecker {
         const auto* pool = prog_.type_pool.impl();
         through_ref = false;
         ExprRef cur = e;
+        // G0: the dotted path of FIELD steps, outermost first, collected only
+        // while EVERY step so far is a field read — a field hanging off an
+        // index or a deref has no name this map could ever have recorded.
+        std::vector<std::string> path_fields;
+        bool path_ok = true;
         while (cur) {
             Code k = cur.kind();
-            if (k == Code::FieldRead)       { cur = EFieldReadView{cur}.receiver();  continue; }
-            if (k == Code::TupleIndex)      { cur = ETupleIndexView{cur}.receiver(); continue; }
-            if (k == Code::IndexRead)       { cur = EIndexReadView{cur}.receiver();  continue; }
-            if (k == Code::SliceIndex)      { cur = ESliceIndexView{cur}.slice();    continue; }
+            if (k == Code::FieldRead)       { if (path_ok) path_fields.emplace_back(EFieldReadView{cur}.field());
+                                              cur = EFieldReadView{cur}.receiver();  continue; }
+            if (k == Code::TupleIndex)      { path_ok = false; cur = ETupleIndexView{cur}.receiver(); continue; }
+            if (k == Code::IndexRead)       { path_ok = false; cur = EIndexReadView{cur}.receiver();  continue; }
+            if (k == Code::SliceIndex)      { path_ok = false; cur = ESliceIndexView{cur}.slice();    continue; }
             if (k == Code::Deref) {
                 auto op = EDerefView{cur}.operand();
                 if (!op) break;
                 auto ot = op.type(pool);
                 if (ot && ot.kind() == LogosType::Kind::Ptr) return {};  // raw: unchecked
+                // G0: a REFERENCE deref is the identity on places — `(*h.r).x`
+                // and `h.r.x` name the same slot, and the auto-deref inserted
+                // for `h.r.push(…)` (receiver `&mut Vec<B>`, self `&mut Vec<B>`)
+                // is exactly this step. It must NOT invalidate the dotted path,
+                // or the one spelling the defect actually uses is skipped.
+                // Index / tuple-index steps above DO invalidate it: those are
+                // not names this map could have recorded.
                 through_ref = true;
                 cur = op;
                 continue;
@@ -4655,7 +4947,8 @@ class BorrowChecker {
             break;
         }
         if (cur && cur.kind() == Code::VarRef)
-            return rehome_reborrow(std::string(EVarRefView{cur}.name()));
+            return resolve_place_reborrow(std::string(EVarRefView{cur}.name()),
+                                          path_fields, path_ok);
         return {};
     }
 
@@ -4725,6 +5018,73 @@ class BorrowChecker {
         if (t && t.kind() == LogosType::Kind::MutRef) r = reborrow_referent(val);
         if (!r.empty() && r != name) reborrow_of_[name] = std::move(r);
         else                          reborrow_of_.erase(name);
+        // G0 — SAME CONCEPT, ONE PROJECTION DEEPER. Re-binding `name` retracts
+        // every place recorded UNDER it: the old struct value is gone, so
+        // `name.f` no longer names whatever it used to reborrow. Then re-record
+        // from the new value if it is a struct literal.
+        retract_reborrow_places(name);
+        note_struct_lit_reborrows(name, val);
+    }
+    // ── D1 round 6 / G0: A REBORROW STORED IN A FIELD IS STILL A REBORROW ──
+    //
+    // THE DEFECT. `reborrow_of_` (and the summarizer's `alias_`) are keyed by
+    // binding NAME, so they cannot represent "h.r IS vs's place". Measured:
+    //   struct RB { r: &mut Vec<B> }
+    //   let mut h = RB { r: &mut vs }; h.r.push(c.mk()); c.bump(); *vs.get(0).p
+    // compiled (rc=0) while the plain-local spelling `let r: &mut Vec<B> =
+    // &mut vs; r.push(c.mk()); c.bump();` refused. The sharp half: reading back
+    // through the SAME holder (`*h.r.get(0).p`) DOES refuse, so the loan lands
+    // on `h` correctly — the ONLY thing lost is the identity `h.r == vs`.
+    //
+    // THE FIX. Key the map by PLACE, not by binding: record `h.r -> vs` at the
+    // struct literal / field write that STORES the `&mut`, and let the place
+    // walk resolve the dotted path. Retraction is the load-bearing half — a
+    // field overwrite must retract EXACTLY that place's entry (and re-binding
+    // the whole root retracts everything under it), or the map outlives the
+    // fact and re-homes a later loan onto a stale referent.
+    void retract_reborrow_places(const std::string& root) {
+        std::string pfx = root + ".";
+        for (auto it = reborrow_of_.begin(); it != reborrow_of_.end(); )
+            if (it->first.size() > pfx.size() && it->first.compare(0, pfx.size(), pfx) == 0)
+                it = reborrow_of_.erase(it);
+            else ++it;
+    }
+    // Record (or retract) ONE place. The discriminator is the stored VALUE's
+    // type being `&mut` — the same test note_reborrow applies to a binding.
+    void note_reborrow_place(const std::string& place, lir_view::ExprRef val) {
+        if (place.empty()) return;
+        const auto* pool = prog_.type_pool.impl();
+        std::string r;
+        TypeRef vt = val ? val.type(pool) : TypeRef(nullptr);
+        if (vt && vt.kind() == LogosType::Kind::MutRef) r = reborrow_referent(val);
+        if (!r.empty() && r != place) reborrow_of_[place] = rehome_reborrow(std::move(r));
+        else                           reborrow_of_.erase(place);
+    }
+    void note_struct_lit_reborrows(const std::string& name, lir_view::ExprRef val) {
+        using Code = lir_schema::expr::Code;
+        if (!val || val.kind() != Code::StructLit) return;
+        lir_view::EStructLitView{val}.each_field(
+            [&](std::string_view fname, lir_view::ExprRef fv) {
+                if (fname.empty()) return;
+                note_reborrow_place(name + "." + std::string(fname), fv);
+            });
+    }
+    // Walk the dotted path root.f1.f2… through the place map. Each hop that
+    // resolves REPLACES the accumulated name, so the remaining steps apply to
+    // the referent (`h.r == vs` ⇒ a write to `h.r.x` is a write to `vs.x`).
+    // The first unrecorded step stops the walk: below it the field names are
+    // the referent's own, not another alias.
+    std::string resolve_place_reborrow(std::string base,
+                                       const std::vector<std::string>& fields_outer_first,
+                                       bool path_ok) const {
+        base = rehome_reborrow(std::move(base));
+        if (!path_ok) return base;
+        for (auto it = fields_outer_first.rbegin(); it != fields_outer_first.rend(); ++it) {
+            auto f = reborrow_of_.find(base + "." + *it);
+            if (f == reborrow_of_.end()) break;
+            base = rehome_reborrow(f->second);
+        }
+        return base;
     }
     // ── D1 round 5 / H4: A CLOSURE CALL'S RESULT HAS THE CAPTURES' PROV ────
     //
@@ -5090,6 +5450,10 @@ class BorrowChecker {
                 // later use of root after x dies is E0597 (field sibling of the
                 // struct-literal case).
                 add_ref_sources(recv_nm, field_nm, v.value(), ln);  // F6: at the PLACE
+                // G0: `h.r = &mut vs` stores a REBORROW at the place `h.r`.
+                // Retracts when the same field is overwritten with anything else.
+                if (!recv_nm.empty() && !field_nm.empty())
+                    note_reborrow_place(recv_nm + "." + field_nm, v.value());
                 // Door A: the loan counterpart of the line above.
                 place_write_loans(recv_nm, v.value(), ln,
                                   /*through_ref=*/prov_.count(recv_nm) > 0);
@@ -5651,6 +6015,9 @@ public:
         scopes_.clear();
         prov_.clear();
         reborrow_of_.clear();
+        reborrow_prescan_.clear();   // G0
+        fnptr_sym_.clear();          // G1
+        fnptr_multi_.clear();        // G1
         closure_caps_.clear();
         param_names_.clear();
         param_lifetimes_.clear();
@@ -5696,6 +6063,11 @@ public:
         }
         ret_type_ = fn.ret_type(fn_pool);
 
+        // G0: TWO passes. The first builds `reborrow_prescan_` (and the last-use
+        // maps); the second re-notes uses with the alias set COMPLETE, so a
+        // reborrow recorded textually after a use still extends the referent.
+        // `note_use` is a max, so the repeat is idempotent on everything else.
+        scan_uses_block(fn_body);
         scan_uses_block(fn_body);
 
         push_scope();  // function scope
@@ -6177,48 +6549,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             // R1/thru-style read-only pass-throughs out of this rule — they are
             // handled by the RESIDUE rule at the by-value arg site instead).
             {
-                std::vector<std::string> bc_roots;
-                std::vector<std::pair<std::string, uint32_t>> mut_roots;
-                cv.each_arg([&](ExprRef a) {
-                    if (!a) return;
-                    TypeRef at = a.type(pool);
-                    if (!is_ref_kind(at) && is_borrow_carrying_type(at)) {
-                        bc_hop_roots(a, bc_roots);
-                        return;
-                    }
-                    if (at && at.kind() == LogosType::Kind::MutRef) {
-                        std::string mr;
-                        if (a.kind() == Code::AddrOf)
-                            mr = std::string(EAddrOfView{a}.var_name());
-                        else {
-                            bool dummy = false;
-                            mr = place_write_root(
-                                a.kind() == Code::AddrOfTemp
-                                    ? EAddrOfTempView{a}.inner() : a, dummy);
-                        }
-                        if (!mr.empty() && var_has(NO_SLOT, mr))
-                            mut_roots.emplace_back(mr, 0u);
-                    }
-                });
-                for (auto& [mr, ms] : mut_roots) {
-                    (void)ms;
-                    for (auto& r : bc_roots) inherit_loans(r, mr, line);
-                }
-                if (!mut_roots.empty()) {
-                    cv.each_arg([&](ExprRef a) {
-                        if (!a) return;
-                        TypeRef at = a.type(pool);
-                        if (is_ref_kind(at) || !is_borrow_carrying_type(at)) return;
-                        // record_only: visit_args already visited the argument.
-                        take_ref_borrows(a, line, mut_roots.front().first,
-                                         /*record_only=*/true);
-                    });
-                }
-            }
-            {   // D1 round 3 / F3 — the body-informed out-param rule.
                 std::vector<ExprRef> ops;
                 cv.each_arg([&](ExprRef a){ ops.push_back(a); });
-                apply_flow_outparams(flow_of_call(cv.callee()), ops, line);
+                apply_call_outparam_rules(ops, flow_of_call(cv.callee()), line);
             }
             break;
         }
@@ -6236,6 +6569,17 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             EFnPtrCallView v{e};
             visit(v.callee(), /*consuming=*/false, line);
             visit_args(v);
+            // G1 — the OUT-PARAM half. `let g: fn(&C, &mut Vec<B>) = stash2;
+            // g(&c, &mut vs); c.bump();` recorded nothing: neither the summary
+            // (never consulted through a pointer) nor the elision fallback
+            // (which lived inside the Code::Call arm). Both now apply, and the
+            // elision half fires even when the pointer does NOT resolve —
+            // an unresolvable callee is the conservative case, not the silent one.
+            {
+                std::vector<ExprRef> ops;
+                v.each_arg([&](ExprRef a){ ops.push_back(a); });
+                apply_call_outparam_rules(ops, flow_of_fnptr(v.callee()), line);
+            }
             break;
         }
 

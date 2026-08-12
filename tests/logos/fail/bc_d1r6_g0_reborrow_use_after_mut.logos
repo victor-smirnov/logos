@@ -1,0 +1,29 @@
+// D1 round 6 / G0, the SHARP half — the loan must survive re-homing.
+//
+// Re-homing the loan from the holder (`h`, or the plain local `r`) onto the
+// referent (`vs`) is only half a rule: the referent's own NAME may never
+// appear again, so NLL retired the loan at the `&mut vs` that created it and
+// this program flipped from refuse to ADMIT. Round 5's binding-keyed re-home
+// had the same hole for the plain-local spelling
+// (`let r = &mut vs; r.push(c.mk()); c.bump(); *r.get(0).p` — measured rc=0).
+//
+// The rule that closes both: a use of a reborrow is a use of its referent, so
+// the referent stays borrowed while the reborrow is live. Here the read is
+// spelled through the holder ONLY — `vs` is never named after the borrow.
+package bc_d1r6_g0_reborrow_use_after_mut;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let r: &mut Vec<B> = &mut vs;
+    r.push(c.mk());
+    c.bump();                        // must refuse: `r` is used below, so `vs` is still borrowed
+    return *r.get(0u64).p;
+}

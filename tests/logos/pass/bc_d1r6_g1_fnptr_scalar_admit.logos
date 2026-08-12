@@ -1,0 +1,39 @@
+// D1 round 6 / G1 — THE ADMIT TWIN of the four fail/bc_d1r6_g1_* fixtures.
+//
+// A resolved fn pointer whose callee carries NOTHING must stay admitted, and
+// the mutation after the call must stay legal. The four refusals above all
+// print "cannot borrow 'c' as mutable"; a FnPtrCall arm that tied every
+// borrowing argument to every holder unconditionally — the easy way to close
+// G1 — would red this half with the same words and make `&`-args to fn
+// pointers unusable. The scalar result is the discriminator: the summary of
+// `len_of` has no result edge, so nothing is held past the call.
+//
+// The values are asserted: the pointer really is called, and the container
+// really was written through the second pointer.
+package bc_d1r6_g1_fnptr_scalar_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn len_of(c: &C) -> i64 { return c.v + 1i64; }     // consumes the borrow, returns a scalar
+fn stash(c: &C, out: &mut Vec<B>) { out.push(c.mk()); }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let g: fn(&C) -> i64 = len_of;
+    let n: i64 = g(&c);
+    c.bump();                                       // admitted: nothing carries c's borrow
+    if n != 2i64 { return 1i32; }
+
+    let mut vs: Vec<B> = Vec::new();
+    let s: fn(&C, &mut Vec<B>) = stash;
+    s(&c, &mut vs);
+    let x: i64 = *vs.get(0u64).p;                   // the read happens BEFORE the mutation
+    c.bump();                                       // admitted
+    if x != 2i64 { return 2i32; }
+    if c.v != 3i64 { return 3i32; }
+    return 0i32;
+}

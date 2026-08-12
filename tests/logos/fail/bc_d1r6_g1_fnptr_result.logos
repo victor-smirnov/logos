@@ -1,0 +1,27 @@
+// D1 round 6 / G1 — THE RESULT HALF THROUGH A FN POINTER.
+//
+// `flow_of_call` was reached ONLY from Code::Call and Code::MethodCall, so an
+// indirect call consulted no summary — and, unlike a closure call, got no
+// elision fallback either: it received NOTHING at all. `mkd`'s summary is
+// CORRECT and IDENTICAL in this program and in its direct twin
+// (`result<-0x1`, LOGOS_DUMP_FLOWS); only the call SITE differed. A `fn`
+// pointer local assigned exactly once from a named function IS that function.
+// Admit twin: pass/bc_d1r6_g1_fnptr_scalar_admit.
+package bc_d1r6_g1_fnptr_result;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn mkd(c: &C) -> B { return c.mk(); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let g: fn(&C) -> B = mkd;
+    vs.push(g(&c));
+    c.bump();
+    return *vs.get(0u64).p;
+}

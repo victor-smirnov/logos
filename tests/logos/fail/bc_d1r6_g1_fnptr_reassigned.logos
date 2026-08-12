@@ -1,0 +1,31 @@
+// D1 round 6 / G1 — A REASSIGNED POINTER IS NOT STATICALLY RESOLVABLE.
+//
+// The resolution rule is "assigned EXACTLY ONCE from a named function"; `g` is
+// assigned twice, so it resolves to nothing and takes the documented (d)
+// conservative route — which for a fn pointer means the same elision a
+// summary-less direct Call takes, NOT silence. Both candidate callees carry
+// the loan here, so even a summary-picking-one implementation would refuse —
+// which is exactly why the discriminator is measured on the RESOLUTION, not on
+// this verdict: the value type of `g = mkd2;` is Kind::FnItem, not FnPtr, and
+// testing FnPtr alone made the second assignment INVISIBLE (measured: `g`
+// resolved to `mkd` twice and `mkd2` was never seen).
+package bc_d1r6_g1_fnptr_reassigned;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn mkd(c: &C) -> B { return c.mk(); }
+fn mkd2(c: &C) -> B { return B { p: &c.v }; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut g: fn(&C) -> B = mkd;
+    g = mkd2;
+    vs.push(g(&c));
+    c.bump();
+    return *vs.get(0u64).p;
+}

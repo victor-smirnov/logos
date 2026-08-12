@@ -1,0 +1,31 @@
+// D1 round 6 / G0 — A `&mut` REBORROW DEPOSITED INTO A STRUCT FIELD.
+//
+// `reborrow_of_` (checker) and `alias_` (summarizer) were keyed by binding
+// NAME, so neither could represent "h.r IS vs's place". Measured rc=0 here
+// while the plain-local spelling of the same program
+// (fail/bc_d1r5_h1_* and the twin below) refused. The sharp half of the
+// evidence: reading back through the SAME holder DID refuse, so the loan
+// landed on `h` correctly — the only thing lost was the identity `h.r == vs`.
+//
+// The key is now the dotted PLACE, recorded at the struct literal that stores
+// the `&mut` and resolved by the place walk. `pass/bc_d1r6_g0_field_admit`
+// is the admit twin: the identical program with the read moved BEFORE the
+// mutation must still compile, or this closure is just a blanket reject.
+package bc_d1r6_g0_field_reborrow;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct RB { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: RB = RB { r: &mut vs };
+    h.r.push(c.mk());
+    c.bump();                        // must refuse: `vs` — reached as `h.r` — holds c's borrow
+    return *vs.get(0u64).p;
+}

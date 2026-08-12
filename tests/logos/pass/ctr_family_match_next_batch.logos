@@ -1,0 +1,69 @@
+// D2: the `match` door onto a container-family stream.
+//
+// `pass/ctr_family_next_batch_then_mut.logos` takes the payload out with
+// `is_some()` + `unwrap()`. That spelling is not a preference — the emitter
+// was REWRITTEN to it because `match ob { Option::Some(b) => … }` did not
+// type: the arm bound `b` at Option's DECLARED parameter `T`, and the body's
+// `b.len()` died with "type parameter 'T' has no trait bound providing method
+// 'len'". The scrutinee `ob` is Kind::Error in sema round 0 (the whole
+// `create_ctr::<typeof(Led)>(…)` → `.leaf_batches()` → `.next_batch()` chain
+// is an ADR 0021 Phase 4a/4b factory-backed deferral), so the arm's
+// substitution had no type_args to read and fell through to `T`. That hard
+// error aborted the unit BEFORE the post-drain re-sema round that types the
+// chain for real.
+//
+// This fixture pins the arm as a FIRST-CLASS door: the payload binds, the
+// body calls a method on it, and the VALUE is asserted (2 rows in the single
+// leaf, keys 1+2 and vals 10+20). `unwrap()` still works — it just stopped
+// being the only spelling that does.
+package ctr_family_match_next_batch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 10u64);
+    c.insert(2u64, 20u64);
+
+    let mut n: u64 = 0u64;
+    let mut sum: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        loop {
+            let ob = s.next_batch();
+            match ob {
+                Option::Some(b) => {
+                    batches = batches + 1u64;
+                    n = b.len();                 // the method that used to fail on `T`
+                    let kc: PdtCol = b.keys();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = 0u64;
+                    while j < n { sum = sum + kc.at(j) + vc.at(j); j = j + 1u64; }
+                }
+                Option::None => { break; }
+            }
+        }
+    }
+
+    if batches != 1u64 { return 3i32; }  // two entries = one leaf = one batch
+    if n != 2u64 { return 1i32; }        // the asserted value of `b.len()`
+    if sum != 33u64 { return 2i32; }     // (1+10) + (2+20)
+    return 0i32;
+}

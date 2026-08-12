@@ -1,0 +1,28 @@
+// D1 round 6 / G1 — AN OPAQUE POINTER, AND WHY THE CALL SITE IS NOT ENOUGH.
+//
+// `via(mkd, &c, &mut vs)` is an ORDINARY Call in main — fixing only main's
+// call sites cannot close this. The leak is one level down: `via`'s own
+// SUMMARY was computed over a body whose only borrow-flow edge is the indirect
+// call `vs.push(g(c))`, and the summarizer's ClosureCall/FnPtrCall arm returned
+// 0 for anything that is not a Kind::Closure — so the summary came out EMPTY
+// and truthfully reported that `via` carries nothing. The fix belongs in the
+// summarizer too: an opaque pointer takes call_result_taint with a null
+// summary, the same conservatism a summary-less direct Call already gets.
+package bc_d1r6_g1_fnptr_opaque;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn mkd(c: &C) -> B { return c.mk(); }
+fn via(g: fn(&C) -> B, c: &C, vs: &mut Vec<B>) { vs.push(g(c)); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    via(mkd, &c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

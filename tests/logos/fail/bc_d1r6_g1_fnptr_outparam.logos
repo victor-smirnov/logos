@@ -1,0 +1,25 @@
+// D1 round 6 / G1 — THE OUT-PARAM HALF THROUGH A FN POINTER.
+//
+// The door-F shape of fail/bc_d1r3_f3_outparam_stash, one indirection out.
+// Both halves of the out-param rule lived inside the Code::Call arm: the
+// signature-ELISION half (a by-value borrow-carrying argument may be stored
+// through a `&mut` argument) and the body-informed half (the callee summary's
+// to_outparam edges). A FnPtrCall ran neither.
+package bc_d1r6_g1_fnptr_outparam;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let g: fn(&C, &mut Vec<B>) = stash2;
+    g(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}
