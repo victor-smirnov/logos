@@ -1,0 +1,22 @@
+// D1 round 9 / F0 — SOURCE AND DESTINATION OVERLAP (`h.r = &mut vs;` while
+// `h.r` already names `vs`). It used to report the same fact TWICE; it now
+// converges on the verdict the plain-local twin (`r = &mut vs;`) gives, via
+// the retraction half: re-pointing a reference place ends the loan that
+// reference held, but ONLY records solely held by this place's root.
+package bc_d1r9_f0_retarget_overlap_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: Inner = Inner { r: &mut vs };
+    h.r = &mut vs;                   // source and destination overlap
+    return vs.len() as i64;
+}

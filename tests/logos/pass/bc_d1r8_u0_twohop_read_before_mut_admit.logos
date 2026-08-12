@@ -1,0 +1,35 @@
+// D1 round 8 / U0 — THE ADMIT HALF OF THE PAIR.
+//
+// The same two-hop chain and the same store, with the READ moved BEFORE the
+// mutation. The refusal message alone cannot tell a rule that SEPARATES from
+// one that over-refuses, so the pair is the assertion: fail/bc_d1r8_u0_twohop_
+// arg must stay red, and this must stay green. The closure resolution only ever
+// ADDS co-holders to an EXISTING loan record — it never creates or strengthens
+// one — so a program whose loan is dead by the mutation is unaffected, and
+// this fixture is where that claim is measured rather than argued.
+package bc_d1r8_u0_twohop_read_before_mut_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Cur { vs: Vec<B> }
+impl Cur {
+    fn batch(&mut self, c: &C) { self.vs.push(c.mk()); }
+}
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let vs0: Vec<B> = Vec::new();
+    let mut cur: Cur = Cur { vs: vs0 };
+    let rc: &C = &c;
+    let rc2: &C = rc;
+    cur.batch(rc2);
+    let out: i64 = *cur.vs.get(0u64).p;   // the loan dies HERE
+    c.bump();                             // must be ADMITTED
+    if out != 1i64 { return 1i32; }
+    if c.v != 2i64 { return 2i32; }
+    return 0i32;
+}

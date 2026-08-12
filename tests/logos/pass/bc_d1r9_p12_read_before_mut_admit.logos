@@ -1,0 +1,19 @@
+// D1 round 9 / P12 — THE ADMIT CONTROL. Same program, the read happens BEFORE
+// the mutation, so nothing is borrowed across it: must COMPILE and return 3.
+package bc_d1r9_p12_read_before_mut_admit;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let rc: &C = &c;
+    let rc2: &C = rc;
+    let b: B = B { p: &rc2.v };
+    let x: i64 = *b.p;            // last use of b BEFORE the mutation
+    c.bump();
+    return x + c.v;
+}

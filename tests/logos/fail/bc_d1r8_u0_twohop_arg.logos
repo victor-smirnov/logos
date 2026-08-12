@@ -1,0 +1,39 @@
+// D1 round 8 / U0 — A TWO-HOP REF CHAIN IN ARGUMENT POSITION.
+//
+// THE DEFECT (measured at 266edc21, rc=0 — an UNSOUND leak). `let rc: &C = &c;
+// let rc2: &C = rc; cur.batch(rc2);` held a loan of `c` across `c.bump()` and
+// COMPILED, while every neighbouring spelling refused: the ONE-hop
+// `cur.batch(rc)`, the inline `cur.batch(&*rc)`, and the same two-hop chain in
+// RECEIVER position. So it was not "argument position is unchecked" and not
+// "the chase is one hop short".
+//
+// THE ROOT, pinned by a decisive differential: adding `let _keep: &C = rc;`
+// AFTER the bump made the same program refuse — so the loan record was
+// `target=c holder=rc` all along, and the hop walk handed back the fully
+// resolved ENDPOINT (`c`), discarding `rc` — the one node that actually holds
+// the loan. One hop worked only because there the intermediate and the start
+// name coincide. Resolution now returns the transitive CLOSURE (RefGraph::
+// each_root); the endpoint form survives only as a single-name view.
+package bc_d1r8_u0_twohop_arg;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Cur { vs: Vec<B> }
+impl Cur {
+    fn batch(&mut self, c: &C) { self.vs.push(c.mk()); }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let vs0: Vec<B> = Vec::new();
+    let mut cur: Cur = Cur { vs: vs0 };
+    let rc: &C = &c;
+    let rc2: &C = rc;          // the second hop — the node that holds the loan
+    cur.batch(rc2);
+    c.bump();                  // must be REFUSED
+    return *cur.vs.get(0u64).p;
+}

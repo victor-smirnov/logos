@@ -1,0 +1,31 @@
+// D1 round 9 / P12 — A TWO-HOP PLAIN ALIAS INTO A DIRECT STRUCT-LITERAL `&`.
+//
+// THE DEFECT (a PERMISSIVE REGRESSION the round-8 unification introduced —
+// rc=1 at HEAD 266edc21, rc=0 on the r8 tree, and the linked program returns
+// the POST-mutation value). `let rc: &C = &c; let rc2: &C = rc; let b: B = B {
+// p: &rc2.v }; c.bump(); *b.p` compiled, while the ONE-hop spelling
+// (`&rc.v`) and the CALL spelling (`rc2.mk()`) both refuse.
+//
+// THE ROOT is `bc_hop_roots`' aggregate-literal gate, not `ref_source_places`:
+// a `&i64` field is Kind::Ref with no bc NAME, so `is_borrow_carrying_type`
+// said no and the walk never reached the member — hence never reached
+// `resolve_ref_places`, and `b` never inherited the loan `rc` holds on `c`.
+// One hop refused only by coincidence (there the borrow's raw root and the
+// loan's holder are the same name). The four aggregate arms now use the gate
+// the ARGUMENT positions already use, `type_may_carry_borrow`.
+package bc_d1r9_p12_twohop_structlit_addrof;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let rc: &C = &c;
+    let rc2: &C = rc;
+    let b: B = B { p: &rc2.v };   // two-hop alias into a DIRECT struct-lit &
+    c.bump();                     // must be REFUSED
+    return *b.p;
+}

@@ -1,0 +1,29 @@
+// D1 round 9 / N0 — A NESTED STRUCT LITERAL RECORDED NOTHING.
+//
+// THE DEFECT (unsound, rc=0 at HEAD and on r8, program returns the
+// post-mutation value). `Outer { i: Inner { r: &mut vs } }` then
+// `h.i.r.push(c.mk()); c.bump();` compiled while the ONE-level twin refuses.
+// `note_reborrow_place` gated on the stored VALUE being ref-kind, and a nested
+// literal's type is a struct — so `RefGraph::set(place, {})` ERASED `h.i`
+// rather than skipping it, and `h.i.r == vs` was never recorded. Two walks
+// then stopped at the first unrecorded step (`h.i`), so even once recorded,
+// `h.i.r` was unreachable.
+package bc_d1r9_n0_nested_structlit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: Outer = Outer { i: Inner { r: &mut vs } };
+    h.i.r.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

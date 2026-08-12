@@ -1577,12 +1577,114 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # deferred chain — a stdlib change, not a test change. What is pinned today: the
 # door opens, the unit survives, the values come out right, and the fail twin
 # proves the deferral still escalates.
+#   ⚠ SUPERSEDED 2026-08-12 (D1 round 8 / S0). The paragraph above is WRONG on
+#   its load-bearing clause and the correction is a compiler fix, not a test
+#   one. A content-hashed name DOES resolve in PATTERN position — the binding
+#   half's actual diagnostic was «unknown field 'found'», i.e. the TYPE had
+#   resolved and the FIELD lookup was what failed. It failed because the
+#   pattern path called `field_type_of` with two arguments while the expr path
+#   passes the receiver's `pkg_name()` as a third (sema_stmt.cpp vs sema.cpp);
+#   without the hint the lookup is import-scope dependent and misses a
+#   metaprog-emitted struct from another package. An OVER-REFUSAL in sema, one
+#   layer below the deferral. Fixed, and the binding half is now pinned IN
+#   pass/bc_d1r7_b1_destructure_deferred (it binds `found` and reads it in both
+#   directions). What remains true: the hash name does NOT resolve in TYPE
+#   position, so the pattern name is the only spelling — and pinning it pins
+#   the family MANGLER, which that fixture's header now says out loud.
 # PREDICTED 7041 / 3358 / 31 (+10 / +10 / 0 — ten `.expected` files under
 # tests/logos/{pass,fail}, which the corpus glob registers one test each, and no
 # new gate, so tier_commit is unmoved) BEFORE re-running cmake; the gate then
 # measured exactly that, three ways.
-REGISTRY-ALL         7041
-REGISTRY-NOIMPORTED  3358
+# D1 round 8: PREDICTED 7047 / 3364 / 31 (+6 / +6 / 0 — SIX new `.expected`
+# files, and no new gate, so tier_commit is unmoved). The six, named because a
+# count nobody can decompose is a number and not a prediction:
+#   fail/bc_d1r8_u0_twohop_arg          — U0, the two-hop chain in ARG position
+#   fail/bc_d1r8_u1_field_rhs_bind      — U1, a ref bound from a struct FIELD
+#   fail/bc_d1r8_u3_pattern_bind        — U3, a destructuring `let`
+#   pass/bc_d1r8_u0_twohop_read_before_mut_admit      — U0's admit control
+#   pass/bc_d1r8_u1_field_rhs_read_before_mut_admit   — U1+U3's admit control
+#   pass/bc_d1r8_m0_closure_captured_ref — the fixed closure captured-`&Struct`
+#                                          mlir_gen over-refusal
+# The round's S0 half added NO file: the R7b binding pin went INTO the existing
+# pass/bc_d1r7_b1_destructure_deferred, whose header claimed it was unpinnable.
+# Nor did the round's stated MATRIX GAP, closed after the first measurement:
+# pass/bc_d1r8_u1_field_rhs_read_before_mut_admit said "both new recording
+# shapes" and carried only U1's, so U3's widening had a red fixture and no
+# admit control; U3's shape was added to that same file (its own objects, exit
+# codes 3/4) rather than as a seventh fixture. Both are edits, not additions,
+# so the +6 stands. The gate then measured exactly that, three ways — and again
+# after the gap edit, unchanged.
+#
+# D1 round 9, FIRST HALF: PREDICTED 7059 / 3376 / 31 (+12 / +12 / 0 off round
+# 8's 7047 / 3364 / 31 — TWELVE new `.expected` files, no new gate). ⚠ THIS
+# PARAGRAPH IS WRITTEN LATE. The twelve landed and the three numbers below were
+# bumped to match, but the ledger sentence that decomposes them was never
+# written, so for one step the pin block carried round-9 COUNTS under a round-8
+# EXPLANATION — a number nobody can decompose, which is the exact thing the
+# round-8 paragraph above says a prediction must not be. Reconstructed and
+# named here, one line per file:
+#   fail/bc_d1r9_p12_twohop_structlit_addrof — P12, the permissive REGRESSION
+#                                              r8 introduced (rc=1 at HEAD)
+#   fail/bc_d1r9_n0_nested_structlit         — N0, nested literal records
+#                                              nothing (unsound, HEAD too)
+#   fail/bc_d1r9_n0_inner_binding_nested     — N0, inner aggregate as its own
+#                                              binding, then nested
+#   fail/bc_d1r9_n0_aggregate_copy_out       — N0, the aggregate copied back
+#                                              OUT of the nested place
+#   fail/bc_d1r9_s1_summary_field_store      — S1, the summarizer loses `out1`
+#                                              for a `&mut` stored in a FIELD
+#   fail/bc_d1r9_f0_retarget_held            — F0's abuse direction: use while
+#                                              the field is still live
+#   fail/bc_d1r9_f0_retarget_leak            — F0, the refusal that must
+#                                              survive the inversion
+#   pass/bc_d1r9_p12_read_before_mut_admit   — P12's admit control
+#   pass/bc_d1r9_n0_read_before_mut_admit    — N0's admit control
+#   pass/bc_d1r9_s1_read_before_mut_admit    — S1's admit control
+#   pass/bc_d1r9_f0_retarget_then_use_admit  — F0 INVERTED: the legal
+#                                              retarget-then-use now admits
+#   pass/bc_d1r9_f0_retarget_overlap_admit   — F0, source/destination overlap
+#
+# D1 round 9, MATRIX-GAP CLOSURE: PREDICTED 7061 / 3378 / 31 (+2 / +2 / 0 off
+# 7059 / 3376 / 31), stated BEFORE the reconfigure and then measured three
+# ways. TWO gaps were found in the twelve above; ONE of them costs files.
+#
+#   GAP A, closed and it costs the two: the P12 fix widened FOUR aggregate
+#   arms (EnumLitData, StructLit, TupleLit, ArrLit) from
+#   `is_borrow_carrying_type` to `type_may_carry_borrow`, and only StructLit
+#   had a fixture — shape-general fix, one shape exercised. The enum arm is
+#   reachable and now pinned in both directions:
+#     fail/bc_d1r9_p12_enum_payload_addrof         — the same two-hop alias
+#                                                    into an ENUM payload `&`
+#     pass/bc_d1r9_p12_enum_read_before_mut_admit  — its admit control
+#   MEASURED BY CONTROL REVERT, not inferred: with the four gate lines put
+#   back (/tmp/bcr9/ctl/REV_P12.cpp swapped in, full rebuild, md5-asserted both
+#   ways, restored to a green checkpoint) the refusing half COMPILES — rc=0,
+#   the unsound admit — and the admit half is rc=0 under BOTH, which is what
+#   makes the pair a separation test and not two copies of one file.
+#
+#   GAP A's REMAINDER, STATED because it has no witness to close it with:
+#   TupleLit and ArrLit stay unexercised, and cannot be exercised. The whole
+#   D1 mechanism is keyed on the CONTAINER carrying `#[borrow_carrying]`, and
+#   a tuple or array literal cannot carry the attribute. Measured, not
+#   assumed: `let t: (&i64, i64) = (&rc2.v, 7i64);` and `let a: [&i64; 1] =
+#   [&rc2.v];` both admit — and so does the bare `let p: &i64 = &rc2.v;` with
+#   no aggregate at all, which locates that admission in the arc's standing
+#   SCOPE (D1 tracks provenance through `#[borrow_carrying]` values) rather
+#   than in anything the widening opened. Two of the four arms are therefore
+#   generality carried for free, priced here so the next reader does not
+#   re-measure it.
+#
+#   GAP B, closed WITHOUT a file — the same gap round 8 recorded above,
+#   repeated: N0 widened the place recorder in THREE spellings, each got a
+#   refusal fixture, and only the nested-literal one had an admit control, so
+#   two of three widenings were pinned in the refusing direction only. The
+#   other two shapes went INTO pass/bc_d1r9_n0_read_before_mut_admit with
+#   their own objects and DISTINCT contributions (3 + 5 + 7, exit 3 -> 15) so
+#   a shape that stops compiling, or one whose read picks up the
+#   post-mutation value, moves the exit code instead of hiding in a sum. An
+#   edit, not an addition, so the +2 stands.
+REGISTRY-ALL         7061
+REGISTRY-NOIMPORTED  3378
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

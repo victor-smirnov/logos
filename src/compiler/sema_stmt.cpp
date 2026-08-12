@@ -1682,7 +1682,21 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 bind_name = std::string(str_of(sub.get(la::NAME.code)));
                 has_sub = false;  // simple alias — treat as name bind
             }
-            auto ft = field_type_of(recv_sname, fname);
+            // ── D1 round 8 / S0: THE PATTERN PATH DROPPED THE pkg_hint ─────
+            //
+            // THE DEFECT (measured). `let Hs352959f3caf5b795Cur { found, .. } =
+            // c.seek(0u64);` errs «struct '…Cur': unknown field 'found'» on a
+            // PUB field, while the EXPR spelling of the same read (`let cur =
+            // c.seek(0u64); let f: bool = cur.found;`) resolves it. The two
+            // paths call the same lookup with different arity: the expr path
+            // (sema.cpp field_type_of_for_type) passes `struct_t.pkg_name()`,
+            // this one passed two args. Without the hint field_type_of falls
+            // back to find_struct_by_name, which is IMPORT-SCOPE dependent, so
+            // a struct defined in another package — every metaprog-EMITTED
+            // container type — is simply not found. An over-refusal, not a
+            // permissive hole: the receiver's own type already carries the
+            // package, and it is the same fact the expr path reads.
+            auto ft = field_type_of(recv_sname, fname, TypeRef(recv_type).pkg_name());
             if (!ft) {
                 error(std::format("struct '{}': unknown field '{}'", recv_sname, fname));
                 continue;

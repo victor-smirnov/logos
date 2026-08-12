@@ -1,0 +1,23 @@
+// D1 round 9 / F0 — THE ABUSE DIRECTION. After `h.r = &mut vs2;`, using vs2
+// while the field is STILL live must stay REFUSED. This is the pin that says
+// the admit above is a separation and not an over-admission.
+package bc_d1r9_f0_retarget_held;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut vs2: Vec<B> = Vec::new();
+    let mut h: Inner = Inner { r: &mut vs };
+    h.r = &mut vs2;
+    let n: i64 = vs2.len() as i64;   // use vs2 while h.r STILL holds &mut vs2
+    h.r.push(c.mk());
+    return n;
+}

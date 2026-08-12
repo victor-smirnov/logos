@@ -923,6 +923,256 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
     return idx;
 }
 
+// ── D1 round 8 / THE UNIFICATION: ONE REF-PROVENANCE GRAPH ─────────────────
+//
+// THE DEFECT THE PIECEWISE APPROACH HAS. Rounds 5-7 grew a recorder and a
+// chase at each POSITION the leak was witnessed at: `reborrow_referent` for a
+// `let`, `note_struct_lit_reborrows` for a struct literal, `prescan_referent`
+// for the NLL pre-pass, `note_alias` for the summarizer, `rehome_reborrow` /
+// `resolve_place_reborrow` for the two place walks. Each learned exactly the
+// shapes its witness spelled, so the machinery leaked at every position it was
+// NOT taught — measured twice more in hunt 8:
+//   U0  `let rc: &C = &c; let rc2: &C = rc; cur.batch(rc2);` held across a
+//       `c.bump()` COMPILES, while the one-hop spelling refuses. The chase was
+//       not one hop short: it resolved rc2 → c correctly and handed back the
+//       ENDPOINT, discarding `rc` — the node that actually holds c's loan.
+//   U1  `let mut r2: &mut Vec<B> = h.r;` records NOTHING, because the shape
+//       gate accepted only AddrOf / AddrOfTemp / VarRef; `r2.push(…)` then
+//       launders a loan that the inline `h.r.push(…)` refuses.
+// Both are one sentence: the graph must be recorded from EVERY shape that
+// names a place, and resolved to the TRANSITIVE CLOSURE, not the endpoint.
+//
+// THE STRUCTURE. `RefGraph` is the single edge store + the single resolve.
+// Three INSTANCES survive, and they are three passes, not three graphs — the
+// difference between them is a stated RETRACTION POLICY, not a second
+// implementation or a second shape enumeration:
+//   • the checker's `refs_`        — FLOW-SENSITIVE: `set()` replaces, a
+//                                    non-reborrow write erases (the fact must
+//                                    not outlive the binding).
+//   • the pre-pass's `prescan_refs_` — MONOTONE `add()`: a whole-body union
+//                                    that only ever EXTENDS an NLL live range,
+//                                    and must not be retracted by a later
+//                                    branch it never saw.
+//   • the summarizer's `alias_`    — MONOTONE `add()`: the body is walked to a
+//                                    fixpoint, so a later re-binding may not
+//                                    retarget what an earlier pass deposited.
+// `each_root` is the one resolve for all three (it was already the summarizer's
+// — this moves it under the store both sides share). `endpoint()` is the
+// single-name VIEW for the two consumers that must answer with one name; it is
+// the same walk, stopped early, and it replaces `rehome_reborrow`'s ad-hoc
+// 8-hop bounded chase (the hop cap was the cycle guard; a visited set is).
+struct RefGraph {
+    // Keys and values are DOTTED PLACES ("h", "h.r", "h.r.p"), not bindings —
+    // the identity `h.r == vs` is not expressible over binding names (round 6).
+    // The value is a VECTOR because one reference may name two places
+    // (`if c { &a } else { &b }`), and because the monotone instances union.
+    std::unordered_map<std::string, std::vector<std::string>> e_;
+
+    bool empty() const { return e_.empty(); }
+    void clear() { e_.clear(); }
+    const std::vector<std::string>* find(const std::string& p) const {
+        auto it = e_.find(p);
+        return it == e_.end() ? nullptr : &it->second;
+    }
+    // FLOW-SENSITIVE write. An empty source list ERASES: a write that is not a
+    // reborrow retracts, so the map never outlives the fact.
+    void set(const std::string& p, std::vector<std::string> s) {
+        s.erase(std::remove(s.begin(), s.end(), p), s.end());
+        if (s.empty()) e_.erase(p);
+        else           e_[p] = std::move(s);
+    }
+    // MONOTONE write.
+    void add(const std::string& p, const std::string& s) {
+        if (p.empty() || s.empty() || s == p) return;
+        auto& v = e_[p];
+        if (std::find(v.begin(), v.end(), s) == v.end()) v.push_back(s);
+    }
+    void erase(const std::string& p) { e_.erase(p); }
+    // Re-binding a root retracts every place recorded UNDER it: the old value
+    // is gone, so `root.f` no longer names whatever it used to reborrow.
+    void erase_under(const std::string& root) {
+        std::string pfx = root + ".";
+        for (auto it = e_.begin(); it != e_.end(); )
+            if (it->first.size() > pfx.size() &&
+                it->first.compare(0, pfx.size(), pfx) == 0) it = e_.erase(it);
+            else ++it;
+    }
+    // THE ONE RESOLVE. `f` is called on `start` and on EVERY place reachable
+    // from it, each exactly once. Cycle-safe by the visited set (a self-edge is
+    // refused at insertion, but that is then a property of this walk rather
+    // than of every caller).
+    template <class F> void each_root(const std::string& start, F&& f) const {
+        if (start.empty()) return;
+        if (e_.empty()) { f(start); return; }
+        std::vector<std::string> stack{start}, seen;
+        while (!stack.empty()) {
+            std::string n = std::move(stack.back());
+            stack.pop_back();
+            if (std::find(seen.begin(), seen.end(), n) != seen.end()) continue;
+            seen.push_back(n);
+            f(n);
+            if (auto* v = find(n)) for (auto& r : *v) stack.push_back(r);
+        }
+    }
+    // The single-name VIEW of the same walk: follow the first edge to a
+    // terminal. For the two consumers whose contract is one name (a written
+    // place's root, a receiver's root); every consumer that can take a SET
+    // takes each_root instead — that is what U0 turns on.
+    std::string endpoint(std::string cur) const {
+        std::vector<std::string> seen;
+        while (!cur.empty()) {
+            if (std::find(seen.begin(), seen.end(), cur) != seen.end()) break;
+            seen.push_back(cur);
+            auto* v = find(cur);
+            if (!v || v->empty() || v->front() == cur) break;
+            cur = v->front();
+        }
+        return cur;
+    }
+};
+
+// The ROOT BINDING of a dotted place ("h.r.p" -> "h"). A dotted place names a
+// variable only through its root; the loan channels are keyed by variable.
+static std::string ref_place_root(const std::string& p) {
+    auto d = p.find('.');
+    return d == std::string::npos ? p : p.substr(0, d);
+}
+
+// ── THE ONE SHAPE WALKER ───────────────────────────────────────────────────
+//
+// Every SOURCE PLACE a reference-valued expression names. This is the union of
+// what the five old recorders accepted, and it is the half U1 was missing:
+//   VarRef / AddrOf / AddrOfTemp          — the three the old gate allowed;
+//   FieldRead / TupleIndex / IndexRead /
+//   SliceIndex / Deref chains             — U1 (`h.r`, `&mut *h.r`), yielding
+//                                           the DOTTED place while every step
+//                                           is a field read, the bare root
+//                                           once an index/tuple step makes the
+//                                           rest unnameable;
+//   Cast / IfExpr / BlockExpr             — transparent, both arms.
+// A RAW-POINTER projection or deref yields NOTHING, exactly as every other
+// walk in this file (Rust parity: the pointee is not tied to the local holding
+// the pointer). Call/MethodCall results are deliberately NOT here: what a
+// callee returns is the borrow-flow SUMMARY's question, and answering it from
+// the shape would be a guess.
+static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
+                              std::vector<std::string>& out, int depth = 0) {
+    using namespace lir_view;
+    using Code = lir_schema::expr::Code;
+    if (!val || depth > 8) return;
+    switch (val.kind()) {
+        case Code::AddrOf: {
+            std::string n(EAddrOfView{val}.var_name());
+            if (!n.empty()) out.push_back(std::move(n));
+            return;
+        }
+        case Code::AddrOfTemp:
+            ref_source_places(EAddrOfTempView{val}.inner(), pool, out, depth + 1);
+            return;
+        case Code::Cast:
+            ref_source_places(ECastView{val}.operand(), pool, out, depth + 1);
+            return;
+        case Code::IfExpr:
+            ref_source_places(EIfExprView{val}.then_val(), pool, out, depth + 1);
+            ref_source_places(EIfExprView{val}.else_val(), pool, out, depth + 1);
+            return;
+        case Code::BlockExpr:
+            ref_source_places(EBlockExprView{val}.result(), pool, out, depth + 1);
+            return;
+        default: break;
+    }
+    auto is_rawptr = [&](ExprRef r) {
+        return r && r.type(pool) && r.type(pool).kind() == LogosType::Kind::Ptr;
+    };
+    ExprRef cur = val;
+    std::vector<std::string> fields;   // outermost first
+    bool path_ok = true;
+    while (cur) {
+        Code k = cur.kind();
+        if (k == Code::FieldRead) {
+            auto r = EFieldReadView{cur}.receiver();
+            if (is_rawptr(r)) return;
+            if (path_ok) fields.emplace_back(EFieldReadView{cur}.field());
+            cur = r; continue;
+        }
+        if (k == Code::TupleIndex) {
+            auto r = ETupleIndexView{cur}.receiver();
+            if (is_rawptr(r)) return;
+            path_ok = false; cur = r; continue;
+        }
+        if (k == Code::IndexRead) {
+            auto r = EIndexReadView{cur}.receiver();
+            if (is_rawptr(r)) return;
+            path_ok = false; cur = r; continue;
+        }
+        if (k == Code::SliceIndex) {
+            auto s = ESliceIndexView{cur}.slice();
+            if (is_rawptr(s)) return;
+            path_ok = false; cur = s; continue;
+        }
+        if (k == Code::Deref) {
+            auto op = EDerefView{cur}.operand();
+            if (is_rawptr(op)) return;      // raw deref — unchecked
+            cur = op; continue;
+        }
+        break;
+    }
+    if (!cur || cur.kind() != Code::VarRef) return;
+    std::string p(EVarRefView{cur}.name());
+    if (p.empty()) return;
+    if (path_ok)
+        for (auto it = fields.rbegin(); it != fields.rend(); ++it) { p += '.'; p += *it; }
+    out.push_back(std::move(p));
+}
+
+// ── THE ONE STORE ENUMERATION (D1 round 9 / S1) ────────────────────────────
+//
+// Round 8 unified the SHAPE walker (`ref_source_places`) and the STORE and the
+// RESOLVE (`RefGraph`), but the FEEDING stayed split: the checker learned a
+// struct-literal door (`note_struct_lit_reborrows`) and a field-write door,
+// and the summarizer got neither — its `note_alias` was called only from
+// `walk_stmt`'s Let/Assign, behind an `is_mut_ref(VALUE)` gate that a struct
+// literal cannot pass. S1 is the bill: `fn stash(c: &C, v: &mut Vec<B>) { let
+// mut h: Inner = Inner { r: v }; h.r.push(c.mk()); }` loses `out1` ENTIRELY
+// (no summary line at all), while its local-alias twin summarises correctly.
+//
+// This is that enumeration, written ONCE: `sink(place, value)` for the
+// destination itself and, recursively, for every field place a NESTED
+// aggregate literal stores into. Both instances of the graph are fed through
+// it. What stays per-instance is the POLICY applied to each pair, which is
+// what the three instances were always defined to differ by:
+//   • the checker resolves each pair to the transitive closure and RETRACTS
+//     by PLACE (flow-sensitive `set`);
+//   • the summarizer charges both ends to their ROOT (its map is keyed by
+//     name, because `taint_` is) and only ever ADDS (monotone, because the
+//     body is walked to a fixpoint).
+template <class Sink>
+static void each_ref_store(const std::string& dest, lir_view::ExprRef val,
+                           Sink&& sink, int depth = 0) {
+    using Code = lir_schema::expr::Code;
+    if (dest.empty() || !val || depth > 8) return;
+    sink(dest, val);
+    if (val.kind() != Code::StructLit) return;
+    lir_view::EStructLitView{val}.each_field(
+        [&](std::string_view fname, lir_view::ExprRef fv) {
+            if (!fname.empty())
+                each_ref_store(dest + "." + std::string(fname), fv, sink, depth + 1);
+        });
+}
+// The same enumeration MINUS the destination itself, for the callers that
+// apply a different (declared-type) gate to the binding than to its places.
+template <class Sink>
+static void each_nested_ref_store(const std::string& dest, lir_view::ExprRef val,
+                                  Sink&& sink) {
+    using Code = lir_schema::expr::Code;
+    if (dest.empty() || !val || val.kind() != Code::StructLit) return;
+    lir_view::EStructLitView{val}.each_field(
+        [&](std::string_view fname, lir_view::ExprRef fv) {
+            if (!fname.empty())
+                each_ref_store(dest + "." + std::string(fname), fv, sink, 1);
+        });
+}
+
 #include "borrow_flow_summary.inc"
 
 // ── BorrowChecker ───────────────────────────────────────────────────────────
@@ -961,8 +1211,11 @@ class BorrowChecker {
     std::vector<ScopeFrame>  scopes_;
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
-    // H1: binding -> the place its `&mut` REBORROW names. See rehome_reborrow.
-    std::unordered_map<std::string, std::string> reborrow_of_;
+    // H1 / round 8: THE ref-provenance graph of the checking pass. Keyed by
+    // dotted PLACE, FLOW-SENSITIVE (a non-reborrow write retracts). Same store
+    // and same resolve as the pre-pass's `prescan_refs_` and the summarizer's
+    // `alias_` — see RefGraph.
+    RefGraph reborrow_of_;
     // H4: closure binding -> its CAPTURE names. A closure's provenance lives in
     // its captures, and the captures are not operands of the call, so the call
     // site cannot reach them without this. See closure_caps_of.
@@ -1073,7 +1326,8 @@ class BorrowChecker {
     // (`let r = &mut vs; r.push(c.mk()); c.bump(); *r.get(0).p`) had that same
     // hole ALREADY, from round 5's binding-keyed re-home. One rule closes both.
     // Union (never retracted) is the safe direction here: it can only extend.
-    std::unordered_map<std::string, std::string> reborrow_prescan_;
+    // Round 8: same store, MONOTONE policy (see RefGraph).
+    RefGraph reborrow_prescan_;
     // ── D1 round 6 / G1: WHICH FUNCTION DOES THIS FN POINTER NAME ─────────
     // A fn-pointer local assigned EXACTLY ONCE from a named function resolves
     // statically; anything else (reassigned, or arriving as a parameter) is
@@ -2931,27 +3185,55 @@ class BorrowChecker {
                 else                               EFnPtrCallView{e}.each_arg(arg);
                 return;
             }
+            // ── D1 round 9 / P12: AN AGGREGATE MEMBER GETS THE ARGUMENT GATE ──
+            //
+            // THE DEFECT (measured, and a REGRESSION the unification introduced
+            // — HEAD refused it, r8 admitted it):
+            //   let rc: &C = &c; let rc2: &C = rc;
+            //   let b: B = B { p: &rc2.v }; c.bump(); *b.p
+            // compiled and returned the POST-mutation value, while the one-hop
+            // spelling `&rc.v` and the call spelling `rc2.mk()` both refuse.
+            //
+            // THE ROOT is this gate, and it is the SAME defect the MethodCall
+            // arm above already paid for (see its Door-B note): a `&i64` /
+            // `&B` member is Kind::Ref, has no bc NAME and exposes no type-arg,
+            // so `is_borrow_carrying_type` says NO and the walk never reaches
+            // the member at all — hence never reaches `resolve_ref_places`,
+            // and `b` never inherits the loan `rc` holds on `c`. One hop only
+            // refused by coincidence: there the borrow's raw root and the
+            // loan's holder are the same name (`rc`), which is U0's
+            // coincidence one projection deeper.
+            //
+            // The fix is the gate the ARGUMENT positions already use —
+            // `type_may_carry_borrow`, the predicate written for exactly this
+            // "should I LOOK for hop roots" question — so the four aggregate
+            // arms stop being the one family still on the narrow escape
+            // classification. It cannot over-refuse on its own by this file's
+            // standing argument: bc_hop_roots only ADDS names, inherit_loans
+            // only ADDS a co-holder to an EXISTING record (never creates one,
+            // never strengthens a borrow), and inheriting from a binding that
+            // holds no loan is a no-op.
             case Code::EnumLitData:
                 EEnumLitDataView{e}.each_payload([&](ExprRef pl) {
-                    if (pl && is_borrow_carrying_type(pl.type(pool)))
+                    if (pl && type_may_carry_borrow(pl.type(pool)))
                         bc_hop_roots(pl, out);
                 });
                 return;
             case Code::StructLit:
                 EStructLitView{e}.each_field_value([&](ExprRef fv) {
-                    if (fv && is_borrow_carrying_type(fv.type(pool)))
+                    if (fv && type_may_carry_borrow(fv.type(pool)))
                         bc_hop_roots(fv, out);
                 });
                 return;
             case Code::TupleLit:
                 ETupleLitView{e}.each_elem([&](ExprRef el) {
-                    if (el && is_borrow_carrying_type(el.type(pool)))
+                    if (el && type_may_carry_borrow(el.type(pool)))
                         bc_hop_roots(el, out);
                 });
                 return;
             case Code::ArrLit:
                 EArrLitView{e}.each_elem([&](ExprRef el) {
-                    if (el && is_borrow_carrying_type(el.type(pool)))
+                    if (el && type_may_carry_borrow(el.type(pool)))
                         bc_hop_roots(el, out);
                 });
                 return;
@@ -3053,13 +3335,22 @@ class BorrowChecker {
         if (cur && cur.kind() == Code::VarRef) {
             std::string n(EVarRefView{cur}.name());
             bool tracked = var_has(EVarRefView{cur}.var_slot(), n) || is_loan_holder(n);
-            // R7a: the REFERENT, resolved through the binding map (rehome, 8
-            // hops — a4's `&mut *r`) and the place map (a3's `h.r`).
-            std::string ref = resolve_place_reborrow(n, path_fields, path_ok);
             if (tracked) out.push_back(n);
-            if (!ref.empty() && ref != n &&
-                (var_has(NO_SLOT, ref) || is_loan_holder(ref)))
-                out.push_back(std::move(ref));
+            // R7a + round 8 / U0: EVERY node the place names, not the endpoint.
+            std::vector<std::string> nodes;
+            resolve_ref_places(n, path_fields, path_ok, nodes);
+            auto add = [&](const std::string& c) {
+                if (c.empty() || c == n) return;
+                if (!var_has(NO_SLOT, c) && !is_loan_holder(c)) return;
+                if (std::find(out.begin(), out.end(), c) == out.end()) out.push_back(c);
+            };
+            for (auto& m : nodes) {
+                // A dotted place names a variable only through its ROOT — the
+                // loan channels are keyed by variable. Try the place first so
+                // `&mut s.f` still answers `s` exactly as it used to.
+                if (var_has(NO_SLOT, m) || is_loan_holder(m)) add(m);
+                else                                          add(ref_place_root(m));
+            }
         }
     }
 
@@ -4328,41 +4619,36 @@ class BorrowChecker {
     // by the MAIN pass and are empty while this one runs. The pre-pass only
     // ever extends a lifetime, so it can afford to be looser about which names
     // are locals; a name that is not one simply never holds a loan.
-    std::string prescan_referent(lir_view::ExprRef val) const {
-        using namespace lir_view;
-        using Code = lir_schema::expr::Code;
-        if (!val) return {};
-        std::string r;
-        if (val.kind() == Code::AddrOf)          r = std::string(EAddrOfView{val}.var_name());
-        else if (val.kind() == Code::AddrOfTemp) r = extract_borrow_place(
-                                                         EAddrOfTempView{val}.inner(),
-                                                         prog_.type_pool.impl()).root;
-        else if (val.kind() == Code::VarRef)     r = std::string(EVarRefView{val}.name());
-        else return {};
-        if (r.empty() || is_materialized_temp_name(r)) return {};
-        return r;
+    // Round 8: `prescan_referent` — the THIRD copy of the three-kind shape gate
+    // — is deleted. The shapes come from `ref_source_places`; what this pass
+    // keeps is its own POLICY, which is the absence of the checker's two
+    // filters (var_has / param_names_ are empty while this pre-pass runs), plus
+    // the materialized-temp exclusion. Writes are MONOTONE (`add`).
+    void prescan_note(const std::string& place, lir_view::ExprRef val) {
+        std::vector<std::string> srcs;
+        ref_source_places(val, prog_.type_pool.impl(), srcs);
+        for (auto& p : srcs)
+            if (!is_materialized_temp_name(ref_place_root(p)))
+                reborrow_prescan_.add(place, p);
     }
+    // The pre-pass's POLICY for ONE pair. N0's nested recursion is NOT written
+    // here either — it is `each_ref_store`, shared with the checker and the
+    // summarizer. This instance is MONOTONE (`add`) and has no retraction to
+    // mirror: that difference is the stated policy, not an omission.
     void prescan_reborrow_place(const std::string& place, lir_view::ExprRef val) {
         if (place.empty() || !val) return;
-        TypeRef vt = val.type(prog_.type_pool.impl());
-        if (!is_reborrow_ref_kind(vt)) return;   // R7a rule 2 (was MutRef only)
-        std::string r = prescan_referent(val);
-        if (!r.empty() && r != place) reborrow_prescan_[place] = std::move(r);
+        if (!is_reborrow_ref_kind(val.type(prog_.type_pool.impl()))) return;
+        prescan_note(place, val);
     }
     void prescan_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
-        using Code = lir_schema::expr::Code;
         if (name.empty() || !val) return;
         TypeRef vt = val.type(prog_.type_pool.impl());
-        if (is_reborrow_ref_kind(t) || is_reborrow_ref_kind(vt)) {   // R7a rule 2
-            std::string r = prescan_referent(val);
-            if (!r.empty() && r != name) reborrow_prescan_[name] = std::move(r);
-        }
-        if (val.kind() == Code::StructLit)
-            lir_view::EStructLitView{val}.each_field(
-                [&](std::string_view fname, lir_view::ExprRef fv) {
-                    if (!fname.empty())
-                        prescan_reborrow_place(name + "." + std::string(fname), fv);
-                });
+        if (is_reborrow_ref_kind(t) || is_reborrow_ref_kind(vt))     // R7a rule 2
+            prescan_note(name, val);
+        each_nested_ref_store(name, val,
+            [&](const std::string& place, lir_view::ExprRef v) {
+                prescan_reborrow_place(place, v);
+            });
     }
     // A use of `n` is a use of everything `n` reborrows — `n` itself when it IS
     // a reborrow, and every place recorded UNDER it (a struct that holds a
@@ -4370,22 +4656,22 @@ class BorrowChecker {
     // hop-bounded, matching rehome_reborrow.
     void note_reborrow_alias_uses(const std::string& n, uint32_t line) {
         if (n.empty() || reborrow_prescan_.empty()) return;
-        auto chase = [&](std::string cur) {
-            for (int hop = 0; hop < 8; ++hop) {
-                auto it = reborrow_prescan_.find(cur);
-                if (it == reborrow_prescan_.end() || it->second == cur) break;
-                cur = it->second;
-                note_use(cur, line);
-            }
+        // Round 8: the 8-hop chase is RefGraph::each_root (it already did the
+        // transitive thing correctly — it is the one channel that did).
+        auto chase = [&](const std::string& start) {
+            reborrow_prescan_.each_root(start, [&](const std::string& m) {
+                if (m != start) note_use(ref_place_root(m), line);
+            });
         };
         chase(n);
         std::string pfx = n + ".";
-        for (auto& kv : reborrow_prescan_)
+        for (auto& kv : reborrow_prescan_.e_)
             if (kv.first.size() > pfx.size() &&
-                kv.first.compare(0, pfx.size(), pfx) == 0) {
-                note_use(kv.second, line);
-                chase(kv.second);
-            }
+                kv.first.compare(0, pfx.size(), pfx) == 0)
+                for (auto& r : kv.second) {
+                    note_use(ref_place_root(r), line);
+                    chase(r);
+                }
     }
     // ── D1 round 6 / G1 ───────────────────────────────────────────────────
     //
@@ -4951,7 +5237,8 @@ class BorrowChecker {
     // steps; a RAW-pointer deref stops it (Rust parity, as everywhere else).
     // `through_ref` reports whether a reference was crossed, so the referent
     // can co-hold (see place_write_loans).
-    std::string place_write_root(lir_view::ExprRef e, bool& through_ref) const {
+    std::string place_write_root(lir_view::ExprRef e, bool& through_ref,
+                                 bool resolve = true) const {
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
         const auto* pool = prog_.type_pool.impl();
@@ -4987,9 +5274,21 @@ class BorrowChecker {
             }
             break;
         }
-        if (cur && cur.kind() == Code::VarRef)
-            return resolve_place_reborrow(std::string(EVarRefView{cur}.name()),
-                                          path_fields, path_ok);
+        if (cur && cur.kind() == Code::VarRef) {
+            // Round 8: the graph's nodes are dotted PLACES, and this consumer's
+            // contract is one VARIABLE (the loan channels key on one). A dotted
+            // endpoint names its root — which is what `&mut s.f` answered
+            // before the walker learned to spell the place.
+            // F0: a RETARGET of a reference-typed place writes the STORAGE
+            // that holds the reference, not the referent — the caller says so
+            // by asking for the unresolved root.
+            std::string ep = resolve
+                ? resolve_place_reborrow(
+                      std::string(EVarRefView{cur}.name()), path_fields, path_ok)
+                : std::string(EVarRefView{cur}.name());
+            if (!ep.empty() && !var_has(NO_SLOT, ep)) ep = ref_place_root(ep);
+            return ep;
+        }
         return {};
     }
 
@@ -5028,27 +5327,35 @@ class BorrowChecker {
     // h1b_struct_admit converges onto the verdict its ALIAS-FREE spelling
     // already gives (both refuse — measured on h1b_direct_admit; the alias was
     // the only reason it used to compile).
-    std::string reborrow_referent(lir_view::ExprRef val) const {
-        using namespace lir_view;
-        using Code = lir_schema::expr::Code;
-        if (!val) return {};
-        const auto* pool = prog_.type_pool.impl();
-        std::string r;
-        if (val.kind() == Code::AddrOf) {
-            r = std::string(EAddrOfView{val}.var_name());
-        } else if (val.kind() == Code::AddrOfTemp) {
-            BorrowPlace bp = extract_borrow_place(EAddrOfTempView{val}.inner(), pool);
-            r = bp.root;
-        } else if (val.kind() == Code::VarRef) {
-            r = std::string(EVarRefView{val}.name());
-        } else {
-            return {};
-        }
-        // A materialized statement-temporary drops at the end of the statement
-        // and has no referent to hold the loan (the admit direction).
-        if (r.empty() || is_materialized_temp_name(r)) return {};
-        if (!var_has(NO_SLOT, r) || param_names_.count(r)) return {};
-        return r;
+    // ── D1 round 8: the SHAPE GATE IS GONE ────────────────────────────────
+    //
+    // What stood here was `reborrow_referent`: a three-kind switch (AddrOf /
+    // AddrOfTemp / VarRef, `default: return {}`) written once here, once as
+    // `prescan_referent`, and once as the summarizer's `note_alias` gate. U1 is
+    // the bill for that: `let mut r2: &mut Vec<B> = h.r;` is a FieldRead, hits
+    // the default arm, records nothing, and launders the loan that the inline
+    // `h.r.push(…)` refuses. The shapes now come from the one walker
+    // (`ref_source_places`); what remains here is this pass's ADMISSIBILITY
+    // POLICY, which is the part that was never shared:
+    //   • a materialized statement-temporary (`__rtmp_N`) drops at the end of
+    //     the statement and has no referent to hold the loan (admit direction);
+    //   • the root must be a TRACKED LOCAL of this pass and NOT a param — the
+    //     pre-pass deliberately drops both tests (its maps are empty when it
+    //     runs), which is why it cannot share this function, only the walker.
+    // Applied to the ROOT of a dotted place: `h.r` is admissible iff `h` is.
+    bool ref_source_admissible(const std::string& p) const {
+        std::string root = ref_place_root(p);
+        if (root.empty() || is_materialized_temp_name(root)) return false;
+        if (!var_has(NO_SLOT, root) || param_names_.count(root)) return false;
+        return true;
+    }
+    std::vector<std::string> ref_sources_of(lir_view::ExprRef val) const {
+        std::vector<std::string> raw, ok;
+        if (!val) return ok;
+        ref_source_places(val, prog_.type_pool.impl(), raw);
+        for (auto& p : raw)
+            if (ref_source_admissible(p)) ok.push_back(std::move(p));
+        return ok;
     }
     // Record (or retract) the reborrow edge for a binding. Called from `let`
     // and from assignment; a write that is NOT a reborrow retracts, so the map
@@ -5075,16 +5382,64 @@ class BorrowChecker {
     }
     void note_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
         if (name.empty()) return;
-        std::string r;
-        if (is_reborrow_ref_kind(t)) r = reborrow_referent(val);
-        if (!r.empty() && r != name) reborrow_of_[name] = std::move(r);
-        else                          reborrow_of_.erase(name);
+        std::vector<std::string> s;
+        // ── D1 round 8 / U3: A PATTERN BINDING IS A BINDING ────────────────
+        //
+        // MEASURED AND NOT TAKEN: falling back to the VALUE's type when the
+        // `let` carries no declared type (which is what the Assign door does)
+        // looked like the missing half of U3 — a destructuring `let` binds
+        // names the programmer never annotated. It is NOT: instrumented over
+        // the whole bc_d1 corpus plus U3's own witness, that arm fired ZERO
+        // times, because sema gives every desugared field binding a declared
+        // type. A widening with no consumer is a hedge, so the gate still
+        // reads only `t`; U3's actual missing half is note_place_copy below.
+        if (is_reborrow_ref_kind(t)) s = ref_sources_of(val);
+        reborrow_of_.set(name, std::move(s));   // empty ⇒ retract
         // G0 — SAME CONCEPT, ONE PROJECTION DEEPER. Re-binding `name` retracts
         // every place recorded UNDER it: the old struct value is gone, so
         // `name.f` no longer names whatever it used to reborrow. Then re-record
         // from the new value if it is a struct literal.
         retract_reborrow_places(name);
         note_struct_lit_reborrows(name, val);
+        note_place_copy(name, val);
+    }
+    // ── D1 round 8 / U3, second half: A COPIED AGGREGATE CARRIES ITS PLACES ─
+    //
+    // THE DEFECT (measured). `let mut h: RB = RB { r: &mut vs };
+    // let RB { r } = h; r.push(c.mk()); c.bump(); *vs.get(0).p` still compiled
+    // after the gate above learned to read the VALUE's type: the trace shows
+    // the binding IS recorded, as `r -> __dst_0.r`. Sema materialises the
+    // destructured scrutinee into a temporary (`let __dst_0 = h;`) and binds
+    // the fields off THAT, so the chain ends one place short — `__dst_0.r` is
+    // a place nothing ever recorded, because the struct-literal recorder wrote
+    // `h.r`.
+    //
+    // THE RULE, and it is not about patterns. Binding a whole AGGREGATE from
+    // another place makes the destination's sub-places name the same things
+    // the source's did: `d = h` ⇒ `d.f` names whatever `h.f` named. Recording
+    // that at the one binding door covers the compiler's own destructure
+    // temporary, an explicit `let d = h;`, and any future desugaring that
+    // routes through a copy — none of which needs its own arm. It only ever
+    // ADDS edges to places that did not exist a statement earlier (the name is
+    // fresh, and re-binding retracted everything under it first), so it cannot
+    // strengthen or invent a loan.
+    void note_place_copy(const std::string& name, lir_view::ExprRef val) {
+        if (!val) return;
+        const auto* pool = prog_.type_pool.impl();
+        TypeRef vt = val.type(pool);
+        if (is_reborrow_ref_kind(vt)) return;   // a reborrow, handled above
+        std::vector<std::string> raw;
+        ref_source_places(val, pool, raw);
+        if (raw.size() != 1) return;            // not ONE named source place
+        const std::string& src = raw[0];
+        if (src.empty() || src == name) return;
+        std::string pfx = src + ".";
+        std::vector<std::pair<std::string, std::vector<std::string>>> adds;
+        for (auto& kv : reborrow_of_.e_)
+            if (kv.first.size() > pfx.size() &&
+                kv.first.compare(0, pfx.size(), pfx) == 0)
+                adds.emplace_back(name + kv.first.substr(src.size()), kv.second);
+        for (auto& a : adds) reborrow_of_.set(a.first, std::move(a.second));
     }
     // ── D1 round 6 / G0: A REBORROW STORED IN A FIELD IS STILL A REBORROW ──
     //
@@ -5104,30 +5459,66 @@ class BorrowChecker {
     // the whole root retracts everything under it), or the map outlives the
     // fact and re-homes a later loan onto a stale referent.
     void retract_reborrow_places(const std::string& root) {
-        std::string pfx = root + ".";
-        for (auto it = reborrow_of_.begin(); it != reborrow_of_.end(); )
-            if (it->first.size() > pfx.size() && it->first.compare(0, pfx.size(), pfx) == 0)
-                it = reborrow_of_.erase(it);
-            else ++it;
+        reborrow_of_.erase_under(root);
     }
     // Record (or retract) ONE place. The discriminator is the stored VALUE's
     // type being `&mut` — the same test note_reborrow applies to a binding.
     void note_reborrow_place(const std::string& place, lir_view::ExprRef val) {
         if (place.empty()) return;
         const auto* pool = prog_.type_pool.impl();
-        std::string r;
         TypeRef vt = val ? val.type(pool) : TypeRef(nullptr);
-        if (is_reborrow_ref_kind(vt)) r = reborrow_referent(val);   // R7a rule 2
-        if (!r.empty() && r != place) reborrow_of_[place] = rehome_reborrow(std::move(r));
-        else                           reborrow_of_.erase(place);
+        std::vector<std::string> s;
+        if (is_reborrow_ref_kind(vt)) s = ref_sources_of(val);   // R7a rule 2
+        // A STORED place is resolved EAGERLY, and now to the whole closure
+        // rather than to the endpoint. Eagerly, because the stored reference
+        // keeps naming what it named at the store even if the intermediate
+        // binding is later retargeted (`let r = &mut vs; let h = RB{r:r};
+        // r = &mut other;` must not move `h.r` onto `other`) — that was
+        // rehome_reborrow's job here. To the CLOSURE, because the endpoint
+        // alone is U0's defect one projection deeper: `r` holds the loan.
+        if (!s.empty()) {
+            std::vector<std::string> cl;
+            for (auto& src : s)
+                reborrow_of_.each_root(src, [&](const std::string& n) {
+                    if (n != place && std::find(cl.begin(), cl.end(), n) == cl.end())
+                        cl.push_back(n);
+                });
+            s.swap(cl);
+        }
+        reborrow_of_.set(place, std::move(s));
+        // ── D1 round 9 / N0: A PLACE HOLDS WHAT A BINDING HOLDS ────────────
+        //
+        // THE DEFECT (measured, rc=0 on r8 AND at HEAD, program returns the
+        // POST-mutation value):
+        //   struct Inner { r: &mut Vec<B> }  struct Outer { i: Inner }
+        //   let mut h: Outer = Outer { i: Inner { r: &mut vs } };
+        //   h.i.r.push(c.mk()); c.bump(); *vs.get(0).p
+        // A NESTED literal's type is a STRUCT, so the ref-kind gate above
+        // leaves `s` empty and `set()` ERASES `h.i` — it does not merely skip
+        // it — and nothing ever records `h.i.r == vs`. The one-level twin
+        // refuses. Two more spellings leak for the same reason: the inner
+        // literal bound to its own name and then nested (`Outer { i: inn }`),
+        // and the aggregate copied back OUT (`let mut inner: Inner = h.i;`) —
+        // the latter only because `note_place_copy` correctly requires the
+        // source's SUB-PLACE keys to exist, and they never did.
+        //
+        // THE RULE, and it is the one `note_reborrow` already applies to a
+        // BINDING: what is stored into a place is recorded the same way
+        // whatever the place's spelling — retract what was under it, then
+        // re-record from the new value, recursively for a nested literal and
+        // by sub-place copy for a whole-aggregate copy. The recursion itself
+        // is NOT written here: it is `each_ref_store`, the one enumeration
+        // both instances of the graph are fed through (S1). This function is
+        // the checker's POLICY for ONE pair, and nothing else.
+        retract_reborrow_places(place);
+        note_place_copy(place, val);
     }
+    // The checker's feeding path: every place a value stores into, in
+    // PRE-ORDER (a parent's retraction must run before its children record).
     void note_struct_lit_reborrows(const std::string& name, lir_view::ExprRef val) {
-        using Code = lir_schema::expr::Code;
-        if (!val || val.kind() != Code::StructLit) return;
-        lir_view::EStructLitView{val}.each_field(
-            [&](std::string_view fname, lir_view::ExprRef fv) {
-                if (fname.empty()) return;
-                note_reborrow_place(name + "." + std::string(fname), fv);
+        each_nested_ref_store(name, val,
+            [&](const std::string& place, lir_view::ExprRef v) {
+                note_reborrow_place(place, v);
             });
     }
     // Walk the dotted path root.f1.f2… through the place map. Each hop that
@@ -5135,15 +5526,79 @@ class BorrowChecker {
     // the referent (`h.r == vs` ⇒ a write to `h.r.x` is a write to `vs.x`).
     // The first unrecorded step stops the walk: below it the field names are
     // the referent's own, not another alias.
+    // ── D1 round 8 / U0: THE RESOLVE RETURNS THE CLOSURE, NOT THE ENDPOINT ──
+    //
+    // THE DEFECT. `let rc: &C = &c; let rc2: &C = rc; cur.batch(rc2);` held
+    // across `c.bump()` COMPILED while the one-hop spelling refuses. The chase
+    // was not short — a decisive differential (`let _keep: &C = rc;` AFTER the
+    // bump ⇒ rc=1) showed the loan record is `target=c holder=rc`, i.e. the
+    // chase resolved rc2 → c and handed back exactly the one name that does NOT
+    // hold the loan. One hop worked only because there the intermediate and the
+    // start name coincide. So the answer to "what does this place name" is a
+    // SET — every node on the chain — and the endpoint form is a lossy view of
+    // it, not the primitive.
+    //
+    // WHY IT CANNOT OVER-REFUSE ON ITS OWN. Same argument as R7a: it only ADDS
+    // names to the hop roots, inherit_loans ADDS a co-holder to an existing
+    // record (never creates one, never strengthens a borrow), and inheriting
+    // from a binding that holds no loan is a no-op. Retraction is untouched.
+    void resolve_ref_places(const std::string& base,
+                            const std::vector<std::string>& fields_outer_first,
+                            bool path_ok,
+                            std::vector<std::string>& out) const {
+        if (base.empty()) return;
+        std::vector<std::string> frontier;
+        auto close = [&](const std::string& n, std::vector<std::string>& into) {
+            reborrow_of_.each_root(n, [&](const std::string& m) {
+                if (std::find(out.begin(), out.end(), m) == out.end()) out.push_back(m);
+                into.push_back(m);
+            });
+        };
+        close(base, frontier);
+        if (!path_ok) return;
+        // Walk the dotted path root.f1.f2… . Each step that RESOLVES replaces
+        // the frontier with what it names (`h.r == vs` ⇒ `h.r.x` is `vs.x`).
+        // The first unrecorded step stops the walk: below it the field names
+        // are the referent's own, not another alias.
+        for (auto it = fields_outer_first.rbegin(); it != fields_outer_first.rend(); ++it) {
+            std::vector<std::string> next;
+            for (auto& n : frontier) {
+                std::string key = n + "." + *it;
+                if (reborrow_of_.find(key)) { close(key, next); continue; }
+                // ── D1 round 9 / N0, the WALK half ────────────────────────
+                // An unrecorded step is not the end of the path: `h` is a
+                // plain local, so `h.i` names nothing — but `h.i.r` IS a
+                // recorded place (that is what a NESTED literal deposits).
+                // Stopping here is what left `h.i.r.push(c.mk())` unresolved
+                // after the recorder was fixed. Carry the literal place
+                // forward WITHOUT publishing it as a root: it names no
+                // referent of its own, so it may not contribute a hop root —
+                // only a deeper step that actually resolves may.
+                next.push_back(key);   // frontier only, not `out`
+            }
+            if (next.empty()) break;
+            frontier.swap(next);
+        }
+    }
+    // The single-name VIEW of the walk above, for the consumers whose contract
+    // is one name (place_write_root's destination, the *Write receiver root).
     std::string resolve_place_reborrow(std::string base,
                                        const std::vector<std::string>& fields_outer_first,
                                        bool path_ok) const {
-        base = rehome_reborrow(std::move(base));
+        base = reborrow_of_.endpoint(std::move(base));
         if (!path_ok) return base;
+        // N0, the SINGLE-NAME half of the same walk. An unrecorded step is not
+        // the end of the path — `h` is a plain local so `h.i` names nothing,
+        // while `h.i.r` IS a recorded place. Carry the literal place forward
+        // and keep the LAST step that actually resolved as the answer, so the
+        // destination of `h.i.r.push(…)` is `vs` and not `h`.
+        std::string cur = base;
         for (auto it = fields_outer_first.rbegin(); it != fields_outer_first.rend(); ++it) {
-            auto f = reborrow_of_.find(base + "." + *it);
-            if (f == reborrow_of_.end()) break;
-            base = rehome_reborrow(f->second);
+            cur += "." + *it;
+            auto* f = reborrow_of_.find(cur);
+            if (!f || f->empty()) continue;
+            cur  = reborrow_of_.endpoint(f->front());
+            base = cur;
         }
         return base;
     }
@@ -5195,15 +5650,53 @@ class BorrowChecker {
         if (e.kind() == Code::FnPtrCall)   return lir_view::EFnPtrCallView{e}.callee();
         return {};
     }
+    // `rehome_reborrow`'s 8-hop bounded chase is DELETED; `RefGraph::endpoint`
+    // is the same walk with a visited set instead of a hop cap for the cycle
+    // guard. This name survives only as the one-word call site spelling.
     std::string rehome_reborrow(std::string n) const {
-        for (int hop = 0; hop < 8 && !n.empty(); ++hop) {
-            auto it = reborrow_of_.find(n);
-            if (it == reborrow_of_.end() || it->second == n) break;
-            n = it->second;
-        }
-        return n;
+        return reborrow_of_.endpoint(std::move(n));
     }
 
+    // ── D1 round 9 / F0, the RETRACTION half ───────────────────────────────
+    //
+    // Re-pointing a reference-typed PLACE drops the reference that lived
+    // there, so the loan that reference held on its OLD referent ends here.
+    // Without this the field spelling of the overlap case (`h.r = &mut vs;`
+    // while `h.r` already names `vs`) reports "already mutably borrowed"
+    // against a loan nothing can use any more, while the plain-local twin
+    // (`r = &mut vs;`) admits — measured on both trees.
+    //
+    // ⚠ THE ABUSE DIRECTION. This releases ONLY records that (a) name a target
+    // this exact place used to reborrow, (b) are held by this place's root as
+    // the SOLE holder — a record with co-holders was inherited by something
+    // else that may still use it, and (c) at most one record per target. So it
+    // cannot retire a loan another binding still owns. The pins are
+    // f0_refuse_held (use of the new referent while the field is still live)
+    // and f0_refuse_leak (a `c.mk()` stashed through the retargeted field),
+    // both of which must stay REFUSED.
+    void release_place_retarget(const std::string& place, const std::string& root) {
+        const auto* old = reborrow_of_.find(place);
+        if (!old || root.empty()) return;
+        std::vector<std::string> targets(*old);
+        auto take_one = [&](const std::string& t) {
+            auto it = std::find(targets.begin(), targets.end(), t);
+            if (it == targets.end()) return false;
+            targets.erase(it);
+            return true;
+        };
+        for (auto& frame : scopes_) {
+            for (size_t i = frame.borrows.size(); i > 0; --i) {
+                auto& br = frame.borrows[i - 1];
+                if (br.holder != root || !br.co_holders.empty()) continue;
+                if (!take_one(br.target)) continue;
+                if (auto sit = var_find(br.target_slot, br.target); sit != nullptr) {
+                    if (br.is_mut) sit->mut_borrowed = false;
+                    else if (sit->shared_borrows > 0) --sit->shared_borrows;
+                }
+                frame.borrows.erase(frame.borrows.begin() + (i - 1));
+            }
+        }
+    }
     void place_write_loans(const std::string& root, lir_view::ExprRef val,
                            uint32_t ln, bool through_ref) {
         if (root.empty() || !val) return;
@@ -5699,11 +6192,61 @@ class BorrowChecker {
                     // FULL place walk (field / tuple / index / deref), not the
                     // pure-field one above: `a[i] = …` and `(*r).f = …` both
                     // land here and both store into their root.
+                    // ── D1 round 9 / F0: A RETARGET IS NOT A WRITE THROUGH ─
+                    //
+                    // THE DEFECT (measured, over-refusal, pre-existing at
+                    // HEAD): `let mut h: Inner = Inner { r: &mut vs };
+                    // h.r = &mut vs2; return vs2.len();` refuses with "cannot
+                    // use 'vs2' while it is mutably borrowed", and so does the
+                    // named legal control that USES h.r in between — while the
+                    // struct-literal, plain-local and plain-local-ASSIGN
+                    // spellings of the same fact all admit. The brief's root
+                    // ("a loan that is never released") is REFUTED by the
+                    // trace: both loans release at the end of this very
+                    // statement. Two real causes, both here:
+                    //
+                    // (a) THE DESTINATION. `place_write_root` resolves `h.r`
+                    //     through the reborrow map to the REFERENT `vs`, so
+                    //     re-pointing the field was booked as a write THROUGH
+                    //     it — which is what made `vs` a co-holder of a borrow
+                    //     of `vs2` and produced the overlap case's second
+                    //     diagnostic. A write to a place whose own type is a
+                    //     REFERENCE replaces that reference: the storage
+                    //     written is `h`, and the map entry for `h.r` must be
+                    //     re-recorded onto the new referent (the FieldWrite
+                    //     door does this; this door — the one the spelling
+                    //     actually takes — never did, so the old identity
+                    //     `h.r == vs` survived the retarget).
+                    //
+                    // (b) THE ORDER. This is the only one of the seven
+                    //     place_write_loans callers that records BEFORE it
+                    //     visits the value, so the `&mut vs2` borrow is
+                    //     already registered when `visit`'s AddrOf arm runs
+                    //     check_live(vs2) — the diagnostic is reported on the
+                    //     flag the same statement just set. That is exactly
+                    //     the self-conflict the AddrOfTemp arm documents
+                    //     ("visit inner FIRST for both branches"), and the fix
+                    //     is the same one: visit, then record.
                     bool wref = false;
-                    std::string wroot = place_write_root(atv.inner(), wref);
+                    TypeRef pt = atv.inner() ? atv.inner().type(pool) : TypeRef(nullptr);
+                    bool retarget = is_ref_kind(pt);
+                    std::string wroot = place_write_root(atv.inner(), wref,
+                                                         /*resolve=*/!retarget);
+                    if (retarget) {
+                        wref = false;
+                        BorrowPlace bp = extract_borrow_place(atv.inner(), pool);
+                        if (!bp.root.empty() && !bp.path.empty() && !bp.index_in_chain) {
+                            std::string wplace = bp.root + "." + bp.path;
+                            release_place_retarget(wplace, bp.root);
+                            note_reborrow_place(wplace, v.value());
+                        }
+                    }
+                    visit(v.ptr(),   /*consuming=*/false, ln);
+                    visit(v.value(), /*consuming=*/true,  ln);
                     if (!wroot.empty())
                         place_write_loans(wroot, v.value(), ln,
                                           wref || prov_.count(wroot) > 0);
+                    break;
                 }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
@@ -6506,6 +7049,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     ? std::string(lir_view::EVarRefView{recv}.name())
                     : place_write_root(recv, rn_thru);
                 std::string rn = rehome_reborrow(rn0);
+                // Round 8: a dotted endpoint names its root (see place_write_root).
+                if (!rn.empty() && !var_has(NO_SLOT, rn)) rn = ref_place_root(rn);
                 uint32_t rn_slot = (recv_is_var && rn == rn0)         // Phase-1
                     ? lir_view::EVarRefView{recv}.var_slot() : NO_SLOT;
                 if (!rn.empty() && var_has(rn_slot, rn)) {

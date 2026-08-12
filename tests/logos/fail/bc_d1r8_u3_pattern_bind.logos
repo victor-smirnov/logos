@@ -1,0 +1,41 @@
+// D1 round 8 / U3 — A DESTRUCTURING `let` THAT BINDS A REFERENCE FIELD.
+//
+// THE DEFECT (measured, rc=0 — an UNSOUND leak, and it survived U0 and U1).
+// `let RB { r } = h; r.push(c.mk()); c.bump();` compiled while BOTH other
+// spellings of the same three lines refused — the named `let r: &mut Vec<B> =
+// h.r;` (U1, above) and the inline `h.r.push(…)` (round 6's G0).
+//
+// THE ROOT, and it is not about patterns. A trace at the recording door showed
+// the binding IS recorded — as `r -> __dst_0.r`. Sema materialises the
+// destructured scrutinee into a temporary (`let __dst_0 = h;`), so the chain
+// ended one place short: nothing ever recorded `__dst_0.r`, because the
+// struct-literal recorder had written `h.r`. The rule that closes it is about
+// COPYING AN AGGREGATE, not about destructuring: binding a whole aggregate
+// from another place makes the destination's sub-places name what the source's
+// named (`d = h` ⇒ `d.f` is `h.f`). Recorded at the one binding door, it covers
+// the compiler's own temporary, an explicit `let d = h;`, and any future
+// desugaring that routes through a copy — no per-form arm.
+//
+// ALSO MEASURED AND NOT TAKEN: reading the VALUE's type when the `let` has no
+// declared type (the Assign door's rule) looked like the missing half. It fired
+// ZERO times over the whole bc_d1 corpus — sema types every desugared field
+// binding — so it was reverted rather than left in as a hedge.
+package bc_d1r8_u3_pattern_bind;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct RB { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: RB = RB { r: &mut vs };
+    let RB { r } = h;            // binds through sema's destructure temporary
+    r.push(c.mk());
+    c.bump();                    // must be REFUSED
+    return *vs.get(0u64).p;
+}

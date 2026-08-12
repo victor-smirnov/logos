@@ -65,7 +65,25 @@ SUMMARY="$SCRIPT_DIR/ctest-summary.sh"
 # pattern) plus the mangling-sensitive generic/trait family and the diagnostic
 # canaries (spec *_diag_ tests are hot by nature). TUNE THIS as areas stabilise
 # or new fragile ones appear — it is a plain list, no other machinery.
-HOT_TOKENS="coerce coercion cast array arr const slice deref drop borrow move \
+# ⚠ `bc` ADDED 2026-08-12 (D1 round 9). `borrow` was already here and covered
+# SIX files (fail/pass borrow_*), while the borrow-checker arc's own fixtures
+# are named `bc_*` — 122 of them — and the grouping token is the basename up to
+# the first `_`, so `bc_d1r9_…` grouped as `bc` and matched nothing in this
+# list. The family that this list exists to protect was the one sampled at 10
+# per group: 20 of 122 ran at L2, 84% of the arc's regression fixtures sat
+# outside the per-commit net while a 6-file legacy family sat fully inside it.
+# Measured, not assumed: selection 1841 -> 1943 names (+102, PREDICTED exactly
+# — 122 bc fixtures now run in full where 20 were sampled), and L2.1 1937 ->
+# 2034 tests, rc=0 both. ⚠ The tests-run delta is +97, FIVE SHORT of the name
+# delta, and that gap is REPORTED rather than explained: selection is by name
+# but execution is `ctest -R`, which matches by SUBSTRING, so a selected name
+# that is a prefix of others already pulled tests no name of its own claimed —
+# the two counts were never 1:1 (1841 names ran 1937 tests before this edit).
+# The five are not a missing fixture: all 122 `bc_*.logos` have their
+# `.expected` beside them and `ctest -N` registers exactly 122 bc tests, both
+# checked. Whoever next tunes this list should close that arithmetic rather
+# than inherit the sentence.
+HOT_TOKENS="coerce coercion cast array arr const slice deref drop borrow bc move \
 pattern pat match enum generic generics trait traits impl mangling g156 g162 \
 mono nll lt lifetime self assoc closure fn dup diag inferred hole repr variance \
 memstore relptr box unsize dst tuple"

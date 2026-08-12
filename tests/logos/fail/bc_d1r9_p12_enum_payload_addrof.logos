@@ -1,0 +1,43 @@
+// D1 round 9 / P12, SECOND ARM — THE SAME TWO-HOP DEFECT IN AN ENUM PAYLOAD.
+//
+// MATRIX GAP, closed rather than stated. The P12 fix widened FOUR aggregate
+// arms from `is_borrow_carrying_type` to `type_may_carry_borrow`
+// (EnumLitData, StructLit, TupleLit, ArrLit) and only StructLit had a
+// fixture — a shape-general fix exercised on one shape.
+//
+// Of the other three, this is the one that is REACHABLE. TupleLit and ArrLit
+// are not: the whole D1 mechanism is keyed on the CONTAINER being
+// `#[borrow_carrying]`, and a tuple or array literal cannot carry the
+// attribute. MEASURED, not assumed — `let t: (&i64, i64) = (&rc2.v, 7i64);`
+// and `let a: [&i64; 1] = [&rc2.v];` both admit, and so does the bare
+// `let p: &i64 = &rc2.v;` with no aggregate at all, which is the pre-existing
+// scope limit of the arc (D1 tracks provenance through `#[borrow_carrying]`
+// values) and NOT anything the widening opened. An enum CAN carry it, so
+// this arm has a witness and the other two have none to have.
+//
+// MEASURED BY CONTROL REVERT, on this tree, both directions: with the four
+// gate lines put back to `is_borrow_carrying_type` (/tmp/bcr9/ctl/REV_P12.cpp
+// swapped in, full rebuild) this program COMPILES — rc=0, the unsound admit —
+// and with them widened it refuses. The admit twin
+// (pass/bc_d1r9_p12_enum_read_before_mut_admit) is rc=0 under BOTH, which is
+// what makes it a control and not a second copy of this file.
+//
+// The payload is a BARE `&i64`: that is the whole point. A payload of a named
+// `#[borrow_carrying]` type would pin nothing, because it satisfies the NARROW
+// gate as well — that one is read off the predicate (`is_borrow_carrying_type`
+// is true of a bc-named struct by definition), NOT measured under the revert,
+// and it is why the spelling here is the bare reference and not `E::Some(B {
+// p: &rc2.v })`.
+package bc_d1r9_p12_enum_payload_addrof;
+struct C { v: i64 }
+impl C { fn bump(&mut self) { self.v = self.v + 1i64; } }
+#[borrow_carrying]
+enum E { None, Some(&i64) }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let rc: &C = &c;
+    let rc2: &C = rc;
+    let e: E = E::Some(&rc2.v);   // two-hop alias into an ENUM payload `&`
+    c.bump();                     // must be REFUSED
+    match e { E::Some(p) => { return *p; } E::None => { return 0i64; } }
+}

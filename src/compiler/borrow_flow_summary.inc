@@ -294,7 +294,11 @@ private:
     std::unordered_map<std::string, uint64_t> taint_;
     // H0: local -> the places it reborrows (see note_alias). Monotone within a
     // body; cleared per function alongside taint_.
-    std::unordered_map<std::string, std::vector<std::string>> alias_;
+    // D1 round 8: the SAME store and the SAME resolve as the checker's `refs_`
+    // and the pre-pass's `prescan_refs_` — this instance's policy is MONOTONE
+    // (see RefGraph). What used to be a local `std::unordered_map` + a local
+    // `each_root` is now the shared one.
+    RefGraph alias_;
     std::vector<std::string>                  pnames_;
     std::vector<TypeRef>                      ptypes_;
     uint64_t                                  result_taint_ = 0;
@@ -435,45 +439,77 @@ private:
         // function with an EMPTY body, and emit_all was refused twice over
         // ("cannot borrow 'cg' as mutable: already mutably borrowed"). `_` is a
         // discard, never a place, so it can never be a reborrow of anything.
+        // D1 round 8: the SHAPE enumeration is no longer written here. The old
+        // three-kind gate (VarRef/AddrOf/AddrOfTemp) is exactly U1's root, and
+        // it was written out three times in two files; `ref_source_places` is
+        // the one walker. This side is keyed by NAME (taint_ is), so a dotted
+        // source place is charged to its ROOT — `let r = h.r;` makes a deposit
+        // on `r` a deposit on `h`, which is the conservative direction.
+        // ── D1 round 9 / S1: THE FEEDING IS THE SAME, THE POLICY IS NOT ────
+        //
+        // THE DEFECT (measured with LOGOS_DUMP_FLOWS):
+        //   fn stash(c: &C, v: &mut Vec<B>) { let mut h: Inner = Inner { r: v };
+        //                                     h.r.push(c.mk()); }
+        // printed NO summary line for `stash` at all — `out1` lost entirely —
+        // while the local-alias twin (`let r: &mut Vec<B> = v;`) prints
+        // `result<-0 out1<-0x1`. Round 8 unified the shape walker, the store
+        // and the resolve, but note_alias was still reached from exactly two
+        // call sites (walk_stmt's Let and Assign) behind a gate on the whole
+        // VALUE's type, and a struct literal is not a `&mut`: the field store
+        // never entered `alias_`, so `call_effects`' deposit on `h` never
+        // reached the parameter `v`.
+        //
+        // THE FIX is the enumeration, not a third door: `each_ref_store` is
+        // the one walk (shared with the checker's note_struct_lit_reborrows
+        // and the pre-pass's prescan_reborrow), and what stays here is this
+        // instance's POLICY — both ends charged to their ROOT, because this
+        // map is keyed by NAME (`taint_` is), and MONOTONE `add`, because the
+        // body is walked to a fixpoint. Charging `h.r -> v` as `h -> v` is the
+        // conservative direction: a deposit reaches MORE places, never fewer.
+        //
+        // U2 — THE `&mut`-ONLY GATE STAYS, and it is now a MEASURED decision
+        // rather than an un-widened hedge. It is applied per STORED VALUE, not
+        // to the whole `let`'s value — that was the part that made a struct
+        // literal invisible. Widening it to `Ref|MutRef` (the checker's rule
+        // since R7a) was BUILT and measured against the narrow gate:
+        //   • bc_d1 + ctr_family corpus: 733155 `[flow]` lines, byte-identical
+        //     under both gates; ctest 118/118 under both;
+        //   • stdlib `mem` package: 6706 wide-only edges, 14 function
+        //     summaries gain a bit (e.g. plan_stamp_src out0 0x10 -> 0x14),
+        //     the package still compiles, no verdict moves;
+        //   • the direct witness (`struct Hs { s: &C }`, a SHARED param ref
+        //     stored into a field and laundered into an out-param) is admitted
+        //     by BOTH gates — the widening does not close it. That leak is a
+        //     separate hole in `taint_of`'s read path, not in this gate.
+        // The structural reason there is no consumer: this map's edges are
+        // only consumed as deposit destinations (`add_taint` walks them), and
+        // a DEPOSIT needs a write — an out-param, a field/index write — which
+        // needs a `&mut` path. A shared reborrow can never be written through,
+        // so the extra edges can only ever strengthen a summary that no
+        // witness asked to be stronger. A widening with no consumer is a
+        // hedge; it is not taken, and the measurement above is the pair.
         if (name.empty() || name == "_" || !val) return;
         const auto* pool = prog_.type_pool.impl();
-        if (!is_mut_ref(val.type(pool))) return;
-        if (val.kind() != Code::VarRef && val.kind() != Code::AddrOf &&
-            val.kind() != Code::AddrOfTemp)
-            return;
-        if (val.kind() == Code::AddrOf &&
-            is_materialized_temp_name(EAddrOfView{val}.var_name()))
-            return;
-        if (val.kind() == Code::AddrOfTemp) {
-            auto in = EAddrOfTempView{val}.inner();
-            if (in && in.kind() == Code::VarRef &&
-                is_materialized_temp_name(EVarRefView{in}.name()))
-                return;
-        }
-        std::string r = root_of(val);
-        if (r.empty() || r == name || is_materialized_temp_name(r)) return;
-        auto& v = alias_[name];
-        if (std::find(v.begin(), v.end(), r) == v.end()) v.push_back(r);
+        each_ref_store(name, val, [&](const std::string& place,
+                                      lir_view::ExprRef v) {
+            if (!v || !is_mut_ref(v.type(pool))) return;   // U2
+            std::string dst = ref_place_root(place);
+            if (dst.empty() || dst == "_" || is_materialized_temp_name(dst)) return;
+            std::vector<std::string> srcs;
+            ref_source_places(v, pool, srcs);
+            for (auto& p : srcs) {
+                std::string r = ref_place_root(p);
+                if (r.empty() || r == dst || is_materialized_temp_name(r)) continue;
+                alias_.add(dst, r);
+            }
+        });
     }
 
-    // `name` and every place it reborrows, transitively. Cycles are impossible
-    // by construction (note_alias never records a self-edge) but the visited
-    // set makes that a property of the walk rather than of the callers.
+    // `name` and every place it reborrows, transitively — RefGraph::each_root,
+    // the one resolve shared with the checker.
     template <class F>
     void each_root(const std::string& name, F&& f) const {
-        if (name.empty()) return;
-        if (alias_.empty()) { f(name); return; }
-        std::vector<std::string> stack{name}, seen;
-        while (!stack.empty()) {
-            std::string n = std::move(stack.back());
-            stack.pop_back();
-            if (std::find(seen.begin(), seen.end(), n) != seen.end()) continue;
-            seen.push_back(n);
-            f(n);
-            auto it = alias_.find(n);
-            if (it == alias_.end()) continue;
-            for (auto& r : it->second) stack.push_back(r);
-        }
+        alias_.each_root(name, std::forward<F>(f));
     }
 
     // Total popcount of the intra-procedural state — the monotone measure the
@@ -941,6 +977,12 @@ private:
                 break;
             case Code::FieldWrite: {
                 SFieldWriteView v{sr};
+                // S1, the other half of the split feeding: the checker has a
+                // FIELD-WRITE door into the graph (note_reborrow_place) and
+                // this side had none, so `h.r = v;` recorded no alias at all.
+                // Charged to the receiver's ROOT, as everything on this side
+                // is (see note_alias).
+                note_alias(std::string(v.receiver()), v.value());
                 add_taint(std::string(v.receiver()), taint_of(v.value()));
                 call_effects(v.value());
                 break;

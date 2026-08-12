@@ -1,0 +1,35 @@
+// D1 round 9 / F0 — A RETARGET IS NOT A WRITE THROUGH (the admit direction).
+//
+// THE DEFECT (over-refusal, identical at HEAD and on r8). `h.r = &mut vs2;`
+// then ANY later use of vs2 refused with "cannot use 'vs2' while it is
+// mutably borrowed" — including this one, where the retargeted field is used
+// legally in between — while the struct-literal, plain-local and plain-local
+// ASSIGN spellings of the same fact all admit.
+//
+// TWO causes, both in the Code::DerefWrite door (which is the door this
+// spelling actually takes — the FieldWrite arm never fires for it):
+//   (a) the destination was resolved THROUGH the reborrow map to the referent
+//       `vs`, booking a re-point of the field as a write through it;
+//   (b) it is the only one of the seven place_write_loans callers that
+//       recorded BEFORE visiting the value, so check_live(vs2) reported on the
+//       flag the same statement had just set.
+package bc_d1r9_f0_retarget_then_use_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut vs2: Vec<B> = Vec::new();
+    let mut h: Inner = Inner { r: &mut vs };
+    h.r = &mut vs2;
+    h.r.push(c.mk());                // the retargeted field is USED, legally
+    return vs2.len() as i64;         // then vs2 read after h's last use
+}

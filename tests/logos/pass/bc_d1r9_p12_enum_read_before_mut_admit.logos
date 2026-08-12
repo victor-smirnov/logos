@@ -1,0 +1,24 @@
+// D1 round 9 / P12, SECOND ARM — THE ADMIT CONTROL for the enum-payload
+// spelling. Same program with the read BEFORE the mutation, so nothing is
+// borrowed across it: must COMPILE and return 3.
+//
+// It is rc=0 both with the widened gate and with the P12 control revert in
+// place, which is the point of it: the refusing twin flips under that revert
+// and this one does not, so the pair separates SEPARATION from OVER-REFUSAL
+// instead of just restating the refusal. If the widened gate ever starts
+// refusing here, `x` is 1 (pre-mutation) and `c.v` is 2, so the exit code
+// says which half moved.
+package bc_d1r9_p12_enum_read_before_mut_admit;
+struct C { v: i64 }
+impl C { fn bump(&mut self) { self.v = self.v + 1i64; } }
+#[borrow_carrying]
+enum E { None, Some(&i64) }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let rc: &C = &c;
+    let rc2: &C = rc;
+    let e: E = E::Some(&rc2.v);
+    let x: i64 = match e { E::Some(p) => { *p } E::None => { 0i64 } };
+    c.bump();
+    return x + c.v;
+}

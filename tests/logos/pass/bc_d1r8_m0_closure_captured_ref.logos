@@ -1,0 +1,53 @@
+// D1 round 8 / M0 — A CAPTURED `&Struct` USED AS A PLACE BASE IN A CLOSURE.
+//
+// THE DEFECT (measured at 266edc21, mlir_gen — an OVER-REFUSAL, not a
+// soundness hole). `let s: S = …; let r: &S = &s; let f = || -> i64 { return
+// r.peek(); };` self-diagnosed «mlir_gen: internal: `return` value lowered to
+// no value» and the compile failed, while
+//   • the same call OUTSIDE the closure,
+//   • the value-capture twin (`let f = || s.peek();`), and
+//   • a captured SCALAR ref (`let r: &i64 = &x; || *r`)
+// all lowered fine. Narrowed past the method call: the plain field read
+// `return r.v;` inside the closure failed too («expr kind 14»), and the
+// `let t: i64 = r.v;` spelling tripped the channel TWICE. So the class is
+// "captured reference-to-STRUCT used as a PLACE BASE", not "method call".
+//
+// THE ROOT (mlir_gen_dyn.cpp, closure env binding). The struct-ref `let`
+// registers `var_struct_[r] = key(S)` and puts the POINTEE address in
+// scope_[r]; the capture is therefore classified pointer-repr and the env
+// correctly carries that one-level pointer. The closure BODY then re-derived
+// the key from the CAPTURE TYPE — `&S` — instead of the pointee, so
+// `struct_types_` missed and every projection on the capture lowered to
+// nothing. One peel, at the one site that had not done it.
+//
+// VALUES, not just compilation: a self-diagnosis channel that is silenced
+// rather than fixed still writes an object file, so this fixture READS through
+// the captured reference in three shapes (method receiver, field read,
+// let-bound field read) and answers a distinct exit code per shape.
+package bc_d1r8_m0_closure_captured_ref;
+
+struct S { v: i64 }
+impl S {
+    fn peek(&self) -> i64 { return self.v; }
+}
+
+fn main() -> i32 {
+    let s: S = S { v: 7i64 };
+    let r: &S = &s;
+
+    let f = || -> i64 { return r.peek(); };      // method receiver
+    if f() != 7i64 { return 1i32; }
+
+    let g = || -> i64 { return r.v; };           // field read
+    if g() != 7i64 { return 2i32; }
+
+    let h = || -> i64 { let t: i64 = r.v; return t; };   // let-bound field read
+    if h() != 7i64 { return 3i32; }
+
+    let x: i64 = 5i64;
+    let rx: &i64 = &x;
+    let k = || -> i64 { return *rx; };           // the control that always worked
+    if k() != 5i64 { return 4i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// D1 round 9 / N0, second shape — the inner aggregate built as its OWN binding
+// and then nested. `let inn = Inner { r: &mut vs }; let h = Outer { i: inn };`
+// The place recorder now applies the same three lines to a PLACE that
+// `note_reborrow` applies to a BINDING, so `h.i` inherits `inn`'s sub-places.
+package bc_d1r9_n0_inner_binding_nested;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let inn: Inner = Inner { r: &mut vs };
+    let mut h: Outer = Outer { i: inn };
+    h.i.r.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

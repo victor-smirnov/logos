@@ -1,0 +1,24 @@
+// D1 round 9 / F0 — THE SECOND PIN. A `c.mk()` stashed through the RETARGETED
+// field must still refuse the mutation: the map entry for `h.r` is re-recorded
+// onto the new referent at the retarget (before this round it kept naming the
+// OLD one, so this program refused for the wrong reason).
+package bc_d1r9_f0_retarget_leak;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut vs2: Vec<B> = Vec::new();
+    let mut h: Inner = Inner { r: &mut vs };
+    h.r = &mut vs2;
+    h.r.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs2.get(0u64).p;
+}

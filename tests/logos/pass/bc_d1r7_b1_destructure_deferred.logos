@@ -18,17 +18,33 @@
 // here — measured with a fire-count print inside the branch, which counted 1,
 // then removed — and the strict round resolves the pattern against `PdtCol`.
 //
-// A STATED MATRIX GAP, because it is a property of this fixture and not of the
-// rule: the pattern binds NO names. Every field of every struct reachable
-// through a deferred family chain is private to its defining package
-// (`PdtCol::base/len` to `logos.mem.bt.batch`), and the family's own cursor and
-// batch types — whose `found` field IS `pub` — are named by content hash
-// (`Hs352959f3caf5b795Cur`), which no source file can spell and no fixture
-// should pin. So the binding half of the deferred destructure is unpinnable
-// today; what this fixture pins is that the door OPENS and the unit survives
-// it, and fail/bc_d1r7_b1_destructure_name_mismatch pins that deferring does
-// not swallow a genuinely bad program. Closing the gap needs a pub-field
-// struct on a deferred chain, i.e. a stdlib change, not a test change.
+// ── SUPERSEDED 2026-08-12 (D1 round 8 / S0). WHAT ROUND 7 CLAIMED HERE ────
+//
+// Round 7 wrote, and this paragraph kept: "the binding half of the deferred
+// destructure is unpinnable today … a content hash which no source file can
+// spell … Closing the gap needs a stdlib change, not a test change." That is
+// FALSE, and it was false when it was written. Measured in round 8:
+//   • a content-hashed family name DOES resolve in PATTERN position — the
+//     diagnostic the binding half actually produced was «unknown field
+//     'found'», not «unknown type», i.e. the pattern's TYPE had resolved and
+//     the FIELD lookup was what failed;
+//   • the field lookup failed because the pattern path called `field_type_of`
+//     with TWO arguments while the expr path passes the receiver's
+//     `pkg_name()` as a third (sema_stmt.cpp / sema.cpp). Without the hint the
+//     lookup falls back to an import-scope-dependent search, so a
+//     metaprog-EMITTED struct in another package is not found. An OVER-REFUSAL
+//     in sema, one layer below the deferral — nothing to do with the stdlib.
+//   • what does NOT work is the hash name in TYPE position (`let cur:
+//     Hs…Cur = …` errs «unknown type»). So the pattern name is the only
+//     spelling available, and it is the one used below.
+// The gap is closed here rather than in a new fixture: the sentence that was
+// wrong is the same sentence this file exists to make true.
+//
+// ⚠ WHAT THE BINDING HALF ALSO PINS. `Hs352959f3caf5b795Cur` is a function of
+// the container DEFINITION above (kind + entry + measures), so this fixture now
+// also pins the family MANGLER: change the hash scheme or this `container Led`
+// and this test reds on the name, not on the rule. That is the stated price of
+// pinning the binding half at all — there is no unhashed spelling of the type.
 //
 // VALUES, not just compilation: the same chain is read for real around the
 // destructure (two rows, keys 1+2, vals 10+20 ⇒ sum 33), so a deferral that
@@ -69,6 +85,18 @@ fn main() -> i32 {
         let mut j: u64 = 0u64;
         while j < n { sum = sum + kc.at(j) + vc.at(j); j = j + 1u64; }
     }
+    // THE BINDING HALF (D1 round 8 / S0). Same deferred chain, and now the
+    // pattern BINDS a name and the program READS its value in both directions
+    // — a fix that resolved the field but bound garbage would answer 3 or 4.
+    {
+        let Hs352959f3caf5b795Cur { found, .. } = c.seek(1u64);
+        if !found { return 3i32; }     // key 1 was inserted
+    }
+    {
+        let Hs352959f3caf5b795Cur { found, .. } = c.seek(9u64);
+        if found { return 4i32; }      // key 9 was not
+    }
+
     if n != 2u64 { return 1i32; }
     if sum != 33u64 { return 2i32; }   // (1+10) + (2+20)
     return 0i32;

@@ -1,0 +1,25 @@
+// D1 round 9 / S1 — THE ADMIT CONTROL. Same stash-through-a-field program with
+// the read BEFORE the mutation: must COMPILE and return 3.
+package bc_d1r9_s1_read_before_mut_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn stash(c: &C, v: &mut Vec<B>) {
+    let mut h: Inner = Inner { r: v };
+    h.r.push(c.mk());
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash(&c, &mut vs);
+    let x: i64 = *vs.get(0u64).p;        // read BEFORE the mutation
+    c.bump();
+    return x + c.v;
+}

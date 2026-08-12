@@ -1,0 +1,33 @@
+// D1 round 8 / U1 — A REF BINDING WHOSE RHS IS A STRUCT FIELD.
+//
+// THE DEFECT (measured at 266edc21, rc=0 — an UNSOUND leak). `let mut r2:
+// &mut Vec<B> = h.r;` recorded NO provenance edge, so `r2.push(c.mk())`
+// laundered a loan that the INLINE `h.r.push(c.mk())` (round 6's G0 fixture)
+// refuses. `= &mut *h.r` leaked identically.
+//
+// THE ROOT. Every recorder in the file switched on the RHS's expression kind
+// and accepted exactly three — AddrOf / AddrOfTemp / VarRef — with
+// `default: return {}`. A FieldRead hit the default arm. That gate was written
+// out three times in two files (reborrow_referent, prescan_referent, the
+// summarizer's note_alias); it is now one walker (`ref_source_places`) that
+// yields the DOTTED place for any projection chain, so `r2 -> h.r -> vs`
+// resolves the same way the inline spelling always did.
+package bc_d1r8_u1_field_rhs_bind;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct RB { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: RB = RB { r: &mut vs };
+    let mut r2: &mut Vec<B> = h.r;   // the shape the three-kind gate refused to see
+    r2.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

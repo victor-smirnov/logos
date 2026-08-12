@@ -1,0 +1,65 @@
+// D1 round 9 / N0 — THE ADMIT CONTROL, for ALL THREE recording shapes.
+//
+// MATRIX GAP, closed here rather than left stated. N0 widened the place
+// recorder in three spellings and each got a REFUSAL fixture
+// (fail/bc_d1r9_n0_nested_structlit, _inner_binding_nested,
+// _aggregate_copy_out) — but this file carried only the first one's admit
+// control, so two of the three widenings were pinned in the refusing
+// direction only. That is exactly the round-8 gap this census already
+// records once (U3's widening had a red fixture and no admit control), and a
+// refusal message alone cannot tell SEPARATION from OVER-REFUSAL.
+//
+// The other two shapes are added HERE, with their own objects and their own
+// contributions, rather than as new fixtures — an edit, not an addition, so
+// the registry count is unmoved. The three contributions are DISTINCT (3, 5,
+// 7 = 15) so that a shape which silently stops compiling, or one whose read
+// picks up the post-mutation value, changes the exit code instead of hiding
+// inside a sum that another shape could also produce.
+package bc_d1r9_n0_read_before_mut_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Outer { i: Inner }
+fn main() -> i64 {
+    // ── shape 1: the NESTED struct literal (contributes 1 + 2 = 3) ──
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    {
+        let mut h: Outer = Outer { i: Inner { r: &mut vs } };
+        h.i.r.push(c.mk());
+    }
+    let x: i64 = *vs.get(0u64).p;    // read BEFORE the mutation
+    c.bump();
+
+    // ── shape 2: the inner aggregate as its OWN binding, then nested
+    //             (contributes 2 + 3 = 5) ──
+    let mut c2: C = C { v: 2i64 };
+    let mut vs2: Vec<B> = Vec::new();
+    {
+        let inn: Inner = Inner { r: &mut vs2 };
+        let mut h2: Outer = Outer { i: inn };
+        h2.i.r.push(c2.mk());
+    }
+    let x2: i64 = *vs2.get(0u64).p;
+    c2.bump();
+
+    // ── shape 3: the aggregate copied back OUT of the nested place
+    //             (contributes 3 + 4 = 7) ──
+    let mut c3: C = C { v: 3i64 };
+    let mut vs3: Vec<B> = Vec::new();
+    {
+        let mut h3: Outer = Outer { i: Inner { r: &mut vs3 } };
+        let mut inner: Inner = h3.i;
+        inner.r.push(c3.mk());
+    }
+    let x3: i64 = *vs3.get(0u64).p;
+    c3.bump();
+
+    return (x + c.v) + (x2 + c2.v) + (x3 + c3.v);
+}

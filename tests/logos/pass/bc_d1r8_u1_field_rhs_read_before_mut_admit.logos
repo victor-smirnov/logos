@@ -1,0 +1,49 @@
+// D1 round 8 / U1+U3 — THE ADMIT HALF OF THE PAIR.
+//
+// Both new recording shapes (a ref bound from a struct FIELD, and a whole
+// aggregate copied so its sub-places carry over) with the READ before the
+// mutation. Widening what gets RECORDED is the direction that over-refuses, so
+// this is the control that says the widening separates: the two fail fixtures
+// stay red and this stays green, with the values read out so a rule that
+// admitted by lowering the program to nothing would answer wrong.
+//
+// ── MATRIX GAP CLOSED 2026-08-12. The paragraph above said "both", and until
+// this edit the file exercised ONE: only U1's `let mut r2: &mut Vec<B> = h.r;`
+// was here, so U3's rule (binding a whole aggregate makes the destination's
+// sub-places name the source's) had a red fixture and NO admit control — the
+// exact asymmetry that makes a refusal message unable to distinguish
+// separating from over-refusing. The second half below is U3's shape, on its
+// own objects, with its own exit codes (3/4) so the two halves cannot cover
+// for each other.
+package bc_d1r8_u1_field_rhs_read_before_mut_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct RB { r: &mut Vec<B> }
+fn main() -> i32 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut h: RB = RB { r: &mut vs };
+    let mut r2: &mut Vec<B> = h.r;        // U1's shape
+    r2.push(c.mk());
+    let out: i64 = *vs.get(0u64).p;       // the loan dies HERE
+    c.bump();                             // must be ADMITTED
+    if out != 1i64 { return 1i32; }
+    if c.v != 2i64 { return 2i32; }
+
+    let mut c2: C = C { v: 3i64 };
+    let mut vs2: Vec<B> = Vec::new();
+    let mut h2: RB = RB { r: &mut vs2 };
+    let RB { r } = h2;                    // U3's shape, through the copy temporary
+    r.push(c2.mk());
+    let out2: i64 = *vs2.get(0u64).p;     // the loan dies HERE
+    c2.bump();                            // must be ADMITTED
+    if out2 != 3i64 { return 3i32; }
+    if c2.v != 4i64 { return 4i32; }
+    return 0i32;
+}

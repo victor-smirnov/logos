@@ -2060,7 +2060,33 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
                 // (`v.length()` for a captured `Vec<i64>`) resolves through this
                 // key; the bare name misses the registry → the body silently
                 // fails to codegen (empty body → void return type mismatch).
-                var_struct_[captures[i]] = mlir_struct_key(ct);
+                // ── D1 round 8 / M0: A CAPTURED `&Struct` IS A STRUCT PLACE ──
+                //
+                // THE DEFECT (measured). `let s: S = …; let r: &S = &s; let f =
+                // || -> i64 { return r.peek(); };` self-diagnosed «`return`
+                // value lowered to no value», and the plain field read `r.v`
+                // gave «expr kind 14» — while the same call OUTSIDE the closure,
+                // and `*r` on a captured `&i64`, both lower fine.
+                //
+                // WHY. The struct-ref `let` (mlir_gen_stmt) registers
+                // `var_struct_[r] = key(S)` and puts the POINTEE address in
+                // scope_[r] — so `capture_is_struct` is correctly true here and
+                // the env correctly carries that one-level pointer. The body
+                // then re-registered the key from the CAPTURE TYPE, which is
+                // `&S`, not `S`: `concrete_struct_name` on a Ref answers with
+                // no struct name, `struct_types_` misses, and every place
+                // projection on the capture (field read, method receiver)
+                // silently produced nothing. The outer scope already peels the
+                // reference at the `let`; this site did not.
+                //
+                // The env layout is UNCHANGED by this — only the key the body
+                // resolves the pointee's aggregate with.
+            {
+                var_struct_[captures[i]] = mlir_struct_key(
+                    ct && (TypeRef(ct).kind() == LogosType::Kind::Ref ||
+                           TypeRef(ct).kind() == LogosType::Kind::MutRef)
+                        ? TypeRef(ct).pointee() : TypeRef(ct));
+            }
             else if (is_array_cap)
                 var_subscript_[captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
             else if (is_tuple_cap)
