@@ -1,0 +1,25 @@
+// The TYPE-GATE control for D1 round 5 / H8. Same shape as
+// fail/bc_d1r5_h8_match_tmp_scrutinee — a match over a TEMPORARY, a binding
+// extracted out of it, a mutation afterwards — with exactly one thing changed:
+// the temporary carries no borrow. `Cnt` is the same STRUCT SHAPE as `Wrap`
+// with an i64 where the borrow-carrying field was, so loan_carrying_type says
+// no, retain_temp_scrut_loan returns {} and takes nothing, and the mutation is
+// legal.
+//
+// Without this control the fail door above cannot tell "the temporary's loan
+// is now retained" from "any match over a temporary followed by a mutation is
+// refused" — those print the same line.
+package bc_d1r5_h8_match_scalar_admits;
+struct C { v: i64 }
+struct Cnt { b: i64 }
+impl C {
+    fn mk_cnt(&self) -> Cnt { return Cnt { b: self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut n: i64 = 0i64;
+    match c.mk_cnt() { Cnt { b: got } => { n = got; } }
+    c.bump();
+    return n;
+}

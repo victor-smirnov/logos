@@ -468,6 +468,38 @@ add_custom_command(
 add_custom_target(trait_blanket_chain_binary ALL DEPENDS
     ${TRAIT_BLANKET_CHAIN_BMID_BIN} ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
 
+# ── D1 round 5 / H6: a borrow FLOW that lives in an ARCHIVED callee ──────────
+#   libbcxa.a  exports `pub fn stash2(c: &C, v: &mut Vec<B>)` — the canonical
+#              door-F shape, where the `B` is manufactured INSIDE the callee
+#              and stored through its `&mut` out-param, so nothing at the call
+#              site is borrow-carrying and only the per-function borrow-FLOW
+#              summary can decide it. Here that body is behind an archive
+#              boundary, which is what the fixture pair is about.
+#              pass/bc_d1r5_h6_cross_archive_admits links it and reads BEFORE
+#              mutating; it must compile and run. The mutate-after twin is
+#              deliberately NOT registered — re-measured on this tree it is
+#              ADMITTED (the archived body is an unmaterialized ExternalRef, so
+#              the summary reports UNAVAILABLE), and an `.expected` asserting a
+#              clean compile of unsound code records the defect as intended.
+#              The refusing edge is fail/bc_d1r5_h6_local_body_twin, the same
+#              program with the callee's body in the consumer's own file; the
+#              two together state that WHERE A BODY LIVES should be inert and
+#              say openly that today it is not.
+set(BCXA_DIR      ${CMAKE_CURRENT_SOURCE_DIR}/bc_cross_archive)
+set(BCXA_MANIFEST ${BCXA_DIR}/bcxa.module)
+set(BCXA_BIN      ${CMAKE_CURRENT_BINARY_DIR}/libbcxa.a)
+file(GLOB BCXA_SOURCES ${BCXA_DIR}/bcxa/*.logos)
+add_custom_command(
+    OUTPUT  ${BCXA_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${BCXA_MANIFEST}
+            -o ${BCXA_BIN}
+    DEPENDS logosc ${BCXA_MANIFEST} ${BCXA_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libbcxa.a (bc_cross_archive)"
+)
+add_custom_target(bc_cross_archive_binary ALL DEPENDS ${BCXA_BIN})
+
 set(LOGOS_SUITE_ORDER
     smoke
     semantic_core
@@ -697,6 +729,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
     # The MIRROR archive: no homonym of its own, bound over the STDLIB `Error`.
     # The consumer declares the homonym, and its blanket must not answer.
     set(LOCAL_TRAIT_BPROBE_USERS trait_blanket_homonym_bound_admits)
+    # D1 round 5 / H6: the door-F callee lives in libbcxa.a — see above.
+    set(LOCAL_BCXA_USERS bc_d1r5_h6_cross_archive_admits)
     # The Freeze-predicate behavioural guard. Its mutators live in
     # libub_boundary.a (built at -O2) because a parameter attribute only has
     # teeth while the call is still a call — see the fixture's comment above.
@@ -759,6 +793,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${TRAIT_BLANKET_CHAIN_BMID_BIN})
     elseif (BASE IN_LIST LOCAL_TRAIT_BPROBE_USERS)
         set(_extra -l ${TRAIT_BLANKET_CHAIN_BPROBE_BIN})
+    elseif (BASE IN_LIST LOCAL_BCXA_USERS)
+        set(_extra -l ${BCXA_BIN})
     else()
         set(_extra "")
     endif()

@@ -1,0 +1,17 @@
+// Admit control for H4: an i64-returning closure carries nothing, so
+// calling it ties nothing. Pins that the fix is gated on the RESULT TYPE.
+package bc_d1r5_h4_closure_scalar_admits;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn mkb() -> i64 {
+    let c: C = C { v: 1i64 };
+    let f = || -> i64 { return c.v; };
+    return f();
+}
+fn main() -> i64 { return mkb(); }

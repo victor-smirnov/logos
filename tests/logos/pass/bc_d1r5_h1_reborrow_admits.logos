@@ -1,0 +1,19 @@
+// Admit twin for fail/bc_d1r5_h1_reborrow_callsite.
+package bc_d1r5_h1_reborrow_admits;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let r: &mut Vec<B> = &mut vs;
+    r.push(c.mk());
+    let x: i64 = *vs.get(0u64).p;
+    c.bump();
+    return x;
+}

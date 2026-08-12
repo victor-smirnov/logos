@@ -1,0 +1,47 @@
+// D1 round 5 / H8 — NAMING THE SCRUTINEE IS INERT. The twin of
+// fail/bc_d1r5_h8_match_tmp_scrutinee, differing in exactly one line: the
+// scrutinee is bound to `w` before the match instead of being a temporary.
+//
+// This spelling refuses without the new rule: the loan is held by `w`, which
+// the pattern bindings inherit through bc_hop_roots + propagate_pat_loans.
+// Fire-count evidence, taken with a temporary counter inside
+// retain_temp_scrut_loan and then removed: it fires ONCE on the temporary twin
+// and ZERO times on this one. That is what makes the pair an INVARIANT PIN — a
+// program's verdict must not depend on whether an intermediate value was given
+// a name — and it is why both halves are registered: with the H8 rule reverted
+// only the temporary half reds, and a lone red looks like a new defect rather
+// than a broken invariant.
+//
+// ⚠ AND IT IS THE CORPUS'S ONLY SINGLE-RULE DISCRIMINATOR FOR H5b. Measured by
+// control revert with a proven restore between the legs:
+//
+//   fixture                        fixed   H5b-revert   H8-revert
+//   this one                       refuse   ADMIT        refuse
+//   …h8_match_tmp_scrutinee        refuse   ADMIT        ADMIT
+//   …h8_matchexpr_tmp              refuse   ADMIT        ADMIT
+//
+// H5b (each_pat_binding's eleven un-handled pattern kinds, on the CHECKER side)
+// had NO discriminating test before this: in every previously-tried shape the
+// SOURCE PLACE's own loan refused independently, so reverting H5b alone
+// produced zero reds — mutual redundancy, invisible to one-at-a-time controls.
+// Here the whole extraction is intra-procedural, so no flow summary is
+// involved and the Struct arm of the checker's pattern walk is the only thing
+// that can hand `w`'s loan to `got`. Starve it and this program compiles.
+package bc_d1r5_h8_match_named_twin;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+struct Wrap { b: B }
+impl C {
+    fn mk_wrap(&self) -> Wrap { return Wrap { b: B { p: &self.v } }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let z: i64 = 7i64;
+    let mut c: C = C { v: 1i64 };
+    let mut inner: B = B { p: &z };
+    let w: Wrap = c.mk_wrap();
+    match w { Wrap { b: got } => { inner = got; } }
+    c.bump();
+    return *inner.p;
+}

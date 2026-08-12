@@ -1,0 +1,24 @@
+// D1 round 5 / H8 — the match-as-VALUE spelling of the same hole. The
+// statement spelling is fail/bc_d1r5_h8_match_tmp_scrutinee; this one flows
+// the extracted value out of the match EXPRESSION into a `let`, which routes
+// through take_ref_borrows' MatchExpr arm instead of visit_stmt's Match case.
+// Both were open, both are closed at the same rule (retain_temp_scrut_loan),
+// and each is registered because the two sites are different code.
+//
+// MEASURED before the fix: matchexpr_struct rc=0 (ADMITTED) against
+// matchexpr_named rc=1 — again the ONLY difference is the name.
+package bc_d1r5_h8_matchexpr_tmp;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+struct Wrap { b: B }
+impl C {
+    fn mk_wrap(&self) -> Wrap { return Wrap { b: B { p: &self.v } }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let inner: B = match c.mk_wrap() { Wrap { b: got } => got };
+    c.bump();
+    return *inner.p;
+}

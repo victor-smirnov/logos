@@ -961,6 +961,12 @@ class BorrowChecker {
     std::vector<ScopeFrame>  scopes_;
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
+    // H1: binding -> the place its `&mut` REBORROW names. See rehome_reborrow.
+    std::unordered_map<std::string, std::string> reborrow_of_;
+    // H4: closure binding -> its CAPTURE names. A closure's provenance lives in
+    // its captures, and the captures are not operands of the call, so the call
+    // site cannot reach them without this. See closure_caps_of.
+    std::unordered_map<std::string, std::vector<std::string>> closure_caps_;
     std::unordered_set<std::string>      param_names_;
     // Params whose referent OUTLIVES the call — reference params and
     // borrow-carrying value params (their borrow points at caller data). A
@@ -2191,6 +2197,106 @@ class BorrowChecker {
         declare_pat_bindings(pat_ref(p));
     }
 
+    // ── D1 round 5 / H5 (checker half): EVERY PATTERN KIND THAT BINDS ─────
+    //
+    // The three §B6 propagation channels below (sources, provenance, loans)
+    // each opened with `if (pr.kind() != VariantData) return;` plus, in one
+    // case, a Wild arm — the SAME two-of-thirteen shape the summarizer's
+    // bind_pat had, and the same permissive default: a struct, tuple, slice,
+    // or-, at-, ref- or ref-binding pattern propagated NOTHING and no green
+    // program could ever show it. Enumerated from lir_schema::pat::Code
+    // (Count == 13), exhaustive switch, no default — a 14th kind must not
+    // silently rejoin the hole.
+    //
+    // `t` is the binding's declared type where the schema records one
+    // (VariantData / Tuple binding_types, At::type, RefBind::bind_type) and
+    // NULL where it does not (Wild, a struct-pattern shorthand field). The
+    // channels gate on the type carrying a borrow; a NULL type is unknown, not
+    // "scalar", so it is passed through and each channel decides.
+    //
+    // ⚠ THE ARMS ARE LOAD-BEARING, NOT DEFENSIVE — and proving it needed a
+    // fixture that did not exist. Round 5 registered the H5 doors through a
+    // CALLEE (`stash(&c, &mut v)` with the match inside), where the
+    // summariser's own bind_pat decides the program: reverting THIS function
+    // alone produced ZERO reds across the whole corpus. That is mutual
+    // redundancy between two independently-correct rules, and one-at-a-time
+    // control reverts cannot see it — each looks inert while the other covers.
+    //
+    // The discriminator has to (i) be intra-procedural, so no summary is
+    // involved, and (ii) make a PATTERN BINDING the sole holder, so no named
+    // source place refuses on its own. That is
+    // fail/bc_d1r5_h8_match_named_twin: `let w = c.mk_wrap(); match w { Wrap
+    // { b: got } => { inner = got; } } c.bump(); *inner.p`. Under this
+    // function's pre-H5 shape (Wild + VariantData only) the Struct arm binds
+    // nothing, `got` inherits no loan, and the program compiles. It reds under
+    // the H5b revert and stays green under the H8 revert — the corpus's only
+    // single-rule discriminator for this walk.
+    template <class F>
+    void each_pat_binding(lir_view::PatRef pr, F&& f) const {
+        using namespace lir_view;
+        using PC = lir_schema::pat::Code;
+        if (!pr) return;
+        const auto* pool = prog_.type_pool.impl();
+        auto zip = [&](auto&& each_name, auto&& each_type) {
+            std::vector<std::string> ns;
+            std::vector<TypeRef>     ts;
+            each_name([&](std::string_view b){ ns.emplace_back(b); });
+            each_type([&](TypeRef t){ ts.push_back(t); });
+            for (size_t i = 0; i < ns.size(); ++i)
+                f(std::string_view(ns[i]), i < ts.size() ? ts[i] : TypeRef(nullptr));
+        };
+        switch (pr.kind()) {
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+                return;
+            case PC::Wild:
+                f(PatWildView{pr}.name(), TypeRef(nullptr));
+                return;
+            case PC::VariantData: {
+                PatVariantDataView v{pr};
+                zip([&](auto&& g){ v.each_binding(g); },
+                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                return;
+            }
+            case PC::Tuple: {
+                PatTupleView v{pr};
+                zip([&](auto&& g){ v.each_binding(g); },
+                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                v.each_sub([&](PatRef sub){ each_pat_binding(sub, f); });
+                return;
+            }
+            case PC::Struct:
+                PatStructView{pr}.each_field([&](PatFieldBindingView fb) {
+                    if (auto sub = fb.sub()) each_pat_binding(sub, f);
+                    else f(fb.field_name(), TypeRef(nullptr));
+                });
+                return;
+            case PC::Or:
+                PatOrView{pr}.each_alt([&](PatRef alt){ each_pat_binding(alt, f); });
+                return;
+            case PC::Slice: {
+                PatSliceView v{pr};
+                v.each_prefix([&](PatRef sub){ each_pat_binding(sub, f); });
+                v.each_rest  ([&](PatRef sub){ each_pat_binding(sub, f); });
+                v.each_suffix([&](PatRef sub){ each_pat_binding(sub, f); });
+                return;
+            }
+            case PC::At: {
+                PatAtView v{pr};
+                f(v.name(), v.type(pool));
+                if (auto sub = v.sub()) each_pat_binding(sub, f);
+                return;
+            }
+            case PC::RefBind: {
+                PatRefBindView v{pr};
+                f(v.name(), v.bind_type(pool));
+                return;
+            }
+            case PC::RefPat:
+                if (auto in = PatRefPatView{pr}.inner()) each_pat_binding(in, f);
+                return;
+        }
+    }
+
     // §B6: a `match scrut { Variant(r) => … }` binds `r` to a piece of `scrut`;
     // if scrut carries borrows (e.g. `Option<&i64>` holding `&x`), the by-REF
     // binding inherits them so `o = r` can't smuggle the borrow past x's scope.
@@ -2199,21 +2305,17 @@ class BorrowChecker {
     void propagate_pat_sources(lir_view::PatRef pr,
                                const std::vector<std::string>& srcs, uint32_t ln) {
         if (!pr || srcs.empty()) return;
-        if (pr.kind() != lir_schema::pat::Code::VariantData) return;
-        lir_view::PatVariantDataView pv{pr};
-        std::vector<std::string> names;
-        std::vector<TypeRef>      types;
-        pv.each_binding([&](std::string_view b) { names.emplace_back(b); });
-        pv.each_binding_type(prog_.type_pool.impl(),
-                             [&](TypeRef t) { types.push_back(t); });
-        for (size_t i = 0; i < names.size(); ++i) {
-            TypeRef t = i < types.size() ? types[i] : TypeRef(nullptr);
-            if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
-                erase_ref_sources_under(names[i]);
-                ref_borrow_sources_[names[i]] = srcs;
-                ref_borrow_line_[names[i]] = ln;
-            }
-        }
+        each_pat_binding(pr, [&](std::string_view b, TypeRef t) {
+            if (b.empty() || b == "_") return;
+            // A NULL type is unknown, not scalar — the channel it feeds only
+            // ever EXTENDS a source set, so passing it through is the
+            // conservative reading.
+            if (t && !is_ref_kind(t) && !is_borrow_carrying_type(t)) return;
+            std::string n(b);
+            erase_ref_sources_under(n);
+            ref_borrow_sources_[n] = srcs;
+            ref_borrow_line_[n] = ln;
+        });
     }
 
 
@@ -2255,10 +2357,7 @@ class BorrowChecker {
             if (b.empty() || b == "_") return;
             prov_[std::string(b)] = sp;
         };
-        if (pr.kind() == lir_schema::pat::Code::VariantData)
-            PatVariantDataView{pr}.each_binding(bind);
-        else if (pr.kind() == lir_schema::pat::Code::Wild)
-            bind(PatWildView{pr}.name());
+        each_pat_binding(pr, [&](std::string_view b, TypeRef){ bind(b); });
     }
 
     // D1 (door 4): the LOAN counterpart of propagate_pat_sources. A pattern
@@ -2276,19 +2375,67 @@ class BorrowChecker {
     void propagate_pat_loans(lir_view::PatRef pr,
                              const std::vector<std::string>& roots, uint32_t ln) {
         if (!pr || roots.empty()) return;
-        if (pr.kind() != lir_schema::pat::Code::VariantData) return;
-        lir_view::PatVariantDataView pv{pr};
-        std::vector<std::string> names;
-        std::vector<TypeRef>     types;
-        pv.each_binding([&](std::string_view b) { names.emplace_back(b); });
-        pv.each_binding_type(prog_.type_pool.impl(),
-                             [&](TypeRef t) { types.push_back(t); });
-        for (size_t i = 0; i < names.size(); ++i) {
-            TypeRef t = i < types.size() ? types[i] : TypeRef(nullptr);
-            if (!is_ref_kind(t) && !is_borrow_carrying_type(t)) continue;
-            for (auto& r : roots) inherit_loans(r, names[i], ln);
-        }
+        each_pat_binding(pr, [&](std::string_view b, TypeRef t) {
+            if (b.empty() || b == "_") return;
+            if (t && !is_ref_kind(t) && !is_borrow_carrying_type(t)) return;
+            std::string n(b);
+            for (auto& r : roots) inherit_loans(r, n, ln);
+        });
     }
+
+    // ── D1 round 5 / H8: a TEMPORARY scrutinee's own loan has NO HOLDER ───
+    // `match c.mk_wrap() { Wrap { b: got } => … }`.
+    //
+    // A scrutinee that is a PLACE hands its bindings the loans it ALREADY
+    // holds — that is propagate_pat_loans over bc_hop_roots, and it is the
+    // only channel the three match-shaped sites had. A scrutinee that is a
+    // TEMPORARY holds nothing yet: the loan its own evaluation takes (`&self`
+    // elision on `mk_wrap`) was never taken AT ALL, because take_ref_borrows
+    // — the sole site that turns an elided `&self` result into a loan — is
+    // never called on a scrutinee. So the extraction out of a temporary
+    // carried nothing, while the SAME program with the scrutinee named one
+    // line earlier refused.
+    //
+    // MEASURED as two discriminating pairs on the pre-fix build (probe2.py,
+    // /tmp/d1r6/probe2_prefix.json): stmt_assign_tmp rc=0 vs stmt_assign_named
+    // rc=1, matchexpr_struct rc=0 vs matchexpr_named rc=1 — the ONLY variable
+    // between the members of each pair is whether the scrutinee was named.
+    // ATTRIBUTION MATRIX, measured by control revert with a proven restore
+    // between the legs (md5 of both sources checked back to the fixed state):
+    //
+    //   fixture                            fixed   H5b-revert   H8-revert
+    //   fail/…h8_match_tmp_scrutinee       refuse   ADMIT        ADMIT
+    //   fail/…h8_matchexpr_tmp             refuse   ADMIT        ADMIT
+    //   fail/…h8_match_named_twin          refuse   ADMIT        refuse
+    //   the other 9 new fixtures            ok      ok           ok
+    //
+    // Both rules are individually load-bearing for the two temporary-scrutinee
+    // doors: this one CREATES the loan, H5b's each_pat_binding hands it to the
+    // Struct-pattern binding, and removing either re-opens them. The named twin
+    // is green under THIS revert — which is what proves the restore between the
+    // legs — and it is the corpus's only single-rule discriminator for H5b.
+    //
+    // The loan is taken ONCE per match construct, held by a synthetic name no
+    // source binding can spell; the pattern bindings then inherit it through
+    // the ordinary loan channel (the returned name is appended to the hop
+    // roots the caller already computed). The synthetic holder has no
+    // recorded use, so one_holder_last_use returns 0 for it and the loan's
+    // lifetime is decided ENTIRELY by the real bindings that inherit it —
+    // which is what keeps the admit twin (read through, THEN mutate)
+    // compiling. Gated on the scrutinee being a temporary AND its type
+    // carrying a loan: a scalar scrutinee (`match c.len() { n => … }`) and a
+    // named-place scrutinee both return {} and change nothing.
+    std::string retain_temp_scrut_loan(lir_view::ExprRef scrut, uint32_t ln) {
+        if (!scrut || !is_temporary_value_expr(scrut)) return {};
+        const auto* pool = prog_.type_pool.impl();
+        if (!loan_carrying_type(scrut.type(pool))) return {};
+        std::string tmp = "__scrut_tmp_" + std::to_string(++scrut_tmp_seq_);
+        take_ref_borrows(scrut, ln, tmp, /*record_only=*/true);
+        ++scrut_retain_fired_;
+        return tmp;
+    }
+    uint32_t scrut_tmp_seq_ = 0;
+    mutable uint64_t scrut_retain_fired_ = 0;   // debug: rule-fire counter
 
     // Is this callee self-borrowing — reference `self`, reference result, AND no
     // explicit lifetime params (fully elided → Rust ties the output lifetime to
@@ -2690,6 +2837,24 @@ class BorrowChecker {
                 });
                 return;
             }
+            case Code::ClosureCall:
+            case Code::FnPtrCall: {   // H4 — see note_closure_caps
+                ExprRef callee = call_callee(e);
+                if (const auto* caps = closure_caps_of(callee)) {
+                    // The closure VALUE is the holder of the capture borrows,
+                    // and the captures are the roots those borrows name; both
+                    // have to co-hold whatever the result is stored into.
+                    bc_hop_roots(callee, out);
+                    for (auto& c : *caps) out.push_back(c);
+                }
+                auto arg = [&](ExprRef a) {
+                    if (a && type_may_carry_borrow(a.type(pool)))
+                        bc_hop_roots(a, out);
+                };
+                if (e.kind() == Code::ClosureCall) EClosureCallView{e}.each_arg(arg);
+                else                               EFnPtrCallView{e}.each_arg(arg);
+                return;
+            }
             case Code::EnumLitData:
                 EEnumLitDataView{e}.each_payload([&](ExprRef pl) {
                     if (pl && is_borrow_carrying_type(pl.type(pool)))
@@ -2880,6 +3045,28 @@ class BorrowChecker {
                 EMatchExprView{e}.each_arm([&](EMatchArmRef arm) {
                     merged = merge_prov(merged, prov_of(arm.value()));
                 });
+                return merged;
+            }
+            case Code::ClosureCall:
+            case Code::FnPtrCall: {   // H4 — see note_closure_caps
+                TypeRef rt = e.type(pool);
+                if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return {};
+                const std::vector<std::string>* caps = closure_caps_of(call_callee(e));
+                if (!caps) return {};
+                RefProv merged = {};
+                for (auto& cap : *caps) {
+                    if (auto it = prov_.find(cap); it != prov_.end()) {
+                        merged = merge_prov(merged, it->second);
+                        continue;
+                    }
+                    // A captured VALUE-local is the closure's own frame data —
+                    // a borrow-carrying result built from it dangles exactly as
+                    // `c.mk()` on a value-local receiver does (same rule, one
+                    // indirection further out). A captured PARAM outlives the
+                    // call and contributes nothing.
+                    if (var_has(NO_SLOT, cap) && !param_names_.count(cap))
+                        merged.is_local = true;
+                }
                 return merged;
             }
             case Code::MethodCall: {
@@ -3189,9 +3376,40 @@ class BorrowChecker {
     // worse than a documented residual hole. Closing this one properly needs a
     // PRECISE answer to "does this reference point into call-local storage?",
     // i.e. value_local_root replaced by real region provenance — a separate
-    // arc, not a gate tweak. The leak is `Box<&local>` and its Option/Result
-    // siblings; the erased-wrapper half (fail/bc_d1r3_f4_closure_local) is
-    // closed and pinned.
+    // arc, not a gate tweak.
+    //
+    // D1 round 5 / H7 — THE RESIDUAL IS A CLASS, NOT A NAMED SET. It used to
+    // read "the leak is `Box<&local>` and its Option/Result siblings", which
+    // named three types and invited the reader to believe the rest were
+    // closed. MEASURED, all admitting on 285227fe:
+    //     fn f() -> (&i64, i64) { let z = …; return (&z, 0); }   // TUPLE
+    //     fn f() -> [&i64; 1]   { …; return [&z]; }              // ARRAY
+    //     struct S { p: &i64 }  fn f() -> S { …; return S{p:&z}; }// STRUCT
+    // alongside the two named siblings, while the BARE `fn f() -> &i64 {
+    // return &z; }` refuses. They are one class: a COMPOUND whose
+    // borrow-carrying is INFERRED from a type-arg / element / field position
+    // rather than DECLARED. The declared form is already closed — the SAME
+    // struct marked `#[borrow_carrying]` refuses (measured) — and that is the
+    // boundary the residual names. Named probes for the class:
+    // h7_tuple_local_leak, h7_array_local_leak, h7_struct_local_leak,
+    // h7_box_twin, h7_option_twin; the refusing side is h7_bare_ref_twin and
+    // h7_bcstruct_local_leak; the admit control is h7_tuple_param_admit (a
+    // tuple of a borrow of a PARAM, which must stay admitted).
+    //
+    // THE BOUNDARY IS NOW PINNED, and only the boundary — the leaks themselves
+    // are NOT registered, because an `.expected` asserting that unsound code
+    // compiles records the defect as intended. The two registered fixtures are
+    // the two edges of the line the residual runs along:
+    //   fail/bc_d1r5_h7_declared_bc_struct_held — the DECLARED
+    //     `#[borrow_carrying]` struct return refuses. The residual is exactly
+    //     the INFERRED side of this; a red here means the line has moved.
+    //   pass/bc_d1r5_h7_param_root_admits — the same type SHAPE as the tuple
+    //     leak with the reference rooted at a PARAM. It must compile and run:
+    //     it is precisely what both measured close-attempts broke, so a red
+    //     here is not progress on the residual but the over-refusal the
+    //     residual was accepted to avoid.
+    // The erased-wrapper half (fail/bc_d1r3_f4_closure_local) is closed and
+    // pinned.
     // What the returned expression RETAINS. Wider than door E's by-value-bc
     // test at the construction site, because an erased wrapper can retain a
     // plain `&T` or a closure just as well as a bc value.
@@ -3470,6 +3688,27 @@ class BorrowChecker {
         }
 
         switch (e.kind()) {
+            // H4 — the CLOSURE-CALL half of the loan channel. A SHARED
+            // whole-root capture registers no borrow at the ClosureBox (see
+            // the Door D block: `rel.empty() && !is_mut` takes the check_live
+            // path only), so `let f = || c.mk(); vs.push(f()); c.bump();` had
+            // no loan on `c` for anyone to inherit — while the inlined
+            // `vs.push(c.mk())` created one through the AddrOf arm below. The
+            // borrow the closure's RESULT carries is a borrow of the captures,
+            // taken here with the storing place as holder. Gated on the result
+            // type carrying a borrow, so calling an i64-returning closure ties
+            // nothing (control: h4_closure_scalar_admit).
+            case Code::ClosureCall:
+            case Code::FnPtrCall: {
+                TypeRef rt = e.type(pool);
+                if (is_ref_kind(rt) || is_borrow_carrying_type(rt))
+                    if (const auto* caps = closure_caps_of(call_callee(e)))
+                        for (auto& c : *caps)
+                            if (var_has(NO_SLOT, c) && !param_names_.count(c))
+                                take_borrow(c, NO_SLOT, /*is_mut=*/false, line, holder);
+                if (!record_only) visit(e, /*consuming=*/true, line);
+                break;
+            }
             case Code::AddrOf: {
                 EAddrOfView v{e};
                 take_borrow(std::string(v.var_name()), NO_SLOT, is_mut_ref(e.type(pool)),
@@ -3767,6 +4006,9 @@ class BorrowChecker {
                 std::vector<std::string> scrut_roots;
                 if (v.scrut() && type_may_carry_borrow(v.scrut().type(pool)))
                     bc_hop_roots(v.scrut(), scrut_roots);
+                // H8 — spelling 2 of 3: the match used as a VALUE.
+                if (auto st = retain_temp_scrut_loan(v.scrut(), line); !st.empty())
+                    scrut_roots.push_back(std::move(st));
                 v.each_arm([&](EMatchArmRef arm) {
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
@@ -4413,8 +4655,132 @@ class BorrowChecker {
             break;
         }
         if (cur && cur.kind() == Code::VarRef)
-            return std::string(EVarRefView{cur}.name());
+            return rehome_reborrow(std::string(EVarRefView{cur}.name()));
         return {};
+    }
+
+    // ── D1 round 5 / H1: LOOK THROUGH A REBORROW LOCAL TO ITS REFERENT ─────
+    //
+    // THE DEFECT. The walk above terminates at a VarRef and hands back that
+    // NAME. For `let r: &mut Vec<B> = &mut vs; r.push(c.mk()); c.bump();
+    // *vs.get(0).p` the name is `r`, so the stored loan was recorded as held
+    // by `r` — whose own last use is that very statement — and `vs` was left
+    // holding nothing. Measured rc=0 (leak admitted) against rc=1 for the
+    // one-line-less twin. Independent of any summary: there is no callee at
+    // all. Same via the struct spelling `let r: &mut L3 = &mut k; r.v.push(…)`.
+    //
+    // THE CONCEPT (shared with the summarizer's note_alias/each_root). A local
+    // holding a `&mut` REBORROW is not a second place correlated with its
+    // referent — it IS the referent's place, so a write through it is a write
+    // to the referent and the referent is the holder.
+    //
+    // ⚠ WHY NOT prov_ / ref_borrow_sources_, WHICH ALREADY EXIST. MEASURED AND
+    // REJECTED. Both answer a DIFFERENT question — "which locals may this
+    // binding's value have borrowed from", the §B6 escape channel — and they
+    // answer it for every borrow-carrying binding, not only for `&mut`
+    // reborrows. Routing the re-home through them fired 134 times on a plain
+    // stdlib compile and broke the verdict in BOTH directions at once:
+    //   • PERMISSIVE — fail/bc_d1r2_place_write_field_held and
+    //     fail/bc_d1r3_f6_place_write_use_after_mut started COMPILING, because
+    //     `let mut w: Wrap = Wrap { b: B { p: &z } };` has the single source
+    //     `z`, so `w.b = c.mk()`'s loan was re-homed onto `z` — a plain i64
+    //     local whose last use is long past — and retired on the spot;
+    //   • OVER-REFUSING — pass/bc_d1_container_last_use_admits and
+    //     pass/bc_d1r4_n1_field_container_admits started refusing.
+    // A `&mut` reborrow is a narrower fact than "borrowed from", so it gets its
+    // own recorder, written at the one place the fact exists (the `let`/assign
+    // whose DECLARED TYPE is `&mut`) — the exact mirror of the summarizer's
+    // note_alias. Guarded controls: h1_callsite_admit stays admitted, and
+    // h1b_struct_admit converges onto the verdict its ALIAS-FREE spelling
+    // already gives (both refuse — measured on h1b_direct_admit; the alias was
+    // the only reason it used to compile).
+    std::string reborrow_referent(lir_view::ExprRef val) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!val) return {};
+        const auto* pool = prog_.type_pool.impl();
+        std::string r;
+        if (val.kind() == Code::AddrOf) {
+            r = std::string(EAddrOfView{val}.var_name());
+        } else if (val.kind() == Code::AddrOfTemp) {
+            BorrowPlace bp = extract_borrow_place(EAddrOfTempView{val}.inner(), pool);
+            r = bp.root;
+        } else if (val.kind() == Code::VarRef) {
+            r = std::string(EVarRefView{val}.name());
+        } else {
+            return {};
+        }
+        // A materialized statement-temporary drops at the end of the statement
+        // and has no referent to hold the loan (the admit direction).
+        if (r.empty() || is_materialized_temp_name(r)) return {};
+        if (!var_has(NO_SLOT, r) || param_names_.count(r)) return {};
+        return r;
+    }
+    // Record (or retract) the reborrow edge for a binding. Called from `let`
+    // and from assignment; a write that is NOT a reborrow retracts, so the map
+    // never outlives the fact.
+    void note_reborrow(const std::string& name, TypeRef t, lir_view::ExprRef val) {
+        if (name.empty()) return;
+        std::string r;
+        if (t && t.kind() == LogosType::Kind::MutRef) r = reborrow_referent(val);
+        if (!r.empty() && r != name) reborrow_of_[name] = std::move(r);
+        else                          reborrow_of_.erase(name);
+    }
+    // ── D1 round 5 / H4: A CLOSURE CALL'S RESULT HAS THE CAPTURES' PROV ────
+    //
+    // THE DEFECT. `let f = || -> B { return c.mk(); }; return f();` compiled
+    // where the inlined `return c.mk();` refused, and `vs.push(f())` leaked
+    // where `vs.push(c.mk())` refused. Both channels stopped at the same wall:
+    // every provenance walk in this file is written over OPERANDS, and a
+    // ClosureCall's only operands are the closure value and the explicit args
+    // — the CAPTURES, where a closure's provenance actually lives, are not
+    // operands at all. So the documented (d) "unresolvable indirect call"
+    // fallback was not merely conservative here, it was STRUCTURALLY VACUOUS:
+    // there was nothing for it to be conservative about.
+    //
+    // THE FIX. Record the capture list at the binding — the one place the
+    // ClosureBox and the name meet — and let the call site read it. The
+    // existing ClosureBox arms (prov_of_retained's, the loan channel's) then
+    // apply unchanged at the call.
+    //
+    // A GENUINE FN POINTER IS NOT A CLOSURE. The discriminator is the callee
+    // expression's TYPE KIND (Kind::Closure), not the expression code — both
+    // ClosureCall and FnPtrCall spell a closure local in different lowerings,
+    // and a real fn pointer has no captures and keeps its current behaviour
+    // (closure_caps_of returns nullptr and every arm below falls through).
+    void note_closure_caps(const std::string& name, lir_view::ExprRef val) {
+        using Code = lir_schema::expr::Code;
+        if (name.empty()) return;
+        if (!val || val.kind() != Code::ClosureBox) { closure_caps_.erase(name); return; }
+        std::vector<std::string> caps;
+        lir_view::EClosureBoxView{val}.each_capture_name(
+            [&](std::string_view c){ caps.emplace_back(c); });
+        if (caps.empty()) closure_caps_.erase(name);
+        else              closure_caps_[name] = std::move(caps);
+    }
+    const std::vector<std::string>* closure_caps_of(lir_view::ExprRef callee) const {
+        using Code = lir_schema::expr::Code;
+        if (!callee) return nullptr;
+        const auto* pool = prog_.type_pool.impl();
+        TypeRef ct = callee.type(pool);
+        if (!ct || ct.kind() != LogosType::Kind::Closure) return nullptr;
+        if (callee.kind() != Code::VarRef) return nullptr;
+        auto it = closure_caps_.find(std::string(lir_view::EVarRefView{callee}.name()));
+        return it == closure_caps_.end() ? nullptr : &it->second;
+    }
+    static lir_view::ExprRef call_callee(lir_view::ExprRef e) {
+        using Code = lir_schema::expr::Code;
+        if (e.kind() == Code::ClosureCall) return lir_view::EClosureCallView{e}.callee();
+        if (e.kind() == Code::FnPtrCall)   return lir_view::EFnPtrCallView{e}.callee();
+        return {};
+    }
+    std::string rehome_reborrow(std::string n) const {
+        for (int hop = 0; hop < 8 && !n.empty(); ++hop) {
+            auto it = reborrow_of_.find(n);
+            if (it == reborrow_of_.end() || it->second == n) break;
+            n = it->second;
+        }
+        return n;
     }
 
     void place_write_loans(const std::string& root, lir_view::ExprRef val,
@@ -4572,6 +4938,8 @@ class BorrowChecker {
                     }
                 }
                 declare_var(name, v.var_slot());  // Phase-1
+                note_reborrow(name, t, val);      // H1
+                note_closure_caps(name, val);     // H4
                 if (auto it = var_find(v.var_slot(), name); it != nullptr)
                     it->is_mut_binding = v.is_mut();
                 if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
@@ -4663,6 +5031,8 @@ class BorrowChecker {
                 }
                 if (is_ref_assign)
                     prov_[name] = prov_of(val);
+                note_reborrow(name, val ? val.type(pool) : TypeRef(nullptr), val);  // H1
+                note_closure_caps(name, val);                                       // H4
                 // B87 dropck: record on (re-)assign too.
                 if (val) {
                     auto vt = val.type(pool);
@@ -4952,6 +5322,9 @@ class BorrowChecker {
                     std::vector<std::string> roots;
                     if (type_may_carry_borrow(sc.type(pool)))
                         bc_hop_roots(sc, roots);
+                    // H8 — spelling 3 of 3: `let Some(b) = <temporary> else`.
+                    if (auto st = retain_temp_scrut_loan(sc, ln); !st.empty())
+                        roots.push_back(std::move(st));
                     declare_pat_bindings(v.pat());
                     propagate_pat_sources(v.pat(), srcs, ln);  // §B6
                     propagate_pat_prov(v.pat(), v.scrut());   // D1 r3
@@ -5114,6 +5487,10 @@ class BorrowChecker {
                 std::vector<std::string> scrut_hop_roots;
                 if (type_may_carry_borrow(v.scrut().type(pool)))
                     bc_hop_roots(v.scrut(), scrut_hop_roots);
+                // H8 — spelling 1 of 3: the match STATEMENT. Taken once here,
+                // before the arm loop, so N arms cannot take N loans.
+                if (auto st = retain_temp_scrut_loan(v.scrut(), ln); !st.empty())
+                    scrut_hop_roots.push_back(std::move(st));
                 auto saved_s = states_;
                 auto saved_p = prov_;
                 // §B6: snapshot the borrow-source / dangling maps so each arm
@@ -5273,6 +5650,8 @@ public:
         states_.reset(fn.local_count());  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();
+        reborrow_of_.clear();
+        closure_caps_.clear();
         param_names_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
@@ -5684,10 +6063,17 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (auto recv = v.receiver(); recv && method_self_kind(v) == 2) {
                 bool recv_is_var = recv.kind() == Code::VarRef;
                 bool rn_thru = false;
-                std::string rn = recv_is_var
+                // H1: the VarRef spelling bypasses place_write_root, so the
+                // re-home has to be applied here too — `r.push(c.mk())` with
+                // `let r: &mut Vec<B> = &mut vs;` is exactly this arm. When it
+                // fires the Phase-1 slot no longer names the binding, so the
+                // by-name NO_SLOT lookup (what flow_operand_root already uses)
+                // takes over.
+                std::string rn0 = recv_is_var
                     ? std::string(lir_view::EVarRefView{recv}.name())
                     : place_write_root(recv, rn_thru);
-                uint32_t rn_slot = recv_is_var                       // Phase-1
+                std::string rn = rehome_reborrow(rn0);
+                uint32_t rn_slot = (recv_is_var && rn == rn0)         // Phase-1
                     ? lir_view::EVarRefView{recv}.var_slot() : NO_SLOT;
                 if (!rn.empty() && var_has(rn_slot, rn)) {
                     RefProv cap = {};
@@ -6049,6 +6435,11 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     if (!generic_templates_only) {
         FlowSummarizer fs(prog, ts, fn_index, flows);
         fs.run();
+        // H2/H3: the iteration counts are now CONVERGENCE counts, not budget
+        // usage — they are the evidence that the derived bounds are slack.
+        if (std::getenv("LOGOS_DUMP_FLOW_ITERS"))
+            fprintf(stderr, "[flow-iters] fns=%zu rounds=%u max_body_passes=%u\n",
+                    flows.size(), fs.rounds_used(), fs.max_body_passes());
         if (const char* df = std::getenv("LOGOS_DUMP_FLOWS")) {
             std::string filt(df);
             for (auto& [nm, s] : flows) {

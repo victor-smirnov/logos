@@ -1,0 +1,55 @@
+// D1 round 5 / H8 — A MATCH SCRUTINEE THAT IS A TEMPORARY HELD NOTHING.
+//
+// This fixture exists because of a MEASUREMENT GAP, not a hunch. H5b (the
+// CHECKER-side half of each_pat_binding) had no discriminating test: in every
+// shape tried, the SOURCE PLACE's own loan refused independently, so reverting
+// H5b alone produced zero reds — mutual redundancy, invisible to one-at-a-time
+// controls. The discriminator has to be a destructuring over a TEMPORARY, so
+// that no named source binding exists and the PATTERN BINDING is the sole
+// holder. Building it found that such a program was ADMITTED:
+//
+//   let w: Wrap = c.mk_wrap(); match w { Wrap { b: got } => …   rc=1  REFUSED
+//   match c.mk_wrap() { Wrap { b: got } => …                    rc=0  ADMITTED
+//
+// The only difference is whether the scrutinee was NAMED. A named scrutinee
+// hands its bindings the loans it already holds (propagate_pat_loans over
+// bc_hop_roots); a temporary holds nothing yet, and the loan its own
+// evaluation takes (`&self` elision on mk_wrap) was never taken at all,
+// because take_ref_borrows — the only site that turns an elided `&self`
+// result into a loan — is never called on a scrutinee.
+//
+// Closed by retain_temp_scrut_loan (borrow_check.cpp), at all THREE spellings
+// of the extraction: match statement, match expression, let-else. The loan is
+// taken once per construct, held by a synthetic name, and inherited by the
+// bindings through the ordinary loan channel.
+//
+// PAIRED WITH, and all three are required:
+//   fail/bc_d1r5_h8_match_named_twin   — the named spelling: INERT, must refuse
+//   fail/bc_d1r5_h8_matchexpr_tmp      — the match-as-VALUE spelling
+//   pass/bc_d1r5_h8_match_tmp_admits   — read through, THEN mutate (NLL)
+//   pass/bc_d1r5_h8_match_scalar_admits— a temporary carrying no loan ties none
+//
+// ⚠ H5b's UNIQUENESS PROOF LIVES IN THIS GROUP. With each_pat_binding reverted
+// to its two-of-thirteen shape (Wild + VariantData only) all three H8 fixtures
+// are ADMITTED again — the Struct arm binds nothing, so the retained loan finds
+// no holder and dies. They are the first fixtures in the corpus that red under
+// the H5b revert at all; the single-rule discriminator is the NAMED twin, which
+// reds under the H5b revert and stays green under the H8 revert. Full matrix in
+// that fixture's header and at retain_temp_scrut_loan in borrow_check.cpp.
+package bc_d1r5_h8_match_tmp_scrutinee;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+struct Wrap { b: B }
+impl C {
+    fn mk_wrap(&self) -> Wrap { return Wrap { b: B { p: &self.v } }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let z: i64 = 7i64;
+    let mut c: C = C { v: 1i64 };
+    let mut inner: B = B { p: &z };
+    match c.mk_wrap() { Wrap { b: got } => { inner = got; } }
+    c.bump();
+    return *inner.p;
+}

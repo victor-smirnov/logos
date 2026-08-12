@@ -1,0 +1,38 @@
+// D1 round 5 / H3 — STATEMENT ORDER IS INERT. A reverse-order assignment
+// chain in the callee needs five intra-procedural passes to reach the
+// fixpoint; the old kBodyPasses=3 truncated it and, because recompute()
+// clears taint_ each outer round, the truncation was unrecoverable — hops
+// 1-2 refused and hops 3+ ADMITTED, the boundary sitting exactly on the cap.
+// The FORWARD-order twin — same chain, same sink, one intra-procedural pass —
+// is fail/bc_d1r5_h3_stmt_order_forward, and it refused throughout. The PAIR is
+// the invariant "statement order is inert"; neither half states it alone.
+package bc_d1r5_h3_stmt_order_chain;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash(c: &C, v: &mut Vec<B>) {
+    let z: i64 = 0i64;
+    let mut a1: B = B { p: &z };
+    let mut a2: B = B { p: &z };
+    let mut a3: B = B { p: &z };
+    let mut a4: B = B { p: &z };
+    let mut a5: B = B { p: &z };
+    v.push(a5);
+    a5 = a4;
+    a4 = a3;
+    a3 = a2;
+    a2 = a1;
+    a1 = c.mk();
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

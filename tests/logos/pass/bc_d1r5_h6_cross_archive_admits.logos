@@ -1,0 +1,30 @@
+// D1 round 5 / H6 — the CROSS-ARCHIVE half, and the honest half.
+//
+// The callee `stash2` lives in libbcxa.a (tests/logos/bc_cross_archive/). It
+// is the canonical door-F shape: the `B` is manufactured INSIDE the callee out
+// of its own `&`-param and stored through its `&mut` out-param, so nothing at
+// the call site is borrow-carrying and only the per-function borrow-FLOW
+// SUMMARY can decide it. This program reads through the stored borrow BEFORE
+// mutating, so it is correct under any sound analysis and must compile and RUN.
+//
+// ⚠ ITS MUTATE-AFTER TWIN IS NOT REGISTERED, AND THAT IS THE POINT. Re-measured
+// on this tree, the cross-archive leak is ADMITTED (rc=0): the archived body
+// arrives as an unmaterialized Writ ExternalRef, so body_available() answers
+// false and the summary is `UNAVAILABLE` — residual class (c), not the deleted
+// (b). Pinning that with an `.expected` asserting a clean compile would record
+// the defect as intended. The REFUSING side of the same program, with the
+// callee's body in the consumer's own file, is
+// fail/bc_d1r5_h6_local_body_twin; the pair states the invariant that WHERE A
+// CALLEE'S BODY LIVES must be inert, and says openly that today it is not.
+// See the residual list in src/compiler/borrow_flow_summary.inc.
+package bc_d1r5_h6_cross_archive_admits;
+use logos.mem.collections.vec;
+use bc_cross_archive.bcxa;
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash2(&c, &mut vs);
+    let x: i64 = *vs.get(0u64).p;
+    c.bump();
+    return x + c.v;
+}

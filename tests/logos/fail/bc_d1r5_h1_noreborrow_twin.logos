@@ -1,0 +1,25 @@
+// D1 round 5 / H1 — A NAMED REBORROW IS INERT, call-site half. This is
+// fail/bc_d1r5_h1_reborrow_callsite with ONE line removed: the push goes
+// straight to `vs` instead of through the named reborrow `r`. Both must
+// refuse; the PAIR is the invariant.
+//
+// Before H1 the call-site place walk stopped at the VarRef of `r`, so the
+// stored loan was held by `r` — dead at that very statement — and `vs` held
+// nothing, while this spelling refused. Same program, same meaning, opposite
+// verdicts, decided by a name.
+package bc_d1r5_h1_noreborrow_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    vs.push(c.mk());
+    c.bump();
+    return *vs.get(0u64).p;
+}

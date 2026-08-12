@@ -1,0 +1,40 @@
+// bc_cross_archive.bcxa — the ARCHIVE half of the D1 round 5 / H6 pin.
+//
+// H6 retired a residual-list claim that read "the checker skips any function
+// with from_binary_module(), so a borrow FLOW that lives in an archived callee
+// is unanalysable". That sentence is FALSE, and false in the dangerous
+// direction: what from_binary_module() suppresses is RE-BORROW-CHECKING the
+// archived body (it was checked when ITS layer was built), not the
+// per-function BORROW-FLOW SUMMARY the summariser derives from the archived
+// AST. The summary is computed over the whole loaded program, archives
+// included, so a leak that only the callee's body can reveal is still caught
+// across an archive boundary.
+//
+// `stash2` is the canonical door-F shape (D1 round 3 / F3): the `B` is
+// MANUFACTURED inside the callee out of its own `&`-param and stored through
+// its `&mut` out-param, so NOTHING at the call site is borrow-carrying. Only
+// the summary (`out1<-{0}`) can decide it. Here that body is in an ARCHIVE.
+//
+// Consumers (both required — the fail door's message alone cannot separate
+// "the cross-archive flow is seen" from "every call into an archive refuses"):
+//   fail/bc_d1r5_h6_cross_archive_leak    — mutate while the loan is readable
+//   pass/bc_d1r5_h6_cross_archive_admits  — read first, then mutate (NLL)
+package bc_cross_archive.bcxa;
+
+use logos.mem.collections.vec;
+
+#[borrow_carrying]
+pub struct B { pub p: &i64 }
+
+pub struct C { pub v: i64 }
+
+impl C {
+    pub fn mk(&self) -> B { return B { p: &self.v }; }
+    pub fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+
+// The out-param sink: reachable only through the summary.
+pub fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+
+// The direction control's callee: carries NOTHING (scalar result, no sink).
+pub fn count_of(c: &C) -> i64 { return c.v; }

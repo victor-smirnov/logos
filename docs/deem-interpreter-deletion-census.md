@@ -1460,8 +1460,56 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # PREDICTED 6992 / 3309 / 31 (+11 / +11 / 0) BEFORE re-running cmake; the gate
 # then measured exactly that, which is the prediction earning its keep rather
 # than a number copied out of a failure message.
-REGISTRY-ALL         6992
-REGISTRY-NOIMPORTED  3309
+#
+# D1 round 5 adds 17 fixtures — 12 fail + 5 pass, none imported:
+#   fail/bc_d1r5_h0_alias_out_param             H0, &mut reborrow local
+#   fail/bc_d1r5_h0b_field_alias                H0, &mut self field spelling
+#   fail/bc_d1r5_h1_reborrow_callsite           H1, call-site place root
+#   fail/bc_d1r5_h1b_reborrow_struct            H1, struct spelling
+#   fail/bc_d1r5_h2_chain_caller_first          H2, declaration order is inert
+#   fail/bc_d1r5_h2_chain_callee_first          H2, the reversed twin
+#   fail/bc_d1r5_h3_stmt_order_chain            H3, statement order is inert
+#   fail/bc_d1r5_h4_closure_ret                 H4, closure-call result
+#   fail/bc_d1r5_h4_closure_out                 H4, closure-call out-param sink
+#   fail/bc_d1r5_h5_struct_pat                  H5, struct pattern
+#   fail/bc_d1r5_h5_tuple_pat                   H5, tuple pattern
+#   fail/bc_d1r5_h5_wild_pat_control            H5, the arm that WAS handled
+#   pass/bc_d1r5_h0_alias_admits                read before the mutation (NLL)
+#   pass/bc_d1r5_h1_reborrow_admits             read before the mutation (NLL)
+#   pass/bc_d1r5_h4_closure_out_admits          read before the mutation (NLL)
+#   pass/bc_d1r5_h4_closure_scalar_admits       i64-returning closure carries
+#                                               nothing (result-type gate)
+#   pass/bc_d1r5_h5_struct_pat_admits           read before the mutation (NLL)
+# PREDICTED 7009 / 3326 / 31 (+17 / +17 / 0) BEFORE re-running the gate; it
+# then measured exactly that.
+#
+# D1 round 5, SECOND WAVE — the two measured GAPS of the first wave, closed, plus
+# the INERT-PROPERTY pins. 12 fixtures, 8 fail + 4 pass, none imported, none
+# carrying a tier label (all are corpus registrations, so TIERCOMMIT is
+# UNCHANGED — a +12/+12/+0 prediction, not +12/+12/+12):
+#   fail/bc_d1r5_h8_match_tmp_scrutinee    H8, a TEMPORARY match scrutinee held
+#                                          no loan; also H5b's uniqueness proof
+#   fail/bc_d1r5_h8_match_named_twin       H8, naming the scrutinee is INERT
+#   fail/bc_d1r5_h8_matchexpr_tmp          H8, the match-as-VALUE spelling
+#   fail/bc_d1r5_h0_noalias_twin           H0, a named reborrow is INERT
+#   fail/bc_d1r5_h1_noreborrow_twin        H1, the call-site half of the same
+#   fail/bc_d1r5_h3_stmt_order_forward     H3, statement order is INERT
+#   fail/bc_d1r5_h7_declared_bc_struct_held  H7, F4's residual: the DECLARED
+#                                          borrow-carrying edge refuses
+#   fail/bc_d1r5_h6_local_body_twin        H6, the callee body in THIS file
+#                                          refuses (the archived twin does not —
+#                                          written down, deliberately unpinned)
+#   pass/bc_d1r5_h8_match_tmp_admits       read through, THEN mutate (NLL)
+#   pass/bc_d1r5_h8_match_scalar_admits    a temporary carrying no loan ties none
+#   pass/bc_d1r5_h7_param_root_admits      H7, the PARAM-rooted edge admits
+#   pass/bc_d1r5_h6_cross_archive_admits   links libbcxa.a; reads before mutating
+# The archive's own source (tests/logos/bc_cross_archive/bcxa/bcxa.logos) is NOT
+# a corpus file — corpus_registration_gate.sh walks pass/ fail/ only — so it adds
+# no registration and needs no ledger line.
+# PREDICTED 7021 / 3338 / 31 (+12 / +12 / 0) BEFORE re-running cmake; the gate
+# then measured exactly that, three ways.
+REGISTRY-ALL         7021
+REGISTRY-NOIMPORTED  3338
 REGISTRY-TIERCOMMIT  31
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

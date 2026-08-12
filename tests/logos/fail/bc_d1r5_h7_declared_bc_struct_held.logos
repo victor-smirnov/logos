@@ -1,0 +1,24 @@
+// D1 round 5 / H7 — THE CLOSED EDGE OF F4's RESIDUAL CLASS.
+//
+// F4's residual is a CLASS, not the three types its old text named: a COMPOUND
+// whose borrow-carrying is INFERRED from a type-arg / element / field position
+// (tuple, array, plain struct, Box<&T>, Option<&T>) returns a reference to a
+// local and still compiles. That is a recorded decision — both attempts to
+// close it traded the leak for a wave of refusals of correct stdlib code — and
+// it is NOT pinned here, because an `.expected` asserting a clean compile of
+// unsound code records the defect as intended.
+//
+// What IS pinned is the class's BOUNDARY, and this is one of its two edges:
+// the same struct marked `#[borrow_carrying]` — borrow-carrying DECLARED
+// rather than inferred — refuses. The residual is exactly the inferred side of
+// that line, and a red here would mean the line itself has moved.
+//
+// The other edge is pass/bc_d1r5_h7_param_root_admits.
+package bc_d1r5_h7_declared_bc_struct_held;
+#[borrow_carrying]
+struct Pair { a: &i64, n: i64 }
+fn f() -> Pair {
+    let z: i64 = 1i64;
+    return Pair { a: &z, n: 0i64 };
+}
+fn main() -> i64 { return 0i64; }

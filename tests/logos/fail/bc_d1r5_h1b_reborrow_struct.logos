@@ -1,0 +1,22 @@
+// D1 round 5 / H1 — the struct spelling `let r: &mut L3 = &mut k;
+// r.v.push(...)`: the reborrow local is re-homed onto `k` before the place
+// walk asks who holds the loan.
+package bc_d1r5_h1b_reborrow_struct;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct L3 { v: Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut kv: Vec<B> = Vec::new();
+    let mut k: L3 = L3 { v: kv };
+    let r: &mut L3 = &mut k;
+    r.v.push(c.mk());
+    c.bump();
+    return *k.v.get(0u64).p;
+}

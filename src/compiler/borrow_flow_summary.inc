@@ -29,13 +29,55 @@
 // THE DOCUMENTED RESIDUAL HOLE. A callee whose BODY is not in this LProgram
 // gets `available=false`, and every consumer then falls back to its pre-F3
 // behaviour (signature elision) rather than tying everything to everything:
-//   (a) is_extern()          — no body exists at all;
-//   (b) from_binary_module() — a precompiled .writ0 in a `-L` archive;
-//   (c) from_lazy_module() / a non-empty body_external_ref() — the body is a
-//       Writ ExternalRef that was never materialized;
-//   (d) INDIRECT calls — dyn dispatch, closures, fn-pointers, and operator-
-//       desugared calls whose resolved_symbol is empty and whose by_base
-//       fallback disagrees. Same conservative route result_borrows_self takes.
+//   (a) is_extern() / is_metaprog_stub() — no body exists at all.
+//       PROBE: any `extern fn`; body_available() returns false at the seed.
+//   (c) a non-empty body_external_ref() — the body is a Writ ExternalRef that
+//       was never materialized.
+//       PROBE: a lazy-module callee; body_available() returns false.
+//   (d) INDIRECT calls whose callee cannot be resolved to a summary — dyn
+//       dispatch, fn-pointers that are not closures, and operator-desugared
+//       calls whose resolved_symbol is empty and whose by_base fallback
+//       disagrees (resolve_method_flow returns nullptr). Same conservative
+//       route result_borrows_self takes.
+//       PROBE: two same-named methods with DIFFERENT summaries and a receiver
+//       type that narrows to neither ⇒ agree() returns nullptr.
+//       ⚠ CLOSURES ARE NO LONGER IN THIS CLASS on the result path: see H4 in
+//       taint_of and note_closure_caps in borrow_check.cpp.
+//
+//   (e) AN ARCHIVED CALLEE. A function whose declaration arrives from a
+//       `-l` module archive reaches the consumer with NO BODY, so
+//       body_available()'s final `f.body()` test answers false and the
+//       summary is UNAVAILABLE. The door-F shape is therefore NOT caught
+//       across an archive boundary: the leak compiles rc=0.
+//       PROBE, both halves one command each:
+//         logosc --emit-module tests/logos/bc_cross_archive/bcxa.module \
+//                -o /tmp/libbcxa.a
+//         LOGOS_DUMP_FLOWS=stash2 logosc <mutate-after twin> -l /tmp/libbcxa.a
+//       Pinned as far as it honestly can be: fail/bc_d1r5_h6_local_body_twin
+//       (the same program with the body in the consumer's file — REFUSES) and
+//       pass/bc_d1r5_h6_cross_archive_admits (the archive links and the
+//       read-before-mutate program runs). The leak itself is deliberately
+//       NOT pinned — an `.expected` asserting that unsound code compiles
+//       records the defect as intended.
+//
+// ⚠ D1 round 5 / H6 — THE CORRECTION, AND IT CUTS BOTH WAYS. Item (b) used to
+// read "(b) from_binary_module() — a precompiled .writ0 in a `-L` archive", and
+// round 5 deleted it as "false — not a hole", citing a measurement in which the
+// cross-archive leak refused. THE PREDICATE CLAIM IS TRUE and stands:
+// body_available() never tests from_binary_module, and measured on an archived
+// `stash2` the flag reads 0 anyway. THE CONCLUSION WAS WRONG. Re-measured here
+// against both the original probe archive and a freshly rebuilt one, the
+// summary is UNAVAILABLE and the leak compiles rc=0. The archived function's
+// probe reads `extern=0 stub=0 extref=0 body=0 from_binary_module=0` — it is
+// not (a), not (c) and not (b); it is the plain null body, entered above as
+// (e). Deleting a residual entry because its NAMED PREDICATE was the wrong one
+// silently promoted an open hole to a closed one, which is a residual list
+// failing in the direction a residual list is dangerous in.
+//
+// Closing (e) is not a gate tweak: an external body must be walked through the
+// FOREIGN arena AND its foreign type pool (mono does this via
+// writ::resolve_external_ref + a src_arena_ swap), while this walk reads
+// `prog_.type_pool` throughout. Cross-arena summarisation is its own arc.
 // Constraint (a) of the brief — over-refusing the ecosystem is worse than a
 // documented residual hole — is what picks the fallback over a `top` default.
 //
@@ -170,32 +212,89 @@ public:
                    const FnIndex& idx, FlowSummaryMap& out)
         : prog_(prog), ts_(ts), idx_(idx), out_(out) {}
 
-    // Round-robin to a fixpoint. Monotone + finite ⇒ terminates; the cap is a
-    // belt-and-braces bound, and hitting it is reported by `rounds_used`.
+    // ── D1 round 5 / H2: ITERATE TO CONVERGENCE, DO NOT CAP ────────────────
+    //
+    // THE DEFECT. `kMaxRounds = 8` was documented as "belt-and-braces", but a
+    // round-robin fixpoint visits functions in DECLARATION order, so a chain
+    // `s0 -> s1 -> ... -> s7` propagates exactly one link per round when the
+    // callers are declared BEFORE the callees and the whole chain in ONE round
+    // when they are declared after. Measured on the ladder 4/7/8/9/12:
+    // caller-first refused at depth 4 and 7 and ADMITTED the leak at 8, 9, 12;
+    // callee-first refused at every depth. The cap turned a semantically inert
+    // property — the order two functions happen to appear in the file — into
+    // the verdict, and in the PERMISSIVE direction.
+    //
+    // ⚠ AND IT WAS INVISIBLE. `rounds_used()` is read only inside the
+    // LOGOS_DUMP_FLOWS block; nothing in the compiler ever saw the cap being
+    // hit. It is also not a proxy for a wrong answer: depth 7 caller-first
+    // already reported rounds=9 (cap exhausted) with a SOUND answer. So there
+    // is no assertion over rounds_used() that could have caught this — the fix
+    // has to be the iteration itself.
+    //
+    // TERMINATION IS A THEOREM, NOT A CAP. The state is, per available
+    // function, `to_result` (nparams bits) plus `to_outparam[j]` (nparams bits
+    // for each of the nparams sinks): a finite bitmask lattice of exactly
+    // `Σ_f nparams_f · (1 + nparams_f)` bits over the whole program. Every
+    // write is `|=` (recompute() returns `grew` only when a bit that was 0
+    // became 1) and no path ever clears a summary bit, so the state is
+    // monotonically increasing in a finite lattice ⇒ the ascending chain is
+    // finite ⇒ the round that reports no change is reached.
+    //
+    // THE BOUND IS DERIVED, NOT CHOSEN. A round that returns `changed` set at
+    // least one of those bits, so at most `total_bits` rounds can report a
+    // change and the loop exits on round `total_bits + 1` at the latest.
+    // `total_bits + 1` is therefore UNREACHABLE BY CONSTRUCTION, and reaching
+    // it means monotonicity itself is broken (a summary bit was cleared, or a
+    // transfer function is not deterministic) — a compiler bug, not an input.
+    // Hence a hard internal error there, never a permissive answer: an
+    // exhausted budget that silently returns the current state is exactly the
+    // defect being removed.
     void run() {
         seed();
-        for (rounds_used_ = 1; rounds_used_ <= kMaxRounds; ++rounds_used_) {
+        uint64_t total_bits = 0;
+        for (auto& [nm, s] : out_) {
+            (void)nm;
+            if (!s.available) continue;
+            total_bits += static_cast<uint64_t>(s.nparams) * (1ull + s.nparams);
+        }
+        for (rounds_used_ = 1;; ++rounds_used_) {
             bool changed = false;
             for_each_fn([&](lir_view::FunctionView f) {
                 changed |= recompute(f);
             });
             if (!changed) return;
+            if (rounds_used_ > total_bits)
+                flow_ice("inter-procedural fixpoint exceeded its derived bound",
+                         rounds_used_, total_bits);
         }
     }
     uint32_t rounds_used() const { return rounds_used_; }
+    uint32_t max_body_passes() const { return max_body_passes_; }
 
 private:
-    static constexpr uint32_t kMaxRounds = 8;
-    static constexpr uint32_t kBodyPasses = 3;   // loops: walk until stable
+    [[noreturn]] static void flow_ice(const char* what, uint64_t got,
+                                      uint64_t bound) {
+        fprintf(stderr,
+                "internal compiler error: borrow-flow summary: %s "
+                "(iteration %llu > bound %llu). The summary lattice is finite "
+                "and the transfer functions are monotone, so this is "
+                "unreachable by construction; refusing to answer.\n",
+                what, (unsigned long long)got, (unsigned long long)bound);
+        std::abort();
+    }
 
     const lir::LProgram& prog_;
     const TypeSets&      ts_;
     const FnIndex&       idx_;
     FlowSummaryMap&      out_;
     uint32_t             rounds_used_ = 0;
+    uint32_t             max_body_passes_ = 0;
 
     // per-function working state
     std::unordered_map<std::string, uint64_t> taint_;
+    // H0: local -> the places it reborrows (see note_alias). Monotone within a
+    // body; cleared per function alongside taint_.
+    std::unordered_map<std::string, std::vector<std::string>> alias_;
     std::vector<std::string>                  pnames_;
     std::vector<TypeRef>                      ptypes_;
     uint64_t                                  result_taint_ = 0;
@@ -293,14 +392,112 @@ private:
         return resolve_method_flow(out_, idx_, prog_.type_pool.impl(), v);
     }
 
+    // ── D1 round 5 / H0: A LOCAL HOLDING A &mut REBORROW *IS* ITS REFERENT ──
+    //
+    // THE DEFECT. One inert line — a reborrow local between the `&mut`
+    // parameter (or the `&mut self` field) and the store — erased the whole
+    // out-param flow:
+    //     fn stash(c: &C, v: &mut Vec<B>) { let r: &mut Vec<B> = v;
+    //                                       r.push(c.mk()); }
+    // summarised `result<-0` (measured) while the one-line-less twin
+    // summarised `result<-0 out1<-0x1`. call_effects deposits the source bits
+    // on `root_of(args[j])` — which is the ALIAS local `r` — while recompute()
+    // reads back `taint_of_name(pnames_[j])`, the PARAM name, and nothing ever
+    // propagates from one to the other.
+    //
+    // ONE CONCEPT, NOT A PATCH AT EACH END. `r` is not a second place that
+    // happens to be correlated with `v`; through a `&mut` reborrow it IS `v`'s
+    // place. So the two ends are made the SAME SLOT rather than the deposit
+    // being mirrored: `each_root` is the single choke point both the read
+    // (taint_of_name) and the write (add_taint) go through. The checker's
+    // mirror of this same concept is `rehome_reborrow` (borrow_check.cpp), and
+    // it is the same sentence about the same fact.
+    //
+    // WHY A VECTOR AND NOT A SINGLE NAME. The map must be MONOTONE: the body
+    // is walked repeatedly to a fixpoint (H3), so a later `r = w;` may not
+    // RETARGET what an earlier pass already deposited. Unioning the roots is
+    // the conservative resolution — more places co-hold, never fewer.
+    //
+    // ⚠ THE ADMIT DIRECTION. A `&mut` that is a FRESH borrow of a
+    // materialized statement-temporary (`__rtmp_N`, which dies at the end of
+    // the statement) has no referent to re-home to; tying it would make every
+    // rvalue-receiver method call retain. Those are excluded by name, using
+    // the same `is_materialized_temp_name` predicate prov_of already uses.
+    // Control: h0_alias_admit / h0b_field_admit must stay admitted.
+    void note_alias(const std::string& name, lir_view::ExprRef val) {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        // ⚠ NOT THE DISCARD BINDING. MEASURED ON THE FULL BUILD: `fn
+        // emit_lexer(cg: &mut Codegen, w: &mut CodeWriter) { let _ = cg;
+        // let _ = w; }` (tools/peg_gen_logos) recorded BOTH params as roots of
+        // the single name `_`, and since a deposit goes to every root, `cg` and
+        // `w` swapped bits — the summary grew `out0<-0x2 out1<-0x1` out of a
+        // function with an EMPTY body, and emit_all was refused twice over
+        // ("cannot borrow 'cg' as mutable: already mutably borrowed"). `_` is a
+        // discard, never a place, so it can never be a reborrow of anything.
+        if (name.empty() || name == "_" || !val) return;
+        const auto* pool = prog_.type_pool.impl();
+        if (!is_mut_ref(val.type(pool))) return;
+        if (val.kind() != Code::VarRef && val.kind() != Code::AddrOf &&
+            val.kind() != Code::AddrOfTemp)
+            return;
+        if (val.kind() == Code::AddrOf &&
+            is_materialized_temp_name(EAddrOfView{val}.var_name()))
+            return;
+        if (val.kind() == Code::AddrOfTemp) {
+            auto in = EAddrOfTempView{val}.inner();
+            if (in && in.kind() == Code::VarRef &&
+                is_materialized_temp_name(EVarRefView{in}.name()))
+                return;
+        }
+        std::string r = root_of(val);
+        if (r.empty() || r == name || is_materialized_temp_name(r)) return;
+        auto& v = alias_[name];
+        if (std::find(v.begin(), v.end(), r) == v.end()) v.push_back(r);
+    }
+
+    // `name` and every place it reborrows, transitively. Cycles are impossible
+    // by construction (note_alias never records a self-edge) but the visited
+    // set makes that a property of the walk rather than of the callers.
+    template <class F>
+    void each_root(const std::string& name, F&& f) const {
+        if (name.empty()) return;
+        if (alias_.empty()) { f(name); return; }
+        std::vector<std::string> stack{name}, seen;
+        while (!stack.empty()) {
+            std::string n = std::move(stack.back());
+            stack.pop_back();
+            if (std::find(seen.begin(), seen.end(), n) != seen.end()) continue;
+            seen.push_back(n);
+            f(n);
+            auto it = alias_.find(n);
+            if (it == alias_.end()) continue;
+            for (auto& r : it->second) stack.push_back(r);
+        }
+    }
+
+    // Total popcount of the intra-procedural state — the monotone measure the
+    // body fixpoint's termination argument is written over.
+    uint64_t taint_weight() const {
+        uint64_t w = static_cast<uint64_t>(__builtin_popcountll(result_taint_));
+        for (auto& [n, m] : taint_) { (void)n; w += __builtin_popcountll(m); }
+        return w;
+    }
+
     uint64_t taint_of_name(const std::string& n) const {
-        auto it = taint_.find(n);
-        return it == taint_.end() ? 0u : it->second;
+        uint64_t m = 0;
+        each_root(n, [&](const std::string& r) {
+            auto it = taint_.find(r);
+            if (it != taint_.end()) m |= it->second;
+        });
+        return m;
     }
     void add_taint(const std::string& n, uint64_t bits) {
         if (n.empty() || !bits) return;
-        uint64_t& slot = taint_[n];
-        if ((slot | bits) != slot) { slot |= bits; body_changed_ = true; }
+        each_root(n, [&](const std::string& r) {
+            uint64_t& slot = taint_[r];
+            if ((slot | bits) != slot) { slot |= bits; body_changed_ = true; }
+        });
     }
 
     // Root binding of a place expression, stripping &/&mut/field/index/deref.
@@ -403,6 +600,55 @@ private:
                 EClosureBoxView{e}.each_capture_name([&](std::string_view cap){
                     m |= taint_of_name(std::string(cap));
                 });
+                return m;
+            }
+            // ── D1 round 5 / H4: A CLOSURE CALL'S RESULT ───────────────
+            //
+            // THE DEFECT. `let f = || -> B { return c.mk(); }; return f();`
+            // summarised as carrying NOTHING (measured rc=0 against rc=1 for
+            // the inlined `return c.mk();`), and so did the out-param sink
+            // `vs.push(f())`. taint_of's switch had arms for Call and
+            // MethodCall only, so a ClosureCall fell to `default: return 0` —
+            // it never even reached call_result_taint, which means the
+            // documented (d) fallback ("tie the result to the ref /
+            // by-value-bc OPERANDS") was never executed here. And had it been,
+            // it would still have been VACUOUS: a closure's provenance lives
+            // in its CAPTURES, and captures are not operands of the call —
+            // the only operands are the closure value and the explicit args,
+            // and in the leak shape there are no explicit args at all.
+            //
+            // THE FIX. The result inherits from the CLOSURE VALUE operand.
+            // taint_of already has a ClosureBox arm that unions the captures'
+            // taint into the closure local, so `taint_of(callee)` is exactly
+            // "what this closure can hand back" and no new state is needed;
+            // can_carry() already answers YES for Kind::Closure.
+            //
+            // A GENUINE FN POINTER IS NOT A CLOSURE and keeps the current
+            // behaviour: the discriminator is the CALLEE EXPRESSION'S TYPE
+            // KIND (Closure), not the expression code — FnPtrCall is the
+            // spelling a closure local also gets in some lowerings, so
+            // switching on the code alone would decide the wrong question.
+            // Control: h4_closure_scalar_admit / h4_closure_out_admit stay
+            // admitted (an i64-returning closure carries nothing).
+            case Code::ClosureCall:
+            case Code::FnPtrCall: {
+                ExprRef callee = e.kind() == Code::ClosureCall
+                    ? EClosureCallView{e}.callee() : EFnPtrCallView{e}.callee();
+                if (!callee) return 0;
+                TypeRef ct = callee.type(pool);
+                if (!ct || ct.kind() != LogosType::Kind::Closure) return 0;
+                if (!can_carry(t)) return 0;
+                uint64_t m = taint_of(callee);
+                auto add_arg = [&](ExprRef a) {
+                    if (!a) return;
+                    TypeRef at = a.type(pool);
+                    if (is_plain_ref_kind(at) ||
+                        bc_is_borrow_carrying_type(ts_, at) ||
+                        bc_loan_carrying_type(ts_, at))
+                        m |= taint_of(a);
+                };
+                if (e.kind() == Code::ClosureCall) EClosureCallView{e}.each_arg(add_arg);
+                else                               EFnPtrCallView{e}.each_arg(add_arg);
                 return m;
             }
             case Code::Call: {
@@ -543,15 +789,84 @@ private:
         }
     }
 
+    // ── D1 round 5 / H5: EVERY PATTERN KIND THAT BINDS ────────────────────
+    //
+    // THE DEFECT. This was a two-branch if/else-if over VariantData and Wild
+    // that SILENTLY RETURNED for the other eleven kinds of
+    // lir_schema::pat::Code — a permissive default, invisible to a green
+    // corpus by construction. Measured: a callee that destructures a STRUCT
+    // (`match w { Wrap { b: inner } => { v.push(inner); } }`) summarised
+    // `result<-0` and admitted the leak, while the ENUM twin refused; the
+    // TUPLE pattern was the same hole. Both are now covered.
+    //
+    // ⚠ THE PROBE HAD TO BE RE-SHAPED. Passing the `Wrap` by value AT THE
+    // CALL SITE came back rc=1 — but that is door 8b firing on the by-value
+    // borrow-carrying ARGUMENT, a different rule, while the summary
+    // underneath was already wrong. The isolating shape manufactures the
+    // `Wrap` INSIDE the callee.
+    //
+    // ENUMERATED FROM THE SCHEMA (pat::Code::Count == 13), not guessed, and
+    // written as an exhaustive switch WITHOUT a default: the four kinds that
+    // legitimately bind nothing are explicit no-op arms, so a future 14th kind
+    // is a compile-time hole rather than another silent permissive default.
+    // Three carrier mechanisms: a BINDINGS string array (VariantData, Tuple),
+    // a NAME (Wild, At, RefBind, PatFieldBinding's shorthand), and SUB-PATTERNS
+    // recursed into with the same bits.
+    // Control that a handled arm really was handled: h5b_at_pat_leak (bare-name
+    // Wild binding) refused before this change and must still refuse.
     void bind_pat(lir_view::PatRef pr, uint64_t bits) {
         using namespace lir_view;
+        using PC = lir_schema::pat::Code;
         if (!pr || !bits) return;
-        if (pr.kind() == lir_schema::pat::Code::VariantData) {
-            PatVariantDataView pv{pr};
-            pv.each_binding([&](std::string_view b){ add_taint(std::string(b), bits); });
-        } else if (pr.kind() == lir_schema::pat::Code::Wild) {
-            std::string n(PatWildView{pr}.name());
-            if (!n.empty() && n != "_") add_taint(n, bits);
+        auto bind_name = [&](std::string_view n) {
+            if (!n.empty() && n != "_") add_taint(std::string(n), bits);
+        };
+        switch (pr.kind()) {
+            // Bind nothing — the only four, stated rather than defaulted.
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+                return;
+            case PC::Wild:
+                bind_name(PatWildView{pr}.name());
+                return;
+            case PC::VariantData:
+                PatVariantDataView{pr}.each_binding(bind_name);
+                return;
+            case PC::Tuple: {
+                PatTupleView pv{pr};
+                pv.each_binding(bind_name);
+                pv.each_sub([&](PatRef sub){ bind_pat(sub, bits); });
+                return;
+            }
+            case PC::Struct: {
+                PatStructView pv{pr};
+                pv.each_field([&](PatFieldBindingView fb) {
+                    if (auto sub = fb.sub()) bind_pat(sub, bits);
+                    else bind_name(fb.field_name());   // shorthand `Wrap { b }`
+                });
+                return;
+            }
+            case PC::Or:
+                PatOrView{pr}.each_alt([&](PatRef alt){ bind_pat(alt, bits); });
+                return;
+            case PC::Slice: {
+                PatSliceView pv{pr};
+                pv.each_prefix([&](PatRef sub){ bind_pat(sub, bits); });
+                pv.each_rest  ([&](PatRef sub){ bind_pat(sub, bits); });
+                pv.each_suffix([&](PatRef sub){ bind_pat(sub, bits); });
+                return;
+            }
+            case PC::At: {
+                PatAtView pv{pr};
+                bind_name(pv.name());
+                if (auto sub = pv.sub()) bind_pat(sub, bits);
+                return;
+            }
+            case PC::RefBind:
+                bind_name(PatRefBindView{pr}.name());
+                return;
+            case PC::RefPat:
+                if (auto in = PatRefPatView{pr}.inner()) bind_pat(in, bits);
+                return;
         }
     }
 
@@ -567,6 +882,7 @@ private:
         switch (sr.kind()) {
             case Code::Let: {
                 SLetView v{sr};
+                note_alias(std::string(v.name()), v.value());   // H0, before the deposit
                 add_taint(std::string(v.name()), taint_of(v.value()));
                 call_effects(v.value());
                 break;
@@ -581,6 +897,7 @@ private:
             }
             case Code::Assign: {
                 SAssignView v{sr};
+                note_alias(std::string(v.name()), v.value());   // H0, before the deposit
                 add_taint(std::string(v.name()), taint_of(v.value()));
                 call_effects(v.value());
                 break;
@@ -693,6 +1010,7 @@ private:
         const auto* pool = prog_.type_pool.impl();
         auto params = f.params();
         taint_.clear();
+        alias_.clear();
         result_taint_ = 0;
         pnames_.clear();
         ptypes_.clear();
@@ -701,12 +1019,45 @@ private:
             ptypes_.push_back(params[i].type(pool));
             if (can_carry(ptypes_[i])) taint_[pnames_[i]] = 1ull << i;
         }
-        // Loops / back edges: the transfer functions only add, so re-walking
-        // until nothing changes is the intra-procedural fixpoint.
-        for (uint32_t pass = 0; pass < kBodyPasses; ++pass) {
+        // ── D1 round 5 / H3: THE BODY PASS IS A FIXPOINT TOO ───────────────
+        //
+        // THE DEFECT. `kBodyPasses = 3` truncated the INTRA-procedural walk,
+        // and `taint_.clear()` above makes the truncation unrecoverable: the
+        // next outer round starts from parameters again, so the outer fixpoint
+        // converges on the truncated answer and reports "no change". Measured
+        // with a reverse-order assignment chain in the callee
+        // (`v.push(aN); aN = aN-1; …; a1 = c.mk();`): hops 1 and 2 refuse,
+        // hops 3, 4 and 5 ADMIT, boundary exactly at kBodyPasses — i.e. the
+        // ORDER OF STATEMENTS inside the callee decided soundness, in the
+        // permissive direction, and the outer round counter still read 3.
+        //
+        // TERMINATION. Within one body the state is `taint_` (a bitmask per
+        // NAME, over the ≤64 parameter bits) plus `result_taint_`, and every
+        // write is `|=` guarded by "did a 0-bit become 1" — that guard is
+        // exactly what sets `body_changed_`. So a pass that reports a change
+        // strictly increases the total popcount `taint_weight()`, which is
+        // bounded by 64 · (number of distinct names the walk ever touches), a
+        // finite set fixed by the body. Strictly-increasing and bounded ⇒ the
+        // pass that reports no change is reached.
+        //
+        // The two checks below are the theorem's two halves, both hard errors:
+        // a "changed" pass that did NOT increase the weight falsifies the
+        // monotone-growth invariant, and the derived pass bound
+        // 64·|names| + 1 is unreachable while that invariant holds.
+        uint64_t prev_w = taint_weight();
+        for (uint32_t pass = 1;; ++pass) {
             body_changed_ = false;
             walk_block(f.body());
+            if (pass > max_body_passes_) max_body_passes_ = pass;
             if (!body_changed_) break;
+            uint64_t w = taint_weight();
+            if (w <= prev_w)
+                flow_ice("body pass reported a change without growing the "
+                         "taint lattice", w, prev_w);
+            prev_w = w;
+            if (pass > 64ull * (taint_.size() + 1))
+                flow_ice("intra-procedural body fixpoint exceeded its derived "
+                         "bound", pass, 64ull * (taint_.size() + 1));
         }
 
         bool grew = false;

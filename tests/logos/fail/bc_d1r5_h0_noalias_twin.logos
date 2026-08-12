@@ -1,0 +1,32 @@
+// D1 round 5 / H0 — A NAMED REBORROW IS INERT. This is
+// fail/bc_d1r5_h0_alias_out_param with ONE line changed: the callee stores
+// through the `&mut` parameter directly instead of through a named reborrow
+// local. Both must refuse; the PAIR is the invariant, not either half.
+//
+// Before H0 the two verdicts differed. The summary for the alias spelling read
+// `result<-0` where this one read `result<-0 out1<-0x1`, because call_effects
+// deposited the flow on the ALIAS name (`r`) while recompute read it back
+// under the PARAMETER name (`v`). So a program leaked or did not depending on
+// whether an intermediate `&mut` had been given a name — a property with no
+// meaning in the language.
+//
+// This half has always refused, which is exactly why it must be registered:
+// with the fix reverted, ONLY the alias half reds, and a lone red looks like a
+// new defect rather than a broken invariant. Read the two together.
+package bc_d1r5_h0_noalias_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

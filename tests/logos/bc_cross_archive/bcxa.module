@@ -1,0 +1,3 @@
+module bcxa
+version 0.1
+root tests/logos/bc_cross_archive/bcxa/

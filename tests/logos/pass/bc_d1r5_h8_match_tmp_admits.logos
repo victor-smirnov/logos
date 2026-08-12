@@ -1,0 +1,28 @@
+// Admit twin for fail/bc_d1r5_h8_match_tmp_scrutinee. Same extraction out of
+// the same temporary; the read happens BEFORE the mutation, so the loan is
+// dead by the time `bump` runs and the program must compile and RUN.
+//
+// This is the control that keeps the new rule from being a blanket refusal of
+// every match over a temporary. It also pins the LIFETIME design: the loan
+// retained for a temporary scrutinee is held by a SYNTHETIC name with no
+// recorded use, so its lifetime is decided entirely by the real bindings that
+// inherit it — if the synthetic holder were treated as live to end of scope,
+// this fixture would red.
+package bc_d1r5_h8_match_tmp_admits;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+struct Wrap { b: B }
+impl C {
+    fn mk_wrap(&self) -> Wrap { return Wrap { b: B { p: &self.v } }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let z: i64 = 7i64;
+    let mut c: C = C { v: 1i64 };
+    let mut inner: B = B { p: &z };
+    match c.mk_wrap() { Wrap { b: got } => { inner = got; } }
+    let x: i64 = *inner.p;
+    c.bump();
+    return x;
+}

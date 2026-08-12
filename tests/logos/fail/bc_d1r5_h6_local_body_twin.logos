@@ -1,0 +1,46 @@
+// D1 round 5 / H6 — WHERE A CALLEE'S BODY LIVES SHOULD BE INERT.
+//
+// This is pass/bc_d1r5_h6_cross_archive_admits' leaking twin — mutate while
+// the stored borrow is still readable — with ONE thing changed: `stash2`'s
+// body is in this file instead of in libbcxa.a. It REFUSES, because the
+// borrow-flow summary is computed over a body this LProgram has.
+//
+// The cross-archive spelling of the same program is ADMITTED (measured on this
+// tree; the archived body arrives as an unmaterialized Writ ExternalRef, so
+// body_available() answers false and the flow dump prints `UNAVAILABLE`). Only
+// this half is pinned: a `.expected` asserting that the other one compiles
+// would record the defect as intended, and the leak is a residual with a named
+// class, not a behaviour to lock in.
+//
+// ⚠ THE CORRECTION THIS FIXTURE CARRIES. The residual list used to name
+// `from_binary_module()` as item (b) and D1 round 5 DELETED it as "false — not
+// a hole", citing a measurement against a real archive in which the leak
+// refused. That measurement does not reproduce: re-run here against both the
+// original probe archive and a freshly rebuilt one, the summary is UNAVAILABLE
+// and the leak compiles rc=0. The predicate claim was right (body_available
+// never tests from_binary_module) and the CONCLUSION was wrong — an archived
+// body lands in class (c) instead. Cheap fixes are ruled out by the arena: an
+// external body must be walked through the FOREIGN arena and its FOREIGN type
+// pool, which is the cross-arena arc, not a gate tweak.
+//
+// So: this fixture is the closed edge, and the open edge is written down.
+// Repro for the open edge (both halves, one command each):
+//   logosc --emit-module tests/logos/bc_cross_archive/bcxa.module -o /tmp/libbcxa.a
+//   LOGOS_DUMP_FLOWS=stash2 logosc <the mutate-after twin> -l /tmp/libbcxa.a
+package bc_d1r5_h6_local_body_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash2(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    stash2(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

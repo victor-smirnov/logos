@@ -211,6 +211,21 @@ trait OrderedBy<K>  { … }                           // batches arrive in K ord
 trait Landed<K>     { fn seek(&mut self, k: K); }   // ordered positioning
 ```
 
+**The TRAVERSAL axis (Victor, 2026-08-11).** Memoria containers support
+random access by entry ORDINAL, so the batch cursor carries a THIRD
+orthogonal capability axis — `forward-only ⊂ bidirectional ⊂ random-access`
+(by ordinal) — beside order-as-fact (`OrderedBy<K>`) and key-positioning
+(`Landed<K>`). This generalizes the recorded "`can_seek` as one bool is
+WRONG" lesson to three independent axes: probe ⟂ ordered positioning ⟂
+traversal degree. Family walks declare random-access (`seek(n)` is ONE
+DESCENT — every container is an array of its entries — so the per-LEAF
+frequency invariant of §7b holds); heap slices and `Buffer` are trivially
+random-access; `HashMapIter` is forward-only; btree walks are bidirectional.
+Vocabulary lands at S1 as a trait pair beside `Rewind`/`SizedStream`
+(spelling settled there); the S3 harvest: `offset`/`limit` push down as one
+`seek_nth` instead of a skip loop, `order by … desc` over a bidirectional
+source emits no `Sort`, and ordinal sampling needs no drain.
+
 `[REC]` Existence = trait membership of the producer's return type, asked by
 the planner via metaprog trait queries (the seam `join_key_caps` already
 anticipates). Cost, exactness, and the operation set remain declarations

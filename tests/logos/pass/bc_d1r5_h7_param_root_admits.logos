@@ -1,0 +1,20 @@
+// D1 round 5 / H7 — THE OTHER EDGE of F4's residual class, and the reason the
+// class is left open rather than closed with a type-shaped gate.
+//
+// A tuple carrying a reference is the SAME TYPE SHAPE as the residual leak
+// `fn f() -> (&i64, i64) { let z = …; return (&z, 0); }`. The only difference
+// is where the reference is ROOTED: at a PARAMETER, so it outlives the frame
+// and returning it is correct. Any gate that refuses the leak by reading the
+// return TYPE refuses this too — which is exactly what both measured attempts
+// did (Iterator::reduce for every SliceIter instantiation; then wql::scan_of
+// and PdtBuf::select_fw_op / select_bw_op / decide_join_step).
+//
+// This fixture must COMPILE AND RUN. A red here is not progress on the
+// residual; it is the over-refusal the residual was accepted to avoid.
+//
+// The refusing edge is fail/bc_d1r5_h7_declared_bc_struct_held.
+package bc_d1r5_h7_param_root_admits;
+fn f(x: &i64) -> (&i64, i64) {
+    return (x, 0i64);
+}
+fn main() -> i64 { let z: i64 = 7i64; let t: (&i64, i64) = f(&z); return *t.0; }

@@ -1,0 +1,30 @@
+// D1 round 5 / H2 — the reversed-declaration twin of
+// bc_d1r5_h2_chain_caller_first. Same program, inert difference.
+package bc_d1r5_h2_chain_callee_first;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn s0(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn s1(c: &C, v: &mut Vec<B>) { s0(c, v); }
+fn s2(c: &C, v: &mut Vec<B>) { s1(c, v); }
+fn s3(c: &C, v: &mut Vec<B>) { s2(c, v); }
+fn s4(c: &C, v: &mut Vec<B>) { s3(c, v); }
+fn s5(c: &C, v: &mut Vec<B>) { s4(c, v); }
+fn s6(c: &C, v: &mut Vec<B>) { s5(c, v); }
+fn s7(c: &C, v: &mut Vec<B>) { s6(c, v); }
+fn s8(c: &C, v: &mut Vec<B>) { s7(c, v); }
+fn s9(c: &C, v: &mut Vec<B>) { s8(c, v); }
+fn s10(c: &C, v: &mut Vec<B>) { s9(c, v); }
+fn s11(c: &C, v: &mut Vec<B>) { s10(c, v); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    s11(&c, &mut vs);
+    c.bump();
+    return *vs.get(0u64).p;
+}

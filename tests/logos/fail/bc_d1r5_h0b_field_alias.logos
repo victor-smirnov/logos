@@ -1,0 +1,23 @@
+// D1 round 5 / H0 — the `&mut self` FIELD spelling of the same alias:
+// `let r = &mut self.v; r.push(...)`. Same rule, second spelling.
+package bc_d1r5_h0b_field_alias;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct K { v: Vec<B> }
+impl K {
+    fn stash(&mut self, c: &C) { let r: &mut Vec<B> = &mut self.v; r.push(c.mk()); }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut kv: Vec<B> = Vec::new();
+    let mut k: K = K { v: kv };
+    k.stash(&c);
+    c.bump();
+    return *k.v.get(0u64).p;
+}

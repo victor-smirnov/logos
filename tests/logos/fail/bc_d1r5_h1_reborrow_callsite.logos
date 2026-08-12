@@ -1,0 +1,24 @@
+// D1 round 5 / H1 — the CALL-SITE half, with no callee at all. The place
+// walk stopped at the VarRef of the reborrow local `r`, so the stored loan
+// was held by `r` (dead at that statement) and `vs` held nothing.
+// Admit twin: pass/bc_d1r5_h1_reborrow_admits. The NO-REBORROW half of the
+// invariant — the identical program pushing straight to `vs`, which refused
+// throughout — is fail/bc_d1r5_h1_noreborrow_twin; the PAIR is the invariant
+// "a named reborrow is inert", and neither half states it alone.
+package bc_d1r5_h1_reborrow_callsite;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let r: &mut Vec<B> = &mut vs;
+    r.push(c.mk());
+    c.bump();
+    return *vs.get(0u64).p;
+}
