@@ -1820,9 +1820,34 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass/ctr_leaf_descent_count.logos
             ${LOGOS_BUILD_LIB_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/callgrind_calls.py
+            bt_seek_at
+            bt_cur_next
 )
 set_tests_properties(logos_09_ctr_leaf_descent PROPERTIES
     TIMEOUT 600
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# The SAME gate over the POSITIONAL family (ADR 0025 S1b). Not a formality: S1b
+# deleted the vector arm's per-row walk on §5's argument, and that arm's producer
+# is built by a different branch of the emitter over a different leaf layout, and
+# descends through `btvec_seek` — an edge the ordered registration above does not
+# count and cannot. The descent primitive and the row-cursor step are passed
+# EXPLICITLY (the gate has no default for them: a default that matched the wrong
+# primitive would exit 0 having counted someone else's calls).
+add_test(
+    NAME logos_09_ctr_vec_leaf_descent
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/ctr_leaf_descent_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/ctr_vec_leaf_descent_count.logos
+            ${LOGOS_BUILD_LIB_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/callgrind_calls.py
+            btvec_seek
+            btvec_cur_next
+)
+set_tests_properties(logos_09_ctr_vec_leaf_descent PROPERTIES
+    TIMEOUT 900
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )

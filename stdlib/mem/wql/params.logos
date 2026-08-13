@@ -158,7 +158,7 @@ pub struct MacroParams {
     pub rel_mat:     [str; 8],
     pub rel_marg:    [str; 8],
     /// A NARROWING argument the materializer takes beyond the source itself —
-    /// the constant a pushdown reads from (`__ctr_rows_at_Hs…(c, 42u64)`).
+    /// the constant a pushdown reads from (`__ctr_bat_Hs…(c, 42u64)`).
     /// Empty for the plain full-scan binding. The capability belongs to the
     /// FAMILY, which publishes one narrowing producer per shape; a plan only
     /// chooses which and supplies the constant.

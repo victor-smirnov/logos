@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
-# ctr_leaf_descent_gate.sh LOGOSC FIXTURE LIB_DIR EXTRACTOR
+# ctr_leaf_descent_gate.sh LOGOSC FIXTURE LIB_DIR EXTRACTOR DESCENT_RE ROWCUR_RE
+#
+# ⚠ THE LAST TWO ARGUMENTS ARE REQUIRED AND HAVE NO DEFAULT, ON PURPOSE (S1b).
+# The gate now runs over TWO container families, and they descend through
+# different primitives: the ordered_map's leaves hang off `bt_seek_at` walked by
+# `bt_cur_next`, the vector's off `btvec_seek` walked by `btvec_cur_next`. A
+# default would let a caller point the gate at a family whose descent edge it
+# then fails to find — and an absent edge exits 2 here, which is a red, but a
+# default that silently matched the WRONG primitive would exit 0 having counted
+# calls that belong to some other code path. The names are therefore passed in,
+# once per registration, beside the fixture they describe.
 #
 # ADR 0025 §5's ASYMPTOTICS, AS AN ASSERTION.
 #
@@ -25,7 +35,9 @@
 # cursor (the oracle) and one leaf-batch scan in §1's shape — so every call to
 # `bt_seek_at` (the root-to-leaf descent, ops.logos) belongs to exactly one of
 # them, and the two are counted apart. Summing them would let a regression in
-# one hide under the other.
+# one hide under the other. (`bt_seek_at` is the ordered arm's spelling; the
+# vector arm's is `btvec_seek`, which is why the primitive is a PARAMETER — see
+# the header, and `pass/ctr_vec_leaf_descent_count` for the second subject.)
 #
 # THE INDEPENDENT LEAF COUNT. The oracle yields it without asking the batch
 # plane anything: a CoW tree has no sibling pointer, so the ROW cursor crosses a
@@ -59,6 +71,10 @@ LOGOSC="${1:?logosc path}"
 FIXTURE="${2:?fixture .logos}"
 LIB_DIR="${3:?stdlib archive dir}"
 EXTRACTOR="${4:?callgrind_calls.py path}"
+# The DESCENT primitive (root-to-leaf) and the ROW CURSOR's forward step, as
+# regexes over the callgrind function names. See the header: no defaults.
+DESCENT_RE="${5:?descent fn regex (bt_seek_at | btvec_seek)}"
+ROWCUR_RE="${6:?row-cursor step fn regex (bt_cur_next | btvec_cur_next)}"
 
 for f in "$LOGOSC" "$FIXTURE" "$EXTRACTOR"; do
     if [ ! -e "$f" ]; then echo "FAIL(2): missing input: $f"; exit 2; fi
@@ -152,10 +168,10 @@ NEXT_RE='[.]gen[.]Hs[0-9a-f]+__next__f__'
 
 BATCH_DESCENTS=$(edge 'LeafWalk__advance' "$SEEK_RE")
 LAND_DESCENTS=$(edge '__ctr_brows_' "$SEEK_RE")
-ROW_DESCENTS=$(edge 'bt_cur_next' 'bt_seek_at')
+ROW_DESCENTS=$(edge "$ROWCUR_RE" "$DESCENT_RE")
 ROW_STEPS=$(callee_total "$NEXT_RE")
 BATCH_PULLS=$(callee_total 'LeafWalk__next_batch')
-TOTAL_DESCENTS=$(callee_total 'bt_seek_at')
+TOTAL_DESCENTS=$(callee_total "$DESCENT_RE")
 
 for pair in "BATCH_DESCENTS:$BATCH_DESCENTS" "LAND_DESCENTS:$LAND_DESCENTS" \
             "ROW_DESCENTS:$ROW_DESCENTS" "ROW_STEPS:$ROW_STEPS" \

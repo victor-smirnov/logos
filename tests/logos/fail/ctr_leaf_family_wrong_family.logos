@@ -13,7 +13,7 @@
 // which is the identity the projection is supposed to preserve.
 //
 // (The refusal is at the CALL, not at the alias: the projection itself is not
-// obligation-checked today — see `fail/ctr_leaf_family_vector_refused` for that
+// obligation-checked today — see `fail/ctr_leaf_family_volume_refused` for that
 // measurement. What is checked, and what this pins, is that the two projections
 // are DISTINGUISHABLE.)
 package ctr_leaf_family_wrong_family;

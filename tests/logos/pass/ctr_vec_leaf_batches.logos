@@ -1,0 +1,341 @@
+// ADR 0025 S1b (§5) — THE EMITTED LEAF-BATCH PRODUCER FOR THE **VECTOR** ARM,
+// against the container's own PER-ROW cursor as the oracle.
+//
+// The twin of `pass/ctr_family_leaf_batches`, over the family whose leaf is a
+// SINGLE unordered FSE64 slot and whose row's first column is not stored at all
+// (the ordinal is implied by position). The oracle is independent of the batch
+// plane: `seek(0)` + `next(&cur)` is the row-at-a-time surface, and it descends
+// per leaf boundary only.
+//
+// What is measured, and why each clause is here rather than implied:
+//   * SAME ROWS, SAME ORDER — ordinal/value sums and a strict-monotone check on
+//     `pos`, over a container spanning >= 3 leaves (3000 elements, 4K leaves).
+//   * PER LEAF, NOT PER ROW — the number of `advance()` calls is the LEAF count.
+//     Pinned exactly (12 for this shape) as well as structurally (>= 3, and <
+//     rows): the exact number is the whole content of §5's claim, and a change
+//     of fanout or leaf layout that moves it must be RE-MEASURED here rather
+//     than absorbed by a tolerance.
+//   * THE NARROWED LANDINGS agree with the same bound applied to the cursor
+//     walk, and `SizedStream::size()` equals the rows they actually yield —
+//     including for `upto`, whose bound is trimmed INSIDE a leaf (code 21).
+//   * `pos_at` IS THE STORED-COLUMN'S ABSENCE, TESTED. Every ordinal read here
+//     comes off `pos_at`/`base_pos`, never off the oracle cursor, so a `p0`
+//     that did not travel with the window would red at code 3 and 30.
+//   * THE TRAVERSAL AXIS (§3), which the ordered arm has and this family owns
+//     NATIVELY: `prev` UN-CONSUMES (codes 23/24 — next/prev/next hands out the
+//     same batch, it does not skip), `prev` CLAMPS to a narrowed landing's base
+//     (code 27), and `seek_nth` repositions INSIDE the landing without moving
+//     `size()` (codes 25/26).
+//   * THE EMPTY CONTAINER — zero batches, zero rows, `size()` 0 (code 28). An
+//     empty landing is a legal stream, not an error.
+//   * A LEAF-BOUNDARY-EXACT LANDING (code 29): `from(first_leaf_len)` lands on
+//     row 0 of leaf 1, so its first window is a WHOLE leaf and its batch count
+//     is one less than the full scan's. The boundary is read off the scan
+//     rather than written down, so this clause does not re-pin the layout.
+//
+// FIRE-COUNTED, NOT ASSUMED (the `if(false)`-shaped-green failure mode): the two
+// branches this arm adds over a bare full scan were instrumented with a COUNTER
+// FIELD INSIDE the block (`ntrim`/`nclamp` on the emitted walk, read back
+// through temporary accessors by a probe), run, the counts recorded, then the
+// instrumentation removed and `container_item.logos` md5-verified back to
+// 05300ba81c89283fceee12c847081d21:
+//   * the ORDINAL TRIM in `advance()` (`rem < avail`) — 2 fires in this program:
+//     ONE for `upto(1300)` and ONE for `at(1300)`, each on its last batch.
+//     MEASURED ZERO for the full scan, for `from(1000)`, for `from(100)` and
+//     for `seek_key(1000)` on a full walk — an unbounded landing has nothing to
+//     trim, which is why the count is not "one per stream".
+//   * the RETREAT CLAMP in `retreat()` (`lstart < base`) — 1 fire, at code 27's
+//     narrowed `from(100)` landing walking back into its own first leaf.
+// CONTROL, both arms, measured by revert and restored md5-identical:
+//   * `hi = lo + rem` deleted (no ordinal trim) ⇒ this fixture reds at code 12;
+//   * `nlo = lstart` unclamped ⇒ this fixture reds at code 27.
+// So neither green is vacuous about the arm it is here for.
+package ctr_vec_leaf_batches;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+const N: u64 = 3000u64;
+// The MEASURED leaf count for this shape (3000 single-u64-column entries in 4K
+// leaf blocks), asserted below. It is the number the §5 claim is about: with the
+// per-row walk it would be 3000.
+const LEAVES: u64 = 12u64;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.append(i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the per-row cursor ──────────────────────────────────────
+    let mut rows_w: u64 = 0u64;
+    let mut psum_w: u64 = 0u64;
+    let mut vsum_w: u64 = 0u64;
+    let mut ord_w: bool = true;
+    {
+        let mut cu = c.seek(0u64);
+        let mut prev: u64 = 0u64;
+        while cu.valid() {
+            let p: u64 = cu.pos();
+            if rows_w > 0u64 && p <= prev { ord_w = false; }
+            prev = p;
+            psum_w = psum_w + p; vsum_w = vsum_w + cu.value(); rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+
+    // ── the leaf-batch stream, full scan ────────────────────────────────
+    let mut rows_b: u64 = 0u64;
+    let mut psum_b: u64 = 0u64;
+    let mut vsum_b: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    let mut ord_b: bool = true;
+    let mut empty_b: u64 = 0u64;
+    let mut sz: u64 = 0u64;
+    let mut leaf0: u64 = 0u64;      // the first leaf's row count, READ not written
+    {
+        let mut s = c.leaf_batches();
+        sz = s.size();
+        let mut prevb: u64 = 0u64;
+        loop {
+            if s.advance() {
+                {
+                    let b = s.batch(&c);   // the SOUND door: witness-checked, borrow-tied
+                    let n: u64 = b.len();
+                    if batches == 0u64 { leaf0 = n; }
+                    batches = batches + 1u64;
+                    if n == 0u64 { empty_b = empty_b + 1u64; }
+                    let vc: PdtCol = b.vals();          // resolve-once, per BATCH
+                    let mut j: u64 = 0u64;
+                    while j < n {
+                        let p: u64 = b.pos_at(j) as u64;   // the ordinal, off the BATCH
+                        if rows_b > 0u64 && p <= prevb { ord_b = false; }
+                        prevb = p;
+                        psum_b = psum_b + p; vsum_b = vsum_b + vc.at(j);
+                        rows_b = rows_b + 1u64; j = j + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+
+    // ── narrowed landings: from / upto / at ─────────────────────────────
+    let lo_p: u64 = 1000u64;     // an interior ordinal
+    let hi_p: u64 = 1300u64;     // an interior ordinal
+    let mut rows_from: u64 = 0u64;
+    let mut sz_from: u64 = 0u64;
+    let mut pmin_from: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_from(lo_p);
+        sz_from = s.size();
+        let mut first: bool = true;
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let n: u64 = b.len();
+                    if first { pmin_from = b.base_pos(); first = false; }
+                    rows_from = rows_from + n;
+                }
+            } else { break; }
+        }
+    }
+    let mut rows_upto: u64 = 0u64;
+    let mut sz_upto: u64 = 0u64;
+    let mut pmax_upto: u64 = 0u64;
+    let mut batches_upto: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_upto(hi_p);
+        sz_upto = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    batches_upto = batches_upto + 1u64;
+                    let n: u64 = b.len();
+                    let mut j: u64 = 0u64;
+                    while j < n { pmax_upto = b.pos_at(j) as u64; rows_upto = rows_upto + 1u64; j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+    let mut rows_at: u64 = 0u64;
+    let mut sz_at: u64 = 0u64;
+    let mut val_at: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_at(hi_p);
+        sz_at = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let n: u64 = b.len();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = 0u64;
+                    while j < n { val_at = vc.at(j); rows_at = rows_at + 1u64; j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+    // A position PAST THE END: the container holds N rows, so N + 5 is absent.
+    let mut rows_miss: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_at(N + 5u64);
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap(); rows_miss = rows_miss + b.len();
+                }
+            } else { break; }
+        }
+    }
+    // Landed::seek_key — RE-LAND a live stream by ordinal (for a positional
+    // family the `pos` column IS the key), then drain the suffix.
+    let mut rows_seek: u64 = 0u64;
+    let mut sz_seek: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        s.seek_key(lo_p as i64);
+        sz_seek = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap(); rows_seek = rows_seek + b.len();
+                }
+            } else { break; }
+        }
+    }
+
+    // ── the traversal axis: prev UN-CONSUMES ────────────────────────────
+    // next, next, prev, next — the third and fourth pulls must both hand out
+    // the SECOND batch: `prev` moves the pointer BEFORE the batch it returns.
+    let mut p_b2: u64 = 0u64; let mut n_b2: u64 = 0u64;
+    let mut p_pv: u64 = 0u64; let mut n_pv: u64 = 0u64;
+    let mut p_re: u64 = 0u64; let mut n_re: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        { let ob = s.next_batch(); if ob.is_some() { { let b = ob.unwrap(); let _n: u64 = b.len(); } } }
+        { let ob = s.next_batch(); if ob.is_some() { { let b = ob.unwrap(); p_b2 = b.base_pos(); n_b2 = b.len(); } } }
+        { let ob = s.prev_batch(); if ob.is_some() { { let b = ob.unwrap(); p_pv = b.base_pos(); n_pv = b.len(); } } }
+        { let ob = s.next_batch(); if ob.is_some() { { let b = ob.unwrap(); p_re = b.base_pos(); n_re = b.len(); } } }
+    }
+
+    // ── the traversal axis: seek_nth INSIDE the landing ─────────────────
+    // Ordinal 500 of a `from(1000)` landing is the container's row 1500, and
+    // `size()` is the LANDING's total — a reposition is not a re-landing.
+    let mut p_nth: u64 = 0u64;
+    let mut sz_nth: u64 = 0u64;
+    let mut rows_nth: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_from(lo_p);
+        s.seek_nth(500u64);
+        sz_nth = s.size();
+        let mut first: bool = true;
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    if first { p_nth = b.base_pos(); first = false; }
+                    rows_nth = rows_nth + b.len();
+                }
+            } else { break; }
+        }
+    }
+
+    // ── the traversal axis: prev CLAMPS to a narrowed landing's base ─────
+    // `from(100)` starts mid-leaf. Two forward pulls, then two backward ones:
+    // the first `prev` re-hands leaf 1, the second walks back INTO leaf 0 and
+    // must stop at ordinal 100 — not at the leaf's own row 0 — and the third
+    // must refuse.
+    let mut p_cl: u64 = 0u64; let mut n_cl: u64 = 0u64; let mut more_cl: bool = true;
+    {
+        let mut s = c.leaf_batches_from(100u64);
+        { let ob = s.next_batch(); if ob.is_some() { { let b = ob.unwrap(); let _n: u64 = b.len(); } } }
+        { let ob = s.next_batch(); if ob.is_some() { { let b = ob.unwrap(); let _n: u64 = b.len(); } } }
+        { let ob = s.prev_batch(); if ob.is_some() { { let b = ob.unwrap(); let _n: u64 = b.len(); } } }
+        { let ob = s.prev_batch(); if ob.is_some() { { let b = ob.unwrap(); p_cl = b.base_pos(); n_cl = b.len(); } } }
+        more_cl = s.retreat();
+    }
+
+    // ── the EMPTY container ─────────────────────────────────────────────
+    let mut rows_e: u64 = 0u64; let mut batches_e: u64 = 0u64; let mut sz_e: u64 = 0u64;
+    {
+        let mut e = create_ctr::<typeof(Vled)>(&snap, 2u64);
+        let mut s = e.leaf_batches();
+        sz_e = s.size();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                { let b = ob.unwrap(); batches_e = batches_e + 1u64; rows_e = rows_e + b.len(); }
+            } else { break; }
+        }
+    }
+
+    // ── a LEAF-BOUNDARY-EXACT landing ───────────────────────────────────
+    let mut rows_bd: u64 = 0u64; let mut batches_bd: u64 = 0u64; let mut n_bd0: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches_from(leaf0);
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    if batches_bd == 0u64 { n_bd0 = b.len(); }
+                    batches_bd = batches_bd + 1u64;
+                    rows_bd = rows_bd + b.len();
+                }
+            } else { break; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_b != rows_w { return 2i32; }
+    if psum_b != psum_w || vsum_b != vsum_w { return 3i32; }
+    if !ord_w || !ord_b { return 4i32; }
+    if sz != N { return 5i32; }
+    if batches < 3u64 { return 6i32; }              // >= 3 leaves spanned
+    if batches >= rows_b { return 7i32; }           // per LEAF, not per row
+    if batches != LEAVES { return 22i32; }          // …and per leaf EXACTLY
+    if empty_b != 0u64 { return 8i32; }             // a full scan yields no empty leaf here
+    if rows_from != N - lo_p { return 9i32; }       // ordinals 1000..2999
+    if sz_from != rows_from { return 10i32; }
+    if pmin_from != lo_p { return 11i32; }
+    if rows_upto != hi_p + 1u64 { return 12i32; }   // ordinals 0..1300 INCLUSIVE
+    if sz_upto != rows_upto { return 13i32; }
+    if pmax_upto != hi_p { return 14i32; }
+    if rows_at != 1u64 { return 15i32; }
+    if sz_at != 1u64 { return 16i32; }
+    if val_at != hi_p * 10u64 { return 17i32; }     // element 1300 → 13000
+    if rows_miss != 0u64 { return 18i32; }
+    if rows_seek != rows_from { return 19i32; }
+    if sz_seek != rows_from { return 20i32; }
+    if batches_upto < 2u64 { return 21i32; }        // the bound is trimmed INSIDE a leaf
+    if p_pv != p_b2 || n_pv != n_b2 { return 23i32; }   // prev UN-CONSUMES
+    if p_re != p_b2 || n_re != n_b2 { return 24i32; }   // …and next re-hands it
+    if sz_nth != rows_from { return 25i32; }        // seek_nth does NOT re-land
+    if p_nth != lo_p + 500u64 || rows_nth != rows_from - 500u64 { return 26i32; }
+    if p_cl != 100u64 || n_cl != leaf0 - 100u64 || more_cl { return 27i32; }
+    if rows_e != 0u64 || batches_e != 0u64 || sz_e != 0u64 { return 28i32; }
+    if rows_bd != N - leaf0 || batches_bd != LEAVES - 1u64 || n_bd0 == 0u64 { return 29i32; }
+    if psum_b != (N * (N - 1u64)) / 2u64 { return 30i32; }   // the ordinals are the batch's own
+    return 0i32;
+}

@@ -1,0 +1,48 @@
+// ADR 0025 S1b (§7 rung 1) — MUTATING THE **VECTOR** CONTAINER WHILE A LEAF
+// BATCH LIVES, through the SPLIT pull (`advance()` + `batch(&c)`).
+//
+// The twin of fail/ctr_family_mut_while_batch over the positional family. The
+// batch is a VIEW into the leaf's single FSE64 slot — zero copy — and
+// `insert_at`/`append` `tree_release` the tree the leaf hangs off, so an
+// admitted program here reads freed memory. Rung 1 says this is a BORROW-CHECK
+// error and never a counter: the batch is `#[borrow_carrying]`-tied to the
+// stream, the stream to `&C`, and the mutators take `&mut self`.
+//
+// IT IS A SEPARATE FIXTURE FROM THE ORDERED-MAP ONE, NOT A COPY. The two
+// families emit their own `{N}LeafBatch`/`{N}LeafWalk` from two different arms
+// of the emitter, with different fields (one `ColsBatch` here, a pair there)
+// and a different pull (`#nm::seek(ordinal)` here, `seek_key` there). A
+// `#[borrow_carrying]` attribute or a `&#nm` witness lost from ONE arm reds
+// nothing the other arm pins — the vector arm was in fact the arm with no
+// batch surface at all until S1b, so "the ordered pair covers it" was never
+// true and is exactly the assumption this file removes.
+//
+// The admit twin is pass/ctr_vec_batch_then_mut: the refusal message here is
+// byte-identical to what an over-refusing checker prints, so neither half
+// stands alone.
+package ctr_vec_mut_while_batch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    c.append(10u64);
+    let mut s = c.leaf_batches();
+    let ok: bool = s.advance();
+    let b = s.batch(&c);              // the batch borrows the leaf…
+    c.append(30u64);                  // …so THIS must be refused
+    return if ok { b.len() as i32 } else { 9i32 };
+}

@@ -19,7 +19,9 @@
 //
 // The plan (LOGOS_TRACE_PLAN=1), which is the other half of the point:
 //
-//   [plan] c -> __ctr_from_Hs49ae69e66f789915 [a range] on key
+//   [plan] c -> __ctr_bfrom_Hs49ae69e66f789915 [a range] on key   (it read
+//                `__ctr_from_` while the ordered arm's per-row producers
+//                existed — ADR 0025 S1 deleted them; only the NAME moved)
 //                (an operation exact for that comparison, but the filter
 //                 ranges over more than this source, so it stays)
 //   [plan] c -> stream        (streamed: the producer is an iterator and the

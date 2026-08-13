@@ -1,0 +1,69 @@
+// THE ADMIT TWIN of fail/ctr_vec_mut_while_batch.logos (ADR 0025 §7 rung 1, the
+// SPLIT pull, positional family): the same shape with the batch's — and the
+// stream's — scope CLOSED before the mutation. It must compile AND answer
+// correctly.
+//
+// "cannot borrow 'c' as mutable" is byte-identical to what an over-refusing
+// checker prints, and a checker that never ended the batch's borrow would red
+// the fail half with the same words while making the container unusable after
+// its first scan. Only this pair separates the two.
+//
+// The values are the second half of the point: the scan AFTER the mutation must
+// SEE the mutation (sum2 covers the appended element), so the batch plane is
+// reading the live tree and not a landing cached at construction. And the
+// ORDINALS come off `pos_at` — the column this family does not store — so a
+// window whose `p0` did not travel would red here too, not only in the big
+// oracle fixture.
+package ctr_vec_batch_then_mut;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    c.append(10u64);
+    c.append(20u64);
+
+    let mut sum: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        while s.advance() {
+            let b = s.batch(&c);
+            let vc: PdtCol = b.vals();
+            let n: u64 = b.len();
+            let mut j: u64 = 0u64;
+            while j < n { sum = sum + vc.at(j) + (b.pos_at(j) as u64); j = j + 1u64; }
+        }
+    }                                   // the batch's and the stream's borrows end HERE
+
+    c.append(35u64);                    // admitted: nothing is reading the tree
+
+    let mut sum2: u64 = 0u64;
+    {
+        let mut s2 = c.leaf_batches();
+        while s2.advance() {
+            let b = s2.batch(&c);
+            let vc: PdtCol = b.vals();
+            let n: u64 = b.len();
+            let mut j: u64 = 0u64;
+            while j < n { sum2 = sum2 + vc.at(j); j = j + 1u64; }
+        }
+    }
+
+    if sum  != 31u64 { return 1i32; }   // (10+0) + (20+1)
+    if sum2 != 65u64 { return 2i32; }   // 10+20+35 — the second scan SEES the append
+    return 0i32;
+}

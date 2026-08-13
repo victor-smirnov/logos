@@ -299,8 +299,8 @@ Landing constructors are unchanged in ROLE (the pushdown plane of ADR 0024 S6
 is untouched); what changes is what they return: a leaf-batch stream. ⚠ THE
 NAMES IN THIS PARAGRAPH ARE THE PRE-S1 ONES. As of S1 (2026-08-13) the
 declared landings are `__ctr_bat_/bfrom_/bupto_` and their per-row twins
-`__ctr_at_/from_/upto_` are DELETED — the role survived the rename, which is
-exactly the claim this paragraph makes. `next()` hands out the CURRENT leaf's window as a
+`__ctr_at_/from_/upto_` are DELETED (ordered_map at S1, positional at S1b) —
+the role survived the rename, which is exactly the claim this paragraph makes. `next()` hands out the CURRENT leaf's window as a
 `ColsBatch` (the `hi` bound trimmed inside the leaf via `lower_bound`), then
 descends for the next leaf. One descent per LEAF instead of a container method
 per row; n/fanout descents per scan — the asymptotics the CoW no-sibling-
@@ -419,8 +419,10 @@ LeafBatch…'`), so consumers take the `Option` by inference. (2) The projection
 NOT obligation-checked: `<typeof(Vec1) as CtrLeafFamily>::LeafWalk` for a family
 that does not implement the trait resolves to `<error>` and the compile continues
 (one variant then produced the unrelated `call to unsafe function 'take' requires
-unsafe context`). `fail/ctr_leaf_family_vector_refused` pins the refusal that DOES
-exist — the vector handle has no `leaf_batches` — and names the missing one.
+unsafe context`). `fail/ctr_leaf_family_volume_refused` pins the refusal that DOES
+exist — the volume handle has no `leaf_batches` — and names the missing one. (It
+was written over a VECTOR family at S1 and re-aimed at S1b, when the vector arm
+gained a producer of its own and the claim stopped being true of it.)
 
 `{N}LeafWalk` also gained the traversal pair here (§3): `Bidirectional::prev` via
 a `retreat` that mirrors `advance` (one descent, per leaf, clamped to the
@@ -608,18 +610,30 @@ off it (2026-08-13, S1).
   UNRELATED facts: the source-vs-scalar discriminator (`params.logos`'s
   `is_source`/`is_scalar`) and the incremental arm's "exactly one slice
   parameter" admission. What S2 deletes is the SHAPE reading; the bit survives.
-* **The per-row container-method walk IS DELETED FOR THE ORDERED_MAP ARM
-  (S1, 2026-08-13; scope corrected same day by the S1 audit)** — `{N}Walk`,
-  its `Iterator` impl and the four producers `__ctr_rows_/at_/from_/upto_`
-  are gone from the ordered_map arm of
-  `stdlib/lcm/canon/container_item.logos`; the family declares the leaf-batch
-  producers and both consumers of a batch producer emit §1's one shape.
-  ⚠ THE POSITIONAL/VECTOR ARM STILL EMITS THE PER-ROW FORM (measured on the
-  emitted artifact: `container_item_e2e`'s scan relocations name
-  `Hs…Walk__next` and `__ctr_rows_`) — S0 never built that family a
-  leaf-batch producer, so the emitter still carries THREE pull shapes, not
-  one. OPEN as S1b: the ordered_map recipe (producer + collapse + descent
-  oracle) applied to the positional family. The
+* **The per-row container-method walk IS DELETED FOR BOTH ARMS (ordered_map
+  S1, positional/vector S1b, both 2026-08-13)** — `{N}Walk`, its `Iterator`
+  impl and the four producers `__ctr_rows_/at_/from_/upto_` are gone from
+  `stdlib/lcm/canon/container_item.logos` entirely; each family declares its
+  leaf-batch producers and both consumers of a batch producer emit §1's one
+  shape. ⚠ SCOPE, corrected by the S1b audit the same day: FAMILY sources now
+  carry ONE pull shape (both arms) — but the EMITTER still carries three live
+  branches at each scan site (batch / per-row `.next()` / indexed slice), and
+  the two non-batch ones are exercised by the corpus. The per-row branch
+  serves HAND-WRITTEN Iterator sources (e.g. deem_source_size's StepsIter) —
+  collapsing those IS S2's `Drain`/`Buffer`, not a family question; the slice
+  branch is pinned byte-for-byte by logos_09_slice_scan_codegen until S2 takes
+  it deliberately. Family-arm evidence, measured on the emitted artifact: `container_item_e2e`'s vector scans now read
+  `Hs…LeafWalk = __ctr_brows_Hs…(v)` / `__ctr_bfrom_Hs…(v, 2i64)` with the
+  `next_batch()` outer pull and the row spelled `(pos_at(j), val_at(j))`, and
+  NO emitter change was needed for the collapse: `rel_batch` comes off the
+  natspec `b` flag, so naming a batch producer in `impl PositionalSource` is
+  the whole switch. S1b's producer differs from S1's exactly where the family
+  does — ONE `ColsBatch` (single FSE64 slot), no `{N}Leaf` type to adopt (the
+  leaf's row count reads through `NodeView::col(0).size()`), a purely ORDINAL
+  bound (no in-leaf `lower_bound`, nothing for a key bound to disagree with),
+  and a batch that carries `p0`, the absolute ordinal of its window's row 0,
+  because `pos` HAS NO CELL. `RandomAccess::seek_nth` is this family's NATIVE
+  operation rather than a derived one. The
   drain-vs-stream prelude split is NOT yet deleted — it is now a split over one
   PULL PROTOCOL (both legs pull batches), which is what makes `Drain` an
   adapter rather than a rewrite when S2 takes it.
@@ -770,7 +784,8 @@ scan shape; every other cell is declared, not silently absent.
   collapse itself is still open): `CtrLeafFamily` and its factory-emitted impl
   (§5), the `Bidirectional`/`RandomAccess` pair and the `Landed::seek` →
   `seek_key` rename (§3). Fixtures `pass/ctr_leaf_family_spelling`,
-  `pass/stream_traversal_buffer`, `fail/ctr_leaf_family_vector_refused`,
+  `pass/stream_traversal_buffer`, `fail/ctr_leaf_family_vector_refused` (re-aimed
+  at S1b as `fail/ctr_leaf_family_volume_refused`),
   `fail/ctr_leaf_family_wrong_family`; registry 7135→7139 predicted before the
   reconfigure and measured after; full build + L2 2110/2110 + the 212-test
   bc/ctr corpus green. Gates: slice-source codegen byte-comparable OR
@@ -809,9 +824,14 @@ scan shape; every other cell is declared, not silently absent.
     still pays one pull per LEAF. The row is spelled by ONE shared function,
     `params::batch_row_text`, keyed off the DECLARED column names
     (`<col>_at(i)`), so the emitter still knows no source type.
-  * **The per-row form is DELETED — ordered_map arm only (scope corrected by
-    the S1 audit; the positional arm is S1b)** — `{N}Walk`, its `Iterator`
-    impl, and `__ctr_rows_/at_/from_/upto_`. ⚠ The ledger sentence that
+  * **The per-row form is DELETED — BOTH arms (ordered_map at S1, positional
+    at S1b)** — `{N}Walk`, its `Iterator` impl, and
+    `__ctr_rows_/at_/from_/upto_`. The S1b half's ledger: the five positional
+    symbols were grepped tree-wide (build/ and .git/ excluded) BEFORE the cut,
+    and the one MACHINE reference — `tests/logos/ctr_access_path_gate.sh`'s
+    three vector clauses — was re-pinned WITH the cut in the same change rather
+    than found three steps later, which is what the S1 audit's refutation below
+    cost and what naming the gate in the ledger buys. ⚠ The ledger sentence that
     stood here ("referenced NOWHERE but at their own definition … no fixture
     and no gate named them") was REFUTED by this round's own audit: the
     access-path gate and fixtures did name them. The honest ledger: every

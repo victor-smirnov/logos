@@ -1,7 +1,8 @@
 // A source DECLARES its access operations (ADR 0024 S6).
 //
 // Until now a planner knew a family's operations by NAME CONVENTION
-// (`__ctr_at_` / `__ctr_from_` / `__ctr_upto_`) and their applicability by a
+// (`__ctr_at_` / `__ctr_from_` / `__ctr_upto_` — spellings both family arms have
+// since DELETED, see ADR 0025 S1/S1b) and their applicability by a
 // rule written for one container kind. A source offering a fourth shape had no
 // way to say so, and one offering two could not say that either — which is why
 // the positional family, whose `seek` is one descent, was scanned in full.

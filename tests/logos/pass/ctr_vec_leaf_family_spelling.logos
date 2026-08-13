@@ -1,0 +1,206 @@
+// ADR 0025 S1b — THE SPELLABILITY LAYER ON THE **VECTOR** FAMILY, and the
+// traversal axis (§3) whose bottom primitive this family owns NATIVELY.
+//
+// The admitting twin of fail/ctr_leaf_family_volume_refused, and the twin of
+// pass/ctr_leaf_family_spelling one arm over. Two things are measured:
+//
+// 1. A HAND-WRITTEN FN CAN NAME THE GENERATED BATCH TYPES OF A `kind vector`
+//    FAMILY. The bare hash spelling (`Hs…LeafWalk`) resolves in EMITTED code
+//    only; `CtrLeafFamily` is the door, and until S1b the vector arm was NOT a
+//    member of that trait — `fail/ctr_leaf_family_vector_refused` pinned exactly
+//    that, and this file is what replaced it when the capability became real.
+//    The `pub type` alias (rather than the projection written inline in the
+//    signature) is required for the round-order reason recorded in the ordered
+//    twin's header, unchanged here.
+//
+// 2. `RandomAccess::seek_nth` IS THE FAMILY'S NATIVE OPERATION. For an ordered
+//    map, positioning by ordinal is a capability derived from an entry-number
+//    seek; for a vector, `#nm::seek(ordinal)` is the ONLY descent the container
+//    has, so the ordinal axis is the container's own vocabulary. Asserted: the
+//    ordinal is counted from the STREAM'S landing (a `from` landing's ordinal 0
+//    is its own first row, codes 40-43), past-the-end exhausts rather than
+//    panicking (44), `size()` does not move under `seek_nth` (45), and `prev`
+//    un-consumes (54-57) and terminates at the landing (58-60).
+//
+// Values are OFFSET (`i*10 + 3`) so a zeroed or mis-resolved column cannot
+// satisfy an assertion by arithmetic accident, and the ordinal column — which
+// this family does not store — is read through `pos_at`/`base_pos` throughout.
+package ctr_vec_leaf_family_spelling;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+const N: u64 = 1000u64;
+
+// THE SPELLING UNDER TEST. Without these two lines nothing below can be written
+// at all.
+pub type VledWalk  = <typeof(Vled) as CtrLeafFamily>::LeafWalk;
+pub type VledBatch = <typeof(Vled) as CtrLeafFamily>::LeafBatch;
+
+/// TAKES the family walk and RETURNS a batch — the shape the whole layer exists
+/// for. Both types are named by projection; neither is inferable here.
+fn first_batch(s: &mut VledWalk) -> VledBatch {
+    return s.next_batch().unwrap();
+}
+
+/// The batch type in ARGUMENT position too, not only as a return.
+fn batch_vsum(b: &VledBatch) -> u64 {
+    let n: u64 = b.len();
+    let vc: PdtCol = b.vals();
+    let mut j: u64 = 0u64;
+    let mut acc: u64 = 0u64;
+    while j < n { acc = acc + vc.at(j); j = j + 1u64; }
+    return acc;
+}
+
+fn val_of(i: u64) -> u64 { return i * 10u64 + 3u64; }
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.append(val_of(i)); i = i + 1u64; }
+
+    // ── ORACLE: the container's own per-row cursor ──────────────────────
+    let mut rows_w: u64 = 0u64;
+    let mut vsum_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            vsum_w = vsum_w + cu.value();
+            rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+    if rows_w != N { return 10i32; }
+
+    // ── 1. the hand-written doors, over the full landing ────────────────
+    let mut rows_b: u64 = 0u64;
+    let mut vsum_b: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    {
+        let mut s: VledWalk = c.leaf_batches();
+        {
+            let b: VledBatch = first_batch(&mut s);
+            if b.len() == 0u64 { return 20i32; }
+            if b.pos_at(0u64) != 0i64 { return 21i32; }
+            if b.val_at(0u64) != val_of(0u64) { return 22i32; }
+            batches = batches + 1u64;
+            rows_b = rows_b + b.len();
+            vsum_b = vsum_b + batch_vsum(&b);
+        }
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b: VledBatch = ob.unwrap();
+                    batches = batches + 1u64;
+                    rows_b = rows_b + b.len();
+                    vsum_b = vsum_b + batch_vsum(&b);
+                }
+            } else { break; }
+        }
+    }
+    if rows_b != rows_w { return 30i32; }
+    if vsum_b != vsum_w { return 31i32; }
+    if batches >= rows_b { return 32i32; }    // per LEAF, not per row
+    if batches < 3u64   { return 33i32; }
+
+    // ── 2a. seek_nth over the FULL landing ──────────────────────────────
+    {
+        let mut s: VledWalk = c.leaf_batches();
+        let sz0: u64 = s.size();
+        s.seek_nth(500u64);
+        if s.size() != sz0 { return 45i32; }   // size is the LANDING's total
+        let b: VledBatch = first_batch(&mut s);
+        if b.pos_at(0u64) != 500i64 { return 40i32; }
+        if b.val_at(0u64) != val_of(500u64) { return 41i32; }
+    }
+
+    // ── 2b. the ordinal origin is the STREAM'S landing, not the container ──
+    {
+        let mut s: VledWalk = c.leaf_batches_from(500u64);
+        s.seek_nth(0u64);
+        let b: VledBatch = first_batch(&mut s);
+        if b.pos_at(0u64) != 500i64 { return 42i32; }
+    }
+    {
+        let mut s: VledWalk = c.leaf_batches_from(500u64);
+        s.seek_nth(7u64);
+        let b: VledBatch = first_batch(&mut s);
+        if b.pos_at(0u64) != 507i64 { return 43i32; }
+        if b.val_at(0u64) != val_of(507u64) { return 46i32; }
+    }
+
+    // ── 2c. seek_nth past the end EXHAUSTS (no panic, no batch) ─────────
+    {
+        let mut s: VledWalk = c.leaf_batches();
+        s.seek_nth(N + 1000u64);
+        let ob = s.next_batch();
+        if ob.is_some() { return 44i32; }
+    }
+
+    // ── 3. Bidirectional::prev — walking back re-covers the same rows ───
+    let mut rows_back: u64 = 0u64;
+    let mut vsum_back: u64 = 0u64;
+    let mut batches_back: u64 = 0u64;
+    {
+        let mut s: VledWalk = c.leaf_batches();
+        // EXHAUSTED THROUGH `advance`, not `next_batch`: the `Option` a loop last
+        // pulled is still a live borrow of `s` at the loop's exit (§5's reason
+        // for the split door).
+        while s.advance() { }
+        { loop {
+            let ob = s.prev();
+            if ob.is_some() {
+                {
+                    let b: VledBatch = ob.unwrap();
+                    batches_back = batches_back + 1u64;
+                    rows_back = rows_back + b.len();
+                    vsum_back = vsum_back + batch_vsum(&b);
+                }
+            } else { break; }
+        } }
+    }
+    if rows_back    != rows_b  { return 50i32; }
+    if vsum_back    != vsum_w  { return 51i32; }
+    if batches_back != batches { return 52i32; }
+
+    // `prev` UN-CONSUMES rather than skipping.
+    {
+        let mut s: VledWalk = c.leaf_batches();
+        let mut p0: i64 = 0i64;
+        { let b: VledBatch = first_batch(&mut s); p0 = b.pos_at(0u64); }
+        let mut p1: i64 = 0i64;
+        let mut n1: u64 = 0u64;
+        { let b: VledBatch = first_batch(&mut s); p1 = b.pos_at(0u64); n1 = b.len(); }
+        if p1 <= p0 { return 53i32; }
+        { let b: VledBatch = s.prev().unwrap();
+          if b.pos_at(0u64) != p1 { return 54i32; }
+          if b.len() != n1        { return 55i32; } }
+        { let b: VledBatch = first_batch(&mut s);
+          if b.pos_at(0u64) != p1 { return 56i32; }
+          if b.len() != n1        { return 57i32; } }
+        // Exactly TWO batches sit before the pointer here, so two backward pulls
+        // answer and the third does not. A `prev` that skipped instead of
+        // un-consuming would run out one pull early and red at 59.
+        { let ob = s.prev(); if !ob.is_some() { return 58i32; } }
+        { let ob = s.prev(); if !ob.is_some() { return 59i32; } }
+        { let ob = s.prev(); if ob.is_some()  { return 60i32; } }
+    }
+
+    return 0i32;
+}

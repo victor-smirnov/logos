@@ -1,0 +1,72 @@
+// ADR 0025 S1b — THE ABUSE DIRECTION OF THE SPELLABILITY LAYER.
+//
+// ⚠ THIS FILE REPLACES `fail/ctr_leaf_family_vector_refused`, AND WHY IT HAD TO
+// MOVE RATHER THAN BE WEAKENED OR DELETED. That fixture pinned the same abuse
+// direction on a `kind vector` family, whose emitter arm produced no leaf
+// batches. S1b GAVE the vector arm a leaf-batch producer, so its substantive
+// claim ("a vector family cannot be leaf-walked") became FALSE — the subject was
+// implemented, which is the one thing that retires a refusal. The abuse
+// direction itself did not retire, so it is re-aimed here at a family that still
+// genuinely produces no batches. The admitting side of the vector arm is
+// `pass/ctr_vec_leaf_family_spelling`.
+//
+// `CtrLeafFamily` is a SEPARATE trait from `CtrFamily` for one measured reason:
+// `impl CtrFamily` is emitted for ordered_map, multimap AND vector families,
+// while `{N}LeafBatch`/`{N}LeafWalk` come out of the FSE ordered_map arm and the
+// vector arm ONLY. The VOLUME arm — an ordered_map whose value is `str`, i.e.
+// VLE storage — emits neither, because a volume family's value is a `&[u8]` and
+// projects as a `str` rel column: a second batch shape, not a harder one, and
+// not this slice's. Putting the two assoc types on `CtrFamily` was MEASURED and
+// it breaks such a family's OWN emission — `error [impl CtrFamily for
+// CtrClass$G1$hs_…]: unknown type 'Hs…LeafBatch'`.
+//
+// So the capability is a membership (ADR §3: existence = trait membership), and
+// THIS is the direction that has to be checked: a family that produces no leaf
+// batches must not end up with a leaf walk.
+//
+// ⚠ WHERE THE REFUSAL ACTUALLY LANDS, MEASURED, AND THE HOLE THAT LEAVES.
+// The refusal below is at the METHOD (`'Hs…' has no method 'leaf_batches'`),
+// NOT at the projection. The projection `<typeof(Vol1) as CtrLeafFamily>::LeafWalk`
+// is NOT refused for an unsatisfied obligation — it resolves to `<error>` and the
+// compile continues (`mlir_gen: unresolved AssocType '<error>::CtrLeafFamily::
+// LeafWalk' — mono_pass required`). So the type-level obligation on an assoc-type
+// projection is UNCHECKED today; this test pins the refusal that exists, and the
+// missing one is recorded here rather than left as an assumption. What the test
+// does hold is the substantive claim — a volume family cannot be leaf-walked —
+// which is the ground for splitting the trait in the first place.
+//
+// THE OTHER DIRECTION OF THAT SPLIT IS ALREADY IN THE CORPUS TWICE:
+// `pass/ctr_leaf_family_spelling` (FSE ordered_map) and
+// `pass/ctr_vec_leaf_family_spelling` (vector) both project the same two assoc
+// types and answer. Neither half alone separates "refuses the right thing" from
+// "refuses everything". And `pass/metaclass_str_generic` builds a volume family
+// through the factory and must keep compiling, so the arrangement VERDICT 4
+// measured as broken — the two assoc types on `CtrFamily` itself — reds a LIVE
+// test, not only a probe.
+package ctr_leaf_family_volume_refused;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.pkd;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.lang.writ.wstatic;
+
+pub container Vol1 {
+    kind ordered_map;
+    entry { key: u64, val: str }
+    measure max(key);
+}
+
+// A volume family has no leaf-batch producer, so it is not a `CtrLeafFamily`.
+pub type VolWalk = <typeof(Vol1) as CtrLeafFamily>::LeafWalk;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vol1)>(&snap, 1u64);
+    let mut s: VolWalk = c.leaf_batches();
+    return 0i32;
+}

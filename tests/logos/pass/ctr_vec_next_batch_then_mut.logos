@@ -1,0 +1,79 @@
+// THE ADMIT TWIN of fail/ctr_vec_mut_while_next_batch.logos (ADR 0025 §7 rung
+// 1, pulled through §1's pinned `next_batch()` signature, positional family):
+// the same shape with the batch's — and the stream's — scope CLOSED before the
+// mutation. It must compile AND answer correctly.
+//
+// "cannot borrow 'c' as mutable" is byte-identical to what an OVER-refusing
+// checker prints. A checker that carried the loan into the `Option` and then
+// never released it would red THIS half with those same words while making the
+// container unusable after its first scan, and the fail half would look just as
+// green. Only the pair separates a closed hole from a dead container.
+//
+// The rows come out through the `Option` door specifically — `next_batch()` +
+// `unwrap()`, the two by-value hops that used to launder the borrow — so this
+// twin also proves the door did not lose its results, on the arm whose walk is
+// built by a different branch of the emitter than the ordered one's.
+package ctr_vec_next_batch_then_mut;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;     // PdtCol
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    c.append(10u64);
+    c.append(20u64);
+
+    let mut sum: u64 = 0u64;
+    {
+        let mut s = c.leaf_batches();
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let vc: PdtCol = b.vals();
+                    let n: u64 = b.len();
+                    let mut j: u64 = 0u64;
+                    while j < n { sum = sum + vc.at(j); j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }                                   // the batch's and the stream's borrows end HERE
+
+    c.append(35u64);                    // admitted: nothing is reading the tree
+
+    let mut sum2: u64 = 0u64;
+    {
+        let mut s2 = c.leaf_batches();
+        loop {
+            let ob = s2.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let vc: PdtCol = b.vals();
+                    let n: u64 = b.len();
+                    let mut j: u64 = 0u64;
+                    while j < n { sum2 = sum2 + vc.at(j); j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+
+    if sum  != 30u64 { return 1i32; }   // 10+20
+    if sum2 != 65u64 { return 2i32; }   // 10+20+35 — the second scan SEES the append
+    return 0i32;
+}

@@ -48,7 +48,7 @@
 #   THE EMITTED CALL     the `--gen-dir` dump. It says what will actually RUN. A
 #                        plan that recorded a narrowing while the emitter called
 #                        the full-scan producer (`__ctr_brows_` for the ordered-map
-#                        family, `__ctr_rows_` for the positional one) would pass
+#                        family, `__ctr_brows_` for the positional one since S1b) would pass
 #                        the first half; the absence of
 #                        the full-scan producer for that rel is asserted too, and
 #                        the bound LITERAL is asserted with it, because "narrowed"
@@ -214,14 +214,14 @@ want_emit hashmap '2i64' 1 \
 # covers, so both halves are measured over ONE container.
 compile vector "$VECTOR_FIXTURE"
 want_plan vector \
-    '^\[plan\] v -> __ctr_from_[A-Za-z0-9_]+ \[a range\] on pos   \(an operation EXACT for that comparison' \
+    '^\[plan\] v -> __ctr_bfrom_[A-Za-z0-9_]+ \[a range\] on pos   \(an operation EXACT for that comparison' \
     "the position range did not reach the container as a range access"
 want_plan vector \
     '^\[plan\] v -> scan \[every row\]   \(the source declares no operation covering that comparison on that column\)' \
     "the element filter, which no operation covers, was not recorded as a declared scan"
-want_emit vector '= __ctr_from_[A-Za-z0-9_]+\(v, 2i64\);' 1 \
+want_emit vector '= __ctr_bfrom_[A-Za-z0-9_]+\(v, 2i64\);' 1 \
     "the emitted fn does not land the positional walk on the declared bound"
-want_emit vector '= __ctr_rows_[A-Za-z0-9_]+\(v\);' 1 \
+want_emit vector '= __ctr_brows_[A-Za-z0-9_]+\(v\);' 1 \
     "the full-scan producer is called for a number of rels other than the one that declared no covering operation"
 # The other direction: a scan KEEPS the filter it could not push down. A plan
 # that dropped it would be unsound, and this is the cheap place to see it.

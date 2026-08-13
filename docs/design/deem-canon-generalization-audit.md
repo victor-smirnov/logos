@@ -35,6 +35,15 @@ item in this list. Everything below either feeds it or is blocked by it.
 
 ## 2. The POSITIONAL family has no narrowing producers at all — CLOSED (S6)
 
+⚠ THIS SECTION IS DATED — IT DESCRIBES THE TREE BEFORE ADR 0025. Both family
+arms have since replaced their per-row producers with LEAF-BATCH ones
+(`__ctr_brows_` / `__ctr_bat_` / `__ctr_bfrom_` / `__ctr_bupto_`): ordered_map at
+S1, positional/vector at S1b, both 2026-08-13, and the per-row spellings named
+below no longer exist anywhere. The vector family also gained the three
+narrowing producers it is said below not to have. The audit's ARGUMENT is
+unaffected — it is about name conventions vs declared operations — so the text
+stands as written history rather than being rewritten into agreement.
+
 The ordered-map family publishes `__ctr_rows_` / `__ctr_at_` / `__ctr_from_` /
 `__ctr_upto_`. The vector family publishes `__ctr_rows_` and nothing else, so
 `from s r where r.pos > 100` scans the whole container — even though `seek` is

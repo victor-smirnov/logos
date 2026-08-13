@@ -93,7 +93,10 @@ pub trait CtrFamily {
 /// family that produces leaf batches implements this; one that does not, does not, and
 /// the projection is refused at the call site instead of breaking the family's own
 /// emission. Pinned in BOTH directions (`pass/ctr_leaf_family_spelling` admits for
-/// ordered_map, `fail/ctr_leaf_family_vector_refused` refuses for vector).
+/// ordered_map and `pass/ctr_vec_leaf_family_spelling` for vector,
+/// `fail/ctr_leaf_family_volume_refused` refuses for the VOLUME arm — S1b gave
+/// the vector arm a producer, so the refusal moved to a family that still has
+/// none rather than being dropped).
 ///
 /// NO BOUND IS DECLARED ON `LeafWalk` (`type LeafWalk: BatchStream<Self::LeafBatch>`
 /// would state §1's protocol at the trait, and it does compile). It is left off ON

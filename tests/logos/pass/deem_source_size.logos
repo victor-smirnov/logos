@@ -31,7 +31,8 @@
 //
 // EMITTED, from_five — one call, before the first row:
 //   let __sz_m: u64 = __ctr_size_Hs…(m);
-//   let mut __rel_m: Hs…Walk = __ctr_from_Hs…(m, 5u64);
+//   let mut __rel_m: Hs…LeafWalk = __ctr_bfrom_Hs…(m, 5u64);   (S1 names; it
+//   read `Hs…Walk = __ctr_from_Hs…` while the per-row producers existed)
 //
 // ORACLE for the RUN: the rows. The size call must not disturb the query it
 // measures — the container is borrowed for a root read, and a walk landed after

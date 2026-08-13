@@ -1,0 +1,42 @@
+// ADR 0025 S1b (§7 rung 1) — MUTATING THE **VECTOR** CONTAINER WHILE A BATCH
+// PULLED THROUGH §1's PINNED SIGNATURE (`next_batch()` / `BatchStream::next`)
+// LIVES.
+//
+// The twin of fail/ctr_family_mut_while_next_batch over the positional family,
+// and the other laundering ROUTE: this one goes through `Option` composition
+// and `unwrap` (the two by-value hops that were compiler defect D1) rather than
+// through a `&self` method plus a witness argument. Both doors must be pinned
+// per family — a checker can lose one without the other, and the two arms of
+// the emitter build their walks independently.
+//
+// The admit twin is pass/ctr_vec_next_batch_then_mut: this refusal message is
+// byte-identical to what an over-refusing checker prints (one that carried the
+// loan into the `Option` and never released it would red the twin with the same
+// words while making the container unusable after its first scan), so neither
+// half stands alone.
+package ctr_vec_mut_while_next_batch;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    c.append(10u64);
+    let mut s = c.leaf_batches();
+    let b = s.next_batch().unwrap();    // batch out of the Option — two by-value hops
+    c.append(20u64);                    // …and THIS must be refused
+    if b.len() > 0u64 { return 0i32; }
+    return 1i32;
+}

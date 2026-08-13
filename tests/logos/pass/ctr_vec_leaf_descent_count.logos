@@ -1,0 +1,125 @@
+// ADR 0025 §5 — THE ASYMPTOTICS AS AN ASSERTION, ON THE **VECTOR** ARM.
+//
+// The twin of `pass/ctr_leaf_descent_count` over the positional family, and it
+// is not a formality: S1b deleted that family's per-row walk on §5's argument,
+// and every fixture that survived the deletion asserts the ANSWER of a scan. A
+// batch stream that re-descended per row returns the same rows in the same
+// order, so the claim the deletion rests on was pinned by nothing on this arm.
+// The ordered arm's gate says nothing about it — the two producers are built by
+// two branches of the emitter, over two different leaf layouts, and the vector
+// one lands through `btvec_seek` rather than `bt_seek_at`, an edge the ordered
+// gate does not and cannot count.
+//
+// THIS FILE IS THE SUBJECT, NOT THE WHOLE GATE. Its own exit code pins what a
+// program can see from inside: the rows, the order, the sums and the batch count
+// against the container's own per-row cursor. The COST is measured from outside
+// by `tests/logos/ctr_leaf_descent_gate.sh`, which runs this same binary under
+// callgrind and counts calls — `btvec_seek` (the root-to-leaf descent) attributed
+// to its CALLER, so the batch plane's descents and the row cursor's are separated
+// rather than summed. That is why this program is deliberately MINIMAL: exactly
+// one full row walk and exactly one full batch scan, no landings, no second
+// stream, so every counted call has exactly one possible origin.
+//
+// The oracle is independent of the batch plane in both halves: `seek(0)` +
+// `next(&cur)` is the container's own row surface, and it also yields the leaf
+// count independently — a row cursor crosses a leaf boundary by descending again
+// (`btvec_cur_next` re-seeks; a CoW tree has no sibling pointer), so the number
+// of descents INSIDE the row walk is the container's leaf count, measured
+// without asking the batch plane anything. The gate compares the two.
+//
+// CONTROL, MEASURED, NOT ASSUMED (2026-08-13): a second `cp.seek(self.at)` added
+// inside this family's `advance()` — which changes NO answer, so this fixture's
+// own exit code stays 0 and the whole ctr corpus stays green — reds the gate at
+// `leaves(batch)=24` for 12 leaves (`total_descents=38`), while the independent
+// row-oracle leaf count stays 12. Restored, rebuilt, re-run green. So the gate's
+// green is not vacuous about the number it exists to pin, and this fixture's
+// green is confirmed to be blind to it — which is exactly why the gate exists.
+package ctr_vec_leaf_descent_count;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+// 3000 entries of ONE u64 column in 4K leaf blocks = 12 leaves, MEASURED (the
+// same shape `pass/ctr_vec_leaf_batches` pins). >= 3 is what §5 needs to be
+// about anything; the exact 12 is what makes "per leaf, not per row" a number.
+const N: u64 = 3000u64;
+const LEAVES: u64 = 12u64;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vled)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.append(i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the container's own per-row cursor, ONE full walk ───────
+    let mut rows_w: u64 = 0u64;
+    let mut psum_w: u64 = 0u64;
+    let mut vsum_w: u64 = 0u64;
+    let mut ord_w: bool = true;
+    {
+        let mut cu = c.seek(0u64);
+        let mut prev: u64 = 0u64;
+        while cu.valid() {
+            let p: u64 = cu.pos();
+            if rows_w > 0u64 && p <= prev { ord_w = false; }
+            prev = p;
+            psum_w = psum_w + p; vsum_w = vsum_w + cu.value(); rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+
+    // ── THE LEAF-BATCH STREAM, ONE full scan, in §1's shape ─────────────
+    // `next_batch()` outside, the index loop inside — the same two lines the
+    // emitter writes, so what the gate measures below is the emitted shape's
+    // cost and not a second hand-written route to it.
+    let mut rows_b: u64 = 0u64;
+    let mut psum_b: u64 = 0u64;
+    let mut vsum_b: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    let mut ord_b: bool = true;
+    {
+        let mut s = c.leaf_batches();
+        let mut prevb: u64 = 0u64;
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    batches = batches + 1u64;
+                    let n: u64 = b.len();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = 0u64;
+                    while j < n {
+                        let p: u64 = b.pos_at(j) as u64;
+                        if rows_b > 0u64 && p <= prevb { ord_b = false; }
+                        prevb = p;
+                        psum_b = psum_b + p; vsum_b = vsum_b + vc.at(j);
+                        rows_b = rows_b + 1u64; j = j + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_b != rows_w { return 2i32; }
+    if psum_b != psum_w || vsum_b != vsum_w { return 3i32; }
+    if !ord_w || !ord_b { return 4i32; }
+    if batches < 3u64 { return 5i32; }        // >= 3 leaves, or §5 is about nothing
+    if batches >= rows_b { return 6i32; }     // per LEAF, not per row
+    if batches != LEAVES { return 7i32; }     // …and per leaf EXACTLY
+    return 0i32;
+}

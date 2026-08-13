@@ -1874,7 +1874,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                        own per-row cursor)
 #   pass/stream_traversal_buffer         the same axis on the degenerate stream
 #   fail/ctr_leaf_family_vector_refused  the abuse direction: a vector family
-#                                        has no leaf walk
+#                                        has no leaf walk. ⚠ RE-AIMED AT S1b as
+#                                        fail/ctr_leaf_family_volume_refused —
+#                                        the vector arm GAINED a leaf-batch
+#                                        producer, so the claim stopped being
+#                                        true of it and the abuse direction moved
+#                                        to the VOLUME arm rather than being
+#                                        weakened away
 #   fail/ctr_leaf_family_wrong_family    the alias is LOAD-BEARING — two
 #                                        families, distinct hashes in the
 #                                        message
@@ -1967,14 +1973,98 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # in particular had gone VACUOUS the moment `__ctr_rows_` stopped existing — a
 # permissive defect that can never fire again. The POSITIONAL family still emits
 # `__ctr_from_`/`__ctr_rows_` and its clauses are untouched, so the two families
-# are now told apart by name where one spelling used to cover both. All 42
+# are now told apart by name where one spelling used to cover both. ⚠ THAT LAST
+# SENTENCE EXPIRED AT S1b, THE SAME WEEK: the positional arm got its own
+# leaf-batch producers and its per-row ones were deleted too, so the vector
+# clauses moved to `__ctr_bfrom_`/`__ctr_brows_` as well — WITH the cut this time,
+# in one step, which is what naming the gate in a deletion's ledger is for. All 42
 # `logos_09_*` artifact gates re-run after the fix: 42/42.
 # Both gates are `tier_full`, following `logos_09_ctr_access_path`: they compile a
 # fixture (and one of them links and runs it under valgrind), which is per-commit
 # weight the lint tier does not carry. tier_commit therefore does not move.
 # PREDICTED 7144/3461/32 before the reconfigure and measured identical after.
-REGISTRY-ALL         7144
-REGISTRY-NOIMPORTED  3461
+#
+# ADR 0025 S1b, THE VECTOR ARM'S LEAF-BATCH PRODUCER (+7 files, -1 file, +0
+# tier_commit). PREDICTED 7150/3467/32 (+6/+6/0 off 7144/3461/32), stated BEFORE
+# the reconfigure and then measured three ways. The count is NET and every file
+# in it is named, because a count nobody can decompose is a number and not a
+# prediction:
+#   pass/ctr_vec_leaf_batches            the §5 oracle on the POSITIONAL family:
+#                                        rows/order/sums against the container's
+#                                        own per-row cursor, leaves == descents
+#                                        (12, pinned exactly), the three narrowed
+#                                        landings with an honest size(), the
+#                                        traversal axis, the EMPTY container and
+#                                        a leaf-boundary-exact landing
+#   pass/ctr_vec_leaf_family_spelling    the CtrLeafFamily projection on a `kind
+#                                        vector` family — the admitting twin the
+#                                        vector arm did not have before
+#   pass/ctr_vec_batch_then_mut          admit twin, SPLIT pull door
+#   pass/ctr_vec_next_batch_then_mut     admit twin, `next_batch()` Option door
+#   fail/ctr_vec_mut_while_batch         refuse half, SPLIT pull door
+#   fail/ctr_vec_mut_while_next_batch    refuse half, Option door
+#   fail/ctr_leaf_family_volume_refused  the abuse direction, RE-AIMED (below)
+#   -fail/ctr_leaf_family_vector_refused REMOVED — and this is the only removal
+#                                        in this ledger that is not a weakening,
+#                                        so it is priced here rather than
+#                                        narrated: the fixture's substantive
+#                                        claim was "a vector family cannot be
+#                                        leaf-walked", S1b IMPLEMENTED the vector
+#                                        arm's producer, and an implemented
+#                                        subject is the one thing that retires a
+#                                        refusal. The abuse DIRECTION did not
+#                                        retire with it — it moved, verbatim, to
+#                                        the VOLUME (str-valued ordered_map) arm,
+#                                        which still emits no leaf batches, and
+#                                        the moved file carries the history in
+#                                        its header. Net registry effect of the
+#                                        swap: zero.
+# The four `ctr_vec_*` refuse/admit fixtures are PAIRS on purpose: the two arms
+# of the emitter build their walks independently, so a `#[borrow_carrying]` or a
+# `&#nm` witness lost from the vector arm reds nothing the ordered pairs pin.
+# The two new branches the positional `advance`/`retreat` carry (the ORDINAL trim
+# `rem < avail`, the RETREAT clamp `lstart < base`) were FIRE-COUNTED inside the
+# block with a temporary counter field (2 fires and 1 fire respectively, with the
+# zero cases named), the instrumentation removed and container_item.logos
+# md5-verified back, and each arm then held by a CONTROL REVERT run one at a time
+# with a green checkpoint between: no-trim reds pass/ctr_vec_leaf_batches at code
+# 12, no-clamp at code 27, and the restored tree is green.
+#
+# ADR 0025 S1b, THE COLLAPSE + THE DESCENT ORACLE (+2 files, +0 tier_commit).
+# PREDICTED 7152/3469/32 (+2/+2/0 off 7150/3467/32), stated BEFORE the
+# reconfigure and measured three ways. Decomposed:
+#   pass/ctr_vec_leaf_descent_count      the descent-gate SUBJECT for the vector
+#                                        arm — one row walk, one batch scan, no
+#                                        landings, so every counted call has one
+#                                        possible origin
+#   logos_09_ctr_vec_leaf_descent        GATE 3, tier_full. The SAME
+#                                        `ctr_leaf_descent_gate.sh` over the
+#                                        positional family, which descends
+#                                        through `btvec_seek` rather than
+#                                        `bt_seek_at`. The gate grew two REQUIRED
+#                                        arguments for those two primitive names
+#                                        rather than a default: an absent edge
+#                                        already exits 2, but a default that
+#                                        matched the WRONG primitive would exit 0
+#                                        having counted some other code path's
+#                                        calls — the exemption checked in the
+#                                        abuse direction.
+#                                        MEASURED: 3000 rows scanned in 12
+#                                        descents over 12 leaves, batch pulls 13
+#                                        = leaves+1, TOTAL descents 26 = 2*12+2,
+#                                        fully accounted; the row oracle's own
+#                                        boundary crossings independently say 12.
+#                                        CONTROL: a second `cp.seek(self.at)` in
+#                                        the vector family's `advance()` — which
+#                                        changes NO answer, so the fixture and the
+#                                        ctr corpus stay green — reds this gate at
+#                                        24 descents for 12 leaves. Restored
+#                                        md5-identical, rebuilt, re-run green.
+# tier_commit does not move: like `logos_09_ctr_leaf_descent`, this gate compiles,
+# links and runs a fixture under valgrind, which is per-commit weight the lint
+# tier does not carry.
+REGISTRY-ALL         7152
+REGISTRY-NOIMPORTED  3469
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

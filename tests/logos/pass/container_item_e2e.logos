@@ -56,7 +56,9 @@ pub deem big<V>(v: Vector<V>) {
 
 // The SAME family, filtered on the ORDINAL instead of the element. `pos` is a
 // declared column of the positional hub rel and the family declares
-// `op row.pos ge = __ctr_from_…  exact`, so this one lands by `seek` and the
+// `op row.pos ge = __ctr_bfrom_…  exact` (the LEAF-BATCH producer since ADR
+// 0025 S1b; it was the per-row `__ctr_from_…` before, and the DECLARATION is
+// what moved, not the narrowing), so this one lands by `seek` and the
 // filter is retired — while `big` above, filtering on a column no operation
 // covers, is a DECLARED scan. Two queries, one container, and the difference is
 // visible only in the plan and the emitted call: both return the right rows.
