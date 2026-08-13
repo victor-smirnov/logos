@@ -130,6 +130,24 @@ pub struct MacroParams {
     /// than once must still be drained, so the offer is not the decision).
     pub rel_iter:    [bool; 8],
     pub rel_stream:  [bool; 8],
+    /// ADR 0025 §4 / S2b — THE PRELUDE'S MATERIALIZATION NODE for this rel, as
+    /// the plan decided it: `MAT_DRAIN`/`MAT_SORT` when a buffer is built before
+    /// the walk, `AD_NONE` when the rows stream, `AD_BUFFER` when the producer
+    /// handed back a container and nothing is built.
+    ///
+    /// ⚠ THIS IS WHAT THE PRELUDE EMITTER READS — not `rel_stream`/`rel_iter`.
+    /// The two booleans stay, and stay DIFFERENT things (the S1 gate's
+    /// correction: `rel_iter` is the SOURCE'S OFFER, `rel_stream` the PLAN'S
+    /// DECISION, and "a rel scanned twice must still be drained" is exactly the
+    /// gap between them) — but a SHAPE is no longer read off them. The shape is
+    /// a node the plan wrote down, with a ground and a sentence that `explain()`
+    /// prints; before this field, the emitted `Vec` and its drain loop were a
+    /// consequence of a boolean and the justification hung off the boolean.
+    ///
+    /// Written by `plan_apply_access` from `AccessPlan::prelude_node`, so the
+    /// text that is emitted and the node that is explained cannot disagree:
+    /// they are one lookup.
+    pub rel_node:    [i32; 8],
     /// ADR 0025 §1 — the PULL UNIT of this rel's producer is a BATCH, not a
     /// row: the consumer pulls with `next_batch()` and runs the inner index
     /// loop over the batch. Set from the natspec's `b` flag, which the
@@ -248,6 +266,10 @@ pub fn macro_params_new() -> MacroParams {
         rel_native:  [false; 8],
         rel_iter:    [false; 8],
         rel_stream:  [false; 8],
+        // AD_NONE: a params record nobody planned over builds nothing. The
+        // spelled literal (not `AD_NONE()`) keeps `params.logos` free of a
+        // dependency on `access_plan.logos`, whose plan reads THIS.
+        rel_node:    [-1i32; 8],
         rel_batch:   [false; 8],
         rel_itty:    [""; 8],
         rel_ssrc:    [""; 8],

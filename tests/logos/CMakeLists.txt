@@ -1774,6 +1774,88 @@ set_tests_properties(logos_09_ctr_access_path PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
+#
+# `Drain`/`Sort`/`Arrange` with grounds, and `explain()` naming every one of them
+# — including the two ways of building NOTHING, which are said rather than
+# omitted. The property is a COMPARISON, not a re-reading of the plan: the node
+# counts are held against the prelude buffers and keyed indexes in the
+# `--gen-dir` artifact, so a layer that over-reports invents a materialization
+# and one that under-reports is the silence S2 exists to close.
+#
+# ⚠ THE FACT NO EXISTING TEST COULD SEE: a hash join's build side is read ONCE
+# (`stream=true`) and materialized anyway. Every fixture over those paths asserts
+# the ANSWER, which is identical whether the build side is a map, a sorted vector
+# or a rescan.
+#
+# PROVED TO BITE, TWICE, WHERE THE THING LIVES, restored to a byte-empty diff with
+# a green checkpoint between: (1) recording the arrangement inside the once
+# cascade instead of off the STRATEGY — the shape a per-rel flag forces — reds 3
+# assertions, the artifact comparison among them (1 arrange node against 3 emitted
+# indexes); (2) silencing the absence line reds 5, including the per-plan
+# "materialize with no node" scan.
+add_test(
+    NAME logos_09_plan_nodes
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plan_nodes_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_join_step_reread.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_batch_scan_drain.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_hashmap_source.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/deem_cross_domain_join.logos
+)
+set_tests_properties(logos_09_plan_nodes PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 S2 — THE REFUSAL CENSUS, RE-DERIVED BY MACHINE (§4's gate, both halves).
+#
+# `logos_09_plan_nodes` reads FOUR plans. This one reads EVERY plan the corpus
+# compiles (175 `wql_*`/`deem_*` fixtures, `--gen-dir` + `LOGOS_TRACE_PLAN=1`,
+# $(nproc) at a time, ~45 s) and asserts what four fixtures cannot see:
+#
+#   * NO SILENCE ANYWHERE — every rel that reports `materialize` names a node or
+#     the "already a buffer" ground, on all 175 plans, not on the four chosen
+#     ones;
+#   * THE VOCABULARY IS COVERED OR THE DEBT IS DECLARED — every justification
+#     sentence in `why::wg_words`/`rj_words`/`sz_*_words` and every
+#     `access_plan::MG_*` ground, EXTRACTED FROM THE SOURCE rather than copied,
+#     is either witnessed by a corpus query or listed in the gate's UNWITNESSED
+#     pin. Checked in BOTH directions: a pinned-unwitnessed ground the corpus
+#     reaches is red too. The 15 unwitnessed grounds ARE S2's remaining debt —
+#     `MG_REL_BLOCK`/`MG_UNDECIDED`/`MG_GPATH`/`MG_UNPROVEN` are why
+#     `plan_mark_single_pass` cannot be deleted yet;
+#   * THE ARRANGE DEFICIT IS A NUMBER — 31 Arrange nodes against 491 hash-join
+#     decisions and 594 emitted index bindings. The node layer covers the
+#     top-level chain; a derived rel's own chain and the second carried nest of
+#     one chain do not have nodes yet. Pinned, so the unnamed remainder cannot
+#     grow quietly.
+#
+# ⚠ LIKE CENSUS FACT 5, the exact totals red whenever the corpus grows — a
+# census measured against a stale corpus is worth nothing, and the message
+# prints every number.
+#
+# PROVED TO BITE, BOTH DIRECTIONS, ONE AT A TIME, WITH A GREEN CHECKPOINT AND A
+# BYTE-RESTORED SOURCE BETWEEN THEM: (1) silencing the container absence line in
+# `access_plan_explain` → 22 reds, 187 silent materializations and `MG_CONTAINER`
+# unwitnessed; (2) pushing every prelude node TWICE → 6 reds, five per-fixture
+# artifact comparisons (6 nodes vs 3 `__it_` bindings on `deem_batch_scan_drain`)
+# plus the total.
+add_test(
+    NAME logos_09_plan_ground_census
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plan_ground_census_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+            ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/why.logos
+            ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/access_plan.logos
+)
+set_tests_properties(logos_09_plan_ground_census PROPERTIES
+    TIMEOUT 900
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S1 GATE 1 — SLICE-SOURCE CODEGEN, BYTE-COMPARABLE.
 #
 # ⚠ THIS GATE EXISTS BECAUSE S1 COULD NOT RUN IT. S1 collapsed the emitter's

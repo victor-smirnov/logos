@@ -1539,6 +1539,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
+        access_plan_plan_nodes(&mut pick_ap);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
@@ -1584,6 +1585,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         plan_decide_joins(prm, h);
         plan_mark_single_pass(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
+        access_plan_plan_nodes(&mut pick_ap);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
@@ -2214,7 +2216,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
     if prog.has_rels() {
         let mut r0: i64 = 0i64;
         while r0 < ap.n {
-            ap.read_once(r0, false,
+            ap.read_once(r0, false, MG_REL_BLOCK(),
                 "materialized: a rel block may scan this source repeatedly");
             r0 = r0 + 1i64;
         }
@@ -2225,13 +2227,13 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             let ri: i64 = prm.rel_find_name(sq.src_name);
             if ri < 0i64 { return; }
             if sq.has_order {
-                ap.read_once(ri, false,
+                ap.read_once(ri, false, MG_ORDER_BY(),
                     "materialized: `order by` revisits rows by position after collecting them");
             } else if sq.has_gpath {
-                ap.read_once(ri, false,
+                ap.read_once(ri, false, MG_GPATH(),
                     "materialized: a graph path lowers to a join chain, which rescans");
             } else {
-                ap.read_once(ri, true, "");
+                ap.read_once(ri, true, "", "");
             }
         }
         RQuery::Join(jq) => {
@@ -2252,19 +2254,29 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 let st: RQJoinStep = steps.step_at(k);
                 let si: i64 = prm.rel_find_name(st.src_name);
                 if si >= 0i64 {
+                    // ADR 0025 §4 — the BUILD SIDE is a node, and it is read off
+                    // the STRATEGY, not off the once cascade below: the emitter's
+                    // build phase runs for every hash/tree step whatever this
+                    // plan concludes about second reads, so an arrangement over a
+                    // twice-named source would be invisible if it were recorded
+                    // in an else-branch.
+                    if js_reads_once(st.jstrat) {
+                        ap.arrange(si, st.jstrat,
+                            "arranged: the join builds a keyed index over this source's rows before probing it");
+                    }
                     if cnt[si] > 1i64 {
-                        ap.read_once(si, false,
+                        ap.read_once(si, false, MG_SECOND_USE(),
                             "materialized: the query names this source more than once in one join chain");
                     } else if jq.has_order {
-                        ap.read_once(si, false,
+                        ap.read_once(si, false, MG_ORDER_BY(),
                             "materialized: `order by` re-binds joined rows by index after collecting the matches");
                     } else if st.jstrat == JS_NONE() {
-                        ap.read_once(si, false,
+                        ap.read_once(si, false, MG_UNDECIDED(),
                             "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
                     } else if js_reads_once(st.jstrat) {
-                        ap.read_once(si, true, "");
+                        ap.read_once(si, true, "", "");
                     } else {
-                        ap.read_once(si, false,
+                        ap.read_once(si, false, MG_RESCAN(),
                             "materialized: this step is a nested loop, which rescans its source once per bound row");
                     }
                 }
@@ -2273,18 +2285,18 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             if bi < 0i64 { return; }
             if cnt[bi] > 1i64 {
                 // The base is named again — a self-join reads it twice.
-                ap.read_once(bi, false,
+                ap.read_once(bi, false, MG_SECOND_USE(),
                     "materialized: the query names this source on both sides of a join");
                 return;
             }
             if jq.has_order {
-                ap.read_once(bi, false,
+                ap.read_once(bi, false, MG_ORDER_BY(),
                     "materialized: `order by` revisits base rows by position after collecting them");
             } else if jq.has_gpath {
-                ap.read_once(bi, false,
+                ap.read_once(bi, false, MG_GPATH(),
                     "materialized: a graph path adds join levels over this source");
             } else {
-                ap.read_once(bi, true, "");
+                ap.read_once(bi, true, "", "");
             }
         }
         RQuery::Aggr(gq) => {
@@ -2294,7 +2306,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             // to "cannot prove", which says nothing a reader can act on.
             let ai: i64 = prm.rel_find_name(gq.a_name);
             if ai >= 0i64 {
-                ap.read_once(ai, false,
+                ap.read_once(ai, false, MG_REGROUP(),
                     "materialized: the aggregate revisits rows after grouping them");
             }
             // An aggregate's join STEPS carry a decided strategy too, but the
@@ -2308,7 +2320,13 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 while gk < ng {
                     let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
                     if gi >= 0i64 {
-                        ap.read_once(gi, false,
+                        // Same build phase, same node: the aggregate emitter
+                        // calls `build_phase_frag` exactly as the join chain does.
+                        if js_reads_once(gs.step_at(gk).jstrat) {
+                            ap.arrange(gi, gs.step_at(gk).jstrat,
+                                "arranged: the aggregate's join builds a keyed index over this source's rows before probing it");
+                        }
+                        ap.read_once(gi, false, MG_REGROUP(),
                             "materialized: the aggregate's finalize pass re-binds joined rows by index");
                     }
                     gk = gk + 1i64;
@@ -2342,6 +2360,28 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         if ap.stream[ri] {
             prm.rel_stream[ri] = true;
             prm.rel_srcs[ri]   = prm.rel_ssrc[ri];
+        }
+        // ADR 0025 §4 / S2b — HAND THE EMITTER THE NODE, not a shape to infer.
+        // `prelude_node` is the same lookup `access_plan_explain` prints from,
+        // so what is emitted and what is explained are one fact read twice
+        // rather than two derivations that agree until one is edited.
+        //
+        // `AD_BUFFER` is the container producer: no node, because nothing is
+        // built — the ground `MG_CONTAINER` says which of the two absences this
+        // is, and the prelude's job there is to NAME the buffer it was handed.
+        if ap.stream[ri] {
+            prm.rel_node[ri] = AD_NONE();
+        } else if str_eq(ap.mgnd[ri], MG_CONTAINER()) {
+            prm.rel_node[ri] = AD_BUFFER();
+        } else {
+            // ⚠ THE FALLBACK IS `MAT_DRAIN`, NOT `AD_NONE`. The node list has a
+            // capacity (16) and `push_node` DROPS past it; if a plan ever
+            // overflows it, "no node found" must not be read as "the rows
+            // stream" — that would delete a materialization the walk needs and
+            // hand the scan an exhausted iterator. A dropped node is a lost
+            // EXPLANATION; it may not become a lost buffer.
+            let nk: i32 = ap.prelude_node(ri);
+            prm.rel_node[ri] = if nk == AD_NONE() { MAT_DRAIN() } else { nk };
         }
         ri = ri + 1i64;
     }
@@ -2597,7 +2637,14 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         // and nothing is collected. The type is INFERRED — the iterator's type
         // is the source's business, and naming it here would put a second copy
         // of that decision in the query compiler.
-        if prm.rel_stream[r] {
+        // ADR 0025 §4 / S2b — THE ARM IS CHOSEN BY THE PLAN'S NODE. `AD_NONE`
+        // means the plan inserted no materialization over this rel, which is
+        // what "streamed" always meant; the difference is that the fact is now
+        // one the plan WROTE DOWN with a ground, and `explain()` prints the same
+        // lookup this reads. The shape is no longer inferred from
+        // `rel_stream`/`rel_iter` — those keep saying what they say (the offer
+        // and the decision, ADR 0025 S1 gate) and stop being read as a shape.
+        if prm.rel_node[r] == AD_NONE() {
             prelude.push_str("    let mut ");
             prelude.push_str(prm.rel_srcs[r]);
             prelude.push_str(": ");
@@ -2619,7 +2666,11 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         // per operation instead of two — the general form is the iterator, and
         // materializing is a step the plan adds, not a second thing the source
         // must write.
-        if prm.rel_iter[r] {
+        // A PRELUDE NODE (`Drain`, or `Sort` — a sort drains and then permutes,
+        // and the permutation is the sort's implementation, not a second
+        // materialization). `AD_BUFFER` falls through to the container arm
+        // below, where nothing is built because nothing needs to be.
+        if prm.rel_node[r] == MAT_DRAIN() || prm.rel_node[r] == MAT_SORT() {
             prelude.push_str("    let mut __it_");
             prelude.push_str(prm.rel_names[r]);
             prelude.push_str(": ");

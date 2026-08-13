@@ -287,6 +287,166 @@ bounded walk.
   buckets hold ROWS, the bucket-of-indices/bucket-of-rows split dies.
   (Columnar build side — indices INTO retained batches — is an axis, not v1.)
 
+LANDED (S2 node layer, 2026-08-13) in `stdlib/mem/wql/access_plan.logos`:
+`MAT_DRAIN`/`MAT_SORT`/`MAT_ARRANGE` + the `MG_*` ground tokens + the node list,
+derived by `access_plan_plan_nodes` from the mode pass's conclusions and named
+per rel by `access_plan_explain`. `plan_mark_single_pass` now passes a ground
+TOKEN beside each sentence (`read_once(ri, yes, gnd, why)`) — the token travels
+with the prose instead of being recovered from it. THE EMITTER IS UNTOUCHED and
+the byte-pin `logos_09_slice_scan_codegen` is what says so; the deletion of
+`plan_mark_single_pass` and the `rel_stream`/`rel_iter`/`is_slice` booleans is
+still owed and is the rest of S2.
+
+Two corrections this stage owes §4 as written, both measured:
+
+* **THE ARRANGEMENT IS A LIST, NOT A PER-REL FACT.** A chain naming one source
+  twice builds TWO indexes over it (`__hm1` and `__hm2` over one drained
+  `__rel_d`, emitted for `pass/deem_join_step_reread`), so arrangements are
+  recorded per STEP, off the STRATEGY — not in the else-branch of the once
+  cascade, where every arrangement over a twice-named source would be invisible.
+* **`once` AND "materializes" ARE ORTHOGONAL, and that is the fact the boolean
+  could not state.** A hash join's build side is `stream=true`, read exactly
+  once, AND fully materialized keyed. `logos_09_plan_nodes` asserts it as an
+  inequality no flag can satisfy: more arrange nodes than `materialize`
+  verdicts.
+* The three grounds §4 names are spelled verbatim; the OTHER six are NOT folded
+  into them (`JS_NONE` is an undecided, a nested loop proves many reads, an
+  aggregate regroups). The container ground dies as §4 says — by being recorded
+  as "no node: already a buffer" rather than by going quiet.
+* NOT YET NAMED, and the gate header says so rather than letting the green read
+  wider: an aggregate's group-state vectors and their group-row permutation (S4)
+  — measured as THREE `__ix0` permutations against TWO `sort` nodes in
+  `deem_batch_scan_drain` — and a derived rel's / SCC member's total, which is
+  not a source's drain.
+
+LANDED (S2b, 2026-08-13) — THE PRELUDE READS THE NODE. `plan_apply_access`
+writes `prm.rel_node[r]` (`MAT_DRAIN`/`MAT_SORT` / `AD_NONE` / `AD_BUFFER`) from
+`AccessPlan::prelude_node`, and `emit_prelude_oneshot` chooses its arm from that
+field instead of from `rel_stream`/`rel_iter`. PROVENANCE MOVES, VALUE DOES NOT:
+the emitted text is byte-identical over the whole corpus — 159 `--gen-dir` dumps
+(6 776 657 bytes) across `tests/logos/pass/{wql_,deem_}*.logos`, `diff -r` empty
+against the pre-S2b snapshot, the instrument having first been shown stable
+against itself on one binary. L2 green (2116/2116), `logos_09_slice_scan_codegen`
+and `logos_09_plan_nodes` green, `slice_scan_shape.golden` untouched.
+
+The arm is PROVED live in both directions, one at a time, restored to a
+byte-identical checkpoint between (a control on an un-restored control proves
+nothing):
+
+* force `AD_NONE` where the plan buffers ⇒ `deem_batch_scan_drain` loses all 6
+  `__it_` bindings and `deem_join_step_reread` both of its 2, and `logosc` then
+  FAILS on the emitted code (the scan expects the slice the drain no longer
+  builds) — an expensive refusal, not a quiet one;
+* force `MAT_DRAIN` where the plan streams ⇒ `deem_join_base_streams` goes 0 → 4
+  `__it_` bindings; `deem_hashmap_source` stays at 0, because its producer is a
+  container (`AD_BUFFER`) and neither forcing touches that arm — which is the
+  separation the pair exists to show.
+
+⚠ AND THE COST TO THE GATE, STATED: `logos_09_plan_nodes`'s clause
+`#(drain+sort nodes) == #(__it_ bindings)` was an independent comparison before
+S2b and is now true by construction for the per-rel prelude — both sides read one
+lookup. The arrange↔index and `__ix0`↔sort clauses are untouched and stay
+independent. The gate header carries this; the independent oracle for the prelude
+clause is the forcing control above.
+
+⚠ THE BLOCKER THE NEXT STAGE HITS, MEASURED BEFORE STARTING IT rather than
+discovered halfway. "Slices ride as one-packet streams" needs a one-packet
+`BatchStream` over a BORROWED `&[R]`, and the vocabulary has none: the only row
+implementations in the tree are `Buffer<R>` — which OWNS a `Vec<R>`
+(`buffer.logos`: "a Buffer that borrowed its rows from somewhere else would not
+have materialized anything") — and the generated leaf-walks. A query's slice
+parameter is `rows: &[Row]`, borrowed from the caller, so routing it through
+`Buffer::from_vec` would COPY every row: an intermediate materialization added by
+the compiler, which is the exact thing Victor's criterion 1 forbids. The same
+gap blocks stage 1's "the scan reads the Buffer as a one-packet stream" for every
+consumer that today indexes `(src)[__i]` (`emit_simple`'s slice arm, `emit_find`,
+the join and aggregate emitters). So the next unit of work is a VOCABULARY unit,
+not an emitter unit: `SliceStream<R>` (`#[borrow_carrying]`, one packet, `Rewind`
++ `SizedStream` + `RandomAccess`) beside `Buffer<R>`, and only then the emitter
+collapse and the byte-pin's measured-equal transition.
+
+LANDED (S2c, 2026-08-13) — THE REFUSAL CENSUS RE-DERIVED BY MACHINE, and the
+"no silence where a drain happens" gate widened from four plans to every plan the
+corpus compiles. `tests/logos/plan_ground_census_gate.sh`
+(`logos_09_plan_ground_census`, tier_full, ~45 s at `-P nproc`) compiles all 175
+`pass/{wql_,deem_}*.logos` with `LOGOS_TRACE_PLAN=1` and `--gen-dir` and reads
+BOTH justification vocabularies — `why::wg_words`/`rj_words`/`sz_*_words` (WHICH
+ANTECEDENT refused the order axis) and `access_plan::MG_*` (WHY a buffer exists)
+— EXTRACTED FROM THE SOURCE FILES, never from a copy of the list, because a
+hand-kept copy is how a new ground escapes its own census.
+
+THE CENSUS, MEASURED 2026-08-13 (the gate prints it on every run, green or red):
+
+```
+  drain 4  sort 3  arrange 31    | artifact: __it_ 7   index bindings 594
+  hash-join decisions 491        | materialize 210   stream 18
+  no materialization: already-a-buffer 187, read-once 15   | SILENT 0
+```
+
+* **SILENT 0, over 175 plans.** Every rel that reports `materialize` names a node
+  or the positive "already a buffer" ground. This is the §4 claim as a corpus
+  fact rather than as a four-fixture sample.
+* **THE PRELUDE CLAUSE HOLDS EXACTLY AND CORPUS-WIDE**: 7 drain+sort nodes, 7
+  `let mut __it_…` bindings in the emitted artifacts, and per fixture as well.
+  (Since S2b this is by construction for the per-rel prelude — the independent
+  oracle is the forcing control above, not this gate.)
+* **THE ARRANGE DEFICIT IS NOW A NUMBER, NOT A SENTENCE**: 31 Arrange nodes
+  against 491 `hash join` decisions and 594 emitted index bindings. Two named
+  classes account for the gap and NEITHER has a node yet — (i) a derived rel's /
+  SCC member's own chain, emitted once per fixpoint variant (`wql_datalog_*`,
+  `wql_incr_*`: 5 to 45 hash joins each, 0 arrange nodes), and (ii) the SECOND
+  and further carried nests of one chain, each emitting its own build phase
+  (`wql_deferred_plan_e2e`: 5 decisions, 14 bindings). Pinned, so the unnamed
+  remainder cannot grow quietly; per fixture `arrange <= hash joins` is asserted,
+  because an arrangement over a step no strategy decided would be invention.
+
+THE WHY-VOCABULARY, WITNESSED vs UNWITNESSED — the coverage question answered
+against what the CORPUS reaches, not what the lattice admits. Witnessed:
+`WG_SCAN` 219, `WG_AGG` 146, `WG_NO_SORT` 124, `WG_ANTI_FIRST` 14,
+`WG_EDGE_FIRST` 10, `WG_FALSE_FILTER` 4, `WG_HEAD` 3, `WG_MAX_CAND` 2,
+`WG_IDENTITY` 1, `WG_FALSE_PRED` 1; `RJ_PREDDUP` 62, `RJ_PINDEP` 2;
+`SZ_RUN_DERIVED` 27, `SZ_RUN_OK` 12, `SZ_PREP_LOCAL` 8, `SZ_PREP_DERIVED` 6;
+`MG_CONTAINER` 187, `MG_JOIN_BUILD` 31, `MG_ORDER_BY` 3, `MG_REGROUP` 2,
+`MG_RESCAN` 1, `MG_SECOND_USE` 1.
+
+FIFTEEN GROUNDS ARE PUBLISHED SENTENCES NO CORPUS QUERY REACHES, and they are
+pinned as the debt ledger rather than left to look like coverage:
+`WG_NO_STEP`, `WG_UNDECIDED`, `WG_ONE_FLOAT`, `WG_MAX_FL`, `WG_CROSS`,
+`WG_NO_SIZE`; `RJ_PREDBASE`, `RJ_PREDPIN`, `RJ_SHAPE`; `SZ_RUN_STREAMS`,
+`SZ_PREP_STREAMS`; and — the four that matter for the rest of S2 —
+`MG_REL_BLOCK`, `MG_UNDECIDED`, `MG_GPATH`, `MG_UNPROVEN`. THOSE FOUR ARE THE
+ANSWER TO "which of `plan_mark_single_pass`'s 9 grounds still need a node
+fixture": the other five are witnessed as nodes today. The pin is checked in BOTH
+directions — a ground declared unwitnessed that the corpus reaches fails exactly
+as loudly, because an exemption nobody checks in the abuse direction turns the
+green into a voucher for it.
+
+⚠ THE CORPUS WAS NOT TOUCHED. No fixture was added, edited or retired for this
+census: a fixture written to witness a ground would be the gate grading its own
+homework, and the fifteen unwitnessed sentences are recorded as debt instead.
+Two fixtures cannot compile standalone (`wql_mapping_cross_module_e2e`,
+`wql_wref_field_pkg` — each `use`s a companion package the suite supplies through
+a lib path); they are pinned BY NAME, so a third failure, or one of these two
+starting to compile, is red.
+
+PROVED TO BITE, BOTH DIRECTIONS, ONE AT A TIME, RESTORED TO A BYTE-IDENTICAL
+SOURCE WITH A GREEN CHECKPOINT BETWEEN THEM: (1) silencing the container absence
+line in `access_plan_explain` ⇒ 22 reds — 187 silent materializations,
+`already a buffer` 187 → 0, `MG_CONTAINER` reported as a sentence nothing
+reaches; (2) pushing every prelude node TWICE ⇒ 6 reds — five per-fixture
+artifact comparisons (`deem_batch_scan_drain`: 6 nodes against 3 `__it_`
+bindings) plus the corpus total 7 → 14. Each probe cost a full stdlib rebuild and
+a re-run of the sweep in both the perturbed and the restored state.
+
+STILL OWED BY S2, and not started: the drain arm becoming `Drain -> Buffer` with
+the scan reading the Buffer as a one-packet stream; the SLICE arm's death (the
+byte-pin's measured-equal transition); `Sort` replacing the `__ix0` permutation;
+`Arrange` holding ROWS; the death of the SHAPE readings of
+`rel_stream`/`rel_iter`/`is_slice` (they are still read by the SCAN side —
+`rel_src_streams`, `params.logos:657`, and the slice arms of `emit_simple` /
+`emit_find` / the join and aggregate emitters); and the deletion of
+`plan_mark_single_pass`, whose 9 grounds each still need a node fixture first.
+
 `Buffer<R>` implements every capability; "a Vec is an eagerly-drained stream,
 never the reverse" stops being a comment and becomes the type lattice.
 `plan_mark_single_pass` and the `rel_stream`/`rel_iter`/`is_slice` booleans are
@@ -913,7 +1073,10 @@ scan shape; every other cell is declared, not silently absent.
 * **S2 — adapters as plan nodes.** `Drain`/`Sort`/`Arrange` in AccessPlan with
   grounds; delete the side-channel booleans and `plan_mark_single_pass`;
   `explain()` names every materialization. Gate: the refusal census (why-
-  vocabulary) re-derived, no silence where a drain happens.
+  vocabulary) re-derived, no silence where a drain happens — LANDED as
+  `logos_09_plan_ground_census` (whole corpus, both vocabularies, the arrange
+  deficit pinned; see S2c above), beside `logos_09_plan_nodes` (four plans, the
+  cross-channel comparison).
 * **S3 — order and limit as facts.** `OrderedBy` no-op sort; bounded walks.
   Gate: an `order by` over the seek column emits NO `Sort` node and the trace
   says why.

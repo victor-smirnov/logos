@@ -94,6 +94,80 @@ pub fn ap_covers(have: str, want: str) -> bool {
     return false;
 }
 
+// ── MATERIALIZATION NODES (ADR 0025 §4) ───────────────────────────────────
+//
+// Until this section existed, every materialization in the emitted plane was a
+// CONSEQUENCE of a boolean: `once=false` made `stream=false` made the prelude
+// emit a `Vec` and a drain loop, and the sentence explaining it was attached to
+// the boolean rather than to the thing that was built. Two facts about the plan
+// could therefore not be stated at all:
+//
+//   • that a buffer was built where the plan STREAMS — a hash join reads its
+//     build side exactly once and still materializes it, keyed, and `once=true`
+//     says the opposite of what happens;
+//   • that a materialization is a NODE with an operand and a result type,
+//     rather than a mode flag on a rel.
+//
+// So a plan now carries a NODE LIST: what is built, over which rel, and on which
+// ground. `Drain` empties a stream into a `Buffer`; `Sort` empties it into an
+// ORDERED buffer (the `__ix0` permutation is its implementation, not a second
+// mechanism); `Arrange` empties it into a keyed index (a join's build side).
+//
+// ⚠ THIS STAGE RECORDS WHAT THE PRELUDE ALREADY DOES. The node layer is derived
+// from the same facts the emitter reads and changes no emitted byte: the point
+// of landing it first is that the DERIVATION can be checked against the artifact
+// before anything depends on it. What it adds today is that every materialization
+// has a name and a ground in `explain()`, and that a plan with none SAYS so.
+/// NO NODE — the plan builds nothing over this rel before the walk. Distinct
+/// from `AD_BUFFER()` below, and the distinction is the whole of S2b: "nothing
+/// is built because the rows stream" and "nothing is built because the producer
+/// already handed back a buffer" are two different emitted preludes.
+pub fn AD_NONE() -> i32     { return -1i32; }
+/// ALREADY A BUFFER — the producer returns a container (`MG_CONTAINER`), so the
+/// prelude names it rather than building it. Not a node: nothing is materialized.
+pub fn AD_BUFFER() -> i32   { return -2i32; }
+pub fn MAT_DRAIN() -> i32   { return 0i32; }
+pub fn MAT_SORT() -> i32    { return 1i32; }
+pub fn MAT_ARRANGE() -> i32 { return 2i32; }
+
+pub fn mat_kind_name(k: i32) -> str {
+    if k == MAT_SORT()    { return "sort"; }
+    if k == MAT_ARRANGE() { return "arrange"; }
+    return "drain";
+}
+
+// ── The GROUNDS ────────────────────────────────────────────────────────────
+// A ground is a TOKEN, not a sentence. The sentences (`owhy`) stay exactly as
+// they were and stay attached to the rel, because they are what a person reads;
+// what the node layer needs beside them is a name that a gate can hold and that
+// two grounds cannot accidentally share. ADR §4 names three verbatim — "drained:
+// second use", "order by", "rel block" — and they are spelled here verbatim.
+//
+// ⚠ THE OTHERS ARE NOT FOLDED INTO THOSE THREE. `JS_NONE` is an UNDECIDED, not
+// a proof of a second read; a nested loop is a proof of MANY reads; an aggregate
+// regroups. Each keeps its own token, because a ground that gets rounded to the
+// nearest ADR string is a justification that has drifted from its mechanism —
+// which is the class this whole ADR exists to close.
+pub fn MG_SECOND_USE() -> str { return "drained: second use"; }
+pub fn MG_ORDER_BY() -> str   { return "order by"; }
+pub fn MG_REL_BLOCK() -> str  { return "rel block"; }
+pub fn MG_RESCAN() -> str     { return "rescanned: nested loop"; }
+pub fn MG_UNDECIDED() -> str  { return "undecided: no join strategy"; }
+pub fn MG_REGROUP() -> str    { return "regrouped: aggregate"; }
+pub fn MG_GPATH() -> str      { return "lowered: graph path"; }
+pub fn MG_JOIN_BUILD() -> str { return "join build side"; }
+/// The mode pass's own fallback: nobody recorded a ground and the plan still
+/// could not prove a single read. Its own token for the same reason `JS_NONE`
+/// has one — "no proof" is not "proof of a second use", and a node that
+/// borrowed the ADR's first ground here would claim a mechanism it never saw.
+pub fn MG_UNPROVEN() -> str   { return "unproven: no single-read proof"; }
+/// Not a ground for a node — the ground for the ABSENCE of one. A producer that
+/// returns a container hands back a `Buffer` already; the prelude's `Vec` binding
+/// is that value under a name, not a materialization the plan performed. ADR §4:
+/// this ground dies with the node layer, and it dies by being recorded as "no
+/// node" rather than by going quiet.
+pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
+
 // ── The plan ──────────────────────────────────────────────────────────────
 // One record per rel, indexed by the rel registry's index so the applier and
 // the explainer agree with the params without a side table.
@@ -136,6 +210,38 @@ pub struct AccessPlan {
     /// construction.
     pub once:   [bool; 8],
     pub owhy:   [str; 8],
+    /// The GROUND TOKEN behind `owhy`, one of the `MG_*` names (ADR 0025 §4).
+    /// Written by the same call that writes the sentence, so the two cannot
+    /// drift: a node's ground is not re-derived by matching prose.
+    pub mgnd:   [str; 8],
+    /// THE ARRANGEMENTS, one entry PER JOIN STEP that builds a keyed index, in
+    /// step order — `arr_rel` the rel whose rows are built, `arr_strat` the
+    /// strategy (`JS_HASH`/`JS_TREE`).
+    ///
+    /// ⚠ A LIST, NOT A PER-REL FLAG, AND THAT IS MEASURED. A chain that names
+    /// one source twice builds TWO indexes over it (`__hm1` and `__hm2` in the
+    /// emitted `deem_join_step_reread`), so a per-rel slot would report one node
+    /// where the artifact builds two — the node layer's whole claim is that it
+    /// counts what is built.
+    ///
+    /// Separate from `once` because it is ORTHOGONAL to it: an arranged source
+    /// is read exactly once AND materialized, which is precisely the fact
+    /// `once` cannot express.
+    pub arr_rel:   [i64; 8],
+    pub arr_strat: [i32; 8],
+    pub arr_why:   [str; 8],
+    pub arr_n:     i64,
+    /// THE NODE LIST — one entry per materialization this plan performs, in the
+    /// order the emitted code performs them (prelude first, then the build
+    /// phase). `nd_rel` is the rel index the node consumes; `nd_gnd` the ground
+    /// token; `nd_why` the sentence. Capacity is 2 per rel: a rel can be
+    /// buffered by the prelude and arranged by a join, and nothing else in this
+    /// plane builds a third.
+    pub nd_kind: [i32; 16],
+    pub nd_rel:  [i64; 16],
+    pub nd_gnd:  [str; 16],
+    pub nd_why:  [str; 16],
+    pub nd_n:    i64,
     /// THE SOURCE'S SIZE, as a fact the plan ASKED FOR (ADR 0024 S4).
     ///
     /// `card` above is an ordinal because expansion time has nothing to count.
@@ -180,6 +286,18 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         swhy:  ["", "", "", "", "", "", "", ""],
         once:  [false; 8],
         owhy:  ["", "", "", "", "", "", "", ""],
+        mgnd:  ["", "", "", "", "", "", "", ""],
+        arr_rel:   [-1i64; 8],
+        arr_strat: [0i32; 8],
+        arr_why:   ["", "", "", "", "", "", "", ""],
+        arr_n:     0i64,
+        nd_kind: [0i32; 16],
+        nd_rel:  [-1i64; 16],
+        nd_gnd:  ["", "", "", "", "", "", "", "",
+                  "", "", "", "", "", "", "", ""],
+        nd_why:  ["", "", "", "", "", "", "", "",
+                  "", "", "", "", "", "", "", ""],
+        nd_n:    0i64,
         size_fn: ["", "", "", "", "", "", "", ""],
         size_at: ["", "", "", "", "", "", "", ""],
         size_why:["", "", "", "", "", "", "", ""],
@@ -189,11 +307,100 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
 }
 
 impl AccessPlan {
-    /// Record that the plan reads rel `ri` exactly once, or why it may not.
-    pub fn read_once(self: &mut AccessPlan, ri: i64, yes: bool, why: str) {
+    /// Record that the plan reads rel `ri` exactly once, or why it may not —
+    /// and, when it may not, the GROUND TOKEN the materialization node will
+    /// carry. The token travels WITH the sentence rather than being recovered
+    /// from it: the sentences are prose and are meant to be rewritten, and a
+    /// node whose ground is re-derived by matching prose would silently change
+    /// kind the day one of them is reworded.
+    pub fn read_once(self: &mut AccessPlan, ri: i64, yes: bool, gnd: str, why: str) {
         if ri < 0i64 || ri >= 8i64 { return; }
         self.once[ri] = yes;
         self.owhy[ri] = why;
+        self.mgnd[ri] = gnd;
+    }
+
+    /// Record that a join step builds a keyed index over rel `ri`'s rows.
+    ///
+    /// ⚠ INDEPENDENT OF `read_once`. The build phase runs for every `JS_HASH` /
+    /// `JS_TREE` step whatever the plan concluded about second reads, so this is
+    /// recorded from the STRATEGY and not from the else-branch of the once
+    /// cascade. Recording it there instead would have hidden every arrangement
+    /// over a source that is also drained — which is every self-join.
+    pub fn arrange(self: &mut AccessPlan, ri: i64, strat: i32, why: str) {
+        if ri < 0i64 || ri >= 8i64 { return; }
+        if self.arr_n >= 8i64 { return; }
+        self.arr_rel[self.arr_n]   = ri;
+        self.arr_strat[self.arr_n] = strat;
+        self.arr_why[self.arr_n]   = why;
+        self.arr_n = self.arr_n + 1i64;
+    }
+
+    /// THE PRELUDE'S NODE FOR REL `ri`, as the EMITTER must ask it (ADR 0025 §4,
+    /// S2b) — `MAT_DRAIN`/`MAT_SORT` when this plan builds a buffer over the rel
+    /// before the walk, `AD_NONE()` when it does not build one.
+    ///
+    /// ⚠ ARRANGE NODES ARE NOT PRELUDE NODES and are skipped here. A join's build
+    /// side is filled by the step's build loop, not by the prelude, and a lookup
+    /// that returned the first node over the rel would answer "a buffer is bound
+    /// before the walk" for every arranged-but-streamed source — which is exactly
+    /// the orthogonality (`once` ⟂ "materializes") the node list exists to state.
+    pub fn prelude_node(self: &AccessPlan, ri: i64) -> i32 {
+        let mut i: i64 = 0i64;
+        while i < self.nd_n {
+            if self.nd_rel[i] == ri && self.nd_kind[i] != MAT_ARRANGE() {
+                return self.nd_kind[i];
+            }
+            i = i + 1i64;
+        }
+        return AD_NONE();
+    }
+
+    fn push_node(self: &mut AccessPlan, kind: i32, ri: i64, gnd: str, why: str) {
+        if self.nd_n >= 16i64 { return; }
+        self.nd_kind[self.nd_n] = kind;
+        self.nd_rel[self.nd_n]  = ri;
+        self.nd_gnd[self.nd_n]  = gnd;
+        self.nd_why[self.nd_n]  = why;
+        self.nd_n = self.nd_n + 1i64;
+    }
+}
+
+/// DERIVE the node list from the plan's own conclusions (ADR 0025 §4).
+///
+/// Runs after `access_plan_decide_mode`, because a node is a fact about what
+/// will be BUILT and that is the conjunction the mode pass computes: the ground
+/// the planner recorded AND the shape the producer offers. Two rules, and both
+/// are the ADR's:
+///
+///   • a rel the plan does not stream is emptied into a buffer before the walk —
+///     `Sort` when the ground is `order by` (an ordered buffer is what the sort
+///     phase builds, and the permutation is its implementation), `Drain`
+///     otherwise;
+///   • a rel a join step keys is `Arrange`d, whether or not it was also drained.
+///
+/// The one case that yields NO node is the container producer: it hands back a
+/// buffer, so nothing is built. That absence is recorded rather than left
+/// silent — `explain()` says which of the two "no node" sentences applies.
+pub fn access_plan_plan_nodes(ap: &mut AccessPlan) {
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        if !ap.stream[ri] && !str_eq(ap.mgnd[ri], MG_CONTAINER()) {
+            let k: i32 = if str_eq(ap.mgnd[ri], MG_ORDER_BY()) { MAT_SORT() }
+                         else { MAT_DRAIN() };
+            let g: str = if ap.mgnd[ri].len() > 0i64 { ap.mgnd[ri] }
+                         else { MG_UNPROVEN() };
+            ap.push_node(k, ri, g, ap.owhy[ri]);
+        }
+        ri = ri + 1i64;
+    }
+    // The build phases, in STEP order and after every prelude node, because that
+    // is the order the emitted body performs them in: the prelude binds and
+    // buffers, then each step's build loop fills its index.
+    let mut ai: i64 = 0i64;
+    while ai < ap.arr_n {
+        ap.push_node(MAT_ARRANGE(), ap.arr_rel[ai], MG_JOIN_BUILD(), ap.arr_why[ai]);
+        ai = ai + 1i64;
     }
 }
 
@@ -210,6 +417,11 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
                            else { prm.rel_iter[ri] };
         if !offers {
             ap.swhy[ri] = "materialized: the producer returns a container, not an iterator";
+            // The node question is answered by the PRODUCER here, whatever the
+            // planner concluded about second reads: a container is a buffer
+            // already, so no node is inserted and the ground says which absence
+            // this is (ADR 0025 §4).
+            ap.mgnd[ri] = MG_CONTAINER();
         } else if !ap.once[ri] {
             ap.swhy[ri] = if ap.owhy[ri].len() > 0i64 { ap.owhy[ri] }
                           else { "materialized: the plan cannot prove a single read" };
@@ -302,6 +514,29 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             plan_trace(prm.rel_names[ri],
                        if ap.size_fn[ri].len() > 0i64 { "size" } else { "size unknown" },
                        string_as_str(&sb), ap.size_why[ri]);
+        }
+        // WHAT THIS PLAN BUILDS OVER THIS REL, or the fact that it builds
+        // nothing (ADR 0025 §4). Reported per rel and POSITIVELY in both
+        // directions, for the reason the access line is: a materialization
+        // visible only when it happens leaves "no line" meaning both "nothing
+        // was built" and "nobody looked".
+        let mut nk: i64 = 0i64;
+        let mut spoke: bool = false;
+        while nk < ap.nd_n {
+            if ap.nd_rel[nk] == ri {
+                plan_trace(prm.rel_names[ri], mat_kind_name(ap.nd_kind[nk]),
+                           ap.nd_gnd[nk], ap.nd_why[nk]);
+                spoke = true;
+            }
+            nk = nk + 1i64;
+        }
+        if !spoke {
+            plan_trace(prm.rel_names[ri], "no materialization",
+                       if str_eq(ap.mgnd[ri], MG_CONTAINER()) { MG_CONTAINER() } else { "" },
+                       if str_eq(ap.mgnd[ri], MG_CONTAINER())
+                       { "no node: the producer hands back a container, which IS a buffer — nothing is built" }
+                       else
+                       { "no node: the plan reads this source once and consumes it where it stands" });
         }
         ri = ri + 1i64;
     }

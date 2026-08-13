@@ -2063,8 +2063,44 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # tier_commit does not move: like `logos_09_ctr_leaf_descent`, this gate compiles,
 # links and runs a fixture under valgrind, which is per-commit weight the lint
 # tier does not carry.
-REGISTRY-ALL         7152
-REGISTRY-NOIMPORTED  3469
+# ADR 0025 S2, THE NODE LAYER (+1 registered test, +0 fixtures, +0 tier_commit).
+# PREDICTED 7153/3470/32 (+1/+1/0 off 7152/3469/32), stated BEFORE the
+# reconfigure. Decomposed:
+#   logos_09_plan_nodes                  GATE, tier_full. `plan_nodes_gate.sh`
+#                                        over FOUR fixtures that already exist —
+#                                        no new fixture is registered, and that
+#                                        is a measurement rather than a saving:
+#                                        the node layer emits no code, so the
+#                                        only thing a new fixture could assert is
+#                                        the trace, which is what this gate reads
+#                                        off the fixtures whose ARTIFACTS supply
+#                                        the independent side of the comparison
+#                                        (deem_join_step_reread's `__hm1`+`__hm2`
+#                                        over one drained `__rel_d`,
+#                                        deem_batch_scan_drain's three `__it_m`
+#                                        bindings, deem_hashmap_source's zero,
+#                                        deem_cross_domain_join's one index over
+#                                        a container that is never drained).
+# tier_commit does not move: the gate compiles four fixtures with `--gen-dir`,
+# which is per-commit weight the lint tier does not carry.
+#
+# ADR 0025 S2, THE REFUSAL CENSUS RE-DERIVED (+1 registered test, +0 fixtures,
+# +0 tier_commit). PREDICTED 7154/3471/32 (+1/+1/0 off 7153/3470/32), stated
+# BEFORE the reconfigure. Decomposed:
+#   logos_09_plan_ground_census          GATE, tier_full. `plan_ground_census_gate.sh`
+#                                        over the WHOLE wql_/deem_ pass corpus
+#                                        (175 fixtures, already registered — no
+#                                        new fixture, and again a measurement
+#                                        rather than a saving: the census's
+#                                        subject is the corpus AS IT IS, and a
+#                                        fixture written to witness a ground
+#                                        would be the gate grading its own
+#                                        homework. The 15 grounds the corpus does
+#                                        NOT reach are recorded as debt instead).
+# tier_commit does not move: the gate compiles 175 fixtures with `--gen-dir`
+# (~45 s at -P nproc), which is per-commit weight the lint tier does not carry.
+REGISTRY-ALL         7154
+REGISTRY-NOIMPORTED  3471
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
