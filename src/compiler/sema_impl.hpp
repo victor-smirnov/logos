@@ -5167,6 +5167,20 @@ private:
     // host compiler on generated code, which is exactly the diagnostic this ADR
     // is trying to abolish — recorded as debt, not overlooked.
     bool          producer_streams_(const std::string& fn_name);
+    // ADR 0025 §1 — the BATCH half of the same question, and the exact twin of
+    // `producer_streams_`: does the producer's return type implement
+    // `BatchStream`? The two are not exclusive as far as this channel is
+    // concerned — a batch producer is still "consumable in place" (the `i`
+    // flag, ADR 0024 S4), and `b` says only that THE PULL UNIT IS A BATCH, so
+    // the consumer pulls with `next_batch()` and runs §1's inner index loop
+    // instead of one `next()` per row. Membership only, with the same recorded
+    // debt as above: the BATCH type is not matched against the row type here.
+    bool          producer_batches_(const std::string& fn_name);
+    // The shared half of the two above: does the producer's RETURN TYPE carry
+    // an impl of `trait_name`? Written once so the two flags cannot come to
+    // disagree about which type they asked about.
+    bool          producer_impls_trait_(const std::string& fn_name,
+                                        const std::string& trait_name);
     // The producer's return type, as TEXT — what the emitted binding is
     // annotated with. Empty when the function is not resolvable.
     std::string   producer_ret_type_(const std::string& fn_name);

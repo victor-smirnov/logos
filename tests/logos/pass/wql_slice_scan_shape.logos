@@ -1,0 +1,55 @@
+// ADR 0025 S1 — THE SLICE ARM, PINNED WHERE IT ACTUALLY LIVES: THE EMITTED CODE.
+//
+// S1's stated gate for the slice source is "codegen byte-comparable OR measured
+// equal". S1 did NOT collapse the slice arm — a heap slice has no packet
+// PRODUCER, and minting one is `Drain`/`Buffer`, which is S2 — so there was no
+// perturbation to compare against and the gate went UNEXERCISED. An unexercised
+// gate is not a pass, and "the arm is untouched" read off a `git diff` is an
+// observation about one commit, not an invariant.
+//
+// This fixture is the REFERENCE the gate needs. It is a plain pass test — the
+// query runs and its rows are asserted — and it is also the subject of
+// `tests/logos/slice_scan_codegen_gate.sh`, which compiles it with `--gen-dir`
+// and byte-compares the emitted `*_run` function against
+// `tests/logos/slice_scan_shape.golden`. From here on, any change to slice
+// codegen is a RED with a diff, and S2's collapse has to either reproduce these
+// bytes or replace the byte comparison with the measured-equality arm — which is
+// the choice the ADR offers, made deliberately instead of silently.
+//
+// DELIBERATELY MINIMAL AND DELIBERATELY NOT A CONTAINER. One source, one
+// `where`, one projection: no join order to choose, no sort, no limit, no
+// aggregate — so the golden is the SCAN and nothing else, and a golden diff
+// names the scan rather than the surrounding machinery. The batch shape (§1)
+// is pinned elsewhere, on family sources (`deem_ctr_family_streams`,
+// `deem_batch_scan_drain`); the gate asserts here that this fn carries NONE of
+// it, which is the honest S1 state written as an assertion.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Row { pub k: u64, pub v: u64 }
+
+pub deem slice_scan(rows: &[Row], lo: u64) { from rows r where r.k >= lo select r.v : u64 }
+
+fn main() -> i32 {
+    let rs: [Row; 5] = [
+        Row { k: 1u64, v: 10u64 },
+        Row { k: 2u64, v: 20u64 },
+        Row { k: 3u64, v: 30u64 },
+        Row { k: 4u64, v: 40u64 },
+        Row { k: 5u64, v: 50u64 },
+    ];
+    let out: Vec<u64> = slice_scan(&rs[..], 3u64).unwrap();
+    if out.len() != 3i64 { return 1i32; }
+    if out.get(0i64) != 30u64 { return 2i32; }
+    if out.get(1i64) != 40u64 { return 3i32; }
+    if out.get(2i64) != 50u64 { return 4i32; }
+    // The bound is not a constant folded away: an empty answer and a full one
+    // both come out of the same emitted loop.
+    let none: Vec<u64> = slice_scan(&rs[..], 99u64).unwrap();
+    if none.len() != 0i64 { return 5i32; }
+    let all: Vec<u64> = slice_scan(&rs[..], 0u64).unwrap();
+    if all.len() != 5i64 { return 6i32; }
+    return 0i32;
+}

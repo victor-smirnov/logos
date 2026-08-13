@@ -1752,6 +1752,73 @@ fn scan_of(e: RExpr) -> RScan {
     }
 }
 
+// ── batch_scan_frag — ADR 0025 §1's ONE EMITTED SCAN SHAPE ───────────────────
+//
+//     while let Some(b) = s.next()     ← the OUTER pull, per BATCH
+//         let n = b.len(); let mut i = 0
+//         while i < n { /* clauses over b @ i */ i = i + 1 }
+//
+// ONE function, called from every site that scans a batch producer — the §2
+// rule that a layout is a ROW IN THIS FUNCTION, not a branch in every consumer.
+// The Memoria mapping (§5) is what makes the outer pull worth having: `next`
+// hands out a whole LEAF, so the descent count is the leaf count and the
+// per-row container-method constant is gone.
+//
+// SPELLED WITH `next_batch()`, NOT the `BatchStream::next` trait method. The
+// inherent method is what the family emits beside the trait impl, and calling
+// it needs no trait in scope on a generated chunk whose import list is derived
+// from the natspec; `Iterator::next` and `BatchStream::next` also share a name
+// and receiver shape, which is why `logos.lang.stream` is deliberately not in
+// the prelude (see stream.logos). The pull is otherwise §1 verbatim, INCLUDING
+// the empty batch: `len() == 0` runs the inner loop zero times and the outer
+// pull continues — an empty leaf is a tick, never an end.
+//
+// THE BATCH IS BOUND INSIDE ITS OWN BLOCK. It is `#[borrow_carrying]` off the
+// walk (§7 rung 1) and the next iteration's `next_batch()` takes `&mut` of
+// that same walk, so the batch's scope has to close first. The block is what
+// closes it, and it is the shape `pass/ctr_family_leaf_batches` already pins
+// by hand.
+//
+// The row is spelled by `batch_row_text` — ONE copy, shared with the DRAIN
+// prelude (`plan_walker`), keyed off the DECLARED column names.
+//
+// `sfx` numbers the bindings so the fragment can nest (a join's base loop sits
+// outside its step loops); `brk_o`/`brk_i` are the same limit check built
+// TWICE by the caller, once per loop — a `break` in the inner loop leaves the
+// inner loop only, and the outer check is what turns it into an exit.
+fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
+                   vnm: Ident, row_f: ExprBlob, body_f: ExprBlob,
+                   brk_o: ExprBlob, brk_i: ExprBlob) -> ExprBlob {
+    let s_ob: String = nk_str("__ob", k);   let n_ob: Ident = Ident::new(string_as_str(&s_ob));
+    let s_bb: String = nk_str("__bb", k);   let n_bb: Ident = Ident::new(string_as_str(&s_bb));
+    let s_bn: String = nk_str("__bn", k);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__bj", k);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
+    let s_br: String = nk_str("__brow", k); let n_br: Ident = Ident::new(string_as_str(&s_br));
+    let mut rowx: String = String::new();
+    batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
+    let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    return quote_block! {
+        loop {
+            #(brk_o);
+            let #n_ob = (#(src_f)).next_batch();
+            if #n_ob.is_some() {
+                {
+                    let #n_bb = #n_ob.unwrap();
+                    let #n_bn: u64 = #n_bb.len();
+                    let mut #n_bj: u64 = 0u64;
+                    while #n_bj < #n_bn {
+                        #(brk_i);
+                        let #n_br: #(row_f) = #(rowe_f);
+                        let #vnm: &#(row_f) = &#n_br;
+                        #(body_f);
+                        #n_bj = #n_bj + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    };
+}
+
 // ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
 // Base shape mirrors walk_simple; with an `order by` the matching row INDICES +
 // their keys are materialized and insertion-sorted (stable, O(n²) MVP codegen)
@@ -1952,6 +2019,22 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             let lim_f: ExprBlob = limit_expr(&mods);
             brk_f = quote_block! { if !(__out.len() < (#(lim_f))) { break; } };
         }
+        // ADR 0025 §1/§5 — THE PULL UNIT IS A BATCH. The source declared it
+        // (`b` in the natspec flag set, written when the producer's return type
+        // implements `BatchStream`), so the scan is the ONE shape: an outer
+        // pull per LEAF and the old row loop as its inner loop. Nothing here
+        // knows the source type; the flag and the column names both arrive as
+        // data.
+        let bri: i64 = prm.rel_find_src(src_name);
+        if bri >= 0i64 && prm.rel_batch[bri] {
+            let mut brk_i: ExprBlob = quote_block! { };
+            if mods.has_limit {
+                let lim_i: ExprBlob = limit_expr(&mods);
+                brk_i = quote_block! { if !(__out.len() < (#(lim_i))) { break; } };
+            }
+            scan_f = batch_scan_frag(prm, bri, 0i64, src_f, vnm, row_f, row_f2,
+                                     brk_f, brk_i);
+        } else {
         // The row type is ANNOTATED, not inferred. `next()` is a trait method
         // whose result type is the trait's parameter, so inferring it means
         // selecting the impl — and where the source is spelled as an associated
@@ -1968,6 +2051,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
                 #(row_f2);
             }
         };
+        }
     } else {
         let mut cond: ExprBlob = quote_expr! { __i < (#(src_f)).len() };
         if mods.has_limit {
@@ -3098,6 +3182,17 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     if base_streams {
         let mut brk: ExprBlob = quote_block! { };
         if has_lim_use { brk = quote_block! { if !(__out.len() < (#(lim_f))) { break; } }; }
+        // ADR 0025 §1 — the driving side of a nest is a SCAN, so a batch
+        // producer takes the same one shape here as in `emit_simple`, through
+        // the same function. This is the site that would otherwise have become
+        // a second reading of the source's declaration.
+        let bbi: i64 = prm.rel_find_src(ch.base_src);
+        if bbi >= 0i64 && prm.rel_batch[bbi] {
+            let mut brk2: ExprBlob = quote_block! { };
+            if has_lim_use { brk2 = quote_block! { if !(__out.len() < (#(lim_f))) { break; } }; }
+            nest = batch_scan_frag(prm, bbi, 0i64, base_src_f, base_vnm,
+                                   base_ty_f, inner, brk, brk2);
+        } else {
         nest = quote_block! {
             loop {
                 #(brk);
@@ -3108,6 +3203,7 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                 #(inner);
             }
         };
+        }
     } else {
         let mut bcond: ExprBlob = quote_expr! { __i0 < (#(base_src_f)).len() };
         if has_lim_use {

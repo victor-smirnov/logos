@@ -1,0 +1,12 @@
+pub fn slice_scan_run(__pl: &SliceScanPlan, rows: &[Row], lo: u64) -> Result<Vec<u64>, ElError> {
+    let mut __out: Vec<u64> = Vec::<u64>::new();
+    let mut __i: i64 = 0i64;
+    while (__i < (rows).len()) {
+        let r: &Row = (&((rows))[__i]);
+        if ((r.k >= lo)) {
+            __out.push(r.v);
+        }
+        __i = (__i + 1i64);
+    }
+    return Result::Ok(__out);
+}

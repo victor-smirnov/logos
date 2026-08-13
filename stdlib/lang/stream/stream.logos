@@ -100,11 +100,84 @@ pub trait OrderedBy<K> {}
 /// Ordered positioning: the stream can jump to key `K` (the landing constructors' shape).
 ///
 /// Only meaningful together with `OrderedBy<K>` — seeking a stream with no `K` order
-/// is a request nothing can answer. `seek` past the last key leaves the stream exhausted
-/// (the next `next()` is `None`), never a panic.
+/// is a request nothing can answer. `seek_key` past the last key leaves the stream
+/// exhausted (the next `next()` is `None`), never a panic.
+///
+/// NAMED `seek_key`, NOT `seek` (S1, 2026-08-13). The generated container beneath a
+/// family walk already spells the two positionings `seek(n: u64)` = BY ORDINAL and
+/// `seek_key(k)` = BY KEY, and a family walk implements `Landed<K>` and
+/// `RandomAccess<B>` SIMULTANEOUSLY — so a `Landed::seek(k)` would have put the
+/// container's two conventions on one type INVERTED (`s.seek(k)` by key beside
+/// `s.seek_nth(n)` by ordinal, over a `c.seek(n)` by ordinal one layer down). The
+/// rename was the cheaper of the two repairs the hazard admits — the other being a
+/// doc-comment at both sites — and it was cheap precisely because `Landed` had ONE
+/// impl (the emitted `{N}LeafWalk`) and one caller when S1 opened. It stops being
+/// cheap once S3 consumes the trait.
 pub trait Landed<K> {
-    /// Positions the stream at the first row with key `>= k`.
-    fn seek(&mut self, k: K);
+    /// Positions the stream at the first row with key `>= k`. By KEY — the ordinal
+    /// twin is `RandomAccess::seek_nth`.
+    fn seek_key(&mut self, k: K);
+}
+
+// ── The TRAVERSAL axis (ADR 0025 §3, Victor 2026-08-11) ─────────────────────
+//
+// A THIRD orthogonal capability axis beside order-as-fact (`OrderedBy<K>`) and
+// key-positioning (`Landed<K>`):
+//
+//     forward-only ⊂ bidirectional ⊂ random-access (by ordinal)
+//
+// and the ⊂ is the SUPERTRAIT EDGE below, so the lattice lives in the type
+// system and cannot drift from the table that describes it. Concretely:
+//
+//   * forward-only  = a plain `BatchStream` with NEITHER trait. No third name is
+//     minted for the bottom of the chain — that is the recorded "`can_seek` as
+//     one bool is WRONG" lesson applied in the other direction: the absence of a
+//     capability is not a capability. `HashMapIter` sits here (and is not on this
+//     plane at all today — it implements `Iterator`, not `BatchStream`).
+//   * bidirectional = `Bidirectional<B>`. A btree walk.
+//   * random-access = `RandomAccess<B>`, which IMPLIES `Bidirectional<B>`. Family
+//     walks, heap slices and `Buffer`.
+//
+// The S3 harvest this vocabulary is FOR: `offset`/`limit` push down as one
+// `seek_nth` instead of a skip loop; `order by … desc` over a bidirectional
+// source emits no `Sort`; ordinal sampling needs no drain.
+
+/// Bidirectional traversal: batches can be pulled BACKWARD as well as forward.
+///
+/// `prev` returns:
+/// * `Option::None` — the stream is AT THE START. The exact mirror of `next`'s
+///   `None` = exhausted: a terminal answer for this direction, not an error.
+/// * `Option::Some(b)` — the batch immediately BEFORE the current position, and the
+///   position moves to that batch's first row. An EMPTY batch stays legal in this
+///   direction too (§1), for the same reasons.
+///
+/// Alternating `next`/`prev` therefore hands out the same batch twice, which is the
+/// point: `prev` un-consumes, it does not skip.
+pub trait Bidirectional<B> {
+    /// Pulls the batch before the current position; `None` = already at the start.
+    fn prev(&mut self) -> Option<B>;
+}
+
+/// Random access BY ENTRY ORDINAL (ADR 0025 §3).
+///
+/// Every Memoria container is an ARRAY of its entries, so positioning by ordinal is
+/// ONE DESCENT — which is exactly what keeps §7b's per-LEAF frequency invariant: no
+/// dyn call and no seek is paid per ROW. That is why this is a capability of the
+/// stream rather than an adapter that skips.
+///
+/// POSITIONING IS EXACT AND 0-BASED OVER THE STREAM'S OWN LANDING, not over the
+/// container: a narrowed landing's ordinal 0 is ITS first row, not the container's.
+/// `seek_nth(n)` with `n` past the landing's last row leaves the stream exhausted
+/// (the next `next()` is `None`), never a panic — the same contract `Landed::seek_key`
+/// states for a key past the end.
+///
+/// `size()` (`SizedStream`) is the LANDING's total and is NOT changed by `seek_nth`:
+/// seeking moves a POSITION inside a landing, it does not re-land. Re-landing is
+/// `Landed::seek_key` (by key) or `Rewind::rewind` (to the start).
+pub trait RandomAccess<B>: Bidirectional<B> {
+    /// Positions the stream so the next `next()` yields the batch containing row `n`,
+    /// counted from the stream's own landing. One descent, never a skip loop.
+    fn seek_nth(&mut self, n: u64);
 }
 
 // ── The row-major batch (ADR 0025 §2) ───────────────────────────────────────

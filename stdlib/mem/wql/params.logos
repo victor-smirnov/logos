@@ -130,6 +130,15 @@ pub struct MacroParams {
     /// than once must still be drained, so the offer is not the decision).
     pub rel_iter:    [bool; 8],
     pub rel_stream:  [bool; 8],
+    /// ADR 0025 §1 — the PULL UNIT of this rel's producer is a BATCH, not a
+    /// row: the consumer pulls with `next_batch()` and runs the inner index
+    /// loop over the batch. Set from the natspec's `b` flag, which the
+    /// compiler writes when the producer's return type implements
+    /// `BatchStream` (`producer_batches_`). ORTHOGONAL to `rel_stream`: `b`
+    /// says HOW rows arrive from this producer, `rel_stream` says whether the
+    /// plan may consume it in place — a batch producer the plan cannot read
+    /// once is DRAINED by batch, which is still a batch pull.
+    pub rel_batch:   [bool; 8],
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
@@ -187,6 +196,11 @@ pub struct MacroParams {
     pub opc_fn:   [str; 32],
     pub opc_exact:[bool; 32],
     pub opc_iter: [bool; 32],
+    /// The `b` flag of an OPERATION's producer (ADR 0025 §1) — the narrowing
+    /// landings of a batch family return batch streams too, and the chosen op
+    /// replaces the rel's own producer, so the flag has to travel with it or
+    /// a pushdown would silently fall back to the row pull.
+    pub opc_batch: [bool; 32],
     pub opc_itty: [str; 32],
     pub op_n:     i64,
     pub tparams:     str,
@@ -234,6 +248,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_native:  [false; 8],
         rel_iter:    [false; 8],
         rel_stream:  [false; 8],
+        rel_batch:   [false; 8],
         rel_itty:    [""; 8],
         rel_ssrc:    [""; 8],
         rel_mat:     [""; 8],
@@ -250,6 +265,7 @@ pub fn macro_params_new() -> MacroParams {
         opc_fn:   [""; 32],
         opc_exact:[false; 32],
         opc_iter: [false; 32],
+        opc_batch:[false; 32],
         opc_itty: [""; 32],
         op_n:     0i64,
         tparams:     "",
@@ -404,7 +420,7 @@ impl MacroParams {
     // Append one column to the LAST registered rel.
     /// Record one declared operation for the rel most recently registered.
     pub fn rel_add_op(self: &mut MacroParams, col: str, cmp: str, fn_name: str,
-                      exact: bool, iter: bool, ity: str) {
+                      exact: bool, iter: bool, batch: bool, ity: str) {
         if self.op_n >= 32i64 { return; }
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
@@ -414,6 +430,7 @@ impl MacroParams {
         self.opc_fn[self.op_n]    = fn_name;
         self.opc_exact[self.op_n] = exact;
         self.opc_iter[self.op_n]  = iter;
+        self.opc_batch[self.op_n] = batch;
         self.opc_itty[self.op_n]  = ity;
         self.op_n = self.op_n + 1i64;
         self.op_cnt[r] = self.op_cnt[r] + 1i64;
@@ -506,6 +523,43 @@ pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
     out.push_str("(");
     out.push_str(prm.rel_marg[r]);
     out.push_str(");\n");
+}
+
+/// ADR 0025 §1/§2 — THE ROW, SPELLED OFF A BATCH. One copy, here, because BOTH
+/// consumers of a batch producer need it: the §1 scan shape (`rexpr_walk`,
+/// quoted) and the DRAIN prelude (`plan_walker`, text). Two spellings of the
+/// row projection is exactly how a drained relation would come to differ from
+/// a scanned one — the defect class this whole audit keeps finding.
+///
+/// THE ACCESSOR NAME IS THE DECLARED COLUMN NAME PLUS `_at`. That is a
+/// convention on the producer side of the SAME declaration the column names
+/// arrive in (`rel entry(key: K, val: V)` ⇒ `key_at(i)` / `val_at(i)`), so the
+/// emitter stays declaration-driven and knows no source type — a third layout
+/// is a row in this function, not a branch in every consumer. The point-read
+/// form is v1: §2's resolve-once hoist (`col_<c>()` out of the row loop) needs
+/// a per-column accessor the family does not publish yet and is recorded as
+/// owed, NOT silently skipped — it costs a slot re-resolve per cell, never a
+/// descent, so §5's per-leaf claim is unaffected.
+///
+/// A single-column rel's row is the BARE value, not a 1-tuple — the same rule
+/// `register_native_rels` applies when it builds `rel_rowty`.
+pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
+                      bvar: str, ivar: str) {
+    let off: i64 = prm.rel_coff[r];
+    let nc: i64  = prm.rel_ccnt[r];
+    if nc != 1i64 { out.push_str("("); }
+    let mut c: i64 = 0i64;
+    while c < nc {
+        if c > 0i64 { out.push_str(", "); }
+        out.push_str(bvar);
+        out.push_str(".");
+        out.push_str(prm.relc_name[off + c]);
+        out.push_str("_at(");
+        out.push_str(ivar);
+        out.push_str(")");
+        c = c + 1i64;
+    }
+    if nc != 1i64 { out.push_str(")"); }
 }
 
 // ── RelScc — the rel dependency CONDENSATION (slice C — recursive rels) ──────

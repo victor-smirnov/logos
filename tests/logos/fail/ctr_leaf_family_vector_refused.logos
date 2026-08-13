@@ -1,0 +1,62 @@
+// ADR 0025 S1 — THE ABUSE DIRECTION OF THE SPELLABILITY LAYER.
+//
+// `CtrLeafFamily` is a SEPARATE trait from `CtrFamily` for one measured reason:
+// `impl CtrFamily` is emitted for ordered_map, multimap AND vector families,
+// while `{N}LeafBatch`/`{N}LeafWalk` come out of the ordered_map arm of the
+// emitter ALONE. Putting the two assoc types on `CtrFamily` was MEASURED and it
+// breaks the vector family's OWN emission — `error [impl CtrFamily for
+// CtrClass$G1$hs_…]: unknown type 'Hs…LeafBatch'` — and the stdlib build stays
+// green while it does, because no stdlib unit instantiates a vector family
+// through the factory.
+//
+// So the capability is a membership (ADR §3: existence = trait membership), and
+// THIS is the direction that has to be checked: a family that produces no leaf
+// batches must not end up with a leaf walk.
+//
+// ⚠ WHERE THE REFUSAL ACTUALLY LANDS, MEASURED, AND THE HOLE THAT LEAVES.
+// The refusal below is at the METHOD (`'Hs…' has no method 'leaf_batches'`),
+// NOT at the projection. The projection `<typeof(Vec1) as CtrLeafFamily>::LeafWalk`
+// is NOT refused for an unsatisfied obligation — it resolves to `<error>` and the
+// compile continues (`mlir_gen: unresolved AssocType '<error>::CtrLeafFamily::
+// LeafWalk' — mono_pass required`), which in a variant that only PASSES a value of
+// that type produced the unrelated diagnostic `call to unsafe function 'take'
+// requires unsafe context`. So the type-level obligation on an assoc-type
+// projection is UNCHECKED today; this test pins the refusal that exists, and the
+// missing one is recorded here rather than left as an assumption. What the test
+// does hold is the substantive claim — a vector family cannot be leaf-walked —
+// which is the ground for splitting the trait in the first place.
+//
+// THE OTHER DIRECTION OF THAT SPLIT IS ALREADY IN THE CORPUS: `pass/
+// container_item_e2e` instantiates a `kind vector` family through the factory
+// (`create_ctr::<typeof(Vector::<u64>)>`), so the arrangement that VERDICT 4
+// measured as broken — the two assoc types on `CtrFamily` itself, which makes the
+// vector family's own `impl CtrFamily` reference `unknown type 'Hs…LeafBatch'` —
+// reds a LIVE test, not only a probe.
+//
+// TWIN: `pass/ctr_leaf_family_spelling` — the same projection, an ordered_map
+// family, admitted and answering. Neither half alone separates "refuses the
+// right thing" from "refuses everything".
+package ctr_leaf_family_vector_refused;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+
+pub container Vec1 {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+// A vector family has no leaf-batch producer, so it is not a `CtrLeafFamily`.
+pub type VecWalk = <typeof(Vec1) as CtrLeafFamily>::LeafWalk;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Vec1)>(&snap, 1u64);
+    let mut s: VecWalk = c.leaf_batches();
+    return 0i32;
+}

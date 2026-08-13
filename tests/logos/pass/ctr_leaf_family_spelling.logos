@@ -1,0 +1,254 @@
+// ADR 0025 S1 — THE SPELLABILITY LAYER, and the TRAVERSAL AXIS (§3) on the
+// family walk it makes nameable.
+//
+// TWO THINGS ARE MEASURED HERE, and the first is a prerequisite for the second.
+//
+// 1. A HAND-WRITTEN FN CAN NAME THE GENERATED BATCH TYPES. The family's types
+//    carry the CFG content hash (`Hs352959f3caf5b795LeafWalk`), and that bare
+//    spelling resolves in EMITTED code only — the emitted chunk imports the
+//    producer's defining package through `native_use_text`. In a user program it
+//    is `unknown type '…LeafWalk'`, and `use logos.gen;` is `cannot find
+//    package`. `CtrLeafFamily` is the door, exactly as `CtrFamily::Handle` is the
+//    door to the handle, and the working spelling is the two aliases below:
+//
+//        pub type LedWalk  = <typeof(Led) as CtrLeafFamily>::LeafWalk;
+//        fn first_batch(s: &mut LedWalk) -> LedBatch { … }
+//
+//    WHY AN ALIAS AND NOT THE PROJECTION WRITTEN INLINE IN THE SIGNATURE:
+//    measured on this tree, `fn f(c: &<typeof(Led) as CtrFamily>::Handle)` is
+//    refused with `typeof(container Led): its config const 'LedCfg' did not
+//    resolve to a WritStatic document` — a ROUND-ORDER fact about
+//    `typeof(container …)` inside a plain `fn` signature checked in the same
+//    round the container lowers, not a fact about assoc types (the byte-identical
+//    error appears with `::Handle`, which has existed for months). Behind a
+//    `pub type` the projection resolves at mono, and IT IS LOAD-BEARING, not
+//    erased: the twin `fail/ctr_leaf_family_wrong_family` points the same alias
+//    at a SECOND container and the call is refused with the two families'
+//    distinct hashes in the message.
+//
+// 2. THE TRAVERSAL AXIS IS REAL ON THE WALK. §3 puts family walks at the top of
+//    `forward-only ⊂ bidirectional ⊂ random-access (by ordinal)`, and the ⊂ is
+//    the supertrait edge (`RandomAccess<B>: Bidirectional<B>`), so this program
+//    could not compile if the walk implemented only half the chain. Asserted:
+//      * `seek_nth` lands on the RIGHT row, and the ordinal is counted from the
+//        STREAM'S OWN LANDING — a `from` landing's ordinal 0 is its first row,
+//        not the container's (codes 40-43).
+//      * `seek_nth` past the end exhausts, never panics (code 44).
+//      * `prev` UN-CONSUMES: walking back yields the same batch count and the
+//        same rows as walking forward, and the walk back stops at the landing
+//        (codes 50-53).
+//      * `size()` does NOT move under `seek_nth` — it is the landing's total, and
+//        seeking is a position inside it (code 45). That is the difference from
+//        `Landed::seek_key`, which RE-lands.
+//
+// The oracle for the row content is INDEPENDENT of the batch plane: the
+// container's own per-row cursor (`seek(0)` + `next(&cur)`), the same oracle
+// `ctr_family_leaf_batches` uses. Keys are OFFSET (`i*2 + 7`) and values are
+// offset differently (`i*10 + 3`) so that a zeroed or mis-resolved column cannot
+// satisfy an assertion by arithmetic accident.
+package ctr_leaf_family_spelling;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 1000u64;
+
+// THE SPELLING UNDER TEST. Without these two lines nothing below can be written
+// at all: `LedWalk`/`LedBatch` have no other name a hand-written program may use.
+pub type LedWalk  = <typeof(Led) as CtrLeafFamily>::LeafWalk;
+pub type LedBatch = <typeof(Led) as CtrLeafFamily>::LeafBatch;
+
+/// TAKES the family walk and RETURNS a batch — the shape the whole layer exists
+/// for. Both types are named by projection; neither is inferable here.
+fn first_batch(s: &mut LedWalk) -> LedBatch {
+    return s.next_batch().unwrap();
+}
+
+// ⚠ NO HAND-WRITTEN FN RETURNS `Option<LedBatch>`, AND THAT IS A MEASURED
+// BOUNDARY OF THE SPELLING, not an omission. `fn pull(s: &mut LedWalk) ->
+// Option<LedBatch>` compiles the signature but kills the metaprog MLIR pass:
+// `mlir_gen: unknown field type in
+// 'SkipWhileIter$G2$OptionIter$G1$<error>::LeafBatch$<error>::LeafBatch'`,
+// i.e. the generic machinery instantiated for a NEW `Option<T>` still holds the
+// unresolved projection while the direct uses of it have been substituted.
+// (The same `mlir_gen: unresolved AssocType '<error>::…' — mono_pass required`
+// lines print for `CtrFamily::Handle` on today's tree, and there they stay
+// harmless.) The projection is therefore spellable BARE — parameter, return,
+// `let` — but not yet as a type ARGUMENT to a generic. The loops below take the
+// `Option` by INFERENCE from `next_batch()`/`prev()`, which needs no name.
+/// The batch type in ARGUMENT position too, not only as a return.
+fn batch_ksum(b: &LedBatch) -> u64 {
+    let n: u64 = b.len();
+    let kc: PdtCol = b.keys();
+    let mut j: u64 = 0u64;
+    let mut acc: u64 = 0u64;
+    while j < n { acc = acc + kc.at(j); j = j + 1u64; }
+    return acc;
+}
+
+fn key_of(i: u64) -> u64 { return i * 2u64 + 7u64; }
+fn val_of(i: u64) -> u64 { return i * 10u64 + 3u64; }
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(key_of(i), val_of(i)); i = i + 1u64; }
+
+    // ── ORACLE: the container's own per-row cursor ──────────────────────
+    let mut rows_w: u64 = 0u64;
+    let mut ksum_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            ksum_w = ksum_w + cu.key();
+            rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+    if rows_w != N { return 10i32; }
+
+    // ── 1. the hand-written doors, over the full landing ────────────────
+    let mut rows_b: u64 = 0u64;
+    let mut ksum_b: u64 = 0u64;
+    let mut batches: u64 = 0u64;
+    {
+        let mut s: LedWalk = c.leaf_batches();
+        // The FIRST batch through the fn that RETURNS a batch by value.
+        {
+            let b: LedBatch = first_batch(&mut s);
+            if b.len() == 0u64 { return 20i32; }
+            if b.key_at(0u64) != key_of(0u64) { return 21i32; }
+            if b.val_at(0u64) != val_of(0u64) { return 22i32; }
+            batches = batches + 1u64;
+            rows_b = rows_b + b.len();
+            ksum_b = ksum_b + batch_ksum(&b);
+        }
+        // The rest through the trait pull. The `Option` is taken by inference
+        // (see the ⚠ above); the BATCH is still named by projection.
+        loop {
+            let ob = s.next_batch();
+            if ob.is_some() {
+                {
+                    let b: LedBatch = ob.unwrap();
+                    batches = batches + 1u64;
+                    rows_b = rows_b + b.len();
+                    ksum_b = ksum_b + batch_ksum(&b);
+                }
+            } else { break; }
+        }
+    }
+    if rows_b != rows_w { return 30i32; }
+    if ksum_b != ksum_w { return 31i32; }
+    // Per LEAF, not per row — the §5 claim, restated on this door.
+    if batches >= rows_b { return 32i32; }
+    if batches < 3u64   { return 33i32; }
+
+    // ── 2a. RandomAccess::seek_nth over the FULL landing ────────────────
+    // Row 500 is key_of(500). Positioning is by ORDINAL, and the batch that
+    // comes back must START there — not at its leaf's first row.
+    {
+        let mut s: LedWalk = c.leaf_batches();
+        let sz0: u64 = s.size();
+        s.seek_nth(500u64);
+        if s.size() != sz0 { return 45i32; }   // size is the LANDING's total
+        let b: LedBatch = first_batch(&mut s);
+        if b.key_at(0u64) != key_of(500u64) { return 40i32; }
+        if b.val_at(0u64) != val_of(500u64) { return 41i32; }
+    }
+
+    // ── 2b. the ordinal origin is the STREAM'S landing, not the container ──
+    {
+        let mut s: LedWalk = c.leaf_batches_from(key_of(500u64));
+        s.seek_nth(0u64);
+        let b: LedBatch = first_batch(&mut s);
+        if b.key_at(0u64) != key_of(500u64) { return 42i32; }
+    }
+    {
+        let mut s: LedWalk = c.leaf_batches_from(key_of(500u64));
+        s.seek_nth(7u64);
+        let b: LedBatch = first_batch(&mut s);
+        if b.key_at(0u64) != key_of(507u64) { return 43i32; }
+    }
+
+    // ── 2c. seek_nth past the end EXHAUSTS (no panic, no batch) ─────────
+    {
+        let mut s: LedWalk = c.leaf_batches();
+        s.seek_nth(N + 1000u64);
+        let ob = s.next_batch();
+        if ob.is_some() { return 44i32; }
+    }
+
+    // ── 3. Bidirectional::prev — walking back re-covers the same rows ───
+    let mut rows_back: u64 = 0u64;
+    let mut ksum_back: u64 = 0u64;
+    let mut batches_back: u64 = 0u64;
+    {
+        let mut s: LedWalk = c.leaf_batches();
+        // EXHAUSTED THROUGH `advance`, not through `next_batch`: the `Option` a
+        // loop last pulled is still a live borrow of `s` at the loop's exit, so a
+        // second loop's `&mut s` is refused (measured: `cannot borrow 's' as
+        // mutable: already mutably borrowed`). `advance` returns a bool and
+        // retains nothing, which is exactly why the split pull door exists (§5).
+        while s.advance() { }
+        // Exhausted. Now back to the landing.
+        { loop {
+            let ob = s.prev();
+            if ob.is_some() {
+                {
+                    let b: LedBatch = ob.unwrap();
+                    batches_back = batches_back + 1u64;
+                    rows_back = rows_back + b.len();
+                    ksum_back = ksum_back + batch_ksum(&b);
+                }
+            } else { break; }
+        } }
+    }
+    if rows_back    != rows_b  { return 50i32; }
+    if ksum_back    != ksum_w  { return 51i32; }
+    if batches_back != batches { return 52i32; }
+
+    // `prev` UN-CONSUMES rather than skipping: after one `prev`, the next
+    // `next` hands out the SAME batch. Measured on the first two batches.
+    {
+        // Each batch is scoped: a live batch holds `s` borrowed (§7 rung 1), so
+        // two of them at once is a borrow error, not a test.
+        let mut s: LedWalk = c.leaf_batches();
+        let mut k0: u64 = 0u64;
+        { let b: LedBatch = first_batch(&mut s); k0 = b.key_at(0u64); }
+        let mut k1: u64 = 0u64;
+        let mut n1: u64 = 0u64;
+        { let b: LedBatch = first_batch(&mut s); k1 = b.key_at(0u64); n1 = b.len(); }
+        if k1 <= k0 { return 53i32; }
+        { let b: LedBatch = s.prev().unwrap();
+          if b.key_at(0u64) != k1 { return 54i32; }
+          if b.len() != n1        { return 55i32; } }
+        { let b: LedBatch = first_batch(&mut s);
+          if b.key_at(0u64) != k1 { return 56i32; }
+          if b.len() != n1        { return 57i32; } }
+        // Back past the landing is `None`, not a wrap and not a trap — and the
+        // COUNT is pinned, not just the terminator: exactly TWO batches sit
+        // before the pointer here (the pointer is past batch 2), so two backward
+        // pulls answer and the third does not. A `prev` that skipped instead of
+        // un-consuming would run out one pull early and red at 59.
+        { let ob = s.prev(); if !ob.is_some() { return 58i32; } }
+        { let ob = s.prev(); if !ob.is_some() { return 59i32; } }
+        { let ob = s.prev(); if ob.is_some()  { return 60i32; } }
+    }
+
+    return 0i32;
+}

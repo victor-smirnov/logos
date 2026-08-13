@@ -21283,7 +21283,21 @@ std::string SemaChecker::producer_ret_type_(const std::string& fn_name) {
     return type_str(fit->second.ret_type);
 }
 
-bool SemaChecker::producer_streams_(const std::string& fn_name) {
+// The producer's return type reduced to the BASE NAME an impl registers under
+// ("VecIter<u64>" → "VecIter"). ONE copy: `producer_streams_` and
+// `producer_batches_` ask the same question of the same text about two
+// different traits, and two spellings of this reduction is how the two answers
+// would come to disagree about which type they were asked about.
+static std::string producer_ret_base_(std::string base) {
+    if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
+    while (!base.empty() && base.back() == ' ') base.pop_back();
+    while (!base.empty() && (base.front() == '&' || base.front() == ' '))
+        base.erase(base.begin());
+    return base;
+}
+
+bool SemaChecker::producer_impls_trait_(const std::string& fn_name,
+                                        const std::string& trait_name) {
     if (fn_name.empty()) return false;
     auto ovit = func_overloads_.find(fn_name);
     if (ovit == func_overloads_.end() || ovit->second.empty()) return false;
@@ -21291,14 +21305,18 @@ bool SemaChecker::producer_streams_(const std::string& fn_name) {
     if (fit == funcs_.end()) return false;
     TypeRef rt = fit->second.ret_type;
     if (!rt) return false;
-    std::string base = type_str(rt);
-    if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
-    while (!base.empty() && base.back() == ' ') base.pop_back();
-    while (!base.empty() && (base.front() == '&' || base.front() == ' '))
-        base.erase(base.begin());
+    std::string base = producer_ret_base_(type_str(rt));
     if (base.empty()) return false;
     logos::compiler::StrSet seen;
-    return sema_has_impl_recursive("Iterator", base, {}, seen);
+    return sema_has_impl_recursive(trait_name, base, {}, seen);
+}
+
+bool SemaChecker::producer_streams_(const std::string& fn_name) {
+    return producer_impls_trait_(fn_name, "Iterator");
+}
+
+bool SemaChecker::producer_batches_(const std::string& fn_name) {
+    return producer_impls_trait_(fn_name, "BatchStream");
 }
 
 std::string SemaChecker::native_source_spec(const std::string& pname,
@@ -21342,8 +21360,16 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // always resolvable in the round its consumer is compiled (a
         // factory-family query lowers in the same round the family lands), and
         // an inferred `let` then carries an unresolved var into the loop.
-        if (producer_streams_(mat_fn_used)) {
-            spec += "!i%";
+        // `b` (ADR 0025 §1) rides in the SAME flag set: the pull unit is a
+        // BATCH, so the consumer runs §1's `next_batch()` + inner index loop
+        // rather than one `next()` per row. It implies `i` — a batch stream is
+        // consumable in place for exactly the reasons a row iterator is — and
+        // the two are one field on purpose: `pw_flag` tests membership, so a
+        // reader that only knows `i` keeps working and the drain path branches
+        // on `b` for HOW to empty it.
+        const bool mat_batches = producer_batches_(mat_fn_used);
+        if (mat_batches || producer_streams_(mat_fn_used)) {
+            spec += mat_batches ? "!ib%" : "!i%";
             spec += producer_ret_type_(mat_fn_used);
         }
         // The emitted chunk imports the materializer's module — omitted when
@@ -21489,8 +21515,9 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                 // plus `i` when the operation's producer streams — followed by
                 // `%<ret-type>` for the same reason the rel binding carries one.
                 spec += b.ops[i].exact ? " e" : " s";
-                if (producer_streams_(b.ops[i].fn)) {
-                    spec += "i%";
+                const bool op_batches = producer_batches_(b.ops[i].fn);
+                if (op_batches || producer_streams_(b.ops[i].fn)) {
+                    spec += op_batches ? "ib%" : "i%";
                     spec += producer_ret_type_(b.ops[i].fn);
                 }
             }

@@ -5,10 +5,25 @@
 # this tree was blind to.
 #
 # The narrowing itself is landed and was RE-MEASURED on 2026-08-10 (ADR 0024 S6):
-# a generated ordered-map family declares `op entry.key ge = __ctr_from_… exact`
+# a generated ordered-map family declares `op entry.key ge = __ctr_bfrom_… exact`
 # and the query lands by `seek_key`, one descent; the positional family declares
 # `op row.pos ge` and lands by `seek`; `HashMap`, hand-written and knowing no
-# order, declares `op entry.key eq = hashmap_at exact` and nothing else. What was
+# order, declares `op entry.key eq = hashmap_at exact` and nothing else.
+#
+# ⚠ RE-PINNED 2026-08-13 (ADR 0025 S1), AND THIS GATE HAD GONE RED UNNOTICED.
+# S1's emitter collapse gave the ordered-map family LEAF-BATCH producers and
+# DELETED the per-row ones, so `__ctr_from_`/`__ctr_rows_` — the names three of
+# this gate's clauses were written around — no longer exist for that family; it
+# now declares `__ctr_bfrom_`/`__ctr_brows_`. The narrowing they assert is
+# unchanged (same rel, same column, same exactness, one call, filter retired):
+# what moved is the PULL UNIT. Two things follow, and neither is a weakening.
+# First, the three ordered-map clauses now name the producers the family
+# declares TODAY — a gate that names a deleted symbol asserts nothing, and the
+# absence clause in particular was VACUOUS the moment `__ctr_rows_` stopped
+# existing (a permissive defect: it could never fire again). Second, the
+# POSITIONAL family still emits `__ctr_from_`/`__ctr_rows_`, and its clauses are
+# untouched — so the two families are now told apart by name, where before one
+# spelling covered both. What was
 # missing is a SENSOR. Every fixture over those paths asserted only the ANSWER —
 # and the answer is IDENTICAL under a full scan, because a plan that fails to
 # narrow keeps the query's own filter and returns exactly the same rows. So a
@@ -32,7 +47,9 @@
 #
 #   THE EMITTED CALL     the `--gen-dir` dump. It says what will actually RUN. A
 #                        plan that recorded a narrowing while the emitter called
-#                        `__ctr_rows_` would pass the first half; the absence of
+#                        the full-scan producer (`__ctr_brows_` for the ordered-map
+#                        family, `__ctr_rows_` for the positional one) would pass
+#                        the first half; the absence of
 #                        the full-scan producer for that rel is asserted too, and
 #                        the bound LITERAL is asserted with it, because "narrowed"
 #                        with the wrong landing is not narrowed.
@@ -65,7 +82,9 @@
 #   `scan`, this gate exits 1, and every pre-existing test stays green.
 #   MEASURED: exactly that — `[plan] m -> scan [every row] (the source declares
 #   no operation covering that comparison on that column)`, the emitted fn
-#   calling `__ctr_rows_Hs…(m)`, four assertions red here, and the hashmap and
+#   calling the family's full-scan producer for `m` (`__ctr_rows_Hs…` as it was
+#   spelled then; `__ctr_brows_Hs…` since S1), four assertions red here, and the
+#   hashmap and
 #   vector halves untouched (the gate names the rel that lost the operation).
 #
 #   CONTROL 2 — `op entry.key eq = hashmap_at exact;` deleted from the
@@ -117,8 +136,8 @@ want_plan() {
 
 # The emitted user code — every `test.*.gen.logos` dump, which is the query's own
 # module. The family's dumps are `logos.gen.*` and hold the DEFINITIONS of these
-# producers, so they must not be searched: finding `__ctr_rows_` there proves
-# nothing about what the query calls.
+# producers, so they must not be searched: finding a full-scan producer there
+# proves nothing about what the query calls.
 dumps() {
     shopt -s nullglob
     local d=("$TMPD/$1"/test.*.gen.logos)
@@ -154,11 +173,11 @@ want_emit() {
 # the plan lands by one descent and the filter is retired.
 compile size "$SIZE_FIXTURE"
 want_plan size \
-    '^\[plan\] m -> __ctr_from_[A-Za-z0-9_]+ \[a range\] on key   \(an operation EXACT for that comparison' \
+    '^\[plan\] m -> __ctr_bfrom_[A-Za-z0-9_]+ \[a range\] on key   \(an operation EXACT for that comparison' \
     "the key range did not reach the container as a range access"
-want_emit size '= __ctr_from_[A-Za-z0-9_]+\(m, 5u64\);' 1 \
+want_emit size '= __ctr_bfrom_[A-Za-z0-9_]+\(m, 5u64\);' 1 \
     "the emitted fn does not land the walk on the declared bound"
-want_emit size '__ctr_rows_[A-Za-z0-9_]+\(m\)' 0 \
+want_emit size '__ctr_brows_[A-Za-z0-9_]+\(m\)' 0 \
     "the emitted fn still calls the FULL-SCAN producer for the narrowed rel"
 # The retired filter: the bound appears once, in the call, and nowhere else.
 want_emit size '5u64' 1 \
@@ -221,9 +240,9 @@ want_emit vector '> 10u64' 1 \
 # ("one query may join a Memoria container, Writ and mem").
 compile join "$JOIN_FIXTURE"
 want_plan join \
-    '^\[plan\] c -> __ctr_from_[A-Za-z0-9_]+ \[a range\] on key' \
+    '^\[plan\] c -> __ctr_bfrom_[A-Za-z0-9_]+ \[a range\] on key' \
     "the JOIN base's key range did not reach the container — plan_decide_access's Join arm is unsensed"
-want_emit join '__ctr_rows_[A-Za-z0-9_]+\(c\)' 0 \
+want_emit join '__ctr_brows_[A-Za-z0-9_]+\(c\)' 0 \
     "the JOIN base fell back to the full-scan producer"
 # The join's own GROUND, which differs from sections 1-3 and is why the
 # neutrality grammar below stops at the access: the operation is exact, but the

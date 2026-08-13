@@ -205,11 +205,22 @@ a per-row cost. The batch is the currency that crosses the dyn boundary.
 ## 3. Capabilities
 
 ```logos
-trait Rewind        { fn rewind(&mut self); }       // re-land; multi-pass
-trait SizedStream   { fn size(&self) -> u64; }      // free, no drain
-trait OrderedBy<K>  { … }                           // batches arrive in K order, intra-batch sorted
-trait Landed<K>     { fn seek(&mut self, k: K); }   // ordered positioning
+trait Rewind          { fn rewind(&mut self); }        // re-land; multi-pass
+trait SizedStream     { fn size(&self) -> u64; }       // free, no drain
+trait OrderedBy<K>    { … }                            // batches arrive in K order, intra-batch sorted
+trait Landed<K>       { fn seek_key(&mut self, k: K); }// ordered positioning, BY KEY
+trait Bidirectional<B>            { fn prev(&mut self) -> Option<B>; }   // traversal ⊂ …
+trait RandomAccess<B>: Bidirectional<B> { fn seek_nth(&mut self, n: u64); } // … ⊂ by ORDINAL
 ```
+
+⚠ `Landed::seek` WAS RENAMED `seek_key` WHEN THE TRAVERSAL PAIR LANDED (S1,
+2026-08-13), and the rename is the whole repair of a naming hazard, not a
+tidy-up. The generated container beneath a family walk spells `seek(n: u64)` BY
+ORDINAL and `seek_key(k)` BY KEY; a family walk implements `Landed<K>` AND
+`RandomAccess<B>` simultaneously, so a `Landed::seek(k)` would have sat on one
+type beside `seek_nth(n)` with the two conventions INVERTED relative to the layer
+underneath. It was cheap because `Landed` had exactly one impl and one caller
+when S1 opened; it stops being cheap once S3 consumes the trait.
 
 **The TRAVERSAL axis (Victor, 2026-08-11).** Memoria containers support
 random access by entry ORDINAL, so the batch cursor carries a THIRD
@@ -225,6 +236,32 @@ Vocabulary lands at S1 as a trait pair beside `Rewind`/`SizedStream`
 (spelling settled there); the S3 harvest: `offset`/`limit` push down as one
 `seek_nth` instead of a skip loop, `order by … desc` over a bidirectional
 source emits no `Sort`, and ordinal sampling needs no drain.
+
+**LANDED (S1, 2026-08-13)** in `stdlib/lang/stream/stream.logos` as the pair
+above. THE ⊂ IS THE SUPERTRAIT EDGE, so the lattice is in the type system and
+cannot drift from this paragraph: an `impl RandomAccess` without the matching
+`impl Bidirectional` is refused (`missing impl … (required by supertrait)`,
+measured). No third name is minted for the BOTTOM of the chain — forward-only is
+a plain `BatchStream` with neither trait, which is the recorded "`can_seek` as
+one bool is WRONG" lesson applied in the other direction: the absence of a
+capability is not a capability. `HashMapIter`, §3's forward-only example,
+declares neither and is not on this plane at all (it implements `Iterator`; the
+only `BatchStream` impls tree-wide are `Buffer` and the generated
+`{N}LeafWalk`). Implementations: `Buffer` — both, field arithmetic, no descent;
+`{N}LeafWalk` — both, one descent each, `prev` re-using the SAME ordinal
+`seek(n)` the forward pull uses. Fixtures `pass/stream_traversal_buffer` and
+`pass/ctr_leaf_family_spelling`, each held by a CONTROL REVERT run one clause at
+a time (neuter `seek_nth` → red; restore, rebuild green; neuter `prev` → red).
+
+TWO CONTRACTS SETTLED HERE, because both were ambiguous in the paragraph above.
+(a) THE POSITION IS A POINTER BETWEEN BATCHES: `next` hands out the batch after
+it and moves past that batch; `prev` hands out the batch before it and moves
+before that batch. So `next` then `prev` hands out the SAME batch — `prev`
+UN-CONSUMES, it does not skip — and the walk needs no second cursor.
+(b) `seek_nth` REPOSITIONS INSIDE A LANDING; it does not re-land. Ordinals are
+0-based over the STREAM's own landing (a `from` landing's ordinal 0 is its first
+row, not the container's), and `SizedStream::size()` — the landing's total — does
+not move under it. Re-landing is `Landed::seek_key` (by key) or `Rewind`.
 
 `[REC]` Existence = trait membership of the producer's return type, asked by
 the planner via metaprog trait queries (the seam `join_key_caps` already
@@ -258,9 +295,12 @@ spelled; the plan inserts `Drain` and says why.
 
 ## 5. Memoria mapping: the cursor moves by LEAVES
 
-Landing constructors are unchanged in role (`__ctr_at_/from_/upto_` — the
-pushdown plane of ADR 0024 S6 is untouched); what changes is what they return:
-a leaf-batch stream. `next()` hands out the CURRENT leaf's window as a
+Landing constructors are unchanged in ROLE (the pushdown plane of ADR 0024 S6
+is untouched); what changes is what they return: a leaf-batch stream. ⚠ THE
+NAMES IN THIS PARAGRAPH ARE THE PRE-S1 ONES. As of S1 (2026-08-13) the
+declared landings are `__ctr_bat_/bfrom_/bupto_` and their per-row twins
+`__ctr_at_/from_/upto_` are DELETED — the role survived the rename, which is
+exactly the claim this paragraph makes. `next()` hands out the CURRENT leaf's window as a
 `ColsBatch` (the `hi` bound trimmed inside the leaf via `lower_bound`), then
 descends for the next leaf. One descent per LEAF instead of a container method
 per row; n/fanout descents per scan — the asymptotics the CoW no-sibling-
@@ -321,6 +361,73 @@ Reading the batch through the TRAIT method also binds the arm at the trait's
 declared parameter (the `deem_ctr_family_streams` defect, verbatim), which is
 the second reason the inherent door exists.
 
+**THE SPELLABILITY LAYER — LANDED (S1, 2026-08-13).** S0 recorded that "a
+family's type has no spelling a human can write", and left the handle methods as
+the only door. That door is not enough: a hand-written consumer cannot name the
+BATCH TYPES at all, so it can neither take a walk as a parameter nor return a
+batch. `CtrLeafFamily` (a SECOND trait beside `CtrFamily`, in
+`stdlib/lcm/canon/metaclass.logos`) closes it with `type LeafBatch` +
+`type LeafWalk`, and the WORKING SPELLING — measured end-to-end — is a `pub type`
+alias over the projection:
+
+```logos
+pub type LedWalk  = <typeof(Led) as CtrLeafFamily>::LeafWalk;
+pub type LedBatch = <typeof(Led) as CtrLeafFamily>::LeafBatch;
+fn first_batch(s: &mut LedWalk) -> LedBatch { return s.next_batch().unwrap(); }
+```
+
+Four facts, each measured, none of them guessable from the shape:
+
+* **A SECOND TRAIT, NOT TWO MORE MEMBERS ON `CtrFamily`.** `impl CtrFamily` is
+  emitted for ordered_map, multimap AND vector; the leaf-batch types come out of
+  the FSE ordered_map arm alone. Members on `CtrFamily` break the vector family's
+  own emission (`unknown type 'Hs…LeafBatch'`, caught by the live
+  `pass/container_item_e2e`); and guarding the separate impl on `kind ==
+  ordered_map` up in the factory still breaks the str-valued (VLE/volume)
+  ordered_map (`pass/metaclass_str_generic`). The impl is therefore emitted from
+  INSIDE the same block that emits the two types, which makes co-emission
+  structural rather than a restated condition. This is §3's own rule applied one
+  level down: existence of a capability = trait membership.
+* **THE ALIAS IS REQUIRED, AND IT IS LOAD-BEARING.** The projection written
+  INLINE in a plain `fn` signature is refused — `typeof(container Led): its
+  config const 'LedCfg' did not resolve to a WritStatic document` — a ROUND-ORDER
+  fact about `typeof(container …)` in a signature checked in the round the
+  container lowers, NOT a fact about assoc types: the byte-identical error
+  appears with `::Handle`, which has existed for months. (A `deem` signature is
+  unaffected; it lowers later.) Behind a `pub type` it resolves at mono, and it
+  does not erase: `fail/ctr_leaf_family_wrong_family` points the alias at a
+  SECOND family and the call is refused with both CFG hashes in the message.
+* **NO BOUND ON `LeafWalk`.** `type LeafWalk: BatchStream<Self::LeafBatch>` does
+  compile and would state §1 at the trait, but it needs `use logos.lang.stream;`
+  in `metaclass`, which EVERY `create_ctr` consumer imports — hubbing
+  `BatchStream::next` into all of them and making `it.next()` ambiguous against
+  `Iterator::next` tree-wide. That is the exact hazard `logos.lang.stream`'s
+  header records as the reason it is out of the prelude. The emitted
+  `impl BatchStream<{N}LeafBatch> for {N}LeafWalk` is the fact; `has_trait` is
+  how the planner asks.
+* **THE EMITTER DOES NOT NEED ANY OF THIS.** Emitted code already resolves the
+  bare hash names, because the chunk imports the producer's defining package via
+  `native_use_text` — which is what makes today's streamed prelude work. The
+  spellability layer is the door for HAND-WRITTEN consumers (tests, oracles,
+  §12's returned streams), not a prerequisite for the scan-shape collapse.
+
+TWO BOUNDARIES OF THE SPELLING, recorded because a green fixture would otherwise
+hide them. (1) The projection is spellable BARE — parameter, return, `let` — but
+NOT as a type ARGUMENT to a generic: `-> Option<LedBatch>` kills the metaprog
+MLIR pass (`unknown field type in 'SkipWhileIter$G2$OptionIter$G1$<error>::
+LeafBatch…'`), so consumers take the `Option` by inference. (2) The projection is
+NOT obligation-checked: `<typeof(Vec1) as CtrLeafFamily>::LeafWalk` for a family
+that does not implement the trait resolves to `<error>` and the compile continues
+(one variant then produced the unrelated `call to unsafe function 'take' requires
+unsafe context`). `fail/ctr_leaf_family_vector_refused` pins the refusal that DOES
+exist — the vector handle has no `leaf_batches` — and names the missing one.
+
+`{N}LeafWalk` also gained the traversal pair here (§3): `Bidirectional::prev` via
+a `retreat` that mirrors `advance` (one descent, per leaf, clamped to the
+landing), and `RandomAccess::seek_nth` as field arithmetic whose descent is the
+NEXT pull's — so repositioning plus reading costs one descent in total, which is
+the claim §3 makes.
+
 No compilation firewall exists in Logos Memoria — the batch type is the leaf's
 own typed view, fully inlined into the query code: zero-copy AND
 zero-abstraction at once. The C++ original lifts leaf data through the CF via
@@ -375,7 +482,7 @@ exactly two properties:
    reached only when the stream ESCAPES the handle's scope. §12.
 
 **Why not RC-per-cursor:** a join probe opens a cursor PER OUTER ROW
-(`__ctr_at_(c,k)`); counting there is per-row traffic bought for nothing BC
+(`__ctr_bat_(c,k)` — `__ctr_at_` pre-S1); counting there is per-row traffic bought for nothing BC
 does not already give. Why not BC-only: the owned cases above would become
 inexpressible rather than safe.
 
@@ -487,6 +594,35 @@ The `is_slice`/`rel_stream`/`rel_iter` triple (one fact, now a type); the 17
 drain-vs-stream prelude split (one protocol, `Drain` explicit);
 `plan_mark_single_pass` as a proof (typing + adapter insertion); the per-row
 container-method walk (leaf batches).
+
+⚠ TWO CORRECTIONS TO THE LIST ABOVE, both measured on the tree rather than read
+off it (2026-08-13, S1).
+
+* **`is_slice` IS NOT A THIRD SPELLING OF THE SCAN SHAPE, and S2 must not
+  delete the bit.** Only ONE of the triple reaches the scan-shape decision:
+  `prm.rel_src_streams(src)` over `rel_stream`. `rel_iter` is the SOURCE'S
+  OFFER (read at `access_plan.logos:210`, overwritten from the chosen op at
+  `plan_walker.logos`'s `plan_apply_access`) and `rel_stream` is the PLAN'S
+  DECISION — offer ⟂ decision is the whole "a rel scanned twice must still be
+  drained" rule, not two spellings of one fact. `is_slice` carries two
+  UNRELATED facts: the source-vs-scalar discriminator (`params.logos`'s
+  `is_source`/`is_scalar`) and the incremental arm's "exactly one slice
+  parameter" admission. What S2 deletes is the SHAPE reading; the bit survives.
+* **The per-row container-method walk IS DELETED FOR THE ORDERED_MAP ARM
+  (S1, 2026-08-13; scope corrected same day by the S1 audit)** — `{N}Walk`,
+  its `Iterator` impl and the four producers `__ctr_rows_/at_/from_/upto_`
+  are gone from the ordered_map arm of
+  `stdlib/lcm/canon/container_item.logos`; the family declares the leaf-batch
+  producers and both consumers of a batch producer emit §1's one shape.
+  ⚠ THE POSITIONAL/VECTOR ARM STILL EMITS THE PER-ROW FORM (measured on the
+  emitted artifact: `container_item_e2e`'s scan relocations name
+  `Hs…Walk__next` and `__ctr_rows_`) — S0 never built that family a
+  leaf-batch producer, so the emitter still carries THREE pull shapes, not
+  one. OPEN as S1b: the ordered_map recipe (producer + collapse + descent
+  oracle) applied to the positional family. The
+  drain-vs-stream prelude split is NOT yet deleted — it is now a split over one
+  PULL PROTOCOL (both legs pull batches), which is what makes `Drain` an
+  adapter rather than a rewrite when S2 takes it.
 
 ## 10. DBSP seam
 
@@ -629,12 +765,131 @@ scan shape; every other cell is declared, not silently absent.
     target key with its module, as the concrete arm already does); widening the
     QUERY to also try the unsuffixed name would re-conflate homonyms.
 * **S1 — one scan shape.** The emitter's three scan branches collapse; slices
-  ride as one-packet streams. Gates: slice-source codegen byte-comparable OR
+  ride as one-packet streams.
+  **SPELLABILITY + TRAVERSAL SUB-SLICE DONE 2026-08-13** (the scan-branch
+  collapse itself is still open): `CtrLeafFamily` and its factory-emitted impl
+  (§5), the `Bidirectional`/`RandomAccess` pair and the `Landed::seek` →
+  `seek_key` rename (§3). Fixtures `pass/ctr_leaf_family_spelling`,
+  `pass/stream_traversal_buffer`, `fail/ctr_leaf_family_vector_refused`,
+  `fail/ctr_leaf_family_wrong_family`; registry 7135→7139 predicted before the
+  reconfigure and measured after; full build + L2 2110/2110 + the 212-test
+  bc/ctr corpus green. Gates: slice-source codegen byte-comparable OR
   measured equal (objdump/callgrind — the S4k standard); Memoria scan via leaf
   batches, oracle = same rows against the container's own per-row cursor +
   descent count (leaves, not rows). Requires Memoria API req. 1–2 — req. 2 in
   its §7b form (`dyn Snapshot` in the handle), so the dyn boundary lands here,
   not as a later migration.
+  **THE MEMORIA SCAN SUB-SLICE DONE 2026-08-13; THE SLICE ARM IS STILL OPEN.**
+  What landed, in three stages with a green checkpoint and its own control
+  between each:
+  * **The channel.** `producer_batches_` (`src/compiler/sema_expr.cpp`) is the
+    exact twin of `producer_streams_` — `sema_has_impl_recursive("BatchStream",
+    <ret-ty base>)` — and both now share one reduction of the return type to
+    its impl key, so the two answers cannot come to disagree about which type
+    they were asked about. The natspec flag field carries `b` beside `i`: `i`
+    stays "consumable in place" (the OFFER, ADR 0024 S4), `b` says only THE
+    PULL UNIT IS A BATCH. Membership, not equality — `pw_flag` already tested
+    it that way, so nothing that reads `i` changed. `b` travels on the rel's
+    own materializer AND on each declared operation, because
+    `plan_apply_access` replaces the rel's producer with the chosen op's and a
+    pushdown would otherwise fall back to a row pull against a batch stream.
+    Parsed into `rel_batch`/`opc_batch` (`params.logos`).
+  * **The declaration.** The generated ordered_map family declares the
+    leaf-batch producers: `rel entry = #browsfn`, `op … eq/ge/le =
+    #batfn/#bfromfn/#buptofn`. Nothing else about the declaration moves — same
+    rel, same columns, same exactness, same `size` reporter. That is the whole
+    switch: the pull unit is a property of the PRODUCER, not a second
+    vocabulary.
+  * **The two consumers.** `rexpr_walk::batch_scan_frag` is §1's shape verbatim
+    and is called from BOTH scan sites (`emit_simple`'s streamed arm and
+    `chain_nest_frag`'s streaming join base) — one function, so a layout is a
+    row in it rather than a branch in every consumer (§2). The DRAIN prelude
+    (`plan_walker::emit_prelude_oneshot`) keeps the outer `next_batch()` pull
+    and puts the index loop inside it, so a query the plan cannot read once
+    still pays one pull per LEAF. The row is spelled by ONE shared function,
+    `params::batch_row_text`, keyed off the DECLARED column names
+    (`<col>_at(i)`), so the emitter still knows no source type.
+  * **The per-row form is DELETED — ordered_map arm only (scope corrected by
+    the S1 audit; the positional arm is S1b)** — `{N}Walk`, its `Iterator`
+    impl, and `__ctr_rows_/at_/from_/upto_`. ⚠ The ledger sentence that
+    stood here ("referenced NOWHERE but at their own definition … no fixture
+    and no gate named them") was REFUTED by this round's own audit: the
+    access-path gate and fixtures did name them. The honest ledger: every
+    remaining reference was updated WITH the cut in the same change, and the
+    audit's grep of all 14 deleted symbols (build/ excluded) is the record —
+    a cut's ledger must be the measured reference list, not a claim of
+    emptiness.
+  MEASURED, not inferred: the shape change was read off the EMITTED ARTIFACT
+  (`--gen-dir`) for every family-source deem fixture in the tree, which is also
+  how the drain leg was found to have NO coverage at all — hence
+  `pass/deem_batch_scan_drain` (`order by`, an aggregate, and a narrowed
+  landing under a sort, each against the container's own per-row cursor).
+  CONTROL, run and restored (md5-verified) with a rebuild green on both sides:
+  neutering the drain prelude's `rel_batch` arm reds that fixture at compile
+  time (`let '__dr': type mismatch — expected Option, got Option`) while
+  `deem_ctr_family_streams` stays green — the two legs are independent and the
+  new fixture is the only thing holding the new arm. Registry 7139→7140
+  predicted before the reconfigure and measured identical after; L2 2110/2110.
+  STILL OPEN in S1, and named rather than absorbed: the SLICE arm. §1 says the
+  indexed loop is literally the inner loop of the one-packet case, and that is
+  true of the SHAPE — but a heap slice has no packet PRODUCER, and minting one
+  is `Drain`/`Buffer`, which is S2. Emitting a `while __p < 1` skeleton around
+  the existing loop would have put a shape in the tree that no source produces,
+  against a gate (byte-comparable slice codegen) it can only lose. So the slice
+  arm still reads `is_slice` and is untouched — and the byte-comparability gate
+  was therefore not exercised, which is the honest state, not a pass.
+  **BOTH S1 GATES ARE NOW REGISTERED ARTIFACTS (2026-08-13).** A gate that is a
+  SENTENCE in an ADR is a gate nobody runs, and both of these guard the same
+  defect class — one that a green corpus cannot see BY CONSTRUCTION, because the
+  ANSWER of a scan is what every fixture asserts and neither defect changes it.
+  * `logos_09_slice_scan_codegen` + `pass/wql_slice_scan_shape` +
+    `tests/logos/slice_scan_shape.golden`. The emitted `slice_scan_run`, byte for
+    byte. The gate additionally refuses a golden that could not be an assertion
+    (a size floor, the indexed loop, the `where` predicate — the vacuous-
+    expectation defect `run_test.sh` refuses on the other side of the harness),
+    and asserts that this arm carries NONE of §1's batch vocabulary. That last
+    clause is the S1 state written down: when S2 makes slices ride §1's shape the
+    gate goes red twice, and the ADR's "OR measured equal" arm becomes a
+    deliberate move with a recorded measurement rather than a silent re-golden.
+    CONTROL, run and restored (md5-verified, rebuilt green on both sides):
+    perturbing the EMITTER — an answer-preserving `let __n0: i64 = (rows).len();`
+    hoist added to this arm's emitted block in `rexpr_walk.logos` — reds it on
+    that one added line, while the fixture and every other slice fixture stay
+    green.
+  * `logos_09_ctr_leaf_descent` + `pass/ctr_leaf_descent_count`. §5's asymptotics
+    as an assertion, not a comment: callgrind CALL COUNTS (never a duration —
+    shared box), attributed by CALLER so the batch plane's descents and the
+    per-row oracle's are counted apart rather than summed. MEASURED: 1000 rows
+    scanned in **8 descents over 8 leaves**, against **1000** per-row container
+    calls on the oracle side; 9 batch pulls (leaves + the terminating `None`);
+    and TOTAL descents in the whole program 18 = 2·8+2, fully accounted — the
+    clause that closes "something else descends". The leaf count is INDEPENDENT
+    of the batch plane: §5's own no-sibling-pointer fact means the ROW cursor
+    crosses a leaf boundary by descending, so its `bt_cur_next -> bt_seek_at`
+    count IS the container's leaf count, and the two must agree. No counter was
+    welded into the stdlib for this — an instrument inside `advance()` would be a
+    production edit on a hot path, measuring itself. CONTROL, run and restored:
+    a second `cp.seek(self.at)` in the family's `advance()` changes no answer at
+    all (fixture green, ctr corpus green) and reds this gate at 16 descents for 8
+    leaves — which is precisely the regression the whole corpus is blind to.
+  * **A CORRECTION §9 OWES, measured here.** `is_slice` is NOT a third spelling
+    of the scan shape. `params.logos:275/282` read it as the SOURCE-vs-SCALAR
+    discriminator (`is_source`/`is_scalar`), and `rexpr_walk` reads it a second,
+    unrelated way as the incremental arm's "exactly one slice parameter"
+    admission. S2 deletes the SHAPE reading; the bit survives both other roles.
+  * **THE ColsBatch-PAIR DELTA (S0's §2 ⚠) IS DEFERRED, WITH ITS GROUND.** S0
+    recorded that `{N}LeafBatch` is a PAIR of `ColsBatch`es (key slot + value
+    slot) rather than one, and left S1 to decide between a multi-slot
+    `ColsBatch` and a two-column leaf slot. Neither is taken, because the
+    question came off the critical path: the emitted scan reaches the batch
+    only through `<col>_at(i)`, which is layout-agnostic by construction, so
+    the pair costs the emitter nothing and the choice is now free to be made by
+    whoever needs the columnar fold (§8/S4). What IS owed and is recorded as
+    owed rather than skipped: §2's resolve-once hoist. The emitted inner loop
+    calls `<col>_at(i)` per cell, which re-resolves the column's `(allocator,
+    slot)` per read — never a DESCENT, so §5's per-leaf claim is untouched, but
+    not the hoist §2 asks for. It needs a per-column accessor named off the
+    declared column (`col_<c>()`) that the family does not publish yet.
 * **S2 — adapters as plan nodes.** `Drain`/`Sort`/`Arrange` in AccessPlan with
   grounds; delete the side-channel booleans and `plan_mark_single_pass`;
   `explain()` names every materialization. Gate: the refusal census (why-

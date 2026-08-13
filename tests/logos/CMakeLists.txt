@@ -1774,6 +1774,59 @@ set_tests_properties(logos_09_ctr_access_path PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 S1 GATE 1 — SLICE-SOURCE CODEGEN, BYTE-COMPARABLE.
+#
+# ⚠ THIS GATE EXISTS BECAUSE S1 COULD NOT RUN IT. S1 collapsed the emitter's
+# STREAMED scan branches onto §1's one shape and deliberately left the SLICE arm
+# alone (a heap slice has no packet producer; minting one is Drain/Buffer = S2).
+# The evidence for "the slice arm is untouched" was a `git diff` — a fact about
+# one commit, not an invariant. The 147 slice fixtures in this tree assert the
+# query's ANSWER, and the answer is identical under any scan that visits the same
+# rows, so slice codegen could change shape, materialize, or move its filter and
+# every one of them would stay green. The emitted `*_run` fn is now pinned byte
+# for byte against a golden, with the S1 state (no batch vocabulary in this arm)
+# asserted beside it — the clause S2 has to change deliberately, taking the ADR's
+# "OR measured equal" arm, instead of silently.
+add_test(
+    NAME logos_09_slice_scan_codegen
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/slice_scan_codegen_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/wql_slice_scan_shape.logos
+            ${CMAKE_CURRENT_SOURCE_DIR}/slice_scan_shape.golden
+)
+set_tests_properties(logos_09_slice_scan_codegen PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 S1 GATE 2 — THE MEMORIA SCAN'S ASYMPTOTICS (§5), MEASURED.
+#
+# ⚠ The per-row family walk was DELETED on the argument that the leaf-batch
+# producer descends once per LEAF instead of once per ROW. Nothing in the corpus
+# could see that: a batch stream that re-descended per row returns the same rows
+# in the same order, and `pass/ctr_leaf_descent_count` — like every other scan
+# fixture — would still pass. The count is therefore measured from OUTSIDE, with
+# callgrind (never a duration: this box is shared), and attributed BY CALLER so
+# the batch plane's descents and the per-row oracle's are counted apart. The leaf
+# count itself comes from the oracle independently — a CoW tree has no sibling
+# pointer, so the row cursor's own boundary crossings ARE the leaf count — and
+# the two must agree. TIMEOUT is generous: the fixture builds a 1000-entry
+# container and is then re-run under valgrind.
+add_test(
+    NAME logos_09_ctr_leaf_descent
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/ctr_leaf_descent_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass/ctr_leaf_descent_count.logos
+            ${LOGOS_BUILD_LIB_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/callgrind_calls.py
+)
+set_tests_properties(logos_09_ctr_leaf_descent PROPERTIES
+    TIMEOUT 600
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # JOIN-ORDER gate (ADR 0024 S4): the emitted fn carries BOTH join orders and one
 # run-time discriminant, the plan reports the decision AND both refusals, and the
 # sort that makes the two orders interchangeable is total.

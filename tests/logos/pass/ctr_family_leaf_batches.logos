@@ -184,12 +184,15 @@ fn main() -> i32 {
             } else { break; }
         }
     }
-    // Landed::seek — re-land a live stream, then drain the suffix.
+    // Landed::seek_key — re-land a live stream, then drain the suffix.
+    // (RENAMED from `seek` at S1: the container beneath spells `seek` by ORDINAL
+    // and `seek_key` by key, and this type now carries `RandomAccess::seek_nth`
+    // too, so the trait method takes the container's own name for the same job.)
     let mut rows_seek: u64 = 0u64;
     let mut sz_seek: u64 = 0u64;
     {
         let mut s = c.leaf_batches();
-        s.seek(lo_k);
+        s.seek_key(lo_k);
         sz_seek = s.size();
         loop {
             let ob = s.next_batch();

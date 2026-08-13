@@ -1766,7 +1766,7 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
 // the caller's frame Strings).
 fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
               mat: str, marg: str, marg2: str, module: str, iter: bool,
-              ity: str, szfn: str, szty: str,
+              batch: bool, ity: str, szfn: str, szty: str,
               srcb: &mut String, dsrcb: &mut String, ssrcb: &mut String,
               szatb: &mut String) -> i64 {
     srcb.push_str("__rel_");
@@ -1788,6 +1788,7 @@ fn reg_native(prm: &mut MacroParams, disp: str, rowty: str,
     if idx >= 0i64 {
         prm.rel_native[idx] = true;
         prm.rel_iter[idx]   = iter;
+        prm.rel_batch[idx]  = batch;
         prm.rel_itty[idx]   = ity;
         prm.rel_ssrc[idx]   = string_as_str(ssrcb);
         prm.rel_size_fn[idx] = szfn;
@@ -2332,6 +2333,10 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
             // The chosen operation's producer type replaces the rel's own —
             // the binding is annotated with what will actually be called.
             prm.rel_iter[ri]  = prm.opc_iter[ap.op[ri]];
+            // ADR 0025 §1 — the `b` flag travels WITH the chosen producer. A
+            // pushdown that took the op's fn and left the rel's own pull unit
+            // in place would emit a row pull against a batch stream.
+            prm.rel_batch[ri] = prm.opc_batch[ap.op[ri]];
             prm.rel_itty[ri]  = prm.opc_itty[ap.op[ri]];
         }
         if ap.stream[ri] {
@@ -2374,6 +2379,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // `!<flags>` — properties of the BINDING. `i` = the producer returns an
         // iterator, so the plan MAY consume it in place (ADR 0024 S4).
         let mut mat_iter: bool = false;
+        let mut mat_batch: bool = false;
         let mut mat_ity: str = "";
         if i < n && str_byte_at(natspec, i) == 33u8 {
             i = i + 1i64;
@@ -2382,7 +2388,12 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                   && str_byte_at(natspec, i) != 35u8
                   && str_byte_at(natspec, i) != 37u8
                   && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }   // …|'%'
-            mat_iter = pw_flag(pw_slice(natspec, fl, i), 105u8);              // 'i'
+            let mat_fl: str = pw_slice(natspec, fl, i);
+            mat_iter = pw_flag(mat_fl, 105u8);                                // 'i'
+            // `b` (ADR 0025 §1): the PULL UNIT is a batch. Rides in the same
+            // flag SET as `i` — membership, not equality, is what lets a third
+            // property land without every reader changing.
+            mat_batch = pw_flag(mat_fl, 98u8);                                 // 'b'
             // `%<ret-ty>` — the producer's return type, which the emitted
             // binding is ANNOTATED with rather than inferring.
             if i < n && str_byte_at(natspec, i) == 37u8 {
@@ -2446,6 +2457,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
         let mut op_ex:  [bool; 8] = [false; 8];
         let mut op_it:  [bool; 8] = [false; 8];
+        let mut op_bt:  [bool; 8] = [false; 8];
         let mut op_ity: [str; 8] = [""; 8];
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
@@ -2481,6 +2493,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                     op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
                     op_ex[nops] = pw_flag(oex, 101u8);                        // 'e'
                     op_it[nops] = pw_flag(oex, 105u8);                        // 'i'
+                    op_bt[nops] = pw_flag(oex, 98u8);                         // 'b'
                     op_ity[nops] = oity;
                     nops = nops + 1i64;
                 }
@@ -2511,7 +2524,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Single-column rows are the bare type, not a 1-tuple.
         let rowty: str = if nc == 1i64 { ctys[0] } else { string_as_str(&rowtyb[k]) };
         let idx: i64 = reg_native(prm, regname, rowty, mat, marg, marg2, module,
-                                  mat_iter, mat_ity, szfn, szty,
+                                  mat_iter, mat_batch, mat_ity, szfn, szty,
                                   &mut srcb[k], &mut dsrcb[k],
                                   &mut ssrcb[k], &mut szatb[k]);
         if idx < 0i64 {
@@ -2526,7 +2539,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut o: i64 = 0i64;
         while o < nops {
             prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o], op_it[o],
-                           op_ity[o]);
+                           op_bt[o], op_ity[o]);
             o = o + 1i64;
         }
         k = k + 1i64;
@@ -2627,6 +2640,29 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str("> = Vec::<");
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str(">::new();\n");
+            // ADR 0025 §1 — DRAINING A BATCH PRODUCER IS STILL A BATCH PULL.
+            // `b` says the pull unit; `rel_stream` said the plan cannot read
+            // this source once. The two are orthogonal, so the drain keeps the
+            // outer `next_batch()` pull and puts §1's inner index loop inside
+            // it — one `next_batch()` per LEAF, not one `next()` per row, even
+            // on the path that materializes. Draining it row-at-a-time would
+            // have re-paid the per-row constant §5 exists to remove, on every
+            // join and every aggregate over a family source.
+            //
+            // The batch is bound INSIDE its own block: it is
+            // `#[borrow_carrying]` off the walk, and the next iteration's
+            // `next_batch()` takes `&mut` of that walk.
+            if prm.rel_batch[r] {
+                let mut rowx: String = String::new();
+                batch_row_text(&mut rowx, prm, r, "__bb", "__bj");
+                prelude.push_str("    loop { let __db = __it_");
+                prelude.push_str(prm.rel_names[r]);
+                prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = __bb.len(); let mut __bj: u64 = 0u64; while __bj < __bn { __rel_");
+                prelude.push_str(prm.rel_names[r]);
+                prelude.push_str(".push(");
+                prelude.push_str(string_as_str(&rowx));
+                prelude.push_str("); __bj = __bj + 1u64; } } } else { break; } }\n");
+            } else {
             // Annotated for the same reason the streaming loop annotates: the
             // item type of `next()` is the trait's parameter, and an associated-
             // type source spelling leaves it unselected.
@@ -2637,6 +2673,7 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(".next(); if __dr.is_none() { break; } __rel_");
             prelude.push_str(prm.rel_names[r]);
             prelude.push_str(".push(__dr.unwrap()); }\n");
+            }
             prelude.push_str("    let ");
             prelude.push_str(prm.rel_srcs[r]);
             prelude.push_str(": &[");

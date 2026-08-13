@@ -1,0 +1,64 @@
+// ADR 0025 S1 — THE ALIAS IS LOAD-BEARING, NOT DECORATION.
+//
+// `pass/ctr_leaf_family_spelling` names a family walk through
+// `pub type LedWalk = <typeof(Led) as CtrLeafFamily>::LeafWalk;` and passes it to a
+// hand-written fn. That green proves the spelling COMPILES; it does not prove the
+// projection resolves to the RIGHT generated type — an alias that erased to
+// "whatever you hand me" would pass it identically. This is that control, and it
+// is the only reason the pass fixture can be read as a spellability result.
+//
+// TWO ordered_map families differing only in key width, so both projections exist
+// and both are `CtrLeafFamily` members; the alias names ONE of them and the call
+// site hands over the OTHER. The diagnostic carries the two CFG content hashes,
+// which is the identity the projection is supposed to preserve.
+//
+// (The refusal is at the CALL, not at the alias: the projection itself is not
+// obligation-checked today — see `fail/ctr_leaf_family_vector_refused` for that
+// measurement. What is checked, and what this pins, is that the two projections
+// are DISTINGUISHABLE.)
+package ctr_leaf_family_wrong_family;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub container Led2 {
+    kind ordered_map;
+    entry { key: u32, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// BOTH walks are named by projection, so both sides of the mismatch below print
+// as a projection and neither degrades to `<error>` (measured: leave the call
+// site's type to inference and the message reads `got &mut <error>`, which
+// proves nothing about which family it resolved to).
+pub type LedWalk   = <typeof(Led)  as CtrLeafFamily>::LeafWalk;
+// THE ALIAS THE FN TAKES NAMES LED2's WALK.
+pub type OtherWalk = <typeof(Led2) as CtrLeafFamily>::LeafWalk;
+
+fn first_key(s: &mut OtherWalk) -> u64 {
+    return s.next_batch().unwrap().len();
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    c.insert(1u64, 2u64);
+    // ... and LED's walk is handed over. Two different families, one alias.
+    let mut s: LedWalk = c.leaf_batches();
+    return first_key(&mut s) as i32;
+}

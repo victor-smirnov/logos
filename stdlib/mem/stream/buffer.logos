@@ -7,7 +7,10 @@
 // comment here and becomes the type lattice: `Buffer` is what `Drain` /
 // `Sort` / `Arrange` (§4) produce, and it implements every capability a
 // materialized relation actually has — `Rewind` (the rows are still there),
-// `SizedStream` (the length is a field). It does NOT implement `OrderedBy<K>`:
+// `SizedStream` (the length is a field), and the traversal chain
+// `Bidirectional`/`RandomAccess` (ADR §3: heap slices and `Buffer` are
+// trivially random-access — position is field arithmetic, not a descent).
+// It does NOT implement `OrderedBy<K>`:
 // a plain `Vec` carries no order fact, and faking one would put the lie the
 // trait exists to prevent right into the vocabulary. The `Sort` adapter's
 // output type — a sorted buffer — is what will carry `OrderedBy`, when Sort
@@ -22,6 +25,7 @@
 package logos.mem.stream;
 
 use logos.lang.option;
+use logos.lang.slice;         // slice_get_range — the packet is a suffix after a seek
 use logos.lang.stream;
 use logos.mem.collections.vec;
 
@@ -46,19 +50,24 @@ use logos.mem.collections.vec;
 /// so the "is it a slice or a stream?" branch disappears: it is always a stream, and
 /// a `Vec` is the one-packet case.
 ///
-/// Implements `Rewind` and `SizedStream`. Not `OrderedBy<K>`: an unsorted buffer has
-/// no order fact to declare.
+/// Implements `Rewind`, `SizedStream`, and the whole TRAVERSAL chain of §3
+/// (`Bidirectional` + `RandomAccess`) — an array nothing consumes is random-access by
+/// construction. Not `OrderedBy<K>`: an unsorted buffer has no order fact to declare.
 pub struct Buffer<R> {
     /// The materialized rows. Owned: a Buffer is the result of a materialization (§4).
     rows: Vec<R>,
     /// False until the single packet has been handed out; `rewind` clears it.
     sent: bool,
+    /// The POSITION inside the landing: the first row of the packet `next()` hands
+    /// out (`RandomAccess::seek_nth`, ADR §3). `0` for every Buffer that was never
+    /// seeked, which is why `size()` — the LANDING's total — is untouched by it.
+    at: u64,
 }
 
 impl<R> Buffer<R> {
     /// Wraps materialized rows as a one-packet stream, positioned at the start.
     pub fn from_vec(rows: Vec<R>) -> Buffer<R> {
-        return Buffer { rows: rows, sent: false };
+        return Buffer { rows: rows, sent: false, at: 0u64 };
     }
 
     /// An empty buffer — the stream that yields one empty batch, then `None`.
@@ -66,7 +75,7 @@ impl<R> Buffer<R> {
         // `Vec::<R>::new()`, not `Vec::new()`: the bare form infers the element
         // type from nothing here and lands on the impl's own parameter name
         // ("return type mismatch — expected Buffer<R>, got Buffer<T>").
-        return Buffer { rows: Vec::<R>::new(), sent: false };
+        return Buffer { rows: Vec::<R>::new(), sent: false, at: 0u64 };
     }
 
     /// Appends a row. Producer-side surface: the `buffered` output form (§12) fills a
@@ -79,6 +88,13 @@ impl<R> Buffer<R> {
     /// already say the rows stay put). The random-access face of the same storage.
     pub fn as_slice(&self) -> &[R] {
         return self.rows.as_slice();
+    }
+
+    /// The packet as of the current position: `rows[at..]`. ONE spelling for all four
+    /// pulls (`next`, `prev`, and both after a `seek_nth`) — the position lives in a
+    /// field, so the packet is derived, never a second slicing rule per door.
+    fn packet(&self) -> &[R] {
+        return slice_get_range::<R>(self.rows.as_slice(), self.at as i64, self.rows.len());
     }
 
     /// Gives the rows back as a `Vec`, consuming the stream.
@@ -98,20 +114,54 @@ impl<R> BatchStream<RowsBatch<R>> for Buffer<R> {
     fn next(&mut self) -> Option<RowsBatch<R>> {
         if self.sent { return Option::None; }
         self.sent = true;
-        return Option::Some(self.rows.as_slice());
+        return Option::Some(self.packet());
     }
 }
 
 // Re-landing a materialized buffer is free: the rows were never given up.
+// `rewind` re-LANDS, so it clears the seek position too — that is the whole
+// difference from `seek_nth(0)`, which only re-positions.
 impl<R> Rewind for Buffer<R> {
     fn rewind(&mut self) {
         self.sent = false;
+        self.at = 0u64;
     }
 }
 
-// The length is a field — no drain, no walk.
+// The length is a field — no drain, no walk. NOT reduced by `seek_nth`: `size`
+// is the LANDING's total (ADR §3), and seeking moves a position inside it.
 impl<R> SizedStream for Buffer<R> {
     fn size(&self) -> u64 {
         return self.rows.len() as u64;
+    }
+}
+
+// ── The traversal axis (ADR 0025 §3) ────────────────────────────────────────
+//
+// A `Buffer` is trivially RANDOM-ACCESS: its rows are a contiguous array that
+// nothing consumes, so both `prev` and `seek_nth` are field arithmetic — there
+// is no descent to pay and no re-materialization. That is why §3 puts heap
+// slices and `Buffer` at the TOP of the chain while a btree walk sits in the
+// middle: the degenerate stream is degenerate in this axis too.
+
+/// `prev` UN-CONSUMES the single packet: after `next()` handed it out, `prev()` hands
+/// out the same packet and leaves the stream at the start, so a further `prev()` is
+/// `None`. Exactly the mirror of `next`, on a stream whose whole content is one batch.
+impl<R> Bidirectional<RowsBatch<R>> for Buffer<R> {
+    fn prev(&mut self) -> Option<RowsBatch<R>> {
+        if !self.sent { return Option::None; }
+        self.sent = false;
+        return Option::Some(self.packet());
+    }
+}
+
+/// One packet means one position: `seek_nth(n)` makes the packet the SUFFIX from row
+/// `n` and un-sends it, so the next `next()` yields `rows[n..]`. `n` past the end is
+/// the empty suffix — one legal empty tick, then `None` — never a panic (§3).
+impl<R> RandomAccess<RowsBatch<R>> for Buffer<R> {
+    fn seek_nth(&mut self, n: u64) {
+        let len: u64 = self.rows.len() as u64;
+        self.at = if n > len { len } else { n };
+        self.sent = false;
     }
 }

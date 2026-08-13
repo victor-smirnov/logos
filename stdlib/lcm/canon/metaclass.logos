@@ -67,6 +67,50 @@ pub trait CtrFamily {
     fn open(snap: &Arc<dyn Snapshot>, ctr_id: u64) -> Self::Handle;
 }
 
+/// The LEAF-BATCH face of a container family (ADR 0025 §5, S1): the two generated
+/// types a hand-written consumer otherwise has NO WAY TO NAME.
+///
+/// A family's types carry the config content hash (`Hs352959f3caf5b795LeafWalk`), and
+/// that bare spelling resolves in EMITTED code only — the chunk imports the producer's
+/// defining package through `native_use_text`. A test, an oracle, or any hand-written
+/// caller has no such door: measured, the bare hash name in a user program's type
+/// annotation is `unknown type '…LeafWalk'`, and `use logos.gen;` is
+/// `cannot find package`. The projection below is that door, exactly as
+/// `CtrFamily::Handle` is the door to the handle:
+///
+///     pub type LedWalk  = <typeof(Led) as CtrLeafFamily>::LeafWalk;
+///     pub type LedBatch = <typeof(Led) as CtrLeafFamily>::LeafBatch;
+///     fn first(s: &mut LedWalk) -> LedBatch { … }
+///
+/// WHY A SECOND TRAIT AND NOT TWO MORE MEMBERS ON `CtrFamily` — MEASURED, and this is
+/// the whole reason this trait exists. `impl CtrFamily` is emitted for ordered_map,
+/// multimap AND vector; `{N}LeafBatch`/`{N}LeafWalk` are emitted by the ordered_map arm
+/// ALONE. With the two members on `CtrFamily`, a `kind vector` family stops compiling
+/// (`error [impl CtrFamily for CtrClass$…]: unknown type 'Hs…LeafBatch'`) — and the
+/// stdlib build does NOT catch it, because no stdlib unit instantiates a vector family
+/// through the factory. Splitting the capability into its own trait is also what §3
+/// says to do with a capability in the first place: EXISTENCE = TRAIT MEMBERSHIP. A
+/// family that produces leaf batches implements this; one that does not, does not, and
+/// the projection is refused at the call site instead of breaking the family's own
+/// emission. Pinned in BOTH directions (`pass/ctr_leaf_family_spelling` admits for
+/// ordered_map, `fail/ctr_leaf_family_vector_refused` refuses for vector).
+///
+/// NO BOUND IS DECLARED ON `LeafWalk` (`type LeafWalk: BatchStream<Self::LeafBatch>`
+/// would state §1's protocol at the trait, and it does compile). It is left off ON
+/// PURPOSE: the bound needs `use logos.lang.stream;` HERE, and every `create_ctr`
+/// consumer imports this module — which would hub `BatchStream::next` into all of them
+/// and make `it.next()` ambiguous against `Iterator::next` for every iterator in the
+/// tree. That is the precise hazard `logos.lang.stream`'s own header records as the
+/// reason it is not in the prelude, and it is not worth re-opening for a restatement:
+/// the emitted `impl BatchStream<{N}LeafBatch> for {N}LeafWalk` is the fact, and the
+/// capability query (`has_trait`) is how the planner asks for it.
+pub trait CtrLeafFamily: CtrFamily {
+    /// One leaf's row window — the columnar batch of ADR §2, as the family emits it.
+    type LeafBatch;
+    /// The stream of those windows: one descent per LEAF, not a method per row (§5).
+    type LeafWalk;
+}
+
 /// The single container-instantiation surface (ADR 0021 §4):
 ///
 ///     let m = create_ctr::<typeof(Map::<u64, u64>)>(&mut snap, ctr_id);

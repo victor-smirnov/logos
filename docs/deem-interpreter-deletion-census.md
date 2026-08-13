@@ -1861,8 +1861,120 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # pair" note; plus Q7, two of the four pattern propagators missing at the
 # rvalue-match site (which is where `?` actually arrives).
 # 12 fail (7 witnesses + 5 twins) + 7 pass admit controls = the +19.
-REGISTRY-ALL         7135
-REGISTRY-NOIMPORTED  3452
+#
+# ADR 0025 S1, THE SPELLABILITY LAYER (+4: 2 pass + 2 fail, +0 tier_commit).
+# `CtrLeafFamily` (the assoc-type door a hand-written consumer needs for the
+# generated `{N}LeafBatch`/`{N}LeafWalk`) plus the traversal trait pair
+# `Bidirectional`/`RandomAccess` in logos.lang.stream. PREDICTED 7139/3456/32
+# before the reconfigure and measured identical after.
+#   pass/ctr_leaf_family_spelling        the projection in a hand-written fn's
+#                                        parameter AND return, values asserted
+#                                        end-to-end, plus seek_nth/prev on the
+#                                        family walk (oracle: the container's
+#                                        own per-row cursor)
+#   pass/stream_traversal_buffer         the same axis on the degenerate stream
+#   fail/ctr_leaf_family_vector_refused  the abuse direction: a vector family
+#                                        has no leaf walk
+#   fail/ctr_leaf_family_wrong_family    the alias is LOAD-BEARING — two
+#                                        families, distinct hashes in the
+#                                        message
+# Both pass fixtures are held by a CONTROL REVERT, run one clause at a time with
+# the tree restored (md5-verified) and rebuilt green in between: neutering
+# `seek_nth` reds them at 40 / 21, neutering `prev`/`retreat` at 50 / 42.
+#
+# ADR 0025 S1, THE EMITTER COLLAPSE — THE MEMORIA SCAN (+1 pass, +0 tier_commit).
+# The generated ordered_map family now DECLARES the leaf-batch producers
+# (`rel entry = #browsfn`, and the three narrowing landings likewise), the
+# natspec carries a `b` flag beside `i` (`producer_batches_` =
+# `sema_has_impl_recursive("BatchStream", …)`, the exact twin of
+# `producer_streams_`), and both consumers of a batch producer emit ADR §1's
+# one shape — `next_batch()` outside, the old row loop inside.
+#   pass/deem_batch_scan_drain  the DRAINED leg, which no fixture in the tree
+#                               exercised at all: `order by`, an aggregate, and
+#                               a narrowed landing under a sort, each against
+#                               the container's own per-row cursor as an
+#                               oracle, plus the streamed leg beside them.
+# The STREAMED leg was already covered (deem_ctr_family_streams, source_size,
+# cross_domain_join, three_domain_join) and its shape change was measured on the
+# EMITTED ARTIFACT (`--gen-dir`) rather than inferred from a green.
+# PREDICTED 7140/3457/32 before the reconfigure and measured identical after.
+#
+# ADR 0025 S1, THE TWO SLICE-GATES REGISTERED (+2 pass + 2 gates, +0 tier_commit).
+# S1's own acceptance gates existed as SENTENCES in the ADR and as nothing in the
+# tree. Both are now artifacts, and both close a hole that is invisible to a green
+# corpus BY CONSTRUCTION — the recurring class: a fixture asserts the ANSWER of a
+# scan, and every defect these two catch leaves the answer alone.
+#   pass/wql_slice_scan_shape       one slice source, one `where`, one projection
+#                                   — the reference the byte-comparison needs.
+#                                   Also a plain pass test (rows asserted, empty
+#                                   and full answers from the same loop).
+#   pass/ctr_leaf_descent_count     the MINIMAL two-traversal program: the
+#                                   container's own per-row cursor and one
+#                                   leaf-batch scan in §1's shape, nothing else,
+#                                   so every counted call has one possible origin.
+#                                   Its own exit code pins rows/order/sums/batch
+#                                   count against the oracle.
+#   logos_09_slice_scan_codegen     GATE 1. The emitted `slice_scan_run` byte-for-
+#                                   byte against the golden checked in beside the
+#                                   gate (`tests/logos/slice_scan_shape.golden`),
+#                                   plus: the golden must be big enough to
+#                                   be an assertion, must carry the indexed loop
+#                                   and the `where`, and must carry NONE of §1's
+#                                   batch vocabulary — the honest S1 state written
+#                                   as an assertion. S1 recorded this gate as NOT
+#                                   RUN (no perturbation existed to compare
+#                                   against); it is now the perturbation detector
+#                                   itself. CONTROL: changing `>=` to `>` in the
+#                                   fixture's `where` reds it with the one-line
+#                                   diff; and so does changing the EMITTER — an
+#                                   answer-preserving `let __n0: i64 = (rows).len();`
+#                                   hoist added to this arm's emitted block in
+#                                   rexpr_walk.logos reds it on that one added line
+#                                   while the fixture stays green. Restored
+#                                   md5-identical, rebuilt, re-run green.
+#   logos_09_ctr_leaf_descent       GATE 2. §5's asymptotics measured, not
+#                                   commented: callgrind call counts (never a
+#                                   duration — shared box), attributed BY CALLER so
+#                                   the batch plane's descents and the oracle's are
+#                                   counted apart. MEASURED: 1000 rows scanned in 8
+#                                   descents over 8 leaves, against 1000 per-row
+#                                   container calls on the oracle side; batch pulls
+#                                   9 = leaves+1; TOTAL descents in the program 18 =
+#                                   2*8+2, fully accounted, which is the clause that
+#                                   closes "something else descends". The leaf count
+#                                   is INDEPENDENT of the batch plane: a CoW tree has
+#                                   no sibling pointer, so the row cursor's own
+#                                   boundary crossings (`bt_cur_next -> bt_seek_at`,
+#                                   8) are the container's leaf count, and the two
+#                                   must agree. No counter was welded into the
+#                                   stdlib: an instrument inside `advance()` would be
+#                                   a production edit on a hot path measuring itself.
+#                                   CONTROL: a second `cp.seek(self.at)` inside the
+#                                   family's `advance()` — which changes NO answer,
+#                                   so the fixture and the whole ctr corpus stay
+#                                   green — reds this gate at 16 descents for 8
+#                                   leaves. Restored md5-identical, rebuilt, re-run
+#                                   green.
+# ⚠ AND THE SWEEP THAT REGISTERING THEM FORCED FOUND A GATE ALREADY RED.
+# `logos_09_ctr_access_path` is `tier_full`, so no level below L4 runs it, and the
+# S1 emitter collapse had orphaned it three steps earlier: the ordered-map family's
+# per-row producers were DELETED, so `__ctr_from_`/`__ctr_rows_` — the names three
+# of its clauses are written around — name nothing, and the family declares
+# `__ctr_bfrom_`/`__ctr_brows_` instead. The narrowing it guards is intact (the
+# trace still reads `m -> __ctr_bfrom_… [a range] on key (an operation EXACT …)`,
+# one call, filter retired); the PULL UNIT is what moved. RE-PINNED, not weakened:
+# the three ordered-map clauses now name today's producers, and the absence clause
+# in particular had gone VACUOUS the moment `__ctr_rows_` stopped existing — a
+# permissive defect that can never fire again. The POSITIONAL family still emits
+# `__ctr_from_`/`__ctr_rows_` and its clauses are untouched, so the two families
+# are now told apart by name where one spelling used to cover both. All 42
+# `logos_09_*` artifact gates re-run after the fix: 42/42.
+# Both gates are `tier_full`, following `logos_09_ctr_access_path`: they compile a
+# fixture (and one of them links and runs it under valgrind), which is per-commit
+# weight the lint tier does not carry. tier_commit therefore does not move.
+# PREDICTED 7144/3461/32 before the reconfigure and measured identical after.
+REGISTRY-ALL         7144
+REGISTRY-NOIMPORTED  3461
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

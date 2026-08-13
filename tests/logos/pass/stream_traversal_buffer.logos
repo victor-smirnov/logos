@@ -1,0 +1,96 @@
+// ADR 0025 S1 — THE TRAVERSAL AXIS (§3) ON THE DEGENERATE STREAM.
+//
+// `forward-only ⊂ bidirectional ⊂ random-access (by ordinal)`, with the ⊂ as the
+// SUPERTRAIT EDGE (`RandomAccess<B>: Bidirectional<B>`). §3 puts heap slices and
+// `Buffer` at the TOP of that chain: an array nothing consumes is random-access by
+// construction, so both `prev` and `seek_nth` are field arithmetic with no descent
+// and no re-materialization.
+//
+// THE SUPERTRAIT EDGE IS ITSELF MEASURED, and not only here: an `impl RandomAccess`
+// without the matching `impl Bidirectional` is refused (`missing impl Bid for S
+// (required by supertrait)`), so the lattice cannot drift from the table in §3 the
+// way `can_seek`-as-one-bool did. `Buffer` implements both; `HashMapIter` — the §3
+// forward-only example — implements NEITHER, and in fact is not on this plane at
+// all: it implements `Iterator`, not `BatchStream` (checked tree-wide: the only
+// `BatchStream` impls are `Buffer` and the generated `{N}LeafWalk`). No third name
+// is minted for the bottom of the chain; the absence of a capability is not a
+// capability.
+//
+// WHAT IS ASSERTED, none of it satisfiable by a stream that ignores the calls:
+//   * `seek_nth(n)` makes the packet the SUFFIX from row n — values, not just a
+//     length (codes 20-23).
+//   * `size()` is the LANDING's total and does NOT move under `seek_nth` (24);
+//     `rewind()` DOES re-land, clearing the seek (30-31). That difference is the
+//     whole contract distinction between positioning and re-landing.
+//   * `prev` UN-CONSUMES: after `next` handed the packet out, `prev` hands out the
+//     SAME packet and leaves the stream at the start, so a further `prev` is `None`
+//     (40-44), and a `next` after the `prev` repeats it (45-46).
+//   * `seek_nth` past the end is the EMPTY suffix — one legal empty tick, then
+//     `None` — never a panic (50-52). §1's "empty batch is a legal tick" holds in
+//     this direction too.
+package stream_traversal_buffer;
+
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.stream;
+use logos.mem.collections.vec;
+
+fn filled(n: u64) -> Buffer<u64> {
+    let mut b: Buffer<u64> = Buffer::<u64>::new();
+    let mut i: u64 = 0u64;
+    while i < n { b.push(i * 3u64 + 11u64); i = i + 1u64; }
+    return b;
+}
+
+fn main() -> i32 {
+    // ── seek_nth: the packet is the suffix, and size() does not move ────
+    {
+        let mut b: Buffer<u64> = filled(10u64);
+        let sz0: u64 = b.size();
+        if sz0 != 10u64 { return 10i32; }
+        b.seek_nth(4u64);
+        if b.size() != sz0 { return 24i32; }
+        let ob = b.next();
+        if !ob.is_some() { return 20i32; }
+        {
+            let p = ob.unwrap();
+            if p.len() != 6i64          { return 21i32; }
+            if p[0i64] != 4u64 * 3u64 + 11u64 { return 22i32; }
+            if p[5i64] != 9u64 * 3u64 + 11u64 { return 23i32; }
+        }
+        // rewind RE-LANDS: the seek is cleared, unlike seek_nth(0) which only
+        // repositions inside the same landing.
+        b.rewind();
+        let ob2 = b.next();
+        if !ob2.is_some() { return 30i32; }
+        { let p = ob2.unwrap(); if p.len() != 10i64 { return 31i32; } }
+    }
+
+    // ── prev un-consumes ────────────────────────────────────────────────
+    {
+        let mut b: Buffer<u64> = filled(5u64);
+        let mut n_fwd: i64 = 0i64;
+        { let ob = b.next(); if !ob.is_some() { return 40i32; }
+          { let p = ob.unwrap(); n_fwd = p.len(); } }
+        { let ob = b.next(); if ob.is_some() { return 41i32; } }   // one packet only
+        { let ob = b.prev(); if !ob.is_some() { return 42i32; }
+          { let p = ob.unwrap(); if p.len() != n_fwd { return 43i32; } } }
+        { let ob = b.prev(); if ob.is_some() { return 44i32; } }   // at the start
+        // and `next` after `prev` repeats the packet
+        { let ob = b.next(); if !ob.is_some() { return 45i32; }
+          { let p = ob.unwrap(); if p.len() != n_fwd { return 46i32; } } }
+    }
+
+    // ── seek_nth past the end: one EMPTY tick, then None ────────────────
+    {
+        let mut b: Buffer<u64> = filled(5u64);
+        b.seek_nth(99u64);
+        let ob = b.next();
+        if !ob.is_some() { return 50i32; }
+        { let p = ob.unwrap(); if p.len() != 0i64 { return 51i32; } }
+        let ob2 = b.next();
+        if ob2.is_some() { return 52i32; }
+    }
+
+    return 0i32;
+}

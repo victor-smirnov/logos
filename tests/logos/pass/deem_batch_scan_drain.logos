@@ -1,0 +1,202 @@
+// ADR 0025 S1 (§1/§5) — THE EMITTED SCAN IS THE BATCH SHAPE, ON BOTH LEGS.
+//
+// `deem_ctr_family_streams` pins the STREAMED leg of a family source. This
+// fixture pins the leg that has no other fixture at all — the DRAINED one —
+// and pins them against each other, because the two are emitted by two
+// different functions (`rexpr_walk::batch_scan_frag` and the prelude text in
+// `plan_walker::emit_prelude_oneshot`) over ONE row projection
+// (`params::batch_row_text`).
+//
+// WHY THE DRAINED LEG NEEDS ITS OWN FIXTURE. `b` (the pull unit is a batch)
+// and `rel_stream` (the plan may consume the source in place) are ORTHOGONAL:
+// a query the plan cannot read once — `order by`, an aggregate, a source named
+// twice in one chain — still pulls batches, it just empties them into a `Vec`
+// first. Before this fixture NOTHING in the corpus drained a family source, so
+// the whole `rel_batch` arm of the drain prelude was a branch that never
+// executed and every green above it was vacuous about the code inside it.
+// (MEASURED, not assumed: dumping `--gen-dir` for every family-source deem
+// fixture in the tree — ctr_family_streams, source_size, cross_domain_join,
+// three_domain_join, class_source_plan — shows `next_batch()` in the SCAN
+// position and no `__it_` drain binding anywhere.)
+//
+// THE ORACLE IS INDEPENDENT OF THE QUERY PLANE: the container's own per-row
+// cursor (`seek(0)` + `next(&cur)`), which is the surface the batch producer
+// itself is measured against in `pass/ctr_family_leaf_batches`. Every number
+// the deem queries return is checked against a walk that shares no code with
+// the emitter — not against a second query.
+//
+// CONTROL (emitter side, measured then reverted): reverting the family's
+// declaration to the per-row producers (`rel entry = #rowsfn;` and the three
+// per-row landings, `stdlib/lcm/canon/container_item.logos`) leaves this
+// fixture GREEN — it is a behavioural oracle, and the two producers agree by
+// construction. What it is NOT vacuous about is the drain arm's own code: with
+// the batch declaration in place and the `rel_batch` arm of
+// `emit_prelude_oneshot` removed, the emitted drain calls `.next()` on a
+// `…LeafWalk` expecting `Option<(u64, u64)>` and the fixture reds at compile
+// time. The SHAPE claim (batches, not rows) is pinned on the emitted artifact
+// by `logos_09_batch_scan_shape_deem_batch_scan_drain`, not here.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Bed {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// N spans several leaves — a one-leaf container would make "per leaf" and
+// "per row" indistinguishable, which is the whole point of the shape.
+const N: u64 = 600u64;
+
+// ── the STREAMED leg: read once, no Vec, §1's shape over leaf batches ────────
+pub deem scan_all(m: &<typeof(Bed) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val)
+}
+
+// ── the DRAINED leg: `order by` revisits rows by position after collecting
+// them, so the plan refuses to read the source once and the prelude empties
+// the batch stream into a Vec. Descending, so the answer cannot coincide with
+// the container's own key order and a drain that silently kept stream order
+// would be visible.
+pub deem scan_desc(m: &<typeof(Bed) as CtrFamily>::Handle) {
+    from m e select e.key * 1000u64 + e.val / 10u64 order by e.key desc : u64
+}
+
+// ── the DRAINED leg again, through the OTHER materializing shape: an
+// aggregate revisits rows after grouping them. Grouped by the low bit of the
+// key so both groups are non-empty and the two sums differ.
+pub deem parity_sums(m: &<typeof(Bed) as CtrFamily>::Handle) {
+    from m e group by e.key % 2u64 aggregate s = sum(e.val) select key * 1000000u64 + s : u64
+}
+
+// ── the DRAINED leg on a NARROWED landing: the pushdown picks the `ge`
+// producer (also a batch producer — the `b` flag travels with the chosen op,
+// not just with the rel's own materializer) and the sort still drains it.
+pub deem tail_desc(m: &<typeof(Bed) as CtrFamily>::Handle, lo: u64) {
+    from m e where e.key >= lo select e.key order by e.key desc : u64
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Bed)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 3u64, i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the container's own per-row cursor. Shares no code with the
+    // query plane — it is the same surface `ctr_family_leaf_batches` measures
+    // the batch producer against.
+    let mut rows_o: u64 = 0u64;
+    let mut ksum_o: u64 = 0u64;
+    let mut vsum_o: u64 = 0u64;
+    let mut kmax_o: u64 = 0u64;
+    let mut even_o: u64 = 0u64;
+    let mut odd_o:  u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            let k: u64 = cu.key();
+            let v: u64 = cu.value();
+            ksum_o = ksum_o + k;
+            vsum_o = vsum_o + v;
+            if k % 2u64 == 0u64 { even_o = even_o + v; } else { odd_o = odd_o + v; }
+            kmax_o = k;
+            rows_o = rows_o + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+    if rows_o != N { return 1i32; }
+
+    // ── STREAMED: same rows, same order, same sums as the cursor walk.
+    let a: Vec<(u64, u64)> = match scan_all(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if a.len() as u64 != rows_o { return 3i32; }
+    let mut ksum_a: u64 = 0u64;
+    let mut vsum_a: u64 = 0u64;
+    let mut ord_a: bool = true;
+    let mut prev_a: u64 = 0u64;
+    let mut j: i64 = 0i64;
+    while j < a.len() {
+        let k: u64 = a.get(j).0;
+        if j > 0i64 && k <= prev_a { ord_a = false; }
+        prev_a = k;
+        ksum_a = ksum_a + k;
+        vsum_a = vsum_a + a.get(j).1;
+        j = j + 1i64;
+    }
+    if ksum_a != ksum_o || vsum_a != vsum_o { return 4i32; }
+    if !ord_a { return 5i32; }
+
+    // ── DRAINED, sorted DESCENDING: the row count and the key sum survive the
+    // drain, the first row is the LAST key of the walk, and the order is
+    // strictly the reverse of the container's.
+    let d: Vec<u64> = match scan_desc(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if d.len() as u64 != rows_o { return 7i32; }
+    if d.get(0i64) / 1000u64 != kmax_o { return 8i32; }
+    let mut ksum_d: u64 = 0u64;
+    let mut ord_d: bool = true;
+    let mut prev_d: u64 = 0u64;
+    let mut jd: i64 = 0i64;
+    while jd < d.len() {
+        let k: u64 = d.get(jd) / 1000u64;
+        // The projection carries `val / 10` in the low three digits, and
+        // `val == key / 3 * 10`, so the payload is checked too, not just the key.
+        if d.get(jd) % 1000u64 != k / 3u64 { return 9i32; }
+        if jd > 0i64 && k >= prev_d { ord_d = false; }
+        prev_d = k;
+        ksum_d = ksum_d + k;
+        jd = jd + 1i64;
+    }
+    if ksum_d != ksum_o { return 10i32; }
+    if !ord_d { return 11i32; }
+
+    // ── DRAINED through the aggregate: two groups, and each sum matches the
+    // cursor walk's own parity split.
+    let g: Vec<u64> = match parity_sums(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 12i32; } };
+    if g.len() != 2i64 { return 13i32; }
+    let mut got_even: u64 = 0u64;
+    let mut got_odd:  u64 = 0u64;
+    let mut jg: i64 = 0i64;
+    while jg < g.len() {
+        let key: u64 = g.get(jg) / 1000000u64;
+        let s:   u64 = g.get(jg) % 1000000u64;
+        if key == 0u64 { got_even = s; } else { got_odd = s; }
+        jg = jg + 1i64;
+    }
+    if got_even != even_o { return 14i32; }
+    if got_odd  != odd_o  { return 15i32; }
+
+    // ── DRAINED on a NARROWED landing: the suffix from an interior key.
+    let lo: u64 = 900u64;                 // key 900 = entry 300 (keys are 3*i)
+    let mut rows_t: u64 = 0u64;
+    let mut ksum_t: u64 = 0u64;
+    {
+        let mut cu = c.seek_key(lo);
+        while cu.valid() {
+            ksum_t = ksum_t + cu.key();
+            rows_t = rows_t + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+    if rows_t != N - 300u64 { return 16i32; }
+    let t: Vec<u64> = match tail_desc(&c, lo)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 17i32; } };
+    if t.len() as u64 != rows_t { return 18i32; }
+    if t.get(0i64) != kmax_o { return 19i32; }
+    let mut ksum_t2: u64 = 0u64;
+    let mut jt: i64 = 0i64;
+    while jt < t.len() { ksum_t2 = ksum_t2 + t.get(jt); jt = jt + 1i64; }
+    if ksum_t2 != ksum_t { return 20i32; }
+    return 0i32;
+}
