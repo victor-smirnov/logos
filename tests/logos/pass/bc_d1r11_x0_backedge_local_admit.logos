@@ -1,0 +1,26 @@
+// D1 round 11 / X0, ADMIT direction #3 — the back-edge arm's own control. The
+// loan is raised on every iteration and its holder `vs` is declared INSIDE the
+// body, so nothing may cross into iteration 2's entry state and the `c.bump()`
+// above the raise stays legal.
+package bc_d1r11_x0_backedge_local_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    while i < 3i64 {
+        c.bump();                    // must be ADMITTED
+        i = i + 1i64;
+        let mut vs: Vec<B> = Vec::new();
+        vs.push(c.mk());
+        n = n + *vs.get(0u64).p;
+    }
+    return n;
+}

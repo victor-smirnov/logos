@@ -1,0 +1,27 @@
+// D1 round 11 / X0, NO-CALLEE twin of bc_d1r11_x0_nested_if_break. The loan is
+// raised by a direct `vs.push(c.mk())` in the body, with no summarized callee
+// anywhere on the path, so the witness pins the JOIN and not the flow
+// summarizer: if this one alone reds, the root is the loop-exit collector.
+package bc_d1r11_x0_nested_if_break_nocallee;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        if i > 0i64 {
+            vs.push(c.mk());
+            break;
+        }
+        i = i + 1i64;
+    }
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

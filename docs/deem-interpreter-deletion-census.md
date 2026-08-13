@@ -1743,9 +1743,93 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # 10 only ADDED alias edges, and the struct twin admitted at HEAD too (that is
 # exactly what SP0/SP1 are). Recorded so the next round starts from a witness
 # instead of re-deriving one.
-REGISTRY-ALL         7074
-REGISTRY-NOIMPORTED  3391
-REGISTRY-TIERCOMMIT  31
+#
+# D1 round 11: PREDICTED 7088 / 3405 / 32 (+14 / +14 / +1 off round 10's final
+# 7074 / 3391 / 31 — FOURTEEN new `.expected` files and ONE new gate), stated
+# before the reconfigure and then measured three ways (`ctest -N`, `-LE
+# imported`, `-L '^tier_commit$'`) = 7088 / 3405 / 32, agreeing exactly. The
+# decomposition, one line per file:
+#   fail/bc_d1r11_x0_nested_if_break       — X0, the loop-EXIT collector; the
+#                                            exit sits in a nested `if`, so the
+#                                            if-join is skipped too
+#   fail/bc_d1r11_x0_nested_if_break_nocallee — X0's no-callee twin: the loan is
+#                                            raised inline, so the witness pins
+#                                            the JOIN and not the summarizer
+#   fail/bc_d1r11_x0_nested_if_continue    — X0, the `continue` spelling
+#                                            (redundant across the two joins —
+#                                            the only one of the four that is)
+#   fail/bc_d1r11_x0_backedge_continue     — X0 at the BACK EDGE: the use sits
+#                                            INSIDE the loop, above the raise
+#   pass/bc_d1r11_x0_backedge_local_admit  — X0's admit control, back-edge arm
+#                                            (a loop-LOCAL holder crosses
+#                                            nothing)
+#   pass/bc_d1r11_x0_break_noloan_admit    — X0's admit control, `break` with no
+#                                            loan on the path
+#   pass/bc_d1r11_x0_break_region_local_admit — X0's admit control, a
+#                                            region-scoped loan leaving via
+#                                            `break`
+#   fail/bc_d1r11_x1_prospective_alias     — X1, a CALL RESULT is a prospective
+#                                            reborrow (`ref_source_places` had
+#                                            no Call arm)
+#   fail/bc_d1r11_x1_result_subplace       — X1's second half: a mask bit names
+#                                            a PARAMETER, so every place UNDER
+#                                            the seeded one is seeded with it
+#   pass/bc_d1r11_x1_result_dead_admit     — X1's admit control: the seeded edge
+#                                            is a REBORROW record, not a loan
+#   pass/bc_d1r11_x1_nosummary_admit       — X1's FALLBACK route (a `dyn`
+#                                            receiver has no summary, the arm
+#                                            contributes nothing). A ROUTE
+#                                            witness, not a verdict
+#                                            discriminator, and labelled as one
+#                                            in the file: no revert of the arm
+#                                            can red it, so the route is proved
+#                                            by a fire counter INSIDE the
+#                                            null-summary branch (this file: 1
+#                                            entry, 1 no-summary exit, 0 seeds;
+#                                            the three refusal witnesses above:
+#                                            2 entries, 1 summary exit, 1 seed
+#                                            each). Counter removed, sources
+#                                            md5-identical after restore.
+#   fail/bc_d1r11_x2_byvalue_result        — X2, a BY-VALUE aggregate param lost
+#                                            the result mask on field
+#                                            projection (`can_carry` said no)
+#   pass/bc_d1r11_x2_byvalue_scalar_admit  — X2's admit control: the widened
+#                                            `can_carry` must still say NO to a
+#                                            scalar aggregate
+#   fail/bc_d1r10_sp0_aggregate_composed_in — NOT a new file: RE-AUTHORED. See
+#                                            below; it is why the count is +14
+#                                            and not +15.
+#   (gate) logos_00_bc_flow_mask           — X3's assertion, and the +1 on
+#                                            TIERCOMMIT. X3 (name-keyed charging
+#                                            manufacturing param-to-param edges
+#                                            on disjoint field stores) moves NO
+#                                            verdict anywhere in the stdlib, so
+#                                            no `.expected` can pin it in either
+#                                            direction; the gate reads the masks
+#                                            themselves (LOGOS_DUMP_FLOWS) and
+#                                            asserts them positively AND
+#                                            negatively, with a vacuity floor
+#                                            (MIN_FLOWS) so an empty dump
+#                                            cannot pass. Its two inputs:
+#                                            tests/logos/bc_flow_mask/x3_wire3.logos
+#                                            tests/logos/bc_flow_mask/x3_sp0_reauth.logos
+#
+# D1 round 11, THE NON-WITNESS PAID OFF. fail/bc_d1r10_sp0_aggregate_composed_in
+# was registered by round 10 as SP0's refusal witness and was not one: its
+# tested line (`h.i = inn`) was REDUNDANT, because `Mid { i: Inner { r: v } }`
+# already aliased `v` through the literal. Measured at HEAD, one-at-a-time, with
+# a green checkpoint on both sides: with the SP0 arm of the U2 gate reverted
+# (`bc_holds_mut_ref_type` dropped from the store door in
+# borrow_flow_summary.inc, logosc rebuilt, md5-asserted on restore) the OLD file
+# stayed rc=1 — the rule it names could be deleted without moving it. Re-authored
+# per the recipe: `h` is now built over a DIFFERENT vec, so the aggregate STORE
+# is the sole alias path, and the second vec is dead at the offending line so
+# only the first can produce the diagnostic. The revert now reds it — 3 reds
+# under the control (this file, sp1, and the X3 mask gate whose twin fixture is
+# the same shape) and 159/159 green with the arm restored.
+REGISTRY-ALL         7088
+REGISTRY-NOIMPORTED  3405
+REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger

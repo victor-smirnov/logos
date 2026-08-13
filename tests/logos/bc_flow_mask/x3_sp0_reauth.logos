@@ -1,0 +1,37 @@
+// D1 round 11 / X3, the CORPUS-SHAPED mask witness (also fail/bc_d1r10_sp0_
+// aggregate_composed_in, which asserts its VERDICT). Its `out1` mask carried a
+// bit of pure fiction under name-keyed charging: 0x5 = 0x1 (true, `c`'s loan
+// reaches `v`) | 0x4 (false, `w` reaches `v` — the two never meet in the body).
+// wire3 is synthetic; this is the shape the corpus actually writes.
+//
+// D1 round 11 — re-authored SP0 witness. The old fixture's tested line
+// (`h.i = inn`) was REDUNDANT: `Mid { i: Inner { r: v } }` already aliased
+// `v`, so out1 survived the store's removal. Here `h` is built over a
+// DIFFERENT vec (`w`), so the aggregate STORE is the sole alias path from
+// `h.i.r` to `v`; and `ws` is dead at the `c.bump()` line (its last use is
+// the call), so only `vs`'s loan can produce the diagnostic.
+package x3_sp0_reauth;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+struct Mid { i: Inner }
+fn stash2(c: &C, v: &mut Vec<B>, w: &mut Vec<B>) {
+    let inn: Inner = Inner { r: v };
+    let mut h: Mid = Mid { i: Inner { r: w } };
+    h.i = inn;
+    h.i.r.push(c.mk());
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    stash2(&c, &mut vs, &mut ws);
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

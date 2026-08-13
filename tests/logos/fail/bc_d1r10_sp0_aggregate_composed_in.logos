@@ -6,8 +6,23 @@
 // no line at all for the callee, against the depth-1 twin's `out1<-0x1`).
 // The gate now also admits an aggregate that transitively holds a `&mut` —
 // which is a write path, i.e. exactly what an alias edge is consumed for.
-// Census: the new arm admits 1230 stores across lang/mem/lcm/std (40 distinct
-// places per package) and all four still compile, no verdict moves.
+//
+// ⚠ RE-AUTHORED, D1 round 11. The line this fixture exists to test used to be
+// REDUNDANT: `h` was built as `Mid { i: Inner { r: v } }`, i.e. already aliased
+// to `v` through the LITERAL, so `h.i = inn` could be deleted and the
+// diagnostic survived — the fixture stayed rc=1 under a control revert of the
+// rule it names, which makes it a NON-WITNESS for that rule. MEASURED, one
+// rule at a time, with a green checkpoint on both sides: the control drops
+// `bc_holds_mut_ref_type` from the U2 store door in borrow_flow_summary.inc
+// (one occurrence, asserted), rebuilds logosc, and restores md5-identically.
+// OLD file under that control: rc=1, unmoved. THIS file under it: rc=0, the
+// diagnostic gone — 3 reds in the 159-test witness set (this file, sp1, and
+// the X3 mask gate, whose bc_flow_mask/x3_sp0_reauth.logos is this shape), and
+// 159/159 with the arm restored. `h` is now built over a
+// DIFFERENT vec (`w`), so the aggregate STORE is the only alias path from
+// `h.i.r` to `v`; and `ws` is dead at the `c.bump()` line (its last use is the
+// call), so only `vs`'s loan can produce the diagnostic. Its MASK is asserted
+// separately, by bc_flow_mask_gate.sh over bc_flow_mask/x3_sp0_reauth.logos.
 package bc_d1r10_sp0_aggregate_composed_in;
 use logos.mem.collections.vec;
 #[borrow_carrying]
@@ -19,17 +34,17 @@ impl C {
 }
 struct Inner { r: &mut Vec<B> }
 struct Mid { i: Inner }
-struct Outer { m: Mid }
-fn stash2(c: &C, v: &mut Vec<B>) {
+fn stash2(c: &C, v: &mut Vec<B>, w: &mut Vec<B>) {
     let inn: Inner = Inner { r: v };
-    let mut h: Mid = Mid { i: Inner { r: v } };
+    let mut h: Mid = Mid { i: Inner { r: w } };
     h.i = inn;
     h.i.r.push(c.mk());
 }
 fn main() -> i64 {
     let mut c: C = C { v: 1i64 };
     let mut vs: Vec<B> = Vec::new();
-    stash2(&c, &mut vs);
+    let mut ws: Vec<B> = Vec::new();
+    stash2(&c, &mut vs, &mut ws);
     c.bump();                        // must be REFUSED
     return *vs.get(0u64).p;
 }

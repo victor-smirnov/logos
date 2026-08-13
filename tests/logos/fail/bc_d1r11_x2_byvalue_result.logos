@@ -1,0 +1,28 @@
+// D1 round 11 / X2 — a BY-VALUE aggregate param lost the result mask on field
+// projection. `peel3(h: Inner) -> &mut Vec<B> { return h.r; }` summarised
+// result<-0 while the by-REF twin (bc_d1r11_x1_result_subplace's `peel3r`)
+// summarised result<-0x1: same body, same projection, two answers. `Inner` is a
+// plain struct — not a ref, not `#[borrow_carrying]`, not loan-carrying — so
+// `can_carry` said no and the param was never seeded. Until X1 landed this was
+// invisible at a verdict (the call site recorded no edge either way), which is
+// why the defect had to be found at the MASK.
+package bc_d1r11_x2_byvalue_result;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+fn peel3(h: Inner) -> &mut Vec<B> { return h.r; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let hh: Inner = Inner { r: &mut vs };
+    let s: &mut Vec<B> = peel3(hh);
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

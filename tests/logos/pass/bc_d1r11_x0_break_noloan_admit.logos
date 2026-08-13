@@ -1,0 +1,26 @@
+// D1 round 11 / X0, ADMIT direction #1 — the same nested-if `break` shape with
+// NO loan on the path. The exit collector now merges loan counters; this pins
+// that it merges NOTHING when there is nothing to merge, i.e. the new arm is not
+// paying for its refusals with a blanket one.
+package bc_d1r11_x0_break_noloan_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        if i > 0i64 {
+            i = i + 10i64;
+            break;
+        }
+        i = i + 1i64;
+    }
+    c.bump();                        // must be ADMITTED
+    return c.v + i;
+}

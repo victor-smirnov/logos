@@ -1,0 +1,24 @@
+// D1 round 11 / X1, ADMIT direction — the seeded edge is a REBORROW record, not
+// a loan. `s` reborrows `vs` and never raises anything, so `c` stays free and
+// this must still compile. The seeded places also go through
+// `ref_source_admissible` (params and `__rtmp_N` temps dropped at the seed),
+// which is the other half of the admit direction the corpus's
+// bc_d1r5_h7_param_root_admits family pins.
+package bc_d1r11_x1_result_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn pick(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = pick(&mut vs);
+    let n: i64 = s.len();
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

@@ -1,0 +1,50 @@
+// D1 round 11 / X1, the FALLBACK direction — a call result with NO SUMMARY.
+//
+// X1's new arm answers "what does this call's result reborrow?" from the
+// callee's `to_result` mask. The arm's safety argument is that it is STRICTLY
+// ADDITIVE: where no summary exists — the pre-mono generic pass (`flows_` is
+// null), an extern / metaprog stub / body-less callee, or a call the mangled
+// symbol cannot resolve, as here through a `dyn` receiver — `by_mask` returns
+// without seeding and the pre-X1 syntactic answer (`{}` for a Call) stands.
+// This fixture spells that shape and must COMPILE.
+//
+// ⚠ WHAT THIS IS AND IS NOT. It is a ROUTE witness, not a verdict
+// discriminator: no revert of the X1 arm can red it, because the arm's whole
+// contract on this path is to do nothing. Constructing a verdict that separates
+// "seed nothing" from "seed every argument" needs the seeded loan to DIE at a
+// different point than the true one, which this model (element-insensitive,
+// loan charged to the holder's root) cannot express. So the route is proved the
+// only way it can be: a fire counter INSIDE the null-summary branch of
+// `by_mask`, on an otherwise identical build. MEASURED that way, per file:
+//
+//   this file                     : arm entered 1, no-summary exit 1, seed 0
+//   fail/…x1_prospective_alias    : entered 2, no-summary 0, summary 1, seed 1
+//   fail/…x1_result_subplace      : entered 2, no-summary 0, summary 1, seed 1
+//   fail/…x2_byvalue_result       : entered 2, no-summary 0, summary 1, seed 1
+//
+// so the `d.get()` below IS the no-summary exit (a `dyn` receiver resolves to
+// no callee) and the three refusal witnesses are the other exit. Over the
+// stdlib the same arm sees 675 calls of which 470 carry a summary, so this
+// route is the majority one there too. The counter was removed and the
+// restored sources are md5-identical to the pre-instrumentation ones.
+package bc_d1r11_x1_nosummary_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+trait Src { fn get(&mut self) -> &mut Vec<B>; }
+struct Own { own: Vec<B> }
+impl Src for Own { fn get(&mut self) -> &mut Vec<B> { return &mut self.own; } }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut o: Own = Own { own: Vec::<B>::new() };
+    let d: &mut dyn Src = &mut o;
+    let s: &mut Vec<B> = d.get();    // no summary: dyn dispatch
+    let n: i64 = s.len();
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

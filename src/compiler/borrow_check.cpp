@@ -1077,6 +1077,18 @@ struct RefGraph {
         if (std::find(v.begin(), v.end(), s) == v.end()) v.push_back(s);
     }
     void erase(const std::string& p) { e_.erase(p); }
+    // Every recorded place strictly UNDER `root` ("hh" → "hh.r", "hh.i.r").
+    // The sub-place view of the same store: a reference to a whole aggregate
+    // reaches what its fields reborrow, and only the field places carry those
+    // edges (round 6: `h.r == vs` is not expressible over binding names).
+    template <class F> void each_under(const std::string& root, F&& f) const {
+        if (root.empty()) return;
+        std::string pfx = root + ".";
+        for (auto& [k, v] : e_) {
+            (void)v;
+            if (k.size() > pfx.size() && k.compare(0, pfx.size(), pfx) == 0) f(k);
+        }
+    }
     // Re-binding a root retracts every place recorded UNDER it: the old value
     // is gone, so `root.f` no longer names whatever it used to reborrow.
     void erase_under(const std::string& root) {
@@ -1101,6 +1113,40 @@ struct RefGraph {
             seen.push_back(n);
             f(n);
             if (auto* v = find(n)) for (auto& r : *v) stack.push_back(r);
+        }
+    }
+    // ── D1 round 11 / X3: THE SAME WALK, PREFIX-AWARE ─────────────────────
+    //
+    // `each_root` is a FLAT map walk: it follows the edges recorded on the
+    // exact string it is handed. That is enough while every edge is keyed by a
+    // ROOT, and wrong as soon as they are keyed by PLACES — `inn -> h.i` plus
+    // `h.i.r -> v` must answer `inn.r` ⇒ {inn.r, h.i.r, v}, and the flat walk
+    // finds no edge on "inn.r" at all. So a place also inherits what its
+    // PROPER PREFIXES reborrow, with the remaining suffix re-attached: if
+    // `inn` names `h.i`, then `inn.r` names `h.i.r`.
+    //
+    // This lives on the STORE, next to the walk it generalises, because both
+    // instances need it for the same reason. Duplicating it into the
+    // summarizer was the measurement stand-in of round 11 and is exactly the
+    // mistake round 8 charged for (one shape enumeration, one resolve).
+    template <class F> void each_root_place(const std::string& start, F&& f) const {
+        if (start.empty()) return;
+        if (e_.empty()) { f(start); return; }
+        std::vector<std::string> stack{start}, seen;
+        while (!stack.empty()) {
+            std::string n = std::move(stack.back());
+            stack.pop_back();
+            if (std::find(seen.begin(), seen.end(), n) != seen.end()) continue;
+            if (seen.size() > 512) break;          // bound, as elsewhere here
+            seen.push_back(n);
+            f(n);
+            if (auto* v = find(n)) for (auto& r : *v) stack.push_back(r);
+            for (size_t d = n.find('.'); d != std::string::npos;
+                 d = n.find('.', d + 1)) {
+                std::string pre = n.substr(0, d), suf = n.substr(d);
+                if (auto* v = find(pre))
+                    for (auto& r : *v) stack.push_back(r + suf);
+            }
         }
     }
     // The single-name VIEW of the same walk: follow the first edge to a
@@ -5249,9 +5295,58 @@ class BorrowChecker {
         // this loop). loop_propagate_moves keys off `pre_s`, so loop-locals
         // (absent from pre_s) are never seeded moved, and an outer binding
         // re-declared in the body clears naturally when pass 2 re-declares it.
+        // J0 at the BACK EDGE: a loan raised on iteration 1 — at the body's
+        // bottom or on a `continue` path — is still held when iteration 2
+        // re-enters the body, so a use of the referent ABOVE the raise must be
+        // refused. Only the move channel crossed here; the loan counters did
+        // not, so `while … { c.bump(); if p { vs.push(c.mk()); continue; } }`
+        // was admitted. merge_loans is residency-guarded by construction (it
+        // skips any binding absent from the base), so a loop-local holder —
+        // declared inside the body, absent from pre_s — contributes nothing.
+        //
+        // The FALL-THROUGH arm crosses whatever `post1_s` carries, which today
+        // is less than the truth: pop_scope's re-home step is gated on
+        // `!suppress_reports_`, so in pass 1 (the dry run) a loan whose holder
+        // outlives the body is RELEASED at the body's `}` and post1_s comes
+        // back with the counters down. `while … { c.bump(); vs.push(c.mk()); }`
+        // is therefore still admitted. Ungating the re-home (measured) reds
+        // that witness and keeps the corpus at 2048/2048, but stdlib `mem`
+        // stops compiling — `plan_walker.walk_program_params` keeps a `str`
+        // into `src_bufs[i]` from iteration 1 while iteration 2 pushes into
+        // `src_bufs[i+1]`, which the element-insensitive model cannot tell
+        // apart. That is a separate rule (pass-1 loan lifetime) with a real
+        // consumer to fix first, not a hedge to fold in here.
+        //
+        // ⚠ MEASURED, and NOT what an earlier draft of this comment claimed.
+        // The claim was "the `continue` arm here and the one at the loop-exit
+        // collector below are MUTUALLY REDUNDANT for every witness: reverting
+        // either ALONE leaves all four continue fixtures refusing". A
+        // one-at-a-time control revert (two builds, restored and green between)
+        // REFUTES that for three of the four. The joins are distinguished by
+        // WHERE the offending use sits, not by which keyword reached them:
+        //
+        //   frame1 arm only reverted (X0a)  → x0_backedge_continue ADMITS.
+        //       Its `c.bump()` is INSIDE the loop, above the raise, so only the
+        //       back edge can carry iteration 1's loan to it.
+        //   frame2 arms only reverted (X0b) → x0_nested_if_break and
+        //       x0_nested_if_break_nocallee ADMIT. Their use is AFTER the loop
+        //       and the loan leaves via `break`, which post2_s never holds.
+        //   BOTH reverted (X0)              → the above three PLUS
+        //       x0_nested_if_continue, which is the ONLY genuinely redundant
+        //       witness: a `continue` path reaches the after-loop state through
+        //       either join, so it needs the pair to go permissive.
+        //
+        // So each arm has its OWN sole witness and neither is a hedge; the
+        // redundancy is real but confined to one fixture, not to "all four".
         StateMap back_edge = pre_s;
-        if (bottom_reachable) loop_propagate_moves(back_edge, post1_s, pre_s);
-        for (auto& cs : frame1.continue_states) loop_propagate_moves(back_edge, cs, pre_s);
+        if (bottom_reachable) {
+            loop_propagate_moves(back_edge, post1_s, pre_s);
+            merge_loans(back_edge, post1_s);
+        }
+        for (auto& cs : frame1.continue_states) {
+            loop_propagate_moves(back_edge, cs, pre_s);
+            merge_loans(back_edge, cs);
+        }
 
         // ── Pass 2 (authoritative): analyse the body from the state that holds
         //    on entry to EVERY iteration (pre-loop joined with the back edge —
@@ -5288,8 +5383,20 @@ class BorrowChecker {
         prov_   = pre_p;
         merge_loans(states_, post2_s);   // J0: every raised counter crosses
         if (bottom_reachable) loop_propagate_moves(states_, post2_s, pre_s);
-        for (auto& cs : frame2.continue_states) loop_propagate_moves(states_, cs, pre_s);
-        for (auto& bs : frame2.break_states)    loop_propagate_moves(states_, bs, pre_s);
+        // J0 at the LOOP-EXIT collectors: `post2_s` is the fall-through state
+        // only. A loan raised on a path that leaves via `break`/`continue` is
+        // absent from it — twice over when the exit sits in a nested `if`,
+        // because the if-join is skipped on a diverging arm. These two
+        // collectors carried the move channel and not the loan channel, so
+        // `while … { if p { vs.push(c.mk()); break; } }` was admitted.
+        for (auto& cs : frame2.continue_states) {
+            loop_propagate_moves(states_, cs, pre_s);
+            merge_loans(states_, cs);
+        }
+        for (auto& bs : frame2.break_states) {
+            loop_propagate_moves(states_, bs, pre_s);
+            merge_loans(states_, bs);
+        }
         merge_provs(prov_, post2_p);
     }
 
@@ -5435,12 +5542,107 @@ class BorrowChecker {
         if (!var_has(NO_SLOT, root) || param_names_.count(root)) return false;
         return true;
     }
-    std::vector<std::string> ref_sources_of(lir_view::ExprRef val) const {
+    // ── D1 round 11 / X1: A CALL RESULT IS A PROSPECTIVE REBORROW ──────────
+    //
+    // THE DEFECT (measured). `let s: &mut Vec<B> = pick(&mut vs); s.push(c.mk());
+    // c.bump(); *vs.get(0).p` ADMITS, while the alias-free twin `vs.push(c.mk())`
+    // REFUSES. The summary is RIGHT in every witness (`pick` summarises
+    // result<-0x1); the loss is here, at the call site: `ref_source_places` is a
+    // syntactic walk with no Call arm, so `s` was recorded reborrowing NOTHING
+    // and the loan `s` later raised never reached `vs`.
+    //
+    // The sentence this retires is the one above `ref_source_places` — "what a
+    // callee returns is the borrow-flow SUMMARY's question, and answering it
+    // from the shape would be a guess". `flows_` now holds the answer, so it
+    // stops being a guess: the sources of a call result are the sources of
+    // exactly the arguments the callee's `to_result` mask selects, recursively
+    // (an argument may itself be a call). Same index convention as the three
+    // existing `to_result` call sites — receiver first for a method.
+    //
+    // STRICTLY ADDITIVE, and that is the whole safety argument: today's answer
+    // for a Call is `{}` (the walker has no Call arm), and with no summary —
+    // the pre-mono generic pass where `flows_` is null, an extern/metaprog/
+    // ExternalRef/indirect callee — the new arm contributes nothing and the
+    // syntactic answer stands unchanged. Additive edges push toward
+    // OVER-refusal, so every seeded place still goes through
+    // `ref_source_admissible` (params and `__rtmp_N` temps dropped AT the seed).
+    //
+    // ── POPULATION, MEASURED (fire counters inside the arm, removed after; a
+    //    tree-wide green means nothing over a branch that never executed) ────
+    //   stdlib lang/mem/lcm/std : 675 calls reach the mask, 470 have a summary,
+    //       79 of those carry a non-zero `to_result`, and 22 places are SEEDED.
+    //       All four packages still compile — so the arm is exercised on real
+    //       code and costs no over-refusal there. This is the load-bearing
+    //       measurement: without it the corpus green would be vacuous.
+    //   deem/wql (251 compilations, 4957 arm entries, 496 calls, 481 summaries)
+    //       : `to_result` is non-zero ZERO times, so nothing is ever seeded.
+    //       The arc's widest-surface worry is answered by absence, not by luck
+    //       — deem/wql simply has no ref-returning callee whose result carries
+    //       a parameter's borrow. Do not read those 3404 green tests as
+    //       evidence ABOUT this arm; they are silent on it.
+    //   `each_under` (the sub-place half below): 0 fires outside its own
+    //       witness fail/bc_d1r11_x1_result_subplace, which does red under a
+    //       control revert. A rule with a witness and an empty real-code
+    //       population — kept because the witness refuses, but the population
+    //       is the reason to re-measure it before building anything on it.
+    std::vector<std::string> ref_sources_of(lir_view::ExprRef val, int depth = 0) const {
         std::vector<std::string> raw, ok;
         if (!val) return ok;
         ref_source_places(val, prog_.type_pool.impl(), raw);
         for (auto& p : raw)
             if (ref_source_admissible(p)) ok.push_back(std::move(p));
+        if (!raw.empty() || depth > 4) return ok;
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        auto add = [&](std::string p) {
+            if (std::find(ok.begin(), ok.end(), p) == ok.end())
+                ok.push_back(std::move(p));
+        };
+        auto seed = [&](ExprRef a) {
+            if (!a) return;
+            for (auto& p : ref_sources_of(a, depth + 1)) {
+                // A mask bit names a PARAMETER, not a field of it: `peel3r(h:
+                // &mut Inner) -> &mut Vec<B> { return h.r; }` summarises
+                // result<-0x1 and the argument's place is `hh`. Seeding `hh`
+                // alone is where the edge dies — `each_root("hh")` never
+                // reaches `hh.r`'s targets, so the loan `s` raises stops at
+                // `hh` and `vs` looks unborrowed. Holding the whole struct
+                // mutably reaches every field of it, so every place recorded
+                // UNDER the seeded one is seeded with it. Measured: without
+                // this, the by-ref twin x2_byref_twin still admits with a
+                // CORRECT summary — the coarsening, not the mask, is the leak.
+                reborrow_of_.each_under(p, [&](const std::string& sub) { add(sub); });
+                add(std::move(p));
+            }
+        };
+        auto by_mask = [&](const FlowSummary* fs, const std::vector<ExprRef>& ops) {
+            if (!fs) return;
+            for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i)
+                if (fs->to_result & (1ull << i)) seed(ops[i]);
+        };
+        std::vector<ExprRef> ops;
+        switch (val.kind()) {
+            case Code::Call: {
+                ECallView cv{val};
+                cv.each_arg([&](ExprRef a) { ops.push_back(a); });
+                by_mask(flow_of_call(cv.callee()), ops);
+                break;
+            }
+            case Code::FnPtrCall: {           // G1's twin: a resolved pointer
+                EFnPtrCallView fv{val};       // has a real summary, else nothing
+                fv.each_arg([&](ExprRef a) { ops.push_back(a); });
+                by_mask(flow_of_fnptr(fv.callee()), ops);
+                break;
+            }
+            case Code::MethodCall: {
+                EMethodCallView mv{val};
+                ops.push_back(mv.receiver());
+                mv.each_arg([&](ExprRef a) { ops.push_back(a); });
+                by_mask(flow_of_method(mv), ops);
+                break;
+            }
+            default: break;
+        }
         return ok;
     }
     // Record (or retract) the reborrow edge for a binding. Called from `let`

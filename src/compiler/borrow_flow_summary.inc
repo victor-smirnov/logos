@@ -385,8 +385,36 @@ private:
         if (k == LogosType::Kind::Closure || k == LogosType::Kind::TraitObject ||
             k == LogosType::Kind::UnsizedDyn || k == LogosType::Kind::DstRef)
             return true;
+        // ── D1 round 11 / X2: AN AGGREGATE THAT HOLDS A `&mut` CAN CARRY ───
+        //
+        // THE DEFECT, measured at the SUMMARY and not at a verdict.
+        // `fn peel3(h: Inner) -> &mut Vec<B> { return h.r; }` summarised
+        // `result<-0` while its by-REF twin (`h: &mut Inner`) summarised
+        // `result<-0x1` — the same body, the same projection, two answers.
+        // `Inner { r: &mut Vec<B> }` is a plain struct: not a ref, not
+        // `#[borrow_carrying]` (that attribute is about a `&` FIELD), not
+        // loan-carrying — so a BY-VALUE aggregate param was never seeded in
+        // `recompute`, and `taint_of`'s VarRef arm answered 0 for it as well.
+        // Both gates read THIS predicate, which is why the fix is one line
+        // here and not two at the sites: the question they ask is the same
+        // one, "could a borrow travel in this value?".
+        //
+        // Round 10 / SP1 gave the STORE path the `bc_holds_mut_ref_type`
+        // treatment for the same reason ("a deposit could be written through
+        // this value"); the RESULT path is that question read the other way —
+        // a borrow can be EXTRACTED from anything that transitively holds a
+        // `&mut`. Saying yes only ever ADDS flows, exactly like the Ptr and
+        // Closure arms above.
+        //
+        // MEASURED over the whole stdlib (lang/mem/lcm/std, ~21.9k summaries,
+        // all four compile rc=0): 204 functions gain a flow line they did not
+        // have, ZERO lose one, and the only masks that CHANGE rather than
+        // appear are `Option<&mut i32>::unwrap_or`'s (result<-0x2 → 0x3 — the
+        // receiver holds the `&mut`, which is true and was missing). Compile
+        // time within noise (mem 85.2s on / 85.9s off).
         return is_ref_kind(t) || bc_is_borrow_carrying_type(ts_, t) ||
-               bc_loan_carrying_type(ts_, t);
+               bc_loan_carrying_type(ts_, t) ||
+               bc_holds_mut_ref_type(ts_, t);
     }
 
     const FlowSummary* summary_of_call(std::string_view symbol) const {
@@ -507,14 +535,33 @@ private:
             if (!v) return;
             TypeRef vt_u2 = v.type(pool);
             if (!is_mut_ref(vt_u2) && !bc_holds_mut_ref_type(ts_, vt_u2)) return;   // U2
-            std::string dst = ref_place_root(place);
-            if (dst.empty() || dst == "_" || is_materialized_temp_name(dst)) return;
+            // ── D1 round 11 / X3: THE EDGE IS BETWEEN PLACES, NOT ROOTS ──
+            //
+            // THE DEFECT (over-refusal). `fn wire3(dst: &mut Two, a: &mut
+            // Vec<B>, z: &mut Vec<B>) { dst.x = a; dst.y = z; }` summarised
+            // `out1<-0x4 out2<-0x2` beside the true `out0<-0x6`: rooting the
+            // destination recorded `dst -> a` AND `dst -> z`, so a deposit
+            // into ONE field spread to the other field's referent and the
+            // summary manufactured a `a <-> z` edge that the body never
+            // writes. Keyed by the stored PLACE (`dst.x -> a`, `dst.y -> z`)
+            // the two stop meeting. The out-param channel still answers about
+            // the WHOLE parameter — recompute folds every sub-place back to
+            // the root at the boundary, which is where the coarsening belongs.
+            //
+            // The SOURCE side is a place for the same reason: rooting it turns
+            // `inn -> h.i` into `inn -> h`, and `inn.r` then resolves to `h.r`
+            // instead of `h.i.r`. Admissibility (`_`, `__rtmp_N`) is still
+            // asked of the ROOT — it is a fact about the binding.
+            std::string droot = ref_place_root(place);
+            if (droot.empty() || droot == "_" || is_materialized_temp_name(droot)) return;
+            const std::string& dst = place;
             std::vector<std::string> srcs;
             ref_source_places(v, pool, srcs);
             for (auto& p : srcs) {
-                std::string r = ref_place_root(p);
-                if (r.empty() || r == dst || is_materialized_temp_name(r)) continue;
-                alias_.add(dst, r);
+                std::string rroot = ref_place_root(p);
+                if (rroot.empty() || is_materialized_temp_name(rroot)) continue;
+                if (p == dst) continue;
+                alias_.add(dst, p);
             }
         });
     }
@@ -523,7 +570,10 @@ private:
     // the one resolve shared with the checker.
     template <class F>
     void each_root(const std::string& name, F&& f) const {
-        alias_.each_root(name, std::forward<F>(f));
+        // X3: place-keyed edges need the PREFIX-AWARE walk (RefGraph::
+        // each_root_place). One choke point still, as H0 requires — the read
+        // (taint_of_name) and the write (add_taint) both come through here.
+        alias_.each_root_place(name, std::forward<F>(f));
     }
 
     // Total popcount of the intra-procedural state — the monotone measure the
@@ -571,6 +621,19 @@ private:
         }
         (void)pool;
         return {};
+    }
+
+    // X3: the DOTTED destination place a write names ("h.i.r"), falling back
+    // to the root whenever the shape walker cannot name one (an index or a
+    // tuple step makes the rest unnameable, and `ref_source_places` says so by
+    // handing back the bare root). One walker, as round 8 requires.
+    std::string dest_place_of(lir_view::ExprRef e) const {
+        std::string root = root_of(e);
+        if (root.empty()) return root;
+        std::vector<std::string> ps;
+        ref_source_places(e, prog_.type_pool.impl(), ps);
+        if (ps.size() == 1 && ref_place_root(ps[0]) == root) return ps[0];
+        return root;
     }
 
     // Which params' loans this expression's VALUE may carry.
@@ -797,7 +860,11 @@ private:
                 uint64_t src = 0;
                 for (size_t i = 0; i < args.size() && i < s->nparams; ++i)
                     if (s->to_outparam[j] & (1ull << i)) src |= taint_of(args[i]);
-                add_taint(root_of(args[j]), src);
+                // X3: the DEPOSIT side is keyed the way the alias edge is,
+                // or the migration is half-done — and a half-migration turns
+                // the over-approximation into an UNDER-approximation
+                // (measured: r9_s1 / r10_sp0 / r10_sp1 all go permissive).
+                add_taint(dest_place_of(args[j]), src);
             }
         }
         // Nested calls in operand position still have their own effects.
@@ -996,6 +1063,14 @@ private:
                 // this side had none, so `h.r = v;` recorded no alias at all.
                 // Charged to the receiver's ROOT, as everything on this side
                 // is (see note_alias).
+                // X3 NOT TAKEN HERE, MEASURED: dotting this destination
+                // (`v.receiver() + "." + v.field()`) fired ZERO times — over
+                // stdlib mem and lcm, and over X3's own two witnesses. The
+                // FieldWrite STATEMENT kind does not occur in what reaches this
+                // walker (r10 retired another door for the same reason); a
+                // `h.i = inn` on a local arrives as DerefWrite. A widening on a
+                // branch that never executes is a hedge, and worse, a green
+                // branch that never ran. The door stays as it was.
                 note_alias(std::string(v.receiver()), v.value());
                 add_taint(std::string(v.receiver()), taint_of(v.value()));
                 call_effects(v.value());
@@ -1063,8 +1138,9 @@ private:
                 // sensitive view are the price of the remaining precision and
                 // are not paid until a witness shows OVER-refusal.
                 SDerefWriteView v{sr};
-                note_alias(root_of(v.ptr()), v.value());            // r10 / 1c
-                add_taint(root_of(v.ptr()), taint_of(v.value()));
+                std::string dw_dst = dest_place_of(v.ptr());        // X3
+                note_alias(dw_dst, v.value());                     // r10 / 1c
+                add_taint(dw_dst, taint_of(v.value()));
                 call_effects(v.value());
                 break;
             }
@@ -1128,6 +1204,21 @@ private:
         for (uint32_t i = 0; i < s.nparams; ++i) {
             pnames_.emplace_back(params[i].name());
             ptypes_.push_back(params[i].type(pool));
+            // ── D1 round 11 / X2: THE SEED IS THE STORE DOOR'S TWIN ────────
+            //
+            // THE DEFECT (measured at the SUMMARY, not at a verdict).
+            // `fn peel3(h: Inner) -> &mut Vec<B> { return h.r; }` summarises
+            // `result<-0` while its by-REF twin (`h: &mut Inner`) summarises
+            // `result<-0x1` — the same body, the same projection, two answers.
+            // The seed is why: `can_carry(Inner)` is false (a plain struct is
+            // neither a ref nor `#[borrow_carrying]` nor loan-carrying), so a
+            // BY-VALUE aggregate param was never seeded and `h.r`'s FieldRead
+            // had no taint to project. Round 10 / SP1 gave the STORE path the
+            // `bc_holds_mut_ref_type` treatment for exactly this reason ("a
+            // deposit could be written through this value"); the RESULT path
+            // is the same question read the other way — a borrow can be
+            // EXTRACTED from any value that transitively holds a `&mut`.
+            // Adding it only ever ADDS flows, never removes one.
             if (can_carry(ptypes_[i])) taint_[pnames_[i]] = 1ull << i;
         }
         // ── D1 round 5 / H3: THE BODY PASS IS A FIXPOINT TOO ───────────────
@@ -1178,7 +1269,20 @@ private:
         }
         for (uint32_t j = 0; j < s.nparams; ++j) {
             if (!s.is_outparam[j]) continue;
-            uint64_t held = taint_of_name(pnames_[j]) & ~(1ull << j);
+            // X3: FOLD SUB-PLACE MASKS TO THE ROOT AT THE BOUNDARY. Inside the
+            // body the deposits are keyed by place (`dst.x`, `dst.y`); the
+            // out-param channel answers about the WHOLE parameter, so every
+            // place under it contributes. The precision the keying buys is not
+            // lost by this: what a SIBLING place holds no longer reaches the
+            // other's referent, which is the false `out1<-0x4` X3 names.
+            uint64_t held = taint_of_name(pnames_[j]);
+            {
+                std::string pfx = pnames_[j] + ".";
+                for (auto& [n, m] : taint_)
+                    if (n.size() > pfx.size() && n.compare(0, pfx.size(), pfx) == 0)
+                        held |= m;
+            }
+            held &= ~(1ull << j);
             if ((s.to_outparam[j] | held) != s.to_outparam[j]) {
                 s.to_outparam[j] |= held;
                 grew = true;

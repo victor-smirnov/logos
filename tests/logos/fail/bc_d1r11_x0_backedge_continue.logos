@@ -1,0 +1,31 @@
+// D1 round 11 / X0, the BACK EDGE — the other end of the same omission. Pass 1
+// builds the state that iteration 2 enters with (`back_edge`) and carried only
+// the move channel, so a loan raised on iteration 1's `continue` path was gone
+// by the time pass 2 re-entered the body: the `c.bump()` ABOVE the raise saw an
+// unborrowed `c`. The use has to sit above the raise — below it, the loan is
+// already live within the same iteration and this fixture would be a
+// non-witness.
+package bc_d1r11_x0_backedge_continue;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        c.bump();                    // must be REFUSED: iteration 1's loan is live here
+        i = i + 1i64;
+        if i > 0i64 {
+            vs.push(c.mk());
+            continue;
+        }
+        i = i + 1i64;
+    }
+    return *vs.get(0u64).p;
+}

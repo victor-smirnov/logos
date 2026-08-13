@@ -1,0 +1,27 @@
+// D1 round 11 / X1, the SECOND half — a mask bit names a PARAMETER, not a field
+// of it. `peel3r` summarises result<-0x1 (correct), and the argument's place is
+// `hh`, so seeding `hh` alone left the edge one projection short:
+// each_root("hh") never reaches `hh.r`'s targets and `vs` looked unborrowed.
+// Holding the whole struct mutably reaches every field of it, so every place
+// recorded UNDER the seeded one is seeded with it. This fixture is the
+// difference between the two: with a CORRECT summary it still admitted.
+package bc_d1r11_x1_result_subplace;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Inner { r: &mut Vec<B> }
+fn peel3r(h: &mut Inner) -> &mut Vec<B> { return h.r; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut hh: Inner = Inner { r: &mut vs };
+    let s: &mut Vec<B> = peel3r(&mut hh);
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

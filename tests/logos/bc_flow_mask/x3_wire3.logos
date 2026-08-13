@@ -1,0 +1,21 @@
+// D1 round 11 / X3 — THE MASK IS THE ASSERTION, because the defect is
+// INVISIBLE TO A VERDICT. `wire3` stores two DISJOINT `&mut` params into two
+// DISJOINT fields of a third. The true summary is `out0<-0x6` (both referents
+// become reachable through `dst`) and nothing else; name-keyed charging rooted
+// both stores at `dst`, so a deposit into one field spread to the other field's
+// referent and the summary grew `out1<-0x4 out2<-0x2` — a claim that `a` and
+// `z` alias each other, which the body never writes. No program refuses or
+// admits differently because of it TODAY, which is exactly why an rc-shaped
+// fixture cannot pin it and this file is read through LOGOS_DUMP_FLOWS instead.
+package x3_wire3;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Two { x: &mut Vec<B>, y: &mut Vec<B> }
+fn wire3(dst: &mut Two, a: &mut Vec<B>, z: &mut Vec<B>) { dst.x = a; dst.y = z; }
+fn main() -> i64 { return 0i64; }

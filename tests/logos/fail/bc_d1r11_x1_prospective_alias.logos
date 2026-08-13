@@ -1,0 +1,24 @@
+// D1 round 11 / X1 — a CALL RESULT IS A PROSPECTIVE REBORROW. `pick` summarises
+// result<-0x1 (param 0 reaches the result) and the summary is right; the loss
+// was at the CHECKER's call site: `ref_source_places` is a syntactic walk with
+// no Call arm, so `s` was recorded reborrowing NOTHING and the loan `s.push`
+// raises never reached `vs`. The alias-free twin (`vs.push(c.mk())` inline)
+// refuses, which is what makes this a leak and not a policy.
+package bc_d1r11_x1_prospective_alias;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn pick(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = pick(&mut vs);
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

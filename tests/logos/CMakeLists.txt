@@ -1027,6 +1027,27 @@ set_tests_properties(logos_00_corpus_registration PROPERTIES
     LABELS  "logos;pass;suite_semantic_core;tier_commit"
 )
 
+# ── BORROW-FLOW MASKS (D1 round 11 / X3) ─────────────────────────────────────
+# The borrow checker's per-function summary is an answer no `.expected` can
+# reach: a wrong bit in it moves a verdict only when some caller spells the
+# shape that reads that bit, so an over-approximation can sit in the summary
+# with the whole corpus AND the whole stdlib green. X3 was exactly that (false
+# param-to-param edges on disjoint field stores, 0 verdict moves in 21.9k
+# summaries). This gate asserts the masks themselves, positively and — the
+# load-bearing half — negatively. See bc_flow_mask_gate.sh for the argument and
+# for the vacuity floor.
+add_test(
+    NAME logos_00_bc_flow_mask
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/bc_flow_mask_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/bc_flow_mask
+)
+set_tests_properties(logos_00_bc_flow_mask PROPERTIES
+    TIMEOUT     300
+    LABELS      "logos;fail;suite_diagnostics;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ── THE RECORDED LESSONS ABOUT LYING GATES, AS RULES ─────────────────────────
 # `bug_exit_code_gate_lies` records eight ways a gate answers "nothing is wrong"
 # when what happened is "I could not look". Each was diagnosed, fixed at the

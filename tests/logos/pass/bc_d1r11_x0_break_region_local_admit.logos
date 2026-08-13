@@ -1,0 +1,32 @@
+// D1 round 11 / X0, ADMIT direction #2 — the loan exists but its holder is
+// REGION-LOCAL: `vs` is declared inside the `if` that breaks, so the borrow of
+// `c` dies with the region and must not cross the exit collector. merge_loans is
+// residency-guarded (it skips any binding the base does not carry), and `vs` is
+// absent from the pre-loop state — this fixture is what proves the guard, not
+// the comment.
+package bc_d1r11_x0_break_region_local_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn stash(c: &C, v: &mut Vec<B>) { v.push(c.mk()); }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    while i < 3i64 {
+        if i > 0i64 {
+            let mut vs: Vec<B> = Vec::new();
+            stash(&c, &mut vs);
+            n = n + *vs.get(0u64).p;
+            break;
+        }
+        i = i + 1i64;
+    }
+    c.bump();                        // must be ADMITTED
+    return n;
+}

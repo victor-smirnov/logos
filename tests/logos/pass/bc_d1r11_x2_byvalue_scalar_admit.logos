@@ -1,0 +1,26 @@
+// D1 round 11 / X2, ADMIT direction — the widened `can_carry` must say NO to an
+// aggregate that holds no `&mut` at all. `Plain { n: i64 }` is by-value and
+// scalar, so `peel_n` retains nothing, no edge is seeded at the call site and
+// `c.bump()` stays legal. Without this the X2 arm could be a blanket "every
+// by-value struct carries", which would refuse this program.
+package bc_d1r11_x2_byvalue_scalar_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct Plain { n: i64 }
+fn peel_n(h: Plain) -> i64 { return h.n; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let hh: Plain = Plain { n: 7i64 };
+    let k: i64 = peel_n(hh);
+    vs.push(c.mk());
+    let r: i64 = *vs.get(0u64).p;
+    c.bump();                        // must be ADMITTED
+    return k + r + c.v;
+}
