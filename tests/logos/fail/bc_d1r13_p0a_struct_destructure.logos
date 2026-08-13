@@ -1,0 +1,24 @@
+// D1 round 13 / P0a — A PATTERN BINDING IS NOT A REBORROW NODE. A binding
+// extracted by a struct pattern fed `ref_borrow_sources_`, `prov_` and the loan
+// channel and NEVER `reborrow_of_`, so `match h { H { r: s } => s.push(c.mk()) }`
+// laundered the identity `s == h.r == vs` and admitted the later `c.bump()`.
+// The one-variable twin (bc_d1r13_p0a_field_read_twin, `let s = h.r;`) refuses,
+// which is what makes this a leak and not a policy. Fix: propagate_pat_reborrows.
+package bc_d1r13_p0a_struct_destructure;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let h: H = H { r: &mut vs };
+    match h { H { r: s } => { s.push(c.mk()); } }
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

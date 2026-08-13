@@ -1837,8 +1837,32 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # grew a fixture — bc_flow_mask/a1_loopbreak.logos — and its floor went 2 -> 4);
 # A2 the PROSPECTIVE half of apply_flow_outparams (fail x3 — the witness and BOTH
 # ordering discriminators — plus pass x1). 7 fail + 3 pass = the +10 below.
-REGISTRY-ALL         7098
-REGISTRY-NOIMPORTED  3415
+# D1 round 13 (P0/P1/P2/P3): +18 corpus tests, +0 tier_commit. P0 the pattern
+# binding as a reborrow node, three spellings (fail x5 — struct destructure,
+# enum payload, `?`, plus the two one-variable twins that always refused — and
+# pass x3); P1 the tuple/array holders (fail x3 — the tuple witness, the array
+# witness, the struct twin — plus pass x2); P2 the out-param deposit chased
+# through the reborrow edge (fail x2 — the witness and the direct-param twin —
+# plus pass x1); P3 the out-param SEED predicate (fail x1 + pass x1, plus a
+# bc_flow_mask ROW, which registers no test of its own — the mask moves no
+# verdict on its own, so the existing gate grew a fixture,
+# bc_flow_mask/p3_byvalue_outparam.logos, and its floor went 4 -> 6).
+# 11 fail + 7 pass = the +18 below.
+#
+# D1 ROUND 14 (+19: 12 fail + 7 pass) — THE FOURTH CHANNEL. Re-running the
+# mechanical coverage table with the pattern propagators added as a FOURTH
+# COLUMN showed that `collect_ref_sources_paths` (§B6) had never had round 8's
+# one-shape-enumeration treatment: it answers a different question for a
+# DIFFERENT VERDICT (`pop_scope`'s E0597, not the `c.bump()` mutation refusal
+# every earlier round used as a witness), so eight omissions in it were
+# invisible to twelve rounds of witnesses. Q1 MatchExpr, Q3 Deref, Q4 Closure /
+# Q5 FnPtr call results, Q6 the Call-arm gate (`Option<&T>`), Q8 the FieldRead
+# gate round 13 deliberately deferred with a standing "needs its own probe
+# pair" note; plus Q7, two of the four pattern propagators missing at the
+# rvalue-match site (which is where `?` actually arrives).
+# 12 fail (7 witnesses + 5 twins) + 7 pass admit controls = the +19.
+REGISTRY-ALL         7135
+REGISTRY-NOIMPORTED  3452
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

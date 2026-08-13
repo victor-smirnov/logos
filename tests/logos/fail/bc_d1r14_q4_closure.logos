@@ -1,0 +1,20 @@
+// ── D1 round 14: THE FOURTH CHANNEL ───────────────────────────────────────
+// `collect_ref_sources_paths` (§B6) is the borrow checker's FOURTH provenance
+// walker. It is not a peer of the three the coverage table had columns for
+// (`ref_source_places`, `ref_sources_of`, the summarizer's `taint_of`): it
+// answers a different question for a DIFFERENT VERDICT — `ref_borrow_sources_`
+// is read by `pop_scope` to raise E0597 ("does not live long enough"). So an
+// omission here never moved the `c.bump()` verdict that every round from 1 to
+// 13 used as its witness, and twelve rounds of shapes could not see it.
+//
+// Q4 — a CLOSURE CALL's result. A closure's provenance lives in its CAPTURES
+// and the captures are not operands of the call — round 5 / H4's fact, which
+// the loan channel states and this one did not. Uses H4's own `closure_caps_of`
+// (which answers nullptr for a genuine fn pointer by the callee's TYPE KIND).
+// TWIN: bc_d1r14_q4_call_twin, the direct free-fn call, which already refused.
+package bc_d1r14_q4_closure;
+fn main() -> i32 {
+    let mut o: &i64;
+    { let x: i64 = 7i64; let f = || -> &i64 { return &x; }; o = f(); }
+    return *o as i32;
+}

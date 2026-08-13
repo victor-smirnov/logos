@@ -1,0 +1,14 @@
+// TWIN (control) for bc_d1r14_q7_try: `pickd(&x)` returns the reference
+// DIRECTLY instead of an Option unwrapped with `?`. Refused before the fix,
+// must keep refusing after it.
+package bc_d1r14_q7_direct_twin;
+use logos.lang.option;
+fn pickd(v: &i64) -> &i64 { return v; }
+fn body() -> Option<i32> {
+    let mut o: &i64;
+    { let x: i64 = 7i64; o = pickd(&x); }
+    return Option::Some(*o as i32);
+}
+fn main() -> i32 {
+    match body() { Option::Some(n) => { return n; } Option::None => { return 0i32; } }
+}

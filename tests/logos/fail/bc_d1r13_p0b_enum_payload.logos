@@ -1,0 +1,25 @@
+// D1 round 13 / P0b — the ENUM-PAYLOAD spelling of P0a. Two halves were
+// missing: `each_ref_store` recorded no place for an `E::Some(&mut vs)` payload
+// (so `e.0` did not exist to be named), and the pattern binding recorded no
+// reborrow edge. The numeric segment is the spelling the §B6 channel already
+// mints for tuples; a source field name can never be a numeral.
+package bc_d1r13_p0b_enum_payload;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+#[borrow_carrying]
+enum E { None, Some(&mut Vec<B>) }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let e: E = E::Some(&mut vs);
+    match e { E::Some(s) => { s.push(c.mk()); } E::None => {} }
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

@@ -349,8 +349,29 @@ private:
             s.to_outparam.assign(s.nparams, 0);
             s.is_outparam.assign(s.nparams, 0);
             const auto* pool = prog_.type_pool.impl();
+            // ── D1 round 13 / P3: AN OUT-PARAM NEED NOT BE A `&mut` ────────
+            //
+            // THE DEFECT (one-variable mask pair, measured):
+            //   fn stashv(h: H,      c: &C) { h.r.push(c.mk()); }
+            //       → `stashv__f__H__ref_C: result<-0`            no out bit
+            //   fn stashv(h: &mut H, c: &C) { h.r.push(c.mk()); }
+            //       → `stashv__f__refmut_H__ref_C: result<-0 out0<-0x2`
+            // Same body, only the parameter MODE differs. A by-value aggregate
+            // that transitively holds a `&mut` is an out-param in the only
+            // sense this mask means: a write through that field reaches the
+            // CALLER's object, because the reference was copied, not the
+            // referent. `bc_holds_mut_ref_type` is round 10's predicate for
+            // exactly this question and lived 176 lines from this loop without
+            // ever being consulted here.
+            //
+            // It cannot widen the mask on its own: `to_outparam[j]` is still
+            // computed by the body walk, so a param that is never written
+            // through keeps a zero row and every consumer skips it
+            // (`if (!fs->is_outparam[j] || !fs->to_outparam[j]) continue`).
             for (uint32_t i = 0; i < s.nparams; ++i)
-                if (is_mut_ref(params[i].type(pool))) s.is_outparam[i] = 1;
+                if (is_mut_ref(params[i].type(pool)) ||
+                    bc_holds_mut_ref_type(ts_, params[i].type(pool)))
+                    s.is_outparam[i] = 1;
             out_[std::string(f.name())] = std::move(s);
         });
     }

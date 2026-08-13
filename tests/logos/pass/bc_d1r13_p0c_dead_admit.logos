@@ -1,0 +1,25 @@
+// ADMIT CONTROL for fail/bc_d1r13_p0c_try. The loan is never raised (the callee/arm only READS
+// the container), so the later mutation must stay ADMITTED. A refusal rule that
+// cannot be told from over-refusal by its message alone is priced here.
+package bc_d1r13_p0c_dead_admit;
+use logos.mem.collections.vec;
+use logos.lang.option;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn pick(v: &mut Vec<B>) -> Option<&mut Vec<B>> { return Option::Some(v); }
+fn body() -> Option<i64> {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = pick(&mut vs)?;
+    let n: i64 = s.len() as i64;
+    c.bump();                        // must be ADMITTED
+    return Option::Some(c.v + n);
+}
+fn main() -> i64 {
+    match body() { Option::Some(n) => { return n; } Option::None => { return 0i64; } }
+}

@@ -1,0 +1,25 @@
+// D1 round 13 / P1 (tuple) — A TUPLE STEP IS A PATH STEP. `ref_source_places`
+// dropped `path_ok` on a TupleIndex and answered the bare root `t`, so
+// `each_root("t")` never reached `t.0`'s target and `let s = t.0;` laundered
+// the `&mut`. A tuple index is a constant and a place is a string, so "t.0"
+// needed no key-format change at all. bc_d1r13_p1_struct_twin is the spelling
+// that already refused.
+package bc_d1r13_p1_tuple_source;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut t: (&mut Vec<B>, i64) = (&mut vs, 0i64);
+    let s: &mut Vec<B> = t.0;
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

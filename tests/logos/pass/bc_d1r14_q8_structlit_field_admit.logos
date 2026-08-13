@@ -1,0 +1,21 @@
+// ── D1 round 14 ADMIT CONTROL ─────────────────────────────────────────────
+// The refusal fixture alone cannot tell a CLOSED LEAK from an OVER-REFUSAL:
+// both print a diagnostic. This is the other half of the pair — the same
+// shape used SOUNDLY (the borrow never outlives its referent), which must
+// keep COMPILING. If it starts refusing, the round-14 arm is too wide.
+// Q8: the widened FieldRead gate, used soundly. Also pins the NEGATIVE half —
+// reading a SCALAR field out of a struct literal that holds a borrow copies a
+// value, and must not tie the result to the borrow's referent.
+package bc_d1r14_q8_structlit_field_admit;
+struct T { a: &i64, n: i64 }
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    let x: i64 = 7i64;
+    let o: &i64 = T { a: &x, n: 3i64 }.a;
+    acc = *o;
+    let mut m: i64 = 0i64;
+    { let y: i64 = 9i64; m = T { a: &y, n: 4i64 }.n; }
+    if acc != 7i64 { return 1; }
+    if m != 4i64 { return 2; }
+    return 0;
+}

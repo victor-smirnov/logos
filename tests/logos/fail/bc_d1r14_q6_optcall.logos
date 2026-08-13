@@ -1,0 +1,25 @@
+// ── D1 round 14: THE FOURTH CHANNEL ───────────────────────────────────────
+// `collect_ref_sources_paths` (§B6) is the borrow checker's FOURTH provenance
+// walker. It is not a peer of the three the coverage table had columns for
+// (`ref_source_places`, `ref_sources_of`, the summarizer's `taint_of`): it
+// answers a different question for a DIFFERENT VERDICT — `ref_borrow_sources_`
+// is read by `pop_scope` to raise E0597 ("does not live long enough"). So an
+// omission here never moved the `c.bump()` verdict that every round from 1 to
+// 13 used as its witness, and twelve rounds of shapes could not see it.
+//
+// Q6 — THE GATE, not the shape. `is_borrow_carrying_type` names Enum/Struct/
+// ZonedStruct, so it answers NO for a bare `&i64` and therefore NO for
+// `Option<&i64>`: a call returning an OPTION OF A REFERENCE tied its result to
+// nothing. Widened to `type_may_carry_borrow`, round 9/11's predicate for
+// exactly this question, which round 13 / P1 already moved TupleIndex and
+// IndexRead onto. Measured WITHOUT `?`, so this is not the Try arm's problem.
+// TWIN: bc_d1r14_q4_call_twin (the same call returning `&i64` directly).
+package bc_d1r14_q6_optcall;
+// Is the Call gate the blocker? Same call, NO `?` — bind the Option itself.
+use logos.lang.option;
+fn pick(v: &i64) -> Option<&i64> { return Option::Some(v); }
+fn main() -> i32 {
+    let mut o: Option<&i64>;
+    { let x: i64 = 7i64; o = pick(&x); }
+    match o { Option::Some(r) => { return *r as i32; } Option::None => { return 0i32; } }
+}

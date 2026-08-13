@@ -1,0 +1,34 @@
+// D1 round 13 / P3 — IS_OUTPARAM WAS SEEDED ONLY FOR `is_mut_ref`.
+//
+// A MASK fixture, not a refusal fixture: the pair below differs in ONE
+// variable — the parameter MODE — and before the fix the by-VALUE leg carried
+// `result<-0` with NO out bit while the by-REF leg beside it carried the true
+// `result<-0 out0<-0x2`. A by-value aggregate that transitively holds a `&mut`
+// IS an out-param in the only sense the mask means: a write through that
+// field reaches the CALLER's object, because the reference was copied and the
+// referent was not. `stashr` is the CONTROL — if it ever stops reading
+// out0<-0x2 the loss is not in the seed predicate and `stashv`'s row proves
+// nothing.
+//
+// The verdict half of this finding is fail/bc_d1r13_p3_byvalue_outparam, and
+// it only became verdict-visible once P2 (the caller-side deposit chase)
+// landed — which is exactly why the mask needs its own pin here.
+package p3_byvalue_outparam;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+fn stashv(h: H, c: &C) { h.r.push(c.mk()); }
+fn stashr(h: &mut H, c: &C) { h.r.push(c.mk()); }
+fn main() -> i64 {
+    let c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let h: H = H { r: &mut vs };
+    stashv(h, &c);
+    return c.v;
+}

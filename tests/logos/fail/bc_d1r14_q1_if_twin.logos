@@ -1,0 +1,10 @@
+// TWIN (control) for bc_d1r14_q1_match: `if`/`else` instead of `match`. It
+// refused BEFORE the round-14 fix and must keep refusing after it. If this
+// stops refusing, nothing can be concluded from the match leg.
+package bc_d1r14_q1_if_twin;
+fn main() -> i32 {
+    let k: i64 = 1i64;
+    let mut o: &i64;
+    { let x: i64 = 7i64; o = if k == 1i64 { &x } else { &x }; }
+    return *o as i32;
+}

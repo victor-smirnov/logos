@@ -1,0 +1,8 @@
+// TWIN (control) for bc_d1r14_q8_structlit_field: the TUPLE spelling, which
+// round 13 / P1 already widened. Refused before round 14, must keep refusing.
+package bc_d1r14_q8_tuplelit_twin;
+fn main() -> i32 {
+    let mut o: &i64;
+    { let x: i64 = 7i64; o = (&x, 0i64).0; }
+    return *o as i32;
+}

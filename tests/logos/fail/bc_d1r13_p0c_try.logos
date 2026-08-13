@@ -1,0 +1,29 @@
+// D1 round 13 / P0c — the `?` spelling. `?` desugars to a MATCH over the call
+// result, so the leak is a pattern binding whose scrutinee is a CALL: no place
+// to extend, and what the result names is the borrow-flow summary's answer
+// (`ref_sources_of`, round 11 / X1). The payload binding sema synthesizes
+// (`__try_ok_N`) is never declared by a `let`, which is why the source was also
+// dropped as inadmissible — the same shape as round 12's `__loop_val_N` slot.
+// bc_d1r13_p0c_direct_twin is the one-variable control that already refused.
+package bc_d1r13_p0c_try;
+use logos.mem.collections.vec;
+use logos.lang.option;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn pick(v: &mut Vec<B>) -> Option<&mut Vec<B>> { return Option::Some(v); }
+fn body() -> Option<i64> {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = pick(&mut vs)?;
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return Option::Some(*vs.get(0u64).p);
+}
+fn main() -> i64 {
+    match body() { Option::Some(n) => { return n; } Option::None => { return 0i64; } }
+}

@@ -1,0 +1,9 @@
+// TWIN (control) for bc_d1r14_q4_closure / _q5_fnptr: an ordinary direct call
+// to a borrow-returning free fn. Refused before the fix, must keep refusing.
+package bc_d1r14_q4_call_twin;
+fn idr(v: &i64) -> &i64 { return v; }
+fn main() -> i32 {
+    let mut o: &i64;
+    { let x: i64 = 7i64; o = idr(&x); }
+    return *o as i32;
+}

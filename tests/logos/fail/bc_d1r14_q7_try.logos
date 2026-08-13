@@ -1,0 +1,32 @@
+// ── D1 round 14: THE FOURTH CHANNEL ───────────────────────────────────────
+// `collect_ref_sources_paths` (§B6) is the borrow checker's FOURTH provenance
+// walker. It is not a peer of the three the coverage table had columns for
+// (`ref_source_places`, `ref_sources_of`, the summarizer's `taint_of`): it
+// answers a different question for a DIFFERENT VERDICT — `ref_borrow_sources_`
+// is read by `pop_scope` to raise E0597 ("does not live long enough"). So an
+// omission here never moved the `c.bump()` verdict that every round from 1 to
+// 13 used as its witness, and twelve rounds of shapes could not see it.
+//
+// Q7 — TWO OF THE FOUR PATTERN PROPAGATORS. Adding the pattern propagators as
+// the coverage table's FOURTH COLUMN is what showed this: three sites bind a
+// pattern against a scrutinee, and only two ran all four propagators —
+//   stmt::Match  X X X X   |  stmt Let/LetElse  X X X X
+//   MatchExpr as an RVALUE  .  .  X  X      <- sources and prov missing
+// so a match used as a VALUE never fed §B6 or `prov_`.
+//
+// `?` is the spelling, and NOT via the Try node: sema desugars `?` to an
+// rvalue match before the borrow checker runs, so `Code::Try` never reaches
+// any walker (fire-count measured ZERO in all three Try arms, control-reverted
+// green). The payload binding `__try_ok_N` named no source.
+// TWIN: bc_d1r14_q7_direct_twin, the direct-return spelling, already refusing.
+package bc_d1r14_q7_try;
+use logos.lang.option;
+fn pick(v: &i64) -> Option<&i64> { return Option::Some(v); }
+fn body() -> Option<i32> {
+    let mut o: &i64;
+    { let x: i64 = 7i64; o = pick(&x)?; }
+    return Option::Some(*o as i32);
+}
+fn main() -> i32 {
+    match body() { Option::Some(n) => { return n; } Option::None => { return 0i32; } }
+}

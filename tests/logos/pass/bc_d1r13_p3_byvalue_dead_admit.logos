@@ -1,0 +1,25 @@
+// ADMIT CONTROL for fail/bc_d1r13_p3_byvalue_outparam. The by-VALUE aggregate
+// param is only READ by the callee (`h.r.len()`), so no deposit is made and the
+// later mutation must stay ADMITTED. P3 widens the out-param SEED; this is what
+// prices the widening — the seed alone must not refuse, because `to_outparam`
+// is still computed by the body walk and a param never written through keeps a
+// zero row.
+package bc_d1r13_p3_byvalue_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+fn peekv(h: H, c: &C) -> i64 { return h.r.len() as i64; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let h: H = H { r: &mut vs };
+    let n: i64 = peekv(h, &c);
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

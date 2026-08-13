@@ -1,0 +1,8 @@
+// TWIN (control) for bc_d1r14_q3_deref: `o = r` with no deref. Refused before
+// the fix, must keep refusing after it.
+package bc_d1r14_q3_varref_twin;
+fn main() -> i32 {
+    let mut o: &i64;
+    { let x: i64 = 7i64; let r: &i64 = &x; o = r; }
+    return *o as i32;
+}

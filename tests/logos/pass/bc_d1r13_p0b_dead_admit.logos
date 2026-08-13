@@ -1,0 +1,24 @@
+// ADMIT CONTROL for fail/bc_d1r13_p0b_enum_payload. The loan is never raised (the callee/arm only READS
+// the container), so the later mutation must stay ADMITTED. A refusal rule that
+// cannot be told from over-refusal by its message alone is priced here.
+package bc_d1r13_p0b_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct H { r: &mut Vec<B> }
+#[borrow_carrying]
+enum E { None, Some(&mut Vec<B>) }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let e: E = E::Some(&mut vs);
+    let mut n: i64 = 0i64;
+    match e { E::Some(s) => { n = s.len() as i64; } E::None => {} }
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

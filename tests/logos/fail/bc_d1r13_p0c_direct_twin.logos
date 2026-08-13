@@ -1,0 +1,25 @@
+// TWIN for bc_d1r13_p0c_try. `pickd` returns the `&mut` DIRECTLY instead of an
+// `Option` unwrapped with `?`; everything else is identical. It refused before
+// the fix and must keep refusing after it.
+package bc_d1r13_p0c_direct_twin;
+use logos.mem.collections.vec;
+use logos.lang.option;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn pickd(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn body() -> Option<i64> {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = pickd(&mut vs);
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return Option::Some(*vs.get(0u64).p);
+}
+fn main() -> i64 {
+    match body() { Option::Some(n) => { return n; } Option::None => { return 0i64; } }
+}

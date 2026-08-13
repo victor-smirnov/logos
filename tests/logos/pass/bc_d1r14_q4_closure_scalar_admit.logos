@@ -1,0 +1,15 @@
+// ── D1 round 14 ADMIT CONTROL ─────────────────────────────────────────────
+// The refusal fixture alone cannot tell a CLOSED LEAK from an OVER-REFUSAL:
+// both print a diagnostic. This is the other half of the pair — the same
+// shape used SOUNDLY (the borrow never outlives its referent), which must
+// keep COMPILING. If it starts refusing, the round-14 arm is too wide.
+// Q4, the NEGATIVE half of the gate: an i64-returning closure carries no
+// borrow at all, so the binding may outlive everything. The arm is gated on
+// the RESULT type, and this is what pins that gate.
+package bc_d1r14_q4_closure_scalar_admit;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    { let x: i64 = 5i64; let f = || -> i64 { return x; }; acc = f(); }
+    if acc != 5i64 { return 1; }
+    return 0;
+}

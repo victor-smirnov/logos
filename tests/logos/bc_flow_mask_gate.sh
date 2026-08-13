@@ -26,7 +26,8 @@ set -euo pipefail
 
 LOGOSC="${1:?logosc}"
 DIR="${2:?fixture dir}"
-MIN_FLOWS=4   # wire3 1 + stash2 1 + a1_loopbreak 2 (pickl, pickd)
+MIN_FLOWS=6   # wire3 1 + stash2 1 + a1_loopbreak 2 (pickl, pickd)
+              # + p3_byvalue_outparam 2 (stashv, stashr)
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -123,10 +124,40 @@ else
       $linel"
 fi
 
+# ── p3_byvalue_outparam: the out-param SEED predicate. `stashv` takes the
+#    aggregate BY VALUE and `stashr` takes it by `&mut`; the bodies are
+#    identical, so both must carry out0<-0x2. Before D1 round 13 / P3
+#    `is_outparam` was set only for `is_mut_ref`, so the by-value leg read
+#    `result<-0` with no out bit at all — a defect that moved no verdict until
+#    P2 landed, which is why it belongs here. `stashr` is the CONTROL: if it
+#    stops reading out0<-0x2 nothing can be concluded about stashv.
+run p3_byvalue_outparam.logos stash; rc=$RC
+[ "$rc" = 0 ] || note "p3_byvalue_outparam must COMPILE (it is a mask fixture,
+      not a refusal fixture); logosc exited $rc:
+$(sed -n '1,20p' "$TMPD/err.txt")"
+linev=$(grep -F '$stashv__f__' "$TMPD/flows.txt" || true)
+liner=$(grep -F '$stashr__f__' "$TMPD/flows.txt" || true)
+if [ -z "$linev" ] || [ -z "$liner" ]; then
+    note "p3_byvalue_outparam: missing a summary line (stashv='$linev'
+      stashr='$liner') — nothing to assert against, so this row would pass
+      vacuously."
+else
+    grep -qE 'out0<-0x2( |$)' <<<"$liner" ||
+        note "p3_byvalue_outparam's CONTROL stashr does not read out0<-0x2. The
+      by-\`&mut\` leg is broken, so nothing can be concluded about stashv:
+      $liner"
+    grep -qE 'out0<-0x2( |$)' <<<"$linev" ||
+        note "p3_byvalue_outparam's stashv carries no out0 bit. 'result<-0' is
+      the pre-P3 answer: is_outparam was seeded only for is_mut_ref params, so
+      a BY-VALUE aggregate transitively holding a \`&mut\` was never an
+      out-param and its to_outparam row was skipped by every consumer:
+      $linev"
+fi
+
 if [ "$seen_flows" -lt "$MIN_FLOWS" ]; then
     note "the whole run produced $seen_flows [flow] lines (floor $MIN_FLOWS).
       LOGOS_DUMP_FLOWS printed nothing, so this gate asserted nothing."
 fi
 
 if [ "$fail" != 0 ]; then exit 1; fi
-echo "bc_flow_mask_gate: 3 fixtures, masks pinned positively and negatively"
+echo "bc_flow_mask_gate: 4 fixtures, masks pinned positively and negatively"

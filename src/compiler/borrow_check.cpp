@@ -1246,6 +1246,28 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
                 ref_source_places(arm.value(), pool, out, depth + 1);
             });
             return;
+        // D1 round 13 / P0c: `?` IS TRANSPARENT, and this was the one walker
+        // of the four that did not say so — `taint_of`, the summarizer's
+        // operand walker, `scan_uses_expr` and `BorrowChecker::visit` all
+        // carry a `Try` arm. Without it a Try does not even reach the default
+        // path as a no-op: it falls INTO the projection loop below, breaks at
+        // a non-VarRef and yields nothing, so `let s: &mut Vec<B> =
+        // pick(&mut vs)?;` names no source place at all while the direct-
+        // return twin `pickd(&mut vs)` refuses.
+        case Code::Try:
+            ref_source_places(ETryView{val}.inner(), pool, out, depth + 1);
+            return;
+        // D1 round 13 / P1: an ARRAY LITERAL names what its ELEMENTS name.
+        // The read side of the whole-container convention above: the array
+        // place is the key every element's edge is recorded on, so the value
+        // stored there is the UNION of the elements' sources. `let arr =
+        // [&mut vs];` therefore records `arr -> vs`, and `arr[0]` (which the
+        // index step answers as `arr`) resolves through it.
+        case Code::ArrLit:
+            EArrLitView{val}.each_elem([&](ExprRef ev) {
+                ref_source_places(ev, pool, out, depth + 1);
+            });
+            return;
         default: break;
     }
     auto is_rawptr = [&](ExprRef r) {
@@ -1262,20 +1284,48 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
             if (path_ok) fields.emplace_back(EFieldReadView{cur}.field());
             cur = r; continue;
         }
+        // ── D1 round 13 / P1, door 2: A TUPLE STEP IS A PATH STEP ──────────
+        //
+        // `let t = (&mut vs, 0); let s = t.0;` ADMITTED a later `c.bump()`
+        // while the struct twin `H { r }` REFUSED it: this walk dropped
+        // `path_ok` on a tuple step and answered the bare ROOT `t`, and
+        // `each_root("t")` never reaches `t.0`'s target. A tuple index is a
+        // CONSTANT and a place segment is a string, so "t.0" is representable
+        // with no key-format change at all — `ref_place_root` still answers
+        // "t", `erase_under("t")` still retracts it, and the §B6 channel
+        // already MINTS exactly this spelling (collect_ref_sources_paths'
+        // TupleLit arm). A source field name can never be a numeral, so the
+        // numeric segment cannot alias a struct field.
         if (k == Code::TupleIndex) {
             auto r = ETupleIndexView{cur}.receiver();
             if (is_rawptr(r)) return;
-            path_ok = false; cur = r; continue;
+            if (path_ok)
+                fields.emplace_back(std::to_string(ETupleIndexView{cur}.index()));
+            cur = r; continue;
         }
+        // ── AN INDEX STEP NAMES THE CONTAINER, WHOLE ───────────────────────
+        //
+        // An array index is NOT a static path component: `arr[i]` with a
+        // dynamic `i` cannot be named, and a per-element key would be unsound
+        // in the RETRACTION direction (under the flow-sensitive `set()` a
+        // write to `arr[i]` cannot retract one element). So the element edge
+        // is keyed at the ARRAY PLACE itself — whole-element granularity,
+        // which is this file's own stated convention for arrays
+        // (collect_ref_sources_paths' ArrLit arm: "every element lands on
+        // `path`"). The step therefore keeps the path and appends NOTHING,
+        // instead of collapsing to the root: `h.a[0]` answers `h.a`, the
+        // place the element edge is recorded on, and never a place that was
+        // not written. A dynamic index takes the same answer as a constant
+        // one, so an unnameable index does not silently drop the edge.
         if (k == Code::IndexRead) {
             auto r = EIndexReadView{cur}.receiver();
             if (is_rawptr(r)) return;
-            path_ok = false; cur = r; continue;
+            cur = r; continue;
         }
         if (k == Code::SliceIndex) {
             auto s = ESliceIndexView{cur}.slice();
             if (is_rawptr(s)) return;
-            path_ok = false; cur = s; continue;
+            cur = s; continue;
         }
         if (k == Code::Deref) {
             auto op = EDerefView{cur}.operand();
@@ -1319,24 +1369,61 @@ static void each_ref_store(const std::string& dest, lir_view::ExprRef val,
     using Code = lir_schema::expr::Code;
     if (dest.empty() || !val || depth > 8) return;
     sink(dest, val);
-    if (val.kind() != Code::StructLit) return;
-    lir_view::EStructLitView{val}.each_field(
-        [&](std::string_view fname, lir_view::ExprRef fv) {
-            if (!fname.empty())
-                each_ref_store(dest + "." + std::string(fname), fv, sink, depth + 1);
-        });
+    if (val.kind() == Code::StructLit) {
+        lir_view::EStructLitView{val}.each_field(
+            [&](std::string_view fname, lir_view::ExprRef fv) {
+                if (!fname.empty())
+                    each_ref_store(dest + "." + std::string(fname), fv, sink, depth + 1);
+            });
+        return;
+    }
+    // D1 round 13 / P0-P1: an ENUM PAYLOAD and a TUPLE ELEMENT are stored
+    // places exactly like a struct field, spelled with the payload/element
+    // INDEX (the numeric segment `collect_ref_sources_paths`' TupleLit arm
+    // already mints in the §B6 channel — a source field name can never be a
+    // numeral, so the two segment alphabets cannot collide). Without them
+    // `E::Some(&mut vs)` and `(&mut vs, 0)` record no place at all, and every
+    // consumer downstream — the pattern binding of P0b, the `t.0` read of P1
+    // — resolves to nothing.
+    //
+    // An ARRAY LITERAL is NOT enumerated per element here, and that is the
+    // decision the dynamic index forces: `arr[i]` cannot be named, so an
+    // element key could never be read back for a dynamic index and could not
+    // be retracted element-wise by the flow-sensitive `set()`. Its edge is
+    // keyed at the ARRAY PLACE itself — the `sink(dest, val)` above, with the
+    // ArrLit as the value — and `ref_source_places`' ArrLit arm unions the
+    // elements' sources onto it. Whole-container granularity, in both
+    // directions, exactly as the §B6 channel already does.
+    if (val.kind() == Code::TupleLit) {
+        uint32_t i = 0;
+        lir_view::ETupleLitView{val}.each_elem(
+            [&](lir_view::ExprRef ev) {
+                each_ref_store(dest + "." + std::to_string(i++), ev, sink, depth + 1);
+            });
+        return;
+    }
+    if (val.kind() == Code::EnumLitData) {
+        uint32_t i = 0;
+        lir_view::EEnumLitDataView{val}.each_payload(
+            [&](lir_view::ExprRef pv) {
+                each_ref_store(dest + "." + std::to_string(i++), pv, sink, depth + 1);
+            });
+        return;
+    }
 }
 // The same enumeration MINUS the destination itself, for the callers that
 // apply a different (declared-type) gate to the binding than to its places.
 template <class Sink>
 static void each_nested_ref_store(const std::string& dest, lir_view::ExprRef val,
                                   Sink&& sink) {
-    using Code = lir_schema::expr::Code;
-    if (dest.empty() || !val || val.kind() != Code::StructLit) return;
-    lir_view::EStructLitView{val}.each_field(
-        [&](std::string_view fname, lir_view::ExprRef fv) {
-            if (!fname.empty())
-                each_ref_store(dest + "." + std::string(fname), fv, sink, 1);
+    if (dest.empty() || !val) return;
+    // The SAME enumeration with the destination itself filtered out, rather
+    // than a second (StructLit-only) copy of its first step — that copy is
+    // what kept every aggregate kind `each_ref_store` learns from reaching
+    // this door (D1 round 13 / P0: the enum-payload place).
+    each_ref_store(dest, val,
+        [&](const std::string& place, lir_view::ExprRef v) {
+            if (place != dest) sink(place, v);
         });
 }
 
@@ -1383,6 +1470,14 @@ class BorrowChecker {
     // and same resolve as the pre-pass's `prescan_refs_` and the summarizer's
     // `alias_` — see RefGraph.
     RefGraph reborrow_of_;
+    // D1 round 13 / P2: which recorded places hold a MUTABLE reborrow. The
+    // graph itself is kind-blind on purpose (a shared reborrow is as
+    // load-bearing as a mut one for the live-range question — round 7 / R7a
+    // rule 2), but a DEPOSIT is not: a callee can only write through a `&mut`.
+    // Membership is a hint about the value LAST stored at a place; the live
+    // graph still decides whether the place exists at all, so a retraction
+    // needs no mirror here.
+    std::unordered_set<std::string> reborrow_mut_;
     // H4: closure binding -> its CAPTURE names. A closure's provenance lives in
     // its captures, and the captures are not operands of the call, so the call
     // site cannot reach them without this. See closure_caps_of.
@@ -2016,21 +2111,90 @@ class BorrowChecker {
             // so `b` must not outlive w's referent's scope. Gated on the READ's
             // type carrying borrows: reading a scalar field out of a
             // borrow-carrying holder copies a value, not a borrow.
+            //
+            // ── D1 round 14 / Q7: AND NOW THE FIELDREAD ARM, WITH ITS PAIR ──
+            //
+            // Round 13 / P1 widened TupleIndex and IndexRead to
+            // `type_may_carry_borrow` and DELIBERATELY left this arm on the
+            // old gate, with a standing note: "if it is widened later it needs
+            // its own probe pair." Here it is.
+            //
+            // THE PAIR (one variable — the aggregate KIND — nothing else):
+            //   `{ let x = 7; o = T { a: &x }.a; } *o`   admitted   rc=0
+            //   `{ let x = 7; o = (&x, 0).0;    } *o`    refused    rc=1
+            // Same borrow, same scope, same dangling read; the tuple leg went
+            // through the arm P1 widened and the struct leg through this one.
+            // `is_borrow_carrying_type` names Enum/Struct/ZonedStruct, so it
+            // answers NO for the field's own type `&i64` and the read tied to
+            // nothing.
+            //
+            // WHY THE RECEIVER-IS-A-LOCAL CASE HID IT for twelve rounds: `h.r`
+            // on a plain variable is covered by the RefGraph channel, which
+            // this channel need not duplicate. A LITERAL receiver has no place
+            // for that channel to key on, which is why the witness spells one.
             case EC::FieldRead:
-                if (is_borrow_carrying_type(e.type(pool)))
+                if (type_may_carry_borrow(e.type(pool)))
                     collect_ref_sources_paths(
                         lir_view::EFieldReadView{e}.receiver(), path, out);
                 return;
+            // D1 round 13 / P1, door 1: THE GATE WAS WRITTEN FOR bc NAMES.
+            // `is_borrow_carrying_type` answers NO for a plain `&mut T` — it
+            // names Enum/Struct/ZonedStruct — so reading a reference OUT of a
+            // tuple or an array (`t.0`, `arr[0]`) tied the result to nothing
+            // in the §B6 channel, while the struct-field twin one arm up is
+            // covered by the RefGraph channel instead. `type_may_carry_borrow`
+            // is the predicate written for exactly this question (rounds 9/11)
+            // and it answers YES for a ref kind.
+            //
+            // ⚠ THE FIELDREAD ARM ABOVE IS DELIBERATELY LEFT ON THE OLD GATE.
+            // It is the same asymmetry read the other way: a struct field read
+            // has a second channel and these two do not, and widening a
+            // predicate under three arms at once is three rules in one control.
+            // If it is widened later it needs its own probe pair.
             case EC::TupleIndex:
-                if (is_borrow_carrying_type(e.type(pool)))
+                if (type_may_carry_borrow(e.type(pool)))
                     collect_ref_sources_paths(
                         lir_view::ETupleIndexView{e}.receiver(), path, out);
                 return;
             case EC::IndexRead:
-                if (is_borrow_carrying_type(e.type(pool)))
+                if (type_may_carry_borrow(e.type(pool)))
                     collect_ref_sources_paths(
                         lir_view::EIndexReadView{e}.receiver(), path, out);
                 return;
+            // ── D1 round 14 RESIDUALS: THE TWO SLICE SPELLINGS, OPEN ────────
+            //
+            // The regenerated coverage table's last two column-B holes are
+            // SliceIndex and SliceLit, and BOTH are confirmed leaks with clean
+            // one-variable array twins:
+            //
+            //   R1 `let sl: &[&i64] = &arr[0..1]; o = sl[0];`   admits rc=0
+            //      twin `o = arr[0];` (the IndexRead arm above) refuses rc=1
+            //   R2 `o = &arr[0..2];`                            admits rc=0
+            //      twin `o = &arr;`                             refuses rc=1
+            //
+            // THE ARMS ARE DELIBERATELY NOT WRITTEN HERE, and a measurement is
+            // why. Both were implemented, built and instrumented:
+            //   * a `SliceLit` arm fired ZERO times on R2 — `&arr[0..2]` does
+            //     not lower to `Code::SliceLit` on this path at all, so the
+            //     arm was a hedge against a node the front end never hands us.
+            //   * a `SliceIndex` arm DID fire (once, gate `may=1`) on R1 and
+            //     still moved no verdict: it recurses to the slice binding
+            //     `sl`, whose own sources were never recorded at its `let` —
+            //     the input is dry one step UPSTREAM.
+            // So the defect is not a missing arm in this switch; it is that a
+            // slice-forming expression records no source for the binding it is
+            // stored into. Adding either arm would put a green-looking rule
+            // over a branch that changes nothing — exactly the "widening with
+            // no consumer" this file refuses elsewhere. Fixing it needs the
+            // STORE side (what `&arr[a..b]` lowers to, and `is_reborrow_store_
+            // value`'s answer for a slice), which is its own rule and its own
+            // probe pair.
+            //
+            // ⚠ UNPINNED BY CONSTRUCTION: there is no fixture for R1/R2,
+            // because a fixture asserting rc=1 would red today. They are
+            // recorded here so the next round starts from the measurement and
+            // not from the shape guess.
+
             case EC::IfExpr: {
                 lir_view::EIfExprView v{e};
                 collect_ref_sources_paths(v.then_val(), path, out);
@@ -2043,10 +2207,160 @@ class BorrowChecker {
                 collect_ref_sources_paths(
                     lir_view::EBlockExprView{e}.result(), path, out);
                 return;
+            // ── D1 round 14 / Q1-Q4: THE FOURTH CHANNEL NEVER GOT ROUND 8 ────
+            //
+            // Round 8 charged for ONE shape enumeration, and round 12 / A0 and
+            // round 13 / P0c each paid the bill again — but only across the
+            // THREE walkers the coverage table had columns for
+            // (`ref_source_places`, `ref_sources_of`, the summarizer's
+            // `taint_of`). THIS function is the fourth, and it is not a peer of
+            // those three: it answers a DIFFERENT question for a DIFFERENT
+            // verdict. `ref_borrow_sources_` is read by `pop_scope` to raise
+            // E0597 ("does not live long enough"), so an omission here does not
+            // move the `c.bump()` verdict those rounds measured — it loses a
+            // DANGLING-REFERENCE refusal, which is why twelve rounds of
+            // `c.bump()` witnesses could never see it. Adding the pattern
+            // propagators as a fourth column is what made the four arms below
+            // visible in one read.
+            //
+            // Every arm is the SAME transparency the other three already state,
+            // and each was measured with its own one-variable twin (the twin is
+            // the SAME program with the transparent node removed, and every
+            // twin already REFUSED at rc=1 before this change):
+            //
+            //   Q1 MatchExpr  `o = match k { _ => &x };`   admitted (rc=0)
+            //                 vs `o = if k==1 { &x } else { &x };`      rc=1
+            //                 — round 12 / A0's defect, exactly, one channel
+            //                 over. The IfExpr arm is directly above.
+            //   Q2 Try        `o = pick(&x)?;`             admitted (rc=0)
+            //                 vs `o = pickd(&x);`                       rc=1
+            //                 — round 13 / P0c's defect, one channel over.
+            //   Q3 Deref      `o = *rr;`                   admitted (rc=0)
+            //                 vs `o = r;`                              rc=1
+            //   Q4 Closure/FnPtrCall
+            //                 `let g = || -> &i64 { &x }; o = g();`     rc=0
+            //                 `let g: fn(&i64)->&i64 = idr; o = g(&x);` rc=0
+            //                 vs `o = idr(&x);`                        rc=1
+            //
+            // The MatchExpr scrutinee is deliberately NOT a source, for the
+            // same reason `ref_source_places` gives: a match yields one of its
+            // ARM values, never the thing it discriminated on. Pattern BINDINGS
+            // that carry the scrutinee's places are a separate rule and already
+            // have one (`propagate_pat_sources`, called on every arm).
+            case EC::MatchExpr:
+                lir_view::EMatchExprView{e}.each_arm(
+                    [&](lir_view::EMatchArmRef arm) {
+                        collect_ref_sources_paths(arm.value(), path, out);
+                    });
+                return;
+            //
+            // ⚠ THIS ARM IS UNEXERCISED, AND SO ARE ROUND 13's TWO — MEASURED.
+            // A fire-count print inside all three `Code::Try` arms (this one,
+            // `ref_source_places`', `ref_sources_of`') counted ZERO fires over
+            // every `?`-using file in the corpus, INCLUDING round 13's own
+            // witness fail/bc_d1r13_p0c_try.logos. Control revert: with all
+            // three arms DELETED, that witness still refuses (rc=1), its twin
+            // still refuses, and its dead_admit control still admits — so
+            // round 13's P0c credit belongs to the OTHER half of that round
+            // (`ref_source_admissible` admitting a graph-recorded place whose
+            // root no `let` declared, i.e. sema's synthesized `__try_ok_N`),
+            // not to the Try arms.
+            //
+            // THE REASON: sema desugars `?` into a MATCH before the borrow
+            // checker runs, so a `Code::Try` never reaches any of these
+            // walkers. Round 14's `?` witness is fixed by Q6 below (the two
+            // missing pattern propagators at the rvalue-match site), which is
+            // where the shape actually arrives.
+            //
+            // KEPT, NOT DELETED, and the reason is the one this file's own
+            // rule warns about: the consumer may be on the other side.
+            // `lir_mirror.cpp`'s `emit_try_direct` can CONSTRUCT this node, so
+            // a round-tripped or metaprog-emitted LIR can carry a Try that the
+            // sema path never produces. An arm that agrees with the other
+            // three costs nothing and keeps round 8's one-shape-enumeration
+            // invariant true by inspection; deleting three arms on a corpus
+            // that cannot reach them would be trading a provable invariant for
+            // an unprovable absence. It is flagged here rather than pinned by
+            // a test because NO fixture can reach it through the front end.
+            case EC::Try:
+                collect_ref_sources_paths(lir_view::ETryView{e}.inner(), path, out);
+                return;
+            case EC::Deref:
+                // `*rr` names what `rr` names. The projection walk in
+                // `ref_source_places` already treats a deref as transparent
+                // (its `Code::Deref` step) and so does `taint_of`; this channel
+                // fell to `default: return` and tied the result to nothing.
+                // A RAW pointer deref is unchecked everywhere else in this
+                // file, and stays unchecked here: a `Kind::Ptr` operand short-
+                // circuits before the recursion, the same test the projection
+                // walk spells as its `is_rawptr` lambda.
+                //
+                // ⚠ GATED ON THE DEREF'S OWN RESULT TYPE, and an admit-control
+                // wrote this half: `{ let x = 5; r = &x; acc = *r; }` with
+                // `acc: i64` REFUSED (pass/nll_borrow_not_used_after_scope,
+                // the only red in 2088 L2 tests). Dereferencing a `&i64`
+                // COPIES the value out — the result is a scalar and borrows
+                // nothing — while `*rr` on a `&&i64` yields a reference that
+                // does. `taint_of`'s Deref arm already spells exactly this
+                // guard (`can_carry(t) ? taint_of(operand) : 0`); the arm
+                // without it is not "the same transparency", it is a strictly
+                // wider claim. Same predicate as the TupleIndex/IndexRead arms
+                // above.
+                if (!type_may_carry_borrow(e.type(pool))) return;
+                {
+                    lir_view::ExprRef op = lir_view::EDerefView{e}.operand();
+                    TypeRef ot = op ? op.type(pool) : TypeRef(nullptr);
+                    if (ot && ot.kind() == LogosType::Kind::Ptr) return;
+                    collect_ref_sources_paths(op, path, out);
+                }
+                return;
+            // A CLOSURE'S PROVENANCE LIVES IN ITS CAPTURES, and the captures
+            // are not operands of the call — the same fact round 5 / H4 had to
+            // state for the loan channel, restated for this one. The gate and
+            // the capture lookup are H4's own (`closure_caps_of`, which answers
+            // nullptr for a genuine fn pointer by the callee's TYPE KIND, not
+            // by the expression code). A genuine fn pointer takes `Call`'s
+            // argument rule instead — its result can only borrow what was
+            // passed in — which is G1's answer in the loan channel.
+            case EC::ClosureCall:
+            case EC::FnPtrCall: {
+                TypeRef rt = e.type(pool);
+                if (!is_ref_kind(rt) && !is_borrow_carrying_type(rt)) return;
+                const auto* caps = closure_caps_of(call_callee(e));
+                if (caps) {
+                    for (auto& c : *caps)
+                        if (var_has(NO_SLOT, c) && !param_names_.count(c)) emit(c);
+                    return;
+                }
+                if (e.kind() == EC::FnPtrCall)
+                    lir_view::EFnPtrCallView{e}.each_arg([&](lir_view::ExprRef a) {
+                        if (a && (is_plain_ref_kind(a.type(pool)) ||
+                                  is_borrow_carrying_type(a.type(pool))))
+                            collect_ref_sources_paths(a, path, out);
+                    });
+                return;
+            }
             case EC::Call: {
                 // Free fn returning a borrow ties it to its ref args (elision).
                 lir_view::ECallView v{e};
-                if (is_ref_kind(e.type(pool)) || is_borrow_carrying_type(e.type(pool)))
+                // ── D1 round 14 / Q5: THE GATE WAS WRITTEN FOR bc NAMES ─────
+                // `is_borrow_carrying_type` names Enum/Struct/ZonedStruct and
+                // recurses type-args, but a bare `&i64` is none of those — so
+                // `Option<&i64>` answered NO and a call returning an OPTION OF
+                // A REFERENCE tied its result to nothing. Measured WITHOUT `?`
+                // (so this is not the Try arm's problem): `fn pick(v: &i64) ->
+                // Option<&i64>; { let x = 7; o = pick(&x); }` admitted the
+                // dangling `o` at rc=0 while the direct-return twin `pickd(&x)
+                // -> &i64` refused at rc=1. `type_may_carry_borrow` is round
+                // 9/11's predicate for exactly this question (is_ref_kind OR
+                // loan_carrying OR any type-arg), and round 13 / P1 already
+                // moved TupleIndex and IndexRead onto it.
+                //
+                // This widens the arm's ENTRY only. What it then ties to is
+                // unchanged — still only the args that are themselves plain
+                // refs or bc — so a call returning `Option<i64>` from an i64
+                // arg still ties nothing.
+                if (type_may_carry_borrow(e.type(pool)))
                     v.each_arg([&](lir_view::ExprRef a) {
                         // D1: by-value borrow-carrying args too (`id(c.mk())`).
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
@@ -2414,6 +2728,63 @@ class BorrowChecker {
             if (!fs->is_outparam[j] || !fs->to_outparam[j]) continue;
             std::string dst = flow_operand_root(ops[j]);
             if (dst.empty() || !var_has(NO_SLOT, dst)) continue;
+            // ── D1 round 13 / P2: A DEPOSIT MUST FOLLOW THE REBORROW EDGE ──
+            //
+            // THE DEFECT (measured). `fn stash(h: &mut H, c: &C) { h.r.push(
+            // c.mk()); } stash(&mut h, &c); c.bump(); *vs.get(0).p` ADMITS,
+            // while all THREE isolating twins refuse: the callee's body
+            // INLINED, the direct-param spelling `stash(&mut vs, &c)`, and the
+            // same program with `h` used after `c.bump()`. The mask is
+            // IDENTICAL on both sides of that split (`out0<-0x2` on the leak
+            // and on the refusing direct-param twin), so the summarizer is
+            // right and the loss is entirely here.
+            //
+            // The deposit above is keyed to the out-param's ROOT — `h` — and
+            // that is all `h` is: a holder whose last use is the call itself,
+            // so NLL retires the loan one line before `c.bump()`. But the
+            // callee wrote through `h.r`, and `h.r` REBORROWS `vs`, whose last
+            // use is the read after the mutation. The holder set has to say
+            // so.
+            //
+            // THE RULE: the deposit's holders are the out-param root AND every
+            // terminal root its sub-places reborrow, resolved through the ONE
+            // resolve (`each_root_place`, prefix-aware since round 11 / X3 —
+            // this is the checker-side twin of what X3 gave the summarizer).
+            // Recorded as CO-HOLDERS through `inherit_loans`, which only ever
+            // extends a loan's LIFETIME and never its strength, so it cannot
+            // turn an admitted program into a refused one by itself; the
+            // refusal comes from the loan still being live at the mutation.
+            // The holder SET is resolved BEFORE the operand loop and applied
+            // AFTER it, and both halves are load-bearing. Before, because A2's
+            // prospective edges are added inside that loop and name the SOURCE
+            // operand: resolving after made `c` a co-holder of its own loan,
+            // which then never expires — 17 admit fixtures over-refused,
+            // measured. After, because `inherit_loans` extends loan records
+            // that already exist, and the deposit's record is created by the
+            // `take_ref_borrows` inside the loop.
+            std::vector<std::string> chased;
+            auto chase = [&](const std::string& n) {
+                std::string r = ref_place_root(n);
+                if (r.empty() || r == dst) return;
+                if (param_names_.count(r) || !var_has(NO_SLOT, r)) return;
+                if (std::find(chased.begin(), chased.end(), r) == chased.end())
+                    chased.push_back(r);
+            };
+            //
+            // ONLY THROUGH A MUTABLE REBORROW, and this is the half a control
+            // wrote. Following EVERY edge under the out-param made
+            // pass/bc_d1r2_call_out_param_admits refuse: `stash(w: &mut Wrap,
+            // x: B) { w.b = x; }` deposits into `w.b`, and `w`'s old value
+            // held `w.b.p -> z`, so `z` — a plain `i64` local the deposit
+            // cannot reach and whose last use is at the bottom of main —
+            // became a co-holder and the loan never expired. A deposit travels
+            // through `&mut` and nothing else.
+            if (reborrow_mut_.count(dst)) reborrow_of_.each_root_place(dst, chase);
+            std::vector<std::string> subs;
+            reborrow_of_.each_under(dst, [&](const std::string& s) {
+                if (reborrow_mut_.count(s)) subs.push_back(s);
+            });
+            for (auto& s : subs) reborrow_of_.each_root_place(s, chase);
             for (size_t i = 0; i < ops.size() && i < fs->nparams; ++i) {
                 if (i == j || !(fs->to_outparam[j] & (1ull << i))) continue;
                 lir_view::ExprRef src = ops[i];
@@ -2464,6 +2835,7 @@ class BorrowChecker {
                 for (auto& p : ref_sources_of(src))
                     reborrow_of_.add(dst, p);
             }
+            for (auto& h : chased) inherit_loans(dst, h, line);
         }
     }
 
@@ -2914,6 +3286,198 @@ class BorrowChecker {
             std::string n(b);
             for (auto& r : roots) inherit_loans(r, n, ln);
         });
+    }
+
+    // ── D1 round 13 / P0: A PATTERN BINDING NAMES A PLACE ─────────────────
+    //
+    // The PLACE-carrying twin of `each_pat_binding`: the same enumeration over
+    // the same 13 pattern kinds, handing each binding the SUB-PLACE of the
+    // scrutinee it is extracted from (`match h { H { r: s } => … }` with the
+    // scrutinee at place "h" gives `s` the place "h.r").
+    //
+    // Where a pattern step names a component, the place is extended with that
+    // component's segment — a field NAME for a struct pattern, the payload /
+    // element INDEX for a variant or tuple pattern (numeric segments are the
+    // spelling both channels already mint for tuples, and a source field name
+    // can never be a numeral, so they cannot alias). Where a step does NOT
+    // name one — a slice pattern, an `or`-alternative, a `ref`/`@` wrapper —
+    // the place stays the container's, which is the whole-element convention
+    // the array channel uses everywhere else: coarse, never invented.
+    template <class F>
+    void each_pat_binding_place(lir_view::PatRef pr, const std::string& base,
+                                F&& f) const {
+        using namespace lir_view;
+        using PC = lir_schema::pat::Code;
+        if (!pr || base.empty()) return;
+        const auto* pool = prog_.type_pool.impl();
+        auto sub = [&](const std::string& seg) { return base + "." + seg; };
+        auto zip = [&](auto&& each_name, auto&& each_type) {
+            std::vector<std::string> ns;
+            std::vector<TypeRef>     ts;
+            each_name([&](std::string_view b){ ns.emplace_back(b); });
+            each_type([&](TypeRef t){ ts.push_back(t); });
+            for (size_t i = 0; i < ns.size(); ++i)
+                f(std::string_view(ns[i]), i < ts.size() ? ts[i] : TypeRef(nullptr),
+                  sub(std::to_string(i)));
+        };
+        switch (pr.kind()) {
+            case PC::Variant: case PC::Int: case PC::Bool: case PC::Range:
+                return;
+            case PC::Wild:
+                f(PatWildView{pr}.name(), TypeRef(nullptr), base);
+                return;
+            case PC::VariantData: {
+                PatVariantDataView v{pr};
+                zip([&](auto&& g){ v.each_binding(g); },
+                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                return;
+            }
+            case PC::Tuple: {
+                PatTupleView v{pr};
+                zip([&](auto&& g){ v.each_binding(g); },
+                    [&](auto&& g){ v.each_binding_type(pool, g); });
+                // The sub-patterns' positions are not zipped with the binding
+                // list, so they take the container's place (coarse).
+                v.each_sub([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                return;
+            }
+            case PC::Struct:
+                PatStructView{pr}.each_field([&](PatFieldBindingView fb) {
+                    std::string fp = fb.field_name().empty()
+                                       ? base : sub(std::string(fb.field_name()));
+                    if (auto s = fb.sub()) each_pat_binding_place(s, fp, f);
+                    else f(fb.field_name(), TypeRef(nullptr), fp);
+                });
+                return;
+            case PC::Or:
+                PatOrView{pr}.each_alt([&](PatRef a){ each_pat_binding_place(a, base, f); });
+                return;
+            case PC::Slice: {
+                PatSliceView v{pr};
+                v.each_prefix([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                v.each_rest  ([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                v.each_suffix([&](PatRef s){ each_pat_binding_place(s, base, f); });
+                return;
+            }
+            case PC::At: {
+                PatAtView v{pr};
+                f(v.name(), v.type(pool), base);
+                if (auto s = v.sub()) each_pat_binding_place(s, base, f);
+                return;
+            }
+            case PC::RefBind: {
+                PatRefBindView v{pr};
+                f(v.name(), v.bind_type(pool), base);
+                return;
+            }
+            case PC::RefPat:
+                if (auto in = PatRefPatView{pr}.inner())
+                    each_pat_binding_place(in, base, f);
+                return;
+        }
+    }
+
+    // ── D1 round 13 / P0: THE REBORROW COUNTERPART OF THE THREE ───────────
+    //
+    // THE DEFECT (three spellings, all measured rc=0 against a one-variable
+    // field-read twin at rc=1): `match h { H { r: s } => { s.push(c.mk()); } }
+    // c.bump(); *vs.get(0).p` COMPILES while `let s: &mut Vec<B> = h.r;`
+    // REFUSES. A pattern binding fed `ref_borrow_sources_` (propagate_pat_
+    // sources), `prov_` (propagate_pat_prov) and the loan channel
+    // (propagate_pat_loans) — three of the four stores — and never fed
+    // `reborrow_of_`. So the identity `s == h.r == vs` was lost at the arm,
+    // and the loan raised through `s` never reached `vs`: a binding-extracted
+    // `&mut` LAUNDERS its referent.
+    //
+    // THE RULE, and it is `note_reborrow`'s, not a new one: a binding that
+    // extracts a place the graph ALREADY records as a reborrow IS that
+    // reborrow. That is the whole gate — no type test, because a struct
+    // pattern's shorthand field carries no declared type (a type gate would
+    // have skipped the very witness), and because a place the graph does not
+    // record cannot produce an edge here at all. It is additive over KNOWN
+    // facts: the binding is a fresh name in a fresh scope, the sources come
+    // from `reborrow_of_` itself, so nothing can be invented or strengthened.
+    //
+    // The sub-place half is `note_place_copy`'s, one door over: binding a
+    // whole AGGREGATE out of a place makes the binding's sub-places name what
+    // the source's did (`H2 { i: inn }` ⇒ `inn.r` names what `h.i.r` named).
+    void propagate_pat_reborrows(lir_view::PatRef pr, lir_view::ExprRef scrut) {
+        if (!pr || !scrut) return;
+        const auto* pool = prog_.type_pool.impl();
+        std::vector<std::string> bases;
+        ref_source_places(scrut, pool, bases);
+        if (bases.empty()) {
+            // ── THE TEMPORARY SCRUTINEE (P0c, and `?` is the spelling) ─────
+            //
+            // `let s: &mut Vec<B> = pick(&mut vs)?;` desugars to a MATCH over
+            // the call's result, so the leak is not the `?` node at all — it
+            // is a pattern binding whose scrutinee is a CALL. A call names no
+            // PLACE, so there is no sub-place to extend and the walk above
+            // yields nothing; what the call result names is the borrow-flow
+            // summary's answer, and `ref_sources_of` is where that answer
+            // already lives (round 11 / X1).
+            //
+            // COARSE, deliberately: the binding is recorded naming what the
+            // whole scrutinee names, with no segment appended — a `.0` under
+            // `vs` would be an INVENTED place (`vs` is the referent, not the
+            // Option). Same whole-value convention as the slice/or arms.
+            // Gated on the binding's own declared type being a reference: a
+            // by-value payload copies out, and an UNKNOWN (null) type is not
+            // recorded here at all, because unlike the place branch below
+            // there is no "the graph already knows this place" check to keep
+            // it honest.
+            std::vector<std::string> srcs = ref_sources_of(scrut);
+            if (srcs.empty()) return;
+            each_pat_binding(pr, [&](std::string_view b, TypeRef t) {
+                if (b.empty() || b == "_" || !is_reborrow_ref_kind(t)) return;
+                std::string n(b);
+                std::vector<std::string> src = srcs;
+                src.erase(std::remove(src.begin(), src.end(), n), src.end());
+                if (src.empty()) return;
+                freeze_ref_closure(n, src);
+                reborrow_of_.set(n, std::move(src));
+            });
+            return;
+        }
+        // name -> the places it names, unioned over a multi-place scrutinee.
+        std::vector<std::pair<std::string, std::vector<std::string>>> rec;
+        auto slot = [&](const std::string& n) -> std::vector<std::string>& {
+            for (auto& pr2 : rec) if (pr2.first == n) return pr2.second;
+            rec.emplace_back(n, std::vector<std::string>{});
+            return rec.back().second;
+        };
+        for (auto& base : bases)
+            each_pat_binding_place(pr, base,
+                [&](std::string_view b, TypeRef, const std::string& place) {
+                    if (b.empty() || b == "_" || place.empty()) return;
+                    std::string n(b);
+                    if (n == place) return;
+                    if (reborrow_of_.find(place)) {
+                        auto& v = slot(n);
+                        if (std::find(v.begin(), v.end(), place) == v.end())
+                            v.push_back(place);
+                    }
+                    // The aggregate half: copy the recorded SUB-places over.
+                    std::string pfx = place + ".";
+                    std::vector<std::pair<std::string, std::vector<std::string>>> adds;
+                    for (auto& kv : reborrow_of_.e_)
+                        if (kv.first.size() > pfx.size() &&
+                            kv.first.compare(0, pfx.size(), pfx) == 0)
+                            adds.emplace_back(n + kv.first.substr(place.size()),
+                                              kv.second);
+                    for (auto& a : adds) {
+                        auto& v = slot(a.first);
+                        for (auto& s : a.second)
+                            if (std::find(v.begin(), v.end(), s) == v.end())
+                                v.push_back(s);
+                    }
+                });
+        for (auto& [n, s] : rec) {
+            if (s.empty()) continue;
+            std::vector<std::string> src = s;
+            freeze_ref_closure(n, src);        // E0, exactly as note_reborrow
+            reborrow_of_.set(n, std::move(src));
+        }
     }
 
     // ── D1 round 5 / H8: a TEMPORARY scrutinee's own loan has NO HOLDER ───
@@ -4692,9 +5256,42 @@ class BorrowChecker {
                 // H8 — spelling 2 of 3: the match used as a VALUE.
                 if (auto st = retain_temp_scrut_loan(v.scrut(), line); !st.empty())
                     scrut_roots.push_back(std::move(st));
+                // ── D1 round 14 / Q6: TWO OF THE FOUR PROPAGATORS ─────────
+                //
+                // Adding the pattern propagators as the coverage table's
+                // FOURTH COLUMN is what showed this: there are three sites that
+                // bind a pattern against a scrutinee, and only two of them run
+                // all four propagators.
+                //
+                //   site                       sources prov loans reborrows
+                //   stmt::Match      (§7428)      X      X     X       X
+                //   stmt Let/LetElse (§7228)      X      X     X       X
+                //   MatchExpr as an RVALUE (here) .      .     X       X
+                //
+                // So a match used as a VALUE never fed §B6 (`ref_borrow_
+                // sources_`) or `prov_`, and §B6 is the channel `pop_scope`
+                // reads to raise E0597. This is the residual half of Q2: `?`
+                // is ALREADY desugared to an rvalue match by the time the
+                // checker runs (measured — the new Try arm above fires ZERO
+                // times on `pick(&x)?` and the MatchExpr arm fires once), so
+                // the payload binding `__try_ok_N` named no source, and
+                // `{ let x = 7; o = pick(&x)?; } *o` admitted at rc=0 while
+                // the direct-return twin refused at rc=1.
+                //
+                // Both propagators are the SAME calls the other two sites
+                // make, with the same gates: `propagate_pat_sources` records
+                // only bindings whose own type is ref/bc and only from a
+                // NON-EMPTY source set, and `propagate_pat_prov` gates on the
+                // scrutinee being borrow- or loan-carrying. Neither can invent
+                // a source: both copy from what the scrutinee already names.
+                std::vector<std::string> scrut_sources;
+                collect_ref_sources(v.scrut(), scrut_sources);
                 v.each_arm([&](EMatchArmRef arm) {
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                    propagate_pat_sources(arm.pat(), scrut_sources, line);  // §B6
+                    propagate_pat_prov(arm.pat(), v.scrut());               // r3
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
+                    propagate_pat_reborrows(arm.pat(), v.scrut());  // D1 r13
                     take_ref_borrows(arm.value(), line, holder);
                 });
                 break;
@@ -5621,7 +6218,17 @@ class BorrowChecker {
         // the loop statement and is READ after it, by construction — the
         // BlockExpr wrapper's result is a VarRef to it.
         if (!is_loop_break_slot_name(root)) {
-            if (!var_has(NO_SLOT, root) || param_names_.count(root)) return false;
+            if (param_names_.count(root)) return false;
+            // D1 round 13 / P0c: a place THE GRAPH ITSELF RECORDS is nameable
+            // even when no `let` declared its root. `?` desugars to a match
+            // whose payload binding (`__try_ok_N`) is synthesized by sema and
+            // never declared, so `var_has` says no and the source was dropped
+            // — the same shape as the `__loop_val_N` break slot above, and the
+            // same answer. This cannot admit an `__rtmp_N` (refused above) nor
+            // a param (refused just above), and it cannot invent an edge: the
+            // only way into `reborrow_of_` is a recorder that already applied
+            // its own gate.
+            if (!var_has(NO_SLOT, root) && !reborrow_of_.find(p)) return false;
         }
         return true;
     }
@@ -5724,6 +6331,17 @@ class BorrowChecker {
                 by_mask(flow_of_method(mv), ops);
                 break;
             }
+            // D1 round 13 / P0c: `?` is TRANSPARENT here too. The shape walker
+            // above answers nothing for a Try because its inner is a CALL, and
+            // a call result is this function's question, not the shape's — so
+            // the unwrap has to happen on THIS side of the split or the mask
+            // is never consulted at all. Measured: `let s: &mut Vec<B> =
+            // pick(&mut vs)?;` admitted a later `c.bump()` while the direct-
+            // return twin `pickd(&mut vs)` refused it.
+            case Code::Try:
+                for (auto& p : ref_sources_of(ETryView{val}.inner(), depth + 1))
+                    add(std::move(p));
+                break;
             default: break;
         }
         return ok;
@@ -5750,6 +6368,28 @@ class BorrowChecker {
     static bool is_reborrow_ref_kind(TypeRef t) {
         return t && (t.kind() == LogosType::Kind::MutRef ||
                      t.kind() == LogosType::Kind::Ref);
+    }
+    // D1 round 13 / P1: THE VALUE STORED IS AN ARRAY OF REFERENCES.
+    //
+    // The container-granular half of the array convention on the WRITE side.
+    // `let arr: [&mut Vec<B>; 1] = [&mut vs];` has an ARRAY type, so the
+    // ref-kind gate above left the source list empty and `set()` erased the
+    // key — the same shape N0 met one projection deeper with a nested struct
+    // literal. The array place names every element's referent (the read side
+    // is `ref_source_places`' ArrLit arm), so an array LITERAL of references
+    // is recorded like a reborrow, at the container.
+    //
+    // Deliberately narrow: only a literal, and only a DIRECT array of
+    // references. An array of AGGREGATES that hold references records
+    // nothing, because nothing reads such a place back either — the element
+    // places do not exist, and inventing them is the unsound direction the
+    // dynamic index rules out.
+    static bool is_reborrow_store_value(TypeRef t, lir_view::ExprRef val) {
+        if (is_reborrow_ref_kind(t)) return true;
+        if (!val || val.kind() != lir_schema::expr::Code::ArrLit || !t) return false;
+        auto k = t.kind();
+        if (k != LogosType::Kind::Array && k != LogosType::Kind::Slice) return false;
+        return is_reborrow_ref_kind(t.elem());
     }
     // ── D1 round 10 / E0: RESOLVE-THEN-FREEZE, FOR A BINDING TOO ───────────
     //
@@ -5812,7 +6452,9 @@ class BorrowChecker {
         // times, because sema gives every desugared field binding a declared
         // type. A widening with no consumer is a hedge, so the gate still
         // reads only `t`; U3's actual missing half is note_place_copy below.
-        if (is_reborrow_ref_kind(t)) s = ref_sources_of(val);
+        if (is_reborrow_store_value(t, val)) s = ref_sources_of(val);   // P1: arrays too
+        if (t && t.kind() == LogosType::Kind::MutRef) reborrow_mut_.insert(name);
+        else                                          reborrow_mut_.erase(name);
         freeze_ref_closure(name, s);            // E0
         reborrow_of_.set(name, std::move(s));   // empty ⇒ retract
         // G0 — SAME CONCEPT, ONE PROJECTION DEEPER. Re-binding `name` retracts
@@ -5888,7 +6530,9 @@ class BorrowChecker {
         const auto* pool = prog_.type_pool.impl();
         TypeRef vt = val ? val.type(pool) : TypeRef(nullptr);
         std::vector<std::string> s;
-        if (is_reborrow_ref_kind(vt)) s = ref_sources_of(val);   // R7a rule 2
+        if (is_reborrow_store_value(vt, val)) s = ref_sources_of(val);   // R7a rule 2 (+P1)
+        if (vt && vt.kind() == LogosType::Kind::MutRef) reborrow_mut_.insert(place);
+        else                                            reborrow_mut_.erase(place);
         // A STORED place is resolved EAGERLY, and now to the whole closure
         // rather than to the endpoint. Eagerly, because the stored reference
         // keeps naming what it named at the store even if the intermediate
@@ -6709,6 +7353,7 @@ class BorrowChecker {
                     propagate_pat_sources(v.pat(), srcs, ln);  // §B6
                     propagate_pat_prov(v.pat(), v.scrut());   // D1 r3
                     propagate_pat_loans(v.pat(), roots, ln);   // D1
+                    propagate_pat_reborrows(v.pat(), sc);      // D1 r13
                 } else {
                     declare_pat_bindings(v.pat());
                 }
@@ -6908,6 +7553,7 @@ class BorrowChecker {
                     propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
                     propagate_pat_prov(arm.pat(), v.scrut());             // D1 r3
                     propagate_pat_loans(arm.pat(), scrut_hop_roots, ln);  // D1
+                    propagate_pat_reborrows(arm.pat(), v.scrut());        // D1 r13
                     StateMap before_guard = states_;
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
                     // Fold this guard's NEW moves of outer bindings into the
@@ -7074,6 +7720,7 @@ public:
         scopes_.clear();
         prov_.clear();
         reborrow_of_.clear();
+        reborrow_mut_.clear();
         reborrow_prescan_.clear();   // G0
         fnptr_sym_.clear();          // G1
         fnptr_multi_.clear();        // G1
