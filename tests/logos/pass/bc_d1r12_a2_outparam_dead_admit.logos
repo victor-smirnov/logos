@@ -1,0 +1,29 @@
+// D1 round 12 / A2, ADMIT direction — the prospective edge is a REBORROW
+// record, not a loan. `t` aliases `vs` after the call and never raises
+// anything, so `c` stays free and this must still compile AND RUN.
+//
+// This half prices the COARSENING the fix takes: the mask names a PARAMETER,
+// not the field inside it, so the edge is recorded on `t` rather than on `t.x`.
+// An over-eager version of that — turning the alias into a loan, or blaming the
+// whole struct for a borrow nobody raised — would refuse this program.
+package bc_d1r12_a2_outparam_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct T { x: &mut Vec<B> }
+fn wire(t: &mut T, v: &mut Vec<B>) { t.x = v; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let mut t: T = T { x: &mut ws };
+    wire(&mut t, &mut vs);
+    let n: i64 = t.x.len();
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

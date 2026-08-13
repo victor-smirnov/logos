@@ -1,0 +1,24 @@
+// D1 round 12 / A2, DISCRIMINATOR #2 — THE DIRECT SPELLING. The same store
+// `t.x = &mut vs` written inline instead of inside a callee. It refused before
+// A2 and must refuse after: it is what made the through-a-call spelling a LEAK
+// (same program, same loan, different verdict) rather than a deliberate policy.
+package bc_d1r12_a2_direct_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct T { x: &mut Vec<B> }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let mut t: T = T { x: &mut ws };
+    t.x = &mut vs;
+    t.x.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

@@ -1813,6 +1813,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                            cannot pass. Its two inputs:
 #                                            tests/logos/bc_flow_mask/x3_wire3.logos
 #                                            tests/logos/bc_flow_mask/x3_sp0_reauth.logos
+#                                            tests/logos/bc_flow_mask/a1_loopbreak.logos
+#                                            (round 12 / A1)
 #
 # D1 round 11, THE NON-WITNESS PAID OFF. fail/bc_d1r10_sp0_aggregate_composed_in
 # was registered by round 10 as SP0's refusal witness and was not one: its
@@ -1827,8 +1829,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # only the first can produce the diagnostic. The revert now reds it — 3 reds
 # under the control (this file, sp1, and the X3 mask gate whose twin fixture is
 # the same shape) and 159/159 green with the arm restored.
-REGISTRY-ALL         7088
-REGISTRY-NOIMPORTED  3405
+# D1 round 12 (A0/A1/A2): +10 corpus tests, +0 tier_commit. A0 the MatchExpr arm
+# of ref_source_places (fail x2 — the match witness and the `if` twin that always
+# refused — plus pass x1); A1 the `break v` deposit into a loop's break slot in
+# BOTH walkers (fail x2 + pass x1, plus a bc_flow_mask ROW, which registers no
+# test of its own: the summarizer half moves no verdict, so the existing gate
+# grew a fixture — bc_flow_mask/a1_loopbreak.logos — and its floor went 2 -> 4);
+# A2 the PROSPECTIVE half of apply_flow_outparams (fail x3 — the witness and BOTH
+# ordering discriminators — plus pass x1). 7 fail + 3 pass = the +10 below.
+REGISTRY-ALL         7098
+REGISTRY-NOIMPORTED  3415
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

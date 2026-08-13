@@ -1,0 +1,24 @@
+// D1 round 12 / A1, ADMIT direction — the break deposit is a REBORROW record,
+// not a loan. `s` reborrows `vs` through the loop's break slot and never raises
+// anything before `c.bump()`, so `c` stays free and this must still compile AND
+// RUN. It also pins the READ half of the fix: `ref_source_admissible` now lets
+// the synthesized `__loop_val_N` through (it is a real entry alloca that
+// outlives the loop, unlike an `__rtmp_N`), and an over-eager version of that
+// relaxation would blame this program.
+package bc_d1r12_a1_loop_break_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = loop { break &mut vs; };
+    let n: i64 = s.len();
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

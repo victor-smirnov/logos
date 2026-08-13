@@ -1,0 +1,23 @@
+// D1 round 12 / A1, THE MASK HALF. `pickl` wraps its return in a
+// loop-as-expression; `pickd` beside it is the SAME function un-wrapped, and is
+// the control that says the mask machinery works at all on this shape.
+//
+// Before the Break arm existed in the summarizer, this printed
+//   pickd  result<-0x1   (true)
+//   pickl  result<-0     (the loss)
+// — a wrong bit that moves NO verdict on its own here, which is exactly what
+// this gate is for. Both must now read result<-0x1.
+package a1_loopbreak;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+fn pickl(v: &mut Vec<B>) -> &mut Vec<B> { return loop { break v; }; }
+fn pickd(v: &mut Vec<B>) -> &mut Vec<B> { return v; }
+fn main() -> i64 {
+    let mut vs: Vec<B> = Vec::new();
+    let a: &mut Vec<B> = pickl(&mut vs);
+    a.push(B { p: &0i64 });
+    let b: &mut Vec<B> = pickd(&mut vs);
+    b.push(B { p: &0i64 });
+    return 0i64;
+}

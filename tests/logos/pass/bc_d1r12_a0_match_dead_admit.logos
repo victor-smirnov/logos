@@ -1,0 +1,25 @@
+// D1 round 12 / A0, ADMIT direction — the new MatchExpr arm records a REBORROW,
+// not a loan. `s` reborrows `vs`/`ws` through the match and never raises
+// anything before `c.bump()`, so `c` stays free and this must still compile AND
+// RUN. Without this half, the A0 fix could have been an over-refusal (every arm
+// of every match blamed for a borrow) and the refusal witness alone could not
+// tell the two apart.
+package bc_d1r12_a0_match_dead_admit;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let k: i64 = 1i64;
+    let s: &mut Vec<B> = match k { 1i64 => &mut vs, _ => &mut ws };
+    let n: i64 = s.len();
+    c.bump();                        // must be ADMITTED
+    return c.v + n;
+}

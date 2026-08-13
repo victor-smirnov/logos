@@ -1,0 +1,30 @@
+// D1 round 12 / A1 — `break v` IS A STORE INTO THE LOOP'S SLOT. A loop used as
+// an expression is lowered by sema to `BlockExpr{ [Loop stmt], result:
+// VarRef(__loop_val_N) }`, so the shape walker only ever sees the slot's
+// VarRef — a shape it already handled. What was missing is the EDGE INTO the
+// slot: the checker's `Break` arm recorded break_states and cur_diverged_ and
+// nothing else, so `__loop_val_N` reborrowed NOTHING and the loan `s` raises
+// stopped there instead of reaching `vs`. The direct twin
+// (bc_d1r12_a1_direct_twin, `let s: &mut Vec<B> = &mut vs;`) refuses, which is
+// what makes this a leak and not a policy.
+//
+// The summarizer's half of the same rule is pinned separately, on the MASK
+// oracle: bc_flow_mask/a1_loopbreak. It has to be, because that half moves no
+// verdict in any caller shape — see that gate's header.
+package bc_d1r12_a1_loop_break_source;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = loop { break &mut vs; };
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

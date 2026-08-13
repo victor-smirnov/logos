@@ -1,0 +1,24 @@
+// D1 round 12 / A0, THE TWIN THAT ALWAYS REFUSED. Identical to
+// bc_d1r12_a0_match_source but spelled `if`-`else`. It refused before the fix
+// and refuses after it: it is the oracle that made the match spelling a LEAK
+// (same program, same loan, different verdict) rather than a deliberate policy,
+// and it pins that the fix did not move the arm that was already right.
+package bc_d1r12_a0_if_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let k: i64 = 1i64;
+    let s: &mut Vec<B> = if k == 1i64 { &mut vs } else { &mut ws };
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

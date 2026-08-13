@@ -1,0 +1,22 @@
+// D1 round 12 / A1, THE TWIN THAT ALWAYS REFUSED. Identical to
+// bc_d1r12_a1_loop_break_source with the `loop { break … }` wrapper removed. It
+// refused before the fix and refuses after it: it is the oracle that made the
+// wrapped spelling a LEAK (same program, same loan, different verdict) rather
+// than a deliberate policy.
+package bc_d1r12_a1_direct_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let s: &mut Vec<B> = &mut vs;
+    s.push(c.mk());
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

@@ -292,6 +292,12 @@ private:
 
     // per-function working state
     std::unordered_map<std::string, uint64_t> taint_;
+    // D1 round 12 / A1: the enclosing loops' (label, break_slot) pairs, so a
+    // `break v` can name the slot it deposits into. The checker keeps the same
+    // fact on its LoopFrame; this is the summarizer's half of the SAME rule,
+    // added in the same step because the two walkers may not drift again
+    // (round 8's invariant, re-charged by A0 in this very round).
+    std::vector<std::pair<std::string, std::string>> loop_slots_;
     // H0: local -> the places it reborrows (see note_alias). Monotone within a
     // body; cleared per function alongside taint_.
     // D1 round 8: the SAME store and the SAME resolve as the checker's `refs_`
@@ -1157,9 +1163,33 @@ private:
                 if (auto b = v.body()) walk_block(b);
                 break;
             }
-            case Code::Loop:
-                if (auto b = SLoopView{sr}.body()) walk_block(b);
+            // D1 round 12 / A1: a loop-as-expression deposits into its BREAK
+            // SLOT, and `return loop { break v; }` therefore carries v's taint
+            // to the result. Measured (LOGOS_DUMP_FLOWS): `pickl` summarised
+            // `result<-0` while the unwrapped `pickd` beside it gave the true
+            // `result<-0x1`. The slot's VarRef is read by the BlockExpr wrapper
+            // sema builds around the loop, so once the Break arm below writes
+            // the slot, `taint_of` picks it up with no further change.
+            case Code::Loop: {
+                SLoopView v{sr};
+                loop_slots_.emplace_back(std::string(v.label()),
+                                         std::string(v.break_slot()));
+                if (auto b = v.body()) walk_block(b);
+                loop_slots_.pop_back();
                 break;
+            }
+            case Code::Break: {
+                SBreakView v{sr};
+                if (!loop_slots_.empty() && v.value()) {
+                    std::string_view lbl = v.label();
+                    const std::string* slot = &loop_slots_.back().second;
+                    if (!lbl.empty())
+                        for (auto it = loop_slots_.rbegin(); it != loop_slots_.rend(); ++it)
+                            if (it->first == lbl) { slot = &it->second; break; }
+                    if (!slot->empty()) add_taint(*slot, taint_of(v.value()));
+                }
+                break;
+            }
             case Code::For:
                 if (auto b = SForView{sr}.body()) walk_block(b);
                 break;
@@ -1198,6 +1228,7 @@ private:
         auto params = f.params();
         taint_.clear();
         alias_.clear();
+        loop_slots_.clear();          // A1: per-function, like taint_
         result_taint_ = 0;
         pnames_.clear();
         ptypes_.clear();

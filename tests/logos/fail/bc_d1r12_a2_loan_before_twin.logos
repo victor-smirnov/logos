@@ -1,0 +1,27 @@
+// D1 round 12 / A2, DISCRIMINATOR #1 — THE RETROSPECTIVE HALF, which already
+// worked. Identical to bc_d1r12_a2_outparam_prospective except that the loan on
+// `c` is raised BEFORE the call, so `inherit_loans` in `apply_flow_outparams`
+// carries it into `t` and the refusal lands. It refused before A2 and must
+// refuse after: it pins that A2 ADDED the prospective edge rather than
+// re-plumbing the retrospective one.
+package bc_d1r12_a2_loan_before_twin;
+use logos.mem.collections.vec;
+#[borrow_carrying]
+struct B { p: &i64 }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> B { return B { p: &self.v }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+struct T { x: &mut Vec<B> }
+fn wire(t: &mut T, v: &mut Vec<B>) { t.x = v; }
+fn main() -> i64 {
+    let mut c: C = C { v: 1i64 };
+    let mut vs: Vec<B> = Vec::new();
+    let mut ws: Vec<B> = Vec::new();
+    let mut t: T = T { x: &mut ws };
+    vs.push(c.mk());                 // loan raised BEFORE the call
+    wire(&mut t, &mut vs);
+    c.bump();                        // must be REFUSED
+    return *vs.get(0u64).p;
+}

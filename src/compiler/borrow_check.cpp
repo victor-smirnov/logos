@@ -578,6 +578,14 @@ static bool is_materialized_temp_name(std::string_view n) {
     return n.rfind("__rtmp_", 0) == 0;
 }
 
+// D1 round 12 / A1. A loop's break slot, minted by sema as
+// `"__loop_val_" + tmp_var_count_++` (sema_stmt.cpp, lower_loop) whenever a
+// `break v` gives the loop a value. Both walkers key the deposit on this name;
+// the prefix is the ONE place that knowledge lives.
+static bool is_loop_break_slot_name(std::string_view n) {
+    return n.rfind("__loop_val_", 0) == 0;
+}
+
 static bool is_temporary_value_expr(lir_view::ExprRef e) {
     if (!e) return false;
     using EK = lir_schema::expr::Code;
@@ -1214,6 +1222,30 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
         case Code::BlockExpr:
             ref_source_places(EBlockExprView{val}.result(), pool, out, depth + 1);
             return;
+        // ── D1 round 12 / A0: A MATCH IS A TRANSPARENT MULTI-ARM VALUE ─────
+        //
+        // `let s: &mut Vec<B> = match k { 1 => &mut vs, _ => &mut ws };`
+        // ADMITTED a later `c.bump()` while the `if`-`else` twin one line
+        // above REFUSED it. The two walkers over the SAME shape space had
+        // drifted: the summarizer's `taint_of` (borrow_flow_summary.inc, the
+        // `Code::MatchExpr` arm) already unioned the arms, this one did not.
+        //
+        // That drift is exactly what round 8 charged for: ONE shape
+        // enumeration, not one per walker. Every arm below IfExpr's — Cast,
+        // IfExpr, BlockExpr, MatchExpr — must be added to BOTH walkers in the
+        // same step, or the next one-shape omission is re-introduced silently
+        // (nothing reds: an over-permissive walker never breaks a working
+        // program; only a hand-written refusal witness sees it).
+        //
+        // The scrutinee is deliberately NOT a source: a match yields one of
+        // its ARM values, never the thing it discriminated on. Pattern
+        // BINDINGS that carry the scrutinee's places are a separate rule and
+        // live in `propagate_pat_loans`.
+        case Code::MatchExpr:
+            EMatchExprView{val}.each_arm([&](EMatchArmRef arm) {
+                ref_source_places(arm.value(), pool, out, depth + 1);
+            });
+            return;
         default: break;
     }
     auto is_rawptr = [&](ExprRef r) {
@@ -1510,6 +1542,10 @@ class BorrowChecker {
         std::string           label;
         std::vector<StateMap> continue_states;
         std::vector<StateMap> break_states;
+        // D1 round 12 / A1: the loop's BREAK SLOT (`__loop_val_N`, empty unless
+        // the loop is used as an expression). `break v` deposits into it, and
+        // that deposit is a REBORROW record — see the Break arm in visit_stmt.
+        std::string           break_slot;
     };
     std::vector<LoopFrame> loop_stack_;
     // Set during the loop dataflow's dry-run pass (pass 1), which recomputes the
@@ -2392,6 +2428,41 @@ class BorrowChecker {
                 for (auto& r : roots) inherit_loans(r, dst, line);
                 // record_only: visit_args already visited the operand.
                 take_ref_borrows(src, line, dst, /*record_only=*/true);
+                // ── D1 round 12 / A2: THE PROSPECTIVE HALF ────────────────
+                //
+                // THE DEFECT (measured). `fn wire(t: &mut T, v: &mut Vec<B>)
+                // { t.x = v; }` summarises `result<-0 out0<-0x2` — the TRUE
+                // mask, so the loss is not in the summarizer. It is here:
+                // everything above is RETROSPECTIVE (inherit_loans /
+                // take_ref_borrows move loans the argument ALREADY carries),
+                // so `wire(&mut t, &mut vs); t.x.push(c.mk()); c.bump();`
+                // ADMITS while the same program with the loan raised BEFORE
+                // the call refuses, and the direct spelling `t.x = &mut vs`
+                // refuses too. The only difference between refusal and
+                // admission was whether the borrow crosses the call — which is
+                // precisely a missing ALIAS edge, not a missing loan.
+                //
+                // This is round 11 / X1 read in the other direction: X1 turned
+                // a callee's `to_result` into a reborrow edge on the RESULT,
+                // this turns its `to_outparam[j]` into one on the OUT-PARAM.
+                // Same summary, same `if (!fs) return;` no-summary no-op above,
+                // same additive-only argument: today's answer for `dst` is
+                // whatever the syntactic walk recorded, the new edges only ADD
+                // (RefGraph::add is monotone and refuses a self-edge), and with
+                // no summary — pre-mono generics, extern/metaprog/indirect
+                // callees — nothing changes at all. Additive edges push toward
+                // OVER-refusal, so the sources still go through
+                // `ref_sources_of`, i.e. through `ref_source_admissible`.
+                //
+                // The edge is recorded on the out-param's ROOT rather than on
+                // the field the callee actually stored into: the mask names a
+                // PARAMETER, not a place inside it (X1 met the same wall and
+                // answered it the same way). Holding the whole struct reaches
+                // every field of it, so this is a coarsening in the safe
+                // direction — and the admit controls beside the witness are
+                // what price it.
+                for (auto& p : ref_sources_of(src))
+                    reborrow_of_.add(dst, p);
             }
         }
     }
@@ -5258,7 +5329,8 @@ class BorrowChecker {
     void visit_loop_body(lir_view::BlockRef body,
                          const std::vector<std::string>& loop_vars = {},
                          std::string_view label = {},
-                         const std::vector<std::string>& var_loan_roots = {}) {
+                         const std::vector<std::string>& var_loan_roots = {},
+                         std::string_view break_slot = {}) {
         auto seed_loop_var_loans = [&]() {
             if (loop_vars.empty()) return;
             for (auto& r : var_loan_roots) inherit_loans(r, loop_vars.front(), 0);
@@ -5273,7 +5345,7 @@ class BorrowChecker {
         // ── Pass 1 (dry run, diagnostics suppressed): recompute the move-state
         //    that reaches the loop's back edge so pass 2 can seed iteration 2+
         //    correctly. Reporting here would duplicate every in-body error.
-        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}});
+        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
         bool saved_sup = suppress_reports_;
         suppress_reports_ = true;
         push_scope();
@@ -5360,7 +5432,7 @@ class BorrowChecker {
         ref_borrow_sources_ = pre_rbs;
         ref_borrow_line_    = pre_rbl;
         dangling_           = pre_dang;
-        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}});
+        loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
         cur_diverged_ = false;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
@@ -5539,7 +5611,18 @@ class BorrowChecker {
     bool ref_source_admissible(const std::string& p) const {
         std::string root = ref_place_root(p);
         if (root.empty() || is_materialized_temp_name(root)) return false;
-        if (!var_has(NO_SLOT, root) || param_names_.count(root)) return false;
+        // D1 round 12 / A1, the READ half of the break-slot deposit. A loop's
+        // `__loop_val_N` is synthesized by sema and never appears in a `let`,
+        // so `var_has` says no and the slot was dropped AT THE SEED — the
+        // deposit recorded at `break` would have been unreachable. It is the
+        // exact OPPOSITE of an `__rtmp_N` above: an `__rtmp_N` dies at the end
+        // of its statement and has no storage to hold a loan, while the break
+        // slot is a real entry alloca (mlir_gen_stmt's gen_loop) that outlives
+        // the loop statement and is READ after it, by construction — the
+        // BlockExpr wrapper's result is a VarRef to it.
+        if (!is_loop_break_slot_name(root)) {
+            if (!var_has(NO_SLOT, root) || param_names_.count(root)) return false;
+        }
         return true;
     }
     // ── D1 round 11 / X1: A CALL RESULT IS A PROSPECTIVE REBORROW ──────────
@@ -6708,7 +6791,8 @@ class BorrowChecker {
             // ── Infinite loop ─────────────────────────────────────────────
             case Code::Loop: {
                 SLoopView v{sr};
-                if (auto b = v.body()) visit_loop_body(b, {}, v.label());
+                if (auto b = v.body())
+                    visit_loop_body(b, {}, v.label(), {}, v.break_slot());
                 break;
             }
 
@@ -6898,11 +6982,45 @@ class BorrowChecker {
             // loop's dataflow (break → after-loop, continue → back-edge), then
             // diverge the current stmt-flow. LetElse has no variable effects
             // here but its `else` also diverges (handled elsewhere).
-            case Code::Break:
-                if (auto* lf = loop_target(SBreakView{sr}.label()))
+            // ── D1 round 12 / A1: `break v` IS A STORE INTO THE LOOP'S SLOT ──
+            //
+            // THE DEFECT (measured, both oracles). `let s: &mut Vec<B> =
+            // loop { break &mut vs; }; s.push(c.mk()); c.bump();` ADMITS while
+            // the direct twin `let s: &mut Vec<B> = &mut vs;` REFUSES; on the
+            // mask oracle `fn pickl(v: &mut Vec<B>) -> &mut Vec<B> { return
+            // loop { break v; }; }` summarises `result<-0` beside the unwrapped
+            // `pickd`'s TRUE `result<-0x1`.
+            //
+            // The hunt's shape ("add a loop-expression arm to
+            // ref_source_places") is NOT implementable: there is no
+            // `expr::Code` for a loop. Sema lowers a loop-as-expression to
+            // `BlockExpr{ [Loop stmt], result: VarRef(__loop_val_N) }`
+            // (sema_expr.cpp, la::LOOP), so the shape walker only ever sees the
+            // slot's VarRef — a shape it already handles. What is missing is
+            // the EDGE INTO the slot: this arm recorded only break_states and
+            // cur_diverged_, so `__loop_val_N` reborrowed nothing and the loan
+            // `s` later raised stopped there.
+            //
+            // The deposit is MONOTONE (`add`, not `set`): a loop may break from
+            // several places and the slot names whatever ANY of them deposited
+            // — the same union `IfExpr` gets across its two arms. Flow-
+            // sensitive retraction would let the last break erase the others.
+            //
+            // Strictly additive: today's answer for the slot is no edge at all,
+            // and a `break` with no value (or outside any loop frame, or in a
+            // loop with no slot because it is not used as an expression)
+            // contributes nothing, exactly as before.
+            case Code::Break: {
+                SBreakView bv{sr};
+                if (auto* lf = loop_target(bv.label())) {
                     lf->break_states.push_back(states_);
+                    if (!lf->break_slot.empty() && bv.value())
+                        for (auto& src : ref_sources_of(bv.value()))
+                            reborrow_of_.add(lf->break_slot, src);
+                }
                 cur_diverged_ = true;
                 break;
+            }
             case Code::Continue:
                 if (auto* lf = loop_target(SContinueView{sr}.label()))
                     lf->continue_states.push_back(states_);

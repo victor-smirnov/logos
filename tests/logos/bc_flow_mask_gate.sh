@@ -26,7 +26,7 @@ set -euo pipefail
 
 LOGOSC="${1:?logosc}"
 DIR="${2:?fixture dir}"
-MIN_FLOWS=2
+MIN_FLOWS=4   # wire3 1 + stash2 1 + a1_loopbreak 2 (pickl, pickd)
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -93,10 +93,40 @@ else
       $line"
 fi
 
+# ── a1_loopbreak: a loop-as-expression must carry its break value to the
+#    result. `pickl` (wrapped in `loop { break v; }`) and `pickd` (the same
+#    function un-wrapped) must BOTH read result<-0x1. Before D1 round 12 / A1
+#    the summarizer had no Break arm at all, so pickl read result<-0 while
+#    pickd beside it read the true 0x1 — a defect that moves no verdict in the
+#    caller shapes this file spells, which is why it belongs here and not in
+#    fail/. pickd is the CONTROL: if it ever stops reading 0x1 the loss is not
+#    in the break arm and this row's negative half means nothing.
+run a1_loopbreak.logos pick; rc=$RC
+[ "$rc" = 0 ] || note "a1_loopbreak must COMPILE (it is a mask fixture, not a
+      refusal fixture); logosc exited $rc:
+$(sed -n '1,20p' "$TMPD/err.txt")"
+lined=$(grep -F '$pickd__f__' "$TMPD/flows.txt" || true)
+linel=$(grep -F '$pickl__f__' "$TMPD/flows.txt" || true)
+if [ -z "$lined" ] || [ -z "$linel" ]; then
+    note "a1_loopbreak: missing a summary line (pickd='$lined' pickl='$linel')
+      — nothing to assert against, so this row would pass vacuously."
+else
+    grep -qE 'result<-0x1( |$)' <<<"$lined" ||
+        note "a1_loopbreak's CONTROL pickd does not read result<-0x1. The
+      un-wrapped function is broken, so nothing can be concluded about pickl:
+      $lined"
+    grep -qE 'result<-0x1( |$)' <<<"$linel" ||
+        note "a1_loopbreak's pickl does not read result<-0x1. 'result<-0' is
+      the pre-A1 answer: the summarizer walked the loop BODY but had no arm for
+      \`break v\`, so the loop's break slot was never tainted and the value
+      never reached the result:
+      $linel"
+fi
+
 if [ "$seen_flows" -lt "$MIN_FLOWS" ]; then
     note "the whole run produced $seen_flows [flow] lines (floor $MIN_FLOWS).
       LOGOS_DUMP_FLOWS printed nothing, so this gate asserted nothing."
 fi
 
 if [ "$fail" != 0 ]; then exit 1; fi
-echo "bc_flow_mask_gate: 2 fixtures, masks pinned positively and negatively"
+echo "bc_flow_mask_gate: 3 fixtures, masks pinned positively and negatively"
