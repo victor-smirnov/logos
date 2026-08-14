@@ -379,6 +379,13 @@ impl MacroParams {
         // it, and the failure surfaces as the item type escaping as a bare
         // type var — a diagnostic that names neither the trait nor the missing
         // import. It is the LAST entry of the same list, not a second list.
+        // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g/S2h, and it reads the OFFER on
+        // purpose. S1's gate correction: the plan's node would be the WRONG
+        // predicate here — a DRAINED source needs `logos.lang.iter` exactly as a
+        // streamed one does, because the drain loop is itself a `next()` cascade,
+        // and a container source needs it under neither. `rel_iter` is the only
+        // reading that separates those three, which is why the paragraph above
+        // says "streaming or drained".
         let mut it: i64 = 0i64;
         while it < self.rel_n {
             if self.rel_iter[it] {
@@ -465,6 +472,55 @@ impl MacroParams {
         let i: i64 = self.rel_find_src(src);
         if i < 0i64 { return false; }
         return self.rel_stream[i];
+    }
+
+    /// ADR 0025 S2f — THE MATERIALIZATION NODE over the source EMITTED under
+    /// this name, for the emitters that key on a source's TEXT rather than on a
+    /// registry index. Same lookup as `rel_src_streams`, answering with the
+    /// plan's node instead of the plan's boolean.
+    ///
+    /// ⚠ A NAME THAT IS NO REL ANSWERS `AD_BUFFER`, NOT `AD_NONE`. A slice
+    /// param IS a buffer — the caller handed one in and the plan built nothing
+    /// — so "no rel here" is the container absence, never the streamed one.
+    /// `AD_NONE` from this fn means the PLAN said the rows stream; that is the
+    /// only way to get it, and reading a missing entry as `AD_NONE` would hand
+    /// an indexed scan an iterator it cannot subscript.
+    ///
+    /// EQUIVALENCE with the shape reading it replaces, stated so it can be
+    /// checked rather than trusted: `plan_apply_access` walks `ri < ap.n` with
+    /// `ap.n == prm.rel_n` (`plan_walker:1890`, `access_plan_new(prm.rel_n)`),
+    /// runs on EVERY emission path after the last `rel_add`, and writes
+    /// `rel_node[ri] = AD_NONE()` under exactly the `ap.stream[ri]` that also
+    /// sets `rel_stream[ri] = true`. So `rel_src_node(s) == AD_NONE()` and
+    /// `rel_src_streams(s)` are the same predicate over every rel a plan
+    /// registered — and they differ on a name that is no rel, where the node is
+    /// the honest answer and the boolean's `false` was an accident of the
+    /// default.
+    ///
+    /// The `-2` is spelled, not called: same reason as the `[-1i32; 8]`
+    /// initializer above — `params.logos` must not depend on
+    /// `access_plan.logos`, which reads THIS. `AD_BUFFER()` is that literal.
+    pub fn rel_src_node(self: &MacroParams, src: str) -> i32 {
+        let i: i64 = self.rel_find_src(src);
+        if i < 0i64 { return -2i32; }
+        return self.rel_node[i];
+    }
+
+    /// THE SCAN ARM, as a question about the PLAN: did the plan put NO
+    /// materialization over this source? Then the scan pulls from the iterator;
+    /// otherwise a buffer exists — drained, sorted, or handed in already built —
+    /// and the scan subscripts it. `AD_NONE()` is `-1`, spelled for the same
+    /// no-dependency reason as above.
+    ///
+    /// ⚠ THE PREDICATE LIVES HERE, NOT AT THE EMITTER, for a mechanical reason
+    /// worth recording: the emitters' enclosing `use` list is COPIED INTO EVERY
+    /// GENERATED MODULE (measured — importing `access_plan` into
+    /// `rexpr_walk.logos` to spell `AD_NONE()` at the call site moved 156 of the
+    /// 159 corpus dumps and +85,994 bytes, all of them one added use-decl line).
+    /// A text-preserving stage may not add an import to an emitter module, so
+    /// the node question is asked through the registry that owns the field.
+    pub fn rel_src_unmaterialized(self: &MacroParams, src: str) -> bool {
+        return self.rel_src_node(src) == -1i32;
     }
 
     // The op that answers a demand is no longer FOUND here. A search whose
@@ -676,6 +732,14 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
                 nmem = nmem + 1i64;
                 if prm.rel_is_agg[k] { any_agg = true; }
                 if prm.rel_native[k] { any_native = true; }
+                // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g/S2h — a DECISION, not a shape.
+                // S1's gate correction: this asks whether any member of the SCC
+                // is a source the caller could not re-present across epochs, and
+                // both halves are needed — `rel_iter` is the offer (an iterator
+                // yields once whatever the plan does with it) and `rel_stream` is
+                // the plan's verdict. The emitted scan's shape is not the
+                // question, so this does not follow the readings that moved to
+                // `rel_src_unmaterialized`.
                 if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
                 mask_u = mask_u | scc.dep_mask[k];
             }

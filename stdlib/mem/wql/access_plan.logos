@@ -154,7 +154,20 @@ pub fn MG_REL_BLOCK() -> str  { return "rel block"; }
 pub fn MG_RESCAN() -> str     { return "rescanned: nested loop"; }
 pub fn MG_UNDECIDED() -> str  { return "undecided: no join strategy"; }
 pub fn MG_REGROUP() -> str    { return "regrouped: aggregate"; }
-pub fn MG_GPATH() -> str      { return "lowered: graph path"; }
+// ⚠ `MG_GPATH` ("lowered: graph path") WAS HERE AND IS DELETED (ADR 0025 §4,
+// S2h). It was carried in the census as DEBT — a published sentence no corpus
+// query reached — and the S2 rule was that `plan_mark_single_pass` could not die
+// until every such ground had a node fixture. Writing that fixture is what
+// refuted the ground instead: `desugar_program_gpaths` (`wql.logos:177`) runs
+// BEFORE the walk and clears `has_gpath` on every query kind, so the two arms
+// that read it were unreachable, not merely unvisited. The distinction is the
+// whole point — debt is a fixture someone owes, and a ground nothing can reach
+// is a justification for a decision the compiler never makes. REFERENCE LIST at
+// deletion, complete (grep over stdlib/ tests/ docs/, worktrees excluded): the
+// two `plan_mark_single_pass` arms (deleted with it), the census gate's
+// UNWITNESSED set, and ADR 0025 §4's debt paragraph. No emitter, no trace line
+// and no artifact binding derived from it — corpus snapshot unchanged, 159 dumps
+// / 6,776,657 bytes, `diff -rq` empty.
 pub fn MG_JOIN_BUILD() -> str { return "join build side"; }
 /// The mode pass's own fallback: nobody recorded a ground and the plan still
 /// could not prove a single read. Its own token for the same reason `JS_NONE`
@@ -214,23 +227,6 @@ pub struct AccessPlan {
     /// Written by the same call that writes the sentence, so the two cannot
     /// drift: a node's ground is not re-derived by matching prose.
     pub mgnd:   [str; 8],
-    /// THE ARRANGEMENTS, one entry PER JOIN STEP that builds a keyed index, in
-    /// step order — `arr_rel` the rel whose rows are built, `arr_strat` the
-    /// strategy (`JS_HASH`/`JS_TREE`).
-    ///
-    /// ⚠ A LIST, NOT A PER-REL FLAG, AND THAT IS MEASURED. A chain that names
-    /// one source twice builds TWO indexes over it (`__hm1` and `__hm2` in the
-    /// emitted `deem_join_step_reread`), so a per-rel slot would report one node
-    /// where the artifact builds two — the node layer's whole claim is that it
-    /// counts what is built.
-    ///
-    /// Separate from `once` because it is ORTHOGONAL to it: an arranged source
-    /// is read exactly once AND materialized, which is precisely the fact
-    /// `once` cannot express.
-    pub arr_rel:   [i64; 8],
-    pub arr_strat: [i32; 8],
-    pub arr_why:   [str; 8],
-    pub arr_n:     i64,
     /// THE NODE LIST — one entry per materialization this plan performs, in the
     /// order the emitted code performs them (prelude first, then the build
     /// phase). `nd_rel` is the rel index the node consumes; `nd_gnd` the ground
@@ -287,10 +283,6 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         once:  [false; 8],
         owhy:  ["", "", "", "", "", "", "", ""],
         mgnd:  ["", "", "", "", "", "", "", ""],
-        arr_rel:   [-1i64; 8],
-        arr_strat: [0i32; 8],
-        arr_why:   ["", "", "", "", "", "", "", ""],
-        arr_n:     0i64,
         nd_kind: [0i32; 16],
         nd_rel:  [-1i64; 16],
         nd_gnd:  ["", "", "", "", "", "", "", "",
@@ -318,22 +310,6 @@ impl AccessPlan {
         self.once[ri] = yes;
         self.owhy[ri] = why;
         self.mgnd[ri] = gnd;
-    }
-
-    /// Record that a join step builds a keyed index over rel `ri`'s rows.
-    ///
-    /// ⚠ INDEPENDENT OF `read_once`. The build phase runs for every `JS_HASH` /
-    /// `JS_TREE` step whatever the plan concluded about second reads, so this is
-    /// recorded from the STRATEGY and not from the else-branch of the once
-    /// cascade. Recording it there instead would have hidden every arrangement
-    /// over a source that is also drained — which is every self-join.
-    pub fn arrange(self: &mut AccessPlan, ri: i64, strat: i32, why: str) {
-        if ri < 0i64 || ri >= 8i64 { return; }
-        if self.arr_n >= 8i64 { return; }
-        self.arr_rel[self.arr_n]   = ri;
-        self.arr_strat[self.arr_n] = strat;
-        self.arr_why[self.arr_n]   = why;
-        self.arr_n = self.arr_n + 1i64;
     }
 
     /// THE PRELUDE'S NODE FOR REL `ri`, as the EMITTER must ask it (ADR 0025 §4,
@@ -390,18 +366,32 @@ pub fn access_plan_plan_nodes(ap: &mut AccessPlan) {
                          else { MAT_DRAIN() };
             let g: str = if ap.mgnd[ri].len() > 0i64 { ap.mgnd[ri] }
                          else { MG_UNPROVEN() };
-            ap.push_node(k, ri, g, ap.owhy[ri]);
+            // ⚠ THE SENTENCE FALLS BACK TOO, AND NOT FOR SYMMETRY (S2h). A rel
+            // `plan_mark_single_pass` never answered for — a source the entry
+            // query does not NAME, which the prelude materializes anyway — has
+            // `owhy` at its `""` default, and this pushed a node whose ground
+            // read `unproven: no single-read proof` and whose justification was
+            // the empty string. `deem_mat_ground_witness::w_unproven` is the
+            // fixture that made that visible: the artifact binds `__it_s` and
+            // pulls six rows out of a source no clause mentions, and the node
+            // reporting it said nothing about why. `swhy` is the mode pass's own
+            // sentence for exactly this case and it is already written by the
+            // time this runs. A node with a ground and no sentence is the silent
+            // materialization one field over — the census now reds on it.
+            let wy: str = if ap.owhy[ri].len() > 0i64 { ap.owhy[ri] }
+                          else { ap.swhy[ri] };
+            ap.push_node(k, ri, g, wy);
         }
         ri = ri + 1i64;
     }
-    // The build phases, in STEP order and after every prelude node, because that
-    // is the order the emitted body performs them in: the prelude binds and
-    // buffers, then each step's build loop fills its index.
-    let mut ai: i64 = 0i64;
-    while ai < ap.arr_n {
-        ap.push_node(MAT_ARRANGE(), ap.arr_rel[ai], MG_JOIN_BUILD(), ap.arr_why[ai]);
-        ai = ai + 1i64;
-    }
+    // ⚠ NO ARRANGE NODES HERE (ADR 0025 §4, S2d). The build phases are authored
+    // at EMISSION, by `rexpr_walk::arrange_node`, beside the `build_phase_frag`
+    // call that emits the index — because that is the first moment at which the
+    // two facts the node needs exist: the NEST MULTIPLICITY (`decide_join_orders`
+    // runs there, after this pass) and the step's SOURCE, which for a wql! param
+    // has no rel-registry index and was therefore invisible to every `ri`-keyed
+    // author. This pass keeps the PRELUDE plane, which the emitter reads back
+    // through `prelude_node` and which no later phase can supply.
 }
 
 /// Decide MATERIALIZE vs STREAM for every rel: the source's offer AND the
@@ -413,6 +403,12 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
     while ri < ap.n {
         // Which producer will actually run — the chosen operation's, or the
         // rel's own binding when nothing narrowed.
+        // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g/S2h, AND THE ONE THE OTHERS ARE
+        // DEFINED AGAINST — do not rewrite this to the plan's node. S1's gate
+        // correction, verbatim: `rel_iter`/`opc_iter` is the SOURCE'S OFFER, and
+        // this line is where the offer is read for the first and only time. The
+        // node it helps compute is the DECISION, so a node read here would be
+        // circular — the conjunction below is precisely offer AND proof.
         let offers: bool = if ap.op[ri] >= 0i64 { prm.opc_iter[ap.op[ri]] }
                            else { prm.rel_iter[ri] };
         if !offers {

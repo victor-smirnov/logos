@@ -43,6 +43,10 @@ use logos.std.wql.ir;             // SExpr / SBin / WRef
 use logos.std.wql.el;             // ElTypes, EL_TY_*, OP_EQ
 use logos.std.wql.codegen;        // infer_ty
 use logos.std.wql.optimize;       // TermList / split_and_terms / refs_mask / simplify_sexpr
+use logos.std.wql.params;         // MacroParams — the rel registry, for NAMING the node's subject
+use logos.std.wql.access_plan;    // MG_JOIN_BUILD — the Arrange node's ground (ADR 0025 §4, S2d)
+use logos.mem.string;             // String — the key-vector line's why is composed
+use logos.lang.str;
 
 // ── The three shapes ──────────────────────────────────────────────────────
 // 0 is NOT one of them: it is "undecided", the value an IR node carries before
@@ -286,4 +290,95 @@ pub fn decide_join_step(on: WRef<SExpr>, new_var: str, t: &ElTypes, h: &Writ) ->
 pub fn traversal_step_sel() -> StepSel {
     return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), key_tn: "", sel: -1i64,
                      why: "a traversal step ranges over a field path of an outer row — the source is re-derived per bound row, so no index can be built over it" };
+}
+
+/// THE ARRANGE NODE, AUTHORED WHERE THE INDEX IS EMITTED (ADR 0025 §4, S2d).
+///
+/// It used to be authored by the planner — `AccessPlan::arrange`, one entry per
+/// join STEP, keyed by the REL REGISTRY index. Two facts refuted that, and both
+/// are measurements rather than opinions:
+///
+///   • THE MULTIPLICITY IS NOT KNOWN WHERE THE PLAN IS MADE. `decide_join_orders`
+///     runs HERE, at emission, after `access_plan_plan_nodes` has finished, and
+///     the emitter writes one build phase per step PER CARRIED NEST
+///     (`cand_branch` × `chain_nest_frag`). Corpus-measured under the planner-side
+///     form: 141 arrange nodes against 594 emitted index bindings. A node that
+///     cannot count what is built is not a node layer.
+///
+///   • THE REGISTRY IS NOT THE SET OF SOURCES. `rel_find_name` resolves only rels
+///     — parse-side `rel` blocks and `reg_native` natspec params — so a query
+///     whose sources are wql! PARAMS (`&[T]`) registered ZERO rels and the whole
+///     plan said nothing: `wql_key_spelling_e2e` traced 0 node lines while its
+///     artifact built 44 indexes. Registering those params AS rels was probed and
+///     refused: the registry is a CONTRACT that the source has a producer fn
+///     (`emit_prelude_oneshot` emits `__wql_<fn>_rel_<r>(…)`), and 97 of 175
+///     corpus fixtures stopped compiling. The step's SOURCE VAR is the name that
+///     always exists, so the node is keyed by it.
+///
+/// ⚠ IT LIVES HERE, NOT BESIDE `build_phase_frag`, AND THE REASON IS THE EMITTED
+/// TEXT. A generated module inherits the EMITTING module's `use` list verbatim —
+/// measured: adding `use logos.std.wql.access_plan;` to `rexpr_walk` put one new
+/// `use` line into all 159 corpus dumps. `join_sel` is already on that list and
+/// already owns the strategy vocabulary this predicate reads (`JS_LOOP`,
+/// `js_reads_once`), so the node's author sits with the decision it reports and
+/// the artifact does not move.
+///
+/// Fires under exactly `build_phase_frag`'s own emitting condition — `JS_LOOP`
+/// builds no index — so the count IS the artifact's count by construction. That
+/// is stated rather than hidden: the independent oracle for this clause is the
+/// per-fixture literal in `plan_nodes_gate.sh` (`d` arranged 3 times, `h` once)
+/// and the corpus census, not a second reading of this call.
+/// THE NODE'S SUBJECT, and why it is not simply the row var.
+///
+/// The emitter holds two names for a step's input: the EMITTED source name
+/// (`__rel_d_sl` for a rel, the param's own identifier for a slice) and the row
+/// VAR the chain binds (`e`, `f` — a self-join names one source under two vars).
+/// A node keyed by the var would report "one index over `e` and one over `f`"
+/// where the artifact builds two indexes over ONE source `d`, which is the
+/// counting claim `plan_nodes_gate` pins. So the registry answers first and the
+/// source name is the fallback — which is exactly the blind class, where the
+/// registry has no answer and the param's own name is the only name there is.
+pub fn node_subject(prm: &MacroParams, src: str, var: str) -> str {
+    let ri: i64 = prm.rel_find_src(src);
+    if ri >= 0i64 { return prm.rel_names[ri]; }
+    if src.len() > 0i64 { return src; }
+    return var;
+}
+
+pub fn arrange_node(prm: &MacroParams, src: str, var: str, strat: i32) {
+    if strat == JS_LOOP() { return; }
+    plan_trace(node_subject(prm, src, var), "arrange", MG_JOIN_BUILD(),
+        "arranged: the join builds a keyed index over this source's rows before probing it — one per emitted nest, which is what the artifact builds");
+}
+
+/// THE SORT NODE'S KEY COLLECTION, RECORDED WHERE IT IS BUILT (ADR 0025 §4, S2d).
+///
+/// `__ks` is the sort-key vector emitted beside the `__ix<k>` permutations at the
+/// three `order by` scaffolding sites. Corpus-measured: 119 of them across 48
+/// fixtures, and only 3 of those fixtures' sorts had ANY plan line — the other 46
+/// sort a wql! PARAM source, which the rel registry does not resolve, so the
+/// plan had nothing to hang a Sort node on.
+///
+/// ⚠ IT IS NOT A NODE KIND, AND THAT IS A DECISION WITH A MEASUREMENT BEHIND IT.
+/// A key vector is not a second materialization: `deem_batch_scan_drain` builds 2
+/// `__ks` against 2 Sort nodes and 3 `__ix0` — the third permutation is the
+/// aggregate's group-row one, which has NO key vector, which is exactly why `__ks`
+/// witnesses a sort scaffolding EXACTLY where `__ix0` over-counts. So `__ks` is
+/// the Sort's own FIELD — the key type it collects and the arity of the index
+/// vectors it permutes — and it is reported as that field rather than as a kind.
+///
+/// ⚠ AND IT IS NOT THE PRELUDE SORT. Two different things were called "sort": the
+/// prelude's ordered drain of a SOURCE (plan-authored, `MAT_SORT`, what
+/// `emit_prelude_oneshot` reads, 4 drain + 3 sort == the 7 `__it_` bindings) and
+/// this scaffolding over the MATCHED rows inside the walk. Conflating them is how
+/// 119 key vectors sat unclassed against 3 nodes. The verdict word is therefore
+/// `key vector`, not `sort`: a line whose fourth field read `sort` would be
+/// counted as a node by every reader of this trace.
+pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i64) {
+    if !plan_trace_on() { return; }
+    let mut w: String = String::new();
+    w.push_str("the sort collects one key per matched row into `__ks` and permutes ");
+    w.push_i64(nb);
+    w.push_str(" index vector(s) by it — the Sort node's key collection, not a second materialization");
+    plan_trace(node_subject(prm, src, var), "key vector", key_ty, string_as_str(&w));
 }

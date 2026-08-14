@@ -385,6 +385,14 @@ fn size_expr_of(prm: &MacroParams, src: str, out: &mut String, at: &mut i64) -> 
 /// operations arrive from a natspec, which is exactly the set that can carry a
 /// `size <rel> = <fn>;` line. A parse-side `rel` block is everything else.
 fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
+    // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g, AND ON PURPOSE — do not rewrite this to
+    // the plan's node. S1's gate correction: `rel_stream` is the PLAN'S DECISION
+    // that this source may be consumed in place, and a source consumed in place
+    // has no length to report at any price. That is a statement about the SIZE
+    // AXIS, not about the emitted scan's shape, so it does not follow the shape
+    // readings that moved to `rel_src_unmaterialized`. Reading the node here
+    // would answer "a buffer exists" for a container source that reports its
+    // size perfectly well.
     if prm.rel_src_streams(src) { return SZ_STREAMS(); }
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 && prm.rel_size_at[ri].len() == 0i64 {
@@ -458,6 +466,9 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
 /// rather than once per position. That removes the multiplier; it does not weaken the
 /// O(1) requirement on the single read.
 fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
+    // ⚠ SURVIVOR, same correction as `prep_size_reason` above: the question is
+    // whether `(src).len()` is a legal O(1) expression over this name, which is
+    // the PLAN'S DECISION about consumption, not the emitted scan's shape.
     if prm.rel_src_streams(src) { return false; }
     out.push_str("(");
     out.push_str(src);

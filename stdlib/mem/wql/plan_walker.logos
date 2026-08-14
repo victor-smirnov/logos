@@ -2208,6 +2208,40 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// (This generalizes the old base-vs-step self-join guard: two STEPS naming the
 /// same rel are the same hazard, and were not checked while every step was
 /// unconditionally materialized.)
+///
+/// ── ADR 0025 S2h — THIS FUNCTION IS STILL HERE, AND THE REFUSAL IS MEASURED ──
+///
+/// S2 owes its deletion. The PRECONDITION ADR 0025 §4 set — every ground this
+/// function carries must first have a fixture that drives it through a NODE — is
+/// DISCHARGED as of S2h: eight grounds, eight witnesses, asserted in both
+/// directions by `plan_ground_census_gate.sh` (which no longer exempts a single
+/// `MG_*` token), and the ninth, `MG_GPATH`, was refuted and deleted rather than
+/// witnessed. So the debt is paid and the deletion is still REFUSED, on this
+/// ground and with this number:
+///
+///   PROBE (S2h, one at a time, restored to a byte-identical source with a green
+///   checkpoint after): this function replaced by an immediate `return` —
+///   i.e. the proof deleted with nothing put in its place. Whole-corpus result:
+///   11 artifacts move, +2,953 bytes, and every one of the diffs is the same
+///   shape — `let mut __rel_s: StepsIter = steps_rows(s)` becomes a `Vec` plus a
+///   drain loop, and the join's buckets go back to holding rows instead of the
+///   streamed shape. Two gates red (`logos_09_plan_nodes`,
+///   `logos_09_plan_ground_census`); the byte-pin `logos_09_slice_scan_codegen`
+///   stays green, and — the part that decides this — EVERY RUNTIME FIXTURE STILL
+///   PASSES, `deem_join_step_streams` and `deem_batch_scan_drain` included.
+///
+/// THAT IS THE ARGUMENT. Deleting the proof does not break the corpus; it makes
+/// every query quietly pessimal, and the corpus cannot tell a correct plan from a
+/// conservative one because both return the same rows. The only thing standing
+/// between the two is a COUNT gate. ADR 0025 §4's replacement is not "delete this
+/// and materialize everything" — it is that consuming a non-`Rewind` stream twice
+/// becomes UNSPELLABLE, the plan inserts a `Drain` node and `explain()` says why.
+/// That needs the drain arm to become `Drain -> Buffer` with the scan reading the
+/// `Buffer` as a one-packet stream, which is listed in this ADR as owed and NOT
+/// STARTED. Until the second read is refused by a TYPE, this function is the only
+/// thing that refuses it at all, and deleting it would trade a checked decision
+/// for an unchecked pessimization while the byte-pin's measured-equal clause went
+/// unused. Refused with the citation rather than skipped in silence.
 fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
     if prm.src_root.is_null() { return; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
@@ -2229,10 +2263,24 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             if sq.has_order {
                 ap.read_once(ri, false, MG_ORDER_BY(),
                     "materialized: `order by` revisits rows by position after collecting them");
-            } else if sq.has_gpath {
-                ap.read_once(ri, false, MG_GPATH(),
-                    "materialized: a graph path lowers to a join chain, which rescans");
             } else {
+                // ⚠ THERE IS NO `has_gpath` ARM HERE, AND ITS ABSENCE IS A
+                // MEASUREMENT (ADR 0025 §4, S2h). One used to sit between these
+                // two, carrying the ground `MG_GPATH`. It could not execute:
+                // `desugar_program_gpaths` runs at `wql.logos:177`, BEFORE
+                // `walk_program_params`, and for a Simple query it REPLACES the
+                // entry node with an `RQJoin` whose `has_gpath` is the field's
+                // `false` default (`lower::gp_desugar_query`), while the Join and
+                // Aggr arms rewrite in place and assign `has_gpath = false`
+                // explicitly. So by the time this pass reads the flag, nothing
+                // can have set it. CONTROL: `error(…)` in both gpath arms, full
+                // stdlib rebuild, whole-corpus snapshot — 159 dumps / 6,776,657
+                // bytes, `diff -rq` EMPTY against the baseline, the same two
+                // pinned compile failures, across ~20 graph-path fixtures. The
+                // same edit in the `has_order` arm one line up took the corpus to
+                // 158 dumps / 3 failures / −111,952 bytes, which is what says the
+                // control was wired and the zero was measured rather than
+                // inherited from a stale build.
                 ap.read_once(ri, true, "", "");
             }
         }
@@ -2254,16 +2302,18 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 let st: RQJoinStep = steps.step_at(k);
                 let si: i64 = prm.rel_find_name(st.src_name);
                 if si >= 0i64 {
-                    // ADR 0025 §4 — the BUILD SIDE is a node, and it is read off
-                    // the STRATEGY, not off the once cascade below: the emitter's
-                    // build phase runs for every hash/tree step whatever this
-                    // plan concludes about second reads, so an arrangement over a
-                    // twice-named source would be invisible if it were recorded
-                    // in an else-branch.
-                    if js_reads_once(st.jstrat) {
-                        ap.arrange(si, st.jstrat,
-                            "arranged: the join builds a keyed index over this source's rows before probing it");
-                    }
+                    // ⚠ THE BUILD SIDE IS NO LONGER AUTHORED HERE (ADR 0025 §4,
+                    // S2d). It used to be — `ap.arrange(si, st.jstrat, …)`, one
+                    // entry per STEP, keyed by the rel registry — and two
+                    // measurements retired it: the emitter writes one build phase
+                    // per step PER CARRIED NEST and `decide_join_orders` does not
+                    // run until emission (141 nodes against 594 emitted indexes),
+                    // and a step whose source is a wql! PARAM has no registry
+                    // index at all, so `si >= 0` gated the node out entirely for
+                    // the whole slice-param class. The Arrange node is authored
+                    // by `rexpr_walk::arrange_node`, at the build phase, keyed by
+                    // the step's source VAR. What survives here is the once
+                    // cascade, which is a different question.
                     if cnt[si] > 1i64 {
                         ap.read_once(si, false, MG_SECOND_USE(),
                             "materialized: the query names this source more than once in one join chain");
@@ -2292,10 +2342,13 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             if jq.has_order {
                 ap.read_once(bi, false, MG_ORDER_BY(),
                     "materialized: `order by` revisits base rows by position after collecting them");
-            } else if jq.has_gpath {
-                ap.read_once(bi, false, MG_GPATH(),
-                    "materialized: a graph path adds join levels over this source");
             } else {
+                // No `has_gpath` arm, for the reason recorded in the Simple arm
+                // above — the flag is cleared by `desugar_program_gpaths` before
+                // this pass runs, and the both-directions control is cited there.
+                // ⚠ THIS ARM IS THE ONE THAT MATTERS FOR THE PROOF: a desugared
+                // graph path becomes a JOIN, so if the flag survived anywhere it
+                // would survive here, and the control says it does not.
                 ap.read_once(bi, true, "", "");
             }
         }
@@ -2320,12 +2373,6 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 while gk < ng {
                     let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
                     if gi >= 0i64 {
-                        // Same build phase, same node: the aggregate emitter
-                        // calls `build_phase_frag` exactly as the join chain does.
-                        if js_reads_once(gs.step_at(gk).jstrat) {
-                            ap.arrange(gi, gs.step_at(gk).jstrat,
-                                "arranged: the aggregate's join builds a keyed index over this source's rows before probing it");
-                        }
                         ap.read_once(gi, false, MG_REGROUP(),
                             "materialized: the aggregate's finalize pass re-binds joined rows by index");
                     }

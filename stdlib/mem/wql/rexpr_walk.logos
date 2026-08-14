@@ -1996,6 +1996,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
                 }
             };
         }
+        sort_key_vector(prm, src_name, var_name, key_ty, 1i64);
         scan_f = quote_block! {
             let mut __ix0: Vec<i64> = Vec::<i64>::new();
             let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
@@ -2008,7 +2009,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             #(sort_f);
             #(proj_phase);
         };
-    } else if prm.rel_src_streams(src_name) {
+    } else if prm.rel_src_unmaterialized(src_name) {
         // STREAMED (ADR 0024 S4). The plan proved this source is read exactly
         // once, so no Vec is built: rows arrive from `next()` and the loop ends
         // when the iterator does. With `first` this is the whole point — the
@@ -2436,7 +2437,14 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
                  st_stream: &mut [bool; 8]) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
-        st_stream[i] = prm.rel_src_streams(ch.src[i]);
+        // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
+        // step's source is pulled from an iterator when the plan put NO
+        // materialization over it; it is subscripted when the plan put a
+        // Drain, a Sort, or was handed a container. Same predicate, one
+        // authority — see `MacroParams::rel_src_unmaterialized`, which carries
+        // the equivalence argument (`plan_apply_access` writes `AD_NONE`
+        // under exactly the `ap.stream[ri]` that sets `rel_stream[ri]`).
+        st_stream[i] = prm.rel_src_unmaterialized(ch.src[i]);
         if ch.edge[i] {
             st_strat[i]  = JS_LOOP();
             st_ktn[i]    = "";
@@ -3174,7 +3182,9 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // plan records (`AccessPlan.once`). The steps are not, and say so; whether a
     // step's source is built once or rescanned per bound row is the join
     // strategy's business, decided on the plan before this fragment exists.
-    let base_streams: bool = prm.rel_src_streams(ch.base_src);
+    // ADR 0025 S2g — the driving side's shape is the plan's NODE (see
+    // `analyze_chain` above and `MacroParams::rel_src_unmaterialized`).
+    let base_streams: bool = prm.rel_src_unmaterialized(ch.base_src);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
     let base_ty_f: ExprBlob = parse_type(ch.base_ty);
     let base_vnm: Ident = Ident::new(ch.base_var);
@@ -3223,6 +3233,7 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // nest (at body level for one order, inside the branch for two).
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
         bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));
@@ -3575,6 +3586,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
             dk = dk + 1i64;
         }
         let keyt_f: ExprBlob = parse_type(key_ty);
+        sort_key_vector(prm, ch.base_src, ch.base_var, key_ty, nb);
         sortdecl = quote_block! {
             #( #ixd; )*
             let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
@@ -3982,6 +3994,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
         bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));
@@ -4260,6 +4273,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let okey_f:  ExprBlob = parse_expr(string_as_str(&okey_body));
         let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &act,
                                                  key_ty, ch.base_var, ch.base_ty, ch.base_src);
+        sort_key_vector(prm, ch.base_src, ch.base_var, okey_ty, 1i64);
         ksdecl = quote_block! { let mut __ks: Vec<#(okeyt_f)> = Vec::<#(okeyt_f)>::new(); };
         collect = quote_block! {
             #(binds_r);
@@ -7339,6 +7353,11 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // A STREAMED source yields its rows ONCE. The handle would have to be
         // that single reader and would then own a relation the caller can no
         // longer re-present as a delta.
+        // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g. This is the incremental fold's
+        // DECLINE — a statement about who may READ the source, not about how the
+        // scan is spelled. S1's gate correction applies verbatim: the shape
+        // readings became `rel_src_unmaterialized` (the plan's node); this one
+        // is a decision and stays on the decision's boolean.
         if prm.rel_src_streams(ch.base_src) || prm.rel_src_streams(ch.src[0]) {
             return incr_decline(qn, "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta");
         }
@@ -8855,6 +8874,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
         bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));

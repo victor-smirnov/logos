@@ -1,0 +1,170 @@
+// THE THREE MATERIALIZATION GROUNDS THAT HAD NO NODE WITNESS — ADR 0025 §4, S2h.
+//
+// `access_plan::MG_*` is the vocabulary that says WHY a buffer exists. S2's
+// census (`plan_ground_census_gate.sh`) partitioned it against the corpus and
+// found FOUR grounds that were published sentences no query reached:
+// `MG_REL_BLOCK`, `MG_UNDECIDED`, `MG_UNPROVEN`, `MG_GPATH`. That set is the
+// debt ledger S2 may not delete `plan_mark_single_pass` over: a ground with no
+// fixture is a claim about a query nobody has ever compiled.
+//
+// This fixture closes THREE of the four. The fourth, `MG_GPATH`, is not here
+// because it is NOT DEBT — it is DEAD, refuted and deleted in the same stage
+// (`desugar_program_gpaths` runs at `wql.logos:177`, BEFORE the walk, and
+// clears `has_gpath` on every query kind, so the branch that read it could not
+// execute; the control is recorded in the census gate header).
+//
+// ⚠ WHY THESE ARE NOT THE GATE GRADING ITS OWN HOMEWORK. A fixture written to
+// make a census line go green would assert the TRACE and nothing else, and would
+// pass over an emitter that materialized the wrong thing or nothing at all. Each
+// query below has a RUNTIME oracle over the emitted artifact — the rows, and the
+// PULL COUNT of an iterator source that has no length and cannot be read twice.
+// The ground is what the plan SAYS; `PULLED` and the row sequence are what the
+// artifact DOES, measured separately. The third query's oracle is the sharpest:
+// it pins a drain of a source the query never names.
+//
+// ── THE COMMON SOURCE ────────────────────────────────────────────────────────
+// `Steps` offers an ITERATOR (`MapSource::rel entry`), which is the precondition
+// all three share: a container source answers `MG_CONTAINER` in
+// `access_plan_decide_mode` before any of these grounds is consulted, which is
+// exactly why the corpus — whose `rel` blocks and `&Writ` graphs are all
+// containers — reached none of them.
+//
+// PLAN TRACE (LOGOS_TRACE_PLAN=1), one node line per query:
+//   [plan] s -> drain on rel block                     (…a rel block may scan this source repeatedly)
+//   [plan] s -> drain on undecided: no join strategy   (…a traversal earlier in the chain binds a var the plan cannot type yet)
+//   [plan] s -> drain on unproven: no single-read proof (…the plan cannot prove a single read)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait MapSource — `rel entry` is the offer
+use logos.mem.collections.vec;
+use logos.lang.iter;
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+}
+
+struct Bag { pub k: i64, pub ks: Vec<i64> }
+
+// ── MG_REL_BLOCK ────────────────────────────────────────────────────────────
+// A parse-side `rel` block makes the whole program's read-once question
+// unanswerable: a rel BODY may scan any source any number of times and the body
+// is not inspected, so every registered source is materialized. The corpus had
+// rel-block programs already — `wql_deferred_plan_e2e`, the whole `wql_datalog_*`
+// family — and not one of them reached this ground, because their sources are
+// slices and `&Writ` graphs, which are containers. Pair a rel block with an
+// ITERATOR source and the ground is the plan's answer.
+pub deem w_rel_block(s: &Steps, xs: &[Bag]) {
+    rel hot(k: i64) {
+        from xs x where x.k > 0 select x.k;
+    }
+    from s e join hot h on e.key == h.k select e.val
+}
+
+// ── MG_UNDECIDED ────────────────────────────────────────────────────────────
+// A TRAVERSAL step binds a var whose element type the planner cannot reflect
+// before `stamp_edge_step` has run, so `plan_decide_chain` STOPS there and every
+// later step keeps `JS_NONE`. `plan_mark_single_pass` reads that as "not proven
+// read-once" — which is the conservative direction, and this fixture is what
+// says the conservatism is REAL work and not a comment: the step after the
+// traversal is rescanned once per traversed element, so an iterator consumed in
+// place would answer the first element and go silent for every one after it.
+pub deem w_undecided(xs: &[Bag], s: &Steps) {
+    from xs x join x.ks y join s e on e.key == y select e.val
+}
+
+// ── MG_UNPROVEN ─────────────────────────────────────────────────────────────
+// The mode pass's own fallback: no ground was recorded and no single read was
+// proven. It is reachable because `plan_mark_single_pass` answers only for the
+// sources the ENTRY QUERY NAMES, while the prelude materializes every source the
+// natspec REGISTERED — so a source the query does not mention is drained anyway,
+// with `ap.owhy` empty and `ap.once` still at its `false` default.
+//
+// ⚠ THIS IS A COST, NOT A CURIOSITY, AND THE ORACLE IS THE PULL COUNT. `s` is
+// never named below and its rows can change no answer, yet the artifact binds
+// `let mut __it_s` and drains it: `PULLED` reads 6 for a query whose result is a
+// function of `xs` alone. The ground is the plan's honest account of that drain
+// ("no single-read proof"), which is exactly what makes the waste visible instead
+// of silent — and the reason it is pinned here rather than fixed in passing is
+// that removing the drain is an EMITTER change with its own artifact delta, which
+// this stage does not make.
+pub deem w_unproven(xs: &[Bag], s: &Steps) {
+    from xs x where x.k > 0 select x.k
+}
+
+fn bag(k: i64) -> Bag { return Bag { k: k, ks: vec_new::<i64>() }; }
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 6i64 };          // keys 0..5, vals key*10
+
+    // ── MG_REL_BLOCK: rows, and the drain that the rel block forces ─────────
+    let mut xs1: Vec<Bag> = vec_new::<Bag>();
+    xs1.push(bag(0i64));                        // filtered out by the rel body
+    xs1.push(bag(2i64));
+    xs1.push(bag(4i64));
+    unsafe { PULLED = 0i64; }
+    let r1: Vec<i64> = match w_rel_block(&s, xs1.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r1.len() != 2i64 { return 2i32; }
+    if r1.get(0i64) != 20i64 { return 3i32; }
+    if r1.get(1i64) != 40i64 { return 4i32; }
+    // Drained exactly once — the rel block forbids proving a single read, it does
+    // not cause a second one.
+    unsafe { if PULLED != 6i64 { return 5i32; } }
+
+    // ── MG_UNDECIDED: the step AFTER a traversal is rescanned ───────────────
+    // One bag carrying TWO traversed elements. If the undecided step had been
+    // allowed to consume `s` in place, element 1 would answer and element 3
+    // would find an exhausted iterator — rows, not a crash, which is why the
+    // second row is the assertion that matters.
+    let mut xs2: Vec<Bag> = vec_new::<Bag>();
+    let mut b2: Bag = bag(7i64);
+    b2.ks.push(1i64);
+    b2.ks.push(3i64);
+    xs2.push(b2);
+    unsafe { PULLED = 0i64; }
+    let r2: Vec<i64> = match w_undecided(xs2.as_slice(), &s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if r2.len() != 2i64 { return 7i32; }
+    if r2.get(0i64) != 10i64 { return 8i32; }
+    if r2.get(1i64) != 30i64 { return 9i32; }
+    unsafe { if PULLED < 6i64 { return 10i32; } }
+
+    // ── MG_UNPROVEN: a source the query never names is drained anyway ───────
+    let mut xs3: Vec<Bag> = vec_new::<Bag>();
+    xs3.push(bag(0i64));
+    xs3.push(bag(5i64));
+    xs3.push(bag(8i64));
+    unsafe { PULLED = 0i64; }
+    let r3: Vec<i64> = match w_unproven(xs3.as_slice(), &s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if r3.len() != 2i64 { return 12i32; }
+    if r3.get(0i64) != 5i64 { return 13i32; }
+    if r3.get(1i64) != 8i64 { return 14i32; }
+    // THE ASSERTION THIS FIXTURE EXISTS FOR: six rows pulled out of a source the
+    // query does not mention. A plan that stopped draining unnamed sources would
+    // read 0 here — and that is a WIN which must move this number deliberately,
+    // with the census ground moving with it, not a red to be silenced.
+    unsafe { if PULLED != 6i64 { return 15i32; } }
+
+    return 0i32;
+}

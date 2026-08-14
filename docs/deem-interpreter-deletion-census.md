@@ -2099,8 +2099,38 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                                        NOT reach are recorded as debt instead).
 # tier_commit does not move: the gate compiles 175 fixtures with `--gen-dir`
 # (~45 s at -P nproc), which is per-commit weight the lint tier does not carry.
-REGISTRY-ALL         7154
-REGISTRY-NOIMPORTED  3471
+#
+# ADR 0025 S2h, THE MATERIALIZATION DEBT LEDGER CLOSED (+1 registered test,
+# +1 FIXTURE, +0 tier_commit). PREDICTED 7155/3472/32 (+1/+1/0 off 7154/3471/32)
+# from the single added `pass/*.expected`; the gate's red reported exactly
+# ALL 7155 / -LE imported 3472 / tier_commit 32 before this block was touched.
+# Decomposed:
+#   logos_02_semantic_core_pass_deem_mat_ground_witness
+#                                        FIXTURE, suite_semantic_core. Three
+#                                        `deem` queries over ONE iterator source,
+#                                        witnessing `MG_REL_BLOCK`,
+#                                        `MG_UNDECIDED` and `MG_UNPROVEN`.
+#
+# ⚠ THIS REVERSES THE S2 BLOCK ABOVE, WHICH SAID A WITNESS FIXTURE WOULD BE THE
+# GATE GRADING ITS OWN HOMEWORK. The reversal is deliberate and the earlier
+# sentence was right about the RISK and wrong about the ONLY WAY TO TAKE IT. S2
+# recorded the unreached grounds as debt because the census's subject is the
+# corpus as it is; S2h had to discharge that debt, because ADR 0025 forbids
+# deleting `plan_mark_single_pass` while any ground it carries is unwitnessed —
+# a proof cannot be retired on the strength of sentences nobody has compiled.
+# What makes this fixture a measurement and not a self-graded green: each query
+# carries a RUNTIME oracle over the emitted artifact (row sequence + the PULL
+# COUNT of an iterator that has no length and cannot be read twice), and the
+# writing of it FOUND TWO THINGS the census could not have — a node whose ground
+# was set and whose justification was the empty string (now `access_plan`'s
+# `swhy` fallback plus the census's FACT F, probe-paired: reverting the fallback
+# reds FACT F on exactly this fixture), and a drain of a source the query never
+# names. And it did NOT discharge the fourth ground: `MG_GPATH` turned out to be
+# unreachable and was deleted instead, which is the outcome a fixture-writing
+# stage has to be able to reach if it is measuring rather than decorating.
+# tier_commit does not move: a `pass` fixture registers into suite_semantic_core.
+REGISTRY-ALL         7155
+REGISTRY-NOIMPORTED  3472
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

@@ -421,6 +421,66 @@ directions — a ground declared unwitnessed that the corpus reaches fails exact
 as loudly, because an exemption nobody checks in the abuse direction turns the
 green into a voucher for it.
 
+LANDED (S2h, 2026-08-13) — THE MATERIALIZATION DEBT LEDGER IS EMPTY, and its four
+entries left by two different routes. The GROUND → WITNESSING FIXTURE table, all
+nine, which is the precondition §4 sets for deleting `plan_mark_single_pass`:
+
+| ground | witness | node |
+|---|---|---|
+| `MG_SECOND_USE` | `deem_join_step_reread` | drain |
+| `MG_ORDER_BY` | `deem_batch_scan_drain` (×2), `wql_deferred_plan_e2e` | sort |
+| `MG_RESCAN` | `deem_join_step_streams` | drain |
+| `MG_REGROUP` | `deem_batch_scan_drain`, `deem_pushdown_all_shapes` | drain |
+| `MG_JOIN_BUILD` | 79 fixtures, 596 nodes | arrange |
+| `MG_REL_BLOCK` | `deem_mat_ground_witness::w_rel_block` | drain — NEW |
+| `MG_UNDECIDED` | `deem_mat_ground_witness::w_undecided` | drain — NEW |
+| `MG_UNPROVEN` | `deem_mat_ground_witness::w_unproven` | drain — NEW |
+| `MG_GPATH` | none — REFUTED AND DELETED | — |
+
+WHY 175 FIXTURES COULD NOT REACH THREE OF THEM AND ONE FILE COULD: all three
+require a source whose producer OFFERS AN ITERATOR, because
+`access_plan_decide_mode` answers `MG_CONTAINER` before any of them is consulted
+— and every `rel` block, `&Writ` graph and `&[T]` param in the corpus is a
+container. `MG_GPATH` was not debt at all: `desugar_program_gpaths`
+(`wql.logos:177`) runs BEFORE the walk and clears `has_gpath` on every query
+kind, so the two arms reading it were UNREACHABLE. Control, both directions:
+`error(…)` in both gpath arms left the corpus byte-identical (159 dumps /
+6,776,657 bytes, `diff -rq` empty) across ~20 graph-path fixtures, while the same
+edit one line up in the `has_order` arm took it to 158 dumps / −111,952 bytes.
+The ground and its two arms are deleted; a ground nothing can reach is not a
+fixture someone owes.
+
+⚠ THIS REVERSES THE "THE CORPUS WAS NOT TOUCHED" RULE BELOW, DELIBERATELY. S2 was
+right about the risk and wrong that recording debt was the only way to take it: a
+proof may not be retired on the strength of sentences nobody has compiled, so the
+debt had to be discharged before §4's deletion could even be considered. What
+keeps the fixture a measurement is that each query carries a RUNTIME oracle over
+the emitted artifact (row sequence + the pull count of an iterator that has no
+length and cannot be read twice) — and writing it FOUND two things the census
+could not: a node whose ground was set and whose justification was the empty
+string (fixed by the `swhy` fallback in `access_plan_plan_nodes`, kept by the
+census's new FACT F, probe-paired — reverting the fallback reds FACT F on exactly
+that fixture), and a DRAIN OF A SOURCE THE QUERY NEVER NAMES (`w_unproven` pulls
+six rows out of a param no clause mentions, because this pass answers only for
+the sources the ENTRY QUERY NAMES while the prelude materializes every source the
+natspec REGISTERED). That drain is pinned, not fixed: removing it is an emitter
+change with its own artifact delta.
+
+⚠⚠ AND THE DELETION IS STILL REFUSED — with a number, not an opinion. PROBE
+(S2h, restored to a byte-identical source with a green checkpoint after):
+`plan_mark_single_pass` replaced by an immediate `return`, i.e. the proof deleted
+with nothing in its place. 11 artifacts move, +2,953 bytes, every diff the same
+shape (`let mut __rel_s: StepsIter = …` becomes a `Vec` plus a drain loop);
+`logos_09_plan_nodes` and `logos_09_plan_ground_census` red; the byte-pin
+`logos_09_slice_scan_codegen` stays GREEN; and EVERY RUNTIME FIXTURE STILL
+PASSES. That is the argument: deleting the proof does not break the corpus, it
+makes every query quietly pessimal, and the corpus cannot separate a correct plan
+from a conservative one because both return the same rows — only a count gate
+can. §4's replacement is not "delete this and materialize everything", it is that
+the second read becomes UNSPELLABLE. That needs the drain arm to become
+`Drain -> Buffer`, which this ADR lists as owed and NOT STARTED. Until a TYPE
+refuses the second read, this function is the only thing that refuses it at all.
+
 ⚠ THE CORPUS WAS NOT TOUCHED. No fixture was added, edited or retired for this
 census: a fixture written to witness a ground would be the gate grading its own
 homework, and the fifteen unwitnessed sentences are recorded as debt instead.
@@ -446,6 +506,12 @@ byte-pin's measured-equal transition); `Sort` replacing the `__ix0` permutation;
 `rel_src_streams`, `params.logos:657`, and the slice arms of `emit_simple` /
 `emit_find` / the join and aggregate emitters); and the deletion of
 `plan_mark_single_pass`, whose 9 grounds each still need a node fixture first.
+⚠ AS OF S2f/S2g the SHAPE readings are dead (three emitter sites now ask the
+plan's node through `MacroParams::rel_src_unmaterialized`; the survivors read a
+DECISION or an OFFER and carry the S1 gate's correction at the line). As of S2h
+the 9-ground precondition is DISCHARGED — 8 witnessed, 1 refuted and deleted —
+and the deletion is nonetheless refused with a measured probe; both are recorded
+in §4 above.
 
 `Buffer<R>` implements every capability; "a Vec is an eagerly-drained stream,
 never the reverse" stops being a comment and becomes the type lattice.
