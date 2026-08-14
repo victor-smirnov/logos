@@ -427,7 +427,7 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
 ///
 /// ⚠ AND THAT GUARD CANNOT FIRE TODAY, which is a fact worth writing down rather
 /// than a reason to drop it. Streaming requires the ABSENCE of `order by`
-/// (`plan_walker::plan_mark_single_pass`: a sort re-binds joined rows by position,
+/// (`plan_walker::plan_insert_drains`: a sort re-binds joined rows by position,
 /// so every side must be indexable) and a transposition requires its PRESENCE — the
 /// two conditions exclude each other, so every side reaching this function is
 /// materialized. The check stays because the coupling is another module's decision

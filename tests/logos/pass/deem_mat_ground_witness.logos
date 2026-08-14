@@ -4,8 +4,11 @@
 // census (`plan_ground_census_gate.sh`) partitioned it against the corpus and
 // found FOUR grounds that were published sentences no query reached:
 // `MG_REL_BLOCK`, `MG_UNDECIDED`, `MG_UNPROVEN`, `MG_GPATH`. That set is the
-// debt ledger S2 may not delete `plan_mark_single_pass` over: a ground with no
-// fixture is a claim about a query nobody has ever compiled.
+// debt ledger S2 may not retire the single-pass proof over: a ground with no
+// fixture is a claim about a query nobody has ever compiled. (The proof was
+// retired at S2j, by INVERSION — `plan_insert_drains` inserts the node carrying
+// the ground — which is why this fixture's three queries still drive exactly the
+// grounds they were written for.)
 //
 // This fixture closes THREE of the four. The fourth, `MG_GPATH`, is not here
 // because it is NOT DEBT — it is DEAD, refuted and deleted in the same stage
@@ -83,7 +86,7 @@ pub deem w_rel_block(s: &Steps, xs: &[Bag]) {
 // ── MG_UNDECIDED ────────────────────────────────────────────────────────────
 // A TRAVERSAL step binds a var whose element type the planner cannot reflect
 // before `stamp_edge_step` has run, so `plan_decide_chain` STOPS there and every
-// later step keeps `JS_NONE`. `plan_mark_single_pass` reads that as "not proven
+// later step keeps `JS_NONE`. `plan_insert_drains` reads that as "not proven
 // read-once" — which is the conservative direction, and this fixture is what
 // says the conservatism is REAL work and not a comment: the step after the
 // traversal is rescanned once per traversed element, so an iterator consumed in
@@ -93,11 +96,11 @@ pub deem w_undecided(xs: &[Bag], s: &Steps) {
 }
 
 // ── MG_UNPROVEN ─────────────────────────────────────────────────────────────
-// The mode pass's own fallback: no ground was recorded and no single read was
-// proven. It is reachable because `plan_mark_single_pass` answers only for the
-// sources the ENTRY QUERY NAMES, while the prelude materializes every source the
-// natspec REGISTERED — so a source the query does not mention is drained anyway,
-// with `ap.owhy` empty and `ap.once` still at its `false` default.
+// The drain pass's own fallback: no ground was recorded and no single read was
+// proven. It is reachable because `plan_insert_drains`'s walk answers only for
+// the sources the ENTRY QUERY NAMES, while the prelude materializes every source
+// the natspec REGISTERED — so a source the query does not mention reaches the
+// fallback loop unproven and is drained there, on `MG_UNPROVEN`.
 //
 // ⚠ THIS IS A COST, NOT A CURIOSITY, AND THE ORACLE IS THE PULL COUNT. `s` is
 // never named below and its rows can change no answer, yet the artifact binds

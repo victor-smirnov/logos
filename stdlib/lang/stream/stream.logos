@@ -72,8 +72,11 @@ pub trait BatchStream<B> {
 /// The stream can be re-landed and replayed from the start: multi-pass.
 ///
 /// Consuming a non-`Rewind` stream twice is a plan-level error whose repair is an
-/// inserted `Drain` with its ground (§4) — this trait is what replaces the
-/// `plan_mark_single_pass` side-channel proof with typing.
+/// inserted `Drain` with its ground (§4). S2j put the DRAIN in place — the planner
+/// inserts the node where its single-pass proof used to be recorded
+/// (`wql::plan_walker::plan_insert_drains`) — so what this trait still owes is the
+/// REFUSAL: today a second read is caught by a planner walking the query, and it
+/// should be caught by the type of the thing being read twice.
 pub trait Rewind {
     /// Re-lands the stream at the beginning; the next `next()` yields the first batch again.
     fn rewind(&mut self);

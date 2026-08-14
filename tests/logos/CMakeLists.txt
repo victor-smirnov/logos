@@ -1824,8 +1824,12 @@ set_tests_properties(logos_09_plan_nodes PROPERTIES
 #     is either witnessed by a corpus query or listed in the gate's UNWITNESSED
 #     pin. Checked in BOTH directions: a pinned-unwitnessed ground the corpus
 #     reaches is red too. The 15 unwitnessed grounds ARE S2's remaining debt —
-#     `MG_REL_BLOCK`/`MG_UNDECIDED`/`MG_GPATH`/`MG_UNPROVEN` are why
-#     `plan_mark_single_pass` cannot be deleted yet;
+#     `MG_REL_BLOCK`/`MG_UNDECIDED`/`MG_GPATH`/`MG_UNPROVEN` are why the
+#     single-pass proof cannot be retired yet; (DISCHARGED at S2h, and the proof
+#     retired at S2j by INVERSION — `plan_walker::plan_insert_drains` inserts the
+#     node where the proof used to be recorded, so every ground now travels on
+#     the thing that is built. This gate's subject is unchanged: it reads the
+#     trace, and the trace still names all eight.)
 #   * THE ARRANGE DEFICIT IS A NUMBER — 31 Arrange nodes against 491 hash-join
 #     decisions and 594 emitted index bindings. The node layer covers the
 #     top-level chain; a derived rel's own chain and the second carried nest of

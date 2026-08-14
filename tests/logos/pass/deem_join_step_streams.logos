@@ -10,8 +10,8 @@
 //
 // The decision now lives in `logos.std.wql.join_sel`, is made by the planner
 // before the prelude exists, and is recorded ON the step's IR node. The emitter
-// READS it. `plan_mark_single_pass` marks a step read-once exactly when its
-// recorded strategy reads once.
+// READS it. `plan_insert_drains` leaves a step WITHOUT a drain node exactly when
+// its recorded strategy reads once.
 //
 // ORACLE: the pull count, and the rows.
 //

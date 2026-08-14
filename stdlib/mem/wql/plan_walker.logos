@@ -1537,9 +1537,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
-        plan_mark_single_pass(prm, &mut pick_ap);
+        plan_insert_drains(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
-        access_plan_plan_nodes(&mut pick_ap);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
@@ -1583,9 +1582,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
-        plan_mark_single_pass(prm, &mut pick_ap);
+        plan_insert_drains(prm, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
-        access_plan_plan_nodes(&mut pick_ap);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
         if prm.rel_n > 0i64 {
@@ -2084,7 +2082,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 // Decide how each join step will read its source, and record the answer ON the
 // step, BEFORE the prelude is built. Two of the three strategies (hash, tree)
 // index the step's source in a single pass and then probe the index; only a
-// nested loop rescans. That is the fact `plan_mark_single_pass` needs and could
+// nested loop rescans. That is the fact `plan_insert_drains` needs and could
 // not have while the cascade ran inside the emitter, one phase too late.
 //
 // Deciding is read-only over the params and writes nothing but the decision.
@@ -2121,7 +2119,8 @@ fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, va
 /// reflect before `stamp_edge_step` has run, so any later step's `on` may
 /// reference a name this type dict does not have. Deciding it anyway would risk
 /// a key typed here and typed differently there. Later steps are left
-/// `JS_NONE`; `plan_mark_single_pass` reads that as "not proven read-once".
+/// `JS_NONE`; `plan_insert_drains` reads that as "not proven read-once" and
+/// drains the step's source on `MG_UNDECIDED`.
 fn plan_decide_chain(prm: &MacroParams, view: &OView,
                      base_src: str, base_var: str,
                      steps: RQJoinStepArr, h: &Writ) {
@@ -2186,12 +2185,45 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
     }
 }
 
-/// Which rels does this plan read EXACTLY ONCE?
+/// INSERT THE PRELUDE'S MATERIALIZATION NODES (ADR 0025 §4, S2j).
 ///
-/// The conservative direction is fixed by what a wrong answer costs: a wrong
-/// `false` gives a slower plan, a wrong `true` gives a plan that reads a
-/// consumed iterator. So every `true` here must be a fact about the emitted
-/// shape, not an expectation about it.
+/// Every rel this plan cannot read in a single pass is emptied into a buffer
+/// before the walk, and THAT — a `Drain` or a `Sort` node over the rel, carrying
+/// the ground and the sentence — is what this pass writes. Whoever later needs
+/// "does the plan read this source exactly once?" asks the node list
+/// (`access_plan_decide_mode`, via `prelude_ix`), and gets the answer from the
+/// artifact rather than from a boolean that has to agree with it.
+///
+/// ── WHY THE DIRECTION CHANGED ──────────────────────────────────────────────
+///
+/// This pass used to be `plan_mark_single_pass`, and it recorded a PROOF: a
+/// per-rel `once` boolean plus a sentence, which `access_plan_decide_mode` then
+/// conjoined with the source's offer, which `access_plan_plan_nodes` then turned
+/// into a node. Three passes, two representations of one fact, and the fact was
+/// stated about the wrong thing — a hash join reads its build side exactly once
+/// AND materializes it, so `once=true` and the emitted `Vec` were both correct
+/// and read as a contradiction.
+///
+/// The node was always the fact. The proof was the side channel. ADR 0025 §4 owed
+/// the side channel's DELETION and S2h refused it on a measurement: deleting the
+/// proof with nothing in its place moved 11 artifacts and +2,953 bytes of quiet
+/// pessimization that no runtime fixture could see, because a conservative plan
+/// and a correct one return the same rows. That refusal was never an argument for
+/// keeping the proof; it was an argument against deleting it before something
+/// carried its grounds. The node list carries them now — same walk, same grounds,
+/// same `js_reads_once` cascade — so the proof is gone and nothing was traded.
+///
+/// The remaining half of §4 is orthogonal to this and still owed: the second read
+/// is refused here by a PLANNER, and it should be refused by a TYPE (`Rewind`),
+/// with the drain the plan's repair rather than its only defence.
+///
+/// ── WHAT A WRONG ANSWER COSTS ──────────────────────────────────────────────
+///
+/// The conservative direction is fixed: a spurious node gives a slower plan, a
+/// MISSING one gives a plan that reads a consumed iterator. So every rel this
+/// pass leaves without a node must be a fact about the emitted shape, not an
+/// expectation about it — which is why the proof is spelled positively below
+/// (`pv[ri] = true`) and the fallback loop drains everything it did not reach.
 ///
 ///   • SIMPLE — the lone source is scanned once, unless `order by` revisits
 ///     rows by position after collecting them, or a graph path lowers it to a
@@ -2209,59 +2241,85 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// same rel are the same hazard, and were not checked while every step was
 /// unconditionally materialized.)
 ///
-/// ── ADR 0025 S2h — THIS FUNCTION IS STILL HERE, AND THE REFUSAL IS MEASURED ──
+/// ── THE PRECONDITION, AND HOW IT WAS DISCHARGED ────────────────────────────
 ///
-/// S2 owes its deletion. The PRECONDITION ADR 0025 §4 set — every ground this
-/// function carries must first have a fixture that drives it through a NODE — is
-/// DISCHARGED as of S2h: eight grounds, eight witnesses, asserted in both
-/// directions by `plan_ground_census_gate.sh` (which no longer exempts a single
-/// `MG_*` token), and the ninth, `MG_GPATH`, was refuted and deleted rather than
-/// witnessed. So the debt is paid and the deletion is still REFUSED, on this
-/// ground and with this number:
+/// ADR 0025 §4 set one: every ground this walk carries must first have a fixture
+/// that drives it through a NODE. Paid at S2h — eight grounds, eight witnesses,
+/// asserted in both directions by `plan_ground_census_gate.sh` (which exempts no
+/// `MG_*` token), and the ninth, `MG_GPATH`, refuted and deleted rather than
+/// witnessed. S2h then measured what a bare deletion costs, and refused it:
 ///
 ///   PROBE (S2h, one at a time, restored to a byte-identical source with a green
-///   checkpoint after): this function replaced by an immediate `return` —
-///   i.e. the proof deleted with nothing put in its place. Whole-corpus result:
-///   11 artifacts move, +2,953 bytes, and every one of the diffs is the same
-///   shape — `let mut __rel_s: StepsIter = steps_rows(s)` becomes a `Vec` plus a
-///   drain loop, and the join's buckets go back to holding rows instead of the
-///   streamed shape. Two gates red (`logos_09_plan_nodes`,
-///   `logos_09_plan_ground_census`); the byte-pin `logos_09_slice_scan_codegen`
-///   stays green, and — the part that decides this — EVERY RUNTIME FIXTURE STILL
+///   checkpoint after): the walk replaced by an immediate `return` — i.e. the
+///   proof deleted with nothing put in its place. Whole-corpus result: 11
+///   artifacts move, +2,953 bytes, every diff the same shape — `let mut __rel_s:
+///   StepsIter = steps_rows(s)` becomes a `Vec` plus a drain loop, and the join's
+///   buckets go back to holding rows instead of the streamed shape. Two gates red
+///   (`logos_09_plan_nodes`, `logos_09_plan_ground_census`); the byte-pin
+///   `logos_09_slice_scan_codegen` stays green, and EVERY RUNTIME FIXTURE STILL
 ///   PASSES, `deem_join_step_streams` and `deem_batch_scan_drain` included.
 ///
-/// THAT IS THE ARGUMENT. Deleting the proof does not break the corpus; it makes
-/// every query quietly pessimal, and the corpus cannot tell a correct plan from a
-/// conservative one because both return the same rows. The only thing standing
-/// between the two is a COUNT gate. ADR 0025 §4's replacement is not "delete this
-/// and materialize everything" — it is that consuming a non-`Rewind` stream twice
-/// becomes UNSPELLABLE, the plan inserts a `Drain` node and `explain()` says why.
-/// That needs the drain arm to become `Drain -> Buffer` with the scan reading the
-/// `Buffer` as a one-packet stream, which is listed in this ADR as owed and NOT
-/// STARTED. Until the second read is refused by a TYPE, this function is the only
-/// thing that refuses it at all, and deleting it would trade a checked decision
-/// for an unchecked pessimization while the byte-pin's measured-equal clause went
-/// unused. Refused with the citation rather than skipped in silence.
-fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
-    if prm.src_root.is_null() { return; }
+/// That number is what says the corpus cannot tell a correct plan from a
+/// conservative one — both return the same rows — and therefore that the grounds
+/// have to MOVE rather than be dropped. S2j moves them: the walk below is the S2h
+/// walk unchanged in every arm and every ground, and only its OUTPUT differs.
+pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
+    let pv: [bool; 8] = plan_prove_once(prm, ap);
+    // THE FALLBACK, and it is the direction that keeps this pass safe. A rel the
+    // walk never reached — a source the entry query does not NAME, which the
+    // prelude materializes anyway — got no node above and no proof either; it is
+    // drained, on `MG_UNPROVEN`, with the sentence the mode pass used to supply.
+    // (`deem_mat_ground_witness::w_unproven` is the fixture: the artifact binds
+    // `__it_s` and pulls six rows out of a source no clause mentions. Under the
+    // old three-pass shape this rel reached `access_plan_plan_nodes` with an
+    // empty sentence and the node said nothing about why; the sentence is
+    // authored here now, where the decision is.)
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        if !pv[ri] && ap.prelude_ix(ri) < 0i64 {
+            ap_drain(ap, prm, ri, MG_UNPROVEN(),
+                     "materialized: the plan cannot prove a single read");
+        }
+        ri = ri + 1i64;
+    }
+    // ⚠ NO ARRANGE NODES HERE (ADR 0025 §4, S2d). The build phases are authored
+    // at EMISSION, by `rexpr_walk::arrange_node`, beside the `build_phase_frag`
+    // call that emits the index — because that is the first moment at which the
+    // two facts the node needs exist: the NEST MULTIPLICITY (`decide_join_orders`
+    // runs there, after this pass) and the step's SOURCE, which for a wql! param
+    // has no rel-registry index and was therefore invisible to every `ri`-keyed
+    // author. This pass keeps the PRELUDE plane, which the emitter reads back
+    // through `prelude_node` and which no later phase can supply.
+}
+
+/// The walk: drain every rel whose ground blocks a single read, and RETURN the
+/// set it proved. The returned booleans are local to the pass — they exist only
+/// so `plan_insert_drains` can tell "proved read-once" from "never reached", two
+/// cases that both leave the node list empty and must not be drained alike.
+///
+/// ⚠ A `return` HERE IS A PARTIAL ANSWER, NOT A COMPLETE ONE — every early exit
+/// below hands back the proofs made so far, and the caller drains the rest.
+fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
+    let mut pv: [bool; 8] = [false; 8];
+    if prm.src_root.is_null() { return pv; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     // A parse-side rel body may scan a native rel any number of times, and the
     // body is not inspected here — so their presence blocks the whole question.
     if prog.has_rels() {
         let mut r0: i64 = 0i64;
         while r0 < ap.n {
-            ap.read_once(r0, false, MG_REL_BLOCK(),
+            ap_drain(ap, prm, r0, MG_REL_BLOCK(),
                 "materialized: a rel block may scan this source repeatedly");
             r0 = r0 + 1i64;
         }
-        return;
+        return pv;
     }
     match prog.entry_any().view::<RQuery>() {
         RQuery::Simple(sq) => {
             let ri: i64 = prm.rel_find_name(sq.src_name);
-            if ri < 0i64 { return; }
+            if ri < 0i64 { return pv; }
             if sq.has_order {
-                ap.read_once(ri, false, MG_ORDER_BY(),
+                ap_drain(ap, prm, ri, MG_ORDER_BY(),
                     "materialized: `order by` revisits rows by position after collecting them");
             } else {
                 // ⚠ THERE IS NO `has_gpath` ARM HERE, AND ITS ABSENCE IS A
@@ -2281,7 +2339,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 // 158 dumps / 3 failures / −111,952 bytes, which is what says the
                 // control was wired and the zero was measured rather than
                 // inherited from a stale build.
-                ap.read_once(ri, true, "", "");
+                pv[ri] = true;
             }
         }
         RQuery::Join(jq) => {
@@ -2312,35 +2370,35 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                     // index at all, so `si >= 0` gated the node out entirely for
                     // the whole slice-param class. The Arrange node is authored
                     // by `rexpr_walk::arrange_node`, at the build phase, keyed by
-                    // the step's source VAR. What survives here is the once
+                    // the step's source VAR. What survives here is the drain
                     // cascade, which is a different question.
                     if cnt[si] > 1i64 {
-                        ap.read_once(si, false, MG_SECOND_USE(),
+                        ap_drain(ap, prm, si, MG_SECOND_USE(),
                             "materialized: the query names this source more than once in one join chain");
                     } else if jq.has_order {
-                        ap.read_once(si, false, MG_ORDER_BY(),
+                        ap_drain(ap, prm, si, MG_ORDER_BY(),
                             "materialized: `order by` re-binds joined rows by index after collecting the matches");
                     } else if st.jstrat == JS_NONE() {
-                        ap.read_once(si, false, MG_UNDECIDED(),
+                        ap_drain(ap, prm, si, MG_UNDECIDED(),
                             "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
                     } else if js_reads_once(st.jstrat) {
-                        ap.read_once(si, true, "", "");
+                        pv[si] = true;
                     } else {
-                        ap.read_once(si, false, MG_RESCAN(),
+                        ap_drain(ap, prm, si, MG_RESCAN(),
                             "materialized: this step is a nested loop, which rescans its source once per bound row");
                     }
                 }
                 k = k + 1i64;
             }
-            if bi < 0i64 { return; }
+            if bi < 0i64 { return pv; }
             if cnt[bi] > 1i64 {
                 // The base is named again — a self-join reads it twice.
-                ap.read_once(bi, false, MG_SECOND_USE(),
+                ap_drain(ap, prm, bi, MG_SECOND_USE(),
                     "materialized: the query names this source on both sides of a join");
-                return;
+                return pv;
             }
             if jq.has_order {
-                ap.read_once(bi, false, MG_ORDER_BY(),
+                ap_drain(ap, prm, bi, MG_ORDER_BY(),
                     "materialized: `order by` revisits base rows by position after collecting them");
             } else {
                 // No `has_gpath` arm, for the reason recorded in the Simple arm
@@ -2349,7 +2407,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 // ⚠ THIS ARM IS THE ONE THAT MATTERS FOR THE PROOF: a desugared
                 // graph path becomes a JOIN, so if the flag survived anywhere it
                 // would survive here, and the control says it does not.
-                ap.read_once(bi, true, "", "");
+                pv[bi] = true;
             }
         }
         RQuery::Aggr(gq) => {
@@ -2359,7 +2417,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
             // to "cannot prove", which says nothing a reader can act on.
             let ai: i64 = prm.rel_find_name(gq.a_name);
             if ai >= 0i64 {
-                ap.read_once(ai, false, MG_REGROUP(),
+                ap_drain(ap, prm, ai, MG_REGROUP(),
                     "materialized: the aggregate revisits rows after grouping them");
             }
             // An aggregate's join STEPS carry a decided strategy too, but the
@@ -2373,7 +2431,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
                 while gk < ng {
                     let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
                     if gi >= 0i64 {
-                        ap.read_once(gi, false, MG_REGROUP(),
+                        ap_drain(ap, prm, gi, MG_REGROUP(),
                             "materialized: the aggregate's finalize pass re-binds joined rows by index");
                     }
                     gk = gk + 1i64;
@@ -2382,6 +2440,7 @@ fn plan_mark_single_pass(prm: &MacroParams, ap: &mut AccessPlan) {
         }
         _ => { }
     }
+    return pv;
 }
 
 /// APPLY the plan: bind each rel to the access that was chosen, bind a streamed

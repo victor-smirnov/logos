@@ -2116,8 +2116,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # sentence was right about the RISK and wrong about the ONLY WAY TO TAKE IT. S2
 # recorded the unreached grounds as debt because the census's subject is the
 # corpus as it is; S2h had to discharge that debt, because ADR 0025 forbids
-# deleting `plan_mark_single_pass` while any ground it carries is unwitnessed —
+# retiring the single-pass proof while any ground it carries is unwitnessed —
 # a proof cannot be retired on the strength of sentences nobody has compiled.
+# (S2j retired it by INVERSION: `plan_insert_drains` carries all eight grounds
+# onto nodes. The debt had to be paid first for exactly that reason.)
 # What makes this fixture a measurement and not a self-graded green: each query
 # carries a RUNTIME oracle over the emitted artifact (row sequence + the PULL
 # COUNT of an iterator that has no length and cannot be read twice), and the
@@ -2276,18 +2278,134 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   * indices-vs-rows / deleting the `streams` param from the four frags: the
 #     same measurement blocks it — the buckets that would hold ROWS are the ones
 #     the 85 non-sort bindings feed.
-#   * `plan_mark_single_pass` dies: refused on a measurement (the second-read
-#     question is not a Rewind question yet — nothing consumes a landing as a
-#     stream, so deleting the proof makes every query pessimal exactly as
-#     measured before).
+#   * `plan_mark_single_pass` dies: DONE at S2j, and not by deletion. The S2h
+#     refusal stands as measured — dropping the proof outright makes every query
+#     pessimal (11 artifacts, +2,953 bytes then, +3,061 on today's corpus) and no
+#     runtime fixture can see it. So the grounds MOVED instead: the walk now
+#     inserts the `Drain`/`Sort` node directly (`plan_insert_drains`) and the
+#     `once`/`owhy` side channel is gone. Corpus text-preserving, `diff -rq`
+#     empty at 161 dumps / 6,856,383 bytes. What is still owed is the OTHER half:
+#     the second read refused by `Rewind` rather than by a planner walk.
 #   * S3d, the slice arm dies: NOT STARTED. `logos_09_slice_scan_codegen`'s
 #     golden therefore still shows the pre-batch slice loop ON PURPOSE, and it
 #     transitioned this round through the BYTE-COMPARABLE arm (empty diff), not
 #     the measured-equal one — see that gate's header for the arithmetic that
 #     closes it (2089 x 22 + 60 == 46,018 == the whole corpus growth, leaving no
 #     unexplained byte).
-REGISTRY-ALL         7158
-REGISTRY-NOIMPORTED  3475
+#
+# ADR 0025 S2j, THE INVERSION AND THE TYPING DOOR'S FIRST HALF (+2 registered
+# tests, +2 FIXTURES, +0 tier_commit). PREDICTED 7160/3477/32 (+2/+2/0 off
+# 7158/3475/32), written down BEFORE the reconfigure; measured after it: ALL 7160
+# / -LE imported 3477 / tier_commit 32. The two are a PAIR and are priced as one
+# stage: neither half is an oracle alone.
+# Decomposed:
+#   logos_02_semantic_core_pass_stream_rewind_door_admitted
+#                                        FIXTURE, suite_semantic_core. `Buffer`
+#                                        through `read_again<S: Rewind>`, and the
+#                                        second pass asserted to yield the SAME
+#                                        three rows in order — a compile-only
+#                                        admission would pass a `Rewind` impl that
+#                                        re-lands nothing.
+#   logos_06_diagnostics_fail_stream_rewind_door_refused
+#                                        FIXTURE, suite_diagnostics. The SAME
+#                                        signature, a `BatchStream` with no
+#                                        `Rewind` impl (the shape a walk has), and
+#                                        the diagnostic pinned verbatim.
+# tier_commit does not move: both register through the `.expected` globs beside
+# the rest of the corpus. ⚠ AND THE PAIR IS SPLIT ACROSS TWO SUITES by the
+# harness's own rule (pass -> semantic_core, fail -> diagnostics), so nothing in
+# the registry says these two belong together — which is why each fixture's
+# header names the other by path, and why they are priced here as one stage.
+#
+# ── THE WHOLE ROUND, STAGE BY STAGE, INCLUDING WHAT DID NOT HAPPEN ──────────
+#
+#   I1  LANDED. THE INVERSION. `plan_mark_single_pass` -> `plan_insert_drains`
+#       (`stdlib/mem/wql/plan_walker.logos`): the walk that used to RECORD a
+#       per-rel read-once proof now INSERTS the `Drain`/`Sort` node directly,
+#       carrying the same eight grounds through the same `js_reads_once`
+#       cascade. `once`/`owhy` leave `AccessPlan` entirely
+#       (`stdlib/mem/wql/access_plan.logos`), `access_plan_decide_mode` recovers
+#       "reads it once" as the ABSENCE of a drain node, and
+#       `access_plan_plan_nodes` — the third pass that existed only to turn the
+#       boolean into the node — is gone with its two call sites.
+#       ⚠ THE ORACLE IS THE CORPUS, NOT THE SUITE. Text-preserving: `diff -rq`
+#       EMPTY over 161 dumps / 6,856,383 bytes, the S3f baseline unchanged in
+#       both directions. That is what makes this an inversion of MECHANISM and
+#       not a change of plan — and it is also why L2 alone could not have told
+#       the two apart.
+#       ⚠ AND IT IS THE CHANGE S2h REFUSED, TAKEN THE OTHER WAY. S2h measured
+#       the BARE deletion (the proof dropped with nothing in its place): 11
+#       artifacts move, +2,953 bytes then, +3,061 re-measured on today's corpus,
+#       every query pessimal, and NO runtime fixture can see it because a
+#       conservative plan returns the same rows. The refusal stands; what the
+#       grounds needed was somewhere to go.
+#   I2  LANDED, ONE HALF OF TWO. THE TYPING DOOR, as a registered pair:
+#       `tests/logos/fail/stream_rewind_door_refused.logos` (a non-`Rewind`
+#       stream refused at `read_again<S: Rewind>`) and
+#       `tests/logos/pass/stream_rewind_door_admitted.logos` (`Buffer<i64>`
+#       admitted through the same signature, and behaviourally re-read).
+#       WHAT IS PINNED is that the type-level door EXISTS and SEPARATES. What is
+#       NOT: the wql emitter does not route through it yet — a second read is
+#       still refused by a PLANNER — and both fixtures' headers,
+#       `stdlib/lang/stream/stream.logos`'s `Rewind` doc and
+#       `plan_insert_drains`'s own header say so in the same words, so the open
+#       half is stated in three places and claimed in none.
+#       PROBE PAIR, one perturbation at a time, on copies outside the tree so the
+#       registered files were never edited: the refuse half given
+#       `impl Rewind for WalkIter` and nothing else compiles (rc 0, diagnostic
+#       gone, that test red — the bound is what refuses); the admit half's own
+#       `read_again` called with a second non-`Rewind` stream is refused (rc 1,
+#       same message — the admission is a check, not a signature that admits
+#       everything). Both directions therefore have a witness that the OTHER
+#       direction's defect would red.
+#
+#   NOT LANDED, REFUSED ON A MEASUREMENT RATHER THAN DEFERRED:
+#   * S3d, THE SLICE ARM DIES: BUILT, MEASURED, REVERTED — no longer "not
+#     started", and the byte-pin's measured-equal arm was REFUSED BY THE
+#     MEASUREMENT rather than left unexamined. In order:
+#       D0  BASELINE pinned before anything was touched (161 / 6,856,383).
+#       D1  FAIL-FAST PROBE, hand-written, no stdlib rebuild: is a one-packet
+#           `SliceStream<R>` over a borrowed slice affordable at all?
+#       D2  SHAPE SURVEY, over the pinned corpus rather than over the emitter's
+#           source: 98 of the 161 dumps carry 379 indexed slice loops, against 5
+#           dumps carrying a `next_batch()` loop. The arm is the corpus's
+#           majority shape, which is what makes its codegen a price and not a
+#           detail.
+#       D3  VOCABULARY UNIT minted (`SliceStream<R>`, one packet then `None`).
+#       D4  EMITTER COLLAPSE: both sites (the `emit_simple` else-arm and
+#           `chain_nest_frag`'s base loop) through one fragment.
+#       D5  THE BYTE-PIN, MEASURED-EQUAL ARM — AND THE ARM WAS NOT TAKEN.
+#           `slice_scan_run`, same fixture, disassembled both ways:
+#             BASE   59 instructions · 242 bytes .text · frame 0x78
+#             NEW   128 instructions · 528 bytes .text · frame 0x108
+#           +69 instructions, +286 bytes, frame doubled, for a source that is
+#           ALREADY materialized. "OR measured equal" is a licence to re-golden
+#           when the emitted code is equivalent; the measurement says it is not,
+#           so the golden did not move and the round did not spend it.
+#       D6  CORPUS ORACLE — the thing L2 could not see, run because D5 is one
+#           function and the arm is 379 loops.
+#       D7  CLASSIFY BEFORE TOUCHING, minimal repro, one variable at a time:
+#           the emitted join-order branch puts the stream in an ARM scope and the
+#           sort's key vector at FUNCTION scope, and the packet-borrowed key is
+#           then refused — `'__bb0' does not live long enough … borrowed by
+#           '__ks'` (E0597) — though the rows live in the caller's slice, which
+#           outlives everything. ONE arm compiles (lt2, rc 0); TWO SIBLING ARMS
+#           of the same shape are refused (lt4, rc 1); the same two arms with the
+#           PRE-COLLAPSE indexed loop compile (lt5, rc 0). Re-measured on today's
+#           compiler while writing this block, not quoted from the round's notes.
+#       D8  STOP, with the reason: the blocker is the borrow-provenance
+#           over-refusal class (the D1-residual task), not the batch design. A
+#           collapse landed on top of it would have bought +286 bytes per slice
+#           scan AND a scoping rule the emitter has to route around.
+#       D9  RESTORE PROVED, not assumed: `SliceStream` is absent from `stdlib/`,
+#           the golden is untouched, and the corpus is back at the D0 baseline.
+#     The record of (1) and (2) lives in `tests/logos/slice_scan_codegen_gate.sh`'s
+#     header, beside the clause it is about.
+#   * THE TYPING DOOR'S SECOND HALF (the emitter's second read refused BY THE
+#     TYPE): open, and now open with a fixture pair standing under it, so its
+#     landing will be a change of mechanism with both directions already pinned.
+REGISTRY-ALL         7160
+REGISTRY-NOIMPORTED  3477
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

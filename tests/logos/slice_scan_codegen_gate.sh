@@ -31,9 +31,9 @@
 #
 # ── WHERE S2/S3 LEFT IT, AND WHY THE GOLDEN STILL SHOWS THE OLD SHAPE ───────
 #
-# The golden is UNCHANGED through S2a-h and S3a/S3b/S3f, and every one of those
-# stages passed through this pin by the byte-comparable arm — the empty-diff
-# one — not by the measured-equal arm. That is a claim about text, so it is
+# The golden is UNCHANGED through S2a-h, S3a/S3b/S3f and S2j, and every one of
+# those stages passed through this pin by the byte-comparable arm — the empty-
+# diff one — not by the measured-equal arm. That is a claim about text, so it is
 # stated with what it was measured against:
 #
 #   S3a  put `use logos.mem.stream;` into every spliced item (2089 lines,
@@ -51,14 +51,40 @@
 #        closes exactly: 2089 x 22 + 60 == 46,018 == the measured snapshot
 #        growth, leaving no unexplained byte for this function to hide in.
 #   S3f  added a fixture and two gates; no emitter change.
+#   S2j  THE INVERSION (`plan_mark_single_pass` -> `plan_insert_drains`): the
+#        planner now inserts the `Drain`/`Sort` node where it used to record a
+#        proof. Corpus TEXT-PRESERVING — `diff -rq` empty over 161 dumps /
+#        6,856,383 bytes — so this function is unchanged by construction and not
+#        merely unchanged in the pinned window.
 #
-# ⚠ AND S3d — "THE SLICE ARM DIES" — WAS NOT LANDED. It was on the round's task
-# list (a slice becomes the §1 degenerate case: a one-packet `Buffer` stream)
-# and it is the change this gate's last clause is written for. The golden
-# therefore still shows the PRE-BATCH slice loop on purpose, and the honest
-# status is "not started", not "measured equal". When S3d lands, this gate goes
-# red twice (bytes + batch vocabulary) and both arms move together with the
-# measurement recorded in the census.
+# ⚠ AND S3d — "THE SLICE ARM DIES" — IS STILL NOT LANDED, BUT IT IS NO LONGER
+# "NOT STARTED": at S2j it was BUILT, MEASURED, AND REVERTED, and the measured-
+# equal arm was REFUSED BY THE MEASUREMENT rather than left unexamined. The two
+# findings, both re-measurable from the repro pair recorded in the census:
+#
+#   (1) THE COLLAPSED SHAPE IS NOT MEASURED-EQUAL. `slice_scan_run` emitted
+#       through a one-packet `SliceStream<R>` and disassembled against today's
+#       byte-pinned shape, same fixture, same flags:
+#         BASE (this golden)  59 instructions ·  242 bytes of .text · frame 0x78
+#         COLLAPSED          128 instructions ·  528 bytes of .text · frame 0x108
+#       +69 instructions, +286 bytes, frame more than doubled — for a source that
+#       is ALREADY materialized. The ADR's "OR measured equal" arm is a licence
+#       to re-golden when the emitted code is equivalent; this is a licence NOT
+#       taken, because the measurement says it is not.
+#   (2) AND THE SHAPE DOES NOT COMPILE IN THE EMITTER'S OWN SCOPING. The emitted
+#       join-order branch puts the stream in an ARM scope and the sort's key
+#       vector at FUNCTION scope, and the packet-borrowed key is then refused —
+#       `'__bb0' does not live long enough … borrowed by '__ks'` (E0597) — while
+#       the rows really live in the caller's `&[Row]`, which outlives everything.
+#       ONE VARIABLE AT A TIME, re-measured on today's compiler: one arm compiles
+#       (lt2, rc 0), TWO SIBLING ARMS of the same shape are refused (lt4, rc 1),
+#       and the same two arms with the PRE-COLLAPSE indexed loop compile (lt5,
+#       rc 0). So the refusal is the borrow-provenance over-refusal class, not
+#       the design — the collapse is blocked on a COMPILER fix, and this golden
+#       keeps the pre-batch loop for that reason, with a number attached.
+#
+# When S3d does land, this gate goes red twice (bytes + batch vocabulary) and
+# both arms move together with the measurement recorded in the census.
 #
 # ⚠ THE LAST CLAUSE IS WHAT S2 HAS TO ARGUE WITH, WHICH IS THE POINT. When the
 # slice arm rides §1's shape, this gate goes red twice: the bytes differ and the

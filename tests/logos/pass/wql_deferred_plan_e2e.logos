@@ -56,7 +56,7 @@ struct T { pub w: i64, pub z: i64 }
 // length available anyway is that `order by` — the very precondition a
 // transposition needs — re-binds joined rows BY POSITION after collecting them, so
 // the plan must drain the iterator into a Vec regardless of anything the join order
-// wants (`plan_walker::plan_mark_single_pass`). The deferral therefore reads a
+// wants (`plan_walker::plan_insert_drains`). The deferral therefore reads a
 // length that the query already paid for, and `PULLED` is the instrument that says
 // so: ONE drain, not two. A deferral that had reached for the number itself would
 // double the count, and no assertion about rows would notice.

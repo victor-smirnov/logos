@@ -29,9 +29,13 @@
 #
 # ⚠⚠ THE MATERIALIZATION HALF OF THE DEBT LEDGER IS EMPTY AS OF S2h, AND ITS FOUR
 # ENTRIES LEFT IT BY TWO DIFFERENT ROUTES. It read `MG_REL_BLOCK` /
-# `MG_UNDECIDED` / `MG_GPATH` / `MG_UNPROVEN` — the grounds
-# `plan_mark_single_pass` carries that no fixture had driven through a node, and
-# the S2 rule was that the function could not be deleted until the set was empty.
+# `MG_UNDECIDED` / `MG_GPATH` / `MG_UNPROVEN` — the grounds the single-pass walk
+# (`plan_insert_drains`, `plan_mark_single_pass` before the S2j inversion) carries
+# that no fixture had driven through a node, and the S2 rule was that the proof
+# could not be retired until the set was empty. It was retired at S2j, by moving
+# the grounds onto the nodes rather than by dropping them — which is why this
+# gate's subject did not change when the function's name did: the census has
+# always read the TRACE, and the trace still names all eight grounds.
 #
 #   THREE WERE DEBT AND ARE NOW WITNESSED — `MG_REL_BLOCK`, `MG_UNDECIDED`,
 #   `MG_UNPROVEN`, all three by `pass/deem_mat_ground_witness.logos`, the one
@@ -47,7 +51,7 @@
 #   `desugar_program_gpaths` (`wql.logos:177`) runs BEFORE `walk_program_params`
 #   and clears `has_gpath` on every query kind (Simple's entry node is REPLACED by
 #   an `RQJoin`; Join and Aggr assign `false` in place), so the two arms of
-#   `plan_mark_single_pass` that read it could not execute. CONTROL, both
+#   the single-pass walk that read it could not execute. CONTROL, both
 #   directions, one at a time, restored to a byte-identical source with a green
 #   checkpoint between: `error(…)` in both gpath arms ⇒ the corpus is UNCHANGED
 #   (159 dumps / 6,776,657 bytes, `diff -rq` EMPTY, the same two pinned compile
@@ -65,9 +69,11 @@
 # RUNTIME oracle over the emitted artifact — the row sequence, and the PULL COUNT
 # of an iterator that has no length and cannot be read twice. The third one's
 # oracle found a real cost rather than confirming one: `w_unproven` pulls six rows
-# out of a source its query never names, because `plan_mark_single_pass` answers
-# only for the sources the ENTRY QUERY NAMES while the prelude materializes every
-# source the natspec REGISTERED. `MG_UNPROVEN` is the plan's honest account of
+# out of a source its query never names, because the walk answers only for the
+# sources the ENTRY QUERY NAMES while the prelude materializes every source the
+# natspec REGISTERED. (S2j moved that fallback INTO `plan_insert_drains`, where
+# the sentence is now authored beside the ground instead of being recovered from
+# the mode pass one phase later; the trace text is unchanged.) `MG_UNPROVEN` is the plan's honest account of
 # that drain, and it is pinned here, not fixed in passing: removing the drain is
 # an emitter change with its own artifact delta.
 #
@@ -363,7 +369,7 @@ fail = []
 # (`/home/logos/sandbox/wql_corpus_snapshot.sh`) before and after S2h differs by
 # the single line `Only in after: deem_mat_ground_witness.gen` — every one of the
 # 159 pre-existing dumps is BYTE-IDENTICAL, so the `MG_GPATH` deletion, the
-# empty-sentence fallback in `access_plan_plan_nodes` and the three survivor
+# empty-sentence fallback in the node author and the three survivor
 # citations emitted no text at all. The per-fixture deltas, from that dump:
 #   drain    +3   (`w_rel_block`, `w_undecided`, `w_unproven` — one each)
 #   __it_    +3   (`let mut __it_s`, one per query — FACT B holds per fixture)
@@ -521,13 +527,14 @@ for e in errs:
             if not gnd:
                 bad(f"[{b}] a `{kind}` node carries an EMPTY ground")
             # FACT F — EVERY NODE CARRIES A SENTENCE, NOT ONLY A GROUND (S2h).
-            # Found by writing the `MG_UNPROVEN` witness: `access_plan_plan_nodes`
-            # pushed `ap.owhy[ri]`, which is `""` for a rel
-            # `plan_mark_single_pass` never answered for, so the corpus's first
-            # unproven drain printed `-> drain on unproven: no single-read proof
-            # ()` — a ground naming a mechanism and no account of it. The fix is
-            # the `swhy` fallback at `access_plan.logos`; this is the sensor that
-            # keeps it, and it is a NEW assertion rather than a tightened one.
+            # Found by writing the `MG_UNPROVEN` witness: the node author pushed
+            # the per-rel sentence, which was `""` for a rel the single-pass walk
+            # never answered for, so the corpus's first unproven drain printed
+            # `-> drain on unproven: no single-read proof ()` — a ground naming a
+            # mechanism and no account of it. Since S2j the sentence is authored
+            # WITH the node, in `plan_insert_drains`'s fallback loop, so the
+            # empty case has no way to arise; this is the sensor that keeps it
+            # that way, and it is a NEW assertion rather than a tightened one.
             if not m.group(4).strip().rstrip(")").strip():
                 bad(f"[{b}] a `{kind}` node on ground `{gnd}` carries an EMPTY "
                     f"justification — a materialization named and not explained")

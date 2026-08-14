@@ -1,0 +1,118 @@
+// ADR 0025 §4 — THE TYPING DOOR, ADMIT HALF (S2j).
+//
+// The paired refusal is `fail/stream_rewind_door_refused`, and NEITHER HALF IS
+// AN ORACLE ALONE. A door pinned only by its refusal is green on a signature
+// nothing can pass — `fn read_again<S: Rewind>` with `Rewind` unimplementable
+// refuses every type in the tree and looks exactly like a working door. A door
+// pinned only by its admission is green on a bound that is not checked at all.
+// So both halves call THE SAME generic function, `read_again<S: Rewind>`, and
+// differ in exactly one thing: whether the argument's type implements `Rewind`.
+//
+//   ADMIT   `Buffer<i64>`  — `impl<R> Rewind for Buffer<R>` (mem/stream/buffer)
+//                            is the landing a `Drain` node inserts. Accepted,
+//                            AND the re-read is asserted to yield the rows
+//                            again (see below).
+//   REFUSE  `WalkIter`     — a `BatchStream` with no `Rewind` impl, the shape a
+//                            container walk has. Rejected at the call.
+//
+// ⚠ THE ADMISSION IS BEHAVIOURAL, NOT JUST A COMPILE. `read_again` is written
+// to consume the stream, re-land it through the bound's own `rewind()`, and
+// consume it AGAIN, and the caller checks the second pass yields the same three
+// values in the same order. A `Rewind` impl that compiled and re-landed nothing
+// would pass a compile-only admission and fails here — which matters because
+// the whole point of the door is that the SECOND read is legal for this type.
+//
+// ⚠ PROVED TO BITE, ONE PERTURBATION AT A TIME, on copies outside the tree:
+//   P1  the refuse half given `impl Rewind for WalkIter` and nothing else — rc
+//       0, the diagnostic gone, that test red: the bound is what refuses.
+//   P2  THIS file's `read_again` called with a second, non-`Rewind` stream —
+//       rc 1, `does not implement trait 'Rewind' required by parameter 'S'`:
+//       the admission is a check, not a signature that admits everything.
+//
+// ── WHAT THIS PAIR DOES AND DOES NOT CLAIM ─────────────────────────────────
+//
+// It claims the TYPE-LEVEL door exists and separates: a second read demands
+// `Rewind`, a walk does not have it, the drain's landing does. It does NOT
+// claim the wql emitter routes through that door yet — as of S2j the second
+// read is still refused by a PLANNER (`plan_walker::plan_insert_drains` inserts
+// the `Drain` node), and `stdlib/lang/stream/stream.logos` says so in the
+// `Rewind` doc comment. That half of §4 is open, and this pair is what will
+// make its landing a change of MECHANISM rather than of behaviour.
+package stream_rewind_door_admitted;
+
+use logos.lang.option;
+use logos.lang.stream;      // BatchStream / Rewind / SizedStream / RowsBatch
+use logos.mem.stream;       // Buffer
+use logos.mem.collections.vec;
+
+/// THE DOOR ITSELF, and the one signature both halves of the pair call: reading
+/// a stream a second time requires re-landing it, and re-landing is `Rewind`.
+///
+/// Returns the number of rows seen on the SECOND pass, so the caller can tell a
+/// re-landing from a no-op that merely type-checked.
+fn read_again<S: Rewind + BatchStream<RowsBatch<i64>>>(s: &mut S) -> i64 {
+    // First pass: drain it.
+    loop {
+        let ob = s.next();
+        if !ob.is_some() { break; }
+    }
+    // Second pass: only legal because `S: Rewind`.
+    s.rewind();
+    let mut n: i64 = 0i64;
+    loop {
+        let ob = s.next();
+        if !ob.is_some() { break; }
+        {
+            let b: &[i64] = ob.unwrap();
+            let mut j: i64 = 0i64;
+            while j < b.len() {
+                n = n + 1i64;
+                j = j + 1i64;
+            }
+        }
+    }
+    return n;
+}
+
+/// The same second pass, with the VALUES checked — a count alone cannot tell a
+/// re-landed buffer from one that yields the right number of wrong rows.
+fn read_again_values(b: &mut Buffer<i64>) -> i32 {
+    loop {
+        let ob = b.next();
+        if !ob.is_some() { break; }
+    }
+    b.rewind();
+    let ob2 = b.next();
+    if !ob2.is_some() { return 1i32; }
+    {
+        let rows: &[i64] = ob2.unwrap();
+        if rows.len() != 3i64 { return 2i32; }
+        if rows[0i64] != 11i64 { return 3i32; }
+        if rows[1i64] != 22i64 { return 4i32; }
+        if rows[2i64] != 33i64 { return 5i32; }
+    }
+    let ob3 = b.next();
+    if ob3.is_some() { return 6i32; }
+    return 0i32;
+}
+
+fn rows() -> Vec<i64> {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(11i64);
+    v.push(22i64);
+    v.push(33i64);
+    return v;
+}
+
+fn main() -> i32 {
+    // ADMITTED at the bound, and the re-read really happens: 3 rows on pass 2.
+    let mut b: Buffer<i64> = Buffer::<i64>::from_vec(rows());
+    if read_again::<Buffer<i64>>(&mut b) != 3i64 { return 7i32; }
+
+    // …and they are the same rows, in order.
+    let mut b2: Buffer<i64> = Buffer::<i64>::from_vec(rows());
+    let r: i32 = read_again_values(&mut b2);
+    if r != 0i32 { return r; }
+
+    return 0i32;
+}

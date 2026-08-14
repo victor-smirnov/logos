@@ -299,7 +299,7 @@ pub fn traversal_step_sel() -> StepSel {
 /// are measurements rather than opinions:
 ///
 ///   • THE MULTIPLICITY IS NOT KNOWN WHERE THE PLAN IS MADE. `decide_join_orders`
-///     runs HERE, at emission, after `access_plan_plan_nodes` has finished, and
+///     runs HERE, at emission, after `plan_insert_drains` has finished, and
 ///     the emitter writes one build phase per step PER CARRIED NEST
 ///     (`cand_branch` × `chain_nest_frag`). Corpus-measured under the planner-side
 ///     form: 141 arrange nodes against 594 emitted index bindings. A node that

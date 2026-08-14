@@ -305,7 +305,7 @@ traded for a plan fact, which is the error this axis exists to refuse.
 
 ⚠ MEASURED, AND IT CONTRADICTS THE OBVIOUS DESIGN: that streamed-side guard CANNOT
 FIRE on this axis. Streaming requires the ABSENCE of `order by`
-(`plan_mark_single_pass`: a sort re-binds joined rows by position, so every side
+(`plan_insert_drains`: a sort re-binds joined rows by position, so every side
 must be indexable) and a transposition requires its PRESENCE — the conditions
 exclude each other, so every side reaching `run_size_expr_of` is materialized. The
 guard stays, because the coupling is another module's decision and a streaming

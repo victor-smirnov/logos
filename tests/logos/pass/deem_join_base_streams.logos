@@ -19,8 +19,8 @@
 //
 // ⚠ The conservative direction is not arbitrary. A wrong `false` costs speed; a
 // wrong `true` produces a plan that reads a consumed iterator. Hence the
-// self-join guard: a source named on both sides is read twice, and the base's
-// `once` has to be withdrawn even though the base alone would qualify.
+// self-join guard: a source named on both sides is read twice, so the base gets
+// a `MG_SECOND_USE` drain node even though the base alone would qualify.
 package test;
 
 use logos.std.wql.wql;

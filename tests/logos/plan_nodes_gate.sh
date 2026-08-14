@@ -4,14 +4,17 @@
 # EVERY MATERIALIZATION IS A NAMED NODE WITH A GROUND — ADR 0025 S2, §4.
 #
 # Before the node layer, a materialization in the emitted plane was a CONSEQUENCE
-# of a boolean. `once=false` made `stream=false` made `emit_prelude_oneshot` write
-# a `Vec` and a drain loop, and the sentence explaining it hung off the boolean
-# rather than off the thing that was built. Two facts could not be stated at all,
+# of a boolean. A per-rel single-read proof made `stream=false` made
+# `emit_prelude_oneshot` write a `Vec` and a drain loop, and the sentence
+# explaining it hung off the boolean rather than off the thing that was built.
+# (The boolean is gone as of S2j — `plan_insert_drains` inserts the node and
+# `access_plan_decide_mode` recovers "reads it once" as the ABSENCE of one — so
+# the lines this gate counts are now the only representation there is.) Two facts could not be stated at all,
 # and this gate exists because both are now stated and neither has any other
 # witness in the tree:
 #
 #   • A BUFFER BUILT WHERE THE PLAN STREAMS. A hash join reads its build side
-#     exactly once — `once=true`, `stream=true`, the trace says "streamed: the
+#     exactly once — no drain node, `stream=true`, the trace says "streamed: the
 #     producer is an iterator and the plan reads it once" — and then materializes
 #     every one of those rows into a `HashMap`. The old flag says the opposite of
 #     what the artifact does, and no test in this tree could see the difference:

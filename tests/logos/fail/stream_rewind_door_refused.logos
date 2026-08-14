@@ -1,0 +1,68 @@
+// ADR 0025 §4 — THE TYPING DOOR, REFUSE HALF (S2j).
+//
+// The paired admission is `pass/stream_rewind_door_admitted`, and neither half
+// is an oracle alone: a refusal pinned by itself is green on a bound nothing
+// can satisfy (the door that refuses EVERYTHING passes every refusal test ever
+// written), an admission pinned by itself is green on a bound that is never
+// checked. Both halves call THE SAME generic function, `read_again<S: Rewind>`,
+// with the same body, and differ in exactly one thing: whether the argument's
+// type implements `Rewind`.
+//
+//   REFUSE (here)  `WalkIter` — a `BatchStream` with NO `Rewind` impl, the shape
+//                   a container walk has: the rows are gone once pulled.
+//   ADMIT (there)  `Buffer<i64>` — `impl<R> Rewind for Buffer<R>`, the landing a
+//                   `Drain` node inserts, and its second pass is asserted to
+//                   yield the same rows.
+//
+// ⚠ THE REFUSAL MUST BE THE BOUND, NOT A TYPO. The struct below is a REAL
+// stream: it implements `BatchStream<RowsBatch<i64>>` and is pulled once in
+// `main` before the second read is attempted, so the program is rejected for
+// asking a non-replayable stream to replay — not for being unable to name the
+// type or the method.
+//
+// ⚠ PROVED TO BITE, ONE PERTURBATION AT A TIME, on copies outside the tree:
+//   P1  this file with `impl Rewind for WalkIter { fn rewind(&mut self) { … } }`
+//       added and NOTHING else changed — rc 0, the diagnostic gone, this test
+//       red. So what is being refused is the missing `Rewind`, not the file.
+//   P2  the admit half's own `read_again` called with a second, non-`Rewind`
+//       stream — rc 1 with this same message. So the ADMIT signature is a real
+//       check and not one that lets everything through.
+//
+// ⚠ WHAT IT DOES NOT CLAIM. As of S2j the wql emitter still refuses the second
+// read with a PLANNER (`plan_walker::plan_insert_drains` inserts the `Drain`
+// node); this pair pins that the TYPE-level door exists and separates, which is
+// the mechanism §4 owes.
+package stream_rewind_door_refused;
+
+use logos.lang.option;
+use logos.lang.stream;      // BatchStream / Rewind / RowsBatch
+use logos.mem.stream;
+use logos.mem.collections.vec;
+
+/// A stream whose rows are consumed as they are produced — no landing, nothing
+/// to re-land from. This is what a walk is.
+pub struct WalkIter { at: i64, buf: Vec<i64> }
+
+impl BatchStream<RowsBatch<i64>> for WalkIter {
+    fn next(&mut self) -> Option<RowsBatch<i64>> {
+        if self.at > 0i64 { return Option::None; }
+        self.at = self.at + 1i64;
+        return Option::Some(self.buf.as_slice());
+    }
+}
+
+/// THE DOOR: a second read requires re-landing the stream, and re-landing is
+/// `Rewind`. Identical to the admit half's signature.
+fn read_again<S: Rewind>(s: &mut S) { s.rewind(); }
+
+pub fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(7i64);
+    let mut w: WalkIter = WalkIter { at: 0i64, buf: v };
+    // The first read is legal…
+    let ob = w.next();
+    if !ob.is_some() { return 1i32; }
+    // …and the second one is the error: `WalkIter` is not `Rewind`.
+    read_again::<WalkIter>(&mut w);
+    return 0i32;
+}

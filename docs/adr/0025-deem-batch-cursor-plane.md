@@ -29,6 +29,8 @@ and every consumer branches on which one it holds. Measured on the tree at
 Consequences, each a recurring defect class: materialization is implicit
 prelude text, not an algebra node with a `why`; "read exactly once" is a global
 side-channel proof (`plan_mark_single_pass`) instead of a property of a type;
+(HALF-CLOSED at S2j: the side channel is gone — `plan_insert_drains` writes the
+node — but the refusal is still a planner walk, not a type;)
 three parallel booleans (`is_slice`/`rel_stream`/`rel_iter`) restate one fact;
 `order by` demands `Indexed`, which only slices have, so an ordered container
 is drained and re-sorted; every new storage adds a branch to every consumer.
@@ -289,13 +291,31 @@ bounded walk.
 
 LANDED (S2 node layer, 2026-08-13) in `stdlib/mem/wql/access_plan.logos`:
 `MAT_DRAIN`/`MAT_SORT`/`MAT_ARRANGE` + the `MG_*` ground tokens + the node list,
-derived by `access_plan_plan_nodes` from the mode pass's conclusions and named
-per rel by `access_plan_explain`. `plan_mark_single_pass` now passes a ground
-TOKEN beside each sentence (`read_once(ri, yes, gnd, why)`) — the token travels
-with the prose instead of being recovered from it. THE EMITTER IS UNTOUCHED and
-the byte-pin `logos_09_slice_scan_codegen` is what says so; the deletion of
-`plan_mark_single_pass` and the `rel_stream`/`rel_iter`/`is_slice` booleans is
-still owed and is the rest of S2.
+derived from the mode pass's conclusions and named per rel by
+`access_plan_explain`. THE EMITTER IS UNTOUCHED and the byte-pin
+`logos_09_slice_scan_codegen` is what says so.
+
+LANDED (S2j INVERSION, 2026-08-14) — THE DERIVATION NOW RUNS THE OTHER WAY, and
+the side channel is DELETED. `plan_mark_single_pass` is `plan_walker::plan_insert_drains`:
+the same walk, the same eight grounds, the same `js_reads_once` cascade, and the
+output is `ap_drain(ap, prm, ri, ground, why)` — a `MAT_DRAIN`/`MAT_SORT` node —
+where it used to be `read_once(ri, false, gnd, why)`. `AccessPlan::once` and
+`AccessPlan::owhy` are gone; `access_plan_plan_nodes`, the third pass that turned
+the proof into a node, is gone; `access_plan_decide_mode` recovers "the plan reads
+this once" as `prelude_ix(ri) < 0` — THE ABSENCE OF A DRAIN NODE. One
+representation, no agreement to maintain.
+
+TEXT-PRESERVING, as predicted: whole-corpus snapshot 161 dumps / 6,856,383 bytes,
+`diff -rq` EMPTY, the same two pinned compile failures. The instrument is live and
+the inverted walk carries the same load — CONTROL, one at a time, restored to a
+byte-identical source with a green checkpoint after: `plan_prove_once` neutered to
+an immediate `return pv` reproduces S2h's probe exactly — the SAME 11 artifacts
+move, +3,061 bytes (S2h measured +2,953 on the then-159-dump corpus; the two extra
+fixtures are the difference).
+
+Still owed and the rest of S2: the `rel_stream`/`rel_iter`/`is_slice` booleans,
+and the half §4 cares about most — the second read refused by `Rewind` rather than
+by a planner walk.
 
 Two corrections this stage owes §4 as written, both measured:
 
@@ -304,8 +324,9 @@ Two corrections this stage owes §4 as written, both measured:
   `__rel_d`, emitted for `pass/deem_join_step_reread`), so arrangements are
   recorded per STEP, off the STRATEGY — not in the else-branch of the once
   cascade, where every arrangement over a twice-named source would be invisible.
-* **`once` AND "materializes" ARE ORTHOGONAL, and that is the fact the boolean
-  could not state.** A hash join's build side is `stream=true`, read exactly
+* **"READ ONCE" AND "materializes" ARE ORTHOGONAL, and that is the fact the
+  boolean could not state — which is why S2j kept the node and deleted the
+  boolean rather than the reverse.** A hash join's build side is `stream=true`, read exactly
   once, AND fully materialized keyed. `logos_09_plan_nodes` asserts it as an
   inequality no flag can satisfy: more arrange nodes than `materialize`
   verdicts.
@@ -415,7 +436,7 @@ pinned as the debt ledger rather than left to look like coverage:
 `WG_NO_SIZE`; `RJ_PREDBASE`, `RJ_PREDPIN`, `RJ_SHAPE`; `SZ_RUN_STREAMS`,
 `SZ_PREP_STREAMS`; and — the four that matter for the rest of S2 —
 `MG_REL_BLOCK`, `MG_UNDECIDED`, `MG_GPATH`, `MG_UNPROVEN`. THOSE FOUR ARE THE
-ANSWER TO "which of `plan_mark_single_pass`'s 9 grounds still need a node
+ANSWER TO "which of the single-pass walk's 9 grounds still need a node
 fixture": the other five are witnessed as nodes today. The pin is checked in BOTH
 directions — a ground declared unwitnessed that the corpus reaches fails exactly
 as loudly, because an exemption nobody checks in the abuse direction turns the
@@ -423,7 +444,7 @@ green into a voucher for it.
 
 LANDED (S2h, 2026-08-13) — THE MATERIALIZATION DEBT LEDGER IS EMPTY, and its four
 entries left by two different routes. The GROUND → WITNESSING FIXTURE table, all
-nine, which is the precondition §4 sets for deleting `plan_mark_single_pass`:
+nine, which is the precondition §4 sets for retiring the single-pass proof:
 
 | ground | witness | node |
 |---|---|---|
@@ -466,10 +487,12 @@ the sources the ENTRY QUERY NAMES while the prelude materializes every source th
 natspec REGISTERED). That drain is pinned, not fixed: removing it is an emitter
 change with its own artifact delta.
 
-⚠⚠ AND THE DELETION IS STILL REFUSED — with a number, not an opinion. PROBE
-(S2h, restored to a byte-identical source with a green checkpoint after):
-`plan_mark_single_pass` replaced by an immediate `return`, i.e. the proof deleted
-with nothing in its place. 11 artifacts move, +2,953 bytes, every diff the same
+⚠⚠ AND THE BARE DELETION IS REFUSED — with a number, not an opinion. (S2j then
+retired the proof WITHOUT deleting its grounds; this probe is why that was the
+only admissible route, and it is re-run against the inverted walk above.) PROBE
+(S2h, restored to a byte-identical source with a green checkpoint after): the walk
+replaced by an immediate `return`, i.e. the proof deleted with nothing in its
+place. 11 artifacts move, +2,953 bytes, every diff the same
 shape (`let mut __rel_s: StepsIter = …` becomes a `Vec` plus a drain loop);
 `logos_09_plan_nodes` and `logos_09_plan_ground_census` red; the byte-pin
 `logos_09_slice_scan_codegen` stays GREEN; and EVERY RUNTIME FIXTURE STILL
@@ -505,19 +528,23 @@ byte-pin's measured-equal transition); `Sort` replacing the `__ix0` permutation;
 `rel_stream`/`rel_iter`/`is_slice` (they are still read by the SCAN side —
 `rel_src_streams`, `params.logos:657`, and the slice arms of `emit_simple` /
 `emit_find` / the join and aggregate emitters); and the deletion of
-`plan_mark_single_pass`, whose 9 grounds each still need a node fixture first.
+the single-pass proof, whose 9 grounds each still need a node fixture first.
 ⚠ AS OF S2f/S2g the SHAPE readings are dead (three emitter sites now ask the
 plan's node through `MacroParams::rel_src_unmaterialized`; the survivors read a
 DECISION or an OFFER and carry the S1 gate's correction at the line). As of S2h
 the 9-ground precondition is DISCHARGED — 8 witnessed, 1 refuted and deleted —
-and the deletion is nonetheless refused with a measured probe; both are recorded
-in §4 above.
+and the bare deletion is nonetheless refused with a measured probe. As of S2j the
+proof is RETIRED BY INVERSION instead — `plan_insert_drains` carries every ground
+onto a node, `once`/`owhy`/`access_plan_plan_nodes` are deleted, corpus
+text-preserving. All three are recorded in §4 above.
 
 `Buffer<R>` implements every capability; "a Vec is an eagerly-drained stream,
 never the reverse" stops being a comment and becomes the type lattice.
-`plan_mark_single_pass` and the `rel_stream`/`rel_iter`/`is_slice` booleans are
+The single-pass proof and the `rel_stream`/`rel_iter`/`is_slice` booleans are
 deleted in favor of typed uses: consuming a non-`Rewind` stream twice cannot be
-spelled; the plan inserts `Drain` and says why.
+spelled; the plan inserts `Drain` and says why. (S2j landed the second clause —
+the plan inserts the `Drain` and `explain()` says why, and the proof is gone. The
+first clause, the UNSPELLABILITY, is what remains.)
 
 ## 5. Memoria mapping: the cursor moves by LEAVES
 
@@ -820,8 +847,8 @@ emitters are unified, not before.
 The `is_slice`/`rel_stream`/`rel_iter` triple (one fact, now a type); the 17
 `__ix0` sites (one `Sort` adapter); the two bucket shapes (one `Arrange`); the
 drain-vs-stream prelude split (one protocol, `Drain` explicit);
-`plan_mark_single_pass` as a proof (typing + adapter insertion); the per-row
-container-method walk (leaf batches).
+the single-pass proof (typing + adapter insertion — adapter insertion landed at
+S2j, typing owed); the per-row container-method walk (leaf batches).
 
 ⚠ TWO CORRECTIONS TO THE LIST ABOVE, both measured on the tree rather than read
 off it (2026-08-13, S1).
@@ -1137,7 +1164,8 @@ scan shape; every other cell is declared, not silently absent.
     not the hoist §2 asks for. It needs a per-column accessor named off the
     declared column (`col_<c>()`) that the family does not publish yet.
 * **S2 — adapters as plan nodes.** `Drain`/`Sort`/`Arrange` in AccessPlan with
-  grounds; delete the side-channel booleans and `plan_mark_single_pass`;
+  grounds; delete the side-channel booleans and the single-pass proof (the
+  latter DONE at S2j — inverted, not dropped: `plan_insert_drains`);
   `explain()` names every materialization. Gate: the refusal census (why-
   vocabulary) re-derived, no silence where a drain happens — LANDED as
   `logos_09_plan_ground_census` (whole corpus, both vocabularies, the arrange
