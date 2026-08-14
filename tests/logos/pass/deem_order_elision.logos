@@ -1,0 +1,121 @@
+// ADR 0025 S3 — AN `order by` OVER THE SEEK COLUMN EMITS NO SORT NODE.
+//
+// The fact was already true and had nowhere to be said. A generated family's
+// walk implements `OrderedBy<K>` (S0/S1 landed the impl), so a query that asks
+// for `order by e.key` over that walk asks for something the rows already
+// satisfy — and every stage before this one still drained the container into a
+// `Vec`, built an index vector and a key vector beside it, insertion-sorted a
+// permutation that is the identity, and then projected through it. The sort was
+// not slow because sorting is slow; it was slow because it was unnecessary, and
+// nothing in the plan could say so.
+//
+// TWO HALVES, AND THE SECOND IS WHY THIS FILE IS A PAIR:
+//
+//   `by_key` — `order by e.key`. `key` is what the family DECLARES its rows
+//              arrive sorted by (`order entry = key;`), and the walk's return
+//              type implements `OrderedBy` (the compiler reads that off the
+//              type, not off the declaration). No Sort node. The rows stream.
+//
+//   `by_val` — `order by e.val`, THE SAME QUERY WITH THE ORDER COLUMN SWAPPED.
+//              `val` is a declared column of the same relation, so nothing
+//              about the source, the producer, the row type or the projection
+//              differs — only which column the order is over. The Sort node
+//              stays, and the answer comes back in `val` order.
+//
+// A refusal pinned alone cannot tell separation from over-refusal, and an
+// admission pinned alone cannot tell a working elision from an elision that
+// fires on everything. The two queries differ in ONE token.
+//
+// ⚠ THE ORACLE IS THE ANSWER SEQUENCE, NOT THE TRACE, and that is deliberate.
+// The trace can only repeat what the source DECLARED; the residual this stage
+// carries is precisely a declaration that names the wrong column (the compiler
+// checks `OrderedBy` MEMBERSHIP against the producer's return type, but cannot
+// recover the trait's `K` argument to compare it with the declared column's
+// type). A wrong column survives the trace and does not survive a wrong answer.
+// So the rows are seeded so that key order and val order DISAGREE: `val` is
+// `100 - key * 7`, which is strictly DECREASING in `key`. If the elision ever
+// fired on `by_val`, the sequence would come back key-ascending instead of
+// val-ascending, and every row would be in the wrong place.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// THE ADMIT. `order by e.key` over a source that declares `order entry = key`.
+pub deem by_key(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.key
+}
+
+// THE REFUSE TWIN. One token different — `val` for `key`. `val` is a real
+// column of the same rel; what it is not is the column the rows arrive sorted
+// by, so the plan must keep its Sort node.
+pub deem by_val(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.val
+}
+
+// THE BOUNDED WALK (Victor's traversal axis, §3). `order by` + `limit` over the
+// seek column: with the sort elided this is the streamed arm's ordinary
+// `limit` break, so the walk pulls leaves until three rows are out instead of
+// draining eight, sorting them and taking the head. No new mechanism — the
+// harvest is what the elision leaves behind.
+pub deem head_three(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.key limit 3
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    // val = 100 - key*7 — strictly DECREASING in key, so key order and val
+    // order are exact reverses of one another. An elision that fired on the
+    // wrong column cannot produce a sequence that passes both blocks below.
+    let mut k: u64 = 0u64;
+    while k < 8u64 { c.insert(k, 100u64 - k * 7u64); k = k + 1u64; }
+
+    // ── THE ADMIT: key-ascending, every row, in order ──────────────────────
+    let a: Vec<(u64, u64)> = match by_key(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 8i64 { return 2i32; }
+    let mut i: i64 = 0i64;
+    while i < 8i64 {
+        if a.get(i).0 != (i as u64) { return 3i32; }
+        if a.get(i).1 != 100u64 - (i as u64) * 7u64 { return 4i32; }
+        i = i + 1i64;
+    }
+
+    // ── THE REFUSE TWIN: val-ascending, i.e. key-DESCENDING ────────────────
+    // Same eight rows, same projection, reversed. This is the assertion that
+    // fails if the elision stops looking at WHICH column: a `by_val` that came
+    // back key-ascending would be the sort silently deleted.
+    let b: Vec<(u64, u64)> = match by_val(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if b.len() != 8i64 { return 6i32; }
+    let mut j: i64 = 0i64;
+    while j < 8i64 {
+        if b.get(j).0 != (7i64 - j) as u64 { return 7i32; }
+        if b.get(j).1 != 100u64 - ((7i64 - j) as u64) * 7u64 { return 8i32; }
+        j = j + 1i64;
+    }
+
+    // ── THE BOUNDED WALK: the first three in key order, and only three ─────
+    let t: Vec<(u64, u64)> = match head_three(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
+    if t.len() != 3i64 { return 10i32; }
+    if t.get(0i64).0 != 0u64 || t.get(0i64).1 != 100u64 { return 11i32; }
+    if t.get(1i64).0 != 1u64 || t.get(1i64).1 != 93u64  { return 12i32; }
+    if t.get(2i64).0 != 2u64 || t.get(2i64).1 != 86u64  { return 13i32; }
+    return 0i32;
+}

@@ -184,6 +184,36 @@ pub fn MG_UNPROVEN() -> str   { return "unproven: no single-read proof"; }
 /// this ground dies with the node layer, and it dies by being recorded as "no
 /// node" rather than by going quiet.
 pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
+/// ADR 0025 S3 — THE SECOND GROUND FOR THE ABSENCE OF A NODE, and the one this
+/// stage exists to make sayable. The query asked for `order by <c>`; the source
+/// declared that its rows already ARRIVE sorted by `<c>` (`order <rel> = <c>;`,
+/// admitted only because the producer's return type implements `OrderedBy`), so
+/// the Sort node the previous stage would have inserted is not inserted.
+///
+/// ⚠ IT IS A GROUND, NOT A SILENCE, AND THAT IS THE WHOLE REQUIREMENT. An
+/// elision is invisible in the artifact by construction — the emitted code
+/// simply lacks a phase — so "no Sort node" and "the planner never considered
+/// sorting" produce the SAME plan text and the SAME trace, and a reader cannot
+/// tell an optimization from a bug that skipped a step. `MG_CONTAINER` set the
+/// precedent (an absence recorded rather than gone quiet); this ground extends
+/// it from "nothing was built because the producer handed one over" to "nothing
+/// was built because the ORDER WAS ALREADY TRUE".
+pub fn MG_ORDERED_SOURCE() -> str { return "ordered source: order by is a no-op"; }
+/// ADR 0025 S3-desc — THE SAME ABSENCE, REACHED THE OTHER WAY ROUND, and it
+/// gets its own ground rather than sharing the one above.
+///
+/// `order by <c> desc` over a source sorted by `<c>` also emits no Sort node —
+/// but the emitted walk is NOT the same walk. The ascending case changes
+/// nothing about traversal (the rows were already arriving in the wanted
+/// order); the descending case LANDS AT THE END (one `land_end()` =
+/// `seek_nth(size())`) and pulls backward with `prev_batch`. Two different
+/// emitted shapes behind one ground would be a plan that says the same sentence
+/// about two artifacts — and the reader who noticed the reversed answer
+/// sequence would have no line to read it off. The traversal capability the
+/// decision rests on differs too: this ground requires `Bidirectional` AND
+/// `RandomAccess` of the producer's type, where the ascending one requires
+/// neither.
+pub fn MG_ORDERED_SOURCE_REV() -> str { return "ordered source, reversed: order by desc is a backward walk"; }
 
 // ── The plan ──────────────────────────────────────────────────────────────
 // One record per rel, indexed by the rel registry's index so the applier and
@@ -218,6 +248,23 @@ pub struct AccessPlan {
     /// always available as the fallback.
     pub stream: [bool; 8],
     pub swhy:   [str; 8],
+    /// ADR 0025 S3 — THE ELISION, decided by the walk and recorded ONCE. The
+    /// query has an `order by` over exactly the column this source declares its
+    /// rows already arrive sorted by, so no Sort node was inserted and the walk
+    /// still counts as a single read.
+    ///
+    /// It lives on the PLAN and not on the params for the reason S2j gave for
+    /// inverting the proof: the walk is the only pass that holds both the query
+    /// (`RQSimple.order_key`, `order_desc`) and the registry (`rel_ordcol`), so
+    /// it is the only place the two can be compared. `plan_apply_access` copies
+    /// the answer to `MacroParams.rel_ord_noop` for the emitter, the same way
+    /// `rel_node` is copied — one decision, carried, never re-derived. An
+    /// emitter that re-ran the predicate would be a second representation, and
+    /// the two would eventually disagree about whether a sort happened.
+    pub ord_noop: [bool; 8],
+    /// ADR 0025 S3-desc — the DIRECTION of the elided order, decided in the
+    /// same place and by the same predicate. Only read when `ord_noop` is set.
+    pub ord_rev: [bool; 8],
     /// ⚠ `once: [bool; 8]` AND `owhy: [str; 8]` WERE HERE AND ARE DELETED (ADR
     /// 0025 §4, the S2j INVERSION). They were the side channel: a per-rel proof
     /// of a single read, written by one pass, read by one other, and turned into
@@ -291,6 +338,8 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         why:   ["", "", "", "", "", "", "", ""],
         stream: [false; 8],
         swhy:  ["", "", "", "", "", "", "", ""],
+        ord_noop: [false; 8],
+        ord_rev:  [false; 8],
         mgnd:  ["", "", "", "", "", "", "", ""],
         nd_kind: [0i32; 16],
         nd_rel:  [-1i64; 16],
@@ -432,6 +481,21 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
             // already, so no node was inserted (`ap_drain` refuses one) and the
             // ground says which absence this is (ADR 0025 §4).
             ap.mgnd[ri] = MG_CONTAINER();
+        } else if ap.ord_noop[ri] {
+            // ADR 0025 S3 — STREAMED, and the `order by` did not stop it. Said
+            // in the ACCESS line too and not only on the node line, because
+            // this is the one case where the previous stage's answer was the
+            // opposite: the same query drained this source before S3, so a
+            // reader comparing two plans needs the access line to name the
+            // reason it stopped.
+            ap.stream[ri] = true;
+            if ap.ord_rev[ri] {
+                ap.swhy[ri] = "streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull";
+                ap.mgnd[ri] = MG_ORDERED_SOURCE_REV();
+            } else {
+                ap.swhy[ri] = "streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by";
+                ap.mgnd[ri] = MG_ORDERED_SOURCE();
+            }
         } else if nx >= 0i64 {
             // THE NODE'S OWN SENTENCE, not a second copy of it. `swhy` and
             // `nd_why` used to be written from `owhy` independently and could
@@ -544,12 +608,30 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             nk = nk + 1i64;
         }
         if !spoke {
-            plan_trace(prm.rel_names[ri], "no materialization",
-                       if str_eq(ap.mgnd[ri], MG_CONTAINER()) { MG_CONTAINER() } else { "" },
-                       if str_eq(ap.mgnd[ri], MG_CONTAINER())
-                       { "no node: the producer hands back a container, which IS a buffer — nothing is built" }
-                       else
-                       { "no node: the plan reads this source once and consumes it where it stands" });
+            // THREE absences now, each with its own ground, and the third is
+            // the one S3 exists to make sayable: no Sort node was built because
+            // the ORDER WAS ALREADY TRUE. Left as the shared "" ground it would
+            // have read as "the query had no `order by`" — a plan that elides a
+            // phase and then describes itself as a plan that never had one is
+            // exactly the justification-drifted-from-mechanism class.
+            let mut gnd0: str = "";
+            let mut why0: str = "no node: the plan reads this source once and consumes it where it stands";
+            if str_eq(ap.mgnd[ri], MG_CONTAINER()) {
+                gnd0 = MG_CONTAINER();
+                why0 = "no node: the producer hands back a container, which IS a buffer — nothing is built";
+            } else if str_eq(ap.mgnd[ri], MG_ORDERED_SOURCE()) {
+                gnd0 = MG_ORDERED_SOURCE();
+                why0 = "no sort node: the query orders by the column this source declares its rows already arrive sorted by, so the permutation would be the identity — the walk streams in order";
+            } else if str_eq(ap.mgnd[ri], MG_ORDERED_SOURCE_REV()) {
+                // FOUR absences now. The sentence names the TRAVERSAL, because
+                // that is the whole difference between this ground and the one
+                // above and a reader comparing two elided plans has nothing
+                // else to go on: both lack a Sort node, and only one of them
+                // runs the walk backwards.
+                gnd0 = MG_ORDERED_SOURCE_REV();
+                why0 = "no sort node: the query orders by the column this source declares its rows already arrive sorted by, and `desc` reverses the WALK instead of the rows — one `seek_nth(size())` to land at the end, then a backward pull per leaf";
+            }
+            plan_trace(prm.rel_names[ri], "no materialization", gnd0, why0);
         }
         ri = ri + 1i64;
     }

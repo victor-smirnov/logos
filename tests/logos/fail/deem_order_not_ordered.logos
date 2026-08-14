@@ -1,0 +1,58 @@
+// ADR 0025 S3 — `order <rel> = <col>` IS REFUSED WHEN THE TYPE DISAGREES.
+//
+// The declaration says WHICH column an order is over. It does NOT get to say
+// that an order exists — that is a property of the producer's return type, and
+// the compiler reads it there (`OrderedBy`, via `producer_impls_trait_`, the
+// same reduction `i` and `b` go through).
+//
+// ⚠ THIS IS A PERMISSIVE DEFECT IF IT IS NOT CLOSED, AND A PERMISSIVE DEFECT IS
+// INVISIBLE TO A GREEN CORPUS BY CONSTRUCTION. Admitting this declaration does
+// not break any working program: it makes the planner DELETE a Sort node over
+// rows that are not sorted, so the query still compiles, still runs, still
+// returns the right number of rows — in the wrong order. Nothing in the corpus
+// reds. The refusal is checked at the REGISTRATION site for that reason.
+//
+// THE ADMIT TWIN is `deem_order_elision` (pass/): the same `order entry = key;`
+// member over a generated family walk, which DOES implement `OrderedBy`, is
+// admitted and elides. A refusal pinned alone cannot tell separation from
+// over-refusal.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+// An ORDINARY iterator. It implements `Iterator` and nothing else — no
+// `OrderedBy`, no `Bidirectional`, no `RandomAccess`. Its rows happen to come
+// out ascending, which is exactly the trap: the AUTHOR knows that and the TYPE
+// does not, and a plan may only act on what the type says.
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+    order entry = key;
+}
+
+pub deem ordered_steps(s: &Steps) {
+    from s e select (e.key, e.val) order by e.key
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 4i64 };
+    let a: Vec<(i64, i64)> = match ordered_steps(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 4i64 { return 2i32; }
+    return 0i32;
+}

@@ -144,6 +144,28 @@ pub trait Landed<K> {
 // The S3 harvest this vocabulary is FOR: `offset`/`limit` push down as one
 // `seek_nth` instead of a skip loop; `order by … desc` over a bidirectional
 // source emits no `Sort`; ordinal sampling needs no drain.
+//
+// ⚠ WHAT LANDED, AND THE ONE THAT COULD NOT — measured, not planned around:
+//
+//   * `order by … desc` emits no `Sort`: LANDED (S3-desc). The emitted backward
+//     scan opens with `land_end()`, which delegates to `RandomAccess::seek_nth`
+//     — so `seek_nth` HAS a wql consumer, reached through the DIRECTION axis.
+//     An earlier reading of this section recorded that it had none and could
+//     not acquire one; that is superseded, and by a different route than the
+//     one predicted.
+//   * `limit` as a bounded walk: LANDED, with no new mechanism — the streamed
+//     arm's existing break, now also over the reversed walk, which is `top-n`.
+//   * `offset` as one `seek_nth` instead of a skip loop: NO SURFACE, RECORDED
+//     RATHER THAN INVENTED. There is no `offset` keyword in `wql.peg`, no field
+//     in `plan.logos`, no node in `lower.logos` and no fixture — `grep -i
+//     offset` over `stdlib/mem/wql/` yields only `byte_offset`, the column
+//     window `rel_coff` and srcloc. So THERE IS NO SKIP LOOP TO REPLACE,
+//     because there is no way to ask for one. The ordinal landing this trait
+//     exists for is real and measured (the leaf-descent gate pins the landing
+//     at ZERO descents); what is missing is a query surface that asks for it by
+//     ordinal. `where <key> >= k … limit n` already lands by KEY through the
+//     ops plane in one descent, which is the same harvest for the cases the
+//     language can currently spell.
 
 /// Bidirectional traversal: batches can be pulled BACKWARD as well as forward.
 ///

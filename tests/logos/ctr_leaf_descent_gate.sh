@@ -53,10 +53,46 @@
 #   3. leaf count      == LEAVES declared by the fixture, and >= 3
 #   4. row-cursor steps == N declared by the fixture           (… not per row)
 #   5. batch pulls     == leaves + 1            (the terminating None, no more)
-#   6. TOTAL descents in the whole program == 2*leaves + 2 — the batch scan's
-#      landing + its per-leaf advances, and the oracle's `seek(0)` + its
-#      boundary crossings. This is the clause that closes "something else
-#      descends": any third route to `bt_seek_at` breaks it.
+#   6. TOTAL descents in the whole program == 3*leaves + 3 — the forward batch
+#      scan's landing + its per-leaf advances, the oracle's `seek(0)` + its
+#      boundary crossings, and the BACKWARD scan's landing + its per-leaf
+#      retreats. This is the clause that closes "something else descends": any
+#      third route to the descent primitive breaks it — INCLUDING a `land_end`
+#      that finds the end by descending instead of by ordinal arithmetic, which
+#      was run as a control and reds HERE (28 vs 27 ordered, 40 vs 39
+#      positional) and not at clause 9. See clause 9's note.
+#
+# ── THE BACKWARD CLAIMS (ADR 0025 S3-desc), 7-9 ────────────────────────────
+#
+# `order by … desc` over a source that declares its order emits no Sort node
+# either — it emits a walk that LANDS AT THE END and pulls backward. §3's claim
+# for it is the same one as for the forward pull and it is a different piece of
+# code: ONE descent per leaf, and the landing is ONE `seek_nth`, NEVER a skip
+# loop. Neither half is visible from inside the program: a backward walk that
+# re-descended per row, and one that walked forward from the base to position n
+# for every row, both return the identical descending sequence.
+#
+#   7. retreat descents == leaf count           (per leaf, BACKWARD)
+#   8. backward pulls   == leaves + 1           (the terminating None)
+#   9. landing descents == 2, i.e. ONE per constructed walk and NOT ONE MORE.
+#      The CONSTRUCTOR's clause: `#browsfn` descends once to land the walk, and
+#      a second constructed walk costs a second, and nothing else may add to
+#      this edge.
+#
+#      ⚠ CORRECTED BY MEASUREMENT, not by argument. This clause was written
+#      claiming that a `land_end` which descended to find the end "moves THIS
+#      number and only this number". IT DOES NOT, and the abuse was RUN: with
+#      both families' `land_end` rewritten to `c.seek(endr-1)` before assigning
+#      the fields (same landing, one descent nobody asked for), the measured
+#      landing count stayed 2 on both families and the reds came from CLAUSE 6 —
+#      total 28 against 27 (ordered, LEAVES=8) and 40 against 39 (positional,
+#      LEAVES=12), both exit 1. The reason is attribution: this edge is
+#      caller-qualified (`__ctr_brows_` -> seek), and a descent paid inside
+#      `land_end` is a DIFFERENT caller, so it lands in the unqualified total
+#      and nowhere else. Clause 9 is kept exactly as strict as it was — it is
+#      the clause that catches a THIRD constructed walk, and clause 6 is the one
+#      that catches a landing that descends. Neither claim is now made by the
+#      other's message.
 #
 # N and LEAVES are READ OUT OF THE FIXTURE, not repeated here — one source of
 # truth, so the fixture and the gate cannot drift into disagreeing about which
@@ -172,10 +208,16 @@ ROW_DESCENTS=$(edge "$ROWCUR_RE" "$DESCENT_RE")
 ROW_STEPS=$(callee_total "$NEXT_RE")
 BATCH_PULLS=$(callee_total 'LeafWalk__next_batch')
 TOTAL_DESCENTS=$(callee_total "$DESCENT_RE")
+# ADR 0025 S3-desc — the backward pull's own two edges, counted apart from the
+# forward ones for the same reason the forward ones are counted apart from the
+# oracle's: summed, a regression in one hides under the other.
+REV_DESCENTS=$(edge 'LeafWalk__retreat' "$SEEK_RE")
+REV_PULLS=$(callee_total 'LeafWalk__prev_batch')
 
 for pair in "BATCH_DESCENTS:$BATCH_DESCENTS" "LAND_DESCENTS:$LAND_DESCENTS" \
             "ROW_DESCENTS:$ROW_DESCENTS" "ROW_STEPS:$ROW_STEPS" \
-            "BATCH_PULLS:$BATCH_PULLS" "TOTAL_DESCENTS:$TOTAL_DESCENTS"; do
+            "BATCH_PULLS:$BATCH_PULLS" "TOTAL_DESCENTS:$TOTAL_DESCENTS" \
+            "REV_DESCENTS:$REV_DESCENTS" "REV_PULLS:$REV_PULLS"; do
     if [ -z "${pair#*:}" ]; then
         echo "FAIL(2): the call edge for ${pair%%:*} is ABSENT from the profile."
         echo "         An absent edge is not a count of zero — it means the callee"
@@ -188,6 +230,7 @@ done
 
 echo "measured: leaves(batch)=$BATCH_DESCENTS leaves(row-oracle)=$ROW_DESCENTS" \
      "rows=$ROW_STEPS batch_pulls=$BATCH_PULLS landing=$LAND_DESCENTS" \
+     "rev_descents=$REV_DESCENTS rev_pulls=$REV_PULLS" \
      "total_descents=$TOTAL_DESCENTS  (fixture says N=$WANT_ROWS LEAVES=$WANT_LEAVES)"
 
 fail() { echo "FAIL(1): $1"; exit 1; }
@@ -214,16 +257,41 @@ EXP_PULLS=$((WANT_LEAVES + 1))
 [ "$BATCH_PULLS" = "$EXP_PULLS" ] || fail \
     "the scan pulled $BATCH_PULLS batches; expected $EXP_PULLS (one per leaf plus
          the terminating None)."
+# 7 — the BACKWARD pull is per leaf too (ADR 0025 S3-desc).
+[ "$REV_DESCENTS" = "$WANT_LEAVES" ] || fail \
+    "the backward scan descended $REV_DESCENTS times over $WANT_LEAVES leaves —
+         §3 says ONE descent per leaf in this direction as well. $ROW_STEPS would
+         be per ROW, and $((WANT_ROWS * WANT_ROWS / 2)) would be the skip loop a
+         \`seek_nth\` exists to replace."
+[ "$REV_DESCENTS" -lt "$ROW_STEPS" ] || fail \
+    "the backward scan paid $REV_DESCENTS descents for $ROW_STEPS rows — that is
+         per row, not per leaf."
+# 8 — one backward pull per leaf plus the terminating None, and nothing else.
+EXP_REV_PULLS=$((WANT_LEAVES + 1))
+[ "$REV_PULLS" = "$EXP_REV_PULLS" ] || fail \
+    "the backward scan pulled $REV_PULLS batches; expected $EXP_REV_PULLS (one per
+         leaf plus the terminating None). \`retreat\` un-consumes rather than
+         skips, so a count above this means a leaf was handed out twice."
+# 9 — THE `seek_nth` CLAUSE: landing costs one descent per walk, and land_end
+# costs none. Two walks are constructed (forward and backward), so 2.
+[ "$LAND_DESCENTS" = "2" ] || fail \
+    "the two constructed walks cost $LAND_DESCENTS landing descents, expected 2 —
+         one each. This edge is CALLER-QUALIFIED (the walk constructor), so a
+         third here is a third constructed walk, not a landing that descends: a
+         \`land_end\` re-derived as a descent or a skip loop was MEASURED to
+         leave this number at 2 and to red clause 6 instead. See the header."
 # 6 — no third route descends.
-EXP_TOTAL=$((2 * WANT_LEAVES + 2))
+EXP_TOTAL=$((3 * WANT_LEAVES + 3))
 [ "$TOTAL_DESCENTS" = "$EXP_TOTAL" ] || fail \
     "the program made $TOTAL_DESCENTS root-to-leaf descents in total; expected
-         $EXP_TOTAL = the batch scan's landing (1) + its $WANT_LEAVES per-leaf
-         advances, plus the oracle's seek(0) (1) + its $WANT_LEAVES boundary
-         crossings. A different total means some OTHER path descends, and the
-         per-caller numbers above no longer account for the cost."
+         $EXP_TOTAL = the forward batch scan's landing (1) + its $WANT_LEAVES
+         per-leaf advances, the oracle's seek(0) (1) + its $WANT_LEAVES boundary
+         crossings, and the backward scan's landing (1) + its $WANT_LEAVES
+         per-leaf retreats. A different total means some OTHER path descends, and
+         the per-caller numbers above no longer account for the cost."
 
 echo "OK: ADR 0025 §5 — $ROW_STEPS rows scanned in $BATCH_DESCENTS descents"
 echo "    ($WANT_LEAVES leaves), against $ROW_STEPS per-row container calls on the"
-echo "    oracle side; total descents $TOTAL_DESCENTS = 2*$WANT_LEAVES+2, fully accounted."
+echo "    oracle side; §3 — the same $WANT_LEAVES descents BACKWARD after a landing"
+echo "    that cost none; total descents $TOTAL_DESCENTS = 3*$WANT_LEAVES+3, fully accounted."
 exit 0

@@ -162,6 +162,48 @@ pub struct MacroParams {
     /// always resolvable in the round its consumer is compiled, and an inferred
     /// `let` then carries an unresolved type var into the loop.
     pub rel_itty:    [str; 8],
+    // ── ADR 0025 S3 — THE ORDER FACTS ────────────────────────────────────
+    // Three axes the compiler measured on the producer's RETURN TYPE (natspec
+    // flags `o` / `r` / `n`) plus one the type could not carry (`^<col>`).
+    // Held apart rather than folded into one "sorted" bool because they answer
+    // different questions and a plan that conflates them is wrong in a
+    // direction that changes ANSWERS: `o` says the rows arrive sorted, `r` says
+    // they can be pulled backward, `n` says an ordinal is one descent away.
+    // DESC elision needs `o` AND `r` AND `n` — a fresh walk sits at its base
+    // and `retreat()` refuses, so backward iteration must first LAND at the end
+    // and only `n` can put it there.
+    /// The producer's return type implements `OrderedBy<K>` — the rows arrive
+    /// sorted. Says nothing about BY WHICH COLUMN; that is `rel_ordcol`.
+    pub rel_ordered: [bool; 8],
+    /// `Bidirectional<B>` — batches can be pulled backward (`prev_batch`).
+    pub rel_bidir:   [bool; 8],
+    /// `RandomAccess<B>` — `seek_nth(n)`, one descent to an ordinal.
+    pub rel_randacc: [bool; 8],
+    /// WHICH column the rows are sorted by, from the source's `order <rel> =
+    /// <col>;` declaration. Empty = the source declared none, and an `order by`
+    /// over this rel keeps its Sort node. Non-empty implies `rel_ordered` — the
+    /// compiler refuses the declaration when the type disagrees — so a reader
+    /// may test this field alone for "is there a usable order fact here".
+    pub rel_ordcol:  [str; 8],
+    /// ADR 0025 S3 — THE PLAN'S ANSWER, not a fact about the source: this
+    /// query's `order by` is already true of this rel's rows, so the emitter
+    /// must not build the sort phase. Written by `plan_apply_access` from
+    /// `AccessPlan.ord_noop`, exactly as `rel_node` is written from
+    /// `prelude_node`, so the plan that EXPLAINS the absent Sort node and the
+    /// emitter that omits it read one decision.
+    pub rel_ord_noop: [bool; 8],
+    /// ADR 0025 S3-desc — WHICH DIRECTION the elided order runs in. Only
+    /// meaningful when `rel_ord_noop` is set; `false` = ascending (pull forward
+    /// with `next_batch`), `true` = descending (land at the end with ONE
+    /// `land_end()` = `seek_nth(size())`, then pull backward with
+    /// `prev_batch`).
+    ///
+    /// ⚠ A SECOND BOOL AND NOT A SECOND `ord_noop` VARIANT, because the two
+    /// answer different questions and the emitter asks them in that order: "is
+    /// there a sort phase?" (no) and only then "which way does the walk run?".
+    /// Folded into one tri-state the `false` case would have had to be spelled
+    /// at every reader that only cares whether the Buffer is built.
+    pub rel_ord_rev:  [bool; 8],
     /// The un-sliced binding name (`__rel_<r>`), used when the rel streams —
     /// carrying a name that ends in `_sl` for something that is not a slice
     /// would make generated code lie to whoever reads it.
@@ -272,6 +314,12 @@ pub fn macro_params_new() -> MacroParams {
         rel_node:    [-1i32; 8],
         rel_batch:   [false; 8],
         rel_itty:    [""; 8],
+        rel_ordered: [false; 8],
+        rel_bidir:   [false; 8],
+        rel_randacc: [false; 8],
+        rel_ordcol:  [""; 8],
+        rel_ord_noop: [false; 8],
+        rel_ord_rev:  [false; 8],
         rel_ssrc:    [""; 8],
         rel_mat:     [""; 8],
         rel_marg:    [""; 8],
@@ -521,6 +569,36 @@ impl MacroParams {
     /// the node question is asked through the registry that owns the field.
     pub fn rel_src_unmaterialized(self: &MacroParams, src: str) -> bool {
         return self.rel_src_node(src) == -1i32;
+    }
+
+    /// ADR 0025 S3 — did the plan ELIDE this query's sort over this source?
+    ///
+    /// Asked by SOURCE BINDING, like `rel_src_node`, because that is the name
+    /// the emitter holds: the walk keys its decision by rel index, and by the
+    /// time `emit_simple` runs it has `RScan.src_name`, which is the emitted
+    /// binding. The lookup lives here for the reason `rel_src_unmaterialized`
+    /// does — an emitter module may not gain an import (measured: adding one
+    /// moved 156 of 159 corpus dumps).
+    ///
+    /// A name that is no rel answers `false`, which is the safe direction: the
+    /// sort is emitted.
+    pub fn rel_src_ord_noop(self: &MacroParams, src: str) -> bool {
+        let i: i64 = self.rel_find_src(src);
+        if i < 0i64 { return false; }
+        return self.rel_ord_noop[i];
+    }
+
+    /// ADR 0025 S3-desc — does the elided order run BACKWARD over this source?
+    ///
+    /// Asked by source binding for the same reason `rel_src_ord_noop` is, and
+    /// answering `false` for a name that is no rel is the safe direction here
+    /// too: a forward walk under a `desc` query that was never admitted as a
+    /// no-op cannot happen, because the emitter only asks this AFTER
+    /// `rel_src_ord_noop` said yes.
+    pub fn rel_src_ord_rev(self: &MacroParams, src: str) -> bool {
+        let i: i64 = self.rel_find_src(src);
+        if i < 0i64 { return false; }
+        return self.rel_ord_rev[i];
     }
 
     // The op that answers a demand is no longer FOUND here. A search whose

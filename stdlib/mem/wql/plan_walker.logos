@@ -2292,6 +2292,91 @@ pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
     // through `prelude_node` and which no later phase can supply.
 }
 
+/// ADR 0025 S3 — IS THIS `order by` ALREADY TRUE OF THE SOURCE?
+///
+/// Every clause is REQUIRED, and every one of them is a way the elision would
+/// otherwise change an ANSWER rather than a cost. This is not an optimization
+/// that can be wrong about speed; a sort deleted over rows that are not sorted
+/// returns a different result, so the predicate is written to DECLINE by
+/// default and to admit only the shape it can name.
+///
+///   1. The source declared an ordered column (`^<col>` in the natspec, from
+///      `order <rel> = <col>;`). Its presence already carries the TYPE's
+///      agreement — the compiler refuses the declaration when the producer's
+///      return type does not implement `OrderedBy` — so `rel_ordcol` non-empty
+///      is the whole of "there is an order fact here".
+///   2. The plan STREAMS this source (`ap_offers`). A container producer hands
+///      back a buffer whose order is the container's business, not the walk's,
+///      and the `o` flag was measured on a producer that is not the one being
+///      read.
+///   3. THE DIRECTION IS REACHABLE. Ascending asks nothing of the producer
+///      beyond (1) — the rows already arrive that way. DESCENDING asks for
+///      THREE further capabilities, all measured on the type, and every one of
+///      them is load-bearing:
+///        · `rel_bidir` (`Bidirectional<B>`) — there is a backward pull at all.
+///        · `rel_randacc` (`RandomAccess<B>`) — and the walk can be PUT at the
+///          end first. This is not redundant with the previous clause even
+///          though `RandomAccess: Bidirectional`: `retreat()` opens with
+///          `if self.at <= self.base { return false; }` while `#browsfn`
+///          constructs the walk at `at: 0, base: 0`, so A FRESH WALK CANNOT
+///          RETREAT AT ALL and a bidirectional-only source would emit a scan
+///          that yields ZERO rows. The two flags are carried separately by the
+///          natspec precisely so this predicate can require both by name
+///          instead of inferring one from the other.
+///        · `rel_batch` — the backward shape that EXISTS is `batch_scan_rev_frag`
+///          (outer `prev_batch`, inner row loop descending). There is no
+///          row-at-a-time `prev()` scan in the emitter, so admitting a
+///          non-batch producer here would clear `has_sort` and then emit the
+///          FORWARD row loop: a `desc` query answering in ascending order,
+///          which is a wrong ANSWER. Refused at the decision site rather than
+///          left for the emitter to notice, because a permissive defect is
+///          invisible to a green corpus by construction.
+///      A source failing any of the three keeps its Sort node, which is the
+///      pre-S3 behaviour and always correct.
+///   4. The order key is SYNTACTICALLY the bare declared column of the row var.
+///      Not `e.key + 1` (monotone, but the emitted projection order would then
+///      depend on a fact this pass did not check), not a cast, not a call, not
+///      a tuple. Both spellings the EL parser produces are accepted: a bare
+///      ident is `SField(base = null, name)`, and `e.key` is
+///      `SField(base = SField(null, "e"), name)` — the second is checked
+///      against `var_name` so that a field of some OTHER binding cannot pass.
+///
+/// ⚠ WHAT THIS PREDICATE CANNOT CHECK, RECORDED: that the declared column name
+/// is the one the producer is actually sorted by. The compiler compares the
+/// declaration against `OrderedBy` MEMBERSHIP, not against its recovered `K`
+/// argument, so `order entry = val` over an `OrderedBy<u64>` walk is
+/// representable and would elide wrongly. That is why the S3 fixture's oracle
+/// asserts the emitted query's ANSWER SEQUENCE at run time and not merely the
+/// trace: a trace can only repeat what the declaration said.
+fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
+                    sq: &RQSimple) -> bool {
+    if ri < 0i64 || ri >= 8i64 { return false; }
+    if prm.rel_ordcol[ri].len() == 0i64 { return false; }   // (1)
+    if !ap_offers(ap, prm, ri) { return false; }            // (2)
+    if sq.order_desc {                                      // (3)
+        if !prm.rel_bidir[ri]   { return false; }
+        if !prm.rel_randacc[ri] { return false; }
+        if !prm.rel_batch[ri]   { return false; }
+    }
+    // (4) — the key expression, unsimplified. Simplification is not available
+    // in this pass (it needs the `Writ` the emitter holds) and is not needed:
+    // a bare field simplifies to itself, and anything that does not arrive bare
+    // is declined, which is the safe direction.
+    match sq.order_expr() {
+        SExpr::Field(f) => {
+            if !str_eq(f.name, prm.rel_ordcol[ri]) { return false; }
+            if f.base.any().is_null() { return true; }
+            match f.base_expr() {
+                SExpr::Field(b) => {
+                    return b.base.any().is_null() && str_eq(b.name, sq.var_name);
+                }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
 /// The walk: drain every rel whose ground blocks a single read, and RETURN the
 /// set it proved. The returned booleans are local to the pass — they exist only
 /// so `plan_insert_drains` can tell "proved read-once" from "never reached", two
@@ -2319,8 +2404,25 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
             let ri: i64 = prm.rel_find_name(sq.src_name);
             if ri < 0i64 { return pv; }
             if sq.has_order {
-                ap_drain(ap, prm, ri, MG_ORDER_BY(),
-                    "materialized: `order by` revisits rows by position after collecting them");
+                // ADR 0025 S3 — THE ELISION. `order by <c>` over a source whose
+                // rows ALREADY arrive sorted by `<c>` is a no-op: the sort would
+                // compute a permutation that is the identity, having first built
+                // the buffer the permutation indexes into. So no Sort node is
+                // inserted, the walk still reads the source once, and the
+                // ABSENCE is given a ground (`MG_ORDERED_SOURCE`) rather than
+                // being left to look like an oversight.
+                if ap_order_is_noop(prm, ap, ri, &sq) {
+                    ap.ord_noop[ri] = true;
+                    // ADR 0025 S3-desc — the DIRECTION is recorded here and
+                    // nowhere else. `order_desc` is a fact about the QUERY and
+                    // this is the last pass that holds it; the emitter sees
+                    // only `mods`, whose `has_sort` is about to be cleared.
+                    ap.ord_rev[ri]  = sq.order_desc;
+                    pv[ri] = true;
+                } else {
+                    ap_drain(ap, prm, ri, MG_ORDER_BY(),
+                        "materialized: `order by` revisits rows by position after collecting them");
+                }
             } else {
                 // ⚠ THERE IS NO `has_gpath` ARM HERE, AND ITS ABSENCE IS A
                 // MEASUREMENT (ADR 0025 §4, S2h). One used to sit between these
@@ -2467,6 +2569,13 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
             prm.rel_stream[ri] = true;
             prm.rel_srcs[ri]   = prm.rel_ssrc[ri];
         }
+        // ADR 0025 S3 — the ELISION travels the same way the node does, and for
+        // the same reason: the emitter must not re-derive it. `emit_simple`
+        // holds `mods.has_sort` and the source name and could re-run the
+        // predicate, and that is exactly the second representation S2j deleted
+        // — the two would agree until one of them learned about `desc`.
+        prm.rel_ord_noop[ri] = ap.ord_noop[ri];
+        prm.rel_ord_rev[ri]  = ap.ord_rev[ri];
         // ADR 0025 §4 / S2b — HAND THE EMITTER THE NODE, not a shape to infer.
         // `prelude_node` is the same lookup `access_plan_explain` prints from,
         // so what is emitted and what is explained are one fact read twice
@@ -2526,6 +2635,9 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // iterator, so the plan MAY consume it in place (ADR 0024 S4).
         let mut mat_iter: bool = false;
         let mut mat_batch: bool = false;
+        let mut mat_ord:    bool = false;
+        let mut mat_bidir:  bool = false;
+        let mut mat_randac: bool = false;
         let mut mat_ity: str = "";
         if i < n && str_byte_at(natspec, i) == 33u8 {
             i = i + 1i64;
@@ -2540,6 +2652,13 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             // flag SET as `i` — membership, not equality, is what lets a third
             // property land without every reader changing.
             mat_batch = pw_flag(mat_fl, 98u8);                                 // 'b'
+            // ADR 0025 S3 — the three ORDER axes, read off the SAME flag set
+            // for the reason `b` rides in it: membership, so a reader that
+            // knows only `i` keeps working and a letter lands without touching
+            // one existing parse site.
+            mat_ord    = pw_flag(mat_fl, 111u8);                               // 'o'
+            mat_bidir  = pw_flag(mat_fl, 114u8);                               // 'r'
+            mat_randac = pw_flag(mat_fl, 110u8);                               // 'n'
             // `%<ret-ty>` — the producer's return type, which the emitted
             // binding is ANNOTATED with rather than inferring.
             if i < n && str_byte_at(natspec, i) == 37u8 {
@@ -2647,6 +2766,28 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             }
             if i < n && str_byte_at(natspec, i) == 125u8 { i = i + 1i64; }    // '}'
         }
+        // `^<col>` — the ORDERED COLUMN (ADR 0025 S3), from the source's
+        // `order <rel> = <col>;` declaration. Read BEFORE `$` because that is
+        // where the compiler writes it, and the compiler writes it there
+        // because the `!` flag set is followed by `%<ret-ty>` whose slice runs
+        // to the next `@`/`#`/`:` and would have swallowed it.
+        //
+        // ⚠ ITS PRESENCE ALREADY CARRIES THE TYPE'S AGREEMENT. `native_source_spec`
+        // refuses an `order` declaration whose producer's return type does not
+        // implement `OrderedBy`, so this section is emitted only when both
+        // halves hold and no reader here has to re-check `mat_ord`. The flag is
+        // still parsed and stored, because `o` without `^` is a real and
+        // different state — an ordered producer whose source never said which
+        // column — and a plan that could not tell it from "not ordered" could
+        // not explain why it declined to elide.
+        let mut ordcol: str = "";
+        if i < n && str_byte_at(natspec, i) == 94u8 {                          // '^'
+            i = i + 1i64;
+            let o0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 36u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '$'|';'
+            ordcol = pw_slice(natspec, o0, i);
+        }
         // `$<fn>[%<ret-ty>]` — the source's declared SIZE operation (ADR 0024
         // S4). Absent for a source that reports no size, which stays perfectly
         // usable: the plan records that it could not ask.
@@ -2677,6 +2818,15 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             error("wql!: too many rels (max 8, native source params included)");
             return false;
         }
+        // ADR 0025 S3 — the order facts land on the rel directly rather than
+        // through `reg_native`'s parameter list. Four more positional
+        // parameters on a fn that already takes fifteen is how a call site
+        // starts passing `szfn` where `ity` was meant, and the index is right
+        // here.
+        prm.rel_ordered[idx] = mat_ord;
+        prm.rel_bidir[idx]   = mat_bidir;
+        prm.rel_randacc[idx] = mat_randac;
+        prm.rel_ordcol[idx]  = ordcol;
         let mut c: i64 = 0i64;
         while c < nc {
             prm.rel_add_col(cnames[c], ctys[c]);

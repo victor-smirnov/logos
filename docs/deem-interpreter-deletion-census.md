@@ -2404,9 +2404,209 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #   * THE TYPING DOOR'S SECOND HALF (the emitter's second read refused BY THE
 #     TYPE): open, and now open with a fixture pair standing under it, so its
 #     landing will be a change of mechanism with both directions already pinned.
-REGISTRY-ALL         7160
-REGISTRY-NOIMPORTED  3477
-REGISTRY-TIERCOMMIT  32
+#
+# ══ ADR 0025 S3 — ORDER AS A FACT, STAGE BY STAGE ══════════════════════════
+#
+# The census's method is "PREDICT the count, then measure", and a stage that is
+# summarised only by its delta is a number with no subject. What follows is what
+# each step of S3 DID, in order, and — the half a summary always drops — WHAT
+# THE TREE DOES NOT CONTAIN, so the next stage does not go looking for it.
+#
+#   S3.0  RE-BASELINE the corpus oracle on this tree before touching it. Build
+#         confirmed current first: a baseline taken against a stale build is a
+#         measurement of the previous stage.
+#   S3.1  THE ORDER FACTS TRAVEL FROM THE TYPE. `o`/`r`/`n` natspec flags from
+#         `producer_impls_trait_fn` (OrderedBy / Bidirectional / RandomAccess)
+#         emitted into the same `!` flag SET as `i`/`b`, so membership answers
+#         and no existing reader changes (`src/compiler/sema_expr.cpp`,
+#         `src/compiler/sema_collect.cpp`, `src/compiler/sema_impl.hpp`).
+#         (b) FIRE-COUNT CONTROL: a permanent `LOGOS_TRACE_NATSPEC` instrument
+#         on the only channel by which producer capabilities reach the planner.
+#         It is consumed at metaprog time and appears in NO artifact, so
+#         "built but never reached" and "reached and ignored" are otherwise the
+#         same observation.
+#         (c) THE DECLARATION HALF: `order <rel> = <col>;` — no grammar rule
+#         needed, it is `rel_bind`'s shape with a data lead, like `size` —
+#         collected with the column-name check, emitted as the `^<col>` natspec
+#         section, parsed into `MacroParams.rel_ordered` / `rel_bidir` /
+#         `rel_randacc` / `rel_ordcol`. BOTH generated family arms declare it
+#         (`stdlib/lcm/canon/container_item.logos`). The type says THAT the rows
+#         are ordered; only the declaration says by WHICH column, because
+#         `OrderedBy<u64>` names a key TYPE and a row can have two `u64`s.
+#   S3.2  THE REFUSALS, IN PAIRS, and SPLIT ON PURPOSE. `order` over a producer
+#         whose return type does not implement `OrderedBy` is refused at SPEC
+#         time (`tests/logos/fail/deem_order_not_ordered.logos`); `order` naming
+#         a non-column is refused at COLLECT time
+#         (`tests/logos/fail/deem_order_unknown_column.logos`). The split is not
+#         cosmetic: collect runs over a partly populated impl graph, and asking
+#         the type question there refuses working code. Checked in the ABUSE
+#         direction — admitting the first case makes the planner delete a Sort
+#         node over unsorted rows, i.e. a WRONG ANSWER, not a slow one.
+#   S3.3  THE ELISION. `ap_order_is_noop` (4 required clauses) in
+#         `plan_prove_once`'s Simple arm; the decision is recorded ONCE on
+#         `AccessPlan.ord_noop` (`stdlib/mem/wql/access_plan.logos`), carried to
+#         `MacroParams.rel_ord_noop` by `plan_apply_access` exactly as `rel_node`
+#         is (`stdlib/mem/wql/params.logos`), and read by `emit_simple`, which
+#         CLEARS `mods.has_sort`. New ground `MG_ORDERED_SOURCE` — the second
+#         ground for the ABSENCE of a node, extending `MG_CONTAINER`'s precedent.
+#   S3.4  THE ARTIFACT. `emit_simple`'s admitted arm is a bare streamed
+#         `next_batch()` loop: no `Buffer<`, no `__ix0`, no `__ks`, no
+#         `__rel_m_sl`, no insertion sort. The refuse twin keeps all five. The
+#         `limit` harvest falls out with NO new mechanism — it is the streamed
+#         arm's existing `__out.len() < (3i64)` break, twice (outer leaf pull +
+#         inner row loop), with no landing in front of it.
+#   S3.5  THE GATE REGISTERED: `logos_09_order_elision_pair`
+#         (`tests/logos/order_elision_pair_gate.sh`), `tier_commit` because the
+#         wrong direction of this decision is a wrong ANSWER. 15 clauses, every
+#         count PREDICTED. One prediction was wrong on first run (`__rel_m_sl`
+#         3 against 4 — the binding counts beside its three uses) and is
+#         corrected IN the gate WITH the reason, not silently.
+#   S3.6  CENSUS MOVED WITH THE STAGE, delta predicted before measuring.
+#   S3.7  GATE-LINT RED, CLASSIFIED NOT SUPPRESSED: [R1-exit-undecidable] on
+#         `exit` inside the gate's awk program. Fixed AT THE CLASS by removing
+#         awk's `exit` (a `done` flag), so exactly one meaning of the word
+#         survives in the file, rather than annotating past the rule.
+#   S3.8  FULL GATES + the leaf-count oracles + the corpus.
+#
+# ── S3-desc, THE TRAVERSAL HARVEST (Victor's §3 axis) ──────────────────────
+#
+#   T0    RE-BASELINE on this tree, build confirmed current.
+#   T1    THE CONTAINER PRIMITIVE: `land_end()` on BOTH generated family walks
+#         (ordered map + positional), DELEGATING to
+#         `RandomAccess::seek_nth(size())` instead of assigning `at`/`clo`/`chi`
+#         — so the clamp, the ordinal origin and the `endr` convention exist
+#         once, and "the backward scan lands in ONE seek_nth, never a skip loop"
+#         is true by construction rather than by assertion.
+#   T2    THE PLAN CARRIES THE DIRECTION: `AccessPlan.ord_rev` +
+#         `MacroParams.rel_ord_rev` + `rel_src_ord_rev`, copied by
+#         `plan_apply_access` exactly as `ord_noop` is.
+#   T3    THE REFUSAL CLAUSES, in the abuse direction: `desc` requires
+#         `rel_bidir` AND `rel_randacc` AND `rel_batch`, each by name.
+#   T4    THE EMITTER: `batch_scan_rev_frag` (land_end, `prev_batch` outer,
+#         decrementing inner loop), selected from the plan's `rel_ord_rev`.
+#   T5    NEW GROUND `MG_ORDERED_SOURCE_REV`, kept DISTINCT from
+#         `MG_ORDERED_SOURCE` (the 4th absence ground), with its own access line
+#         and explain sentence.
+#   T6    THE FIXTURES, split at a real seam: the family admit/refuse set
+#         (`tests/logos/pass/deem_order_desc_elision.logos`) and a forward-only
+#         ordered source for the traversal refusal
+#         (`tests/logos/pass/deem_order_desc_forward_only.logos`).
+#   T7    THE GATE: `logos_09_order_desc_pair`
+#         (`tests/logos/order_desc_pair_gate.sh`), `tier_commit`, 34 clauses,
+#         every count PREDICTED from measurement.
+#   T8    CONTROL AT THE DECISION SITE: the three `desc` clauses deleted from
+#         `ap_order_is_noop`, full stdlib rebuild, wrong answer measured,
+#         RESTORED and re-measured green.
+#   T9    THE DESCENT ORACLES EXTENDED — stricter, never weakened: 3 new clauses
+#         on both container families and clause 6 tightened `2*LEAVES+2` ->
+#         `3*LEAVES+3` (`tests/logos/ctr_leaf_descent_gate.sh` over
+#         `tests/logos/pass/ctr_leaf_descent_count.logos` and
+#         `tests/logos/pass/ctr_vec_leaf_descent_count.logos`).
+#   T10   BLAST RADIUS: `tests/logos/pass/deem_batch_scan_drain.logos`'s two
+#         `desc` queries would have silently lost the fixture's sorted-drain leg.
+#   T11   `logos_09_plan_nodes` RED, classified and re-pinned STRICTER
+#         (`tests/logos/plan_nodes_gate.sh`).
+#   T12   `logos_09_plan_ground_census`: INHERITED RED measured BEFORE anything
+#         was re-pinned (`tests/logos/plan_ground_census_gate.sh`).
+#   T13   THE CENSUS FIXED AT THE CLASS: the "no materialization on <ground>"
+#         line is PARSED now, not pattern-matched against one hardcoded ground.
+#   T14   TWO ERRORS CANCELLING, caught and recorded.
+#   T15   CENSUS MOVED WITH THE STAGE; delta PREDICTED before measuring.
+#   T16   FULL GATES + the leaf-count oracles + the corpus.
+#
+# ── THE DESCENT ORACLES' OWN CONTROL PAIRS, EXECUTED ───────────────────────
+#
+# T9 extended two gates; an extension nobody perturbed is a clause that has
+# never been shown to be able to fail. Both directions were RUN, on copies
+# outside the tree for the fixture half and on a full stdlib rebuild for the
+# primitive half, and the tree was restored and re-measured green between them.
+#
+#   (1) THE PERTURBATION THAT DOUBLES THE DESCENT. A second complete backward
+#       traversal added to each fixture (its own accumulators, asserted equal to
+#       the first, so the PROGRAM still exits 0 and the gate is judging counts
+#       and not a crash). MEASURED, both red at clause 7, exit 1: ordered
+#       `rev_descents` 16 against LEAVES=8 (`rev_pulls` 18, landing 3, total 36
+#       against 27); positional `rev_descents` 24 against LEAVES=12
+#       (`rev_pulls` 26, landing 3, total 52 against 39).
+#   (2) THE WRONG-PRIMITIVE ABUSE DIRECTION. Both families' `land_end` rewritten
+#       to find the end by DESCENDING (`c.seek(endr-1)` before assigning the
+#       fields) instead of delegating to `seek_nth` — the same landing, one
+#       descent nobody asked for — and the whole stdlib rebuilt. MEASURED, both
+#       red, exit 1: total descents 28 against 27 (ordered) and 40 against 39
+#       (positional).
+#       ⚠ AND IT RED AT CLAUSE 6, NOT CLAUSE 9, WHICH THE GATE'S OWN PROSE HAD
+#       CLAIMED. The landing count stayed 2 in both runs: clause 9's edge is
+#       CALLER-QUALIFIED (walk constructor -> seek), and a descent paid inside
+#       `land_end` is a different caller, so it lands in the unqualified total
+#       and nowhere else. The clause was NOT weakened — it is the one that
+#       catches a third constructed walk — and the two messages were corrected
+#       to stop making each other's claim. Restored, rebuilt, both green.
+#
+# ── WHAT S3 DOES NOT CONTAIN (recorded, never invented) ────────────────────
+#
+#   * `offset` DOES NOT EXIST. No keyword in `stdlib/mem/wql/grammars/wql.peg`,
+#     no field in `stdlib/mem/wql/plan.logos`, no node in
+#     `stdlib/mem/wql/lower.logos`, no fixture. §3's "offset/limit push down as
+#     ONE seek_nth instead of a skip loop" therefore HAS NO SURFACE TO LAND ON
+#     for its offset half: there is no skip loop to replace, because there is no
+#     way to ask for one. Recorded in `stdlib/lang/stream/stream.logos`.
+#   * SUPERSEDED, CORRECTED: the prior stage recorded that "`seek_nth` therefore
+#     has no wql consumer and cannot acquire one". It DID acquire one — through
+#     the DIRECTION axis rather than the ORDINAL one: `land_end()` is
+#     `seek_nth(size())` and every emitted `desc` scan opens with it, pinned at
+#     ZERO descents by the leaf-descent gate's clause 9. What is still missing is
+#     only a query surface that asks for a position BY ORDINAL.
+#   * NO SOURCE IN THE TREE IS `OrderedBy` + `Bidirectional` BUT NOT
+#     `RandomAccess`. The three `desc` clauses cannot be exercised SEPARATELY by
+#     any fixture: the ordered producers are (a) generated family walks, which
+#     have all three, and (b) hand-written forward-only iterators, which have
+#     none. `tests/logos/pass/deem_order_desc_forward_only.logos` fires all three
+#     at once. Their separation is proved by CONTROL (T8: deleted together,
+#     wrong answer measured, restored) and NOT by three fixtures.
+#   * NO ROW-AT-A-TIME BACKWARD SCAN SHAPE EXISTS in the emitter — only the
+#     leaf-batch one (`batch_scan_rev_frag`). That is why `rel_batch` is a
+#     REQUIRED clause and not an optimisation: without it the planner would clear
+#     `has_sort` for a non-batch producer and the FORWARD row loop would answer a
+#     `desc` query. Closed at the registration/decision site, because a permissive
+#     defect is invisible to a green corpus by construction.
+#   * `BTreeMapIter` / `HashMapIter` ARE NOT ON THIS PLANE: they implement
+#     `Iterator`, not `BatchStream`, and neither declares `OrderedBy`. The ADR's
+#     "BTreeMap-iter sources would declare OrderedBy too" has no subject in the
+#     tree today.
+#   * COMPILER DEFECT, OUT OF SCOPE, minimal repro recorded: a module holding a
+#     `static mut` + a container-family deem + a native-source deem fails at
+#     `logosc-metaprog: jit add_module: Duplicate definition of symbol 'test$…'`
+#     — two metaprog rounds re-add the module's static to the JIT. It FORCED the
+#     T6 fixture split (which was the correct seam regardless). Not fixed here.
+#
+# ADR 0025 S3 moved these by +4 / +4 / +1, and the delta was PREDICTED before
+# the gate was run: three fixtures (`pass/deem_order_elision`, and the two
+# refusal halves `fail/deem_order_not_ordered` + `fail/deem_order_unknown_column`)
+# and one registered gate (`logos_09_order_elision_pair`), of which only the
+# gate carries `tier_commit`. The measured move was exactly that.
+# ADR 0025 S3-desc moved them again by +3 / +3 / +1, PREDICTED before measuring:
+# two fixtures (`pass/deem_order_desc_elision` — the family admit/refuse set —
+# and `pass/deem_order_desc_forward_only`, which is a separate file because a
+# module holding a `static mut`, a family deem and a native-source deem hits a
+# metaprog/JIT duplicate-symbol defect) plus one registered gate
+# (`logos_09_order_desc_pair`), of which only the gate carries `tier_commit`.
+# The descent gates and `deem_batch_scan_drain` were EXTENDED and EDITED, not
+# added, so they move nothing here — which is the arithmetic that made the
+# prediction checkable.
+#
+# ⚠ AND THE PREDICTION FAILED ON FIRST MEASUREMENT, +1/+1/+1 AGAINST +3/+3/+1 —
+# THE GATE EARNING ITS KEEP, EXACTLY AS ITS OWN MESSAGE SAYS. The cause is worth
+# recording because it is the 12th gate-lie form (A TEST MISSING) arriving by a
+# route with no diagnostic at all: a `pass/*.logos` fixture is registered ONLY
+# if a sibling `.expected` file exists, and both new fixtures had none. They
+# compiled, they ran green under the gate that reads their artifacts, and they
+# were in NO suite — so `test-levels.sh` would have reported a clean tree while
+# two of this stage's three subjects never executed. Nothing red would have been
+# visible; only the count was. The fix was the two `.expected` files, after
+# which the measurement matched the prediction exactly.
+REGISTRY-ALL         7167
+REGISTRY-NOIMPORTED  3484
+REGISTRY-TIERCOMMIT  34
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger

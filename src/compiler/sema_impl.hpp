@@ -5131,6 +5131,17 @@ private:
         // from a source's shape without excluding the third. Empty = the source
         // does not report one, and the plan says so rather than assuming.
         std::string size_fn;
+        // ADR 0025 S3 — the ORDER declaration: `order <rel> = <col>;`, naming
+        // the column the relation's rows already arrive sorted by. DECLARED and
+        // not derived, and the pairing is the point: the TYPE is the authority
+        // on WHETHER the producer is ordered (its return type implements
+        // `OrderedBy<K>` or it does not, and `native_source_spec` refuses the
+        // declaration when it does not), while the DECLARATION is the only
+        // place that can say WHICH of the relation's columns that order is over
+        // — a `(key, val)` row has two and `OrderedBy<u64>` names neither.
+        // Empty = the source declares no order, and an `order by` over it keeps
+        // its Sort node.
+        std::string ord_col;
         std::vector<TraitRelCol> cols;
     };
     std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;
@@ -5141,12 +5152,18 @@ private:
     // plan_walker::register_native_rels):
     //   <regname>=<matfn>[!<flags>[%<ret-ty>]][#<arg>][@<module>]
     //           :<param>(<col> <ty>,…)[{<col> <cmp> <fn> <flags>[%<ret-ty>]|…}]
-    //           [$<sizefn>[%<ret-ty>]];
+    //           [^<ordcol>][$<sizefn>[%<ret-ty>]];
     // flags are a SET of letters: `e` exact / `s` superset (operations only),
-    // `i` the producer returns an iterator (ADR 0024 S4). Operations are
+    // `i` the producer returns an iterator (ADR 0024 S4), `b` the pull unit is
+    // a batch (ADR 0025 §1), and the three ORDER axes (ADR 0025 S3) `o`
+    // `OrderedBy` / `r` `Bidirectional` / `n` `RandomAccess`. A SET, tested by
+    // MEMBERSHIP (`pw_flag`), which is what lets a letter land without every
+    // reader changing. Operations are
     // separated by `|`, not `,`, because a return type may contain commas.
     // `$` carries the SIZE operation — one per relation, since a size is asked
     // once and of the source as a whole, never per column or per row.
+    // `^` carries the ORDERED COLUMN, which the type cannot supply: `o` says
+    // the rows are sorted, `^` says by WHICH of the relation's columns.
     // regname = the param name itself for a single-rel vocabulary, else
     // <param>_<rel>; module omitted when the materializer lives in the
     // consuming package.

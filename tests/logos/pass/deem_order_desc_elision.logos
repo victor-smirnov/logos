@@ -1,0 +1,180 @@
+// ADR 0025 S3-desc (Victor's traversal axis, §3) — `order by … desc` OVER A
+// BIDIRECTIONAL SOURCE REVERSES THE WALK, NOT THE ROWS.
+//
+// S3 landed the ascending half: `order by <c>` over a source that declares its
+// rows already arrive sorted by `<c>` emits no Sort node. It stopped at
+// ascending for a reason it recorded rather than hid — a fresh walk sits at
+// `at == base`, `retreat()` opens with `if self.at <= self.base { return
+// false; }`, so A FRESH WALK CANNOT RETREAT AT ALL and a backward scan must
+// first LAND AT THE END. This fixture is that landing, and the pair that says
+// the plan knows when it is unavailable.
+//
+// ── WHY THIS IS NOT "THE SAME OPTIMIZATION, ONE FLAG WIDER" ────────────────
+//
+// The ascending elision changes NO emitted traversal: the rows were already
+// arriving in the wanted order, so deleting the sort deletes a phase and leaves
+// the walk alone. The descending one emits a DIFFERENT WALK — `land_end()`
+// (which is `RandomAccess::seek_nth(size())`, one call, zero descents), then
+// `prev_batch()` per leaf, then a row loop that counts DOWN inside each leaf.
+// Two reversals compose to one descending sequence, and getting either of them
+// wrong yields a plausible-looking answer: leaf order reversed but rows
+// ascending inside each leaf is exactly what a half-done implementation emits,
+// and it is why the assertions below check the FULL SEQUENCE and not the first
+// row and the length.
+//
+// ── THE PAIR, AND WHERE ITS OTHER HALF LIVES ───────────────────────────────
+//
+// Three queries over ONE source declaration, so a difference between them
+// cannot be a difference between two containers:
+//
+//   ADMIT   asc   `desc_asc`  — S3's ascending elision, unchanged by this stage.
+//   ADMIT   desc  `desc_all`  — the backward walk. No Sort node. One token
+//                               different from `desc_asc`.
+//   REFUSE  desc over the WRONG column (`desc_val`) — `val` is not the column
+//                               the rows arrive sorted by, so the Sort node
+//                               stays and the answer comes back in `val` order,
+//                               which over this seeding is the exact REVERSE.
+//
+// ⚠ THE OTHER REFUSAL — desc over a source that CANNOT RETREAT — is not here,
+// and its absence is structural rather than an omission. It needs a producer
+// that is `OrderedBy` but neither `Bidirectional` nor `RandomAccess`, i.e. a
+// forward-only ordered stream, and every such producer in this tree is a
+// hand-written iterator rather than a container family. Putting one in THIS
+// file is what the split is about: a module holding a `static mut`, a family
+// deem AND a native-source deem fails to compile — `logosc-metaprog: jit
+// add_module: Duplicate definition of symbol` — which is a metaprog/JIT defect
+// of its own, RECORDED with a minimal repro and unrelated to S3. So that half
+// of the pair is `pass/deem_order_desc_forward_only`, and the two fixtures are
+// named for each other.
+
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.lang.result;
+
+pub container Ded {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// ── THE BIDIRECTIONAL HALF: a family walk (OrderedBy + Bidirectional +
+// RandomAccess + batches), which is every capability the desc elision asks for.
+
+// ADMIT, ascending — S3's own case, kept here so the pair's two directions sit
+// over ONE source declaration and a difference between them cannot be a
+// difference between two containers.
+pub deem desc_asc(m: &<typeof(Ded) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.key
+}
+
+// ADMIT, descending — the subject. One token different from `desc_asc`.
+pub deem desc_all(m: &<typeof(Ded) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.key desc
+}
+
+// THE BOUNDED BACKWARD WALK — `top-n`. With the sort elided this is the
+// streamed arm's ordinary `limit` break running over the reversed walk, so the
+// three largest keys are answered by landing at the end and pulling ONE leaf,
+// never by draining the container and taking the head of a sorted buffer.
+pub deem top_three(m: &<typeof(Ded) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.key desc limit 3
+}
+
+// A NARROWED landing, descending. The pushdown picks the `ge` producer, so the
+// walk's `base` is an interior row — and `retreat()` clamps to `base`, which is
+// the one way a backward walk can silently over-read (past its own landing,
+// into rows the `where` excluded). The oracle is the exact key set.
+pub deem tail_desc(m: &<typeof(Ded) as CtrFamily>::Handle, lo: u64) {
+    from m e where e.key >= lo select (e.key, e.val) order by e.key desc
+}
+
+// REFUSE — the SAME source and direction, over a column the rows are NOT sorted
+// by. `val` is `100 - key*7`, strictly decreasing in `key`, so `val desc` is
+// `key ASCENDING`: an elision that stopped checking the column would return the
+// reverse of the right answer here.
+pub deem desc_val(m: &<typeof(Ded) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val) order by e.val desc
+}
+
+const N: u64 = 8u64;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Ded)>(&snap, 1u64);
+    // val = 100 - key*7 — strictly DECREASING in key, so `key desc` and
+    // `val desc` are exact reverses and no single sequence satisfies both.
+    let mut k: u64 = 0u64;
+    while k < N { c.insert(k, 100u64 - k * 7u64); k = k + 1u64; }
+
+    // ── ADMIT, ascending: unchanged by this stage ──────────────────────────
+    let a: Vec<(u64, u64)> = match desc_asc(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 8i64 { return 2i32; }
+    let mut i: i64 = 0i64;
+    while i < 8i64 {
+        if a.get(i).0 != (i as u64) { return 3i32; }
+        if a.get(i).1 != 100u64 - (i as u64) * 7u64 { return 4i32; }
+        i = i + 1i64;
+    }
+
+    // ── ADMIT, descending: the FULL sequence, every row ────────────────────
+    // Not the first row and the length: a walk that pulled leaves backward but
+    // read rows forward INSIDE each leaf produces a sequence that is right at
+    // both ends and wrong in the middle, and this loop is what sees it.
+    let d: Vec<(u64, u64)> = match desc_all(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if d.len() != 8i64 { return 6i32; }
+    let mut j: i64 = 0i64;
+    while j < 8i64 {
+        let want_k: u64 = (7i64 - j) as u64;
+        if d.get(j).0 != want_k { return 7i32; }
+        if d.get(j).1 != 100u64 - want_k * 7u64 { return 8i32; }
+        j = j + 1i64;
+    }
+
+    // ── THE BOUNDED BACKWARD WALK: the three largest keys, in order ────────
+    let t3: Vec<(u64, u64)> = match top_three(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
+    if t3.len() != 3i64 { return 10i32; }
+    if t3.get(0i64).0 != 7u64 || t3.get(0i64).1 != 51u64 { return 11i32; }
+    if t3.get(1i64).0 != 6u64 || t3.get(1i64).1 != 58u64 { return 12i32; }
+    if t3.get(2i64).0 != 5u64 || t3.get(2i64).1 != 65u64 { return 13i32; }
+
+    // ── NARROWED + descending: `retreat()` must stop at the LANDING's base ─
+    // Keys 3..7 descending and NOTHING below 3. A backward walk that ignored
+    // `base` would run on into keys 2, 1, 0 — rows the `where` excluded — and
+    // the length check alone is what catches it.
+    let tl: Vec<(u64, u64)> = match tail_desc(&c, 3u64)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 14i32; } };
+    if tl.len() != 5i64 { return 15i32; }
+    let mut jt: i64 = 0i64;
+    while jt < 5i64 {
+        let want_k: u64 = (7i64 - jt) as u64;
+        if tl.get(jt).0 != want_k { return 16i32; }
+        if tl.get(jt).1 != 100u64 - want_k * 7u64 { return 17i32; }
+        jt = jt + 1i64;
+    }
+
+    // ── REFUSE, wrong column: `val desc` is `key ASCENDING` ────────────────
+    let v: Vec<(u64, u64)> = match desc_val(&c)
+    { Result::Ok(vv) => { vv } Result::Err(_e) => { return 18i32; } };
+    if v.len() != 8i64 { return 19i32; }
+    let mut jv: i64 = 0i64;
+    while jv < 8i64 {
+        if v.get(jv).0 != (jv as u64) { return 20i32; }
+        if v.get(jv).1 != 100u64 - (jv as u64) * 7u64 { return 21i32; }
+        jv = jv + 1i64;
+    }
+
+    return 0i32;
+}

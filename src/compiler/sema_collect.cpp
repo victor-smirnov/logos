@@ -3679,11 +3679,73 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             "first", target, rn, rn));
                     continue;
                 }
+                if (lead == "order") {
+                    // ADR 0025 S3 — `order <rel> = <col>;`. WHICH column the
+                    // relation's rows already arrive sorted by. Shares
+                    // rel_bind's shape for the same reason `size` does: the
+                    // lead ident is data, so a third member needs no grammar
+                    // rule and gets none.
+                    //
+                    // ⚠ ONLY THE COLUMN NAME IS CHECKED HERE, and the other
+                    // half of the pairing is checked at spec time on purpose.
+                    // "Is this column one the relation declares?" is answerable
+                    // from `sig->cols`, which this pass already holds. "Is the
+                    // producer's return type actually `OrderedBy`?" is a
+                    // question about a fn's return type and the impl graph, and
+                    // collect runs in several phases over a partially populated
+                    // one — asking it here would answer `false` for a working
+                    // impl collected in a later phase, which is a REFUSAL that
+                    // fires on correct code. `native_source_spec` asks it where
+                    // the answer is stable.
+                    std::string ocol(str_of(m.get(la::VALUE.code)));
+                    bool rel_found = false;
+                    for (auto& e : source_impls_[target])
+                        if (e.rel == rn) {
+                            bool known = false;
+                            for (const auto& c : e.cols)
+                                if (c.name == ocol) { known = true; break; }
+                            if (!known) {
+                                std::string have;
+                                for (const auto& c : e.cols) {
+                                    if (!have.empty()) have += ", ";
+                                    have += c.name;
+                                }
+                                error(std::format(
+                                    "impl for '{}': `order {} = {}` names no "
+                                    "column of rel '{}' — its columns are ({}). "
+                                    "The ordered column must be one the "
+                                    "relation publishes, or no query could name "
+                                    "it in an `order by`",
+                                    target, rn, ocol, rn, have));
+                                rel_found = true;
+                                break;
+                            }
+                            // Collect runs in several phases: the same
+                            // declaration seen again is confirmation, and only
+                            // a conflicting one is an error — the rule `op`,
+                            // `rel` and `size` already follow.
+                            if (e.ord_col.empty()) e.ord_col = ocol;
+                            else if (e.ord_col != ocol)
+                                error(std::format(
+                                    "impl for '{}': `order {}` declared twice "
+                                    "over different columns ('{}' vs '{}') — a "
+                                    "relation arrives in ONE order",
+                                    target, rn, e.ord_col, ocol));
+                            rel_found = true;
+                            break;
+                        }
+                    if (!rel_found)
+                        error(std::format(
+                            "impl for '{}': `order {}` names no bound rel — "
+                            "declare `rel {} = <materializer>;` in this impl "
+                            "first", target, rn, rn));
+                    continue;
+                }
                 if (lead != "rel") {
                     error(std::format(
                         "impl for '{}': unexpected member '{} {} = …' — the "
-                        "leads of this shape are `rel <r> = <materializer>;` "
-                        "and `size <r> = <reporter>;`",
+                        "leads of this shape are `rel <r> = <materializer>;`, "
+                        "`size <r> = <reporter>;` and `order <r> = <col>;`",
                         target, lead, rn));
                     continue;
                 }

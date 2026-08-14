@@ -1,0 +1,56 @@
+// ADR 0025 S3 — `order <rel> = <col>` IS REFUSED WHEN THE COLUMN IS NOT ONE.
+//
+// The second half of the pairing, and the half COLLECT can answer: the ordered
+// column must be a column the relation publishes. `sig->cols` is already held
+// at the moment the member is collected, so the check costs nothing and closes
+// a class the natspec cannot represent at all — `^nokey` would travel to the
+// planner, match no `order by` any query could write, and the elision would
+// simply never fire. A capability that is silently dead is worse than one that
+// is absent: the source believes it declared an order.
+//
+// ⚠ THE OTHER HALF IS ASKED SOMEWHERE ELSE, ON PURPOSE. Whether the producer's
+// return type implements `OrderedBy` is NOT asked here — collect runs in
+// several phases over a partly populated impl graph, and asking early answers
+// `false` for a working impl collected in a later phase, which is a refusal
+// that fires on correct code. `native_source_spec` asks it where the answer is
+// stable; `deem_order_not_ordered` is that refusal's fixture.
+//
+// THE ADMIT TWIN is `deem_order_elision` (pass/), where the same shape names a
+// column the relation really has.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub struct Steps { pub n: i64 }
+pub struct StepsIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for StepsIter {
+    fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn steps_rows(s: &Steps) -> StepsIter { return StepsIter { n: s.n, i: 0i64 }; }
+
+// `MapSource`'s rel publishes `key` and `val`. `ordinal` is neither.
+impl MapSource<i64, i64> for Steps {
+    rel entry = steps_rows;
+    order entry = ordinal;
+}
+
+pub deem all_steps(s: &Steps) {
+    from s e select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 4i64 };
+    let a: Vec<(i64, i64)> = match all_steps(&s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 4i64 { return 2i32; }
+    return 0i32;
+}

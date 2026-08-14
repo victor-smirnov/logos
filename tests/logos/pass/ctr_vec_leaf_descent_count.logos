@@ -114,6 +114,46 @@ fn main() -> i32 {
         }
     }
 
+    // ── THE BACKWARD SCAN, ONE full traversal (ADR 0025 S3-desc) ────────
+    // The positional arm's own backward walk, and not a formality: its
+    // `retreat` is a different branch of the emitter over a different leaf
+    // layout, descending through `btvec_seek`. §3's claim — ONE descent per
+    // leaf, and the landing is ONE `seek_nth` and never a skip loop — is
+    // invisible from in here (a per-row re-descent returns this same sequence),
+    // so the gate counts `retreat -> seek` from outside and asserts LEAVES.
+    let mut rows_r: u64 = 0u64;
+    let mut psum_r: u64 = 0u64;
+    let mut vsum_r: u64 = 0u64;
+    let mut batches_r: u64 = 0u64;
+    let mut ord_r: bool = true;
+    {
+        let mut s = c.leaf_batches();
+        s.land_end();
+        let mut prevr: u64 = 0u64;
+        loop {
+            let ob = s.prev_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    batches_r = batches_r + 1u64;
+                    let n: u64 = b.len();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = n;
+                    while j > 0u64 {
+                        j = j - 1u64;
+                        let p: u64 = b.pos_at(j) as u64;
+                        // STRICTLY DESCENDING: reversing the leaves but not the
+                        // rows inside them passes a first/last check, not this.
+                        if rows_r > 0u64 && p >= prevr { ord_r = false; }
+                        prevr = p;
+                        psum_r = psum_r + p; vsum_r = vsum_r + vc.at(j);
+                        rows_r = rows_r + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+
     if rows_w != N { return 1i32; }
     if rows_b != rows_w { return 2i32; }
     if psum_b != psum_w || vsum_b != vsum_w { return 3i32; }
@@ -121,5 +161,12 @@ fn main() -> i32 {
     if batches < 3u64 { return 5i32; }        // >= 3 leaves, or §5 is about nothing
     if batches >= rows_b { return 6i32; }     // per LEAF, not per row
     if batches != LEAVES { return 7i32; }     // …and per leaf EXACTLY
+    // The backward traversal: same rows, reverse order, same leaves. The sums
+    // are order-independent and are what catches a leaf skipped or handed out
+    // twice — `retreat` un-consumes, it does not skip.
+    if rows_r != rows_w { return 8i32; }
+    if psum_r != psum_w || vsum_r != vsum_w { return 9i32; }
+    if !ord_r { return 10i32; }
+    if batches_r != LEAVES { return 11i32; }
     return 0i32;
 }

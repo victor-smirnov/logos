@@ -105,6 +105,55 @@ fn main() -> i32 {
         }
     }
 
+    // ── THE BACKWARD SCAN, ONE full traversal (ADR 0025 S3-desc) ────────
+    // The shape `batch_scan_rev_frag` emits for `order by <c> desc`: ONE
+    // `land_end()` — which is `RandomAccess::seek_nth(size())` and costs ZERO
+    // descents, being field arithmetic — then `prev_batch()` per leaf, then a
+    // row loop counting DOWN inside each leaf.
+    //
+    // ⚠ THE COST CLAIM IS THE ONLY REASON THIS BLOCK EXISTS, and it is not
+    // visible from in here. A backward walk that re-descended per ROW returns
+    // this identical sequence; so does one that walked forward to position n
+    // and back for every row (the "skip loop" §3 says a `seek_nth` replaces).
+    // The gate counts `retreat -> seek` from outside and asserts LEAVES, and it
+    // asserts the LANDING is still 1 descent per constructed walk — that is
+    // where a `land_end` that had re-derived its position instead of delegating
+    // to `seek_nth` would show up.
+    let mut rows_r: u64 = 0u64;
+    let mut ksum_r: u64 = 0u64;
+    let mut vsum_r: u64 = 0u64;
+    let mut batches_r: u64 = 0u64;
+    let mut ord_r: bool = true;
+    {
+        let mut s = c.leaf_batches();
+        s.land_end();
+        let mut prevr: u64 = 0u64;
+        loop {
+            let ob = s.prev_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    batches_r = batches_r + 1u64;
+                    let n: u64 = b.len();
+                    let kc: PdtCol = b.keys();
+                    let vc: PdtCol = b.vals();
+                    let mut j: u64 = n;
+                    while j > 0u64 {
+                        j = j - 1u64;
+                        let k: u64 = kc.at(j);
+                        // STRICTLY DESCENDING, every step. Reversing the leaves
+                        // but not the rows inside them passes a first/last check
+                        // and fails here.
+                        if rows_r > 0u64 && k >= prevr { ord_r = false; }
+                        prevr = k;
+                        ksum_r = ksum_r + k; vsum_r = vsum_r + vc.at(j);
+                        rows_r = rows_r + 1u64;
+                    }
+                }
+            } else { break; }
+        }
+    }
+
     if rows_w != N { return 1i32; }
     if rows_b != rows_w { return 2i32; }
     if ksum_b != ksum_w || vsum_b != vsum_w { return 3i32; }
@@ -112,5 +161,14 @@ fn main() -> i32 {
     if batches < 3u64 { return 5i32; }        // >= 3 leaves, or §5 is about nothing
     if batches >= rows_b { return 6i32; }     // per LEAF, not per row
     if batches != LEAVES { return 7i32; }     // …and per leaf EXACTLY
+    // The backward traversal visits the SAME rows, in the reverse order, in the
+    // same number of leaves. Sums are order-independent and are therefore the
+    // clause that catches a walk that skipped or repeated a leaf — `retreat`
+    // un-consumes rather than skips, and `next` after `prev` re-hands the same
+    // batch, so an off-by-one leaf here doubles or drops one leaf's worth.
+    if rows_r != rows_w { return 8i32; }
+    if ksum_r != ksum_w || vsum_r != vsum_w { return 9i32; }
+    if !ord_r { return 10i32; }
+    if batches_r != LEAVES { return 11i32; }
     return 0i32;
 }

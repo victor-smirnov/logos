@@ -225,13 +225,27 @@ no_silence reread
 # ── 2. THE SAME REL, NODE AND NO NODE ──────────────────────────────────────
 #
 # `deem_batch_scan_drain` runs four queries over one container `m`. One is read
-# once end to end and builds NOTHING; two carry `order by` and build a SORT; one
-# aggregates and builds a DRAIN. Same source, same producer, four verdicts — so
-# a node layer that answered from the source rather than from the plan would show
+# once end to end and builds NOTHING; one carries `order by` over a column the
+# source is NOT sorted by and builds a SORT; one carries `order by … desc` over
+# the column it IS sorted by and builds NOTHING, backwards; one aggregates and
+# builds a DRAIN. Same source, same producer, FOUR DIFFERENT VERDICTS — so a
+# node layer that answered from the source rather than from the plan would show
 # here, and "no materialization" is a POSITIVE line rather than a missing one.
+#
+# ⚠ THE SORT COUNT WAS 2 AND IS NOW 1, MOVED BY ADR 0025 S3-desc AND RE-PINNED
+# RATHER THAN RELAXED. `tail_desc` orders by `key` descending, and `key` is the
+# column the family DECLARES its rows arrive sorted by, so its Sort node is
+# gone — replaced by a backward leaf walk. The two clauses below therefore
+# PARTITION what used to be one count: one Sort node and one reversed elision,
+# summing to the two ordered queries that have always been there. Asserting only
+# the reduced sort count would have left the other half unwitnessed, and a
+# second elision appearing (or the sort silently returning) would then have been
+# invisible here.
 compile batch "$BATCH"
-eq batch "$(count_err batch '^\[plan\] m -> sort on order by')" 2 \
-   "the two ordered queries did not name a Sort node with ADR §4's second ground"
+eq batch "$(count_err batch '^\[plan\] m -> sort on order by')" 1 \
+   "the wrong-column ordered query did not name a Sort node with ADR §4's second ground"
+eq batch "$(count_err batch '^\[plan\] m -> no materialization on ordered source, reversed')" 1 \
+   "the descending query over the declared ordered column did not name the reversed-elision ground — an absence with no ground is the silence this gate exists to close"
 eq batch "$(count_err batch '^\[plan\] m -> drain on regrouped: aggregate')" 1 \
    "the aggregate's re-read of its source was not named, or was folded into another ground"
 eq batch "$(count_err batch '^\[plan\] m -> no materialization   \(no node: the plan reads this source once')" 1 \

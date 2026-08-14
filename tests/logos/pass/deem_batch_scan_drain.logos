@@ -67,8 +67,21 @@ pub deem scan_all(m: &<typeof(Bed) as CtrFamily>::Handle) {
 // the batch stream into a Vec. Descending, so the answer cannot coincide with
 // the container's own key order and a drain that silently kept stream order
 // would be visible.
+//
+// ⚠ ORDERED BY `val`, NOT BY `key`, AND THE DIFFERENCE IS THE WHOLE POINT OF
+// THIS LINE (ADR 0025 S3-desc). `key` is the column the family DECLARES its
+// rows arrive sorted by, so `order by e.key desc` is now ELIDED into a backward
+// leaf walk — correct, faster, and it would have quietly taken this fixture's
+// sorted-drain leg away with it, leaving `parity_sums` (an aggregate, a
+// different drain shape) as the only surviving drain and the `sort_perm` path
+// covered by nothing here. `val` is `key/3*10`, strictly INCREASING in `key`,
+// so `val desc` is `key desc` and every assertion below is unchanged to the
+// byte — what changes is that the plan must still build the buffer, the key
+// vector and the permutation to answer it. The elided form is pinned in
+// `pass/deem_order_desc_elision`; this one keeps the leg that would otherwise
+// have gone unwitnessed.
 pub deem scan_desc(m: &<typeof(Bed) as CtrFamily>::Handle) {
-    from m e select e.key * 1000u64 + e.val / 10u64 order by e.key desc : u64
+    from m e select e.key * 1000u64 + e.val / 10u64 order by e.val desc : u64
 }
 
 // ── the DRAINED leg again, through the OTHER materializing shape: an
@@ -78,9 +91,15 @@ pub deem parity_sums(m: &<typeof(Bed) as CtrFamily>::Handle) {
     from m e group by e.key % 2u64 aggregate s = sum(e.val) select key * 1000000u64 + s : u64
 }
 
-// ── the DRAINED leg on a NARROWED landing: the pushdown picks the `ge`
-// producer (also a batch producer — the `b` flag travels with the chosen op,
-// not just with the rel's own materializer) and the sort still drains it.
+// ── a NARROWED landing, descending over the DECLARED ordered column. The
+// pushdown picks the `ge` producer (also a batch producer — the `b` flag
+// travels with the chosen op, not just with the rel's own materializer), and
+// since S3-desc the sort no longer drains it: `key` IS the declared ordered
+// column, so this is one `land_end()` on the narrowed landing plus a backward
+// pull per leaf, and `retreat()` clamping to the landing's `base` is what keeps
+// it from reading the rows the `where` excluded. The assertions below are
+// unchanged — same rows, same order, same sums — which is exactly why the SHAPE
+// claim is pinned on the artifact by a gate and not by this exit code.
 pub deem tail_desc(m: &<typeof(Bed) as CtrFamily>::Handle, lo: u64) {
     from m e where e.key >= lo select e.key order by e.key desc : u64
 }
@@ -192,6 +211,9 @@ fn main() -> i32 {
     if rows_t != N - 300u64 { return 16i32; }
     let t: Vec<u64> = match tail_desc(&c, lo)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 17i32; } };
+    // The count is the clause that catches a backward walk running past its own
+    // landing: `retreat()` clamps to `base`, and without that clamp this comes
+    // back with all N rows instead of the N-300 the `where` admits.
     if t.len() as u64 != rows_t { return 18i32; }
     if t.get(0i64) != kmax_o { return 19i32; }
     let mut ksum_t2: u64 = 0u64;

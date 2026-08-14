@@ -392,24 +392,65 @@ fail = []
 # The falsifiability is again NOT this gate: the corpus snapshot before and
 # after S3f differs by `Only in after: deem_drain_buffer_empty.gen`, every one
 # of the 160 pre-existing dumps byte-identical.
-EXPECT_FIXTURES   = 177
+# ── RE-DERIVATION AT ADR 0025 S3-desc, WITH THE ATTRIBUTION ───────────────
+#
+# ⚠ THIS GATE WAS ALREADY RED WHEN S3-desc OPENED, AND THE INHERITED RED WAS
+# MEASURED BEFORE ANYTHING WAS RE-PINNED. With S3-desc's two new fixtures held
+# OUT of the corpus, the gate reported exactly one failure: `corpus is 178
+# fixtures, pin says 177`. S3 added `pass/deem_order_elision` and did not
+# re-derive this census — and because this gate is `tier_full`, S3's own L2 gate
+# could not see it. Every numeric total was still correct at that point, which
+# is what made the attribution below possible: the pins moved for exactly two
+# reasons and both are named.
+#
+# ⚠ AND ONE OF THEM WAS TWO ERRORS CANCELLING — the thing this file exists to
+# catch, caught. `EXPECT_IT` was pinned 11; the corpus measured 12 after S3 (the
+# `by_val` refuse twin drains and sorts). S3-desc then ELIDED one drain in
+# `deem_batch_scan_drain` (`tail_desc` orders by the declared column descending
+# and is now a backward walk), taking the measurement back to 11 — the pinned
+# number, reached by a stale pin and a real change agreeing by accident. With
+# the two new fixtures it is 13. Had the corpus not grown, this clause would
+# have read GREEN across a stage that moved it, and the stale pin would have
+# been laundered into a vouched-for one.
+#
+# The deltas from the 177-fixture pin, each attributed:
+#   FIXTURES  177 -> 180   +1 `deem_order_elision` (S3, unpinned) +2 S3-desc
+#                          (`deem_order_desc_elision`, `deem_order_desc_forward_only`)
+#   IT        11  -> 13    +1 S3's `by_val`, -1 `tail_desc` elided by S3-desc,
+#                          +2 the two new refuse twins (`desc_val`, `tick_desc`)
+#   KS / KV   123 -> 125   the same two refuse twins, one key vector each
+#   PERM      311 -> 313   the same two, one permutation each
+#   DRAIN+SORT 11 -> 13    drain 8 unchanged, sort 3 -> 5: the same two
+#   ELIDED    (new)  8     4 `deem_order_desc_elision` (asc + 3 desc)
+#                          + 2 `deem_order_elision` (S3) + 1 `tail_desc`
+#                          + 1 `tick_asc`
+#
+# ⚠ `elided` IS A NEW COUNTER, AND THE ABSENCE LINE IS NOW PARSED RATHER THAN
+# PATTERN-MATCHED. Before this stage the "no materialization on <ground>" line
+# recognised exactly one ground by its text (`already a buffer`) and dropped
+# every other into the groundless `readonce` bucket — so `MG_ORDERED_SOURCE` and
+# `MG_ORDERED_SOURCE_REV` read as UNWITNESSED while the corpus reached them
+# eight times. The ground is now parsed off the line and matched by exact
+# equality against the extracted vocabulary, the same rule the node lines use,
+# so the NEXT ground for an absence is witnessed here without editing this file.
+EXPECT_FIXTURES   = 180
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
 # starting to compile, which would mean the pin is stale — is red.
 EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
-EXPECT_DRAIN_SORT = 11    # drain 8 + sort 3, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8)
-EXPECT_IT         = 11    # `let mut __it_…` prelude bindings in the artifacts
+EXPECT_DRAIN_SORT = 13    # drain 8 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5, see RE-DERIVATION below)
+EXPECT_IT         = 13    # `let mut __it_…` prelude bindings in the artifacts
 EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
-EXPECT_KS         = 123   # emitted `__ks` sort-key vectors == `key vector` lines
+EXPECT_KS         = 125   # emitted `__ks` sort-key vectors == `key vector` lines
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
-EXPECT_PERM       = 311
-EXPECT_NOMAT      = {"container": 204, "readonce": 18}
+EXPECT_PERM       = 313
+EXPECT_NOMAT      = {"container": 204, "readonce": 18, "elided": 8}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
 UNWITNESSED = {
@@ -494,7 +535,7 @@ VERB = re.compile(r'^\[plan\] ([a-z_0-9]+) -> ([a-z ]+?)\s')
 KEYV = re.compile(r'^\[plan\] ([a-z_0-9]+) -> key vector on ')
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
-           container=0, readonce=0, materialize=0, stream=0)
+           container=0, readonce=0, elided=0, materialize=0, stream=0)
 witness = {k: 0 for k in vocab}
 silent = []
 
@@ -546,10 +587,35 @@ for e in errs:
         if " -> materialize " in line or line.endswith(" -> materialize"):
             mat.add(line.split()[1])
         if " -> no materialization" in line:
+            # THE ABSENCE LINE IS A GROUND FAMILY, NOT A CONTAINER SPECIAL CASE
+            # (ADR 0025 S3/S3-desc). This branch used to name exactly one ground
+            # by its text (`already a buffer`) and drop everything else into the
+            # generic read-once bucket. That was correct while `MG_CONTAINER` was
+            # the only ground for an ABSENCE; S3 added `MG_ORDERED_SOURCE` and
+            # S3-desc `MG_ORDERED_SOURCE_REV`, and both were counted as
+            # groundless read-once reads — so two published grounds read as
+            # UNWITNESSED while the corpus reached them 4 times, which is the
+            # census counting the question instead of the answer.
+            #
+            # Generalized rather than extended by two more `in line` tests: the
+            # ground is PARSED off the line and matched by EXACT EQUALITY against
+            # the extracted vocabulary, the same rule the node lines above use.
+            # A ground added to `access_plan.logos` after this is witnessed here
+            # with no edit to this file — which is the property that failed.
             rel = line.split()[1]
-            if "already a buffer" in line:
-                named.add(rel); tot["container"] += 1
-                witness["MG_CONTAINER"] += 1
+            gnd = ""
+            if " -> no materialization on " in line:
+                gnd = line.split(" -> no materialization on ", 1)[1]
+                gnd = gnd.split("   (", 1)[0].strip()
+            if gnd:
+                named.add(rel)
+                for tok, probe in vocab.items():
+                    if tok.startswith("MG_") and probe == gnd:
+                        witness[tok] += 1
+                if gnd == vocab.get("MG_CONTAINER"):
+                    tot["container"] += 1
+                else:
+                    tot["elided"] += 1
             else:
                 tot["readonce"] += 1
         if " -> prepared plan on " in line:
@@ -616,7 +682,12 @@ for key, want, what in (
         ("kv", EXPECT_KS, "`key vector` lines"),
         ("pm", EXPECT_PERM, "`__ix<k>` permutation vectors"),
         ("container", EXPECT_NOMAT["container"], "`already a buffer` grounds"),
-        ("readonce", EXPECT_NOMAT["readonce"], "`read once, consumed where it stands` grounds")):
+        ("readonce", EXPECT_NOMAT["readonce"], "`read once, consumed where it stands` grounds"),
+        # ADR 0025 S3/S3-desc — the ELIDED absences, pinned APART from the
+        # groundless read-once reads they used to hide inside. An elision that
+        # stopped happening would otherwise reappear silently as a read-once
+        # read, which is the same number moving in two directions at once.
+        ("elided", EXPECT_NOMAT["elided"], "`ordered source` elision grounds")):
     if want is None:
         continue
     if tot[key] != want:

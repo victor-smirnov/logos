@@ -21368,9 +21368,66 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // reader that only knows `i` keeps working and the drain path branches
         // on `b` for HOW to empty it.
         const bool mat_batches = producer_batches_(mat_fn_used);
-        if (mat_batches || producer_streams_(mat_fn_used)) {
-            spec += mat_batches ? "!ib%" : "!i%";
+        // ADR 0025 S3 — THE ORDER FACTS, asked of the producer's RETURN TYPE by
+        // the compiler, exactly the way `i`/`b` are. The type cannot lie about
+        // what it implements, which is the ADR's own criterion for a fact worth
+        // planning on; a name-based guess ("this materializer is called
+        // `*_browse`, so it must be sorted") is the class this plane exists to
+        // close. Three letters, three ORTHOGONAL axes (`stream.logos` §caps):
+        //   `o` — `OrderedBy<K>`   : the rows arrive sorted. WHICH column that
+        //                            order is over is NOT in the type — a
+        //                            `(key, val)` row has two columns and
+        //                            `OrderedBy<u64>` names neither — so it
+        //                            comes from the `order <rel> = <col>;`
+        //                            declaration below, and the pair is what
+        //                            makes the fact honest.
+        //   `r` — `Bidirectional<B>`: batches can be pulled BACKWARD.
+        //   `n` — `RandomAccess<B>` : `seek_nth`, one descent to an ordinal.
+        // `r` and `n` are separate letters even though `RandomAccess: Bidirectional`
+        // and `sema_has_impl_recursive` answers the supertrait too: DESC
+        // elision needs BOTH and a bidirectional-only source is not sufficient
+        // (a fresh walk is at `at == base` and `retreat()` refuses), so the
+        // reader must be able to tell them apart rather than infer one.
+        const bool mat_ordered = producer_impls_trait_(mat_fn_used, "OrderedBy");
+        const bool mat_bidir   = producer_impls_trait_(mat_fn_used, "Bidirectional");
+        const bool mat_randacc = producer_impls_trait_(mat_fn_used, "RandomAccess");
+        if (mat_batches || producer_streams_(mat_fn_used)
+            || mat_ordered || mat_bidir || mat_randacc) {
+            spec += "!";
+            if (mat_batches) spec += "ib";
+            else if (producer_streams_(mat_fn_used)) spec += "i";
+            if (mat_ordered) spec += "o";
+            if (mat_bidir)   spec += "r";
+            if (mat_randacc) spec += "n";
+            spec += "%";
             spec += producer_ret_type_(mat_fn_used);
+        }
+        // ⚠ CHECKED IN THE ABUSE DIRECTION, and this is the half collect could
+        // not do: a source may declare `order entry = key` over a producer
+        // whose return type implements nothing of the sort, and that
+        // declaration would make the planner delete a Sort node over rows that
+        // are not sorted — a wrong ANSWER, not a slow one. The type is the
+        // authority on WHETHER; refuse the declaration when it says no. The
+        // ADMIT twin is the ordinary S3 fixture: the same declaration over a
+        // family walk emits `^<col>` and elides.
+        //
+        // ⚠ RESIDUAL, RECORDED: the declared column's TYPE is not compared
+        // against the recovered `OrderedBy<K>` argument. `sema_has_impl_recursive`
+        // answers membership with a bool and does not hand back the trait's
+        // type arguments, so `order entry = val` on a `(key: u64, val: str)`
+        // row whose walk is `OrderedBy<u64>` is still representable. That is
+        // why the S3 fixture's oracle asserts the emitted query's ANSWER
+        // SEQUENCE and not merely its trace: a lying column name survives this
+        // check and does not survive a wrong answer.
+        if (!b.ord_col.empty() && !mat_ordered) {
+            error(std::format(
+                "impl for '{}': `order {} = {}` — but the materializer "
+                "'{}' returns '{}', which does not implement `OrderedBy`. "
+                "The declaration says WHICH column the order is over; the "
+                "TYPE says whether there is an order at all, and it says "
+                "there is none",
+                ptype_stripped, b.rel, b.ord_col, mat_fn_used,
+                producer_ret_type_(mat_fn_used)));
         }
         // The emitted chunk imports the materializer's module — omitted when
         // it already lives in the consuming package (importing your own
@@ -21523,6 +21580,22 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             }
             spec += "}";
         }
+        // ── the ORDERED COLUMN (ADR 0025 S3) ─────────────────────────────
+        // `^<col>` — WHICH of this relation's columns its rows arrive sorted
+        // by. Placed HERE, after the column list and the operation block,
+        // rather than beside the `!` flag set it belongs to semantically: the
+        // flag set is followed by `%<ret-ty>`, whose slice runs to the next
+        // `@` / `#` / `:`, so a `^` written there would be swallowed INTO the
+        // return type and the emitted binding would be annotated with a type
+        // that does not exist. A section reads where the reader can find its
+        // end, not where its meaning lives.
+        //
+        // Emitted only when the type AGREES (`o` above). The declaration alone
+        // is refused, so `^` present ⇒ both halves held.
+        if (!b.ord_col.empty() && mat_ordered) {
+            spec += "^";
+            spec += b.ord_col;
+        }
         // ── the SIZE operation (ADR 0024 S4) ─────────────────────────────
         // `$<fn>[%<ret-ty>]` — how many rows the relation holds, asked ONCE at
         // run time. The return type travels for the same reason a producer's
@@ -21539,6 +21612,15 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         }
         spec += ";";
     }
+    // The natspec is the ONLY channel by which a producer's measured
+    // capabilities reach the planner, and it is otherwise invisible — it is
+    // consumed by a metaprog-time parser and never appears in an emitted
+    // artifact. A new section that is built but never reached looks exactly
+    // like one that is reached and ignored, so the channel gets a fire-count
+    // instrument rather than an argument (ADR 0025 S3).
+    if (std::getenv("LOGOS_TRACE_NATSPEC"))
+        std::fprintf(stderr, "natspec[%s : %s] = %s\n", pname.c_str(),
+                     ptype_stripped.c_str(), spec.c_str());
     return spec;
 }
 

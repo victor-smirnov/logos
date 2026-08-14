@@ -1,0 +1,132 @@
+// ADR 0025 S3-desc — ORDERED IS NOT ENOUGH FOR `desc`. THE REFUSAL HALF.
+//
+// The desc elision reverses a WALK. That is only available to a source that can
+// be walked backward, and the plan requires three capabilities before it will
+// do it — `Bidirectional` (there is a backward pull), `RandomAccess` (the walk
+// can be PUT at the end first, because a fresh walk sits at its base where
+// `retreat()` refuses) and batches (the backward shape that exists is the
+// leaf-batch one). A source that is merely `OrderedBy` has none of them.
+//
+// ⚠ WITHOUT THIS FIXTURE THAT REQUIREMENT IS A BRANCH NOTHING EXECUTES. Every
+// ordered producer in the tree is a generated container family, and a family
+// walk implements all three — so the three clauses in `ap_order_is_noop` would
+// be dead code that every green in the corpus silently vouches for, and the
+// first forward-only ordered source anyone added would be walked backward and
+// return NOTHING. `Ticks` is the shape that makes the clause fire: a computed,
+// storage-less row producer whose iterator is genuinely in key order (so the
+// `OrderedBy` marker is honest and the ASCENDING elision below is correct) and
+// which has no previous row to hand back at any price. The traversal axis is
+// orthogonal to the order axis (`stream.logos` §caps); this file is what that
+// orthogonality looks like when a planner has to act on it.
+//
+// ── TWO ORACLES, BECAUSE THE ANSWER ALONE CANNOT SEE A REFUSAL ─────────────
+//
+//   THE ANSWER catches the elision firing wrongly: `TicksIter` cannot retreat,
+//   so a backward walk over it yields ZERO rows. Six rows in descending order
+//   is only producible by the Sort node this plan kept.
+//
+//   THE PULL COUNT catches the opposite direction — an ascending elision that
+//   quietly stopped happening. `tick_asc` and `tick_desc` return the SAME rows
+//   (one reversed), so only the cost distinguishes the plans: the elided
+//   ascending query pulls what it keeps, the refused descending one must drain
+//   the whole source before it can sort it. `PULLED` is asserted for both.
+//
+// ⚠ THE COMPANION FIXTURE IS `pass/deem_order_desc_elision`, which holds the
+// ADMIT half over a family walk. They are apart for a mechanical reason worth
+// recording rather than working around silently: a module holding a `static
+// mut`, a container-family deem AND a native-source deem fails to compile with
+// `logosc-metaprog: jit add_module: Duplicate definition of symbol 'test$…'` —
+// two metaprog rounds re-add the module's static to the JIT. Minimal repro:
+// that exact trio, nothing else. It is a metaprog/JIT defect independent of
+// S3, and the split here is a fixture boundary, not a fix.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;             // trait OrderedMapSource
+use logos.mem.collections.vec;
+use logos.lang.iter;              // trait Iterator — the streaming protocol
+use logos.lang.stream;            // trait OrderedBy — the ORDER axis, alone
+use logos.lang.option;
+use logos.lang.result;
+
+static mut PULLED: i64 = 0i64;
+
+pub struct Ticks { pub n: i64 }
+
+/// Rows `(i, i*10)` for `i` in `[0, n)`, produced on demand.
+pub struct TicksIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for TicksIter {
+    fn next(self: &mut TicksIter) -> Option<(i64, i64)> {
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (self.i, self.i * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+/// THE ORDER FACT, AND ONLY IT. The rows really do arrive in `key` order, so
+/// the marker is honest. What `TicksIter` does NOT implement is `Bidirectional`
+/// or `RandomAccess` — there is no previous row and no ordinal to seek to.
+impl OrderedBy<i64> for TicksIter { }
+
+pub fn ticks_rows(t: &Ticks) -> TicksIter {
+    return TicksIter { n: t.n, i: 0i64 };
+}
+
+impl OrderedMapSource<i64, i64> for Ticks {
+    rel entry = ticks_rows;
+    // Accepted BECAUSE the type agrees: `native_source_spec` refuses an `order`
+    // declaration whose producer's return type does not implement `OrderedBy`.
+    // The declaration says WHICH column; the type says whether there is an
+    // order at all.
+    order entry = key;
+}
+
+// ADMIT — ascending over a forward-only ordered source. `OrderedBy` alone is
+// the whole requirement in this direction: nothing about the traversal changes.
+pub deem tick_asc(t: &Ticks) { from t e select (e.key, e.val) order by e.key }
+
+// REFUSE — the same query, descending. The Sort node stays.
+pub deem tick_desc(t: &Ticks) { from t e select (e.key, e.val) order by e.key desc }
+
+const N: i64 = 6i64;
+
+fn main() -> i32 {
+    let tk: Ticks = Ticks { n: N };
+
+    // ── ADMIT, ascending: the rows, and the walk was not materialized ──────
+    unsafe { PULLED = 0i64; }
+    let fa: Vec<(i64, i64)> = match tick_asc(&tk)
+    { Result::Ok(vv) => { vv } Result::Err(_e) => { return 1i32; } };
+    if fa.len() != N { return 2i32; }
+    let mut jf: i64 = 0i64;
+    while jf < N {
+        if fa.get(jf).0 != jf { return 3i32; }
+        if fa.get(jf).1 != jf * 10i64 { return 4i32; }
+        jf = jf + 1i64;
+    }
+    // N pulls for N rows and no more: the elided plan reads the source once,
+    // straight into the output. A plan that had kept its Sort node would have
+    // pulled the same N — which is why the DESC half below is the assertion
+    // that discriminates, and why this one is a floor rather than the proof.
+    unsafe { if PULLED != N { return 5i32; } }
+
+    // ── REFUSE, descending: the Sort node kept, and the ANSWER proves it ───
+    // A source that cannot retreat, walked backward, yields nothing. Six rows
+    // in descending order can only come from a materialized, sorted buffer.
+    unsafe { PULLED = 0i64; }
+    let fd: Vec<(i64, i64)> = match tick_desc(&tk)
+    { Result::Ok(vv) => { vv } Result::Err(_e) => { return 6i32; } };
+    if fd.len() != N { return 7i32; }
+    let mut jd: i64 = 0i64;
+    while jd < N {
+        let want: i64 = (N - 1i64) - jd;
+        if fd.get(jd).0 != want { return 8i32; }
+        if fd.get(jd).1 != want * 10i64 { return 9i32; }
+        jd = jd + 1i64;
+    }
+    unsafe { if PULLED != N { return 10i32; } }
+    return 0i32;
+}

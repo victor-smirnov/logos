@@ -1689,6 +1689,16 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 op entry.key ge = #bfromfn  exact;
                 op entry.key le = #buptofn  exact;
                 size entry = #sizefn;
+                /// ADR 0025 S3 — WHICH column the rows arrive sorted by. The
+                /// producer's return type already says THAT they are sorted
+                /// (`{N}LeafWalk: OrderedBy<#(kid)>`, and the compiler reads it
+                /// off the type as the natspec `o` flag) — what no type can say
+                /// is which of `(key, val)` the order is over, because
+                /// `OrderedBy<u64>` names a key TYPE and this row has a `u64`
+                /// column that is not the key whenever `#(vo)` is `u64` too.
+                /// So the declaration supplies the column and the type supplies
+                /// the ordering, and neither is trusted for the other's half.
+                order entry = key;
             }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
@@ -2065,6 +2075,33 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                         let cp: &#nm = &*self.c;
                         return Option::Some(self.batch(cp));
                     }
+                }
+                /// ADR 0025 S3-desc — LAND AT THE END, so the walk can retreat.
+                ///
+                /// A fresh walk sits at `at == base` and `retreat()` opens with
+                /// `if self.at <= self.base { return false; }` — SO A BACKWARD
+                /// SCAN OF A FRESH WALK YIELDS NOTHING AT ALL. That is not a bug
+                /// to route around; it is the reason `Bidirectional` alone is
+                /// insufficient for a `desc` scan and `RandomAccess` is also
+                /// required. This method is that requirement, spelled once.
+                ///
+                /// ⚠ IT IS LITERALLY `seek_nth(size())` AND NOT A REIMPLEMENTATION
+                /// OF IT. The body could set `at = endr` directly in three
+                /// fields — and then the clamp, the ordinal origin and the
+                /// `endr` convention would exist twice and drift. Delegating
+                /// also makes the ADR §3 claim CHECKABLE rather than asserted:
+                /// "the backward scan lands in ONE `seek_nth`, never a skip
+                /// loop" is true by construction of this line, and the descent
+                /// count the leaf-descent gate measures is unchanged by landing
+                /// (`seek_nth` is field arithmetic — the descent is the next
+                /// pull's).
+                ///
+                /// It exists as an INHERENT method for the reason `next_batch`
+                /// does: the emitter calls it on a generated type from a chunk
+                /// whose imports are derived from the natspec, and an inherent
+                /// name needs no trait in scope at the call site.
+                pub fn land_end(self: &mut #bsid) {
+                    self.seek_nth(self.size());
                 }
             }
             impl Bidirectional<#bbid> for #bsid {
@@ -3195,6 +3232,11 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 op row.pos eq = #batfn    exact;
                 op row.pos ge = #bfromfn  exact;
                 op row.pos le = #buptofn  exact;
+                /// ADR 0025 S3 — the positional arm's order is over the ORDINAL,
+                /// and `pos` is the column that names it. The walk's
+                /// `OrderedBy<i64>` says the rows are sorted; only this line
+                /// says the sort is by `pos` and not by the value column.
+                order row = pos;
             }
         };
         unsafe { logos_emit_item_blob_subst(&pq); }
@@ -3428,6 +3470,17 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                         let cp: &#nm = &*self.c;
                         return Option::Some(self.batch(cp));
                     }
+                }
+                /// ADR 0025 S3-desc — LAND AT THE END, so the walk can retreat.
+                /// A fresh walk is at `at == base` and `retreat()` refuses
+                /// there, so a `desc` scan needs `RandomAccess` and not merely
+                /// `Bidirectional`. Delegates to `seek_nth(size())` rather than
+                /// assigning the fields, so the clamp and the `endr` convention
+                /// live in ONE place and the ADR's "one seek_nth, never a skip
+                /// loop" is true by construction. Inherent, like `next_batch`:
+                /// the emitter needs no trait in scope to call it.
+                pub fn land_end(self: &mut #bsid) {
+                    self.seek_nth(self.size());
                 }
             }
             impl BatchStream<#bbid> for #bsid {

@@ -1841,6 +1841,68 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     };
 }
 
+// ── the BACKWARD leaf pull (ADR 0025 S3-desc) ───────────────────────────────
+//
+// `order by <c> desc` over a source whose rows arrive sorted by `<c>` is not a
+// sort either — it is THE SAME WALK RUN THE OTHER WAY. This fragment is that
+// walk, and it is a SECOND function rather than a flag on `batch_scan_frag`
+// because three of its four lines differ (the landing, the pull, the inner
+// loop's direction) and a `rev: bool` threaded through the forward shape would
+// have made every one of them a conditional in a function whose entire virtue
+// is that the layout is a row in ONE place.
+//
+// THE LANDING IS ONE CALL, AND THAT IS THE ADR §3 CLAIM MADE LITERAL. A fresh
+// walk sits at its base, where `retreat()` refuses, so the scan opens with
+// `land_end()` — which IS `RandomAccess::seek_nth(size())` (container_item
+// delegates rather than re-deriving) and costs ZERO descents: `seek_nth` is
+// field arithmetic and the descent is the next pull's. So a full backward scan
+// pays ONE descent per leaf, exactly as the forward one does, and never a skip
+// loop. `logos_09_ctr_leaf_descent` measures both directions and asserts it.
+//
+// THE INNER LOOP DECREMENTS BEFORE IT READS, and the bound is `> 0u64` on an
+// unsigned counter — the shape a `while __bj >= 0u64` over `u64` would spell as
+// an infinite loop. `prev_batch` hands out leaves back-to-front and each leaf's
+// rows are ascending inside it, so descending row order needs BOTH reversals
+// and the fixture asserts the full sequence, not merely the first row.
+//
+// `brk_o`/`brk_i` are the caller's `limit` breaks, unchanged and in both loops:
+// a bounded DESC walk stops after n rows from the END, which is `order by <c>
+// desc limit n` — the one shape a `top-n` query has, answered without a Buffer,
+// without a permutation, and without touching the other end of the container.
+fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
+                       vnm: Ident, row_f: ExprBlob, body_f: ExprBlob,
+                       brk_o: ExprBlob, brk_i: ExprBlob) -> ExprBlob {
+    let s_ob: String = nk_str("__ob", k);   let n_ob: Ident = Ident::new(string_as_str(&s_ob));
+    let s_bb: String = nk_str("__bb", k);   let n_bb: Ident = Ident::new(string_as_str(&s_bb));
+    let s_bn: String = nk_str("__bn", k);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__bj", k);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
+    let s_br: String = nk_str("__brow", k); let n_br: Ident = Ident::new(string_as_str(&s_br));
+    let mut rowx: String = String::new();
+    batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
+    let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    return quote_block! {
+        (#(src_f)).land_end();
+        loop {
+            #(brk_o);
+            let #n_ob = (#(src_f)).prev_batch();
+            if #n_ob.is_some() {
+                {
+                    let #n_bb = #n_ob.unwrap();
+                    let #n_bn: u64 = #n_bb.len();
+                    let mut #n_bj: u64 = #n_bn;
+                    while #n_bj > 0u64 {
+                        #n_bj = #n_bj - 1u64;
+                        #(brk_i);
+                        let #n_br: #(row_f) = #(rowe_f);
+                        let #vnm: &#(row_f) = &#n_br;
+                        #(body_f);
+                    }
+                }
+            } else { break; }
+        }
+    };
+}
+
 // ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
 // Base shape mirrors walk_simple; with an `order by` the matching row INDICES +
 // their keys are materialized and insertion-sorted (stable, O(n²) MVP codegen)
@@ -1860,6 +1922,23 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let src_name: str = sc.src_name;
     let row_ty: str   = sc.row_ty;
     let var_name: str = sc.var_name;
+
+    // ADR 0025 S3 — THE ELIDED SORT. The plan decided (`AccessPlan.ord_noop`,
+    // carried here as `rel_ord_noop`) that this query's `order by` is already
+    // true of the source's rows, so no Sort node was inserted and no sort phase
+    // is emitted. Applied by CLEARING `has_sort` rather than by a fourth arm in
+    // the scan switch: the shape that runs is then exactly the shape an
+    // orderless query over the same source runs — the same streamed batch walk,
+    // the same `limit` break — which is the claim being made, and a separate arm
+    // would be a second scan shape somebody has to keep equal to it.
+    //
+    // ⚠ AND THE `limit` HARVEST FALLS OUT HERE, not from a new mechanism. With
+    // the sort gone, the streamed arm's existing `if !(__out.len() < N) break;`
+    // IS a bounded walk over an ordered source: `order by key limit 10` pulls
+    // leaves until ten rows are out, instead of draining the container, sorting
+    // it and taking the head. Nothing else in this file changed to get that.
+    let mut mods: QMods = mods;
+    if mods.has_sort && prm.rel_src_ord_noop(src_name) { mods.has_sort = false; }
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
@@ -2055,8 +2134,17 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
                 let lim_i: ExprBlob = limit_expr(&mods);
                 brk_i = quote_block! { if !(__out.len() < (#(lim_i))) { break; } };
             }
+            // ADR 0025 S3-desc — WHICH DIRECTION. Read from the plan
+            // (`rel_ord_rev`), never re-derived from `mods`: `has_sort` was
+            // cleared above, so by here the emitter no longer holds the query's
+            // `desc` at all, and that is deliberate — one decision, carried.
+            if prm.rel_src_ord_rev(src_name) {
+                scan_f = batch_scan_rev_frag(prm, bri, 0i64, src_f, vnm, row_f, row_f2,
+                                             brk_f, brk_i);
+            } else {
             scan_f = batch_scan_frag(prm, bri, 0i64, src_f, vnm, row_f, row_f2,
                                      brk_f, brk_i);
+            }
         } else {
         // The row type is ANNOTATED, not inferred. `next()` is a trait method
         // whose result type is the trait's parameter, so inferring it means

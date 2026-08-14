@@ -1952,6 +1952,67 @@ set_tests_properties(logos_09_drain_read_once_pair PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 S3 GATE — THE ORDER ELISION, ADMITTED AND REFUSED.
+#
+# `order by <c>` over a source that declares its rows already arrive sorted by
+# `<c>` emits no Sort node, the walk lands ordered, and the plan trace says WHY.
+# Registered as a gate and not left to the fixture because the elision is
+# INVISIBLE to the fixture's own assertions: `by_key` returns the same eight
+# rows in the same order whether the sort ran or not — the permutation is the
+# identity, which is the premise. The absence is read off the artifact and the
+# trace, and the refuse twin (the same query, order column swapped) is what
+# says the elision discriminates rather than firing on everything.
+#
+# `tier_commit`: the wrong direction of this decision is a wrong ANSWER, not a
+# slow one, so it is checked on every commit rather than in the full tier.
+add_test(
+    NAME logos_09_order_elision_pair
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/order_elision_pair_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_order_elision_pair PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 S3-desc GATE — THE BACKWARD WALK (Victor's traversal axis, §3).
+#
+# `order by <c> desc` over a source that declares its order emits no Sort node
+# either: it lands at the end (ONE `land_end()` = `RandomAccess::seek_nth(size())`)
+# and pulls backward per leaf. Same reason for a gate as the ascending pair —
+# both plans return the identical descending sequence, so the fixtures are green
+# on a compiler where this stage does nothing, and the elision has to be read
+# off the artifact and the trace.
+#
+# TWO fixtures, because the REFUSAL needs a source that is `OrderedBy` and
+# neither `Bidirectional` nor `RandomAccess`, and every ordered producer in the
+# tree except that one hand-written iterator is a container family with all
+# three. Without it the three traversal clauses in `ap_order_is_noop` are a
+# branch nothing executes. MEASURED, not argued: deleting those clauses and
+# rebuilding makes `deem_order_desc_forward_only` exit 8 — the descending query
+# answering in ascending order.
+#
+# ⚠ THE COST CLAIM IS NOT HERE. That the backward scan pays ONE descent per LEAF
+# and that the landing pays NONE is measured under callgrind by
+# `logos_09_ctr_leaf_descent` / `_vec` (clauses 7-9, both container families).
+# This gate pins the SHAPE; that one pins the PRICE.
+#
+# `tier_commit`: like its ascending twin, the wrong direction of this decision
+# is a wrong ANSWER.
+add_test(
+    NAME logos_09_order_desc_pair
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/order_desc_pair_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_order_desc_pair PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S1 GATE 1 — SLICE-SOURCE CODEGEN, BYTE-COMPARABLE.
 #
 # ⚠ THIS GATE EXISTS BECAUSE S1 COULD NOT RUN IT. S1 collapsed the emitter's
