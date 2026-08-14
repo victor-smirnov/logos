@@ -1,0 +1,140 @@
+// ADR 0025 S3b — THE EMITTED DRAIN LANDING, WITH NOTHING IN IT.
+//
+// S3b changed the Drain node's landing from `Vec<R>` to `Buffer<R>` — the
+// ACCUMULATOR spelling: `Buffer::<R>::new()`, filled by `push` in the drain
+// loop, read downstream through `as_slice()`. Every drain fixture in the corpus
+// lands at least one row, so the whole corpus is silent about the case where
+// the landing is built and never pushed to. That is the case §1 has a rule for
+// ("an empty batch is a legal tick, and `no rows` must not be spellable the
+// same way as `the stream never ran`"), and the rule was pinned only for a
+// hand-built `Buffer` (`pass/stream_buffer_degenerate`), never for an EMITTED
+// landing.
+//
+// WHY THE TWO ARE NOT THE SAME CLAIM. The hand-built fixture constructs a
+// `Buffer` through the type's own front door and reads it through
+// `BatchStream`/`Rewind`/`SizedStream`. The emitted landing is built by the
+// drain arm of `plan_walker::emit_prelude_oneshot` and read through
+// `as_slice()` by index — a different surface of the same type, reached by
+// generated text nobody wrote by hand. An empty `Vec` and an empty `Buffer`
+// differ in exactly the fields that make `Buffer` a stream (`sent`, `at`), so
+// "it used to work with a Vec" is not an argument about this.
+//
+// ── THE PAIR, AND WHY IT IS ONE ─────────────────────────────────────────────
+//
+// A fixture that only ran the empty case would be green under an emitter that
+// never drains at all: zero rows in, zero rows out, nothing to notice. So the
+// SAME query text runs twice over the SAME source type, and the only difference
+// is the data:
+//
+//   EMPTY      n = 0 — the landing is built and never pushed to. The query must
+//              return ZERO rows, and the source must still have been CONSULTED:
+//              `TICKS == 1` (exactly one `next()`, which answered `None`).
+//   POPULATED  n = 3 — the landing holds three rows, the self-join over key 1
+//              yields its one pair, and `TICKS == 4` (three rows + the `None`).
+//
+// `TICKS` is the half that makes the empty run an assertion instead of an
+// absence: it says the source was CONSULTED, exactly once. `0` would mean the
+// query never touched it at all, `2` would mean the landing was built twice —
+// once per naming, which is the defect the read-once withdrawal exists to
+// prevent and which is 0 rows on the answer just like the correct behaviour.
+// The oracle is the SOURCE's own call log, which shares no code with the query
+// plane; `PULLED` counts only the rows handed out, so the two counters separate
+// "was called" from "produced a row".
+//
+// ⚠ AND HERE IS WHAT `TICKS` CANNOT DO, MEASURED RATHER THAN ASSUMED. It does
+// NOT distinguish a DRAIN from a STREAM. Counterfactual, compiled and run: the
+// same fixture with `s` named ONCE (the admitted shape — the plan says
+// `s -> stream`, `s -> no materialization`, and the emitter consumes the
+// producer in place with no landing) reports the SAME `TICKS` 1 and 4. A single
+// naming pulls the source exactly once too, so an emitter that stopped draining
+// would leave every assertion in this file green.
+//
+// That is why this fixture is one half of a pair and not an oracle on its own:
+// `logos_09_drain_read_once_pair` reads the ARTIFACT for the `Buffer<` landing
+// and the TRACE for `drain on drained: second use`. This file says the rows were
+// read once and came back right when the landing is EMPTY; the gate says there
+// was a landing. Neither claim is available from the other side.
+//
+// ⚠ THIS IS A DRAIN FIXTURE BY CONSTRUCTION, NOT BY HOPE. The query names `s`
+// TWICE in one join chain, which is `MG_SECOND_USE` — the plan withdraws the
+// single-read proof and the prelude drains. Verified on the artifact and on the
+// trace, not assumed: `logos_09_drain_read_once_pair` reads this fixture's
+// `--gen-dir` dump for the `Buffer<` landing and its `LOGOS_TRACE_PLAN=1` output
+// for `drain on drained: second use`, and reds if either stops being true.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.lang.iter;
+
+// The SOURCE's own call log — the independent oracle. `TICKS` counts every
+// `next()` including the terminating `None`; `PULLED` counts only the rows.
+static mut TICKS:  i64 = 0i64;
+static mut PULLED: i64 = 0i64;
+
+pub struct Src { pub n: i64 }
+pub struct SrcIter { pub n: i64, pub i: i64 }
+
+impl Iterator<(i64, i64)> for SrcIter {
+    fn next(self: &mut SrcIter) -> Option<(i64, i64)> {
+        unsafe { TICKS = TICKS + 1i64; }
+        if self.i >= self.n { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = (1i64, (self.i + 1i64) * 10i64);
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn src_rows(s: &Src) -> SrcIter { return SrcIter { n: s.n, i: 0i64 }; }
+
+impl MapSource<i64, i64> for Src {
+    rel entry = src_rows;
+}
+
+// The driving side is an ordinary slice, so every tick in the log is the
+// drained step's own.
+pub struct Bound { pub k: i64 }
+
+// TWO namings of `s` in one chain ⇒ the plan withdraws the single-read proof and
+// the prelude drains into the landing. ONE query text, run over both datasets.
+pub deem selfstep(xs: &[Bound], s: &Src) {
+    from xs x join s e on x.k == e.key join s f on x.k == f.key select (e.val, f.val)
+}
+
+fn main() -> i32 {
+    let mut xs: Vec<Bound> = vec_new::<Bound>();
+    xs.push(Bound { k: 1i64 });
+
+    // ── EMPTY LANDING: built, never pushed to, read by index ────────────────
+    let e0: Src = Src { n: 0i64 };
+    unsafe { TICKS = 0i64; PULLED = 0i64; }
+    let r0: Vec<(i64, i64)> = match selfstep(xs.as_slice(), &e0)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if r0.len() != 0i64 { return 2i32; }
+    // The source WAS consulted, exactly once, and answered `None`. 0 would mean
+    // the query never touched it; 2 would mean the landing was built once per
+    // naming. It does NOT say a landing exists — see the header's measured
+    // counterfactual; that half is `logos_09_drain_read_once_pair`.
+    unsafe { if TICKS  != 1i64 { return 3i32; } }
+    unsafe { if PULLED != 0i64 { return 4i32; } }
+
+    // ── POPULATED LANDING: the same text, the same source type, three rows ──
+    let e3: Src = Src { n: 3i64 };
+    unsafe { TICKS = 0i64; PULLED = 0i64; }
+    let r3: Vec<(i64, i64)> = match selfstep(xs.as_slice(), &e3)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    // Every row carries key 1, so the self-join over the single bound row is
+    // the full 3x3 product — and it is a product of the LANDING with itself,
+    // which is only spellable because the rows were kept.
+    if r3.len() != 9i64 { return 6i32; }
+    if r3.get(0i64).0 != 10i64 || r3.get(0i64).1 != 10i64 { return 7i32; }
+    if r3.get(8i64).0 != 30i64 || r3.get(8i64).1 != 30i64 { return 8i32; }
+    // Three rows and the `None`, ONCE — both indexes are built over the landing,
+    // not by re-pulling a source the first build spent.
+    unsafe { if TICKS  != 4i64 { return 9i32; } }
+    unsafe { if PULLED != 3i64 { return 10i32; } }
+    return 0i32;
+}

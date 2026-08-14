@@ -115,7 +115,12 @@ fn main() -> i32 {
     if r2.len() != 9i64 { return 12i32; }
     if r2.get(0i64).0 != 10i64 || r2.get(0i64).1 != 10i64 { return 13i32; }
     if r2.get(8i64).0 != 12i64 || r2.get(8i64).1 != 12i64 { return 14i32; }
-    // Drained ONCE into a Vec; both indexes are built over that Vec.
+    // Drained ONCE into the landing; both indexes are built over that landing.
+    // (S3b made the landing a `Buffer<(i64, i64)>` rather than a `Vec` — this
+    // count is about the SOURCE being pulled once, so it does not move with the
+    // landing's spelling. The landing itself is pinned on the artifact by
+    // `logos_09_drain_read_once_pair`, which reads this fixture's `q_dup` and
+    // `q_selfstep` as the admit/refuse pair.)
     unsafe { if PULLED != 5i64 { return 15i32; } }
     return 0i32;
 }

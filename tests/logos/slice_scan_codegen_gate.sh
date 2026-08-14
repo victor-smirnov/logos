@@ -29,6 +29,37 @@
 # and the `where` predicate, and — the S1 state, written down rather than
 # assumed — must carry NONE of §1's batch vocabulary.
 #
+# ── WHERE S2/S3 LEFT IT, AND WHY THE GOLDEN STILL SHOWS THE OLD SHAPE ───────
+#
+# The golden is UNCHANGED through S2a-h and S3a/S3b/S3f, and every one of those
+# stages passed through this pin by the byte-comparable arm — the empty-diff
+# one — not by the measured-equal arm. That is a claim about text, so it is
+# stated with what it was measured against:
+#
+#   S3a  put `use logos.mem.stream;` into every spliced item (2089 lines,
+#        45,958 bytes, corpus-wide). NONE of them is inside `slice_scan_run`:
+#        the use decls are file-level in the dump and this gate extracts one
+#        function, definition line to the first column-0 `}`.
+#   S3b  changed the DRAIN node's landing (`Vec<R>` -> `Buffer<R>`, 10 sites in
+#        6 fixtures, +60 bytes). `slice_scan_run` has no landing at all — a
+#        heap slice is already materialized, which is exactly the ground S1
+#        gave for leaving this arm alone — so the change could not reach it.
+#        Not assumed: the pinned function contains no `__it_`, no `__rel_`, no
+#        `Buffer<`, and this fixture's whole corpus-snapshot delta is its 3
+#        file-level use lines (3 emitted items x 22 bytes = 66) — it is not one
+#        of the 6 fixtures that carry the +60, and the corpus-wide arithmetic
+#        closes exactly: 2089 x 22 + 60 == 46,018 == the measured snapshot
+#        growth, leaving no unexplained byte for this function to hide in.
+#   S3f  added a fixture and two gates; no emitter change.
+#
+# ⚠ AND S3d — "THE SLICE ARM DIES" — WAS NOT LANDED. It was on the round's task
+# list (a slice becomes the §1 degenerate case: a one-packet `Buffer` stream)
+# and it is the change this gate's last clause is written for. The golden
+# therefore still shows the PRE-BATCH slice loop on purpose, and the honest
+# status is "not started", not "measured equal". When S3d lands, this gate goes
+# red twice (bytes + batch vocabulary) and both arms move together with the
+# measurement recorded in the census.
+#
 # ⚠ THE LAST CLAUSE IS WHAT S2 HAS TO ARGUE WITH, WHICH IS THE POINT. When the
 # slice arm rides §1's shape, this gate goes red twice: the bytes differ and the
 # batch vocabulary appears. Neither is a failure of the gate. The ADR's "OR

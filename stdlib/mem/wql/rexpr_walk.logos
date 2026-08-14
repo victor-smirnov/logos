@@ -273,6 +273,17 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             // float key (see key_ord_frag). A spliced item is its own AST doc
             // and inherits none of the trigger module's imports.
             use logos.lang.num.float;
+            // `Buffer<R>` — ADR 0025 §4's degenerate batch stream, what the
+            // Drain node's prelude builds (S3b). HALF OF A PAIR, and the other
+            // half is `use logos.mem.stream;` in wql.logos: this line makes the
+            // NAME visible inside the spliced item, and the trigger-module
+            // import is what LOADS the package. Measured, one variable at a
+            // time: this literal alone leaves 5 of 6 drain fixtures failing
+            // with `unknown generic type 'Buffer'` (the sixth loads the package
+            // transitively through Memoria); the runtime `#uses` route alone
+            // leaves all 6 failing WITH the use decl present in the dump.
+            // Neither line is redundant — deleting either re-opens the failure.
+            use logos.mem.stream;
             #( use #uses; )*
             fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -288,6 +299,17 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             // float key (see key_ord_frag). A spliced item is its own AST doc
             // and inherits none of the trigger module's imports.
             use logos.lang.num.float;
+            // `Buffer<R>` — ADR 0025 §4's degenerate batch stream, what the
+            // Drain node's prelude builds (S3b). HALF OF A PAIR, and the other
+            // half is `use logos.mem.stream;` in wql.logos: this line makes the
+            // NAME visible inside the spliced item, and the trigger-module
+            // import is what LOADS the package. Measured, one variable at a
+            // time: this literal alone leaves 5 of 6 drain fixtures failing
+            // with `unknown generic type 'Buffer'` (the sixth loads the package
+            // transitively through Memoria); the runtime `#uses` route alone
+            // leaves all 6 failing WITH the use decl present in the dump.
+            // Neither line is redundant — deleting either re-opens the failure.
+            use logos.mem.stream;
             #( use #uses; )*
             pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };

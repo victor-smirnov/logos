@@ -71,6 +71,18 @@
 # that drain, and it is pinned here, not fixed in passing: removing the drain is
 # an emitter change with its own artifact delta.
 #
+# ── ADR 0025 S3b — THIS GATE DID NOT MOVE, AND THAT IS THE ASSERTION ─────────
+#
+# S3b changed the Drain node's LANDING TYPE (`Vec<R>` -> `Buffer<R>`, the
+# accumulator spelling: two string literals in `plan_walker::emit_prelude_oneshot`'s
+# drain arm). It changed no ground, no node, no plan decision and no count here,
+# and every number in this header is the same number afterwards. That is not a
+# stage that "didn't need the census" — it is the census being the thing that says
+# S3b touched only the landing: had the change reached the DECISION layer, the
+# `MG_*` tallies or the Arrange/hash-join counts would have moved, and had it
+# reached the slice arm, `logos_09_slice_scan_codegen`'s byte-pin would have.
+# Corpus-wide the whole delta was 10 sites in 6 fixtures, +60 bytes.
+#
 # ── NO SILENT DRAIN (the structural half, and the reason for the sweep) ───────
 #
 #   FACT A  NO SILENCE, CORPUS-WIDE. Per plan block, a rel that reports the
@@ -90,9 +102,10 @@
 #           oracle for that clause is the forcing control recorded in ADR 0025,
 #           not this gate.
 #
-#   FACT C  THE ARRANGE DEFICIT IS CLOSED — 596 == 596, per fixture and in
-#           total (594 == 594 at S2d; S2h added one fixture that builds two
-#           indexes, and the EQUALITY is what carried the addition unremarked).
+#   FACT C  THE ARRANGE DEFICIT IS CLOSED — 598 == 598, per fixture and in
+#           total (594 == 594 at S2d; S2h and then S3f each added one fixture
+#           that builds two indexes, and the EQUALITY is what carried both
+#           additions unremarked — the number moves, the assertion does not).
 #           ⚠⚠ THIS CLAUSE CHANGED IN S2d AND BOTH THE NUMBER AND THE
 #           SHAPE OF THE ASSERTION MOVED; here is the whole delta.
 #
@@ -148,6 +161,42 @@
 #           (FACT B's 3, part of the 7 `__it_`) is a DIFFERENT thing — the
 #           ordered drain of a SOURCE — and conflating the two is what left 119
 #           vectors unclassed.
+#
+#   FACT G  THE PERMUTATION VECTORS ARE COUNTED — #(`let mut __ix<k>`) == 311,
+#           corpus-wide, plus the per-fixture direction `perm >= ks` (a key
+#           vector with nothing to permute is red). NEW IN S3e.
+#
+#           ⚠ IT IS A COUNT AND NOT AN EQUALITY AGAINST THE NODE LAYER, and the
+#           number that refuses the equality is 85. S3e was asked to make the 311
+#           permutation bindings "node-owned" by the Sort node. Measured on this
+#           corpus first: 39 of the 89 fixtures that emit `__ix<k>` emit NO `__ks`
+#           whatsoever, accounting for 85 of the 311 bindings. Those are not sort
+#           permutations. The aggregate emitter declares `let mut __ix0` in its
+#           group-row OUTPUT phase UNCONDITIONALLY (`rexpr_walk.logos`, the
+#           `output` block: `collect` starts as a bare `__ix0.push(__r)` and only
+#           the `mods.has_sort` arm adds `__ks`/`sort_perm_frag`), so `__ix0`
+#           there is the group-row enumeration order and exists with no `order by`
+#           anywhere in the query. A Sort node owning all 311 would assert a
+#           materialization for an ordering nobody requested, 85 times.
+#
+#           ⚠ AND THE REMAINING 226 ARE ALREADY NODE-OWNED — under FACT E, by the
+#           name S2d chose ON A MEASUREMENT. The scaffolding sort already reports
+#           through `join_sel::sort_key_vector` (which fires at exactly the three
+#           `order by` sites, already resolves the blind class through
+#           `join_sel::node_subject`, and is pinned per fixture and in total).
+#           What S3e would add is a RENAME of its verdict word to `sort` — and
+#           that is the one edit this gate can prove wrong without running the
+#           emitter: FACT B is `drain + sort == __it_` PER FIXTURE over the
+#           PRELUDE plane, so a scaffolding line reading `sort` reds 89 fixtures
+#           and, worse, would be counted as a prelude materialization by every
+#           other reader of the trace. S2d wrote that down; this is the sensor
+#           that keeps the two planes apart now that the count is pinned.
+#
+#           SO THE BLIND SPOT S3e ACTUALLY CLOSED is neither of those: nothing
+#           held the 311 at all. `tot["ix"]` is the INDEX builds (`__hm`/`__hs`/
+#           `__bt`, FACT C); the permutation vectors were never read off the
+#           artifact, so a sort permutation appearing or vanishing moved no
+#           number in this census. It does now.
 #
 #   ⚠ THE OTHER NUMBERS THAT MOVED WITH S2d, AND WHY. `already a buffer`
 #     187 → 203 and `read once` 15 → 18. Neither is a behaviour change: those
@@ -269,16 +318,22 @@ UD=()
 for x in "${ALLD[@]}"; do
     case "$(basename "$x")" in logos.gen.*) ;; *) UD+=("$x");; esac
 done
-nit=0; nix=0; nks=0
+nit=0; nix=0; nks=0; npm=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
     grep -Eh 'let mut __ks:' "${UD[@]}" > "$d/ks" 2>/dev/null
+    # S3e — THE PERMUTATION VECTORS. `__ix<k>` (digit-suffixed) and NOT the bare
+    # `__ix`, which is `jc_order_pick`'s join-order discriminant — a different
+    # binding that this grep must not collect. Measured: 311 suffixed against 24
+    # bare, corpus-wide.
+    grep -Eh 'let mut __ix[0-9]+:' "${UD[@]}" > "$d/pm" 2>/dev/null
     nit=$(wc -l < "$d/it")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
+    npm=$(wc -l < "$d/pm")
 fi
-echo "$b $nit $nix $nks" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -315,18 +370,39 @@ fail = []
 #   arrange  +2   ·  index  +2   ·  hash join  +2   (the two keyed steps)
 #   container +1  (`hot`, the fixture's `rel` block — a container, as all are)
 #   sort, __ks, key vector, read-once: UNCHANGED (the fixture has no `order by`)
-EXPECT_FIXTURES   = 176
+#
+# ⚠ S3f MOVED THEM AGAIN, FOR THE SAME KIND OF REASON AND WITH THE SAME ORACLE.
+# The corpus gained ONE fixture, `deem_drain_buffer_empty` — the EMPTY drain
+# landing (`Buffer::<R>::new()` built and never pushed to), the degenerate case
+# §1 has a rule for and the whole corpus was silent about. Its own artifact,
+# counted three ways, IS the delta:
+#   drain    +1   (`s`, named twice in one chain -> `drained: second use`)
+#   __it_    +1   (one query, one prelude producer binding — FACT B per fixture)
+#   arrange  +2   ·  index  +2   ·  hash join  +2   (the two keyed steps)
+#   materialize +1 (the same rel's `-> materialize` verdict)
+#   sort, __ks, key vector, __ix<k>, container, read-once: UNCHANGED (no
+#     `order by`, no aggregate, no `rel` block, and the read-once proof is
+#     WITHDRAWN here rather than granted — which is why `readonce` does not move)
+# The falsifiability is again NOT this gate: the corpus snapshot before and
+# after S3f differs by `Only in after: deem_drain_buffer_empty.gen`, every one
+# of the 160 pre-existing dumps byte-identical.
+EXPECT_FIXTURES   = 177
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
 # starting to compile, which would mean the pin is stale — is red.
 EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
-EXPECT_DRAIN_SORT = 10    # drain 7 + sort 3, corpus-wide  (S2h: drain 4 -> 7)
-EXPECT_IT         = 10    # `let mut __it_…` prelude bindings in the artifacts
-EXPECT_ARRANGE    = 596   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
-EXPECT_HASHJOIN   = 493   # `hash join on` strategy decisions (nest 0 + pre-decided)
-EXPECT_INDEX      = 596   # emitted `__hm`/`__hs`/`__bt` bindings
+EXPECT_DRAIN_SORT = 11    # drain 8 + sort 3, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8)
+EXPECT_IT         = 11    # `let mut __it_…` prelude bindings in the artifacts
+EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
+EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
+EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
 EXPECT_KS         = 123   # emitted `__ks` sort-key vectors == `key vector` lines
+# S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
+# 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
+# against the node layer, and the header says why: 85 of the 311, in 39
+# fixtures, are emitted where there is no sort at all.
+EXPECT_PERM       = 311
 EXPECT_NOMAT      = {"container": 204, "readonce": 18}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
@@ -411,7 +487,7 @@ VERB = re.compile(r'^\[plan\] ([a-z_0-9]+) -> ([a-z ]+?)\s')
 # is therefore its own.
 KEYV = re.compile(r'^\[plan\] ([a-z_0-9]+) -> key vector on ')
 
-tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0,
+tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            container=0, readonce=0, materialize=0, stream=0)
 witness = {k: 0 for k in vocab}
 silent = []
@@ -481,15 +557,27 @@ for e in errs:
         tot[k] += nd[k]
 
     cf = os.path.join(OD, b + ".count")
-    nit = nix = nks = 0
+    nit = nix = nks = npm = 0
     if os.path.exists(cf):
-        _, a, c, e = open(cf).read().split()
-        nit, nix, nks = int(a), int(c), int(e)
+        _, a, c, e, g = open(cf).read().split()
+        nit, nix, nks, npm = int(a), int(c), int(e), int(g)
     else:
         bad(f"[{b}] no artifact count file — the emitted side was not read")
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
+    tot["pm"] += npm
+
+    # FACT G, per fixture: EVERY KEY VECTOR HAS SOMETHING TO PERMUTE.
+    # A sort scaffolding emits one `__ks` and `nb` index vectors (nb == the bound
+    # sources), so `perm >= ks` holds for every fixture BY CONSTRUCTION — and a
+    # violation is the one shape the emitter must never produce: keys collected
+    # for a permutation that was not declared. This is the direction that is
+    # decidable per fixture; the reverse is NOT an equality and must not be
+    # written as one — see the partition in the header.
+    if npm < nks:
+        bad(f"[{b}] {npm} `__ix<k>` permutation vectors vs {nks} `__ks` key "
+            f"vectors — a sort collects keys and permutes nothing")
 
     # FACT B, per fixture
     if b not in EXPECT_FAILED and nd["drain"] + nd["sort"] != nit:
@@ -519,6 +607,7 @@ for key, want, what in (
         ("ix", EXPECT_INDEX, "emitted index bindings"),
         ("ks", EXPECT_KS, "emitted `__ks` sort-key vectors"),
         ("kv", EXPECT_KS, "`key vector` lines"),
+        ("pm", EXPECT_PERM, "`__ix<k>` permutation vectors"),
         ("container", EXPECT_NOMAT["container"], "`already a buffer` grounds"),
         ("readonce", EXPECT_NOMAT["readonce"], "`read once, consumed where it stands` grounds")):
     if want is None:
@@ -549,7 +638,8 @@ for tok in sorted(UNWITNESSED):
 print("── MATERIALIZATION PLANE ─────────────────────────────────────────────")
 print(f"  drain {tot['drain']}  sort {tot['sort']}  arrange {tot['arrange']}"
       f"  key vector {tot['kv']}"
-      f"   |  artifact: __it_ {tot['it']}  index {tot['ix']}  __ks {tot['ks']}")
+      f"   |  artifact: __it_ {tot['it']}  index {tot['ix']}  __ks {tot['ks']}"
+      f"  __ix<k> {tot['pm']}")
 print(f"  hash-join decisions {tot['hj']}   materialize {tot['materialize']}"
       f"   stream {tot['stream']}")
 print(f"  no materialization: already-a-buffer {tot['container']}, "

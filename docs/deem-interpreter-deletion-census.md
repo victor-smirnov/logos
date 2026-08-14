@@ -2129,8 +2129,165 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # unreachable and was deleted instead, which is the outcome a fixture-writing
 # stage has to be able to reach if it is measuring rather than decorating.
 # tier_commit does not move: a `pass` fixture registers into suite_semantic_core.
-REGISTRY-ALL         7155
-REGISTRY-NOIMPORTED  3472
+#
+# ADR 0025 S3a/S3b, DRAIN -> BUFFER (+1 registered test, +0 fixture,
+# +0 tier_commit). PREDICTED 7156/3473/32 (+1/+1/0 off 7155/3472/32) from the
+# single added `add_test`; the gate's red then reported exactly
+# ALL 7156 / -LE imported 3473 / tier_commit 32 before this block was touched —
+# the prediction was written down first, which is the only thing that makes the
+# agreement evidence.
+# Decomposed:
+#   logos_09_drain_import_pair           GATE, suite_semantic_core + tier_full.
+#                                        Pins the TWO-LINE import pair that makes
+#                                        the Drain node's `Buffer<R>` landing
+#                                        resolve at all.
+#
+# WHY A WHOLE GATE FOR TWO `use` LINES, AND WHY IT IS NOT A LINT OVER PROSE. The
+# two lines look like one duplicated line and they are not: a spliced item's own
+# `use P;` makes P's names VISIBLE but does not LOAD P, so the trigger module
+# must import it too. Removing either half ALONE, one at a time, full stdlib
+# rebuild each, restored byte-identical with a green 6/6 checkpoint between and
+# after:
+#   quote literal alone   1 pass / 5 FAIL   trigger import alone   0 pass / 6 FAIL
+# The refusal is ASYMMETRIC and that asymmetry is the hazard the pin exists for:
+# the one fixture that survives with the trigger import deleted
+# (`deem_batch_scan_drain`) survives because it loads the package transitively
+# through Memoria, so anyone who probes this question with the obvious batch
+# fixture measures GREEN and deletes "the redundant one". The gate reads its
+# artifact clause on `deem_join_step_streams` instead, precisely so a pass is
+# evidence about the import pair and not about Memoria's dependency graph.
+#
+# ⚠ THE GATE RETIRES WITH ITS SUBJECT. Its FACT 2 requires the witness dump to
+# carry a `Buffer<` landing, so if the Drain arm ever stops spelling `Buffer` the
+# gate goes RED rather than standing guard over a fact nobody needs — and the
+# instruction in the failure text is to retire it, not to weaken the assert.
+# Both FACT 2 clauses were proved to bite against states that ACTUALLY EXISTED
+# rather than by hypothesis: on the pre-S3a corpus snapshot the witness dump has
+# 0 spliced `use logos.mem.stream;` lines, and on the pre-S3b snapshot it has 0
+# `Buffer<`.
+# tier_commit does not move: the gate compiles 6 fixtures with `--gen-dir` and
+# registers into tier_full beside the other three ADR 0025 codegen gates.
+# ADR 0025 S3f, THE READ-ONCE PAIR AND THE EMPTY LANDING (+2 registered tests,
+# +1 FIXTURE, +0 tier_commit). PREDICTED 7158/3475/32 (+2/+2/0 off 7156/3473/32),
+# written down BEFORE the reconfigure; measured after it: ALL 7158 / -LE imported
+# 3475 / tier_commit 32. Round total off the pin this round STARTED from:
+# +3/+3/0 against 7155/3472/32.
+# Decomposed:
+#   logos_02_semantic_core_pass_deem_drain_buffer_empty
+#                                        FIXTURE, suite_semantic_core. The drain
+#                                        landing BUILT AND NEVER PUSHED TO — the
+#                                        degenerate case §1 has a rule for and
+#                                        the corpus was silent about, because
+#                                        every other drain fixture lands rows.
+#   logos_09_drain_read_once_pair        GATE, suite_semantic_core + tier_full.
+#                                        The read-once decision pinned in BOTH
+#                                        directions off ONE fixture.
+#
+# WHY THE PAIR IS THE UNIT. A refusal pinned alone is green on the PESSIMAL
+# compiler (drain everything, correct answers, every refusal test still green);
+# an admission pinned alone is green on the compiler that never drains — which
+# is the miscompile the withdrawal exists to prevent and it is SILENT (the
+# second index build reads an iterator the first one spent, the answer goes
+# empty). So both halves are read off `deem_join_step_reread`, whose two queries
+# differ in exactly one thing — how many times the query names the source:
+#   ADMIT  `q_dup`      one naming  -> `let mut __rel_d: DupIter = dup_rows(d);`
+#                                      consumed in place; no landing.
+#   REFUSE `q_selfstep` two namings -> `__it_d` + `Buffer<(i64,i64)>` landing,
+#                                      filled by `push`, read by `as_slice`.
+# and each half must carry the plan ground that explains it (`-> stream` /
+# `-> no materialization` vs `-> drain on drained: second use`), so an artifact
+# and a trace that disagree cannot both be green.
+#
+# WHY THE BEHAVIOURAL FIXTURES COULD NOT DO THIS. `deem_join_step_reread` and
+# the new `deem_drain_buffer_empty` both count the SOURCE's own `next()` calls —
+# a strong oracle for "read once" and blind to WHERE the rows went. An emitter
+# that kept a private `Vec`, or that drained the admitted query too, gives
+# identical pull counts and identical answers. The landing is an artifact fact
+# and is read off the artifact.
+#
+# AND WHY THE EMPTY FIXTURE NEEDED THE GATE. Its empty run asserts 0 rows —
+# which a drain-free emitter also produces. What makes it an assertion is the
+# source's call log: `TICKS == 1` (consulted once, answered `None`); 0 would mean
+# the query never touched it, 2 would mean the landing was built once per naming
+# — the spent-iterator defect, also 0 rows on the answer.
+#
+# ⚠ AND THE LIMIT OF THAT COUNTER WAS MEASURED, NOT ASSUMED. A first writing of
+# the fixture claimed `TICKS == 0` would catch an emitter that elided the drain.
+# It would not: compiled and run, the SAME fixture with the source named ONCE —
+# the admitted shape, `-> stream` / `-> no materialization`, no landing at all —
+# reports the same `TICKS` 1 and 4. Every runtime assertion in the file is green
+# under an emitter that stopped draining. That is exactly why the gate half
+# exists and why the fixture is registered as one half of a pair; neither is
+# sufficient alone.
+#
+# PROBE PAIR ON THE NEW GATE, one perturbation at a time, fixture restored to a
+# byte-identical source (md5 b34aa8a0f611dd2236ce62f501a71bad) with a green
+# checkpoint between and after: `q_dup` given a second naming (admit -> refuse)
+# reds 7 clauses, `q_selfstep` reduced to one naming (refuse -> admit) reds 4.
+# ⚠ RECORDED, NOT HIDDEN: one clause (`.push(`) did NOT fire in the second probe
+# — a streamed join pushes into its hash bucket too — so it is kept for the
+# "landing built and never filled" case but is not one of the clauses that
+# separate refuse from admit.
+#
+# ⚠ CENSUS-GATE NUMBERS MOVED WITH THE FIXTURE, AND ONLY WITH IT.
+# `logos_09_plan_ground_census`: fixtures 176 -> 177, drain+sort 10 -> 11,
+# `__it_` 10 -> 11, arrange 596 -> 598, index 596 -> 598 (the S2d EQUALITY
+# carried the addition unremarked), hash join 493 -> 495. `__ks`, key vector,
+# `__ix<k>` (311), already-a-buffer (204) and read-once (18) did NOT move — this
+# fixture has no `order by`, no aggregate, no `rel` block, and its read-once
+# proof is WITHDRAWN rather than granted. Corpus snapshot before/after S3f:
+# `Only in after: deem_drain_buffer_empty.gen`, all 160 pre-existing dumps
+# byte-identical. THE SNAPSHOT BASELINE FOR THE NEXT STAGE IS THEREFORE
+# 161 dumps / 6,856,383 bytes (corrected from 6,856,379 by the S2i audit — measured twice, byte-identical runs; the chain closes: 6,801,240 + 46,018 + 9,125 = 6,856,383) (was 160 / 6,847,258 after S3b, and 160 /
+# 6,801,240 before S3a — that growth closes exactly: 2089 spliced
+# `use logos.mem.stream;` lines x 22 bytes + S3b's 60 == 46,018).
+# `logos_09_drain_import_pair`'s compile clause went 6/6 -> 7/7 with it: its
+# fixture list is EVERY dump carrying a `Buffer<` landing, re-derived by grep
+# rather than kept by hand.
+#
+# ── THE WHOLE ROUND, STAGE BY STAGE, INCLUDING WHAT DID NOT HAPPEN ──────────
+#
+#   S3a  LANDED. The import pair (`use logos.mem.stream;` in wql.logos AND
+#        literally in both `quote_item!`s of `rexpr_walk::emit_fn_quote_blob`).
+#        Abuse-direction probe pair, each half removed ALONE, full stdlib
+#        rebuild each, byte-restored with a green 6/6 checkpoint between and
+#        after: quote literal alone 1/5, trigger import alone 0/6, both 6/0.
+#        Pinned by `logos_09_drain_import_pair`.
+#   S3b  LANDED. Drain -> Buffer, ACCUMULATOR spelling (two string literals).
+#        Measured against the WRAP spelling on the same tree: WRAP +830 corpus
+#        bytes / +29 instrs / frame 0x148->0x198; THIS +60 / +20 / 0x148->0x188.
+#        Byte-pin, plan_nodes and ground_census did NOT move, which is what says
+#        the slice arm was untouched.
+#   S3e  LANDED. Census FACT G — the 311 `__ix<k>` permutation vectors counted,
+#        plus the per-fixture direction `perm >= ks`. NOT an equality against a
+#        Sort node, and the number that refuses the equality is 85.
+#   S3f  LANDED (this block). The read-once pair + the empty landing.
+#
+#   NOT LANDED, EACH REFUSED ON A MEASUREMENT RATHER THAN DEFERRED:
+#   * `__ix` -> Sort node emission. 85 of the 311 bindings, in 39 of the 89
+#     fixtures that emit them, are the aggregate emitter's group-row enumeration
+#     order with NO `__ks` anywhere — a Sort node owning all 311 would assert a
+#     materialization for an ordering nobody requested, 85 times. The other 226
+#     are ALREADY node-owned under FACT E through `join_sel::sort_key_vector`;
+#     what the task described would have been a RENAME of its verdict word to
+#     `sort`, and FACT B (`drain + sort == __it_` per fixture, over the PRELUDE
+#     plane) reds 89 fixtures on exactly that rename. Recorded in the census
+#     gate's FACT G header.
+#   * indices-vs-rows / deleting the `streams` param from the four frags: the
+#     same measurement blocks it — the buckets that would hold ROWS are the ones
+#     the 85 non-sort bindings feed.
+#   * `plan_mark_single_pass` dies: refused on a measurement (the second-read
+#     question is not a Rewind question yet — nothing consumes a landing as a
+#     stream, so deleting the proof makes every query pessimal exactly as
+#     measured before).
+#   * S3d, the slice arm dies: NOT STARTED. `logos_09_slice_scan_codegen`'s
+#     golden therefore still shows the pre-batch slice loop ON PURPOSE, and it
+#     transitioned this round through the BYTE-COMPARABLE arm (empty diff), not
+#     the measured-equal one — see that gate's header for the arithmetic that
+#     closes it (2089 x 22 + 60 == 46,018 == the whole corpus growth, leaving no
+#     unexplained byte).
+REGISTRY-ALL         7158
+REGISTRY-NOIMPORTED  3475
 REGISTRY-TIERCOMMIT  32
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

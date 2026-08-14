@@ -1856,6 +1856,98 @@ set_tests_properties(logos_09_plan_ground_census PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 S3a — THE IMPORT PAIR THE `Buffer` LANDING NEEDS.
+#
+# Two source lines that look like one duplicated line, and a reader who deletes
+# "the redundant one" gets a green stdlib and a corpus that stops compiling. The
+# hazard is measured, not feared, and it is ASYMMETRIC — which is why it needs a
+# pin rather than a comment:
+#
+#   quote literal alone (trigger import deleted)  1 pass / 5 FAIL
+#   trigger import alone (quote literal deleted)  0 pass / 6 FAIL
+#   both halves                                   6 pass / 0 FAIL
+#
+# The survivor in the first row is `deem_batch_scan_drain`, and it survives
+# because it loads `logos.mem.stream` transitively through Memoria — so anyone
+# who probes the question with the one convenient batch fixture measures GREEN
+# and concludes the trigger import is dead weight. Each half was removed ALONE,
+# one at a time, with a full stdlib rebuild each and a byte-restored source and a
+# green 6/6 checkpoint between and after.
+#
+# ⚠ WHAT THIS GATE IS: a PRESENCE pin over the two lines, TIED TO THE ARTIFACT
+# (the witness dump must carry both the spliced `use` and a `Buffer<` landing) so
+# it is not a text lint over prose. It cannot re-run the measurement — removing a
+# half needs a stdlib rebuild, which a test may not do. It retires WITH its
+# subject: if the Drain arm stops spelling `Buffer`, FACT 2 goes red rather than
+# the gate standing guard over a fact nobody needs.
+#
+# The compile clause covers EVERY fixture that emits a `Buffer` landing, derived
+# from the corpus by `grep -l 'Buffer<'` — six when the measurement above was
+# taken, seven since S3f added the empty-landing fixture.
+#
+# PROVED TO BITE, one perturbation at a time, each restored, with the true state
+# green between: half 1 deleted -> FACT 1 red; ONE of the two quote arms deleted
+# -> FACT 2 red ("HALF 2 is 1 of the required 2"); both deleted -> red at 0. The
+# artifact half is proved against the recorded pre-stage corpus snapshots rather
+# than by hypothesis: pre-S3a the witness dump has 0 spliced `use` lines and
+# pre-S3b it has 0 `Buffer<` — each clause reds on a state that actually existed.
+add_test(
+    NAME logos_09_drain_import_pair
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/drain_import_pair_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+            ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/wql.logos
+            ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/rexpr_walk.logos
+)
+set_tests_properties(logos_09_drain_import_pair PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 S3f — THE READ-ONCE DECISION, PINNED IN BOTH DIRECTIONS.
+#
+# A refusal pinned alone is green on the PESSIMAL compiler (drain everything);
+# an admission pinned alone is green on the compiler that never drains — which
+# is the miscompile the withdrawal exists to prevent, and it is SILENT: the
+# second index build reads an iterator the first one spent and the answer goes
+# empty. So both halves are read off ONE fixture whose two queries differ in
+# exactly one thing — how many times the query names the source:
+#
+#   ADMIT   q_dup       `d` named once  -> `let mut __rel_d: DupIter = dup_rows(d)`,
+#                                          consumed in place. No landing.
+#   REFUSE  q_selfstep  `d` named twice -> `__it_d` + `Buffer<(i64,i64)>` landing,
+#                                          filled by `push`, read by `as_slice`.
+#
+# and each half is required to carry the plan ground that explains it
+# (`-> stream` / `-> no materialization` vs `-> drain on drained: second use`),
+# so an artifact and a trace that disagree cannot both be green.
+#
+# WHY THE BEHAVIOURAL FIXTURES DO NOT COVER THIS. `deem_join_step_reread` and
+# `deem_drain_buffer_empty` count the SOURCE's own `next()` calls — a strong
+# oracle for "read once", blind to WHERE the rows went. An emitter that kept a
+# private Vec, or that drained the admitted query too, gives identical pull
+# counts and identical answers. MEASURED: `deem_drain_buffer_empty` rewritten
+# with ONE naming (the admitted shape, no landing) compiles, runs, and reports
+# the same counters — every runtime assertion in it stays green under an emitter
+# that stopped draining. This gate is the half that reds.
+#
+# ⚠ RETIRES OR RE-AIMS WITH ITS SUBJECT: the `Buffer<` clause is a pin over
+# S3b's landing spelling. If S3d/S4/S5 move the landing, this reds and the
+# instruction is to re-aim it WITH that change and record it in the census —
+# never to weaken the assert.
+add_test(
+    NAME logos_09_drain_read_once_pair
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/drain_read_once_pair_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_drain_read_once_pair PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S1 GATE 1 — SLICE-SOURCE CODEGEN, BYTE-COMPARABLE.
 #
 # ⚠ THIS GATE EXISTS BECAUSE S1 COULD NOT RUN IT. S1 collapsed the emitter's

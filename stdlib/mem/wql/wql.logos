@@ -69,6 +69,13 @@ use logos.std.wql.plan_walker;           // walk_program_params — the program 
 use logos.std.wql.lower;                 // desugar_program_gpaths — graph-path sugar (M2a)
 use logos.mem.string;                    // String — the desugar error buffer
 use logos.lang.str;                      // str_from_raw — error-text view
+// PAIR-HALF (ADR 0025 S3a). Not used by any name in THIS file — it is here to
+// put `logos.mem.stream` in the TRIGGER module's import closure, because a
+// spliced item's own `use P;` makes P's names VISIBLE but does not LOAD P. The
+// other half is the `use logos.mem.stream;` literal in both `quote_item!`s of
+// `rexpr_walk::emit_fn_quote_blob`; each alone is measurably insufficient, so
+// neither is the redundant one. Pinned by `wql_drain_import_pair` (probe pair).
+use logos.mem.stream;                    // Buffer<R> — the Drain node's landing (S3b)
 
 // ── The resource handler ───────────────────────────────────────────────────
 // `#[token_macro]` 3-arg form: receives the `resource` binding name, the raw

@@ -2731,11 +2731,36 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                 prelude.push_str(prm.rel_marg2[r]);
             }
             prelude.push_str(");\n");
+            // ADR 0025 S3b — THE DRAIN NODE'S LANDING IS A `Buffer`, NOT A `Vec`.
+            // The ACCUMULATOR spelling: the drain loop below fills the Buffer
+            // directly, so no `Vec` is ever spelled and nothing downstream
+            // moves — `push` and `as_slice` are already the Buffer's OWN
+            // surface, so the binding name `__rel_<r>` and every later line
+            // stay byte-identical. This is the diff in which "a Vec is an
+            // eagerly-drained stream, never the reverse" is literally the change.
+            //
+            // MEASURED against the WRAP spelling (keep the Vec, then
+            // `Buffer::from_vec` it and re-borrow), both on the same tree,
+            // whole-corpus snapshot + objdump of `q_loop_run` at -O0:
+            //   WRAP  +830 corpus bytes, 175 -> 204 instrs (+29), frame 0x148 -> 0x198
+            //   THIS   +60 corpus bytes, 175 -> 195 instrs (+20), frame 0x148 -> 0x188
+            // 13.8x cheaper in emitted text, 31% cheaper in added instructions.
+            // NEITHER is byte-identical on the artifact and that was never
+            // available: `Buffer<R>` carries `sent: bool` + `at: u64` past the
+            // Vec, so the landing costs +20 instrs per drain site at -O0. The
+            // ADR's "OR measured equal" clause is what covers it; the recorded
+            // measurement is 10 sites / 6 fixtures / +60 corpus bytes / +20
+            // instrs per site / zero gate movement.
+            //
+            // `emit_prelude_scc`'s identical-looking `Vec` below is NOT this and
+            // does not follow: it declares the semi-naive fixpoint's ACCUMULATOR
+            // passed as a `&mut Vec` out-param to the SCC fn, not a Drain node's
+            // landing. It moves when the recursive protocol does.
             prelude.push_str("    let mut __rel_");
             prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(": Vec<");
+            prelude.push_str(": Buffer<");
             prelude.push_str(prm.rel_rowty[r]);
-            prelude.push_str("> = Vec::<");
+            prelude.push_str("> = Buffer::<");
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str(">::new();\n");
             // ADR 0025 §1 — DRAINING A BATCH PRODUCER IS STILL A BATCH PULL.
