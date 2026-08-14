@@ -382,3 +382,66 @@ pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i
     w.push_str(" index vector(s) by it — the Sort node's key collection, not a second materialization");
     plan_trace(node_subject(prm, src, var), "key vector", key_ty, string_as_str(&w));
 }
+
+// ── THE GROUP FRAME, RECORDED WHERE IT IS DECLARED (ADR 0025 §8, S4-naming) ───
+//
+// Four columns families, four grounds (`access_plan::AG_*`), four verdict words
+// that are FIELDS and not node kinds — the `key vector` precedent above, for the
+// same reason: a line whose verdict read `arrange` would be counted as a node by
+// every reader of this trace, and the artifact builds no index for a group.
+//
+// ⚠ THEY LIVE HERE FOR THE REASON `arrange_node` DOES, AND IT IS AN ARTIFACT
+// MEASUREMENT, NOT A FILING PREFERENCE. A generated module inherits the EMITTING
+// module's `use` list verbatim: putting `use logos.std.wql.access_plan;` into
+// `rexpr_walk` (where the group columns are declared) adds one `use` line to
+// every corpus dump. `join_sel` is already on `rexpr_walk`'s use list and
+// already owns `MG_JOIN_BUILD`, so the grounds travel to the declaration site
+// without moving a byte of emitted text — which is this stage's control (the
+// corpus snapshot is asserted BYTE-IDENTICAL across it).
+//
+// ⚠ EACH FIRES INSIDE THE BRANCH THAT DECLARES ITS COLUMN, so the trace count IS
+// the artifact's binding count BY CONSTRUCTION rather than by a second
+// derivation — and the census gate compares the two per fixture, so a call that
+// drifted out of its branch is red rather than merely wrong.
+
+/// `__g_key` — one per emitted batch aggregate. `nagg` is the number of
+/// accumulator columns that hang off it, which is the group frame's WIDTH and
+/// the one number a reader needs to price the state from a single line.
+pub fn group_table_field(prm: &MacroParams, src: str, var: str, key_ty: str, nagg: i64) {
+    if !plan_trace_on() { return; }
+    let mut w: String = String::new();
+    w.push_str("the fold finds a row's group by a linear `==` scan over `__g_key: Vec<");
+    w.push_str(key_ty);
+    w.push_str(">` (no index is built — this is the group frame's dedup, not an Arrange) and carries ");
+    w.push_i64(nagg);
+    w.push_str(" accumulator column(s) beside it");
+    plan_trace(node_subject(prm, src, var), "group frame", AG_GROUPS(),
+               string_as_str(&w));
+}
+
+/// `__g_cnt`, and ONLY where an `avg` reads it (S4b).
+pub fn group_count_field(prm: &MacroParams, src: str, var: str) {
+    plan_trace(node_subject(prm, src, var), "group count", AG_COUNT(),
+        "a `Vec<i64>` bumped once per folded row in the INNERMOST loop, declared because some aggregate here is an `avg` and reads it as its denominator — a group table with no `avg` does not declare it and does not pay the bump");
+}
+
+/// `__ga_<out>` — one per aggregate, named by its OUTPUT and typed by its
+/// accumulator type, because those are the two facts that differ between two
+/// cells of the same frame.
+pub fn group_accum_field(prm: &MacroParams, src: str, var: str, out: str, acc_ty: str) {
+    if !plan_trace_on() { return; }
+    let mut w: String = String::new();
+    w.push_str("one accumulator cell per group for output `");
+    w.push_str(out);
+    w.push_str("` in the ACCUMULATOR type `");
+    w.push_str(acc_ty);
+    w.push_str("` (which is not the output type wherever a finalize step exists — `avg`, a UDA's `fin`), folded in the row loop and finalized AT THE READ in the output phase: a single pass, no finalize copy");
+    plan_trace(node_subject(prm, src, var), "accumulator", AG_ACCUM(),
+               string_as_str(&w));
+}
+
+/// `__g_row` — the representative class's column and nobody else's (S4c).
+pub fn group_rep_row_field(prm: &MacroParams, src: str, var: str) {
+    plan_trace(node_subject(prm, src, var), "representative row", AG_REP_ROW(),
+        "a clause above the group names a source row, so each group records the base-row ordinal of the row that created it and the output phase re-binds that row by index — the one thing in this frame a batch pull cannot supply, and the reason this query's base is drained");
+}

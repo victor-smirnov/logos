@@ -2513,19 +2513,54 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
             }
         }
         RQuery::Aggr(gq) => {
-            // The grouped scan collects per-group state and then finalizes over
-            // it; the emitter's two aggregate paths index their source after
-            // the grouping pass. Named explicitly so the trace never falls back
-            // to "cannot prove", which says nothing a reader can act on.
+            // ── THE AGGREGATE'S BASE IS A DRAIN ONLY FOR THE REPRESENTATIVE
+            // CLASS (ADR 0025 S4). The sentence that stood here — "the aggregate
+            // revisits rows after grouping them" — was true of an emitter shape
+            // and NOT of the operator: γ over an accumulator aggregate is a
+            // single-pass fold, and what made the base look re-read was the
+            // FINALIZE pass's `&(src)[__g_row.get(__r0)]`. That pass is deleted;
+            // the re-bind survives only where a clause above the group NAMES a
+            // source row, and that is exactly `aggr_group_frame_pure`'s answer.
+            //
+            // ⚠ THE GROUND DID NOT MOVE TO A WEAKER SENTENCE, IT MOVED TO A
+            // NARROWER ONE. `MG_REGROUP` is still emitted, still witnessed, and
+            // now says WHICH query re-reads its base and why — 5 of the corpus's
+            // 146 static aggregates. The other 141 stop claiming a drain they no
+            // longer perform, which is where the census numbers move.
+            //
+            // ⚠⚠ AND THE PURE CLASS IS STILL A DRAIN, WHICH IS A MEASUREMENT AND
+            // NOT A HEDGE. The obvious next line — `pv[ai] = true` for the pure
+            // class, claiming the single pass the fold now genuinely performs —
+            // WAS WRITTEN, BUILT AND RUN. It compiles the corpus one fixture
+            // worse: `deem_batch_scan_drain` fails with `'…LeafWalk' has no
+            // method 'len'` / `index read: receiver is not an array, slice, or
+            // pointer`, because marking the base single-pass binds it to an
+            // ITERATOR while `emit_aggregate`'s base loop is still
+            // `while __i0 < (src).len() { let v = &(src)[__i0]; … }` — an INDEXED
+            // slice walk. The plan may not claim a property of the emitted
+            // artifact that the emitted artifact does not have; the gate caught
+            // exactly that, and the remaining half of S4 is the batch pull that
+            // would make the claim true.
+            //
+            // SO THE SITE DOES NOT MOVE AND THE SENTENCE DOES. Both classes are
+            // drained; each now says which fact about the artifact drains it, and
+            // neither says "the aggregate revisits rows after grouping them",
+            // which is false of 141 of the corpus's 146 static aggregates.
             let ai: i64 = prm.rel_find_name(gq.a_name);
             if ai >= 0i64 {
-                ap_drain(ap, prm, ai, MG_REGROUP(),
-                    "materialized: the aggregate revisits rows after grouping them");
+                if aggr_group_frame_pure(gq) {
+                    ap_drain(ap, prm, ai, MG_REGROUP(),
+                        "materialized: the group frame is the whole answer (single-pass fold, no representative row), but the emitted base loop still walks this source BY INDEX rather than pulling batches");
+                } else {
+                    ap_drain(ap, prm, ai, MG_REGROUP(),
+                        "materialized: a clause above the group names a source row, so each group carries a representative base row the output phase re-binds by index");
+                }
             }
-            // An aggregate's join STEPS carry a decided strategy too, but the
-            // joined-stream fold re-binds matched rows by index in its finalize
-            // pass exactly as the sort phase does, so none of them may stream
-            // yet. Said out loud rather than left to the default.
+            // An aggregate's join STEPS carry a decided strategy too, and they
+            // stay drained for a reason that is NOT the finalize pass (there is
+            // none): the nest re-enters a step's source once per base row, so a
+            // source that yields its rows once cannot serve it. Said out loud
+            // rather than left to the default.
             if gq.has_steps() {
                 let gs: RQJoinStepArr = gq.steps_arr();
                 let ng: i64 = gs.len();
@@ -2534,7 +2569,7 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
                     let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
                     if gi >= 0i64 {
                         ap_drain(ap, prm, gi, MG_REGROUP(),
-                            "materialized: the aggregate's finalize pass re-binds joined rows by index");
+                            "materialized: the aggregate's nest re-enters this source once per base row");
                     }
                     gk = gk + 1i64;
                 }
@@ -2543,6 +2578,36 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
         _ => { }
     }
     return pv;
+}
+
+// ── THE GROUP-FRAME CLASS, AT THE PLAN TIER (ADR 0025 S4) ────────────────────
+// TRUE iff every clause ABOVE the group — `select`, `having`, `order by` — is
+// evaluable from `key` + the aggregate outputs, i.e. iff no group needs to carry
+// a representative base row.
+//
+// ⚠ IT IS THE SAME PREDICATE THE EMITTER DECIDES `__g_row` WITH, THROUGH THE
+// SAME FUNCTION. `rexpr_walk::agg_group_frame_pure` asks `sexpr_over_group_names`
+// of the same three clauses; this asks it of the RQAggr the emitter is lowered
+// from. The two MUST agree — the plan claims a single pass exactly when the
+// emitter emits one — and the only way to keep two sites in step is to give them
+// one antecedent rather than two derivations. A second opinion about one
+// property is how this compiler has already come to disagree with itself once
+// (`compute_acc_tys`' `typed` flag), and the cost here would be a justification
+// sentence that is false about the artifact it justifies.
+fn aggr_group_frame_pure(gq: RQAggr) -> bool {
+    let aggs: RQAggArr = gq.aggs_arr();
+    let n: i64 = aggs.len();
+    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut j: i64 = 0i64;
+    while j < n { onames[j] = aggs.agg_at(j).name; j = j + 1i64; }
+    if !sexpr_over_group_names(gq.select.any().view::<SExpr>(), &onames, n) { return false; }
+    if gq.has_having && !sexpr_over_group_names(gq.having_pred.any().view::<SExpr>(), &onames, n) {
+        return false;
+    }
+    if gq.has_order && !sexpr_over_group_names(gq.order_key.any().view::<SExpr>(), &onames, n) {
+        return false;
+    }
+    return true;
 }
 
 /// APPLY the plan: bind each rel to the access that was chosen, bind a streamed

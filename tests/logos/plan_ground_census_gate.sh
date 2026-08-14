@@ -324,7 +324,7 @@ UD=()
 for x in "${ALLD[@]}"; do
     case "$(basename "$x")" in logos.gen.*) ;; *) UD+=("$x");; esac
 done
-nit=0; nix=0; nks=0; npm=0
+nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
@@ -334,12 +334,24 @@ if [ "${#UD[@]}" -ge 1 ]; then
     # binding that this grep must not collect. Measured: 311 suffixed against 24
     # bare, corpus-wide.
     grep -Eh 'let mut __ix[0-9]+:' "${UD[@]}" > "$d/pm" 2>/dev/null
+    # ADR 0025 §8 — THE GROUP FRAME'S EMITTED COLUMNS, one grep per family
+    # because the four are pinned apart: they have different consumers
+    # (`__g_cnt` exists for `avg`, `__g_row` for the representative class) and a
+    # single pattern would let one family absorb another's disappearance.
+    grep -Eh 'let mut __g_key:' "${UD[@]}" > "$d/gk" 2>/dev/null
+    grep -Eh 'let mut __g_cnt:' "${UD[@]}" > "$d/gc" 2>/dev/null
+    grep -Eh 'let mut __g_row:' "${UD[@]}" > "$d/gr" 2>/dev/null
+    grep -Eh 'let mut __ga_[a-z_0-9]*:' "${UD[@]}" > "$d/ga" 2>/dev/null
     nit=$(wc -l < "$d/it")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
     npm=$(wc -l < "$d/pm")
+    ngk=$(wc -l < "$d/gk")
+    ngc=$(wc -l < "$d/gc")
+    ngr=$(wc -l < "$d/gr")
+    nga=$(wc -l < "$d/ga")
 fi
-echo "$b $nit $nix $nks $npm" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -433,7 +445,44 @@ fail = []
 # eight times. The ground is now parsed off the line and matched by exact
 # equality against the extracted vocabulary, the same rule the node lines use,
 # so the NEXT ground for an absence is witnessed here without editing this file.
-EXPECT_FIXTURES   = 180
+# ── RE-DERIVATION AT ADR 0025 §8 (S4-naming), WITH THE ATTRIBUTION ───────────
+#
+# ⚠ THIS GATE WAS ALREADY RED WHEN THIS STAGE OPENED, AND THE INHERITED RED WAS
+# MEASURED AND ATTRIBUTED BEFORE ANYTHING WAS RE-PINNED — the same discipline
+# S3-desc used, and the same cause: a stage added a fixture and did not
+# re-derive a `tier_full` census its own L2 gate cannot see. Measured on the
+# pre-change tree, the gate reported exactly four failures:
+#
+#   corpus is 181 fixtures, pin says 180
+#   127 `__ks` sort-key vectors, pinned 125     ·  127 `key vector` lines, pinned 125
+#   319 `__ix<k>` permutation vectors, pinned 313
+#
+# ALL FOUR ARE ONE FIXTURE — `pass/wql_group_single_pass_fold_e2e`, added by the
+# S4 fold, whose own dump holds exactly 2 `__ks` and 6 `__ix<k>` (measured
+# directly on the fixture, not inferred from the difference). Nothing else moved:
+# drain/sort 13, arrange 598, index 598, hash-join 495, `__it_` 13, container
+# 204, read-once 18, elided 8 were all green against the S3-desc pin.
+#
+# ⚠ AND THE NAMING CHANGE ITSELF MOVED NO NUMBER ABOVE — that is its control,
+# and it is checked outside this gate: the corpus snapshot before and after is
+# BYTE-IDENTICAL (165 dumps / 7,067,309 bytes, `diff -rq` empty). The group
+# frame enters the plan as TRACE, so every artifact-side pin here must be
+# unchanged by it, and the arrange/index identity (598 == 598) is the sharpest
+# of those controls: a group table spelled `arrange` would have broken it 152
+# times.
+#
+# THE NEW CLASS (FACT H), measured on this tree, plan side and artifact side
+# agreeing per fixture and in total:
+#   group frame       152   == `let mut __g_key:`  152
+#   accumulator       208   == `let mut __ga_*:`   208
+#   group count        13   == `let mut __g_cnt:`   13   (S4b: `avg` and nothing else)
+#   representative row   7  == `let mut __g_row:`    7   (S4c: the representative class)
+#                     ───                           ───
+#                     380                           380
+# 380 is the WHOLE of the class criterion 1 counted as unnamed on this tree
+# (`__gf_*` is 0 — the finalize pass is deleted, and its 488 bindings left the
+# count by being deleted rather than by being named).
+EXPECT_FIXTURES   = 181
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -444,13 +493,19 @@ EXPECT_IT         = 13    # `let mut __it_…` prelude bindings in the artifacts
 EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
-EXPECT_KS         = 125   # emitted `__ks` sort-key vectors == `key vector` lines
+EXPECT_KS         = 127   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
-EXPECT_PERM       = 313
+EXPECT_PERM       = 319
 EXPECT_NOMAT      = {"container": 204, "readonce": 18, "elided": 8}
+# ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
+# four have different consumers and different lives (`__g_cnt` exists for `avg`,
+# `__g_row` for the representative class), so one number would let a family
+# vanish while another grew — which is precisely how `elided` used to hide
+# inside `readonce`.
+EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
 UNWITNESSED = {
@@ -499,11 +554,22 @@ for fname, pfx in (("wg_words", ""), ("rj_words", ""),
         # and this file both use: `SZ_RUN_STREAMS`.
         key = pfx + tok[3:] if pfx and tok.startswith("SZ_") else (pfx + tok if pfx else tok)
         vocab[key] = sent[:55]
-for tok, sent in re.findall(r'pub fn (MG_\w+)\(\) -> str\s*\{ return "(.*?)"; \}', apl):
+# ⚠ TWO PREFIXES SINCE THE GROUP FRAME LANDED (ADR 0025 §8). `MG_*` grounds a
+# MATERIALIZATION (or the absence of one); `AG_*` grounds a column of the
+# aggregate's GROUP FRAME, which is the operator's own state and not an adapter
+# over a stream — the reason it is a field rather than a node kind is argued at
+# the definitions. Both are TOKENS and both are matched by exact equality on a
+# trace line's ground field; the prefixes stay distinct so the census can print
+# which vocabulary a ground belongs to and so that neither can be extracted by
+# accident when the other's shape changes.
+for tok, sent in re.findall(r'pub fn ((?:MG|AG)_\w+)\(\) -> str\s*\{ return "(.*?)"; \}', apl):
     vocab[tok] = sent
 if len([k for k in vocab if k.startswith("MG_")]) < 8:
     bad("fewer than 8 MG_* grounds extracted — the materialization vocabulary "
         "was not read")
+if len([k for k in vocab if k.startswith("AG_")]) < 4:
+    bad("fewer than 4 AG_* grounds extracted — the group-frame vocabulary was "
+        "not read, and every clause about it below would be vacuously green")
 
 # ── the sweep's output ───────────────────────────────────────────────────────
 errs = sorted(glob.glob(os.path.join(OD, "*.err")))
@@ -533,9 +599,24 @@ VERB = re.compile(r'^\[plan\] ([a-z_0-9]+) -> ([a-z ]+?)\s')
 # `-> sort keys on …` would be counted as a Sort node by both. The verdict word
 # is therefore its own.
 KEYV = re.compile(r'^\[plan\] ([a-z_0-9]+) -> key vector on ')
+# ── THE GROUP FRAME'S FOUR VERDICTS (ADR 0025 §8) ────────────────────────────
+# Read by the same rule as `key vector` above and for the same reason: these are
+# FIELDS of the aggregate the plan already carries, so their verdict words are
+# their own and none of them is a node kind. In particular the group table is
+# NOT spelled `arrange` — the census pins `#(arrange nodes) == #(emitted index
+# bindings)`, and an arrange node is the claim that the artifact built an index,
+# which a linear `==` scan over `__g_key` did not. That identity is therefore a
+# CONTROL on this stage rather than a casualty of it: it must not move.
+FRAME = re.compile(r'^\[plan\] ([a-z_0-9]+) -> '
+                   r'(group frame|accumulator|group count|representative row)'
+                   r' on ([^(]*?)\s+\((.*)$')
+FRAMEK = {"group frame": "gkey", "accumulator": "gacc",
+          "group count": "gcnt", "representative row": "grow"}
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
-           container=0, readonce=0, elided=0, materialize=0, stream=0)
+           container=0, readonce=0, elided=0, materialize=0, stream=0,
+           gkey=0, gcnt=0, grow=0, gacc=0,
+           agkey=0, agcnt=0, agrow=0, agacc=0)
 witness = {k: 0 for k in vocab}
 silent = []
 
@@ -552,9 +633,10 @@ for e in errs:
     # written. A short probe read as a sentence is how a census counts the
     # question instead of the answer.
     for tok, probe in vocab.items():
-        if not tok.startswith("MG_"):
+        if not tok.startswith(("MG_", "AG_")):
             witness[tok] += text.count(probe)
-    nd = dict(drain=0, sort=0, arrange=0, hj=0, kv=0)
+    nd = dict(drain=0, sort=0, arrange=0, hj=0, kv=0,
+              gkey=0, gcnt=0, grow=0, gacc=0)
     mat, named = set(), set()
     for line in text.splitlines():
         m = NODE.match(line)
@@ -579,6 +661,28 @@ for e in errs:
             if not m.group(4).strip().rstrip(")").strip():
                 bad(f"[{b}] a `{kind}` node on ground `{gnd}` carries an EMPTY "
                     f"justification — a materialization named and not explained")
+            continue
+        # ── THE GROUP FRAME'S COLUMNS (ADR 0025 §8) ─────────────────────────
+        # Counted by verdict, with the ground matched by EXACT EQUALITY exactly
+        # as a node line's is, and the sentence asserted non-empty for the same
+        # reason FACT F gives: a ground naming a mechanism with no account of it
+        # is the silent materialization this gate exists to catch, one field
+        # over. These do NOT enter `named` — a group frame is state the
+        # aggregate builds, not the answer to "what did the plan build over this
+        # rel", and letting it discharge FACT A would let an unexplained
+        # materialization ride out on an aggregate's coat-tails.
+        f = FRAME.match(line)
+        if f:
+            verb, gnd = f.group(2), f.group(3).strip()
+            nd[FRAMEK[verb]] += 1
+            for tok, probe in vocab.items():
+                if tok.startswith("AG_") and probe == gnd:
+                    witness[tok] += 1
+            if not gnd:
+                bad(f"[{b}] a `{verb}` group-frame line carries an EMPTY ground")
+            if not f.group(4).strip().rstrip(")").strip():
+                bad(f"[{b}] a `{verb}` line on ground `{gnd}` carries an EMPTY "
+                    f"justification — group state named and not explained")
             continue
         if line.startswith("[plan] ") and " -> hash join on " in line:
             nd["hj"] += 1
@@ -626,20 +730,51 @@ for e in errs:
         silent.append((b, r))
     tot["materialize"] += text.count(" -> materialize   (")
     tot["stream"] += text.count(" -> stream   (")
-    for k in ("drain", "sort", "arrange", "hj", "kv"):
+    for k in ("drain", "sort", "arrange", "hj", "kv",
+              "gkey", "gcnt", "grow", "gacc"):
         tot[k] += nd[k]
 
     cf = os.path.join(OD, b + ".count")
     nit = nix = nks = npm = 0
+    agkey = agcnt = agrow = agacc = 0
     if os.path.exists(cf):
-        _, a, c, e, g = open(cf).read().split()
+        _, a, c, e, g, gk, gc, gr, ga = open(cf).read().split()
         nit, nix, nks, npm = int(a), int(c), int(e), int(g)
+        agkey, agcnt, agrow, agacc = int(gk), int(gc), int(gr), int(ga)
     else:
         bad(f"[{b}] no artifact count file — the emitted side was not read")
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
     tot["pm"] += npm
+    tot["agkey"] += agkey
+    tot["agcnt"] += agcnt
+    tot["agrow"] += agrow
+    tot["agacc"] += agacc
+
+    # FACT H, per fixture — THE GROUP FRAME'S PLAN LINES ARE ITS EMITTED COLUMNS
+    # (ADR 0025 §8). One `group frame` line per `let mut __g_key:`, one
+    # `accumulator` per `__ga_<out>`, one `group count` per `__g_cnt` and one
+    # `representative row` per `__g_row` — an identity BY CONSTRUCTION, because
+    # each call fires inside the branch that declares its column, and stated
+    # here so that a naming layer re-derived from the QUERY instead (the shape
+    # that drifts) is red rather than merely different. This is FACT B/FACT C's
+    # rule applied to the class those two do not cover.
+    #
+    # ⚠ SKIPPED FOR THE TWO STANDALONE-FAILING FIXTURES, exactly as FACT B is:
+    # they emit no dump, so the artifact side is 0 by absence rather than by
+    # measurement, and a fixture that compiles ONLY inside the suite would
+    # otherwise be asserted against a file that was never written.
+    if b not in EXPECT_FAILED:
+        for verb, plan_n, art_n, art in (
+                ("group frame", nd["gkey"], agkey, "`__g_key`"),
+                ("accumulator", nd["gacc"], agacc, "`__ga_*`"),
+                ("group count", nd["gcnt"], agcnt, "`__g_cnt`"),
+                ("representative row", nd["grow"], agrow, "`__g_row`")):
+            if plan_n != art_n:
+                bad(f"[{b}] {plan_n} `{verb}` plan line(s) vs {art_n} emitted "
+                    f"{art} binding(s) — the group frame the plan names is not "
+                    f"the group frame the artifact builds")
 
     # FACT G, per fixture: EVERY KEY VECTOR HAS SOMETHING TO PERMUTE.
     # A sort scaffolding emits one `__ks` and `nb` index vectors (nb == the bound
@@ -687,11 +822,30 @@ for key, want, what in (
         # groundless read-once reads they used to hide inside. An elision that
         # stopped happening would otherwise reappear silently as a read-once
         # read, which is the same number moving in two directions at once.
-        ("elided", EXPECT_NOMAT["elided"], "`ordered source` elision grounds")):
+        ("elided", EXPECT_NOMAT["elided"], "`ordered source` elision grounds"),
+        # ADR 0025 §8 — the GROUP FRAME, plan side (the artifact side is
+        # compared against it below, so a defect that moved both together is
+        # still red against these).
+        ("gkey", EXPECT_FRAME["gkey"], "`group frame` lines"),
+        ("gacc", EXPECT_FRAME["gacc"], "`accumulator` lines"),
+        ("gcnt", EXPECT_FRAME["gcnt"], "`group count` lines"),
+        ("grow", EXPECT_FRAME["grow"], "`representative row` lines")):
     if want is None:
         continue
     if tot[key] != want:
         bad(f"corpus total: {tot[key]} {what}, pinned {want}")
+# FACT H, in total — the same identity the per-fixture clause asserts, over the
+# corpus. Kept BESIDE the pins rather than instead of them: the pins catch a
+# class that shrank, this catches a plan that stopped describing the artifact,
+# and a change that moved both sides together fails the first while a change
+# that moved one fails the second.
+for pk, ak, what in (("gkey", "agkey", "`__g_key` group tables"),
+                     ("gacc", "agacc", "`__ga_*` accumulator columns"),
+                     ("gcnt", "agcnt", "`__g_cnt` count columns"),
+                     ("grow", "agrow", "`__g_row` representative rows")):
+    if tot[pk] != tot[ak]:
+        bad(f"corpus total: {tot[pk]} plan line(s) vs {tot[ak]} emitted {what} "
+            f"— the group frame the plan names is not the one the artifact builds")
 if tot["drain"] + tot["sort"] != EXPECT_DRAIN_SORT:
     bad(f"corpus total: {tot['drain']}+{tot['sort']} drain/sort nodes, pinned "
         f"{EXPECT_DRAIN_SORT}")
@@ -722,6 +876,11 @@ print(f"  hash-join decisions {tot['hj']}   materialize {tot['materialize']}"
       f"   stream {tot['stream']}")
 print(f"  no materialization: already-a-buffer {tot['container']}, "
       f"read-once {tot['readonce']}   |  silent {len(silent)}")
+print("── GROUP FRAME (plan | artifact) ─────────────────────────────────────")
+print(f"  group table {tot['gkey']}|{tot['agkey']}  accumulator {tot['gacc']}|{tot['agacc']}"
+      f"  group count {tot['gcnt']}|{tot['agcnt']}"
+      f"  representative row {tot['grow']}|{tot['agrow']}"
+      f"   =  {tot['gkey']+tot['gacc']+tot['gcnt']+tot['grow']} named bindings")
 print("── GROUND VOCABULARY ─────────────────────────────────────────────────")
 for tok in sorted(vocab):
     mark = "·" if tok in UNWITNESSED else " "

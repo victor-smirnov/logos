@@ -3810,6 +3810,42 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     return true;
 }
 
+// ── THE GROUP-FRAME CLASS (ADR 0025 S4) ──────────────────────────────────────
+// TRUE iff every clause ABOVE the group — `select`, `having`, `order by` — is
+// evaluable from the group frame alone (`key` + the aggregate outputs). That is
+// exactly the question `incr_eligible` already asks of `select` and `having`,
+// asked of one more clause, and it is asked THROUGH THE SAME FUNCTION
+// (`sexpr_over_group_names`) rather than through a second opinion — a second
+// predicate over one property is how two emitters come to disagree about one
+// cell, which this file has already paid for once (`compute_acc_tys`' flag).
+//
+// ⚠ THE THIRD CLAUSE IS THE WHOLE DIFFERENCE, AND IT WAS PREDICTED BEFORE IT WAS
+// MEASURED. `incr_eligible` never asks about `order by` because it DECLINES
+// every sorted query outright, so its two-clause form answers PURE for a query
+// whose ORDER KEY names a source row — `scan_rowvar_run` and `join_rowvar_run`
+// are exactly that shape. Widening to the sort key is not a convenience: without
+// it this predicate would delete the representative row out from under a live
+// reader.
+//
+// WHAT THE ANSWER BUYS: FALSE ⇒ the group keeps `__g_row` (the representative
+// base row) and the drain that forces; TRUE ⇒ it does not exist, and with it
+// goes the finalize pass's re-bind. The batch fold can then run down a batch
+// with no global row ordinal to record.
+fn agg_group_frame_pure(aggs: &RAggArr, acount: i64, proj_e: SExpr,
+                        having_ref: WRef<SExpr>, has_having: bool, mods: QMods) -> bool {
+    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut j: i64 = 0i64;
+    while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
+    if !sexpr_over_group_names(proj_e, &onames, acount) { return false; }
+    if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
+        return false;
+    }
+    if mods.has_sort && !sexpr_over_group_names(mods.sort_key.any().view::<SExpr>(), &onames, acount) {
+        return false;
+    }
+    return true;
+}
+
 // ── emit_aggregate — group-by + aggregate (mirror walk_aggregate) ─────────────
 // ONE emitter for BOTH aggregate inputs. A bare scan is the DEGENERATE join
 // chain — `ch.n == 0` — not a second shape: `collect_chain` linearizes the
@@ -3822,12 +3858,16 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 //   • the joined-row NEST — no `limit` on the match loops, grouping needs
 //     every row;
 //   • the inner FOLD — find/insert the row's group by a linear `__g_key` scan
-//     (the MVP dedup), bump `__g_cnt`, fold each accumulator column
+//     (the MVP dedup), bump `__g_cnt` (avg-only since S4), fold each accumulator column
 //     incrementally (count/sum/min/max direct; avg = f64 sum + count, divided
 //     at finalization; a UDA threads its own `A` through `<name>_step`);
-//   • the FINALIZE pass — `__ga_*` (accumulator type `A`) → `__gf_*` (the
-//     finalized column type `R`), with `having` gating the group row;
-//   • the group-row OUTPUT phase — order / project / distinct / limit.
+//   • ⚠ SUPERSEDED (S4, 2026-08-14): the FINALIZE pass is DELETED — its three
+//     jobs (A→R finalization, `having`, the __gf_* staging) all live in the
+//     output phase now; `__gf_*` is 0 corpus-wide (measured), `having` gates
+//     the collect loop, and `__g_cnt` is emitted only for `avg` (13 of 152
+//     group tables) rather than unconditionally;
+//   • the group-row OUTPUT phase — finalize + having + order / project /
+//     distinct / limit, in one pass.
 //
 // ⚠ The two emitters this replaces were NOT equivalent, so the merge had to
 // pick: the scan shape accumulated an i64 `sum` through `el_add(…)?` (overflow
@@ -3838,7 +3878,8 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 //
 // ⚠ Also gone with the scan shape: its no-modifier fast path pushed the
 // projection straight from the group loop and skipped the group columns. The
-// merged shape always materializes `__gf_*` and always runs the output phase.
+// merged shape always runs the output phase (S4 note: it no longer
+// materializes `__gf_*` — see the superseded bullet above).
 // Same rows in the same order (group columns are in first-occurrence order and
 // the identity permutation preserves it) — more emitted lines, one fewer pass
 // over the source (the scan shape rescanned every row once PER GROUP).
@@ -4055,6 +4096,16 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         okey_body = key_norm_body(string_as_str(&okb), okey_tn, okey_ty);
     }
 
+    let pure_group: bool = agg_group_frame_pure(&aggs, acount, proj_opt, having_ref,
+                                                has_having, mods);
+    if pure_group {
+        plan_trace("aggclass", "PURE", fn_name,
+                   "`select`/`having`/`order by` are over `key` + aggregate outputs only — the group frame is the whole answer");
+    } else {
+        plan_trace("aggclass", "REP", fn_name,
+                   "a clause above the group names a SOURCE ROW — the group must carry a representative base row");
+    }
+
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
     // The BATCH fold's accumulator types are `acc`, computed above and shared
@@ -4090,6 +4141,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let pre_f:      ExprBlob = prelude_frag(prelude);
     let elem_f:     ExprBlob = parse_type(result_ty);
     let keyt_f:     ExprBlob = parse_type(key_ty);
+    // ── THE GROUP FRAME ENTERS THE PLAN HERE (ADR 0025 §8, S4-naming) ────────
+    // `__g_key` is declared unconditionally in `body_f` below, so this fires
+    // unconditionally too, once per emitted batch aggregate — the same 1:1 the
+    // three conditional columns get inside their own branches. It reports the
+    // frame's WIDTH (`acount`) because a group table's price is per group TIMES
+    // the columns hanging off it, and one line that cannot be priced is how this
+    // whole family stayed unnamed while the plan spoke about everything else.
+    group_table_field(prm, ch.base_src, ch.base_var, key_ty, acount);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
     let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
@@ -4119,33 +4178,80 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // row var was still in scope, and adding `order by` to the same query broke
     // it with an `undefined variable` on GENERATED code. Carrying the index
     // makes the rule the same in every shape instead of deleting the capability.
+    // ── `__g_cnt` EXISTS FOR `avg` AND FOR NOTHING ELSE (ADR 0025 S4b) ───────
+    // MEASURED, not assumed: across the 146 static aggregate fns in the corpus,
+    // `__g_cnt` is READ — beyond its own declaration, seed and bump — by 12, all
+    // of them at `if (__g_cnt.get(__r0) > 0i64)` in `avg`'s finalize. `count()`
+    // does not read it either: it folds its OWN `__ga_<out>`. The other 134 paid
+    // a `Vec<i64>` and a read-modify-write IN THE INNERMOST LOOP with no reader
+    // at all.
+    //
+    // ⚠⚠ CHECKED IN THE "CONSUMER ON THE OTHER SIDE" DIRECTION, because that is
+    // precisely how the last column deletion in this file went wrong. The
+    // INCREMENTAL arm's `__h.__gc` has a SECOND consumer the batch arm does not:
+    // the tombstone guard `if __h.__gc.get(__r0) > 0`, which is what makes a
+    // retracted-to-empty group vanish from `<q>_snapshot` while keeping its key.
+    // A batch group cannot be empty — it exists only because a row created it —
+    // so the batch arm has no such reader and no such guard. THIS GATE IS ON THE
+    // BATCH EMITTER ONLY; `__gc` is untouched, and the count of `__gc:` in the
+    // corpus is the control that says so.
+    let mut needs_cnt: bool = false;
+    let mut nc: i64 = 0i64;
+    while nc < acount {
+        if !uda[nc] && agg_of_name(aggs.agg_at(nc).fn_name) == AGG_AVG() { needs_cnt = true; }
+        nc = nc + 1i64;
+    }
+    let mut cnt_decl: ExprBlob = quote_block! { };
+    let mut cnt_seed: ExprBlob = quote_block! { };
+    let mut cnt_bump: ExprBlob = quote_block! { };
+    if needs_cnt {
+        group_count_field(prm, ch.base_src, ch.base_var);
+        cnt_decl = quote_block! { let mut __g_cnt: Vec<i64> = Vec::<i64>::new(); };
+        cnt_seed = quote_block! { __g_cnt.push(0i64); };
+        cnt_bump = quote_block! { __g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64); };
+    }
+
+    // ── `__g_row` IS THE REPRESENTATIVE CLASS'S COLUMN AND NOBODY ELSE'S ─────
+    // The ground is `AG_REP_ROW`'s: "the projection names a source row". Under
+    // `pure_group` no clause above the group can name one, so the column has no
+    // reader — and a global row ordinal is the one thing a batch pull cannot
+    // supply, which is why this gate is the stage rather than a tidy-up.
+    let mut row_decl: ExprBlob = quote_block! { };
+    let mut row_seed: ExprBlob = quote_block! { };
+    if !pure_group {
+        group_rep_row_field(prm, ch.base_src, ch.base_var);
+        row_decl = quote_block! { let mut __g_row: Vec<i64> = Vec::<i64>::new(); };
+        row_seed = quote_block! { __g_row.push(__i0); };
+    }
+
     let mut acols: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut folds: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut fcols: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut freads: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut fpush: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gd: i64 = 0i64;
     while gd < acount {
         let a: RAgg = aggs.agg_at(gd);
         let fnid: i32 = agg_of_name(a.fn_name);
         let s_ga: String = ga_name(a.out);
-        let s_gf: String = gf_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&s_ga));
-        let n_gf: Ident = Ident::new(string_as_str(&s_gf));
-        let n_out: Ident = Ident::new(a.out);
-        let act_f: ExprBlob = parse_type(act[gd]);
         let arg_f: ExprBlob = parse_expr(string_as_str(&agg_body[gd]));
 
         // — the accumulator column's declaration —
+        // ⚠ ONE `AG_ACCUM` LINE PER PUSH, and the fire sits after a TOTAL
+        // if/else in which every arm pushes exactly one column — so the plan's
+        // accumulator count is the artifact's `__ga_*` count by construction,
+        // which is what the census compares per fixture. The type reported is
+        // the CELL's, taken from the arm that decided it, not re-derived.
+        let mut atn: str = "";
         if uda[gd] {
             // UDA accumulator column: the user's A type, threaded verbatim
             // (a struct accumulator must be Copy — Vec.get/set fold cells).
             let uacc: ExprBlob = parse_type(uda_acc[gd]);
             let uacc2: ExprBlob = parse_type(uda_acc[gd]);
             acols.push(quote_block! { let mut #n_ga: Vec<#(uacc)> = Vec::<#(uacc2)>::new(); });
+            atn = uda_acc[gd];
         } else if agg_flt[gd] {
             acols.push(quote_block! { let mut #n_ga: Vec<f64> = Vec::<f64>::new(); });
+            atn = "f64";
         } else {
             // ⚠ THE CELL'S TYPE IS `acc[gd]`, NOT THE LITERAL `i64` THAT USED TO
             // BE HERE. `Vec<i64>` was the decision that made every one of this
@@ -4156,169 +4262,67 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             let bacc_f:  ExprBlob = parse_type(acc[gd]);
             let bacc_f2: ExprBlob = parse_type(acc[gd]);
             acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
+            atn = acc[gd];
         }
+        group_accum_field(prm, ch.base_src, ch.base_var, a.out, atn);
 
         // — the group-creation SEED —
+        // The UDA seed has no incremental counterpart (`incr_eligible` refuses a
+        // UDA query), so it stays here; every other seed is `agg_seed_frag`'s,
+        // shared character-for-character with the incremental emitter.
         if uda[gd] {
             let s_init: String = suffixed(a.fn_name, "_init");
             let n_init: Ident = Ident::new(string_as_str(&s_init));
             seeds.push(quote_block! { #n_ga.push(#n_init()); });
-        } else if agg_flt[gd] {
-            // ⚠ The seed is the DATA ORDER's own extremum, not `f64::MAX`.
-            // `f64::MAX` is not the largest f64 — ±inf and NaN all lie beyond
-            // it — so seeding there made `min` over `{ +inf }` answer
-            // 1.797…e308, a value present in NO row. Under `f64_data_key`
-            // (PostgreSQL's order: all NaNs one value and the greatest) the top
-            // is the canonical NaN and the bottom is −inf, so any row value
-            // displaces the seed — a group in `group by` is never empty.
-            // `f64::MAX` as a datum answers normally again: it is a value, not
-            // a marker.
-            if fnid == AGG_MIN() {
-                seeds.push(quote_block! { #n_ga.push(f64_from_bits(0x7FF8000000000000u64)); });
-            } else if fnid == AGG_MAX() {
-                seeds.push(quote_block! { #n_ga.push(f64_from_bits(0xFFF0000000000000u64)); });
-            } else {
-                seeds.push(quote_block! { #n_ga.push(0.0f64); });
-            }
-        } else if fnid == AGG_MIN() {
-            // ⚠ THE SEED IS THE ACCUMULATOR'S OWN EXTREMUM, and the literals
-            // 9223372036854775807i64 / -9223372036854775808i64 that stood here
-            // were the SIGNED order's. Under a `u64` cell those are not extrema
-            // at all — i64::MIN's bits read as u64 are 2^63, the MIDDLE of the
-            // range — so `max` over a single row holding 5 would answer 2^63, a
-            // value present in no row. That is the measurement
-            // `el_wrap_ord_least`'s header records, and it is the reason the
-            // seeds move with the cell rather than beside it. `greatest` seeds
-            // `min` and `least` seeds `max`; the incremental fold uses the same
-            // pair with the same polarity.
-            let sd: ExprBlob = parse_expr(agg_acc_greatest(acc[gd]));
-            seeds.push(quote_block! { #n_ga.push(#(sd)); });
-        } else if fnid == AGG_MAX() {
-            let sd2: ExprBlob = parse_expr(agg_acc_least(acc[gd]));
-            seeds.push(quote_block! { #n_ga.push(#(sd2)); });
         } else {
-            let sz: ExprBlob = parse_expr(agg_acc_zero(acc[gd]));
-            seeds.push(quote_block! { #n_ga.push(#(sz)); });
+            seeds.push(agg_seed_frag(fnid, agg_flt[gd], acc[gd], string_as_str(&s_ga)));
         }
 
         // — the per-row FOLD step —
+        // Same split as the seed: the UDA `_step` is batch-only and stays, the
+        // rest is `agg_fold_frag`'s insert-only fold, shared with the
+        // incremental emitter's `__w == 1` case.
         if uda[gd] {
             let s_step: String = suffixed(a.fn_name, "_step");
             let n_step: Ident = Ident::new(string_as_str(&s_step));
             folds.push(quote_block! {
                 #n_ga.set(__gi, #n_step(#n_ga.get(__gi), (#(arg_f))));
             });
-        } else if fnid == AGG_COUNT() {
-            folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + 1i64); });
-        } else if fnid == AGG_SUM() && !agg_flt[gd] {
-            // i64 `sum` ACCUMULATOR is error-returning: a running-total overflow
-            // becomes Err(ElError) via el_add(…)?, never a trap — the sibling of
-            // EL scalar arithmetic and of the dynamic/incremental sum
-            // accumulators.
-            //
-            // ⚠ THE ARG IS CHECKED — by `check_agg_operand`, in
-            // `compute_agg_bodies`. This comment used to say "the arg is already
-            // checked" and nothing checked it: `el_add(acc, (s.v))` over a `u64`
-            // column reached the host compiler as `arg 2: expected i64, got u64`.
-            //
-            // ⚠⚠ AND THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE
-            // AND BY NOTHING ELSE — the same rule the incremental fold takes.
-            // `el_add` unconditional was the OTHER half of the u64 refusal, and
-            // the half that made a naive fix strictly worse than the refusal:
-            // a `u64` cell added through i64's predicate answers `{2^62, 2^62}`
-            // with an Err it should not raise and `{5, 2^63, 2^64-1}` with a
-            // quiet wrong number and no Err at all. Both directions are pinned
-            // by `wql_agg_wide_int_arg_e2e`.
-            if str_eq(acc[gd], "u64") {
-                folds.push(quote_block! { #n_ga.set(__gi, el_addu(#n_ga.get(__gi), (#(arg_f)))?); });
-            } else {
-                folds.push(quote_block! { #n_ga.set(__gi, el_add(#n_ga.get(__gi), (#(arg_f)))?); });
-            }
-        } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
-            if agg_cast[gd] {
-                folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + ((#(arg_f)) as f64)); });
-            } else {
-                folds.push(quote_block! { #n_ga.set(__gi, #n_ga.get(__gi) + (#(arg_f))); });
-            }
-        } else if fnid == AGG_MIN() {
-            // ⚠ f64 folds through `f64_data_key`, not `<`. `<` is PARTIAL: a NaN
-            // is neither less nor greater than anything, so `max` over
-            // { NaN, 1.0 } answered 1.0 where the order says NaN is the greatest.
-            // The comparison is STRICT, so among values with the same key the
-            // FIRST in row order wins. The seed therefore survives only when the
-            // whole group is NaN — and then the answer is the canonical NaN,
-            // which under this order IS the value the group holds: all NaNs are
-            // one value. The i64 arms keep `<`/`>` — that order is already total
-            // and i64::MAX/MIN really are its extrema.
-            if agg_flt[gd] {
-                folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
-                });
-            } else {
-                // ⚠ THE BINDING'S TYPE IS THE CELL'S. `let __v: i64` hardcoded
-                // here is what produced `let '__v': type mismatch — expected
-                // i64, got u64` from inside the generated blob; the comparison
-                // that follows is then the CELL's `<`, which for a u64 cell is
-                // u64's order and is exactly the order the column asked for.
-                let vt: ExprBlob = parse_type(acc[gd]);
-                folds.push(quote_block! {
-                    { let __v: #(vt) = (#(arg_f)); if __v < #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
-                });
-            }
         } else {
-            if agg_flt[gd] {
-                folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) > f64_data_key(#n_ga.get(__gi)) { #n_ga.set(__gi, __v); } }
-                });
-            } else {
-                let vt2: ExprBlob = parse_type(acc[gd]);
-                folds.push(quote_block! {
-                    { let __v: #(vt2) = (#(arg_f)); if __v > #n_ga.get(__gi) { #n_ga.set(__gi, __v); } }
-                });
-            }
+            folds.push(agg_fold_frag(fnid, agg_flt[gd], agg_cast[gd], acc[gd],
+                                     string_as_str(&s_ga),
+                                     string_as_str(&agg_body[gd])));
         }
 
-        // — the FINALIZED column (typed by the finalized column type; a UDA
-        //   column narrows from A to R's lattice type here, via <name>_fin) —
-        let act_f2: ExprBlob = parse_type(act[gd]);
-        fcols.push(quote_block! { let mut #n_gf: Vec<#(act_f)> = Vec::<#(act_f2)>::new(); });
-        if uda[gd] {
-            let acc_read: ExprBlob = quote_expr! { #n_ga.get(__r0) };
-            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gd],
-                                                  uda_fin_cast(uda_ret[gd]));
-            let act_f3: ExprBlob = parse_type(act[gd]);
-            freads.push(quote_block! { let #n_out: #(act_f3) = #(fin); });
-        } else if fnid == AGG_AVG() {
-            let act_f3: ExprBlob = parse_type(act[gd]);
-            freads.push(quote_block! {
-                let #n_out: #(act_f3) =
-                    (if __g_cnt.get(__r0) > 0i64 { #n_ga.get(__r0) / (__g_cnt.get(__r0) as f64) }
-                     else { 0.0f64 });
-            });
-        } else {
-            let act_f3: ExprBlob = parse_type(act[gd]);
-            freads.push(quote_block! { let #n_out: #(act_f3) = #n_ga.get(__r0); });
-        }
-        fpush.push(quote_block! { #n_gf.push(#n_out); });
+        // ── AND NO FINALIZED COLUMN. `__gf_<out>` used to be declared, filled
+        // and read here; the finalize is now LAZY, at the read, in
+        // `group_binds_frag` — see the header on the output phase below.
         gd = gd + 1i64;
     }
 
     // The inner FOLD — find/insert the row's group by a linear `__g_key` scan
-    // (the MVP dedup), bump `__g_cnt`, fold each accumulator column.
+    // (the MVP dedup), bump `__g_cnt` (avg-only since S4), fold each accumulator column.
     let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
     let mut inner: ExprBlob = quote_block! {
         let __k: #(keyt_f) = (#(key_f));
         let mut __gi: i64 = -1i64;
         let mut __s: i64 = 0i64;
-        while __s < __g_key.len() { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
+        // first match. This silently changed the rule from LAST-match-wins
+        // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
+        // are push-only (remove/set/pop have zero call sites, measured by
+        // the S4 audit), so duplicates are impossible by construction and
+        // both rules select the same index. If a mutating group-key op is
+        // ever added, this line is where the invariant breaks first.
+        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
         if __gi < 0i64 {
             __g_key.push(__k);
-            __g_cnt.push(0i64);
-            __g_row.push(__i0);
+            #(cnt_seed);
+            #(row_seed);
             #( #seeds; )*
             __gi = __g_key.len() - 1i64;
         }
-        __g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64);
+        #(cnt_bump);
         #( #folds; )*
     };
     if has_where {
@@ -4347,53 +4351,76 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
     };
 
-    // FINALIZE pass — `__ga_*` (accumulator type A) → `__gf_*` (the finalized
-    // column type R), with `having` gating the group row.
-    let rep_idx: ExprBlob = quote_expr! { __g_row.get(__r0) };
-    let rebind: ExprBlob = row_rebind_frag(ch.base_var, ch.base_ty, ch.base_src, rep_idx);
-    let mut keep: ExprBlob = quote_block! {
-        __gf_key.push(key);
-        __gf_row.push(__g_row.get(__r0));
-        #( #fpush; )*
-    };
-    if has_having {
-        let hav_f: ExprBlob = parse_expr(string_as_str(&having_body));
-        keep = quote_block! { if (#(hav_f)) #(keep) };
-    }
-    let finalize: ExprBlob = quote_block! {
-        let mut __gf_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
-        let mut __gf_row: Vec<i64> = Vec::<i64>::new();
-        #( #fcols; )*
-        let mut __r0: i64 = 0i64;
-        while __r0 < __g_key.len() {
-            #(rebind);
-            let key: #(keyt_f) = __g_key.get(__r0);
-            #( #freads; )*
-            #(keep);
-            __r0 = __r0 + 1i64;
-        }
-    };
+    // ── THERE IS NO FINALIZE PASS (ADR 0025 S4c) ────────────────────────────
+    // WHAT USED TO BE HERE: a second walk over `__g_key` that re-bound the
+    // group's REPRESENTATIVE BASE ROW by index (`&(src)[__g_row.get(__r0)]`),
+    // evaluated every aggregate's finalization eagerly, applied `having`, and
+    // copied key + row + finalized columns into a dense parallel `__gf_*` family
+    // so the output phase could index them 0..n.
+    //
+    // ⚠ THE RE-BIND IS NOT AN OPTIMIZATION SITTING BESIDE THE FOLD — IT IS WHAT
+    // BLOCKS THE BATCH PULL. `__g_row.push(__i0)` needs a GLOBAL ROW ORDINAL,
+    // and a `next_batch()` loop does not have one: `__i0` is an offset into the
+    // batch that is in hand. So the representative row is not merely dead for
+    // 141 of the corpus's 146 static aggregates, it is UNSPELLABLE for them once
+    // the source becomes a batch stream. Deleting it is the stage.
+    //
+    // ⚠ ALL THREE JOBS OF `__gf_*` FIT IN THE OUTPUT PHASE, FOR EVERY CLASS —
+    // not only the pure one. (a) `having` moves into the collect loop, which is
+    // where `__ix0` is built anyway; (b) the A→R conversion becomes LAZY, at the
+    // read, in `group_binds_frag`; (c) the dense index space was never needed —
+    // `__ix0` holds SURVIVING GROUP INDICES, and `sort_perm_frag`'s tiebreak
+    // compares those values, which are still strictly increasing in group order,
+    // so the sort is the same permutation it was.
+    //
+    // ⚠ THE PRICE, RECORDED RATHER THAN HIDDEN: a lazily finalized column is
+    // read TWICE per surviving group in a SORTED query (once to compute the sort
+    // key, once to project), so `<uda>_fin` and `avg`'s divide run twice where
+    // `__gf_*` ran them once. The intersection is small in the corpus (uda 4,
+    // avg 12, sort 19) and the mitigation — keep a finalized column only when
+    // `(uda || avg) && has_sort` — is deliberately NOT built: it would be an
+    // unmeasured change defended by an argument.
+    //
+    // WHAT IS CLASS-DEPENDENT IS `__g_row` ALONE. `pure_group` (the S4-GO
+    // predicate) false ⇒ the group carries its representative row and every
+    // clause above the group may name it, exactly as before.
 
-    // Group-row OUTPUT phase: order → project → distinct → limit.
+    // Group-row OUTPUT phase: having → order → project → distinct → limit.
+    let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &act,
+                                             &uda, &uda_fin, &uda_ret, key_ty, !pure_group,
+                                             needs_cnt, &agg_flt,
+                                             ch.base_var, ch.base_ty, ch.base_src);
     let mut collect: ExprBlob = quote_block! { __ix0.push(__r); };
     let mut ksdecl: ExprBlob = quote_block! { };
     let mut sortp:  ExprBlob = quote_block! { };
     if mods.has_sort {
         let okeyt_f: ExprBlob = parse_type(okey_ty);
         let okey_f:  ExprBlob = parse_expr(string_as_str(&okey_body));
-        let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &act,
-                                                 key_ty, ch.base_var, ch.base_ty, ch.base_src);
         sort_key_vector(prm, ch.base_src, ch.base_var, okey_ty, 1i64);
         ksdecl = quote_block! { let mut __ks: Vec<#(okeyt_f)> = Vec::<#(okeyt_f)>::new(); };
         collect = quote_block! {
-            #(binds_r);
             __ix0.push(__r);
             __ks.push(#(okey_f));
         };
         sortp = sort_perm_frag(okey_ty, mods.sort_desc, 1i64);
     }
+    // `having` now gates the COLLECT, which is the only place it can gate now
+    // that no pass runs between the fold and the output.
+    if has_having {
+        let hav_f: ExprBlob = parse_expr(string_as_str(&having_body));
+        collect = quote_block! { if (#(hav_f)) #(collect) };
+    }
+    // The group columns are bound in the collect loop only when something there
+    // READS them — the `having` predicate or the `order by` key. With neither,
+    // the loop is `__ix0.push(__r)` and binding would be dead code in the
+    // emitted artifact.
+    if mods.has_sort || has_having {
+        collect = quote_block! { #(binds_r); #(collect); };
+    }
     let binds_o: ExprBlob = group_binds_frag(quote_expr! { __ix0.get(__o) }, &aggs, acount, &act,
-                                             key_ty, ch.base_var, ch.base_ty, ch.base_src);
+                                             &uda, &uda_fin, &uda_ret, key_ty, !pure_group,
+                                             needs_cnt, &agg_flt,
+                                             ch.base_var, ch.base_ty, ch.base_src);
     let push_f: ExprBlob = push_guarded_frag(result_ty, proj_f, mods.distinct);
     let mut ocond: ExprBlob = quote_expr! { __o < __ix0.len() };
     if mods.has_limit {
@@ -4404,7 +4431,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let mut __ix0: Vec<i64> = Vec::<i64>::new();
         #(ksdecl);
         let mut __r: i64 = 0i64;
-        while __r < __gf_key.len() {
+        while __r < __g_key.len() {
             #(collect);
             __r = __r + 1i64;
         }
@@ -4422,11 +4449,10 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
         #( #bps; )*
         let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
-        let mut __g_cnt: Vec<i64> = Vec::<i64>::new();
-        let mut __g_row: Vec<i64> = Vec::<i64>::new();
+        #(cnt_decl);
+        #(row_decl);
         #( #acols; )*
         #(nest);
-        #(finalize);
         #(output);
         return Result::Ok(__out);
     };
@@ -5165,6 +5191,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let acct: str = acc[gi];
         ganm[gi] = ga_name(a.out);
         let n_ga: Ident = Ident::new(string_as_str(&ganm[gi]));
+        // The same accumulator cell as `n_ga`, qualified by the handle receiver.
+        // The shared seed/fold fragments take it as TEXT; `agg_fold_frag`'s
+        // header records the measurement showing the field access costs no
+        // emitted bytes against the bare identifier the batch emitter splices.
+        let hgan: String = hga_name(a.out);
         let n_out: Ident = Ident::new(a.out);
         let arg_f: ExprBlob = parse_expr(string_as_str(&iarg[gi]));
 
@@ -5309,32 +5340,15 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         }
 
         // — the group-creation SEED, SPELLED IN THE ACCUMULATOR'S OWN TYPE —
-        // ⚠ THIS IS WHERE THE TYPING PAYS FIRST. The batch emitter writes the
-        // literals 9223372036854775807i64 / -9223372036854775808i64 because its
-        // cell IS an i64; for a `u64` cell those are not the extrema of the
-        // order the cell compares under — `el_wrap_ord_least`'s header records
-        // the measurement where a signed seed put `max`'s seed in the MIDDLE of
-        // a u64 column's order and `max` over a single row of 5 answered 2^63.
-        // `agg_acc_least` / `agg_acc_greatest` are the accumulator's own extrema
-        // and there is no key, no flag and no reinterpretation on the path.
-        if fnid == AGG_MIN() {
-            if agg_flt[gi] {
-                seeds.push(quote_block! { __h.#n_ga.push(f64_from_bits(0x7FF8000000000000u64)); });
-            } else {
-                let sd: ExprBlob = parse_expr(agg_acc_greatest(acct));
-                seeds.push(quote_block! { __h.#n_ga.push(#(sd)); });
-            }
-        } else if fnid == AGG_MAX() {
-            if agg_flt[gi] {
-                seeds.push(quote_block! { __h.#n_ga.push(f64_from_bits(0xFFF0000000000000u64)); });
-            } else {
-                let sd2: ExprBlob = parse_expr(agg_acc_least(acct));
-                seeds.push(quote_block! { __h.#n_ga.push(#(sd2)); });
-            }
-        } else {
-            let sz: ExprBlob = parse_expr(agg_acc_zero(acct));
-            seeds.push(quote_block! { __h.#n_ga.push(#(sz)); });
-        }
+        // ⚠ THIS IS WHERE THE TYPING PAYS, and it now pays in ONE place: the
+        // seed rule below is `agg_seed_frag`'s, the same fragment the batch
+        // emitter takes, differing only in the receiver this cell name carries.
+        // What it encodes has not changed — the extremum is the ACCUMULATOR's
+        // own, in the accumulator's own type, because for a `u64` cell the
+        // signed literals are not extrema at all (i64::MIN's bits read as u64
+        // are 2^63, the middle of the range, which is how `max` over a single
+        // row of 5 once answered 2^63).
+        seeds.push(agg_seed_frag(fnid, agg_flt[gi], acct, string_as_str(&hgan)));
         // ⚠ AND THE SEED ABOVE IS A PLACEHOLDER ONCE A MAP EXISTS, NOT AN
         // IDENTITY. Under insert-only the first row always displaces it. Under
         // retraction a group can EMPTY and the cell then holds a stale best, so
@@ -5368,7 +5382,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             if sfold {
                 folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), __w)?); });
             } else {
-                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + 1i64); });
+                folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                         string_as_str(&hgan), string_as_str(&iarg[gi])));
             }
         } else if fnid == AGG_SUM() && !agg_flt[gi] {
             // ⚠ THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE AND BY
@@ -5396,14 +5411,16 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                           else      { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), __p)?); } }
                     });
                 } else {
-                    folds.push(quote_block! { __h.#n_ga.set(__gi, el_addu(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                    folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                             string_as_str(&hgan), string_as_str(&iarg[gi])));
                 }
             } else {
                 // `sfold`, for the same reason the `count` fold above reads it.
                 if sfold {
                     folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), el_mul(__w, (#(arg_f)))?)?); });
                 } else {
-                    folds.push(quote_block! { __h.#n_ga.set(__gi, el_add(__h.#n_ga.get(__gi), (#(arg_f)))?); });
+                    folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                             string_as_str(&hgan), string_as_str(&iarg[gi])));
                 }
             }
         } else if fnid == AGG_SUM() || fnid == AGG_AVG() {
@@ -5413,11 +5430,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // divided at snapshot. `incr_retract_eligible` is false for both, so
             // no `__w` exists in the fn this fold lands in and `(S+x)-x` cannot
             // be emitted. That is decision D4 left OPEN, not answered.
-            if agg_cast[gi] {
-                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + ((#(arg_f)) as f64)); });
-            } else {
-                folds.push(quote_block! { __h.#n_ga.set(__gi, __h.#n_ga.get(__gi) + (#(arg_f))); });
-            }
+            folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                     string_as_str(&hgan), string_as_str(&iarg[gi])));
         } else if want_map {
             // ── THE SEMILATTICE FOLD: map + cached best + rescan-on-retract ──
             // The dynamic engine's shape (incr.logos, `fnid == 3 || fnid == 4`),
@@ -5572,27 +5586,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // improve against one cell is the whole state a `min` needs. Keeping
             // the two shapes side by side is what makes the map a COST paid for
             // a capability rather than an unconditional change of state shape.
-            if agg_flt[gi] {
-                folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) < f64_data_key(__h.#n_ga.get(__gi)) { __h.#n_ga.set(__gi, __v); } }
-                });
-            } else {
-                let vt: ExprBlob = parse_type(acct);
-                folds.push(quote_block! {
-                    { let __v: #(vt) = (#(arg_f)); if __v < __h.#n_ga.get(__gi) { __h.#n_ga.set(__gi, __v); } }
-                });
-            }
+            folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                     string_as_str(&hgan), string_as_str(&iarg[gi])));
         } else {
-            if agg_flt[gi] {
-                folds.push(quote_block! {
-                    { let __v: f64 = (#(arg_f)); if f64_data_key(__v) > f64_data_key(__h.#n_ga.get(__gi)) { __h.#n_ga.set(__gi, __v); } }
-                });
-            } else {
-                let vt2: ExprBlob = parse_type(acct);
-                folds.push(quote_block! {
-                    { let __v: #(vt2) = (#(arg_f)); if __v > __h.#n_ga.get(__gi) { __h.#n_ga.set(__gi, __v); } }
-                });
-            }
+            folds.push(agg_fold_frag(fnid, agg_flt[gi], agg_cast[gi], acct,
+                                     string_as_str(&hgan), string_as_str(&iarg[gi])));
         }
 
         // — the group row's READ of one accumulator, at snapshot time —
@@ -5909,7 +5907,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         let __k: #(keyt_f) = (#(key_f));
         let mut __gi: i64 = -1i64;
         let mut __s: i64 = 0i64;
-        while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
+        // first match. This silently changed the rule from LAST-match-wins
+        // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
+        // are push-only (remove/set/pop have zero call sites, measured by
+        // the S4 audit), so duplicates are impossible by construction and
+        // both rules select the same index. If a mutating group-key op is
+        // ever added, this line is where the invariant breaks first.
+        while __s < __h.__gk.len() && __gi < 0i64 { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
         if __gi < 0i64 {
             if __w < 0i64 { return Result::Err(ElError::RetractAbsent); }
             __h.__gk.push(__k);
@@ -6597,7 +6602,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let __k: #(keyt_f) = (#(key_f));
                     let mut __gi: i64 = -1i64;
                     let mut __s: i64 = 0i64;
-                    while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+                    // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
+                    // first match. This silently changed the rule from LAST-match-wins
+                    // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
+                    // are push-only (remove/set/pop have zero call sites, measured by
+                    // the S4 audit), so duplicates are impossible by construction and
+                    // both rules select the same index. If a mutating group-key op is
+                    // ever added, this line is where the invariant breaks first.
+                    while __s < __h.__gk.len() && __gi < 0i64 { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
                     if __gi < 0i64 {
                         __h.__gk.push(__k);
                         __h.__gc.push(0i64);
@@ -7112,7 +7124,14 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 let __k: #(keyt_f) = (#(key_f));
                 let mut __gi: i64 = -1i64;
                 let mut __s: i64 = 0i64;
-                while __s < __h.__gk.len() { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+                // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
+                // first match. This silently changed the rule from LAST-match-wins
+                // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
+                // are push-only (remove/set/pop have zero call sites, measured by
+                // the S4 audit), so duplicates are impossible by construction and
+                // both rules select the same index. If a mutating group-key op is
+                // ever added, this line is where the invariant breaks first.
+                while __s < __h.__gk.len() && __gi < 0i64 { if __h.__gk.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
                 if __gi < 0i64 {
                     __h.__gk.push(__k);
                     __h.__gc.push(0i64);
@@ -7841,6 +7860,161 @@ fn incr_proj_ty_ok(e: SExpr, t: &ElTypes) -> bool {
 
 // `__ga_<out>` / `__gf_<out>` / `<name><suffix>` — the generated-name spellings.
 // ⚠ Each returns the STRING: `Ident::new` borrows, so the caller keeps it.
+// ── THE SHARED ACCUMULATOR FRAGMENTS (ADR 0025 S4, the unification step) ────
+//
+// WHAT WAS MEASURED, BECAUSE THE BRIEF'S PREMISE DID NOT SURVIVE IT. "Two
+// ~720-line aggregate emitters become one" is false of this tree and was false
+// before this change: `emit_aggregate` is 628 lines, `emit_incremental` is 2568
+// of which the aggregate half is 819, and the 736-line difference is not
+// duplication — it is WEIGHT (`__w` sign handling, `el_mul`/`el_subu` retraction
+// arithmetic, the `__gm_*` min/max multiplicity map, the DRed driver). Forcing
+// that into the batch emitter would move code that has no batch caller.
+//
+// WHAT IS ACTUALLY SHARED IS 14 FRAGMENT ARMS, and the number is a measurement:
+// extracting every `quote_block!` body from both aggregate halves and comparing
+// them with the `__h.` receiver normalized away gives 23 distinct batch arms, 21
+// distinct incremental arms, and 14 in the intersection — 5 seeds and 9 folds,
+// exactly the arms below. They were character-for-character identical apart from
+// the receiver, so the receiver is what these builders take as a parameter.
+//
+// ⚠ THE RECEIVER IS A STRING, AND THAT CHOICE WAS PROVED FREE BEFORE IT WAS
+// TAKEN. The batch's cell is the bare `__ga_<out>`; the incremental's is the
+// FIELD ACCESS `__h.__ga_<out>`. Splicing a field access through `#(…)` where an
+// `Ident` used to be splices an EXPRESSION, and an expression printer is exactly
+// the thing that is entitled to add parentheses — `(__h.__ga_n).set(…)` would
+// have churned every aggregate fn in the corpus. So one arm on each side was
+// rewritten this way and the corpus re-emitted: 165 dumps, 7,067,309 bytes,
+// byte-identical, `diff -r` empty. A byte-identical corpus is also what a branch
+// that never ran would produce, so the same two arms were then POISONED with a
+// `+ 0i64` and re-emitted: 42 files moved, the batch arm fired 64 times and the
+// incremental arm 4, and the emitted receivers read `__ga_n.set(…)` and
+// `__h.__ga_n.set(…)` with no added parentheses. The seam is free AND live.
+//
+// ⚠ WHAT DELIBERATELY DID NOT MOVE HERE. The UDA arms (`_init`/`_step`) have no
+// incremental counterpart at all — `incr_eligible` refuses a UDA query — so they
+// stay at the batch call site rather than becoming a parameter no second caller
+// passes. The weighted (`sfold`) folds and the semilattice map fold stay at the
+// incremental call site for the same reason in the other direction. A builder
+// arm with one caller is not shared code, it is a longer path to the same line.
+fn agg_seed_frag(fnid: i32, is_flt: bool, acc: str, cell: str) -> ExprBlob {
+    // ⚠ THE SEED IS THE ACCUMULATOR'S OWN EXTREMUM IN ITS OWN TYPE — the rule
+    // both emitters already carried in prose and now carry in one place. For a
+    // float, `f64::MAX` is not the top of the order (±inf and NaN lie beyond it)
+    // and under `f64_data_key` the top is the canonical NaN and the bottom −inf.
+    // For an integer, the SIGNED literals are not a `u64` cell's extrema at all —
+    // i64::MIN's bits read as u64 are 2^63, the middle of the range. `greatest`
+    // seeds `min` and `least` seeds `max`, and both emitters take that polarity.
+    if fnid == AGG_MIN() {
+        let c1: ExprBlob = parse_expr(cell);
+        if is_flt { return quote_block! { #(c1).push(f64_from_bits(0x7FF8000000000000u64)); }; }
+        let sd: ExprBlob = parse_expr(agg_acc_greatest(acc));
+        return quote_block! { #(c1).push(#(sd)); };
+    }
+    if fnid == AGG_MAX() {
+        let c2: ExprBlob = parse_expr(cell);
+        if is_flt { return quote_block! { #(c2).push(f64_from_bits(0xFFF0000000000000u64)); }; }
+        let sd2: ExprBlob = parse_expr(agg_acc_least(acc));
+        return quote_block! { #(c2).push(#(sd2)); };
+    }
+    // `count`, `sum` and `avg` all seed at the accumulator's zero. The batch
+    // emitter used to spell the float case as a literal `0.0f64` beside a call to
+    // `agg_acc_zero` for the integer cases; `agg_acc_zero("f64")` IS `"0.0f64"`,
+    // so the two spellings emitted the same text and one of them was redundant.
+    let c3: ExprBlob = parse_expr(cell);
+    let sz: ExprBlob = parse_expr(agg_acc_zero(acc));
+    return quote_block! { #(c3).push(#(sz)); };
+}
+
+// The INSERT-ONLY per-row fold for one accumulator cell. `cell` is the cell
+// expression (`__ga_<out>` or `__h.__ga_<out>`), `arg` the already-checked
+// aggregate operand's source text.
+//
+// ⚠ THIS IS THE `__w == 1` SPECIALIZATION AND SAYING SO IS THE POINT. The
+// incremental emitter's weighted folds compute the same numbers as these at
+// weight +1, which is what makes every insert-only fixture in the tree a control
+// on the weighted widening — but the weighted forms are NOT reachable from here
+// and must not be, because a `sum` that took `el_addu` for its addition and
+// `el_sub` for its subtraction would be one cell answering under two orders.
+fn agg_fold_frag(fnid: i32, is_flt: bool, is_cast: bool, acc: str, cell: str, arg: str) -> ExprBlob {
+    if fnid == AGG_COUNT() {
+        let cs: ExprBlob = parse_expr(cell);
+        let cg: ExprBlob = parse_expr(cell);
+        return quote_block! { #(cs).set(__gi, #(cg).get(__gi) + 1i64); };
+    }
+    if fnid == AGG_SUM() && !is_flt {
+        // ⚠ THE OVERFLOW PREDICATE IS CHOSEN BY THE ACCUMULATOR'S TYPE AND BY
+        // NOTHING ELSE. `el_add` is i64's and `el_addu` is u64's; no signedness
+        // flag reaches the fold. A `u64` cell added through i64's predicate
+        // answers `{2^62, 2^62}` with an Err it should not raise and
+        // `{5, 2^63, 2^64-1}` with a quiet wrong number and no Err at all —
+        // both directions pinned by `wql_agg_wide_int_arg_e2e`. The i64 sum is
+        // error-returning by the same rule: a running-total overflow becomes
+        // Err(ElError) via `?`, never a trap.
+        let cs2: ExprBlob = parse_expr(cell);
+        let cg2: ExprBlob = parse_expr(cell);
+        let ag: ExprBlob = parse_expr(arg);
+        if str_eq(acc, "u64") {
+            return quote_block! { #(cs2).set(__gi, el_addu(#(cg2).get(__gi), (#(ag)))?); };
+        }
+        return quote_block! { #(cs2).set(__gi, el_add(#(cg2).get(__gi), (#(ag)))?); };
+    }
+    if fnid == AGG_SUM() || fnid == AGG_AVG() {
+        // The f64 accumulator: a float `sum`, and EVERY `avg` including `avg`
+        // over an integer column, whose running total is an f64 the moment it is
+        // divided. The divide happens at the READ in both emitters, not here.
+        let cs3: ExprBlob = parse_expr(cell);
+        let cg3: ExprBlob = parse_expr(cell);
+        let ag3: ExprBlob = parse_expr(arg);
+        if is_cast {
+            return quote_block! { #(cs3).set(__gi, #(cg3).get(__gi) + ((#(ag3)) as f64)); };
+        }
+        return quote_block! { #(cs3).set(__gi, #(cg3).get(__gi) + (#(ag3))); };
+    }
+    // ⚠ f64 min/max FOLD THROUGH `f64_data_key`, NOT `<`. `<` is PARTIAL: a NaN
+    // is neither less nor greater than anything, so `max` over { NaN, 1.0 }
+    // answered 1.0 where this order says NaN is the greatest. The compare is
+    // STRICT, so among values with the same key the FIRST in row order wins, and
+    // the seed survives only when the whole group is NaN — where the canonical
+    // NaN IS the value the group holds, since all NaNs are one value. The integer
+    // arms keep `<`/`>`: the CELL's own order, which for a u64 cell is u64's and
+    // is exactly the order that column asked for. `let __v: i64` hardcoded here
+    // is what once produced `expected i64, got u64` from inside the blob.
+    let cs4: ExprBlob = parse_expr(cell);
+    let cg4: ExprBlob = parse_expr(cell);
+    let ag4: ExprBlob = parse_expr(arg);
+    if fnid == AGG_MIN() {
+        if is_flt {
+            return quote_block! {
+                { let __v: f64 = (#(ag4)); if f64_data_key(__v) < f64_data_key(#(cg4).get(__gi)) { #(cs4).set(__gi, __v); } }
+            };
+        }
+        let vt: ExprBlob = parse_type(acc);
+        return quote_block! {
+            { let __v: #(vt) = (#(ag4)); if __v < #(cg4).get(__gi) { #(cs4).set(__gi, __v); } }
+        };
+    }
+    if is_flt {
+        return quote_block! {
+            { let __v: f64 = (#(ag4)); if f64_data_key(__v) > f64_data_key(#(cg4).get(__gi)) { #(cs4).set(__gi, __v); } }
+        };
+    }
+    let vt2: ExprBlob = parse_type(acc);
+    return quote_block! {
+        { let __v: #(vt2) = (#(ag4)); if __v > #(cg4).get(__gi) { #(cs4).set(__gi, __v); } }
+    };
+}
+
+// `__h.__ga_<out>` — the accumulator cell of `ga_name`, qualified by the
+// incremental handle's receiver. This qualification is the ONLY difference
+// between the two emitters' shared fragments; see `agg_fold_frag`'s header for
+// the measurement that says splicing it as an expression costs no emitted bytes.
+fn hga_name(out: str) -> String {
+    let mut s: String = String::new();
+    s.push_str("__h.");
+    s.push_str("__ga_");
+    s.push_str(out);
+    return s;
+}
 fn ga_name(out: str) -> String {
     let mut s: String = String::new();
     s.push_str("__ga_");
@@ -7852,12 +8026,6 @@ fn ga_name(out: str) -> String {
 fn gm_name(out: str) -> String {
     let mut s: String = String::new();
     s.push_str("__gm_");
-    s.push_str(out);
-    return s;
-}
-fn gf_name(out: str) -> String {
-    let mut s: String = String::new();
-    s.push_str("__gf_");
     s.push_str(out);
     return s;
 }
@@ -7878,29 +8046,71 @@ fn row_rebind_frag(base_var: str, base_ty: str, base_src: str, idx: ExprBlob) ->
     return quote_block! { let #bv: &#(bt) = &(#(bs))[#(idx)]; };
 }
 
-// The group-column re-binds for one FINALIZED group row (the representative
-// base row + `key` + each aggregate output as a local of its declared name,
-// read from the parallel `__gf_*` Vecs at index expression `idx`). Used twice
-// by the output phase: once to evaluate the `order by` key, once to project.
+// The group-column re-binds for ONE GROUP, read straight off the fold's own
+// columns: `key` from `__g_key`, each aggregate output as a local of its
+// declared name FINALIZED AT THE READ from `__ga_<out>`, and — for the
+// REPRESENTATIVE class only — the base row var re-bound through `__g_row`.
+// Called twice by the output phase: once in the collect loop (to evaluate
+// `having` and the `order by` key), once in the projection loop.
+//
+// ⚠ THE FINALIZATION LIVES HERE AND NOWHERE ELSE. It used to live in a finalize
+// PASS that wrote `__gf_<out>`, and the two spellings of "how an accumulator
+// becomes an output" then had to be kept in step by hand — a UDA's `_fin`, its
+// return cast, and `avg`'s guarded divide were all written twice. One site means
+// the eager and lazy forms cannot disagree, because there is no eager form.
+//
+// ⚠ `rep` IS THE ONLY CLASS SWITCH, and it is the S4-GO predicate's answer
+// (`!pure_group`). FALSE ⇒ `__g_row` does not exist in the emitted body at all,
+// so naming it here would be an `undefined variable` on GENERATED code — the
+// same failure the old `__g_row`-always rule was introduced to avoid, now
+// prevented by the predicate that decides both sites from one antecedent.
+//
+// ⚠ `has_cnt` MUST AGREE WITH THE DECLARATION GATE. `avg` reads `__g_cnt`, and
+// `__g_cnt` exists iff some aggregate is an `avg` — so the `avg` arm's guard is
+// live whenever this arm is taken. It is passed rather than re-derived for the
+// same reason the accumulator type is passed to `emit_incremental`: two
+// derivations of one predicate is how two emitters come to disagree.
 fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
-                    key_ty: str, base_var: str, base_ty: str, base_src: str) -> ExprBlob {
-    let ridx: ExprBlob = quote_expr! { __gf_row.get(#(idx)) };
-    let rebind: ExprBlob = row_rebind_frag(base_var, base_ty, base_src, ridx);
+                    uda: &[bool; 8], uda_fin: &[bool; 8], uda_ret: &[str; 8],
+                    key_ty: str, rep: bool, has_cnt: bool, agg_flt: &[bool; 8],
+                    base_var: str, base_ty: str, base_src: str) -> ExprBlob {
     let keyt_f: ExprBlob = parse_type(key_ty);
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut gi: i64 = 0i64;
     while gi < acount {
         let a: RAgg = aggs.agg_at(gi);
-        let s_gf: String = gf_name(a.out);
-        let n_gf: Ident = Ident::new(string_as_str(&s_gf));
+        let fnid: i32 = agg_of_name(a.fn_name);
+        let s_ga: String = ga_name(a.out);
+        let n_ga: Ident = Ident::new(string_as_str(&s_ga));
         let n_out: Ident = Ident::new(a.out);
         let act_f: ExprBlob = parse_type(act[gi]);
-        binds.push(quote_block! { let #n_out: #(act_f) = #n_gf.get(#(idx)); });
+        if uda[gi] {
+            let acc_read: ExprBlob = quote_expr! { #n_ga.get(#(idx)) };
+            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi],
+                                                  uda_fin_cast(uda_ret[gi]));
+            binds.push(quote_block! { let #n_out: #(act_f) = #(fin); });
+        } else if fnid == AGG_AVG() && has_cnt {
+            binds.push(quote_block! {
+                let #n_out: #(act_f) =
+                    (if __g_cnt.get(#(idx)) > 0i64 { #n_ga.get(#(idx)) / (__g_cnt.get(#(idx)) as f64) }
+                     else { 0.0f64 });
+            });
+        } else {
+            binds.push(quote_block! { let #n_out: #(act_f) = #n_ga.get(#(idx)); });
+        }
         gi = gi + 1i64;
     }
+    if rep {
+        let ridx: ExprBlob = quote_expr! { __g_row.get(#(idx)) };
+        let rebind: ExprBlob = row_rebind_frag(base_var, base_ty, base_src, ridx);
+        return quote_block! {
+            #(rebind);
+            let key: #(keyt_f) = __g_key.get(#(idx));
+            #( #binds; )*
+        };
+    }
     return quote_block! {
-        #(rebind);
-        let key: #(keyt_f) = __gf_key.get(#(idx));
+        let key: #(keyt_f) = __g_key.get(#(idx));
         #( #binds; )*
     };
 }

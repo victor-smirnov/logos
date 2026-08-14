@@ -1,0 +1,220 @@
+// THE SINGLE-PASS GROUP FOLD (ADR 0025 S4) — VALUES ON BOTH CLASSES.
+//
+// The aggregate emitter used to run TWO passes over the group table: the fold,
+// and then a FINALIZE pass that re-bound each group's representative base row by
+// index (`&(src)[__g_row.get(__r0)]`), converted every accumulator eagerly and
+// copied key + row + finalized columns into a dense parallel `__gf_*` family.
+// The finalize pass is gone. What decides whether a group carries a
+// REPRESENTATIVE ROW at all is now a predicate over the clauses ABOVE the group
+// — `select`, `having`, `order by` — asked through the same
+// `sexpr_over_group_names` the incremental eligibility rule asks with:
+//
+//   PURE            every such clause is over `key` + the aggregate outputs. No
+//                   `__g_row`, no re-bind, no second pass. 141 of the corpus's
+//                   146 static aggregates.
+//   REPRESENTATIVE  some clause names a SOURCE ROW. `__g_row` and its re-bind
+//                   survive, unchanged, with their drain and their ground. 5.
+//
+// ⚠ THIS FILE IS THE REFUSE/ADMIT PAIR FOR THAT PREDICATE, AND THE PAIR IS THE
+// POINT. A message alone cannot tell separation from over-refusal, and a class
+// switch is exactly a permissive/restrictive pair: `pure_totals` and
+// `rep_totals` are THE SAME QUERY with ONE OUTPUT COLUMN SWAPPED — `hi =
+// max(s.amount)` becomes the row var's own `s.amount` — and both must answer
+// correctly. If the predicate over-refuses, the pure side still answers and
+// nothing reds; if it over-ADMITS, the representative side reads a column that
+// was never materialized. Only holding both directions pins it.
+//
+// ⚠ THE ORDER KEY IS THE THIRD CLAUSE AND THE WIDENING THAT MADE IT NECESSARY.
+// `incr_eligible` asks its version of this question of `select` and `having`
+// only, because it declines every sorted query outright. `ord_by_row` below is
+// PURE in select and having and REPRESENTATIVE in its ORDER KEY alone — the
+// shape a two-clause predicate answers PURE, deleting `__g_row` out from under a
+// live reader.
+//
+// ⚠ EMPTINESS IS ASSERTED IN BOTH ITS FORMS, because the finalize pass is where
+// "no groups" used to be decided and it no longer exists: an EMPTY SOURCE (the
+// fold never runs, the output loop reads a zero-length group table) and an EMPTY
+// GROUP SET (`having` keeps nothing, which now gates the COLLECT loop rather
+// than a finalize copy).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Sale { pub dept: i64, pub amount: i64 }
+
+// ── PURE: outputs are `key` + accumulators, nothing else ─────────────────────
+pub deem pure_totals(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate n = count() , t = sum(s.amount) , lo = min(s.amount) , hi = max(s.amount)
+      select (key, n, t, lo, hi) }
+
+// ── REPRESENTATIVE: the SAME query, ONE output column swapped ────────────────
+// `hi` (an accumulator over the whole group) becomes `s.amount` (the FIRST row's
+// own column). Everything else is identical, so any difference in the answer is
+// the swapped column and nothing else.
+pub deem rep_totals(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate n = count() , t = sum(s.amount) , lo = min(s.amount)
+      select (key, n, t, lo, s.amount) }
+
+// ── PURE with both modifiers over group names ────────────────────────────────
+// `having` now gates the collect loop and `order by` reads lazily finalized
+// columns; a query that uses both at once is what proves the two did not get
+// tangled when the pass between them was deleted.
+pub deem pure_sorted(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate t = sum(s.amount)
+      having t >= 20
+      select (key, t) order by t desc }
+
+// ── REPRESENTATIVE BY ITS ORDER KEY ALONE ────────────────────────────────────
+// `select` and `having` are over group names; only `order by s.amount` reaches a
+// source row. A predicate that did not widen to the order key calls this PURE.
+pub deem ord_by_row(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate t = sum(s.amount)
+      select (key, t) order by s.amount desc }
+
+// ── `avg` — the one aggregate that still reads `__g_cnt` ─────────────────────
+// Every other aggregate folds its own accumulator; `avg` divides by the group's
+// row count, which is why the count column survives for `avg` queries and for no
+// others. Asserted as a value so the gate is the answer, not the census.
+pub deem pure_avg(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate a = avg(s.amount) , n = count()
+      select (key, a, n) }
+
+// ── EMPTY GROUP SET — `having` keeps nothing ─────────────────────────────────
+pub deem none_survive(sales: &[Sale]) { from sales s
+      group by s.dept
+      aggregate t = sum(s.amount)
+      having t > 1000i64
+      select (key, t) }
+
+fn main() -> i32 {
+    // Discovery order of the groups is FIRST-OCCURRENCE: 1, 3, 2.
+    //   dept 1: rows 10, 20        → n=2 t=30 lo=10 hi=20, first amount 10
+    //   dept 3: rows  5,  9        → n=2 t=14 lo=5  hi=9,  first amount 5
+    //   dept 2: rows  7, 15, 8     → n=3 t=30 lo=7  hi=15, first amount 7
+    let sales: [Sale; 7] = [
+        Sale { dept: 1i64, amount: 10i64 },
+        Sale { dept: 3i64, amount: 5i64  },
+        Sale { dept: 1i64, amount: 20i64 },
+        Sale { dept: 2i64, amount: 7i64  },
+        Sale { dept: 3i64, amount: 9i64  },
+        Sale { dept: 2i64, amount: 15i64 },
+        Sale { dept: 2i64, amount: 8i64  },
+    ];
+
+    // ── PURE: every column is a fold over the whole group ────────────────────
+    let p: Vec<(i64, i64, i64, i64, i64)> = pure_totals(&sales[..]).unwrap();
+    if p.len() != 3i64 { return 1i32; }
+    let p0: (i64, i64, i64, i64, i64) = p.get(0i64);
+    if p0.0 != 1i64 { return 2i32; }
+    if p0.1 != 2i64 { return 3i32; }
+    if p0.2 != 30i64 { return 4i32; }
+    if p0.3 != 10i64 { return 5i32; }
+    if p0.4 != 20i64 { return 6i32; }
+    let p1: (i64, i64, i64, i64, i64) = p.get(1i64);
+    if p1.0 != 3i64 { return 7i32; }
+    if p1.1 != 2i64 { return 8i32; }
+    if p1.2 != 14i64 { return 9i32; }
+    if p1.3 != 5i64 { return 10i32; }
+    if p1.4 != 9i64 { return 11i32; }
+    let p2: (i64, i64, i64, i64, i64) = p.get(2i64);
+    if p2.0 != 2i64 { return 12i32; }
+    if p2.1 != 3i64 { return 13i32; }
+    if p2.2 != 30i64 { return 14i32; }
+    if p2.3 != 7i64 { return 15i32; }
+    if p2.4 != 15i64 { return 16i32; }
+
+    // ── REPRESENTATIVE: the last column is the FIRST ROW's own amount ────────
+    // Same three groups, same n/t/lo — only the swapped column differs, and it
+    // differs exactly where `max` and "first row" disagree (dept 1: 20 vs 10;
+    // dept 3: 9 vs 5; dept 2: 15 vs 7). A representative column that had
+    // silently become the accumulator would answer 20/9/15 here.
+    let r: Vec<(i64, i64, i64, i64, i64)> = rep_totals(&sales[..]).unwrap();
+    if r.len() != 3i64 { return 20i32; }
+    let r0: (i64, i64, i64, i64, i64) = r.get(0i64);
+    if r0.0 != 1i64 { return 21i32; }
+    if r0.1 != 2i64 { return 22i32; }
+    if r0.2 != 30i64 { return 23i32; }
+    if r0.3 != 10i64 { return 24i32; }
+    if r0.4 != 10i64 { return 25i32; }
+    let r1: (i64, i64, i64, i64, i64) = r.get(1i64);
+    if r1.0 != 3i64 { return 26i32; }
+    if r1.2 != 14i64 { return 27i32; }
+    if r1.4 != 5i64 { return 28i32; }
+    let r2: (i64, i64, i64, i64, i64) = r.get(2i64);
+    if r2.0 != 2i64 { return 29i32; }
+    if r2.1 != 3i64 { return 30i32; }
+    if r2.2 != 30i64 { return 31i32; }
+    if r2.4 != 7i64 { return 32i32; }
+
+    // ── PURE + having + order by ─────────────────────────────────────────────
+    // totals 30 (dept 1), 14 (dept 3), 30 (dept 2); `having t >= 20` drops
+    // dept 3; `order by t desc` over a tie keeps discovery order (the sort is
+    // stable and its tiebreak is the group index), so dept 1 then dept 2.
+    let s: Vec<(i64, i64)> = pure_sorted(&sales[..]).unwrap();
+    if s.len() != 2i64 { return 40i32; }
+    let s0: (i64, i64) = s.get(0i64);
+    let s1: (i64, i64) = s.get(1i64);
+    if s0.0 != 1i64 { return 41i32; }
+    if s0.1 != 30i64 { return 42i32; }
+    if s1.0 != 2i64 { return 43i32; }
+    if s1.1 != 30i64 { return 44i32; }
+
+    // ── REPRESENTATIVE BY THE ORDER KEY ──────────────────────────────────────
+    // First amounts are 10 (dept 1), 5 (dept 3), 7 (dept 2); descending by that
+    // gives dept 1, dept 2, dept 3 — an order NO group-name key produces (by
+    // `t` desc the tie 30/30 would put dept 1 and dept 2 first and dept 3 last,
+    // by `key` desc it is 3, 2, 1).
+    let o: Vec<(i64, i64)> = ord_by_row(&sales[..]).unwrap();
+    if o.len() != 3i64 { return 50i32; }
+    let o0: (i64, i64) = o.get(0i64);
+    let o1: (i64, i64) = o.get(1i64);
+    let o2: (i64, i64) = o.get(2i64);
+    if o0.0 != 1i64 { return 51i32; }
+    if o0.1 != 30i64 { return 52i32; }
+    if o1.0 != 2i64 { return 53i32; }
+    if o1.1 != 30i64 { return 54i32; }
+    if o2.0 != 3i64 { return 55i32; }
+    if o2.1 != 14i64 { return 56i32; }
+
+    // ── avg — the surviving reader of `__g_cnt` ──────────────────────────────
+    // dept 1: 30/2 = 15.0; dept 3: 14/2 = 7.0; dept 2: 30/3 = 10.0.
+    let av: Vec<(i64, f64, i64)> = pure_avg(&sales[..]).unwrap();
+    if av.len() != 3i64 { return 60i32; }
+    let a0: (i64, f64, i64) = av.get(0i64);
+    let a1: (i64, f64, i64) = av.get(1i64);
+    let a2: (i64, f64, i64) = av.get(2i64);
+    if a0.0 != 1i64 { return 61i32; }
+    if a0.1 != 15.0f64 { return 62i32; }
+    if a0.2 != 2i64 { return 63i32; }
+    if a1.1 != 7.0f64 { return 64i32; }
+    if a2.0 != 2i64 { return 65i32; }
+    if a2.1 != 10.0f64 { return 66i32; }
+    if a2.2 != 3i64 { return 67i32; }
+
+    // ── EMPTY GROUP SET: groups exist, `having` keeps none ───────────────────
+    let e1: Vec<(i64, i64)> = none_survive(&sales[..]).unwrap();
+    if e1.len() != 0i64 { return 70i32; }
+
+    // ── EMPTY SOURCE: the fold never runs at all ─────────────────────────────
+    // Every shape above, over zero rows. With the finalize pass deleted, "no
+    // groups" is decided by the output loop's own bound and by nothing else.
+    let empty: [Sale; 0] = [];
+    let z1: Vec<(i64, i64, i64, i64, i64)> = pure_totals(&empty[..]).unwrap();
+    if z1.len() != 0i64 { return 80i32; }
+    let z2: Vec<(i64, i64, i64, i64, i64)> = rep_totals(&empty[..]).unwrap();
+    if z2.len() != 0i64 { return 81i32; }
+    let z3: Vec<(i64, i64)> = pure_sorted(&empty[..]).unwrap();
+    if z3.len() != 0i64 { return 82i32; }
+    let z4: Vec<(i64, i64)> = ord_by_row(&empty[..]).unwrap();
+    if z4.len() != 0i64 { return 83i32; }
+    let z5: Vec<(i64, f64, i64)> = pure_avg(&empty[..]).unwrap();
+    if z5.len() != 0i64 { return 84i32; }
+
+    return 0i32;
+}

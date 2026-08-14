@@ -1297,6 +1297,26 @@ set_tests_properties(logos_00_census_pin PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ADR 0025 S4 — THE SHARED ACCUMULATOR FRAGMENTS HAVE ONE DEFINITION SITE.
+#
+# The batch and incremental aggregate emitters spelled 14 fragment arms twice,
+# identically apart from the `__h.` receiver (5 seeds, 9 insert-only folds). They
+# now come from `agg_seed_frag`/`agg_fold_frag`, and the corpus snapshot proved
+# the move emits byte-identical text — which is exactly why it cannot be the
+# guard here: byte-identity says the emitters AGREE, not that there is one rule
+# rather than two copies of one rule, and a re-inlined copy is byte-identical on
+# the day it is written. This reads the source shape instead, and its exemption
+# is checked in the abuse direction (a builder nobody calls fails it too).
+add_test(
+    NAME logos_00_agg_frag_single_site
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/agg_frag_single_site_gate.sh
+            ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(logos_00_agg_frag_single_site PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # The LANGUAGE SPEC's Evidence lines, checked for their nouns. `docs/spec/*.md`
 # said `stdlib/std/wql/…` throughout — the PACKAGE name written as a directory,
 # for a directory (`stdlib/mem/wql/`) that has always been the real one — and
@@ -1846,6 +1866,15 @@ set_tests_properties(logos_09_plan_nodes PROPERTIES
 # unwitnessed; (2) pushing every prelude node TWICE → 6 reds, five per-fixture
 # artifact comparisons (6 nodes vs 3 `__it_` bindings on `deem_batch_scan_drain`)
 # plus the total.
+#
+# (3) ADR 0025 §8, the GROUP FRAME half (FACT H): `group_rep_row_field` fired
+# outside its `if !pure_group` branch in `rexpr_walk::emit_aggregate` — the
+# shape a naming layer takes when it is derived from the query instead of from
+# the declaration → 59 reds, of which 57 are per-fixture (`1 representative row
+# plan line(s) vs 0 emitted __g_row binding(s)`, and 6 vs 0 on
+# `deem_incr_diff_harness`), plus the corpus pin (152 against 7) and the
+# corpus-wide plan/artifact identity. Reverted to a byte-identical source (md5
+# 4389fe13584cd19688e8bf9dea28c316) with a green census after.
 add_test(
     NAME logos_09_plan_ground_census
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/plan_ground_census_gate.sh
@@ -1972,6 +2001,36 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
 )
 set_tests_properties(logos_09_order_elision_pair PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_commit"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 §8 GATE — THE GROUP FRAME IS NAMED, GROUNDED AND PRICED.
+#
+# The aggregate's per-group state (`__g_key`, `__g_cnt`, `__g_row`, one
+# `__ga_<out>` per aggregate) was the largest class in criterion 1 that the plan
+# did not name at all: 380 bindings corpus-wide on this tree. It now enters the
+# plan vocabulary as FOUR grounds (`access_plan::AG_*`) on FIELDS of the
+# aggregate the plan already carries — not as a new node kind, and deliberately
+# not as an `Arrange`, because an arrange node is the claim that the artifact
+# built an INDEX and a group table is a linear `==` scan.
+#
+# The corpus half is `logos_09_plan_ground_census` (tier_full). This is the L2
+# half, and it asserts what a corpus total cannot: the PER-QUERY attribution.
+# One fixture, six queries, refuse/admit twins for the S4c class predicate — a
+# representative row on a pure query is the predicate over-admitting, and its
+# absence on a representative one is a column read that was never materialized.
+#
+# `tier_commit`: the class predicate decides whether a column EXISTS, so its
+# wrong direction is a wrong answer or a compile failure, not a slow query.
+add_test(
+    NAME logos_09_group_frame_naming
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/group_frame_naming_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_group_frame_naming PROPERTIES
     TIMEOUT 300
     LABELS  "logos;pass;suite_semantic_core;tier_commit"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"

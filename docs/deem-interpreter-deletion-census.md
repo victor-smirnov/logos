@@ -2604,9 +2604,24 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # two of this stage's three subjects never executed. Nothing red would have been
 # visible; only the count was. The fix was the two `.expected` files, after
 # which the measurement matched the prediction exactly.
-REGISTRY-ALL         7167
-REGISTRY-NOIMPORTED  3484
-REGISTRY-TIERCOMMIT  34
+#
+# ADR 0025 S4 moved them by +2 / +2 / +1: one fixture
+# (`pass/wql_group_single_pass_fold_e2e`, WITH its `.expected` — the 12th
+# gate-lie form is now a thing this stage checks first rather than discovers)
+# and one registered lint (`logos_00_agg_frag_single_site`, `tier_commit`).
+#
+# ADR 0025 §8 (S4-naming — THE GROUP FRAME ENTERS THE PLAN VOCABULARY) moves
+# them by +1 / +1 / +1, PREDICTED before the gate was run and measured exactly:
+# ONE registered gate, `logos_09_group_frame_naming` (`tier_commit`), and NO new
+# fixture — the stage's subject is `pass/wql_group_single_pass_fold_e2e`, which
+# S4 already registered and which already witnesses all four of the new grounds
+# (6 group frames, 12 accumulators, one `avg` count column, two representative
+# rows). A stage that names a class does not need a new fixture to name it with;
+# writing one would have added a second copy of the same six queries and moved
+# three numbers here for nothing.
+REGISTRY-ALL         7170
+REGISTRY-NOIMPORTED  3487
+REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger

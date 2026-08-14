@@ -339,6 +339,14 @@ Two corrections this stage owes §4 as written, both measured:
   — measured as THREE `__ix0` permutations against TWO `sort` nodes in
   `deem_batch_scan_drain` — and a derived rel's / SCC member's total, which is
   not a source's drain.
+  **HALF OF THAT IS DISCHARGED AT §8 (S4-naming) AND HALF IS NOT, stated as two
+  facts rather than as one closed bullet.** The GROUP-STATE VECTORS are named:
+  four `AG_*` grounds, 380 bindings corpus-wide, plan count == artifact count per
+  fixture (FACT H). The GROUP-ROW PERMUTATION is NOT: `__ix0` in the output phase
+  is still counted (`EXPECT_PERM` 319) and still attributed to no node, exactly as
+  the 85 permutations emitted where there is no sort at all are. A stage that
+  named one and let the other read as named would be the census counting the
+  question instead of the answer.
 
 LANDED (S2b, 2026-08-13) — THE PRELUDE READS THE NODE. `plan_apply_access`
 writes `prm.rel_node[r]` (`MAT_DRAIN`/`MAT_SORT` / `AD_NONE` / `AD_BUFFER`) from
@@ -842,6 +850,75 @@ semantic need, for accumulator aggregates. A fold over `ColsBatch` runs down a
 column slice — the vectorizable shape; taken when the two ~720-line aggregate
 emitters are unified, not before.
 
+LANDED (S4-naming, 2026-08-14) — THE GROUP FRAME ENTERS THE PLAN VOCABULARY.
+
+THE OBLIGATION, AND IT IS A NUMBER. The aggregate emitter materializes a family
+of per-group columns and the plan named NOT ONE of them: `MG_REGROUP` grounds the
+aggregate's DRAIN of its base source and says nothing about the state the
+grouping itself builds. `let mut (__g_key|__g_cnt|__g_row|__ga_*|__gf_*)` was
+therefore the largest unnamed class in criterion 1 — 1,122 bindings when the
+class was first counted. THE S4 FOLD TOOK IT TO 380 BEFORE THIS STAGE NAMED
+ANYTHING, and the two halves are separate results: 488 `__gf_*` left by being
+DELETED (the finalize pass), and `__g_cnt` 146 → 13 / `__g_row` 146 → 7 by being
+put behind their consumers (S4b: `avg` is `__g_cnt`'s only reader; S4c: `__g_row`
+belongs to the representative class alone).
+
+THE DECISION: FIELDS ON THE AGGREGATE THE PLAN ALREADY CARRIES, NOT A NEW NODE
+KIND. The plan's node kinds are ADAPTERS over a stream (`Drain`, `Sort`,
+`Arrange`) — things that materialize something a later phase reads back. A group
+table is the OPERATOR'S OWN STATE, as a join's build side is, and §4 already
+models that build side as an `Arrange` rather than as a `Join` node. A
+`GroupBy`/`Fold` KIND would put an operator into a vocabulary of adapters and
+make `explain()` print two different kinds of thing under one word. γ is already
+in the plan (`RQuery::Aggr`); what was missing is the STATE'S PRICE and its
+GROUND.
+
+⚠ AND THE FIRST ANSWER — "`Arrange` is the group table's kind, it is a keyed
+table built to be probed" — IS REFUSED ON A MEASUREMENT. The census pins
+`#(arrange nodes) == #(emitted `__hm`/`__hs`/`__bt` bindings)`, 598 == 598, per
+fixture and in total: an arrange node is the claim that the artifact BUILT AN
+INDEX. The group table is a linear `==` scan over `__g_key` (S4's MVP dedup) and
+builds no index, so 152 group tables spelled `arrange` would have falsified that
+identity and forced it to be re-partitioned by ground — a sensor weakened to
+admit a claim the artifact does not support. The group table is reported the way
+`sort_key_vector` reports `__ks`: as a FIELD, with its own verdict word. 598 ==
+598 is unchanged across this stage, and that is the stage's sharpest control.
+
+THE FOUR GROUNDS (`access_plan::AG_*`), authored at the DECLARATION SITE
+(`join_sel`, for the same emitted-text reason `arrange_node` lives there — a
+`use access_plan` in `rexpr_walk` would put one `use` line into every corpus
+dump), each firing inside the branch that declares its column:
+
+| ground | verdict | column | corpus | why it is its own ground |
+|---|---|---|---|---|
+| `AG_GROUPS` | `group frame` | `__g_key` | 152 | one row per distinct key; the fold's probe target, priced with the frame's WIDTH on its own line |
+| `AG_ACCUM` | `accumulator` | `__ga_<out>` | 208 | one cell per group per aggregate, named by output and typed by the ACCUMULATOR type |
+| `AG_COUNT` | `group count` | `__g_cnt` | 13 | S4b — `avg`'s denominator and nothing else's |
+| `AG_REP_ROW` | `representative row` | `__g_row` | 7 | S4c — the projection names a source row; its ABSENCE is what a single-pass fold IS |
+
+380 = 152 + 208 + 13 + 7, and the criterion-1 numerator moves by exactly that:
+the class is now 0 unnamed, with `__gf_*` at 0 by deletion. `AG_COUNT` is NOT
+folded into `AG_GROUPS` although the design bracketed it there — a column present
+in 13 of 152 group tables cannot be counted by a census that counts ground lines
+if it shares a ground with the table, and its sentence is a different sentence.
+
+THE GATES. `logos_09_plan_ground_census` (tier_full) grows by FACT H: plan lines
+== emitted `let mut` bindings per family, per fixture AND corpus-wide, beside
+per-family pins — the pins catch a class that shrank, the identity catches a plan
+that stopped describing the artifact, and a defect moving both sides together
+fails the first. `logos_09_group_frame_naming` (tier_commit) is the L2 half and
+asserts what a corpus total cannot: PER-QUERY attribution, by slicing the trace
+at its `group frame` lines — a corpus total of 2 representative rows is equally
+consistent with "the two queries that need one have one each" and with "one query
+has two and the class predicate is broken". Both proved to bite, one perturbation
+at a time, each reverted to a byte-identical source with a green checkpoint
+between: the rep-row call fired outside its `if !pure_group` branch reds 3 claims
+at L2 and 59 in the census (57 per-fixture identities + the pin + the total).
+
+THE CONTROL: the corpus snapshot is BYTE-IDENTICAL across this stage — 165 dumps
+/ 7,067,309 bytes, `diff -rq` empty. The group frame enters the plan as TRACE,
+so nothing it says may move an emitted byte, and nothing did.
+
 ## 9. What this deletes
 
 The `is_slice`/`rel_stream`/`rel_iter` triple (one fact, now a type); the 17
@@ -1175,6 +1252,10 @@ scan shape; every other cell is declared, not silently absent.
   Gate: an `order by` over the seek column emits NO `Sort` node and the trace
   says why.
 * **S4 — aggregates fold single-pass** (with the emitter unification).
+  The GROUP FRAME's naming half is LANDED — see §8: four `AG_*` grounds, 380
+  bindings named, `logos_09_group_frame_naming` (tier_commit) + FACT H in the
+  corpus census. Still open on this axis: the group-row `__ix0` permutation,
+  which no node attributes.
 * **S5 — streaming query output + pipelines (§12).** `-> impl BatchStream`
   return surface, TWO forms now: `direct` for single-loop plans, `buffered`
   (Vec-as-degenerate-queue behind the same type, recorded as a Drain) for

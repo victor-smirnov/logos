@@ -215,6 +215,61 @@ pub fn MG_ORDERED_SOURCE() -> str { return "ordered source: order by is a no-op"
 /// neither.
 pub fn MG_ORDERED_SOURCE_REV() -> str { return "ordered source, reversed: order by desc is a backward walk"; }
 
+// ── THE GROUP FRAME (ADR 0025 §8, S4-naming) ─────────────────────────────────
+//
+// THE OBLIGATION, MEASURED: the aggregate emitter materializes a family of
+// per-group columns and the plan named NOT ONE of them. `MG_REGROUP` names the
+// aggregate's DRAIN of its base source and says nothing about the state the
+// grouping itself builds — so `let mut (__g_key|__g_cnt|__g_row|__ga_*|__gf_*)`
+// was the largest unnamed class in criterion 1: 1,122 bindings when the class
+// was first counted, 380 on this tree (the S4 fold deleted `__gf_*` outright,
+// 488 -> 0, and put `__g_cnt` and `__g_row` behind their consumers, 146 -> 13
+// and 146 -> 7). A number that falls by two thirds is still a number no
+// justification covers.
+//
+// ── WHY THESE ARE GROUNDS ON FIELDS AND NOT A NEW NODE KIND ──────────────────
+// The plan's node kinds are ADAPTERS over a stream — `Drain`, `Sort`, `Arrange`
+// — things that MATERIALIZE something a later phase reads back. A group table is
+// not an adapter over a stream, it is the OPERATOR'S OWN STATE, exactly as a
+// join's build side is; and §4 already models the join's build side as an
+// `Arrange` rather than as a `Join` node. Adding a `GroupBy`/`Fold` KIND would
+// put an operator into a vocabulary of adapters and make `explain()` print two
+// different kinds of thing under one word. The γ operator is already in the plan
+// (`RQuery::Aggr`, and its base drain carries `MG_REGROUP`); what was missing is
+// not a node — it is the STATE'S PRICE and its GROUND.
+//
+// ⚠ AND THE DESIGN'S OWN FIRST ANSWER — "`Arrange` is the group table's kind" —
+// IS REFUSED ON A MEASUREMENT, not on taste. The census pins `#(arrange nodes)
+// == #(emitted `__hm`/`__hs`/`__bt` bindings)`, 598 == 598, per fixture and in
+// total: an arrange node is the claim that the artifact BUILT AN INDEX. The
+// group table is a linear `==` scan over `__g_key` (S4's MVP dedup) and builds
+// no index at all, so 152 group tables spelled `arrange` would have made that
+// identity false and forced it to be re-partitioned by ground — a sensor
+// weakened to admit a claim the artifact does not support. The group table is
+// therefore reported the way `sort_key_vector` reports `__ks` (`join_sel`): as a
+// FIELD of an operator already in the plan, with its own verdict word, so that
+// no reader counts it as a node and the 598 == 598 identity stays exact — and
+// stays exact ACROSS this change, which is this stage's control.
+//
+// The four grounds are one per EMITTED COLUMN FAMILY, and each is separate
+// because each has a different consumer and a different life:
+pub fn AG_GROUPS() -> str   { return "group table: one row per distinct key"; }
+/// `__g_cnt` — and it is NOT folded into `AG_GROUPS` even though the design
+/// bracketed it there ("the group table `__g_key` (+ `__g_cnt` when live)"). A
+/// column present in 13 of 152 group tables cannot be counted by a census that
+/// counts ground lines if it shares a ground with the table itself, and its
+/// sentence is a DIFFERENT sentence: S4b measured that `__g_cnt` has exactly one
+/// reader, `avg`'s finalize denominator, and gated its declaration on that. A
+/// ground rounded to the nearest neighbouring ground is the drift this whole
+/// vocabulary exists to refuse.
+pub fn AG_COUNT() -> str    { return "group rows: avg's denominator"; }
+pub fn AG_ACCUM() -> str    { return "accumulated: one cell per group per aggregate"; }
+/// `__g_row`. THE CLASS PREDICATE'S GROUND (S4c): emitted only where a clause
+/// ABOVE the group — `select`, `having`, `order by` — names a SOURCE ROW, which
+/// is also the only class whose base the plan still drains for the reason
+/// `MG_REGROUP` gives. Its absence is what a single-pass fold IS.
+pub fn AG_REP_ROW() -> str  { return "re-bound: the projection names a source row"; }
+
 // ── The plan ──────────────────────────────────────────────────────────────
 // One record per rel, indexed by the rel registry's index so the applier and
 // the explainer agree with the params without a side table.
