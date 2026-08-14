@@ -740,7 +740,9 @@ exactly two properties:
    ⚠ A STREAMING QUERY OUTPUT IS NOT AUTOMATICALLY THIS CASE. A stream a
    `deem` RETURNS crosses the query FN's boundary, not the caller's scope: as
    a borrow-carrying return value tied to the source arguments
-   (`-> impl BatchStream<B> + '_` — the shape family producers already have),
+   (`-> Result<QStream, ElError>` over a generated `#[borrow_carrying]` type —
+   the shape family producers already have; §12 records why the `+ '_` this
+   line used to carry does not exist),
    it composes into pipelines under rung 1–2 with ZERO counting. Rung 3 is
    reached only when the stream ESCAPES the handle's scope. §12.
 
@@ -1029,9 +1031,40 @@ With batch streams both halves of composition exist on this plane:
 * CONSUMING a stream: a `deem` source parameter whose type is a batch stream —
   the S4c path as it stands (membership-checked, planned as non-`Rewind`,
   non-`SizedStream`).
-* RETURNING a stream: `deem q(m: &Hs…) -> impl BatchStream<B> + '_` — a
-  borrow-carrying return tied to the source arguments. Pipelines within one
-  scope are rung 1–2 (zero counting, §7); only an ESCAPING stream is rung 3.
+* RETURNING a stream: `deem q(m: &Hs…) -> Result<QStream, ElError>` over a
+  generated `#[borrow_carrying]` stream type — a borrow-carrying return tied to
+  the source arguments. Pipelines within one scope are rung 1–2 (zero counting,
+  §7); only an ESCAPING stream is rung 3.
+
+  **THE SPELLING THIS BULLET CARRIED UNTIL S5 — `-> impl BatchStream<B> + '_` —
+  DOES NOT PARSE, AND THE TICK NEVER CARRIED MEANING.** Measured at S5, probe
+  pairs with rc from a redirect (`/home/logos/sandbox/s5r`, re-run on the S5
+  tree — the probe dir the numbers below come from):
+  * `p1_borrow_elided` rc 0 — `-> impl BatchStream<i64>` over a struct holding
+    `rows: &[i64]` taken from the fn's own `&[i64]` argument compiles, links and
+    runs. THE BORROW-CARRYING RETURN THIS BULLET ASKS FOR EXISTS TODAY, with
+    lifetimes ELIDED. `p0_ctl` (owned struct) rc 0 is the control that says the
+    borrow is not what carries the answer.
+  * `p2_borrow_tick` rc 4, `syntax error near 'fn' at line 13 col 1`;
+    `p2b_tick_named` (`+ 'a` instead of `+ '_`) is refused BYTE-IDENTICALLY, so
+    the refusal is the `+ 'lt` bound on RETURN-POSITION impl-trait, not the `'_`
+    label. `logos.peg` accepts `+ 'lt` only on `dyn` (`dyn_auto_bound` /
+    `AUTO_LIFE_BOUND`) and states that lifetime bounds are "recorded but not
+    enforced… Logos's lifetime model is elision-based" (logos.peg:1949-1950).
+    The tick was decoration over an elision-based model: RETIRED, not owed.
+  * `p9_result_impl` rc 1, `return type mismatch — expected Result, got Result`
+    — `Result<impl BatchStream<i64>, i64>` is REFUSED: impl-trait is
+    TOP-LEVEL-return-position only, it does not nest inside a generic. THIS is
+    the load-bearing measurement: today's surface is `Result<Vec<T>, ElError>`,
+    so the streaming form CANNOT be `Result<impl BatchStream<B>, ElError>` and
+    must be a NAMED type per query (the `CtrLeafFamily` precedent) — the only
+    spelling that keeps `Result`. `p3_named` (named struct, elided borrow field)
+    rc 0 and `p4_lt_param` (`SliceS<'a>` + `fn mk<'a>(rows:&'a [i64])`) rc 0 say
+    both named spellings are available.
+  * `p5_compose` rc 0 — `fn q2<S: BatchStream<i64>>(s: S) -> impl BatchStream<i64>`
+    over `q1(...)`: PIPELINE COMPOSITION COMPILES. Parameter-position `impl
+    Trait` is refused (G156-2/G125-2), so the consumer side is a generic BOUND;
+    that is the working spelling, measured, not assumed.
 
 **RETURNING in general is a push/pull inversion, and the inverter is a
 QUEUE (Victor, 2026-08-10: fibers deferred — do not complicate yet).** The
@@ -1043,7 +1076,7 @@ arrival:
 * `direct` — single-loop streamable plans: the stream is a state struct (the
   Walk shape), no queue at all, no cost. Exists from S5 day one.
 * `buffered` — ANY other body, NOW: the body runs as emitted into a `Buffer`,
-  and the Buffer is served through the same `impl BatchStream` return type.
+  and the Buffer is served through the same batch-stream return type.
   Semantically a `Drain` at the output seam, and the plan records it as one
   (`"buffered: body is not single-loop"`), so the seam materialization the
   pipeline was meant to remove is at least VISIBLE while it remains.
@@ -1256,13 +1289,154 @@ scan shape; every other cell is declared, not silently absent.
   bindings named, `logos_09_group_frame_naming` (tier_commit) + FACT H in the
   corpus census. Still open on this axis: the group-row `__ix0` permutation,
   which no node attributes.
-* **S5 — streaming query output + pipelines (§12).** `-> impl BatchStream`
-  return surface, TWO forms now: `direct` for single-loop plans, `buffered`
-  (Vec-as-degenerate-queue behind the same type, recorded as a Drain) for
-  every other body; `queued` deferred with req. 7–8. Pipeline fixture: two
-  chained deems, oracle = pull count (direct-over-direct: no seam
-  materialization; buffered: exactly one, and the plan SAYS so) + same rows.
-  Owned cursor as the escape shape.
+* **S5 — streaming query output + pipelines (§12).** A NAMED batch-stream
+  return surface, TWO forms: `direct` for single-loop plans, `buffered`
+  (Vec-as-degenerate-queue) for every other body; `queued` deferred with
+  req. 7–8. Oracle = pull count (direct: one packet per source leaf, no seam
+  materialization; buffered: exactly one) + same rows.
+  **THE `buffered` FORM IS LANDED (2026-08-14). `direct` IS NOT, AND THE
+  BLOCKER IS MEASURED AND NAMED BELOW. THE OWNED CURSOR IS REFUSED FOR S5.**
+  * **What landed.** Every `Vec`-returning query emits a SECOND entry beside
+    its own: `q_stream(…) -> Result<Buffer<E>, ElError>` (`rexpr_walk::
+    emit_stream_surface`, reached through the one door `emit_query_fn`, which
+    now takes the row type as a parameter — "" for every single-row/find/
+    identity shape — so each emitter STATES whether its query has a multi-row
+    result instead of the surface re-reading `ret_ty`'s text). `Buffer<E>` is
+    §12's degenerate queue made literal and is ALREADY the landing the `Drain`
+    node builds at the internal seams (S2j/S3b), so the output seam and the
+    internal seams materialize into one type, not two.
+  * **The Vec surface is NOT migrated, and the measurement is what says so.**
+    Corpus delta over the 165-dump snapshot: PURE ADDITION — as a line multiset,
+    ZERO baseline lines disappeared; 486 `*_stream` entries appeared; all 505
+    `*_run` entries unchanged; +567,879 bytes (+8.0%). That is why the codegen
+    byte-pin `logos_09_slice_scan_codegen` needed no re-golden, and why
+    `logos_09_plan_ground_census` moved on its FIXTURE COUNT alone with all
+    fifteen plan-plane numbers standing.
+  * **Fixture `pass/deem_stream_return_surface`,** asserting at `next()` and not
+    at `len()`: values through the STREAM; EXACTLY ONE packet then exhaustion
+    (the `buffered` form's single seam materialization — the number that changes
+    when `direct` lands, which is why it is pinned now); the EMPTY result as ONE
+    EMPTY PACKET and not an absence (§1's legal tick — an implementation
+    short-circuiting to a bare `None` is green on `len()==0` and makes "no rows"
+    indistinguishable from "the stream never ran"); composition through a
+    generic `BatchStream` bound applied to TWO queries' streams; and both
+    surfaces of one query asserted row-for-row so a later migration cannot be
+    silent. CONTROL, run and restored (md5-verified, rebuilt green on both
+    sides): removing the `emit_stream_surface` call reds the fixture at compile
+    time on all three call sites (`call to undefined function 'q_all_stream'`)
+    while every sibling deem fixture stays green — the two legs are independent
+    and this fixture is the only thing holding the new door.
+  * **THE PIPELINE FIXTURE — §12's COMPOSITION ORACLE, `pass/deem_pipeline_chain`
+    (2026-08-14).** Two chained deems, and the stage's own finding is that a
+    pipeline has TWO seams with DIFFERENT answers, so each gets its own
+    instrument rather than one number covering both:
+    * **SEAM 1** (q1's output) counted in PACKETS at `q1_stream`'s `next()`:
+      EXACTLY 1, the `buffered` form's single materialization. This is the
+      number `direct` moves.
+    * **SEAM 2** (q2's input) counted in PULLS at the chained source's own
+      `next()`: `limit 3` over the 12-row seam pulls **3**, and the CONTROL
+      `q2_all` — same source, same rel, no bound — pulls **12**. One variable,
+      both directions, in one program over one source, so the 3 is PULL-THROUGH
+      and not a short source. (Pre-measured standalone at
+      `/home/logos/sandbox/s5pipe/p2_{lim,nolim}`, exit code = the pull count:
+      3 and 20 over a 20-row source.)
+    Same rows both ways: the chain is run with seam 1 as the `Vec` surface and
+    as the `Buffer` surface, and the two row sequences are asserted against each
+    other, against q1's own Vec, and against literals. NON-VACUITY MEASURED, not
+    argued: five perturbations of the fixture's own oracle numbers (pull 3→4,
+    control 12→11, packet len 12→11, exhaustion inverted, Vec-seam pull 3→4) each
+    red at exactly the predicted exit code (7/10/3/4/15), so every number the file
+    asserts is a number it actually compares.
+    * **WHAT THE FIXTURE REFUSES TO ASSERT, on measurement rather than by
+      omission.** DIRECT-OVER-DIRECT: `direct` is not landed (blocker below), so
+      that arm would assert a form that does not exist. THE OUTPUT-SEAM `Drain`
+      NODE: deliberately not inserted at S5 (bullet below). "The plan SAYS so" is
+      therefore asserted at SEAM 2, where the plan has two answers and gives the
+      positive-absence one — `[plan] s -> no materialization (no node: the plan
+      reads this source once and consumes it where it stands)`, the streamed-rel
+      arm, checked on the trace channel by `plan_ground_census_gate.sh`.
+    * **CENSUS, PREDICTED THEN MEASURED.** Registry 7171/3488/36 → **7172/3489/36**
+      (+1/+1/0), predicted before the reconfigure and measured identical: one
+      fixture with its `.expected`, no new gate, because a pull count is not
+      visible to an artifact grep. Corpus: **PURE ADDITION** — `diff -rq` against
+      the re-baselined 166-dump snapshot lists ONLY the new dump, so no existing
+      dump moved a byte and the codegen byte-pin needed no re-golden
+      (7,649,796 → 7,672,649 = +22,853, exactly the new dump, residual 0).
+      Ground census: fixtures 182→183, `readonce` 19→**21** (two streamed rels,
+      the ground that IS the seam-2 claim). ⚠ A THIRD MOVE WAS PREDICTED AND
+      REFUTED: `container` 204 was predicted to go to 205 for q1's `&[Row]`
+      source and did NOT move — the trace shows q1 emits no per-rel
+      materialization ground at all, because a bare slice parameter is scanned
+      where it stands and never reaches the container arm. Two of three
+      predictions right, and the wrong one corrected at the gate with its cause.
+  * **`direct` IS NOT LANDED, AND THE BLOCKER IS AN ORDERING FACT, NOT A
+    LANGUAGE GAP.** The direct stream's state IS the source walk, so its struct
+    must SPELL that walk's type. Probed (`/home/logos/sandbox/s5d`, rc from a
+    redirect), a three-way probe that separates the two candidate causes:
+    `pd1_direct_named` — the whole hand-written direct stream, field
+    `w: <typeof(Ded) as CtrLeafFamily>::LeafWalk` — rc 1; `pd2_struct_handle` —
+    the SAME struct with the assoc type swapped to `::Handle`, the spelling the
+    corpus uses successfully — rc 1, byte-identical error; `pd3_param_leafwalk`
+    — no struct at all, the assoc type in a plain `pub fn` PARAMETER — rc 1,
+    same error again: `typeof(container Ded): its config const 'DedCfg' did not
+    resolve to a WritStatic document`. So it is neither the struct position nor
+    `LeafWalk`: `typeof(<container>)` does not resolve in ANY hand-written item
+    of the declaring module, because ordinary items are lowered BEFORE the
+    container factory runs. The control is already in the tree and green —
+    `pass/deem_ctr_family_streams` spells `m: &<typeof(Led) as CtrFamily>::Handle`
+    and compiles, because a `deem` parameter is resolved at METAPROG time, after
+    the factory. CONSEQUENCE: the direct stream type can only be emitted from
+    inside metaprog, where `plan_walker`'s prelude ALREADY spells the concrete
+    `Hs…LeafWalk` as text (`let mut __rel_m: Hs…LeafWalk = __ctr_bfrom_…(m, 5u64);`)
+    — so `direct` is an emitter-plumbing step (carry the prelude's per-rel
+    binding TYPE and CONSTRUCTOR text into `rexpr_walk` so the struct and its
+    `next()` can be emitted from the same place that emits the loop), and it is
+    NOT a language change. Priced as its own stage rather than absorbed here.
+  * **The output-seam `Drain` node is deliberately NOT inserted at S5.** §12
+    asks for one. The node list is per-REL and the output seam is not a rel —
+    but the load-bearing reason is that at S5 the answer is CONSTANT across the
+    corpus (`direct` absent ⇒ all 486 entries buffered), so the node would move
+    the census by 486 while telling a reader nothing. It lands with `direct`,
+    the stage where the plan first has two answers to give.
+  * **The OWNED CURSOR is refused for S5, with its ground.** Grepped tree-wide:
+    no `OwnedCursor`, no owned constructor, no pin token — the only thing that
+    exists is the store-side hook (`stdlib/mem/bt/map.logos`: `snap_pin`/
+    `snap_unpin`/`leaf_pin`/`leaf_unpin`, all four defaulted to no-ops for
+    MemoryStore), i.e. §7's two-part store invariant has its interface and no
+    caller; the family emits ONE constructor (borrowed), and `Send` is on no
+    stream type anywhere. The escape shape is rung 3 with its own Drop-unpin
+    obligation (§7 item 5), while §12 puts within-scope pipelines at rung 1–2
+    with ZERO counting — which is exactly what the probe set above measures as
+    already working. Building it here would have been a rung-3 mechanism with
+    no rung-3 consumer.
+  * **S5-D5 — THE AGGREGATE PULLS BATCHES, closing S4's other half
+    (2026-08-14).** §8's fold was single-pass at the operator and INDEXED at the
+    artifact (`while __i0 < (src).len()`), which is why `plan_walker`'s Aggr arm
+    could not claim the pass it had proved — the plan may not claim a property
+    the artifact does not have, and the one-sided attempt is recorded there with
+    its failure (`'…LeafWalk' has no method 'len'`). Both halves land together:
+    `emit_aggregate`'s base nest routes through `batch_scan_frag` (§1's ONE
+    shape, third and last call site), and the plan stops draining the pure
+    class. GATE: `pure_group` — the representative class seeds
+    `__g_row.push(__i0)` and a GLOBAL ROW ORDINAL is unspellable in a batch pull,
+    so that class keeps the indexed walk and says so — plus the producer's batch
+    flag, read as `ap_effective_batch` because `plan_apply_access` installs the
+    pushdown-chosen op's flag AFTER the drain pass. MEASURED: the corpus moves
+    exactly ONE file (`deem_batch_scan_drain`, −23 bytes); the `__it_m` +
+    `Buffer<(u64,u64)>` pair collapses to one binding; drain+sort 13→12,
+    `__it_` 13→12, read-once 18→19, and every other census pin holds.
+  * **S5-D4 — THE SLICE ARM's COMPILER BLOCKER IS CLOSED (2026-08-14).** S3d
+    stopped at a `'__bb0' does not live long enough … borrowed by '__ks'`
+    (E0597) that D7 classified as a borrow-provenance over-refusal. Rooted to an
+    8-line program with no stream in it and fixed in the CHECKER: the §B6 source
+    channel's `AddrOfTemp` arm emitted the place's root LOCAL even when the walk
+    went THROUGH a reference, where the storage borrowed is the POINTEE and its
+    life is whatever the reference itself borrows. Probe pair (one variable —
+    the referent's origin): parameter ⇒ admit, dying local ⇒ refuse, naming the
+    LOCAL that dies. Corpus byte-identical. **THE COLLAPSE ITSELF IS STILL NOT
+    LANDED**: the byte-pin's "measured equal" arm is refused by S3d/D5's numbers
+    (59 → 128 instructions for an already-materialized source), which no checker
+    fix moves. Two blockers became one, and the survivor is a number.
 * **S6 — WritWalk batches; weighted batches** (the DBSP seam §10).
 
 ## Consequences

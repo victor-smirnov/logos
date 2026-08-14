@@ -727,6 +727,14 @@ struct BorrowPlace {
     bool        index_in_chain = false;
     TypeRef     root_type = nullptr;   // for raw-ptr / &mut root classification
     uint32_t    root_slot = 0xFFFFFFFFu;  // Phase-1: dense slot of `root`
+    // S5-D4 (§B6 provenance): at least one step of the place walk went THROUGH
+    // a reference — `b[i]`, `b.f`, `*b`, `b[a..c]` with `b: &T`. The LOAN
+    // channel deliberately roots such a place at the reference VARIABLE (see
+    // the Deref arm's comment: a reborrow through `r` must lock `r`). The
+    // §B6 SOURCE channel must not: the storage the borrow names is the
+    // POINTEE, whose life is whatever `b` itself borrows, not `b`'s scope.
+    // Recorded here so the two policies can differ without two walkers.
+    bool        through_ref = false;
 };
 
 static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
@@ -741,6 +749,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             EFieldReadView fv{cur};
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
+            if (cur && is_ref_kind(cur.type(pool))) bp.through_ref = true;
         } else if (cur.kind() == Code::IndexRead) {
             auto recv = EIndexReadView{cur}.receiver();
             // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
@@ -756,6 +765,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
+            if (recv && is_ref_kind(recv.type(pool))) bp.through_ref = true;
             cur = recv;
         } else if (cur.kind() == Code::SliceIndex) {
             auto sl = ESliceIndexView{cur}.slice();
@@ -766,6 +776,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             }
             path_parts.clear();
             bp.index_in_chain = true;
+            if (sl && is_ref_kind(sl.type(pool))) bp.through_ref = true;
             cur = sl;
         } else if (cur.kind() == Code::Deref) {
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
@@ -784,6 +795,12 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
                             ok.kind() == LogosType::Kind::ZonedStruct ||
                             ok.kind() == LogosType::Kind::DstRef));
                 if (through) {
+                    // S5-D4: only a genuine REFERENCE deref hands the §B6
+                    // channel a pointee whose life is the operand's own
+                    // provenance. A Box/Rc/user-Deref container OWNS its
+                    // content, so the content dies with the container variable
+                    // and the root stays the right source.
+                    if (is_ref_kind(ok)) bp.through_ref = true;
                     // The deref'd CONTENT isn't a sibling-decomposable field
                     // of the container — treat like an index step (whole-
                     // container borrow), dropping any field path collected
@@ -1554,6 +1571,16 @@ class BorrowChecker {
     // a binding's sources unions over the subtree (ref_sources_under).
     std::unordered_map<std::string, std::vector<std::string>> ref_borrow_sources_;
     std::unordered_map<std::string, uint32_t>                 ref_borrow_line_;
+    // S5-D4: fire count of the through-a-reference provenance arm in
+    // collect_ref_sources_paths' AddrOfTemp case. A rule whose branch never
+    // executes is a green over nothing (MEMORY: "GREEN over a branch that
+    // NEVER EXECUTED"), so the number is dumpable: LOGOS_DUMP_BC_THRUREF=1.
+    // STATIC: one checker object is constructed per function and thrown away,
+    // so a per-instance counter would only ever read 0 or 1. The number that
+    // answers "did this branch execute over the corpus" is the program-wide sum.
+public:
+    static inline uint64_t thru_ref_prov_fired_ = 0;
+private:
     struct DanglingRef { std::string source; uint32_t borrow_line; };
     std::unordered_map<std::string, DanglingRef>              dangling_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
@@ -2047,9 +2074,43 @@ class BorrowChecker {
                 // `&x.f`, `&x[i]`, `&*r` → root local via the shared place walker.
                 BorrowPlace bp = extract_borrow_place(
                     lir_view::EAddrOfTempView{e}.inner(), pool);
-                if (!bp.root.empty() && var_has(bp.root_slot, bp.root) &&
-                    !param_names_.count(bp.root))
-                    emit(bp.root);
+                if (bp.root.empty() || !var_has(bp.root_slot, bp.root) ||
+                    param_names_.count(bp.root)) return;
+                // ── S5-D4: THE PLACE WENT THROUGH A REFERENCE ───────────────
+                //
+                // `let b: &[Row] = rows; ks.push((&b[0]).k);` recorded `b` — a
+                // LOCAL — as a §B6 source of `ks`, so `ks` was declared
+                // dangling the moment `b`'s block closed and the next USE of
+                // `ks` was refused (E0597). The refusal is wrong twice over:
+                //   * `b` is a `&[Row]` VALUE copied from a parameter; the
+                //     bytes the pushed `str` points at are the CALLER's, and
+                //     they outlive the function, never mind the block.
+                //   * the same shape one scope up (`b` at fn scope, m6) was
+                //     admitted, so the verdict tracked the block boundary
+                //     rather than the borrow — a scope coincidence, not a
+                //     correctness property.
+                // The VarRef arm below already states the right rule for the
+                // plain copy (`o = r` emits r's SOURCES, never `r`); this arm
+                // is the same question reached through a projection, and it
+                // answered with the reference variable itself.
+                //
+                // NOT a weakening. Where the reference does borrow a local the
+                // sources are recorded and travel: `let v = mk(); { let b =
+                // &v; ks.push((&b[0]).k); }` emits `v`, and a use of `ks`
+                // after `v` dies is refused exactly as before — it is now
+                // refused for the RIGHT binding. It also CLOSES a hole in the
+                // old rule: with `b` outliving `v`, emitting `b` saw nothing
+                // die and admitted the dangle.
+                //
+                // The LOAN channel keeps rooting at `b` (extract_borrow_place's
+                // Deref comment) — that policy is about exclusivity of the
+                // reborrow, a different question, and it is untouched.
+                if (bp.through_ref) {
+                    ++thru_ref_prov_fired_;
+                    for (auto& s : ref_sources_under(bp.root)) emit(s);
+                    return;
+                }
+                emit(bp.root);
                 return;
             }
             case EC::StructLit:
@@ -8597,6 +8658,11 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         }
         ds = std::move(uniq);
     }
+
+    // S5-D4: fire count of the through-a-reference §B6 provenance arm.
+    if (std::getenv("LOGOS_DUMP_BC_THRUREF"))
+        fprintf(stderr, "[bc-thruref] fired=%llu\n",
+                (unsigned long long)BorrowChecker::thru_ref_prov_fired_);
 
     return prog;
 }

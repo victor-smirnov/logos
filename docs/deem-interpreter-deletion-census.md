@@ -2401,6 +2401,123 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #           the golden is untouched, and the corpus is back at the D0 baseline.
 #     The record of (1) and (2) lives in `tests/logos/slice_scan_codegen_gate.sh`'s
 #     header, beside the clause it is about.
+#
+#   ══ 2026-08-14 — S5-D4: D7's BLOCKER IS CLOSED, AT THE CHECKER ═══════════
+#   D8 stopped on "the borrow-provenance over-refusal class, not the batch
+#   design". That diagnosis is now a fix, and the fix is in the CHECKER, which
+#   is where D7 said the defect was:
+#
+#     THE RECORDED REPRO DOES NOT RUN AS-IS, AND THAT IS THE FIRST FINDING.
+#     `sandbox/s3d_slice_arm_repro/{lt2,lt4}.logos` BOTH fail rc 1 with
+#     `unknown generic type 'SliceStream'` — D9 reverted the vocabulary unit out
+#     of stdlib, so anyone re-measuring from those files reads an rc-1/rc-1 pair
+#     and concludes the wrong thing. Re-minted inside the probe file, D7's triple
+#     reproduces EXACTLY (q2 rc 0 · q4 rc 1 · q5 rc 0).
+#
+#     ROOTED TO AN 8-LINE PROGRAM WITH NO STREAM IN IT. Not the packet, not
+#     `unwrap`, not `#[borrow_carrying]`, not arm-siblinghood, not a name
+#     collision — each refuted by its own single-variable probe (r1-r5, m1-mA in
+#     `sandbox/s5_lt/`). The minimum: a `Vec<str>` at outer scope, and TWO push
+#     sites reached through a REFERENCE-TYPED LOCAL declared in an inner scope.
+#
+#     THE ACTUAL MECHANISM, which is NOT what the shape survey suggested. Arm 1
+#     records `b` — the reference LOCAL — as a §B6 borrow source of `ks`; `b`
+#     dies at the block's `}`; `ks` is then marked dangling; and the FIRST
+#     LATER USE of `ks` is refused. One arm passes only because a `return ks`
+#     is a MOVE (`consume`) and not a live read; two arms fail because arm 2's
+#     `push` IS one. So "one loan site vs two" was the symptom; "is `ks` read
+#     again after the block" is the trigger.
+#
+#     THE FIX, and it is one arm in one switch: `collect_ref_sources_paths`'
+#     `AddrOfTemp` case emitted the place's ROOT LOCAL. When the place walk went
+#     THROUGH a reference (`b[i]`, `b.f`, `*b`, `b[a..c]` with `b: &T`) the
+#     storage borrowed is the POINTEE, whose life is whatever `b` itself
+#     borrows — so the arm now emits `ref_sources_under(root)`, which is exactly
+#     what the neighbouring `VarRef` arm has always done for the plain copy
+#     (`o = r` emits r's sources, never `r`). `BorrowPlace` carries a new
+#     `through_ref` bit set by the walker; the LOAN channel's policy (root at
+#     the reference variable, for reborrow exclusivity) is untouched, which is
+#     why the bit exists instead of a second walker.
+#     Fire-counted: `LOGOS_DUMP_BC_THRUREF=1` (`fired=` per compile; 0 on the
+#     direct-from-parameter twin, ≥1 on every probe that moved).
+#
+#     THE PAIR, one variable — the referent's ORIGIN, nothing else
+#     (`sandbox/s5d_pair/`):
+#       pA  `let b: &[Row] = rows;` (a PARAMETER)  → rc 0   (was rc 1)
+#       pB  `let v: [Row;1] = …; let b: &[Row;1] = &v;` (a dying LOCAL)
+#                                                  → rc 1, E0597 naming **`v`**
+#     The refusal SURVIVES and now names the thing that dies. It is not a
+#     weakening in the other direction either: with `b` outliving `v`, the old
+#     rule emitted `b`, saw nothing die, and ADMITTED the dangle.
+#
+#     BLAST: whole stdlib rebuilds; L2 2120/2120 + 36 gates; the tier_full sweep
+#     81/81; and the corpus snapshot is BYTE-IDENTICAL (166 dumps / 7,649,819,
+#     `diff -rq` empty) — a checker change may not move an artifact, and this
+#     one does not.
+#
+#   ⚠ AND THE SLICE-ARM COLLAPSE IS STILL NOT LANDED — the door is open, the
+#   MEASUREMENT still refuses it. D5's numbers (59 → 128 instructions, 242 → 528
+#   bytes of `.text`, frame 0x78 → 0x108, for an ALREADY-materialized source) are
+#   what the byte-pin's "OR measured equal" arm has to clear, and they are a
+#   fact about codegen that a checker fix cannot change. So the blocker count
+#   goes from TWO reasons to ONE, and the surviving one is a number rather than
+#   a compiler bug. ⚠ A CONFLICT IS RECORDED RATHER THAN RESOLVED: a later note
+#   quotes the collapse as "-2 instructions per ROW, favourable", which is
+#   consistent with D5's +69 only if one is per-loop setup and the other
+#   per-iteration. Both cannot be summarised as one verdict, and "a trade" is
+#   not "measured equal" — landing it is a design call with a re-measurement
+#   under it, not a licence this round holds.
+#
+#   ══ 2026-08-14 — S5-D5: THE AGGREGATE PULLS BATCHES (S4's other half) ═════
+#   S4 proved the fold single-pass at the OPERATOR and could not claim it,
+#   because `emit_aggregate`'s base loop was still `while __i0 < (src).len()`.
+#   `plan_walker.logos` recorded the one-sided attempt and its failure verbatim
+#   (`deem_batch_scan_drain`: `'…LeafWalk' has no method 'len'`). This is the
+#   PAIR, both halves in one step:
+#     EMITTER  `emit_aggregate`'s base nest routes through `batch_scan_frag` —
+#              §1's ONE shape, the same function `emit_simple`'s streamed arm
+#              and `chain_nest_frag`'s join base already call. Third and last
+#              site. GATED on three facts the plan CARRIES: `pure_group` (the
+#              representative class seeds `__g_row.push(__i0)`, and a global row
+#              ORDINAL is unspellable in a batch pull — that class keeps the
+#              indexed walk and says so), the producer's batch flag, and the
+#              plan's own drain plane.
+#     PLANNER  the pure class stops claiming a Drain it no longer performs.
+#              ⚠ `ap_effective_batch` and not `prm.rel_batch[ri]`:
+#              `plan_apply_access` — which installs the PUSHDOWN-CHOSEN op's
+#              batch flag — runs AFTER `plan_insert_drains`, so reading the
+#              field there is reading it before it is written, and the proof
+#              would have been about a producer the emitter never calls.
+#   MEASURED, not asserted. The corpus moved EXACTLY ONE FILE:
+#     166 dumps, −23 bytes, `diff -rq` names `deem_batch_scan_drain.gen` alone.
+#     `let mut __it_m: …LeafWalk` + `let mut __rel_m: Buffer<(u64,u64)>` collapse
+#     to ONE binding — the walk IS the source — and the fold now runs inside the
+#     `next_batch()` loop. One full pass over the data and one Buffer removed.
+#   GATES MOVED WITH THE STAGE, each delta attributed to that one query:
+#     drain+sort 13 → 12 (drain 8 → 7) · `__it_` 13 → 12 (measured IN the
+#     fixture, 2 → 1, not inferred from the corpus difference) · read-once
+#     18 → 19. Everything else HELD — arrange 598, index 598, hash-join 495,
+#     `__ks` 127, `__ix<k>` 319, container 204, elided 8, group frame
+#     152/208/13/7 — which is the control that says this is one decision and not
+#     a shape change: the FOLD did not move, only what the rows arrive in.
+#   `logos_09_plan_nodes` was RE-AUTHORED, not relaxed. Its clause asserted "the
+#   aggregate's re-read was NAMED"; there is no re-read to name, and pinning a
+#   ground the compiler correctly stopped emitting is pinning a defect. Three
+#   assertions replace it: drain == 0 (so a drain RETURNING is red), read-once
+#   == 2 (the absence is still a POSITIVE line), and — the independent channel —
+#   the emitted `parity_sums_run` must contain `next_batch()` and no `Buffer<`.
+#   A one-sided change would leave the plan clause green and that one red, which
+#   is exactly the failure S4 measured.
+#   ⚠ THE NEW ARM HAS NO CORPUS WITNESS, AND WAS MEASURED OUT OF TREE RATHER
+#   THAN LEFT UNEXECUTED. A PURE aggregate over a ROW-at-a-time producer keeps
+#   its drain on a new sentence; the corpus's only two rel-registered aggregate
+#   sources are `deem_batch_scan_drain`'s batch family (now proved) and
+#   `deem_pushdown_all_shapes`' representative-class query, so nothing in it
+#   reaches that arm. `sandbox/s5d_aggprobe/pure_rowsrc.logos` does: a pure
+#   aggregate over `MapSource::rel entry` states the ROWS-not-batches ground,
+#   compiles, and runs its 6-pull / 2-group oracle green under `run_test.sh`.
+#   It is NOT added as a fixture — that moves the pinned census — and the
+#   trade-off is written here so the next reader finds a decision, not a gap.
 #   * THE TYPING DOOR'S SECOND HALF (the emitter's second read refused BY THE
 #     TYPE): open, and now open with a fixture pair standing under it, so its
 #     landing will be a change of mechanism with both directions already pinned.
@@ -2619,8 +2736,36 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # rows). A stage that names a class does not need a new fixture to name it with;
 # writing one would have added a second copy of the same six queries and moved
 # three numbers here for nothing.
-REGISTRY-ALL         7170
-REGISTRY-NOIMPORTED  3487
+# 2026-08-14 — ADR 0025 S5 (the streaming return surface, §12 `buffered`).
+# PREDICTED 7171 / 3488 / 36 (+1 / +1 / 0) BEFORE the reconfigure and measured
+# IDENTICAL after. ONE new fixture with its `.expected`
+# (`pass/deem_stream_return_surface`), and NO new gate: the stage's claim is a
+# PROTOCOL claim (exactly one packet for the `buffered` form; an empty result is
+# a packet and not an absence), and a protocol is asserted at `next()` by a
+# consumer, not by an artifact grep. tier_commit therefore does not move.
+# ⚠ WHAT DID NOT MOVE, AND IS THE POINT OF THE STAGE: the Vec surface. All 505
+# emitted `*_run` entries are unchanged and the corpus delta is PURE ADDITION —
+# measured as a line multiset over the 165-dump snapshot, ZERO lines of the
+# baseline disappeared, 486 `*_stream` entries appeared, +567,879 bytes (+8.0%).
+# That is why the codegen byte-pin `logos_09_slice_scan_codegen` needed no
+# re-golden: it pins ONE function's text and this change adds siblings.
+# S5-PIPELINE (§12's composition oracle). PREDICTED 7172 / 3489 / 36
+# (+1 / +1 / 0) BEFORE the reconfigure and measured IDENTICAL after. ONE new
+# fixture with its `.expected` (`pass/deem_pipeline_chain`), and NO new gate,
+# for the same reason the stage above added none: the claim is a PROTOCOL claim
+# counted at `next()` by a consumer — SEAM 1 in packets (exactly 1, the
+# `buffered` form) and SEAM 2 in PULLS through the chained source (3 of 12 under
+# `limit 3`, 12 of 12 unbounded as the control) — and no artifact grep can see a
+# pull count. tier_commit therefore does not move.
+# ⚠ WHAT THE FIXTURE DOES NOT ASSERT, both by measurement rather than omission:
+# direct-over-direct (the `direct` form is not landed — the ADR's S5 bullet
+# carries the three-way probe `s5d/pd1..pd3`, all rc 1 byte-identical), and the
+# OUTPUT-seam `Drain` node (deliberately not inserted at S5; with `direct`
+# absent the answer is constant across all 486 entries). "The plan says so" is
+# therefore asserted at SEAM 2, where the plan has two answers to give and gives
+# the positive-absence one (`no materialization … consumes it where it stands`).
+REGISTRY-ALL         7172
+REGISTRY-NOIMPORTED  3489
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

@@ -83,7 +83,14 @@ SUMMARY="$SCRIPT_DIR/ctest-summary.sh"
 # `.expected` beside them and `ctest -N` registers exactly 122 bc tests, both
 # checked. Whoever next tunes this list should close that arithmetic rather
 # than inherit the sentence.
+# ⚠ `deem` ADDED 2026-08-14 (ADR-0025 S5 audit): the S5 runtime claim set
+# (packet count, pull count, exhaustion, empty-packet-not-absence,
+# composition) lives in exactly two deem fixtures, and the `deem` group (35
+# files) was sampled at 10 per group — the variant-1 window contained
+# NEITHER new file, so L2 read 2120/2120 before and after they were added.
+# The whole batch-cursor plane's e2e surface is this group; it runs in full.
 HOT_TOKENS="coerce coercion cast array arr const slice deref drop borrow bc move \
+deem \
 pattern pat match enum generic generics trait traits impl mangling g156 g162 \
 mono nll lt lifetime self assoc closure fn dup diag inferred hole repr variance \
 memstore relptr box unsize dst tuple"

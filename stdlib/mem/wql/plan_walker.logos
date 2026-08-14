@@ -2384,6 +2384,25 @@ fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
 ///
 /// ⚠ A `return` HERE IS A PARTIAL ANSWER, NOT A COMPLETE ONE — every early exit
 /// below hands back the proofs made so far, and the caller drains the rest.
+/// ADR 0025 S5-D5 — THE PULL UNIT THIS REL WILL ACTUALLY HAVE, asked DURING the
+/// drain pass.
+///
+/// `prm.rel_batch[ri]` at this point is still the rel's OWN declared flag:
+/// `plan_apply_access` — which overwrites it with the PUSHDOWN-CHOSEN op's flag
+/// (`opc_batch[ap.op[ri]]`, ADR 0025 §1: "the `b` flag travels WITH the chosen
+/// producer") — runs AFTER `plan_insert_drains`. A proof that read the declared
+/// flag would be a proof about a producer the emitter is not going to call, and
+/// the failure mode is the exact one the S4 note below records: a plan claiming
+/// a single pass over a source the emitter then walks by index.
+///
+/// So this computes the value `plan_apply_access` is going to install, from the
+/// same two inputs, rather than reading the field before it is written.
+fn ap_effective_batch(prm: &MacroParams, ap: &AccessPlan, ri: i64) -> bool {
+    if ri < 0i64 || ri >= 8i64 { return false; }
+    if ap.op[ri] >= 0i64 { return prm.opc_batch[ap.op[ri]]; }
+    return prm.rel_batch[ri];
+}
+
 fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
     let mut pv: [bool; 8] = [false; 8];
     if prm.src_root.is_null() { return pv; }
@@ -2534,6 +2553,13 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
             // WAS WRITTEN, BUILT AND RUN. It compiles the corpus one fixture
             // worse: `deem_batch_scan_drain` fails with `'…LeafWalk' has no
             // method 'len'` / `index read: receiver is not an array, slice, or
+            // ⚠⚠ AND THAT REMAINING HALF IS BUILT — S5-D5. The paragraph below
+            // is kept as the RECORD of what a one-sided change measures, not as
+            // a description of this tree: `emit_aggregate` now routes its base
+            // nest through `batch_scan_frag`, so the pure class over a BATCH
+            // producer takes `pv[ai] = true` in the arm further down and the
+            // failure quoted here is what would return if either half were
+            // reverted alone. Read it as a control, not as a limitation.
             // pointer`, because marking the base single-pass binds it to an
             // ITERATOR while `emit_aggregate`'s base loop is still
             // `while __i0 < (src).len() { let v = &(src)[__i0]; … }` — an INDEXED
@@ -2549,8 +2575,32 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
             let ai: i64 = prm.rel_find_name(gq.a_name);
             if ai >= 0i64 {
                 if aggr_group_frame_pure(gq) {
-                    ap_drain(ap, prm, ai, MG_REGROUP(),
-                        "materialized: the group frame is the whole answer (single-pass fold, no representative row), but the emitted base loop still walks this source BY INDEX rather than pulling batches");
+                    // ── S5-D5: THE OTHER HALF OF S4 IS BUILT, SO THE CLAIM IS
+                    // NOW TRUE OF THE ARTIFACT. The sentence that stood here —
+                    // "…but the emitted base loop still walks this source BY
+                    // INDEX rather than pulling batches" — described
+                    // `emit_aggregate`, and `emit_aggregate` now routes a batch
+                    // producer through `batch_scan_frag`, §1's one shape, on
+                    // exactly the gate below. The S4 note above records what a
+                    // ONE-SIDED change measured (`deem_batch_scan_drain`:
+                    // `'…LeafWalk' has no method 'len'`); this is the pair.
+                    //
+                    // ⚠ THE PREDICATE IS THE EMITTER'S, FACT FOR FACT.
+                    // `pure_group` is this arm's own `aggr_group_frame_pure`;
+                    // the batch flag is `ap_effective_batch` (the value
+                    // `plan_apply_access` will install, not the pre-pushdown
+                    // one the field still holds); and "unmaterialized" is what
+                    // `pv[ai] = true` MEANS, which is what the emitter reads
+                    // back through `rel_src_unmaterialized`. A pure aggregate
+                    // over a ROW-AT-A-TIME producer keeps its drain and says
+                    // so — the indexed walk is then the shape it gets, and
+                    // that is a fact about the producer, not about grouping.
+                    if ap_effective_batch(prm, ap, ai) {
+                        pv[ai] = true;
+                    } else {
+                        ap_drain(ap, prm, ai, MG_REGROUP(),
+                            "materialized: the group frame is the whole answer (single-pass fold, no representative row), but this producer hands out ROWS, not batches — the emitted base loop is the indexed walk");
+                    }
                 } else {
                     ap_drain(ap, prm, ai, MG_REGROUP(),
                         "materialized: a clause above the group names a source row, so each group carries a representative base row the output phase re-binds by index");

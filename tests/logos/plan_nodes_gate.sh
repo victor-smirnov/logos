@@ -227,10 +227,19 @@ no_silence reread
 # `deem_batch_scan_drain` runs four queries over one container `m`. One is read
 # once end to end and builds NOTHING; one carries `order by` over a column the
 # source is NOT sorted by and builds a SORT; one carries `order by … desc` over
-# the column it IS sorted by and builds NOTHING, backwards; one aggregates and
-# builds a DRAIN. Same source, same producer, FOUR DIFFERENT VERDICTS — so a
-# node layer that answered from the source rather than from the plan would show
-# here, and "no materialization" is a POSITIVE line rather than a missing one.
+# the column it IS sorted by and builds NOTHING, backwards; one AGGREGATES and
+# — since ADR 0025 S5-D5 — also builds NOTHING, folding out of the batch pull.
+# Same source, same producer, so a node layer that answered from the SOURCE
+# rather than from the plan would show here, and "no materialization" is a
+# POSITIVE line rather than a missing one.
+#
+# ⚠ THE FOUR VERDICTS ARE NOW THREE, AND THE LOST DISTINCTION IS REPLACED, NOT
+# DROPPED. Before S5-D5 the four queries gave four different answers and the
+# aggregate's was the DRAIN; now two of them answer "read once, nothing built"
+# and the counting clause alone can no longer tell which query is which. The
+# distinction moves to the ARTIFACT clause below, which names the emitted fn
+# (`parity_sums_run`) and asserts the shape of ITS scan — a per-query oracle
+# where the trace only has a per-rel one.
 #
 # ⚠ THE SORT COUNT WAS 2 AND IS NOW 1, MOVED BY ADR 0025 S3-desc AND RE-PINNED
 # RATHER THAN RELAXED. `tail_desc` orders by `key` descending, and `key` is the
@@ -246,10 +255,60 @@ eq batch "$(count_err batch '^\[plan\] m -> sort on order by')" 1 \
    "the wrong-column ordered query did not name a Sort node with ADR §4's second ground"
 eq batch "$(count_err batch '^\[plan\] m -> no materialization on ordered source, reversed')" 1 \
    "the descending query over the declared ordered column did not name the reversed-elision ground — an absence with no ground is the silence this gate exists to close"
-eq batch "$(count_err batch '^\[plan\] m -> drain on regrouped: aggregate')" 1 \
-   "the aggregate's re-read of its source was not named, or was folded into another ground"
-eq batch "$(count_err batch '^\[plan\] m -> no materialization   \(no node: the plan reads this source once')" 1 \
-   "the query that materializes nothing does not SAY so — silence and 'nothing built' are again indistinguishable"
+# ⚠ THE AGGREGATE'S DRAIN COUNT WAS 1 AND IS NOW 0, MOVED BY ADR 0025 S5-D5 AND
+# RE-AUTHORED RATHER THAN RELAXED. `parity_sums` is the PURE class
+# (`aggr_group_frame_pure`) over a producer that hands out BATCHES, and
+# `emit_aggregate` now routes its base loop through `batch_scan_frag` — so the
+# fold reads `m` once, in place, and the Drain that stood in for the indexed
+# walk is gone. The old clause asserted "the aggregate's re-read was NAMED";
+# there is no re-read to name, and asserting a ground the compiler correctly no
+# longer emits would have been a test pinning a defect.
+#
+# THE REPLACEMENT IS NOT THE SAME CLAUSE WITH A SMALLER NUMBER. Three assertions
+# take its place and each closes a way the change could have been wrong:
+#   (a) the drain is ZERO here — checked as an equality, so a drain RETURNING is
+#       a red exactly as its disappearance was;
+#   (b) the read-once ground is 2 — the new verdict is a POSITIVE line, which is
+#       the property this whole gate is about (silence and "nothing built" must
+#       stay distinguishable), and the count is what says the aggregate joined
+#       that class rather than going quiet;
+#   (c) THE ARTIFACT, which is the independent channel: `parity_sums_run` must
+#       PULL BATCHES and must build NO Buffer. (b) alone is a second reading of
+#       the plan; (c) is what the plan is a claim ABOUT. Had the plan stopped
+#       draining while the emitter kept the indexed walk — the exact one-sided
+#       change S4 measured and refused (`'…LeafWalk' has no method 'len'`) —
+#       (b) would be green and (c) red.
+#
+# ⚠ AND `MG_REGROUP` DOES NOT GO UNWITNESSED, which the census gate checks in
+# both directions corpus-wide: it survives on `deem_pushdown_all_shapes`
+# (representative class) and on the PURE-over-a-ROW-producer arm S5-D5 adds. The
+# second has NO CORPUS FIXTURE — the corpus's only two rel-registered aggregate
+# sources are this one and that one — and was therefore measured out of tree
+# rather than assumed: a pure aggregate over `MapSource::rel entry` (a row
+# iterator) keeps its drain, states the ROWS-not-batches ground, compiles, and
+# runs its 6-pull / 2-group oracle green. Recorded in the census, not pinned
+# here, because pinning it means a new corpus fixture and this stage does not
+# add one.
+eq batch "$(count_err batch '^\[plan\] m -> drain on regrouped: aggregate')" 0 \
+   "the pure-class aggregate over a batch producer drained its source — S5-D5 routes that base loop through batch_scan_frag, so a Drain here means the plan and the emitter have parted again"
+eq batch "$(count_err batch '^\[plan\] m -> no materialization   \(no node: the plan reads this source once')" 2 \
+   "the queries that materialize nothing do not SAY so — silence and 'nothing built' are again indistinguishable"
+# (c) THE ARTIFACT SIDE of the same decision, on the emitted fn by name.
+awk '/^pub fn parity_sums_run\(/ {f=1} f {print} f && /^}$/ {exit}' \
+    $(dumps batch) > "$TMPD/batch.agg" || true
+if [ ! -s "$TMPD/batch.agg" ]; then
+    echo "FAIL [batch]: no emitted \`parity_sums_run\` in the dump — the artifact side of the aggregate's scan was not asserted at all"
+    fail=1
+else
+    if ! grep -q "next_batch()" "$TMPD/batch.agg"; then
+        echo "FAIL [batch]: emitted \`parity_sums_run\` does not pull batches — the plan says this source is read once in place, and the artifact still walks it some other way"
+        fail=1
+    fi
+    if grep -q "Buffer<" "$TMPD/batch.agg"; then
+        echo "FAIL [batch]: emitted \`parity_sums_run\` builds a Buffer — a materialization the plan no longer names"
+        fail=1
+    fi
+fi
 crosscheck batch
 no_silence batch
 # THE GROUND VOCABULARY IS NEVER EMPTY. A node whose ground is blank is the

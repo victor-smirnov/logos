@@ -1029,13 +1029,84 @@ fn push_param_args(out: &mut String, prm: &MacroParams) {
 /// single direct fn (a generated HELPER — a rel's own fn, an SCC driver: an
 /// internal of one query's body, not a query an application holds) or the
 /// prepared surface of four.
+/// `elem_ty` — the ROW type of a `Vec`-returning query, "" for every other
+/// return shape (`Option<E>`, `Option<&Row>`, `&[Row]`, `()`). Non-empty is the
+/// emitter STATING the fact that this query has a multi-row result, which is
+/// exactly the condition for the ADR 0025 §12 streaming return surface; it is a
+/// parameter rather than a re-read of `ret_ty`'s text because the caller
+/// composed `ret_ty` from this very string one line earlier, and a second
+/// derivation is how two spellings of one fact come to disagree.
 fn emit_query_fn(fn_name: str, params_text: str, tps: str, ret_ty: str,
-                 body: ExprBlob, prm: &MacroParams, prep: Prepared) {
+                 elem_ty: str, body: ExprBlob, prm: &MacroParams, prep: Prepared) {
     if !prep.on {
         emit_fn_quote_blob(fn_name, params_text, tps, ret_ty, body, prm);
-        return;
+    } else {
+        emit_prepared_fns(fn_name, params_text, tps, ret_ty, body, prm, prep);
     }
-    emit_prepared_fns(fn_name, params_text, tps, ret_ty, body, prm, prep);
+    if elem_ty.len() > 0i64 {
+        emit_stream_surface(fn_name, params_text, tps, elem_ty, prm);
+    }
+}
+
+// ── ADR 0025 §12 — THE STREAMING RETURN SURFACE, `buffered` FORM ────────────
+//
+// `q_stream(…) -> Result<Buffer<E>, ElError>` beside `q(…) -> Result<Vec<E>,
+// ElError>`. The Vec surface is NOT migrated: every caller in the corpus holds
+// it (measured — 505 emitted `*_run` entries, every deem fixture asserts
+// through one), so this stage ADDS a door and moves nothing behind the old one.
+// The two are byte-for-byte independent: the corpus delta of this change is
+// exactly the added items, which is what makes the codegen byte-pin
+// (`logos_09_slice_scan_codegen`) survive without a re-golden.
+//
+// WHY `Buffer<E>` AND NOT A GENERATED TYPE PER QUERY. §12's `buffered` form IS
+// the degenerate queue: "a `Vec` IS the queue — eager producer, no bound". The
+// Buffer is that Vec read as a stream (`logos.mem.stream`, one packet then
+// `None`), and it is already the landing the `Drain` node builds at S2j/S3b —
+// so the output seam and the internal seams materialize into ONE type, not two.
+// A per-query struct is what the `direct` form needs, and only it: the direct
+// stream's state is the SOURCE walk, whose type this emitter cannot spell (see
+// the S5 slice bullet in the ADR for the measured blocker).
+//
+// WHY IT COMPOSES THROUGH `Result`. `Result<impl BatchStream<B>, ElError>` is
+// REFUSED (`p9_result_impl`, rc 1, "return type mismatch — expected Result, got
+// Result": impl-trait is top-level-return-position only and does not nest in a
+// generic), which is why the return type here is a NAMED one. `Buffer<E>` is
+// named, generic, and `Result::Ok(...)` carries it — measured as a REFUSE+ADMIT
+// pair, not assumed.
+//
+// THE EMPTY RESULT IS A PACKET, NOT AN ABSENCE. `Buffer::next()` on an empty
+// buffer yields ONE `Some(empty)` before `None` (buffer.logos: §1 says an empty
+// batch is a legal tick), so a query that matches no row is distinguishable
+// from a stream that never ran. `pass/deem_stream_return_surface` asserts that
+// arm; without it the empty case would only be witnessed by a `len()==0`, which
+// says nothing about the PULL.
+fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
+                       elem_ty: str, prm: &MacroParams) {
+    let bare: str = vis_strip(fn_name);
+    let mut snm: String = String::new();
+    prep_derived_name(fn_name, "_stream", &mut snm);
+
+    let mut rty: String = String::new();
+    rty.push_str("Result<Buffer<");
+    rty.push_str(elem_ty);
+    rty.push_str(">, ElError>");
+
+    // `?` and not a `match`: the facade adds a REPRESENTATION, never an error
+    // path, and spelling the propagation as two arms would put a second
+    // decision site next to a query whose only decision was taken inside.
+    let mut b: String = String::new();
+    b.push_str("{\n    let __sv: Vec<");
+    b.push_str(elem_ty);
+    b.push_str("> = ");
+    b.push_str(bare);
+    b.push_str("(");
+    push_param_args(&mut b, prm);
+    b.push_str(")?;\n    return Result::Ok(Buffer::<");
+    b.push_str(elem_ty);
+    b.push_str(">::from_vec(__sv));\n}\n");
+
+    emit_fn_quote_blob(string_as_str(&snm), params_text, tps,
+                       string_as_str(&rty), parse_block(string_as_str(&b)), prm);
 }
 
 fn is_comp_root(e: SExpr) -> bool {
@@ -1554,7 +1625,10 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
         let et: ExprBlob = parse_type(result_elem);
         quote_block! { return Result::Ok(Vec::<#(et)>::new()); }
     };
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
+    // `first` narrows to `Option<E>` — a SINGLE-ROW shape, not a multi-row
+    // result, so no §12 stream surface: "" is the emitter saying so.
+    let selem: str = if first { "" } else { result_elem };
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, bt, prm,
                   prep_ground(WG_FALSE_FILTER(), input_axis(scan_e)));
     return true;
 }
@@ -1576,7 +1650,7 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // signature names: `params_text` is VERBATIM, so any param type defined in
     // a factory package needs that package imported. `prm` supplies exactly
     // the list the chunk route builds for every other emitter.
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "",
                   quote_block! { return Result::Ok(Option::None); }, prm,
                   prep_ground(WG_FALSE_PRED(), input_axis(scan_e)));
     return true;
@@ -1606,7 +1680,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
         if (#(s1)).len() > 0i64 { return Result::Ok(Option::Some(&(#(s2))[0i64])); }
         return Result::Ok(Option::None);
     };
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), bt, prm,
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "", bt, prm,
                   prep_ground(WG_HEAD(), input_axis(scan_e)));
     return true;
 }
@@ -1631,7 +1705,7 @@ fn emit_identity(scan_e: RExpr,
     rty.push_str(row_ty);
     rty.push_str("], ElError>");
     let s1: ExprBlob = parse_expr(src_name);
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(),
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "",
                   quote_block! { return Result::Ok(#(s1)); }, prm,
                   prep_ground(WG_IDENTITY(), input_axis(scan_e)));
     return true;
@@ -2193,7 +2267,10 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         #(scan_f);
         #(tail_f);
     };
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+    // `first` is the SINGLE-ROW shape (`Option<E>`): no multi-row result, so no
+    // §12 stream surface. "" is the emitter stating that, not a default.
+    let selem: str = if first { "" } else { result_elem };
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm,
                   prep_ground(WG_SCAN(), input_axis(scan_e)));
     return true;
 }
@@ -2262,7 +2339,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str("Result<Option<&");
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "", body_f, prm,
                   prep_ground(WG_SCAN(), input_axis(scan_e)));
     return true;
 }
@@ -3806,7 +3883,8 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
                            string_as_str(&meas), string_as_str(&tblb), jo.w);
         }
     }
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm, prp);
+    let selem: str = if first { "" } else { result_ty };
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm, prp);
     return true;
 }
 
@@ -4342,7 +4420,48 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                           no_lim, false, st_stream[ki2]);
         ki2 = ki2 - 1i64;
     }
-    let nest: ExprBlob = quote_block! {
+    // ── ADR 0025 S5-D5: THE AGGREGATE'S BASE IS A SCAN LIKE ANY OTHER ───────
+    //
+    // S4 left the fold single-pass at the OPERATOR and indexed at the ARTIFACT:
+    // `while __i0 < (src).len() { let v = &(src)[__i0]; … }`. That loop is why
+    // `plan_walker`'s Aggr arm could not claim the single pass it had just
+    // proved — the plan may not claim a property the artifact does not have —
+    // and it left `emit_aggregate` as the last indexed-loop consumer of a
+    // source besides the slice arm. `batch_scan_frag` is §1's ONE shape and it
+    // is the same call `emit_simple` (streamed arm) and `chain_nest_frag` (join
+    // base) already make; this is the third and last site.
+    //
+    // THE GATE IS THREE FACTS, and each one is a fact the plan CARRIES rather
+    // than a shape re-derived here:
+    //   * `pure_group` — the S4-GO predicate. FALSE ⇒ the group carries a
+    //     representative base row, seeded as `__g_row.push(__i0)`, and `__i0`
+    //     is a GLOBAL ROW ORDINAL that a `next_batch()` loop does not have
+    //     (`__bj0` is an offset into the batch in hand). Not a conservatism:
+    //     the ordinal is unspellable in the batch shape, so the indexed loop
+    //     stays for that class and says so.
+    //   * `rel_batch` — the producer declared `BatchStream` (the natspec `b`
+    //     flag, travelling with the pushdown-chosen op). A row-at-a-time
+    //     producer has no `next_batch()`.
+    //   * `rel_src_unmaterialized` — the plan's own drain plane. If the plan
+    //     drained this source, the emitted binding is a materialized `Vec` and
+    //     the indexed walk is the RIGHT shape for it.
+    // The planner's Aggr arm proves the same three (see `plan_prove_once`), so
+    // the claim and the artifact move together — which is the half of S4 that
+    // was left open, named there by the `LeafWalk has no method len` failure a
+    // one-sided change produced.
+    //
+    // NO `brk`: grouping needs every row, so neither loop carries a limit
+    // check. `limit` caps the group-row OUTPUT phase below, unchanged.
+    let mut nest: ExprBlob = quote_block! { };
+    let agg_bbi: i64 = prm.rel_find_src(ch.base_src);
+    if pure_group && agg_bbi >= 0i64 && prm.rel_batch[agg_bbi]
+       && prm.rel_src_unmaterialized(ch.base_src) {
+        let brk_o0: ExprBlob = quote_block! { };
+        let brk_i0: ExprBlob = quote_block! { };
+        nest = batch_scan_frag(prm, agg_bbi, 0i64, base_src_f, base_vnm,
+                               base_ty_f, inner, brk_o0, brk_i0);
+    } else {
+    nest = quote_block! {
         let mut __i0: i64 = 0i64;
         while __i0 < (#(base_src_f)).len() {
             let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
@@ -4350,6 +4469,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
             __i0 = __i0 + 1i64;
         }
     };
+    }
 
     // ── THERE IS NO FINALIZE PASS (ADR 0025 S4c) ────────────────────────────
     // WHAT USED TO BE HERE: a second walk over `__g_key` that re-bound the
@@ -4456,7 +4576,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         #(output);
         return Result::Ok(__out);
     };
-    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), body_f, prm,
+    emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), result_ty, body_f, prm,
                   prep_ground(WG_AGG(), chain_axis(ch.n)));
     // ── AND, WHEN THE SHAPE ADMITS IT, THE INCREMENTAL FORM (P1) ────────────
     // ⚠ AFTER THE BATCH FN AND NOT BEFORE, WHICH IS A SEMANTIC ORDER AND NOT A

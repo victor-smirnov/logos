@@ -482,14 +482,76 @@ fail = []
 # 380 is the WHOLE of the class criterion 1 counted as unnamed on this tree
 # (`__gf_*` is 0 — the finalize pass is deleted, and its 488 bindings left the
 # count by being deleted rather than by being named).
-EXPECT_FIXTURES   = 181
+# ── RE-DERIVATION AT ADR 0025 S5 (the streaming return surface, §12) ────────
+#
+# ONE clause moved and it is the fixture count: `pass/deem_stream_return_surface`
+# (S5) takes the corpus 181 -> 182. MEASURED BEFORE RE-PINNING, the gate reported
+# exactly ONE failure:
+#
+#   corpus is 182 fixtures, pin says 181
+#
+# EVERY OTHER PINNED NUMBER HELD, and that is this stage's sharpest control, not
+# a convenience. S5 adds 486 `*_stream` entries to the ARTIFACT and NOTHING to
+# the PLAN: drain/sort 13, arrange 598, index 598, hash-join 495, `__it_` 13,
+# `__ks` 127, `__ix<k>` 319, container 204 / read-once 18 / elided 8, and all
+# four group-frame families (152/208/13/7) are unchanged. An emitter change that
+# had touched a materialization decision — rather than adding a door over the
+# result — could not have left all fifteen of those still.
+#
+# ⚠ AND THE ABSENCE THAT IS DELIBERATE AND NAMED, NOT AN OVERSIGHT. §12 says the
+# `buffered` form is "semantically a `Drain` at the output seam, and the plan
+# records it as one". NO SUCH NODE IS INSERTED AT S5, on purpose: the node list
+# is indexed PER REL (`AccessPlan.prelude_ix(ri)`) and the output seam is not a
+# rel, and — the load-bearing half — at S5 the answer is CONSTANT across the
+# whole corpus, because `direct` is not landed and every query's stream surface
+# is buffered. A node with one value for all 486 entries carries no information
+# and would move this census by 486 while saying nothing a reader could act on.
+# The output-seam node belongs to the stage where the plan first has TWO answers
+# to give, which is `direct`. Written here rather than left implicit, so that the
+# next reader finds a decision and not a gap.
+# ── RE-DERIVATION AT ADR 0025 S5-D5 (the aggregate pulls batches) ───────────
+#
+# THREE clauses moved, ALL THREE ARE ONE QUERY, and the query is named:
+# `parity_sums` in `pass/deem_batch_scan_drain` — the corpus's only PURE-class
+# aggregate (`aggr_group_frame_pure`) over a source whose chosen producer hands
+# out BATCHES. S4 proved that fold single-pass at the operator and could not
+# claim it, because `emit_aggregate`'s base loop was still `while __i0 <
+# (src).len()`; S5-D5 routes that loop through `batch_scan_frag` and the claim
+# becomes true of the artifact, so the Drain that stood in for it goes away.
+#
+#   DRAIN+SORT 13 -> 12    drain 8 -> 7 (this query's `__rel_m` Buffer), sort 5
+#                          unchanged — the fixture's OTHER query still sorts.
+#   READ-ONCE  18 -> 19    the same node, counted on the other side of the same
+#                          decision: `m -> no materialization (read once,
+#                          consumed where it stands)` where the trace used to
+#                          print `materialize (MG_REGROUP)`.
+#   IT         13 -> 12    the `let mut __it_m: …LeafWalk` + `let mut __rel_m:
+#                          Buffer<(u64,u64)>` PAIR collapses to one binding —
+#                          the walk IS the source now. MEASURED IN THE FIXTURE
+#                          (2 -> 1), not inferred from the corpus difference.
+#
+# ⚠ EVERY OTHER PINNED NUMBER HELD, and that is the control that says this is
+# one decision and not a shape change: arrange 598, index 598, hash-join 495,
+# `__ks` 127, `__ix<k>` 319, container 204, elided 8, and all four group-frame
+# families (152/208/13/7) are unchanged. The FOLD did not move — only what the
+# rows arrive in. The corpus snapshot agrees per file: `diff -rq` over 166 dumps
+# reports exactly ONE differing file, this fixture, −23 bytes.
+#
+# ⚠ AND `MG_REGROUP` IS STILL WITNESSED (count 1), which the both-directions
+# partition requires. It survives on the two classes that keep their drain: an
+# aggregate whose clauses name a representative source row, and — the arm S5-D5
+# adds — a PURE aggregate over a producer that hands out ROWS rather than
+# batches. Had the ground gone quiet, this gate would red on the debt ledger,
+# and the pure-class change would have been a vocabulary deletion in disguise.
+# S5-PIPELINE: 182 -> 183, `pass/deem_pipeline_chain` (§12's composition oracle).
+EXPECT_FIXTURES   = 183
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
 # starting to compile, which would mean the pin is stale — is red.
 EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
-EXPECT_DRAIN_SORT = 13    # drain 8 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5, see RE-DERIVATION below)
-EXPECT_IT         = 13    # `let mut __it_…` prelude bindings in the artifacts
+EXPECT_DRAIN_SORT = 12    # drain 7 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5; S5-D5: drain 8 -> 7, see RE-DERIVATION above)
+EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts  (S5-D5: 13 -> 12)
 EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
@@ -499,7 +561,18 @@ EXPECT_KS         = 127   # emitted `__ks` sort-key vectors == `key vector` line
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
 EXPECT_PERM       = 319
-EXPECT_NOMAT      = {"container": 204, "readonce": 18, "elided": 8}
+# S5-PIPELINE: readonce 19 -> 21. `deem_pipeline_chain` chains TWO deems onto one
+# streamed source (`q2_head` bounded, `q2_all` the unbounded control), and each
+# contributes one `read once, consumed where it stands` — the ground that IS the
+# pipeline claim at seam 2, so the +2 is the stage's subject and not a side effect.
+# ⚠ `container` DOES NOT MOVE, and the prediction that it would was REFUTED by the
+# trace rather than absorbed: the fixture's THIRD deem (`q1`, over a `&[Row]`
+# parameter) emits NO per-rel materialization ground at all — the `[plan] <rel> ->`
+# lines in that file belong to the two streamed rels only. A bare slice parameter
+# is scanned where it stands and never reaches `access_plan_decide_mode`'s
+# container arm, so 204 is unchanged and predicting 205 was a wrong model of which
+# sources own a ground.
+EXPECT_NOMAT      = {"container": 204, "readonce": 21, "elided": 8}   # S5-D5: readonce 18 -> 19
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family

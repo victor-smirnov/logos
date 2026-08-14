@@ -1,0 +1,237 @@
+// ADR 0025 S5 (§12) — THE PIPELINE: TWO CHAINED DEEMS, ORACLE = THE PULL COUNT.
+//
+// §12's claim is about COMPOSITION: `q2` over `q1`'s result should not pay a
+// full materialization at the seam. `pass/deem_stream_return_surface` pins the
+// return surface of ONE query; this fixture pins what happens when the surface
+// is CONSUMED by a second deem — the thing §12 exists for and the thing no
+// single-query fixture can see.
+//
+// ── THE TWO SEAMS, NAMED SEPARATELY, BECAUSE THEY HAVE DIFFERENT ANSWERS ────
+//
+//   SEAM 1  q1's OUTPUT — where q1's rows become a value.
+//   SEAM 2  q2's INPUT  — where q2 reads them.
+//
+// A pipeline has both, and the ADR's headline number ("no seam materialization")
+// is about seam 1 only. Conflating them is how "the pipeline streams" gets
+// claimed off a measurement of the half that already streamed, so each is
+// counted here with its own instrument:
+//
+//   SEAM 1 is counted in PACKETS at `q1_stream`'s `next()`. The `buffered`
+//          form's answer is EXACTLY 1 — one materialization, §12's degenerate
+//          queue. This is the number `direct` changes (one packet per source
+//          leaf); pinning it now is what makes that change VISIBLE rather than
+//          silent.
+//   SEAM 2 is counted in PULLS at the source iterator's own `next()`, which is
+//          this file's static `PULLED`. The answer is the number of rows q2
+//          ACTUALLY read, and a chain that drained its input would report the
+//          whole relation here.
+//
+// ── WHY THE PULL COUNT IS A MEASUREMENT AND NOT A BOUND ────────────────────
+//
+// `q2_head`'s `limit 3` pulls 3 of 12; the CONTROL `q2_all` — same source, same
+// rel, no `limit` — pulls all 12. One variable (the bound), both directions, in
+// ONE program over ONE source, so the 3 is a fact about PULL-THROUGH and not
+// about a source that happened to be short. Without the control a source of 3
+// rows would report `PULLED == 3` under a fully draining plan and read as a
+// green pipeline. (Measured before this fixture was written:
+// `/home/logos/sandbox/s5pipe/p2_{lim,nolim}`, exit code = the pull count,
+// 3 and 20 over a 20-row source.)
+//
+// ── WHAT IS REFUSED HERE, AND ON WHOSE MEASUREMENT ─────────────────────────
+//
+// DIRECT-OVER-DIRECT IS NOT ASSERTED, BECAUSE `direct` IS NOT LANDED. The ADR's
+// S5 bullet records the blocker as an ORDERING fact with a three-way probe
+// (`s5d/pd1..pd3`, all rc 1, byte-identical): `typeof(<container>)` does not
+// resolve in ANY hand-written item of the declaring module, so the direct
+// stream's state type — which IS the source walk's type — can only be spelled
+// from inside metaprog. Until that emitter-plumbing step lands, EVERY query's
+// stream surface is `buffered`, seam 1 is 1 packet for all 486 emitted entries,
+// and a "direct-over-direct" arm here would be a fixture asserting a form that
+// does not exist. What this file pins instead is the number that arm will move.
+//
+// THE OUTPUT-SEAM `Drain` NODE IS NOT ASSERTED EITHER, for the reason the ADR
+// records: it is deliberately not inserted at S5, because with `direct` absent
+// the answer is CONSTANT across the corpus and the node would move the census by
+// 486 while telling a reader nothing. So "the plan SAYS so" is asserted at SEAM
+// 2, where the plan genuinely has something to say and says it POSITIVELY —
+// under `LOGOS_TRACE_PLAN=1` the chain's source reports
+//
+//     [plan] s -> no materialization   (no node: the plan reads this source
+//                                       once and consumes it where it stands)
+//
+// which is the streamed-source arm (`MG_*` / `AD_NONE`), not an absence of
+// output. That channel is checked by `plan_nodes_gate.sh`; this file holds the
+// RUNTIME half, and the two are independent readings of the same seam.
+//
+// ── SAME ROWS BOTH WAYS ────────────────────────────────────────────────────
+//
+// The chain is run twice — once with seam 1 as the `Vec` surface (today's
+// always-Vec output, ADR §1 row 10), once as the `Buffer` stream surface — and
+// the two row sequences are compared to each other AND to literals. A migration
+// of the Vec surface that changed rows, order or count reds here; so does a
+// stream surface that agrees with itself and with nothing else.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.bt.map;              // trait OrderedMapSource — the chain source
+use logos.mem.collections.vec;
+use logos.mem.stream;              // Buffer<R> — q1's stream surface
+use logos.lang.stream;             // BatchStream / RowsBatch — the pull protocol
+use logos.lang.iter;               // trait Iterator — seam 2's protocol
+use logos.lang.option;
+use logos.lang.result;
+
+pub struct Row { pub a: i64, pub b: i64 }
+
+// ── SEAM 2'S INSTRUMENT ────────────────────────────────────────────────────
+// Incremented in the source iterator's `next()` and NOWHERE else, so it counts
+// rows q2 actually read — not rows that existed, and not rows q1 produced.
+static mut PULLED: i64 = 0i64;
+
+// q1: 12 of the 20 base rows match. A strict subset, so a chain that handed the
+// SOURCE through instead of q1's answer is visible in the row values below.
+pub deem q1(rows: &[Row]) {
+    from rows r where r.a > 0i64 select (r.a, r.b)
+}
+
+// ── THE CHAIN SOURCE: q1's rows, read as a relation ────────────────────────
+// Borrows the seam's storage (`Buffer::as_slice` or `Vec::as_slice`) — it does
+// NOT copy, which is the point: a source that copied its input would put a
+// THIRD materialization in a two-seam pipeline and no counter here would see it.
+pub struct SeamSrc { pub rows: &[(i64, i64)] }
+
+pub struct SeamIter { pub rows: &[(i64, i64)], pub i: i64 }
+
+impl Iterator<(i64, i64)> for SeamIter {
+    fn next(self: &mut SeamIter) -> Option<(i64, i64)> {
+        if self.i >= self.rows.len() { return Option::None; }
+        unsafe { PULLED = PULLED + 1i64; }
+        let v: (i64, i64) = self.rows[self.i];
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn seam_rows(s: &SeamSrc) -> SeamIter {
+    return SeamIter { rows: s.rows, i: 0i64 };
+}
+
+// The producer returns an ITERATOR, which is the whole opt-in (ADR 0024 S4: the
+// source joins the streaming plane by its producer's RETURN TYPE, and Deem asks
+// the type rather than the author).
+impl OrderedMapSource<i64, i64> for SeamSrc {
+    rel entry = seam_rows;
+}
+
+// q2 — the second deem. `limit 3` is the bound whose pull count is the oracle.
+pub deem q2_head(s: &SeamSrc) { from s e select (e.key, e.val) limit 3 }
+
+// THE CONTROL: identical but unbounded. Same source, same rel, one variable.
+pub deem q2_all(s: &SeamSrc) { from s e select (e.key, e.val) }
+
+fn main() -> i32 {
+    // 20 base rows; `a > 0` holds for 12 of them (a = 1..12), fails for 8.
+    let mut rows: Vec<Row> = vec_new::<Row>();
+    let mut k: i64 = 0i64;
+    while k < 12i64 {
+        rows.push(Row { a: k + 1i64, b: (k + 1i64) * 10i64 });
+        k = k + 1i64;
+    }
+    let mut z: i64 = 0i64;
+    while z < 8i64 {
+        rows.push(Row { a: 0i64, b: 999i64 });   // fails q1's predicate
+        z = z + 1i64;
+    }
+
+    // q1's Vec surface first — it is the reference the stream packet is checked
+    // against, and taking it here keeps the packet's SHARED borrow of `s1` from
+    // spanning the `&mut next()` that proves exhaustion.
+    let v1: Vec<(i64, i64)> = match q1(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if v1.len() != 12i64 { return 12i32; }
+
+    // ── SEAM 1, `buffered`: EXACTLY ONE PACKET ─────────────────────────────
+    let mut s1: Buffer<(i64, i64)> = match q1_stream(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+
+    let o1: Option<RowsBatch<(i64, i64)>> = s1.next();
+    if !o1.is_some() { return 2i32; }
+    let b1: RowsBatch<(i64, i64)> = o1.unwrap();
+    if b1.len() != 12i64 { return 3i32; }
+
+    // q1's TWO surfaces agree row-for-row, so a later migration of the Vec
+    // surface cannot move the pipeline silently.
+    let mut m: i64 = 0i64;
+    while m < 12i64 {
+        let t: (i64, i64) = b1[m];
+        if t.0 != v1.get(m).0 { return 25i32; }
+        if t.1 != v1.get(m).1 { return 26i32; }
+        m = m + 1i64;
+    }
+
+    // …and then exhaustion, so the ONE packet is the whole seam and not the
+    // first of several.
+    let o1b: Option<RowsBatch<(i64, i64)>> = s1.next();
+    if o1b.is_some() { return 4i32; }
+
+    // ── SEAM 2 THROUGH THE STREAM SURFACE: PULL-THROUGH ───────────────────
+    let src_s: SeamSrc = SeamSrc { rows: s1.as_slice() };
+
+    unsafe { PULLED = 0i64; }
+    let h1: Vec<(i64, i64)> = match q2_head(&src_s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if h1.len() != 3i64 { return 6i32; }
+    // THE ORACLE. 3 of 12 — q2 read exactly what it kept.
+    let mut p1: i64 = 0i64;
+    unsafe { p1 = PULLED; }
+    if p1 != 3i64 { return 7i32; }
+
+    // THE CONTROL, same source: unbounded ⇒ all 12. This is what makes the 3
+    // above a measurement of PULL-THROUGH rather than of a short source.
+    unsafe { PULLED = 0i64; }
+    let a1: Vec<(i64, i64)> = match q2_all(&src_s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if a1.len() != 12i64 { return 9i32; }
+    let mut p2: i64 = 0i64;
+    unsafe { p2 = PULLED; }
+    if p2 != 12i64 { return 10i32; }
+
+    // ── THE SAME CHAIN WITH SEAM 1 AS THE Vec SURFACE ─────────────────────
+    let src_v: SeamSrc = SeamSrc { rows: v1.as_slice() };
+
+    unsafe { PULLED = 0i64; }
+    let h2: Vec<(i64, i64)> = match q2_head(&src_v)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if h2.len() != 3i64 { return 14i32; }
+    // The pull count does not depend on WHICH surface fed the seam: the two
+    // surfaces are two spellings of one relation, and seam 2 reads them alike.
+    let mut p3: i64 = 0i64;
+    unsafe { p3 = PULLED; }
+    if p3 != 3i64 { return 15i32; }
+
+    // ── SAME ROWS BOTH WAYS, VALUES ASSERTED ──────────────────────────────
+    // Against each other…
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        if h1.get(i).0 != h2.get(i).0 { return 16i32; }
+        if h1.get(i).1 != h2.get(i).1 { return 17i32; }
+        i = i + 1i64;
+    }
+    // …and against literals, so agreeing on the WRONG rows is not green.
+    if h1.get(0i64).0 != 1i64 || h1.get(0i64).1 != 10i64 { return 18i32; }
+    if h1.get(1i64).0 != 2i64 || h1.get(1i64).1 != 20i64 { return 19i32; }
+    if h1.get(2i64).0 != 3i64 || h1.get(2i64).1 != 30i64 { return 20i32; }
+
+    // The full 12 through the chain, against q1's own Vec surface row-for-row:
+    // seam 1 and seam 2 compose to the identity on q1's answer.
+    let mut j: i64 = 0i64;
+    while j < 12i64 {
+        if a1.get(j).0 != v1.get(j).0 { return 21i32; }
+        if a1.get(j).1 != v1.get(j).1 { return 22i32; }
+        if a1.get(j).0 != j + 1i64 { return 23i32; }
+        if a1.get(j).1 != (j + 1i64) * 10i64 { return 24i32; }
+        j = j + 1i64;
+    }
+
+    return 0i32;
+}

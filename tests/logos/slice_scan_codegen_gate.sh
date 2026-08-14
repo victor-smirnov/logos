@@ -80,8 +80,21 @@
 #       (lt2, rc 0), TWO SIBLING ARMS of the same shape are refused (lt4, rc 1),
 #       and the same two arms with the PRE-COLLAPSE indexed loop compile (lt5,
 #       rc 0). So the refusal is the borrow-provenance over-refusal class, not
-#       the design — the collapse is blocked on a COMPILER fix, and this golden
-#       keeps the pre-batch loop for that reason, with a number attached.
+#       the design — the collapse was blocked on a COMPILER fix.
+#
+# ⚠ (2) IS CLOSED AS OF 2026-08-14 (S5-D4), AND (1) IS NOT. The over-refusal was
+# rooted to an 8-line program with no stream in it and fixed in
+# `src/compiler/borrow_check.cpp`: a §B6 borrow SOURCE reached through a
+# reference-typed local is that local's own PROVENANCE, not the local — its
+# storage is the pointee's, and the pointee outlives the block the reference was
+# declared in. lt2/lt4/lt5 and the whole m/q/r probe grid are rc 0 now, with the
+# refusal PRESERVED and re-aimed: where the reference points at a DYING LOCAL
+# the E0597 stands and names that local (the probe pair is recorded in the
+# census). THIS GOLDEN STILL DOES NOT MOVE, and the surviving reason is (1)
+# alone — +69 instructions and +286 bytes of `.text` for a source that is
+# ALREADY materialized is not "measured equal", and a checker fix does not
+# change a codegen number. Two blockers became one, and the one that is left is
+# a MEASUREMENT: the transition needs a re-measurement, not a re-argument.
 #
 # When S3d does land, this gate goes red twice (bytes + batch vocabulary) and
 # both arms move together with the measurement recorded in the census.

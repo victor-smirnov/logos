@@ -1,0 +1,175 @@
+// ADR 0025 S5 (§12) — THE STREAMING RETURN SURFACE, `buffered` FORM.
+//
+// Every `Vec`-returning query now emits a SECOND entry beside its own:
+//
+//     pub fn q(…)        -> Result<Vec<E>, ElError>       (unchanged)
+//     pub fn q_stream(…) -> Result<Buffer<E>, ElError>    (NEW, §12 `buffered`)
+//
+// `Buffer<E>` is §12's degenerate queue made literal ("a `Vec` IS the queue:
+// eager producer, no bound"), served through `BatchStream` — the SAME landing
+// type the `Drain` node already builds at the internal seams since S2j/S3b, so
+// the output seam and the internal seams materialize into one type and not two.
+//
+// ── WHY THE ASSERTIONS ARE ABOUT THE PULL AND NOT ABOUT `len()` ─────────────
+//
+// A stream surface that merely wrapped a `Vec` and answered `size()` would pass
+// any row-value test the `Vec` surface already passes; the corpus is green about
+// values by construction (505 emitted entries, every deem fixture asserts
+// through one). What the corpus cannot see is the PROTOCOL: how many packets a
+// consumer gets, and whether "no rows" is distinguishable from "the stream never
+// ran". So every claim below is counted at `next()`:
+//
+//   PACKETS  — how many `Some(b)` a full drain of the stream hands out. For the
+//              `buffered` form this is EXACTLY 1 for every query and every row
+//              count, empty included: one seam materialization, and §12 says so.
+//              This is the number that will CHANGE when `direct` lands (one
+//              packet per source leaf), which is why it is pinned now: the two
+//              forms are indistinguishable on rows and distinguishable only here.
+//   TICKS    — `PACKETS` + the terminating `None`. Pins that the stream
+//              terminates rather than repeating its packet.
+//
+// ── THE EMPTY RESULT IS A PACKET, NOT AN ABSENCE ───────────────────────────
+//
+// `pass/deem_drain_buffer_empty` pins the empty INTERNAL landing (a Drain built
+// and never pushed to). This fixture pins the empty OUTPUT landing, which is a
+// different claim on a different surface: §1's rule is that `Some(b)` with
+// `b.len() == 0` is a legal tick and NOT termination, so a query matching no row
+// must still hand out ONE empty packet before `None`. An implementation that
+// short-circuited the empty case to a bare `None` would be green on `len()==0`
+// and would make "no rows" indistinguishable from "the stream never ran" — the
+// exact confusion §1 legislates against. `q_empty` below is that arm, and it is
+// asserted with the SAME two counters as the populated one, so the pair is a
+// refuse+admit pair over one predicate rather than two unrelated greens.
+//
+// ── THE PIPELINE (§12's composition half) ──────────────────────────────────
+//
+// `sum_stream` is a GENERIC consumer bound by `BatchStream<RowsBatch<i64>>`,
+// which is the composition spelling measured to work (`s5r/p5_compose`, rc 0);
+// parameter-position `impl Trait` is refused, so a generic bound is the door.
+// It shares no code with the emitter and does not know which query it drained —
+// so it is an independent oracle for BOTH the rows and the packet count, and it
+// is the same function applied to two different queries' streams, which is what
+// makes "the surface composes" an assertion instead of a sentence.
+//
+// ── THE Vec SURFACE IS NOT MIGRATED, AND THAT IS ASSERTED TOO ──────────────
+//
+// S5 ADDS a door; it moves nothing behind the old one (measured: the corpus
+// delta of this change is PURE ADDITION — zero lines of the 165-dump baseline
+// disappeared, 486 `*_stream` entries appeared, all 505 `*_run` entries
+// unchanged). `rows_agree` below reads BOTH surfaces of the SAME query and
+// asserts them row-for-row, so a future stage that migrates the Vec surface
+// cannot do it silently: this fixture reds the moment the two disagree.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.stream;              // Buffer<R> — the returned stream type
+use logos.lang.stream;             // BatchStream / RowsBatch — the pull protocol
+use logos.lang.result;
+use logos.lang.option;
+
+pub struct Row { pub a: i64, pub b: i64 }
+
+// Three rows match, one does not — so `q_all`'s answer is a strict subset of
+// the source and a stream that handed back the source itself would be visible.
+pub deem q_all(rows: &[Row]) {
+    from rows r where r.a > 0i64 select r.b
+}
+
+// NO row matches: the empty OUTPUT landing. Not a const-false filter (that is
+// the `emit_empty` peephole, a different emitter with a constant body) — a
+// predicate the data fails, so the scan runs and pushes nothing.
+pub deem q_empty(rows: &[Row]) {
+    from rows r where r.a > 1000i64 select r.b
+}
+
+// ── the independent consumer: a full drain, counting packets ────────────────
+// Returns (packets, ticks, sum, count). Knows nothing about Deem.
+fn drain_count<S: BatchStream<RowsBatch<i64>>>(s: &mut S) -> (i64, i64, i64, i64) {
+    let mut packets: i64 = 0i64;
+    let mut ticks:   i64 = 0i64;
+    let mut sum:     i64 = 0i64;
+    let mut cnt:     i64 = 0i64;
+    loop {
+        let o: Option<RowsBatch<i64>> = (*s).next();
+        ticks = ticks + 1i64;
+        if o.is_some() {
+            packets = packets + 1i64;
+            let b: RowsBatch<i64> = o.unwrap();
+            let n: i64 = b.len();
+            let mut i: i64 = 0i64;
+            while i < n {
+                sum = sum + b[i];
+                cnt = cnt + 1i64;
+                i = i + 1i64;
+            }
+        } else {
+            break;
+        }
+    }
+    return (packets, ticks, sum, cnt);
+}
+
+fn main() -> i32 {
+    let mut rows: Vec<Row> = vec_new::<Row>();
+    rows.push(Row { a: 1i64, b: 10i64 });
+    rows.push(Row { a: 2i64, b: 20i64 });
+    rows.push(Row { a: 0i64, b: 99i64 });   // fails the predicate
+    rows.push(Row { a: 3i64, b: 30i64 });
+
+    // ── 1. VALUES ASSERTED THROUGH THE STREAM ──────────────────────────────
+    let mut s1: Buffer<i64> = match q_all_stream(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let d1: (i64, i64, i64, i64) = drain_count::<Buffer<i64>>(&mut s1);
+    // EXACTLY ONE packet: the `buffered` form's single seam materialization.
+    if d1.0 != 1i64  { return 2i32; }
+    // …and then exhaustion, once.
+    if d1.1 != 2i64  { return 3i32; }
+    if d1.3 != 3i64  { return 4i32; }
+    if d1.2 != 60i64 { return 5i32; }
+
+    // ── 2. THE EMPTY RESULT IS A PACKET, NOT AN ABSENCE ────────────────────
+    let mut s2: Buffer<i64> = match q_empty_stream(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    let d2: (i64, i64, i64, i64) = drain_count::<Buffer<i64>>(&mut s2);
+    // ONE packet, and it is EMPTY — §1's legal tick. A `0` here would be the
+    // defect this arm exists for: "no rows" spelled as "the stream never ran".
+    if d2.0 != 1i64 { return 7i32; }
+    if d2.1 != 2i64 { return 8i32; }
+    if d2.3 != 0i64 { return 9i32; }
+    if d2.2 != 0i64 { return 10i32; }
+
+    // ── 3. COMPOSITION: ONE consumer, TWO queries' streams ─────────────────
+    // Already exercised above — `drain_count` is the same generic fn applied to
+    // both. The claim it makes that neither call alone makes: the stream type is
+    // a TYPE, not a per-query shape a consumer must branch on.
+
+    // ── 4. THE Vec SURFACE STILL EXISTS AND AGREES ─────────────────────────
+    let v1: Vec<i64> = match q_all(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if v1.len() != 3i64 { return 12i32; }
+    if v1.get(0i64) != 10i64 { return 13i32; }
+    if v1.get(1i64) != 20i64 { return 14i32; }
+    if v1.get(2i64) != 30i64 { return 15i32; }
+
+    // Row-for-row against the STREAM's own delivery, re-drained from a fresh
+    // stream over the same source. Two surfaces, one answer.
+    let mut s3: Buffer<i64> = match q_all_stream(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 16i32; } };
+    let o3: Option<RowsBatch<i64>> = s3.next();
+    if !o3.is_some() { return 17i32; }
+    let b3: RowsBatch<i64> = o3.unwrap();
+    if b3.len() != v1.len() { return 18i32; }
+    let mut i: i64 = 0i64;
+    while i < b3.len() {
+        if b3[i] != v1.get(i) { return 19i32; }
+        i = i + 1i64;
+    }
+
+    // ── 5. THE EMPTY Vec SURFACE, for the same pairing on the empty arm ────
+    let v2: Vec<i64> = match q_empty(rows.as_slice())
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 20i32; } };
+    if v2.len() != 0i64 { return 21i32; }
+
+    return 0i32;
+}
