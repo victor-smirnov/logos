@@ -207,8 +207,20 @@ ACC = {
     '__ix':     'key vector (the permuted index vectors)',
     '__g_key':  'group frame (the group key column)',
     '__ga':     'accumulator (per-group accumulator columns)',
+    '__g_cnt':  "group count (avg's denominator)",
+    '__g_row':  'representative row (the group\'s base-row ordinal)',
     '__sv':     'materialize (a producer that returns a container)',
 }
+# ⚠ ACC IS KEYED ON THE NAME ALONE, AND THE KEY CANNOT EXPRESS TWO OWNERS.
+# `drain` and `sort` land into `__rel_<x>` bindings — but so do UNOWNED Vec
+# landings under the same names (217 `__rel_*` bindings today; `__rel_g` 35,
+# `__rel_r` 17, `__rel_w` 17, `__rel_path` 15, …). The owned ones are the
+# BUFFER-typed 12 (`__rel_s` 7, `__rel_m` 3, `__rel_t` 1, `__rel_d` 1 =
+# drain 7 + sort 5, the identity `plan_ground_census_gate.sh`
+# FACT B pins). A name-only key would have to take all 217 or none, so it takes
+# none and the 12 are counted as worklist. The printed ACCOUNTED is therefore a
+# FLOOR: the site-level reading is 12 higher. Closing this needs the per-node
+# attribution recorded as OPEN in the criteria doc §4d, not a wider name key.
 BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0
