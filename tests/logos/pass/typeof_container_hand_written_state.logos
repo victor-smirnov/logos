@@ -1,0 +1,143 @@
+// R-E / COMPILER — `typeof(<container>)` IS SPELLABLE IN THE DECLARING MODULE.
+//
+// The ADR 0025 §6 row recorded this as the direct form's blocker: "typeof
+// (<container>) does not resolve in any hand-written item of the declaring
+// module — the state type is spellable only from inside metaprog". It was a
+// ROUND-ORDER defect, not a language limit: `<X>Cfg` is emitted by the
+// container item's handler in a LATER metaprog round, and round 0 judged the
+// hand-written item that named it. Two sites moved, both in sema:
+//   * sema.cpp, resolve_type's TYPEOF_TYPE container arm — the missing config
+//     is now recorded as a DEMAND (LProgram::pending) instead of erroring in
+//     round 0 whenever the container item is still CONTAINER_DEF. If the
+//     handler never produces, main()'s post-fixpoint pending sweep refuses and
+//     names the cause.
+//   * sema_expr.cpp, expect_type — the error-propagation rule ("uses of an
+//     error-typed value are silent") looked only at the OUTERMOST kind, so
+//     `&mut <error>` and `&mut <error>::LeafWalk` — what an argument reads as
+//     in the round before the family exists — hard-errored at the CALL. A
+//     signature you can write but cannot call is half a fix.
+//
+// THIS FIXTURE IS THE ADMIT HALF OF THE PAIR, and it asserts BEHAVIOUR, not
+// just that the file compiles: each spelling drives the scan and its numbers
+// are checked against the container's own per-row cursor, which knows nothing
+// about the batch plane.
+//
+// Three hand-written positions, all in the module that DECLARES the container:
+//   1. a `let` ANNOTATED with the inline projection    (died: B1)
+//   2. a FN PARAMETER typed by the inline projection, AND CALLED  (B1 + B4)
+//   3. a `pub type` alias, also called                 (declaring it already
+//      worked; CALLING through it did not — B4)
+//
+// ⚠ THE POSITION THIS FIXTURE DOES NOT HOLD, and why: a STRUCT FIELD typed by
+// the projection. It is refused, on purpose, and the refusal is pinned by
+// fail/typeof_container_field_no_family_fail. Admitting it was TRIED (a stage
+// flag letting the per-round metaprog JIT gen skip a not-yet-lowerable field)
+// and MEASURED BAD: every such program then aborts under LOGOS_VERIFY_LAYOUT —
+// `[declined] <kind 32>` — because the field's AssocType reaches the layout
+// engines unresolved, and two of the three engines decline to size it. The
+// layout verifier is an INDEPENDENT oracle and it refused the widening, so the
+// widening was reverted rather than the verifier weakened.
+package typeof_container_hand_written_state;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 200u64;
+
+// (3) the alias form — worked before the fix, kept as the in-file control.
+pub type LedWalk = <typeof(Led) as CtrLeafFamily>::LeafWalk;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    // ── ORACLE: the per-row cursor, independent of the batch plane ──────
+    let mut rows_w: u64 = 0u64;
+    let mut ksum_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            ksum_w = ksum_w + cu.key();
+            rows_w = rows_w + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+
+    // ── (1) the INLINE projection as a `let` ANNOTATION, drained here ──
+    let mut rows_s: u64 = 0u64;
+    let mut ksum_s: u64 = 0u64;
+    {
+        let mut st: <typeof(Led) as CtrLeafFamily>::LeafWalk = c.leaf_batches();
+        loop {
+            let ob = st.next_batch();
+            if ob.is_some() {
+                {
+                    let b = ob.unwrap();
+                    let n: u64 = b.len();
+                    let kc: PdtCol = b.keys();
+                    let mut j: u64 = 0u64;
+                    while j < n { ksum_s = ksum_s + kc.at(j); rows_s = rows_s + 1u64; j = j + 1u64; }
+                }
+            } else { break; }
+        }
+    }
+
+    // ── (2) a HAND-WRITTEN FN PARAMETER typed by the inline projection ──
+    let mut rows_p: u64 = 0u64;
+    {
+        let mut w2 = c.leaf_batches();
+        rows_p = drain_rows(&mut w2);
+    }
+
+    // ── (3) a `let` annotated with the ALIAS ────────────────────────────
+    let mut rows_a: u64 = 0u64;
+    {
+        let mut w3: LedWalk = c.leaf_batches();
+        rows_a = drain_rows(&mut w3);
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_s != rows_w { return 2i32; }
+    if ksum_s != ksum_w { return 3i32; }
+    if rows_p != rows_w { return 4i32; }
+    if rows_a != rows_w { return 5i32; }
+    return 0i32;
+}
+
+// (2) THE FN PARAMETER — an ordinary hand-written item of the declaring
+// module whose signature names `typeof(Led)`. Declaring it refused with
+//   typeof(container Led): its config const 'LedCfg' did not resolve to a
+//   WritStatic document (declaration lowering incomplete?)
+// and, once that was deferred, CALLING it refused with
+//   call to 'drain_rows' arg 1: expected &mut CtrClass<@hs_…>::LeafWalk,
+//                               got &mut <error>
+// — two round-order judgments, one per site.
+fn drain_rows(w: &mut <typeof(Led) as CtrLeafFamily>::LeafWalk) -> u64 {
+    let mut rows: u64 = 0u64;
+    loop {
+        let ob = w.next_batch();
+        if ob.is_some() {
+            {
+                let b = ob.unwrap();
+                rows = rows + b.len();
+            }
+        } else { break; }
+    }
+    return rows;
+}

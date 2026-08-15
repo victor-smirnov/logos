@@ -2146,30 +2146,35 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 // information a reader could not have got from the return type — and this one
 // does on 173 of 650 sites.
 //
-// ⚠ THE GROUNDS ARE FALSIFIABLE, WHICH IS THE OTHER HALF OF "a ground". The
-// buffered sentence names R-E's blocker BY NAME: `typeof(<container>)` does not
-// resolve in ordinary items of the declaring module, which is why the direct
-// form is refused TODAY. The day R-E lands, that clause becomes false and the
-// sentence must change — a ground with a truth condition, as against a bare
-// "output" stamp, which has none and can never be wrong.
+// ⚠ THE GROUNDS ARE FALSIFIABLE, WHICH IS THE OTHER HALF OF "a ground" — and
+// R-E PROVED IT BY FALSIFYING THE FIRST ONE. The sentence used to name the
+// typeof-in-module blocker; R-E landed that compiler fix AND measured that
+// `direct` never depended on it (the emitter spells the concrete walk type as
+// TEXT from MacroParams). The true blocker, found by landing the precondition:
+// `direct`'s state struct must hold the emitted `<C>LeafWalk` as a FIELD, and
+// `sema_abi_layout` declines a metaprog-emitted struct asked about from a
+// foreign package (returns {8,8}; `LOGOS_VERIFY_LAYOUT` aborts — sema says 8,
+// llvm::DataLayout says 72). The day THAT clause turns false, this sentence
+// changes again — a ground with a truth condition, as against a bare "output"
+// stamp, which has none and can never be wrong.
 //
 // ⚠ PRECEDENCE distinct > bounded, and the overlap is EMPTY, measured: over the
 // whole corpus zero queries carry both `distinct` and `limit` on the landing
 // (the artifact classifier reads 477/16/5/0). An arm for the pair would be an
 // arm that never fires, so there is none — and if one ever does fire, it is
 // reported as the dedup carrier, which is the stronger claim about the landing.
-fn MG_OUT_BUFFERED() -> str { return "the direct form is refused — `typeof(<container>)` does not resolve in ordinary items of the declaring module (R-E), so this landing is buffered"; }
+fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — its state struct needs an emitted walk type as a FIELD and sema_abi_layout declines a metaprog-emitted struct field from a foreign package (R-E), so this landing is buffered"; }
 
 fn out_node_query(subject: str, elem_ty: str, mods: QMods) {
     if !plan_trace_on() { return; }
     if mods.distinct {
         plan_trace(subject, "query output distinct carrier", elem_ty,
-                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is refused (R-E typeof-in-module), so it is buffered");
+                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (R-E: emitted-struct-field layout decline), so it is buffered");
         return;
     }
     if mods.has_limit {
         plan_trace(subject, "query output bounded by limit", elem_ty,
-                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is refused (R-E typeof-in-module), so it is buffered");
+                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (R-E: emitted-struct-field layout decline), so it is buffered");
         return;
     }
     plan_trace(subject, "query output", elem_ty, MG_OUT_BUFFERED());
@@ -2300,6 +2305,130 @@ fn fp_node_od_phase1b(subject: str, row_ty: str) {
 /// The over-deletion distinct set, one per member of the retraction's SCC.
 fn fp_node_od_set(subject: str, row_ty: str) {
     plan_trace(subject, "over-deletion set", row_ty, MG_OD_SET());
+}
+
+// ── ADR 0025 R-E — THE RETRACTION'S TRANSACTIONAL SNAPSHOT, THREE HEADS ─────
+//
+// `<q>_dred`'s shadow handle: 145 `let mut __cp<i>: Vec<…>` bindings corpus-
+// wide, the LARGEST unowned non-`__rel_*` class in the criterion-1 worklist
+// after R-C took its former row-mates. They had no node, and the reason they
+// had none is recorded and now retired: S6-B declared the incremental tier out
+// of the BATCH plane, and that declaration was read as a naming exemption. It
+// is not one — R-C2 already retired the same argument for the fixpoint plane.
+// S6-B says which plane CONSUMES these rows; criterion 1 asks who INSERTED a
+// collection and why.
+//
+// ⚠ THREE HEADS AND NOT ONE, ON THE R-B TEST — does the sentence carry
+// information a reader could not have got from the return type? Every one of
+// these 145 bindings is a `Vec<…>` copied by the same four-line loop, so a
+// single head would be a STAMP: 145 × "snapshot". What the three answer is a
+// question a reader can be WRONG about, namely WHAT THE SNAPSHOT COSTS AND WHY
+// IT EXISTS, and the three answers are different on both counts:
+//
+//   57  retraction snapshot relation     `__edb` + `__tot_<m>` — the ROW
+//                                        stores. O(|EDB| + Σ|total|): the
+//                                        dominant term, and the only one whose
+//                                        loss is a lost FACT.
+//   66  retraction snapshot group frame  `__gk` / `__gc` / `__ga_<a>` — the
+//                                        group-frame columns. O(|groups|), and
+//                                        they exist because the INSERT path
+//                                        writes these three families in place.
+//   22  retraction snapshot latch        `__lat` — NOT DATA. O(members), the
+//                                        |OD|/|S|/|RD| triples, carrying no
+//                                        rows at all.
+//
+// A reader who priced the snapshot off the latch head would be wrong by |EDB|;
+// a reader who read the frame head as "the relation" would conclude a retraction
+// copies the relation twice. That is three distinguishable claims, not one word
+// said three times.
+//
+// ⚠ THE GROUNDS CARRY TRUTH CONDITIONS. Each names the mechanism that FORCES
+// the copy, so the day the mechanism changes the sentence is false and must be
+// rewritten — which is what a ground is for and what a stamp cannot have. The
+// frame head's is the sharpest: it rests on `<q>_epoch`'s group fold writing
+// `__h.__gk` / `__h.__gc` / `__h.__ga_*` DIRECTLY (that emitter's own header
+// states the window it leaves). Give the insert path locals-and-commit and the
+// frame head's ground becomes false — 66 sentences that must be rewritten,
+// which is exactly the notification a criterion-1 reader is owed.
+//
+// ⚠ ONE IDENTITY, PINNED BY FACT L in `plan_ground_census_gate.sh`, per fixture
+// and in total: `latch == 1 per dred query`, and `relation + frame + latch ==
+// #(let mut __cp<i>: Vec<)`. The latch clause is the load-bearing one — `__lat`
+// is emitted exactly once per shadow handle, so the latch count IS the count of
+// transactional retractions the corpus compiles (22), and a snapshot that grew
+// a second latch, or a `_dred` that lost its latch while keeping its rows, is a
+// red rather than a rounding difference in a 145-wide total.
+fn MG_CP_REL() -> str { return "the retraction's transactional snapshot of a ROW STORE — `<q>_dred` copies `__hh.__edb` / `__hh.__tot_<m>` into a local before phase 1a, so a fault in ANY phase (phase 1's |OD| check, `_cpt`'s compact, the signed fold's arithmetic) leaves the caller's handle byte-identical rather than half-retracted; it is the DOMINANT term of the snapshot, O(|EDB| + Σ|total|), and it is committed by MOVE (`__hh.<f> = __h.<f>`, no `?` between the first commit and the last) so atomicity costs one copy per retraction and not two"; }
+fn MG_CP_FRAME() -> str { return "the retraction's transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — it exists because the INSERT path does NOT need it: `<q>_epoch` gets its relation half transactional for free by building `__ecp`/`__tt<i>` as locals, but its group fold writes these three families through `__h.` directly and leaves the window its own header names. On the RETRACTION path that window is ordinary rather than overflow-only, because the negative fold is where the interesting arithmetic lives — so the copy is what closes it. O(|groups|), committed by move"; }
+fn MG_CP_LATCH() -> str { return "the retraction's transactional snapshot of the LATCH VECTOR `__lat` — not data: the |OD|/|S|/|RD| triples `_cpt` writes as an out-param and the next epoch's incrementality assertion reads back. It is copied for the same commit-by-move as the row stores, but it is O(members) and carries no rows, so exactly one exists per shadow handle and a reader who priced the snapshot from it would be wrong by |EDB|"; }
+
+// ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET, 8 HEADS ────
+//
+// 294 bindings, and after `__cp` they are the WHOLE of the criterion-1 worklist
+// outside `__rel_*`: `__tt` 70, `__wcd` 44, `__nw` 44, `__odv` 35, `__rmv` 35,
+// `__ecp` 22, `__pres` 22, `__lt` 22. They are the locals `<q>_epoch` and
+// `__wql_<q>_scc<k>_dred` build per round, and until this stage not one had a
+// node — for the same retired reason `__cp` had none (S6-B's declaration says
+// which plane CONSUMES these rows; criterion 1 asks who INSERTED a collection).
+//
+// ⚠ MEASURED, per emitted function kind, BEFORE any head existed:
+//
+//                <q>_epoch   ..._dred   total
+//     `__ecp`         22          -        22
+//     `__tt<i>`       35         35        70
+//     `__wcd`         22         22        44
+//     `__nw`          22         22        44
+//     `__pres`         -         22        22
+//     `__lt`           -         22        22
+//     `__odv<i>`       -         35        35
+//     `__rmv<i>`       -         35        35
+//                                        ---
+//                                        294
+//
+// ⚠ EIGHT HEADS AND NOT SIXTEEN — the insert and retraction paths do NOT get
+// separate heads for the three roles they share. A head is a claim about a
+// ROLE, and `__tt<i>` is the same object in both: the member's working total,
+// `&mut` into the driver, committed by move. Splitting it by which driver built
+// it would put the DRIVER's name in the answer, which the reader already has
+// from the enclosing function — the R-B test failed in the other direction.
+// What the three shared heads DO carry is that they fire on both paths, which
+// is the identity FACT M pins (`epoch half == dred half` for `__wcd` and
+// `__nw`, `__tt == __odv == __rmv` per member).
+//
+// ⚠ TWO OF THE EIGHT ARE NOT DATA, and that is the sharpest information here.
+// `__wcd` is a `Vec<i64>` that carries ONE number (the `_i` driver's work
+// counter; the ABI has no scalar out-param), declared inside the call's own
+// block so it dies at the closing brace. `__lt` carries 3 numbers per member.
+// A reader who priced the incremental tier's allocation by counting collection
+// bindings would be counting 66 of 294 that hold at most 3 i64s each — which is
+// exactly the reading criterion 1's percentage invites, and exactly why these
+// two get their own heads rather than being folded into a "scratch" stamp.
+fn MG_IW_ECP() -> str { return "the epoch's working copy of the accumulated input `__h.__edb` — and it is TWO jobs in one collection, which is why it lands: it is the transactional local (`__h.__edb = __ecp` commits it by MOVE at the bottom) and it is ALSO the inbound presence gate's dedup structure, rescanned linearly per delta row by the `__dup` loop. The dedup is a COST filter and not a correctness one (defeat it and no answer moves — `wql_incr_rel_rec_epochs` measures that), so what forces the landing is the commit-by-move, and what forces the RESCAN is the absence of `Hash` on a caller's row struct"; }
+fn MG_IW_TT() -> str { return "the member's working copy of its accumulated total `__h.__tot_<m>`, handed to `_scc<k>_i` / `_od` / `_odp` / `_cpt` as `&mut` — it lands because the drivers APPEND into it (`promote` only ever appends), which is what lets the rows derived this round be read as the SUFFIX `[__b0<i> .. len)` with no separate delta vector maintained; committed by MOVE, which is why every commit sits BELOW the fold's copy — committing first would move the selected member's rows out from under `__nw`"; }
+fn MG_IW_NW() -> str { return "the rows this round DERIVED, copied out of `__tt<fi>`'s suffix `[__b0<fi> .. len)` before the commit moves it — the ONLY rows the group fold reads, at `__w = +1`. That is what makes an unchanged saturated fixpoint fold nothing and leave the answer where it is; a fold over the whole total instead would be a right answer with zero incrementality"; }
+fn MG_IW_WCD() -> str { return "NOT DATA — the `_i` driver's work counter, a `Vec<i64>` holding ONE number because the emitted ABI has no scalar out-param. Both drivers SINK it: it is declared inside the call's own block, so it dies at the closing brace and no handle field, no ABI surface and no epoch state grows by it. The number it carries is about DRed's phase 3, which has no driver — the corpus fixture that reads it calls `_i` directly"; }
+fn MG_IW_PRES() -> str { return "the retraction's SURVIVING input — `__h.__edb` minus the retracted set DE, built by the membership scan that also decides `RetractAbsent`. It lands rather than filtering in place because it is what `__h.__edb = __pres` commits, and `__h.__edb` MUST shrink: an intact accumulated input would have the next insert epoch's round-0 pass re-derive every retracted fact, so the retraction would silently undo itself one epoch later — invisible to any single-epoch oracle"; }
+fn MG_IW_LT() -> str { return "NOT DATA — the |OD|/|S|/|RD| latch triples, three i64 per member, written by `_cpt` as an out-param and committed with `__h.__lat = __lt`. The driver is the only party that can retire `_cpt`'s `|RD| = -1` sentinel (phase 3 has not run when `_cpt` returns, so 0 would read as 'phase 3 re-derived nothing', a claim it cannot make), which is why the vector is the driver's local and not `_cpt`'s"; }
+fn MG_IW_ODV() -> str { return "the member's OVER-DELETION CANDIDATES — DRed phase 1's OD_<m>, filled by `_od` (the seed) and `_odp` (the closure) and read by `_cpt` as a slice. It is a VECTOR and not the `__os_<m>` set beside it because the two answer different questions: the set answers 'how many distinct rows' (`__odn_<m>` is what phase 1 checks against `__tot_.len() - __keep_<m>`), this carries the rows themselves to the compact"; }
+fn MG_IW_RMV() -> str { return "the member's REMOVED rows — what `_cpt` actually took out of the working total, which is NOT OD_<m>: a candidate with a surviving derivation is re-derived by phase 3 and stays. These rows are folded at `__w = -1` (`__rms`) against `__nw`'s `+1`, so the signed fold's negative half reads this vector; folding OD instead would retract facts the closure still supports"; }
+
+fn iw_node(subject: str, ety: str, head: str, why: str) {
+    plan_trace(subject, head, ety, why);
+}
+
+/// One handle field's snapshot. `role` is stated by the caller — see the note
+/// at `push_clone_field`, which is the only caller.
+fn cp_node(subject: str, ety: str, role: i64) {
+    if !plan_trace_on() { return; }
+    if role == CPR_REL() {
+        plan_trace(subject, "retraction snapshot relation", ety, MG_CP_REL());
+        return;
+    }
+    if role == CPR_FRAME() {
+        plan_trace(subject, "retraction snapshot group frame", ety, MG_CP_FRAME());
+        return;
+    }
+    plan_trace(subject, "retraction snapshot latch", ety, MG_CP_LATCH());
 }
 
 // ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
@@ -6409,20 +6538,26 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     if dred {
         dlit.push_str(tyn);
         dlit.push_str(" { ");
-        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 0i64, "__gk", key_ty);
-        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 1i64, "__gc", "i64");
-        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 2i64, "__edb", prm.tys[rel_sp]);
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 0i64, "__gk", key_ty,
+                         fn_name, CPR_FRAME());
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 1i64, "__gc", "i64",
+                         fn_name, CPR_FRAME());
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 2i64, "__edb", prm.tys[rel_sp],
+                         fn_name, CPR_REL());
         let mut dq: i64 = 0i64;
         while dq < ntm {
             push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + dq,
-                             string_as_str(&totnm[dq]), prm.rel_rowty[tmem[dq]]);
+                             string_as_str(&totnm[dq]), prm.rel_rowty[tmem[dq]],
+                             fn_name, CPR_REL());
             dq = dq + 1i64;
         }
-        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + ntm, "__lat", "i64");
+        push_clone_field(&mut dcl, &mut dlit, &mut dcm, 3i64 + ntm, "__lat", "i64",
+                         fn_name, CPR_LATCH());
         let mut dg: i64 = 0i64;
         while dg < acount {
             push_clone_field(&mut dcl, &mut dlit, &mut dcm, 4i64 + ntm + dg,
-                             string_as_str(&ganm[dg]), acc[dg]);
+                             string_as_str(&ganm[dg]), acc[dg],
+                             fn_name, CPR_FRAME());
             dg = dg + 1i64;
         }
         dlit.push_str(" }");
@@ -6938,6 +7073,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // A BIT. No weight is read, no multiplicity is stored, and there is
             // no field for one — see the note on the handle's fields. The same
             // edge presented twice is one fact, which is what a `rel` MEANS.
+            iw_node(fn_name, ety, "epoch input working set", MG_IW_ECP());
             pt.push_str("let mut __ecp: Vec<"); pt.push_str(ety); pt.push_str("> = Vec::<"); pt.push_str(ety); pt.push_str(">::new();\n");
             pt.push_str("let mut __ck: i64 = 0i64;\n");
             pt.push_str("while __ck < __h.__edb.len() { __ecp.push(__h.__edb.get(__ck)); __ck = __ck + 1i64; }\n");
@@ -7056,6 +7192,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             while t0 < ntm {
                 let mrt: str = prm.rel_rowty[tmem[t0]];
                 if tmem[t0] == rel_m { fi = t0; }
+                iw_node(fn_name, mrt, "member total working set", MG_IW_TT());
                 pt.push_str("let mut __tt"); pt.push_i64(t0);
                 pt.push_str(": Vec<"); pt.push_str(mrt); pt.push_str("> = Vec::<"); pt.push_str(mrt); pt.push_str(">::new();\n");
                 pt.push_str("let mut __tk"); pt.push_i64(t0); pt.push_str(": i64 = 0i64;\n");
@@ -7070,6 +7207,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // before `__ecp` is MOVED into the handle two statements later.
             pt.push_str("{\n");
             pt.push_str("let __ecs: &["); pt.push_str(ety); pt.push_str("] = __ecp.as_slice();\n");
+            iw_node(fn_name, "i64", "work counter", MG_IW_WCD());
             pt.push_str("let mut __wcd: Vec<i64> = Vec::<i64>::new();\n");
             pt.push_str("__wql_");
             pt.push_str(bare);
@@ -7111,6 +7249,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // nothing asked about them. A second query over the other member
             // gets its own handle with its own group state.
             pt.push_str("__h.__edb = __ecp;\n");
+            iw_node(fn_name, rty, "derived suffix", MG_IW_NW());
             pt.push_str("let mut __nw: Vec<"); pt.push_str(rty); pt.push_str("> = Vec::<"); pt.push_str(rty); pt.push_str(">::new();\n");
             pt.push_str("let mut __rk: i64 = __b0"); pt.push_i64(fi); pt.push_str(";\n");
             pt.push_str("while __rk < __tt"); pt.push_i64(fi); pt.push_str(".len() { __nw.push(__tt");
@@ -7362,6 +7501,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // removal, so nothing needs a second opinion.
                 let mut eqd: String = String::new();
                 incr_row_eq_text(ty, ety, "__ya", "__yb", &mut eqd);
+                iw_node(fn_name, ety, "preserved input", MG_IW_PRES());
                 dt.push_str("let mut __pres: Vec<"); dt.push_str(ety);
                 dt.push_str("> = Vec::<"); dt.push_str(ety); dt.push_str(">::new();\n");
                 dt.push_str("let mut __pi: i64 = 0i64;\n");
@@ -7404,6 +7544,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 let mut d0: i64 = 0i64;
                 while d0 < ntm {
                     let drt: str = prm.rel_rowty[tmem[d0]];
+                    iw_node(fn_name, drt, "member total working set", MG_IW_TT());
                     dt.push_str("let mut __tt"); dt.push_i64(d0);
                     dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
                     dt.push_str("let mut __tq"); dt.push_i64(d0); dt.push_str(": i64 = 0i64;\n");
@@ -7412,12 +7553,15 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     dt.push_i64(d0); dt.push_str(".push(__h."); dt.push_str(string_as_str(&totnm[d0]));
                     dt.push_str(".get(__tq"); dt.push_i64(d0); dt.push_str(")); __tq"); dt.push_i64(d0);
                     dt.push_str(" = __tq"); dt.push_i64(d0); dt.push_str(" + 1i64; }\n");
+                    iw_node(fn_name, drt, "over-deletion candidates", MG_IW_ODV());
                     dt.push_str("let mut __odv"); dt.push_i64(d0);
                     dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
+                    iw_node(fn_name, drt, "removed rows", MG_IW_RMV());
                     dt.push_str("let mut __rmv"); dt.push_i64(d0);
                     dt.push_str(": Vec<"); dt.push_str(drt); dt.push_str("> = Vec::<"); dt.push_str(drt); dt.push_str(">::new();\n");
                     d0 = d0 + 1i64;
                 }
+                iw_node(fn_name, "i64", "latch out-param", MG_IW_LT());
                 dt.push_str("let mut __lt: Vec<i64> = Vec::<i64>::new();\n");
 
                 // ── PHASE 1a — `_od`, THE SEED ──────────────────────────
@@ -7524,6 +7668,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // only the answer.
                 dt.push_str("{\n");
                 dt.push_str("let __ps2: &["); dt.push_str(ety); dt.push_str("] = __pres.as_slice();\n");
+                iw_node(fn_name, "i64", "work counter", MG_IW_WCD());
                 dt.push_str("let mut __wcd: Vec<i64> = Vec::<i64>::new();\n");
                 dt.push_str("__wql_"); dt.push_str(bare); dt.push_str("_scc");
                 dt.push_i64(prm.rel_sccid[rel_m]); dt.push_str("_i(");
@@ -7563,6 +7708,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // of that member's rows alone. The co-members are MAINTAINED
                 // because the fixpoint needs them and folded by nobody because
                 // nothing asked about them.
+                iw_node(fn_name, rty, "derived suffix", MG_IW_NW());
                 dt.push_str("let mut __nw: Vec<"); dt.push_str(rty);
                 dt.push_str("> = Vec::<"); dt.push_str(rty); dt.push_str(">::new();\n");
                 dt.push_str("let mut __rk: i64 = __b0"); dt.push_i64(fi); dt.push_str(";\n");
@@ -7822,8 +7968,22 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 /// ⚠ THE COMMIT MOVES, IT DOES NOT COPY: `__hh.<f> = __h.<f>;` hands the Vec
 /// over exactly as `<q>_epoch`'s `__h.__edb = __ecp;` does, so the atomicity
 /// costs ONE copy per retraction and not two.
+///
+/// ⚠ ADR 0025 R-E — THE ROLE IS A PARAMETER AND NOT A TEST ON `fld`. Each of
+/// the three call sites below knows which of the handle's three field families
+/// it is copying, because each is a DIFFERENT loop over a DIFFERENT list
+/// (`totnm`, `ganm`, the three fixed names). Deriving the role back out of the
+/// field TEXT here — `starts_with("__tot_")`, `starts_with("__ga_")` — would be
+/// the separator-class guess this repository has already paid for once: the
+/// relation names are user text (`__reach_w` is in the corpus) and a rel named
+/// `ga_x` would be filed as an accumulator. The caller states it.
+fn CPR_REL() -> i64   { return 0i64; }
+fn CPR_FRAME() -> i64 { return 1i64; }
+fn CPR_LATCH() -> i64 { return 2i64; }
+
 fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
-                    idx: i64, fld: str, ety: str) {
+                    idx: i64, fld: str, ety: str, subject: str, role: i64) {
+    cp_node(subject, ety, role);
     if idx > 0i64 { dlit.push_str(", "); }
     dcl.push_str("let mut __cp"); dcl.push_i64(idx);
     dcl.push_str(": Vec<"); dcl.push_str(ety); dcl.push_str("> = ");

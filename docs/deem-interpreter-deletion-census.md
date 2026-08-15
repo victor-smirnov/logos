@@ -2925,8 +2925,96 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # arm is the blanket `if prog.has_rels()`. Criterion (a) is "at or below
 # baseline", so the switch was reverted (md5-proven) and the writ fixture bytes
 # on this tree are IDENTICAL to the pre-round baseline, all six.
-REGISTRY-ALL         7184
-REGISTRY-NOIMPORTED  3501
+
+# ── 2026-08-15 — R-E COMPILER, THE typeof-IN-MODULE ROUND-ORDER FIX (+2) ─────
+# PREDICTED BEFORE THE RECONFIGURE, measured after, agreed exactly:
+# ALL 7184→7186, -LE imported 3501→3503, tier_commit 36→36 (+1 pass, +1 fail,
+# both local, neither carries a tier label). Verified individually with
+# `ctest -N -R typeof_container` = 2.
+#
+# THE DEFECT. ADR 0025 §6 recorded `typeof(<container>)` as unresolvable "in any
+# hand-written item of the declaring module" and priced the `direct` stream form
+# behind it. It is a ROUND-ORDER defect in two sema sites, not a language limit:
+#   * src/compiler/sema.cpp, resolve_type's TYPEOF_TYPE container arm — `<X>Cfg` is emitted
+#     by the container item's handler in a LATER metaprog round, and round 0
+#     hard-errored on the hand-written item that named it. The hatch for type
+#     ALIASES (`alias_decl_resolve_`) was the narrow case of a general fact: a
+#     user item is re-collected every round, so its signature re-resolves for
+#     free. Now, while the container item is still CONTAINER_DEF (`ci->pending`),
+#     the missing config is recorded as a DEMAND on `LProgram::pending` — who
+#     owes what — and main()'s post-fixpoint sweep refuses if it never arrives.
+#     CONTAINER_DEF_DONE with the config still absent keeps the original error.
+#   * src/compiler/sema_expr.cpp, expect_type — the error-propagation rule ("uses of an
+#     error-typed value are silent") tested only the OUTERMOST kind, so
+#     `&mut <error>` / `&mut <error>::LeafWalk` hard-errored at the CALL in a
+#     non-terminal round. A signature you can write but cannot call is half a
+#     fix; both spellings are now covered (Error under pointee/elem/assoc-base/
+#     type-args, GOT side only).
+#
+# ⚠ THE §6 ROW'S CAUSAL CLAIM WAS ALREADY FALSE AND STAYS FALSE. `direct` never
+# needed this fix — the emitter spells the concrete `Hs…LeafWalk` as TEXT from
+# `MacroParams` (R-E gate, measured). This is a hand-written-consumer ergonomics
+# fix. `MG_OUT_BUFFERED()` and its two siblings in stdlib/mem/wql/rexpr_walk.logos
+# still state that ground on 605 landings and must be rewritten by whoever moves
+# `direct`, whether or not it lands.
+#
+# WHAT IS ADMITTED, and it is not everything: a hand-written `let` annotation, a
+# fn PARAMETER, and a `pub type` alias — declared AND called
+# (pass/typeof_container_hand_written_state, which checks its rows and key sum
+# against the container's own per-row cursor, so the green is behavioural).
+# A STRUCT FIELD is still REFUSED (fail/typeof_container_field_no_family_fail).
+#
+# ⚠ THE FIELD POSITION WAS ADMITTED, THEN REVERTED BY AN INDEPENDENT ORACLE.
+# A stage flag in src/compiler/mlir_gen_types.cpp's register_struct (skip a not-yet-lowerable
+# field in the per-round metaprog JIT gen, keep the final gen strict) DID make
+# the used-struct form compile — and every such program then ABORTS under
+# LOGOS_VERIFY_LAYOUT with `[declined] <kind 32>` (AssocType): two of the three
+# layout engines cannot size the field. Reverted; the verifier was not touched.
+# The five files it needed (src/compiler/mlir_gen.hpp, src/compiler/mlir_gen.cpp,
+# src/compiler/mlir_gen_impl.hpp, src/compiler/mlir_gen_types.cpp,
+# src/compiler/main.cpp) are back at 2cf0eaf1 verbatim.
+#
+# ⚠ B3, MEASURED AND REFUTED IN THE SAME ROUND: raising the FACTORY DEMAND from
+# type-position resolution (`defer_factory_backed(make_metaclass_wrapper(cfg))`)
+# to make the never-created-container case resolve made ALL ELEVEN probes worse,
+# including the ones that pass today — "the factory did not satisfy the deferred
+# trait obligation … the CtrFamily impl is missing after the drain round". The
+# refutation is written at the site so the next reader does not re-try it.
+#
+# BLAST, both legs LABELLED by the tree they were measured on:
+#   BASE = 2cf0eaf1, src/compiler clean (git stash), logosc md5 27f1eac1…
+#   FIX  = 2cf0eaf1 + src/compiler/sema.cpp + src/compiler/sema_expr.cpp only, full `cmake --build`
+#   * whole LOCAL pass corpus compiled both ways: 2087 → 2088 rows, ZERO moved,
+#     the one added row is the new fixture (rc=0).
+#   * whole LOCAL fail corpus both ways: 698 → 699 rows, ZERO moved, the one
+#     added row is the new fixture (rc=1, its own .expected string still hit).
+#     Refusal diffs are therefore zero, as predicted.
+#   * answer_diff_instrument.sh, 188 rows each tree: ZERO moved.
+#   * criterion1_materialization_instrument.sh: N1/D1=2703/5417=49.90%, D2 3954,
+#     accounted 3297 (83.38%), worklist 657 — IDENTICAL to HEAD, as predicted
+#     for a compiler-only change that touches no emitter.
+#   * CONTROL: pass/typeof_container_hand_written_state FAILS on the md5-pinned
+#     baseline binary and passes on the fixed one.
+#
+# FIRE COUNTS, and one of them is a correction. Over the 30 pass fixtures that
+# spell `typeof(`: the deferral arm fires 40 times across 9 fixtures; the
+# CONTAINER_DEF_DONE refusal arm fires ZERO times. Those 40 are NOT newly-quiet
+# errors: they land inside enrich_deem_params' existing diagnostic-rollback
+# probe (src/compiler/sema_expr.cpp ~22702), which already created and discarded that exact
+# error. What is new there is only that the demand is now RECORDED.
+# ⚠ THE ASYMMETRY IS REAL AND UNCLOSED: that probe rolls back DIAGS and not
+# PENDINGS, so a demand raised inside a speculative resolve outlives it. It
+# refuses rather than admits, and 2088 pass + 699 fail fixtures plus a full
+# stdlib+tools build show no program taking that path to a new refusal — but it
+# is an asymmetry, not a proof, and the symmetric rollback is the next round's.
+# ⚠ NOT PINNED BY ANY FIXTURE, stated rather than papered over: the
+# CONTAINER_DEF_DONE arm and main()'s post-fixpoint pending sweep for this
+# demand. No source-level program in the tree reaches either — the first is dead
+# in this corpus, the second needs a handler that is in scope and produces
+# nothing, which cannot be written from source (dropping the `use` line refuses
+# earlier, with its own diagnostic).
+REGISTRY-ALL         7186
+REGISTRY-NOIMPORTED  3503
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

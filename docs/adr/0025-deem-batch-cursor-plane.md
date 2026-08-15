@@ -1521,6 +1521,23 @@ scan shape; every other cell is declared, not silently absent.
     binding TYPE and CONSTRUCTOR text into `rexpr_walk` so the struct and its
     `next()` can be emitted from the same place that emits the loop), and it is
     NOT a language change. Priced as its own stage rather than absorbed here.
+    ⚠ **SUPERSEDED AT R-E (2026-08-15), BOTH HALVES.** (1) The typeof blocker
+    fell: the compiler fix landed (sema typeof arm → demand;
+    `pass/typeof_container_hand_written_state` — param/let/alias positions
+    compile; the struct-FIELD position still refuses, pinned by
+    `fail/typeof_container_field_no_family_fail`). (2) And landing the
+    emitter-plumbing precondition found the TRUE blocker one layer down:
+    an EMITTED struct holding `Hs…LeafWalk` as a field compiles and then dies
+    under `LOGOS_VERIFY_LAYOUT` — `sema_abi_layout` returns {8,8} for a
+    metaprog-emitted struct asked from a foreign package (sema 8 vs
+    llvm::DataLayout 72) — a class the `sema.cpp` comment already names,
+    never reached because no emitted struct in the corpus holds an emitted
+    struct as a field. `direct` is blocked on that compiler task. Seam-1
+    correction, measured: 489 of 502 seam-1 sites are 1 packet BECAUSE THE
+    SOURCE is 1 packet (SliceStream / no-stream) — `direct` moves 13
+    container-walk sites, and on criterion 1's printed share it is a
+    PESSIMIZATION (eligible landings leave both numerator and denominator:
+    ~−1.2 to −1.4 pp).
   * **The output-seam `Drain` node is deliberately NOT inserted at S5.** §12
     asks for one. The node list is per-REL and the output seam is not a rel —
     but the load-bearing reason is that at S5 the answer is CONSTANT across the

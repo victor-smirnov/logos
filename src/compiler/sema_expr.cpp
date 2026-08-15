@@ -14153,6 +14153,53 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
          TypeRef(expected).kind() == LogosType::Kind::AssocType)) return true;
     if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) return true;
+    // ── R-E / B4: AN ERROR UNDER A REFERENCE IS STILL AN ERROR ───────────
+    // The line above is the error-propagation rule ("uses of an error-typed
+    // value are silent"), and it only looked at the OUTERMOST kind. So
+    // `&mut <error>` — the type of `&mut w` where `w`'s type is a projection
+    // this round cannot resolve yet — failed the guard and the arm below
+    // printed
+    //     call to 'drain_rows' arg 1: expected &mut CtrClass<@hs_…>::LeafWalk,
+    //                                 got &mut <error>
+    // in a NON-TERMINAL round, aborting the fixpoint before the round that
+    // resolves it. MEASURED: probe p6 refuses with the walk type behind a
+    // `pub type` alias too, so this is not specific to the typeof arm — it is
+    // the same round-order class one level down, and it is why `typeof(C)` was
+    // spellable in a signature but the signature was not CALLABLE.
+    // Narrow on purpose: Error only (not CfgSlotType, not the empty-name
+    // struct), and only on the GOT side — an error-typed expected already
+    // returns true at the top of this function.
+    //
+    // ⚠ NARROWER ON PURPOSE, SECOND PASS: the recursion walks ONLY
+    // `pointee()` and `assoc_base()` — the two shapes the round-order class
+    // actually takes (`&mut <error>`, `&mut <error>::LeafWalk`). It must NOT
+    // walk `type_args()` (nor `elem()`, same class): an error INSIDE a
+    // generic instantiation — `Result<i32, <error>>` from a failed inference
+    // — is not "a use of a value this round cannot type yet", it is the
+    // program's own type error, and suppressing it here replaced
+    //     call to 'wants_opt' arg 1: expected Option, got Result
+    // with a backend self-diagnosis while the error type leaked into codegen
+    // (MEASURED: spec fail test coerce_diag_1__enum-bare-literal-retype-to-
+    // param went from its pinned diagnostic to `mlir_gen: internal: unknown
+    // tagged enum 'Result__i32__<error>'` — the R-E verifier's F1, an L4 red
+    // the tests/logos/fail-only sweep could not see because the spec fail
+    // corpus lives in tests/spec/fail).
+    {
+        auto mentions_error = [](auto&& self, TypeRef t, int depth) -> bool {
+            if (!t || depth > 16) return false;
+            if (t.kind() == LogosType::Kind::Error) return true;
+            if (auto pe = t.pointee(); pe && pe != t && self(self, pe, depth + 1))
+                return true;
+            // `<error>::Trait::Assoc` — the projection whose BASE is the
+            // unresolved thing. This is the shape the `let mut w = c.walk()`
+            // form takes (annotated with the alias, `&mut <error>::LeafWalk`),
+            // as opposed to the bare `&mut <error>` of the un-annotated form.
+            if (auto ab = t.assoc_base(); ab && ab != t && self(self, ab, depth + 1))
+                return true;
+            return false;
+        };
+        if (mentions_error(mentions_error, TypeRef(expr_type(e)), 0)) return true;
+    }
     coerce_arg_to_param(e, expected, mask_for(pos));
     if (pos == CoercePos::Return &&
         TypeRef(expected).owning_trait_object() &&

@@ -326,6 +326,8 @@ for x in "${ALLD[@]}"; do
 done
 nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0; nqo=0; nqs=0; nro=0
 nfdl=0; nfnd=0; nfrs=0; nfos=0; nfbe=0; nfky=0; nfrd=0
+ncpr=0; ncpf=0; ncpl=0; ncpt=0
+nitt=0; niod=0; nirm=0; niwc=0; ninw=0; niec=0; nipr=0; nilt=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
@@ -384,6 +386,45 @@ if [ "${#UD[@]}" -ge 1 ]; then
     # renamed it off the `__rs` prefix; before that this grep could not have
     # been written at all without also taking the 218 fixpoint shadow sets.
     grep -Eh 'let mut __rds:' "${UD[@]}" > "$d/frd" 2>/dev/null
+    # ── ADR 0025 R-E — THE RETRACTION SNAPSHOT'S THREE SEAMS (FACT L) ────
+    # ⚠ THE BINDING NAME CANNOT ANSWER THIS ONE, and that is why the anchor is
+    # the COPY LOOP and not the declaration. `__cp<i>` is indexed by POSITION
+    # in the shadow handle's field list, so the name says nothing about which
+    # field family the binding snapshots — a grep on `let mut __cp` can only
+    # produce the 145-wide total, which is exactly the pin a re-routing between
+    # the three heads survives. The loop's guard names the SOURCE FIELD
+    # (`while (__cx<i> < __hh.<f>.len())`), so the artifact states its own
+    # partition and the plan side is checked against it rather than against a
+    # restatement of itself. `__cx` is emitted by `push_clone_field` and by
+    # nothing else in this tree (grepped), so the anchor is exclusive.
+    grep -Eh 'while \(__cx[0-9]+ < __hh\.(__edb|__tot_[a-z_0-9]+)\.len\(\)\)' "${UD[@]}" > "$d/cpr" 2>/dev/null
+    grep -Eh 'while \(__cx[0-9]+ < __hh\.(__gk|__gc|__ga_[a-z_0-9]+)\.len\(\)\)' "${UD[@]}" > "$d/cpf" 2>/dev/null
+    grep -Eh 'while \(__cx[0-9]+ < __hh\.__lat\.len\(\)\)' "${UD[@]}" > "$d/cpl" 2>/dev/null
+    # The TOTAL, read off the declarations — the third number that makes the
+    # three above a PARTITION rather than three independent counts. A handle
+    # field family added to the snapshot without a head lands in none of the
+    # three greps and `cpr + cpf + cpl == cpt` is what refuses it.
+    grep -Eh 'let mut __cp[0-9]+: Vec<' "${UD[@]}" > "$d/cpt" 2>/dev/null
+    ncpr=$(wc -l < "$d/cpr"); ncpf=$(wc -l < "$d/cpf")
+    ncpl=$(wc -l < "$d/cpl"); ncpt=$(wc -l < "$d/cpt")
+    # ── ADR 0025 R-E — THE PER-ROUND WORKING SET'S EIGHT SEAMS (FACT M) ──
+    # One grep per family, for the FACT H reason: they have different consumers
+    # and a single pattern would let one family absorb another's
+    # disappearance. `__tt`/`__odv`/`__rmv` carry a member index and the other
+    # five do not, which is itself the per-member/per-round distinction the
+    # identities below rest on — so the digit is REQUIRED where it is emitted
+    # and REFUSED where it is not, rather than `[0-9]*` everywhere.
+    grep -Eh 'let mut __tt[0-9]+: Vec<'   "${UD[@]}" > "$d/itt" 2>/dev/null
+    grep -Eh 'let mut __odv[0-9]+: Vec<'  "${UD[@]}" > "$d/iod" 2>/dev/null
+    grep -Eh 'let mut __rmv[0-9]+: Vec<'  "${UD[@]}" > "$d/irm" 2>/dev/null
+    grep -Eh 'let mut __wcd: Vec<'        "${UD[@]}" > "$d/iwc" 2>/dev/null
+    grep -Eh 'let mut __nw: Vec<'         "${UD[@]}" > "$d/inw" 2>/dev/null
+    grep -Eh 'let mut __ecp: Vec<'        "${UD[@]}" > "$d/iec" 2>/dev/null
+    grep -Eh 'let mut __pres: Vec<'       "${UD[@]}" > "$d/ipr" 2>/dev/null
+    grep -Eh 'let mut __lt: Vec<'         "${UD[@]}" > "$d/ilt" 2>/dev/null
+    nitt=$(wc -l < "$d/itt"); niod=$(wc -l < "$d/iod"); nirm=$(wc -l < "$d/irm")
+    niwc=$(wc -l < "$d/iwc"); ninw=$(wc -l < "$d/inw"); niec=$(wc -l < "$d/iec")
+    nipr=$(wc -l < "$d/ipr"); nilt=$(wc -l < "$d/ilt")
     nfdl=$(wc -l < "$d/fdl"); nfnd=$(wc -l < "$d/fnd"); nfrs=$(wc -l < "$d/frs")
     nfos=$(wc -l < "$d/fos"); nfbe=$(wc -l < "$d/fbe"); nfky=$(wc -l < "$d/fky")
     nfrd=$(wc -l < "$d/frd")
@@ -399,7 +440,7 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nqs=$(wc -l < "$d/qs")
     nro=$(wc -l < "$d/ro")
 fi
-echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -772,6 +813,40 @@ EXPECT_FPHEAD     = {"fixpoint derived frontier": 222,
                      "fixpoint lattice key roster": 4,
                      # R-C3 — 1:1 with `rel result`; see the identity below.
                      "rel dedup set": 45}
+# ── ADR 0025 R-E — THE RETRACTION SNAPSHOT'S THREE HEADS (FACT L) ───────────
+# Measured at the emitter BEFORE the heads were classified anywhere (the R-B0
+# discipline: the criterion-1 instrument was run on the emitter-only tree and
+# reported them at G2 as UNCLASSIFIED, with counts). Both sides came back at
+# the same three numbers, and the artifact side is derived from a DIFFERENT
+# text than the plan side — the copy loop's guard, not the declaration.
+#
+#   66  retraction snapshot group frame  `__gk` 22 + `__gc` 22 + `__ga_<a>` 22
+#   57  retraction snapshot relation     `__edb` 22 + `__tot_<m>` 35
+#   22  retraction snapshot latch        `__lat`, one per shadow handle
+#   ---
+#  145  == the `__cp<i>` class the criterion-1 worklist carried unowned
+#
+# ⚠ THE 22 IS THE ARM WORTH PINNING HARDEST, for FACT K's reason about its two
+# 4s: it is the smallest, it is the one a refactor routes into a neighbour, and
+# it is the only one of the three that is a COUNT OF DRIVERS rather than a count
+# of fields. `latch != #(shadow handles)` is a wrong answer about |OD|/|S|/|RD|.
+EXPECT_CPHEAD     = {"retraction snapshot group frame": 66,
+                     "retraction snapshot relation": 57,
+                     "retraction snapshot latch": 22}
+EXPECT_CPT        = 145   # `let mut __cp<i>: Vec<` shadow-snapshot bindings
+# ── ADR 0025 R-E — THE PER-ROUND WORKING SET (FACT M) ───────────────────────
+# Measured at G2 in `criterion1_materialization_instrument.sh` on the
+# emitter-only tree, before any of the eight was classified anywhere; both sides
+# came back at the same eight numbers. Together with FACT L's 145 these 294 are
+# the whole of the criterion-1 worklist outside `__rel_*`.
+EXPECT_IWHEAD     = {"member total working set": 70,
+                     "work counter": 44,
+                     "derived suffix": 44,
+                     "over-deletion candidates": 35,
+                     "removed rows": 35,
+                     "epoch input working set": 22,
+                     "preserved input": 22,
+                     "latch out-param": 22}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
 UNWITNESSED = {
@@ -906,6 +981,37 @@ FPK = {"fixpoint frontier": "fdl", "fixpoint derived frontier": "fnd",
 # emitter that collapsed the six grounds into one would keep every count in this
 # gate green while destroying the only property the node was inserted for.
 fpground = collections.defaultdict(set)
+# ── ADR 0025 R-E — THE RETRACTION SNAPSHOT'S THREE HEADS (FACT L) ────────────
+# Same reading rule, same longest-first ordering discipline. Three heads, three
+# emitted field families, ONE PARTITION — `cpr + cpf + cpl == cpt` on both
+# sides, plus the `latch == 1 per shadow handle` clause, which is what makes the
+# 22 a count of transactional retractions rather than a slice of a 145 total.
+CPHEADS = ("retraction snapshot group frame", "retraction snapshot relation",
+           "retraction snapshot latch")
+CPHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(CPHEADS) +
+                    r')(?: on .*?)?   \((.*)$')
+CPK = {"retraction snapshot relation": "cpr",
+       "retraction snapshot group frame": "cpf",
+       "retraction snapshot latch": "cpl"}
+# The grounds, collected to be asserted DISTINCT — the FACT K clause that caught
+# probe P4 (all grounds collapsed to one sentence, every count green). A stamp
+# is arithmetically invisible here too.
+cpground = collections.defaultdict(set)
+# ── ADR 0025 R-E — THE PER-ROUND WORKING SET'S EIGHT HEADS (FACT M) ─────────
+# Longest-first, same discipline: `member total working set` and
+# `epoch input working set` share no prefix, but `work counter` must not be able
+# to match inside a longer head added later, so the tuple is sorted by length
+# and the match is anchored and exact after the ` on <row type>` tail.
+IWHEADS = ("over-deletion candidates", "epoch input working set",
+           "member total working set", "preserved input", "latch out-param",
+           "derived suffix", "removed rows", "work counter")
+IWHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(IWHEADS) +
+                    r')(?: on .*?)?   \((.*)$')
+IWK = {"member total working set": "itt", "over-deletion candidates": "iod",
+       "removed rows": "irm", "work counter": "iwc", "derived suffix": "inw",
+       "epoch input working set": "iec", "preserved input": "ipr",
+       "latch out-param": "ilt"}
+iwground = collections.defaultdict(set)
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            container=0, readonce=0, elided=0, materialize=0, stream=0,
@@ -913,7 +1019,11 @@ tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
            outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
            fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
-           afdl=0, afnd=0, afrs=0, afos=0, afbe=0, afky=0, afrd=0)
+           afdl=0, afnd=0, afrs=0, afos=0, afbe=0, afky=0, afrd=0,
+           cpr=0, cpf=0, cpl=0, cpt=0,
+           acpr=0, acpf=0, acpl=0, acpt=0,
+           itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0,
+           aitt=0, aiod=0, airm=0, aiwc=0, ainw=0, aiec=0, aipr=0, ailt=0)
 witness = {k: 0 for k in vocab}
 silent = []
 
@@ -934,7 +1044,9 @@ for e in errs:
             witness[tok] += text.count(probe)
     nd = dict(outq=0, outr=0, drain=0, sort=0, arrange=0, hj=0, kv=0,
               gkey=0, gcnt=0, grow=0, gacc=0,
-              fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
+              fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
+              cpr=0, cpf=0, cpl=0, cpt=0,
+              itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0)
     mat, named = set(), set()
     for line in text.splitlines():
         m = NODE.match(line)
@@ -995,6 +1107,28 @@ for e in errs:
             if not om.group(3).strip().rstrip(")").strip():
                 bad(f"[{b}] an output-seam `{h}` line carries an EMPTY ground — "
                     f"a landing named and not explained")
+        # ADR 0025 R-E — the per-round working set's eight seams (FACT M).
+        wm = IWHEAD.match(line)
+        if wm:
+            h = wm.group(2)
+            nd[IWK[h]] += 1
+            wgnd = wm.group(3).strip().rstrip(")").strip()
+            if not wgnd:
+                bad(f"[{b}] a working-set `{h}` line carries an EMPTY ground — "
+                    f"a landing named and not explained")
+            else:
+                iwground[h].add(wgnd)
+        # ADR 0025 R-E — the retraction snapshot's three seams (FACT L).
+        cm = CPHEAD.match(line)
+        if cm:
+            h = cm.group(2)
+            nd[CPK[h]] += 1
+            cgnd = cm.group(3).strip().rstrip(")").strip()
+            if not cgnd:
+                bad(f"[{b}] a retraction-snapshot `{h}` line carries an EMPTY "
+                    f"ground — a landing named and not explained")
+            else:
+                cpground[h].add(cgnd)
         fm = FPHEAD.match(line)
         if fm:
             h = fm.group(2)
@@ -1051,9 +1185,12 @@ for e in errs:
         silent.append((b, r))
     tot["materialize"] += text.count(" -> materialize   (")
     tot["stream"] += text.count(" -> stream   (")
+    nd["cpt"] = nd["cpr"] + nd["cpf"] + nd["cpl"]
     for k in ("outq", "outr", "drain", "sort", "arrange", "hj", "kv",
               "gkey", "gcnt", "grow", "gacc",
-              "fdl", "fnd", "frs", "fos", "fbe", "fky", "frd"):
+              "fdl", "fnd", "frs", "fos", "fbe", "fky", "frd",
+              "cpr", "cpf", "cpl", "cpt",
+              "itt", "iod", "irm", "iwc", "inw", "iec", "ipr", "ilt"):
         tot[k] += nd[k]
 
     cf = os.path.join(OD, b + ".count")
@@ -1061,9 +1198,16 @@ for e in errs:
     agkey = agcnt = agrow = agacc = 0
     aoutq = aouts = aoutr = 0
     afp = dict(fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
+    acp = dict(cpr=0, cpf=0, cpl=0, cpt=0)
+    aiw = dict(itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0)
     if os.path.exists(cf):
         (_, a, c, e, g, gk, gc, gr, ga, qo, qs, ro,
-         xdl, xnd, xrs, xos, xbe, xky, xrd) = open(cf).read().split()
+         xdl, xnd, xrs, xos, xbe, xky, xrd,
+         xcpr, xcpf, xcpl, xcpt,
+         xtt, xod, xrm, xwc, xnw, xec, xpr, xlt) = open(cf).read().split()
+        acp = dict(cpr=int(xcpr), cpf=int(xcpf), cpl=int(xcpl), cpt=int(xcpt))
+        aiw = dict(itt=int(xtt), iod=int(xod), irm=int(xrm), iwc=int(xwc),
+                   inw=int(xnw), iec=int(xec), ipr=int(xpr), ilt=int(xlt))
         nit, nix, nks, npm = int(a), int(c), int(e), int(g)
         agkey, agcnt, agrow, agacc = int(gk), int(gc), int(gr), int(ga)
         aoutq, aouts, aoutr = int(qo), int(qs), int(ro)
@@ -1073,6 +1217,10 @@ for e in errs:
         bad(f"[{b}] no artifact count file — the emitted side was not read")
     for k in afp:
         tot["a" + k] += afp[k]
+    for k in acp:
+        tot["a" + k] += acp[k]
+    for k in aiw:
+        tot["a" + k] += aiw[k]
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
@@ -1240,6 +1388,113 @@ for e in errs:
         # A helper that grew a second landing, or one that started sharing a
         # set between two rels, breaks it — and a shared set is a WRONG ANSWER
         # (rows of rel A suppressed as duplicates of rel B), not a slow one.
+        # ── FACT L, per fixture — THE RETRACTION SNAPSHOT (ADR 0025 R-E) ──
+        # Three heads, three emitted field families, read from the artifact's
+        # own copy-loop guard rather than from the binding name (which is
+        # positional and cannot answer). Same three clause kinds as FACT K, for
+        # the same three failure modes: the per-head clauses catch a MISROUTED
+        # family, the partition catches a DROPPED one (or a fourth family added
+        # with no head), and the distinct-grounds clause at the bottom of this
+        # file catches a node that stopped saying anything.
+        for k, what, why in (
+            ("cpr", "`__edb`/`__tot_<m>` row-store snapshot",
+             "the retraction copies a row store the plan did not name"),
+            ("cpf", "`__gk`/`__gc`/`__ga_<a>` group-frame snapshot",
+             "the retraction copies a group-frame column the plan did not name"),
+            ("cpl", "`__lat` latch snapshot",
+             "the latch vector the plan names is not the one the driver copies"),
+        ):
+            if nd[k] != acp[k]:
+                bad(f"[{b}] {nd[k]} `{what}` plan line(s) vs {acp[k]} emitted "
+                    f"binding(s) — {why}")
+        # ⚠⚠ IDENTITY (iv) — THE SNAPSHOT IS A PARTITION, PER FIXTURE.
+        # `cpr + cpf + cpl == #(let mut __cp<i>: Vec<)` on the ARTIFACT side.
+        # This is the clause the three per-head clauses cannot supply: they
+        # compare plan against artifact family by family, so a handle field
+        # family added to the shadow snapshot AND given no head is invisible to
+        # all three — it is copied, it is committed, and no `[plan]` line and no
+        # grep ever mentions it. That is precisely the state `__cp` itself was
+        # in before this stage. The total is read off the DECLARATIONS and the
+        # parts off the COPY LOOPS, so the two sides come from different text.
+        if acp["cpr"] + acp["cpf"] + acp["cpl"] != acp["cpt"]:
+            bad(f"[{b}] snapshot identity (iv) broken: {acp['cpr']} + "
+                f"{acp['cpf']} + {acp['cpl']} != {acp['cpt']} emitted `__cp<i>` "
+                f"binding(s) — the shadow handle copies a field family that no "
+                f"retraction-snapshot head names")
+        # ⚠ IDENTITY (v) — ONE LATCH PER SHADOW HANDLE, PER FIXTURE.
+        # `__lat` is emitted exactly once per `_dred` driver, so the latch count
+        # IS the number of transactional retraction drivers this fixture
+        # compiles — which is what makes the corpus figure 22 a count of
+        # something rather than a slice of 145. It also bounds the other two:
+        # a fixture with row-store or frame snapshots and NO latch has a shadow
+        # handle whose `_cpt` out-param survives the rollback, which is a
+        # retraction that reports the previous epoch's |OD|/|S|/|RD| — a wrong
+        # answer to `is_converged()`, not a slow one.
+        if acp["cpl"] == 0 and acp["cpt"] != 0:
+            bad(f"[{b}] snapshot identity (v) broken: {acp['cpt']} `__cp<i>` "
+                f"binding(s) and ZERO `__lat` snapshots — a shadow handle "
+                f"without its latch")
+        # ── FACT M, per fixture — THE PER-ROUND WORKING SET (R-E) ─────
+        for k, what, why in (
+            ("itt", "`__tt<i>` member working total",
+             "a driver appends into a total the plan did not name"),
+            ("iod", "`__odv<i>` over-deletion candidates",
+             "DRed phase 1 fills a candidate vector the plan never announced"),
+            ("irm", "`__rmv<i>` removed rows",
+             "the compact removes into a vector the plan did not name"),
+            ("iwc", "`__wcd` work counter",
+             "a driver call carries a work counter the plan did not name"),
+            ("inw", "`__nw` derived suffix",
+             "the fold reads a derived-row vector the plan never announced"),
+            ("iec", "`__ecp` epoch input working set",
+             "the epoch copies its input into a landing the plan did not name"),
+            ("ipr", "`__pres` preserved input",
+             "the retraction builds its surviving input unannounced"),
+            ("ilt", "`__lt` latch out-param",
+             "the latch vector the plan names is not the one `_cpt` writes"),
+        ):
+            if nd[k] != aiw[k]:
+                bad(f"[{b}] {nd[k]} `{what}` plan line(s) vs {aiw[k]} emitted "
+                    f"binding(s) — {why}")
+        # ⚠ IDENTITY (vi) — `__odv == __rmv`, PER FIXTURE.
+        # One candidate vector and one removed vector PER MEMBER, declared in the
+        # same loop. The claim a reader could be wrong about is that they are the
+        # same population: they are not — OD_<m> is what phase 1 REACHED and
+        # `__rmv<m>` is what `_cpt` actually TOOK OUT, and a candidate with a
+        # surviving derivation stays. The counts match because there is one of
+        # each per member; the CONTENTS differ, and the signed fold reads the
+        # second. An emitter that started sharing one vector for both folds
+        # retractions at `-1` over rows that were never removed.
+        if aiw["iod"] != aiw["irm"]:
+            bad(f"[{b}] working-set identity (vi) broken: {aiw['iod']} `__odv<i>` "
+                f"vs {aiw['irm']} `__rmv<i>` — the compact's input and output "
+                f"vectors are no longer one per member")
+        # ⚠ IDENTITY (vii) — `__lt == __pres`, PER FIXTURE.
+        # Both are emitted exactly once in the `_dred` block, so this counts
+        # RETRACTION DRIVERS two ways from two different families. A driver that
+        # kept its preserved input and lost its latch commits `__h.__lat` from a
+        # stale vector — the next epoch's incrementality assertion then reads the
+        # PREVIOUS retraction's |RD|, which is a wrong answer about convergence.
+        if aiw["ilt"] != aiw["ipr"]:
+            bad(f"[{b}] working-set identity (vii) broken: {aiw['ilt']} `__lt` "
+                f"vs {aiw['ipr']} `__pres` — a retraction driver is missing one "
+                f"of the two collections every `_dred` block declares")
+        # ⚠⚠ IDENTITY (viii) — `__lt == __cp` LATCH SNAPSHOT, PER FIXTURE, AND
+        # IT CROSSES FACT L AND FACT M. The shadow handle snapshots `__lat`
+        # exactly once (FACT L's latch head) and the driver declares its `__lt`
+        # out-param exactly once, in the SAME emitted function. So a `_dred` that
+        # has one and not the other either commits a latch it never wrote or
+        # writes one the rollback cannot restore — and neither FACT alone can
+        # see it, because each is internally consistent on its own side.
+        if aiw["ilt"] != acp["cpl"]:
+            bad(f"[{b}] identity (viii) broken: {aiw['ilt']} `__lt` out-param(s) "
+                f"vs {acp['cpl']} `__lat` snapshot(s) — the retraction driver "
+                f"and its shadow handle disagree about the latch")
+        if acp["cpl"] != 0 and acp["cpt"] < 5 * acp["cpl"]:
+            bad(f"[{b}] snapshot identity (v) broken: {acp['cpl']} latch "
+                f"snapshot(s) but only {acp['cpt']} `__cp<i>` binding(s) — "
+                f"every shadow handle copies `__gk`, `__gc`, `__edb`, at least "
+                f"one `__tot_<m>` and its `__lat`, so the floor is 5 per latch")
         if nd["frd"] != nd["outr"]:
             bad(f"[{b}] identity (iii) broken: {nd['frd']} `rel dedup set` "
                 f"line(s) vs {nd['outr']} `rel result` line(s) — a one-shot rel "
@@ -1363,6 +1618,61 @@ for h in sorted(FPHEADS):
                 f"— six heads sharing one explanation is a blanket stamp, which "
                 f"is the node S5 refused for the output seam")
         seen[g] = h
+# ── FACT M, corpus totals + EIGHT DISTINCT GROUNDS (R-E) ────────────────────
+for h, want in sorted(EXPECT_IWHEAD.items()):
+    if tot[IWK[h]] != want:
+        bad(f"corpus total: {tot[IWK[h]]} `{h}` working-set line(s), pinned {want}")
+    if tot["a" + IWK[h]] != want:
+        bad(f"corpus total: {tot['a'+IWK[h]]} emitted binding(s) for `{h}`, "
+            f"pinned {want} — the artifact side of FACT M moved")
+if tot["iod"] != tot["irm"]:
+    bad(f"corpus: working-set identity (vi) broken — {tot['iod']} != {tot['irm']}")
+if tot["ailt"] != tot["aipr"] or tot["ailt"] != tot["acpl"]:
+    bad(f"corpus: identities (vii)/(viii) broken — {tot['ailt']} `__lt`, "
+        f"{tot['aipr']} `__pres`, {tot['acpl']} `__lat` snapshot(s)")
+for h in sorted(IWHEADS):
+    gs = iwground.get(h, set())
+    if len(gs) == 0:
+        bad(f"head `{h}` carries NO ground anywhere in the corpus — either the "
+            f"head stopped firing or its sentence went empty")
+    elif len(gs) > 1:
+        bad(f"head `{h}` carries {len(gs)} DIFFERENT grounds across the corpus "
+            f"— a role's explanation must be a property of the role")
+    else:
+        g = next(iter(gs))
+        if g in seen:
+            bad(f"heads `{seen[g]}` and `{h}` publish the SAME ground sentence "
+                f"— a blanket stamp over the incremental working set")
+        seen[g] = h
+# ── FACT L, corpus totals + the partition + THREE DISTINCT GROUNDS (R-E) ────
+for h, want in sorted(EXPECT_CPHEAD.items()):
+    if tot[CPK[h]] != want:
+        bad(f"corpus total: {tot[CPK[h]]} `{h}` snapshot line(s), pinned {want}")
+    if tot["a" + CPK[h]] != want:
+        bad(f"corpus total: {tot['a'+CPK[h]]} emitted binding(s) for `{h}`, "
+            f"pinned {want} — the artifact side of FACT L moved")
+if tot["acpt"] != EXPECT_CPT:
+    bad(f"corpus total: {tot['acpt']} emitted `__cp<i>` snapshot binding(s), "
+        f"pinned {EXPECT_CPT}")
+if tot["cpr"] + tot["cpf"] + tot["cpl"] != tot["acpt"]:
+    bad(f"corpus: snapshot identity (iv) broken — {tot['cpr']} + {tot['cpf']} "
+        f"+ {tot['cpl']} != {tot['acpt']} emitted binding(s)")
+# The anti-stamp clause, verbatim in intent from FACT K's: three heads sharing
+# one sentence is 145 × "snapshot", which is the constant-word node S5 refused.
+for h in sorted(CPHEADS):
+    gs = cpground.get(h, set())
+    if len(gs) == 0:
+        bad(f"head `{h}` carries NO ground anywhere in the corpus — either the "
+            f"head stopped firing or its sentence went empty")
+    elif len(gs) > 1:
+        bad(f"head `{h}` carries {len(gs)} DIFFERENT grounds across the corpus "
+            f"— a role's explanation must be a property of the role")
+    else:
+        g = next(iter(gs))
+        if g in seen:
+            bad(f"heads `{seen[g]}` and `{h}` publish the SAME ground sentence "
+                f"— a blanket stamp over the retraction snapshot")
+        seen[g] = h
 if tot["drain"] + tot["sort"] != EXPECT_DRAIN_SORT:
     bad(f"corpus total: {tot['drain']}+{tot['sort']} drain/sort nodes, pinned "
         f"{EXPECT_DRAIN_SORT}")
@@ -1384,6 +1694,18 @@ for tok in sorted(UNWITNESSED):
             f"exists in the vocabulary — a stale exemption")
 
 # ── the census, printed whatever the verdict ─────────────────────────────────
+print("── INCREMENTAL WORKING SET (R-E, FACT M) ─────────────────────────────")
+for h in ("member total working set", "work counter", "derived suffix",
+          "over-deletion candidates", "removed rows", "epoch input working set",
+          "preserved input", "latch out-param"):
+    k = IWK[h]
+    print(f"  {tot[k]:6d}  {h:<28s} plan  |  {tot['a'+k]:6d} emitted")
+print("── RETRACTION SNAPSHOT (R-E, FACT L) ─────────────────────────────────")
+for h in ("retraction snapshot group frame", "retraction snapshot relation",
+          "retraction snapshot latch"):
+    k = CPK[h]
+    print(f"  {tot[k]:6d}  {h:<28s} plan  |  {tot['a'+k]:6d} emitted")
+print(f"  {tot['acpt']:6d}  {'__cp<i> total (partition)':<28s}")
 print("── FIXPOINT PLANE (R-C2, FACT K) ─────────────────────────────────────")
 for h in ("fixpoint derived frontier", "fixpoint novelty set",
           "fixpoint frontier", "over-deletion set",

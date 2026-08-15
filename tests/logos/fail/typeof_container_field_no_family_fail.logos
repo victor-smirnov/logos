@@ -1,0 +1,57 @@
+// R-E / COMPILER — THE REFUSE HALF OF THE PAIR.
+//
+// The round-order fix (sema.cpp's typeof container arm; sema_expr.cpp's
+// expect_type) makes a not-yet-produced type a DEMAND instead of a round-0
+// error. That is permissive by shape, so it needs a program that must still be
+// REFUSED — otherwise the relaxation is invisible to a green corpus (a
+// permissive defect never reds a working program).
+//
+// THIS program names `<typeof(Fed) as CtrLeafFamily>::LeafWalk` as a STRUCT
+// FIELD. Two independent reasons keep it refused, and the fixture pins the
+// boundary, not the wording:
+//
+//   1. THE FAMILY IS NEVER DEMANDED. It is generated on demand and only a
+//      VALUE use (`create_ctr::<typeof(Fed)>`) records that demand, so the
+//      projection is unresolvable in EVERY round, not just the first. Measured:
+//      probe p1 (this shape) refuses, p2 (identical plus a `create_ctr`)
+//      compiles. Raising the demand from TYPE resolution was tried and made
+//      every probe worse — "the factory did not satisfy the deferred trait
+//      obligation … the CtrFamily impl is missing after the drain round".
+//
+//   2. THE FIELD POSITION ITSELF IS NOT ADMITTED YET. Letting the per-round
+//      metaprog JIT gen skip a not-yet-lowerable field (a `metaprog_stage_`
+//      flag in mlir_gen_types.cpp's register_struct) DID make the used-struct
+//      form compile — and every such program then ABORTS under
+//      LOGOS_VERIFY_LAYOUT with `[declined] <kind 32>` (AssocType), because
+//      two of the three layout engines cannot size the field. The layout
+//      verifier is an independent oracle; the widening was reverted rather
+//      than the verifier weakened.
+//
+// So: `typeof(<container>)` is spellable and CALLABLE in a hand-written
+// signature, `let`, or alias of the declaring module (pass/
+// typeof_container_hand_written_state is the admit half), and NOT yet as a
+// struct field. A round that admits the field position must delete this
+// fixture — and must first answer the layout verifier.
+package typeof_container_field_no_family_fail;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Fed {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub struct NoFamilyState {
+    w: <typeof(Fed) as CtrLeafFamily>::LeafWalk,
+}
+
+fn main() -> i32 { return 0i32; }

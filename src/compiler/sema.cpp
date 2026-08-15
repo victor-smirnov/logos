@@ -6852,11 +6852,63 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     // silent — the alias keeps its AST and its use sites
                     // re-resolve it, and if it still fails there, THIS
                     // diagnostic fires where the name was wanted.
-                    if (!alias_decl_resolve_)
-                        error(std::format(
-                            "typeof(container {}): its config const '{}' did not "
-                            "resolve to a WritStatic document (declaration "
-                            "lowering incomplete?)", ci->name, cfg_name));
+                    //
+                    // ── R-E: THE SAME THING IS TRUE OF EVERY HAND-WRITTEN ITEM.
+                    // The alias hatch was the narrow case of a general fact:
+                    // `<X>Cfg` does not exist YET, and a user item is
+                    // re-collected on every fixpoint round, so its signature
+                    // re-resolves for free the round after the container item's
+                    // handler has run. Nothing but judging round 0 made this
+                    // fatal — and it made `typeof(<container>)` unspellable in
+                    // any ordinary struct field / fn signature / let of the
+                    // module that DECLARES the container, which is the one
+                    // module where it is most wanted.
+                    //
+                    // ⚠ THE DEFERRAL IS NOT SILENCE. The discriminator is the
+                    // container ITEM's own recorded state, not a guess about
+                    // rounds:
+                    //   ci->pending  — the item is still CONTAINER_DEF: its
+                    //                  handler has NOT run, so the config is
+                    //                  owed. Record the DEMAND (who owes what)
+                    //                  and answer error_t(). If the handler
+                    //                  never produces, main()'s post-fixpoint
+                    //                  pending sweep refuses and NAMES THE
+                    //                  CAUSE instead of leaving a cascade.
+                    //   !ci->pending — the item is CONTAINER_DEF_DONE and the
+                    //                  config is STILL absent. Nothing is
+                    //                  coming; refuse HERE, with the same
+                    //                  diagnostic as before.
+                    // So the permissive direction is closed by construction:
+                    // every path still ends in a refusal, only the SITE of the
+                    // refusal moves from round 0 to the end of the fixpoint.
+                    if (!alias_decl_resolve_) {
+                        if (ci->pending) {
+                            if (std::getenv("LOGOS_TRACE_TYPEOF_DEFER"))
+                                std::fprintf(stderr,
+                                    "[typeof-defer] container '%s' pending; "
+                                    "demand recorded for '%s'\n",
+                                    ci->name.c_str(), cfg_name.c_str());
+                            note_pending_(
+                                "container-config",
+                                std::format("the config document '{}' of "
+                                            "container '{}'", cfg_name, ci->name),
+                                "the container item's handler");
+                        } else {
+                            // FIRE PRINT ON THE REFUSAL ARM TOO — a branch
+                            // nobody ever executes is not a preserved refusal,
+                            // it is dead code wearing one. Counted over the
+                            // corpus, not assumed.
+                            if (std::getenv("LOGOS_TRACE_TYPEOF_DEFER"))
+                                std::fprintf(stderr,
+                                    "[typeof-refuse] container '%s' DONE but "
+                                    "'%s' absent\n",
+                                    ci->name.c_str(), cfg_name.c_str());
+                            error(std::format(
+                                "typeof(container {}): its config const '{}' did not "
+                                "resolve to a WritStatic document (declaration "
+                                "lowering incomplete?)", ci->name, cfg_name));
+                        }
+                    }
                     return error_t();
                 }
                 // Remember which CLASS this config came from. The document
@@ -6876,6 +6928,26 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                                                        std::move(argstr)});
                     }
                 }
+                // ── R-E / B3, MEASURED AND REFUTED, kept so the next reader
+                // does not re-try it. `typeof(C)` in TYPE position is morally a
+                // use of the family C becomes, and only a VALUE use
+                // (`create_ctr::<typeof(C)>`) records the factory demand today
+                // — so a program that merely SPELLS
+                // `<typeof(C) as CtrLeafFamily>::LeafWalk` and never creates
+                // the container gets no family and the projection is still
+                // unresolved at the final gen (probe p1 refuses, p2 — same
+                // program plus a `create_ctr` — compiles).
+                // Adding `defer_factory_backed(make_metaclass_wrapper(cfg))`
+                // HERE was tried and made ALL eleven probes worse, including
+                // the ones that pass today:
+                //   logosc: metaclass: factory did not satisfy the deferred
+                //   trait obligation for CtrClass<@hs_…> — the CtrFamily impl
+                //   is missing after the drain round
+                // A demand raised from TYPE resolution is raised in a round
+                // whose drain cannot yet satisfy it, and the obligation check
+                // then judges a family that was never asked for by a value.
+                // B3 is therefore a separate defect with a separate owner (the
+                // demand/obligation pairing), not a widening of this arm.
                 return make_metaclass_wrapper(cfg);
             }
         }

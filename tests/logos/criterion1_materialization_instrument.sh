@@ -252,6 +252,43 @@ MAT = {
     # — which is what tells it apart from `query output distinct carrier`.
     'rel dedup set':
         "`__rds` — the `_run` rel helper's novelty set, beside `__rout`",
+    # ── ADR 0025 R-E — THE RETRACTION'S TRANSACTIONAL SNAPSHOT, 3 SEAMS ───
+    # `<q>_dred`'s shadow handle, 145 `__cp<i>` bindings — the largest unowned
+    # non-`__rel_*` class in the worklist once R-C2 took its former row-mates.
+    # Fire counts measured at the emitter BEFORE these heads were classified
+    # here (this file, run at G2 on the emitter-only tree): 66 / 57 / 22,
+    # summing to the 145 the artifact channel reads. Three heads and not one
+    # because the three answer different questions about the SAME `Vec` copy —
+    # what it costs and why it exists; see the block at `cp_node` in
+    # `stdlib/mem/wql/rexpr_walk.logos`.
+    'retraction snapshot relation':
+        '`__edb` / `__tot_<m>` — the ROW stores, O(|EDB| + Σ|total|)',
+    'retraction snapshot group frame':
+        '`__gk` / `__gc` / `__ga_<a>` — the group-frame columns the INSERT path writes in place',
+    'retraction snapshot latch':
+        "`__lat` — the |OD|/|S|/|RD| triples; O(members), no rows, one per shadow handle",
+    # ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET ───────
+    # 294 bindings — after `__cp` the WHOLE of the criterion-1 worklist outside
+    # `__rel_*`. Fire counts measured at G2 on the emitter-only tree, before any
+    # of the eight was classified here: 70 / 44 / 44 / 35 / 35 / 22 / 22 / 22.
+    # Argument for eight heads (and for not splitting the three shared roles by
+    # driver) at `iw_node` in `stdlib/mem/wql/rexpr_walk.logos`.
+    'member total working set':
+        "`__tt<i>` — the member's working total; drivers APPEND, so the round's rows are its suffix",
+    'work counter':
+        "`__wcd` — NOT DATA: one i64 in a Vec because the ABI has no scalar out-param; sunk in its own block",
+    'derived suffix':
+        "`__nw` — the rows this round derived, read off `__tt<fi>`'s suffix; the fold's `+1` half",
+    'over-deletion candidates':
+        "`__odv<i>` — DRed phase 1's OD_<m>, the ROWS (the `__os_<m>` set beside it holds the COUNT)",
+    'removed rows':
+        "`__rmv<i>` — what `_cpt` actually took out; the fold's `-1` half, and NOT OD_<m>",
+    'epoch input working set':
+        "`__ecp` — the epoch's copy of `__h.__edb`, and also the inbound presence gate's dedup structure",
+    'preserved input':
+        "`__pres` — `__h.__edb` minus the retracted set; what the commit shrinks the input to",
+    'latch out-param':
+        "`__lt` — NOT DATA: three i64 per member, `_cpt`'s out-param, committed as `__h.__lat`",
 }
 # NOMAT: heads that decide something else. `no materialization` is an ABSENCE
 # and belongs HERE — counting it as coverage is the historical defect.
@@ -402,6 +439,35 @@ ACC = {
     # or destroyed: 263 bindings that were one ambiguous row are two owned rows.
     '__rs':     (('fixpoint novelty set',), 'fixpoint novelty set (the member shadow set)'),
     '__rds':    (('rel dedup set',),        'rel dedup set (the one-shot rel helper novelty set)'),
+    # ── ADR 0025 R-E — `<q>_dred`'s TRANSACTIONAL SHADOW SNAPSHOT ─────────
+    # ⚠ ONE KEY, THREE OWNERS — and unlike `__rel_*` that is SOUND here, which
+    # is the distinction this table has to keep making. `__rel_*` is refused
+    # because its 217 bindings have owners for 12 of them and NO owner for the
+    # other 205: a name-only key would have to credit all 217. `__cp<i>` is the
+    # opposite case — EVERY one of the 145 is owned, by exactly one of the
+    # three heads below, and the split is by which handle field the index `i`
+    # happens to sit at. So the key credits a fully-owned class; it just cannot
+    # say WHICH of the three owns any given binding. That per-binding
+    # attribution is what `plan_ground_census_gate.sh` FACT L pins (per fixture,
+    # plan side against artifact side, with the `latch == 1 per _dred` clause),
+    # and it is why the identity lives there rather than being asserted here.
+    '__cp':     (('retraction snapshot relation', 'retraction snapshot group frame',
+                  'retraction snapshot latch'),
+                 "retraction snapshot (`<q>_dred`'s shadow handle — three seam heads)"),
+    # ── ADR 0025 R-E — THE PER-ROUND WORKING SET, EIGHT KEYS, ONE HEAD EACH ─
+    # ⚠ EVERY KEY MEASURED CLEAN, and the measurement is the class count itself:
+    # each of the eight worklist classes stood at EXACTLY the fire count of its
+    # head (70/44/44/35/35/22/22/22) before this table named it, so no key is
+    # holding a second identity the way `__rel_*` does. That is the check the
+    # `__rel_*` note below demands, done per key rather than assumed.
+    '__tt':     (('member total working set',),   "member total working set (`__tt<i>`)"),
+    '__wcd':    (('work counter',),               'work counter (`__wcd`, one i64, sunk)'),
+    '__nw':     (('derived suffix',),             'derived suffix (`__nw`, the fold\'s +1 half)'),
+    '__odv':    (('over-deletion candidates',),   'over-deletion candidates (`__odv<i>`, the rows)'),
+    '__rmv':    (('removed rows',),               "removed rows (`__rmv<i>`, the fold's -1 half)"),
+    '__ecp':    (('epoch input working set',),    'epoch input working set (`__ecp`)'),
+    '__pres':   (('preserved input',),            'preserved input (`__pres`)'),
+    '__lt':     (('latch out-param',),            'latch out-param (`__lt`, three i64 per member)'),
     # ⚠ THE ACCOUNTED FIGURE IS STILL A FLOOR, BY 12, and the remaining cause is
     # the `__rel_*` note below — 12 Buffer-typed landings owned by `drain`/`sort`
     # under a name that 205 unowned Vec landings also answer to. That class is
@@ -409,6 +475,29 @@ ACC = {
     # cannot hold two owners; it closes by the same rename this stage just
     # demonstrated, and it is the next stage's, not this one's.
 }
+# ── ADR 0025 R-E — `__cv`, 1 BINDING, REFUSED WITH ITS GROUND ───────────────
+# After the R-E stages the worklist is 218: `__rel_*` 217 (refused, see the note
+# below) and `__cv` 1. `__cv` is REFUSED TOO, on a different and stronger
+# ground, and it is written here rather than silently owned because a refusal
+# that is not stated reads exactly like a class nobody looked at.
+#
+# `__cv` is emitted by `emit_comp` (`stdlib/mem/wql/codegen.logos`), the emitter
+# for the `SComp` SYNTAX NODE — a LIST COMPREHENSION the user wrote,
+# `[HEAD for V in SRC if GUARD]`. Its emitted form is
+# `({ let mut __cv: Vec<T> = …; while … { __cv.push(HEAD) } __cv })`: the
+# landing IS the value the expression denotes. Criterion 1 asks about
+# COMPILER-INSERTED materializations — collections the planner put between a
+# producer and a consumer that the program did not ask for. A comprehension's
+# result is not one of those; naming it with a plan node would announce as a
+# planner decision something the user typed.
+#
+# ⚠ THE REFUSAL IS FALSIFIABLE, which is what separates it from a shrug: it
+# rests on `__cv` being emitted ONLY from `emit_comp`, i.e. only under a source
+# `SComp`. Grep the emitter — one declaration site, in that function, reached
+# from nowhere else. The day a planner path emits a `__cv`, or the day a
+# comprehension is fused into its consumer so that the `Vec` becomes optional,
+# this sentence is false and the class comes back here as an owner.
+#
 # ⚠ ACC IS KEYED ON THE NAME ALONE, AND THE KEY CANNOT EXPRESS TWO OWNERS.
 # `drain` and `sort` land into `__rel_<x>` bindings — but so do UNOWNED Vec
 # landings under the same names (217 `__rel_*` bindings today; `__rel_g` 35,
