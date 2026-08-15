@@ -1,0 +1,179 @@
+// ADR 0025 R-A — `SliceStream<R>`'s CONTRACT, MEASURED AS VALUES.
+//
+// `SliceStream<R>` is the type that lets a bare `&[R]` be pulled as §1's one
+// shape, and the emitter is now its principal consumer (`rexpr_walk::
+// slice_stream_wrap_frag`, pinned as TEXT by `logos_09_slice_scan_codegen`).
+// A text pin says the emitter SPELLS the wrap; it cannot say the wrap BEHAVES.
+// This fixture is the behaviour half, hand-written at the type so that a defect
+// in `SliceStream` reds HERE — naming the type — instead of reaching a reader
+// as a wrong query answer three layers up.
+//
+// The five clauses, each decidable by a running program:
+//
+//   1. ONE PACKET, AND IT IS THE ROWS. `next_batch()` hands out the WHOLE slice
+//      once — asserted by folding it, not by its length alone, because a
+//      truncated or aliased packet has a length too.
+//
+//   2. THE EMPTY SLICE IS A TICK, NOT AN END: `Some(empty)` != `None`. The
+//      consumer below answers the two DIFFERENTLY (−1 = "the stream was over
+//      before it began", 0 = "one packet, no rows"), so a `SliceStream` that
+//      reported the empty slice as exhaustion would return the OTHER code, not
+//      merely a zero. This is the clause the emitted scan depends on: the batch
+//      loop's outer pull runs its body once for an empty source and the inner
+//      loop zero times, which is how an empty `deem` query returns `[]` rather
+//      than skipping structure the plan put after the scan.
+//
+//   3. REWIND REPLAYS, AND IT IS FREE. The rows are the caller's and were never
+//      consumed, so a second pass yields the same fold. This is the fact that
+//      makes a slice param MULTI-PASS BY TYPE — what the plan's read-once proof
+//      used to have to carry for it.
+//
+//   4. `size()` IS THE LANDING'S TOTAL AND PULLING DOES NOT MOVE IT — asked
+//      before, between and after the pulls.
+//
+//   5. `Epoch<R> == SliceStream<R> + w`. The equivalence `stream.logos` states
+//      in prose is asserted here as ARITHMETIC: the same rows through both
+//      types, `Epoch`'s weight applied by the consumer, must give the weighted
+//      sum. R-A minted `SliceStream` as `Epoch`'s unweighted sibling rather
+//      than re-expressing `Epoch` over it; until that fold happens, THIS is
+//      what stops the two from drifting silently.
+//
+// ── AND THE ADMIT HALF OF THE BORROW PAIR ───────────────────────────────────
+// `SliceStream` is `#[borrow_carrying]`: it holds the caller's `&[R]`, so
+// mutating the owner while the stream is LIVE must be refused. That refusal is
+// `fail/slice_stream_mutate_under_scan_fail` — and a refusal fixture alone
+// cannot tell SEPARATION from OVER-REFUSAL, because a checker that rejected the
+// mutation ALWAYS would pass it. The admit half is at the bottom of this file:
+// the same `push` on the same `Vec`, after the stream's last use, COMPILES and
+// the pushed row is then visible. The two together say the borrow ends where it
+// should and not earlier.
+package stream_slice_stream_seam;
+
+use logos.lang.option;
+use logos.lang.stream;      // SliceStream / Epoch / BatchStream / Rewind / SizedStream
+use logos.mem.collections.vec;
+
+// Fold one stream to (packets, rows, sum). `-1` packets is impossible — the
+// counter starts at 0 — so the caller can tell "no packet" from "empty packet".
+struct Fold {
+    packets: i64,
+    rows:    i64,
+    sum:     i64,
+}
+
+// The consumer shape the emitted scan has: an outer pull per BATCH, the row
+// loop as its inner loop, and an empty batch running the inner loop zero times
+// while the outer loop CONTINUES.
+fn drain(s: &mut SliceStream<i64>) -> Fold {
+    let mut f: Fold = Fold { packets: 0i64, rows: 0i64, sum: 0i64 };
+    loop {
+        let ob: Option<&[i64]> = s.next_batch();
+        if ob.is_none() { break; }
+        let b: &[i64] = ob.unwrap();
+        f.packets = f.packets + 1i64;
+        let n: i64 = b.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            f.rows = f.rows + 1i64;
+            f.sum  = f.sum + b[i];
+            i = i + 1i64;
+        }
+    }
+    return f;
+}
+
+// The same fold over an `Epoch`, with the packet's weight applied — the shape
+// the emitted incremental fold has (`__w = __wd * __sw`, then accumulate).
+fn drain_epoch(e: &mut Epoch<i64>) -> Fold {
+    let mut f: Fold = Fold { packets: 0i64, rows: 0i64, sum: 0i64 };
+    let w: i64 = e.weight();
+    loop {
+        let ob: Option<&[i64]> = e.next_batch();
+        if ob.is_none() { break; }
+        let b: &[i64] = ob.unwrap();
+        f.packets = f.packets + 1i64;
+        let n: i64 = b.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            f.rows = f.rows + 1i64;
+            f.sum  = f.sum + (w * b[i]);
+            i = i + 1i64;
+        }
+    }
+    return f;
+}
+
+fn main() -> i32 {
+    let mut rows: Vec<i64> = Vec::<i64>::new();
+    rows.push(10i64);
+    rows.push(20i64);
+    rows.push(30i64);
+
+    // ── 1. ONE PACKET, AND IT IS THE ROWS ───────────────────────────────────
+    let mut s: SliceStream<i64> = SliceStream::<i64>::new(rows.as_slice());
+    // 4. `size()` BEFORE any pull — free, and it does not consume.
+    if s.size() != 3u64 { return 1i32; }
+    let f1: Fold = drain(&mut s);
+    if f1.packets != 1i64 { return 2i32; }   // ONE packet, never three
+    if f1.rows    != 3i64 { return 3i32; }
+    if f1.sum     != 60i64 { return 4i32; }  // the rows themselves, not a count
+    // 4. and AFTER: pulling moved a position, it did not re-land.
+    if s.size() != 3u64 { return 5i32; }
+
+    // ── 3. REWIND REPLAYS ───────────────────────────────────────────────────
+    // Draining again WITHOUT a rewind is exhaustion: zero packets.
+    let f2: Fold = drain(&mut s);
+    if f2.packets != 0i64 { return 6i32; }
+    s.rewind();
+    let f3: Fold = drain(&mut s);
+    if f3.packets != 1i64 { return 7i32; }
+    if f3.sum     != 60i64 { return 8i32; }
+
+    // ── 2. THE EMPTY SLICE TICKS ONCE ───────────────────────────────────────
+    let empty: Vec<i64> = Vec::<i64>::new();
+    let mut se: SliceStream<i64> = SliceStream::<i64>::new(empty.as_slice());
+    if se.size() != 0u64 { return 9i32; }
+    let fe: Fold = drain(&mut se);
+    // ONE packet carrying ZERO rows — NOT zero packets. A `SliceStream` that
+    // answered `None` first would give `packets == 0` here and the two cases
+    // would be indistinguishable to the emitted scan.
+    if fe.packets != 1i64 { return 10i32; }
+    if fe.rows    != 0i64 { return 11i32; }
+    if fe.sum     != 0i64 { return 12i32; }
+
+    // ── as_slice(): THE RANDOM-ACCESS FACE, independent of the position ──────
+    // The sort path's phase 3 projects in PERMUTATION order through exactly
+    // this door, after the scan loop has released its `&mut`.
+    let view: &[i64] = s.as_slice();
+    if view.len() != 3i64 { return 13i32; }
+    if view[2i64]  != 30i64 { return 14i32; }
+
+    // ── 5. `Epoch<R> == SliceStream<R> + w` ─────────────────────────────────
+    let mut ei: Epoch<i64> = Epoch::<i64>::insert(rows.as_slice());
+    let fi: Fold = drain_epoch(&mut ei);
+    // Same packet count, same row count, same rows — the weight is the ONLY
+    // difference, and at +1 it is the identity.
+    if fi.packets != f1.packets { return 15i32; }
+    if fi.rows    != f1.rows    { return 16i32; }
+    if fi.sum     != f1.sum     { return 17i32; }
+    // At −1 the rows are unchanged and the SUM negates: the weight rides beside
+    // the batch, it does not enter the row model.
+    let mut er: Epoch<i64> = Epoch::<i64>::retract(rows.as_slice());
+    let fr: Fold = drain_epoch(&mut er);
+    if fr.rows != f1.rows   { return 18i32; }
+    if fr.sum  != -60i64    { return 19i32; }
+
+    // ── THE ADMIT HALF OF THE BORROW PAIR ───────────────────────────────────
+    // Every stream above has had its last use. The SAME `push` that
+    // `fail/slice_stream_mutate_under_scan_fail` refuses UNDER a live stream is
+    // accepted here, and its row is visible afterwards — so the refusal over
+    // there is separation, not a checker that refuses `push` near a stream.
+    rows.push(40i64);
+    if rows.len() != 4i64 { return 20i32; }
+    let mut s2: SliceStream<i64> = SliceStream::<i64>::new(rows.as_slice());
+    let f4: Fold = drain(&mut s2);
+    if f4.rows != 4i64   { return 21i32; }
+    if f4.sum  != 100i64 { return 22i32; }
+
+    return 0i32;
+}

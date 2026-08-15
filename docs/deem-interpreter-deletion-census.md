@@ -2802,8 +2802,67 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # +10, another +15), so a ctest gate over them either re-baselines every commit
 # or becomes a number to tune — the three properties of it that DON'T move with
 # a slice are gated inside the script itself.
-REGISTRY-ALL         7177
-REGISTRY-NOIMPORTED  3494
+# ── R-A: THE C2 NUMBER, MOVED AND MEASURED (2026-08-15) ────────────────────
+# The whole-corpus artifact sweep (`criterion1_materialization_instrument.sh`,
+# 170 user dumps) run on TWO TREES — R-A, and the CONTROL with
+# `rexpr_walk::slice_stream_src` forced to `return false` and the tree rebuilt —
+# then counted for the three spellings that R-A is about:
+#
+#                                   CONTROL      R-A      delta
+#   indexed walks (`while (+__i<k> <`)   1166     1017      -149
+#   §1 batch pulls (`.next_batch()`)       15      164      +149
+#   the wrap (`SliceStream::<`)             0      149      +149
+#
+#   THE ACCOUNTING CLOSES WITH NO REMAINDER: every wrap emitted removed exactly
+#   one indexed walk, corpus-wide. (An earlier reading of this said -147 and it
+#   was the READER, not the tree: `while (__i` misses the `limit` arm's
+#   `while ((__i < …) && …)` double paren. The regex above catches both.)
+#
+#   ⚠ SCOPE OF ROW 1, so the two documents cannot be read as disagreeing: 1166
+#   and 1017 are the `__i` FAMILY, which is what R-A's plane is made of. The
+#   WHOLE indexed-walk population — every minted name, both paren spellings —
+#   is 4301 -> 4152 on the same two trees, the same -149. The audit's published
+#   "3975" is that population read with a regex that cannot see the double
+#   paren (4293 on its own dumps, 318 sites missed); ADR 0025 §2 carries the
+#   fixed derivation and the three-column table. Re-run:
+#     grep -ho 'while ((\?[A-Za-z_0-9]* < [^;{]*\.len())' /tmp/<sweep>/*.user | wc -l
+#
+#   AND CRITERION 1 DID NOT MOVE: the instrument's own SUMMARY is IDENTICAL on
+#   both trees — `N1/D1=1336/4042=33.05%  T=617  D2=3632 accounted=1919
+#   (52.84%)`. That is the control for the claim R-A makes about itself: it
+#   changed the SCAN SHAPE and materialized nothing — no new `Vec`, no new
+#   `Buffer`, no new worklist class. `SliceStream` borrows.
+#
+# ⚠ WHAT IS NOT CLOSED, STATED AS A NUMBER RATHER THAN AS "PARTIAL". 1017
+#   indexed walks REMAIN, and R-A routed exactly ONE of the S2j audit's 13
+#   sites: `emit_simple`, both of its arms (the plain scan and the sort's phase
+#   1). The other twelve — `emit_find`, `step_wrap` x2, `chain_nest_frag`,
+#   `emit_aggregate`, `emit_incremental` x4, `rel_body_simple_frag`,
+#   `chain_body_frag` — still emit the indexed walk for a slice param, and the
+#   JOIN sites are where the per-scan-site cursor claim (`__ss<k>`, k numbered)
+#   acquires its first real consumer: today every call site passes k = 0 because
+#   `emit_simple` scans once. The wrap and its numbering are built for them; the
+#   routing is not done, and 1017 is the honest size of what is left.
+#
+# R-A (ADR 0025 — the slice arm dissolves) adds THREE registrations and PREDICTED
+# all three before the reconfigure: `pass/stream_slice_stream_seam` (the
+# `SliceStream` contract, by values — one packet, the empty slice as a TICK,
+# rewind, `size`, and `Epoch<R> == SliceStream<R> + w` as arithmetic rather than
+# as prose), `pass/deem_slice_param_batch_e2e` (a `&[R]` PARAM through the wrap
+# end to end: the empty source through three emitted shapes, the sort arm's
+# body-side ordinal across a `where`, and a borrowed `str` key), and
+# `fail/slice_stream_mutate_under_scan_fail` (the REFUSE half — mutating the
+# owner under a live stream; its ADMIT half is the last block of
+# `stream_slice_stream_seam`, the same `push` on the same `Vec` after the
+# stream's last use, so the pair separates refusal from over-refusal).
+# +3 ALL, +3 -LE imported, +0 tier_commit — measured 7180 / 3497 / 36, exactly
+# the prediction. tier_commit does not move because R-A adds NO gate script: the
+# EMITTED-TEXT claim already has one — `logos_09_slice_scan_codegen`, whose
+# golden and whose presence/absence clauses INVERTED with this stage (see that
+# script's header for the two numbers the transition was taken on) — and the
+# remaining claims are VALUE claims a running program answers.
+REGISTRY-ALL         7180
+REGISTRY-NOIMPORTED  3497
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

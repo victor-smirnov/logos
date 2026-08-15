@@ -251,6 +251,119 @@ pub type RowsBatch<R> = &[R];
 /// and every producer that predates this marker is one.
 pub trait RowMajor {}
 
+// ── SliceStream — THE BARE `&[R]`, READ AS §1's ONE SHAPE (ADR 0025 R-A) ─────
+//
+// The type that makes "a heap slice is a stream of EXACTLY ONE batch" (§1's own
+// sentence, at the top of this file) a TYPE rather than a remark. Without it
+// the emitter had two scan shapes and picked between them by asking whether the
+// source had a rel-registry index: a `deem` SLICE PARAM (`rows: &[Row]`) has
+// none — `SemaChecker::native_source_spec` returns `{}` for a param type with
+// no `impl Src`, so no natspec entry is written, `register_native_rels`
+// registers no rel, and `rel_find_src` answers −1 — and every such query
+// therefore emitted the old indexed walk. THIS is the wrap that gives the
+// paramslice a batch door WITHOUT giving it a rel identity (the "param rels"
+// route, which moves the census and every `ri`-keyed author, stays owed).
+//
+// NO ALLOCATION, NO COPY, and that is why it lives at the LANG tier beside the
+// traits rather than up in `logos.mem.stream` with `Buffer<R>`: it BORROWS
+// (`#[borrow_carrying]`, `rows: &[R]`) and owns nothing, so it needs no heap.
+// The refuted alternative is on the record: wrapping a param slice as
+// `Buffer::from_vec` COPIES every row into a fresh `Vec` — an intermediate
+// materialization the caller never asked for, which is exactly what criterion 1
+// forbids, and which the S2j byte-pin measured as the losing route.
+//
+// ⚠ IT IS `Epoch<R>` MINUS THE WEIGHT — said here rather than re-minted in
+// silence. `Epoch<R>` (below) is `SliceStream<R>` plus one `i64`: same
+// `#[borrow_carrying]` one-packet shape, same `next_batch()` inherent door,
+// same four impls. They are kept as SIBLINGS at R-A because that is the
+// smaller step and it does not move `Epoch`'s bytes; expressing `Epoch` OVER
+// `SliceStream` (`Epoch = { s: SliceStream<R>, w: i64 }`) is the step that
+// stops the two from drifting, and it is OWED, not done.
+
+/// A borrowed `&[R]` served as ONE batch: ADR 0025 §1's degenerate stream, no-alloc.
+///
+/// Yields the whole slice as a single `RowsBatch<R>`, then `None`. `Buffer<R>`
+/// (`logos.mem.stream`) is the OWNING twin — what a `Drain`/`Sort` materialization
+/// produces; `SliceStream<R>` is what rows the caller ALREADY holds become, at zero
+/// cost, so a `deem` query over a slice param rides the same emitted scan as a
+/// Memoria leaf walk instead of a second shape.
+///
+/// THE EMPTY SLICE IS A TICK: a `SliceStream` over `&[]` yields ONE `Some(empty)`
+/// before `None`, the same rule `Buffer` and `Epoch` follow — "no rows" and "over"
+/// are different answers (§1) and an emitted scan that folded them would run its
+/// outer body a different number of times for an empty source.
+///
+/// Implements `RowMajor` (the batch IS `&[R]`), `Rewind` (free — the rows are the
+/// caller's and were never consumed) and `SizedStream` (the length is the slice's).
+/// DELIBERATELY NOT `OrderedBy<K>`: a bare slice carries no order fact, and the
+/// traversal chain (`Bidirectional`/`RandomAccess`) is left off for the reason
+/// `Epoch` leaves it off — nothing positions inside a one-packet param scan today,
+/// and a capability with no consumer is a claim no test can bite. The random-access
+/// face the sort path needs is `as_slice()`, an inherent method, not a capability.
+#[borrow_carrying]
+pub struct SliceStream<R> {
+    /// The caller's rows, borrowed for the life of the stream.
+    rows: &[R],
+    /// False until the single packet has been handed out; `rewind` clears it.
+    sent: bool,
+}
+
+impl<R> SliceStream<R> {
+    /// Wraps a borrowed slice as a one-packet stream. Copies nothing.
+    pub fn new(rows: &[R]) -> SliceStream<R> {
+        return SliceStream { rows: rows, sent: false };
+    }
+
+    /// Pulls the single packet — THE INHERENT DOOR, the one a generated scan calls.
+    ///
+    /// `rexpr_walk::batch_scan_frag` (§1's one scan shape) spells the outer pull
+    /// `next_batch()` and not `BatchStream::next`: the trait method shares its name and
+    /// receiver shape with `Iterator::next`, which is why `logos.lang.stream` is out of
+    /// the prelude, and a generated chunk's import list must not have to carry the
+    /// trait to scan. Same reasoning as `Buffer::next_batch` and `Epoch::next_batch`.
+    pub fn next_batch(&mut self) -> Option<RowsBatch<R>> {
+        if self.sent { return Option::None; }
+        self.sent = true;
+        return Option::Some(self.rows);
+    }
+
+    /// The rows as a slice, independent of the stream position.
+    ///
+    /// The RANDOM-ACCESS face of the same borrow, for the sites that index rather than
+    /// scan — the sort path's phase 3 projects rows in PERMUTATION order
+    /// (`rows[perm[o]]`), which is not a pull at all. Inherent rather than
+    /// `RandomAccess<B>`: `seek_nth` positions a stream, and phase 3 does not have a
+    /// position, it has a list of ordinals.
+    pub fn as_slice(&self) -> &[R] {
+        return self.rows;
+    }
+}
+
+// One packet, then exhaustion — including the EMPTY slice, which still ticks once.
+impl<R> BatchStream<RowsBatch<R>> for SliceStream<R> {
+    fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
+}
+
+// Row-major: the batch is `&[R]`, the caller's own slice (§2). This is what makes
+// `batch_row_text` spell the row as `bb[j]` instead of `bb.<col>_at(j)`.
+impl<R> RowMajor for SliceStream<R> {}
+
+// Re-presenting the same slice is free — the rows are the caller's and were never
+// consumed. A slice param is therefore MULTI-PASS by type, which is the fact the
+// plan's read-once proof used to have to carry for it.
+impl<R> Rewind for SliceStream<R> {
+    fn rewind(&mut self) {
+        self.sent = false;
+    }
+}
+
+// The row count is the slice length — free, and unmoved by pulling.
+impl<R> SizedStream for SliceStream<R> {
+    fn size(&self) -> u64 {
+        return self.rows.len() as u64;
+    }
+}
+
 // ── The DBSP seam (ADR 0025 §10) ────────────────────────────────────────────
 //
 // A delta stream is a batch stream; an EPOCH IS ONE BATCH; an empty epoch is
@@ -354,6 +467,12 @@ pub type DeltaBatch<R> = RowsBatch<Weighted<R>>;
 /// BORROWS ITS ROWS (`#[borrow_carrying]`), unlike `Buffer<R>` which owns them: a delta
 /// is presented by the caller for the duration of one apply and is not state the tier
 /// keeps — the state it keeps is the arrangement (`Buffer`, z⁻¹), which owns.
+///
+/// ⚠ `Epoch<R> == SliceStream<R> + w`, field for field and impl for impl. R-A minted the
+/// unweighted sibling above rather than re-expressing this type over it, so this is the
+/// place the equivalence is written down: the two must move together, and folding
+/// `Epoch` into `{ s: SliceStream<R>, w: i64 }` is the recorded step that would make the
+/// drift impossible instead of merely noticed.
 #[borrow_carrying]
 pub struct Epoch<R> {
     /// The delta's rows, borrowed from the caller for this epoch.

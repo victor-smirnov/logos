@@ -76,6 +76,12 @@ use logos.lang.str;                      // str_from_raw — error-text view
 // `rexpr_walk::emit_fn_quote_blob`; each alone is measurably insufficient, so
 // neither is the redundant one. Pinned by `wql_drain_import_pair` (probe pair).
 use logos.mem.stream;                    // Buffer<R> — the Drain node's landing (S3b)
+// PAIR-HALF, R-A. Same rule, second package: `logos.mem.stream` (mem tier) does
+// not carry `SliceStream<R>` — the borrowed batch view lives at LANG tier
+// (`stdlib/lang/stream/stream.logos`), so the wrap's package needs its own
+// trigger-module load beside the `use logos.lang.stream;` literal in
+// `emit_fn_quote_blob`'s two quotes.
+use logos.lang.stream;                   // SliceStream<R> — the slice param's batch door (R-A)
 
 // ── The resource handler ───────────────────────────────────────────────────
 // `#[token_macro]` 3-arg form: receives the `resource` binding name, the raw

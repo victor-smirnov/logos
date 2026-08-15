@@ -1,12 +1,24 @@
 pub fn slice_scan_run(__pl: &SliceScanPlan, rows: &[Row], lo: u64) -> Result<Vec<u64>, ElError> {
     let mut __out: Vec<u64> = Vec::<u64>::new();
-    let mut __i: i64 = 0i64;
-    while (__i < (rows).len()) {
-        let r: &Row = (&((rows))[__i]);
-        if ((r.k >= lo)) {
-            __out.push(r.v);
+    let mut __ss0: SliceStream<Row> = SliceStream::<Row>::new(rows);
+    loop {
+        let __ob0 = (__ss0).next_batch();
+        if __ob0.is_some() {
+            {
+                let __bb0 = __ob0.unwrap();
+                let __bn0: u64 = (__bb0.len() as u64);
+                let mut __bj0: u64 = 0u64;
+                while (__bj0 < __bn0) {
+                    let r: &Row = (&((__bb0))[(__bj0 as i64)]);
+                    if ((r.k >= lo)) {
+                        __out.push(r.v);
+                    }
+                    __bj0 = (__bj0 + 1u64);
+                }
+            }
+        } else {
+            break;
         }
-        __i = (__i + 1i64);
     }
     return Result::Ok(__out);
 }

@@ -1,0 +1,169 @@
+// ADR 0025 R-A — A `&[R]` PARAM RIDES §1's SHAPE END TO END, WITH VALUES.
+//
+// `logos_09_slice_scan_codegen` pins the emitted TEXT of the collapsed scan and
+// `pass/stream_slice_stream_seam` pins `SliceStream`'s own contract. Between
+// them sits the thing neither asserts: that a `deem` query over a slice PARAM,
+// compiled through the wrap, still answers what it answered before. This
+// fixture is that, and it is built out of the cases R-A actually CHANGED rather
+// than out of a query that happens to use a slice:
+//
+//   1. THE EMPTY SOURCE. This is the case the collapse alters most and the one
+//      no existing slice fixture had: the old walk ran its loop ZERO times, the
+//      new one runs the OUTER loop ONCE (one packet, zero rows) and the inner
+//      loop zero times. `SliceStream`'s "empty is a tick, not an end" is what
+//      makes those agree, and a producer that reported the empty slice as
+//      exhaustion would be indistinguishable HERE and different in every plan
+//      shape that puts work after the scan. Asserted on the plain arm, on the
+//      `limit` arm and on the SORT arm, because the three are three emitted
+//      shapes.
+//
+//   2. THE SORT ARM'S ORDINAL. Phase 1 of the sort collects `(key, ordinal)`
+//      pairs, and R-A moved the ordinal out of the loop variable and into the
+//      body — a batch pull's counter is PER BATCH while `__ix0` must hold the
+//      position in the SOURCE. The increment sits OUTSIDE the `where` filter,
+//      so a filtered-out row still advances it. A query with a `where` AND an
+//      `order by` is the shape that tells a correct ordinal from an off-by-the-
+//      filtered-rows one: with the filter dropping the middle rows, a body-side
+//      increment placed INSIDE the filter would project the wrong rows entirely
+//      rather than merely reordering them.
+//
+//   3. THE BORROWED KEY. `order by <str column>` makes the sort's key vector
+//      hold borrows taken from the scanned rows. Under the collapse those rows
+//      arrive from a packet, and binding the row BY VALUE first made the keys
+//      outlive their own storage (E0597) — the defect that forced the
+//      by-reference row bind. Values, not just compilation: the sorted names
+//      are asserted in order.
+//
+//   4. THE ROW IS NOT COPIED — pinned ELSEWHERE, and named here so the reader
+//      does not look for it in this file. The by-value row bind could not move
+//      a non-`Copy` row out of an index at all (E0507); the fixtures that say
+//      so are `pass/wql_key_own_type_e2e` (`Rec { … name: String }`) and
+//      `pass/deem_mat_ground_witness`, both of which RED under the by-value
+//      bind and pass under the by-reference one. A `String` field was tried
+//      here and removed: a `String` inside an ARRAY of structs miscompiles on
+//      this tree independently of Deem (`mlir_gen: struct 'test.Item' has no
+//      field 'raw'`, then wrong values), so carrying one would have made this
+//      fixture assert a second defect it does not own.
+//
+// ⚠ THE SOURCES ARE ARRAY LITERALS AND THAT IS DELIBERATE, WITH A GROUND. A
+// `Vec`-backed source (`&xs[..]`) reads WRONG ROWS through a `deem` query
+// on this tree — every OTHER row, `[1,3,5,0,0]` for a five-row source, while
+// `len()` is 5 and a HAND-WRITTEN loop over the same slice value is correct.
+// It is NOT R-A's: the same wrong answer was reproduced with `slice_stream_src`
+// forced to `false` and the tree rebuilt (the pre-R-A indexed walk), so this
+// fixture would be asserting a defect it did not cause and could not fix.
+// Repro + its two controls: `/home/logos/sandbox/ra/repro_vec_source_stride.logos`,
+// `control_array_source_ok.logos`, `control_handwritten_reader_ok.logos`.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Item {
+    pub id:   i64,
+    pub tag:  str,
+    pub qty:  i64,
+}
+
+// The plain arm.
+pub deem all_ids(xs: &[Item]) { from xs x select x.id : i64 }
+
+// The plain arm with a `where` and a `limit` — the break lives in BOTH loops of
+// the batch pull, where the old walk had one loop condition.
+pub deem big_ids(xs: &[Item], lo: i64) { from xs x where x.qty >= lo select x.id limit 2 : i64 }
+
+// The SORT arm, with a `where` — clause 2's ordinal, and clause 3's borrowed key.
+pub deem tags_by_tag(xs: &[Item], lo: i64) {
+    from xs x where x.qty >= lo select x.tag order by x.tag : str
+}
+
+// The SORT arm projecting a DIFFERENT column than it orders by: phase 3 reads
+// the source through the wrap's random-access face, so a permutation that lost
+// its base would surface as the wrong ids rather than as a wrong order.
+pub deem ids_by_tag(xs: &[Item]) { from xs x select x.id order by x.tag : i64 }
+
+fn mk(id: i64, tag: str, qty: i64) -> Item {
+    return Item { id: id, tag: tag, qty: qty };
+}
+
+fn main() -> i32 {
+    let xs: [Item; 5] = [
+        mk(1i64, "delta", 30i64),
+        mk(2i64, "alpha", 5i64),
+        mk(3i64, "charlie", 40i64),
+        mk(4i64, "bravo", 7i64),
+        mk(5i64, "echo", 20i64),
+    ];
+
+    // ── the plain arm ───────────────────────────────────────────────────────
+    let ids: Vec<i64> = all_ids(&xs[..]).unwrap();
+    if ids.len()     != 5i64 { return 1i32; }
+    if ids.get(0i64) != 1i64 { return 2i32; }
+    if ids.get(4i64) != 5i64 { return 3i32; }
+
+    // ── the `where` + `limit` arm: qty >= 20 is {1, 3, 5}, capped at 2 ───────
+    let big: Vec<i64> = big_ids(&xs[..], 20i64).unwrap();
+    if big.len()     != 2i64 { return 4i32; }
+    if big.get(0i64) != 1i64 { return 5i32; }
+    if big.get(1i64) != 3i64 { return 6i32; }
+    // The cap is a cap, not the whole answer: with a bound nothing clears, the
+    // same emitted loop returns nothing.
+    let none: Vec<i64> = big_ids(&xs[..], 1000i64).unwrap();
+    if none.len() != 0i64 { return 7i32; }
+
+    // ── the SORT arm: `where qty >= 20` keeps {delta, charlie, echo} ─────────
+    // Sorted: charlie, delta, echo. The FILTERED-OUT rows sit between the kept
+    // ones (ids 2 and 4), so an ordinal that skipped them would project rows
+    // that were filtered out.
+    let tags: Vec<str> = tags_by_tag(&xs[..], 20i64).unwrap();
+    if tags.len() != 3i64 { return 10i32; }
+    if !str_eq(tags.get(0i64), "charlie") { return 11i32; }
+    if !str_eq(tags.get(1i64), "delta")   { return 12i32; }
+    if !str_eq(tags.get(2i64), "echo")    { return 13i32; }
+
+    // ── the SORT arm, projecting through the permutation ─────────────────────
+    // alpha(2), bravo(4), charlie(3), delta(1), echo(5).
+    let byt: Vec<i64> = ids_by_tag(&xs[..]).unwrap();
+    if byt.len()     != 5i64 { return 20i32; }
+    if byt.get(0i64) != 2i64 { return 21i32; }
+    if byt.get(1i64) != 4i64 { return 22i32; }
+    if byt.get(2i64) != 3i64 { return 23i32; }
+    if byt.get(3i64) != 1i64 { return 24i32; }
+    if byt.get(4i64) != 5i64 { return 25i32; }
+
+    // ── THE EMPTY SOURCE, through all three emitted shapes ──────────────────
+    // One packet carrying zero rows, and every arm answers `[]`. The old walk
+    // never entered its loop; the new one enters the outer loop once.
+    let e: [Item; 0] = [];
+    let e_ids: Vec<i64> = all_ids(&e[..]).unwrap();
+    if e_ids.len() != 0i64 { return 30i32; }
+    let e_big: Vec<i64> = big_ids(&e[..], 0i64).unwrap();
+    if e_big.len() != 0i64 { return 31i32; }
+    let e_tags: Vec<str> = tags_by_tag(&e[..], 0i64).unwrap();
+    if e_tags.len() != 0i64 { return 32i32; }
+    let e_byt: Vec<i64> = ids_by_tag(&e[..]).unwrap();
+    if e_byt.len() != 0i64 { return 33i32; }
+
+    // ── a SINGLE-ROW source: the packet whose length is 1 ────────────────────
+    let one: [Item; 1] = [ mk(9i64, "solo", 99i64) ];
+    let o_ids: Vec<i64> = all_ids(&one[..]).unwrap();
+    if o_ids.len()     != 1i64 { return 40i32; }
+    if o_ids.get(0i64) != 9i64 { return 41i32; }
+
+    // ── the rows are still the caller's, and the SAME source scans twice ────
+    // Every query above borrowed `xs` for the length of its own call and no
+    // longer — `SliceStream` copies nothing and keeps nothing, so a second and
+    // third scan of the SAME slice see the same rows. (A stream that consumed
+    // its source, or a wrap that kept state across calls, would answer the
+    // second scan differently; `rewind` is what makes this free, and it is the
+    // fact the plan's read-once proof used to have to carry for a slice param.)
+    let again: Vec<i64> = all_ids(&xs[..]).unwrap();
+    if again.len()     != 5i64 { return 50i32; }
+    if again.get(0i64) != 1i64 { return 51i32; }
+    if again.get(4i64) != 5i64 { return 52i32; }
+    let again2: Vec<str> = tags_by_tag(&xs[..], 20i64).unwrap();
+    if again2.len() != 3i64 { return 53i32; }
+    if !str_eq(again2.get(0i64), "charlie") { return 54i32; }
+
+    return 0i32;
+}

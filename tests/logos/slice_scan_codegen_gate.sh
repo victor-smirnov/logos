@@ -96,8 +96,43 @@
 # change a codegen number. Two blockers became one, and the one that is left is
 # a MEASUREMENT: the transition needs a re-measurement, not a re-argument.
 #
-# When S3d does land, this gate goes red twice (bytes + batch vocabulary) and
-# both arms move together with the measurement recorded in the census.
+# ── ⚠ IT LANDED: R-A, 2026-08-15. THE GOLDEN MOVED, AND HERE IS THE NUMBER ──
+#
+# The gate went red twice exactly as predicted (bytes + batch vocabulary) and
+# both arms moved together. THE TRANSITION IS THE MEASURED-EQUAL ARM, and it is
+# recorded here as TWO numbers because the two disagree in SIGN — which is the
+# whole reason (1) above read as a refusal for three stages.
+#
+# Control: `slice_stream_src` forced to `return false`, full rebuild, this gate
+# GREEN against the old golden (the revert is proven, not assumed); then
+# restored, full rebuild, both measurements retaken.
+#
+#   STATIC (`objdump -d` of `slice_scan_run`, same fixture, same flags):
+#     BASE (pre-R-A)   59 instructions · 242 bytes .text · frame 0x78
+#     R-A             117 instructions · 484 bytes .text · frame 0xe8
+#     +58 instructions, +242 bytes. NOT equal, and not claimed to be.
+#     (S2j measured 128/528/0x108 for the same collapse; the 11 instructions and
+#      44 bytes between then and now are the BY-REFERENCE row bind — S2j's shape
+#      copied every row out of the batch into a local.)
+#
+#   PER ROW (callgrind Ir of `slice_scan_run`, same program at 20,000 and 40,000
+#   rows, `where` matching NOTHING so the cost is the scan and the filter with
+#   no `__out.push` in it; both series exactly linear):
+#     BASE       Ir = 23·n + 32
+#     R-A        Ir = 21·n + 82
+#     −2 INSTRUCTIONS PER ROW, +50 one-time. CROSSOVER AT 25 ROWS.
+#
+# So the static count is a CONSTANT that got bigger and the per-row count is the
+# ASYMPTOTE that got smaller, and reading either alone gives the wrong verdict:
+# (1) above rejected the transition on the static number for three stages while
+# the per-row number was favourable the whole time. The transition is taken on
+# the per-row number, with the constant stated rather than netted out — a
+# 24-row query is 8 instructions worse and the fixture in this file has 5 rows.
+#
+# ⚠ WHAT WOULD MAKE THIS A MISTAKE, so the next reader can check rather than
+# re-argue: if the per-row figure ever comes back ≥ BASE's 23, the constant is
+# no longer buying anything and this golden should go back. Re-measure with the
+# two-point Ir slope above; do not re-measure with `objdump` alone.
 #
 # ⚠ THE LAST CLAUSE IS WHAT S2 HAS TO ARGUE WITH, WHICH IS THE POINT. When the
 # slice arm rides §1's shape, this gate goes red twice: the bytes differ and the
@@ -167,24 +202,34 @@ fi
 # The two facts that make it the SLICE scan. `grep -q` is used on a FILE, never
 # at the tail of a pipe: `cmd | grep -q` exits at the first match, `cmd` dies of
 # SIGPIPE, and `pipefail` hands the pipeline that status.
-if ! grep -q "while (__i < (rows).len())" "$GOLDEN"; then
-    echo "FAIL(1): $GOLDEN does not contain the indexed slice loop"
-    echo "         \`while (__i < (rows).len())\` — it is not pinning a slice scan."
-    exit 1
-fi
+# ── R-A: THE CLAUSES INVERTED, NOT DELETED ──────────────────────────────────
+# The slice arm now rides §1's shape, so the two-sided pin turns around: what
+# had to be ABSENT is now REQUIRED and what had to be PRESENT is now FORBIDDEN.
+# The gate is exactly as strong in the other direction — a silent regression to
+# the indexed walk is as red as the collapse was before it was measured.
 if ! grep -q "r.k >= lo" "$GOLDEN"; then
     echo "FAIL(1): $GOLDEN does not contain the query's \`where\` predicate;"
     echo "         a scan that lost its filter would compare equal to it."
     exit 1
 fi
-# The S1 state: this arm carries none of §1's batch vocabulary. See the header —
-# S2 changes this clause deliberately, with the ADR's measured-equality arm.
-for tok in 'next_batch(' '_at(__b' '__bn0' '__brow'; do
+# REQUIRED: the wrap, the pull, the bound, and the BY-REFERENCE row bind. The
+# last one is not decoration — binding the row BY VALUE is what made this shape
+# refuse non-`Copy` rows (E0507) and outlive borrowed sort keys (E0597), so it
+# is pinned by its text and not merely by the diff.
+for tok in 'SliceStream::<Row>::new(rows)' 'next_batch(' '__bn0' 'let r: &Row = (&((__bb0))[(__bj0 as i64)]);'; do
+    if ! grep -qF -- "$tok" "$GOLDEN"; then
+        echo "FAIL(1): $GOLDEN is missing the batch-scan token '$tok'."
+        echo "         The slice arm rides ADR 0025 §1's shape as of R-A; a golden"
+        echo "         without this token is not pinning that shape."
+        exit 1
+    fi
+done
+# FORBIDDEN: the pre-R-A indexed walk, and the by-value row temporary.
+for tok in 'while (__i < (rows).len())' '__brow'; do
     if grep -qF -- "$tok" "$GOLDEN"; then
-        echo "FAIL(1): $GOLDEN carries the batch-scan token '$tok'."
-        echo "         Either the slice arm now rides ADR 0025 §1's shape — in which"
-        echo "         case this clause and the golden are updated TOGETHER, with the"
-        echo "         'measured equal' arm recorded in the census — or the golden was"
+        echo "FAIL(1): $GOLDEN carries the pre-R-A token '$tok'."
+        echo "         Either the slice arm regressed off §1's shape — in which case"
+        echo "         fix the emitter, not the golden — or the golden was"
         echo "         regenerated from the wrong function."
         exit 1
     fi

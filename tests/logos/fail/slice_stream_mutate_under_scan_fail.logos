@@ -1,0 +1,44 @@
+// ADR 0025 R-A — THE REFUSE HALF: MUTATING THE OWNER UNDER A LIVE `SliceStream`.
+//
+// `SliceStream<R>` is `#[borrow_carrying]` (`stdlib/lang/stream/stream.logos`):
+// it holds the caller's `&[R]` and copies nothing, which is exactly what makes
+// it free and exactly what makes this program wrong. Growing the owning `Vec`
+// while the stream is live can move the buffer, and every batch the stream has
+// handed out — or is about to — would point at freed storage. The emitted scan
+// puts the wrap and the pull in one generated function, so the shape a USER can
+// reach is this one: the stream and the owner in the same scope.
+//
+// ⚠ THE POINT IS THAT THIS IS A TYPE FACT, NOT A CONVENTION. Rung 1 of ADR 0025
+// §7's pin ladder is "nothing to pin": no counter, no runtime check, no comment
+// asking the caller to be careful — the borrow checker refuses it, and it
+// refuses it because `SliceStream` BORROWS rather than owning. `Buffer<R>`
+// (`logos.mem.stream`), which OWNS its rows, accepts the analogous program;
+// that asymmetry IS the seam between the two types.
+//
+// PAIRED WITH THE ADMIT HALF at the bottom of
+// `pass/stream_slice_stream_seam` — the SAME `push` on the SAME `Vec`, after
+// the stream's last use, compiles and its row is then visible. A refusal
+// fixture alone cannot tell separation from over-refusal: a checker that
+// refused `push` anywhere near a stream would pass this file and fail that one.
+package slice_stream_mutate_under_scan_fail;
+
+use logos.lang.option;
+use logos.lang.stream;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let mut rows: Vec<i64> = Vec::<i64>::new();
+    rows.push(10i64);
+    rows.push(20i64);
+
+    let mut s: SliceStream<i64> = SliceStream::<i64>::new(rows.as_slice());
+
+    // REFUSED HERE: `rows` is borrowed by `s`, and `s` is used below.
+    rows.push(30i64);
+
+    let ob: Option<&[i64]> = s.next_batch();
+    if ob.is_none() { return 1i32; }
+    let b: &[i64] = ob.unwrap();
+    if b.len() != 3i64 { return 2i32; }
+    return 0i32;
+}

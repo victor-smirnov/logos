@@ -559,7 +559,26 @@ fail = []
 # command that did not check L4's rc — the gate was red AT the push. The fix
 # commit follows immediately; the discipline fix is the parent's (never chain
 # a commit after a gate read).
-EXPECT_FIXTURES   = 185
+# R-A (2026-08-15, ADR 0025 — the slice arm dissolves): 185 -> 186, and the
+# three numbers that move are the ONE new fixture's own content, predicted
+# before the run and then measured. `pass/deem_slice_param_batch_e2e` is the
+# added fixture (the other two R-A registrations —
+# `pass/stream_slice_stream_seam`, `fail/slice_stream_mutate_under_scan_fail` —
+# are outside this gate's `wql_*`/`deem_*` population and correctly do not move
+# it). It declares FOUR `deem`s, TWO of which carry `order by`:
+#   `__ks` 127 -> 129, `key vector` 127 -> 129, `__ix<k>` 319 -> 321  = +2 each,
+# one per sorting query, which is what a sort emits.
+# ⚠ AND NOTHING ELSE MOVED — the control that says R-A changed the SCAN and not
+# the plan: arrange 598, index 598, hash-join 495, drain+sort 12, `__it_` 12,
+# container 205, and all four group-frame families (152/208/13/7) are unchanged
+# across the stage. The collapse replaced an indexed walk with a batch pull
+# corpus-wide (-149 walks / +149 pulls, measured on two trees — see
+# `docs/deem-interpreter-deletion-census.md`) and the plan did not notice,
+# because a slice param has no rel-registry identity and therefore contributes
+# no ground on this plane at all. That absence is the R-A residual, not a bug
+# in this gate: ROUTE P ("param rels") is what would give these scans a ground
+# to census, and it is deliberately not taken here.
+EXPECT_FIXTURES   = 186
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -570,12 +589,12 @@ EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts
 EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
-EXPECT_KS         = 127   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`)
+EXPECT_KS         = 129   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
-EXPECT_PERM       = 319
+EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S5-PIPELINE: readonce 19 -> 21. `deem_pipeline_chain` chains TWO deems onto one
 # streamed source (`q2_head` bounded, `q2_all` the unbounded control), and each
 # contributes one `read once, consumed where it stands` — the ground that IS the

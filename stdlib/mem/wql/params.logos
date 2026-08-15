@@ -711,10 +711,19 @@ pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
 ///
 /// A single-column rel's row is the BARE value, not a 1-tuple — the same rule
 /// `register_native_rels` applies when it builds `rel_rowty`.
-pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
-                      bvar: str, ivar: str) {
-    let off: i64 = prm.rel_coff[r];
-    let nc: i64  = prm.rel_ccnt[r];
+///
+/// ⚠ TWO ENTRY POINTS, ONE BODY (R-A). `batch_row_text` reads the layout off the
+/// REL REGISTRY (`rel_rowmaj[r]`), which every batch producer has because the
+/// natspec gave it one. A `SliceStream` wrap over a `deem` SLICE PARAM has NO
+/// rel index at all (`rel_find_src` → −1: no `impl Src`, no natspec, no rel),
+/// and its layout is nevertheless KNOWN STATICALLY — `SliceStream<R>`
+/// implements `RowMajor` by construction. So the layout arrives as an ARGUMENT
+/// through `batch_row_text_at`, and the two entry points share this body. NOT a
+/// second copy of the row spelling: §2's rule is that a layout is a row in ONE
+/// function, and it still is — `r` is simply not consulted on the row-major arm,
+/// which is why `r = -1` is legal there and only there.
+pub fn batch_row_text_at(out: &mut String, prm: &MacroParams, r: i64,
+                         rowmaj: bool, bvar: str, ivar: str) {
     // ── ROW-MAJOR (ADR 0025 §2, S6): the batch IS the rows. ────────────────
     // `RowsBatch<R>` = `&[R]`, so the row is one index and the column names are
     // not spelled at all — the projection back out of the row is the caller's
@@ -726,7 +735,7 @@ pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
     // columnar arm below emitted `bb.<col>_at(j)` unconditionally, which on a
     // slice batch is `slice has no method 'a_at'` — measured, on the probe that
     // opened S6.
-    if prm.rel_rowmaj[r] {
+    if rowmaj {
         out.push_str("(");
         out.push_str(bvar);
         out.push_str(")[");
@@ -734,6 +743,9 @@ pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
         out.push_str(" as i64]");
         return;
     }
+    // Columnar: the rel index is REQUIRED here and only here.
+    let off: i64 = prm.rel_coff[r];
+    let nc: i64  = prm.rel_ccnt[r];
     if nc != 1i64 { out.push_str("("); }
     let mut c: i64 = 0i64;
     while c < nc {
@@ -749,16 +761,31 @@ pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
     if nc != 1i64 { out.push_str(")"); }
 }
 
+/// The REL-KEYED entry point: the layout is the registry's (`rel_rowmaj[r]`).
+/// `r` must be a real rel index — every caller that has one uses this.
+pub fn batch_row_text(out: &mut String, prm: &MacroParams, r: i64,
+                      bvar: str, ivar: str) {
+    batch_row_text_at(out, prm, r, prm.rel_rowmaj[r], bvar, ivar);
+}
+
 /// ADR 0025 §2/S6 — THE BATCH'S LENGTH, spelled per LAYOUT. The pull counter is
 /// `u64` in all three emitters (`batch_scan_frag`, `batch_scan_rev_frag`, the
 /// DRAIN prelude) because that is what `ColsBatch::len` returns; a row-major
 /// batch is a slice, whose `len()` is `i64`. One cast, in the one place the
 /// layout is known, rather than a `u64`/`i64` question at three quote sites —
 /// the same rule as `batch_row_text`, whose companion this is.
-pub fn batch_len_text(out: &mut String, prm: &MacroParams, r: i64, bvar: str) {
+///
+/// ⚠ Same TWO-ENTRY-POINT split as `batch_row_text_at`, and for the same
+/// reason: a `SliceStream` wrap has no rel index to read the layout from.
+pub fn batch_len_text_at(out: &mut String, rowmaj: bool, bvar: str) {
     out.push_str(bvar);
     out.push_str(".len()");
-    if prm.rel_rowmaj[r] { out.push_str(" as u64"); }
+    if rowmaj { out.push_str(" as u64"); }
+}
+
+/// The REL-KEYED entry point (see `batch_row_text`).
+pub fn batch_len_text(out: &mut String, prm: &MacroParams, r: i64, bvar: str) {
+    batch_len_text_at(out, prm.rel_rowmaj[r], bvar);
 }
 
 // ── RelScc — the rel dependency CONDENSATION (slice C — recursive rels) ──────

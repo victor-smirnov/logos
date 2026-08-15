@@ -284,6 +284,13 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             // leaves all 6 failing WITH the use decl present in the dump.
             // Neither line is redundant — deleting either re-opens the failure.
             use logos.mem.stream;
+            // `SliceStream<R>` — ADR 0025 R-A's wrap for a `deem` SLICE PARAM
+            // (`slice_stream_wrap_frag`). SAME PAIR RULE as the `logos.mem.stream`
+            // line above: this literal makes the NAME visible inside the spliced
+            // item, and `use logos.lang.stream;` in wql.logos is what LOADS the
+            // package. Distinct package from `logos.mem.stream` — the borrowed
+            // batch view is LANG tier (no-alloc), the owning `Buffer` is mem tier.
+            use logos.lang.stream;
             #( use #uses; )*
             fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -310,6 +317,13 @@ fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
             // leaves all 6 failing WITH the use decl present in the dump.
             // Neither line is redundant — deleting either re-opens the failure.
             use logos.mem.stream;
+            // `SliceStream<R>` — ADR 0025 R-A's wrap for a `deem` SLICE PARAM
+            // (`slice_stream_wrap_frag`). SAME PAIR RULE as the `logos.mem.stream`
+            // line above: this literal makes the NAME visible inside the spliced
+            // item, and `use logos.lang.stream;` in wql.logos is what LOADS the
+            // package. Distinct package from `logos.mem.stream` — the borrowed
+            // batch view is LANG tier (no-alloc), the owning `Buffer` is mem tier.
+            use logos.lang.stream;
             #( use #uses; )*
             pub fn #nm #(tp) (#(ps)) -> #(rt) #(body)
         };
@@ -1848,6 +1862,109 @@ fn scan_of(e: RExpr) -> RScan {
     }
 }
 
+// ── ADR 0025 R-A — THE SLICE PARAM'S BATCH DOOR (ROUTE E, at the SCAN SITE) ──
+//
+// A `deem` SLICE PARAM (`pub deem q(rows: &[Row]) { from rows r … }`) is the
+// dominant source shape in the corpus and it was the one source that could not
+// reach §1's scan: it has NO REL-REGISTRY IDENTITY. Measured, from the tree, not
+// assumed — `SemaChecker::native_source_spec` (`sema_expr.cpp`) opens with
+// `source_impls_.find(ptype_stripped)` and returns `{}` when the param's type has
+// no registered `impl Src`, so a bare `&[Row]` gets no natspec entry, hence no
+// `register_native_rels` row, hence `rel_find_src` = −1, hence `rel_batch` /
+// `rel_rowmaj` / the prelude's `ri`-keyed authors are all unreachable for it and
+// the emitter fell through to the old indexed walk.
+//
+// TWO ROUTES EXIST AND THEY ARE NOT EQUIVALENT.
+//   * ROUTE P — give param sources a rel identity ("param rels"), so
+//     `rel_batch`/`rel_rowmaj`/prelude nodes/drain nodes work uniformly. Honest,
+//     and it is what `arrange_node`'s recorded gap and R-B both want, but it
+//     MOVES THE CENSUS, the ledger and every `ri`-keyed author. Not a first step.
+//   * ROUTE E — THIS ONE. At the scan site, when the source has no rel index and
+//     IS a declared slice param, bind the wrap immediately before the scan and
+//     scan the wrap. The layout is then known STATICALLY (`SliceStream<R>`
+//     implements `RowMajor`), which is why `batch_row_text_at` /
+//     `batch_len_text_at` take the layout as an argument instead of reading a
+//     registry row that does not exist.
+//
+// NOT THE PRELUDE, and that is forced rather than preferred: the prelude plane is
+// `ri`-keyed and a param has no `ri`. The wrap is therefore per SCAN SITE and
+// numbered (`__ss<k>`) so that a join, which names the same param twice and
+// needs a cursor per scan, composes when it is routed.
+//
+// ⚠ AND IT IS NOT ROUTED YET — said here because `ss_name(k)`'s numbering reads
+// like a live capability and is not one. R-A routes exactly ONE of the 13 sites
+// the S2j audit listed: `emit_simple`, both arms. Every call below passes
+// `k = 0`, because `emit_simple` scans once; `emit_find`, `step_wrap` x2,
+// `chain_nest_frag`, `emit_aggregate`, `emit_incremental` x4,
+// `rel_body_simple_frag` and `chain_body_frag` still emit the indexed walk for
+// a slice param. The corpus number for what remains is in the census
+// (1017 indexed walks after R-A, from 1166), not in this comment.
+
+/// Does this source need the R-A wrap? No rel identity, and a declared slice param.
+fn slice_stream_src(prm: &MacroParams, src_name: str) -> bool {
+    if prm.rel_find_src(src_name) >= 0i64 { return false; }
+    return prm.is_source(src_name);
+}
+
+/// The wrap's binding name at scan site `k` — `__ss<k>`, numbered like every other
+/// scan-local so a nested join's two scans of the same param do not collide.
+fn ss_name(k: i64) -> String { return nk_str("__ss", k); }
+
+/// `let mut __ss<k>: SliceStream<Row> = SliceStream::<Row>::new(<src>);`
+///
+/// Costs NOTHING at runtime: `SliceStream` is `#[borrow_carrying]` over the caller's
+/// `&[R]` and copies no row. The refuted alternative is on the record in
+/// `stdlib/lang/stream/stream.logos` — `Buffer::from_vec` would have copied the whole
+/// slice into a fresh `Vec`, the intermediate materialization criterion 1 forbids.
+fn slice_stream_wrap_frag(row_ty: str, src_name: str, k: i64) -> ExprBlob {
+    let s_ss: String   = ss_name(k);
+    let n_ss: Ident    = Ident::new(string_as_str(&s_ss));
+    let rt_f:  ExprBlob = parse_type(row_ty);
+    let rt2_f: ExprBlob = parse_type(row_ty);
+    let sf:    ExprBlob = parse_expr(src_name);
+    return quote_block! {
+        let mut #n_ss: SliceStream<#(rt_f)> = SliceStream::<#(rt2_f)>::new(#(sf));
+    };
+}
+
+// ── THE ROW BINDING, PER LAYOUT, IN ONE PLACE (ADR 0025 §2; R-A's correction) ─
+//
+// The scan binds the query's row variable. HOW it binds it is a LAYOUT question
+// and it was answered the same way for both layouts until R-A measured what that
+// costs:
+//
+//   * COLUMNAR — the row does not exist until the emitter BUILDS it
+//     (`(bb.a_at(j), bb.b_at(j))` is a fresh tuple), so it must land in a local
+//     and the query's variable borrows THAT. No alternative.
+//   * ROW-MAJOR — the row is ALREADY THERE. `RowsBatch<R>` IS `&[R]`, so
+//     `bb[j]` is a PLACE inside the caller's storage and the query's variable can
+//     borrow it directly. Copying it into a local first was a pure loss and,
+//     worse, WRONG TWICE — both measured on the R-A probe pair, not predicted:
+//       · `let __brow: R = bb[j]` is a MOVE OUT OF AN INDEX for any non-`Copy`
+//         row (E0507). Invisible while the only row-major sources were batch
+//         producers with scalar/tuple rows; a `deem` slice param's row is an
+//         ordinary user struct, and `wql_key_own_type_e2e` / `deem_mat_ground_witness`
+//         are the two fixtures that say so.
+//       · a key BORROWED from the row (`order by <str column>`) then borrows the
+//         LOCAL, whose scope closes with the inner loop, so the sort's key vector
+//         outlives its own keys (E0597) — `wql_order_limit_e2e`,
+//         `wql_domain_static_extremes`.
+//     Binding by reference removes the copy AND both refusals, because the borrow
+//     is of the batch, exactly as the indexed walk borrowed the slice.
+//
+// ONE FUNCTION, both pull directions: forward and backward differ in the loop,
+// never in what a row is.
+fn batch_row_bind_frag(rowmaj: bool, vnm: Ident, row_f: ExprBlob,
+                       rowe_f: ExprBlob, n_br: Ident) -> ExprBlob {
+    if rowmaj {
+        return quote_block! { let #vnm: &#(row_f) = &#(rowe_f); };
+    }
+    return quote_block! {
+        let #n_br: #(row_f) = #(rowe_f);
+        let #vnm: &#(row_f) = &#n_br;
+    };
+}
+
 // ── batch_scan_frag — ADR 0025 §1's ONE EMITTED SCAN SHAPE ───────────────────
 //
 //     while let Some(b) = s.next()     ← the OUTER pull, per BATCH
@@ -1890,14 +2007,21 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let s_bn: String = nk_str("__bn", k);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
     let s_bj: String = nk_str("__bj", k);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
     let s_br: String = nk_str("__brow", k); let n_br: Ident = Ident::new(string_as_str(&s_br));
+    // ADR 0025 R-A — `r < 0` = NO REL, and the layout is then known statically:
+    // the only source that reaches this fragment without a rel-registry index is
+    // a `SliceStream<R>` wrap over a slice param, which implements `RowMajor` by
+    // construction. Reading `rel_rowmaj[-1]` is what the layout-explicit entry
+    // points (`params::batch_row_text_at`/`batch_len_text_at`) exist to avoid.
+    let rowmaj: bool = if r < 0i64 { true } else { prm.rel_rowmaj[r] };
     let mut rowx: String = String::new();
-    batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
+    batch_row_text_at(&mut rowx, prm, r, rowmaj, string_as_str(&s_bb), string_as_str(&s_bj));
     let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
     // The LENGTH is layout-selected too (`batch_len_text`): a columnar batch
     // answers `u64`, a row-major one is a slice and answers `i64`.
     let mut lenx: String = String::new();
-    batch_len_text(&mut lenx, prm, r, string_as_str(&s_bb));
+    batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
     return quote_block! {
         loop {
             #(brk_o);
@@ -1909,8 +2033,7 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
                     let mut #n_bj: u64 = 0u64;
                     while #n_bj < #n_bn {
                         #(brk_i);
-                        let #n_br: #(row_f) = #(rowe_f);
-                        let #vnm: &#(row_f) = &#n_br;
+                        #(bind_f);
                         #(body_f);
                         #n_bj = #n_bj + 1u64;
                     }
@@ -1956,14 +2079,20 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let s_bn: String = nk_str("__bn", k);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
     let s_bj: String = nk_str("__bj", k);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
     let s_br: String = nk_str("__brow", k); let n_br: Ident = Ident::new(string_as_str(&s_br));
+    // The backward pull always has a rel (a producer declared `Bidirectional`),
+    // so the layout is the registry's — but it goes through the SAME
+    // layout-explicit door as the forward pull, and binds the row through the
+    // SAME `batch_row_bind_frag`: direction is a loop question, not a row one.
+    let rowmaj: bool = prm.rel_rowmaj[r];
     let mut rowx: String = String::new();
-    batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
+    batch_row_text_at(&mut rowx, prm, r, rowmaj, string_as_str(&s_bb), string_as_str(&s_bj));
     let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
     // The LENGTH is layout-selected too (`batch_len_text`): a columnar batch
     // answers `u64`, a row-major one is a slice and answers `i64`.
     let mut lenx: String = String::new();
-    batch_len_text(&mut lenx, prm, r, string_as_str(&s_bb));
+    batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
     return quote_block! {
         (#(src_f)).land_end();
         loop {
@@ -1977,8 +2106,7 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
                     while #n_bj > 0u64 {
                         #n_bj = #n_bj - 1u64;
                         #(brk_i);
-                        let #n_br: #(row_f) = #(rowe_f);
-                        let #vnm: &#(row_f) = &#n_br;
+                        #(bind_f);
                         #(body_f);
                     }
                 }
@@ -2141,6 +2269,26 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     }
 
     let mut scan_f: ExprBlob = quote_block! { };
+    // ADR 0025 R-A — does this scan site take the SLICE-PARAM WRAP? Asked ONCE,
+    // for BOTH arms below, because the whole point is that the param class has
+    // ONE scan shape: a `has_sort` query that kept the indexed walk while the
+    // plain one moved would be §1's two-shapes defect re-created inside a single
+    // emitter, behind a green gate.
+    let r_a_wrap: bool  = slice_stream_src(prm, src_name);
+    let s_ss0:    String = ss_name(0i64);
+    // ⚠ THE SORT'S PHASE 3 INDEXES THE SOURCE, NOT THE WRAP — and that is a
+    // MEASURED result, not a preference. `SliceStream::as_slice(&self)` was the
+    // obvious door (the design named it "for the class-B random-access sites")
+    // and it does not compose here: when the projection is BORROWED from the row
+    // (`select x.tag : str` — `__out: Vec<str>` holds borrows taken out of the
+    // packet) the packet's borrow of `__ss0` is live to the end of the function,
+    // so a later `__ss0.as_slice()` is refused —
+    //   `cannot borrow '__ss0': '__ss0' is already mutably borrowed`
+    // — on `pass/deem_slice_param_batch_e2e`'s `tags_by_tag`. Indexing the
+    // PARAM instead costs nothing and conflicts with nothing: `SliceStream::new`
+    // takes a SHARED `&[R]`, so the wrap and the direct index are two shared
+    // borrows of the same rows. `as_slice()` keeps its consumer in
+    // `pass/stream_slice_stream_seam`, where the projection is owned.
     if mods.has_sort {
         // Phase 1: collect matching row indices + sort keys.
         let key_f:  ExprBlob = parse_expr(string_as_str(&key_body));
@@ -2182,6 +2330,32 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             };
         }
         sort_key_vector(prm, src_name, var_name, key_ty, 1i64);
+        if r_a_wrap {
+            // PHASE 1 IS A SCAN, AND IT RIDES §1's ONE SHAPE. The ordinal the
+            // permutation is built over (`__i`) is maintained BY THE BODY rather
+            // than being the loop variable: a batch pull has a per-batch index,
+            // and the row's position in the SOURCE is what `__ix0` must hold.
+            // The increment sits OUTSIDE `coll_f` — `coll_f` is wrapped in the
+            // `where` filter and a filtered-out row still advances the ordinal.
+            let wrap_f:  ExprBlob = slice_stream_wrap_frag(row_ty, src_name, 0i64);
+            let ssrc_f:  ExprBlob = parse_expr(string_as_str(&s_ss0));
+            let body1_f: ExprBlob = quote_block! { #(coll_f); __i = __i + 1i64; };
+            // No `limit` break in phase 1: `order by … limit n` caps the SORTED
+            // output, not the rows the sort sees. The cap is in `proj_phase`.
+            let nbo_f:   ExprBlob = quote_block! { };
+            let nbi_f:   ExprBlob = quote_block! { };
+            let scan1_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, vnm,
+                                                    row_f, body1_f, nbo_f, nbi_f);
+            scan_f = quote_block! {
+                let mut __ix0: Vec<i64> = Vec::<i64>::new();
+                let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+                let mut __i: i64 = 0i64;
+                #(wrap_f);
+                #(scan1_f);
+                #(sort_f);
+                #(proj_phase);
+            };
+        } else {
         scan_f = quote_block! {
             let mut __ix0: Vec<i64> = Vec::<i64>::new();
             let mut __ks: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
@@ -2194,6 +2368,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             #(sort_f);
             #(proj_phase);
         };
+        }
     } else if prm.rel_src_unmaterialized(src_name) {
         // STREAMED (ADR 0024 S4). The plan proved this source is read exactly
         // once, so no Vec is built: rows arrive from `next()` and the loop ends
@@ -2247,6 +2422,34 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             }
         };
         }
+    } else if r_a_wrap {
+        // ADR 0025 R-A — THE SLICE ARM DISSOLVES. This is the class-A site that
+        // carried the corpus: a `deem` query over a `&[Row]` param. The source
+        // has no rel identity (see `slice_stream_src`), so no natspec flag could
+        // ever have routed it here; the wrap gives it the batch door instead, and
+        // from this line down the emitted scan is `batch_scan_frag` — §1's ONE
+        // shape, byte-identical in structure to the one a Memoria leaf walk gets.
+        //
+        // The `limit` is a BREAK in both loops rather than a loop CONDITION,
+        // which is the only visible difference from the walk this replaces: a
+        // batch pull has two loops and a condition on the outer one alone would
+        // over-run by up to a batch. Same construction as the streamed arm above.
+        let mut brk_o: ExprBlob = quote_block! { };
+        let mut brk_i: ExprBlob = quote_block! { };
+        if mods.has_limit {
+            let lim_o: ExprBlob = limit_expr(&mods);
+            brk_o = quote_block! { if !(__out.len() < (#(lim_o))) { break; } };
+            let lim_i: ExprBlob = limit_expr(&mods);
+            brk_i = quote_block! { if !(__out.len() < (#(lim_i))) { break; } };
+        }
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(row_ty, src_name, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ss0));
+        let scan1_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, vnm,
+                                                row_f, row_f2, brk_o, brk_i);
+        scan_f = quote_block! {
+            #(wrap_f);
+            #(scan1_f);
+        };
     } else {
         let mut cond: ExprBlob = quote_expr! { __i < (#(src_f)).len() };
         if mods.has_limit {

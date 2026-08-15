@@ -77,6 +77,18 @@ over the whole `pass/wql_*` + `pass/deem_*` population, two channels:
 D1 = 4036   N1 = 1334 (33.05%)   T = 615   D2 = 3620, accounted 1911 (52.79%)
 ```
 
+⚠ **RE-RUN AT R-A, 2026-08-15 (186 fixtures, 170 with dumps, 2 non-compiling):**
+
+```
+D1 = 4042   N1 = 1336 (33.05%)   T = 617   D2 = 3632, accounted 1919 (52.84%)
+```
+
+**The whole delta is the corpus, not the emitter.** R-A's control tree
+(`slice_stream_src` → `return false`, rebuilt, swept — §5) prints that line
+character for character, and the worklist buckets with it. A stage that changes
+the SCAN SHAPE and materializes nothing must move criterion 1 by zero, and this
+is the measurement that says it did. See §6.1.
+
 ⚠ ~~accounted 1891 (52.24%)~~ — SUPERSEDED by the closing audit (§6, D2). The ACC
 table named six of the nine identities; `group count` (`__g_cnt` 13) and
 `representative row` (`__g_row` 7) had no entry, so 20 bindings the census gate
@@ -151,11 +163,13 @@ that do NOT move with a slice are gated inside the script (exit 2):**
 **The unaccounted classes ARE the criterion-1 worklist** (artifact channel,
 largest first; the script prints the full list). **1709 bindings, 47.21% of
 `D2`** — 1697 (46.88%) on the site-level reading that credits the 12 owned
-`__rel_*` Buffer landings:
+`__rel_*` Buffer landings. ⚠ **At R-A: 1713 of 3632 (47.16%), site-level 1701
+(46.83%) — the +4 is `__out` and the corpus, and the control tree prints the
+same 1713 (§6.1).**
 
 | bindings | class | status |
 |---|---|---|
-| 646 | `__out` | the query-output Vec. S2 assigned it to S5; **S5 did not take it and no owner was re-assigned** (audit F5). Unowned. |
+| 650 (⚠ ~~646~~, R-A: +4 fixtures, 0 emitter) | `__out` | the query-output Vec. S2 assigned it to S5; **S5 did not take it and no owner was re-assigned** (audit F5). Unowned. |
 | 398 | `__nd_*`, `__dl_*` | incremental derived/delta relations — declared out of the batch plane by S6-B. ⚠ ~~~330~~ SUPERSEDED (closing audit, D3): measured `__nd_*` 222 + `__dl_*` 176 = 398, understated by 68 (21%). It was the one row of this table that did not reproduce; the other four do, exactly. Derivation: `grep -ho "let \(mut \)\?__nd_[A-Za-z_0-9]*[0-9]* *: *\(Vec\|Buffer\|HashMap\|BTreeMap\) *<" /tmp/c1/*.user \| wc -l` and the same for `__dl_`. |
 | 145 | `__cp` | DRed phase collections (`__wql_*_dred`) — the incremental tier, same declaration. |
 | 70 | `__tt` | fixpoint temporaries. S2 assigned the 791-strong fixpoint-buffer class to S6; S6-A took the Writ half only. |
@@ -184,19 +198,57 @@ spellings are visible in the artifact.
 `.next()`~~ — **STRUCK: THERE IS A THIRD SPELLING, AND IT IS THE DOMINANT ONE**
 (closing audit §6, C2). Emitted query code does per-row iteration by INDEXED
 WALK — `while (<minted> < X.len()) { … X.get(i) … }` — which neither grep
-matches. Measured on this sweep: **3975 indexed walks**, of which the
-`__i`/`__i0`/`__i1` family alone is **1160**; that family is the base scan of
-`&[Row]` sources. And the batch-pull inner loop is a FOURTH spelling again —
-`while (__bjN < __bnN)` over a saved `__bb.len()`, **15 sites, exactly one per
-`next_batch()`** — so ZERO of the 3975 indexed walks are inside a batch pull.
-The two greps below see 80 sites (15 + 65) of a per-row population that is at
-least 4040. **Criterion 2's DIRECTION is unaffected — it is NOT met either way —
-but every count this section prints is a FLOOR, not a population**, and the
-"yes" rows below rest on greps that cannot see the dominant shape. Derivation:
-`grep -ho 'while ([A-Za-z_0-9]* < [^;{]*\.len())' /tmp/c1/*.user | wc -l` →
-3975; `… 'while (__i[01]\? < …'` → 1160; `… 'while (__bj[0-9]* < __bn[0-9]*)'`
-→ 15. This is the same class as audit F2 (an instrument blind by construction),
-found inside the instrument written to close it.
+matches. Measured on the audit sweep: ⚠ ~~**3975 indexed walks**~~ **4293**, of
+which the `__i` family alone is ⚠ ~~**1160**~~ **1162**; that family is the base
+scan of `&[Row]` sources. And the batch-pull inner loop is a FOURTH spelling
+again — `while (__bjN < __bnN)` over a saved `__bb.len()`, **15 sites, exactly
+one per `next_batch()`** — so ZERO of those indexed walks are inside a batch
+pull. The two greps below see 80 sites (15 + 65) of a per-row population that is
+at least 4358. **Criterion 2's DIRECTION is unaffected — it is NOT met either
+way — but every count this section prints is a FLOOR, not a population**, and the
+"yes" rows below rest on greps that cannot see the dominant shape. This is the
+same class as audit F2 (an instrument blind by construction), found inside the
+instrument written to close it.
+
+⚠ **THE 3975 AND THE 1160 ARE THE READER, NOT THE TREE (R-A, 2026-08-15).** The
+derivation printed here was `grep -ho 'while ([A-Za-z_0-9]* < [^;{]*\.len())'`,
+and it cannot match the `limit` arm, which emits a DOUBLE paren:
+`while ((__i0 < (rows).len()) && (__n < 3i64))`. On the very sweep that produced
+3975 the two spellings together are **4293** — 318 sites, 8% of the population,
+invisible to the number this section used to size the criterion by. Same defect
+one level down for the family: `while (__i[01]\? <` misses `__i2…` and the
+double paren, 1160 vs **1162**. The fixed derivation, and the one every number
+below now uses:
+
+```
+grep -ho 'while ((\?[A-Za-z_0-9]* < [^;{]*\.len())' /tmp/c1/*.user | wc -l   # ALL indexed walks
+grep -ho 'while ((\?__i[0-9]* < '                   /tmp/c1/*.user | wc -l   # the __i family
+grep -ho 'while (__bj[0-9]* < __bn[0-9]*)'          /tmp/c1/*.user | wc -l   # batch inner loop
+grep -ho 'SliceStream::<'                           /tmp/c1/*.user | wc -l   # R-A's wrap
+```
+
+⚠⚠ **AND R-A MOVED IT. THE BEFORE/AFTER IS A CONTROL, NOT TWO DATES.** The
+before column is not the audit tree (its corpus is 169 dumps against today's
+170, and a corpus move is not an emitter move): it is THIS tree with
+`rexpr_walk::slice_stream_src` forced to `return false` and the stdlib rebuilt,
+so exactly one variable separates the columns. Both sweeps are the whole-corpus
+instrument, `/tmp/ra_ctl` and `/tmp/ra_final`:
+
+| spelling | audit (169 dumps) | CONTROL (170) | R-A (170) | Δ control→R-A |
+|---|---|---|---|---|
+| indexed walks, both parens | 4293 | 4301 | **4152** | **−149** |
+| … the `__i` family alone | 1162 | 1166 | **1017** | **−149** |
+| … the old single-paren regex | 3975 | 3982 | 3835 | −147 (it misses 2 of the 149 — the `limit` arm again) |
+| `next_batch()` pulls | 15 | 15 | **164** | **+149** (9 dumps → 53) |
+| batch inner loop `while (__bjN < __bnN)` | 15 | 15 | **164** | +149 |
+| `SliceStream::<` wraps | 0 | 0 | **149** | +149 |
+| `.next()` row pulls | 65 | 65 | **65** | **0** |
+
+**The accounting closes with no remainder: every wrap emitted removed exactly
+one indexed walk and added exactly one batch pull, corpus-wide.** The `.next()`
+column is the control INSIDE the measurement: R-A dissolved the third spelling
+and touched none of the four row-pull sites, which is what "one plane moved"
+looks like when it is true.
 
 **Instrument**: the same sweep as criterion 1 (it already produces the artifact
 dumps), plus two greps whose definitions are fixed here:
@@ -207,19 +259,24 @@ grep -ho 'next_batch()\|\.next()' /tmp/c1/*.user | sort | uniq -c   # pull shape
 grep -c 'let mut __out'          /tmp/c1/*.user                     # output plane
 ```
 
-**Reading on this tree** — 15 `next_batch()` pulls in 9 dumps, **65 row-at-a-time
-`.next()` pulls in 27 dumps**:
+— plus the four indexed-walk greps fixed above, which are the ones that see the
+dominant shape. ⚠ Two greps were never enough and the ⚠⚠ block above is why.
+
+**Reading on this tree (R-A)** — ⚠ ~~15 `next_batch()` pulls in 9 dumps~~ **164
+`next_batch()` pulls in 53 dumps**, **65 row-at-a-time `.next()` pulls in 27
+dumps** (unmoved), **4152 indexed walks**:
 
 | plane | pulls batches? | evidence on this tree |
 |---|---|---|
 | scan, container family | **yes** | leaf batches via `__ctr_b*` / `__ctr_leafbatch` (S1); the descent appears in the hot closure of `deem_pipeline_handle_seam` |
-| scan, native iterator source | **no** | 14 sites, `let __opt: Option<R> = (__rel_s).next()` in the row loop |
+| scan, **`&[Row]` slice parameter** | **yes** (R-A, 2026-08-15) | the plane this row exists to record, added when it moved: `SliceStream::<R>::new(<param>)` + `next_batch()` + the `__bj/__bn` inner loop, **149 sites**, replacing 149 indexed walks one-for-one (control table above). Emitted from ONE function, `rexpr_walk::batch_scan_frag`, which is the same §1 shape the container family already rode — so this is not a second scan shape, it is the slice arm arriving at the first. Routed sites: `emit_simple`, BOTH arms (plain scan, and the sort's phase-1 collect). ⚠ the other TWELVE S2j sites still emit the indexed walk — see the verdict below |
+| scan, native iterator source | **no** | 14 sites, `let __opt: Option<R> = (__rel_s).next()` in the row loop. ⚠ UNMOVED BY R-A and the remainder row that predicted otherwise is corrected below: a native iterator source is not a slice, `SliceStream` never sees it |
 | drain prelude | **no** | 9 sites, `let __dr: Option<R> = __it_s.next()` landing into a `Buffer` |
-| join — probe side | **no** (⚠ ~~yes~~) | the probe reads the driving nest, which is the scan plane — but the scan plane is itself split yes/no by this table, so the row inherited the half it liked. Measured: of **81** dumps that build a join structure (`__hm`/`__bt`), **2** contain any `next_batch()`. The probe pulls batches in 2 of 81. |
+| join — probe side | **no** (⚠ ~~yes~~) | the probe reads the driving nest, which is the scan plane — but the scan plane is itself split yes/no by this table, so the row inherited the half it liked. Measured: of **81** dumps that build a join structure (`__hm`/`__bt`), ⚠ ~~**2**~~ **11** contain any `next_batch()` — AND THAT NUMBER MUST NOT BE READ AS THIS ROW MOVING. R-A took 2 → 11 by batch-pulling the SCAN in those dumps; `step_wrap`, the join's own probe nest, is one of the twelve unrouted sites and still emits the indexed walk. A dump-level co-occurrence count is exactly the inheritance defect this cell was struck for the first time; it is kept only because it is the number the instrument prints, and it is labelled. |
 | join — **build side** | **no** | 3 sites, `let __bo1: Option<R> = (__rel_p).next()` — `rexpr_walk::build_phase_frag`, **the fourth pull site**, never converted when S1 collapsed the scan. Any batch source on a build side dies there (`type mismatch — expected Option, got Option`: the annotation is the ROW type, the pull yields a BATCH). Invisible to the green corpus BY CONSTRUCTION — no corpus query puts a batch source on that side. |
-| sort | **the elision arm only** (⚠ ~~yes (S3)~~) | `land_end` (4) + `prev_batch` (4) in **2** dumps for the desc elision — and 3 of the 54 `__ks` dumps carry any `next_batch()`. The OTHER arm — `key vector` + permuted index vectors, **54 dumps, 127 `key vector` plan lines, 319 `__ix` bindings** — is not a batch pull at all. The cell always stated the split; the verdict column erased it. |
+| sort | **its INPUT does; its key vector still materializes** (⚠ ~~yes (S3)~~, ⚠ ~~the elision arm only~~) | `land_end` (4) + `prev_batch` (4) in **2** dumps for the desc elision, unmoved. What moved is phase 1: the sort arm of `emit_simple` collects through `SliceStream`, so ⚠ ~~3 of the 54~~ **23 of the 55** `__ks` dumps now carry a `next_batch()` — the rows ARRIVE in batches (`wql_distinct_e2e.user:290`, `__ss0.next_batch()` feeding `__ks.push`). The OTHER half is unmoved and is a criterion-1 fact, not a pull-shape one: **55 dumps, 129 `key vector` plan lines, 321 `__ix` bindings** are still built, and the insertion sort that permutes them (`while (__a < __ks.len())`) is itself an indexed walk over a materialized vector. The split the verdict column once erased now runs INSIDE this row: input yes, ordering no. |
 | aggregate | **the fold, not the enumeration** (⚠ ~~yes (S4/S5)~~) | single-pass fold over pulled batches — but the min/max retract-rebuild arm (`stdlib/mem/wql/rexpr_walk.logos:5695`) emits `match __it.next()` over a `HashMapKeys<…>`: **39 row-at-a-time pulls in 14 dumps**, 60% of this section's own `.next()` numerator, in a plane scored yes. ⚠ the pure-aggregate-over-a-row-producer arm has ZERO corpus executions (audit F10) |
-| output | **no** | 646 `let mut __out: Vec<…>` — the class S2 assigned to S5, unowned since |
+| output | **no** | ⚠ ~~646~~ **650** `let mut __out: Vec<…>` — the class S2 assigned to S5, unowned since. The +4 is R-A's three new registrations (the control tree answers 650 too), NOT a plane move: R-A pushes into `__out` exactly as before, from inside a batch loop instead of an indexed one |
 | incremental (`__dl`/`__nd`/`__edb`, DRed) | **no, declared** | all 124 DRed phase fns take `&[…]`; S6-B measured the seam as `<q>_apply`'s parameter list alone and declared rather than attempted it |
 
 **Verdict: criterion 2 is NOT met**, and the open planes are named with counts
@@ -227,7 +284,23 @@ rather than adjectives. Of the 65 `.next()` pulls: the build side **3**
 (`(__rel_p)` 1, `(__rel_t)` 1, `(__rel_d)` 1), the native-source scan **14**
 (`(__rel_s)`), the drain prelude **9** (`__it_s` 7, `__it_t` 1, `__it_d` 1), and
 the aggregate key enumeration **39** (`__it.next()` over `HashMapKeys`, 14
-dumps) — 3+14+9+39 = 65. Plus the output plane, 646 bindings.
+dumps) — 3+14+9+39 = 65. Plus the output plane, ⚠ ~~646~~ 650 bindings. **Plus
+the third spelling, which after R-A is 4152 indexed walks — 1017 of them the
+`__i` family that R-A's own plane is made of.**
+
+⚠ **R-A DID NOT CHANGE THIS VERDICT AND ITS SIZE IS STATED AS A NUMBER RATHER
+THAN AS "PARTIAL" (2026-08-15).** One plane crossed from no to yes and it is the
+biggest single one measured so far — 149 sites, −149 indexed walks, +149 batch
+pulls, no remainder — but 4152 indexed walks remain, the four `.next()` sites
+are untouched at 65, and of the thirteen emitter sites the S2j audit enumerated
+R-A routed exactly ONE (`emit_simple`, both arms). The twelve that still emit
+the indexed walk for a slice param: `emit_find`, `build_phase_frag`,
+`step_wrap` ×2, `chain_nest_frag`, `emit_aggregate`'s else arm,
+`rel_body_simple_frag`, `chain_body_frag`, and `emit_incremental` ×4 (the last
+four DECLARED out of the batch plane by S6-B, so eight are owed). The join sites
+are where the wrap's per-scan-site cursor numbering (`__ss<k>`) acquires its
+first real consumer — today every call site passes k = 0, because `emit_simple`
+scans once.
 
 ⚠ ~~the three open planes are named with counts: the build side (3), the
 native-source scan + drain prelude (23), the output plane (646)~~ — that
@@ -242,7 +315,11 @@ All 647 are literally `let mut __out`; the classifier takes every one of them.
 The 647th is `let mut __out: String` and it is dropped by the TYPE filter —
 `D2`'s regex admits only `Vec|Buffer|HashMap|BTreeMap`. The number is right and
 the sentence pointed the next reader at the name classifier when the denominator
-filter is what moved. 646 remains the authority for the collection class.
+filter is what moved. 646 remains the authority for the collection class. ⚠
+**RE-MEASURED AT R-A: 651 raw = 650 `Vec` + 1 `String`, the same shape one
+fixture-set larger** (`grep -ho 'let mut __out[A-Za-z_0-9]*\s*:\s*[A-Za-z_0-9]*'
+| sed 's/.*: *//' | sort | uniq -c` — the derivation that answers the question
+directly instead of by subtraction). **650** is the authority now.
 
 **Criterion 2 has NO GATE OF ANY KIND.** Its instrument is the criterion-1
 sweep, which is exempted in `gate_lint.py`'s `NOT_GATES`, so ctest never runs
@@ -369,7 +446,7 @@ and who owns it; "unowned" is written as unowned rather than left implied.
 | F2 | CONFIRMED | the RC instrument is blind by construction | **CLOSED HERE** — §3, `rc_seam_gate.sh` + `deem_pipeline_handle_seam` |
 | F3 | CONFIRMED | ADR §12's requirement line still says the pipeline return is `#[borrow_carrying]` and tied to the source args; what landed is an OWNED `Buffer<E>` carrying no borrow | **OPEN** — ⚠ ~~one ADR sentence~~ **TWO SITES** (closing audit §6, C3): `0025-deem-batch-cursor-plane.md:1163` (§12's requirement line) **and `:805-811`** (§7 rung 3's warning block, `-> Result<QStream, ElError>` … "composes into pipelines under rung 1–2 with ZERO counting") — which is precisely the rung criterion 3's verdict leans on. Measured: `QStream` exists in no `.logos`/`.rs` file; `stdlib/mem/stream/buffer.logos:32` says outright "`Buffer<R>` OWNS its `Vec<R>` — it is not `#[borrow_carrying]`"; `pass/deem_pipeline_handle_seam` binds `q1_stream`'s result as an owned `Buffer<(u64,u64)>`. S5's owner, both sites |
 | F4 | CONFIRMED | §7 rungs 1–2 "ZERO counting" rests on probes `s5r/p1..p5`: hand-written non-Deem programs over `&[i64]`. They measure that the LANGUAGE admits a borrow-carrying return, nothing about counting in an emitted pipeline | **CLOSED IN SUBSTANCE by §3** (the emitted-artifact reading now exists); the §7 prose still cites the probes — supersede in place |
-| F5 | CONFIRMED | the 617-strong query-output class was assigned to S5 and not taken; `let mut __out` 637 before, 637 after; **646 today** | **OPEN, UNOWNED** — the largest criterion-1 class and criterion-2's output plane |
+| F5 | CONFIRMED | the 617-strong query-output class was assigned to S5 and not taken; `let mut __out` 637 before, 637 after; **646 at the audit, 650 at R-A (the control tree answers 650 too — no emitter moved it)** | **OPEN, UNOWNED** — the largest criterion-1 class and criterion-2's output plane |
 | F6 | CONFIRMED | criteria not stated, instruments not in tree | **CLOSED HERE** (this file + two instruments) |
 | F7 | PLAUSIBLE | "486 `*_stream`" is stale (490 measured) | **OPEN** — a number in ADR §12 to re-measure or strike |
 | F8 | PLAUSIBLE | "PURE ADDITION" is a sub-stage property stated at round scope | **OPEN** — S4's claim, scope to be narrowed in place |
@@ -451,6 +528,25 @@ tests/logos/rc_seam_gate.sh build/bin/logosc tests/logos/pass    # criterion 3
 cd build && ../tests/logos/test-levels.sh L2                     # the gate
 ```
 
+**The one-variable control, which is how §2's before/after column was taken**
+(R-A, and the pattern for every stage that claims to move an emitted-shape
+count). Two sweeps of the SAME instrument over the SAME corpus, differing only
+in the emitter predicate under test:
+
+```
+# CONTROL: force the routing predicate off, rebuild, sweep
+#   stdlib/mem/wql/rexpr_walk.logos :: slice_stream_src  ->  `return false;`
+cmake --build build -j$(nproc) && tests/logos/criterion1_materialization_instrument.sh /tmp/ra_ctl
+git checkout stdlib/mem/wql/rexpr_walk.logos            # RESTORE, then rebuild again
+cmake --build build -j$(nproc) && tests/logos/criterion1_materialization_instrument.sh /tmp/ra_final
+```
+
+⚠ The restore-and-rebuild between the two is not optional bookkeeping: the
+instrument reads the BUILD, so a sweep taken against an un-restored tree is a
+measurement of the control twice. The criterion-1 SUMMARY line is the check that
+the pair is honest in the other direction too — it must be IDENTICAL across the
+two trees for a change that materializes nothing, and for R-A it is.
+
 ---
 
 ## 6. THE CLOSING SECTION — the arc's verdict, the priced remainder, and the STOP
@@ -474,6 +570,19 @@ list is the honest reading"):
 
 * `D1` 4036, `N1` 1334 (33.05%), `T` 615, `D2` 3620, **accounted 1911 (52.79%)**
   by the printed name-key reading, **1923 (53.12%)** site-level.
+* ⚠ **RE-MEASURED AT R-A (2026-08-15), AND THE DISSOLVE MOVED CRITERION 1 BY
+  ZERO.** Today: `D1` 4042, `N1` 1336 (33.05%), `T` 617, `D2` 3632, **accounted
+  1919 (52.84%)**, worklist **1713**. Every one of those deltas is the three new
+  registrations, not the emitter — **the control tree (`slice_stream_src` forced
+  to `return false`, rebuilt) prints the identical SUMMARY line, class for class:
+  `N1/D1=1336/4042=33.05% T=617 D2=3632 accounted=1919 (52.84%)`**, and the
+  worklist buckets are identical too (`__out` 650, `__cp` 145, `__tt` 70,
+  `__nd_*` 222 + `__dl_*` 176, rest 450). That is the control for R-A's claim
+  about itself: it changed the SCAN SHAPE and materialized nothing — no new
+  `Vec`, no new `Buffer`, no new worklist class. `SliceStream` borrows the rows
+  it walks. The fixture-side move is `__out` 646 → 650 and `__ks`/`__ix`/`__sv`
+  +2/+2/+4 (one sorted, materialized query added to the corpus), so the
+  arithmetic below reads 650 + 543 + 70 + 450 = 1713.
 * **1697–1709 of 3620 emitted collection bindings have no named owner.** Of
   those, 646 `__out` are UNOWNED by this file's own F5 row; 543 (`__cp` 145 +
   `__nd_*`/`__dl_*` 398) are OWNED by declaration-out-of-plane (S6-B); 70 `__tt`
@@ -482,6 +591,9 @@ list is the honest reading"):
   "partially met with an owned remainder" is REFUTED by this file's own records:
   1,096 bindings — 30.3% of `D2` — are neither named nor owned (646 `__out` +
   450 un-triaged), and 1,166 (32.2%) counting the half-assigned `__tt`.**
+  (At R-A: **1,100 = 30.3% of 3632**, and 1,170 = 32.2% with `__tt`. The
+  percentages are unmoved to the decimal — the corpus grew, the ownership did
+  not.)
 * **What IS met, and should be said:** the TRACE channel is complete. Every
   `[plan]` head is classified (G2 gates it), no rel reports a `materialize`
   verdict without naming a node, and all nine named identities check against the
@@ -492,7 +604,7 @@ list is the honest reading"):
 
 | class | size | next step | owner |
 |---|---|---|---|
-| `__out`, the query-output Vec | 646 | **the `__out` migration**: the output plane becomes a stream/`Buffer` surface instead of a per-query `Vec` — the same change criterion 2's output row needs, done once | **UNOWNED** — was S5's, never taken (F5) |
+| `__out`, the query-output Vec | 650 | **the `__out` migration**: the output plane becomes a stream/`Buffer` surface instead of a per-query `Vec` — the same change criterion 2's output row needs, done once | **UNOWNED** — was S5's, never taken (F5) |
 | `__tt`, fixpoint temporaries | 70 | **the fixpoint plane**: S6-A took the Writ half; the buffer half is untouched | S6 successor |
 | `__cp`, `__nd_*`, `__dl_*` | 543 | out of the batch plane BY DECLARATION (S6-B). Not silence — but the declaration is the whole argument, and it is one sentence to revisit | the stage that changes the incremental surface |
 | the rest | 450 | **triage**, class by class, into owned-or-admitted | UNOWNED |
@@ -503,13 +615,40 @@ list is the honest reading"):
 Direction confirmed and unchanged. **SIZE substantially understated by the
 instrument**, and three plane rows did not survive re-measurement (§2, in place).
 
+⚠ **SUPERSEDED IN PLACE BY R-A, 2026-08-15 — the verdict does NOT change, one
+plane and three numbers do.** The audit-tree reading is kept below the R-A
+reading, because the pair is the argument: a criterion that moves by its largest
+single step so far and is still NOT MET is priced honestly only when both
+columns are visible.
+
+**R-A reading (this tree, control-separated — §2's table):**
+
+* Pull shape: **164** `next_batch()` in **53** dumps; **65** `.next()` in 27
+  dumps, UNMOVED — 3 build side, 14 native scan, 9 drain prelude, **39
+  aggregate key enumeration**. R-A retired none of the four row-pull sites.
+* **Plus 4152 indexed per-row walks** (down 149 from the control's 4301, one per
+  wrap), **1017** of them the `__i` family (down 149 from 1166). The batch-pull
+  inner loop is its own spelling, now 164 sites, still exactly one per
+  `next_batch()`.
+* Planes: scan/container **yes**; scan/**slice parameter** **YES — NEW, 149
+  sites**; scan/native **no** (14, and `SliceStream` does not reach it);
+  drain prelude **no** (9); join build side **no** (3); join probe **no** (the
+  11-of-81 dumps are the scan plane, not the probe); sort **input yes / key
+  vector no**; aggregate **the fold yes, the key enumeration no** (39, 14
+  dumps); output **no** (650); incremental **no, declared**.
+* **What is left, as a number and not as an adjective: 4152 indexed walks, and
+  12 of the S2j audit's 13 emitter sites unrouted (8 owed, 4 declared out).**
+
+**Audit reading (33a32b01), kept for the pair:**
+
 * Pull shape: 15 `next_batch()` in 9 dumps; 65 `.next()` in 27 dumps — 3 build
   side, 14 native scan, 9 drain prelude, **39 aggregate key enumeration**.
-* **Plus 3975 indexed per-row walks** (`while (<minted> < X.len())`) that
-  neither instrument grep can see, 1160 of them the `__i` family — the base scan
-  of every `&[Row]` source. The batch-pull inner loop is its own spelling
-  (`while (__bjN < __bnN)`, 15 sites). **The instrument sees 80 sites of a
-  per-row population of at least 4040.**
+* **Plus ⚠ ~~3975~~ 4293 indexed per-row walks** (`while (<minted> < X.len())`,
+  both paren spellings — see §2's ⚠ on the reader) that neither instrument grep
+  can see, ⚠ ~~1160~~ 1162 of them the `__i` family — the base scan of every
+  `&[Row]` source. The batch-pull inner loop is its own spelling
+  (`while (__bjN < __bnN)`, 15 sites). **The instrument saw 80 sites of a
+  per-row population of at least 4358.**
 * Planes: scan/container **yes**; scan/native **no**; drain prelude **no**; join
   build side **no** (3 sites, the fourth pull site); join probe **2 of 81
   dumps**; sort **the elision arm only** (2 dumps; the key-vector arm is 54
@@ -520,11 +659,12 @@ instrument**, and three plane rows did not survive re-measurement (§2, in place
 
 | gap | next step | owner |
 |---|---|---|
-| the output plane (646) | **the `__out` migration** — shared with criterion 1 | UNOWNED |
+| the output plane (⚠ ~~646~~ 650) | **the `__out` migration** — shared with criterion 1 | UNOWNED (task R-B) |
 | the build side (3 sites) | **the `WritWalk` cursor** is the first consumer that forces it; `build_phase_frag` must take a batch source | whichever stage first needs it |
-| native scan + drain prelude (23) | **`SliceStream`** — one batch producer over a `&[Row]`, which retires the native-source `.next()` and the drain prelude's row pull together | UNOWNED |
+| native scan + drain prelude (23) | ⚠ ~~**`SliceStream`** — one batch producer over a `&[Row]`, which retires the native-source `.next()` and the drain prelude's row pull together~~ — **REFUTED BY LANDING IT.** `SliceStream` landed (R-A) and this pair measured **65 → 65**: a native iterator source is not a slice and never reaches the wrap, and the drain prelude pulls from the same iterator to LAND it. The correct next step is a batch-side `Drain` — the prelude reads `next_batch()` and extends the `Buffer` per packet — and it is a different change from R-A's | UNOWNED |
+| the twelve unrouted slice sites (`emit_find`, `build_phase_frag`, `step_wrap` ×2, `chain_nest_frag`, `emit_aggregate` else, `rel_body_simple_frag`, `chain_body_frag`; `emit_incremental` ×4 declared out) | route them through `batch_scan_frag` as R-A did for `emit_simple` — the wrap, the numbering (`__ss<k>`) and the by-reference row bind already exist and are gated by `logos_09_slice_scan_codegen`. The JOIN pair is first: it is the only one with a per-scan-site cursor consumer | UNOWNED — R-A's own remainder |
 | the aggregate key enumeration (39) | batch the `HashMapKeys` walk at `rexpr_walk.logos:5695`, or record it as declared-out like the incremental tier — **not left in a row scored "yes"** | UNOWNED |
-| the 3975 indexed walks | decide, once, whether the criterion is about the PULL PROTOCOL or about per-row iteration; the instrument must then see the shape it judges | the stage that re-states criterion 2 |
+| the ⚠ ~~3975~~ **4152** indexed walks (4301 before R-A) | decide, once, whether the criterion is about the PULL PROTOCOL or about per-row iteration; the instrument must then see the shape it judges — ⚠ and it now DOES: §2 fixes the four greps, and R-A is the first stage whose effect on this number is measured against a control rather than asserted | the stage that re-states criterion 2 |
 | every query's stream surface is `buffered` | **`direct`'s `typeof` blocker** — `typeof(<container>)` does not resolve in a hand-written item of the declaring module, so the state type is spellable only from inside metaprog | emitter-plumbing step |
 | no gate at all | §4d — the asymmetry is recorded, not closed | UNOWNED |
 
@@ -589,3 +729,12 @@ word UNOWNED — nothing is left implied, and no remainder is described as small
 inertia.** No stage follows this one automatically; the next slice is whichever
 row of §6.1–§6.3 Victor names, and the honest default if he names none is that
 the arc stays paused with its books open.
+
+⚠ **R-A ran on that basis (2026-08-15) — the picked row, and then the pause
+again.** The row was §6.2's "the 3975 indexed walks", taken as its dominant
+concrete half: the `&[Row]` slice arm. It moved 149 sites and closed with no
+remainder, criterion 1 measured unmoved against a control, and **both verdicts
+above are unchanged: criterion 1 NOT met, criterion 2 NOT met.** What R-A adds
+to this section is not a verdict, it is arithmetic: 4152 indexed walks left, 12
+of 13 emitter sites unrouted, `.next()` still 65, `__out` still unowned. The arc
+pauses here again, with the books open and one number smaller.
