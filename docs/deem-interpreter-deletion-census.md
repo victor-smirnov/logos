@@ -2861,8 +2861,23 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # golden and whose presence/absence clauses INVERTED with this stage (see that
 # script's header for the two numbers the transition was taken on) — and the
 # remaining claims are VALUE claims a running program answers.
-REGISTRY-ALL         7180
-REGISTRY-NOIMPORTED  3497
+#
+# D4 (the wrong-answer miscompile R-A's verify found, and which PREDATES R-A)
+# adds TWO registrations, PREDICTED before the reconfigure and measured exactly:
+# `pass/vec_struct_homonym_stride_deem` (the reported symptom — a deem over
+# `vec.as_slice()` returning every other row — with its identical-layout,
+# non-colliding CONTROL struct in the same program, so the fixture separates the
+# defect from the shape) and `pass/vec_struct_homonym_stride_shapes` (the CLASS:
+# the nine further shapes that reach the same `&recv.field[idx]` address path —
+# set/swap/remove, iteration, `&mut` element write-through, the Vec in a struct
+# field, `Vec<Vec<T>>`, a raw `*mut T` field indexed in USER code, `Option`
+# payloads, reverse, and growth across reallocs — all measured RED on the
+# pre-fix compiler by control revert, all green after). Both carry `.expected`.
+# +2 ALL, +2 -LE imported, +0 tier_commit — measured 7182 / 3499 / 36. Neither is
+# a gate script: both are VALUE claims a running program answers, and the value
+# is what the defect got wrong.
+REGISTRY-ALL         7182
+REGISTRY-NOIMPORTED  3499
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

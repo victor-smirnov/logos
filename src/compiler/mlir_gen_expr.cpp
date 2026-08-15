@@ -1631,8 +1631,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                             if (rpt &&
                                 (rpt.kind() == LogosType::Kind::Struct ||
                                  rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                                auto cname = concrete_struct_name(rpt);
-                                auto sit2  = struct_types_.find(cname);
+                                auto sit2  = find_struct_it(rpt);
                                 if (sit2 != struct_types_.end())
                                     elem_type = sit2->second.llvm_type;
                             }

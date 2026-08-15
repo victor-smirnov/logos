@@ -45,15 +45,23 @@
 //      field 'raw'`, then wrong values), so carrying one would have made this
 //      fixture assert a second defect it does not own.
 //
-// ⚠ THE SOURCES ARE ARRAY LITERALS AND THAT IS DELIBERATE, WITH A GROUND. A
-// `Vec`-backed source (`&xs[..]`) reads WRONG ROWS through a `deem` query
-// on this tree — every OTHER row, `[1,3,5,0,0]` for a five-row source, while
-// `len()` is 5 and a HAND-WRITTEN loop over the same slice value is correct.
-// It is NOT R-A's: the same wrong answer was reproduced with `slice_stream_src`
-// forced to `false` and the tree rebuilt (the pre-R-A indexed walk), so this
-// fixture would be asserting a defect it did not cause and could not fix.
-// Repro + its two controls: `/home/logos/sandbox/ra/repro_vec_source_stride.logos`,
-// `control_array_source_ok.logos`, `control_handwritten_reader_ok.logos`.
+//   5. THE `Vec`-BACKED SOURCE — the shape this fixture used to AVOID, now
+//      asserted by value beside the array literals (§"the same rows, out of a
+//      `Vec`"). The earlier note here said the sources were array literals
+//      "deliberately", because a `Vec`-backed source read every OTHER row
+//      (`[1,3,5,0,0]` for five rows, with a CORRECT `len()` of 5). That note is
+//      SUPERSEDED: the defect was found and fixed (D4), and it was neither
+//      R-A's nor Deem's nor the slice's. It was a bare-name struct lookup in
+//      `MLIRGenImpl::gen_expr_kind(EAddrOfTempView)`'s `field_is_ptr` arm, which
+//      strided `Vec<Item>.ptr` by an IMPORTED homonym's aggregate while the
+//      memcpy used the user type's size — so `push` wrote the buffer wrong and
+//      the scan, striding CORRECTLY, read what push had left. The trigger was
+//      the NAME (`Item` vs `logos.std.compiler.metaprog.Item`), not the shape:
+//      a rename to `S2` was green throughout. `pass/vec_struct_homonym_stride_deem`
+//      owns the defect and its non-colliding control; `…_stride_shapes` owns the
+//      nine other victim shapes. This fixture keeps only what IT owns: that the
+//      batch-pull scan answers the same values through a `Vec`-backed slice as
+//      through an array literal, on all four emitted shapes plus the empty one.
 package test;
 
 use logos.std.wql.wql;
@@ -164,6 +172,66 @@ fn main() -> i32 {
     let again2: Vec<str> = tags_by_tag(&xs[..], 20i64).unwrap();
     if again2.len() != 3i64 { return 53i32; }
     if !str_eq(again2.get(0i64), "charlie") { return 54i32; }
+
+    // ── the same rows, out of a `Vec` (clause 5) ────────────────────────────
+    // Same five rows, same four queries, same expected VALUES — only the
+    // provenance of the slice differs (`vec.as_slice()` instead of `&arr[..]`).
+    // Every assertion below answered WRONG before D4's fix: the plain arm
+    // returned [1,3,5,0,0] with len 5, so `len` alone never falsified and the
+    // values are what carry the claim.
+    let mut vs: Vec<Item> = Vec::<Item>::new();
+    vs.push(mk(1i64, "delta", 30i64));
+    vs.push(mk(2i64, "alpha", 5i64));
+    vs.push(mk(3i64, "charlie", 40i64));
+    vs.push(mk(4i64, "bravo", 7i64));
+    vs.push(mk(5i64, "echo", 20i64));
+
+    let v_ids: Vec<i64> = all_ids(vs.as_slice()).unwrap();
+    if v_ids.len() != 5i64 { return 60i32; }
+    let mut vi: i64 = 0i64;
+    while vi < 5i64 {
+        if v_ids.get(vi) != vi + 1i64 { return 61i32; }
+        vi = vi + 1i64;
+    }
+
+    let v_big: Vec<i64> = big_ids(vs.as_slice(), 20i64).unwrap();
+    if v_big.len()     != 2i64 { return 62i32; }
+    if v_big.get(0i64) != 1i64 { return 63i32; }
+    if v_big.get(1i64) != 3i64 { return 64i32; }
+    let v_none: Vec<i64> = big_ids(vs.as_slice(), 1000i64).unwrap();
+    if v_none.len() != 0i64 { return 65i32; }
+
+    let v_tags: Vec<str> = tags_by_tag(vs.as_slice(), 20i64).unwrap();
+    if v_tags.len() != 3i64 { return 66i32; }
+    if !str_eq(v_tags.get(0i64), "charlie") { return 67i32; }
+    if !str_eq(v_tags.get(1i64), "delta")   { return 68i32; }
+    if !str_eq(v_tags.get(2i64), "echo")    { return 69i32; }
+
+    let v_byt: Vec<i64> = ids_by_tag(vs.as_slice()).unwrap();
+    if v_byt.len()     != 5i64 { return 70i32; }
+    if v_byt.get(0i64) != 2i64 { return 71i32; }
+    if v_byt.get(1i64) != 4i64 { return 72i32; }
+    if v_byt.get(2i64) != 3i64 { return 73i32; }
+    if v_byt.get(3i64) != 1i64 { return 74i32; }
+    if v_byt.get(4i64) != 5i64 { return 75i32; }
+
+    // The EMPTY source out of a `Vec`: clause 1's packet-with-zero-rows, with
+    // the length coming from a heap buffer rather than a literal type.
+    let ve: Vec<Item> = Vec::<Item>::new();
+    let ve_ids: Vec<i64> = all_ids(ve.as_slice()).unwrap();
+    if ve_ids.len() != 0i64 { return 76i32; }
+    let ve_tags: Vec<str> = tags_by_tag(ve.as_slice(), 0i64).unwrap();
+    if ve_tags.len() != 0i64 { return 77i32; }
+
+    // A SINGLE-row `Vec`, and the same `Vec` scanned twice.
+    let mut vone: Vec<Item> = Vec::<Item>::new();
+    vone.push(mk(9i64, "solo", 99i64));
+    let vo: Vec<i64> = all_ids(vone.as_slice()).unwrap();
+    if vo.len()     != 1i64 { return 78i32; }
+    if vo.get(0i64) != 9i64 { return 79i32; }
+    let v_again: Vec<i64> = all_ids(vs.as_slice()).unwrap();
+    if v_again.len()     != 5i64 { return 80i32; }
+    if v_again.get(4i64) != 5i64 { return 81i32; }
 
     return 0i32;
 }

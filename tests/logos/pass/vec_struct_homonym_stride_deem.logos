@@ -1,0 +1,69 @@
+// REGRESSION (D4, wrong answer): a user struct whose BARE name collides with a
+// struct of the same name in an IMPORTED package must not borrow the homonym's
+// LLVM aggregate for the element STRIDE of a `*mut T` field.
+//
+// `struct Item` here collides with `logos.std.compiler.metaprog.Item` (8 bytes),
+// which any `fmt`/`wql` using program registers first. `Vec<Item>::push` GEP'd
+// the buffer as the 8-byte homonym while memcpy'ing 16 bytes, so each push's
+// `id` landed on the previous element's `qty`; `as_slice()` then strided
+// CORRECTLY by 16 and the deem scan read every OTHER row, then ran off the end:
+// `all_ids` returned [1,3,5,0,0] with a CORRECT len of 5.
+//
+// `S2` is the control: identical layout, name that collides with nothing. It was
+// green throughout — the trigger is the NAME, not the shape.
+package d4stride;
+
+use logos.std.wql.wql;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+
+struct Item { pub id: i64, pub qty: i64 }
+struct S2 { pub id: i64, pub qty: i64 }
+
+pub deem item_ids(xs: &[Item]) { from xs x select x.id : i64 }
+pub deem s2_ids(xs: &[S2]) { from xs x select x.id : i64 }
+
+fn main() -> i32 {
+    let mut xs: Vec<Item> = Vec::<Item>::new();
+    let mut i: i64 = 1i64;
+    while i <= 5i64 { xs.push(Item { id: i, qty: i * 100i64 }); i = i + 1i64; }
+
+    // Read side through the Vec itself: `qty` is what the wrong stride ate.
+    let mut k: i64 = 0i64;
+    while k < 5i64 {
+        if xs.get(k).id != k + 1i64 { return 1i32; }
+        if xs.get(k).qty != (k + 1i64) * 100i64 { return 2i32; }
+        k = k + 1i64;
+    }
+
+    // The deem scan over the Vec-backed slice: len was already correct BEFORE,
+    // so only the VALUES falsify.
+    let ids: Vec<i64> = item_ids(xs.as_slice()).unwrap();
+    if ids.len() != 5i64 { return 3i32; }
+    let mut j: i64 = 0i64;
+    while j < 5i64 {
+        if ids.get(j) != j + 1i64 { return 4i32; }
+        j = j + 1i64;
+    }
+
+    // Control: unique name, identical layout.
+    let mut ys: Vec<S2> = Vec::<S2>::new();
+    let mut n: i64 = 1i64;
+    while n <= 5i64 { ys.push(S2 { id: n, qty: n * 100i64 }); n = n + 1i64; }
+    let mut m: i64 = 0i64;
+    while m < 5i64 {
+        if ys.get(m).id != m + 1i64 { return 5i32; }
+        if ys.get(m).qty != (m + 1i64) * 100i64 { return 6i32; }
+        m = m + 1i64;
+    }
+    let ids2: Vec<i64> = s2_ids(ys.as_slice()).unwrap();
+    if ids2.len() != 5i64 { return 7i32; }
+    let mut q: i64 = 0i64;
+    while q < 5i64 {
+        if ids2.get(q) != q + 1i64 { return 8i32; }
+        q = q + 1i64;
+    }
+
+    println!("d4 stride ok rows={} sum={}", ids.len(), ids.get(4i64) + ids2.get(4i64));
+    return 0i32;
+}

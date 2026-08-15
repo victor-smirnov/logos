@@ -1,0 +1,107 @@
+// REGRESSION (D4, CLASS sweep): the same bare-name struct homonym collision,
+// measured on every SHAPE that reaches the `&recv.field[idx]` address path — not
+// just the deem scan that first exposed it. Each of these arms returned wrong
+// VALUES before the fix at `mlir_gen_expr.cpp`'s `EAddrOfTempView` field_is_ptr
+// arm (`find_struct_it(rpt)` instead of a bare `struct_types_.find(cname)`); a
+// second copy of every arm under a NON-colliding name was green throughout.
+//
+// `Item` collides with `logos.std.compiler.metaprog.Item` (8 bytes vs 16 here);
+// `fmt` is what registers the homonym, so the import is load-bearing, not decor.
+package d4shapes;
+
+use logos.std.fmt;
+use logos.lang.mem;
+use logos.mem.collections.vec;
+
+struct Item { pub id: i64, pub qty: i64 }
+struct Holder { pub v: Vec<Item> }
+struct RawBuf { pub p: *mut Item, pub n: i64 }
+
+fn fill(v: &mut Vec<Item>, n: i64) {
+    let mut i: i64 = 1i64;
+    while i <= n { v.push(Item { id: i, qty: i * 100i64 }); i = i + 1i64; }
+}
+
+fn main() -> i32 {
+    // A — push then set/swap/remove.
+    let mut a: Vec<Item> = Vec::<Item>::new();
+    fill(&mut a, 5i64);
+    a.set(2i64, Item { id: 33i64, qty: 3300i64 });
+    a.swap(0i64, 4i64);
+    if a.get(0i64).id != 5i64 { return 1i32; }
+    if a.get(0i64).qty != 500i64 { return 2i32; }
+    if a.get(2i64).qty != 3300i64 { return 3i32; }
+    let rm: Item = a.remove(1i64);
+    if rm.qty != 200i64 { return 4i32; }
+
+    // B — iteration.
+    let mut b: Vec<Item> = Vec::<Item>::new();
+    fill(&mut b, 5i64);
+    let mut sq: i64 = 0i64;
+    for e in b.iter() { sq = sq + e.qty; }
+    if sq != 1500i64 { return 5i32; }
+
+    // C — write-through a &mut element.
+    let mut c: Vec<Item> = Vec::<Item>::new();
+    fill(&mut c, 5i64);
+    let mut k: i64 = 0i64;
+    while k < 5i64 { let e: &mut Item = c.borrow_mut(k); e.qty = e.qty + 1i64; k = k + 1i64; }
+    let mut k2: i64 = 0i64;
+    while k2 < 5i64 {
+        if c.get(k2).qty != (k2 + 1i64) * 100i64 + 1i64 { return 6i32; }
+        k2 = k2 + 1i64;
+    }
+
+    // D — the Vec living in a struct FIELD.
+    let mut h: Holder = Holder { v: Vec::<Item>::new() };
+    fill(&mut h.v, 5i64);
+    if h.v.get(3i64).qty != 400i64 { return 7i32; }
+
+    // E — Vec<Vec<Item>>.
+    let mut outer: Vec<Vec<Item>> = Vec::<Vec<Item>>::new();
+    let mut r: i64 = 0i64;
+    while r < 3i64 {
+        let mut inner: Vec<Item> = Vec::<Item>::new();
+        fill(&mut inner, 3i64);
+        outer.push(inner);
+        r = r + 1i64;
+    }
+    if outer.borrow(2i64).get(2i64).qty != 300i64 { return 8i32; }
+
+    // F — a raw `*mut Item` FIELD of a user struct, indexed write then read.
+    unsafe {
+        let raw: *mut u8 = alloc(256i64);
+        let mut rb: RawBuf = RawBuf { p: raw as *mut Item, n: 5i64 };
+        let mut i: i64 = 0i64;
+        while i < 5i64 { rb.p[i] = Item { id: i + 1i64, qty: (i + 1i64) * 100i64 }; i = i + 1i64; }
+        let mut j: i64 = 0i64;
+        while j < 5i64 {
+            if rb.p[j].id != j + 1i64 { return 9i32; }
+            if rb.p[j].qty != (j + 1i64) * 100i64 { return 10i32; }
+            j = j + 1i64;
+        }
+    }
+
+    // G — Option payloads (first/last/pop).
+    let mut g: Vec<Item> = Vec::<Item>::new();
+    fill(&mut g, 5i64);
+    match g.pop() { Some(e) => { if e.qty != 500i64 { return 11i32; } }, None => { return 12i32; } }
+
+    // H — reverse (bulk element moves).
+    let mut hv: Vec<Item> = Vec::<Item>::new();
+    fill(&mut hv, 5i64);
+    hv.reverse();
+    if hv.get(0i64).qty != 500i64 { return 13i32; }
+
+    // I — growth across many reallocs: the stride and the realloc SIZE disagreed,
+    // so this arm walked off the allocation as it grew.
+    let mut big: Vec<Item> = Vec::<Item>::new();
+    fill(&mut big, 1000i64);
+    let mut s: i64 = 0i64;
+    let mut t: i64 = 0i64;
+    while t < 1000i64 { s = s + big.get(t).qty; t = t + 1i64; }
+    if s != 50050000i64 { return 14i32; }
+
+    println!("d4 shapes ok sum={}", s);
+    return 0i32;
+}
