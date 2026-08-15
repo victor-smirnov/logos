@@ -2115,6 +2115,76 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     };
 }
 
+
+// ── ADR 0025 R-B2 — THE OUTPUT SEAM AS A NAMED PLAN NODE ────────────────────
+//
+// Criterion 1 reads: *every compiler-inserted materialization is a NAMED PLAN
+// NODE WITH A GROUND*. The query output — 605 `let mut __out: Vec<…>` bindings
+// corpus-wide, the single largest unowned class in the criterion-1 worklist —
+// had no node. This is that node.
+//
+// ⚠ WHY THIS IS NOT THE THING S5 REFUSED, and the difference is measured rather
+// than asserted. S5 declined to insert an output-seam node
+// (`0025-deem-batch-cursor-plane.md:1524`) on the ground that with `direct`
+// blocked every answer would be the same word — 486 × "buffered" — so the node
+// would add N census lines that tell a reader nothing. That ground is still
+// good and it still applies to the node S5 was offered. What changed is NOT
+// "the class instead of the split": it is that THE CLASS IS NOT ONE CLASS. The
+// artifact already answers five ways, and R-B0 measured every one of them by
+// fire count before this node existed:
+//
+//     477  query output                     plain landing, written and returned
+//      16  query output bounded by limit    the landing is READ — `__out.len()`
+//                                           is the limit guard's operand
+//       5  query output distinct carrier    the landing IS the dedup structure;
+//                                           `distinct` rescans it per push
+//     107  incremental snapshot output      the incremental tier's read surface
+//      45  rel result                       internal seam, never returned
+//
+// A five-valued answer over 650 sites is a discriminator; a constant is a label.
+// The two are told apart by the same test either way — does the sentence carry
+// information a reader could not have got from the return type — and this one
+// does on 173 of 650 sites.
+//
+// ⚠ THE GROUNDS ARE FALSIFIABLE, WHICH IS THE OTHER HALF OF "a ground". The
+// buffered sentence names R-E's blocker BY NAME: `typeof(<container>)` does not
+// resolve in ordinary items of the declaring module, which is why the direct
+// form is refused TODAY. The day R-E lands, that clause becomes false and the
+// sentence must change — a ground with a truth condition, as against a bare
+// "output" stamp, which has none and can never be wrong.
+//
+// ⚠ PRECEDENCE distinct > bounded, and the overlap is EMPTY, measured: over the
+// whole corpus zero queries carry both `distinct` and `limit` on the landing
+// (the artifact classifier reads 477/16/5/0). An arm for the pair would be an
+// arm that never fires, so there is none — and if one ever does fire, it is
+// reported as the dedup carrier, which is the stronger claim about the landing.
+fn MG_OUT_BUFFERED() -> str { return "the direct form is refused — `typeof(<container>)` does not resolve in ordinary items of the declaring module (R-E), so this landing is buffered"; }
+
+fn out_node_query(subject: str, elem_ty: str, mods: QMods) {
+    if !plan_trace_on() { return; }
+    if mods.distinct {
+        plan_trace(subject, "query output distinct carrier", elem_ty,
+                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is refused (R-E typeof-in-module), so it is buffered");
+        return;
+    }
+    if mods.has_limit {
+        plan_trace(subject, "query output bounded by limit", elem_ty,
+                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is refused (R-E typeof-in-module), so it is buffered");
+        return;
+    }
+    plan_trace(subject, "query output", elem_ty, MG_OUT_BUFFERED());
+}
+
+fn out_node_snapshot(subject: str, elem_ty: str) {
+    plan_trace(subject, "incremental snapshot output", elem_ty,
+               "the incremental tier's read surface — and unlike `_run` this entry has NO `_stream` door of its own, so the landing is the only surface it has");
+}
+
+fn out_node_rel(subject: str, elem_ty: str) {
+    plan_trace(subject, "rel result", elem_ty,
+               "an INTERNAL seam — consumed by the enclosing query and never returned to the application; the landing is `__rout` and not the query output (R-B1)");
+}
+
 // ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
 // Base shape mirrors walk_simple; with an `order by` the matching row INDICES +
 // their keys are materialized and insertion-sorted (stable, O(n²) MVP codegen)
@@ -2474,6 +2544,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
     }
+    if !first { out_node_query(fn_name, result_elem, mods); }
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
         #(head_f);
@@ -4059,6 +4130,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
     }
+    if !first { out_node_query(fn_name, result_ty, mods); }
     // ⚠ `defer_f` SITS IMMEDIATELY AFTER THE PRELUDE, and its position is the
     // whole argument for the slice: the prelude has just materialized every rel
     // this query needs, and nothing has been built yet. One statement earlier the
@@ -4777,6 +4849,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
     };
 
+    out_node_query(fn_name, result_ty, mods);
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
         let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
@@ -7528,6 +7601,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         keep = quote_block! { if (#(hav_f)) #(keep) };
     }
     keep = quote_block! { if __h.__gc.get(__r0) > 0i64 #(keep) };
+    out_node_snapshot(fn_name, result_ty);
     let snap_body: ExprBlob = quote_block! {
         let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
         let mut __r0: i64 = 0i64;
@@ -9634,6 +9708,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     let rt3: ExprBlob = parse_type(row_ty);
     let rt4: ExprBlob = parse_type(row_ty);
     let rt5: ExprBlob = parse_type(row_ty);
+    let rt6: ExprBlob = parse_type(row_ty);
     let bodies: RQBodyArr = rel.bodies_arr();
     let nbod: i64 = bodies.len();
     let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -9644,8 +9719,38 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
         runs.push(f);
         b = b + 1i64;
     }
+    // ── ADR 0025 R-B1: THE LANDING IS `__rout`, AND `__out` IS AN ALIAS ONTO IT ──
+    //
+    // WHY THE RENAME EXISTS AND WHY IT IS NOT COSMETIC. The criterion-1 ledger
+    // is keyed on the BINDING NAME (`criterion1_materialization_instrument.sh`'s
+    // ACC table), and before this the one-shot rel helper spelled its landing
+    // `__out` — the same name the FIVE query-output emitters use. So 45 rel
+    // results and 605 query outputs shared one census row, and any owner claimed
+    // for `__out` would have over-credited the 45 exactly the way the `__rel_*`
+    // row is already flagged for in §1 ("a name-only key must take all 217 or
+    // none, and it takes none"). A rel result is not a query output: it is an
+    // INTERNAL seam consumed by the enclosing query and never returned to the
+    // application, and R-B0's fire counts measured it as its own emitter arm
+    // (`emit_rel_fn_oneshot` = 45 of 650). Two identities, two names.
+    //
+    // ⚠ THE ALIAS, NOT A THREADED PARAMETER, AND THE REASON IS THE SHARED FRAGS.
+    // `rel_push_frag` / `rel_push_agg_frag` write the name `__out` literally and
+    // are reached through `rel_body_frag` from FIVE drivers — this one and the
+    // four fixpoint ones. Threading a landing name through all of them would
+    // rewrite the SCC plane to rename a helper. The fixpoint plane already
+    // solved this: `member_block_frag` lexically rebinds `__out` onto the
+    // per-member `__nd_*` vector (336 corpus occurrences) so the push frags stay
+    // one fragment. This is that idiom, applied one layer down — which also
+    // makes the one-shot body structurally the same shape as a member block.
+    //
+    // The alias is a BORROW and never a binding, so `D2`'s `let mut n: Vec<`
+    // regex does not see it: the census move is `__out` 650 -> 605 and a new
+    // `__rout` 45, with the total unchanged. Nothing was created or destroyed —
+    // one row was SPLIT along a distinction the artifact already carried.
+    out_node_rel(prm.rel_names[ri], row_ty);
     let body_f: ExprBlob = quote_block! {
-        let mut __out: Vec<#(rt)> = Vec::<#(rt2)>::new();
+        let mut __rout: Vec<#(rt)> = Vec::<#(rt2)>::new();
+        let __out: &mut Vec<#(rt6)> = &mut __rout;
         let mut __rs: HashSet<#(rt3)> = hashset_new::<#(rt4)>();
         let __rsp: *mut HashSet<#(rt5)> = &mut __rs;
         // The work counter is SUNK here. A one-shot rel helper is not a
@@ -9654,7 +9759,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
         let mut __wcx: i64 = 0i64;
         let __wcp: *mut i64 = &mut __wcx;
         #( #runs; )*
-        return Result::Ok(__out);
+        return Result::Ok(__rout);
     };
     emit_fn_quote_blob(hn.as_str(), ps.as_str(), prm.tparams, rty.as_str(), body_f, prm);
     return true;

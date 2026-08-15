@@ -83,6 +83,135 @@ D1 = 4036   N1 = 1334 (33.05%)   T = 615   D2 = 3620, accounted 1911 (52.79%)
 D1 = 4042   N1 = 1336 (33.05%)   T = 617   D2 = 3632, accounted 1919 (52.84%)
 ```
 
+⚠⚠ **SUPERSEDED BY R-B, 2026-08-15 — THE OUTPUT SEAM IS NAMED, AND THE FIRST
+VERSION OF THIS BLOCK MIS-ATTRIBUTED HALF THE MOVEMENT. Both columns below are
+the SAME instrument over TWO TREES separated by ONE variable** — the control is
+this tree with `rexpr_walk.logos` reverted to `93295e0c` (pre-R-B emitter),
+rebuilt (33 ninja steps, `liblogos-mem.a` re-archived), swept, and restored to a
+green checkpoint after:
+
+| | CONTROL (pre-R-B emitter) | R-B | Δ |
+|---|---:|---:|---:|
+| `D1` all `[plan]` sentences | 4042 | **4692** | **+650** |
+| `N1` named materialization nodes | 1336 (33.05%) | **1986 (42.33%)** | **+650, +9.28 pp** |
+| `T` historical text match | 617 | 617 | **0** |
+| `D2` emitted collection bindings | 3632 | 3632 | **0** |
+| accounted | 1919 (52.84%) | **2569 (70.73%)** | **+650, +17.89 pp** |
+| criterion-1 worklist | 1713 | **1063** | **−650** |
+| `let mut __out: Vec<` | 650 | 605 | −45 |
+| `let mut __rout:` | 0 | 45 | +45 |
+| `let __out: &mut Vec<` aliases | 336 | 381 | +45 |
+| corpus-wide ANSWER DIFF | — | — | **0 lines** |
+
+⚠⚠ **THE `accounted` COLUMN COULD NOT BE READ AS A TREE MEASUREMENT UNTIL THIS
+STAGE FIXED THE INSTRUMENT, AND THE CONTROL IS WHAT FOUND IT.** The first version
+of this block wrote "`N1` +650 and `accounted` +650" and attributed both to the
+emitter. `N1` is right. `accounted` was **1919 → 2569 compared across two
+SEPARATELY-MEASURED columns** — the R-A tree read with the R-A table against the
+R-B tree read with the R-B table — and the tree-vs-tree delta was **ZERO**: run
+on the pre-R-B tree with the post-R-B table, the instrument printed
+`accounted=2569 (70.73%)`, identical to R-B, crediting 650 `__out` bindings to
+`query output` while all four query-output heads had a fire count of **0 on that
+same sweep**. It printed the claim and the evidence against it three lines apart
+and summed the claim.
+
+The cause was structural, not a typo: `ACC` mapped a binding-name class to a
+PROSE STRING, so the artifact channel asked *"is this name in my table"* and
+never *"did the node I am naming get emitted"*. A ledger entry was
+self-certifying — the permissive-defect shape, invisible to a green corpus
+because nothing was ever red. **`ACC` now names the OWNING HEAD, that head must
+be in `MAT`, and a class whose owners all read a zero fire count is REFUSED
+(`G4`): reported under CLAIMED BUT UNWITNESSED and counted in the worklist,
+where an unowned collection belongs.** With that in place both trees were
+re-swept and the table above is a tree comparison throughout. The control now
+exits 2 and prints its 1919 first — a tree older than the ledger gets the
+refusal, not a flattering number.
+
+**What moved and what did not.** `D2` is UNCHANGED at 3632 and `T` is UNCHANGED
+at 617: R-B built nothing, removed nothing, and renamed nothing the text channel
+can see. The corpus-wide ANSWER DIFF
+(`tests/logos/answer_diff_instrument.sh`, 186 fixtures compiled, linked, RUN,
+exit + full-stdout hash per fixture; 184 run, 2 known non-compiling) is
+**byte-identical between the two trees — zero lines moved**, which is what an
+ownership stage must be able to say. The artifact delta is the rename and
+nothing else, read line by line across 19 of 170 dumps: **−45** `let mut __out:`
+bindings, **−45** `return Result::Ok(__out);`, **+45** `let mut __rout:`, **+45**
+`let __out: &mut Vec<…> = &mut __rout;`, **+45** `return Result::Ok(__rout);`
+(18+14+8+3+2 = 45 by element type). Total landings 650 on both trees: one row was
+SPLIT, nothing was created or destroyed.
+
+**The nodes, five-valued, each with its own pin** (`plan_ground_census_gate.sh`
+FACT J, per fixture AND in total, plan side and artifact side):
+
+| lines | head | the landing it names |
+|---:|---|---|
+| 477 | `query output` | the plain `_run` landing |
+| 16 | `query output bounded by limit` | `__out.len()` IS the limit guard's operand — the landing is READ |
+| 5 | `query output distinct carrier` | the landing IS the dedup structure; `distinct` rescans it per push |
+| 107 | `incremental snapshot output` | the incremental tier's read surface; no `_stream` door of its own |
+| 605 | — | `== let mut __out: Vec<` bindings in the artifact |
+| 45 | `rel result` | an internal seam, consumed by the enclosing query, never returned; `== let mut __rout:` |
+
+**Why this is not the node S5 refused.** S5 declined an output-seam node
+(`0025-deem-batch-cursor-plane.md:1524`) because with `direct` blocked its answer
+would be one constant word on every site — +N census lines telling a reader
+nothing. That ground still stands against the node S5 was offered. R-B's claim
+is narrower and it is MEASURED, not argued: **the class is not one class.** The
+five heads above were counted by fire count at the five emitter sites in R-B0
+*before* any node existed (234 `emit_simple` + 152 `emit_aggregate` + 112
+`emit_join_chain` + 107 `emit_incremental` + 45 `emit_rel_fn_oneshot` = 650,
+predicted then measured, no arm zero), and the artifact-side classifier reads the
+same 477/16/5/107/45 independently.
+
+**And the refusal probes prove the pin can tell the two apart** — four
+perturbations, one at a time, each restored to a green checkpoint, each rebuilt
+(the `logos_09_plan_ground_census` gate reads `build/bin/logosc`, so an
+unrebuilt probe is the recorded "control that changes nothing"):
+
+| probe | edit | measured red |
+|---|---|---|
+| P1 | route the bounded arm to the plain sentence | `query output` 477→493, `bounded by limit` 16→**0** |
+| P2 | route the dedup arm to the plain sentence | `query output` 477→482, `distinct carrier` 5→**0** |
+| P3 | route the snapshot seam to the plain sentence | `query output` 477→584, `snapshot output` 107→**0** |
+| P4 | invert the rel/query discriminator | FACT J reds per fixture on BOTH sides at once, 605 and 45 |
+
+⚠ **In P1, P2 and P3 the TOTAL of 605 never moved.** A node pinned as one number
+— "650 output landings" — stays green through all three, which is precisely the
+constant-valued node S5 refused, wearing a count. The per-head pins are the only
+thing that fails, and that is the operational difference between a discriminator
+and a label.
+
+**FACT J found a defect on its first run, and it was in the gate's own
+population**, not in the emitter: `let mut __out:` matched 606 corpus-wide
+against a plan side of 605. The 606th is `let mut __out: String` — the TRAMA
+TEMPLATE renderer's buffer (`stdlib/mem/wql/trama_render.logos:732`), a homonym
+on a different plane with no query and no plan. `D2` never counted it either
+(its type filter is `Vec|Buffer|HashMap|BTreeMap`), so nothing in the tree had
+ever counted it at all. The grep was narrowed to `Vec<` **and the String landing
+given its own pin** (`EXPECT_OUTS = 1`) in the same edit — a population narrowed
+without pinning what left it is how a class goes quiet.
+
+**R-B1 is what made the pin expressible.** The rel one-shot's landing used to be
+spelled `__out` too, so one ACC row held 605 query outputs and 45 rel results and
+any owner claimed for it would have over-credited the 45 — the same name-only-key
+defect this section already records against `__rel_*`. It was renamed to
+`__rout`, with `__out` kept as a `&mut Vec` ALIAS onto it so the four shared push
+fragments stay one fragment (the idiom `member_block_frag` already uses 336 times
+on the fixpoint plane). The alias is a borrow, so `D2`'s `let mut` regex does not
+see it: the row SPLIT 650 → 605 + 45 with the total unchanged, and the artifact
+delta was exactly 45 bindings + 45 tails + 45 alias lines, read line by line.
+
+**WHAT R-B DID NOT DO, priced.** The design's `(b′)` — invert the facade inside
+the emitter so the body builds the `Buffer` and the `Vec` entry becomes
+`into_vec()` — is criterion 2's output row, orthogonal to the naming above, and
+it is NOT landed. Its blocker is measured rather than assumed:
+`stdlib/mem/stream/buffer.logos` publishes `from_vec`/`new`/`push`/`as_slice`/
+`next_batch`/`into_vec` and **no `len()` and no `get(i)`**. So 477 of the 605
+landings could swap type today, the 16 bounded ones need `len()` and the 5
+distinct ones need `len()` + `get(i)`. That is two Memoria-side methods, not a
+redesign — and it is R-C's neighbour, because the 336 `let __out: &mut Vec<…>`
+fixpoint aliases would have to move with any wholesale type change.
+
 **The whole delta is the corpus, not the emitter.** R-A's control tree
 (`slice_stream_src` → `return false`, rebuilt, swept — §5) prints that line
 character for character, and the worklist buckets with it. A stage that changes
@@ -167,9 +296,18 @@ largest first; the script prints the full list). **1709 bindings, 47.21% of
 (46.83%) — the +4 is `__out` and the corpus, and the control tree prints the
 same 1713 (§6.1).**
 
+⚠⚠ **AT R-B: 1063 of 3632 (29.27%), and the movement is the emitter's — the
+control tree (pre-R-B, same instrument) still prints 1713.** The `__out` row
+below leaves this table entirely: 650 bindings became 605 `query output` + 45
+`rel result`, both now ACC-credited AND witnessed by a nonzero fire count (`G4`).
+**This is the largest single movement of the criterion in the arc, and 1063 is
+still not zero.** ⚠ The `G4` repair also means this list is now honest in a way
+it was not: a class credited to a node that does not exist falls back HERE
+instead of quietly inflating the accounted column (§4d).
+
 | bindings | class | status |
 |---|---|---|
-| 650 (⚠ ~~646~~, R-A: +4 fixtures, 0 emitter) | `__out` | the query-output Vec. S2 assigned it to S5; **S5 did not take it and no owner was re-assigned** (audit F5). Unowned. |
+| ~~650~~ **0** (⚠ ~~646~~ ⚠ ~~650~~) | `__out`, `__rout` | ⚠ **LEFT THE WORKLIST AT R-B, 2026-08-15.** The query-output Vec. S2 assigned it to S5; S5 did not take it and no owner was re-assigned (audit F5); **R-B named it** — 605 `let mut __out: Vec<` under four heads (`query output` 477, `… bounded by limit` 16, `… distinct carrier` 5, `incremental snapshot output` 107) and 45 `let mut __rout:` under `rel result`, each with a falsifiable ground, pinned per fixture and per head by FACT J. ⚠ **Named, not removed**: the landings are still `Vec`s filled to completion, which is criterion 2's row and `(b′)`'s job (§6.1). |
 | 398 | `__nd_*`, `__dl_*` | incremental derived/delta relations — declared out of the batch plane by S6-B. ⚠ ~~~330~~ SUPERSEDED (closing audit, D3): measured `__nd_*` 222 + `__dl_*` 176 = 398, understated by 68 (21%). It was the one row of this table that did not reproduce; the other four do, exactly. Derivation: `grep -ho "let \(mut \)\?__nd_[A-Za-z_0-9]*[0-9]* *: *\(Vec\|Buffer\|HashMap\|BTreeMap\) *<" /tmp/c1/*.user \| wc -l` and the same for `__dl_`. |
 | 145 | `__cp` | DRed phase collections (`__wql_*_dred`) — the incremental tier, same declaration. |
 | 70 | `__tt` | fixpoint temporaries. S2 assigned the 791-strong fixpoint-buffer class to S6; S6-A took the Writ half only. |
@@ -256,8 +394,22 @@ dumps), plus two greps whose definitions are fixed here:
 ```
 tests/logos/criterion1_materialization_instrument.sh /tmp/c1
 grep -ho 'next_batch()\|\.next()' /tmp/c1/*.user | sort | uniq -c   # pull shape
-grep -c 'let mut __out'          /tmp/c1/*.user                     # output plane
+# output plane — ⚠ THREE counts, not one grep (R-B, 2026-08-15). `let mut __out`
+# is no longer a population: R-B1 split the rel landing out to `__rout`, and one
+# `__out` was never a collection at all. Asking by TYPE answers directly instead
+# of by subtraction, which is what the old one-liner forced:
+grep -ho 'let mut __out[A-Za-z_0-9]*\s*:\s*[A-Za-z_0-9]*' /tmp/c1/*.user \
+    | sed 's/.*: *//' | sort | uniq -c        # 605 Vec + 1 String
+grep -h  'let mut __rout:'      /tmp/c1/*.user | wc -l   # 45 rel landings
+grep -h  'let __out: &mut Vec<' /tmp/c1/*.user | wc -l   # 381 ALIASES — not landings
 ```
+
+⚠ **The alias line is in this list because leaving it out is how the output
+plane gets double-counted.** 381 = the 336 fixpoint `member_block_frag`
+rebindings + R-B1's 45. They are BORROWS onto a landing someone else allocated;
+`D2`'s regex requires `let [mut] <n>: <Coll><` and does not match them, and FACT
+J excludes them for the same reason. A future reader who greps `__out` without
+the `mut` will read 986 and think the plane grew.
 
 — plus the four indexed-walk greps fixed above, which are the ones that see the
 dominant shape. ⚠ Two greps were never enough and the ⚠⚠ block above is why.
@@ -276,7 +428,7 @@ dumps** (unmoved), **4152 indexed walks**:
 | join — **build side** | **no** | 3 sites, `let __bo1: Option<R> = (__rel_p).next()` — `rexpr_walk::build_phase_frag`, **the fourth pull site**, never converted when S1 collapsed the scan. Any batch source on a build side dies there (`type mismatch — expected Option, got Option`: the annotation is the ROW type, the pull yields a BATCH). Invisible to the green corpus BY CONSTRUCTION — no corpus query puts a batch source on that side. |
 | sort | **its INPUT does; its key vector still materializes** (⚠ ~~yes (S3)~~, ⚠ ~~the elision arm only~~) | `land_end` (4) + `prev_batch` (4) in **2** dumps for the desc elision, unmoved. What moved is phase 1: the sort arm of `emit_simple` collects through `SliceStream`, so ⚠ ~~3 of the 54~~ **23 of the 55** `__ks` dumps now carry a `next_batch()` — the rows ARRIVE in batches (`wql_distinct_e2e.user:290`, `__ss0.next_batch()` feeding `__ks.push`). The OTHER half is unmoved and is a criterion-1 fact, not a pull-shape one: **55 dumps, 129 `key vector` plan lines, 321 `__ix` bindings** are still built, and the insertion sort that permutes them (`while (__a < __ks.len())`) is itself an indexed walk over a materialized vector. The split the verdict column once erased now runs INSIDE this row: input yes, ordering no. |
 | aggregate | **the fold, not the enumeration** (⚠ ~~yes (S4/S5)~~) | single-pass fold over pulled batches — but the min/max retract-rebuild arm (`stdlib/mem/wql/rexpr_walk.logos:5695`) emits `match __it.next()` over a `HashMapKeys<…>`: **39 row-at-a-time pulls in 14 dumps**, 60% of this section's own `.next()` numerator, in a plane scored yes. ⚠ the pure-aggregate-over-a-row-producer arm has ZERO corpus executions (audit F10) |
-| output | **no** | ⚠ ~~646~~ **650** `let mut __out: Vec<…>` — the class S2 assigned to S5, unowned since. The +4 is R-A's three new registrations (the control tree answers 650 too), NOT a plane move: R-A pushes into `__out` exactly as before, from inside a batch loop instead of an indexed one |
+| output | **no** — but it is now NAMED, and the two are different questions | ⚠ ~~646~~ ⚠ ~~650~~ **605 `let mut __out: Vec<…>` + 45 `let mut __rout:`** (R-B, 2026-08-15). ⚠ **R-B MOVED THIS ROW'S VERDICT BY EXACTLY ZERO AND ITS ATTRIBUTION COMPLETELY, and the control separates the two.** The pull shape is unmoved on this plane and on every other: control and R-B both read `.next()` **65**, `next_batch()` **164**, indexed walks **4152**, `__i` family **1017**, `SliceStream::<` **149** — five numbers, five zero deltas. The landing is still a `Vec` the body fills to completion, so the answer to *"does the output plane pull batches"* is still **no**, and the reason is R-E's `typeof` blocker, unchanged. What DID move is that these 650 collections are no longer UNOWNED: each now carries one of five named plan nodes with a falsifiable ground (§1's table), gated by FACT J per fixture and per head. That is criterion **1**'s question, answered here; criterion 2's question is answered by `(b′)`, which is priced in §1 and NOT landed. The 650 → 605+45 split is R-B1's rename, not a shrink — the total is identical on both trees |
 | incremental (`__dl`/`__nd`/`__edb`, DRed) | **no, declared** | all 124 DRed phase fns take `&[…]`; S6-B measured the seam as `<q>_apply`'s parameter list alone and declared rather than attempted it |
 
 **Verdict: criterion 2 is NOT met**, and the open planes are named with counts
@@ -284,7 +436,9 @@ rather than adjectives. Of the 65 `.next()` pulls: the build side **3**
 (`(__rel_p)` 1, `(__rel_t)` 1, `(__rel_d)` 1), the native-source scan **14**
 (`(__rel_s)`), the drain prelude **9** (`__it_s` 7, `__it_t` 1, `__it_d` 1), and
 the aggregate key enumeration **39** (`__it.next()` over `HashMapKeys`, 14
-dumps) — 3+14+9+39 = 65. Plus the output plane, ⚠ ~~646~~ 650 bindings. **Plus
+dumps) — 3+14+9+39 = 65. Plus the output plane, ⚠ ~~646~~ ⚠ ~~650~~ **605 + 45**
+bindings (R-B split the row; the plane's total and its verdict are unchanged, and
+R-B's control measured all five pull-shape numbers at a zero delta). **Plus
 the third spelling, which after R-A is 4152 indexed walks — 1017 of them the
 `__i` family that R-A's own plane is made of.**
 
@@ -319,7 +473,20 @@ filter is what moved. 646 remains the authority for the collection class. ⚠
 **RE-MEASURED AT R-A: 651 raw = 650 `Vec` + 1 `String`, the same shape one
 fixture-set larger** (`grep -ho 'let mut __out[A-Za-z_0-9]*\s*:\s*[A-Za-z_0-9]*'
 | sed 's/.*: *//' | sort | uniq -c` — the derivation that answers the question
-directly instead of by subtraction). **650** is the authority now.
+directly instead of by subtraction). ⚠ ~~**650** is the authority now.~~
+
+⚠⚠ **RE-MEASURED AT R-B, AND THE SINGLE AUTHORITATIVE NUMBER IS RETIRED
+(2026-08-15).** The same derivation now answers **606 raw = 605 `Vec` + 1
+`String`**, and there is a second landing beside it: **45 `let mut __rout:`**.
+The `Vec` count fell by 45 and `__rout` rose by 45 because R-B1 renamed the rel
+one-shot's landing — **the total is 650 on both trees**, and the corpus did not
+change (186 fixtures, 170 dumps, both columns). There is no longer one number to
+be the authority, and that is the correction: `let mut __out` was never a
+population, it was two identities sharing a name plus a homonym on a third plane
+(the trama `String`). The authority is now the TRIPLE — **605 query outputs / 45
+rel results / 1 template buffer** — and all three are pinned in
+`plan_ground_census_gate.sh` (`EXPECT_OUTQ`, `EXPECT_OUTR`, `EXPECT_OUTS`), which
+is the first time any of them has been gated at all.
 
 **Criterion 2 has NO GATE OF ANY KIND.** Its instrument is the criterion-1
 sweep, which is exempted in `gate_lint.py`'s `NOT_GATES`, so ctest never runs
@@ -446,7 +613,7 @@ and who owns it; "unowned" is written as unowned rather than left implied.
 | F2 | CONFIRMED | the RC instrument is blind by construction | **CLOSED HERE** — §3, `rc_seam_gate.sh` + `deem_pipeline_handle_seam` |
 | F3 | CONFIRMED | ADR §12's requirement line still says the pipeline return is `#[borrow_carrying]` and tied to the source args; what landed is an OWNED `Buffer<E>` carrying no borrow | **OPEN** — ⚠ ~~one ADR sentence~~ **TWO SITES** (closing audit §6, C3): `0025-deem-batch-cursor-plane.md:1163` (§12's requirement line) **and `:805-811`** (§7 rung 3's warning block, `-> Result<QStream, ElError>` … "composes into pipelines under rung 1–2 with ZERO counting") — which is precisely the rung criterion 3's verdict leans on. Measured: `QStream` exists in no `.logos`/`.rs` file; `stdlib/mem/stream/buffer.logos:32` says outright "`Buffer<R>` OWNS its `Vec<R>` — it is not `#[borrow_carrying]`"; `pass/deem_pipeline_handle_seam` binds `q1_stream`'s result as an owned `Buffer<(u64,u64)>`. S5's owner, both sites |
 | F4 | CONFIRMED | §7 rungs 1–2 "ZERO counting" rests on probes `s5r/p1..p5`: hand-written non-Deem programs over `&[i64]`. They measure that the LANGUAGE admits a borrow-carrying return, nothing about counting in an emitted pipeline | **CLOSED IN SUBSTANCE by §3** (the emitted-artifact reading now exists); the §7 prose still cites the probes — supersede in place |
-| F5 | CONFIRMED | the 617-strong query-output class was assigned to S5 and not taken; `let mut __out` 637 before, 637 after; **646 at the audit, 650 at R-A (the control tree answers 650 too — no emitter moved it)** | **OPEN, UNOWNED** — the largest criterion-1 class and criterion-2's output plane |
+| F5 | CONFIRMED | the 617-strong query-output class was assigned to S5 and not taken; `let mut __out` 637 before, 637 after; **646 at the audit, 650 at R-A (the control tree answers 650 too — no emitter moved it)** | ⚠ **HALF CLOSED AT R-B, 2026-08-15 — and the halves are two different criteria.** The criterion-1 half (UNOWNED) is **CLOSED**: 650 landings are now 605 `query output` + 45 `rel result` under five named heads with falsifiable grounds, `G4`-witnessed and FACT-J-pinned per fixture and per head; the control tree (pre-R-B, same instrument) still reads them as 650 unowned, so the move is the emitter's. The criterion-2 half is **OPEN, UNOWNED**: the landings are still `Vec`s filled to completion, R-B's control measured this plane's pull shape at a zero delta, and the remaining step is `(b′)` — the `Buffer` inversion, blocked on two missing `Buffer` methods (`len()`, `get(i)`), priced in §6.1 |
 | F6 | CONFIRMED | criteria not stated, instruments not in tree | **CLOSED HERE** (this file + two instruments) |
 | F7 | PLAUSIBLE | "486 `*_stream`" is stale (490 measured) | **OPEN** — a number in ADR §12 to re-measure or strike |
 | F8 | PLAUSIBLE | "PURE ADDITION" is a sub-stage property stated at round scope | **OPEN** — S4's claim, scope to be narrowed in place |
@@ -500,6 +667,7 @@ CLAIM of tree-derivability that is false.
 | `gate_lint.py`'s `NOT_GATES` exemption has **no abuse-direction check**: an entry buys silence from R5-unregistered-gate, and nothing asserts that its key names a file that exists or that ctest really does not invoke it. R5's own selftest checks the exemption HOLDS (a declared reporter is not flagged), never that it is honest. This ticket used the exemption (for the criterion-1 instrument, with its ground) and so is the natural place to record the hole | OPEN, unowned |
 | the criterion-1 instrument's ACC table maps binding-name classes to owner nodes; the pairings are EXACT for four (`__ks` 127 = `key vector` 127, `__ga_*` 208 = `accumulator` 208, `__g_cnt` 13 = `group count` 13, `__g_row` 7 = `representative row` 7) and not for two (`__hm` 588 vs `arrange` 598; `__sv` 497 vs `materialize` 217). The deltas are printed, not explained — a per-node attribution is the next honest step, and until it exists "accounted 52.79%" is a class-level reading, not a site-level one | OPEN |
 | **ACC's key is the NAME, and one name can carry two owners.** 12 `Buffer`-typed `__rel_*` bindings are owned (`drain` 7 + `sort` 5, FACT B) while 205 of the 217 `__rel_*` bindings are unowned `Vec` landings; a name-only key must take all or none. The printed ACCOUNTED is therefore a FLOOR (1911), the site-level reading is 1923. The fix is the per-node attribution above, not a wider name key — widening it would over-account by 205 | OPEN |
+| ⚠⚠ **CLOSED BY R-B, 2026-08-15 — `ACC` CREDITED CLASSES WITHOUT CHECKING THAT THE OWNING NODE EXISTED, AND A CONTROL MEASURED WHAT THAT WAS WORTH.** `ACC` mapped a binding-name class to a PROSE STRING; `acc_n` summed the classes whose name was a key. Nothing connected the credit to the trace channel, so `accounted` moved when the TABLE moved on a tree where nothing had changed: swept on the pre-R-B tree with the post-R-B table, the instrument printed `accounted=2569 (70.73%)` — identical to R-B — crediting 650 `__out` bindings to `query output` while all four query-output heads read a fire count of **0 on that same sweep**, three lines above. This is the permissive-defect shape: nothing was ever red, because a self-certifying ledger cannot fail. **FIXED: `ACC` now names the OWNING HEAD, the head must be a key of `MAT`, and a class whose owners all read zero is REFUSED (`G4`) — printed under CLAIMED BUT UNWITNESSED and counted in the worklist.** Both trees were re-swept after the fix and now read 1919 (52.84%) and 2569 (70.73%), a genuine tree comparison. ⚠ The FLOOR caveat in the two rows above is NOT retired by this — G4 proves the owner fired, not that the counts correspond site for site | **CLOSED (R-B)** |
 | **criterion 2 has no gate at all** — its instrument is the criterion-1 sweep, exempted in `NOT_GATES`, so nothing in ctest reads the plane table. The closing audit re-measured it and three "yes" rows changed. A gate is not obviously right here (the counts are corpus-size-dependent, §1's argument), but the ASYMMETRY is recorded: criterion 1 has three non-moving properties gated inside its script and criterion 2 has none identified | OPEN, unowned |
 | **the `lock`-prefixed half of `rc_seam_gate.sh` is vacuous by construction** (§3): every `lock` in the toolchain is inside `logos.lang.atomic.Atomic*`, reachable from an emitted object only by CALL, so the object-level scan cannot fire. Owed: classify the atomic ENTRY POINTS as edges (like RC), or stop printing the zero | OPEN |
 | **the RC classifier admits count entry points it does not name** (§3): `clone_arc`, `drop_arc`, `downgrade(_arc)`, `upgrade`, `drop_weak`, `arc_from_raw_inner`. A probe reaching `AtomicI32__fetch_add` per pull through `downgrade` PASSES the gate. Owed: the export list, plus one refusal pair per spelling | OPEN |
@@ -546,6 +714,31 @@ instrument reads the BUILD, so a sweep taken against an un-restored tree is a
 measurement of the control twice. The criterion-1 SUMMARY line is the check that
 the pair is honest in the other direction too — it must be IDENTICAL across the
 two trees for a change that materializes nothing, and for R-A it is.
+
+⚠⚠ **AND THE SUMMARY LINE ALONE IS NOT ENOUGH — R-B ADDS TWO STEPS, EACH BECAUSE
+A DEFECT GOT THROUGH THE PREVIOUS RECIPE (2026-08-15).**
+
+```
+# (i) THE ANSWER DIFF — the values, which no artifact or trace channel can see.
+#     D4 was a wrong-answer miscompile through which every number on both
+#     channels was unchanged. Run on BOTH trees, diff the two files:
+tests/logos/answer_diff_instrument.sh /tmp/x_ctl     # on the control build
+tests/logos/answer_diff_instrument.sh /tmp/x_final   # on the restored build
+diff /tmp/x_ctl/answers /tmp/x_final/answers         # 0 lines = no answer moved
+
+# (ii) BOTH SWEEPS WITH THE SAME INSTRUMENT REVISION. If the stage also edits
+#      the instrument (a new ACC key, a new MAT head), the control must be
+#      re-swept with the EDITED script — otherwise the columns differ by two
+#      variables and the ledger's movement is attributed to the tree.
+```
+
+⚠ **(ii) is not hypothetical: it is exactly how R-B first mis-stated its own
+result** (`accounted +650`, when the tree-vs-tree delta was zero and the whole
+movement was the table). The instrument-side repair that makes the mistake
+loud rather than silent is `G4` — a credit whose owning head has a zero fire
+count is refused — but the recipe step is what makes the pair a comparison in
+the first place. **A ratio from two separately-measured columns is not a
+comparison, and an instrument edited in the same stage is a second variable.**
 
 ---
 
@@ -594,21 +787,50 @@ list is the honest reading"):
   (At R-A: **1,100 = 30.3% of 3632**, and 1,170 = 32.2% with `__tt`. The
   percentages are unmoved to the decimal — the corpus grew, the ownership did
   not.)
+* ⚠⚠ **RE-MEASURED AT R-B (2026-08-15), AND THIS TIME THE CRITERION MOVED — BY
+  ITS LARGEST STEP OF THE ARC, AND IT IS STILL NOT MET.** `D1` 4692, `N1` **1986
+  (42.33%)**, `T` 617, `D2` 3632, **accounted 2569 (70.73%)**, worklist **1063**.
+  Unlike the R-A entry above, these deltas ARE the emitter: the control tree
+  (`rexpr_walk.logos` at `93295e0c`, rebuilt, swept with the SAME instrument,
+  restored after) reads `N1/D1=1336/4042=33.05% T=617 D2=3632 accounted=1919
+  (52.84%)`, worklist 1713 — so R-A's "identical SUMMARY line" result is exactly
+  what R-B is NOT. **+650 named nodes, −650 worklist, `D2` and `T` and every
+  criterion-2 pull-shape number at a zero delta, and the corpus-wide answer diff
+  byte-identical.** The arithmetic below reads 543 + 70 + 450 = 1063: the `__out`
+  row has left the worklist.
+* ⚠ **AND THE 52.84% → 70.73% IS ONLY A COMPARISON BECAUSE R-B FIXED THE
+  INSTRUMENT FIRST.** The `accounted` column used to sum a hand-written
+  name→prose table with nothing tying a credit to the trace; measured on the
+  control it awarded 650 bindings to four heads whose fire count was zero. `G4`
+  now refuses an unwitnessed credit, and §1 carries the control that found it.
+  **The first version of this stage's own record claimed `accounted +650` as an
+  emitter result when the tree-vs-tree delta was ZERO — the thirteenth
+  consecutive round-overclaim, caught by the control this arc's rules require.**
 * **What IS met, and should be said:** the TRACE channel is complete. Every
   `[plan]` head is classified (G2 gates it), no rel reports a `materialize`
-  verdict without naming a node, and all nine named identities check against the
-  artifact per the census gate's FACT B/C/E/G/H. The gap is in the ARTIFACT
+  verdict without naming a node, and all named identities check against the
+  artifact per the census gate's FACT B/C/E/G/H — **and now FACT J, which is the
+  first of them to cover the output plane at all.** The gap is in the ARTIFACT
   channel, and it is a gap of OWNERSHIP, not of visibility.
+* **Neither named nor owned: ⚠ ~~1,100 (30.3% of `D2`)~~ → 450 (12.39%)**, and
+  520 (14.32%) counting the half-assigned `__tt`. That is the honest headline of
+  R-B: the largest unowned class in the arc was 650 bindings and it is now
+  named, gated per fixture and per head, with a falsifiable ground. **It is not
+  MET, because 450 bindings are still un-triaged and 543 more rest on a
+  declaration rather than a node** — and because naming a landing is not
+  removing it, which is `(b′)`'s job and `(b′)` is not landed.
 
-**Owned remainder, with its named next step:**
+**Owned remainder, RE-DERIVED AT R-B (the `__out` row is retired; the arithmetic
+now closes at 1063 without it):**
 
 | class | size | next step | owner |
-|---|---|---|---|
-| `__out`, the query-output Vec | 650 | **the `__out` migration**: the output plane becomes a stream/`Buffer` surface instead of a per-query `Vec` — the same change criterion 2's output row needs, done once | **UNOWNED** — was S5's, never taken (F5) |
+|---|---:|---|---|
+| ~~`__out`, the query-output Vec — 650~~ | **0** | **RETIRED AS AN OWNERSHIP ROW BY R-B.** The 650 landings are now 605 `query output` (four heads) + 45 `rel result`, each a named plan node with a ground, pinned per fixture and per head by FACT J. ⚠ **The row leaves criterion 1's worklist and does NOT leave criterion 2's**: the landings still exist and are still filled to completion. What is left of it is `(b′)`, below | **CLOSED (R-B)** — was S5's, never taken (F5) |
+| `(b′)` — the Buffer inversion of the output plane | 605 + 45 | the body builds a `Buffer` and the `Vec` entry becomes `into_vec()`. Blocker MEASURED, not assumed: `stdlib/mem/stream/buffer.logos` publishes `from_vec`/`new`/`push`/`as_slice`/`next_batch`/`into_vec` and **no `len()`, no `get(i)`** — so 477 landings could swap type today, the 16 bounded need `len()`, the 5 distinct need `len()` + `get(i)`. **Two Memoria-side methods.** ⚠ moves with R-C: the 381 `let __out: &mut Vec<…>` aliases must move with any wholesale type change | **UNOWNED** — criterion **2**'s output row (R-C's neighbour) |
 | `__tt`, fixpoint temporaries | 70 | **the fixpoint plane**: S6-A took the Writ half; the buffer half is untouched | S6 successor |
 | `__cp`, `__nd_*`, `__dl_*` | 543 | out of the batch plane BY DECLARATION (S6-B). Not silence — but the declaration is the whole argument, and it is one sentence to revisit | the stage that changes the incremental surface |
-| the rest | 450 | **triage**, class by class, into owned-or-admitted | UNOWNED |
-| per-node attribution (`__hm` 588 vs `arrange` 598; `__sv` 497 vs `materialize` 217; the 12 two-owner `__rel_*`) | — | site-level accounting, which also retires the FLOOR caveat | §4d |
+| the rest | 450 | **triage**, class by class, into owned-or-admitted. ⚠ now the LARGEST genuinely-unowned class in the tree, which R-B's departure promoted it to: `__wcd` 44, `__nw` 44, `__odv` 35, `__rmv` 35, `__rel_g` 35, `__pres` 22, `__lt` 22, `__ecp` 22, `__rel_r` 17, `__rel_w` 17, `__rel_path` 15, … | UNOWNED — **R-C** |
+| per-node attribution (`__hm` 588 vs `arrange` 598; `__sv` 501 vs `materialize` 217; the 12 two-owner `__rel_*`) | — | site-level accounting, which also retires the FLOOR caveat. ⚠ **G4 makes this sharper, not softer**: it proves the owning head FIRED, it does not prove the counts correspond site for site — `__sv` 501 against 217 `materialize` lines is still an unreconciled 2.3:1, and FACT J is the only class where the correspondence is actually pinned | §4d |
 
 ### 6.2 Criterion 2 — full algebra integration with batch + cursor: **NOT MET**
 
@@ -635,7 +857,9 @@ columns are visible.
   drain prelude **no** (9); join build side **no** (3); join probe **no** (the
   11-of-81 dumps are the scan plane, not the probe); sort **input yes / key
   vector no**; aggregate **the fold yes, the key enumeration no** (39, 14
-  dumps); output **no** (650); incremental **no, declared**.
+  dumps); output **no** (⚠ ~~650~~ **605 + 45, and NAMED as of R-B — but naming
+  is criterion 1; this plane's answer is unchanged and was control-measured at a
+  zero delta**); incremental **no, declared**.
 * **What is left, as a number and not as an adjective: 4152 indexed walks, and
   12 of the S2j audit's 13 emitter sites unrouted (8 owed, 4 declared out).**
 
@@ -659,7 +883,7 @@ columns are visible.
 
 | gap | next step | owner |
 |---|---|---|
-| the output plane (⚠ ~~646~~ 650) | **the `__out` migration** — shared with criterion 1 | UNOWNED (task R-B) |
+| the output plane (⚠ ~~646~~ ⚠ ~~650~~ **605 + 45**) | ⚠ **R-B LANDED AND THIS ROW DID NOT MOVE — the half it took was criterion 1's.** The landings are now NAMED (five plan nodes, FACT J) but they are still `Vec`s filled to completion, and R-B's control measured this criterion's five pull-shape numbers at a **zero delta** (`.next()` 65, `next_batch()` 164, indexed walks 4152, `__i` 1017, `SliceStream::<` 149 — both trees). The remaining step is `(b′)`, the **Buffer inversion**: body builds a `Buffer`, the `Vec` entry becomes `into_vec()`. Blocker measured — `Buffer` publishes no `len()` and no `get(i)`, so 477 landings could swap today, 16 need `len()`, 5 need `len()` + `get(i)` = **two Memoria-side methods**. ⚠ the 381 `let __out: &mut Vec<…>` aliases move with it | UNOWNED — R-B took the naming half; `(b′)` is R-C's neighbour |
 | the build side (3 sites) | **the `WritWalk` cursor** is the first consumer that forces it; `build_phase_frag` must take a batch source | whichever stage first needs it |
 | native scan + drain prelude (23) | ⚠ ~~**`SliceStream`** — one batch producer over a `&[Row]`, which retires the native-source `.next()` and the drain prelude's row pull together~~ — **REFUTED BY LANDING IT.** `SliceStream` landed (R-A) and this pair measured **65 → 65**: a native iterator source is not a slice and never reaches the wrap, and the drain prelude pulls from the same iterator to LAND it. The correct next step is a batch-side `Drain` — the prelude reads `next_batch()` and extends the `Buffer` per packet — and it is a different change from R-A's | UNOWNED |
 | the twelve unrouted slice sites (`emit_find`, `build_phase_frag`, `step_wrap` ×2, `chain_nest_frag`, `emit_aggregate` else, `rel_body_simple_frag`, `chain_body_frag`; `emit_incremental` ×4 declared out) | route them through `batch_scan_frag` as R-A did for `emit_simple` — the wrap, the numbering (`__ss<k>`) and the by-reference row bind already exist and are gated by `logos_09_slice_scan_codegen`. The JOIN pair is first: it is the only one with a per-scan-site cursor consumer | UNOWNED — R-A's own remainder |
@@ -716,6 +940,32 @@ Recorded here because the pattern, not the instance, is the finding.
   close "blind by construction".
 * **Refuted challenge, recorded so it does not recur:** "124 DRed phase fns" IS
   re-derivable — `_od`/`_odp`/`_cpt`/`_i` at 31 each (§4b).
+
+⚠⚠ **R-B (2026-08-15) — THE SAME PATTERN AGAIN, AND IT IS THE ONE THIS SECTION
+KEEPS RECORDING: a delta measured across two columns that differ by more than
+the thing being claimed.** R-B's first record read "`N1` +650 and `accounted`
++650: 650 collections that existed and had no name now have one." `N1` +650 is
+true and control-separated. **`accounted` +650 was 1919 (R-A tree, R-A table)
+against 2569 (R-B tree, R-B table), attributed entirely to the tree — and the
+tree-vs-tree delta was ZERO.** It is D5's shape (a number whose parts do not
+sum), the ratio-from-two-separate-measurements shape, and the "oracle that shares
+the algorithm" shape at once: the ledger being credited was the same artifact
+the stage had just edited.
+
+Three things follow, and only the first is about R-B:
+
+1. The number is corrected and both columns are re-swept with one instrument
+   revision (§1's control table). The stage's real result is **+650 named,
+   −650 worklist, 30.3% unowned → 12.39%**, which is larger than what was
+   claimed, not smaller — the overclaim was in the ATTRIBUTION, not the size.
+2. The instrument is repaired so the mistake cannot be silent again: `G4`
+   refuses a credit whose owning head has a zero fire count (§4d, CLOSED). The
+   defect was invisible for the whole arc because a self-certifying ledger
+   produces no red.
+3. **The control is what found it, and nothing else could have.** The dumps were
+   identical, the answer diff was clean, the gate was green, and the number was
+   still wrong. That is the argument for §5's rule (ii) being a step in the
+   recipe rather than a habit.
 
 ### 6.5 THE STOP
 

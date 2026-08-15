@@ -324,7 +324,7 @@ UD=()
 for x in "${ALLD[@]}"; do
     case "$(basename "$x")" in logos.gen.*) ;; *) UD+=("$x");; esac
 done
-nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0
+nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0; nqo=0; nqs=0; nro=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
@@ -342,6 +342,27 @@ if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __g_cnt:' "${UD[@]}" > "$d/gc" 2>/dev/null
     grep -Eh 'let mut __g_row:' "${UD[@]}" > "$d/gr" 2>/dev/null
     grep -Eh 'let mut __ga_[a-z_0-9]*:' "${UD[@]}" > "$d/ga" 2>/dev/null
+    # ADR 0025 R-B — THE OUTPUT SEAM'S TWO LANDINGS, GREPPED APART. `__out` is
+    # the query output and `__rout` the rel one-shot's result; before R-B1 both
+    # were spelled `__out` and no census could tell them apart. ⚠ `let mut`, so
+    # the 336 `let __out: &mut Vec<…>` fixpoint ALIASES (and R-B1's own alias)
+    # are excluded — an alias is a borrow onto someone else's landing, not a
+    # materialization, and counting it here would make FACT J assert that the
+    # plan names a collection that was never allocated.
+    # ⚠ `Vec<`, AND THE TYPE IS LOAD-BEARING — MEASURED, NOT ASSUMED. This
+    # grep was written `let mut __out:` and FACT J reddened on its first run,
+    # corpus-wide 606 against a plan side of 605, all of it one fixture
+    # (`wql_trama_combined_e2e`). The 606th is `let mut __out: String` — the
+    # TRAMA TEMPLATE renderer's output buffer (`trama_render.logos:732`), which
+    # reuses the name and is not a query output at all: it is a rendered string,
+    # it has no plan, and `criterion1_materialization_instrument.sh`'s D2 never
+    # counted it either (its type filter is Vec|Buffer|HashMap|BTreeMap). So the
+    # collection form is what FACT J is about — and the String landing is
+    # counted BESIDE it rather than dropped, because narrowing a population
+    # without pinning what left it is how a class goes quiet.
+    grep -Eh 'let mut __out: Vec<' "${UD[@]}" > "$d/qo" 2>/dev/null
+    grep -Eh 'let mut __out: String' "${UD[@]}" > "$d/qs" 2>/dev/null
+    grep -Eh 'let mut __rout:' "${UD[@]}" > "$d/ro" 2>/dev/null
     nit=$(wc -l < "$d/it")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
@@ -350,8 +371,11 @@ if [ "${#UD[@]}" -ge 1 ]; then
     ngc=$(wc -l < "$d/gc")
     ngr=$(wc -l < "$d/gr")
     nga=$(wc -l < "$d/ga")
+    nqo=$(wc -l < "$d/qo")
+    nqs=$(wc -l < "$d/qs")
+    nro=$(wc -l < "$d/ro")
 fi
-echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -366,7 +390,7 @@ fi
 
 # ── the census ───────────────────────────────────────────────────────────────
 python3 - "$TMPD/o" "$WHY_SRC" "$AP_SRC" "${#FIXTURES[@]}" <<'PY'
-import os, re, sys, glob
+import os, re, sys, glob, collections
 
 OD, WHY_SRC, AP_SRC, NFIX = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 fail = []
@@ -619,6 +643,46 @@ EXPECT_NOMAT      = {"container": 205, "readonce": 25, "elided": 8}   # S5-D5: r
 # vanish while another grew — which is precisely how `elided` used to hide
 # inside `readonce`.
 EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
+# ── ADR 0025 R-B — THE OUTPUT SEAM (FACT J) ─────────────────────────────────
+# The query output was the criterion-1 worklist's largest class (650 bindings,
+# unowned) and had no plan node at all. R-B2 gave it one — FIVE heads, not one,
+# because the artifact answers five ways and R-B0 measured every one by fire
+# count at the emitter BEFORE the node existed:
+#
+#   477  query output                    plain landing
+#    16  query output bounded by limit   `__out.len()` IS the limit guard operand
+#     5  query output distinct carrier   the landing IS the dedup structure
+#   107  incremental snapshot output     `_snapshot`; no `_stream` door of its own
+#   ---  ------------------------------
+#   605  == `let mut __out:` bindings    (the QUERY-OUTPUT class)
+#    45  rel result                      == `let mut __rout:` bindings
+#
+# ⚠ THE SPLIT AT 605/45 IS R-B1 AND IT IS WHY THIS PIN CAN EXIST. Before it the
+# rel one-shot's landing was also `__out`, so one name held two identities and
+# an owner claimed for it would have over-credited 45 rel results as query
+# outputs — the same name-only-key defect §1 records against `__rel_*`. The
+# rename made the artifact side separable, and only then was the plan side worth
+# stating.
+#
+# ⚠ WHY BOTH NUMBERS AND THE PER-FIXTURE EQUALITY, and not just the totals: the
+# totals move with the corpus (one added query moves 605), while the EQUALITY
+# does not — it is the FACT B/C/H pattern, "the plan names exactly what the
+# artifact builds". A stage that emits a landing without a node, or a node
+# without a landing, is red per fixture even if the two errors cancel in the
+# total. The totals are here so that a corpus that quietly SHRANK is also red.
+EXPECT_OUTQ       = 605   # `let mut __out:` query-output landings
+EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
+# THE HOMONYM LANDING, PINNED APART. `trama_render.logos:732` emits `let mut
+# __out: String` for a TEMPLATE render — same name, different plane, no query
+# and no plan node. It is pinned at its own count so that narrowing FACT J's
+# grep to `Vec<` did not make it disappear: a landing removed from a population
+# must land in another pin or it has simply gone quiet. ⚠ It is NOT in D2's
+# criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
+# this pin is the only place in the tree that counts it at all.
+EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
+EXPECT_OUTHEAD    = {"query output": 477, "query output bounded by limit": 16,
+                     "query output distinct carrier": 5,
+                     "incremental snapshot output": 107, "rel result": 45}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
 UNWITNESSED = {
@@ -723,13 +787,19 @@ KEYV = re.compile(r'^\[plan\] ([a-z_0-9]+) -> key vector on ')
 FRAME = re.compile(r'^\[plan\] ([a-z_0-9]+) -> '
                    r'(group frame|accumulator|group count|representative row)'
                    r' on ([^(]*?)\s+\((.*)$')
+OUTHEADS = ("query output bounded by limit", "query output distinct carrier",
+            "query output", "incremental snapshot output", "rel result")
+OUTHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(OUTHEADS) +
+                     r')(?: on .*?)?   \((.*)$')
+outhead = collections.Counter()
 FRAMEK = {"group frame": "gkey", "accumulator": "gacc",
           "group count": "gcnt", "representative row": "grow"}
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            container=0, readonce=0, elided=0, materialize=0, stream=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
-           agkey=0, agcnt=0, agrow=0, agacc=0)
+           agkey=0, agcnt=0, agrow=0, agacc=0,
+           outq=0, outr=0, aoutq=0, aouts=0, aoutr=0)
 witness = {k: 0 for k in vocab}
 silent = []
 
@@ -748,7 +818,7 @@ for e in errs:
     for tok, probe in vocab.items():
         if not tok.startswith(("MG_", "AG_")):
             witness[tok] += text.count(probe)
-    nd = dict(drain=0, sort=0, arrange=0, hj=0, kv=0,
+    nd = dict(outq=0, outr=0, drain=0, sort=0, arrange=0, hj=0, kv=0,
               gkey=0, gcnt=0, grow=0, gacc=0)
     mat, named = set(), set()
     for line in text.splitlines():
@@ -797,6 +867,19 @@ for e in errs:
                 bad(f"[{b}] a `{verb}` line on ground `{gnd}` carries an EMPTY "
                     f"justification — group state named and not explained")
             continue
+        # ADR 0025 R-B2 — the output seam. Matched on the head EXACTLY (the
+        # ` on <elem type>` tail is stripped first), so a sixth head added by a
+        # later stage lands in NEITHER bucket and FACT J reds — which is the
+        # behaviour asked for: a new output form must come here and say which
+        # landing it names, exactly as G2 forces in the instrument.
+        om = OUTHEAD.match(line)
+        if om:
+            h = om.group(2)
+            outhead[h] += 1
+            nd["outr" if h == "rel result" else "outq"] += 1
+            if not om.group(3).strip().rstrip(")").strip():
+                bad(f"[{b}] an output-seam `{h}` line carries an EMPTY ground — "
+                    f"a landing named and not explained")
         if line.startswith("[plan] ") and " -> hash join on " in line:
             nd["hj"] += 1
         if KEYV.match(line):
@@ -843,23 +926,28 @@ for e in errs:
         silent.append((b, r))
     tot["materialize"] += text.count(" -> materialize   (")
     tot["stream"] += text.count(" -> stream   (")
-    for k in ("drain", "sort", "arrange", "hj", "kv",
+    for k in ("outq", "outr", "drain", "sort", "arrange", "hj", "kv",
               "gkey", "gcnt", "grow", "gacc"):
         tot[k] += nd[k]
 
     cf = os.path.join(OD, b + ".count")
     nit = nix = nks = npm = 0
     agkey = agcnt = agrow = agacc = 0
+    aoutq = aouts = aoutr = 0
     if os.path.exists(cf):
-        _, a, c, e, g, gk, gc, gr, ga = open(cf).read().split()
+        _, a, c, e, g, gk, gc, gr, ga, qo, qs, ro = open(cf).read().split()
         nit, nix, nks, npm = int(a), int(c), int(e), int(g)
         agkey, agcnt, agrow, agacc = int(gk), int(gc), int(gr), int(ga)
+        aoutq, aouts, aoutr = int(qo), int(qs), int(ro)
     else:
         bad(f"[{b}] no artifact count file — the emitted side was not read")
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
     tot["pm"] += npm
+    tot["aoutq"] += aoutq
+    tot["aouts"] += aouts
+    tot["aoutr"] += aoutr
     tot["agkey"] += agkey
     tot["agcnt"] += agcnt
     tot["agrow"] += agrow
@@ -900,6 +988,26 @@ for e in errs:
         bad(f"[{b}] {npm} `__ix<k>` permutation vectors vs {nks} `__ks` key "
             f"vectors — a sort collects keys and permutes nothing")
 
+    # FACT J, per fixture — THE OUTPUT SEAM'S NODES ARE ITS EMITTED LANDINGS.
+    # Four of the five heads (`query output`, `… bounded by limit`,
+    # `… distinct carrier`, `incremental snapshot output`) name a `let mut
+    # __out:` binding; the fifth (`rel result`) names a `let mut __rout:`. The
+    # identity is by construction at the five emitter sites, and stated here for
+    # the reason FACT H gives: an emitter that grew a sixth output form, or one
+    # that stopped emitting a landing it still announces, is RED rather than
+    # merely different. ⚠ Skipped for the two standalone-failing fixtures for
+    # FACT B's reason: they write no dump, so the artifact side would be 0 by
+    # absence rather than by measurement.
+    if b not in EXPECT_FAILED:
+        if nd["outq"] != aoutq:
+            bad(f"[{b}] {nd['outq']} query-output plan line(s) vs {aoutq} "
+                f"`let mut __out:` landing(s) — the output the plan names is "
+                f"not the output the artifact builds")
+        if nd["outr"] != aoutr:
+            bad(f"[{b}] {nd['outr']} `rel result` plan line(s) vs {aoutr} "
+                f"`let mut __rout:` landing(s) — the rel seam the plan names is "
+                f"not the one the artifact builds")
+
     # FACT B, per fixture
     if b not in EXPECT_FAILED and nd["drain"] + nd["sort"] != nit:
         bad(f"[{b}] {nd['drain']+nd['sort']} drain/sort nodes vs {nit} `__it_` "
@@ -922,6 +1030,11 @@ if silent:
 # FACT B / FACT C totals
 for key, want, what in (
         ("drain", None, None),
+        ("outq", EXPECT_OUTQ, "query-output plan lines"),
+        ("outr", EXPECT_OUTR, "`rel result` plan lines"),
+        ("aoutq", EXPECT_OUTQ, "`let mut __out: Vec<` query-output landings"),
+        ("aouts", EXPECT_OUTS, "`let mut __out: String` trama render buffers"),
+        ("aoutr", EXPECT_OUTR, "`let mut __rout:` rel landings"),
         ("it", EXPECT_IT, "`__it_` prelude bindings"),
         ("arrange", EXPECT_ARRANGE, "Arrange nodes"),
         ("hj", EXPECT_HASHJOIN, "`hash join` strategy decisions"),
@@ -959,6 +1072,16 @@ for pk, ak, what in (("gkey", "agkey", "`__g_key` group tables"),
     if tot[pk] != tot[ak]:
         bad(f"corpus total: {tot[pk]} plan line(s) vs {tot[ak]} emitted {what} "
             f"— the group frame the plan names is not the one the artifact builds")
+# FACT J, per HEAD — the five-valued answer is pinned VALUE BY VALUE, not as
+# one total of 650. The whole ground for inserting this node (against S5's
+# recorded refusal of a constant one) is that the answer VARIES across the
+# corpus; a single total would stay green while the emitter collapsed all five
+# arms into one word, which is exactly the node S5 refused. Each arm therefore
+# carries its own fire count, and an arm that goes to ZERO is red — the "green
+# over a branch that never executed" rule, pinned rather than hoped for.
+for h, want in sorted(EXPECT_OUTHEAD.items()):
+    if outhead[h] != want:
+        bad(f"corpus total: {outhead[h]} `{h}` output-seam line(s), pinned {want}")
 if tot["drain"] + tot["sort"] != EXPECT_DRAIN_SORT:
     bad(f"corpus total: {tot['drain']}+{tot['sort']} drain/sort nodes, pinned "
         f"{EXPECT_DRAIN_SORT}")
