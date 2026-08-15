@@ -545,7 +545,21 @@ fail = []
 # and the pure-class change would have been a vocabulary deletion in disguise.
 # S5-PIPELINE: 182 -> 183, `pass/deem_pipeline_chain` (§12's composition oracle).
 # S6-A: 183 -> 184, `pass/deem_rowmajor_batch_source` (§2's row-major layout).
-EXPECT_FIXTURES   = 184
+# S6-FIX (2026-08-14, the red this gate CAUGHT after the S6 commit): the
+# AuditPrep phase added deem_pipeline_handle_seam (+1 fixture, +1 read-once,
+# direct-run verified) and S6-A's emitter changes MOVED read-once grounds
+# BETWEEN fixtures — deem_pipeline_chain lost its 2 (it no longer carries any)
+# while deem_btreemap_source and deem_order_desc_elision gained; the pinned
+# total 22 was walked for neither movement because this gate is tier_full and
+# the phase's L2 could not see it. Per-fixture map at the fix (gate's own
+# sweep, total 25): batch_scan_drain 4, btreemap_source 4, cross_domain 2,
+# ctr_family_streams 2, hashmap_source 2, order_desc_elision 5,
+# order_elision 3, pipeline_handle_seam 1, source_size 1, three_domain 2.
+# PROCESS NOTE, recorded where it bit: the S6 commit was pushed on a chained
+# command that did not check L4's rc — the gate was red AT the push. The fix
+# commit follows immediately; the discipline fix is the parent's (never chain
+# a commit after a gate read).
+EXPECT_FIXTURES   = 185
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -579,7 +593,7 @@ EXPECT_PERM       = 319
 # stands) and over a `Vec` twin (a container, already a buffer). One ground each
 # is the fixture's whole shape, so a move of +1/+1 here is the fixture arriving
 # and any other split would have meant it is not the pair it claims to be.
-EXPECT_NOMAT      = {"container": 205, "readonce": 22, "elided": 8}   # S5-D5: readonce 18 -> 19
+EXPECT_NOMAT      = {"container": 205, "readonce": 25, "elided": 8}   # S5-D5: readonce 18 -> 19
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family
