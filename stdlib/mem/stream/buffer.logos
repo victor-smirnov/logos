@@ -50,6 +50,16 @@ use logos.mem.collections.vec;
 /// so the "is it a slice or a stream?" branch disappears: it is always a stream, and
 /// a `Vec` is the one-packet case.
 ///
+/// z⁻¹ / THE ARRANGED INPUT (ADR 0025 §10). A `Buffer` KEPT ACROSS EPOCHS is DBSP's
+/// unit delay: state carried from epoch n to epoch n+1, replayable because it is
+/// `Rewind` and materialized because a delay must survive the borrow that produced it
+/// (which is why this type OWNS — see the ownership note above; `Epoch<R>`, the delta
+/// itself, borrows and does NOT own, and that asymmetry IS the seam). With `Weighted<R>`
+/// (`logos.lang.stream`) the same type is a delta stream that mixes signs:
+/// `Buffer<Weighted<R>>` is DBSP's arranged input with no new type — pinned by
+/// `stream_weighted_epoch_seam`, which folds one mixed-sign packet against the two
+/// constant-weight epochs it replaces and asserts the two agree.
+///
 /// Implements `Rewind`, `SizedStream`, and the whole TRAVERSAL chain of §3
 /// (`Bidirectional` + `RandomAccess`) — an array nothing consumes is random-access by
 /// construction. Not `OrderedBy<K>`: an unsorted buffer has no order fact to declare.
@@ -97,6 +107,30 @@ impl<R> Buffer<R> {
         return slice_get_range::<R>(self.rows.as_slice(), self.at as i64, self.rows.len());
     }
 
+    /// Pulls the single packet — THE INHERENT DOOR, the one the query plane calls.
+    ///
+    /// ADR 0025 S6. `rexpr_walk::batch_scan_frag` (§1's one scan shape) spells the
+    /// outer pull as `next_batch()`, an INHERENT method, with its own ground: a
+    /// generated chunk's import list is derived from the natspec, and
+    /// `Iterator::next` / `BatchStream::next` share name and receiver shape, which
+    /// is why `logos.lang.stream` is out of the prelude. The generated container
+    /// family has carried this door since S0 (`container_item.logos`, `next_batch`
+    /// + a `BatchStream::next` that delegates); `Buffer` — the DEGENERATE stream,
+    /// the form every prebuilt `Vec` source takes — carried only the trait method,
+    /// so it implemented the protocol and could not be consumed BY it. Measured,
+    /// before this method existed, on a user source whose producer returns a
+    /// `Buffer`: sema accepted the declaration, the natspec carried `b`, the plan
+    /// said "streamed", and codegen died with
+    /// `'Buffer$…$G1$tup$2$i64$i64' has no method 'next_batch'`.
+    ///
+    /// Same body as `BatchStream::next` — which now delegates here, so the two
+    /// doors cannot drift.
+    pub fn next_batch(&mut self) -> Option<RowsBatch<R>> {
+        if self.sent { return Option::None; }
+        self.sent = true;
+        return Option::Some(self.packet());
+    }
+
     /// Gives the rows back as a `Vec`, consuming the stream.
     // `self: Self`, not the Rust-style bare `self`: bare by-value `self` is a
     // syntax error here ("syntax error near 'self'"); the by-value receiver is
@@ -111,12 +145,13 @@ impl<R> Buffer<R> {
 // making the empty case yield nothing at all would make "no rows" indistinguishable
 // from a stream that never ran.
 impl<R> BatchStream<RowsBatch<R>> for Buffer<R> {
-    fn next(&mut self) -> Option<RowsBatch<R>> {
-        if self.sent { return Option::None; }
-        self.sent = true;
-        return Option::Some(self.packet());
-    }
+    fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
 }
+
+// The batches are `RowsBatch<R>` = `&[R]` — row-major (ADR 0025 §2). The marker is
+// what makes the emitter spell `bb[j]` instead of the columnar `bb.<col>_at(j)`; see
+// `logos.lang.stream::RowMajor` for why the layout is a trait and not a declaration.
+impl<R> RowMajor for Buffer<R> {}
 
 // Re-landing a materialized buffer is free: the rows were never given up.
 // `rewind` re-LANDS, so it clears the seek position too — that is the whole

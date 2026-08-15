@@ -1,0 +1,186 @@
+// ADR 0025 §10 (S6) — THE DBSP SEAM, MEASURED AT THE BOUNDARY.
+//
+// §10 states four things. This fixture pins the three that are decidable by a
+// program, and pins them as VALUES rather than as counts (a count cannot tell a
+// fold that ran from a fold that returned the accumulator it started with):
+//
+//   1. AN EPOCH IS ONE BATCH. `Epoch<R>` — the stream form of the incremental
+//      tier's `<q>_apply(h, tag, __wd, src: &[R])` — hands out the whole delta
+//      as ONE `RowsBatch<R>` at ONE weight, then `None`. `insert`/`retract` are
+//      the +1/−1 forwarders `<q>_epoch` / `<q>_retract` already are.
+//
+//   2. THE EMPTY EPOCH IS A TICK, NOT AN END: `Some(empty)` != `None`. The
+//      consumer here answers the two DIFFERENTLY — `-1` means "the stream was
+//      over before it began, no epoch happened" and `0` means "this epoch
+//      changed nothing" — so a producer that reported the empty delta as
+//      exhaustion would not merely fold zero rows, it would return the OTHER
+//      code. That distinction is the whole clause; asserting only "the fold
+//      returned 0" would be satisfied by both.
+//
+//   3. THE WEIGHT DOES NOT ENTER THE CORE ROW MODEL, and the wrapper is a
+//      strict GENERALIZATION of the scalar surface. The row type on both paths
+//      is `i64` — the same type an ordinary query scans — and the mixed-sign
+//      packet `Buffer<Weighted<i64>>` (one batch carrying +1 and −1 rows, which
+//      the scalar surface CANNOT express: it must be split into two `_apply`
+//      calls) is folded against the two constant-weight epochs it replaces.
+//      Both results are asserted against LITERALS, not only against each other,
+//      so a fold that is wrong in the same way on both paths still reds.
+//
+//   4. z⁻¹ — a `Buffer` KEPT ACROSS EPOCHS. The arranged delta is rewound and
+//      re-applied, and the accumulator must move by exactly the same amount
+//      again: a delay that could not be replayed would be a delay that consumed
+//      its state.
+//
+// WHAT THIS FIXTURE IS NOT: it does not compile a `deem` query. The emitter
+// still spells the delta `(__src: i32, __wd: i64, src: &[R])`; the consumption
+// seam is ADR §10's declared next step. Consumers here are HAND-WRITTEN in the
+// shape the emitted fold has (`__w = __wd * __sw`, then accumulate), which is
+// what makes this a boundary fixture rather than a mock.
+package stream_weighted_epoch_seam;
+
+use logos.lang.option;
+use logos.lang.stream;      // BatchStream / Rewind / SizedStream / Weighted / Epoch
+use logos.mem.stream;       // Buffer — the arranged delta / z⁻¹
+use logos.mem.collections.vec;
+
+// The accumulator the emitted incremental fold keeps: a multiplicity count and
+// a weighted sum. Deliberately the two the generated handle keeps as `__gc` /
+// `__ga_t` (`el_add(__gc, __w)`, `el_add(__ga_t, el_mul(__w, col))`).
+struct Acc {
+    n:   i64,
+    sum: i64,
+}
+
+// ── The CONSTANT-WEIGHT consumer: today's surface, pulled as a stream ────────
+//
+// Returns the number of rows folded, or −1 if the stream was EXHAUSTED at the
+// first pull. The two answers are what clause 2 rests on.
+fn apply_epoch(acc: &mut Acc, e: &mut Epoch<i64>) -> i64 {
+    let w: i64 = e.weight();
+    let ob = e.next_batch();
+    if !ob.is_some() { return -1i64; }      // None — no epoch happened at all
+    let mut rows: i64 = 0i64;
+    {
+        let b: &[i64] = ob.unwrap();
+        let n: i64 = b.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            acc.n = acc.n + w;
+            acc.sum = acc.sum + w * b[i];
+            rows = rows + 1i64;
+            i = i + 1i64;
+        }
+    }
+    return rows;
+}
+
+// ── The PER-ROW-WEIGHT consumer: the generalization ──────────────────────────
+//
+// Same accumulator, same arithmetic; the weight comes off the ROW instead of
+// off the call. Note the row itself is still a plain `i64`: `Weighted` wraps,
+// it does not extend the row model.
+fn apply_delta(acc: &mut Acc, d: &mut Buffer<Weighted<i64>>) -> i64 {
+    let ob = d.next_batch();
+    if !ob.is_some() { return -1i64; }
+    let mut rows: i64 = 0i64;
+    {
+        let b: &[Weighted<i64>] = ob.unwrap();
+        let n: i64 = b.len();
+        let mut i: i64 = 0i64;
+        while i < n {
+            let r: &Weighted<i64> = &(b[i]);
+            acc.n = acc.n + r.w;
+            acc.sum = acc.sum + r.w * r.row;
+            rows = rows + 1i64;
+            i = i + 1i64;
+        }
+    }
+    return rows;
+}
+
+fn three() -> Vec<i64> {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64);
+    v.push(20i64);
+    v.push(30i64);
+    return v;
+}
+
+fn one_ten() -> Vec<i64> {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64);
+    return v;
+}
+
+// The SAME delta as `three()` inserted and `one_ten()` retracted, but in ONE
+// packet with per-row weights — the epoch the scalar surface cannot spell.
+fn mixed() -> Buffer<Weighted<i64>> {
+    let mut b: Buffer<Weighted<i64>> = Buffer::<Weighted<i64>>::new();
+    b.push(Weighted::<i64>::insert(10i64));
+    b.push(Weighted::<i64>::insert(20i64));
+    b.push(Weighted::<i64>::insert(30i64));
+    b.push(Weighted::<i64>::retract(10i64));
+    return b;
+}
+
+fn main() -> i32 {
+    // ── (1) ONE BATCH, ONE WEIGHT, THEN None ────────────────────────────────
+    let rows: Vec<i64> = three();
+    let mut ins: Epoch<i64> = Epoch::<i64>::insert(rows.as_slice());
+    if ins.weight() != 1i64 { return 1i32; }
+    if ins.size() != 3u64 { return 2i32; }
+
+    let mut a: Acc = Acc { n: 0i64, sum: 0i64 };
+    if apply_epoch(&mut a, &mut ins) != 3i64 { return 3i32; }
+    if a.n != 3i64 { return 4i32; }
+    if a.sum != 60i64 { return 5i32; }
+    // EXACTLY one packet: the epoch is over, and the tier must not fold twice.
+    if ins.next().is_some() { return 6i32; }
+    // …and `size` is the delta's row count, not a cursor: unmoved by the pull.
+    if ins.size() != 3u64 { return 7i32; }
+
+    // A RETRACT epoch of one row at −1: the same door, the other sign.
+    let dele: Vec<i64> = one_ten();
+    let mut ret: Epoch<i64> = Epoch::<i64>::retract(dele.as_slice());
+    if ret.weight() != -1i64 { return 8i32; }
+    if apply_epoch(&mut a, &mut ret) != 1i64 { return 9i32; }
+    if a.n != 2i64 { return 10i32; }
+    if a.sum != 50i64 { return 11i32; }
+
+    // ── (2) THE EMPTY EPOCH IS A TICK — `Some(empty)` != `None` ─────────────
+    let none_rows: Vec<i64> = Vec::<i64>::new();
+    let mut tick: Epoch<i64> = Epoch::<i64>::insert(none_rows.as_slice());
+    if tick.size() != 0u64 { return 12i32; }
+    // 0 = "an epoch happened and changed nothing". −1 would be "no epoch".
+    if apply_epoch(&mut a, &mut tick) != 0i64 { return 13i32; }
+    // The accumulator is untouched by a tick — a tick is not a reset.
+    if a.n != 2i64 { return 14i32; }
+    if a.sum != 50i64 { return 15i32; }
+    // And AFTER the tick the stream ends, which is the other answer: the two
+    // are distinguishable at the same call site, one pull apart.
+    if apply_epoch(&mut a, &mut tick) != -1i64 { return 16i32; }
+
+    // ── (3) ONE MIXED-SIGN PACKET == THE TWO CONSTANT-WEIGHT EPOCHS ─────────
+    let mut d: Buffer<Weighted<i64>> = mixed();
+    if d.size() != 4u64 { return 17i32; }
+    let mut w: Acc = Acc { n: 0i64, sum: 0i64 };
+    if apply_delta(&mut w, &mut d) != 4i64 { return 18i32; }
+    // Asserted against LITERALS first (an oracle that shares the bug is no
+    // oracle), then against the scalar path's accumulator.
+    if w.n != 2i64 { return 19i32; }
+    if w.sum != 50i64 { return 20i32; }
+    if w.n != a.n { return 21i32; }
+    if w.sum != a.sum { return 22i32; }
+
+    // ── (4) z⁻¹ — THE ARRANGED DELTA SURVIVES ITS EPOCH ─────────────────────
+    // The buffer was consumed as a stream; kept across the epoch boundary and
+    // rewound, it replays the same packet, so the accumulator moves by exactly
+    // the same amount again.
+    if d.next().is_some() { return 23i32; }
+    d.rewind();
+    if apply_delta(&mut w, &mut d) != 4i64 { return 24i32; }
+    if w.n != 4i64 { return 25i32; }
+    if w.sum != 100i64 { return 26i32; }
+
+    return 0i32;
+}

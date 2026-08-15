@@ -544,7 +544,8 @@ fail = []
 # batches. Had the ground gone quiet, this gate would red on the debt ledger,
 # and the pure-class change would have been a vocabulary deletion in disguise.
 # S5-PIPELINE: 182 -> 183, `pass/deem_pipeline_chain` (§12's composition oracle).
-EXPECT_FIXTURES   = 183
+# S6-A: 183 -> 184, `pass/deem_rowmajor_batch_source` (§2's row-major layout).
+EXPECT_FIXTURES   = 184
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -572,7 +573,13 @@ EXPECT_PERM       = 319
 # is scanned where it stands and never reaches `access_plan_decide_mode`'s
 # container arm, so 204 is unchanged and predicting 205 was a wrong model of which
 # sources own a ground.
-EXPECT_NOMAT      = {"container": 204, "readonce": 21, "elided": 8}   # S5-D5: readonce 18 -> 19
+# S6-A: container 204 -> 205 AND readonce 21 -> 22, both from the ONE new
+# fixture and both PREDICTED — `deem_rowmajor_batch_source` is a differential: the
+# same query text over a row-major BATCH source (read once, consumed where it
+# stands) and over a `Vec` twin (a container, already a buffer). One ground each
+# is the fixture's whole shape, so a move of +1/+1 here is the fixture arriving
+# and any other split would have meant it is not the pair it claims to be.
+EXPECT_NOMAT      = {"container": 205, "readonce": 22, "elided": 8}   # S5-D5: readonce 18 -> 19
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family

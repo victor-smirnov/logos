@@ -112,6 +112,43 @@ a new row in that function, not a new branch in every consumer. Selection
 vectors (filtered batch without copy) are deliberately NOT in v1 — recorded as
 an axis.
 
+**THE LAYOUT MARKER LANDED (S6, 2026-08-14), AND UNTIL THEN THIS SECTION WAS
+HALF PROSE.** "The natspec rel entry gains a layout marker" above was written
+in the future tense and stayed there through S1–S5, because only `ColsBatch`
+had a consumer: `params::batch_row_text` spelled `bb.<col>_at(j)`
+UNCONDITIONALLY, and the counter was typed `u64` because that is what
+`ColsBatch::len` returns. So a ROW-MAJOR producer — the case §2 lists FIRST,
+and the shape every heap collection, fixpoint output and §10 delta has — did
+not compile. Measured on a user source whose producer returns
+`Buffer<(i64, i64)>`, three errors, three different halves of one gap:
+
+```
+error: 'Buffer$…$G1$tup$2$i64$i64' has no method 'next_batch'
+error: slice has no method 'a_at'
+error: let '__bn0': type mismatch — expected u64, got i64
+```
+
+The marker is `logos.lang.stream::RowMajor` — a MARKER TRAIT on the stream
+type, asked of the producer's return type exactly as `o`/`r`/`n` are, emitted
+as the natspec letter `m`, absent ⇒ columnar (so every pre-S6 producer's
+emission is unchanged, byte for byte, and the corpus measured it). It is a
+separate trait rather than `BatchStream<B>`'s ARGUMENT — which is where the
+answer physically is — because `sema_has_impl_recursive` answers membership
+with a bool and hands back no trait type arguments; the marker retires when
+that recorded residual (the same one behind `order <rel> = <col>`) closes.
+Two functions read it and nothing else does: `batch_row_text` (`bb[j as i64]`
+vs `bb.<col>_at(j)`) and its new companion `batch_len_text` (the `as u64`
+cast), which is the "a layout is a ROW IN THAT FUNCTION" rule made structural
+across all three pull sites (`batch_scan_frag`, `batch_scan_rev_frag`, the
+drain prelude). `Buffer<R>` also gained the INHERENT `next_batch()` door the
+emitter calls, with `BatchStream::next` delegating to it — the shape the
+generated family has carried since S0; the degenerate stream implemented the
+protocol and could not be consumed BY it. Fixture
+`pass/deem_rowmajor_batch_source` (four packets, one EMPTY mid-stream, the
+source's own `PULLS`/`ROWS` log, and a `Vec`-producer twin as the answer
+differential) + gate `logos_09_rowmajor_batch_layout` (both layouts, each
+spelling asserted absent from the other subject).
+
 ⚠ THE COLUMN ACCESSOR IS NOT A METHOD ON THE BATCH — measured 2026-08-11,
 landing `stdlib/mem/bt/batch.logos`. The spelling above says `b.col_k()`, but a
 column drawn as a METHOD of the batch is NOT borrow-tied to the leaf: a free
@@ -699,12 +736,39 @@ the emitted loop.
 
 ## 6. Other storages
 
-* Heap `Vec<T>`/`&[T]`: one-packet `RowsBatch` stream (§1). `HashMapIter`:
-  row batches, no order, point-probe ops as today.
-* Writ: the prebuilt `Vec<WritEdgeRow>` is a one-packet stream now; a
-  `WritWalk` cursor streaming document-walk batches is a later slice.
-* rel fixpoint outputs and semi-naive deltas: one-packet streams; an EPOCH is
-  one batch — including the empty one, which is a meaningful tick (§10).
+* Heap `Vec<T>`/`&[T]`: ⚠ CORRECTED (S6 audit, 2026-08-14 — the same
+  falsehood as the writ bullet below, struck the same day): a Vec producer
+  emits `Vec` + `as_slice()` + the indexed slice arm, NOT a stream (measured:
+  the `deem_rowmajor_batch_source` twin producer in the same dump). The
+  row-major CONSUMER exists since S6-A (`RowMajor` + the `m` letter) — a
+  Vec-SHAPED source CAN join the plane, but no corpus source does yet.
+  `HashMapIter`: row batches, no order, point-probe ops as today.
+* Writ: ~~the prebuilt `Vec<WritEdgeRow>` is a one-packet stream now~~ — **FALSE
+  AS SPELLED, CORRECTED S6 (2026-08-14) rather than "formalized".** Measured on
+  the 11 corpus dumps that carry `writ_graph_edges` (45 call sites): the emitted
+  code is `let __rel_g: Vec<WritEdgeRow> = writ_graph_edges(g);` +
+  `.as_slice()` + the SLICE arm's indexed loop. Zero `next_batch`, zero
+  `Buffer`, zero `BatchStream` ON THE WRIT PATH ITSELF (⚠ scoped by the S6
+  verify: a raw grep over the 11 writ-carrying DUMPS returns 1 `next_batch`
+  and 49 `Buffer<` — the former is a Memoria LeafWalk sharing the dump, the
+  latter S5's query-output surface; the per-path claim is what holds, and
+  this sentence is spelled so the grep it invites agrees with it). What IS true is the weaker
+  PLAN-level fact the trace already prints — `MG_CONTAINER`, "no
+  materialization on already a buffer: the producer hands back a container,
+  which IS a buffer — nothing is built". That is a MATERIALIZATION ground, not
+  a stream, and the difference is the whole subject of §4. A `WritWalk` cursor
+  streaming document-walk batches remains the real work and is NOT landed; see
+  the S6 slice entry for the measured refusal of the intermediate step
+  (wrapping the prebuilt `Vec` in a `Buffer` and declaring it), which costs 29
+  inserted materialization nodes and buys nothing.
+* rel fixpoint outputs and semi-naive deltas: ⚠ CORRECTED (S6 audit, same
+  day): 1,691 `__rel_*_sl` and 540 `__dl_*_sl` INDEXED SLICE landings across
+  the corpus against 12 drain-created Buffers — these are NOT one-packet
+  streams today; the epoch-as-batch vocabulary exists (§10, `Epoch<R>`) and
+  the empty-epoch tick is pinned, but the fixpoint plane itself still lands
+  slices. An EPOCH is one batch — including the empty one, a meaningful tick
+  (§10) — at the VOCABULARY level; the consumption seam is the declared next
+  step.
 
 ## 7. Lifetime and pinning — what makes zero-copy sound
 
@@ -977,6 +1041,71 @@ epoch is `Some(empty)` — a tick, not an end. `Arrange` is DBSP's arranged
 input; a `Buffer` kept across epochs is z⁻¹. `[REC]` The weight does NOT enter
 the core row model: ordinary queries pay nothing; the incremental tier rides
 the same plane with a wrapped row type.
+
+LANDED (S6, 2026-08-14) as VOCABULARY WITH A BOUNDARY FIXTURE AND AN UNMOVED
+EMITTER — the split is stated first because a type with no consumer that reads
+as "landed" is the recorded green-over-a-branch-that-never-executed shape:
+
+* `logos.lang.stream`: `Weighted<R>` (`{ row: R, w: i64 }` + `at`/`insert`/
+  `retract`), `DeltaBatch<R>` = `RowsBatch<Weighted<R>>` = `&[Weighted<R>]`,
+  and `Epoch<R>` — a `#[borrow_carrying]` ONE-PACKET stream over the caller's
+  `&[R]` at ONE weight, `BatchStream` + `RowMajor` + `Rewind` + `SizedStream`.
+* `logos.mem.stream`: no new type. `Buffer<Weighted<R>>` IS the arranged
+  mixed-sign delta, and a `Buffer` kept across epochs IS z⁻¹ — recorded on
+  `Buffer` itself, next to the ownership note that explains why the delay owns
+  (`Epoch` borrows) rather than in a doc a reader of the type never opens.
+* `tests/logos/pass/stream_weighted_epoch_seam` (labels `logos;pass;corpus;suite_semantic_core`, i.e. L2): the four §10
+  clauses as VALUES. The empty-epoch tick is pinned by making the consumer
+  answer `Some(empty)` and `None` DIFFERENTLY (`0` rows folded vs `-1` = no
+  epoch happened), so a producer that reported the empty delta as exhaustion
+  returns the other code rather than merely folding zero rows.
+
+TWO SPELLINGS, AND THE SECOND IS FORCED BY THE TYPES. `Epoch<R>` (weight beside
+the packet) and `Weighted<R>` (weight per row) are not a redundancy: `&[R]` and
+`&[Weighted<R>]` are different layouts, so handing a borrowed constant-weight
+delta out as `DeltaBatch<R>` would MATERIALIZE a `Vec<Weighted<R>>` the caller
+never asked for — a compiler-inserted intermediate materialization, which is
+criterion 1's subject. The generalization is real where it is needed: one
+`Buffer<Weighted<R>>` packet carries +1 and −1 rows, which the scalar surface
+cannot express at all (today it must be split into two `_apply` calls), and the
+fixture folds that packet against the two constant-weight epochs it replaces.
+
+ORDINARY QUERIES PAY NOTHING — MEASURED, not asserted: the whole-corpus
+artifact snapshot is byte-identical across this stage (168 dumps / 7,688,158
+bytes over the 184 `deem_*`/`wql_*` fixtures, `diff -rq` empty). The new
+fixture is `stream_*` by construction — it compiles no query — so it is not
+inside that population and cannot flatter it.
+
+THE CONSUMPTION SEAM IS THE PLANE'S DECLARED NEXT STEP, AND ITS COST WAS
+MEASURED RATHER THAN GUESSED. The seam is `<q>_apply`'s parameter list:
+`(__h, __src: i32, __wd: i64, <params VERBATIM>)` → `(__h, __src: i32, d: &mut
+impl BatchStream<…>)`, with `_epoch`/`_retract` staying as forwarders that wrap
+the caller's slice in an `Epoch` (which is exactly "an epoch is one batch", and
+keeps the empty tick representable — an empty `&[]` is already a legal no-op
+fold returning `Ok(0)`). What stops it today, over the corpus snapshot:
+
+* **THE DELTA'S PARAMETER LIST IS THE ORDINARY QUERY'S PARAMETER LIST.** In
+  70 of 70 emitted `_apply` fns the parameters after the `(__h, __src, __wd)`
+  prefix are TEXTUALLY IDENTICAL to the batch fn `<q>`'s own parameter list
+  (measured over the 168 dumps). `rexpr_walk` states this as the rule ("`<q>_epoch`
+  takes the query's parameter list VERBATIM — the same one `<q>()` takes"); the
+  consequence is that re-spelling the delta as a stream either re-spells every
+  ordinary query's signature — which is the corpus-wide change this stage's
+  control exists to forbid — or forks the two lists, which is the divergence
+  that rule was written to prevent. Population: 70 `_apply`, 102 `_epoch`,
+  88 `_retract` across 26 of the 168 dumps. ⚠ S6 audit: re-measured 71/103/89 across 27 of 169 — a uniform +1 not attributable to the fixture added since; the IDENTITY claim re-derived independently and holds at 71/71 parameter lists. Derivation: grep -c over the corpus user dumps, command in the criteria doc §2.
+* **DRed's PHASES ARE NOT A DELTA AT ALL.** All 124 emitted `__wql_<q>_scc<c>`
+  phase fns (`_od`/`_odp`/`_cpt`/`_i`) take `&[…]` of DERIVED facts whose sign
+  is fixed by PHASE (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). Wrapping
+  those rows would attach a weight to a row that has none — and §"WEIGHTS MAY
+  NEVER FLOW NAIVELY INTO AN SCC" (`incr_eligible`) says why the answer is not
+  "carry `__wd` through": counting derivations through a cycle diverges. So the
+  seam stops at `<q>_apply`; DRed is NOT in it.
+* The stored state needs no change and gets none: `__s<k>: Vec<R>` + its
+  sidecar `__s<k>w: Vec<i64>` is already the Z-set in normal form with the
+  weight OFF the row, and `__edb` is deliberately weightless (a set). That is
+  §10's `[REC]` already true by construction — `Weighted<R>` is a boundary
+  type, not a change to state.
 
 ## 11. Vocabulary home
 
@@ -1438,6 +1567,106 @@ scan shape; every other cell is declared, not silently absent.
     (59 → 128 instructions for an already-materialized source), which no checker
     fix moves. Two blockers became one, and the survivor is a number.
 * **S6 — WritWalk batches; weighted batches** (the DBSP seam §10).
+  **S6-A — THE ROW-MAJOR LAYOUT LANDED, AND THE WRIT SWITCH IS REFUSED WITH ITS
+  NUMBERS (2026-08-14).** The stage opened at §6's Writ sentence, which the map
+  found FALSE as spelled (corrected in place, above). What the plane was
+  actually missing turned out to be one layer down and NOT Writ-specific: §2's
+  row-major batch had no consumer, so no `Vec`-shaped source could join the
+  plane at all. That half is landed (§2's LANDED block: `RowMajor` + the `m`
+  letter + `batch_row_text`/`batch_len_text` + `Buffer::next_batch`), with
+  `pass/deem_rowmajor_batch_source` and `logos_09_rowmajor_batch_layout`.
+  Registry 7172→7174 / 3489→3491 / 36 unchanged — predicted before the
+  reconfigure, measured after, exact.
+  * **THE REFUSAL, MEASURED BY CONTROL AND THEN REVERTED.** The cheap way to
+    "join the plane" is to declare the Writ rel over a Buffer producer
+    (`rel edge = writ_graph_stream;` where
+    `writ_graph_stream(root) = Buffer::from_vec(writ_graph_edges(root))`).
+    Landed on a scratch tree, full corpus sweep (203 files, both trees, same
+    build, rc from a redirect), then reverted with a green build checkpoint:
+    - **3 fixtures stop compiling** (`wql_writ_graph_e2e`,
+      `deem_three_domain_join`, `wql_graph_root_id_cross_document`) — 2 known
+      pinned failures in both sweeps, so the delta is exactly 3.
+    - **+29 inserted materialization NODES.** "A rel block may scan this source
+      repeatedly" 1→20, "the query names this source on both sides of a join"
+      0→9, `order by` 4→5. Each is a full second copy of the document's entire
+      edge relation, built by the drain prelude out of a `Buffer` the producer
+      had ALREADY built. `MG_CONTAINER` grounds 227→167 lines.
+    - **+35,073 corpus bytes** (8,876,668 → 8,911,741), same 4,011 dumps.
+    - ⚠ **AND THE CRITERION-1 INSTRUMENT WOULD HAVE CALLED THIS AN
+      IMPROVEMENT**: `[plan]` lines matching "materializ" go 668 → 638 while the
+      artifact materializes 29 times MORE. The instrument counts SENTENCES, and
+      the switch trades 60 "nothing is built" sentences for 30 streams and 29
+      drains. Recorded here for #47: a ratio over ground sentences is not a
+      count of materializations, and this is the first measured case where the
+      two move in opposite directions.
+    The cause is structural, not a bug: a `Buffer` is a POSITIONED stream with
+    ONE cursor, so every re-read (a rel block, a self-join) must be drained,
+    while a `Vec` + `as_slice()` is a landed relation any number of nested loops
+    can index. `Rewind` is the capability that would say "re-readable in place",
+    and the drain pass does not consult it — but rewinding a SHARED binding
+    mid-outer-loop is not the same operation as a second independent cursor, so
+    consulting it is not the repair either. The honest repair is the one §6
+    always named: the `WritWalk` CURSOR, which streams document-walk batches
+    without prebuilding anything, and whose re-read story is a second walk
+    rather than a second copy.
+  * **THE FOURTH PULL SITE, FOUND BY THE CONTROL AND STILL OPEN.**
+    `rexpr_walk::build_phase_frag` — the HASH-JOIN BUILD phase — pulls
+    row-at-a-time (`let __bo1: Option<Row> = (src).next();`) and was never
+    converted when S1 collapsed the scan. Any batch source on a join's build
+    side dies there: `let '__bo1': type mismatch — expected Option, got Option`
+    (the annotation is the ROW type, the pull yields a BATCH). This is not
+    writ-specific — a family leaf walk on a build side would fail identically —
+    and it is invisible to the green corpus BY CONSTRUCTION, because no corpus
+    query puts a batch source on that side today. It is criterion 2's join-plane
+    gap made concrete, and it is owed by whichever stage first needs it (the
+    `WritWalk` cursor will).
+  * **THE LANDING IS INERT FOR EVERY EXISTING PRODUCER, ON THE ARTIFACT.** A
+    layout letter nothing emits is a change that must not move a byte, and that
+    is checked rather than argued: the four writ-carrying dumps re-compiled on
+    this tree are BYTE-IDENTICAL to their `af17c2fa` baselines
+    (`wql_writ_graph_e2e`, `wql_gpath_e2e`, `query_tree_source_graph_e2e`,
+    `derive_graph_source_root_row`), and a whole-corpus `diff -rq` between the
+    tree before and after the fixture landed reports no shared dump changed at
+    all. CORPUS SNAPSHOT, re-baselined for this sweep's denominator (203→204
+    files, `sandbox/s6writ/sweep.sh`, rc from a redirect, the same 2 pinned
+    non-compiling fixtures both times): 4,011 → 4,021 dumps, 8,876,668 →
+    8,892,177 bytes, 4,249 → 4,259 `[plan]` lines — every delta is the new
+    fixture's own.
+  * **NOT STARTED HERE: the weighted half (§10).** `Weighted<R>` + the wrap, and
+    what the incremental tier can consume today, are untouched by S6-A — they
+    are S6-B below.
+  **S6-B — THE DBSP SEAM: VOCABULARY LANDED, CONSUMPTION SEAM MEASURED AND
+  DECLARED (2026-08-14).** §10's LANDED block has the whole statement; the
+  slice-level facts:
+  * `Weighted<R>` / `DeltaBatch<R>` / `Epoch<R>` in `logos.lang.stream`; z⁻¹
+    recorded on `Buffer` (`Buffer<Weighted<R>>` = the arranged mixed-sign
+    delta, NO new type); `pass/stream_weighted_epoch_seam` pins the four §10
+    clauses as VALUES, including `Some(empty)` != `None` by making the consumer
+    answer the two differently.
+  * **THE WEIGHT COSTS ORDINARY QUERIES NOTHING, CONTROLLED:** whole-corpus
+    artifact snapshot byte-identical, 168 dumps / 7,688,158 bytes over the 184
+    `deem_*`/`wql_*` fixtures, `diff -rq` empty (`sandbox/wql_corpus_snapshot_par.sh`,
+    rc from a redirect). The new fixture is outside that population by
+    construction — it compiles no query.
+  * **THE FIXTURE BITES — THREE PERTURBATIONS, EACH REVERTED TO A GREEN
+    CHECKPOINT BEFORE THE NEXT** (21-fixture stream-vocabulary consumer sweep,
+    one rc file per fixture, count asserted; green0/green1/green2/green3 all
+    0 red): (1) `Epoch::next_batch` returning `None` for an empty slice — the
+    empty-epoch-is-an-end defect — reds 1 fixture at code 13 (the tick clause);
+    (2) `Weighted::retract` at +1 reds 1 at code 19 (the mixed-sign clause);
+    (3) `Buffer::rewind` not un-sending reds 4 — `stream_buffer_degenerate`,
+    `stream_rewind_door_admitted`, `stream_traversal_buffer` and this fixture at
+    code 24 (the z⁻¹ clause), which is the fire count that shows the replay
+    clause reads the shared door rather than a private one.
+  * **THE CONSUMPTION SEAM IS DECLARED, NOT ATTEMPTED, AND THE REASON IS TWO
+    NUMBERS:** 70 of 70 emitted `_apply` fns take a delta parameter list
+    TEXTUALLY IDENTICAL to their own batch fn's, so a stream-spelled delta
+    re-spells every ordinary query's signature or forks the two lists; and all
+    124 DRed phase fns take `&[…]` of derived facts whose sign is fixed by
+    PHASE, where a per-row weight would be wrong in the direction
+    `incr_eligible` already records ("weights may never flow naively into an
+    SCC"). The seam is therefore `<q>_apply`'s parameter list ALONE — named in
+    §10, owed by the stage that changes the incremental surface.
 
 ## Consequences
 
@@ -1454,6 +1683,17 @@ slices; the Memoria handle change is ABI-breaking (bump owed as its own step).
 
 ## References
 
+- **`0025-criteria-and-instruments.md` — THE ARC'S DEFINITION OF DONE.** Victor's
+  three criteria as stated, the operational reading of each, the instrument that
+  reads it (`tests/logos/criterion1_materialization_instrument.sh`,
+  `tests/logos/rc_seam_gate.sh`), the reading on the current tree, and §4: the
+  residual inventory — every open item of this arc in ONE walkable list (the S5
+  audit's F3/F5/F7-F10, this document's own owed bullets, the compiler residuals
+  of tasks #50/#51). ⚠ Numbers quoted in the slice journal ABOVE were measured
+  when their slice landed; the criteria file is where they are kept current, and
+  it supersedes any figure here that it re-measures — in particular the recorded
+  `609/4,023 = 15.14%`, which it shows was a TEXT ratio whose numerator was
+  mostly `no materialization` ABSENCES.
 - ADR 0024 (typed plan IR; S6 declared operation sets — unchanged here).
 - ADR 0020 (container⟂store split; emitter-parameterized store specifics).
 - ADR 0013 (DBSP; §10).

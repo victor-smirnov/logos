@@ -21391,6 +21391,18 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         const bool mat_ordered = producer_impls_trait_(mat_fn_used, "OrderedBy");
         const bool mat_bidir   = producer_impls_trait_(mat_fn_used, "Bidirectional");
         const bool mat_randacc = producer_impls_trait_(mat_fn_used, "RandomAccess");
+        // ADR 0025 S6 — `m`, THE BATCH LAYOUT. §2 promised two layouts
+        // "declaration-selected"; until S6 only the columnar one had a
+        // consumer, so the emitter spelled `<col>_at(j)` unconditionally and a
+        // row-major producer (`Buffer<R>`, every prebuilt `Vec` source) died in
+        // codegen with `slice has no method 'a_at'` — measured. `m` = the
+        // batches are `RowsBatch<R>` = `&[R]`; ABSENT = columnar, so every
+        // producer that predates the marker keeps its emission byte for byte.
+        // Asked of the RETURN TYPE like the other four letters, via a marker
+        // trait, because membership is all `sema_has_impl_recursive` answers —
+        // the layout is physically `BatchStream`'s type ARGUMENT and that
+        // residual is recorded at `RowMajor` in `stream.logos`.
+        const bool mat_rowmaj  = producer_impls_trait_(mat_fn_used, "RowMajor");
         if (mat_batches || producer_streams_(mat_fn_used)
             || mat_ordered || mat_bidir || mat_randacc) {
             spec += "!";
@@ -21399,6 +21411,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             if (mat_ordered) spec += "o";
             if (mat_bidir)   spec += "r";
             if (mat_randacc) spec += "n";
+            if (mat_rowmaj)  spec += "m";
             spec += "%";
             spec += producer_ret_type_(mat_fn_used);
         }

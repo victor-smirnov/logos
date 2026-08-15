@@ -1893,6 +1893,11 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let mut rowx: String = String::new();
     batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
     let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    // The LENGTH is layout-selected too (`batch_len_text`): a columnar batch
+    // answers `u64`, a row-major one is a slice and answers `i64`.
+    let mut lenx: String = String::new();
+    batch_len_text(&mut lenx, prm, r, string_as_str(&s_bb));
+    let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
     return quote_block! {
         loop {
             #(brk_o);
@@ -1900,7 +1905,7 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
             if #n_ob.is_some() {
                 {
                     let #n_bb = #n_ob.unwrap();
-                    let #n_bn: u64 = #n_bb.len();
+                    let #n_bn: u64 = #(lene_f);
                     let mut #n_bj: u64 = 0u64;
                     while #n_bj < #n_bn {
                         #(brk_i);
@@ -1954,6 +1959,11 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let mut rowx: String = String::new();
     batch_row_text(&mut rowx, prm, r, string_as_str(&s_bb), string_as_str(&s_bj));
     let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    // The LENGTH is layout-selected too (`batch_len_text`): a columnar batch
+    // answers `u64`, a row-major one is a slice and answers `i64`.
+    let mut lenx: String = String::new();
+    batch_len_text(&mut lenx, prm, r, string_as_str(&s_bb));
+    let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
     return quote_block! {
         (#(src_f)).land_end();
         loop {
@@ -1962,7 +1972,7 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
             if #n_ob.is_some() {
                 {
                     let #n_bb = #n_ob.unwrap();
-                    let #n_bn: u64 = #n_bb.len();
+                    let #n_bn: u64 = #(lene_f);
                     let mut #n_bj: u64 = #n_bn;
                     while #n_bj > 0u64 {
                         #n_bj = #n_bj - 1u64;

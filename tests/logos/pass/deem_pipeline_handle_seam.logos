@@ -1,0 +1,166 @@
+// ADR 0025 #47 — THE PIPELINE ARM THE RC INSTRUMENT WAS BLIND WITHOUT.
+//
+// `pass/deem_pipeline_chain` pins §12's composition, and the S5 audit measured
+// its object for criterion 3 and found zero Arc/Rc — then showed the reading was
+// VACUOUS: that fixture's q1 reads a bare `&[Row]` and a hand-written
+// `SeamSrc`/`SeamIter`, so no program of that shape could contain a reference
+// count no matter what the emitter did. A zero measured over a population that
+// cannot hold the thing being counted is not evidence about the emitter.
+//
+// This file is that population's missing arm, named by the audit verbatim: a
+// pipeline whose **q1 reads a container handle**. The handle IS `{snap: Arc<dyn
+// Snapshot>, ctr_id}` (ADR 0025 req. 2 / §7b), so the object necessarily
+// contains the `Arc` create/open path and at least one real
+// `Arc::clone_ref` CALL SITE. `tests/logos/rc_seam_gate.sh` then asks the only
+// question that is about the emitter: are those call sites in the SETUP
+// functions, or in the per-row path the query runs? The setup calls make the
+// instrument's zero falsifiable — without them the gate refuses the fixture as
+// vacuous (FAIL(2)), which is the check the S5 audit said was missing.
+//
+// ── WHAT THIS FILE ASSERTS AT RUNTIME (the gate reads the artifact) ─────────
+//
+//   SEAM 1  q1's output, in PACKETS. `buffered` (§12) ⇒ exactly 1, then
+//           exhaustion — the same number `deem_pipeline_chain` pins for a slice
+//           source, here for a source that descends a container.
+//   SEAM 2  q2's input, in PULLS, counted in the source iterator's own `next()`
+//           and nowhere else. `limit 3` pulls 3 of 8; the CONTROL `q2_all` —
+//           same source, same rel, no bound — pulls all 8. One variable, both
+//           directions, one program: the 3 is a fact about PULL-THROUGH and not
+//           about a source that happened to be short.
+//
+// The rows are asserted against literals as well as against each other, so a
+// chain that agrees with itself on the WRONG rows is not green.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.stream;              // Buffer<R> — q1's stream surface
+use logos.lang.stream;             // BatchStream / RowsBatch — the pull protocol
+use logos.lang.iter;               // trait Iterator — seam 2's protocol
+use logos.lang.option;
+use logos.lang.result;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+// q1 — THE HANDLE READER. 8 of the 10 entries match, a strict subset, so a
+// chain that handed the SOURCE through instead of q1's answer shows up in the
+// row values below.
+pub deem q1(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e where e.key >= 2u64 select (e.key, e.val)
+}
+
+// ── SEAM 2'S INSTRUMENT ────────────────────────────────────────────────────
+// Incremented in the source iterator's `next()` and NOWHERE else.
+//
+// ⚠ IT IS A POINTER TO A LOCAL, NOT A `static mut`, AND THE REASON IS A
+// RECORDED DEFECT: a module holding a `static mut`, a family deem AND a
+// native-source deem does not compile — `logosc-metaprog: jit add_module:
+// Duplicate definition of symbol 'test$PULLED'` — the same metaprog/JIT defect
+// `pass/deem_order_desc_elision` records at its own split. This fixture needs
+// all three in ONE module (that IS the arm: a handle-fed chain), so the counter
+// moves off the module surface instead of the fixture being split in half.
+pub struct SeamSrc { pub rows: &[(u64, u64)], pub ctr: *mut i64 }
+
+pub struct SeamIter { pub rows: &[(u64, u64)], pub i: i64, pub ctr: *mut i64 }
+
+impl Iterator<(u64, u64)> for SeamIter {
+    fn next(self: &mut SeamIter) -> Option<(u64, u64)> {
+        if self.i >= self.rows.len() { return Option::None; }
+        unsafe { self.ctr[0] = self.ctr[0] + 1i64; }
+        let v: (u64, u64) = self.rows[self.i];
+        self.i = self.i + 1i64;
+        return Option::Some(v);
+    }
+}
+
+pub fn seam_rows(s: &SeamSrc) -> SeamIter {
+    return SeamIter { rows: s.rows, i: 0i64, ctr: s.ctr };
+}
+
+impl OrderedMapSource<u64, u64> for SeamSrc {
+    rel entry = seam_rows;
+}
+
+// q2 — the second deem. `limit 3` is the bound whose pull count is the oracle.
+pub deem q2_head(s: &SeamSrc) { from s e select (e.key, e.val) limit 3 }
+
+// THE CONTROL: identical but unbounded. Same source, same rel, one variable.
+pub deem q2_all(s: &SeamSrc) { from s e select (e.key, e.val) }
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 10u64 { c.insert(k, k * 10u64); k = k + 1u64; }
+
+    // q1's Vec surface first — the reference the stream packet is checked
+    // against.
+    let v1: Vec<(u64, u64)> = match q1(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if v1.len() != 8i64 { return 12i32; }
+
+    // ── SEAM 1, `buffered`: EXACTLY ONE PACKET, THEN EXHAUSTION ────────────
+    let mut s1: Buffer<(u64, u64)> = match q1_stream(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+
+    let o1: Option<RowsBatch<(u64, u64)>> = s1.next();
+    if !o1.is_some() { return 2i32; }
+    let b1: RowsBatch<(u64, u64)> = o1.unwrap();
+    if b1.len() != 8i64 { return 3i32; }
+
+    let mut m: i64 = 0i64;
+    while m < 8i64 {
+        let t: (u64, u64) = b1[m];
+        if t.0 != v1.get(m).0 { return 25i32; }
+        if t.1 != v1.get(m).1 { return 26i32; }
+        m = m + 1i64;
+    }
+
+    let o1b: Option<RowsBatch<(u64, u64)>> = s1.next();
+    if o1b.is_some() { return 4i32; }
+
+    // ── SEAM 2: PULL-THROUGH OFF THE HANDLE-FED SURFACE ───────────────────
+    let mut pulled: i64 = 0i64;
+    let src_s: SeamSrc = SeamSrc { rows: s1.as_slice(), ctr: &mut pulled as *mut i64 };
+
+    pulled = 0i64;
+    let h1: Vec<(u64, u64)> = match q2_head(&src_s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if h1.len() != 3i64 { return 6i32; }
+    if pulled != 3i64 { return 7i32; }   // THE ORACLE: 3 of 8.
+
+    // THE CONTROL, same source, no bound ⇒ all 8.
+    pulled = 0i64;
+    let a1: Vec<(u64, u64)> = match q2_all(&src_s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if a1.len() != 8i64 { return 9i32; }
+    if pulled != 8i64 { return 10i32; }
+
+    // ── VALUES, NOT JUST COUNTS ───────────────────────────────────────────
+    // q1 kept keys 2..9; the chain's head is the first three of those.
+    if h1.get(0i64).0 != 2u64 || h1.get(0i64).1 != 20u64 { return 18i32; }
+    if h1.get(1i64).0 != 3u64 || h1.get(1i64).1 != 30u64 { return 19i32; }
+    if h1.get(2i64).0 != 4u64 || h1.get(2i64).1 != 40u64 { return 20i32; }
+
+    let mut j: i64 = 0i64;
+    while j < 8i64 {
+        if a1.get(j).0 != v1.get(j).0 { return 21i32; }
+        if a1.get(j).1 != v1.get(j).1 { return 22i32; }
+        if a1.get(j).0 != (j + 2i64) as u64 { return 23i32; }
+        if a1.get(j).1 != ((j + 2i64) * 10i64) as u64 { return 24i32; }
+        j = j + 1i64;
+    }
+
+    return 0i32;
+}

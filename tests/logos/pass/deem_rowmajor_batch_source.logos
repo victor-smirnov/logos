@@ -1,0 +1,165 @@
+// ADR 0025 §2 / S6 — THE ROW-MAJOR BATCH SOURCE, SCANNED BY THE ONE PULL SHAPE.
+//
+// §2 says the plane has TWO batch layouts, "declaration-selected": `ColsBatch`
+// (columnar, a Memoria leaf's PdtBuf slots) and `RowsBatch<R>` = `&[R]`
+// (row-major — heap collections, fixpoint outputs, DBSP deltas §10, and the
+// `WritWalk` cursor when it lands). Until S6 only the columnar layout had a
+// consumer, so the emitter spelled the cell read `bb.<col>_at(j)`
+// UNCONDITIONALLY and the row-major half of §2 was prose. MEASURED, on a source
+// whose producer returns `Buffer<(i64, i64)>` — sema accepted the declaration,
+// the natspec carried `b`, the plan said "streamed", and codegen died:
+//
+//     error: 'Buffer$…$G1$tup$2$i64$i64' has no method 'next_batch'
+//     error: slice has no method 'a_at'
+//     error: let '__bn0': type mismatch — expected u64, got i64
+//
+// three errors, three different halves of one gap: the inherent pull door the
+// emitter calls, the cell read, and the counter type (`ColsBatch::len` is `u64`,
+// a slice's is `i64`). S6 closes all three — `Buffer::next_batch`, the
+// `RowMajor` marker + the natspec's `m` letter, and `params::batch_len_text`.
+//
+// ── WHAT THIS FIXTURE ASSERTS, AND WHY EACH HALF IS NEEDED ──────────────────
+//
+// (1) A MULTI-PACKET row-major stream is scanned CORRECTLY. Not a `Buffer`: a
+//     hand-written stream that hands out FOUR batches, so the outer pull loop
+//     demonstrably runs more than once. A one-packet source would leave "the
+//     outer loop runs at all" and "the outer loop runs repeatedly" the same
+//     observation, and the second is what the protocol is for.
+//
+// (2) ONE OF THOSE BATCHES IS EMPTY, IN THE MIDDLE. §1: `Some(empty)` is a
+//     legal TICK, never an end. The hand-written `Buffer` fixture pins that for
+//     the type (`pass/stream_buffer_degenerate`); this pins it for the EMITTED
+//     loop, which is different generated text. An emitter that treated
+//     `len() == 0` as termination returns 2 rows here instead of 5 — the empty
+//     batch sits BEFORE half the data for exactly that reason.
+//
+// (3) THE SOURCE'S OWN CALL LOG IS THE ORACLE, and it shares no code with the
+//     query plane: `PULLS` counts `next_batch()` calls including the closing
+//     `None`, `ROWS` counts rows handed out. 5 and 5. `PULLS == 1` would mean
+//     the emitter drained the whole thing through one call it never repeated;
+//     `PULLS == 6` would mean it pulled after the `None`.
+//
+// (4) THE DIFFERENTIAL: the SAME query text over the SAME five rows delivered
+//     by a `Vec` producer (the columnar-less container path every corpus source
+//     uses today) must return the SAME answer sequence. The layout is a
+//     representation, and a representation that changes answers is not one.
+//     This is the half that would catch an off-by-one in the `bb[j as i64]`
+//     row read — a wrong index is still a legal program.
+//
+// ⚠ THE CONTROL IS A COMPILE, NOT A DIFFERENCE IN OUTPUT, and it was run rather
+// than assumed: deleting `impl RowMajor for EdgeStream` below (one line, nothing
+// else) puts the emitter back on the columnar arm and the fixture fails to
+// compile with `slice has no method 'a_at'`. So the row-major arm is not merely
+// green here — it is the only thing that makes this file compile at all, which
+// is what says the branch EXECUTED rather than that some branch did.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.slice;
+use logos.lang.stream;
+use logos.lang.result;
+use logos.lang.option;
+
+// The independent oracle: the source's own log.
+static mut PULLS: i64 = 0i64;
+static mut ROWS:  i64 = 0i64;
+
+pub struct EdgeSrc { pub n: i64 }
+
+/// A row-major batch stream over owned rows: four packets, one of them empty.
+/// The batch is a BORROWED window into `rows` (`RowsBatch<R>` = `&[R]`, §2), so
+/// nothing is copied to hand it out.
+pub struct EdgeStream { pub rows: Vec<(i64, i64)>, pub step: i64 }
+
+impl EdgeStream {
+    /// THE INHERENT DOOR — what `rexpr_walk::batch_scan_frag` calls. The trait
+    /// impl below delegates here, so the two doors cannot drift (the shape the
+    /// generated container family has carried since S0).
+    pub fn next_batch(&mut self) -> Option<RowsBatch<(i64, i64)>> {
+        unsafe { PULLS = PULLS + 1i64; }
+        let s: i64 = self.step;
+        self.step = s + 1i64;
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = 0i64;
+        if s == 0i64 { lo = 0i64; hi = 2i64; }
+        else if s == 1i64 { lo = 0i64; hi = 0i64; }   // the EMPTY tick, mid-stream
+        else if s == 2i64 { lo = 2i64; hi = 4i64; }
+        else if s == 3i64 { lo = 4i64; hi = 5i64; }
+        else { return Option::None; }
+        unsafe { ROWS = ROWS + (hi - lo); }
+        return Option::Some(slice_get_range::<(i64, i64)>(self.rows.as_slice(), lo, hi));
+    }
+}
+
+impl BatchStream<RowsBatch<(i64, i64)>> for EdgeStream {
+    fn next(&mut self) -> Option<RowsBatch<(i64, i64)>> { return self.next_batch(); }
+}
+
+// THE DECLARATION-SELECTED LAYOUT (§2). Deleting this line is the control: the
+// emitter falls back to the columnar cell read and the file stops compiling.
+impl RowMajor for EdgeStream {}
+
+fn five_rows() -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    v.push((1i64, 20i64));
+    v.push((1i64, 30i64));
+    v.push((2i64, 40i64));
+    v.push((1i64, 50i64));
+    v.push((3i64, 60i64));
+    return v;
+}
+
+pub fn edge_batches(s: &EdgeSrc) -> EdgeStream {
+    return EdgeStream { rows: five_rows(), step: 0i64 };
+}
+
+// The TWIN: the same five rows through a plain `Vec` producer — the container
+// path, no batch flag, no layout letter.
+pub struct EdgeVecSrc { pub n: i64 }
+pub fn edge_vec(s: &EdgeVecSrc) -> Vec<(i64, i64)> { return five_rows(); }
+
+pub trait EdgeSource {
+    rel link(a: i64, b: i64);
+}
+impl EdgeSource for EdgeSrc    { rel link = edge_batches; }
+impl EdgeSource for EdgeVecSrc { rel link = edge_vec; }
+
+// ONE query text, two sources. Named ONCE, so the plan reads it where it stands
+// and no drain node is inserted — the scan shape is what is under test here.
+pub deem froms(g: &EdgeSrc)     { from g e where e.a == 1i64 select e.b }
+pub deem froms_v(g: &EdgeVecSrc) { from g e where e.a == 1i64 select e.b }
+
+fn main() -> i32 {
+    let g: EdgeSrc = EdgeSrc { n: 5i64 };
+    unsafe { PULLS = 0i64; ROWS = 0i64; }
+    let r: Vec<i64> = match froms(&g)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+
+    // (1)+(2): all five rows were seen across the packets — the empty middle
+    // batch did not end the scan — and the filter kept the three `a == 1` ones.
+    if r.len() != 3i64 { return 2i32; }
+    if r.get(0i64) != 20i64 { return 3i32; }
+    if r.get(1i64) != 30i64 { return 4i32; }
+    if r.get(2i64) != 50i64 { return 5i32; }
+
+    // (3): the call log. Four packets (2, 0, 2, 1 rows) plus the closing `None`.
+    unsafe {
+        if PULLS != 5i64 { return 6i32; }
+        if ROWS  != 5i64 { return 7i32; }
+    }
+
+    // (4): the differential against the `Vec` twin — same rows, same order.
+    let gv: EdgeVecSrc = EdgeVecSrc { n: 5i64 };
+    let rv: Vec<i64> = match froms_v(&gv)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if rv.len() != r.len() { return 9i32; }
+    let mut i: i64 = 0i64;
+    while i < rv.len() {
+        if rv.get(i) != r.get(i) { return 10i32; }
+        i = i + 1i64;
+    }
+    // The twin must NOT have touched the batch source's log.
+    unsafe { if PULLS != 5i64 { return 11i32; } }
+    return 0i32;
+}

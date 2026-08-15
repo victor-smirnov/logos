@@ -2753,6 +2753,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         let mut mat_ord:    bool = false;
         let mut mat_bidir:  bool = false;
         let mut mat_randac: bool = false;
+        let mut mat_rowmaj: bool = false;
         let mut mat_ity: str = "";
         if i < n && str_byte_at(natspec, i) == 33u8 {
             i = i + 1i64;
@@ -2774,6 +2775,10 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             mat_ord    = pw_flag(mat_fl, 111u8);                               // 'o'
             mat_bidir  = pw_flag(mat_fl, 114u8);                               // 'r'
             mat_randac = pw_flag(mat_fl, 110u8);                               // 'n'
+            // ADR 0025 §2/S6 — `m`: the batch layout is ROW-MAJOR. Same flag
+            // set, same membership rule; absent = columnar, which is what every
+            // producer older than the marker is.
+            mat_rowmaj = pw_flag(mat_fl, 109u8);                                // 'm'
             // `%<ret-ty>` — the producer's return type, which the emitted
             // binding is ANNOTATED with rather than inferring.
             if i < n && str_byte_at(natspec, i) == 37u8 {
@@ -2941,6 +2946,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         prm.rel_ordered[idx] = mat_ord;
         prm.rel_bidir[idx]   = mat_bidir;
         prm.rel_randacc[idx] = mat_randac;
+        prm.rel_rowmaj[idx]  = mat_rowmaj;
         prm.rel_ordcol[idx]  = ordcol;
         let mut c: i64 = 0i64;
         while c < nc {
@@ -3102,9 +3108,13 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             if prm.rel_batch[r] {
                 let mut rowx: String = String::new();
                 batch_row_text(&mut rowx, prm, r, "__bb", "__bj");
+                let mut lenx: String = String::new();
+                batch_len_text(&mut lenx, prm, r, "__bb");
                 prelude.push_str("    loop { let __db = __it_");
                 prelude.push_str(prm.rel_names[r]);
-                prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = __bb.len(); let mut __bj: u64 = 0u64; while __bj < __bn { __rel_");
+                prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = ");
+                prelude.push_str(string_as_str(&lenx));
+                prelude.push_str("; let mut __bj: u64 = 0u64; while __bj < __bn { __rel_");
                 prelude.push_str(prm.rel_names[r]);
                 prelude.push_str(".push(");
                 prelude.push_str(string_as_str(&rowx));

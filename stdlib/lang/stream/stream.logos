@@ -229,3 +229,199 @@ pub trait RandomAccess<B>: Bidirectional<B> {
 /// counterpart (`ColsBatch`/`PdtCol` over a Memoria leaf's PdtBuf slots) is a
 /// separate type, selected by the source's declaration, not by a branch.
 pub type RowsBatch<R> = &[R];
+
+/// Marker: this stream's batches are ROW-MAJOR (`RowsBatch<R>` = `&[R]`), not columnar.
+///
+/// ADR 0025 §2 says the layout is "declaration-selected", and S6 is where the second
+/// layout acquired a consumer, so this is where the selector had to become real. It is
+/// a MARKER TRAIT ON THE STREAM TYPE for the same reason `OrderedBy`/`Bidirectional`
+/// are: the planner asks the producer's RETURN TYPE, and a type cannot lie about what
+/// it implements, while a `layout = rows` declaration beside the producer could.
+///
+/// WHY IT IS A SEPARATE TRAIT AND NOT READ OFF `BatchStream<B>`'s ARGUMENT — which is
+/// where the answer physically is (`BatchStream<RowsBatch<R>>` vs
+/// `BatchStream<ColsBatch>`): `sema_has_impl_recursive` answers MEMBERSHIP with a bool
+/// and hands back no trait type arguments. That is the same recorded residual the
+/// `order <rel> = <col>` declaration works around (`sema_expr.cpp`, the `o` letter),
+/// and closing it would let this marker be deleted in favour of the argument — noted
+/// here so the marker retires with the residual rather than outliving it.
+///
+/// Absence means COLUMNAR: the family leaf walk (`ColsBatch` over a Memoria leaf's
+/// PdtBuf slots) is the layout the emitter spelled first and still spells by default,
+/// and every producer that predates this marker is one.
+pub trait RowMajor {}
+
+// ── The DBSP seam (ADR 0025 §10) ────────────────────────────────────────────
+//
+// A delta stream is a batch stream; an EPOCH IS ONE BATCH; an empty epoch is
+// `Some(empty)` — a tick, not an end (§1's rule, applied to the incremental
+// tier). What §10 records `[REC]` is the constraint the two types below are
+// shaped by: THE WEIGHT DOES NOT ENTER THE CORE ROW MODEL. An ordinary query
+// pays nothing for the incremental tier's existence, and that is a MEASURED
+// claim, not an intention — the whole-corpus artifact snapshot is byte-
+// identical across the stage that added this vocabulary (168 dumps /
+// 7,688,158 bytes, `diff -rq` empty, 2026-08-14).
+//
+// SO THE WEIGHT LIVES AT THE BOUNDARY, IN TWO SPELLINGS, AND THE SPLIT IS
+// FORCED BY THE TYPES rather than chosen for symmetry:
+//
+//   * `Epoch<R>` — ONE weight for the whole packet, over BORROWED rows. This is
+//     the incremental tier's surface as it exists today: the emitted
+//     `<q>_apply(&mut h, __src: i32, __wd: i64, src: &[R])` takes a scalar
+//     `__wd` and a slice, and `<q>_epoch` / `<q>_retract` are pure forwarders
+//     at +1 / −1 (`wql::rexpr_walk`, "P2: THE DELTA CARRIES (SOURCE, WEIGHT,
+//     ROWS)"). `Epoch` is that triple minus the tag, as a stream: it costs no
+//     allocation because the rows stay where the caller had them.
+//   * `Weighted<R>` + `DeltaBatch<R>` — a weight PER ROW: the strict
+//     generalization, the one packet that mixes +1 and −1 rows, which the
+//     scalar surface cannot express at all (today such an epoch must be split
+//     into two `_apply` calls). `Buffer<Weighted<R>>` (`logos.mem.stream`) is
+//     already a delta stream of this shape with no new type: that is z⁻¹ and
+//     DBSP's arranged input, spelled with what S0 landed.
+//
+// ⚠ WHY `Epoch<R>` CANNOT SIMPLY HAND OUT `DeltaBatch<R>`, which is the reason
+// BOTH exist rather than only the general one: `&[R]` and `&[Weighted<R>]` are
+// different layouts, so wrapping a borrowed constant-weight delta per row is a
+// MATERIALIZATION (a `Vec<Weighted<R>>` the caller never asked for) — exactly
+// the intermediate materialization criterion 1 exists to forbid. The
+// constant-weight packet therefore keeps its weight BESIDE the batch, and a
+// producer that genuinely mixes signs hands out the per-row form it built
+// anyway.
+//
+// ⚠ WHAT IS VOCABULARY AND WHAT IS CONSUMED — stated here because a type with
+// no consumer that reads as landed is the recorded "green over a branch that
+// never executed" shape. `Epoch`/`Weighted` are consumed by hand-written
+// consumers (the boundary fixture `stream_weighted_epoch_seam`), NOT by the
+// emitter: `<q>_apply` still takes `(__src, __wd, &[R])`. The measured reason
+// is in ADR §10 — the delta parameter list is the QUERY's parameter list
+// verbatim, shared with the batch form `<q>()`, so re-spelling the delta as a
+// stream re-spells the ordinary query's signature too; and DRed's four phases
+// (`_od`/`_odp`/`_cpt`/`_i`) take `&[RowTy]` of DERIVED facts whose sign is
+// fixed by PHASE, not by a row. The consumption seam is the plane's declared
+// next step, named at `<q>_apply`'s parameter list.
+
+/// A row carrying its Z-set multiplicity: the per-row half of the DBSP seam (§10).
+///
+/// `w > 0` = insertions (a multiset row of multiplicity `w`), `w < 0` = retractions,
+/// `w == 0` = a row that cancelled and which a normalized delta does not carry at all.
+///
+/// A WRAPPER, never a field on `R`: the row type stored by the incremental tier
+/// (`__s<k>: Vec<R>`, `__edb: Vec<R>`) and the row type an ordinary query scans are the
+/// SAME type, and the weight rides beside it — in a sidecar vector in stored state, in
+/// this wrapper at the boundary. That is §10's `[REC]` made structural.
+pub struct Weighted<R> {
+    /// The row itself, unweighted and unchanged — the core row model.
+    pub row: R,
+    /// The Z-set multiplicity: +1 insert, −1 retract, `n` for `n` copies.
+    pub w: i64,
+}
+
+impl<R> Weighted<R> {
+    /// Pairs a row with an explicit multiplicity.
+    pub fn at(row: R, w: i64) -> Weighted<R> {
+        return Weighted { row: row, w: w };
+    }
+
+    /// One insertion: weight +1 — what `<q>_epoch` forwards at.
+    pub fn insert(row: R) -> Weighted<R> {
+        return Weighted { row: row, w: 1i64 };
+    }
+
+    /// One retraction: weight −1 — what `<q>_retract` forwards at.
+    pub fn retract(row: R) -> Weighted<R> {
+        return Weighted { row: row, w: -1i64 };
+    }
+}
+
+/// The per-row-weight delta batch: `&[Weighted<R>]` (§2's row-major batch over §10's row).
+///
+/// The general form a delta stream hands out — `BatchStream<DeltaBatch<R>>` — and the only
+/// spelling in which ONE packet can carry both signs.
+pub type DeltaBatch<R> = RowsBatch<Weighted<R>>;
+
+/// ONE EPOCH AS ONE BATCH, at ONE weight, over rows the caller still owns (§10).
+///
+/// The stream form of the incremental tier's existing door: `<q>_epoch(h, src)` is
+/// `Epoch::insert(src)`, `<q>_retract(h, src)` is `Epoch::retract(src)`, and the
+/// general `<q>_apply(h, tag, w, src)` is `Epoch::at(src, w)` plus the tag. Yields the
+/// whole delta as one `RowsBatch<R>`, then `None`.
+///
+/// THE EMPTY EPOCH IS A TICK: an `Epoch` over an empty slice yields ONE `Some(empty)`
+/// before `None`, exactly as `Buffer` does, because "this epoch changed nothing" and
+/// "this stream is over" are different answers and a consumer that folds them loses the
+/// clock. Pinned by `stream_weighted_epoch_seam`.
+///
+/// BORROWS ITS ROWS (`#[borrow_carrying]`), unlike `Buffer<R>` which owns them: a delta
+/// is presented by the caller for the duration of one apply and is not state the tier
+/// keeps — the state it keeps is the arrangement (`Buffer`, z⁻¹), which owns.
+#[borrow_carrying]
+pub struct Epoch<R> {
+    /// The delta's rows, borrowed from the caller for this epoch.
+    rows: &[R],
+    /// The one weight the whole packet carries: +1 insert, −1 retract, `n` copies.
+    w: i64,
+    /// False until the single packet has been handed out; `rewind` clears it.
+    sent: bool,
+}
+
+impl<R> Epoch<R> {
+    /// An epoch of `rows` at an explicit weight — the general `<q>_apply` form.
+    pub fn at(rows: &[R], w: i64) -> Epoch<R> {
+        return Epoch { rows: rows, w: w, sent: false };
+    }
+
+    /// An INSERT epoch: every row at +1 (`<q>_epoch`).
+    pub fn insert(rows: &[R]) -> Epoch<R> {
+        return Epoch { rows: rows, w: 1i64, sent: false };
+    }
+
+    /// A RETRACT epoch: every row at −1 (`<q>_retract`).
+    pub fn retract(rows: &[R]) -> Epoch<R> {
+        return Epoch { rows: rows, w: -1i64, sent: false };
+    }
+
+    /// The packet's weight — the scalar `__wd` the emitted fold multiplies into.
+    pub fn weight(&self) -> i64 {
+        return self.w;
+    }
+
+    /// Pulls the single packet — THE INHERENT DOOR, the one a generated scan calls
+    /// (`batch_scan_frag` spells the outer pull `next_batch()`; see `Buffer::next_batch`
+    /// for why the inherent door exists beside the trait method).
+    pub fn next_batch(&mut self) -> Option<RowsBatch<R>> {
+        if self.sent { return Option::None; }
+        self.sent = true;
+        return Option::Some(self.rows);
+    }
+}
+
+// One packet, then exhaustion — including the EMPTY delta, which still ticks once.
+impl<R> BatchStream<RowsBatch<R>> for Epoch<R> {
+    fn next(&mut self) -> Option<RowsBatch<R>> { return self.next_batch(); }
+}
+
+// Row-major: the batch is `&[R]`, the caller's own slice (§2).
+impl<R> RowMajor for Epoch<R> {}
+
+// Re-presenting the same epoch is free — the rows are the caller's and were never
+// consumed. This is what a non-`Rewind` STREAMING source cannot offer, and it is why
+// the incremental tier's decline of a streaming source (`rexpr_walk::incr_eligible`,
+// "a join source STREAMS") is a statement about the SOURCE and not about this type.
+impl<R> Rewind for Epoch<R> {
+    fn rewind(&mut self) {
+        self.sent = false;
+    }
+}
+
+// The delta's row count is the slice length — free, and unmoved by pulling.
+impl<R> SizedStream for Epoch<R> {
+    fn size(&self) -> u64 {
+        return self.rows.len() as u64;
+    }
+}
+
+// DELIBERATELY NOT `Bidirectional`/`RandomAccess`/`OrderedBy<K>`. A borrowed one-packet
+// stream could implement the traversal chain as trivially as `Buffer` does (position
+// arithmetic over a slice), and it is left off because nothing positions inside a delta:
+// an epoch is applied whole, and a capability with no consumer is a claim no test can
+// bite. `OrderedBy` is a different matter — a delta carries no order fact at all.

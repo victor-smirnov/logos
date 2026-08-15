@@ -215,6 +215,25 @@ NOT_GATES = {
                                "producer, not a verdict",
     "trama_run.sh":            "peg_gen_logos Trama behaviour oracle; same as "
                                "run.sh",
+    # Measurement instruments. They REPORT a number that is expected to move; the
+    # properties of theirs that do NOT move are asserted inside them (exit 2).
+    "criterion1_materialization_instrument.sh":
+                               "ADR 0025 criterion 1's instrument — a whole-corpus "
+                               "compile sweep (185 fixtures) that REPORTS "
+                               "numerator/denominator. Its values are "
+                               "corpus-size-dependent by construction: one added "
+                               "fixture moved the denominator +10 and another +15, "
+                               "so a ctest gate over them is either re-baselined "
+                               "every commit (a number that always agrees) or a "
+                               "number to tune — and the ADR's S6 writ control is "
+                               "the measured case where tuning it moved it the "
+                               "WRONG way (the text ratio 'improved' while the "
+                               "artifact materialized 29 times more). The three "
+                               "properties that do NOT move with a slice (G1 one "
+                               "population, G2 every plan head classified, G3 no "
+                               "probe lost) are asserted inside the script at "
+                               "exit 2. Decision recorded in "
+                               "docs/adr/0025-criteria-and-instruments.md §1",
 }
 
 

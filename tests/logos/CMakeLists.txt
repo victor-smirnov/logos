@@ -1981,6 +1981,61 @@ set_tests_properties(logos_09_drain_read_once_pair PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 §2/S6 GATE — THE BATCH LAYOUT, BOTH DIRECTIONS.
+#
+# The pull shape is one; the LAYOUT is declaration-selected (`impl RowMajor` ⇒
+# natspec `m`). Row-major reads the row as `bb[j]`, columnar builds it from
+# `bb.<col>_at(j)` — and each spelling is asserted ABSENT from the other
+# subject, so what is pinned is the SELECTOR and not two spellings that happen
+# to be emitted somewhere. `deem_rowmajor_batch_source`'s own runtime oracle
+# (`PULLS`/`ROWS`, an empty mid-stream batch) says the batches were pulled; it
+# is blind to how the row was read, which is why this half is on the artifact.
+#
+# `tier_full`: reading the wrong layout does not compile (the S6 measurement is
+# `slice has no method 'a_at'`), so the commit tier already reds through the
+# fixture; this gate exists for the case where it compiles and reads WRONG.
+add_test(
+    NAME logos_09_rowmajor_batch_layout
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/rowmajor_batch_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_rowmajor_batch_layout PROPERTIES
+    TIMEOUT 300
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
+# ADR 0025 CRITERION 3'S INSTRUMENT — THE NON-BLIND ONE (#47 entry ticket).
+#
+# The S5 audit confirmed that the reference-count reading S2-S5 inherited was
+# BLIND BY CONSTRUCTION: it was taken over `pass/deem_pipeline_chain`, whose q1
+# reads a bare `&[Row]`, so no program of that shape could hold a count whatever
+# the emitter did. This gate reads `pass/deem_pipeline_handle_seam` instead — a
+# pipeline whose q1 reads a CONTAINER HANDLE, which necessarily carries
+# `Arc<dyn Snapshot>` — and asserts the criterion where it means something: zero
+# reference-count call sites and zero atomic RMW in the per-row path, with the
+# same classifier demonstrating on the SAME object that it can see the 68 sites
+# the setup does have. It also keeps the refuted fixture in the population,
+# asserted VACUOUS, so that reading cannot be silently inherited again.
+#
+# `tier_full`: the subject is the emitted ARTIFACT, and it needs objdump plus
+# two full fixture compiles, which is not commit-tier work. The fixture's own
+# runtime oracle (packet count, pull-through 3-of-8 with its unbounded control)
+# runs at the commit tier and is blind to reference counting — the two halves
+# are independent readings of one seam.
+add_test(
+    NAME logos_09_rc_seam_hot_path
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/rc_seam_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_rc_seam_hot_path PROPERTIES
+    TIMEOUT 600
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S3 GATE — THE ORDER ELISION, ADMITTED AND REFUSED.
 #
 # `order by <c>` over a source that declares its rows already arrive sorted by

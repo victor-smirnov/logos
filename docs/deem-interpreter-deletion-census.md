@@ -2764,8 +2764,46 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # absent the answer is constant across all 486 entries). "The plan says so" is
 # therefore asserted at SEAM 2, where the plan has two answers to give and gives
 # the positive-absence one (`no materialization … consumes it where it stands`).
-REGISTRY-ALL         7172
-REGISTRY-NOIMPORTED  3489
+# S6-A (ADR 0025 §2/S6 — the row-major batch layout) adds TWO registrations and
+# PREDICTED both before the reconfigure: `pass/deem_rowmajor_batch_source` (the
+# fixture) and `logos_09_rowmajor_batch_layout` (the artifact gate, tier_full).
+# +2 ALL, +2 -LE imported, +0 tier_commit — measured 7174 / 3491 / 36, exactly
+# the prediction. tier_commit does not move because reading the WRONG layout
+# does not compile (`slice has no method 'a_at'`), so the commit tier already
+# reds through the fixture; the gate is for the case that compiles and reads
+# wrong.
+# S6-B (ADR 0025 §10 — the DBSP seam) adds ONE registration and PREDICTED it
+# before the reconfigure: `pass/stream_weighted_epoch_seam` (the boundary
+# fixture), and NO gate. +1 ALL, +1 -LE imported, +0 tier_commit — measured
+# 7175 / 3492 / 36, exactly the prediction. No gate because the claims are
+# VALUE claims a running program answers (an epoch is one batch; `Some(empty)`
+# != `None`; a mixed-sign packet folds to the same accumulator as the two
+# constant-weight epochs it replaces; a `Buffer` replayed across an epoch
+# boundary is z⁻¹) — there is no emitted artifact to grep, because the emitter
+# is deliberately UNMOVED: `<q>_apply` still takes `(__src, __wd, &[R])` and
+# the consumption seam is declared, not taken (ADR §10). The corpus artifact
+# control for that "unmoved" claim is the byte-identical snapshot, not a
+# registration.
+# THE #47 ENTRY TICKET (ADR 0025 — the criteria and their instruments) adds TWO
+# registrations and PREDICTED both before the reconfigure:
+# `pass/deem_pipeline_handle_seam` (the pipeline arm whose q1 reads a CONTAINER
+# HANDLE — the arm the S5 audit named as missing, without which criterion 3's
+# reading is blind by construction) and `logos_09_rc_seam_hot_path` (the
+# non-blind reference-count instrument that reads it, tier_full). +2 ALL,
+# +2 -LE imported, +0 tier_commit — measured 7177 / 3494 / 36, exactly the
+# prediction. tier_commit does not move because the fixture's own runtime oracle
+# (one packet at seam 1; 3-of-8 pull-through with its unbounded control) already
+# reds at the commit tier, while the ARTIFACT reading needs objdump and two full
+# compiles. The criterion-1 instrument
+# (`tests/logos/criterion1_materialization_instrument.sh`) adds NO registration
+# and that is a decision with a reason, recorded in
+# `docs/adr/0025-criteria-and-instruments.md` §1: its values are
+# corpus-size-dependent by construction (one added fixture moved the denominator
+# +10, another +15), so a ctest gate over them either re-baselines every commit
+# or becomes a number to tune — the three properties of it that DON'T move with
+# a slice are gated inside the script itself.
+REGISTRY-ALL         7177
+REGISTRY-NOIMPORTED  3494
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
