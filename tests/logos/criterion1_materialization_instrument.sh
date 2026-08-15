@@ -262,6 +262,13 @@ NOMAT = {
     'order search', 'stream', 'prepared plan', 'EMITTED', 'PURE', 'REP',
     'declined', 'steps_from', 'rung_from', 'btree_from', 'btree_at', 'btree_upto',
     'hashmap_at', 'incremental',
+    # ADR 0025 R-D — `build-side batch pull`. A PULL SHAPE, not a node: it says
+    # the join's build phase reads its (already streamed) source a BATCH at a
+    # time instead of a row at a time. It builds nothing the row-at-a-time
+    # spelling did not build — the same hash index, the same payload — so it is
+    # on the NOMAT side. What it replaces is a REFUSAL: before it, a streamed
+    # batch source on a build side did not compile at all.
+    'build-side batch pull',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)

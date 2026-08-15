@@ -1,0 +1,150 @@
+// A BATCH source on a join's BUILD side — the fourth pull site (ADR 0025 R-D).
+//
+// WHAT THIS FIXTURE IS FOR. Three of Deem's four row-pull sites had already
+// collapsed onto `rexpr_walk::batch_scan_frag` (the simple scan, the join
+// nest's driving scan, the pure-group scan): they pull a BATCH and loop inside
+// it. The fourth — `build_phase_frag`, the hash/tree index build that runs once
+// before the nest — still spelled `Iterator`'s `(src).next()` unconditionally
+// whenever the plan said the source streams. A BatchStream producer answers
+// `Option<Batch>` to that call, so THIS QUERY DID NOT COMPILE, with
+//
+//     error [fn q_hash_run]: let '__bo1': type mismatch — expected Option, got Option
+//
+// and the refusal was not writ-specific or layout-specific: it bit any batch
+// producer the plan chose to stream on a build side. It is the reason a walk
+// CURSOR could not be joined against at all.
+//
+// ⚠ THE REFUSAL WAS NARROWER THAN IT LOOKED, and the two neighbours pin the
+// edges so a later change cannot widen this arm without a red:
+//   · a batch source SCANNED (no join) compiled before and compiles now —
+//     `wql_source_trait_e2e` and the ctr leaf-batch fixtures are that case;
+//   · a batch source the plan DRAINS onto a build side compiled before and
+//     compiles now, because the build then indexes a slice and never pulls —
+//     that is `deem_batch_selfjoin_drained`'s shape.
+// Only *streamed* batch on a build side was refused, and only that arm moved.
+//
+// THE ANSWER IS THE ASSERTION, not the compile. The key `1` appears in BOTH
+// batches (rows 1 and 4), so a build that stopped at the first batch — the
+// obvious wrong repair, an inner loop with no outer pull — answers 2 rows
+// instead of 3 and is caught here rather than by inspection. Bucket arrival
+// order is pinned too: `(1, 10)` precedes `(1, 11)` because that is source
+// order, which is what the nested-loop baseline would have produced.
+//
+// THE PLAN (LOGOS_TRACE_PLAN=1) — the six load-bearing lines of the TEN the
+// trace prints (also present: `s -> size unknown`, `x -> drive fixed on e`,
+// `q_hash -> query output`, `q_hash -> prepared plan`):
+//
+//   [plan] e -> hash join on i64        (the key type is hashable)
+//   [plan] s -> scan [every row]        (no filter reaches this rel)
+//   [plan] s -> stream                  (the producer is an iterator and the
+//                                        plan reads it once)
+//   [plan] s -> no materialization      (no node: read once, consumed where it
+//                                        stands)
+//   [plan] s -> arrange on join build side
+//   [plan] __rel_s -> build-side batch pull on e
+//                                       (ADR 0025 R-D — streamed batch source
+//                                        on a join build side)
+//
+// (the last subject is the EMITTED BINDING, `__rel_s`, not the query's `s`:
+//  `build_phase_frag` is handed the source TEXT the prelude bound, which is the
+//  name the artifact contains — so this trace line and the artifact are the
+//  same string, and a plan/artifact drift shows up as a mismatch here.)
+//
+// The SIXTH line (`build-side batch pull`) is the one this fixture exists for.
+// ⚠ THIS FIXTURE DOES NOT READ THE TRACE — it asserts the ANSWER via exit code
+// only, so a green here does NOT prove that line fired. The line's fire count
+// is witnessed by `criterion1_materialization_instrument.sh`'s sweep (1 firing,
+// exactly this fixture) and by the round's control (a `break` inside the arm
+// reds THIS fixture rc=2 on the wrong row count — the answer, not the trace,
+// is what bites).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.slice;
+use logos.lang.stream;
+use logos.lang.result;
+use logos.lang.option;
+
+pub struct Steps { pub n: i64 }
+
+// The producer: a forward-only batch stream over seven rows, handed out in two
+// leaves of unequal size — 3 then 4 — so nothing in the emitted loop can be
+// right by assuming a fixed batch length.
+pub struct StepStream { pub rows: Vec<(i64, i64)>, pub step: i64 }
+
+impl StepStream {
+    pub fn next_batch(&mut self) -> Option<RowsBatch<(i64, i64)>> {
+        let s: i64 = self.step;
+        self.step = s + 1i64;
+        if s == 0i64 {
+            return Option::Some(slice_get_range::<(i64, i64)>(self.rows.as_slice(), 0i64, 3i64));
+        }
+        if s == 1i64 {
+            return Option::Some(slice_get_range::<(i64, i64)>(self.rows.as_slice(), 3i64, 7i64));
+        }
+        return Option::None;
+    }
+}
+
+impl BatchStream<RowsBatch<(i64, i64)>> for StepStream {
+    fn next(&mut self) -> Option<RowsBatch<(i64, i64)>> { return self.next_batch(); }
+}
+impl RowMajor for StepStream {}
+
+// Key 1 occurs TWICE, once in each batch — the batch boundary is inside a
+// bucket, which is the property the answer check turns into a red.
+fn seven_rows() -> Vec<(i64, i64)> {
+    let mut v: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    v.push((0i64, 0i64));
+    v.push((1i64, 10i64));
+    v.push((2i64, 20i64));
+    v.push((3i64, 30i64));
+    v.push((1i64, 11i64));
+    v.push((4i64, 40i64));
+    v.push((5i64, 50i64));
+    return v;
+}
+
+pub fn steps_rows(s: &Steps) -> StepStream {
+    return StepStream { rows: seven_rows(), step: 0i64 };
+}
+
+pub trait MapSrc {
+    rel entry(key: i64, val: i64);
+}
+impl MapSrc for Steps { rel entry = steps_rows; }
+
+pub struct Bound { pub k: i64, pub tag: i64 }
+
+// EQUALITY on the step's key ⇒ HASH strategy ⇒ the step source is BUILT into
+// an index before the nest ⇒ `build_phase_frag`. The slice `xs` drives.
+pub deem q_hash(xs: &[Bound], s: &Steps) {
+    from xs x join s e on x.k == e.key select (x.k, e.val)
+}
+
+fn expect(got: i64, want: i64, code: i32) -> i32 {
+    if got != want { return code; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 7i64 };
+    let mut bs: Vec<Bound> = vec_new::<Bound>();
+    bs.push(Bound { k: 1i64, tag: 7i64 });   // two hits, one per batch
+    bs.push(Bound { k: 9i64, tag: 8i64 });   // no hit
+    bs.push(Bound { k: 3i64, tag: 9i64 });   // one hit, second batch
+    let r: Vec<(i64, i64)> = match q_hash(bs.as_slice(), &s)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+
+    if r.len() != 3i64 { return 2i32; }
+    // (1,10) then (1,11) — source order within the bucket, ACROSS the batch
+    // boundary — then (3,30).
+    let e0: i32 = expect(r[0i64].0, 1i64,  3i32); if e0 != 0i32 { return e0; }
+    let e1: i32 = expect(r[0i64].1, 10i64, 4i32); if e1 != 0i32 { return e1; }
+    let e2: i32 = expect(r[1i64].0, 1i64,  5i32); if e2 != 0i32 { return e2; }
+    let e3: i32 = expect(r[1i64].1, 11i64, 6i32); if e3 != 0i32 { return e3; }
+    let e4: i32 = expect(r[2i64].0, 3i64,  7i32); if e4 != 0i32 { return e4; }
+    let e5: i32 = expect(r[2i64].1, 30i64, 8i32); if e5 != 0i32 { return e5; }
+    return 0i32;
+}

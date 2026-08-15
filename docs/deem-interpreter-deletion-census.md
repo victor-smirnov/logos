@@ -2876,8 +2876,57 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # +2 ALL, +2 -LE imported, +0 tier_commit — measured 7182 / 3499 / 36. Neither is
 # a gate script: both are VALUE claims a running program answers, and the value
 # is what the defect got wrong.
-REGISTRY-ALL         7182
-REGISTRY-NOIMPORTED  3499
+#
+# R-D STAGE 1 (ADR 0025, the FOURTH pull site) adds ONE registration, PREDICTED
+# 7183 / 3500 / 36 before the reconfigure and measured exactly:
+# `pass/deem_batch_build_side_join` — a BatchStream producer the plan STREAMS
+# onto a join's BUILD side. That query did not compile on the previous tree
+# (`let '__bo1': type mismatch — expected Option, got Option`, from
+# `build_phase_frag`'s unconditional `Iterator::next` spelling), so this is a
+# fixture whose ADMISSION is the claim; its VALUE half is the answer, which
+# crosses a batch boundary INSIDE one hash bucket (key 1 lives in batch 0 and
+# batch 1) so a build that stopped at the first batch answers 2 rows and reds
+# with exit 2 — measured by control revert on the emitter arm itself, not at the
+# call site. +1 ALL, +1 -LE imported, +0 tier_commit; not a gate script.
+#
+# R-D STAGE 2 (the cursor itself) adds a SECOND registration, PREDICTED
+# 7184 / 3501 / 36 and measured exactly: `pass/wql_writ_walk_cursor` — the
+# document walk reified from mutual recursion (`wg_walk`/`wg_descend`) to an
+# explicit frame stack with an owned seen set and an INVENTED batch boundary
+# (`WG_BATCH_CAP`), differentiated ROW FOR ROW ON ALL EIGHT COLUMNS against the
+# `Vec` producer it replaces the traversal of. The oracle is the other producer
+# and it is independent where it matters: the two share only the single-spelled
+# leaf rules (`wg_node_id`/`wg_kind`/`wg_vi`) and the root coordinates, while
+# the TRAVERSAL — the thing this stage rewrote — is written twice and compared.
+# Control revert on the cursor's map ORDINAL bookkeeping (advance `ord` with
+# `pos` instead of only on present slots) reds it at exit 5, the `child` column,
+# which is FNV(parent, ordinal) — measured on a full rebuild, restored by md5.
+# The fixture also pins `batches >= 2` (the walk is suspended and resumed mid
+# document), two live independent cursors over one borrowed document, and
+# `Rewind` as a RESTART. +1 ALL, +1 -LE imported, +0 tier_commit.
+# ⚠ SCOPE, stated so R-E cannot inherit it inflated: the cursor is LANDED IN
+# THE STDLIB, UNCONSUMED AND UNINSTRUMENTED — no `rel` declares over it (Stage
+# 3 refused), it emits ZERO gen dumps, and every arc instrument (criterion1,
+# plan_ground, rc_seam) reads the artifact/plan channels and is blind to it BY
+# CONSTRUCTION. Its only witness is this hand-written differential, which L2's
+# sampler does not select (verified passing directly). It is NOT plane coverage.
+#
+# ⚠ R-D STAGE 3 (declaring `rel edge` over the cursor) IS REFUSED, and its
+# ground is MEASURED, not asserted — see the REFUSAL block at the foot of
+# `stdlib/mem/wql/writ_graph.logos`. Throwaway build with `rel edge = writ_walk`
+# and nothing else changed: all six writ fixtures still COMPILE and answer (the
+# S6-A `Buffer` route killed three), but the plan gains +3 materialization nodes
+# (same-188-fixture population; first recorded as +5 by a population mix the
+# audit caught — 2,701 was the pre-round 186-fixture baseline) while D2 DROPS
+# 3,954→3,933 and accounted IMPROVES 83.38%→83.83% (the refusal is on the
+# node/byte axes, not one-sided), and the six fixtures gain +17,048 generated
+# bytes, because a cursor makes
+# `ap_offers` true and drops every writ rel into the drain cascade whose first
+# arm is the blanket `if prog.has_rels()`. Criterion (a) is "at or below
+# baseline", so the switch was reverted (md5-proven) and the writ fixture bytes
+# on this tree are IDENTICAL to the pre-round baseline, all six.
+REGISTRY-ALL         7184
+REGISTRY-NOIMPORTED  3501
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

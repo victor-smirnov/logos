@@ -626,7 +626,41 @@ fail = []
 # no ground on this plane at all. That absence is the R-A residual, not a bug
 # in this gate: ROUTE P ("param rels") is what would give these scans a ground
 # to census, and it is deliberately not taken here.
-EXPECT_FIXTURES   = 186
+# ── R-D (2026-08-15, ADR 0025 — the WritWalk cursor round) ──────────────────
+# 186 -> 188, and the split between the two new fixtures is the whole ledger
+# entry, PREDICTED before the run and then measured:
+#
+#   `pass/deem_batch_build_side_join` — a BatchStream producer STREAMED onto a
+#     join's BUILD side, the query that did not compile before this round
+#     (`build_phase_frag` spelled `Iterator::next` unconditionally). It is ONE
+#     ordinary hash-join deem, so it moves exactly the numbers one ordinary
+#     hash-join deem moves and nothing else:
+#       fixtures 186 -> 188 (see below), outq/aoutq 605 -> 606,
+#       arrange 598 -> 599, index 598 -> 599, hashjoin 495 -> 496,
+#       readonce 25 -> 26, `query output` head 477 -> 478.
+#     The arrange/index IDENTITY (598 == 598 -> 599 == 599) is preserved, which
+#     is the S2d clause and the sharpest single check that the new pull shape
+#     changed HOW the build side reads and not WHAT it builds.
+#
+#   `pass/wql_writ_walk_cursor` — the cursor/Vec-producer differential. It
+#     matches this gate's `wql_*` glob and so moves the FIXTURE count, and it
+#     moves NOTHING ELSE: it declares no `deem` at all (it calls
+#     `writ_graph_edges` and `writ_walk` directly and compares rows), so it
+#     contributes zero plan lines and zero emitted landings. +1 fixture, +0
+#     everywhere else, and that asymmetry is the check that it is a producer
+#     differential rather than a query.
+#
+# ⚠ AND THE WRIT GROUNDS DID NOT MOVE — `container` stays 205. That is the
+# ROUND'S REFUSAL made visible on this plane: `impl GraphSource for Writ` still
+# declares `rel edge = writ_graph_edges`, so all 41 writ rels still ground
+# `MG_CONTAINER`. Declaring the rel over the cursor was MEASURED on a throwaway
+# build (+3 materialization nodes same-population — first recorded as +5 by a
+# population mix the audit caught — +17,048 corpus bytes across the six writ
+# fixtures) and reverted; the numbers and the reason are in
+# `stdlib/mem/wql/writ_graph.logos`'s REFUSAL block. A later round closing it
+# must move `container` 205 -> 164 and land those 41 on a re-walk ground, NOT on
+# `MG_REL_BLOCK`/`MG_SECOND_USE`.
+EXPECT_FIXTURES   = 188
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -634,9 +668,9 @@ EXPECT_FIXTURES   = 186
 EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
 EXPECT_DRAIN_SORT = 12    # drain 7 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5; S5-D5: drain 8 -> 7, see RE-DERIVATION above)
 EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts  (S5-D5: 13 -> 12)
-EXPECT_ARRANGE    = 598   # Arrange nodes — S2d: == EXPECT_INDEX, exactly
-EXPECT_HASHJOIN   = 495   # `hash join on` strategy decisions (nest 0 + pre-decided)
-EXPECT_INDEX      = 598   # emitted `__hm`/`__hs`/`__bt` bindings
+EXPECT_ARRANGE    = 599   # Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
+EXPECT_HASHJOIN   = 496   # (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
+EXPECT_INDEX      = 599   # (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
 EXPECT_KS         = 129   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
@@ -660,7 +694,7 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # stands) and over a `Vec` twin (a container, already a buffer). One ground each
 # is the fixture's whole shape, so a move of +1/+1 here is the fixture arriving
 # and any other split would have meant it is not the pair it claims to be.
-EXPECT_NOMAT      = {"container": 205, "readonce": 25, "elided": 8}   # S5-D5: readonce 18 -> 19
+EXPECT_NOMAT      = {"container": 205, "readonce": 26, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join)
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family
@@ -694,7 +728,7 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 605   # `let mut __out:` query-output landings
+EXPECT_OUTQ       = 606   # (R-D: +1) `let mut __out:` query-output landings
 EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
 # THE HOMONYM LANDING, PINNED APART. `trama_render.logos:732` emits `let mut
 # __out: String` for a TEMPLATE render — same name, different plane, no query
@@ -704,7 +738,7 @@ EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 477, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 478, "query output bounded by limit": 16,
                      "query output distinct carrier": 5,
                      "incremental snapshot output": 107, "rel result": 45}
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────

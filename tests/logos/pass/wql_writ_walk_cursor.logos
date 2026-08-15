@@ -1,0 +1,171 @@
+// wql_writ_walk_cursor — the document walk as a CURSOR, differentiated against
+// the walk as a VALUE (ADR 0025 R-D).
+//
+// `writ_graph_edges(root) -> Vec<WritEdgeRow>` runs the whole walk and lands
+// every row. `writ_walk(root) -> WritWalk` is the same walk suspended: the
+// mutual recursion `wg_walk`/`wg_descend` reified to an explicit frame stack,
+// the `&mut Vec<u64>` seen set owned by the cursor, and an INVENTED batch
+// boundary (`WG_BATCH_CAP` rows, flushed) because a Writ — unlike a Memoria
+// leaf or a `Buffer` packet — has no physical batch in it.
+//
+// THE ORACLE IS THE OTHER PRODUCER, and it is an independent one in the sense
+// that matters: `writ_graph_edges` is not called by `WritWalk` and shares with
+// it only the three leaf rules (`wg_node_id`, `wg_kind`, `wg_vi`) and the root
+// coordinates, which are deliberately single-spelled — sharing THOSE is the
+// property the module is built around, while the TRAVERSAL, which is what this
+// stage rewrote, is written twice and compared here. A control revert on the
+// cursor's ordinal bookkeeping (the `ord` field advanced with `pos` instead of
+// only on present slots) reds this fixture at the first map with a hole.
+//
+// WHAT THE DOCUMENT IS FOR, clause by clause — each shape is one arm of the
+// frame stack, and deleting any of them makes the differential pass over a
+// walk that never entered that arm:
+//   · nested MAPS         — WGF_MAP, depth 3, so the frame stack is >1 deep;
+//   · an ARRAY of maps    — WGF_ARR, whose ordinal IS its index, and whose
+//                           elements are containers (so a push happens from
+//                           inside an array frame);
+//   · scalar leaves of every kind carried by `vi`/`vs` — str, i64, bool, f64,
+//                           null — because the leaf id is FNV(parent, ORDINAL)
+//                           and an ordinal off by one changes `child`, not just
+//                           the row order;
+//   · a map with MANY keys — more than `WG_BATCH_CAP` rows total, so the walk
+//                           is suspended and resumed ACROSS a batch boundary in
+//                           the middle of a frame. That is the assertion the
+//                           `batches > 1` check below turns into a red: a
+//                           document that fits in one batch would exercise the
+//                           cursor without ever suspending it.
+//
+// EXIT 0 iff the two producers agree row-for-row on all eight columns; a
+// nonzero code names the first disagreement's column.
+package test;
+
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.std.wql.writ_graph;
+
+// The document. `wide` carries 60 keys so that the total row count clears
+// `WG_BATCH_CAP` (64) with the nested clauses on top of it.
+fn doc_text() -> String {
+    let mut s: String = String::new();
+    s.push_str(r#"{ service: "api", replicas: 3, live: true, ratio: 1.5, gone: null,"#);
+    s.push_str(r#" ports: [8080, 8443],"#);
+    s.push_str(r#" nodes: [ { id: 1, tag: "a" }, { id: 2, tag: "b" } ],"#);
+    s.push_str(r#" db: { engine: "pg", pool: { min: 2, max: 16 } },"#);
+    s.push_str(r#" wide: {"#);
+    let mut i: i64 = 0i64;
+    while i < 60i64 {
+        if i > 0i64 { s.push_str(", "); }
+        s.push_str("k");
+        s.push_i64(i);
+        s.push_str(": ");
+        s.push_i64(i * 7i64);
+        i = i + 1i64;
+    }
+    s.push_str("} }");
+    return s;
+}
+
+fn main() -> i32 {
+    // The text is BOUND, not passed inline: `parse_writ` reads the `str` view,
+    // so the backing `String` has to outlive the call.
+    let dt: String = doc_text();
+    let doc: Writ = parse_writ(dt.as_str());
+    if doc.root().is_null() { return 90i32; }
+
+    // The VALUE producer — the oracle.
+    let want: Vec<WritEdgeRow> = writ_graph_edges(&doc);
+    if want.len() < 80i64 { return 91i32; }   // the document did not survive
+
+    // The CURSOR producer, drained through the batch door. The batch is bound
+    // inside its own block: the next pull takes `&mut w`, so the borrow the
+    // batch carries must have ended — the same shape the emitted scan has.
+    let mut w: WritWalk = writ_walk(&doc);
+    let mut got: Vec<WritEdgeRow> = vec_new::<WritEdgeRow>();
+    let mut batches: i64 = 0i64;
+    let mut maxb: i64 = 0i64;
+    loop {
+        let ob: Option<RowsBatch<WritEdgeRow>> = w.next_batch();
+        if ob.is_some() {
+            {
+                let bb: RowsBatch<WritEdgeRow> = ob.unwrap();
+                let bn: i64 = bb.len();
+                if bn > maxb { maxb = bn; }
+                let mut j: i64 = 0i64;
+                while j < bn { got.push(bb[j]); j = j + 1i64; }
+            }
+            batches = batches + 1i64;
+        } else { break; }
+    }
+
+    // THE BATCH BOUNDARY WAS CROSSED. Without this the differential could pass
+    // over a cursor that never suspended — one batch, one straight walk.
+    if batches < 2i64 { return 92i32; }
+    // And no batch exceeded the ruling.
+    if maxb > 64i64 { return 93i32; }
+
+    // ── the differential: row for row, column for column ────────────────────
+    if got.len() != want.len() { return 1i32; }
+    let mut r: i64 = 0i64;
+    while r < want.len() {
+        let a: WritEdgeRow = want.get(r);
+        let b: WritEdgeRow = got.get(r);
+        if a.0 != b.0 { return 2i32; }            // parent
+        if !str_eq(a.1, b.1) { return 3i32; }     // key
+        if a.2 != b.2 { return 4i32; }            // idx
+        if a.3 != b.3 { return 5i32; }            // child  (FNV(parent, ord))
+        if !str_eq(a.4, b.4) { return 6i32; }     // kind
+        if a.5 != b.5 { return 7i32; }            // tag
+        if a.6 != b.6 { return 8i32; }            // vi
+        if !str_eq(a.7, b.7) { return 9i32; }     // vs
+        r = r + 1i64;
+    }
+
+    // ── the RE-READ story: a second walk, not a second copy ─────────────────
+    // Two independent cursors over ONE borrowed document, both live, the inner
+    // one restarted per outer batch. This is the shape a rel-block re-read
+    // compiles to, and it is the reason `WritWalk` exists instead of a `Buffer`
+    // over `writ_graph_edges` (S6-A measured that route: +29 materialization
+    // nodes, 3 fixtures stopped compiling, reverted).
+    let mut w1: WritWalk = writ_walk(&doc);
+    let mut outer: i64 = 0i64;
+    let mut inner_total: i64 = 0i64;
+    loop {
+        let o1: Option<RowsBatch<WritEdgeRow>> = w1.next_batch();
+        if o1.is_some() {
+            { let b1: RowsBatch<WritEdgeRow> = o1.unwrap(); outer = outer + b1.len(); }
+            // A FRESH walk while the outer one is suspended mid-document.
+            let mut w2: WritWalk = writ_walk(&doc);
+            loop {
+                let o2: Option<RowsBatch<WritEdgeRow>> = w2.next_batch();
+                if o2.is_some() {
+                    { let b2: RowsBatch<WritEdgeRow> = o2.unwrap(); inner_total = inner_total + b2.len(); }
+                } else { break; }
+            }
+        } else { break; }
+    }
+    // The outer walk was NOT disturbed by the inner ones.
+    if outer != want.len() { return 10i32; }
+    // Each inner walk saw the whole relation; there were `batches` of them.
+    if inner_total != want.len() * batches { return 11i32; }
+
+    // ── `Rewind` on this type: a RESTART, not a re-landing ──────────────────
+    let mut w3: WritWalk = writ_walk(&doc);
+    let mut first: i64 = 0i64;
+    let o3: Option<RowsBatch<WritEdgeRow>> = w3.next_batch();
+    if o3.is_none() { return 12i32; }
+    { let b3: RowsBatch<WritEdgeRow> = o3.unwrap(); first = b3.len(); }
+    w3.rewind();
+    let mut again: i64 = 0i64;
+    let o4: Option<RowsBatch<WritEdgeRow>> = w3.next_batch();
+    if o4.is_none() { return 13i32; }
+    { let b4: RowsBatch<WritEdgeRow> = o4.unwrap(); again = b4.len(); }
+    if first != again { return 14i32; }
+
+    return 0i32;
+}

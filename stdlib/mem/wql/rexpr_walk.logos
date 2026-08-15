@@ -3116,7 +3116,7 @@ fn payload_ty_frag(streams: bool, ty: str) -> ExprBlob {
     return parse_type("i64");
 }
 
-fn build_phase_frag(s: i64, strat: i32, anti: bool, has_resid: bool,
+fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid: bool,
                     ktn: str, src: str, ty: str, var: str, build_key: str,
                     streams: bool) -> ExprBlob {
     if strat == JS_LOOP() { return quote_block! { }; }
@@ -3136,6 +3136,12 @@ fn build_phase_frag(s: i64, strat: i32, anti: bool, has_resid: bool,
     let s_k:  String = nk_str("__k",  s);   let n_k:  Ident = Ident::new(string_as_str(&s_k));
     let s_vp: String = nk_str("__vp", s);   let n_vp: Ident = Ident::new(string_as_str(&s_vp));
     let s_nv: String = nk_str("__nv", s);   let n_nv: Ident = Ident::new(string_as_str(&s_nv));
+    // ADR 0025 R-D — the BATCH pull's three extra bindings. `s` is the step
+    // number (1-based), and `batch_scan_frag` is only ever called with `k = 0`
+    // (the base/driving scan), so `__bb1` and `__bb0` cannot collide.
+    let s_bb: String = nk_str("__bb", s);   let n_bb: Ident = Ident::new(string_as_str(&s_bb));
+    let s_bn: String = nk_str("__bn", s);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__bj", s);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
 
     let kt:    ExprBlob = parse_type(ktn);
     let rowt:  ExprBlob = parse_type(ty);
@@ -3231,6 +3237,62 @@ fn build_phase_frag(s: i64, strat: i32, anti: bool, has_resid: bool,
         let #n_k: #(kt) = (#(key_f));
         #(ins);
     };
+    // ── ADR 0025 R-D — THE FOURTH PULL SITE ─────────────────────────────────
+    //
+    // A join's BUILD side pulled row-at-a-time (`(src).next()`) unconditionally
+    // whenever the plan said the source streams. That spelling is `Iterator`'s,
+    // and a BATCH producer answers `Option<Batch>` to it — the type mismatch
+    // that made "a streamed batch source on a build side" uncompilable
+    // (`pass/deem_batch_build_side_join` is that query). The three other pull
+    // sites (`emit_simple`'s scan, the nest's driving scan, the pure-group
+    // scan) had already collapsed onto `batch_scan_frag`; this one had not.
+    //
+    // The SELECTION is the same two-term test those three use — the rel
+    // registry's index plus its `b` flag — read here rather than threaded from
+    // `analyze_chain`, because `streams` is a fact about the PLAN's node and
+    // `rel_batch` is a fact about the PRODUCER'S TYPE, and conflating them into
+    // one boolean is what would make a third layout a branch in this consumer.
+    //
+    // Only the PULL differs. The payload stays the row (`payload_ty_frag` is
+    // still asked `streams`), the insert is byte-identical, and
+    // `bucket_lookup_frag` is untouched — a batch build side is the streamed
+    // build side, reading its rows a leaf at a time.
+    let bri: i64 = prm.rel_find_src(src);
+    if streams && bri >= 0i64 && prm.rel_batch[bri] {
+        let mut rowx: String = String::new();
+        batch_row_text(&mut rowx, prm, bri, string_as_str(&s_bb), string_as_str(&s_bj));
+        let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+        let mut lenx: String = String::new();
+        batch_len_text(&mut lenx, prm, bri, string_as_str(&s_bb));
+        let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+        plan_trace(src, "build-side batch pull", var,
+                   "ADR 0025 R-D — streamed batch source on a join build side");
+        // The row is bound to an OWNED local even on the row-major arm (where
+        // `batch_scan_frag` would bind `&(bb)[j]` directly): the streamed
+        // payload IS the row, so the insert below pushes `#n_br` by value and
+        // needs storage to push from.
+        return quote_block! {
+            #(decl);
+            {
+                loop {
+                    let #n_bo = (#(src_f)).next_batch();
+                    if #n_bo.is_some() {
+                        {
+                            let #n_bb = #n_bo.unwrap();
+                            let #n_bn: u64 = #(lene_f);
+                            let mut #n_bj: u64 = 0u64;
+                            while #n_bj < #n_bn {
+                                let #n_br: #(rowt) = #(rowe_f);
+                                let #vnm: &#(rowt) = &#n_br;
+                                #(body);
+                                #n_bj = #n_bj + 1u64;
+                            }
+                        }
+                    } else { break; }
+                }
+            }
+        };
+    }
     if streams {
         // ONE pass over the iterator, and the only one. The row type is
         // ANNOTATED for the same reason the scan loop annotates it: `next()`'s
@@ -3822,7 +3884,7 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
         arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));
         bpi = bpi + 1i64;
@@ -4644,7 +4706,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
         arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));
         bpi = bpi + 1i64;
@@ -9719,7 +9781,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
         arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
+        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
                                   st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&st_build[bpi]), st_stream[bpi]));
         bpi = bpi + 1i64;

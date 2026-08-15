@@ -45,6 +45,8 @@ use logos.lang.str;
 use logos.lang.num.float;   // f64_to_bits — f64 leaves ride vi as IEEE bits
 use logos.lang.arith;             // wrapping_mul — FNV mixes wrap by design
 use logos.mem.collections.vec;
+use logos.lang.stream;             // BatchStream / RowsBatch / RowMajor / Rewind (ADR 0025)
+use logos.lang.option;             // Option — the cursor's pull answers with one
 
 // One graph edge row (the shared vocabulary; see the module doc).
 pub type WritEdgeRow = (i64, str, i64, i64, str, i64, i64, str);
@@ -273,3 +275,385 @@ pub fn writ_graph_edges(root: &Writ) -> Vec<WritEdgeRow> {
     wg_walk(rv, &mut out, &mut seen);
     return out;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// WritWalk — THE DOCUMENT WALK AS A CURSOR (ADR 0025 R-D)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `writ_graph_edges` above is the walk as a VALUE: it runs to completion and
+// hands back every row of the relation in one `Vec`. That is a materialization
+// the query plane did not ask for — criterion 1 counts nodes the PLAN inserts,
+// and this one is inserted by the PRODUCER, below the count, which is why all
+// 41 writ rel grounds in the corpus read `MG_CONTAINER` (no node) while a whole
+// document sits in memory behind each of them.
+//
+// `WritWalk` is the same walk as a STREAM: it hands out the rows a batch at a
+// time and never holds more than one batch. Three things had to be reified for
+// that, and each is a place where the recursive version was keeping state on
+// the machine stack:
+//
+//   1. THE RECURSION → AN EXPLICIT FRAME STACK. `wg_walk`/`wg_descend` are
+//      mutually recursive, and a recursion cannot be suspended between two
+//      rows. `WgFrame` is one activation of `wg_walk` — the container, which
+//      of the three container shapes it is, how far the scan of its slots has
+//      got, and the edge ORDINAL (which is not the slot index for maps and
+//      TOMs, where absent slots are skipped and must not consume an ordinal,
+//      because the ordinal is hashed into every scalar child's identity).
+//
+//   2. THE SEEN SET → AN OWNED FIELD. It was a `&mut Vec<u64>` threaded through
+//      the recursion; here the cursor owns it, because the cursor IS the walk
+//      and the set's lifetime is the walk's. It stays the same LINEAR set with
+//      the same membership rule (`wg_seen_has`) — deliberately unchanged, so
+//      the cursor's row sequence is decidable against `writ_graph_edges`'s by
+//      a row-for-row differential rather than by argument. Its O(n²) is
+//      inherited, is the same O(n²) the Vec producer has, and is OWED, not
+//      fixed here: swapping in a hash set changes the answer's TIMING and not
+//      the answer, so it belongs to a step that can measure it alone.
+//
+//   3. THE BATCH BOUNDARY → INVENTED. A document walk has no natural batch:
+//      unlike a Memoria leaf (which is a page, a physical unit) or a `Buffer`
+//      (which is one packet by definition), nothing in a Writ says where one
+//      batch stops. So the boundary is a RULING — `WG_BATCH_CAP` rows, flushed
+//      — and it is named here rather than passed in because a per-call batch
+//      size would be a knob no caller has a reason to set and every caller
+//      could set differently, and the emitted scan is identical for every
+//      value of it. It is not a correctness parameter: the fixture
+//      `wql_writ_walk_cursor` pins the SAME ROWS IN THE SAME ORDER for
+//      capacities that split the corpus documents differently.
+//
+// THE RE-READ STORY IS A SECOND WALK, NOT A SECOND COPY, and that is the whole
+// reason this type exists rather than a `Buffer` over `writ_graph_edges` — the
+// route S6-A measured and REVERTED (+29 materialization nodes, +35,073 corpus
+// bytes, 3 fixtures stopped compiling). A `Buffer` is a POSITIONED stream with
+// ONE cursor: a rel block that reads the relation twice, or a self-join, drains
+// a full copy per re-read. A walk has no position to share — `writ_walk(root)`
+// called twice is two independent walks over one borrowed document, costing one
+// frame stack each. `Rewind` is therefore implementable here HONESTLY (restart
+// the walk: clear the stack, clear the seen set, re-arm the root row) and it is
+// implemented below, but it is NOT the capability the plan should read for the
+// re-read decision — see the note on the impl.
+//
+// FORWARD-ONLY. No `Bidirectional`, no `RandomAccess`, no `SizedStream`: a walk
+// cannot retreat without re-walking, cannot seek to row n without walking n
+// rows, and cannot answer its own row count without walking to the end. Each of
+// those is a capability that must be ABSENT rather than emulated — an emulated
+// `size()` here would walk the document to answer a question the planner asks
+// for free elsewhere, which is the "capability with no consumer" the stream
+// vocabulary refuses on principle.
+
+/// The invented batch boundary (see the block comment). Rows, not bytes.
+pub const WG_BATCH_CAP: i64 = 64i64;
+
+// The three container shapes, as a frame tag. Spelled as constants rather than
+// re-asked per step (`v.is_map()` …) because the frame's shape is decided ONCE,
+// when the frame is pushed, and re-deriving it every step would be a second
+// place where "which container is this" is answered.
+const WGF_MAP: i32 = 0i32;
+const WGF_ARR: i32 = 1i32;
+const WGF_TOM: i32 = 2i32;
+
+/// One suspended activation of `wg_walk`: which container, how far, which
+/// ordinal comes next.
+struct WgFrame {
+    /// The container being expanded.
+    node: WAny,
+    /// `WGF_MAP` / `WGF_ARR` / `WGF_TOM` — decided at push time.
+    kind: i32,
+    /// The next SLOT to examine (map slot, array index, TOM key code).
+    pos: i64,
+    /// The next EDGE ORDINAL. Equals `pos` for arrays; for maps and TOMs it
+    /// lags, because absent slots are skipped without consuming an ordinal.
+    ord: i64,
+}
+
+/// The Writ document walk, as a forward-only batch stream of `WritEdgeRow`.
+///
+/// Yields exactly the rows `writ_graph_edges` returns, in exactly that order —
+/// the virtual root edge first, then preorder over the graph, a shared child
+/// once per incoming edge, containers expanded once. `str` cells are VIEWS into
+/// the document, which is why the borrow is carried.
+#[borrow_carrying]
+pub struct WritWalk {
+    /// The document, borrowed for the life of the cursor.
+    doc: &Writ,
+    /// The suspended recursion (item 1 above).
+    stack: Vec<WgFrame>,
+    /// The expanded-container set (item 2 above), owned.
+    seen: Vec<u64>,
+    /// The batch being filled. Handed out as a `RowsBatch<WritEdgeRow>` and
+    /// cleared at the head of the next pull — which is why the emitted scan
+    /// binds the batch inside its own block (`rexpr_walk::batch_scan_frag`):
+    /// the next `next_batch()` takes `&mut self` and the batch's borrow must
+    /// have ended.
+    buf: Vec<WritEdgeRow>,
+    /// False until the virtual root edge has been emitted and the root frame
+    /// armed. `rewind` clears it.
+    armed: bool,
+}
+
+impl WritWalk {
+    /// A fresh walk over `root`. Costs one empty frame stack — it does NOT
+    /// touch the document until the first pull.
+    pub fn new(root: &Writ) -> WritWalk {
+        return WritWalk {
+            doc: root,
+            stack: vec_new::<WgFrame>(),
+            seen: vec_new::<u64>(),
+            buf: vec_new::<WritEdgeRow>(),
+            armed: false,
+        };
+    }
+
+    /// The virtual root edge + the root frame — `writ_graph_edges`'s prologue,
+    /// moved to the first pull so that constructing a cursor is free.
+    ///
+    /// ⚠ IT PUSHES THE ROOT ROW UNCONDITIONALLY, including for a null root, for
+    /// the reason the module doc gives at length: the relation's cardinality is
+    /// binding-time independent, and an empty document's whole relation is this
+    /// one row. The columns come from the SAME `wg_node_id` / `wg_kind` /
+    /// `wg_vi` the walk uses — a third spelling of the root row is exactly the
+    /// drift the constants and the shared rules exist to stop.
+    fn arm(&mut self) {
+        let rv: WAny = self.doc.root();
+        self.buf.push((WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX,
+                       wg_node_id(WG_ROOT_PARENT, rv, WG_ROOT_ORD), wg_kind(rv),
+                       rv.type_code() as i64, wg_vi(rv), rv.as_wstr()));
+        self.seen.push(rv.raw() as u64);
+        if wg_is_container(rv) {
+            self.stack.push(WgFrame { node: rv, kind: wg_frame_kind(rv),
+                                      pos: 0i64, ord: 0i64 });
+        }
+        self.armed = true;
+    }
+
+    /// ONE STEP of the suspended recursion: advance the top frame to its next
+    /// present child, emit that edge, and — if the child is an unexpanded
+    /// container — push ITS frame, so the subtree comes before the sibling.
+    /// That last line is what makes this preorder and not level order, and it
+    /// is the explicit-stack image of `wg_emit` immediately followed by
+    /// `wg_descend`.
+    ///
+    /// Returns false when the stack is empty, i.e. the walk is over.
+    fn step(&mut self) -> bool {
+        while self.stack.len() > 0i64 {
+            let ti: i64 = self.stack.len() - 1i64;
+            let fk: i32 = self.stack.get(ti).kind;
+            let fv: WAny = self.stack.get(ti).node;
+            let mut p: i64 = self.stack.get(ti).pos;
+            let od: i64 = self.stack.get(ti).ord;
+            if fk == WGF_MAP {
+                let m: &WMap<WString, WAny> = fv.as_map();
+                // Skip absent slots WITHOUT consuming an ordinal — the same
+                // `if !kv.is_null()` the recursive walk has, with the loop
+                // turned inside out.
+                while p < m.slots() && m.key_at(p).is_null() { p = p + 1i64; }
+                if p >= m.slots() { self.stack.pop(); }
+                else {
+                    let cv: WAny = m.val_at(p);
+                    wg_emit(&mut self.buf, fv, m.key_at(p).as_wstr(), 0i64 - 1i64, cv, od);
+                    self.stack.set(ti, WgFrame { node: fv, kind: fk,
+                                                 pos: p + 1i64, ord: od + 1i64 });
+                    self.push_child(cv);
+                    return true;
+                }
+            } else if fk == WGF_ARR {
+                let a: &WArray<WAny> = fv.as_array();
+                if p >= a.len() { self.stack.pop(); }
+                else {
+                    let cv: WAny = a.get(p);
+                    // The array's ordinal IS its index — both columns take `p`,
+                    // exactly as `wg_walk`'s array arm passes `i` twice.
+                    wg_emit(&mut self.buf, fv, "", p, cv, p);
+                    self.stack.set(ti, WgFrame { node: fv, kind: fk,
+                                                 pos: p + 1i64, ord: p + 1i64 });
+                    self.push_child(cv);
+                    return true;
+                }
+            } else {
+                let t: &WMap<Wu6, WAny> = unsafe { &*(fv.resolve() as *const WMap<Wu6, WAny>) };
+                while p < 52i64 && !t.contains(p as u8) { p = p + 1i64; }
+                if p >= 52i64 { self.stack.pop(); }
+                else {
+                    let cv: WAny = t.get(p as u8);
+                    // idx is the 6-bit FIELD KEY CODE and the ordinal is the
+                    // dense count of present fields — they differ, and the
+                    // recursive arm's two variables (`k` and `ord`) are these
+                    // two frame fields.
+                    wg_emit(&mut self.buf, fv, "", p, cv, od);
+                    self.stack.set(ti, WgFrame { node: fv, kind: fk,
+                                                 pos: p + 1i64, ord: od + 1i64 });
+                    self.push_child(cv);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// `wg_descend`, as a stack push: expand a container child exactly once.
+    fn push_child(&mut self, child: WAny) {
+        if !wg_is_container(child) { return; }
+        let hw: u64 = child.raw() as u64;
+        if wg_seen_has(&self.seen, hw) { return; }
+        self.seen.push(hw);
+        self.stack.push(WgFrame { node: child, kind: wg_frame_kind(child),
+                                  pos: 0i64, ord: 0i64 });
+    }
+
+    /// Pulls the next batch — THE INHERENT DOOR the generated scan calls
+    /// (`next_batch()`, not `BatchStream::next`; see `Buffer::next_batch` for
+    /// the standing reason).
+    ///
+    /// AN EMPTY BATCH IS NEVER YIELDED HERE, and that is a statement about this
+    /// stream and not a departure from §1's rule: the walk always has the
+    /// virtual root row to give, so the first pull is non-empty for every
+    /// document including the empty one, and every later pull either fills or
+    /// the walk is over. `Some(empty)` remains legal in the vocabulary — this
+    /// producer simply never needs it.
+    pub fn next_batch(&mut self) -> Option<RowsBatch<WritEdgeRow>> {
+        self.buf.clear();
+        if !self.armed { self.arm(); }
+        while self.buf.len() < WG_BATCH_CAP {
+            if !self.step() { break; }
+        }
+        if self.buf.len() == 0i64 { return Option::None; }
+        return Option::Some(self.buf.as_slice());
+    }
+}
+
+// The walk IS a batch stream, and the batch is row-major (`WritEdgeRow` tuples
+// in a slice), which is what makes the emitter spell the row `bb[j]`.
+impl BatchStream<RowsBatch<WritEdgeRow>> for WritWalk {
+    fn next(&mut self) -> Option<RowsBatch<WritEdgeRow>> { return self.next_batch(); }
+}
+impl RowMajor for WritWalk {}
+
+// ⚠ `Rewind` IS IMPLEMENTED AND IS NOT THE RE-READ CAPABILITY.
+//
+// Restarting a walk is honest and cheap — drop the frames, drop the seen set,
+// re-arm — so refusing to implement `Rewind` would be a lie about this type.
+// But `Rewind` is the wrong flag for the PLAN's re-read decision, and the
+// distinction is the one that would otherwise become a permissive defect the
+// corpus cannot see:
+//
+//   `rewind` re-lands the ONE stream the prelude bound. A rel block that reads
+//   the relation inside an outer loop over the SAME relation needs TWO LIVE
+//   POSITIONS, and rewinding the shared binding mid-outer-loop destroys the
+//   outer one. Every other `Rewind` implementor (`SliceStream`, `Epoch`,
+//   `Buffer`) is a positioned view over LANDED storage, where a second cursor
+//   is a second view of rows that stay put; a walk has no landed rows to view
+//   twice.
+//
+// What the re-read decision actually needs is "a FRESH CALL to this producer
+// yields an independent walk", which is a property of the PRODUCER FUNCTION,
+// not of the stream type. That capability DOES NOT EXIST YET — see the REFUSAL
+// block below, which says what it would cost and what was measured without it.
+impl Rewind for WritWalk {
+    fn rewind(&mut self) {
+        self.stack.clear();
+        self.seen.clear();
+        self.buf.clear();
+        self.armed = false;
+    }
+}
+
+/// The frame tag for a container value. Asked ONCE per frame, at push time.
+fn wg_frame_kind(v: WAny) -> i32 {
+    if v.is_map()   { return WGF_MAP; }
+    if v.is_array() { return WGF_ARR; }
+    return WGF_TOM;
+}
+
+/// The cursor form of `writ_graph_edges` — the producer a `rel` declares over
+/// when it wants the walk STREAMED instead of landed.
+pub fn writ_walk(root: &Writ) -> WritWalk {
+    return WritWalk::new(root);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REFUSAL — `rel edge` STILL DECLARES OVER `writ_graph_edges`, NOT `writ_walk`
+// ════════════════════════════════════════════════════════════════════════════
+//
+// The cursor exists, is differentiated row-for-row against the Vec producer
+// (`pass/wql_writ_walk_cursor`), and is NOT what the `impl GraphSource for
+// Writ` above declares over. That is a refusal with a measured ground, in the
+// S6-A style, and this block is the measurement so the next round starts from
+// a number rather than from the intention.
+//
+// WHAT WAS MEASURED (2026-08-15, one build, `rel edge = writ_walk` and nothing
+// else changed; six writ-carrying corpus fixtures, `--gen-dir` byte counts, and
+// `tests/logos/criterion1_materialization_instrument.sh`):
+//
+//   fixture                            gen bytes  baseline →   cursor
+//   wql_writ_graph_e2e                              55,548 →   58,466
+//   wql_gpath_e2e                                  161,641 →  168,622
+//   query_tree_source_graph_e2e                    175,621 →  179,276
+//   derive_graph_source_root_row                    41,719 →   42,013
+//   deem_three_domain_join                          94,008 →   94,656
+//   wql_graph_root_id_cross_document                43,609 →   46,161
+//                                                  TOTAL   →  +17,048
+//   criterion 1, N1 (materialization NODES)          2,703 →    2,706  (+3, same 188-fixture population)
+//   criterion 1, D2 (emitted collection bindings)    3,954 →    3,933  (−21)
+//   criterion 1, T  (historical text match)            622 →      601  (−21)
+//   criterion 1, accounted                          83.38% →   83.83%
+//
+// ⚠ The N1 row FIRST READ "2,701 → 2,706 (+5)" — a POPULATION MIX caught by
+// the round's audit: 2,701 is the pre-round 186-fixture baseline, 2,706 a
+// 188-fixture measurement, so the subtraction crossed the two new fixtures.
+// Cross-check: D1 5417→5421 = +4 plan lines, and the six writ fixtures' own
+// plan-line delta is exactly +4 — the corpus delta is writ-local. And the
+// three rows below N1 were MISSING: a refusal that lists only the costs is
+// not the measurement it claims to be — the cursor route REDUCES emitted
+// collection bindings and IMPROVES the accounted share while adding nodes.
+//
+// So the cursor route is BETTER THAN THE S6-A BUFFER ROUTE — that one was +29
+// nodes, +35,073 bytes, and THREE FIXTURES STOPPED COMPILING; here all six
+// still compile and answer — and it is still A REGRESSION on the node/byte
+// axes, which is the thing this round refused to land. Criterion (a) is "at
+// or below baseline", and +3 nodes / +17,048 bytes is above it.
+//
+// WHY THE REGRESSION IS THERE, exactly. Today every writ rel in the corpus
+// grounds `MG_CONTAINER` — the producer returns a container, so
+// `access_plan::ap_drain` refuses a node (`ap_offers` is false) and the whole
+// document sits in a `Vec` the plan never counted. A cursor makes `ap_offers`
+// TRUE, which drops every writ rel into `plan_walker::plan_prove_once`'s drain
+// cascade — and its FIRST arm is a blanket: `if prog.has_rels()` drains EVERY
+// rel of the query, on the ground `MG_REL_BLOCK`. Three of the six fixtures
+// have rel blocks. The plan is right to drain: a rel block may read the source
+// twice, and a walk cursor read twice is EXHAUSTED, not restarted.
+//
+// WHAT WOULD CLOSE IT, and why it is not one line. The plan must be able to
+// say "no copy — READ IT AGAIN", which needs BOTH halves:
+//
+//   1. THE DECISION HALF (small, and its site is known): a capability meaning
+//      "a fresh call to this producer yields an INDEPENDENT walk" — a marker on
+//      the stream type, one `producer_impls_trait_` line in
+//      `SemaChecker::native_source_spec` (`src/compiler/sema_expr.cpp`), one
+//      letter through `plan_walker::pw_flag`, one `rel_*` field in
+//      `params.logos`, a second refusal in `access_plan::ap_drain` beside the
+//      `ap_offers` one, and a ground in `access_plan_decide_mode` beside
+//      `MG_CONTAINER` / `MG_ORDERED_SOURCE`. It must NOT be `Rewind`: every
+//      `Rewind` implementor (`SliceStream`, `Epoch`, `Buffer`) is a positioned
+//      view over LANDED storage, and re-landing the ONE binding the prelude
+//      made destroys the outer read that a rel block is in the middle of. That
+//      confusion would be a permissive defect a green corpus cannot see.
+//
+//   2. THE EMITTER HALF, WHICH IS THE ONE THAT STOPPED THIS ROUND: today every
+//      second read uses the PRELUDE BINDING BY NAME (`prm.rel_srcs[…]`, nine
+//      sites in `rexpr_walk.logos`). A re-walk needs a FRESH `<mat>(<marg>)`
+//      local bound at the second read site instead. The data is all there —
+//      `rel_mat`/`rel_marg`/`rel_marg2`/`rel_itty` are on `MacroParams`, which
+//      `rexpr_walk` already takes, and `plan_walker` already emits that call
+//      text at three sites — but it is nine emitter sites, and the failure mode
+//      of landing half of them is SILENT WRONG ANSWERS: a rel block reading an
+//      exhausted cursor gets zero rows on its second pass and no diagnostic.
+//      A refusal that keeps the answers is worth more than a half-landing that
+//      keeps the byte count.
+//
+// ALSO OWED, and deliberately NOT done here, because moving a producer that no
+// `rel` declares over is churn that cannot be measured: the DYNAMIC twin
+// (`logos.mem.deem.graphsrc`'s `ts_walk`/`ts_descend`/`dyn_graph_edges`) and the
+// DERIVED producer (`logos.mem.compiler.metaprog.derive_graph_source`, which
+// emits `__gs_walk_<T>`/`__gs_edges_<T>` INSIDE ITS QUOTE — a FOURTH producer of
+// this same row type, not three). The vocabulary stays single only if all four
+// move in the step that moves the `rel`.
