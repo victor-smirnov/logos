@@ -325,6 +325,7 @@ for x in "${ALLD[@]}"; do
     case "$(basename "$x")" in logos.gen.*) ;; *) UD+=("$x");; esac
 done
 nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0; nqo=0; nqs=0; nro=0
+nfdl=0; nfnd=0; nfrs=0; nfos=0; nfbe=0; nfky=0; nfrd=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
@@ -363,6 +364,29 @@ if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __out: Vec<' "${UD[@]}" > "$d/qo" 2>/dev/null
     grep -Eh 'let mut __out: String' "${UD[@]}" > "$d/qs" 2>/dev/null
     grep -Eh 'let mut __rout:' "${UD[@]}" > "$d/ro" 2>/dev/null
+    # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX LANDINGS (FACT K) ───────
+    # ⚠ EVERY PATTERN REQUIRES THE `_<relname>` SUFFIX, and that is what keeps
+    # these greps honest rather than convenient. The role name alone is
+    # AMBIGUOUS in this tree: bare `__rs` is the one-shot rel helper's dedup
+    # set in `_run` — a different role in a different emitter region, 45 of
+    # them, 1:1 with `__rout` — while `__rs_<m>` is the fixpoint member's
+    # novelty shadow set. A pattern written `let mut __rs` would silently take
+    # both and FACT K would assert an identity over a population it had
+    # mis-drawn. The relation name can itself begin with `__` (`__reach_w`
+    # gives `__rs___reach_w`), which `[a-z_0-9]+` covers.
+    grep -Eh 'let mut __dl_[a-z_0-9]+:'   "${UD[@]}" > "$d/fdl" 2>/dev/null
+    grep -Eh 'let mut __nd_[a-z_0-9]+:'   "${UD[@]}" > "$d/fnd" 2>/dev/null
+    grep -Eh 'let mut __rs_[a-z_0-9]+:'   "${UD[@]}" > "$d/frs" 2>/dev/null
+    grep -Eh 'let mut __os_[a-z_0-9]+:'   "${UD[@]}" > "$d/fos" 2>/dev/null
+    grep -Eh 'let mut __best_[a-z_0-9]+:' "${UD[@]}" > "$d/fbe" 2>/dev/null
+    grep -Eh 'let mut __keys_[a-z_0-9]+:' "${UD[@]}" > "$d/fky" 2>/dev/null
+    # R-C3 — the one-shot rel helper's dedup set. Its own name since R-C3
+    # renamed it off the `__rs` prefix; before that this grep could not have
+    # been written at all without also taking the 218 fixpoint shadow sets.
+    grep -Eh 'let mut __rds:' "${UD[@]}" > "$d/frd" 2>/dev/null
+    nfdl=$(wc -l < "$d/fdl"); nfnd=$(wc -l < "$d/fnd"); nfrs=$(wc -l < "$d/frs")
+    nfos=$(wc -l < "$d/fos"); nfbe=$(wc -l < "$d/fbe"); nfky=$(wc -l < "$d/fky")
+    nfrd=$(wc -l < "$d/frd")
     nit=$(wc -l < "$d/it")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
@@ -375,7 +399,7 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nqs=$(wc -l < "$d/qs")
     nro=$(wc -l < "$d/ro")
 fi
-echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -683,6 +707,37 @@ EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffer
 EXPECT_OUTHEAD    = {"query output": 477, "query output bounded by limit": 16,
                      "query output distinct carrier": 5,
                      "incremental snapshot output": 107, "rel result": 45}
+# ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────
+# Every one of these was measured at the emitter BEFORE the node existed (the
+# R-B0 discipline, re-run as R-C0 on 9395c3d1), and every one came back at the
+# predicted value when the nodes landed. They are pinned per head AND on both
+# sides — plan line count and emitted binding count — because the identity is
+# what FACT K is about and a pin on one side alone would let both drift
+# together.
+#
+#   222  fixpoint derived frontier    `__nd_<m>`
+#   218  fixpoint novelty set         `__rs_<m>`
+#   176  fixpoint frontier            `__dl_<m>`
+#    46  over-deletion set            `__os_<m>`
+#     4  fixpoint novelty lattice     `__best_<m>`   (the four lattice fixtures)
+#     4  fixpoint lattice key roster  `__keys_<m>`
+#   ---
+#   670
+#
+# ⚠ THE TWO 4s ARE THE ARMS MOST WORTH PINNING, not the least. They fire on
+# exactly four fixtures — `wql_rel_sssp_e2e`, `wql_rel_widest_path_e2e`,
+# `wql_rel_neg_cycle_abort`, `wql_incr_eligibility_matrix` — and an arm that
+# fires four times out of 670 is the arm a refactor silently routes into its
+# neighbour. Identity (ii) is what would catch that, and these pins are what
+# catch identity (ii) being satisfied by both sides moving at once.
+EXPECT_FPHEAD     = {"fixpoint derived frontier": 222,
+                     "fixpoint novelty set": 218,
+                     "fixpoint frontier": 176,
+                     "over-deletion set": 46,
+                     "fixpoint novelty lattice": 4,
+                     "fixpoint lattice key roster": 4,
+                     # R-C3 — 1:1 with `rel result`; see the identity below.
+                     "rel dedup set": 45}
 # The DEBT LEDGER: ground tokens the corpus does not reach. Checked in BOTH
 # directions — a token here that IS witnessed fails just as loudly.
 UNWITNESSED = {
@@ -794,12 +849,37 @@ OUTHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(OUTHEADS) +
 outhead = collections.Counter()
 FRAMEK = {"group frame": "gkey", "accumulator": "gacc",
           "group count": "gcnt", "representative row": "grow"}
+# ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ──────────────────
+# Read by the same rule as the output seam: the head is matched EXACTLY after
+# the ` on <row type>` tail is stripped, so a seventh fixpoint form added later
+# lands in NEITHER bucket and FACT K reds rather than passing unnamed. The
+# order is longest-first for the same reason `OUTHEADS` is: `fixpoint novelty
+# lattice` must be tried before `fixpoint novelty set` cannot match it, but
+# alternation is first-match and a prefix that is also a whole head would
+# otherwise win.
+FPHEADS = ("fixpoint derived frontier", "fixpoint novelty lattice",
+           "fixpoint lattice key roster", "fixpoint novelty set",
+           "fixpoint frontier", "over-deletion set", "rel dedup set")
+FPHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(FPHEADS) +
+                    r')(?: on .*?)?   \((.*)$')
+FPK = {"fixpoint frontier": "fdl", "fixpoint derived frontier": "fnd",
+       "fixpoint novelty set": "frs", "over-deletion set": "fos",
+       "fixpoint novelty lattice": "fbe", "fixpoint lattice key roster": "fky",
+       "rel dedup set": "frd"}
+# THE GROUND SENTENCE PER HEAD, collected so the six can be asserted DISTINCT.
+# This is the clause that makes "six heads, not one stamp" checkable instead of
+# argued: a blanket stamp is exactly a set of heads sharing one sentence, and an
+# emitter that collapsed the six grounds into one would keep every count in this
+# gate green while destroying the only property the node was inserted for.
+fpground = collections.defaultdict(set)
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            container=0, readonce=0, elided=0, materialize=0, stream=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
-           outq=0, outr=0, aoutq=0, aouts=0, aoutr=0)
+           outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
+           fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
+           afdl=0, afnd=0, afrs=0, afos=0, afbe=0, afky=0, afrd=0)
 witness = {k: 0 for k in vocab}
 silent = []
 
@@ -819,7 +899,8 @@ for e in errs:
         if not tok.startswith(("MG_", "AG_")):
             witness[tok] += text.count(probe)
     nd = dict(outq=0, outr=0, drain=0, sort=0, arrange=0, hj=0, kv=0,
-              gkey=0, gcnt=0, grow=0, gacc=0)
+              gkey=0, gcnt=0, grow=0, gacc=0,
+              fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
     mat, named = set(), set()
     for line in text.splitlines():
         m = NODE.match(line)
@@ -880,6 +961,16 @@ for e in errs:
             if not om.group(3).strip().rstrip(")").strip():
                 bad(f"[{b}] an output-seam `{h}` line carries an EMPTY ground — "
                     f"a landing named and not explained")
+        fm = FPHEAD.match(line)
+        if fm:
+            h = fm.group(2)
+            nd[FPK[h]] += 1
+            gnd = fm.group(3).strip().rstrip(")").strip()
+            if not gnd:
+                bad(f"[{b}] a fixpoint `{h}` line carries an EMPTY ground — a "
+                    f"landing named and not explained")
+            else:
+                fpground[h].add(gnd)
         if line.startswith("[plan] ") and " -> hash join on " in line:
             nd["hj"] += 1
         if KEYV.match(line):
@@ -927,20 +1018,27 @@ for e in errs:
     tot["materialize"] += text.count(" -> materialize   (")
     tot["stream"] += text.count(" -> stream   (")
     for k in ("outq", "outr", "drain", "sort", "arrange", "hj", "kv",
-              "gkey", "gcnt", "grow", "gacc"):
+              "gkey", "gcnt", "grow", "gacc",
+              "fdl", "fnd", "frs", "fos", "fbe", "fky", "frd"):
         tot[k] += nd[k]
 
     cf = os.path.join(OD, b + ".count")
     nit = nix = nks = npm = 0
     agkey = agcnt = agrow = agacc = 0
     aoutq = aouts = aoutr = 0
+    afp = dict(fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
     if os.path.exists(cf):
-        _, a, c, e, g, gk, gc, gr, ga, qo, qs, ro = open(cf).read().split()
+        (_, a, c, e, g, gk, gc, gr, ga, qo, qs, ro,
+         xdl, xnd, xrs, xos, xbe, xky, xrd) = open(cf).read().split()
         nit, nix, nks, npm = int(a), int(c), int(e), int(g)
         agkey, agcnt, agrow, agacc = int(gk), int(gc), int(gr), int(ga)
         aoutq, aouts, aoutr = int(qo), int(qs), int(ro)
+        afp = dict(fdl=int(xdl), fnd=int(xnd), frs=int(xrs),
+                   fos=int(xos), fbe=int(xbe), fky=int(xky), frd=int(xrd))
     else:
         bad(f"[{b}] no artifact count file — the emitted side was not read")
+    for k in afp:
+        tot["a" + k] += afp[k]
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
@@ -1007,6 +1105,111 @@ for e in errs:
             bad(f"[{b}] {nd['outr']} `rel result` plan line(s) vs {aoutr} "
                 f"`let mut __rout:` landing(s) — the rel seam the plan names is "
                 f"not the one the artifact builds")
+
+    # ── FACT K, per fixture — THE FIXPOINT PLANE'S NODES ARE ITS LANDINGS ──
+    # (ADR 0025 R-C2.) Six heads, six emitted binding families, one identity
+    # each — the FACT H/J pattern applied to the region that had NO node at all
+    # until R-C2: 670 of the criterion-1 worklist's 1382 bindings were emitted
+    # by `_scc`/`_od`/`_odp` and named by nothing.
+    #
+    # ⚠ WHY PER FIXTURE AND NOT ONLY IN TOTAL, restated because it is the whole
+    # value: the totals move with the corpus, the EQUALITY does not. An emitter
+    # that stopped declaring a member's shadow set while still announcing it,
+    # or declared one it never announced, is red here even when the two errors
+    # cancel corpus-wide — and both of those are wrong ANSWERS (a member with
+    # no novelty structure never terminates), not slow ones.
+    #
+    # ⚠⚠ THE THREE CLAUSE KINDS BELOW ARE NOT REDUNDANT, AND THE PROOF IS A
+    # MEASURED CONTROL RATHER THAN AN ARGUMENT (R-C2 probes, each built and
+    # restored to green between runs). The identities are invariant under a
+    # pure RE-ROUTING between the heads they relate, which is exactly the
+    # refactor most likely to happen:
+    #
+    #   probe P1  all six heads muted        -> identities GREEN (0 == 0 + 0);
+    #             caught by the plan-vs-artifact clauses (159 reds) and by the
+    #             corpus per-head pins. G4 in the instrument independently
+    #             refused all five ACC credits (rc=2, 452 bindings returned to
+    #             the worklist) — ownership is not self-certifying.
+    #   probe P2  lattice arm routed into the set head (`__best`/`__keys` 4 -> 0,
+    #             `__rs` 218 -> 222)         -> IDENTITY (ii) GREEN, because
+    #             222 == 222 + 0 still holds. The lattice plane was destroyed
+    #             and the arithmetic closed anyway. Caught ONLY by the
+    #             plan-vs-artifact clauses and the per-head pins.
+    #   probe P3  the OD node dropped alone  -> identity (i) RED on 26 fixtures,
+    #             plus the artifact clause. This is the case the identity is
+    #             for: a structure that DISAPPEARS rather than moves.
+    #   probe P4  all six grounds collapsed to one sentence -> EVERY count and
+    #             BOTH identities green; caught only by the distinct-grounds
+    #             clause at the bottom of this file. A blanket stamp is
+    #             arithmetically invisible.
+    #
+    # So: the artifact clauses catch a MISROUTED structure, the identities catch
+    # a DROPPED one, and the ground clause catches a node that stopped saying
+    # anything. Delete any one of the three and a measured defect walks through.
+    if b not in EXPECT_FAILED:
+        for k, what, why in (
+            ("fdl", "`__dl_<m>` driving delta",
+             "the frontier the plan names is not the one the artifact builds"),
+            ("fnd", "`__nd_<m>` derived frontier",
+             "the epoch derives into a landing the plan did not name"),
+            ("frs", "`__rs_<m>` novelty shadow set",
+             "a member tests novelty with a set the plan never announced"),
+            ("fos", "`__os_<m>` over-deletion set",
+             "the DRed |OD| set the plan names is not the one phase 1 builds"),
+            ("fbe", "`__best_<m>` improvement map",
+             "a lattice member's novelty map is not the one the plan names"),
+            ("fky", "`__keys_<m>` lattice key roster",
+             "the lattice roster the plan names is not the one emitted"),
+            ("frd", "`__rds` one-shot rel dedup set",
+             "the rel helper dedups with a set the plan never announced"),
+        ):
+            if nd[k] != afp[k]:
+                bad(f"[{b}] {nd[k]} `{what}` plan line(s) vs {afp[k]} emitted "
+                    f"binding(s) — {why}")
+
+        # ⚠⚠ IDENTITY (i) — `__nd == __dl + __os`, PER FIXTURE.
+        # The next-delta is emitted at three sites; two of them emit a driving
+        # delta beside it and DRed phase 1a does not, because phase 1a is a
+        # single pass over the total with no round to drive. So the residual
+        # `__nd` without a `__dl` is exactly phase 1a's frontier — and phase 1a
+        # emits one per member exactly as the over-deletion set does. The
+        # identity is therefore a claim a reader could be WRONG about: the OD
+        # set and the phase-1a frontier range over the same member set. Break
+        # it in either direction and `__odn_<m>` is compared against a
+        # `__tot_.len() - __keep_<m>` computed over a different membership,
+        # which returns `RetractAbsent` on a legal retraction or accepts an
+        # illegal one. Nothing else in this tree sees that.
+        if nd["fnd"] != nd["fdl"] + nd["fos"]:
+            bad(f"[{b}] fixpoint identity (i) broken: {nd['fnd']} derived "
+                f"frontier(s) != {nd['fdl']} driving delta(s) + {nd['fos']} "
+                f"over-deletion set(s) — a derived frontier exists that is "
+                f"neither driven by a delta nor accounted by an OD set")
+        # ⚠⚠ IDENTITY (ii) — `__nd == __rs + __best`, PER FIXTURE.
+        # EVERY derived member has EXACTLY ONE novelty structure, and which one
+        # is the set/lattice choice. A member with NEITHER derives rows it never
+        # tests for novelty — a non-terminating fixpoint. A member with BOTH
+        # tests novelty twice under two disagreeing definitions (membership vs
+        # improvement) and the answer depends on which gate ran first. Both are
+        # wrong answers; neither is visible to any other clause in this gate.
+        if nd["fnd"] != nd["frs"] + nd["fbe"]:
+            bad(f"[{b}] fixpoint identity (ii) broken: {nd['fnd']} derived "
+                f"frontier(s) != {nd['frs']} shadow set(s) + {nd['fbe']} "
+                f"improvement map(s) — a member has two novelty structures or "
+                f"none")
+        # ⚠ IDENTITY (iii) — `__rds == __rout`, PER FIXTURE (R-C3).
+        # The one-shot rel helper emits its landing and its dedup set in ONE
+        # quote block, so the equality is by construction TODAY — and that is
+        # the argument for pinning it, not against. It is the property the
+        # R-C3 rename was for: before it, the dedup set shared a name prefix
+        # with 218 fixpoint shadow sets and no census could count it at all,
+        # so "one dedup set per rel result" was unstatable rather than true.
+        # A helper that grew a second landing, or one that started sharing a
+        # set between two rels, breaks it — and a shared set is a WRONG ANSWER
+        # (rows of rel A suppressed as duplicates of rel B), not a slow one.
+        if nd["frd"] != nd["outr"]:
+            bad(f"[{b}] identity (iii) broken: {nd['frd']} `rel dedup set` "
+                f"line(s) vs {nd['outr']} `rel result` line(s) — a one-shot rel "
+                f"landing without its novelty set, or a set without a landing")
 
     # FACT B, per fixture
     if b not in EXPECT_FAILED and nd["drain"] + nd["sort"] != nit:
@@ -1082,6 +1285,50 @@ for pk, ak, what in (("gkey", "agkey", "`__g_key` group tables"),
 for h, want in sorted(EXPECT_OUTHEAD.items()):
     if outhead[h] != want:
         bad(f"corpus total: {outhead[h]} `{h}` output-seam line(s), pinned {want}")
+# ── FACT K, corpus totals + the two identities + the SIX DISTINCT GROUNDS ────
+# (ADR 0025 R-C2.) Each head at its own count, for the reason FACT J gives per
+# head: a single 670 total would stay green while the emitter collapsed six arms
+# into one, which is precisely the blanket stamp this node exists NOT to be.
+for h, want in sorted(EXPECT_FPHEAD.items()):
+    if tot[FPK[h]] != want:
+        bad(f"corpus total: {tot[FPK[h]]} `{h}` fixpoint line(s), pinned {want}")
+    if tot["a" + FPK[h]] != want:
+        bad(f"corpus total: {tot['a'+FPK[h]]} emitted binding(s) for `{h}`, "
+            f"pinned {want} — the artifact side of FACT K moved")
+# The two identities in TOTAL as well as per fixture: the per-fixture clause
+# catches a plan that stopped describing its own artifact, this catches a corpus
+# that quietly SHRANK a whole role away.
+if tot["fnd"] != tot["fdl"] + tot["fos"]:
+    bad(f"corpus: fixpoint identity (i) broken — {tot['fnd']} != {tot['fdl']} "
+        f"+ {tot['fos']}")
+if tot["fnd"] != tot["frs"] + tot["fbe"]:
+    bad(f"corpus: fixpoint identity (ii) broken — {tot['fnd']} != {tot['frs']} "
+        f"+ {tot['fbe']}")
+# ⚠ THE ANTI-STAMP CLAUSE, AND IT IS THE ONE THAT CANNOT BE SATISFIED BY
+# COUNTING. Six heads whose grounds were the SAME sentence would keep every
+# count above green and would be exactly the constant-word node S5 refused for
+# the output seam. So: each head must carry EXACTLY ONE ground (an emitter that
+# started varying a role's explanation per site has stopped stating a property
+# of the role), and the six grounds must be SIX DISTINCT sentences. `explain()`
+# prints these, and a reader who gets the same sentence for a driving delta and
+# an over-deletion set has been told nothing.
+seen = {}
+for h in sorted(FPHEADS):
+    gs = fpground.get(h, set())
+    if len(gs) == 0:
+        bad(f"head `{h}` carries NO ground anywhere in the corpus — either the "
+            f"head stopped firing or its sentence went empty")
+    elif len(gs) > 1:
+        bad(f"head `{h}` carries {len(gs)} DIFFERENT grounds across the corpus "
+            f"— a role's explanation must be a property of the role, not of "
+            f"the site")
+    else:
+        g = next(iter(gs))
+        if g in seen:
+            bad(f"heads `{seen[g]}` and `{h}` publish the SAME ground sentence "
+                f"— six heads sharing one explanation is a blanket stamp, which "
+                f"is the node S5 refused for the output seam")
+        seen[g] = h
 if tot["drain"] + tot["sort"] != EXPECT_DRAIN_SORT:
     bad(f"corpus total: {tot['drain']}+{tot['sort']} drain/sort nodes, pinned "
         f"{EXPECT_DRAIN_SORT}")
@@ -1103,6 +1350,15 @@ for tok in sorted(UNWITNESSED):
             f"exists in the vocabulary — a stale exemption")
 
 # ── the census, printed whatever the verdict ─────────────────────────────────
+print("── FIXPOINT PLANE (R-C2, FACT K) ─────────────────────────────────────")
+for h in ("fixpoint derived frontier", "fixpoint novelty set",
+          "fixpoint frontier", "over-deletion set",
+          "fixpoint novelty lattice", "fixpoint lattice key roster",
+          "rel dedup set"):
+    k = FPK[h]
+    print(f"  {tot[k]:6d}  {h:<28s} plan  |  {tot['a'+k]:6d} emitted")
+print(f"  identities: nd {tot['fnd']} == dl {tot['fdl']} + os {tot['fos']}"
+      f"   |   nd {tot['fnd']} == rs {tot['frs']} + best {tot['fbe']}")
 print("── MATERIALIZATION PLANE ─────────────────────────────────────────────")
 print(f"  drain {tot['drain']}  sort {tot['sort']}  arrange {tot['arrange']}"
       f"  key vector {tot['kv']}"

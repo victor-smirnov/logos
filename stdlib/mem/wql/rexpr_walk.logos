@@ -2185,6 +2185,123 @@ fn out_node_rel(subject: str, elem_ty: str) {
                "an INTERNAL seam — consumed by the enclosing query and never returned to the application; the landing is `__rout` and not the query output (R-B1)");
 }
 
+// ── ADR 0025 R-C3 — THE ONE-SHOT REL'S DEDUP SET ───────────────────────────
+// The `_run` tier's rel helper builds TWO collections, not one: the landing
+// (`__rout`, owned by `rel result` since R-B2) and a HashSet beside it that
+// decides which derived rows reach the landing. The set had no node, and could
+// not get one while it was spelled `__rs` — see the rename note at its
+// declaration. Renamed to `__rds` by R-C3, it takes its own head here.
+//
+// ⚠ NOT THE SAME CLAIM AS `query output distinct carrier`, and the contrast is
+// the reason this is a separate head rather than a reuse. There the LANDING IS
+// the dedup structure (`distinct` rescans `__out` per pushed row — one
+// collection doing two jobs). Here they are two collections: the set is O(1)
+// per test and the landing never gets rescanned. A reader told "distinct
+// carrier" would conclude the rel helper rescans its output, which it does not.
+fn out_node_rel_dedup(subject: str, elem_ty: str) {
+    plan_trace(subject, "rel dedup set", elem_ty,
+               "the one-shot rel helper's NOVELTY set — `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`, so this HashSet and not the landing is what decides a derived row is new; it is a second collection beside `__rout` rather than the landing rescanned, so the test is O(1) and exactly one exists per rel result");
+}
+
+// ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SEAMS, SIX NODES ───────────────────
+//
+// 670 of the criterion-1 worklist's 1382 bindings are emitted by ONE region,
+// the cross-epoch semi-naive driver (`_scc`), and until R-C2 not one of them
+// had a plan node. They were not un-triaged: they were never ASKED, because
+// S6-B declared the incremental tier out of the BATCH plane and the declaration
+// was read as a naming exemption. It is not one. S6-B's statement is about what
+// CONSUMES these rows (the incremental tier pulls rows, not batches); criterion
+// 1 asks who INSERTED a collection and why, and it names what exists regardless
+// of which plane consumes it.
+//
+// ⚠ SIX HEADS AND NOT ONE, ON THE R-B TEST — does the sentence carry
+// information a reader could not have got from the return type? Measured at the
+// emitter BEFORE these nodes existed (R-C0, the sweep on 9395c3d1):
+//
+//     222  fixpoint derived frontier   `__nd_<m>` — rows derived this epoch
+//     218  fixpoint novelty set        `__rs_<m>` — SET semantics
+//     176  fixpoint frontier           `__dl_<m>` — the epoch's driving delta
+//      46  over-deletion set           `__os_<m>` — DRed's |OD|
+//       4  fixpoint novelty lattice    `__best_<m>` — LATTICE semantics
+//       4  fixpoint lattice key roster `__keys_<m>` — the map's enumeration
+//     ---
+//     670
+//
+// A four-order-of-magnitude spread (222 to 4) is a discriminator, not a stamp.
+//
+// ⚠⚠ THE TWO IDENTITIES THAT MAKE THESE SEAMS RATHER THAN LABELS. Both were
+// measured to hold on EVERY fixture with zero exceptions before the nodes
+// existed, and both are pinned by FACT K in `plan_ground_census_gate.sh`:
+//
+//   (i)  `__nd_* == __dl_* + __os_*`   (222 == 176 + 46)
+//        The next-delta is emitted at three sites; two of them (`_scc` state,
+//        `_odp`) emit a driving delta beside it and one (`_od`, DRed phase 1a)
+//        does not — phase 1a is a single pass, it has no round to drive. So the
+//        residual `__nd` without a `__dl` is exactly the retraction's phase-1a
+//        frontier, and phase 1a emits one per member exactly as `__os_` does.
+//        The identity therefore says something a reader could be wrong about:
+//        the over-deletion set and the phase-1a frontier are one per member of
+//        the SAME member set. An emitter that grew a phase-1a member without
+//        its OD set — or an OD set for a member phase 1a never walks — breaks
+//        it, and that is a wrong-answer class (`|OD|` is compared against
+//        `__tot_.len() - __keep_` and a mismatch returns `RetractAbsent`).
+//
+//   (ii) `__nd_* == __rs_* + __best_*`   (222 == 218 + 4)
+//        EVERY derived member has EXACTLY ONE novelty structure, and which one
+//        is the set/lattice choice. The only four fixtures where `nd != rs` are
+//        `wql_rel_sssp_e2e`, `wql_rel_widest_path_e2e`, `wql_rel_neg_cycle_abort`
+//        and `wql_incr_eligibility_matrix` — the lattice shapes. A member with
+//        NEITHER structure derives rows it never tests for novelty, which is a
+//        non-terminating fixpoint; a member with BOTH tests novelty twice under
+//        two disagreeing definitions. Neither is visible to any gate in the tree
+//        today, and both are wrong answers rather than slow ones.
+//
+// ⚠ THE GROUNDS CARRY TRUTH CONDITIONS, which is the half a stamp cannot have.
+// Each names the mechanism that forces the landing, so the day the mechanism
+// changes the sentence becomes FALSE and must be rewritten — see each below.
+fn MG_FP_DELTA() -> str { return "the epoch's DRIVING frontier — the semi-naive rewriting reads this delta where a naive round would read the accumulated total; it LANDS rather than streams because every in-SCC occurrence of every body rescans it within the round, so it is read k times for k occurrences"; }
+fn MG_FP_NEXT() -> str { return "rows DERIVED this epoch and not yet folded into the total — a landing separate from the driving delta because the round APPENDS here while still scanning `__dl_*`, and the swap at the round boundary is what keeps the fixpoint monotone; merging the two would have the round read its own output"; }
+fn MG_FP_NOVELTY_SET() -> str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
+fn MG_FP_NOVELTY_LAT() -> str { return "the member's NOVELTY structure, LATTICE semantics — for a recursive min/max member novelty is IMPROVEMENT and not membership, so a best-per-key map replaces the shadow set and the gate is the `__imp` comparison; a row that ties the incumbent is derived and NOT novel, which a set could not express"; }
+fn MG_FP_LAT_KEYS() -> str { return "the lattice map's KEY ROSTER — the best-per-key map has no ordered enumeration surface, so the post-loop argmin/argmax materialization of the total walks this vector instead; it exists for lattice members only and would be deletable the day the map gains an iterator"; }
+fn MG_OD_SET() -> str { return "the DRed OVER-DELETION distinct set — `__odn_<m> = __os_<m>.len()` IS the over-deletion count phase 1 checks against `__tot_.len() - __keep_<m>` before mutating anything; it is a SET because phase 1a can reach one row by many derivations and the count must be of ROWS, not of reachings"; }
+
+/// The `_scc` state block's per-member landings. `agg` selects the novelty
+/// structure — the set/lattice choice identity (ii) above pins.
+fn fp_node_member(subject: str, row_ty: str, agg: bool) {
+    if !plan_trace_on() { return; }
+    if agg {
+        plan_trace(subject, "fixpoint novelty lattice", row_ty, MG_FP_NOVELTY_LAT());
+        plan_trace(subject, "fixpoint lattice key roster", row_ty, MG_FP_LAT_KEYS());
+    } else {
+        plan_trace(subject, "fixpoint novelty set", row_ty, MG_FP_NOVELTY_SET());
+    }
+    plan_trace(subject, "fixpoint frontier", row_ty, MG_FP_DELTA());
+    plan_trace(subject, "fixpoint derived frontier", row_ty, MG_FP_NEXT());
+}
+
+/// DRed phase 1a (`_od`): a derived frontier and its novelty set, and NO
+/// driving delta — phase 1a is one pass over the total. This asymmetry is the
+/// left-hand side of identity (i).
+fn fp_node_od_phase1a(subject: str, row_ty: str) {
+    if !plan_trace_on() { return; }
+    plan_trace(subject, "fixpoint novelty set", row_ty, MG_FP_NOVELTY_SET());
+    plan_trace(subject, "fixpoint derived frontier", row_ty, MG_FP_NEXT());
+}
+
+/// DRed phase 1b (`_odp`): a full semi-naive round again — all three.
+fn fp_node_od_phase1b(subject: str, row_ty: str) {
+    if !plan_trace_on() { return; }
+    plan_trace(subject, "fixpoint novelty set", row_ty, MG_FP_NOVELTY_SET());
+    plan_trace(subject, "fixpoint frontier", row_ty, MG_FP_DELTA());
+    plan_trace(subject, "fixpoint derived frontier", row_ty, MG_FP_NEXT());
+}
+
+/// The over-deletion distinct set, one per member of the retraction's SCC.
+fn fp_node_od_set(subject: str, row_ty: str) {
+    plan_trace(subject, "over-deletion set", row_ty, MG_OD_SET());
+}
+
 // ── emit_simple — scan / filter / [sort] / project / [distinct/limit] ─────────
 // Base shape mirrors walk_simple; with an `order by` the matching row INDICES +
 // their keys are materialized and insertion-sorted (stable, O(n²) MVP codegen)
@@ -9748,11 +9865,28 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     // `__rout` 45, with the total unchanged. Nothing was created or destroyed —
     // one row was SPLIT along a distinction the artifact already carried.
     out_node_rel(prm.rel_names[ri], row_ty);
+    out_node_rel_dedup(prm.rel_names[ri], row_ty);
     let body_f: ExprBlob = quote_block! {
         let mut __rout: Vec<#(rt)> = Vec::<#(rt2)>::new();
         let __out: &mut Vec<#(rt6)> = &mut __rout;
-        let mut __rs: HashSet<#(rt3)> = hashset_new::<#(rt4)>();
-        let __rsp: *mut HashSet<#(rt5)> = &mut __rs;
+        // ⚠ `__rds`, NOT `__rs` — R-C3, AND THE RENAME IS THE WHOLE STAGE.
+        // This is the one-shot rel helper's dedup set. It used to be spelled
+        // `__rs`, which is also the PREFIX of the fixpoint plane's per-member
+        // novelty shadow sets (`__rs_<m>`, 218 of them in another emitter
+        // region with a different role). Any name-keyed owner table — and
+        // `criterion1_materialization_instrument.sh`'s ACC is one — must then
+        // take all 263 under one head or none, so it took NONE and both classes
+        // sat in the criterion-1 worklist looking unowned. This is R-B1's move
+        // exactly, one layer down: the artifact already carried the
+        // distinction, and the name is what refused to carry it.
+        // ⚠ THE POINTER KEEPS ITS NAME. `__rsp` is bound CONTEXTUALLY by
+        // `rel_push_frag`'s gate (`if __rsp.insert(row) { __out.push(row) }`)
+        // in BOTH tiers, which is what lets the push fragment stay one
+        // fragment; renaming it would fork that fragment in two. A pointer is
+        // not a landing and D2 never counted it, so nothing is hidden by
+        // leaving it alone.
+        let mut __rds: HashSet<#(rt3)> = hashset_new::<#(rt4)>();
+        let __rsp: *mut HashSet<#(rt5)> = &mut __rds;
         // The work counter is SUNK here. A one-shot rel helper is not a
         // fixpoint and has no pessimization to sense; the binding exists so
         // `rel_push_frag` stays ONE fragment (see its `__wcp` note).
@@ -10104,6 +10238,11 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         // accident. See `rel_push_frag`'s `__wcp` note and the `__wc` param.
         let s_wc: String = suffixed("__wc_", rn);  let n_wc: Ident = Ident::new(string_as_str(&s_wc));
         state.push(quote_block! { let mut #n_wc: i64 = 0i64; });
+        // R-C2 — the per-member landings this block is about to emit. Placed
+        // BEFORE the arms and taking the same `rel_is_agg` discriminant they
+        // take, so the node cannot disagree with the artifact about which
+        // novelty structure was built (identity (ii)).
+        fp_node_member(rn, prm.rel_rowty[mem[m1]], prm.rel_is_agg[mem[m1]]);
         if prm.rel_is_agg[mem[m1]] {
             let off: i64 = prm.rel_coff[mem[m1]];
             let kty:  ExprBlob = parse_type(prm.relc_ty[off]);
@@ -10862,6 +11001,10 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         // pass over T and has no fixpoint to pessimize. Sunk deliberately, not
         // omitted; see the `__wc` note on `emit_scc_fn`'s signature.
         let s_wc: String = suffixed("__wc_", rn); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
+        // R-C2 — DRed phase 1a. TWO landings, no driving delta: this is the
+        // left-hand side of identity (i), and it is why `__nd` exceeds `__dl`
+        // by exactly the over-deletion member count.
+        fp_node_od_phase1a(rn, prm.rel_rowty[mem[m1]]);
         state.push(quote_block! {
             let mut #n_rs: HashSet<#(at1)> = hashset_new::<#(at2)>();
             let mut #n_nd: Vec<#(at3)> = Vec::<#(at4)>::new();
@@ -10980,6 +11123,8 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         // here, so the round that builds the bail-out has the accumulator
         // already in scope at the `_odp` loop top.
         let s_wc: String = suffixed("__wc_", rn6); let n_wc: Ident = Ident::new(string_as_str(&s_wc));
+        // R-C2 — DRed phase 1b. A full semi-naive round, so all three landings.
+        fp_node_od_phase1b(rn6, prm.rel_rowty[mem[m6]]);
         pstate.push(quote_block! {
             let mut #n_wc: i64 = 0i64;
             let mut #n_rs: HashSet<#(ct1)> = hashset_new::<#(ct2)>();
@@ -11199,6 +11344,9 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let s_kp:  String = suffixed("__keep_", rnc); let n_kp:  Ident = Ident::new(string_as_str(&s_kp));
         let s_od:  String = suffixed("__od_",   rnc); let n_od:  Ident = Ident::new(string_as_str(&s_od));
         let s_tt:  String = suffixed("__tot_",  rnc); let n_tt:  Ident = Ident::new(string_as_str(&s_tt));
+        // R-C2 — the over-deletion distinct set, one per member; the right-hand
+        // side of identity (i).
+        fp_node_od_set(rnc, prm.rel_rowty[mem[c2]]);
         cchk.push(quote_block! {
             let mut #n_os: HashSet<#(kt1)> = hashset_new::<#(kt2)>();
             {

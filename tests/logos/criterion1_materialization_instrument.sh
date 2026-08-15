@@ -34,7 +34,55 @@
 # ARTIFACT CHANNEL (`--gen-dir` dumps, family definitions `logos.gen.*`
 #   EXCLUDED): what the emitter BUILT.
 #     DENOMINATOR D2 = emitted collection bindings — `let [mut] <n>: (Vec |
-#                      Buffer | HashMap | BTreeMap)<…>` in the user dumps.
+#                      Buffer | HashMap | HashSet | BTreeMap)<…>` in the user dumps.
+#
+# ⚠⚠ `HashSet` WAS MISSING FROM THAT LIST UNTIL R-C1, AND THE MISS WAS 319
+# BINDINGS — A WHOLE CONTAINER KIND, counted by no instrument in this tree: not
+# D2, not any ACC class, not any census FACT. They are the fixpoint plane's
+# NOVELTY structures (`__rs_<m>` the shadow set, `__os_<m>` the over-deletion
+# distinct set, bare `__rs`/`__hs` in `_run`) — one hash-set entry per derived
+# row, which is a compiler-inserted materialization by any reading of criterion
+# 1. The old filter's total was exactly Vec 3028 + HashMap 592 + Buffer 12 =
+# 3632, so the miss was clean rather than partial: the type filter dropped the
+# class silently and the printed 70.73% was a share of a population that
+# EXCLUDED it.
+#
+# This is §6.4's D4 shape recurring — "a right number with a wrong reason: the
+# TYPE filter dropped it" — now at 319×, the second time in this arc. The rule
+# it costs: a denominator defined by an ENUMERATION of kinds must be re-derived
+# against the artifact's own type histogram, not maintained by hand.
+#
+# ⚠ R-C1 LANDED ALONE, BEFORE ANY NAMING, and it made every printed number
+# WORSE: D2 3632 -> 3951, accounted 2569 UNCHANGED (65.02% from 70.73%),
+# worklist 1063 -> 1382. A criterion cannot be closed on the same commit that
+# fixes the population it is measured over, so the population moves first and
+# the naming stages that follow are measured against the corrected denominator.
+#
+# ⚠ WHAT THIS FILE READS ON THE TWO TREES OF R-C'S ONE-VARIABLE CONTROL, so the
+# next reader can check the script against a number instead of a claim. Control
+# = this tree with ONLY `stdlib/mem/wql/rexpr_walk.logos` reverted to `9395c3d1`
+# (HEAD = post-R-B — the one-variable control for R-C's uncommitted diff; NOT
+# `93295e0c`, whose emitter reads D1 4042 / N1 1336 / accounted 1929 and would
+# credit R-C with R-B's 650 `__out` bindings),
+# rebuilt, swept with THIS version of this file, restored and re-measured to the
+# R-C column afterwards:
+#
+#            D1     N1              T     D2     accounted        worklist  exit
+#   control  4692   1986 (42.33%)   617   3951   2579 (65.27%)    1372      2
+#   R-C      5407   2701 (49.95%)   621   3951   3294 (83.37%)     657      0
+#
+# `D2` at a ZERO delta is the load-bearing row: R-C2 writes only to the trace
+# channel (170/170 user dumps byte-identical) and R-C3 is a rename, so the naming
+# round built nothing. The control's exit 2 is G4 doing its job — all seven R-C
+# classes read a zero fire count there, including `__rds` at 0 BINDINGS, which is
+# the rename's own signature; and `__rs` holds 263 on the control (218 fixpoint +
+# 45 rel) against 218 here, which is the two-owner ambiguity R-C3 removed.
+#
+# ⚠ NOT collection bindings, deliberately, and each excluded kind is named so
+# the next reader inherits an argument instead of a list: `SliceStream` (149)
+# and `HashMapKeys` (39) are BORROWS/VIEWS over storage someone else owns — no
+# landing, nothing allocated per row; `Option` (26) is a scalar cell. Adding a
+# kind here is a claim that the emitter ALLOCATES per row under that type.
 #   D2 is partitioned by BINDING-NAME CLASS into ACCOUNTED (a class whose owner
 #   plan node is named, listed in ACC below) and UNACCOUNTED. The unaccounted
 #   classes, printed largest-first, ARE the criterion-1 worklist — that list is
@@ -180,6 +228,30 @@ MAT = {
         "the incremental tier's read surface; no `_stream` door of its own",
     'rel result':
         'an internal seam consumed by the enclosing query, never returned',
+    # ── ADR 0025 R-C2 — THE FIXPOINT PLANE, SIX SEAMS ────────────────────
+    # 670 bindings emitted by the `_scc`/`_od`/`_odp` region, none of which
+    # had a node before R-C2. S6-B declared the incremental tier out of the
+    # BATCH plane; that is a statement about what CONSUMES these rows, and
+    # criterion 1 names what EXISTS regardless of which plane consumes it.
+    # Fire counts were measured at the emitter before the nodes existed:
+    # 222 / 218 / 176 / 46 / 4 / 4.
+    'fixpoint frontier':
+        "`__dl_<m>` — the epoch's driving delta, rescanned per in-SCC occurrence",
+    'fixpoint derived frontier':
+        '`__nd_<m>` — rows derived this epoch, appended while `__dl` is scanned',
+    'fixpoint novelty set':
+        '`__rs_<m>` — SET novelty; the `__rsp.insert(row)` gate decides new',
+    'fixpoint novelty lattice':
+        '`__best_<m>` — LATTICE novelty; improvement, not membership',
+    'fixpoint lattice key roster':
+        '`__keys_<m>` — the lattice map has no ordered enumeration surface',
+    'over-deletion set':
+        "`__os_<m>` — DRed's |OD|, a set because one row has many derivations",
+    # ADR 0025 R-C3 — the one-shot rel's dedup set, `__rds`, 1:1 with `rel
+    # result`. A SECOND collection beside the landing, not the landing rescanned
+    # — which is what tells it apart from `query output distinct carrier`.
+    'rel dedup set':
+        "`__rds` — the `_run` rel helper's novelty set, beside `__rout`",
 }
 # NOMAT: heads that decide something else. `no materialization` is an ABSENCE
 # and belongs HERE — counting it as coverage is the historical defect.
@@ -286,6 +358,49 @@ ACC = {
                   'query output distinct carrier', 'incremental snapshot output'),
                  'query output (the four query-side output-seam heads)'),
     '__rout':   (('rel result',), 'rel result (the one-shot rel helper landing)'),
+    # ADR 0025 R-C1 — THE ARRANGE NODE'S SET FORM, VISIBLE ONLY ONCE `HashSet`
+    # ENTERED THE POPULATION. `hash_build_frag`'s `set_form` arm emits
+    # `__hs<k>: HashSet<K>` where the payload arm emits `__hm<k>: HashMap<K,
+    # Vec<P>>` — one site, one node, two container types. `plan_ground_census_
+    # gate.sh` FACT C has always grepped `__(hm|hs|bt)` and read 598 == 598;
+    # THIS instrument read 588 against an `arrange` fire count of 598 and the
+    # 10-line gap sat in the worklist looking like an unowned class. It was
+    # never unowned: it was untyped. No emitter change — R-C1's population fix
+    # IS the whole repair, and the identity `__hm + __hs == arrange` now closes
+    # here too.
+    '__hs':     (('arrange',),              'arrange (the join build side, set form)'),
+    # ── ADR 0025 R-C2 — THE FIXPOINT PLANE ───────────────────────────────
+    # Five of the six R-C2 heads take a credit here. Every key is measured
+    # CLEAN: the exact bare name is emitted zero times and every binding is
+    # `<key>_<relname>`, so unlike `__rel_*` below the key cannot be holding
+    # two identities. The counts are pinned per fixture and per head by FACT K
+    # in `plan_ground_census_gate.sh`, together with the two identities.
+    '__dl':     (('fixpoint frontier',),          "fixpoint frontier (the epoch's driving delta)"),
+    '__nd':     (('fixpoint derived frontier',),  'fixpoint derived frontier (rows derived this epoch)'),
+    '__best':   (('fixpoint novelty lattice',),   'fixpoint novelty lattice (best-per-key improvement map)'),
+    '__keys':   (('fixpoint lattice key roster',),'fixpoint lattice key roster (the map\'s enumeration)'),
+    '__os':     (('over-deletion set',),          "over-deletion set (DRed's |OD|)"),
+    # ── ADR 0025 R-C3 — THE SIXTH FIXPOINT KEY, AND THE DEBT R-C2 RECORDED ─
+    # R-C2 landed five of its six heads here and REFUSED the sixth in writing:
+    # a key `__rs` would also have matched the 45 BARE `__rs` bindings, which
+    # are a different role in a different emitter region (the one-shot rel
+    # helper's dedup set in `_run`, 1:1 with `__rout`). Taking the credit would
+    # have over-credited 45 rel-dedup sets as fixpoint novelty sets — the
+    # `__rel_*` two-owner defect, repeated knowingly.
+    #
+    # R-C3 paid it the only way that works, which is R-B1's way: RENAME AT THE
+    # EMITTER, then name. The `_run` set is `__rds` now, the two classes are
+    # separable in the artifact, and both keys below are measured CLEAN (the
+    # bare name `__rs` is emitted zero times on this tree). Nothing was created
+    # or destroyed: 263 bindings that were one ambiguous row are two owned rows.
+    '__rs':     (('fixpoint novelty set',), 'fixpoint novelty set (the member shadow set)'),
+    '__rds':    (('rel dedup set',),        'rel dedup set (the one-shot rel helper novelty set)'),
+    # ⚠ THE ACCOUNTED FIGURE IS STILL A FLOOR, BY 12, and the remaining cause is
+    # the `__rel_*` note below — 12 Buffer-typed landings owned by `drain`/`sort`
+    # under a name that 205 unowned Vec landings also answer to. That class is
+    # REFUSED rather than credited, on the recorded ground that a name key
+    # cannot hold two owners; it closes by the same rename this stage just
+    # demonstrated, and it is the next stage's, not this one's.
 }
 # ⚠ ACC IS KEYED ON THE NAME ALONE, AND THE KEY CANNOT EXPRESS TWO OWNERS.
 # `drain` and `sort` land into `__rel_<x>` bindings — but so do UNOWNED Vec
@@ -297,7 +412,7 @@ ACC = {
 # none and the 12 are counted as worklist. The printed ACCOUNTED is therefore a
 # FLOOR: the site-level reading is 12 higher. Closing this needs the per-node
 # attribution recorded as OPEN in the criteria doc §4d, not a wider name key.
-BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|BTreeMap)\s*<')
+BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0
 for p in glob.glob(os.path.join(OUT, '*.user')):
