@@ -3012,13 +3012,43 @@ if (TARGET lforge)
         LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
     )
 
-    # KNOWN-OPEN COMPILER DEFECTS, carried as WILL_FAIL so ctest reports an
-    # XPASS the day either is fixed — the marker cannot outlive the defect.
-    # Both are diagnosed in the commits that filed them (47e34581, 33320fdc):
+    # KNOWN-OPEN COMPILER DEFECT, carried as WILL_FAIL so ctest reports an XPASS
+    # the day it is fixed — the marker cannot outlive the defect.
+    #
     #   • gen_generic_distinct — a `bool` VALUE column aborts the container
-    #     factory (memory corruption in logos_emit_item_blob_subst_in's
-    #     subst_walk); the name's "generic"/"distinct" are both incidental.
-    # (gendrop_probe was the second entry; its defect — a `*const Self` receiver
+    #     factory. The test's name is incidental: neither genericity nor two
+    #     distinct configs is required. ONE non-generic
+    #     `container M { kind ordered_map; entry { key: u64, val: bool } … }`
+    #     plus a `family_id()` demand aborts logosc with no diagnostic
+    #     (`munmap_chunk(): invalid pointer`); `kind vector; entry { elem: bool }`
+    #     SIGSEGVs on the same defect. `u8`/`i8`/`i32`/`f64`/`char` values all
+    #     compile, and `key: bool` is refused CLEANLY, so the axis is a bool
+    #     VALUE column and nothing wider. It dies inside the post-mono factory
+    #     drain: the decl-site emission is byte-identical to a working type's
+    #     apart from the `<type:bool>` slot.
+    #
+    #     ⚠ WHAT IT IS NOT, so the next reader does not re-walk it. Five
+    #     hypotheses were tested and refuted: main-thread stack exhaustion
+    #     (`ulimit -s 262144` still aborts); unbounded recursion (a 32x stack
+    #     does not change the time to abort); the documented arena-move hazard
+    #     (+64 MB of pre-reserve still aborts); the `parse_expr` argument being a
+    #     static literal rather than a heap String (building it on the heap still
+    #     aborts); and the `vconv` bool arm itself.
+    #
+    #     THAT LAST ONE WAS BRIEFLY RECORDED AS THE CAUSE (33320fdc) AND IS
+    #     WRONG. Disabling the bool arms did stop the crash — but only because
+    #     the resulting `as bool` is a TYPE ERROR that aborts compilation before
+    #     the factory ever runs. Substituting a well-typed non-`!=` expression
+    #     (`parse_expr("true")`) keeps the program compiling that far, and the
+    #     crash comes straight back. A bisection over source arms is worthless
+    #     when one of the arms changes WHERE compilation stops.
+    #
+    #     Also worth knowing: valgrind attributes the invalid free to a
+    #     `std::vector` destructor in logos_emit_item_blob_subst_in's
+    #     `subst_walk`, and that attribution is UNRELIABLE — the JIT frames
+    #     beneath are unwindable garbage. Instrumenting that vector with a
+    #     destructor sentry on every exit path showed it intact every time.
+    # (gendrop_probe was a second entry; its defect — a `*const Self` receiver
     # on a #[self_describing] DST lowering to nothing — is FIXED, and its
     # regression test is tests/logos/pass/dst_self_ptr_receiver.logos.)
     set(_conuco_known_broken gen_generic_distinct)
