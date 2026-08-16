@@ -327,8 +327,21 @@ else
         echo "FAIL [batch]: emitted \`parity_sums_run\` does not pull batches — the plan says this source is read once in place, and the artifact still walks it some other way"
         fail=1
     fi
-    if grep -q "Buffer<" "$TMPD/batch.agg"; then
-        echo "FAIL [batch]: emitted \`parity_sums_run\` builds a Buffer — a materialization the plan no longer names"
+    # ⚠ ADR 0025 R-H (b′) — RE-AIMED, SAME FLOOR. The needle was a bare
+    # `Buffer<`; (b′) made the QUERY-OUTPUT landing itself a Buffer (every
+    # emitted `_run` opens `let mut __out: Buffer<E>` and returns
+    # `__out.into_vec()`), so the bare needle now matches the fn's own output
+    # and would red on every aggregate. The clause is about the ADAPTER
+    # materialization the plan stopped naming, so it is re-aimed at the adapter
+    # landings BY NAME — `__rdb_` drain / `__rsb_` sort / `__rab_` arrange, per
+    # FACT K of plan_ground_census_gate.sh — and the query output is pinned
+    # BESIDE it so nothing left the gate silently.
+    if grep -qE "let mut __(rsb|rdb|rab)_[a-z_0-9]+: Buffer<" "$TMPD/batch.agg"; then
+        echo "FAIL [batch]: emitted \`parity_sums_run\` builds an adapter Buffer landing — a materialization the plan no longer names"
+        fail=1
+    fi
+    if ! grep -qF "let mut __out: Buffer<" "$TMPD/batch.agg"; then
+        echo "FAIL [batch]: emitted \`parity_sums_run\` has no \`let mut __out: Buffer<\` query-output landing — the clause above would then be vacuous (nothing to distinguish an adapter landing from)"
         fail=1
     fi
 fi

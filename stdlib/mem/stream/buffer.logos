@@ -100,6 +100,45 @@ impl<R> Buffer<R> {
         return self.rows.as_slice();
     }
 
+    // ── THE MATERIALIZED-RELATION FACE (ADR 0025 R-H (b′)) ──────────────────
+    //
+    // `len` and `get` exist so that the QUERY-OUTPUT LANDING can be a `Buffer`
+    // without re-spelling the 18 emitted sites that READ it (`rexpr_walk`: 17
+    // limit guards `__out.len() < (N)` and one `distinct` rescan, which is the
+    // tree's only `__out.get(`). ⚠ NOT a convenience: the same emitted quote
+    // FRAGMENTS are shared with the fixpoint/DRed plane, where `__out` is a
+    // `&mut Vec<R>` ALIAS onto `__rout`/`__nd_<m>` (381 bindings, unmoved by
+    // (b′)). A fragment that read `__out.as_slice().len()` would work over both
+    // — and would also break two pinned literals (`order_desc_pair_gate.sh`,
+    // `order_elision_pair_gate.sh` pin the TEXT `__out.len() < (3i64)`), for
+    // nothing. Naming the two methods here keeps ONE spelling valid over BOTH
+    // landing types, which is what makes the fragments shareable at all.
+    //
+    // `i64` and not `u64`: these mirror `Vec::len`/`Vec::get` exactly, because
+    // the whole point is that the emitted text does not know which of the two
+    // types it is standing on. `SizedStream::size` (u64) is the STREAM's length
+    // and stays what it was.
+
+    /// The number of rows in the landing — `Vec::len`'s spelling, so an emitted
+    /// fragment reads a `Buffer` landing and a `&mut Vec` alias identically.
+    pub fn len(&self) -> i64 {
+        return self.rows.len();
+    }
+
+    // ⚠ THERE IS NO `get`, AND THE REASON IS A MEASUREMENT, NOT A CHOICE.
+    // `pub fn get(&self, i: i64) -> R { return self.rows.get(i); }` is REFUSED
+    // here — `Vec::get` moves the element out by value and `R` is a bare type
+    // parameter, so the borrow checker answers (measured, this file, line 131):
+    //   "cannot move a non-Copy element out of `Vec` via `get` (element type
+    //    `R` is not `Copy`) … Use `.borrow(i)` for a `&R` reference".
+    // `Vec::get` is usable in the EMITTED text only because each emitted query
+    // instantiates it at a concrete `Copy` row type; a generic wrapper has no
+    // such instantiation to hide behind. So the ONE emitted site that read the
+    // landing by index (`push_guarded_frag`'s `distinct` rescan, the tree's
+    // only `__out.get(`) reads `__out.as_slice()` instead — a spelling valid
+    // over BOTH this type and the `&mut Vec` aliases, which is the same
+    // constraint that put `len` here.
+
     /// The packet as of the current position: `rows[at..]`. ONE spelling for all four
     /// pulls (`next`, `prev`, and both after a `seek_nth`) — the position lives in a
     /// field, so the packet is derived, never a second slicing rule per door.

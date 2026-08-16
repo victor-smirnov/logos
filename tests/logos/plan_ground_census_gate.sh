@@ -436,7 +436,19 @@ if [ "${#UD[@]}" -ge 1 ]; then
     # collection form is what FACT J is about — and the String landing is
     # counted BESIDE it rather than dropped, because narrowing a population
     # without pinning what left it is how a class goes quiet.
-    grep -Eh 'let mut __out: Vec<' "${UD[@]}" > "$d/qo" 2>/dev/null
+    # ⚠ ADR 0025 R-H (b′) — `Vec<` BECAME `Buffer<`, AND THE TYPE IS STILL
+    # LOAD-BEARING FOR THE SAME REASON. The query-output landing moved to the
+    # output plane's own vocabulary (`let mut __out: Buffer<E>` +
+    # `return Result::Ok(__out.into_vec())`, four emitter sites in
+    # `rexpr_walk.logos`); the `Vec<` spelling now matches NOTHING and this
+    # grep would read 0 against a plan side of 606. The floor does NOT move —
+    # `EXPECT_OUTQ` stays 606 — because the population is the same bindings,
+    # re-typed; only the token changed. The String landing beside it
+    # (`trama_render.logos`) is untouched and still counted separately, and the
+    # 381 `let __out: &mut Vec<…>` fixpoint ALIASES are still excluded by the
+    # `let mut` prefix: (b′) did NOT move them (336 are over `__nd_<m>`, 45 over
+    # `__rout`), which is why the alias spelling still says `Vec`.
+    grep -Eh 'let mut __out: Buffer<' "${UD[@]}" > "$d/qo" 2>/dev/null
     grep -Eh 'let mut __out: String' "${UD[@]}" > "$d/qs" 2>/dev/null
     grep -Eh 'let mut __rout:' "${UD[@]}" > "$d/ro" 2>/dev/null
     # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX LANDINGS (FACT K) ───────
@@ -886,6 +898,9 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
 EXPECT_OUTQ       = 606   # (R-D: +1) `let mut __out:` query-output landings
+                          # ⚠ R-H (b′): the landing TYPE became `Buffer<` (was
+                          # `Vec<`); the FLOOR did not move — same bindings,
+                          # re-typed. The artifact grep moved with it.
 EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
 # ADR 0025 R-G arm B — the one-shot rel helper's result, bound in the prelude.
 # Measured at G2 the same way (45 unclassified `rel result landing` lines on the
@@ -1789,7 +1804,7 @@ for key, want, what in (
         ("drain", None, None),
         ("outq", EXPECT_OUTQ, "query-output plan lines"),
         ("outr", EXPECT_OUTR, "`rel result` plan lines"),
-        ("aoutq", EXPECT_OUTQ, "`let mut __out: Vec<` query-output landings"),
+        ("aoutq", EXPECT_OUTQ, "`let mut __out: Buffer<` query-output landings"),
         ("aouts", EXPECT_OUTS, "`let mut __out: String` trama render buffers"),
         ("aoutr", EXPECT_OUTR, "`let mut __rout:` rel landings"),
         ("it", EXPECT_IT, "`__it_` prelude bindings"),

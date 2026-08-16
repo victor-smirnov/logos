@@ -1375,25 +1375,147 @@ channel lost **129 FALSE grounds** (`already a buffer` 205→76 on both the
 ground line and the mode sentence; `no materialization` absences 239→110) —
 a CORRECTNESS gain, measured by `T` 622→493, not a coverage gain.
 
-### Criterion 2 — full integration of the algebra with batch + cursor: **NOT MET**, remainder priced to blocked/declared-out rows only
+⚠ **R-H's `(b′)` REMOVES ONE OF THE TWO RIDERS, BY DELETION AND NOT BY
+RE-HEADING** (2026-08-16). The `_stream` facade's `__sv` temp is gone — the body
+is one expression, `Buffer::<E>::from_vec(<bare>(<args>)?)` — so the 502
+`__sv` bindings the attribution row could not reconcile against 217
+`materialize` plan lines do not exist to be reconciled. The head never described
+them: `from_vec` is a struct literal over a by-value `Vec`, a MOVE, while
+`materialize` means "a producer that returns a container". Re-measured on the
+landed tree, control-reverted and restored with full rebuilds both ways:
+`N1/D1` **3271/6704 = 48.79%** and `T` **493** unchanged, `D2` **3954 → 3452**
+(−502), accounted **3877 → 3375**, share **98.05% → 97.77%**, worklist **77
+unchanged with identical composition**. ⚠ **REPORTED, NOT NETTED**: the printed
+share falls 0.28 pp *because an accounted class left both numerator and
+denominator* — the number the instrument exists for did not move. C1 loses an
+admission rather than gaining a defect; the remaining attribution row is `__hm`
+588 vs `arrange` 598 and `__ix` 321 sharing `key vector` 129.
+⚠ §2's output-plane derivation (`605 Vec + 1 String`) is stale twice over: the
+figure is **606** and the type is now **`Buffer`**, not `Vec`.
 
-Measured over 171 dumps: `next_batch()` **1018**, `SliceStream::<` **1002**,
-batch inner loops **1018**, `.next()` **65** (39 aggregate-key + 14
-native-iterator + 9 drain-prelude fixture types + 3 join-build rows), indexed
-walks **3301** = 2513 internal + 610 fixpoint `_sl` + 157 declared params +
-21 field slices — the four buckets SUM to the canonical grep. Integrated:
-container scan, slice-param scan, join build+nest, `find`, rel bodies,
-aggregate base. Not integrated, each with its blocker NAMED: aggregate key
-enumeration (39 — `HashMapKeys` is not a source; `RowsBatch ≡ &[R]` cannot
-form over `Entry`-strided storage without the copy criterion 1 forbids;
-re-open = strided-column batch view, a vocabulary addition), drain prelude
-(9 — five hand-written FIXTURE iterator types; compiler arm fires 3×; corpus
-decision = Victor's), the output plane (606 `__out` + 45 `__rout` + 1 String;
-`(b′)` REFUTED-and-unlanded at 14 emitter read sites), incremental/DRed (119)
-+ fixpoint drivers (37) declared out, `direct` (blocked on **#62**
-`sema_abi_layout`), WritWalk (landed, UNCONSUMED — needs the re-walk
-capability + 9 by-name `rel_srcs` sites together). ⚠ Criterion 2 has **no
-gate of any kind** — the pull-shape numbers live in sweeps and this table.
+### Criterion 2 — full integration of the algebra with batch + cursor: **NOT MET; the remainder is now DECIDED rather than pending, and the numbers have an owner** (R-H, 2026-08-16 — supersedes the R-G section this replaces)
+
+**THE READING, and it is now a GATE and not a sweep.**
+`tests/logos/pull_shape_gate.sh` (`logos_09_pull_shape`, `tier_full`, 57 s over
+188 fixtures / 171 user dumps) re-derives every figure below from the artifact
+on every run. ⚠ ~~Criterion 2 has **no gate of any kind**~~ — that sentence was
+true when R-G wrote it and is the first thing this round fixed.
+
+| pinned | value | second, independent count of the same act |
+|---|---|---|
+| `next_batch()` pulls | **1018** | `while (__bj < __bn)` headers 1018 · `__bj` zero-seed declarations 1018 |
+| `SliceStream::<` wraps | **1002** | `__ss` declarations 1002 · pulls through one 1002 |
+| `.next()` row pulls | **65** | 39 aggregate-key + 14 native-iterator + 9 drain-prelude + 3 join-build, **and the sum is asserted** |
+| …aggregate-key class | **39** | `let mut __it: HashMapKeys<…>` declarations **39**, 1:1 — the cross-pin |
+| indexed walks (canonical §2 grep) | **3301** | 2513 internal + 610 fixpoint `_sl` + **156** declared params + **22** field slices, **and the sum is asserted** |
+| batch-loop re-seeds (`= __bn0`) | **4** | pinned APART so it cannot absorb a member of the 1018 |
+
+⚠ **THE PARAM/FIELD SPLIT IS 156/22, NOT** ⚠ ~~157/21~~. The single line
+between the two readings is `(c.nums)` — a field slice of the bound row that
+does not spell `as_slice()`. R-F bucketed by SPELLING and the R-G verifier by
+RULE; the gate takes the RULE ("the walk subject is parenthesised and contains a
+`.`"), because a bucket defined by a spelling stops being a bucket the day the
+emitter changes the spelling. Nothing about the verdict moves; the number is
+corrected here so the two readings are never confused again.
+
+⚠ **ALL FOUR WALK BUCKETS ARE POSITIVE RULES AND THE UNCLAIMED COUNT IS PINNED
+AT ZERO.** A residual bucket makes its own sum clause vacuous — four buckets
+that partition by complement add to the total no matter what the emitter does,
+which is the exact shape of green R-F's F2 lesson is about. The first draft of
+the gate had that defect and it was found by trying to write the bite-proof leg
+for the clause and discovering no perturbation could red it.
+
+**Integrated**: container scan, slice-param scan, join build+nest, `find`, rel
+bodies, aggregate base.
+
+#### The three DECISIONS (Victor's licence, R-H; these are decisions, not pending rows)
+
+**D-C2-a — ITERATOR SOURCES ARE A DECLARED SOURCE KIND, NOT A GAP.** The 14
+native-iterator scans and the 9 drain-prelude pulls (23 of the 65) are removed
+from criterion 2's debt. *Ground*: row-pull IS this source kind's protocol — the
+natspec declares it (`i`), `access_plan_decide_mode` answers `MG_CONTAINER` for
+everything that is not one, and S6-A **measured** the alternative (wrapping such
+a source in a `Buffer` so it could be batch-pulled) as a regression: it buys a
+batch shape by materializing a source that has no length and cannot be read
+twice, which is the thing criterion 1 forbids. A source that declares itself
+row-at-a-time and is consumed row-at-a-time is on-plane, and counting it as
+un-integrated confuses "the compiler did not convert this" with "the compiler
+ignored what this is". *Would reopen*: a batch protocol that does not
+materialize — i.e. an iterator that can honestly answer `next_batch()` over
+borrowed storage it already owns. Nothing in the tree offers one.
+
+**D-C2-b — AGGREGATE KEY ENUMERATION (39) IS DECLARED OUT PERMANENTLY.** The
+largest single `.next()` class in the corpus, and it is not a source at all.
+*Ground*, two independent facts: (1) all 39 receivers are `__mc.keys()` over the
+**emitter's own** per-group `HashMap` (`__h.__gm_*`) — the same class as the
+2513 internal indexed walks no route has ever claimed; the row was mis-scored as
+a scan site. (2) `RowsBatch<R>` **is** `&[R]`, and a map's keys live inside
+`Entry<K,V>` at `sizeof(Entry)` stride: there is no `&[K]` and no `&[&K]`
+anywhere in a `HashMap`, so a batch could only be formed by MATERIALIZING one —
+the copy criterion 1 forbids. Every `BatchStream` impl in the tree is over
+contiguous storage; `HashMapKeys` implements `Iterator` only. *Would reopen*:
+a strided-column batch view (a vocabulary addition, its own arc), never a route.
+The gate's 39-pulls-vs-39-declarations cross-pin exists so this class cannot be
+re-attributed by re-spelling one side of it.
+
+**D-C2-c — DRed/FIXPOINT DRIVER WALKS (119 + 37) STAY DECLARED OUT, per S6-B.**
+The incremental tier consumes `&[…]` **by design**: all 124 DRed phase functions
+take slices, and S6-B measured the seam as `<q>_apply`'s parameter list and
+declared rather than attempted it. This is the same population as the 610
+fixpoint `_sl` walks in the bucket table. *Would reopen*: the DBSP seam being
+re-specified in the batch vocabulary — which changes the tier's contract, not
+its call sites, and is therefore a different arc.
+
+Together the three decisions account for **62 of the 65** row pulls and 610 of
+the 3301 indexed walks. What is left un-decided on the `.next()` plane is
+**3**: the join **build side** (`rexpr_walk::build_phase_frag`), never converted
+when S1 collapsed the scan. It is a real gap and it is a PERMISSIVE one —
+any batch source on a build side dies there (`expected Option, got Option`: the
+annotation is the ROW type, the pull yields a BATCH), and no corpus query puts
+one there, so it is invisible to a green corpus by construction.
+
+#### The rest of the remainder, restated
+
+* **the output plane** — 606 `__out` + 45 `__rout` + 1 String. ⚠ ~~`(b′)`
+  REFUTED-and-unlanded~~: **`(b′)` LANDED (R-H)**. The `_run` body builds a
+  `Buffer<E>`, the `Vec` entry point is `into_vec()`, the `_stream` surface's
+  `__sv` temp is deleted (502 sites). It moved **zero** criterion-2 numbers —
+  every pin in the table above reads identically on both trees. It is a
+  criterion-**1** / vocabulary landing (the output plane's landings now speak
+  the plane's own type end to end) and it is recorded as one. The price was
+  **18** emitter read sites, not 14: 17 limit guards kept their exact text
+  (`Buffer::len()` was added) and 1 `distinct` rescan re-spelled to
+  `(__out.as_slice())[__d]`, because `Buffer::get` is REFUSED by the compiler
+  for a non-`Copy` generic element. The pull shape is unmoved because the
+  landing is still filled to completion; the remaining step is `direct`.
+* **`direct`** — blocked on **#62** (`sema_abi_layout` declines a
+  metaprog-emitted struct field asked from a foreign package). Unchanged.
+* **WritWalk / the re-walk capability — ⚠ STANDING REFUSAL, not "deferred"**
+  (R-H Part 2, measured). The capability would route a writ rel to
+  `emit_prelude_oneshot`'s `AD_NONE` arm, whose emitted shape is the row pull:
+  `.next()` goes UP and `next_batch()` does not move — **negative on the axis
+  the criterion counts** — at a cost of 46 rel-fn slice parameters
+  (`__rel_g_sl` 11 + `__rel_w_sl` 35). The ground is `slice_stream_src`'s rel
+  exclusion: **0 of the 1002 `SliceStream` wraps touch a `__rel_`/`__dl_` name**
+  while ⚠ ~~739~~ **789** rel/dl indexed reads exist (604 `__rel_<r>_sl))[` +
+  185 `__dl_<r>_sl))[`; the writ-fixture subset is ⚠ ~~307~~ **327** — the two
+  smaller figures did not re-derive under the R-H closing audit's independent
+  sweep, see §7.1), so the rel plane is off the batch plane
+  entirely, already, as a slice. ⚠ Two corrections to the R-D block this
+  supersedes: the "nine `prm.rel_srcs` sites" are the fixpoint/SCC/DRed plane
+  (declared out by D-C2-c), not a writ rel's second read — the real emitter half
+  is a contract change across `src_name`/`a_name` on the scan/join/group nodes;
+  and the writ population is **11 dumps / 45 calls / 726,606 bytes, 6 of 11 with
+  rel blocks**, not "6 fixtures / 3 with rel blocks". Every sentence in this
+  document resting on "six writ fixtures" needs that substitution.
+  ⚠ The follow-up row is **not** "relax the rel exclusion": deleting it was
+  measured and the corpus came back **byte-identical** across all 171 dumps —
+  the guard is DORMANT, and the real price is R-A's twelve unrouted sites, which
+  R-F has since landed. The cursor question only becomes askable after a route
+  exists that would consult the capability.
+* **drain prelude (9)** — now covered by **D-C2-a**; the corpus decision R-G
+  left to Victor is taken: five hand-written fixture iterator types are a
+  declared source kind, and the compiler arm that fires 3× is the same kind.
 
 ### Criterion 3 — ARC/RC only where needed, BC in all hot paths: **HOLDS IN SUBSTANCE; the instrument owes two repairs**
 
@@ -1403,14 +1525,159 @@ absence of data). Owed and recorded: the `lock` half cannot fire by
 construction (every `lock` lives in `Atomic*`, reachable only by call), and
 the RC classifier is PERMISSIVE (`downgrade`/`upgrade`/`clone_arc`/… are
 count entry points it does not name). Descent gates: `ctest -R ^logos_09_`
-52/52.
+⚠ ~~52/52~~ **53/53** (R-H added `logos_09_pull_shape`).
 
 ### What would move each verdict
 
 C1 → clean MET: the D2 underscore widening (+2, lands alone) · a `__cv` pin ·
 the per-node-attribution row (`__sv`/`__ix` site-for-site) · re-grounding the
-3 derive-macro landings. C2 → MET: #62 then `direct` · the WritWalk re-walk
-capability · `(b′)` · a criterion-2 GATE over the pull-shape numbers · the two
-corpus decisions (drain-prelude fixtures, aggregate-key vocabulary). C3 →
+3 derive-macro landings. C2 → MET: #62 then `direct` · the join **build side**
+(3 pulls, `build_phase_frag`) — ⚠ ~~the WritWalk re-walk capability~~ REFUSED
+with numbers (R-H) · ⚠ ~~`(b′)`~~ LANDED, and it moved this criterion by zero ·
+⚠ ~~a criterion-2 GATE over the pull-shape numbers~~ BUILT
+(`logos_09_pull_shape`) · ⚠ ~~the two corpus decisions (drain-prelude fixtures,
+aggregate-key vocabulary)~~ TAKEN as D-C2-a / D-C2-b above. What remains is two
+rows, both named. C3 →
 instrument-clean: name the missing RC entry points; give the lock half a
 reachable population or delete its arm as unfalsifiable.
+
+---
+
+## §7.1 — THE ARC-CLOSING SENTENCE (R-H closing audit, 2026-08-16; supersedes §7's verdict lines in place, and §6.1–§6.4 with them)
+
+**Every number in this section was re-derived by an INDEPENDENT sweep on this
+tree** (own harness, own regexes, own corpus of 171 `*.user` dumps over 188
+fixtures, `md5(md5s) = 657ae97560bebc6c4b32b8df102899b0`, `cat *.user | wc -c`
+= **7,938,078**) before any of it was believed from a round report. Tree
+identity of the columns: `rexpr_walk.logos` `68737ea7`, `buffer.logos`
+`d1eda5d5`, `writ_graph.logos` `23ce8d43`, `pull_shape_gate.sh` `ca8fcc48`,
+`slice_scan_shape.golden` `e7cbbb4c`, over `2d38e552`.
+
+### The sentence
+
+**Criterion 1 — «no intermediate materialization inside Deem»: MET WITH ONE
+STATED ADMISSION AND ONE OPEN ATTRIBUTION ROW.** Re-measured, not quoted:
+`N1/D1 = 3271/6704 = 48.79%`, `T = 493`, `D2 = 3452`, accounted **3375
+(97.77%)**, worklist **77** — composition 35 `__rel_g`, 17 `__rel_w`, 6
+`__rel_m`, 3 `__rel_a`, 3 `__rel_b`, 2 each `__rel_l`/`__rel_r`/`__rel_c`/
+`__rel_h`, 1 each `__rel_s`/`__rel_p`/`__rel_s_stop`/`__rel_s_hop`, **1
+`__cv`**. `(b′)` moved this criterion and it is the only criterion it moved:
+the `__sv` admission is gone BY DELETION (502 facade temps), so the share falls
+0.28 pp because an ACCOUNTED class left both numerator and denominator —
+**REPORTED, NOT NETTED** — while the worklist, the number the instrument exists
+for, is unmoved at 77. The admission that remains is the **76 native container
+producers** (45 of them `writ_graph_edges`) plus the `__cv`; the open row is
+per-node ATTRIBUTION (`__hm` 589 bindings under `arrange`'s 599 plan lines,
+`__ix` 321 sharing `key vector`'s 129 with `__ks`).
+
+**Criterion 2 — «full integration of the algebra with batch + cursor»: NOT MET
+— BUT THE REMAINDER IS NOW DECIDED, PRICED AND GATED, AND IT IS TWO ROWS WITH
+NO UNKNOWNS LEFT IN IT.** The honest verdict is NOT MET and not
+"met-with-exclusions", for one reason a gate can state: the output plane's 606
+landings are still filled to completion before anything is returned, so the
+query's own result is not batch-shaped, and `direct` — the step that changes
+that — is blocked on **#62**. Everything else on the plane is either integrated
+or DECIDED OUT with a ground and a reopening condition:
+
+| plane | count | status |
+|---|---|---|
+| batch pulls (`next_batch()`) | **1018** | integrated; three independent counts agree (while-headers 1018, zero-seed decls 1018) |
+| slice wraps (`SliceStream::<`) | **1002** | integrated; decl 1002, pull 1002 |
+| aggregate key enumeration | **39** | **D-C2-b**, declared out permanently (not a source; `&[R]` cannot form over `Entry` stride) |
+| native iterator scan | **14** | **D-C2-a**, declared source kind (row-pull IS the protocol) |
+| drain prelude | **9** | **D-C2-a** |
+| DRed/fixpoint driver walks (`_sl`) | **610** | **D-C2-c**, per S6-B (the incremental tier consumes `&[…]` by contract) |
+| internal compiler containers | **2513** | never a source; no route has claimed them |
+| declared slice params | **156** | the routable population, 1010 before R-F |
+| field slices of the bound row | **22** | `step_wrap`'s byval tier, declared out |
+| **join build side** | **3** | ⚠ **UNDECIDED — a real gap, and a PERMISSIVE one** |
+| **output plane** | **606 + 45 + 1** | ⚠ **UNDECIDED — blocked on #62 → `direct`** |
+
+62 of the 65 row pulls and 610 of the 3301 indexed walks are covered by the
+three decisions; **3 pulls and the output plane are what is left**, and both are
+now the subject of a test rather than of a paragraph. `logos_09_pull_shape`
+(`tier_full`, 188 fixtures / 171 dumps, ~58 s) re-derives every figure in that
+table on every run, with second independently-spelled counts, two asserted
+partitions and a `walks_unclaimed` pin at zero; nine bite legs are recorded
+beside its registration. **The audit reproduced all sixteen of its pins exactly,
+from its own sweep and its own regexes**, and confirmed the `1015` vs `1018`
+question the way the gate does: a digit-REQUIRED `__bj` regex reads **1015**, a
+digit-OPTIONAL one reads **1018**, the difference is three bare `__bj` loops,
+and calling that "a different spelling of the same grep" was the R-E defect
+repeating once more.
+
+**Criterion 3 — «ARC/RC only where needed, BC alone in hot paths»: HOLDS IN
+SUBSTANCE; the instrument still owes two repairs.** Re-run here: `ctest -R
+^logos_09_` **53/53, rc 0** (227 s), `rc_seam_gate.sh` inside it. The two owed
+repairs are unchanged and are carried into the ledger below.
+
+**Census, predicted then measured**: `ctest -N` **7187** · `-L fail` **1358** ·
+`-L tier_commit` **36** · `-L tier_full` **84** · `-LE imported` **3504**.
+Gates re-run by this audit on the final tree: L1 **721/721 + 36 tier_commit +
+12,684 smoke, rc 0**; `-L fail` **1358/1358, rc 0** (both directories — 1188
+`logos_*` + 170 `imported`); `logos_09_*` **53/53, rc 0**; `logos_09_pull_shape`
+standalone rc 0; the criterion-1 instrument rc 0.
+
+### What the audit CORRECTED in the sections above
+
+1. ⚠ **`739` rel/dl indexed reads DOES NOT RE-DERIVE — it is `789`** (604
+   `__rel_<r>_sl))[` + 185 `__dl_<r>_sl))[`), and the writ-fixture subset is
+   **327**, not `307`. The figure was carried unpinned in the WritWalk refusal
+   block. **The claim it supports is unaffected and re-derives exactly**: of the
+   1002 `SliceStream::<…>::new(` wraps, **0** take an argument mentioning
+   `__rel_`/`__dl_`, so the rel plane is off the batch plane entirely and the
+   re-walk capability would still route writ to the `AD_NONE` row-pull arm. The
+   REFUSAL STANDS; only its incidental number was wrong.
+2. ⚠ **`drain_import_pair_gate.sh`'s FACT 2 had gone VACUOUS and the round's
+   re-spelling sweep missed it** — the same defect its sibling
+   `drain_read_once_pair_gate.sh` had re-aimed for in the same round. It counted
+   a bare `Buffer<` in the witness dump and asserted `>= 1` to prove the DRAIN
+   landing exists; after `(b′)` that witness spells `Buffer<` five times, of
+   which **one** is the drain landing (`let mut __rdb_s:`), two are query-output
+   landings and two are `_stream` return types — with the drain landing's type
+   destroyed by hand the count still read **4**, i.e. the clause could no longer
+   fail for its own reason. Narrowed to `let mut __rdb_<rel>: Buffer<`, **floor
+   unchanged at 1**, message now prints the landings it found; bite-proven (red
+   on a one-token perturbation, green after restore, md5 identical).
+3. ⚠ **`criterion1_materialization_instrument.sh` has a destructive-argument
+   hazard**: its `$1` is an OUTDIR that it `rm -rf`s, while every sibling gate's
+   `$1` is the LOGOSC path. Invoking it with the sibling convention deletes
+   whatever is named — **measured during this audit: it deleted
+   `build/bin/logosc`** (restored by a full rebuild; nothing tracked was
+   touched). It also has no blindness floor on the OUTPUT side: with all 188
+   probes failing it printed `0 with user dumps` and then died with a
+   `ZeroDivisionError` instead of the `FAIL(2)` its siblings raise.
+4. `(b′)`'s emitted-site arithmetic, re-derived from the artifact: **606**
+   `let mut __out: Buffer<` landings · **606** `return Result::Ok(__out.into_vec());`
+   · **502** `Buffer::<…>::from_vec(` · **0** `let __sv: Vec<` · **0**
+   `let mut __out: Vec<` · **381** `let __out: &mut Vec<` aliases (unmoved,
+   and the spelling IS type-bearing) · **45** `let mut __rout:` · **5** distinct
+   rescans, emitted as `(((__out.as_slice()))[__d]` · **0** `__out.get(`.
+5. The gate's own header carried a leftover sentence saying the residual walk
+   bucket "is defined as the COMPLEMENT". The code never did that and must not;
+   the sentence is corrected in place.
+6. `46` `while (` headers that mention `.len()` sit OUTSIDE the canonical
+   indexed-walk grep and are correctly outside it: they are `while
+   (__tot_<r>.len() > __w)` fixpoint growth checks, a comparison, not a walk.
+   Recorded so the next reader does not "discover" them as a missing bucket.
+
+### THE FOLLOW-UP LEDGER — every row that leaves this arc
+
+| # | row | one-line task spec |
+|---|---|---|
+| L1 | **#62 → `direct`** | fix `sema_abi_layout` declining a metaprog-emitted struct FIELD asked from a foreign package (`{8,8}` fallback), then land the `direct` output form; success = the output plane's 606 landings stop being filled to completion and `logos_09_pull_shape`'s pins move UP with a derivation comment |
+| L2 | **join build side (3 pulls)** | convert `rexpr_walk::build_phase_frag` to a batch pull; ⚠ PERMISSIVE — land a corpus fixture that puts a batch source on a build side FIRST and prove it REDS before the fix, otherwise the green means nothing |
+| L3 | **strided-column batch view** | the only thing that would reopen **D-C2-b**: a batch view over `Entry`-strided storage that forms without a copy. A vocabulary addition and its own arc, never a route inside this one |
+| L4 | **the re-walk question, re-asked** | ⚠ STANDING REFUSAL today (measured: routes writ to `AD_NONE`, `.next()` UP, `next_batch()` flat, 46 rel-fn slice params). The row that leaves is *re-ask only once a route exists that CONSULTS such a capability* — not "relax the rel exclusion", which was perturbed and produced a byte-identical corpus |
+| L5 | **C3 instrument repair (a)** | `rc_seam_gate.sh`'s RC classifier is PERMISSIVE — name the unnamed count entry points (`downgrade`, `upgrade`, `clone_arc`, …) so the 68/0/0 reading is a measurement and not a spelling |
+| L6 | **C3 instrument repair (b)** | the `lock` half cannot fire by construction (every `lock` lives in `Atomic*`, reachable only by call) — give it a reachable population or DELETE the arm as unfalsifiable |
+| L7 | **D2 underscore-name widening** | `BIND` requires a leading `_`, silently dropping 2 `let mut out: Vec<WritEdgeRow>` from `derive_graph_source.logos`; +2 to D2. ⚠ LANDS ALONE ON ITS OWN COMMIT (a criterion is not closed on the commit that fixes its own population) |
+| L8 | **`__cv` pin** | one comprehension-lowering landing is accounted by a ground no gate holds — a second `__cv` currently reds nothing. Pin it beside `EXPECT_NOMAT["container"]` |
+| L9 | **re-ground the 3 `__gs_edges_<T>`** | their ground says "built outside the query plan" but the builder is a derive macro IN THIS COMPILATION; either re-ground or move them into the worklist |
+| L10 | **per-node attribution** | `__hm` 589 vs `arrange` 599 and `__ix` 321 sharing `key vector` 129 with `__ks` are credited CLASS-level; make the correspondence site-for-site or state the admission as permanent |
+| L11 | **criterion-1 instrument repairs** | (a) stop `rm -rf`-ing an unvalidated `$1` — refuse an OUTDIR that exists and was not created by this script, and refuse one under the repo or build tree; (b) add the output-side blindness floor its siblings have (`FAIL(2)` when the sweep produced no dumps, instead of a `ZeroDivisionError`) |
+| L12 | **`writ_graph_edges` = 45 of the 76** | the largest remaining C1 admission is one producer; the row is "does a writ walk have an in-plan producer", and it only becomes askable after L1/L2 |
+
+**PASS.** The tree supports every verdict above, the two undecided rows are
+named and owned, and criterion 2 is for the first time in this arc held by a
+test rather than by a paragraph.

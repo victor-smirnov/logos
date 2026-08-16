@@ -3013,8 +3013,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # in this corpus, the second needs a handler that is in scope and produces
 # nothing, which cannot be written from source (dropping the `use` line refuses
 # earlier, with its own diagnostic).
-REGISTRY-ALL         7186
-REGISTRY-NOIMPORTED  3503
+# ⚠ +1 / +1 / +0 at ADR 0025 R-H (2026-08-16): `logos_09_pull_shape`
+# (tests/logos/pull_shape_gate.sh), the criterion-2 pull-shape gate. §7 of
+# docs/adr/0025-criteria-and-instruments.md recorded that criterion 2 had NO
+# gate of any kind — its numbers lived in prose and were re-typed by each
+# stage, and three stages in a row (R-A, R-E, R-F) found a defect in one of
+# those hand-run greps. `tier_full`, so tier_commit does not move.
+REGISTRY-ALL         7187
+REGISTRY-NOIMPORTED  3504
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

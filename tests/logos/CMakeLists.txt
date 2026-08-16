@@ -1889,6 +1889,115 @@ set_tests_properties(logos_09_plan_ground_census PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 R-H — CRITERION 2 GETS A GATE (2026-08-16).
+#
+# CRITERION 1 HAS HAD AN INSTRUMENT SINCE S2 AND CRITERION 2 HAD NOTHING —
+# §7 of `docs/adr/0025-criteria-and-instruments.md` says so in as many words.
+# Every pull-shape number in the ADR was a human's shell grep, recorded in prose
+# and quoted by the next stage, and the arc paid for that three times:
+#
+#   R-A  `3975` indexed walks was THE READER — a single-paren regex blind to the
+#        `limit` arm's `while ((__i0 < (rows).len()) && (__n < 3i64))`. 318
+#        sites, 8% of the population the criterion was being SIZED by.
+#   R-F  the three indexed-walk buckets DID NOT SUM. A fourth class (21 walks
+#        over field slices of the bound row) fell between three greps, each of
+#        which was individually defensible. A split that does not sum is not a
+#        partition.
+#   R-E  the batch inner loop was counted as `while (__bj<N> < __bn<N>)`, a
+#        NUMBERED spelling, which cannot see the three bare `__bj` loops — and
+#        the 1015-vs-1018 gap it produced was written off as "a different
+#        spelling of the same grep". It was a regex that could not see 3 sites.
+#
+# Three instrument defects in three stages, every one of them in a number with a
+# consumer and no owner. This gate owns them: it re-derives the whole of §2 from
+# the artifact on every run, and it is built so each of those three defects
+# would have been RED here rather than found by the next reader —
+#
+#   * NO POPULATION IS COUNTED BY A LONE GREP. Each is asserted against a
+#     second, independently-spelled count of the same act (declaration vs use,
+#     producer vs consumer). `next_batch()` pulls = `while (__bj < __bn)`
+#     headers = `__bj` zero-seed declarations (1018, three ways, digits
+#     OPTIONAL); `SliceStream::<` = `__ss` declarations = pulls through one
+#     (1002, three ways); 39 aggregate `.next()` pulls = 39 `HashMapKeys<…>`
+#     declarations. A regex that goes blind takes its partner's equality down
+#     with it instead of merely reading smaller.
+#   * BOTH SPLITS ARE PARTITIONS AND BOTH SUMS ARE ASSERTED. The `.next()`
+#     4-way (39 aggregate-keys + 14 native-iter + 9 drain-prelude + 3
+#     join-build = 65) and the indexed-walk 4-way (2513 internal + 610 fixpoint
+#     + 156 declared param + 22 field = 3301, the canonical §2 grep).
+#   * ⚠ AND ALL FOUR WALK BUCKETS ARE POSITIVE RULES, WITH THE UNCLAIMED COUNT
+#     PINNED AT ZERO. A residual bucket ("everything else") makes its own sum
+#     clause VACUOUS — four buckets that partition by complement add to the
+#     total no matter what the emitter does, which is exactly the shape of green
+#     the R-F lesson is about. The first draft of this gate had that defect; it
+#     was found by trying to write the bite-proof leg for the clause and
+#     discovering no perturbation could red it.
+#   * THE BUCKET RULES ARE RULES, NOT SPELLINGS. `field slice` is "the walk
+#     subject is parenthesised and contains a `.`" — not "ends in
+#     `.as_slice()`". That is the one line (`(c.nums)`) between R-F's 21/157
+#     split and the R-G verifier's 22/156; the rule-derived reading is pinned
+#     and the other is recorded in the gate, so the two are never confused
+#     again.
+#
+# ⚠ THIS GATE DOES NOT CLAIM CRITERION 2 IS MET. It is not, and §7 C2 says why.
+# It makes the NEXT stage's claim falsifiable: a stage that says "I moved the
+# pull plane" must move these numbers, and a stage that says "I touched nothing
+# here" must leave all of them alone. R-B and (b′) are both stages of the second
+# kind and both were BELIEVED on a hand-run grep.
+#
+# ⚠ DIRECTIONS ARE NOT SYMMETRIC AND THE FAILURE MESSAGE SAYS SO.
+# `next_batch`/`SliceStream` UP with `walks_param` DOWN is criterion 2
+# progressing; `.next()` UP is a REGRESSION toward row-pull — the exact shape a
+# mis-routed re-walk capability takes, which is the ground R-H Part 2 refused
+# one on. A DECLARED-OUT class that GROWS is red too: "declared out" is a
+# statement about a ROUTE (§7 C2 (a)/(b)/(c)), not a licence for the population
+# to drift.
+#
+# PROVED TO BITE — NINE legs, one per clause family, each applied ALONE to a
+# sandbox copy of the gate's swept dumps (never to the tree's emitter: reddening
+# a clause from the emitter side needs a stdlib rebuild, which a test may not
+# do), each restored by deleting the copy with the baseline's md5 re-verified
+# after every leg (630cfea3efc8f8cd8e0443658cba0f20, 171 dumps, unchanged
+# through all nine). One perturbation, one line, one file each time:
+#
+#   leg  perturbation                                  what went red
+#   B1   `(__rel_m).next_batch()` -> `.nb_probe()`      PIN next_batch 1018->1017
+#                                                      + CORRESPONDENCE batch (3-way)
+#   B2   one `SliceStream::<` -> `SliceStrm::<`         PIN slicestream_ty 1002->1001
+#                                                      + CORRESPONDENCE SliceStream
+#   B3   one `let __dr:` -> `let __dq:`                 PIN drain-prelude 9->8
+#                                                      + PARTITION .next() 64 vs 65
+#   B4   one `let mut __it: HashMapKeys<` renamed       PIN hashmapkeys_decl 39->38
+#                                                      + CROSS-PIN 39 pulls vs 38 decls
+#   B5   `(es).len()` -> `(es[0]).len()`                PIN walks_unclaimed 0->1
+#                                                      + PIN param 156->155
+#                                                      + PARTITION walks 3300 vs 3301
+#   B6   `(es).len()` -> `(__rel_zz_sl).len()`          PIN fixpoint 610->611 + param
+#                                                      156->155 (the SUM still holds —
+#                                                      which is why the per-bucket pins
+#                                                      exist beside the partition clause)
+#   B7   delete one `let mut __bj0: u64 = __bn0;`       PIN batch_loop_reseed 4->3
+#   B8   delete one `*.user` dump                       PIN dumps 171->170 (+5 more)
+#   B9   duplicate one `(__rel_s).next()` line          PIN next_total 65->66
+#                                                      + PIN native-iter 14->15
+#                                                      (the DECLARED-OUT-GROWS direction)
+#
+# B6 is the leg worth keeping in mind: it moves two buckets in opposite
+# directions and the partition sum is UNMOVED. A gate that pinned only the sum
+# would be green on it. B5 is its complement — the class the sum clause exists
+# for. Neither leg alone would have justified both clauses.
+add_test(
+    NAME logos_09_pull_shape
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/pull_shape_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+)
+set_tests_properties(logos_09_pull_shape PROPERTIES
+    TIMEOUT 900
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S3a — THE IMPORT PAIR THE `Buffer` LANDING NEEDS.
 #
 # Two source lines that look like one duplicated line, and a reader who deletes

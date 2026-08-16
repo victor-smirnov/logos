@@ -1108,16 +1108,24 @@ fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
     // `?` and not a `match`: the facade adds a REPRESENTATION, never an error
     // path, and spelling the propagation as two arms would put a second
     // decision site next to a query whose only decision was taken inside.
+    //
+    // ADR 0025 R-H (b′) — NO `__sv` TEMP. The facade used to bind
+    // `let __sv: Vec<E> = <bare>(…)?;` and then wrap it, and the criterion-1
+    // instrument credited those 502 bindings to the head `materialize`
+    // ("a producer that returns a container") — a ground that describes a
+    // SOURCE. It never described this binding: `Buffer::from_vec` is a struct
+    // literal over a by-value `Vec` (buffer.logos), i.e. a MOVE, so nothing was
+    // ever materialized at any of the 502 sites. Removing the temp removes the
+    // false ground WITH its subject rather than re-heading it, and the emitted
+    // facade is the same move it always was, spelled in one expression.
     let mut b: String = String::new();
-    b.push_str("{\n    let __sv: Vec<");
+    b.push_str("{\n    return Result::Ok(Buffer::<");
     b.push_str(elem_ty);
-    b.push_str("> = ");
+    b.push_str(">::from_vec(");
     b.push_str(bare);
     b.push_str("(");
     push_param_args(&mut b, prm);
-    b.push_str(")?;\n    return Result::Ok(Buffer::<");
-    b.push_str(elem_ty);
-    b.push_str(">::from_vec(__sv));\n}\n");
+    b.push_str(")?));\n}\n");
 
     emit_fn_quote_blob(string_as_str(&snm), params_text, tps,
                        string_as_str(&rty), parse_block(string_as_str(&b)), prm);
@@ -1312,7 +1320,13 @@ fn push_guarded_frag(val_ty: str, body: ExprBlob, distinct: bool) -> ExprBlob {
         let __pv: #(vt) = (#(body));
         let mut __dup: bool = false;
         let mut __d: i64 = 0i64;
-        while __d < __out.len() { if __out.get(__d) == __pv { __dup = true; } __d = __d + 1i64; }
+        // ADR 0025 R-H (b′) — `__out.as_slice()[__d]`, not `__out.get(__d)`.
+        // The landing is a `Buffer` now, and `Buffer` cannot name a by-value
+        // `get`: `Vec::get` moves the element out and the wrapper's row type is
+        // a bare parameter (buffer.logos records the refusal verbatim). The
+        // slice index is valid over BOTH the `Buffer` landing and the `&mut
+        // Vec` fixpoint ALIASES that share this fragment, which `get` was too.
+        while __d < __out.len() { if (__out.as_slice())[__d] == __pv { __dup = true; } __d = __d + 1i64; }
         if !__dup { __out.push(__pv); }
     };
 }
@@ -2782,10 +2796,18 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         };
     }
 
+    // ADR 0025 R-H (b′) — THE QUERY-OUTPUT LANDING IS A `Buffer`, NOT A `Vec`.
+    // The output plane's own vocabulary end to end: `Drain`/`Sort` already land
+    // in `Buffer` (S3b), and the query output was the one landing still spelled
+    // in the container tier. The `Vec` ENTRY POINT is unchanged — `_run`'s
+    // signature is still `Result<Vec<E>, ElError>` and the conversion is
+    // `into_vec()`, a MOVE of the same allocation (buffer.logos), so this costs
+    // no rows and no allocation. The 18 emitted READ sites (`__out.len()`,
+    // `__out.get(`) do not move: `Buffer` names `len`/`get` for exactly that.
     let mut head_f: ExprBlob = quote_block! {
-        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
     };
-    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out); };
+    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out.into_vec()); };
     if first {
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
@@ -4589,10 +4611,12 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 
     let pre_f: ExprBlob = prelude_frag(prelude);
     let elem_f: ExprBlob = parse_type(result_ty);
+    // ADR 0025 R-H (b′) — the landing is a `Buffer`; `into_vec()` at the return
+    // keeps the `Vec` entry point (see the note at the first of the four sites).
     let mut head_f: ExprBlob = quote_block! {
-        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
     };
-    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out); };
+    let mut tail_f: ExprBlob = quote_block! { return Result::Ok(__out.into_vec()); };
     if first {
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
@@ -5354,9 +5378,11 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     };
 
     out_node_query(fn_name, result_ty, mods);
+    // ADR 0025 R-H (b′) — the AGGREGATE's landing is a `Buffer` too; the group-key
+    // vector beside it (`__g_key`) is NOT a query output and does not move.
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
-        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
         #( #bps; )*
         let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
         #(cnt_decl);
@@ -5364,7 +5390,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         #( #acols; )*
         #(nest);
         #(output);
-        return Result::Ok(__out);
+        return Result::Ok(__out.into_vec());
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), result_ty, body_f, prm,
                   prep_ground(WG_AGG(), chain_axis(ch.n)));
@@ -8123,8 +8149,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     }
     keep = quote_block! { if __h.__gc.get(__r0) > 0i64 #(keep) };
     out_node_snapshot(fn_name, result_ty);
+    // ADR 0025 R-H (b′) — the incremental SNAPSHOT's output lands in a `Buffer`.
     let snap_body: ExprBlob = quote_block! {
-        let mut __out: Vec<#(elem_f)> = Vec::<#(elem_f)>::new();
+        let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
         let mut __r0: i64 = 0i64;
         while __r0 < __h.__gk.len() {
             let key: #(keyt_f) = __h.__gk.get(__r0);
@@ -8132,7 +8159,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             #(keep);
             __r0 = __r0 + 1i64;
         }
-        return Result::Ok(__out);
+        return Result::Ok(__out.into_vec());
     };
     let mut sps: String = String::new();
     sps.push_str("__h: &");

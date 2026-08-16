@@ -178,11 +178,39 @@ want() {   # want <file> <needle> <expected-count> <what>
     [ "$got" = "$3" ] || note "$4: expected $3 occurrence(s) of '$2', found $got"
 }
 
+# ── ADR 0025 R-H (b′) — THE `Buffer<` NEEDLE IS RE-AIMED, SAME FLOORS ───────
+# (b′) made the QUERY-OUTPUT landing itself a `Buffer`: every emitted `_run`
+# now opens `let mut __out: Buffer<E>` and returns `__out.into_vec()`. So a
+# BARE `Buffer<` count stopped separating "this fn builds an ADAPTER landing"
+# from "this fn is a query at all" — measured on the pre-(b′) tree, all seven
+# sliced fns below contain exactly one `let mut __out:` binding, so every one
+# of the seven `Buffer<` clauses would have gained exactly +1 and the 0/1
+# distinction would have become 1/2.
+#
+# The clauses are about the SORT landing, so they are re-aimed AT IT BY NAME
+# with the SAME expected counts (0 stays 0, 1 stays 1). Landing names per FACT
+# K of `plan_ground_census_gate.sh`: `__rsb_<rel>` sort, `__rdb_<rel>` drain,
+# `__rab_<rel>` arrange. Measured on the pre-(b′) tree: the only `Buffer<` in
+# `desc_val_run` is `let mut __rsb_m: Buffer<(u64, u64)>` and in
+# `tick_desc_run` `let mut __rsb_t: Buffer<(i64, i64)>` — so the re-aimed
+# needle counts exactly what the old one counted, minus the new `__out`.
+#
+# NOTHING GOES QUIET: the `__out` landing that left this needle is pinned
+# BESIDE it (`OUTQ` below), once per sliced fn, so "the query output stopped
+# being emitted" is still red — it is simply red under its own name.
+ADAPTER_LANDING='let mut __(rsb|rdb|rab)_[a-z_0-9]+: Buffer<'
+wantre() {   # wantre <file> <regex> <expected-count> <what>
+    local got; got=$(grep -cE -- "$2" "$1" 2>/dev/null || true)
+    [ "$got" = "$3" ] || note "$4: expected $3 match(es) of /$2/, found $got"
+}
+OUTQ='let mut __out: Buffer<'
+
 # ── ADMIT, ascending: unchanged by this stage, and still forward ───────────
 want "$TMPD/desc_asc_run.txt" 'next_batch()' 1 "ADMIT asc pulls FORWARD"
 want "$TMPD/desc_asc_run.txt" 'land_end()'   0 "ADMIT asc does not land at the end"
 want "$TMPD/desc_asc_run.txt" 'prev_batch()' 0 "ADMIT asc does not pull backward"
-want "$TMPD/desc_asc_run.txt" 'Buffer<'      0 "ADMIT asc builds no landing"
+wantre "$TMPD/desc_asc_run.txt" "$ADAPTER_LANDING" 0 "ADMIT asc builds no sort landing"
+want   "$TMPD/desc_asc_run.txt" "$OUTQ"           1 "ADMIT asc still lands its query output"
 want "$TMPD/desc_asc_run.txt" '__ix0'        0 "ADMIT asc builds no permutation"
 
 # ── ADMIT, descending: THE SUBJECT ────────────────────────────────────────
@@ -191,7 +219,8 @@ want "$TMPD/desc_asc_run.txt" '__ix0'        0 "ADMIT asc builds no permutation"
 want "$TMPD/desc_all_run.txt" 'land_end()'   1 "ADMIT desc lands at the end ONCE"
 want "$TMPD/desc_all_run.txt" 'prev_batch()' 1 "ADMIT desc pulls BACKWARD"
 want "$TMPD/desc_all_run.txt" 'next_batch()' 0 "ADMIT desc never pulls forward"
-want "$TMPD/desc_all_run.txt" 'Buffer<'      0 "ADMIT desc builds no landing"
+wantre "$TMPD/desc_all_run.txt" "$ADAPTER_LANDING" 0 "ADMIT desc builds no sort landing"
+want   "$TMPD/desc_all_run.txt" "$OUTQ"           1 "ADMIT desc still lands its query output"
 want "$TMPD/desc_all_run.txt" '__ix0'        0 "ADMIT desc builds no permutation"
 want "$TMPD/desc_all_run.txt" '__ks'         0 "ADMIT desc collects no sort keys"
 # The INNER reversal, spelled out. Reversing the leaf order alone yields a
@@ -209,19 +238,22 @@ want "$TMPD/desc_all_run.txt" '- 1u64'       1 "ADMIT desc decrements before it 
 want "$TMPD/top_three_run.txt" 'land_end()'            1 "HARVEST top-n lands at the end"
 want "$TMPD/top_three_run.txt" 'prev_batch()'          1 "HARVEST top-n pulls backward"
 want "$TMPD/top_three_run.txt" '__out.len() < (3i64)'  2 "HARVEST top-n breaks on the limit in BOTH loops"
-want "$TMPD/top_three_run.txt" 'Buffer<'               0 "HARVEST top-n builds no landing"
+wantre "$TMPD/top_three_run.txt" "$ADAPTER_LANDING" 0 "HARVEST top-n builds no sort landing"
+want   "$TMPD/top_three_run.txt" "$OUTQ"           1 "HARVEST top-n still lands its query output"
 want "$TMPD/top_three_run.txt" '__ix0'                 0 "HARVEST top-n builds no permutation"
 
 # ── NARROWED + descending: the pushdown landing is walked backward ────────
 want "$TMPD/tail_desc_run.txt" 'land_end()'   1 "NARROWED desc lands at the end"
 want "$TMPD/tail_desc_run.txt" 'prev_batch()' 1 "NARROWED desc pulls backward"
-want "$TMPD/tail_desc_run.txt" 'Buffer<'      0 "NARROWED desc builds no landing"
+wantre "$TMPD/tail_desc_run.txt" "$ADAPTER_LANDING" 0 "NARROWED desc builds no sort landing"
+want   "$TMPD/tail_desc_run.txt" "$OUTQ"           1 "NARROWED desc still lands its query output"
 
 # ── REFUSE, wrong column: the SAME source and direction keeps everything ──
 # Without this half the gate is green on a compiler that reverses
 # unconditionally — the wrong-ANSWER bug the fixture catches at run time and
 # this gate would otherwise vouch for.
-want "$TMPD/desc_val_run.txt" 'Buffer<'      1 "REFUSE wrong-column keeps its landing"
+wantre "$TMPD/desc_val_run.txt" "$ADAPTER_LANDING" 1 "REFUSE wrong-column keeps its sort landing"
+want   "$TMPD/desc_val_run.txt" "$OUTQ"           1 "REFUSE wrong-column still lands its query output"
 want "$TMPD/desc_val_run.txt" '__ks.push('   1 "REFUSE wrong-column collects sort keys"
 want "$TMPD/desc_val_run.txt" '__ix0.push('  1 "REFUSE wrong-column builds a permutation"
 # 4, not 3 — the binding (`let __rel_m_sl: &[…] =`) counts alongside its three
@@ -233,11 +265,13 @@ want "$TMPD/desc_val_run.txt" 'prev_batch()' 0 "REFUSE wrong-column never pulls 
 
 # ── THE FORWARD-ONLY PAIR: the traversal clause itself ────────────────────
 # Ordered is enough for ascending …
-want "$TMPD/tick_asc_run.txt" 'Buffer<'      0 "FWD-ONLY asc is elided (no landing)"
+wantre "$TMPD/tick_asc_run.txt" "$ADAPTER_LANDING" 0 "FWD-ONLY asc is elided (no sort landing)"
+want   "$TMPD/tick_asc_run.txt" "$OUTQ"           1 "FWD-ONLY asc still lands its query output"
 want "$TMPD/tick_asc_run.txt" '__ix0'        0 "FWD-ONLY asc builds no permutation"
 # … and NOT enough for descending. This is the whole reason the second fixture
 # exists: the source cannot retreat, so the plan must keep the Sort node.
-want "$TMPD/tick_desc_run.txt" 'Buffer<'     1 "FWD-ONLY desc keeps its landing"
+wantre "$TMPD/tick_desc_run.txt" "$ADAPTER_LANDING" 1 "FWD-ONLY desc keeps its sort landing"
+want   "$TMPD/tick_desc_run.txt" "$OUTQ"          1 "FWD-ONLY desc still lands its query output"
 want "$TMPD/tick_desc_run.txt" '__ks.push('  1 "FWD-ONLY desc collects sort keys"
 want "$TMPD/tick_desc_run.txt" '__ix0.push(' 1 "FWD-ONLY desc builds a permutation"
 want "$TMPD/tick_desc_run.txt" 'land_end()'  0 "FWD-ONLY desc never lands at the end"

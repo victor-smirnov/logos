@@ -618,9 +618,20 @@ pub fn writ_walk(root: &Writ) -> WritWalk {
 // document sits in a `Vec` the plan never counted. A cursor makes `ap_offers`
 // TRUE, which drops every writ rel into `plan_walker::plan_prove_once`'s drain
 // cascade — and its FIRST arm is a blanket: `if prog.has_rels()` drains EVERY
-// rel of the query, on the ground `MG_REL_BLOCK`. Three of the six fixtures
-// have rel blocks. The plan is right to drain: a rel block may read the source
-// twice, and a walk cursor read twice is EXHAUSTED, not restarted.
+// rel of the query, on the ground `MG_REL_BLOCK`. The plan is right to drain: a
+// rel block may read the source twice, and a walk cursor read twice is
+// EXHAUSTED, not restarted.
+//
+// ⚠ R-H CORRECTION TO THE POPULATION SENTENCE. "Three of the six fixtures have
+// rel blocks" was measured over a six-fixture population that is not the writ
+// population. `writ_graph_edges(` appears in ELEVEN corpus dumps, carrying 45
+// call sites and 726,606 emitted bytes; SIX of the eleven declare a `rel` block
+// (`wql_deem_item_e2e` 3, `wql_mapping_consume_e2e` 2, `wql_mapping_scalar_e2e`
+// 2, `wql_mapping_e2e` 1, `wql_gpath_e2e` 1, `wql_writ_graph_e2e` 1 — confirmed
+// twice over, by the `rel` declarations in the fixture sources and by the
+// `__tot_`/`__dl_` fixpoint accumulators in their dumps, which agree fixture for
+// fixture). So the blanket arm's reach is 6/11, not 3/6, and the six writ
+// fixtures the measurement above ran over are not the corpus's writ population.
 //
 // WHAT WOULD CLOSE IT, and why it is not one line. The plan must be able to
 // say "no copy — READ IT AGAIN", which needs BOTH halves:
@@ -639,16 +650,43 @@ pub fn writ_walk(root: &Writ) -> WritWalk {
 //      confusion would be a permissive defect a green corpus cannot see.
 //
 //   2. THE EMITTER HALF, WHICH IS THE ONE THAT STOPPED THIS ROUND: today every
-//      second read uses the PRELUDE BINDING BY NAME (`prm.rel_srcs[…]`, nine
-//      sites in `rexpr_walk.logos`). A re-walk needs a FRESH `<mat>(<marg>)`
-//      local bound at the second read site instead. The data is all there —
-//      `rel_mat`/`rel_marg`/`rel_marg2`/`rel_itty` are on `MacroParams`, which
-//      `rexpr_walk` already takes, and `plan_walker` already emits that call
-//      text at three sites — but it is nine emitter sites, and the failure mode
-//      of landing half of them is SILENT WRONG ANSWERS: a rel block reading an
-//      exhausted cursor gets zero rows on its second pass and no diagnostic.
+//      second read uses the PRELUDE BINDING BY NAME. A re-walk needs a FRESH
+//      `<mat>(<marg>)` local bound at the second read site instead. The data is
+//      all there — `rel_mat`/`rel_marg`/`rel_marg2`/`rel_itty` are on
+//      `MacroParams`, which `rexpr_walk` already takes, and `plan_walker`
+//      already emits that call text at three sites — and the failure mode of
+//      landing half of the sites is SILENT WRONG ANSWERS: a rel block reading
+//      an exhausted cursor gets zero rows on its second pass and no diagnostic.
 //      A refusal that keeps the answers is worth more than a half-landing that
 //      keeps the byte count.
+//
+//      ⚠ R-H CORRECTION TO THE PRICE. This block said "`prm.rel_srcs[…]`, nine
+//      sites in `rexpr_walk.logos`". THE NINE SITES ARE THE WRONG POPULATION and
+//      the price is wrong in both directions. Read them: `push_dep_params`
+//      (a rel-helper fn's PARAMETER `, <src>: &[<rowty>]`, not a read at all),
+//      four inside `emit_scc_fn` and four inside `emit_scc_od_fns` — every one
+//      of the eight binding or renaming the FIXPOINT PLANE'S OWN accumulators
+//      (`__tot_`/`__rd_`/`__od_`/`__dl_`) or substituting semi-naive delta
+//      names. NOT ONE of them is a writ rel's second read, and the fixpoint /
+//      DRed plane is declared out of criterion 2 (S6-B).
+//
+//      The writ rel's source binding is emitted ENTIRELY in `plan_walker.logos`
+//      (`emit_prelude_oneshot`: the `AD_NONE` streamed arm, the drained arm, the
+//      container arm where every writ rel lands today; plus `emit_prelude_scc`),
+//      and the SECOND READ reaches it through `src_name`/`a_name` on the scan,
+//      join and group nodes — stamped from `prm.rel_srcs[…]` at EIGHT sites in
+//      `plan_walker.logos` and consumed as a bare name (`parse_expr(src_name)`)
+//      throughout `rexpr_walk`, which mentions `src_name` 51 times and `a_name`
+//      15. So the honest emitter half is "the node's source stops being a NAME
+//      and becomes a RE-OPEN EXPRESSION", a contract change across those nodes.
+//
+//      AND THERE IS A HARD TYPE BREAK THE NINE-SITE PRICE HID. Writ sources are
+//      passed INTO rel helper fns as slices: 70 `…_sl: &[` parameters in the
+//      corpus, of which 46 are writ (`__rel_g_sl` 11, `__rel_w_sl` 35). A cursor
+//      is not a `&[T]`, so a re-walk needs `rel_mat`/`rel_marg` at the CALLEE —
+//      and `rel_marg` names a CALLER-SCOPE binding (`writ_graph_edges(g)`, where
+//      `g` is the query's own parameter), so the argument must be threaded, not
+//      re-spelled. 46 parameters + their call args, not 9 by-name reads.
 //
 // ALSO OWED, and deliberately NOT done here, because moving a producer that no
 // `rel` declares over is churn that cannot be measured: the DYNAMIC twin
@@ -657,3 +695,60 @@ pub fn writ_walk(root: &Writ) -> WritWalk {
 // emits `__gs_walk_<T>`/`__gs_edges_<T>` INSIDE ITS QUOTE — a FOURTH producer of
 // this same row type, not three). The vocabulary stays single only if all four
 // move in the step that moves the `rel`.
+//
+// ════════════════════════════════════════════════════════════════════════════
+// R-H — THE REFUSAL BECOMES A STANDING ONE, AND THE ROUTE MOVES C2 BACKWARDS
+// ════════════════════════════════════════════════════════════════════════════
+//
+// R-H was licensed to land the ReWalk capability and re-declare `rel edge` over
+// `writ_walk`. It did not, and this is not "not yet": the route AS SCOPED cannot
+// reach its own success criterion, and the reason is a fact about the emitter,
+// not a budget. THE KILLING FACT, checked before any build:
+//
+//   `slice_stream_src` (`rexpr_walk.logos`) is
+//       if prm.rel_find_src(src_name) >= 0 { return false; }
+//       return prm.is_source(src_name);
+//   — it answers FALSE for any name carrying a rel identity, BY CONSTRUCTION.
+//
+// So every `__rel_*_sl` / `__dl_*_sl` walk is off the batch plane TODAY, EVEN AS
+// A SLICE: 739 such indexed reads in the corpus (307 of them in the eleven writ
+// dumps), zero `SliceStream` wraps, zero `next_batch()` pulls. Marking a writ
+// rel re-walkable does not move one of them onto the batch plane. It routes the
+// rel to `emit_prelude_oneshot`'s `AD_NONE` arm, whose emitted shape is the
+// ROW PULL (`let __opt: Option<R> = (<src>).next()`) — the source kind R-H
+// declared out of criterion 2 as a protocol, not a gap. `.next()` goes UP;
+// `next_batch()` does not move; the four indexed-walk buckets do not move.
+//
+// That is the shape of the refusal: the route's cost is a hard type break at 46
+// rel-fn slice parameters (above), and its BENEFIT — measured on the plane the
+// criterion counts — is negative. A round that landed it would pay 46 sites to
+// make criterion 2 worse. The 2026-08-15 numbers above (+3 nodes, +17,048 bytes,
+// D2 −21, accounted +0.45pp) stand as the only measurement, and R-H adds no new
+// one because the falsifying fact is upstream of the measurement.
+//
+// WHAT IS ACTUALLY OWED, and it is a DIFFERENT arc. The obvious next move —
+// relax `slice_stream_src`'s rel exclusion so the 739 rel/dl indexed walks ride
+// `batch_scan_frag` over a `SliceStream` of the ALREADY-LANDED `_sl` slice —
+// WAS MEASURED HERE AS A THROWAWAY LEG AND IS REFUTED AS A ONE-LINER. Deleting
+// `if prm.rel_find_src(src_name) >= 0 { return false; }` and rebuilding the
+// whole corpus produced a BYTE-IDENTICAL 171-dump snapshot: SliceStream wraps
+// 1002 → 1002, `next_batch()` 1018 → 1018, `.next()` 65 → 65, rel/dl indexed
+// walks 739 → 739, 7,938,078 corpus bytes both columns, criterion 1 unmoved
+// (N1/D1 3271/6704, D2 3452, accounted 3375). The guard is DORMANT, not
+// load-bearing: `is_source` requires a DECLARED SLICE PARAM, and the only site
+// R-A ever routed is `emit_simple` — a rel source is a local there, and inside
+// the rel helper fns (where it IS a declared `&[…]` param) the body goes
+// through `rel_body_simple_frag` / `chain_body_frag`, which still emit the
+// indexed walk. So the exclusion cannot fire today, and it will start firing
+// the moment R-A's twelve unrouted sites are routed (`slice_stream_src`'s own
+// comment lists them) — which is why it stays.
+//
+// THE REAL PRICE OF THE C2 MOVE IS THEREFORE THOSE TWELVE SITES, not one line
+// and not a capability. Route them, and the rel exclusion becomes the live
+// decision this refusal is about; until then a cursor has nothing to be better
+// than. The cursor question only becomes worth asking AFTER that, when the
+// landing itself is the last copy.
+//
+// The 45 `writ_graph_edges` calls across 11 dumps remain `MG_CONTAINER` — 45 of
+// the corpus's 76 `let __rel_*: Vec<` container landings. That number is the
+// prize, and it is still on the table; nothing here retires it.

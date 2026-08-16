@@ -148,11 +148,33 @@ want() {   # want <file> <needle> <expected-count> <what>
     [ "$got" = "$3" ] || note "$4: expected $3 occurrence(s) of '$2', found $got"
 }
 
+# ── ADR 0025 R-H (b′) — THE `Buffer<` NEEDLE IS RE-AIMED, SAME FLOORS ───────
+# (b′) made the QUERY-OUTPUT landing itself a `Buffer` (`let mut __out:
+# Buffer<E>` + `return Result::Ok(__out.into_vec())`), so a BARE `Buffer<`
+# count stopped separating "this fn builds a SORT landing" from "this fn is a
+# query at all": measured on the pre-(b′) tree, each of the three sliced fns
+# holds exactly one `let mut __out:` binding, so all three clauses would have
+# gained exactly +1 and 0/1 would have become 1/2.
+#
+# Re-aimed at the sort landing BY NAME, SAME expected counts. Landing names per
+# FACT K of `plan_ground_census_gate.sh`: `__rsb_` sort, `__rdb_` drain,
+# `__rab_` arrange. Measured pre-(b′): `by_val_run`'s only `Buffer<` is
+# `let mut __rsb_m: Buffer<…>`, so the re-aimed needle counts what the old one
+# counted minus the new `__out`. The departed `__out` is pinned BESIDE it, so
+# "the query output stopped being emitted" stays red under its own name.
+ADAPTER_LANDING='let mut __(rsb|rdb|rab)_[a-z_0-9]+: Buffer<'
+wantre() {   # wantre <file> <regex> <expected-count> <what>
+    local got; got=$(grep -cE -- "$2" "$1" 2>/dev/null || true)
+    [ "$got" = "$3" ] || note "$4: expected $3 match(es) of /$2/, found $got"
+}
+OUTQ='let mut __out: Buffer<'
+
 # ── ADMIT: `by_key_run` streams, and NOTHING is built in front of it ────────
 # Checked positively as well as negatively, so a fn that stopped being emitted
 # at all cannot pass by containing none of the sort spellings.
 want "$TMPD/by_key_run.txt" 'next_batch()'   1 "ADMIT by_key streams the walk"
-want "$TMPD/by_key_run.txt" 'Buffer<'        0 "ADMIT by_key builds no landing"
+wantre "$TMPD/by_key_run.txt" "$ADAPTER_LANDING" 0 "ADMIT by_key builds no sort landing"
+want   "$TMPD/by_key_run.txt" "$OUTQ"           1 "ADMIT by_key still lands its query output"
 want "$TMPD/by_key_run.txt" '__ix0'          0 "ADMIT by_key builds no permutation"
 want "$TMPD/by_key_run.txt" '__ks'           0 "ADMIT by_key collects no sort keys"
 want "$TMPD/by_key_run.txt" '__rel_m_sl'     0 "ADMIT by_key subscripts no slice"
@@ -161,7 +183,8 @@ want "$TMPD/by_key_run.txt" '__rel_m_sl'     0 "ADMIT by_key subscripts no slice
 # This half is what says the elision discriminates. Without it the gate is green
 # on a compiler that elides unconditionally — which is the wrong-answer bug the
 # fixture catches at run time and this gate would otherwise vouch for.
-want "$TMPD/by_val_run.txt" 'Buffer<'        1 "REFUSE by_val keeps its landing"
+wantre "$TMPD/by_val_run.txt" "$ADAPTER_LANDING" 1 "REFUSE by_val keeps its sort landing"
+want   "$TMPD/by_val_run.txt" "$OUTQ"           1 "REFUSE by_val still lands its query output"
 want "$TMPD/by_val_run.txt" '__ks.push('     1 "REFUSE by_val collects sort keys"
 want "$TMPD/by_val_run.txt" '__ix0.push('    1 "REFUSE by_val builds a permutation"
 # 4, not 3, and the prediction was wrong on the first run — RECORDED rather
@@ -175,7 +198,8 @@ want "$TMPD/by_val_run.txt" '__rel_m_sl'     4 "REFUSE by_val subscripts the sor
 # stops walking rows inside the leaf it already has. A single break would still
 # answer correctly and would still pull one leaf too many.
 want "$TMPD/head_three_run.txt" '__out.len() < (3i64)' 2 "HARVEST bounded walk breaks on the limit"
-want "$TMPD/head_three_run.txt" 'Buffer<'              0 "HARVEST bounded walk builds no landing"
+wantre "$TMPD/head_three_run.txt" "$ADAPTER_LANDING" 0 "HARVEST bounded walk builds no sort landing"
+want   "$TMPD/head_three_run.txt" "$OUTQ"           1 "HARVEST bounded walk still lands its query output"
 want "$TMPD/head_three_run.txt" '__ix0'                0 "HARVEST bounded walk builds no permutation"
 
 # ── THE TRACE: the absence is EXPLAINED, not silent ────────────────────────

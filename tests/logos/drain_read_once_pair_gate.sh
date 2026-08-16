@@ -174,7 +174,15 @@ extract "$EM" selfstep_run    "$TMPD/refuse2"  || true
 
 # ── FACT A1 — THE ADMITTED QUERY HAS NO LANDING ─────────────────────────────
 if [ -s "$TMPD/admit" ]; then
-    for tok in 'Buffer<' '__it_d' '.as_slice()'; do
+    # ⚠ ADR 0025 R-H (b′) — `Buffer<` LEFT THIS LIST AND WAS REPLACED, NOT
+    # DROPPED. (b′) made the QUERY-OUTPUT landing a Buffer: `q_dup_run` opens
+    # `let mut __out: Buffer<(i64, i64)>` and returns `__out.into_vec()`, so a
+    # bare `Buffer<` is now present in EVERY emitted query and says nothing
+    # about a drain. The clause is about the DRAIN landing, which is minted
+    # `let mut __rdb_<rel>: Buffer<…>` (FACT K, plan_ground_census_gate.sh), so
+    # that is the token now — same direction, same floor, narrower subject.
+    # The FACT R1/R2 halves below still read the full `: Buffer<ty> =` spelling.
+    for tok in 'let mut __rdb_' '__it_d' '.as_slice()'; do
         if grep -qF -- "$tok" "$TMPD/admit"; then
             note "q_dup_run — the ADMITTED half — carries '$tok'. The source is
       named ONCE, so the plan proved it read-once and the emitter must consume
@@ -206,13 +214,26 @@ check_refuse() {                # check_refuse <file> <label> <rowty>
     grep -qF "let mut __it_" "$f" \
       || note "$lab has no \`__it_\` producer binding — the drain arm emits the
       producer and the landing as TWO bindings; one of them is missing."
-    grep -qF ": Buffer<${ty}> = Buffer::<${ty}>::new();" "$f" \
-      || note "$lab does not land in \`Buffer<${ty}>\`. Either the read-once
+    # ⚠ ADR 0025 R-H (b′) — THE MATCH IS RESTRICTED TO `__rdb_` LANDINGS FIRST.
+    # (b′) made the query-output landing a Buffer of the SAME row type, so the
+    # bare `: Buffer<ty> = Buffer::<ty>::new();` text now also matches
+    # `let mut __out: Buffer<(i64, i64)> = …` and this clause would pass
+    # VACUOUSLY on a tree where the drain landing disappeared. Narrowed to the
+    # drain landing's own name; the spelling asserted after the narrowing is
+    # byte-for-byte the one this clause always asserted.
+    # (NO PIPE INTO `grep -q`: the reader dies at the first match, the writer
+    # takes SIGPIPE and `pipefail` hands the pipeline that status — the recorded
+    # gate-lie form. The narrowing is a variable, the test is a `case`.)
+    local rdbl; rdbl=$(grep -oE 'let mut __rdb_[a-z_0-9]+: Buffer<.*' "$f" 2>/dev/null || true)
+    case "$rdbl" in
+      *": Buffer<${ty}> = Buffer::<${ty}>::new();"*) ;;
+      *) note "$lab does not land in \`Buffer<${ty}>\`. Either the read-once
       withdrawal stopped happening for a source named twice in one chain (the
       miscompile: the second index build reads a spent iterator and the answer
       goes silently empty), or the Drain node's landing changed spelling — in
       which case RE-AIM this gate WITH that change and record it in the census.
-      Emitted landings found: $(grep -oE 'let mut __(rdb|rsb|rel)_[a-z_0-9]+: [A-Za-z]+<' "$f" | tr '\n' ' ')"
+      Emitted landings found: $(grep -oE 'let mut __(rdb|rsb|rel)_[a-z_0-9]+: [A-Za-z]+<' "$f" | tr '\n' ' ')" ;;
+    esac
     grep -qF '.push(' "$f" \
       || note "$lab never \`push\`es into the landing — the ACCUMULATOR spelling
       is what S3b measured (13.8x cheaper in emitted text than wrapping a Vec);

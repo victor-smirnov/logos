@@ -1,1 +1,1 @@
-error [fn q_run]: method 'Vec__push' arg 1: expected i64, got DH
+error [fn q_run]: method 'Buffer__push' arg 1: expected i64, got DH

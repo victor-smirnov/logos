@@ -134,6 +134,39 @@
 # no longer buying anything and this golden should go back. Re-measure with the
 # two-point Ir slope above; do not re-measure with `objdump` alone.
 #
+# ── ⚠ IT MOVED AGAIN: R-H (b′), 2026-08-16 — THE MEASURED-EQUAL ARM, TAKEN ──
+#
+# (b′) made the QUERY-OUTPUT LANDING the output plane's own type: the emitter
+# opens `let mut __out: Buffer<E>` instead of `Vec<E>` and returns
+# `Result::Ok(__out.into_vec())` instead of `Result::Ok(__out)`. `_run`'s
+# SIGNATURE is unchanged (`Result<Vec<u64>, ElError>`) and `into_vec` is a
+# by-value field read (`buffer.logos`), i.e. a MOVE of the same allocation.
+# Exactly two lines of this golden move; the whole batch-scan body — the wrap,
+# the pull, the bound, the by-reference row bind — is byte-identical.
+#
+# THE RE-GOLDEN IS TAKEN ON THE MEASUREMENT THE PARAGRAPH ABOVE DEMANDS, NOT ON
+# THE ARGUMENT. Same harness (`sandbox/ra/slope.logos`, `lo` = u64::MAX so no
+# row matches and no `__out.push` runs), same two points, `callgrind` Ir of
+# `slice_scan_run`, both columns taken on THIS box in the same session:
+#
+#     R-H HEAD (2d38e552, `Vec` landing)   Ir = 21·n + 82    (20k: 420,082 · 40k: 840,082)
+#     R-H (b′)  (`Buffer` landing)         Ir = 21·n + 100   (20k: 420,100 · 40k: 840,100)
+#
+#   THE PER-ROW FIGURE IS 21 IN BOTH COLUMNS — the slope does not move by a
+#   single instruction, and the whole delta is +18 ONE-TIME: the `Buffer`
+#   constructor writes two extra fields (`sent`, `at`) that `Vec::new` does
+#   not, and `into_vec` reads one back. The rule the paragraph above states —
+#   "if the per-row figure ever comes back ≥ BASE's 23, the constant is no
+#   longer buying anything and this golden should go back" — is not tripped:
+#   the slope is 21, exactly what R-A took the transition on.
+#
+#   ⚠ AND THE HEAD COLUMN RE-DERIVES R-A's RECORD EXACTLY (21·n + 82, the
+#   figure written above for R-A), which is why it is quoted rather than
+#   assumed: it was RE-MEASURED here, on the CONTROL-REVERTED tree (both stdlib
+#   files back to 2d38e552, full `cmake --build` rebuild, same box, same
+#   session, same harness), not read off the record. A constant that had drifted
+#   would have shown up as a HEAD column that disagreed with its own history.
+#
 # ⚠ THE LAST CLAUSE IS WHAT S2 HAS TO ARGUE WITH, WHICH IS THE POINT. When the
 # slice arm rides §1's shape, this gate goes red twice: the bytes differ and the
 # batch vocabulary appears. Neither is a failure of the gate. The ADR's "OR

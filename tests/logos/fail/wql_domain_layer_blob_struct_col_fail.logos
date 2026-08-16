@@ -27,13 +27,25 @@
 //
 // ⚠ THE LAYER IS PINNED BY THE MESSAGE, NOT BY THE FILE PREFIX, AND THAT IS A
 // COMPROMISE. The full diagnostic reads
-//     <metaprog-blob-subst>:1201: error [fn q_run]: method 'Vec__push' arg 1: …
+//     <metaprog-blob-subst>:1316: error [fn q_run]: method 'Buffer__push' arg 1: …
 // and `1201` is a line number inside a generated blob — it moves whenever the
 // blob moves, so it cannot be asserted. `grep -F` takes one contiguous
 // substring, so the prefix cannot be kept while the line number is dropped. What
 // IS asserted names the layer just as surely: `[fn q_run]` is a function the
 // user never wrote, and no front-end refusal in this compiler names one. If this
 // message ever appears with a user's own function in it, the layer moved.
+//
+// ⚠ RE-AIMED AT ADR 0025 R-H (b′), 2026-08-16 — SAME REFUSAL, NEW METHOD NAME.
+// The asserted string was `method 'Vec__push'`; (b′) made the query-output
+// landing a `Buffer` (`let mut __out: Buffer<E>` + `__out.into_vec()` at the
+// return), so the SAME push, at the SAME site, in the SAME laundered-INT
+// projection, is now type-checked as `Buffer__push`. Nothing about the defect
+// this file pins changed — the emitter still builds the projection at the
+// lenient `EL_TY_INT` default and the host compiler still refuses it from
+// inside generated code naming a function nobody wrote. The `[fn q_run]` half
+// of the string, which is what pins the LAYER, is untouched.
+// (This file is why the RE-SPELLING RULE has to cover `fail/*.expected` and not
+// only `tests/logos/*.sh`: it was the only red in the 1358-test fail sweep.)
 //
 // THE DISAGREEMENT THIS BELONGS TO. `DH` IS admitted where a capability is
 // actually asked: `deem_rel_col_hashable` pins a user struct with `Hash` as a

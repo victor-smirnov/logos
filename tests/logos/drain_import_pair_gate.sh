@@ -157,14 +157,30 @@ if [ "${#DUMPS[@]}" -lt 1 ]; then
 else
     cat "${DUMPS[@]}" > "$TMPD/wit.txt"
     u=$(grep -c '^use logos\.mem\.stream;' "$TMPD/wit.txt")
-    b=$(grep -c 'Buffer<' "$TMPD/wit.txt")
+    # ⚠ ADR 0025 R-H CLOSING AUDIT, 2026-08-16 — NARROWED, SAME FLOOR, BECAUSE
+    # THE BARE NEEDLE HAD GONE VACUOUS. `b` used to be `grep -c 'Buffer<'` with
+    # the floor below, and the sentence it defends is about the DRAIN LANDING.
+    # (b′) made the QUERY-OUTPUT landing a `Buffer` too (`let mut __out:
+    # Buffer<E>` + `return Result::Ok(__out.into_vec())`, four emitter sites in
+    # `rexpr_walk.logos`), so a bare `Buffer<` is now present in every emitted
+    # query. MEASURED on this witness (`deem_join_step_streams`, this tree):
+    # 5 `Buffer<` mentions — 1 drain landing (`let mut __rdb_s: Buffer<(i64,
+    # i64)>`), 2 query-output landings, 2 `_stream` surface return types. With
+    # the drain landing's type destroyed by hand the bare count still reads 4,
+    # i.e. THE CLAUSE COULD NO LONGER FAIL FOR ITS OWN REASON — the permissive
+    # shape a green corpus can never show you. Aimed at the drain landing BY
+    # NAME (`__rdb_<rel>`, FACT K of `plan_ground_census_gate.sh`), floor
+    # UNCHANGED at 1; the sibling `drain_read_once_pair_gate.sh` took the same
+    # narrowing in the same round and this file was missed by its sweep.
+    b=$(grep -cE 'let mut __rdb_[a-z_0-9]+: Buffer<' "$TMPD/wit.txt")
     [ "$u" -ge 1 ] || note "$WIT's emitted item carries NO \`use
       logos.mem.stream;\` — half 2 stopped reaching the splice."
-    [ "$b" -ge 1 ] || note "$WIT's emitted item spells no \`Buffer<\`. Either
-      the Drain node's landing stopped being a Buffer (S3b reverted, in which
-      case RETIRE THIS GATE WITH ITS SUBJECT rather than deleting the assert),
-      or this fixture stopped having a drain — in which case pick another
-      witness from the six and say which."
+    [ "$b" -ge 1 ] || note "$WIT's emitted item spells no \`let mut __rdb_<rel>:
+      Buffer<…>\` drain landing. Either the Drain node's landing stopped being a
+      Buffer (S3b reverted, in which case RETIRE THIS GATE WITH ITS SUBJECT
+      rather than deleting the assert), or this fixture stopped having a drain —
+      in which case pick another witness from the six and say which. Buffer
+      mentions found: $(grep -oE 'let mut __[a-z_0-9]+: Buffer<' "$TMPD/wit.txt" | tr '\n' ' ')"
 fi
 
 if [ "$fails" -gt 0 ]; then

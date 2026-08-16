@@ -418,7 +418,22 @@ ACC = {
     '__ga':     (('accumulator',),          'accumulator (per-group accumulator columns)'),
     '__g_cnt':  (('group count',),          "group count (avg's denominator)"),
     '__g_row':  (('representative row',),   'representative row (the group\'s base-row ordinal)'),
-    '__sv':     (('materialize',),          'materialize (a producer that returns a container)'),
+    # ⚠ ADR 0025 R-H (b′) — `__sv` IS RETIRED WITH ITS SUBJECT, NOT RE-HEADED.
+    # The key credited 502 bindings to the head `materialize`, ground "a
+    # producer that returns a container". It never described them: `__sv` was
+    # the `_stream` FACADE's own temp
+    # (`let __sv: Vec<E> = <bare>(…)?;` then `Buffer::from_vec(__sv)`), and
+    # `Buffer::from_vec` is a struct literal over a by-value `Vec`
+    # (`stdlib/mem/stream/buffer.logos`) — a MOVE. Nothing was materialized at
+    # any of the 502 sites, so the credit was the R-F F1 class (the plan
+    # asserting a materialization the artifact does not perform) at 12.9% of
+    # the accounted numerator. (b′) deletes the temp at the emitter
+    # (`emit_stream_surface`), so the key is removed rather than re-grounded:
+    # there is no binding left to head. THE PRINTED SHARE FALLS AS A RESULT —
+    # an ACCOUNTED class left the denominator AND the numerator — and that is
+    # REPORTED, NOT NETTED: D2 and `accounted` both drop by 502 and the
+    # WORKLIST (the unaccounted remainder, the number this instrument exists
+    # for) does not move at all.
     # ADR 0025 R-B — the output seam. TWO keys, not one, and the split is the
     # whole point of R-B1: before it, the rel one-shot's landing was also
     # spelled `__out`, so one row held 605 query outputs and 45 rel results and
