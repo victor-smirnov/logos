@@ -331,7 +331,7 @@ fn run_all() -> i32 {
 
     // ── 80..89: open + a second container id in the same snapshot ───────────
     {
-        let h0b = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
+        let mut h0b = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
         let mut one: Vec<u64> = vec_new::<u64>();
         one.push(41u64);
         one.push(42u64);
@@ -430,7 +430,7 @@ fn run_all() -> i32 {
 
     // ── 40..59: config B — default nodes, longer value runs ─────────────────
     {
-        let hb = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 4u64);
+        let mut hb = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 4u64);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xC0FFEEu64 };
         let mut r: i64 = 0i64;
@@ -516,7 +516,7 @@ fn run_all() -> i32 {
     // equivalence (check_full = the whole law set incl. the structure
     // stream), rejection laws leave the tree untouched.
     {
-        let hc = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 5u64);
+        let mut hc = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 5u64);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xF00Du64 };
 

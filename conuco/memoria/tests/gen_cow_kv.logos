@@ -54,7 +54,7 @@ fn run_all() -> i32 {
     // ── (1) multi-leaf volume map: fill / lookup / replace-on-hit ───────────
     let mut tstore: Arc<MemoryStore> = store_new();
     let mut ts: Arc<dyn Snapshot> = store_fork_arc(&mut tstore);
-    let t = create_ctr::<typeof(GenVol)>(&ts, CTR);
+    let mut t = create_ctr::<typeof(GenVol)>(&ts, CTR);
     let n: u64 = 4000u64;
     let mut k: u64 = 0u64;
     while k < n { t.insert(k, vstr(k)); k = k + 1u64; }
@@ -78,14 +78,14 @@ fn run_all() -> i32 {
     let m: u64 = 1500u64;
     let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s0.snapshot_id() != 1u64 { return 8i32; }
-    let c0 = create_ctr::<typeof(GenVol)>(&s0, CTR);
+    let mut c0 = create_ctr::<typeof(GenVol)>(&s0, CTR);
     k = 0u64;
     while k < m { c0.insert(k, vstr(k)); k = k + 1u64; }
     if c0.size() != m { return 9i32; }
     s0.commit();
 
     let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c1 = open_ctr::<typeof(GenVol)>(&s1, CTR);
+    let mut c1 = open_ctr::<typeof(GenVol)>(&s1, CTR);
     k = m;
     while k < 2u64 * m { c1.insert(k, vstr(k)); k = k + 1u64; }
     s1.commit();
@@ -104,7 +104,7 @@ fn run_all() -> i32 {
 
     // a third version overwrites a spread of keys; s1 untouched.
     let mut s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c2 = open_ctr::<typeof(GenVol)>(&s2, CTR);
+    let mut c2 = open_ctr::<typeof(GenVol)>(&s2, CTR);
     k = 0u64;
     while k < 2u64 * m { c2.insert(k, "OVERWRITTEN"); k = k + 300u64; }
     s2.commit();

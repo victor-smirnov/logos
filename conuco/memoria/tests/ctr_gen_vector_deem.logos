@@ -39,8 +39,8 @@ pub deem tall<V>(s: Series<V>) {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let s = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
-    let t = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
+    let mut s = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+    let mut t = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
 
     // 10, 20, … 160 — past a leaf split.
     let mut i: u64 = 0u64;

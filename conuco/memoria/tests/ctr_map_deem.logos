@@ -62,8 +62,8 @@ pub deem hot_slots(w: &<typeof(Tally) as CtrFamily>::Handle) {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let led = create_ctr::<typeof(Ledger)>(&snap, 1u64);
-    let tal = create_ctr::<typeof(Tally)>(&snap, 2u64);
+    let mut led = create_ctr::<typeof(Ledger)>(&snap, 1u64);
+    let mut tal = create_ctr::<typeof(Tally)>(&snap, 2u64);
 
     // Past a leaf split, so the query reads a real tree and not one node.
     let mut k: u64 = 0u64;

@@ -28,7 +28,7 @@ fn run_all() -> i32 {
     let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
     // fast family (u64/u64), enough inserts to force splits.
-    let m = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);
+    let mut m = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);
     let n: u64 = 4000u64;
     let mut i: u64 = 0u64;
     while i < n { m.insert(i, i * 3u64); i = i + 1u64; }

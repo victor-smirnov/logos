@@ -44,7 +44,7 @@ fn run_all() -> i32 {
     // ── (A) u32 → i64 : bulk fill forcing multi-level growth ────────────────
     let mut astore: Arc<MemoryStore> = store_new();
     let mut as0: Arc<dyn Snapshot> = store_fork_arc(&mut astore);
-    let ta = create_ctr::<typeof(FseA)>(&as0, 1u64);
+    let mut ta = create_ctr::<typeof(FseA)>(&as0, 1u64);
     let na: u32 = 100000u32;
     let mut a: u32 = 0u32;
     while a < na { ta.insert(a, (a as i64) * 2i64 - 100i64); a = a + 1u32; }
@@ -65,13 +65,13 @@ fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let m: u32 = 3000u32;
     let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c0 = create_ctr::<typeof(FseA)>(&s0, 1u64);
+    let mut c0 = create_ctr::<typeof(FseA)>(&s0, 1u64);
     let mut k: u32 = 0u32;
     while k < m { c0.insert(k, k as i64 + 5i64); k = k + 1u32; }
     if c0.size() != m as u64 { return 7i32; }
     s0.commit();
     let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c1 = open_ctr::<typeof(FseA)>(&s1, 1u64);
+    let mut c1 = open_ctr::<typeof(FseA)>(&s1, 1u64);
     k = m;
     while k < 2u32 * m { c1.insert(k, k as i64 + 5i64); k = k + 1u32; }
     s1.commit();
@@ -84,7 +84,7 @@ fn run_all() -> i32 {
     // ── (B) i32 → u32 : SIGNED keys spanning negative → positive ────────────
     let mut bstore: Arc<MemoryStore> = store_new();
     let mut bs0: Arc<dyn Snapshot> = store_fork_arc(&mut bstore);
-    let tb = create_ctr::<typeof(FseB)>(&bs0, 1u64);
+    let mut tb = create_ctr::<typeof(FseB)>(&bs0, 1u64);
     let lo: i32 = -4000i32;
     let hi: i32 = 4000i32;
     let mut ib: i32 = lo;
@@ -101,7 +101,7 @@ fn run_all() -> i32 {
     // ── (C) u16 → u32 : narrow key, fill + CoW roundtrip ────────────────────
     let mut cstore: Arc<MemoryStore> = store_new();
     let mut cs0: Arc<dyn Snapshot> = store_fork_arc(&mut cstore);
-    let tc = create_ctr::<typeof(FseC)>(&cs0, 1u64);
+    let mut tc = create_ctr::<typeof(FseC)>(&cs0, 1u64);
     let nc: u16 = 6000u16;
     let mut c: u16 = 0u16;
     while c < nc { tc.insert(c, c as u32 * 3u32); c = c + 1u16; }

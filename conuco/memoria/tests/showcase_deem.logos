@@ -135,8 +135,8 @@ fn run_all() -> i32 {
     // ── §2 in action: two containers, two element types, ONE query ──────────
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let a = create_ctr::<typeof(Vector::<u64>)>(&snap, 10u64);
-    let b = create_ctr::<typeof(Vector::<i64>)>(&snap, 11u64);
+    let mut a = create_ctr::<typeof(Vector::<u64>)>(&snap, 10u64);
+    let mut b = create_ctr::<typeof(Vector::<i64>)>(&snap, 11u64);
     let mut i: i64 = 0i64;
     while i < 16i64 {
         a.append(((i + 1i64) * 10i64) as u64);   // 10, 20, … 160
@@ -155,7 +155,7 @@ fn run_all() -> i32 {
 
     // ── §3 a store that describes itself ────────────────────────────────────
     let ms: &MemorySnapshot = ms_of(&snap);
-    let led = create_ctr::<typeof(Ledger)>(&snap, 1u64);
+    let mut led = create_ctr::<typeof(Ledger)>(&snap, 1u64);
     let mm  = create_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 2u64);
     {
         let mut k: u64 = 0u64;

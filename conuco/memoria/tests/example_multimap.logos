@@ -235,7 +235,7 @@ fn run_all() -> i32 {
 
     // ── §7 snapshot lifecycle: commit publishes, open sees the same tree ────
     snap.commit();
-    let m2 = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
+    let mut m2 = open_ctr::<typeof(Multimap::<u64, u64>)>(&snap, 1u64);
     if m2.count(0u64) != n + 61u64 { return 30i32; }
     let mut g2: Vec<u64> = vec_new::<u64>();
     if !m2.find(900_000u64, &mut g2) { return 31i32; }

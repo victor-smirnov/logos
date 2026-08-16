@@ -64,7 +64,7 @@ fn run_all() -> i32 {
 
     // ── 10..19: empty + trivial appends (default nodes) ─────────────────────
     {
-        let v0 = create_ctr::<V64>(&snap, 1u64);
+        let mut v0 = create_ctr::<V64>(&snap, 1u64);
         if v0.size() != 0u64 {
             return 10i32;
         }
@@ -349,7 +349,7 @@ fn run_all() -> i32 {
 
     // ── 80..89: pipeline smoke ──────────────────────────────────────────────
     {
-        let vb = create_ctr::<V64>(&snap, 3u64);
+        let mut vb = create_ctr::<V64>(&snap, 3u64);
         vb.append(1u64);
         let vc = create_ctr::<V64>(&snap, 4u64);
         if vc.size() != 0u64 {

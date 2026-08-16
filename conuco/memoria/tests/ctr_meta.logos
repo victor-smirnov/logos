@@ -83,7 +83,7 @@ fn run_all() -> i32 {
     let ms: &MemorySnapshot = ms_of(&s1);
 
     // ── §A three families, three self-descriptions ──────────────────────────
-    let mp = create_ctr::<typeof(Ledger)>(&s1, 1u64);
+    let mut mp = create_ctr::<typeof(Ledger)>(&s1, 1u64);
     let mm = create_ctr::<typeof(Multimap::<u64, u64>)>(&s1, 2u64);
 
     if !str_eq(kind_of(ms, 1u64).as_str(), "ordered_map") { return 10i32; }
@@ -132,7 +132,7 @@ fn run_all() -> i32 {
     // region, so the document rides along with no code involved.
     let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     {
-        let mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
+        let mut mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
         mp2.insert(999999u64, 1u64);
     }
     if !str_eq(kind_of(ms_of(&s2), 1u64).as_str(), "ordered_map") { return 31i32; }
@@ -141,7 +141,7 @@ fn run_all() -> i32 {
 
     // The collapse back to a single leaf hands the document to the child.
     {
-        let mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
+        let mut mp2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
         let mut k: u64 = 0u64;
         while k < 2000u64 { let _ = mp2.remove(k); k = k + 1u64; }
     }
@@ -188,7 +188,7 @@ fn run_all() -> i32 {
         // the FROZEN snapshot never saw it — the write went to a private root
         if ms_of(&s2).has_ctr_user_meta(1u64) { return 54i32; }
         // …and it rides a root change: refill until the tree grows again
-        let hh = open_ctr::<typeof(Ledger)>(&s3, 1u64);
+        let mut hh = open_ctr::<typeof(Ledger)>(&s3, 1u64);
         let mut k: u64 = 0u64;
         while k < 2000u64 { hh.insert(k, k); k = k + 1u64; }
         if ms3.root_of(1u64).level == 0u32 { return 55i32; }

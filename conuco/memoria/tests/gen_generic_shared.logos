@@ -32,13 +32,13 @@ fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let mut s0: Arc<dyn Snapshot> = store_fork_arc(&mut store);
 
-    let a = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);   // use-site 1 (generic spelling)
+    let mut a = create_ctr::<typeof(Map::<u64, u64>)>(&s0, 1u64);   // use-site 1 (generic spelling)
     a.insert(1u64, 100u64);
     a.insert(2u64, 200u64);
     if a.size() != 2u64 { return 1i32; }
     if a.get_or(1u64, 0u64) != 100u64 { return 2i32; }
 
-    let b = create_ctr::<typeof(Fixed)>(&s0, 2u64);           // use-site 2 (concrete twin)
+    let mut b = create_ctr::<typeof(Fixed)>(&s0, 2u64);           // use-site 2 (concrete twin)
     b.insert(5u64, 500u64);
     if b.get_or(5u64, 0u64) != 500u64 { return 3i32; }
 

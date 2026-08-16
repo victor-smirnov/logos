@@ -40,7 +40,7 @@ pub deem at_7<V>(s: Series<V>)     { from s r where r.pos == 7 select (r.pos, r.
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let s = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+    let mut s = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
 
     let n: u64 = 300u64;                       // several leaves
     let mut i: u64 = 0u64;

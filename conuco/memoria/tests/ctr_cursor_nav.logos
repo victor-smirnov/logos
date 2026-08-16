@@ -42,7 +42,7 @@ container Series<V> {
 fn vector_nav() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let s = create_ctr::<typeof(Series::<u64>)>(&snap, 9u64);
+    let mut s = create_ctr::<typeof(Series::<u64>)>(&snap, 9u64);
 
     let n: u64 = 400u64;                     // several leaves
     let mut i: u64 = 0u64;
@@ -91,7 +91,7 @@ fn vector_nav() -> i32 {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
+    let mut m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
 
     let n: u64 = 300u64;
     let mut k: u64 = 0u64;

@@ -76,7 +76,7 @@ fn run_all() -> i32 {
     if s1.has_parent() { return 6i32; }                     // root: parent 0
     if store_active_snapshots(&store) != 1i64 { return 7i32; }
     {
-        let led = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
+        let mut led = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
         let mut k: u64 = 1u64;
         while k < 100u64 { led.insert(k, k); k = k + 1u64; }  // key k → k
     }
@@ -89,7 +89,7 @@ fn run_all() -> i32 {
     let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     if s2.snapshot_id() != 2u64 { return 11i32; }
     if store_snapshot_parent(&store, 2u64) != 1u64 { return 12i32; }
-    { let l = open_ctr::<typeof(Ledger)>(&s2, LEDGER); l.insert(50u64, 999u64); }
+    { let mut l = open_ctr::<typeof(Ledger)>(&s2, LEDGER); l.insert(50u64, 999u64); }
     s2.commit();
     if store_branch_head(&store, "master") != 2u64 { return 13i32; }
 
@@ -97,7 +97,7 @@ fn run_all() -> i32 {
     let s3: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     s3.set_as_branch("feature");
     if store_snapshot_parent(&store, 3u64) != 2u64 { return 14i32; }
-    { let l = open_ctr::<typeof(Ledger)>(&s3, LEDGER); l.insert(50u64, 777u64); }
+    { let mut l = open_ctr::<typeof(Ledger)>(&s3, LEDGER); l.insert(50u64, 777u64); }
     s3.commit();
     // feature now tips at 3; master is unchanged at 2
     if store_branch_head(&store, "feature") != 3u64 { return 15i32; }
@@ -107,7 +107,7 @@ fn run_all() -> i32 {
     let s4: Arc<dyn Snapshot> = need(store_fork_branch(&mut store, "feature"), 17i32);
     if s4.snapshot_id() != 4u64 { return 18i32; }
     if store_snapshot_parent(&store, 4u64) != 3u64 { return 19i32; }
-    { let l = open_ctr::<typeof(Ledger)>(&s4, LEDGER); l.insert(60000u64, 888u64); }  // NEW key (out of 1..99 fill)
+    { let mut l = open_ctr::<typeof(Ledger)>(&s4, LEDGER); l.insert(60000u64, 888u64); }  // NEW key (out of 1..99 fill)
     s4.commit();
     if store_branch_head(&store, "feature") != 4u64 { return 20i32; }
 
@@ -116,7 +116,7 @@ fn run_all() -> i32 {
     let s5: Arc<dyn Snapshot> = need(store_fork_from(&mut store, 1u64), 21i32);
     s5.set_as_branch("hotfix");
     if store_snapshot_parent(&store, 5u64) != 1u64 { return 22i32; }
-    { let l = open_ctr::<typeof(Ledger)>(&s5, LEDGER); l.insert(10u64, 111u64); }
+    { let mut l = open_ctr::<typeof(Ledger)>(&s5, LEDGER); l.insert(10u64, 111u64); }
     s5.commit();
     if store_branch_head(&store, "hotfix") != 5u64 { return 23i32; }
 

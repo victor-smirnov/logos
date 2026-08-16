@@ -47,7 +47,7 @@ fn build(store: &mut Arc<MemoryStore>) {
     {
         let mut c: u64 = 1u64;
         while c <= N_CTRS {
-            let h = create_ctr::<typeof(Ledger)>(&s1, c);
+            let mut h = create_ctr::<typeof(Ledger)>(&s1, c);
             let mut k: u64 = 0u64;
             while k < N_KEYS { h.insert(k, c * 1000u64 + k); k = k + 1u64; }
             c = c + 1u64;
@@ -58,7 +58,7 @@ fn build(store: &mut Arc<MemoryStore>) {
     let s2: Arc<dyn Snapshot> = store_fork_arc(store);
     s2.set_as_branch("feature");
     {
-        let h = open_ctr::<typeof(Ledger)>(&s2, 7u64);
+        let mut h = open_ctr::<typeof(Ledger)>(&s2, 7u64);
         h.insert(3u64, 999999u64);
     }
     s2.commit();
@@ -87,7 +87,7 @@ fn verify(store: &mut Arc<MemoryStore>) -> i32 {
     {
         let mut c: u64 = 1u64;
         while c <= N_CTRS {
-            let h = open_ctr::<typeof(Ledger)>(&m, c);
+            let mut h = open_ctr::<typeof(Ledger)>(&m, c);
             if h.size() != N_KEYS { return 8i32; }
             let mut k: u64 = 0u64;
             while k < N_KEYS {

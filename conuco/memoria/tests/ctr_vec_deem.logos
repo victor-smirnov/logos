@@ -31,7 +31,7 @@ pub deem big<V>(v: Vector<V>) {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
+    let mut c = create_ctr::<typeof(Vector::<u64>)>(&snap, 1u64);
     let mut i: i64 = 0i64;
     while i < 16i64 {
         // values 10,20,…,160 — rows above 100: (10,110)…(15,160)

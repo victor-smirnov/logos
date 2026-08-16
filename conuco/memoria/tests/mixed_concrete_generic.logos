@@ -35,19 +35,19 @@ fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let mut s: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let c = create_ctr::<typeof(Conc)>(&s, 1u64);
+    let mut c = create_ctr::<typeof(Conc)>(&s, 1u64);
     c.insert(1u64, 7u64);
     if c.get_or(1u64, 0u64) != 7u64 { return 1i32; }
     s.commit();
 
-    let g = create_ctr::<typeof(Gen::<u64>)>(&s, 2u64);
+    let mut g = create_ctr::<typeof(Gen::<u64>)>(&s, 2u64);
     g.insert(1u64, 5u64);
     if g.get_or(1u64, 0u64) != 5u64 { return 2i32; }
 
     // coinciding configs UNIFY: Conc and Gen<u64> are ONE family
     if fid::<typeof(Conc)>() != fid::<typeof(Gen::<u64>)>() { return 3i32; }
     // a non-coinciding instantiation gets its OWN family
-    let d = create_ctr::<typeof(Gen::<u32>)>(&s, 3u64);
+    let mut d = create_ctr::<typeof(Gen::<u32>)>(&s, 3u64);
     d.insert(1u64, 9u32);
     if d.get_or(1u64, 0u32) != 9u32 { return 4i32; }
     if fid::<typeof(Gen::<u32>)>() == fid::<typeof(Conc)>() { return 5i32; }

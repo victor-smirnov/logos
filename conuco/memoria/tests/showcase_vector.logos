@@ -38,8 +38,8 @@ fn run_all() -> i32 {
 
     // Two containers of the same class at different element types — two
     // generated families, neither named here.
-    let a = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
-    let b = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
+    let mut a = create_ctr::<typeof(Series::<u64>)>(&snap, 1u64);
+    let mut b = create_ctr::<typeof(Series::<i64>)>(&snap, 2u64);
     let mut i: i64 = 0i64;
     while i < 16i64 {                        // 10, 20, … 160 — past a leaf split
         a.append(((i + 1i64) * 10i64) as u64);

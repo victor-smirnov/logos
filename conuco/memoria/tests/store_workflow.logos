@@ -51,8 +51,8 @@ fn run_all() -> i32 {
 
     // ── v1: fork, CREATE both containers in the snapshot, fill, commit ──
     let mut s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let ledger = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
-    let journal = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
+    let mut ledger = create_ctr::<typeof(Ledger)>(&s1, LEDGER);
+    let mut journal = create_ctr::<typeof(Journal)>(&s1, JOURNAL);
     let n: u64 = 5000u64;
     let mut k: u64 = 0u64;
     while k < n { ledger.insert(k, k * 2u64); k = k + 1u64; }
@@ -64,8 +64,8 @@ fn run_all() -> i32 {
 
     // ── v2: branch, mutate BOTH — CoW copies only the touched paths ──
     let mut s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let l2 = open_ctr::<typeof(Ledger)>(&s2, LEDGER);
-    let j2 = open_ctr::<typeof(Journal)>(&s2, JOURNAL);
+    let mut l2 = open_ctr::<typeof(Ledger)>(&s2, LEDGER);
+    let mut j2 = open_ctr::<typeof(Journal)>(&s2, JOURNAL);
     l2.insert(0u64, 999u64);              // overwrite in v2
     j2.insert(2u64, "frozen");            // VLE replace-on-hit (grows)
     j2.insert(3u64, "closed");

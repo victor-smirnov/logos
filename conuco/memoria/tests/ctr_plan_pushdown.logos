@@ -58,7 +58,7 @@ fn same(a: &Vec<(u64, u64)>, b: &Vec<(u64, u64)>) -> bool {
 fn run_all() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
-    let m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
+    let mut m = create_ctr::<typeof(Ledger::<u64, u64>)>(&snap, 1u64);
 
     let mut k: u64 = 0u64;
     while k < 300u64 { m.insert(k, k * 3u64); k = k + 1u64; }   // past a split

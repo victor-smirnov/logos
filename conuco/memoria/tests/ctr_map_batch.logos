@@ -148,7 +148,7 @@ fn run_all() -> i32 {
 
     // ── 10..29: fast map ────────────────────────────────────────────────────
     {
-        let m = create_ctr::<FastMap>(&snap, 1u64);
+        let mut m = create_ctr::<FastMap>(&snap, 1u64);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xBEE5u64 };
 
@@ -262,7 +262,7 @@ fn run_all() -> i32 {
         snap.commit();
         let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
         {
-            let m2 = open_ctr::<FastMap>(&s2, 1u64);
+            let mut m2 = open_ctr::<FastMap>(&s2, 1u64);
             let before: u64 = m2.size();
             let mut ks: Vec<u64> = vec_new::<u64>();
             let mut vs: Vec<u64> = vec_new::<u64>();
@@ -298,7 +298,7 @@ fn run_all() -> i32 {
     {
         let mut store2: Arc<MemoryStore> = store_new();
         let snapv: Arc<dyn Snapshot> = store_fork_arc(&mut store2);
-        let mv = create_ctr::<VolMap>(&snapv, 1u64);
+        let mut mv = create_ctr::<VolMap>(&snapv, 1u64);
 
         // bulk load: 600 keys, value lengths cycling 0..~60 bytes (incl.
         // empty spans — legal geometry)
@@ -403,7 +403,7 @@ fn run_all() -> i32 {
     {
         let mut store4: Arc<MemoryStore> = store_new();
         let snapr: Arc<dyn Snapshot> = store_fork_arc(&mut store4);
-        let mr = create_ctr::<FastMap>(&snapr, 1u64);
+        let mut mr = create_ctr::<FastMap>(&snapr, 1u64);
         let mut md: Model = model_new();
         let mut lcg: Lcg = Lcg { s: 0xDEAD5EEDu64 };
         // load 2500 keys (spread), then remove a random half, model-checked
@@ -467,7 +467,7 @@ fn run_all() -> i32 {
         snapr.commit();
         let snap2: Arc<dyn Snapshot> = store_fork_arc(&mut store4);
         {
-            let m2 = open_ctr::<FastMap>(&snap2, 1u64);
+            let mut m2 = open_ctr::<FastMap>(&snap2, 1u64);
             let victim: u64 = md.mk.get(0i64);
             if !m2.remove(victim) {
                 return 65i32;
@@ -490,7 +490,7 @@ fn run_all() -> i32 {
     {
         let mut store3: Arc<MemoryStore> = store_new();
         let snapf: Arc<dyn Snapshot> = store_fork_arc(&mut store3);
-        let mf = create_ctr::<FastMap>(&snapf, 1u64);
+        let mut mf = create_ctr::<FastMap>(&snapf, 1u64);
         let mut items: Vec<Order> = vec_new::<Order>();
         let mut i: u64 = 0u64;
         while i < 300u64 {
