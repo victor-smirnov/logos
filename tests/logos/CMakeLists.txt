@@ -2960,6 +2960,32 @@ if (TARGET lforge)
         TIMEOUT 60
         LABELS  "logos;lforge;suite_lforge;tier_full"
     )
+
+    # THE CONUCO GATE — the one lforge package in this tree that nothing ran.
+    #
+    # Every test above builds a fixture in a tmpdir to exercise lforge ITSELF.
+    # This one runs the real `conuco/memoria` package, because that package is
+    # the only party that exercises the container factory, the store plane and
+    # the positional arm of Deem end-to-end — and it had rotted to 30/67 broken
+    # during the D1 borrow-checker arc with the in-tree L4 green throughout
+    # (2026-08-16). A gate the compiler's own suite cannot see is the only kind
+    # that catches that.
+    #
+    # TIMEOUT from measurement, not from habit: 134 s for a COLD run (clean →
+    # build → 67 tests) on the 12-core box, 18 s warm. 900 s leaves ~7× headroom
+    # for a loaded parallel ctest, where this test's own lforge parallelism is
+    # competing with every other job.
+    add_test(
+        NAME logos_26_lforge_conuco_memoria
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_memoria.sh
+                ${CMAKE_BINARY_DIR}/bin/lforge
+                $<TARGET_FILE:logosc>
+                ${LOGOS_BUILD_LIB_DIR}
+    )
+    set_tests_properties(logos_26_lforge_conuco_memoria PROPERTIES
+        TIMEOUT 900
+        LABELS  "logos;lforge;conuco;suite_lforge;tier_full"
+    )
 endif()
 
 # ── PLAN INDEPENDENCE, CORPUS-WIDE (ADR 0024 S4r) ────────────────────────────
