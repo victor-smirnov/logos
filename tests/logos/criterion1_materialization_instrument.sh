@@ -79,9 +79,15 @@
 # 45 rel) against 218 here, which is the two-owner ambiguity R-C3 removed.
 #
 # ⚠ NOT collection bindings, deliberately, and each excluded kind is named so
-# the next reader inherits an argument instead of a list: `SliceStream` (149)
-# and `HashMapKeys` (39) are BORROWS/VIEWS over storage someone else owns — no
-# landing, nothing allocated per row; `Option` (26) is a scalar cell. Adding a
+# the next reader inherits an argument instead of a list: `SliceStream` (1002
+# after R-F stage 2 — was 149 pre-R-F, the round's own +853 falsified the
+# recorded count while the ARGUMENT held: a view allocates nothing per row, D2
+# did not move) and `HashMapKeys` (39) are BORROWS/VIEWS over storage someone
+# else owns — no landing, nothing allocated per row; `Option` (26) is a scalar
+# cell. ⚠ These parenthetical counts are hand-maintained against a population
+# that moves — re-derive them against the artifact histogram whenever a route
+# lands (the R-F verifier's F3: stale by 853 on the round that shipped it).
+# Adding a
 # kind here is a claim that the emitter ALLOCATES per row under that type.
 #   D2 is partitioned by BINDING-NAME CLASS into ACCOUNTED (a class whose owner
 #   plan node is named, listed in ACC below) and UNACCOUNTED. The unaccounted
@@ -468,12 +474,46 @@ ACC = {
     '__ecp':    (('epoch input working set',),    'epoch input working set (`__ecp`)'),
     '__pres':   (('preserved input',),            'preserved input (`__pres`)'),
     '__lt':     (('latch out-param',),            'latch out-param (`__lt`, three i64 per member)'),
-    # ⚠ THE ACCOUNTED FIGURE IS STILL A FLOOR, BY 12, and the remaining cause is
-    # the `__rel_*` note below — 12 Buffer-typed landings owned by `drain`/`sort`
-    # under a name that 205 unowned Vec landings also answer to. That class is
-    # REFUSED rather than credited, on the recorded ground that a name key
-    # cannot hold two owners; it closes by the same rename this stage just
-    # demonstrated, and it is the next stage's, not this one's.
+    # ── ADR 0025 R-F — THE PRELUDE LANDING, SPLIT BY NODE. TWO KEYS, ONE
+    # HEAD EACH, AND THE SPLIT IS WHAT MAKES THE CREDIT POSSIBLE AT ALL.
+    #
+    # R-E recorded the debt in this very table: "the accounted figure is still a
+    # FLOOR, by 12" — 12 Buffer-typed landings owned by `drain` (7) and `sort`
+    # (5) spelled `__rel_<r>`, a name 205 UNOWNED `Vec` landings also answered
+    # to. A name-only key must take all 217 or none, so it took none.
+    #
+    # R-F paid it the way R-B1 (`__out` -> `__rout`) and R-C3 (`__rs` -> `__rds`)
+    # did: RENAME AT THE EMITTER, then name. `push_land_name`
+    # (`stdlib/mem/wql/access_plan.logos`) spells the landing from the NODE —
+    # `MAT_DRAIN` -> `__rdb_<r>`, `MAT_SORT` -> `__rsb_<r>` — and the `Vec` arms
+    # keep `__rel_<r>`. Nothing was created or destroyed: D2 3954 before and
+    # after, N1/D1/T unchanged, 161 of 171 user dumps byte-identical and the
+    # other 10 differing in exactly 36 lines, every one of which becomes
+    # byte-identical when the new prefixes are substituted back.
+    #
+    # ⚠ TWO KEYS AND NOT ONE KEY WITH TWO OWNERS. `__cp` below is the case for
+    # one-key-many-owners: its per-binding attribution is undecidable from the
+    # name. Here it IS decidable — the emitter branches on the node when it
+    # writes the name — so the stronger form is available and taken: each key
+    # carries ONE head, and `plan_ground_census_gate.sh` FACT N pins plan
+    # against artifact PER HEAD, per fixture and in total (7 == 7, 5 == 5, and
+    # no fixture mixes the two).
+    #
+    # ⚠ BOTH KEYS MEASURED CLEAN: the exact bare names `__rdb`/`__rsb` are
+    # emitted zero times, every binding is `<key>_<relname>`, and the residual
+    # count of Buffer-typed `__rel_*` landings is ZERO — so neither key is
+    # holding a second identity the way `__rel_*` did.
+    '__rdb':    (('drain',), 'drain (the read-twice stream landed in a Buffer)'),
+    '__rsb':    (('sort',),  'sort (the imposed order landed in a Buffer, then permuted)'),
+    # ⚠ WHAT REMAINS AFTER R-F, AND IT IS A DIFFERENT DEFECT FROM THE ONE ABOVE.
+    # `__rel_*` is now 205 `Vec` landings with ZERO owned bindings among them —
+    # the ambiguity is gone, the OWNERLESSNESS is not. They are the SCC
+    # accumulator, the rel-fn one-shot result and the native container binding
+    # (the three `Vec` arms of `emit_prelude_*`), and the plan narrates each of
+    # them as an ABSENCE (`-> no materialization`), which is why no head can be
+    # claimed for them here yet. Naming them is the next stage's; it is a
+    # TRACE-channel change, not a rename, and this table must not anticipate it
+    # with a head that has not fired.
 }
 # ── ADR 0025 R-E — `__cv`, 1 BINDING, REFUSED WITH ITS GROUND ───────────────
 # After the R-E stages the worklist is 218: `__rel_*` 217 (refused, see the note
@@ -498,16 +538,20 @@ ACC = {
 # comprehension is fused into its consumer so that the `Vec` becomes optional,
 # this sentence is false and the class comes back here as an owner.
 #
-# ⚠ ACC IS KEYED ON THE NAME ALONE, AND THE KEY CANNOT EXPRESS TWO OWNERS.
-# `drain` and `sort` land into `__rel_<x>` bindings — but so do UNOWNED Vec
-# landings under the same names (217 `__rel_*` bindings today; `__rel_g` 35,
-# `__rel_r` 17, `__rel_w` 17, `__rel_path` 15, …). The owned ones are the
-# BUFFER-typed 12 (`__rel_s` 7, `__rel_m` 3, `__rel_t` 1, `__rel_d` 1 =
-# drain 7 + sort 5, the identity `plan_ground_census_gate.sh`
-# FACT B pins). A name-only key would have to take all 217 or none, so it takes
-# none and the 12 are counted as worklist. The printed ACCOUNTED is therefore a
-# FLOOR: the site-level reading is 12 higher. Closing this needs the per-node
-# attribution recorded as OPEN in the criteria doc §4d, not a wider name key.
+# ⚠ ACC IS KEYED ON THE NAME ALONE, AND THE KEY CANNOT EXPRESS TWO OWNERS —
+# WHICH IS WHY R-F MOVED THE EMITTER RATHER THAN WIDENING THE KEY. Through R-E
+# `drain` and `sort` landed into `__rel_<x>` bindings and so did UNOWNED Vec
+# landings under the same names (217 `__rel_*`, of which `__rel_s` was 7 Buffer
+# + 1 Vec and `__rel_m` 3 Buffer + 6 Vec — the collision was at the IDENTICAL
+# name, not merely a shared prefix). A name-only key had to take all 217 or
+# none, so it took none and the printed ACCOUNTED was a FLOOR by 12.
+#
+# R-F removed the ambiguity at its source (`push_land_name`, keyed on the plan
+# node), so the two Buffer classes are now `__rdb_*` / `__rsb_*` and take their
+# credits above. The 205 `Vec` landings that remain are not ambiguous any more —
+# they are UNOWNED, a weaker and different claim, and they stay in the worklist
+# until a head exists for them. The site-level reading and the printed figure
+# now agree; there is no residual floor to subtract.
 BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0

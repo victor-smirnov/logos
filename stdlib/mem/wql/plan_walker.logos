@@ -3065,7 +3065,8 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             // The ACCUMULATOR spelling: the drain loop below fills the Buffer
             // directly, so no `Vec` is ever spelled and nothing downstream
             // moves — `push` and `as_slice` are already the Buffer's OWN
-            // surface, so the binding name `__rel_<r>` and every later line
+            // surface, so the binding name (`__rel_<r>` when S3b measured this;
+            // `__rdb_<r>`/`__rsb_<r>` since R-F renamed it) and every later line
             // stay byte-identical. This is the diff in which "a Vec is an
             // eagerly-drained stream, never the reverse" is literally the change.
             //
@@ -3086,8 +3087,17 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             // does not follow: it declares the semi-naive fixpoint's ACCUMULATOR
             // passed as a `&mut Vec` out-param to the SCC fn, not a Drain node's
             // landing. It moves when the recursive protocol does.
-            prelude.push_str("    let mut __rel_");
-            prelude.push_str(prm.rel_names[r]);
+            // ADR 0025 R-F — THE LANDING'S NAME IS THE NODE'S, not the rel's.
+            // `push_land_name` (access_plan.logos) spells `__rdb_<r>` for
+            // `MAT_DRAIN` and `__rsb_<r>` for `MAT_SORT`; the `Vec` arms below
+            // keep `__rel_<r>`. Before this the four arms shared one name and
+            // the criterion-1 ACC table could credit the 12 owned Buffer
+            // landings only by also crediting 205 unowned `Vec`s — so it
+            // credited none. Same repair as R-B1 (`__out`→`__rout`) and R-C3
+            // (`__rs`→`__rds`). The SLICE VIEW (`prm.rel_srcs[r]`) is untouched:
+            // every downstream reader resolves that name, not this one.
+            prelude.push_str("    let mut ");
+            push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
             prelude.push_str(": Buffer<");
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str("> = Buffer::<");
@@ -3114,8 +3124,8 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                 prelude.push_str(prm.rel_names[r]);
                 prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = ");
                 prelude.push_str(string_as_str(&lenx));
-                prelude.push_str("; let mut __bj: u64 = 0u64; while __bj < __bn { __rel_");
-                prelude.push_str(prm.rel_names[r]);
+                prelude.push_str("; let mut __bj: u64 = 0u64; while __bj < __bn { ");
+                push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
                 prelude.push_str(".push(");
                 prelude.push_str(string_as_str(&rowx));
                 prelude.push_str("); __bj = __bj + 1u64; } } } else { break; } }\n");
@@ -3127,16 +3137,16 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str("> = __it_");
             prelude.push_str(prm.rel_names[r]);
-            prelude.push_str(".next(); if __dr.is_none() { break; } __rel_");
-            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str(".next(); if __dr.is_none() { break; } ");
+            push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
             prelude.push_str(".push(__dr.unwrap()); }\n");
             }
             prelude.push_str("    let ");
             prelude.push_str(prm.rel_srcs[r]);
             prelude.push_str(": &[");
             prelude.push_str(prm.rel_rowty[r]);
-            prelude.push_str("] = __rel_");
-            prelude.push_str(prm.rel_names[r]);
+            prelude.push_str("] = ");
+            push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
             prelude.push_str(".as_slice();\n");
             return;
         }

@@ -2851,7 +2851,37 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
         let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
         hit_f = quote_block! { if #(pred_f) #(hit_f) };
     }
-    let body_f: ExprBlob = quote_block! {
+    // ── ADR 0025 R-F — `find` OVER A SLICE PARAM RIDES §1's SHAPE ───────────
+    // The last of the four single-source scan sites. `find` has no ordinal, no
+    // sort and no landing, so the route is the wrap and nothing else.
+    //
+    // ⚠ AND IT RETURNS A BORROW OUT OF THE PACKET, which is the one thing this
+    // site does that `emit_simple` does not. `RowsBatch<R>` IS the caller's
+    // `&[R]` (`SliceStream` is `#[borrow_carrying]` and copies no row), so the
+    // returned `&Row` outlives the batch block by provenance — the S5-D4 rule
+    // in `borrow_check.cpp` (a borrow reached through a reference-typed local
+    // is the POINTEE's storage, not the local's). If that were wrong the
+    // refusal would be an E0597 naming `__bb0`, at compile time, on every
+    // `find` fixture — which is why this arm is landed rather than argued.
+    let mut body_f: ExprBlob = quote_block! { };
+    if slice_stream_src(prm, src_name) {
+        let s_ssf:  String   = ss_name(0i64);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(row_ty, src_name, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssf));
+        let nbo_f:  ExprBlob = quote_block! { };
+        let nbi_f:  ExprBlob = quote_block! { };
+        let scanf_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, vnm,
+                                                row_f, hit_f, nbo_f, nbi_f);
+        plan_trace(src_name, "scan", var_name,
+                   "ADR 0025 R-F — `find` over a declared SLICE PARAM rides the R-A wrap; the hit returns a borrow of the packet, whose provenance is the caller's slice");
+        body_f = quote_block! {
+            #(pre_f);
+            #(wrap_f);
+            #(scanf_f);
+            return Result::Ok(Option::None);
+        };
+    } else {
+    body_f = quote_block! {
         #(pre_f);
         let mut __i: i64 = 0i64;
         while __i < (#(src_f)).len() {
@@ -2861,6 +2891,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
         }
         return Result::Ok(Option::None);
     };
+    }
 
     // The imports a native source's materializer needs are a RUNTIME list —
     // one module per source the query binds — carried by a repeat rather than
@@ -3266,8 +3297,11 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
     let s_vp: String = nk_str("__vp", s);   let n_vp: Ident = Ident::new(string_as_str(&s_vp));
     let s_nv: String = nk_str("__nv", s);   let n_nv: Ident = Ident::new(string_as_str(&s_nv));
     // ADR 0025 R-D — the BATCH pull's three extra bindings. `s` is the step
-    // number (1-based), and `batch_scan_frag` is only ever called with `k = 0`
-    // (the base/driving scan), so `__bb1` and `__bb0` cannot collide.
+    // number (1-based). ⚠ R-F: `batch_scan_frag` is NO LONGER only called with
+    // `k = 0` — the slice arm below calls it with `k = s`, so its `__bb<s>` is
+    // THIS `__bb<s>`. The two are never live together (the R-D streams arm and
+    // the R-F slice arm are mutually exclusive branches of the same `if`), and
+    // `k = s >= 1` still cannot collide with the base/driving scan's `k = 0`.
     let s_bb: String = nk_str("__bb", s);   let n_bb: Ident = Ident::new(string_as_str(&s_bb));
     let s_bn: String = nk_str("__bn", s);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
     let s_bj: String = nk_str("__bj", s);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
@@ -3386,6 +3420,52 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
     // still asked `streams`), the insert is byte-identical, and
     // `bucket_lookup_frag` is untouched — a batch build side is the streamed
     // build side, reading its rows a leaf at a time.
+    // ── ADR 0025 R-F — THE JOIN'S BUILD SIDE, SLICE ARM ─────────────────────
+    //
+    // R-A routed `emit_simple`; R-D routed this function's STREAMED arm. What
+    // was left here is the case the corpus is actually made of: a build side
+    // over a declared SLICE PARAM (`__b<s>` walks `(es)`, `(rs)`, `(bs)` … —
+    // 450 of the corpus's 1,010 param-indexed walks, the largest single site).
+    // It takes the R-A wrap: `SliceStream` is `#[borrow_carrying]` over the
+    // caller's `&[R]`, so this adds no materialization and no copy.
+    //
+    // ⚠ THE PAYLOAD IS THE ROW ORDINAL, AND A BATCH LOOP DOES NOT HAVE ONE.
+    // `#n_b` was the loop variable; the bucket stores it and the probe side
+    // indexes `(src)[__ri]` with it, so it must stay a position in the SOURCE,
+    // not `__bj<s>` (a position in the packet). The fix is `emit_simple`'s sort
+    // phase-1 precedent, not a new capability: declare the ordinal beside the
+    // scan and let the BODY advance it. That is why the increment sits after
+    // `#(body)` — every row the build side sees advances it, exactly as the
+    // indexed walk's `#n_b = #n_b + 1i64` did.
+    //
+    // ⚠ AND IT IS `!streams` BY CONSTRUCTION: a slice param has no rel identity
+    // (`slice_stream_src`), so the plan cannot have called it unmaterialized.
+    // The clause is written anyway — an unchecked overlap between two arms of
+    // one `if` is the thing that would make the payload silently wrong.
+    if !streams && slice_stream_src(prm, src) {
+        let s_ssb:  String   = ss_name(s);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(ty, src, s);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssb));
+        let body_f: ExprBlob = quote_block! { #(body); #n_b = #n_b + 1i64; };
+        let nbo_f:  ExprBlob = quote_block! { };
+        let nbi_f:  ExprBlob = quote_block! { };
+        let scanb_f: ExprBlob = batch_scan_frag(prm, -1i64, s, ssrc_f, vnm,
+                                                rowt, body_f, nbo_f, nbi_f);
+        // The head is R-D's, DELIBERATELY not a new one: this is the same pull
+        // shape reached from the other source class, and a second head would
+        // have split one decision by which arm reached it. The GROUND is what
+        // differs, and the ground is where the reader looks.
+        plan_trace(src, "build-side batch pull", var,
+                   "ADR 0025 R-F — a declared SLICE PARAM on a join build side rides the R-A wrap; the bucket payload stays the source ordinal, advanced by the body");
+        return quote_block! {
+            #(decl);
+            {
+                let mut #n_b: i64 = 0i64;
+                #(wrap_f);
+                #(scanb_f);
+            }
+        };
+    }
     let bri: i64 = prm.rel_find_src(src);
     if streams && bri >= 0i64 && prm.rel_batch[bri] {
         let mut rowx: String = String::new();
@@ -3485,7 +3565,7 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 // holds the ROWS, so a hit binds out of the bucket instead of indexing `src`.
 // It never combines with JS_LOOP: a rescan of a spent iterator is exactly the
 // shape `analyze_chain` refuses to emit.
-fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
+fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
              has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
              probe_key: str, residual: str, pred: str,
              lim: ExprBlob, has_lim: bool, streams: bool) -> ExprBlob {
@@ -3515,7 +3595,31 @@ fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
         // ANTI: compute the matched flag flat, then guard the inner body with
         // `if (!__m{s})` — the step's var binds only inside its own probe/scan.
         let mut matched: ExprBlob = quote_block! { };
-        if strat == JS_LOOP() {
+        // ── ADR 0025 R-F — the ANTI step's nested-loop rescan, slice arm ─────
+        // ⚠ `!byval` IS NOT A CONSERVATISM AND NOT A GAP. `byval` is the
+        // scalar-element TRAVERSAL tier (`n.kids.as_slice()`, `e.skills…`) —
+        // a FIELD OF THE BOUND ROW, never a declared param — so
+        // `slice_stream_src` is already false for every source that reaches
+        // it (`prm.is_source` answers about the deem! param list). The clause
+        // is written so that a future by-value param cannot silently take the
+        // by-reference bind `batch_row_bind_frag` would hand it.
+        if strat == JS_LOOP() && !byval && slice_stream_src(prm, src) {
+            let pred_f: ExprBlob = parse_expr(pred);
+            let s_ssj:  String   = ss_name(s);
+            let wrap_f: ExprBlob = slice_stream_wrap_frag(ty, src, s);
+            let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssj));
+            let nbo_f:  ExprBlob = quote_block! { };
+            let nbi_f:  ExprBlob = quote_block! { };
+            let bodyj_f: ExprBlob = quote_block! { if (#(pred_f)) { #n_m = true; } };
+            let scanj_f: ExprBlob = batch_scan_frag(prm, -1i64, s, ssrc_f, vnm,
+                                                    rowt, bodyj_f, nbo_f, nbi_f);
+            matched = quote_block! {
+                {
+                    #(wrap_f);
+                    #(scanj_f);
+                }
+            };
+        } else if strat == JS_LOOP() {
             let pred_f: ExprBlob = parse_expr(pred);
             if byval {
                 matched = quote_block! {
@@ -3597,6 +3701,29 @@ fn step_wrap(inner: ExprBlob, s: i64, strat: i32, anti: bool,
     }
 
     // NON-ANTI.
+    // ADR 0025 R-F — the same route on the non-anti nested-loop step. The
+    // `limit` is a BREAK in both loops instead of a loop CONDITION, exactly as
+    // `emit_simple`'s slice arm spells it (a batch pull has two loops and a
+    // condition on the outer one alone over-runs by up to a batch).
+    if strat == JS_LOOP() && !byval && slice_stream_src(prm, src) {
+        let pred_f: ExprBlob = parse_expr(pred);
+        let s_ssn:  String   = ss_name(s);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(ty, src, s);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssn));
+        let mut nbo_f: ExprBlob = quote_block! { };
+        let mut nbi_f: ExprBlob = quote_block! { };
+        if has_lim {
+            nbo_f = quote_block! { if !(__out.len() < (#(lim))) { break; } };
+            nbi_f = quote_block! { if !(__out.len() < (#(lim))) { break; } };
+        }
+        let bodyn_f: ExprBlob = quote_block! { if (#(pred_f)) #(inner) };
+        let scann_f: ExprBlob = batch_scan_frag(prm, -1i64, s, ssrc_f, vnm,
+                                                rowt, bodyn_f, nbo_f, nbi_f);
+        return quote_block! {
+            #(wrap_f);
+            #(scann_f);
+        };
+    }
     if strat == JS_LOOP() {
         let pred_f: ExprBlob = parse_expr(pred);
         let mut cond: ExprBlob = quote_expr! { #n_j < (#(src_f)).len() };
@@ -3948,7 +4075,7 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // Wrap one step at a time, innermost step LAST-bound first.
     let mut ki: i64 = ch.n - 1i64;
     while ki >= 0i64 {
-        inner = step_wrap(inner, ki + 1i64, st_strat[ki], ch.anti[ki],
+        inner = step_wrap(prm, inner, ki + 1i64, st_strat[ki], ch.anti[ki],
                           st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
                           ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
                           string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
@@ -3993,6 +4120,38 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
             }
         };
         }
+    } else if slice_stream_src(prm, ch.base_src) {
+        // ── ADR 0025 R-F — THE NEST'S DRIVING SIDE, SLICE ARM ────────────────
+        // The other half of the join pair. R-D routed the driving side when it
+        // STREAMS; a declared slice param never streams (no rel identity), so
+        // this arm was the one the corpus's joins actually took.
+        //
+        // ⚠ `__i0` STAYS A SOURCE ORDINAL. Under `order by` the nest collects
+        // `__ix0.push(__i0)` and phase 3 re-derives the row by indexing the
+        // PARAM (`(base_src)[__ix0.get(__o)]`) — so `__i0` may not become the
+        // packet position `__bj0`. Same answer as `emit_simple`'s phase 1 and
+        // as the build side above: the ordinal is declared beside the scan and
+        // advanced by the BODY, after the whole nest, so a row that matched no
+        // step still advances it exactly as the indexed walk did.
+        let mut brk_o: ExprBlob = quote_block! { };
+        let mut brk_i: ExprBlob = quote_block! { };
+        if has_lim_use {
+            brk_o = quote_block! { if !(__out.len() < (#(lim_f))) { break; } };
+            brk_i = quote_block! { if !(__out.len() < (#(lim_f))) { break; } };
+        }
+        let s_ss0:  String   = ss_name(0i64);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(ch.base_ty, ch.base_src, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ss0));
+        let body0_f: ExprBlob = quote_block! { #(inner); __i0 = __i0 + 1i64; };
+        let scan0_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, base_vnm,
+                                                base_ty_f, body0_f, brk_o, brk_i);
+        plan_trace(ch.base_src, "scan", ch.base_var,
+                   "ADR 0025 R-F — the nest's driving side is a declared SLICE PARAM and rides the R-A wrap; `__i0` stays the SOURCE ordinal, advanced by the body");
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            #(wrap_f);
+            #(scan0_f);
+        };
     } else {
         let mut bcond: ExprBlob = quote_expr! { __i0 < (#(base_src_f)).len() };
         if has_lim_use {
@@ -5006,7 +5165,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let no_lim: ExprBlob = parse_expr("0i64");
     let mut ki2: i64 = ch.n - 1i64;
     while ki2 >= 0i64 {
-        inner = step_wrap(inner, ki2 + 1i64, st_strat[ki2], ch.anti[ki2],
+        inner = step_wrap(prm, inner, ki2 + 1i64, st_strat[ki2], ch.anti[ki2],
                           st_hasres[ki2], st_ktn[ki2], ch.src[ki2], ch.ty[ki2],
                           ch.var[ki2], ch.byval[ki2], string_as_str(&st_probe[ki2]),
                           string_as_str(&st_resid[ki2]), string_as_str(&st_pred[ki2]),
@@ -5053,6 +5212,43 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         let brk_i0: ExprBlob = quote_block! { };
         nest = batch_scan_frag(prm, agg_bbi, 0i64, base_src_f, base_vnm,
                                base_ty_f, inner, brk_o0, brk_i0);
+    } else if slice_stream_src(prm, ch.base_src) {
+        // ── ADR 0025 R-F — AND THE `pure_group` CLAUSE ABOVE IS TOO STRONG ───
+        //
+        // The comment above says the representative-row class is BLOCKED
+        // because "`__i0` is a GLOBAL ROW ORDINAL that a `next_batch()` loop
+        // does not have" and calls it "unspellable in the batch shape". That
+        // is TRUE OF A STREAMED SOURCE and FALSE OF A SLICE PARAM, and the two
+        // were conflated because only the streamed arm existed to test it:
+        //
+        //   * the ordinal is not unspellable — it is simply not the LOOP
+        //     VARIABLE. Declared beside the scan and advanced by the body it is
+        //     the same number it always was (`emit_simple`'s sort phase 1 has
+        //     spelled it that way since R-A, and R-F's join build side does);
+        //   * what a streamed source really cannot do is the OTHER half —
+        //     `__g_row` is read back as `&(src)[__g_row.get(__r0)]`, and a
+        //     spent iterator cannot be indexed. A declared slice param can:
+        //     indexing it is a second SHARED borrow of the caller's rows,
+        //     exactly as R-A measured for the sort's phase 3.
+        //
+        // So this arm takes BOTH classes for the slice source — `pure_group`
+        // does not appear in its guard — and the blocked row shrinks to what
+        // it was always about: a representative row over a STREAMED source.
+        let brk_o1: ExprBlob = quote_block! { };
+        let brk_i1: ExprBlob = quote_block! { };
+        let s_ssa:  String   = ss_name(0i64);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(ch.base_ty, ch.base_src, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssa));
+        let bodya_f: ExprBlob = quote_block! { #(inner); __i0 = __i0 + 1i64; };
+        let scana_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, base_vnm,
+                                                base_ty_f, bodya_f, brk_o1, brk_i1);
+        plan_trace(ch.base_src, "scan", ch.base_var,
+                   "ADR 0025 R-F — the aggregate's base is a declared SLICE PARAM and rides the R-A wrap; `__i0` stays the SOURCE ordinal (advanced by the body) so `__g_row`'s representative row is still re-derivable by indexing the param");
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            #(wrap_f);
+            #(scana_f);
+        };
     } else {
     nest = quote_block! {
         let mut __i0: i64 = 0i64;
@@ -9679,6 +9875,29 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     let src_f: ExprBlob = parse_expr(s.src_name);
     let row_f: ExprBlob = parse_type(s.row_ty);
     let vnm:   Ident    = Ident::new(s.var_name);
+    // ADR 0025 R-F — a rel body's base is a scan like any other. Most rel body
+    // sources are `__rel_<r>_sl` (a rel identity ⇒ `slice_stream_src` is false
+    // and the walk stays: that plane is the `(b′)` Buffer inversion's, not this
+    // route's); an EDB body reads a declared slice param and takes the wrap.
+    // No ordinal: a rel body has no sort and no index read back.
+    if slice_stream_src(prm, s.src_name) {
+        let s_ssr:  String   = ss_name(0i64);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(s.row_ty, s.src_name, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssr));
+        let nbo_f:  ExprBlob = quote_block! { };
+        let nbi_f:  ExprBlob = quote_block! { };
+        let scanr_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, vnm,
+                                                row_f, push_f, nbo_f, nbi_f);
+        plan_trace(s.src_name, "scan", s.var_name,
+                   "ADR 0025 R-F — a simple rel body over a declared SLICE PARAM rides the R-A wrap");
+        *out = quote_block! {
+            {
+                #(wrap_f);
+                #(scanr_f);
+            }
+        };
+        return true;
+    }
     *out = quote_block! {
         {
             let mut __i: i64 = 0i64;
@@ -9930,7 +10149,7 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let no_lim: ExprBlob = parse_expr("0i64");
     let mut ki: i64 = ch.n - 1i64;
     while ki >= 0i64 {
-        push_f = step_wrap(push_f, ki + 1i64, st_strat[ki], ch.anti[ki],
+        push_f = step_wrap(prm, push_f, ki + 1i64, st_strat[ki], ch.anti[ki],
                            st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
                            ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
                            string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
@@ -9949,6 +10168,29 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
     let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
+    // ADR 0025 R-F — same route as the simple rel body, on the JOINED one. The
+    // build phases (`#bps`) already took their own slice arm inside
+    // `build_phase_frag`, so this call closes the last of the join pair's four
+    // scan positions (base/step x simple/rel).
+    if slice_stream_src(prm, ch.base_src) {
+        let s_ssc:  String   = ss_name(0i64);
+        let wrap_f: ExprBlob = slice_stream_wrap_frag(ch.base_ty, ch.base_src, 0i64);
+        let ssrc_f: ExprBlob = parse_expr(string_as_str(&s_ssc));
+        let nbo_f:  ExprBlob = quote_block! { };
+        let nbi_f:  ExprBlob = quote_block! { };
+        let scanc_f: ExprBlob = batch_scan_frag(prm, -1i64, 0i64, ssrc_f, base_vnm,
+                                                base_ty_f, push_f, nbo_f, nbi_f);
+        plan_trace(ch.base_src, "scan", ch.base_var,
+                   "ADR 0025 R-F — a joined rel body's driving side is a declared SLICE PARAM and rides the R-A wrap");
+        *out = quote_block! {
+            {
+                #( #bps; )*
+                #(wrap_f);
+                #(scanc_f);
+            }
+        };
+        return true;
+    }
     *out = quote_block! {
         {
             #( #bps; )*

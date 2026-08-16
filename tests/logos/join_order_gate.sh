@@ -105,11 +105,18 @@ if ! grep -Fq 'let __n1: i64 = (rs).len();' "${DUMPS[@]}"; then
     fail=1
 fi
 
-# BOTH orders are present: one nest's outermost loop walks `ls`, the other's `rs`.
-n_ls=$(count 'while (__i0 < (ls).len())')
-n_rs=$(count 'while (__i0 < (rs).len())')
+# BOTH orders are present: one nest's outermost SCAN drives `ls`, the other's `rs`.
+# ⚠ SENSOR RE-AIMED AT R-F (same floor, new spelling — an emitter re-spelling is
+# when a text sensor must be re-derived, not deleted): the base scan was
+# `while (__i0 < (ls).len())` until R-F stage 2 routed the join drive through
+# `batch_scan_frag`; the outermost drive is now the `__ss0` SliceStream wrap of
+# the declared param. Measured on this tree: ls 6 / rs 4 — the same >= 4 floor
+# holds, and a compiler that emitted ONE nest still reds this (only one side
+# would be wrapped at __ss0).
+n_ls=$(count '__ss0: SliceStream<L> = SliceStream::<L>::new(ls);')
+n_rs=$(count '__ss0: SliceStream<R> = SliceStream::<R>::new(rs);')
 if [ "$n_ls" -lt 4 ] || [ "$n_rs" -lt 4 ]; then
-    echo "FAIL: base loops over ls=$n_ls rs=$n_rs (want >= 4 each: both nests, per dynamic query)"
+    echo "FAIL: base drives over ls=$n_ls rs=$n_rs (want >= 4 each: both nests, per dynamic query)"
     fail=1
 fi
 

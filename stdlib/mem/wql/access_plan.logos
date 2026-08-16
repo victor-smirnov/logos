@@ -138,6 +138,39 @@ pub fn mat_kind_name(k: i32) -> str {
     return "drain";
 }
 
+/// THE PRELUDE LANDING'S BINDING NAME — ONE COMPOSER, AND IT SWITCHES ON THE
+/// NODE (ADR 0025 R-F).
+///
+/// Until R-F every prelude landing was spelled `__rel_<r>`, whatever built it:
+/// the Drain/Sort `Buffer` (12 in the corpus, OWNED by `drain` 7 + `sort` 5),
+/// the SCC accumulator, the rel-fn one-shot result and the container binding
+/// (205 `Vec`s, no owner). The criterion-1 instrument keys its ACC table on the
+/// BINDING-NAME CLASS, so one name holding two identities can be credited only
+/// by crediting all 217 or none — it credited none, and the recorded
+/// `accounted` was a floor by 12. That is the same defect R-B1 paid off by
+/// renaming the rel landing `__out` → `__rout`, and R-C3 by renaming the
+/// `_run` dedup set `__rs` → `__rds`: A NAME IS AN IDENTITY OR IT IS NOTHING.
+///
+/// ⚠ TWO PREFIXES AND NOT ONE, because `drain` and `sort` are two heads and the
+/// gate pins plan against artifact PER HEAD. `MAT_DRAIN` → `__rdb_<r>`,
+/// `MAT_SORT` → `__rsb_<r>`. A landing under any other node keeps `__rel_<r>`:
+/// the `Vec` arms are not this node and must not inherit its name — that is
+/// exactly the collision being removed.
+///
+/// ⚠ THE NAME IS A FUNCTION OF THE PLAN NODE, so the composer lives beside the
+/// node kinds rather than in `params.logos`. `params` holds `rel_srcs` (the
+/// SLICE VIEW `__rel_<r>_sl`, the name every downstream reader resolves) and
+/// `rel_ssrc` (`__rel_<r>`, the STREAMED producer's own binding) — neither is
+/// this string, and routing the landing through either would move 9 reader
+/// sites that have nothing to do with it. `params` also cannot see `MAT_*`:
+/// this module imports `params`, not the reverse.
+pub fn push_land_name(out: &mut String, node: i32, rname: str) {
+    if node == MAT_DRAIN() { out.push_str("__rdb_"); }
+    else if node == MAT_SORT() { out.push_str("__rsb_"); }
+    else { out.push_str("__rel_"); }
+    out.push_str(rname);
+}
+
 // ── The GROUNDS ────────────────────────────────────────────────────────────
 // A ground is a TOKEN, not a sentence. The sentences stay exactly as they were
 // and travel WITH the node (`nd_why`), because they are what a person reads;

@@ -108,6 +108,25 @@
 #           oracle for that clause is the forcing control recorded in ADR 0025,
 #           not this gate.
 #
+#   FACT N  THE PRELUDE LANDING IS ITS NODE'S, PER HEAD, PER FIXTURE AND IN
+#           TOTAL (ADR 0025 R-F). #(`drain` nodes) == #(`let mut __rdb_<r>:
+#           Buffer<…>`) == 7 and #(`sort` nodes) == #(`let mut __rsb_<r>:
+#           Buffer<…>`) == 5, plus #(Buffer-typed `__rel_<r>`) == 0.
+#           ⚠ THIS COULD NOT BE WRITTEN BEFORE R-F, and that is the point of the
+#           rename it records. Both landings were spelled `__rel_<r>` — the name
+#           the SCC accumulator, the rel-fn one-shot result and the native
+#           container binding also use — so the artifact side of this identity
+#           was a population of 217 that no grep could partition, and FACT B
+#           could pin only the PRODUCER binding (`__it_`) and only as a SUM over
+#           the two heads. `push_land_name` (access_plan.logos) spells the name
+#           from the node; the identity is now per head.
+#           ⚠ AND IT IS NOT FACT B RESTATED: FACT B compares the plan against a
+#           binding the same arm writes one line earlier, so a composer that
+#           spelled every landing `__rdb_` keeps FACT B green and reds this. The
+#           third clause is the ABUSE DIRECTION — a Buffer landing that kept the
+#           old spelling would leave the two counts merely SMALLER, which reads
+#           exactly like a corpus that drains less.
+#
 #   FACT C  THE ARRANGE DEFICIT IS CLOSED — 598 == 598, per fixture and in
 #           total (594 == 594 at S2d; S2h and then S3f each added one fixture
 #           that builds two indexes, and the EQUALITY is what carried both
@@ -328,8 +347,26 @@ nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0; nqo=0; nqs=0; nro=0
 nfdl=0; nfnd=0; nfrs=0; nfos=0; nfbe=0; nfky=0; nfrd=0
 ncpr=0; ncpf=0; ncpl=0; ncpt=0
 nitt=0; niod=0; nirm=0; niwc=0; ninw=0; niec=0; nipr=0; nilt=0
+nrdb=0; nrsb=0; nrelb=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
+    # ── ADR 0025 R-F — THE PRELUDE LANDING, GREPPED PER NODE (FACT N) ────
+    # Until R-F the Drain and Sort landings were both spelled `__rel_<r>`, the
+    # same name the three `Vec` arms use, so no grep here could separate the
+    # 12 owned Buffer landings from the 205 unowned Vec ones — FACT B could
+    # pin only the PRODUCER (`__it_`) and the landing side went unmeasured.
+    # `push_land_name` (access_plan.logos) now spells the name from the NODE,
+    # so each head has its own artifact-side grep and the identity is per HEAD
+    # rather than per arm.
+    grep -Eh 'let mut __rdb_[a-z_0-9]+: Buffer<' "${UD[@]}" > "$d/rdb" 2>/dev/null
+    grep -Eh 'let mut __rsb_[a-z_0-9]+: Buffer<' "${UD[@]}" > "$d/rsb" 2>/dev/null
+    # ⚠ THE ABUSE DIRECTION, and it is the clause that makes the two above mean
+    # anything. A Buffer-typed landing still spelled `__rel_<r>` is a drain or
+    # sort that did NOT go through the composer — the collision returning by a
+    # fourth arm, a hand-written literal, or a revert of half the rename. It
+    # would leave the two greps above merely SMALLER, which reads exactly like
+    # a corpus that drains less. Pinned at 0.
+    grep -Eh 'let mut __rel_[a-z_0-9]+: Buffer<' "${UD[@]}" > "$d/relb" 2>/dev/null
     grep -Eh 'let mut __(hm|hs|bt)[0-9]+:' "${UD[@]}" > "$d/ix" 2>/dev/null
     grep -Eh 'let mut __ks:' "${UD[@]}" > "$d/ks" 2>/dev/null
     # S3e — THE PERMUTATION VECTORS. `__ix<k>` (digit-suffixed) and NOT the bare
@@ -429,6 +466,9 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nfos=$(wc -l < "$d/fos"); nfbe=$(wc -l < "$d/fbe"); nfky=$(wc -l < "$d/fky")
     nfrd=$(wc -l < "$d/frd")
     nit=$(wc -l < "$d/it")
+    nrdb=$(wc -l < "$d/rdb")
+    nrsb=$(wc -l < "$d/rsb")
+    nrelb=$(wc -l < "$d/relb")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
     npm=$(wc -l < "$d/pm")
@@ -440,7 +480,7 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nqs=$(wc -l < "$d/qs")
     nro=$(wc -l < "$d/ro")
 fi
-echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -709,6 +749,15 @@ EXPECT_FIXTURES   = 188
 EXPECT_FAILED     = {"wql_mapping_cross_module_e2e", "wql_wref_field_pkg"}
 EXPECT_DRAIN_SORT = 12    # drain 7 + sort 5, corpus-wide  (S2h: drain 4 -> 7; S3f: 7 -> 8; S3-desc: sort 3 -> 5; S5-D5: drain 8 -> 7, see RE-DERIVATION above)
 EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts  (S5-D5: 13 -> 12)
+# ── ADR 0025 R-F — THE LANDING SIDE, SPLIT BY NODE (FACT N) ─────────────────
+# `EXPECT_DRAIN_SORT` pins the two heads as a SUM because before R-F that was
+# the only thing measurable: both landed in `__rel_<r>`, indistinguishable in
+# the artifact from the three `Vec` arms that use the same name. The rename
+# makes the split measurable, so it is pinned — a re-routing between `drain` and
+# `sort` that kept the sum at 12 is red here and was invisible before.
+# Measured on the R-F tree: 7 + 5 == 12 == EXPECT_IT, no fixture mixing.
+EXPECT_RDB        = 7     # `let mut __rdb_<r>: Buffer<…>` — the Drain node's landing
+EXPECT_RSB        = 5     # `let mut __rsb_<r>: Buffer<…>` — the Sort node's landing
 EXPECT_ARRANGE    = 599   # Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 496   # (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 599   # (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
@@ -1018,6 +1067,7 @@ tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
            outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
+           ardb=0, arsb=0, arelb=0,
            fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
            afdl=0, afnd=0, afrs=0, afos=0, afbe=0, afky=0, afrd=0,
            cpr=0, cpf=0, cpl=0, cpt=0,
@@ -1200,11 +1250,14 @@ for e in errs:
     afp = dict(fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
     acp = dict(cpr=0, cpf=0, cpl=0, cpt=0)
     aiw = dict(itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0)
+    ald = dict(rdb=0, rsb=0, relb=0)
     if os.path.exists(cf):
         (_, a, c, e, g, gk, gc, gr, ga, qo, qs, ro,
          xdl, xnd, xrs, xos, xbe, xky, xrd,
          xcpr, xcpf, xcpl, xcpt,
-         xtt, xod, xrm, xwc, xnw, xec, xpr, xlt) = open(cf).read().split()
+         xtt, xod, xrm, xwc, xnw, xec, xpr, xlt,
+         xrdb, xrsb, xrelb) = open(cf).read().split()
+        ald = dict(rdb=int(xrdb), rsb=int(xrsb), relb=int(xrelb))
         acp = dict(cpr=int(xcpr), cpf=int(xcpf), cpl=int(xcpl), cpt=int(xcpt))
         aiw = dict(itt=int(xtt), iod=int(xod), irm=int(xrm), iwc=int(xwc),
                    inw=int(xnw), iec=int(xec), ipr=int(xpr), ilt=int(xlt))
@@ -1221,6 +1274,8 @@ for e in errs:
         tot["a" + k] += acp[k]
     for k in aiw:
         tot["a" + k] += aiw[k]
+    for k in ald:
+        tot["a" + k] += ald[k]
     tot["it"] += nit
     tot["ix"] += nix
     tot["ks"] += nks
@@ -1504,6 +1559,38 @@ for e in errs:
     if b not in EXPECT_FAILED and nd["drain"] + nd["sort"] != nit:
         bad(f"[{b}] {nd['drain']+nd['sort']} drain/sort nodes vs {nit} `__it_` "
             f"prelude bindings in the artifact")
+
+    # ── FACT N, per fixture — THE PRELUDE LANDING IS ITS NODE'S, PER HEAD ──
+    # (ADR 0025 R-F.) FACT B pins the PRODUCER side of the drain arm — one
+    # `__it_` binding per drain-or-sort node — and it pins the two heads
+    # TOGETHER, as a sum, because until R-F the artifact could not tell them
+    # apart: both landed in a binding spelled `__rel_<r>`, a name 205 unowned
+    # `Vec` landings also answered to. `push_land_name` spells the landing from
+    # the node, so the LANDING side is measurable and measurable PER HEAD:
+    #   drain nodes == `let mut __rdb_<r>: Buffer<…>` landings
+    #   sort  nodes == `let mut __rsb_<r>: Buffer<…>` landings
+    # Corpus-wide 7 == 7 and 5 == 5, and no fixture in the corpus mixes the two
+    # (measured: 5 fixtures are pure-drain, 5 pure-sort), so a head leaking into
+    # the other's prefix reds two fixtures rather than cancelling in a total.
+    #
+    # ⚠ THIS IS NOT FACT B RESTATED. FACT B compares the plan against the
+    # PRODUCER binding, which the same emitter arm writes one line earlier; a
+    # composer that spelled every landing `__rdb_` would keep FACT B green and
+    # is red here. The two clauses fail on different defects, which is why both
+    # are kept rather than the sum being trusted for both sides.
+    if b not in EXPECT_FAILED:
+        if nd["drain"] != ald["rdb"]:
+            bad(f"[{b}] {nd['drain']} `drain` node(s) vs {ald['rdb']} "
+                f"`let mut __rdb_<r>: Buffer<…>` landing(s) — the drain the "
+                f"plan names is not the buffer the artifact lands in")
+        if nd["sort"] != ald["rsb"]:
+            bad(f"[{b}] {nd['sort']} `sort` node(s) vs {ald['rsb']} "
+                f"`let mut __rsb_<r>: Buffer<…>` landing(s) — the sort the "
+                f"plan names is not the buffer the artifact lands in")
+        if ald["relb"] != 0:
+            bad(f"[{b}] {ald['relb']} Buffer-typed `__rel_<r>` landing(s) — a "
+                f"prelude landing bypassed `push_land_name`, so the name that "
+                f"R-F split is holding two identities again")
     # FACT C, per fixture: the arrangements ARE the indexes the artifact builds.
     if nd["arrange"] != nix:
         bad(f"[{b}] {nd['arrange']} arrange nodes vs {nix} emitted index "
@@ -1528,6 +1615,13 @@ for key, want, what in (
         ("aouts", EXPECT_OUTS, "`let mut __out: String` trama render buffers"),
         ("aoutr", EXPECT_OUTR, "`let mut __rout:` rel landings"),
         ("it", EXPECT_IT, "`__it_` prelude bindings"),
+        # ADR 0025 R-F (FACT N) — the landing side, per head. `ardb + arsb`
+        # must also equal `it`: the producer and the landing are two bindings
+        # of ONE arm, so a total that splits them is an arm that emitted half
+        # of itself.
+        ("ardb", EXPECT_RDB, "`let mut __rdb_<r>: Buffer<…>` drain landings"),
+        ("arsb", EXPECT_RSB, "`let mut __rsb_<r>: Buffer<…>` sort landings"),
+        ("arelb", 0, "Buffer-typed `__rel_<r>` landings (the pre-R-F spelling)"),
         ("arrange", EXPECT_ARRANGE, "Arrange nodes"),
         ("hj", EXPECT_HASHJOIN, "`hash join` strategy decisions"),
         ("ix", EXPECT_INDEX, "emitted index bindings"),
@@ -1694,6 +1788,10 @@ for tok in sorted(UNWITNESSED):
             f"exists in the vocabulary — a stale exemption")
 
 # ── the census, printed whatever the verdict ─────────────────────────────────
+print("── PRELUDE LANDING, PER HEAD (R-F, FACT N) ───────────────────────────")
+print(f"  {tot['drain']:6d}  {'drain':<28s} plan  |  {tot['ardb']:6d} emitted `__rdb_<r>`")
+print(f"  {tot['sort']:6d}  {'sort':<28s} plan  |  {tot['arsb']:6d} emitted `__rsb_<r>`")
+print(f"  {'':6s}  {'pre-R-F `__rel_<r>` Buffer':<28s}       |  {tot['arelb']:6d} (pinned 0)")
 print("── INCREMENTAL WORKING SET (R-E, FACT M) ─────────────────────────────")
 for h in ("member total working set", "work counter", "derived suffix",
           "over-deletion candidates", "removed rows", "epoch input working set",

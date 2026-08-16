@@ -23,9 +23,20 @@
 #
 #   REFUSE  `deem_join_step_reread::q_selfstep` — `d` named TWICE in one chain.
 #           Emitted: `let mut __it_d: DupIter = …` AND
-#           `let mut __rel_d: Buffer<(i64, i64)> = Buffer::<(i64, i64)>::new();`,
+#           `let mut __rdb_d: Buffer<(i64, i64)> = Buffer::<(i64, i64)>::new();`,
 #           filled by `push`, read downstream through `as_slice()`.
 #           Trace: `d -> materialize`, `d -> drain on drained: second use`.
+#
+# ⚠ THE LANDING'S SPELLING CHANGED IN ADR 0025 R-F AND IS RECORDED HERE BECAUSE
+# THIS GATE ASKED FOR THAT — `__rel_d` -> `__rdb_d` (Drain) / `__rsb_<r>` (Sort),
+# composed by `push_land_name` in `stdlib/mem/wql/access_plan.logos`. The
+# ADMITTED half is untouched: `let mut __rel_d: DupIter` is `rel_ssrc`, the
+# STREAMED producer's own binding, a different string from the landing that
+# happened to read the same. The REFUSE assertions below check the landing BY
+# TYPE (`: Buffer<T> = Buffer::<T>::new();`) and so did not move; only the
+# failure-path diagnostic was re-aimed. The rename is pinned corpus-wide by
+# `plan_ground_census_gate.sh` FACT N (drain 7 == `__rdb_` 7, sort 5 ==
+# `__rsb_` 5, Buffer-typed `__rel_` == 0).
 #
 # The two functions come from the SAME source declaration in the SAME file, so a
 # pass is evidence about the read-once decision and not about two unrelated
@@ -201,7 +212,7 @@ check_refuse() {                # check_refuse <file> <label> <rowty>
       miscompile: the second index build reads a spent iterator and the answer
       goes silently empty), or the Drain node's landing changed spelling — in
       which case RE-AIM this gate WITH that change and record it in the census.
-      Emitted landings found: $(grep -oE 'let mut __rel_[a-z_0-9]+: [A-Za-z]+<' "$f" | tr '\n' ' ')"
+      Emitted landings found: $(grep -oE 'let mut __(rdb|rsb|rel)_[a-z_0-9]+: [A-Za-z]+<' "$f" | tr '\n' ' ')"
     grep -qF '.push(' "$f" \
       || note "$lab never \`push\`es into the landing — the ACCUMULATOR spelling
       is what S3b measured (13.8x cheaper in emitted text than wrapping a Vec);

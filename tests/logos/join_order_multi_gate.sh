@@ -259,8 +259,12 @@ for f in "${DUMPS[@]}"; do
         echo "FAIL: $n_base base loops in q3_run (want 4, one per carried order)"
         fail=1
     fi
+    # ⚠ SENSOR RE-AIMED AT R-F (same property, new spelling): the drive was
+    # `while (__i0 < (src).len())` until R-F stage 2 routed the join drive
+    # through batch_scan_frag; the outermost drive is now the __ss0 wrap.
+    # Measured on this tree: as_ 1 / bs 2 / cs 1 = the 4 outermost drives.
     for src in 'as_' 'bs' 'cs'; do
-        if ! grep -Eq "while \(__i0 < \(${src}\)\.len\(\)\)" "$f"; then
+        if ! grep -Eq "__ss0: SliceStream<[A-Z]> = SliceStream::<[A-Z]>::new\(${src}\);" "$f"; then
             echo "FAIL: no carried order drives from ${src} — the set is not the one the trace claims"
             fail=1
         fi
