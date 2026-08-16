@@ -45,10 +45,41 @@ EXPECTED_TOTAL=67
 # name → the OPEN defect it stands on. Both are compiler defects, not stale
 # tests; both are reproducible standalone (see the commit that filed them).
 EXPECTED_FAIL=(
-    # logosc ABORTS with no diagnostic: `munmap_chunk(): invalid pointer`,
-    # freeing a .text address (a `logos_emit_item_blob_subst_in` function
-    # symbol) from a metaprog JIT frame, while the factory emits TWO distinct
-    # configs from one `container Map<K,V>`.
+    # logosc ABORTS with no diagnostic: `munmap_chunk(): invalid pointer`.
+    #
+    # THE NAME IS THE WRONG DIAGNOSIS. Neither genericity nor two families is
+    # required: the trigger is a `bool` VALUE column, and the 8-line repro is
+    #
+    #     package test;
+    #     use logos.lcm.canon.container_item; use logos.lcm.canon.metaclass;
+    #     use logos.mem.pkd; use logos.mem.bt.map;
+    #     container M { kind ordered_map; entry { key: u64, val: bool } measure max(key); }
+    #     fn fid<C: CtrFamily>() -> u64 { return C::family_id(); }
+    #     fn main() -> i32 { if fid::<typeof(M)>() == 0u64 { return 1i32; } return 0i32; }
+    #
+    # `kind vector; entry { elem: bool }` SIGSEGVs on the same defect. `u8`/`i8`
+    # values are fine, so it is not narrowness; `key: bool` is refused CLEANLY
+    # (the key path has no bool arm), so only the VALUE path is affected.
+    #
+    # ATTRIBUTED by disabling the arms one at a time and rebuilding: the trigger
+    # is the `vconv` arm — `parse_expr("__raw != 0u64")` at container_item.logos
+    # 1730 (ordered_map) / 3262 (vector), spliced as `#(vconv)` into the
+    # leaf-batch producer. With both disabled, both kinds emit a clean `cannot
+    # cast u64 to bool` instead of crashing; with only the `val_at` arm (595)
+    # enabled, no crash.
+    #
+    # WHAT IT IS: memory corruption inside `logos_emit_item_blob_subst_in`'s
+    # `subst_walk` (src/compiler/main.cpp:1720) — valgrind reports two
+    # uninitialised-value reads and then an invalid free of a .text address (the
+    # `_M_manager` of the `replace_in_parent` std::function) while destroying
+    # the frame's `elems` vector at main.cpp:1901.
+    #
+    # REFUTED, so nobody re-walks them: (a) main-thread stack exhaustion —
+    # `ulimit -s 262144` still aborts; (b) unbounded recursion — a 32x stack
+    # does not change the time to abort; (c) the pre-reserve bound at
+    # main.cpp:~1100 being too small, i.e. the documented arena-move hazard —
+    # +64 MB of reserve still aborts, and the arena-moved post-check at
+    # main.cpp:2282 is unreachable because the crash happens mid-walk.
     gen_generic_distinct
     # `mlir_gen: internal: `return` value lowered to no value … the RETURN was
     # silently discarded`, on `return unsafe { … }` inside an `impl<K: ?Sized>`.
