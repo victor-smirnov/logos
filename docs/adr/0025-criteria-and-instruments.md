@@ -388,6 +388,11 @@ per-node attribution recorded in §4d, not a wider name key.
 > sentence) — the next stage's subject: a trace re-heading round splitting
 > the 205 into container-producer landings (the sentence is TRUE there) and
 > SCC accumulators (which need their own head, the FACT L shape).
+> **RESOLVED AT R-G (§7): the kind is NOT knowable at `decide_mode`** (the
+> A/B split is a condensation property) — the fix is a post-condensation mark
+> pass + the explain moved after `stamp_rel_incr_shape`; 84 → `fixpoint
+> accumulator` (`__rfa_`), 45 → `rel result landing` (`__rls_`), 76 keep the
+> now-TRUE sentence. Accounted 94.79% → 98.05%, worklist 206 → 77.
 
 **⚠ The recorded 15.14% was a text ratio, and the majority of its numerator was
 not a materialization.** `T = 615` today decomposes as 217 positive
@@ -1169,7 +1174,7 @@ whole fail-labelled corpus is **1358/1358, rc 0**.
 | the output plane (⚠ ~~646~~ ⚠ ~~650~~ **605 + 45**) | ⚠ **R-B LANDED AND THIS ROW DID NOT MOVE — the half it took was criterion 1's.** The landings are now NAMED (five plan nodes, FACT J) but they are still `Vec`s filled to completion, and R-B's control measured this criterion's five pull-shape numbers at a **zero delta** (`.next()` 65, `next_batch()` 164, indexed walks 4152, `__i` 1017, `SliceStream::<` 149 — both trees). The remaining step is `(b′)`, the **Buffer inversion**: body builds a `Buffer`, the `Vec` entry becomes `into_vec()`. ⚠ **the recorded blocker is REFUTED (R-C, proven by running it)**: `Buffer::as_slice` returns `&[R]` — `len()` and indexing come with the slice, **zero Memoria-side methods**; and the spelling is type-agnostic across `Vec`/`Buffer`, so the 381 `let __out: &mut Vec<…>` aliases do NOT move with it. Price re-measured as **14 emitter read sites** (13 limit guards + 1 distinct rescan). **Priced OUT this round: unblocked, unlanded** | UNOWNED — R-B took the naming half; `(b′)` is R-C's neighbour |
 | the build side (3 sites) | ~~`build_phase_frag` must take a batch source~~ **LANDED (R-D)** — the batch-pull arm exists and fires (1 corpus firing, its fixture); the WritWalk cursor that motivated it is landed-but-unconsumed (Stage 3 refused, see §6/S6-A row) | CLOSED — R-D |
 | native scan + drain prelude (23) | ⚠ ~~**`SliceStream`** — one batch producer over a `&[Row]`, which retires the native-source `.next()` and the drain prelude's row pull together~~ — **REFUTED BY LANDING IT.** `SliceStream` landed (R-A) and this pair measured **65 → 65**: a native iterator source is not a slice and never reaches the wrap, and the drain prelude pulls from the same iterator to LAND it. The correct next step is a batch-side `Drain` — the prelude reads `next_batch()` and extends the `Buffer` per packet — and it is a different change from R-A's | ⚠ **DECLARED OUT, R-F — THE ROUTE ALREADY EXISTS AND FIRES; WHAT IS LEFT IS THE CORPUS, NOT THE COMPILER.** `plan_walker.logos`'s drain prelude has carried the batch arm since R-D (`if prm.rel_batch[r] { loop { … next_batch() … } }`), and it fires: measured on this tree, `__it_m.next_batch()` **3** against `__it_*.next()` **9**. The 9 residual are, by declaration: `let mut __it_s: StepsIter = steps_rows(s)` ×5, `= steps_from(s, 190)` ×1, `__it_s: SrcIter = src_rows(s)` ×1, `__it_t: TicksIter = ticks_rows(t)` ×1, `__it_d: DupIter = dup_rows(d)` ×1 — **five HAND-WRITTEN FIXTURE iterator types**, none of which publishes `next_batch()` or the natspec `b` flag. Routing them means editing the corpus's own test sources, which moves the criterion-2 number by changing what is measured rather than what compiles (the "HARVEST BY FIXTURE dies with its subject" rule). The compiler-side row is CLOSED; the fixture-side row is a corpus decision for Victor |
-| ~~the twelve unrouted slice sites~~ | **LANDED (R-F, 2026-08-15), in three legs, each with its own build / control-revert / restore cycle and its own answer diff.** `build_phase_frag` + `chain_nest_frag` (the JOIN pair) → `emit_find` + `emit_aggregate` else + `rel_body_simple_frag` + `chain_body_frag` → `step_wrap` ×2. Measured, one instrument, both columns: param-indexed walks **1010 → 157**, `next_batch()` **165 → 1018**, `SliceStream::<` **149 → 1002**, `.next()` **65 → 65** (untouched, as predicted). Each leg's Δ is 1:1 across three independent columns (leg A1 −588 walks / +588 pulls / +588 wraps; A2 −260/+260/+260; A3 −5/+5/+5). ⚠ **TWO ROWS OF THIS TABLE WERE WRONG AND THE LANDING IS WHAT SAYS SO** — see the two corrections below. Residual **157** is entirely declared-out rows: `emit_incremental` ×4 (90), the `push_str` DRed/incremental text emitters `__pj`/`__dk`/`__di` (66), the EL comprehension lowering in `codegen.logos` `__ci` (1) | **CLOSED — R-F** |
+| ~~the twelve unrouted slice sites~~ | **LANDED (R-F, 2026-08-15), in three legs, each with its own build / control-revert / restore cycle and its own answer diff.** `build_phase_frag` + `chain_nest_frag` (the JOIN pair) → `emit_find` + `emit_aggregate` else + `rel_body_simple_frag` + `chain_body_frag` → `step_wrap` ×2. Measured, one instrument, both columns: param-indexed walks **1010 → 157**, `next_batch()` **165 → 1018**, `SliceStream::<` **149 → 1002**, `.next()` **65 → 65** (untouched, as predicted). Each leg's Δ is 1:1 across three independent columns (leg A1 −588 walks / +588 pulls / +588 wraps; A2 −260/+260/+260; A3 −5/+5/+5). ⚠ **TWO ROWS OF THIS TABLE WERE WRONG AND THE LANDING IS WHAT SAYS SO** — see the two corrections below. Residual **157** is entirely declared-out rows — ⚠ **the composition FIRST PRINTED HERE ("emit_incremental ×4 (90) + __pj/__dk/__di (66) + __ci (1)") DID NOT REPRODUCE at the R-G audit**: by enclosing function it is **119 incremental/DRed (`*_dred`/`*_apply`) + 37 fixpoint drivers (`*_epoch`/`*_scc`) + 1 `render`**, and by loop variable `__i` 35 / `__p` 25 / `__r` 18 / … — `__di` does not appear at all; the SIZE 157 is exact and every member is on a declared-out plane, so the verdict stands and the composition is superseded in place (the R-G verifier's re-derivation additionally puts the field-slice/param boundary at 22/156 vs 21/157 — one line, `c.nums`, not material) | **CLOSED — R-F** |
 | ⚠ `emit_simple`'s "residual else" (2 sites) was never owed | The R-E list scored `emit_simple`'s two indexed-walk arms as routable. They are **UNREACHABLE for a slice param by construction**: `r_a_wrap` is computed once at the top of `emit_simple` and both remaining `while __i < (src).len()` arms sit under `!r_a_wrap`. Nothing to route; the row is deleted rather than carried | CORRECTED — R-F |
 | ⚠ `emit_aggregate`'s representative-row half was NOT blocked | The tree recorded (`rexpr_walk.logos`, the `pure_group` comment) that `__g_row.push(__i0)` needs a "GLOBAL ROW ORDINAL that a `next_batch()` loop does not have" and called it **"unspellable in the batch shape"** — R-E priced 7 `__g_row` bindings as blocked on it. **That sentence conflated two sources.** The ordinal is not unspellable — it is simply not the LOOP VARIABLE: declared beside the scan and advanced by the body it is the same number (`emit_simple`'s sort phase 1 has spelled it that way since R-A). What a STREAMED source really cannot do is the other half — `__g_row` is read back as `&(src)[__g_row.get(__r0)]`, and a spent iterator cannot be indexed. A declared slice param can. So R-F's aggregate arm carries **both** classes for the slice source (`pure_group` is absent from its guard) and the blocked row shrinks to a representative row over a STREAMED source. The same correction is what makes the JOIN build side routable at all: its bucket payload is the source ordinal | CORRECTED — R-F |
 | the aggregate key enumeration (39) | **DECLARED OUT, R-F, with its ground and with the numbers that favour the refused route.** Favouring: 39 `__it.next()` sites, 1:1 with 39 `HashMapKeys<…>` declarations, over 14 dumps — the single largest `.next()` class in the corpus. Refusing, and it is two independent facts: (1) **it is not a source.** All 39 receivers are `__mc.keys()` over the emitter's OWN per-group `HashMap` (`__h.__gm_*`), i.e. the same class as the 2 513 internal indexed walks no route claims — the row was mis-scored as a scan site. (2) **`RowsBatch` cannot be formed without a copy.** `RowsBatch<R>` IS `&[R]` (`stream.logos`), and a map's keys live inside `Entry<K,V> { key: K, val: V }` at `sizeof(Entry)` stride — there is no `&[K]` and no `&[&K]` anywhere in a `HashMap`, so a batch would have to be MATERIALIZED, which is the thing criterion 1 forbids. Every `BatchStream` impl in the tree is over contiguous storage (`SliceStream`, `Buffer`, `Epoch`, `WritWalk`, the two emitted `{N}LeafWalk` forms); `HashMapKeys` implements `Iterator` only (`hashmap.logos:263`) and `stream.logos:139` already records the sibling `HashMapIter` as off this plane. Landing it needs a STRIDED-COLUMN batch view, which is a vocabulary addition, not a route | **DECLARED OUT — R-F** (re-open only with a strided-column batch type) |
@@ -1302,3 +1307,110 @@ above are unchanged: criterion 1 NOT met, criterion 2 NOT met.** What R-A adds
 to this section is not a verdict, it is arithmetic: 4152 indexed walks left, 12
 of 13 emitter sites unrouted, `.next()` still 65, `__out` still unowned. The arc
 pauses here again, with the books open and one number smaller.
+
+---
+
+## §7 — R-G AND THE ARC'S CLOSING SENTENCE (2026-08-15, supersedes every criterion verdict above)
+
+R-G re-headed the 205 rel landings whose shared trace sentence R-F's verifier
+caught lying at 84 sites. The kind is NOT knowable at `access_plan_decide_mode`
+(the A/B split is a property of the SCC condensation, computed 25 lines later),
+so the round is a post-condensation mark pass (`plan_mark_rel_landings`) plus
+`access_plan_explain` moved out of `plan_apply_access` to after
+`stamp_rel_incr_shape` — proven trace-ORDER neutral on the whole corpus (48
+`.err` changed, 0 line-count movement, taxonomy exactly 129 absences → 84+45
+new heads). Arms: **A (84)** = `MAT_FPACC` → head `fixpoint accumulator`,
+landing `__rfa_<r>`; **B (45)** = `MAT_RELLAND` → head `rel result landing`,
+landing `__rls_<r>` (1:1 with `__rout`, the cross-frame seam pinned 45==45);
+**C (76)** keeps `MG_CONTAINER` — its sentence is TRUE there. Artifact delta =
+the two renames and NOTHING else: 48/171 dumps changed, 326 lines/side,
+sed-normalize → 0 residual; answer-diff artifact half proven per file, and the
+one-variable control revert (both stdlib files → 9b7e3496, rebuilt, swept,
+restored, rebuilt — the leg the R-G verifier's F8 demanded) reproduces the HEAD
+column and the FINAL column from clean builds. FACT O: per-fixture and total,
+84==84 / 45==45, shaped==any-shape, both abuse clauses 0, `76+84+45 == 205`
+(printed as a closure statement — the three terms are separately ASSERTED, so
+the sum cannot fail independently; it is a reading aid, not a fourth pin, and
+the 205 is a HEAD-tree count, not an emitted-artifact count).
+
+### Criterion 1 — no intermediate materialization inside Deem: **MET WITH TWO STATED ADMISSIONS** (not "named" — the admissions have TRUE grounds, not plan nodes)
+
+`criterion1_materialization_instrument.sh`, rc 0: `N1/D1 = 3271/6704 = 48.79%`,
+`T = 493`, `D2 = 3954`, **accounted 3877 = 98.05%**, worklist **77**.
+⚠ The instrument is registered in no CMake test (by design, §6's
+gate-or-instrument note): the figure is a MEASUREMENT; what is GATED is the
+census's component pins (`fpacc` 84, `rlnd` 45, `container` 76, four
+shape/abuse clauses at 0, the cross-frame seam 45==45) and the instrument's own
+G1–G4 when run. ⚠ `D2` counts BINDINGS, so the 45 rel-result rows appear twice
+(inside the helper as `__rout`, outside as `__rls_<r>`) — net of that seam the
+figure is 3832/3909 = **98.03%**. The 77:
+
+1. **76 native container producers** — the landing binds a `Vec` a producer
+   OUTSIDE THE QUERY PLAN returns. RHS histogram: 45 `writ_graph_edges`, 4
+   `chain_edges`, 3 `hashmap_rows`, 3 `__gs_edges_Cfg`, 2 each
+   `rung_from`/`my_edges`/`col_rows`/`btree_from`, 13 singletons; zero
+   `Vec::new()`, zero `__wql_…_rel_…` (both anti-clauses pinned at 0).
+   Pinned `EXPECT_NOMAT["container"] = 76`.
+2. **1 `__cv`** — the EL comprehension lowering, whose ground is "the landing
+   IS the value the expression denotes" (the `Vec` is emitted by `emit_comp`;
+   criterion 1 asks about collections the PLANNER inserts between a producer
+   and a consumer). ⚠ NO gate pins it — a second `__cv` reds nothing (owed).
+
+⚠ **Two riders travel with the 98.05%, and they COMPOUND**: 3 of the 76
+(`__gs_edges_<T>`) are built by a derive macro IN THIS SAME COMPILATION
+(`derive_graph_source.logos`, in-quote), so their ground is "built outside the
+QUERY plan", not "not built by this compiler" — and that same macro emits
+**2 `let mut out: Vec<WritEdgeRow>` bindings that D2's undocumented
+underscore-name filter silently drops** (the D4/HashSet shape a THIRD time,
+this time on the NAME: `BIND` requires a leading `_`). Together: **79
+compiler-built collections this tree does not name, 3 of them named by a
+ground about the wrong compiler.** The D2 widening lands ALONE on its own
+commit (the R-C1 rule: a criterion is not closed on the commit that fixes its
+own population). ⚠ Ownership is **CLASS-LEVEL**: 823 bindings (`__sv` 502 vs
+`materialize` 217 plan lines; `__ix` 321 sharing `key vector` 129 with `__ks`)
+are credited by a head that FIRED but without site-for-site correspondence —
+§6.1's open per-node-attribution row, untouched by R-G. **Read as: MET WITH
+TWO STATED ADMISSIONS and one open attribution row.** Separately, the trace
+channel lost **129 FALSE grounds** (`already a buffer` 205→76 on both the
+ground line and the mode sentence; `no materialization` absences 239→110) —
+a CORRECTNESS gain, measured by `T` 622→493, not a coverage gain.
+
+### Criterion 2 — full integration of the algebra with batch + cursor: **NOT MET**, remainder priced to blocked/declared-out rows only
+
+Measured over 171 dumps: `next_batch()` **1018**, `SliceStream::<` **1002**,
+batch inner loops **1018**, `.next()` **65** (39 aggregate-key + 14
+native-iterator + 9 drain-prelude fixture types + 3 join-build rows), indexed
+walks **3301** = 2513 internal + 610 fixpoint `_sl` + 157 declared params +
+21 field slices — the four buckets SUM to the canonical grep. Integrated:
+container scan, slice-param scan, join build+nest, `find`, rel bodies,
+aggregate base. Not integrated, each with its blocker NAMED: aggregate key
+enumeration (39 — `HashMapKeys` is not a source; `RowsBatch ≡ &[R]` cannot
+form over `Entry`-strided storage without the copy criterion 1 forbids;
+re-open = strided-column batch view, a vocabulary addition), drain prelude
+(9 — five hand-written FIXTURE iterator types; compiler arm fires 3×; corpus
+decision = Victor's), the output plane (606 `__out` + 45 `__rout` + 1 String;
+`(b′)` REFUTED-and-unlanded at 14 emitter read sites), incremental/DRed (119)
++ fixpoint drivers (37) declared out, `direct` (blocked on **#62**
+`sema_abi_layout`), WritWalk (landed, UNCONSUMED — needs the re-walk
+capability + 9 by-name `rel_srcs` sites together). ⚠ Criterion 2 has **no
+gate of any kind** — the pull-shape numbers live in sweeps and this table.
+
+### Criterion 3 — ARC/RC only where needed, BC in all hot paths: **HOLDS IN SUBSTANCE; the instrument owes two repairs**
+
+`rc_seam_gate.sh` rc 0: RC call sites object 68 / hot 0 / outside-setup 0,
+lock-RMW 0/0, V1+V2+V3 present (the zero is a comparison against 68, not an
+absence of data). Owed and recorded: the `lock` half cannot fire by
+construction (every `lock` lives in `Atomic*`, reachable only by call), and
+the RC classifier is PERMISSIVE (`downgrade`/`upgrade`/`clone_arc`/… are
+count entry points it does not name). Descent gates: `ctest -R ^logos_09_`
+52/52.
+
+### What would move each verdict
+
+C1 → clean MET: the D2 underscore widening (+2, lands alone) · a `__cv` pin ·
+the per-node-attribution row (`__sv`/`__ix` site-for-site) · re-grounding the
+3 derive-macro landings. C2 → MET: #62 then `direct` · the WritWalk re-walk
+capability · `(b′)` · a criterion-2 GATE over the pull-shape numbers · the two
+corpus decisions (drain-prelude fixtures, aggregate-key vocabulary). C3 →
+instrument-clean: name the missing RC entry points; give the lock half a
+reachable population or delete its arm as unfalsifiable.

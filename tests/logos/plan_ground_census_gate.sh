@@ -347,7 +347,7 @@ nit=0; nix=0; nks=0; npm=0; ngk=0; ngc=0; ngr=0; nga=0; nqo=0; nqs=0; nro=0
 nfdl=0; nfnd=0; nfrs=0; nfos=0; nfbe=0; nfky=0; nfrd=0
 ncpr=0; ncpf=0; ncpl=0; ncpt=0
 nitt=0; niod=0; nirm=0; niwc=0; ninw=0; niec=0; nipr=0; nilt=0
-nrdb=0; nrsb=0; nrelb=0
+nrdb=0; nrsb=0; nrelb=0; nrfa=0; nrfaa=0; nrelv=0; nrls=0; nrlsa=0; nrelw=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     # ── ADR 0025 R-F — THE PRELUDE LANDING, GREPPED PER NODE (FACT N) ────
@@ -360,6 +360,42 @@ if [ "${#UD[@]}" -ge 1 ]; then
     # rather than per arm.
     grep -Eh 'let mut __rdb_[a-z_0-9]+: Buffer<' "${UD[@]}" > "$d/rdb" 2>/dev/null
     grep -Eh 'let mut __rsb_[a-z_0-9]+: Buffer<' "${UD[@]}" > "$d/rsb" 2>/dev/null
+    # ── ADR 0025 R-G — THE FIXPOINT ACCUMULATOR'S LANDING (FACT O) ───────
+    # THE SHAPE AND NOT ONLY THE NAME, and that is the whole design of this
+    # clause. The head (`fixpoint accumulator`) and the binding name (`__rfa_`)
+    # are BOTH derived from `prm.rel_node`, so a mis-route in
+    # `plan_mark_rel_landings` moves them together and a plan-vs-artifact
+    # equality stays green while the plane is destroyed — the R-C2 P2 probe's
+    # shape, which is the reason that probe is recorded. The RHS is derived
+    # from neither: `= Vec::<R>::new()` is written by `emit_prelude_scc` and by
+    # nothing else, so pinning the name against the SHAPE closes the direction
+    # the equality cannot see. `rfaa` counts every `__rfa_` binding whatever
+    # its shape; `rfaa != rfa` IS the mis-route.
+    grep -Eh 'let mut __rfa_[a-z_0-9]+: Vec<.*> = Vec::<.*>::new\(\);' "${UD[@]}" > "$d/rfa" 2>/dev/null
+    # ⚠ `let mut` OPTIONAL HERE AND MANDATORY IN THE SHAPED GREP ABOVE, which
+    # is the difference that makes this clause bite: the accumulator is the only
+    # arm that binds with `mut`, so a landing that wears this name WITHOUT it is
+    # already the mis-route. Measured — with `mut` required here, the head-swap
+    # probe left this count at 0 and the clause read green while the corpus
+    # totals carried the red alone.
+    grep -Eh 'let (mut )?__rfa_[a-z_0-9]+:' "${UD[@]}" > "$d/rfaa" 2>/dev/null
+    # ⚠ THE ABUSE DIRECTION, R-F's clause applied to this stage: an accumulator
+    # still spelled `__rel_<r>` is one that bypassed `push_land_name` — a
+    # fourth arm, a hand-written literal, or half a revert. It would leave the
+    # grep above merely SMALLER, which reads exactly like a corpus with less
+    # recursion in it. `let mut __rel_<r>: Vec<` is unambiguous: the container
+    # arm binds with `let`, not `let mut`. Pinned at 0.
+    grep -Eh 'let mut __rel_[a-z_0-9]+: Vec<' "${UD[@]}" > "$d/relv" 2>/dev/null
+    # ── ADR 0025 R-G ARM B — THE ONE-SHOT REL RESULT'S LANDING (FACT O) ──
+    # Same three-clause shape as the accumulator above, and the shape probe is
+    # the RHS again: the one-shot arm is the only emitter that binds a prelude
+    # `Vec` to a call of `__wql_<q>_rel_<r>(`. `rlsa` counts the name whatever
+    # the RHS; `relw` is the abuse direction — a helper result still spelled
+    # `__rel_<r>`, which would leave the shaped grep merely smaller and read
+    # exactly like a corpus with fewer rel blocks in it.
+    grep -Eh 'let __rls_[a-z_0-9]+: Vec<.*> = \(?__wql_[a-z_0-9]+_rel_[a-z_0-9]+\(' "${UD[@]}" > "$d/rls" 2>/dev/null
+    grep -Eh 'let (mut )?__rls_[a-z_0-9]+:' "${UD[@]}" > "$d/rlsa" 2>/dev/null
+    grep -Eh 'let __rel_[a-z_0-9]+: Vec<.*> = \(?__wql_[a-z_0-9]+_rel_[a-z_0-9]+\(' "${UD[@]}" > "$d/relw" 2>/dev/null
     # ⚠ THE ABUSE DIRECTION, and it is the clause that makes the two above mean
     # anything. A Buffer-typed landing still spelled `__rel_<r>` is a drain or
     # sort that did NOT go through the composer — the collision returning by a
@@ -469,6 +505,12 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nrdb=$(wc -l < "$d/rdb")
     nrsb=$(wc -l < "$d/rsb")
     nrelb=$(wc -l < "$d/relb")
+    nrfa=$(wc -l < "$d/rfa")
+    nrfaa=$(wc -l < "$d/rfaa")
+    nrelv=$(wc -l < "$d/relv")
+    nrls=$(wc -l < "$d/rls")
+    nrlsa=$(wc -l < "$d/rlsa")
+    nrelw=$(wc -l < "$d/relw")
     nix=$(wc -l < "$d/ix")
     nks=$(wc -l < "$d/ks")
     npm=$(wc -l < "$d/pm")
@@ -480,7 +522,7 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nqs=$(wc -l < "$d/qs")
     nro=$(wc -l < "$d/ro")
 fi
-echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb" > "$O/$b.count"
+echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb $nrfa $nrfaa $nrelv $nrls $nrlsa $nrelw" > "$O/$b.count"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -784,7 +826,32 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # stands) and over a `Vec` twin (a container, already a buffer). One ground each
 # is the fixture's whole shape, so a move of +1/+1 here is the fixture arriving
 # and any other split would have meant it is not the pair it claims to be.
-EXPECT_NOMAT      = {"container": 205, "readonce": 26, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join)
+# ── ADR 0025 R-G — `container` 205 -> 121, AND THE 84 DID NOT DISAPPEAR ─────
+# Every previous move of this number was a fixture arriving or a source changing
+# shape. This one is a RE-HEADING: 84 of the 205 `already a buffer` grounds were
+# FALSE — a recursive SCC's `Vec::<R>::new()` accumulator, declared by the plan
+# and grown by the semi-naïve driver, narrated as "the producer hands back a
+# container, nothing is built". They are now `fixpoint accumulator` NODES with
+# their own ground (`MG_FIXPOINT`), so the count moves out of this dict and into
+# `EXPECT_FPACC` below, where the two sides are pinned against the artifact.
+# 205 - 84 = 121 after arm A, and arm B takes the 45 one-shot rel results the
+# same way (`rel result landing`, `MG_REL_RESULT`): 121 - 45 = 76. The identity
+# `container + fpacc + rlnd == 205` is what says nothing was lost in either
+# move — the trace channel's line count did not change at all (D1 6704 before
+# and after; one absence line became one node line, 129 times).
+#
+# ⚠ WHAT 76 NOW MEANS, AND IT IS A NARROWER CLAIM THAN 205 WAS. Every remaining
+# `already a buffer` ground is a NATIVE source whose producer returns a
+# container the query compiler did not build — the one arm for which the
+# sentence was true all along. The number is no longer "every landing that
+# reached the `!offers` arm"; it is the arm's actual population, and the two
+# were different by 129.
+EXPECT_NOMAT      = {"container": 76, "readonce": 26, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B)
+# ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
+# `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
+# the head was classified anywhere: 84 unclassified `fixpoint accumulator`
+# lines, against 84 `let mut __rfa_<r>: Vec<…> = Vec::<…>::new()` landings.
+EXPECT_FPACC      = 84
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family
@@ -820,6 +887,13 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
 EXPECT_OUTQ       = 606   # (R-D: +1) `let mut __out:` query-output landings
 EXPECT_OUTR       = 45    # `let mut __rout:` rel one-shot landings
+# ADR 0025 R-G arm B — the one-shot rel helper's result, bound in the prelude.
+# Measured at G2 the same way (45 unclassified `rel result landing` lines on the
+# emitter-only tree). It is spelled as `EXPECT_OUTR` rather than as a second
+# literal 45 because the two ARE one fact: every helper landing (`__rout`,
+# inside the fn) is returned to exactly one prelude binding (`__rls_<r>`,
+# outside it). Two literals here could drift; this cannot.
+EXPECT_RLND       = EXPECT_OUTR
 # THE HOMONYM LANDING, PINNED APART. `trama_render.logos:732` emits `let mut
 # __out: String` for a TEMPLATE render — same name, different plane, no query
 # and no plan node. It is pinned at its own count so that narrowing FACT J's
@@ -981,7 +1055,16 @@ if failed != EXPECT_FAILED:
 # (FACT F, S2h). The ground and the justification are two fields and only the
 # ground was ever asserted; a node with a ground and an EMPTY sentence is the
 # silent materialization this whole gate exists to catch, moved one field over.
-NODE = re.compile(r'^\[plan\] ([a-z_0-9]+) -> (drain|sort|arrange) on ([^(]*?)\s+\((.*)$')
+# ⚠ ADR 0025 R-G ADDED THE FOURTH ALTERNATIVE, AND ADDING IT IS NOT OPTIONAL.
+# This regex is what makes a rel COUNT AS NAMED for FACT A: a rel that reports
+# the `materialize` mode and matches nothing here is a materialization with no
+# ground. The fixpoint accumulator used to be named by the `no materialization
+# on already a buffer` branch below — falsely, which is what R-G corrects — so
+# a head added without coming here turns 39 fixtures red rather than passing
+# unnoticed. `NODEK` maps the head to its counter key; the three original kinds
+# are their own keys.
+NODE = re.compile(r'^\[plan\] ([a-z_0-9]+) -> (drain|sort|arrange|fixpoint accumulator|rel result landing) on ([^(]*?)\s+\((.*)$')
+NODEK = {"fixpoint accumulator": "fpacc", "rel result landing": "rlnd"}
 VERB = re.compile(r'^\[plan\] ([a-z_0-9]+) -> ([a-z ]+?)\s')
 # ⚠ `key vector` IS NOT A NODE KIND and must not be spelled `sort` (S2d). The
 # fourth whitespace field of a trace line is what every reader of this channel —
@@ -1063,11 +1146,13 @@ IWK = {"member total working set": "itt", "over-deletion candidates": "iod",
 iwground = collections.defaultdict(set)
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
+           fpacc=0, rlnd=0,
            container=0, readonce=0, elided=0, materialize=0, stream=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
            outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
-           ardb=0, arsb=0, arelb=0,
+           ardb=0, arsb=0, arelb=0, arfa=0, arfaa=0, arelv=0,
+           arls=0, arlsa=0, arelw=0,
            fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
            afdl=0, afnd=0, afrs=0, afos=0, afbe=0, afky=0, afrd=0,
            cpr=0, cpf=0, cpl=0, cpt=0,
@@ -1092,7 +1177,7 @@ for e in errs:
     for tok, probe in vocab.items():
         if not tok.startswith(("MG_", "AG_")):
             witness[tok] += text.count(probe)
-    nd = dict(outq=0, outr=0, drain=0, sort=0, arrange=0, hj=0, kv=0,
+    nd = dict(outq=0, outr=0, drain=0, sort=0, arrange=0, hj=0, kv=0, fpacc=0, rlnd=0,
               gkey=0, gcnt=0, grow=0, gacc=0,
               fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
               cpr=0, cpf=0, cpl=0, cpt=0,
@@ -1102,7 +1187,7 @@ for e in errs:
         m = NODE.match(line)
         if m:
             rel, kind, gnd = m.group(1), m.group(2), m.group(3).strip()
-            nd[kind] += 1
+            nd[NODEK.get(kind, kind)] += 1
             named.add(rel)
             for tok, probe in vocab.items():
                 if tok.startswith("MG_") and probe == gnd:
@@ -1236,7 +1321,8 @@ for e in errs:
     tot["materialize"] += text.count(" -> materialize   (")
     tot["stream"] += text.count(" -> stream   (")
     nd["cpt"] = nd["cpr"] + nd["cpf"] + nd["cpl"]
-    for k in ("outq", "outr", "drain", "sort", "arrange", "hj", "kv",
+    for k in ("outq", "outr", "drain", "sort", "arrange", "hj", "kv", "fpacc",
+              "rlnd",
               "gkey", "gcnt", "grow", "gacc",
               "fdl", "fnd", "frs", "fos", "fbe", "fky", "frd",
               "cpr", "cpf", "cpl", "cpt",
@@ -1250,14 +1336,17 @@ for e in errs:
     afp = dict(fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0)
     acp = dict(cpr=0, cpf=0, cpl=0, cpt=0)
     aiw = dict(itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0)
-    ald = dict(rdb=0, rsb=0, relb=0)
+    ald = dict(rdb=0, rsb=0, relb=0, rfa=0, rfaa=0, relv=0, rls=0, rlsa=0, relw=0)
     if os.path.exists(cf):
         (_, a, c, e, g, gk, gc, gr, ga, qo, qs, ro,
          xdl, xnd, xrs, xos, xbe, xky, xrd,
          xcpr, xcpf, xcpl, xcpt,
          xtt, xod, xrm, xwc, xnw, xec, xpr, xlt,
-         xrdb, xrsb, xrelb) = open(cf).read().split()
-        ald = dict(rdb=int(xrdb), rsb=int(xrsb), relb=int(xrelb))
+         xrdb, xrsb, xrelb, xrfa, xrfaa, xrelv,
+         xrls, xrlsa, xrelw) = open(cf).read().split()
+        ald = dict(rdb=int(xrdb), rsb=int(xrsb), relb=int(xrelb),
+                   rfa=int(xrfa), rfaa=int(xrfaa), relv=int(xrelv),
+                   rls=int(xrls), rlsa=int(xrlsa), relw=int(xrelw))
         acp = dict(cpr=int(xcpr), cpf=int(xcpf), cpl=int(xcpl), cpt=int(xcpt))
         aiw = dict(itt=int(xtt), iod=int(xod), irm=int(xrm), iwc=int(xwc),
                    inw=int(xnw), iec=int(xec), ipr=int(xpr), ilt=int(xlt))
@@ -1591,6 +1680,95 @@ for e in errs:
             bad(f"[{b}] {ald['relb']} Buffer-typed `__rel_<r>` landing(s) — a "
                 f"prelude landing bypassed `push_land_name`, so the name that "
                 f"R-F split is holding two identities again")
+
+    # ── FACT O, per fixture — THE `Vec` LANDINGS THAT ARE NOT CONTAINERS ───
+    # (ADR 0025 R-G.) R-F named the two Buffer landings and left 205 `Vec`s
+    # unowned; the verifier measured that 84 of them are a recursive SCC's
+    # accumulator, declared by `emit_prelude_scc` and grown by the semi-naïve
+    # driver — and that the plan called every one of them `no materialization on
+    # already a buffer`. That is not an unnamed materialization but a MIS-NAMED
+    # one, which is strictly worse: the criterion-1 worklist shows the first and
+    # cannot show the second.
+    #
+    #   (i)  #(`fixpoint accumulator` nodes) == #(`__rfa_<r>` accumulator
+    #        landings), per fixture — the FACT H/J/K/N pattern.
+    #   (ii) every `__rfa_` binding HAS the accumulator's shape. This is the
+    #        clause (i) cannot be trusted without, and the reason is structural
+    #        rather than cautious: the head and the name are both spelled from
+    #        `prm.rel_node`, so a mis-route in `plan_mark_rel_landings` moves
+    #        BOTH sides of (i) and keeps it green. The emitted RHS
+    #        (`= Vec::<R>::new()`) is written by the SCC arm alone and follows
+    #        no node, so it is the independent witness.
+    #   (iii) no accumulator is still spelled `__rel_<r>` — the abuse direction,
+    #        R-F's clause carried forward to this stage.
+    #
+    # ⚠ MEASURED, NOT ARGUED, AND THE MEASUREMENT CORRECTED THE PREDICTION
+    # TWICE. Probe (R-C2's P2 shape — a MIS-ROUTE, not a deletion): the two
+    # heads SWAPPED in `plan_mark_rel_landings`, so every accumulator was
+    # announced and named as a rel result and every rel result as an
+    # accumulator. Both trees built, both swept, restored to a byte-identical
+    # source with a green re-run.
+    #
+    #   criterion1_materialization_instrument.sh   rc 0, SUMMARY IDENTICAL
+    #     N1/D1 3271/6704 = 48.79%, T 493, D2 3954, accounted 3877 (98.05%).
+    #     It cannot see this: both ACC keys stay witnessed (their heads fire 84
+    #     and 45, exchanged), every binding stays in an owned class, and the
+    #     printed coverage does not move by one. THE INSTRUMENT IS BLIND TO A
+    #     SWAP BY CONSTRUCTION — which is why the per-head identity lives here.
+    #   this gate                                   rc 1, 168 FAIL lines
+    #     clause (i)  19 fixtures (fpacc) + 39 (rlnd) + 6 corpus totals
+    #     clause (ii) 19 + 39 — the name worn over a foreign RHS
+    #     the seam    46 fixtures
+    #
+    # ⚠ AND THE FIRST RUN OF THAT PROBE FOUND A HOLE IN CLAUSE (ii): with `let
+    # mut` REQUIRED in the any-shape greps, both counts read 0 under the swap
+    # and the clause was green — the red was carried by the corpus totals alone.
+    # The greps now accept either binding form (`let (mut )?__rfa_`), because
+    # `mut`-ness is part of the SHAPE the clause is testing for and must not
+    # also be part of the filter that decides which bindings it looks at. A
+    # residual clause that excludes the shape it is meant to catch is the
+    # `MG_GPATH` defect in miniature: an assertion whose subject cannot arise.
+    if b not in EXPECT_FAILED:
+        if nd["fpacc"] != ald["rfa"]:
+            bad(f"[{b}] {nd['fpacc']} `fixpoint accumulator` node(s) vs "
+                f"{ald['rfa']} `let mut __rfa_<r>: Vec<…> = Vec::<…>::new()` "
+                f"landing(s) — the accumulator the plan names is not the one "
+                f"the fixpoint grows")
+        if ald["rfaa"] != ald["rfa"]:
+            bad(f"[{b}] {ald['rfaa']} `__rfa_<r>` binding(s) but only "
+                f"{ald['rfa']} with the accumulator's shape — a landing wears "
+                f"the fixpoint's name and is not `Vec::<…>::new()`, so the "
+                f"node it was routed to is not the arm that emitted it")
+        if ald["relv"] != 0:
+            bad(f"[{b}] {ald['relv']} `let mut __rel_<r>: Vec<…>` landing(s) — "
+                f"an accumulator bypassed `push_land_name` and kept the "
+                f"container producer's name")
+        # ARM B, the same three clauses over the one-shot rel helper's result.
+        if nd["rlnd"] != ald["rls"]:
+            bad(f"[{b}] {nd['rlnd']} `rel result landing` node(s) vs "
+                f"{ald['rls']} `let __rls_<r>: Vec<…> = __wql_…_rel_…(…)` "
+                f"landing(s) — the helper result the plan names is not the one "
+                f"the prelude binds")
+        if ald["rlsa"] != ald["rls"]:
+            bad(f"[{b}] {ald['rlsa']} `__rls_<r>` binding(s) but only "
+                f"{ald['rls']} bound to a `__wql_…_rel_…` call — a landing "
+                f"wears the rel helper's name over a different producer")
+        if ald["relw"] != 0:
+            bad(f"[{b}] {ald['relw']} `let __rel_<r>: Vec<…> = __wql_…_rel_…` "
+                f"landing(s) — a helper result bypassed `push_land_name` and "
+                f"kept the container producer's name")
+        # ⚠ THE SEAM, AND IT IS THE ONLY CLAUSE IN THIS FILE THAT RELATES TWO
+        # FRAMES. `rel result` is the landing INSIDE `__wql_<q>_rel_<r>`
+        # (`__rout`, R-B1); `rel result landing` is the caller's binding of what
+        # that fn returns. One container, two bindings, and the plan says both —
+        # so a helper that stopped returning its landing, or a prelude that
+        # bound a result no helper produced, is red here even though each side
+        # is internally consistent. It is also the arithmetic that says D2's
+        # double count of these 45 rows is a MOVE and not two allocations.
+        if nd["rlnd"] != nd["outr"]:
+            bad(f"[{b}] {nd['rlnd']} `rel result landing` line(s) vs "
+                f"{nd['outr']} `rel result` line(s) — the helper's own landing "
+                f"and the prelude's binding of it must be 1:1 across the call")
     # FACT C, per fixture: the arrangements ARE the indexes the artifact builds.
     if nd["arrange"] != nix:
         bad(f"[{b}] {nd['arrange']} arrange nodes vs {nix} emitted index "
@@ -1622,6 +1800,21 @@ for key, want, what in (
         ("ardb", EXPECT_RDB, "`let mut __rdb_<r>: Buffer<…>` drain landings"),
         ("arsb", EXPECT_RSB, "`let mut __rsb_<r>: Buffer<…>` sort landings"),
         ("arelb", 0, "Buffer-typed `__rel_<r>` landings (the pre-R-F spelling)"),
+        # ADR 0025 R-G (FACT O) — the fixpoint accumulator, both sides and the
+        # abuse direction. `fpacc` is the plan side, `arfa` the shaped landings,
+        # `arfaa` every binding wearing the name (equal to `arfa` or a
+        # mis-route), `arelv` the pre-R-G spelling (0).
+        ("fpacc", EXPECT_FPACC, "`fixpoint accumulator` plan lines"),
+        ("arfa", EXPECT_FPACC, "`let mut __rfa_<r>: Vec<…> = Vec::<…>::new()` landings"),
+        ("arfaa", EXPECT_FPACC, "`__rfa_<r>` bindings of ANY shape"),
+        ("arelv", 0, "`let mut __rel_<r>: Vec<…>` landings (the pre-R-G spelling)"),
+        # ARM B — the one-shot rel result, both sides, the any-shape count and
+        # the abuse direction. `EXPECT_RLND == EXPECT_OUTR` is the seam, stated
+        # as one constant so the two cannot drift apart in the pin block itself.
+        ("rlnd", EXPECT_RLND, "`rel result landing` plan lines"),
+        ("arls", EXPECT_RLND, "`let __rls_<r>: Vec<…> = __wql_…_rel_…(…)` landings"),
+        ("arlsa", EXPECT_RLND, "`__rls_<r>` bindings of ANY shape"),
+        ("arelw", 0, "`let __rel_<r>: Vec<…> = __wql_…_rel_…` landings (the pre-R-G spelling)"),
         ("arrange", EXPECT_ARRANGE, "Arrange nodes"),
         ("hj", EXPECT_HASHJOIN, "`hash join` strategy decisions"),
         ("ix", EXPECT_INDEX, "emitted index bindings"),
@@ -1792,6 +1985,14 @@ print("── PRELUDE LANDING, PER HEAD (R-F, FACT N) ────────�
 print(f"  {tot['drain']:6d}  {'drain':<28s} plan  |  {tot['ardb']:6d} emitted `__rdb_<r>`")
 print(f"  {tot['sort']:6d}  {'sort':<28s} plan  |  {tot['arsb']:6d} emitted `__rsb_<r>`")
 print(f"  {'':6s}  {'pre-R-F `__rel_<r>` Buffer':<28s}       |  {tot['arelb']:6d} (pinned 0)")
+print("── PRELUDE `Vec` LANDING, PER HEAD (R-G, FACT O) ─────────────────────")
+print(f"  {tot['fpacc']:6d}  {'fixpoint accumulator':<28s} plan  |  {tot['arfa']:6d} emitted `__rfa_<r>` "
+      f"(shaped; {tot['arfaa']:d} of any shape)")
+print(f"  {tot['rlnd']:6d}  {'rel result landing':<28s} plan  |  {tot['arls']:6d} emitted `__rls_<r>` "
+      f"(shaped; {tot['arlsa']:d} of any shape)")
+print(f"  {'':6s}  {'pre-R-G `__rel_<r>` Vec':<28s}       |  {tot['arelv']:6d} mut / {tot['arelw']:6d} helper-call (pinned 0)")
+print(f"  {tot['container']:6d}  {'true container producers':<28s} plan  |  "
+      f"{tot['container'] + tot['fpacc'] + tot['rlnd']:6d} = the pre-R-G `already a buffer` population")
 print("── INCREMENTAL WORKING SET (R-E, FACT M) ─────────────────────────────")
 for h in ("member total working set", "work counter", "derived suffix",
           "over-deletion candidates", "removed rows", "epoch input working set",

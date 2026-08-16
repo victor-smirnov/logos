@@ -1570,6 +1570,13 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // stratification: an unstratifiable program never reaches emission, so
         // a flag stamped before it would describe a program that does not exist.
         stamp_rel_incr_shape(prm, &scc);
+        // ADR 0025 R-G — THE PRELUDE LANDINGS WHOSE KIND ONLY EXISTS NOW, and
+        // then the plan is read back. `access_plan_explain` used to print from
+        // inside `plan_apply_access`, three passes above: before `deps`, before
+        // the condensation, before "recursive" was a fact about anything. See
+        // `plan_mark_rel_landings`.
+        plan_mark_rel_landings(prm, &mut pick_ap, &scc);
+        access_plan_explain(&pick_ap, prm);
         // ── Track A: warded Datalog± existential-head verdict ───────────────
         // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
         // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
@@ -1586,6 +1593,14 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
+        // ADR 0025 R-G — the explain call moved out of `plan_apply_access`, and
+        // on THIS branch it lands in the same position it always occupied: no
+        // parse-side rels means no rel block, so no rel helper and no recursive
+        // SCC, so nothing here can be a fixpoint accumulator or a one-shot rel
+        // result and `plan_mark_rel_landings` would have nothing to re-head.
+        // Every landing on this branch is a NATIVE source's container, which is
+        // the one arm whose `already a buffer` ground is TRUE.
+        access_plan_explain(&pick_ap, prm);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
             stamp_rel_incr_shape(prm, &scc);
@@ -2719,7 +2734,99 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
         fs.has_where = false;
     }
-    access_plan_explain(ap, prm);
+    // ⚠ `access_plan_explain` WAS CALLED HERE AND IS NOW CALLED BY THE CALLER
+    // (ADR 0025 R-G). It has to be, and the reason is an ORDERING fact rather
+    // than a taste: this fn runs BEFORE the body pass, so before `RelDeps`
+    // exists, so before `compute_rel_scc` — and "this rel is recursive" is a
+    // property of the condensation. A plan narrated from here can therefore say
+    // `already a buffer` about a `Vec` the fixpoint driver fills and cannot say
+    // anything else, because at this point in the pipeline the distinction has
+    // not been computed. Printing moved to just after `plan_mark_rel_landings`,
+    // which is the first point at which every prelude landing's kind is known.
+    //
+    // MEASURED, both directions: nothing between the old call site and the new
+    // one emits on the `[plan]` channel (`check_rel_body` and its callees,
+    // `compute_rel_scc`, `check_stratified`, `stamp_rel_incr_shape`,
+    // `ward_verdict` — zero `plan_trace` call sites between them), so the
+    // corpus's 188 traces are byte-identical under the move alone; and the
+    // 171 emitted dumps are untouched because this fn's writes to `prm` all
+    // happen above and none of them moved.
+}
+
+/// ADR 0025 R-G — RE-HEAD THE PRELUDE LANDINGS THE MODE PASS COULD NOT SEE,
+/// AT THE FIRST POINT WHERE THEIR KIND EXISTS.
+///
+/// `access_plan_decide_mode` answers the `!offers` arm with `MG_CONTAINER` — the
+/// ground for the ABSENCE of a node, "the producer hands back a container, which
+/// IS a buffer, nothing is built". For a NATIVE rel over a container producer
+/// that is true, and 76 corpus landings keep it. For a PARSE-SIDE rel it is
+/// false twice over: a rel block offers no iterator either, so it takes the same
+/// arm, and what the prelude then binds is a `Vec` THIS COMPILER'S OWN EMITTED
+/// CODE builds — the semi-naïve driver's accumulator (84) or the one-shot
+/// helper's returned result (45). 129 of 205, every one of them narrated as an
+/// absence with a false ground.
+///
+/// ⚠ WHY A SECOND PASS AND NOT A BETTER CONDITION IN `access_plan_decide_mode`
+/// — this is the finding that shaped the stage, and it is mechanical. The mode
+/// pass runs at:
+///
+///   plan_decide_access → plan_decide_joins → plan_insert_drains →
+///   access_plan_decide_mode → access_plan_ask_size → plan_apply_access
+///   → [pass 2: check_rel_body × bodies — THIS is what builds `deps`]
+///   → compute_rel_scc → check_stratified → stamp_rel_incr_shape
+///
+/// The only discriminator available to it is `prm.rel_native[ri]`, which
+/// separates the 76 from the 129 and CANNOT separate the 84 from the 45:
+/// "recursive" is a property of the condensation and the condensation does not
+/// exist yet. A head decided there would necessarily fuse the fixpoint
+/// accumulator with the one-shot result — one name over two mechanisms, which
+/// is the defect R-B1/R-C3/R-F each paid to undo. So the decision is taken where
+/// the KIND IS KNOWN, which is here.
+///
+/// ⚠ IT WRITES BOTH SIDES — the plan's node AND `prm.rel_node` — for the reason
+/// `plan_apply_access` gives for every other field it copies: the emitter must
+/// not re-derive the decision. `push_land_name` spells the landing's binding
+/// from `prm.rel_node`, so the name and the head are ONE fact read twice rather
+/// than two derivations that agree until one is edited (`9c90c63e`: the
+/// invariant belongs at the composer).
+///
+/// ⚠ AND THAT SHARED DERIVATION IS EXACTLY WHY THE CENSUS CANNOT PIN THIS WITH
+/// A PLAN-vs-ARTIFACT EQUALITY ALONE. A mis-route here moves the head and the
+/// binding name TOGETHER, so `#(fixpoint accumulator) == #(__rfa_*)` stays green
+/// while the plane is destroyed — the R-C2 P2 probe's shape. `plan_ground_
+/// census_gate.sh` FACT O therefore also pins each landing's name against its
+/// emitted RHS SHAPE (`__rfa_*` must be `= Vec::<…>::new()`, `__rls_*` must be
+/// `= __wql_…_rel_…(`), which no routing can satisfy by accident; the probe
+/// that proves it reds is recorded there.
+fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelScc) {
+    let mut ri: i64 = 0i64;
+    while ri < ap.n {
+        // Only the absence-of-a-node case is re-headed: a rel the drain pass
+        // already decided owns a node with a ground obtained from a real offer.
+        if str_eq(ap.mgnd[ri], MG_CONTAINER()) && scc.rec[scc.comp[ri]] {
+            ap_land(ap, ri, MAT_FPACC(), MG_FIXPOINT(),
+                    "the members of a recursive SCC have no last row until the fixpoint closes, so this total is GROWN — the semi-naive driver fills it through a `&mut Vec` out-param and the plan is what declares it");
+            // The per-rel MODE line's sentence, which the container arm wrote
+            // before the condensation existed. The head stays `materialize` —
+            // it is the same answer to the same question (this rel does not
+            // stream) — and only the account of WHY changes, from a producer's
+            // hand-over to the plan's own fixpoint.
+            ap.swhy[ri] = "materialized: this rel is recursive, so the semi-naive fixpoint accumulates its rows into a Vec the SCC driver grows — the plan builds this container rather than being handed one";
+            prm.rel_node[ri] = MAT_FPACC();
+        } else if str_eq(ap.mgnd[ri], MG_CONTAINER()) && !prm.rel_native[ri] {
+            // ARM B — a PARSE-SIDE rel outside every cycle: one call to the
+            // helper this compilation emitted for its rel block, whose result
+            // the prelude binds. `rel_native` is the discriminator and it is
+            // the emitter's own (`emit_prelude_oneshot` takes its non-native
+            // tail on exactly this predicate) — the recursive case was taken
+            // above, so what is left here is the one-shot arm.
+            ap_land(ap, ri, MAT_RELLAND(), MG_REL_RESULT(),
+                    "the rel block's helper fn folds the body and RETURNS the container; the prelude binds what it built, so this buffer is this plan's — one frame down — and not a source's");
+            ap.swhy[ri] = "materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source";
+            prm.rel_node[ri] = MAT_RELLAND();
+        }
+        ri = ri + 1i64;
+    }
 }
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
@@ -3150,8 +3257,15 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(".as_slice();\n");
             return;
         }
-        prelude.push_str("    let __rel_");
-        prelude.push_str(prm.rel_names[r]);
+        // ADR 0025 R-G — ARM C, THE CONTAINER PRODUCER, AND THE ONE ARM WHOSE
+        // `already a buffer` GROUND IS TRUE. Routed through the composer like
+        // the other three even though `AD_BUFFER` spells `__rel_` and the text
+        // does not move: the invariant is "the landing's name is a function of
+        // the plan node, decided in ONE place", and an arm that opts out of it
+        // by writing the same string by hand is the fourth spelling the next
+        // rename has to find. Measured: 0 emitted bytes changed by this line.
+        prelude.push_str("    let ");
+        push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
         prelude.push_str(": Vec<");
         prelude.push_str(prm.rel_rowty[r]);
         prelude.push_str("> = ");
@@ -3169,13 +3283,17 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
         prelude.push_str(prm.rel_srcs[r]);
         prelude.push_str(": &[");
         prelude.push_str(prm.rel_rowty[r]);
-        prelude.push_str("] = __rel_");
-        prelude.push_str(prm.rel_names[r]);
+        prelude.push_str("] = ");
+        push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
         prelude.push_str(".as_slice();\n");
         return;
     }
-    prelude.push_str("    let __rel_");
-    prelude.push_str(prm.rel_names[r]);
+    // ADR 0025 R-G — ARM B, the one-shot rel helper's result. `prm.rel_node[r]`
+    // is `MAT_RELLAND` here (written by `plan_mark_rel_landings`), so the
+    // composer spells `__rls_<r>`; if it ever is not, this emits `__rel_<r>`
+    // over a `__wql_…_rel_…(` RHS and the census's FACT O residual clause reds.
+    prelude.push_str("    let ");
+    push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
     prelude.push_str(": Vec<");
     prelude.push_str(prm.rel_rowty[r]);
     prelude.push_str("> = __wql_");
@@ -3191,8 +3309,8 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str(prm.rel_srcs[r]);
     prelude.push_str(": &[");
     prelude.push_str(prm.rel_rowty[r]);
-    prelude.push_str("] = __rel_");
-    prelude.push_str(prm.rel_names[r]);
+    prelude.push_str("] = ");
+    push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
     prelude.push_str(".as_slice();\n");
 }
 
@@ -3204,8 +3322,18 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if scc.comp[r] == c {
-            prelude.push_str("    let mut __rel_");
-            prelude.push_str(prm.rel_names[r]);
+            // ADR 0025 R-G — THE ACCUMULATOR'S NAME IS ITS NODE'S. Through R-F
+            // this arm spelled `__rel_<r>` by hand — the one landing that
+            // bypassed the composer — and shared that name with the one-shot
+            // rel result and the container binding, so the instrument's ACC
+            // table could credit all three or none and credited none.
+            // `prm.rel_node[r]` is `MAT_FPACC` here, written by
+            // `plan_mark_rel_landings`; if it ever is not, this emits
+            // `__rel_<r>` and the census's FACT O residual clause reds — the
+            // name is checked against the emitted RHS SHAPE, which no
+            // mis-routing can satisfy.
+            prelude.push_str("    let mut ");
+            push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
             prelude.push_str(": Vec<");
             prelude.push_str(prm.rel_rowty[r]);
             prelude.push_str("> = Vec::<");
@@ -3230,8 +3358,8 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
     let mut r3: i64 = 0i64;
     while r3 < prm.rel_n {
         if scc.comp[r3] == c {
-            prelude.push_str(", &mut __rel_");
-            prelude.push_str(prm.rel_names[r3]);
+            prelude.push_str(", &mut ");
+            push_land_name(prelude, prm.rel_node[r3], prm.rel_names[r3]);
         }
         r3 = r3 + 1i64;
     }
@@ -3244,8 +3372,8 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
             prelude.push_str(prm.rel_srcs[r4]);
             prelude.push_str(": &[");
             prelude.push_str(prm.rel_rowty[r4]);
-            prelude.push_str("] = __rel_");
-            prelude.push_str(prm.rel_names[r4]);
+            prelude.push_str("] = ");
+            push_land_name(prelude, prm.rel_node[r4], prm.rel_names[r4]);
             prelude.push_str(".as_slice();\n");
         }
         r4 = r4 + 1i64;

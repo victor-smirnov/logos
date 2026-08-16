@@ -131,10 +131,54 @@ pub fn AD_BUFFER() -> i32   { return -2i32; }
 pub fn MAT_DRAIN() -> i32   { return 0i32; }
 pub fn MAT_SORT() -> i32    { return 1i32; }
 pub fn MAT_ARRANGE() -> i32 { return 2i32; }
+/// ADR 0025 R-G — THE FIXPOINT ACCUMULATOR, A NODE AND NOT AN ABSENCE.
+///
+/// `emit_prelude_scc` declares `let mut <land>: Vec<R> = Vec::<R>::new()` for
+/// every member of a RECURSIVE SCC and hands it to the semi-naïve driver as a
+/// `&mut Vec` out-param. Nothing was handed over: the plan BUILDS this
+/// container, one per member, and grows it until the fixpoint closes.
+///
+/// ⚠ IT REACHED `access_plan_decide_mode`'s `!offers` arm AND INHERITED THE
+/// CONTAINER PRODUCER'S GROUND (R-F verifier, measured on 84 of the corpus's
+/// 205 `Vec` landings): the plan said "no materialization on already a buffer —
+/// the producer hands back a container, which IS a buffer, nothing is built"
+/// about a `Vec::new()` it built itself. A FALSE ground on a real
+/// materialization is the exact class this ADR exists to close, and it is
+/// worse than an unnamed one: an unowned landing shows up in the criterion-1
+/// worklist, a wrongly-grounded one reads as accounted for.
+pub fn MAT_FPACC() -> i32   { return 3i32; }
+/// ADR 0025 R-G — THE ONE-SHOT REL HELPER'S RESULT, LANDED IN THE PRELUDE.
+///
+/// `emit_prelude_oneshot`'s non-native tail binds `let <land>: Vec<R> =
+/// __wql_<q>_rel_<r>(…)?` — the helper fn THIS compiler emitted for the rel
+/// block folds the body and returns the built container. 45 in the corpus, 1:1
+/// with the `rel result` head's `__rout` landing INSIDE the helper.
+///
+/// ⚠ A SEPARATE KIND FROM `MAT_FPACC`, and the separation is the whole reason
+/// the decision cannot be taken in `access_plan_decide_mode`: at that point the
+/// dependency graph has not been condensed, so "recursive" does not exist yet
+/// and the only available discriminator is `rel_native`, which fuses these 45
+/// with the 84 above. `plan_mark_rel_landings` runs after `compute_rel_scc`,
+/// which is where the two become distinguishable.
+///
+/// ⚠ AND IT IS A DIFFERENT CLAIM FROM `MG_CONTAINER`'s, though both end in a
+/// `Vec` the prelude did not fill row by row. A container producer is a source
+/// that was ALREADY a buffer before this query existed; this one is built, by
+/// this query's own emitted code, one layer down. The distinction is what the
+/// reader needs to know whether the buffer is the plan's cost or the source's.
+pub fn MAT_RELLAND() -> i32 { return 4i32; }
 
+/// ⚠ EVERY NAME HERE IS A `[plan]` HEAD and the readers of that channel are
+/// mechanical: `criterion1_materialization_instrument.sh` classifies it (G2
+/// refuses an unclassified head), `plan_ground_census_gate.sh`'s `NODE`/`VERB`
+/// regexes parse it (`[a-z ]+`), and `plan_nodes_gate.sh`'s awk reads it. A
+/// head containing the substring `materializ` also moves the historical text
+/// count `T`, which is why neither R-G head does.
 pub fn mat_kind_name(k: i32) -> str {
     if k == MAT_SORT()    { return "sort"; }
     if k == MAT_ARRANGE() { return "arrange"; }
+    if k == MAT_FPACC()   { return "fixpoint accumulator"; }
+    if k == MAT_RELLAND() { return "rel result landing"; }
     return "drain";
 }
 
@@ -164,9 +208,28 @@ pub fn mat_kind_name(k: i32) -> str {
 /// this string, and routing the landing through either would move 9 reader
 /// sites that have nothing to do with it. `params` also cannot see `MAT_*`:
 /// this module imports `params`, not the reverse.
+/// ⚠ FOUR PREFIXES SINCE ADR 0025 R-G, and the two added ones are the LANDINGS
+/// R-F left with no owner: `MAT_FPACC` → `__rfa_<r>` (the fixpoint
+/// accumulator), `MAT_RELLAND` → `__rls_<r>` (the one-shot rel helper's
+/// result). The `AD_BUFFER` container producer — the one arm whose `already a
+/// buffer` ground is TRUE — keeps `__rel_<r>`, which is now what that name
+/// MEANS rather than what everything happened to be called.
+///
+/// The same repair as R-B1 (`__out` → `__rout`), R-C3 (`__rs` → `__rds`) and
+/// R-F (`__rel` → `__rdb`/`__rsb`), and it is needed for the same mechanical
+/// reason: the criterion-1 instrument keys its ACC table on the BINDING-NAME
+/// CLASS, so a name three plan heads answer to can be credited only by
+/// crediting all three or none. The alternative considered and refused — teach
+/// the instrument to classify the landings by their RHS TEXT (`= Vec::<…>::
+/// new()` vs `= (__wql_…)?`) — would have had the oracle re-implement the
+/// emitter's own arm choice inside itself, which is the "an oracle that shares
+/// the ALGORITHM is not an oracle" shape, and would have left a class with two
+/// owners and therefore no refusal semantics for G4.
 pub fn push_land_name(out: &mut String, node: i32, rname: str) {
     if node == MAT_DRAIN() { out.push_str("__rdb_"); }
     else if node == MAT_SORT() { out.push_str("__rsb_"); }
+    else if node == MAT_FPACC() { out.push_str("__rfa_"); }
+    else if node == MAT_RELLAND() { out.push_str("__rls_"); }
     else { out.push_str("__rel_"); }
     out.push_str(rname);
 }
@@ -217,6 +280,40 @@ pub fn MG_UNPROVEN() -> str   { return "unproven: no single-read proof"; }
 /// this ground dies with the node layer, and it dies by being recorded as "no
 /// node" rather than by going quiet.
 pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
+/// ADR 0025 R-G — THE GROUND FOR THE FIXPOINT ACCUMULATOR (`MAT_FPACC`).
+///
+/// It is a ground for a NODE, not for an absence, and that is the correction:
+/// 84 corpus landings carried `MG_CONTAINER` — the ground for the absence of a
+/// node — over a `Vec::new()` the plan itself declares. The mechanism named
+/// here is the one the reader has to know to price the buffer: a recursive SCC
+/// has no last row until the fixpoint closes, so its rows CANNOT be consumed
+/// where they stand, and the total is grown across epochs rather than drained
+/// once out of a stream. That is why this is not `MG_SECOND_USE` and not
+/// `MG_RESCAN`: neither of those says the buffer's SIZE is not known when it is
+/// created.
+pub fn MG_FIXPOINT() -> str   { return "recursion: the fixpoint grows a total"; }
+/// ADR 0025 R-G — THE GROUND FOR THE ONE-SHOT REL RESULT (`MAT_RELLAND`).
+///
+/// The other 45 landings that carried `MG_CONTAINER`, and the case where the
+/// inherited sentence was nearly true and therefore the harder one to see: the
+/// prelude DOES bind a container someone else returns, so "the producer hands
+/// back a container" reads correctly — until one asks who the producer is. It
+/// is `__wql_<q>_rel_<r>`, a fn THIS compilation emitted from the rel block in
+/// this same query, whose own landing (`__rout`) is already a named node
+/// (`rel result`) one frame down. So the buffer is not a source's, it is this
+/// plan's, built one layer down and bound here; and the ground has to say
+/// which, because the reader's question — is this buffer the plan's cost or the
+/// source's? — is answered oppositely by the two readings.
+///
+/// ⚠ THE SEAM IS MEASURABLE AND IS MEASURED: `rel result` fires 45 (the
+/// helper's `__rout`) and this head fires 45 (the caller's binding), 1:1 per
+/// fixture. `plan_ground_census_gate.sh` FACT O pins that identity ACROSS THE
+/// HELPER BOUNDARY — the only clause in the census that relates two frames —
+/// and the ADR records what it costs: D2 counts BINDINGS, so these rows are
+/// counted twice, once inside the helper and once outside. That is a MOVE of
+/// one container across a call, not two allocations, and D2 is left saying what
+/// it says rather than adjusted to flatter the total.
+pub fn MG_REL_RESULT() -> str { return "rel fn: the helper returns the folded body"; }
 /// ADR 0025 S3 — THE SECOND GROUND FOR THE ABSENCE OF A NODE, and the one this
 /// stage exists to make sayable. The query asked for `order by <c>`; the source
 /// declared that its rows already ARRIVE sorted by `<c>` (`order <rel> = <c>;`,
@@ -367,11 +464,26 @@ pub struct AccessPlan {
     /// once and still materializes it, so `once=true` and "a buffer is built"
     /// were simultaneously correct and read as contradictory.
     ///
-    /// The ground for the ABSENCE of a node. Only ever `MG_CONTAINER()` — the
-    /// producer hands back a container, so nothing is built and the prelude
-    /// names the buffer it was given — or `""`, which reads as "no node because
-    /// the rows stream". Written by `access_plan_decide_mode` alone; the grounds
-    /// for nodes that DO exist live on the nodes, in `nd_gnd`.
+    /// The ground for the ABSENCE of a node, and READ ONLY WHEN THERE IS NO
+    /// NODE. `MG_CONTAINER()` — the producer hands back a container, so nothing
+    /// is built and the prelude names the buffer it was given; `MG_ORDERED_
+    /// SOURCE`/`_REV` — the sort was not inserted because the order was already
+    /// true; or `""`, which reads as "no absence to ground": either the rows
+    /// stream, or a node was inserted after all and carries its own ground.
+    ///
+    /// ⚠ THE LAST CASE IS ADR 0025 R-G's AND IT IS THE REASON THIS FIELD IS
+    /// CLEARED RATHER THAN LEFT. `access_plan_decide_mode` answers `!offers`
+    /// with `MG_CONTAINER` for every source that hands back a container — and a
+    /// PARSE-SIDE rel offers no iterator either, so 129 of the 205 corpus
+    /// landings that carried this ground are `Vec`s the plan builds itself.
+    /// `plan_mark_rel_landings` re-heads those as nodes once the condensation
+    /// makes their kind knowable; `ap_land` clears this field at the same
+    /// instant, because a rel that carries BOTH a node and an absence-ground is
+    /// a plan saying two things about one buffer — and `access_plan_explain`
+    /// prints whichever it reads first.
+    ///
+    /// Written by `access_plan_decide_mode` and cleared by `ap_land`; the
+    /// grounds for nodes that DO exist live on the nodes, in `nd_gnd`.
     pub mgnd:   [str; 8],
     /// THE NODE LIST — one entry per materialization this plan performs, in the
     /// order the emitted code performs them (prelude first, then the build
@@ -540,6 +652,35 @@ pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: 
         return;
     }
     ap.push_node(k, ri, gnd, why);
+}
+
+/// LAND a prelude node over rel `ri` that NO SOURCE OFFER decides (ADR 0025
+/// R-G) — the fixpoint accumulator and the one-shot rel helper's result.
+///
+/// ⚠ IT IS NOT `ap_drain` AND MUST NOT BE FOLDED INTO IT, though both push one
+/// prelude node. `ap_drain` refuses a node when the source offers no iterator
+/// (`!ap_offers`), and that refusal is load-bearing: "a drain node over a rel
+/// whose producer offers no iterator" is the one combination `mgnd` cannot
+/// represent, and it is unrepresentable BECAUSE the drain arm only ever empties
+/// a stream. These two nodes are the opposite case — they exist precisely where
+/// there is no iterator to empty, because the container is built by emitted code
+/// (the SCC driver, the rel helper) rather than pulled out of a producer. A
+/// shared entry point would have to take the offer test as a parameter, i.e.
+/// would state the distinction as a boolean at every call site instead of in the
+/// two names.
+///
+/// ⚠ REFUSES TO OVERWRITE. A rel that already owns a prelude node was decided by
+/// the drain pass over a real offer, and this pass runs later; last-writer-wins
+/// here would let a re-heading silently retire a Drain. The corpus reaches this
+/// only from `MG_CONTAINER` rels (which own no node by construction — `ap_drain`
+/// refused them), so the guard is unreachable today and is written for the
+/// direction in which it would be wrong rather than for the one it is in.
+pub fn ap_land(ap: &mut AccessPlan, ri: i64, k: i32, gnd: str, why: str) {
+    if ri < 0i64 || ri >= 8i64 { return; }
+    if ap.prelude_ix(ri) >= 0i64 { return; }
+    ap.push_node(k, ri, gnd, why);
+    // The absence this rel used to record is now a presence. See `mgnd`.
+    ap.mgnd[ri] = "";
 }
 
 /// Decide MATERIALIZE vs STREAM for every rel: the source's OFFER and the plan's

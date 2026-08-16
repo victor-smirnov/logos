@@ -175,6 +175,29 @@ no_silence() {  # tag
             rel=$2; verb=$4;
             if (verb == "materialize") mat[rel]=1;
             else if (verb == "drain" || verb == "sort" || verb == "arrange") named[rel]=1;
+            # ADR 0025 R-G — the two prelude `Vec` landings got their own heads.
+            # Matched on the FULL head and not on the verb field: `fixpoint` and
+            # `rel` are also the first words of the fixpoint-plane and output-seam
+            # heads (`fixpoint frontier`, `rel result`), which name a DIFFERENT
+            # binding on a line whose subject is that binding, not a rel. Reading
+            # $4 here would let one of those discharge this clause for a rel that
+            # happens to share the name.
+            #
+            # ⚠ EXTENDED DELIBERATELY, NOT ON A RED. None of the four fixtures
+            # this gate compiles carries a recursive rel or a rel block, so both
+            # arms fire zero times here and the clause is green either way. It is
+            # extended anyway because the alternative — discovering it on the
+            # first fixture that does — reads as `materialize` with no node, i.e.
+            # the gate would report the R-G repair as the defect it removes.
+            #
+            # ⚠ NO APOSTROPHES IN THIS BLOCK. The awk program is a SINGLE-QUOTED
+            # shell string, so one `'"'"'` in a comment ends it and the shell
+            # reads the rest of the program as syntax. That is exactly what the
+            # first version of this comment did: `bash: line 192: syntax error
+            # near unexpected token else`, caught by running this gate by hand —
+            # it is tier_full and no L1/L2 level reaches it.
+            else if ($0 ~ / -> fixpoint accumulator on /) named[rel]=1;
+            else if ($0 ~ / -> rel result landing on /) named[rel]=1;
             else if (verb == "no") { if ($0 ~ /already a buffer/) named[rel]=1; }
         }
         /-> prepared plan/ { flushblk(); }

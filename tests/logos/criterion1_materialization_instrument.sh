@@ -36,6 +36,18 @@
 #     DENOMINATOR D2 = emitted collection bindings — `let [mut] <n>: (Vec |
 #                      Buffer | HashMap | HashSet | BTreeMap)<…>` in the user dumps.
 #
+# ⚠⚠ D2's BIND regex ALSO carries an UNDOCUMENTED-until-R-G NAME filter: the
+# binding must start with `_`. That is the D4/HashSet shape a THIRD time, on
+# the NAME axis instead of the TYPE axis: 2 compiler-emitted collections are
+# dropped by it TODAY — `let mut out: Vec<WritEdgeRow>` in `__gs_edges_Db` /
+# `__gs_edges_Cfg`, emitted by derive_graph_source.logos inside its quote and
+# filled row by row. They are in no D2, no ACC class, no worklist, no census
+# FACT (R-G audit finding #1, confirmed complete by the verifier: exactly 2
+# corpus-wide). The widening lands ALONE on its own commit per the R-C1 rule
+# above; until then every printed percentage is a share of a population that
+# excludes these 2, and §7 of the criteria doc counts them in its "79 unnamed"
+# rider.
+#
 # ⚠⚠ `HashSet` WAS MISSING FROM THAT LIST UNTIL R-C1, AND THE MISS WAS 319
 # BINDINGS — A WHOLE CONTAINER KIND, counted by no instrument in this tree: not
 # D2, not any ACC class, not any census FACT. They are the fixpoint plane's
@@ -214,6 +226,19 @@ MAT = {
     'representative row': 'the group carries a base-row ordinal to re-bind',
     'drain':              'a stream landed because the plan reads it twice',
     'sort':               'the order is imposed rather than carried',
+    # ── ADR 0025 R-G — THE TWO `Vec` PRELUDE LANDINGS THAT WERE NARRATED AS
+    # ABSENCES. R-F left 205 `__rel_*` `Vec` landings unowned and measured their
+    # decomposition: 84 fixpoint accumulators, 45 one-shot rel results, 76 true
+    # container producers. The first two are collections THIS COMPILER'S CODE
+    # builds — `Vec::<R>::new()` grown by the semi-naïve driver, and the rel
+    # helper's returned result — and the plan said `no materialization on
+    # already a buffer` about both, which is not a missing name but a FALSE one.
+    # Fire counts measured at G2 on the emitter-only tree, before either head
+    # was classified here: 84 and 45.
+    'fixpoint accumulator':
+        "`__rfa_<r>` — a recursive SCC's total, grown until the fixpoint closes",
+    'rel result landing':
+        "`__rls_<r>` — the rel helper's returned container, bound in the prelude",
     # ── ADR 0025 R-B2 — THE OUTPUT SEAM, FIVE-VALUED ─────────────────────
     # The query output landing. It was the largest UNOWNED class in the
     # artifact channel below (650 `__out` bindings) and had no node at all;
@@ -505,15 +530,80 @@ ACC = {
     # holding a second identity the way `__rel_*` did.
     '__rdb':    (('drain',), 'drain (the read-twice stream landed in a Buffer)'),
     '__rsb':    (('sort',),  'sort (the imposed order landed in a Buffer, then permuted)'),
-    # ⚠ WHAT REMAINS AFTER R-F, AND IT IS A DIFFERENT DEFECT FROM THE ONE ABOVE.
-    # `__rel_*` is now 205 `Vec` landings with ZERO owned bindings among them —
-    # the ambiguity is gone, the OWNERLESSNESS is not. They are the SCC
-    # accumulator, the rel-fn one-shot result and the native container binding
-    # (the three `Vec` arms of `emit_prelude_*`), and the plan narrates each of
-    # them as an ABSENCE (`-> no materialization`), which is why no head can be
-    # claimed for them here yet. Naming them is the next stage's; it is a
-    # TRACE-channel change, not a rename, and this table must not anticipate it
-    # with a head that has not fired.
+    # ── ADR 0025 R-G — THE FIXPOINT ACCUMULATOR, THE FIRST OF THE 205 `Vec`
+    # LANDINGS R-F LEFT UNOWNED, AND THE ONE WHOSE GROUND WAS FALSE.
+    #
+    # R-F's note below records the remaining 205 as "UNOWNED, a weaker and
+    # different claim" than the ambiguity it had just removed. The R-F verifier
+    # then measured what they are, and 84 of them are not merely unowned: the
+    # plan narrated a `let mut …: Vec<R> = Vec::<R>::new()` that the semi-naïve
+    # driver fills as `no materialization on already a buffer — the producer
+    # hands back a container, which IS a buffer, nothing is built`. There is no
+    # producer, nothing was handed over, and the plan is what declares the Vec.
+    #
+    # ⚠ THE HEAD HAD TO BE DECIDED SOMEWHERE ELSE THAN THE GROUND WAS. The false
+    # ground is written by `access_plan_decide_mode`'s `!offers` arm, which runs
+    # three passes before `compute_rel_scc` — so at that site "recursive" does
+    # not exist and the 84 cannot be told from the 45 one-shot rel results.
+    # `plan_mark_rel_landings` re-heads them after the condensation, which is
+    # the first point where the kind is known; `push_land_name` spells the
+    # binding from the node, so this key exists at all.
+    #
+    # ⚠ KEY MEASURED CLEAN: the bare name `__rfa` is emitted zero times, every
+    # binding is `__rfa_<relname>`, and `plan_ground_census_gate.sh` FACT O pins
+    # `#(fixpoint accumulator lines) == #(__rfa_* landings)` per fixture and in
+    # total — with a RHS-SHAPE clause beside it, because head and name are both
+    # derived from `rel_node` and a mis-route would otherwise move them
+    # together (the R-C2 P2 probe's shape, re-run for this stage).
+    '__rfa':    (('fixpoint accumulator',),
+                 "fixpoint accumulator (a recursive SCC's grown total)"),
+    # ── ADR 0025 R-G ARM B — THE ONE-SHOT REL RESULT, AND THE ROW THAT IS
+    # COUNTED TWICE ON PURPOSE.
+    #
+    # 45 landings, 1:1 with `__rout` — the same rows, bound inside the rel
+    # helper (`rel result`, credited above) and again outside it where the
+    # prelude takes the helper's return value. D2 counts BINDINGS, so both are
+    # in it, and this table now owns both. That is a MOVE of one container
+    # across a call and not two allocations, and it is recorded here rather than
+    # netted out of D2: adjusting the denominator to make a seam disappear is
+    # how a population stops being re-derivable (the `HashSet` miss in the
+    # header, from the other direction).
+    #
+    # ⚠ THE INHERITED SENTENCE WAS THE NEARLY-TRUE ONE, which is why this arm
+    # was the harder of the two to see: "the producer hands back a container"
+    # describes the emitted line correctly and names the wrong producer. The
+    # producer is a fn this same compilation emitted from the rel block, so the
+    # buffer is the plan's, one frame down — the opposite answer to the question
+    # a reader asks the ground (is this the plan's cost or the source's?).
+    #
+    # ⚠ KEY MEASURED CLEAN: bare `__rls` is emitted zero times, every binding is
+    # `__rls_<relname>`, and FACT O pins `#(rel result landing) == #(__rls_*
+    # shaped landings)` per fixture, with the cross-frame identity
+    # `rel result landing == rel result` (45 == 45) beside it.
+    '__rls':    (('rel result landing',),
+                 "rel result landing (the helper's returned container, bound outside it)"),
+    # ⚠ WHAT REMAINS AFTER R-G, AND IT IS A NAMED ADMISSION RATHER THAN A GAP.
+    # R-F left 205 `__rel_*` `Vec` landings unowned and said naming them was the
+    # next stage's. R-G measured what they were and split them three ways: 84
+    # fixpoint accumulators and 45 one-shot rel results, both of which are
+    # collections THIS COMPILER BUILDS and both of which carried a FALSE ground
+    # (`already a buffer`) — they have heads and keys above; and 76 that are
+    # what the ground always said, a NATIVE source whose producer returns a
+    # container the query compiler did not build.
+    #
+    # THOSE 76 KEEP `__rel_<r>` AND STAY IN THE WORKLIST, DELIBERATELY. A head
+    # here would be a claim that the plan performed a materialization, and it
+    # did not: the prelude binds a value the source handed over. The honest
+    # reading of criterion 1 over this tree is therefore "MET WITH NAMED
+    # ADMISSIONS" — 3877 of 3954 owned (98.05%), the remainder being these 76
+    # plus the one `__cv` refused below, each with a ground that is TRUE.
+    #
+    # ⚠ THE ADMISSION IS FALSIFIABLE, which is what separates it from the
+    # unowned rows it replaces: it rests on every remaining `__rel_<r>` being a
+    # native container producer's binding. `plan_ground_census_gate.sh` FACT O
+    # pins that from the other side — a `Vec` landing spelled `__rel_<r>` whose
+    # RHS is `Vec::<…>::new()` or a `__wql_…_rel_…` call is RED (0 and 0), so a
+    # plan arm that quietly rejoined this class cannot hide inside the 76.
 }
 # ── ADR 0025 R-E — `__cv`, 1 BINDING, REFUSED WITH ITS GROUND ───────────────
 # After the R-E stages the worklist is 218: `__rel_*` 217 (refused, see the note
