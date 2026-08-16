@@ -3026,8 +3026,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # `*const Self`-receiver-on-a-DST call that lowered to nothing — adds the last
 # one. ALL moves by one more than NOIMPORTED because the pre-existing aggregate
 # gate landed inside this same arc. All `tier_full`, so tier_commit does not move.
-REGISTRY-ALL         7258
-REGISTRY-NOIMPORTED  3574
+# +1 / +1 / +0 (2026-08-16): tests/logos/pass/if_expr_branch_local_drop.logos —
+# the regression test for a `let` inside an if-as-EXPRESSION branch whose drop
+# was emitted after the whole `if`, so the untaken path freed a stale slot.
+REGISTRY-ALL         7259
+REGISTRY-NOIMPORTED  3575
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

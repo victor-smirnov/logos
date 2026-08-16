@@ -15541,6 +15541,19 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         // a trailing TAIL_EXPR is the block's value, not an implicit return.
         bool saved_tail = tail_as_return_;
         tail_as_return_ = false;
+        // ⚠ THE BRANCH IS ITS OWN SCOPE, and it did not used to be. Without a
+        // frame here, a `let` inside an if-as-expression branch was define()d
+        // into the ENCLOSING function scope, so the enclosing `lower_block`'s
+        // scope-end `collect_drops()` emitted its destructor AFTER the whole
+        // `if` — on BOTH paths. On the path where the branch never ran, that
+        // dropped a slot holding whatever was there before: `free(): double
+        // free detected in tcache 2` when a previous call had left its freed
+        // pointer, or an invalid free of a .text address when the leftover was
+        // a code pointer (the container factory's bool-column abort, whose
+        // `emit_cow_map` has exactly this shape — a String declared in the
+        // non-bool arm of `let vconv = if str_eq(vty,"bool") {…} else {…}`).
+        // Silent: compile exit 0, wrong program.
+        push_scope();
         lir::LExprPtr result = nullptr;
         // K10-co-04 follow-up: same divergent-tail-as-Never logic as
         // lower_block_expr — a tail `panic(...)` makes the branch type
@@ -15589,11 +15602,36 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             }
         }
         tail_as_return_ = saved_tail;
-        if (!result && divergent_t)
-            return builder().block_expr(lir_mirror_block(*cur_prog_, block), nullptr, divergent_t);
-        if (!result) return builder().block_expr(lir_mirror_block(*cur_prog_, block), nullptr, void_t());
+        // The branch's own locals die HERE, at the branch's end — not at the
+        // enclosing scope's end. The value is bound FIRST (it may read them),
+        // then the drops run, then the binding is the branch's result: the same
+        // order `lower_expr_temp_scoped` uses for a temp scope. When the branch
+        // declares nothing droppable this is byte-identical to the old shape.
+        auto finish = [&](lir::LExprPtr res, TypeRef rt) -> lir::LExprPtr {
+            auto drops = collect_drops();
+            if (drops.empty()) {
+                pop_scope();
+                return builder().block_expr(lir_mirror_block(*cur_prog_, block),
+                                            std::move(res), rt);
+            }
+            lir::LExprPtr out = nullptr;
+            if (res) {
+                std::string vn = std::format("__armtmp_{}", destruct_counter_++);
+                lir::SLet vl;
+                vl.name = vn; vl.type = rt; vl.is_mut = false;
+                vl.value = std::move(res);
+                block.push_back(make_stmt_emit(node_line_, std::move(vl)));
+                out = builder().var_ref(vn, rt);
+            }
+            for (auto& d : drops) block.push_back(std::move(d));
+            pop_scope();
+            return builder().block_expr(lir_mirror_block(*cur_prog_, block),
+                                        std::move(out), rt);
+        };
+        if (!result && divergent_t) return finish(nullptr, divergent_t);
+        if (!result)               return finish(nullptr, void_t());
         TypeRef rt = expr_type(result);
-        return builder().block_expr(lir_mirror_block(*cur_prog_, block), std::move(result), rt);
+        return finish(std::move(result), rt);
     };
 
     if (node.has_key(la::THEN)) {

@@ -1,0 +1,61 @@
+// A `let` inside an if-as-EXPRESSION branch must die at the BRANCH's end.
+//
+// It used to die at the enclosing scope's end instead: `lower_block_last_expr`
+// opened no scope, so the binding was define()d into the enclosing FUNCTION
+// frame and `lower_block`'s scope-end drops emitted its destructor AFTER the
+// whole `if` — on BOTH paths. The path where the branch never ran then dropped
+// whatever the slot happened to hold.
+//
+// THE ORDER OF THE TWO CALLS IS THE TEST, and one call alone proves nothing:
+// `pick(false)` initializes the slot and frees it; `pick(true)` then drops the
+// SAME stale slot — `free(): double free detected in tcache 2`. Reverse the
+// order, or call either alone, and the leftover is a benign zero.
+//
+// Found under the container factory, where the shape is
+// `let vconv = if str_eq(vty,"bool") { … } else { let mut s = String::new(); … }`:
+// for a bool value column the String arm never runs, the leftover in the slot
+// was a CODE address, and logosc aborted in `munmap_chunk(): invalid pointer`
+// with no diagnostic at all.
+package if_expr_branch_local_drop;
+
+use logos.mem.string;
+
+fn pick(c: bool) -> i64 {
+    let v: i64 = if c {
+        7i64
+    } else {
+        let mut s: String = String::new();
+        s.push_str("abc");
+        s.len()
+    };
+    return v;
+}
+
+// The same shape with the branch value READING the local after the drop point:
+// the branch's value must be bound BEFORE its locals die, or this returns
+// garbage rather than crashing.
+fn tail_reads_local(c: bool) -> i64 {
+    let n: i64 = if c {
+        let mut t: String = String::new();
+        t.push_str("wxyz");
+        t.len() * 10i64
+    } else {
+        1i64
+    };
+    return n;
+}
+
+fn main() -> i32 {
+    // else first: it allocates and frees, leaving a stale pointer in the slot
+    if pick(false) != 3i64 { return 1i32; }
+    // then: the untaken branch's local must NOT be dropped here
+    if pick(true) != 7i64 { return 2i32; }
+    // both orders, both paths, several times over the same slots
+    if pick(true) != 7i64 { return 3i32; }
+    if pick(false) != 3i64 { return 4i32; }
+
+    if tail_reads_local(false) != 1i64 { return 5i32; }
+    if tail_reads_local(true) != 40i64 { return 6i32; }
+    if tail_reads_local(false) != 1i64 { return 7i32; }
+    return 0i32;
+}

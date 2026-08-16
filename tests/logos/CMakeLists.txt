@@ -3012,63 +3012,15 @@ if (TARGET lforge)
         LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
     )
 
-    # KNOWN-OPEN COMPILER DEFECT, carried as WILL_FAIL so ctest reports an XPASS
-    # the day it is fixed — the marker cannot outlive the defect.
-    #
-    #   • gen_generic_distinct — a `bool` VALUE column aborts the container
-    #     factory. The test's name is incidental: neither genericity nor two
-    #     distinct configs is required. ONE non-generic
-    #     `container M { kind ordered_map; entry { key: u64, val: bool } … }`
-    #     plus a `family_id()` demand aborts logosc with no diagnostic
-    #     (`munmap_chunk(): invalid pointer`); `kind vector; entry { elem: bool }`
-    #     SIGSEGVs on the same defect. `u8`/`i8`/`i32`/`f64`/`char` values all
-    #     compile, and `key: bool` is refused CLEANLY, so the axis is a bool
-    #     VALUE column and nothing wider. It dies inside the post-mono factory
-    #     drain: the decl-site emission is byte-identical to a working type's
-    #     apart from the `<type:bool>` slot.
-    #
-    #     ⚠ WHAT IT IS NOT, so the next reader does not re-walk it. Five
-    #     hypotheses were tested and refuted: main-thread stack exhaustion
-    #     (`ulimit -s 262144` still aborts); unbounded recursion (a 32x stack
-    #     does not change the time to abort); the documented arena-move hazard
-    #     (+64 MB of pre-reserve still aborts); the `parse_expr` argument being a
-    #     static literal rather than a heap String (building it on the heap still
-    #     aborts); and the `vconv` bool arm itself.
-    #
-    #     THAT LAST ONE WAS BRIEFLY RECORDED AS THE CAUSE (33320fdc) AND IS
-    #     WRONG. Disabling the bool arms did stop the crash — but only because
-    #     the resulting `as bool` is a TYPE ERROR that aborts compilation before
-    #     the factory ever runs. Substituting a well-typed non-`!=` expression
-    #     (`parse_expr("true")`) keeps the program compiling that far, and the
-    #     crash comes straight back. A bisection over source arms is worthless
-    #     when one of the arms changes WHERE compilation stops.
-    #
-    #     WHERE IT SURFACES, narrowed by a phase tracer through the factory
-    #     (raw `write(2)` — canon is lcm and must not import logos.std.io):
-    #     `container_item_run`'s emitters all COMPLETE for a bool value column —
-    #     leaf, branch, bt_leaf_impl, bt_branch_impl, tree, and every one of the
-    #     ten emissions inside `emit_cow_map` including the last
-    #     (`impl CtrLeafFamily`). The final probe at the end of emit_cow_map's
-    #     BODY prints; the one after the call in `container_item_run` does not.
-    #     So the abort surfaces in emit_cow_map's EPILOGUE — the frame's own
-    #     drops — not in anything it emits.
-    #
-    #     AND THE SOURCE-LEVEL BISECTION IS UNRELIABLE THERE, which is the real
-    #     lesson: the failure flips between SIGABRT and SIGSEGV when the frame is
-    #     merely instrumented, and edits that change the emitted bytes can make
-    #     it disappear without fixing anything. Treat any "this arm caused it"
-    #     conclusion from editing the factory as unproven unless the crashing
-    #     stage is shown to still be REACHED.
-    #
-    #     Also worth knowing: valgrind attributes the invalid free to a
-    #     `std::vector` destructor in logos_emit_item_blob_subst_in's
-    #     `subst_walk`, and that attribution is UNRELIABLE — the JIT frames
-    #     beneath are unwindable garbage. Instrumenting that vector with a
-    #     destructor sentry on every exit path showed it intact every time.
-    # (gendrop_probe was a second entry; its defect — a `*const Self` receiver
-    # on a #[self_describing] DST lowering to nothing — is FIXED, and its
-    # regression test is tests/logos/pass/dst_self_ptr_receiver.logos.)
-    set(_conuco_known_broken gen_generic_distinct)
+    # No known-open defects: the roster is EMPTY, and that is a state the shape
+    # must support without pretending. Both entries it once carried are fixed —
+    # gendrop_probe by b959f873 (a `*const Self` receiver on a #[self_describing]
+    # DST lowered to nothing) and gen_generic_distinct by the if-expression
+    # branch-scope fix (a `let` in an if-as-expression branch had its drop
+    # emitted after the whole `if`, so the untaken path freed a stale slot).
+    # Add a name here ONLY with its diagnosis, and delete it the day it passes —
+    # WILL_FAIL makes ctest report the XPASS either way.
+    set(_conuco_known_broken)
 
     foreach(_ct IN LISTS _conuco_tests)
         string(REGEX REPLACE "\\.logos$" "" _stem "${_ct}")
