@@ -1054,6 +1054,40 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
         if (tv.kind() == LogosType::Kind::Struct ||
             tv.kind() == LogosType::Kind::ZonedStruct)
             return {ptr, mlir_struct_key(t)};
+        // A DstRef NAMES A STRUCT, and the strip above cannot reach it: `&Foo` /
+        // `*const Foo` over a custom-DST struct is Kind::DstRef, not Ptr/Ref, and
+        // a DstRef carries its identity in `struct_name`/`pkg_name` rather than
+        // in a pointee. So it fell past this arm into the "not a struct" negative
+        // below — which returns null SILENTLY, by design, for receivers that are
+        // genuinely not structs. The method call then lowered to nothing.
+        //
+        // MEASURED: `(*p).m()` where `m` takes `self: *const Foo` and `Foo` is
+        // `#[self_describing]`. Sema auto-refs the receiver, so the call arrives
+        // with a DstRef-typed receiver and vanished here, taking its enclosing
+        // `return` with it (conuco/memoria gendrop_probe; caught only because
+        // mlir_gen's own return-dropped guard fired). The `&self` spelling of
+        // the same method is unaffected: it reaches mlir_gen as a bare Deref
+        // place whose type is the STRUCT, and takes the arm above.
+        //
+        // ONLY THE THIN (self-describing) FORM IS ANSWERED HERE. For such a DST
+        // every reference form is the header pointer itself, so `ptr` already IS
+        // the struct base. A plain `[T]`-tail DstRef is an 8B pointer to a
+        // 16-byte {data,len} PAIR, where `ptr` addresses the pair and not the
+        // object; that shape is left to the report below, so it is a red compile
+        // rather than a second silent vanishing.
+        if (tv.kind() == LogosType::Kind::DstRef &&
+            dstref_pointee_self_describing(t)) {
+            auto targs = tv.type_args();
+            std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+            std::string dst_pkg(tv.pkg_name());
+            std::string concrete = concrete_struct_name_raw(
+                std::string(tv.struct_name()), targ_vec, dst_pkg);
+            for (const std::string& nm :
+                 {qualify_pkg(tv.pkg_name(), concrete), concrete,
+                  std::string(tv.struct_name())}) {
+                if (!nm.empty() && struct_types_.count(nm)) return {ptr, nm};
+            }
+        }
     }
     // A receiver whose TYPE says plainly "not a struct" (slice/str, scalar,
     // fn-value, …) is a correct NEGATIVE answer, not a failure: callers probe

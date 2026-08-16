@@ -1,0 +1,58 @@
+// A `*const Self` receiver on a `#[self_describing]` DST — the call that
+// VANISHED.
+//
+// `(*p).m()` where `m` takes `self: *const Foo`: sema auto-refs the receiver, so
+// mlir_gen sees an AddrOfTemp whose type is Kind::DstRef. `gen_recv_struct_inner`
+// stripped only Ptr/Ref/MutRef looking for a struct, so a DstRef — which carries
+// its struct identity in `struct_name`/`pkg_name` rather than in a pointee — fell
+// through to the "receiver is genuinely not a struct" negative, which returns null
+// SILENTLY by design. The whole method call lowered to nothing and took its
+// enclosing `return` with it. Only mlir_gen's own return-dropped guard turned that
+// into a red compile instead of a function falling off its end.
+//
+// THE CONTROL IS THE POINT: `ref_n` is the same method with a `&self` receiver,
+// and it was never affected — it reaches mlir_gen as a bare Deref place whose
+// type is the STRUCT. Both spellings are asserted to return the same value, so
+// this test fails if the raw-pointer receiver ever again lowers to nothing, and
+// also if it lowers to something WRONG (a vanished call and a miscompiled one
+// both "compile").
+//
+// Found via conuco/memoria's gendrop_probe, which is where the shape occurs for
+// real: a generic `impl<K: ?Sized> SelfDescribing for GLeaf<K>` whose `dst_len`
+// calls `dst_len` on a `#[self_describing]` field. Neither the genericity nor
+// the trait was required — this is the whole defect.
+package dst_self_ptr_receiver;
+
+use logos.lang.marker;
+use logos.lang.mem;
+
+#[self_describing]
+pub struct Hdr { n: i64, tail: [u8] }
+
+impl SelfDescribing for Hdr {
+    fn dst_len(self: *const Hdr) -> i64 { return unsafe { (*self).n }; }
+}
+
+impl Hdr {
+    // the shape that vanished
+    pub fn raw_n(self: *const Hdr) -> i64 { return unsafe { (*self).n * 10i64 }; }
+    // the control: same body, `&self` receiver
+    pub fn ref_n(self: &Hdr) -> i64 { return self.n * 10i64; }
+}
+
+pub fn via_raw(p: *const Hdr) -> i64 { return unsafe { (*p).raw_n() }; }
+pub fn via_ref(p: *const Hdr) -> i64 { return unsafe { (*p).ref_n() }; }
+
+fn main() -> i32 {
+    unsafe {
+        let m: *mut u8 = alloc(64i64);
+        let h: *mut Hdr = m as *mut Hdr;
+        (*h).n = 7i64;
+        if via_raw(h as *const Hdr) != 70i64 { dealloc(m); return 1i32; }
+        if via_ref(h as *const Hdr) != 70i64 { dealloc(m); return 2i32; }
+        // the two spellings must agree, not merely each be non-zero
+        if via_raw(h as *const Hdr) != via_ref(h as *const Hdr) { dealloc(m); return 3i32; }
+        dealloc(m);
+    }
+    return 0i32;
+}

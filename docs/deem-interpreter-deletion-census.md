@@ -3019,8 +3019,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # gate of any kind — its numbers lived in prose and were re-typed by each
 # stage, and three stages in a row (R-A, R-E, R-F) found a defect in one of
 # those hand-run greps. `tier_full`, so tier_commit does not move.
-REGISTRY-ALL         7187
-REGISTRY-NOIMPORTED  3504
+# +71 / +70 / +0 (2026-08-16, the conuco arc): the conuco/memoria package moved
+# from ONE aggregate gate to 67 per-test ctest entries plus a build fixture and
+# a population witness (net +69 registrations: -1 aggregate, +69 new), and
+# tests/logos/pass/dst_self_ptr_receiver.logos — the regression test for the
+# `*const Self`-receiver-on-a-DST call that lowered to nothing — adds the last
+# one. ALL moves by one more than NOIMPORTED because the pre-existing aggregate
+# gate landed inside this same arc. All `tier_full`, so tier_commit does not move.
+REGISTRY-ALL         7258
+REGISTRY-NOIMPORTED  3574
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

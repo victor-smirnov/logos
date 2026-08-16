@@ -3018,9 +3018,10 @@ if (TARGET lforge)
     #   • gen_generic_distinct — a `bool` VALUE column aborts the container
     #     factory (memory corruption in logos_emit_item_blob_subst_in's
     #     subst_walk); the name's "generic"/"distinct" are both incidental.
-    #   • gendrop_probe — `return unsafe { … }` inside an `impl<K: ?Sized>`
-    #     lowers to no value (mlir_gen self-diagnosed malfunction).
-    set(_conuco_known_broken gen_generic_distinct gendrop_probe)
+    # (gendrop_probe was the second entry; its defect — a `*const Self` receiver
+    # on a #[self_describing] DST lowering to nothing — is FIXED, and its
+    # regression test is tests/logos/pass/dst_self_ptr_receiver.logos.)
+    set(_conuco_known_broken gen_generic_distinct)
 
     foreach(_ct IN LISTS _conuco_tests)
         string(REGEX REPLACE "\\.logos$" "" _stem "${_ct}")
