@@ -3043,6 +3043,23 @@ if (TARGET lforge)
     #     crash comes straight back. A bisection over source arms is worthless
     #     when one of the arms changes WHERE compilation stops.
     #
+    #     WHERE IT SURFACES, narrowed by a phase tracer through the factory
+    #     (raw `write(2)` — canon is lcm and must not import logos.std.io):
+    #     `container_item_run`'s emitters all COMPLETE for a bool value column —
+    #     leaf, branch, bt_leaf_impl, bt_branch_impl, tree, and every one of the
+    #     ten emissions inside `emit_cow_map` including the last
+    #     (`impl CtrLeafFamily`). The final probe at the end of emit_cow_map's
+    #     BODY prints; the one after the call in `container_item_run` does not.
+    #     So the abort surfaces in emit_cow_map's EPILOGUE — the frame's own
+    #     drops — not in anything it emits.
+    #
+    #     AND THE SOURCE-LEVEL BISECTION IS UNRELIABLE THERE, which is the real
+    #     lesson: the failure flips between SIGABRT and SIGSEGV when the frame is
+    #     merely instrumented, and edits that change the emitted bytes can make
+    #     it disappear without fixing anything. Treat any "this arm caused it"
+    #     conclusion from editing the factory as unproven unless the crashing
+    #     stage is shown to still be REACHED.
+    #
     #     Also worth knowing: valgrind attributes the invalid free to a
     #     `std::vector` destructor in logos_emit_item_blob_subst_in's
     #     `subst_walk`, and that attribution is UNRELIABLE — the JIT frames
