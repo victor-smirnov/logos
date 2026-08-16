@@ -2961,31 +2961,83 @@ if (TARGET lforge)
         LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
-    # THE CONUCO GATE — the one lforge package in this tree that nothing ran.
+    # ── THE CONUCO SUITE — the one lforge package in this tree that nothing ran
     #
     # Every test above builds a fixture in a tmpdir to exercise lforge ITSELF.
-    # This one runs the real `conuco/memoria` package, because that package is
-    # the only party that exercises the container factory, the store plane and
-    # the positional arm of Deem end-to-end — and it had rotted to 30/67 broken
+    # These run the real `conuco/memoria` package, because that package is the
+    # only party exercising the container factory, the store plane and the
+    # positional arm of Deem end-to-end — and it had rotted to 30/67 broken
     # during the D1 borrow-checker arc with the in-tree L4 green throughout
-    # (2026-08-16). A gate the compiler's own suite cannot see is the only kind
-    # that catches that.
+    # (2026-08-16, 47e34581).
     #
-    # TIMEOUT from measurement, not from habit: 134 s for a COLD run (clean →
-    # build → 67 tests) on the 12-core box, 18 s warm. 900 s leaves ~7× headroom
-    # for a loaded parallel ctest, where this test's own lforge parallelism is
-    # competing with every other job.
+    # ONE ENTRY PER TEST, not one aggregate. The aggregate closed the hole but
+    # reported a single verdict over 67 tests, and lforge's borrow diagnostics
+    # name no file — so a failure said neither which test nor which line. Here
+    # each test is a ctest name, runs in the ctest pool, and fails by itself.
+    #
+    # THE SHAPE: a setup fixture builds the package and compiles the suite (one
+    # lforge pass — it has no compile-only mode and no name filter), then each
+    # entry runs its prebuilt binary. A population test guards the one hole this
+    # shape opens: the entries are globbed AT CONFIGURE TIME, so a test added
+    # after the last cmake would be on disk and not in ctest.
+    #
+    # TIMEOUT from measurement, not habit: the fixture is 134 s COLD (clean →
+    # build → compile+run 67) and 18 s warm on the 12-core box; 900 s leaves ~7x
+    # for a loaded parallel ctest. The per-test entries only run a binary.
     add_test(
-        NAME logos_26_lforge_conuco_memoria
-        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_memoria.sh
+        NAME logos_26_conuco_build
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_setup.sh
                 ${CMAKE_BINARY_DIR}/bin/lforge
                 $<TARGET_FILE:logosc>
                 ${LOGOS_BUILD_LIB_DIR}
     )
-    set_tests_properties(logos_26_lforge_conuco_memoria PROPERTIES
+    set_tests_properties(logos_26_conuco_build PROPERTIES
         TIMEOUT 900
-        LABELS  "logos;lforge;conuco;suite_lforge;tier_full"
+        FIXTURES_SETUP conuco_memoria
+        LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
     )
+
+    file(GLOB _conuco_tests
+         RELATIVE ${CMAKE_SOURCE_DIR}/conuco/memoria/tests
+         ${CMAKE_SOURCE_DIR}/conuco/memoria/tests/*.logos)
+    list(LENGTH _conuco_tests _conuco_count)
+
+    add_test(
+        NAME logos_26_conuco_population
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_population.sh
+                ${_conuco_count}
+    )
+    set_tests_properties(logos_26_conuco_population PROPERTIES
+        TIMEOUT 60
+        LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
+    )
+
+    # KNOWN-OPEN COMPILER DEFECTS, carried as WILL_FAIL so ctest reports an
+    # XPASS the day either is fixed — the marker cannot outlive the defect.
+    # Both are diagnosed in the commits that filed them (47e34581, 33320fdc):
+    #   • gen_generic_distinct — a `bool` VALUE column aborts the container
+    #     factory (memory corruption in logos_emit_item_blob_subst_in's
+    #     subst_walk); the name's "generic"/"distinct" are both incidental.
+    #   • gendrop_probe — `return unsafe { … }` inside an `impl<K: ?Sized>`
+    #     lowers to no value (mlir_gen self-diagnosed malfunction).
+    set(_conuco_known_broken gen_generic_distinct gendrop_probe)
+
+    foreach(_ct IN LISTS _conuco_tests)
+        string(REGEX REPLACE "\\.logos$" "" _stem "${_ct}")
+        add_test(
+            NAME logos_26_conuco_${_stem}
+            COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_run.sh ${_stem}
+                    $<TARGET_FILE:logosc>
+        )
+        set_tests_properties(logos_26_conuco_${_stem} PROPERTIES
+            TIMEOUT 120
+            FIXTURES_REQUIRED conuco_memoria
+            LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
+        )
+        if (${_stem} IN_LIST _conuco_known_broken)
+            set_tests_properties(logos_26_conuco_${_stem} PROPERTIES WILL_FAIL TRUE)
+        endif()
+    endforeach()
 endif()
 
 # ── PLAN INDEPENDENCE, CORPUS-WIDE (ADR 0024 S4r) ────────────────────────────
