@@ -278,6 +278,99 @@ half of this today.
 
 ---
 
+## F7 — a base-only predicate is evaluated per MATCHED PAIR, not per base row
+
+The join's `where e.val > 900` names a column of the BASE row and nothing else.
+The emitted probe puts it in the innermost loop:
+
+```logos
+while (__p1 < __bv1.len()) {                    // once per MATCH
+    let __ri1: i64 = __bv1.get(__p1);
+    let q: &(u64, u64) = (&((__rel_b_sl))[__ri1]);
+    if ((((e).1 > 900u64))) {                   // depends only on `e`, the base row
+        __out.push(((e).0, (e).1, (q).1));
+    }
+    __p1 = (__p1 + 1i64);
+}
+```
+
+Two costs, and the second is the larger one:
+
+* the predicate is re-evaluated once per matching row. The showcase's join is
+  1:1 so this is invisible; at 1:N it is N evaluations of a condition whose
+  inputs did not change;
+* it runs AFTER the probe. A base row that fails the predicate has already paid
+  a hash lookup and a `Vec` walk. Hoisting the base-only conjuncts above
+  `__mp1.get(…)` skips both for every rejected row.
+
+The plan already knows which side each column belongs to — `plan_narrow_rel`
+refuses to narrow on a column that belongs to another rel, so the ownership test
+exists. What is missing is using it to PLACE the predicate rather than only to
+reject a narrowing.
+
+Note the interaction with F1: the join's `where` is a single conjunct here. With
+`&&` it would not be split, so a mixed predicate (`e.val > 900 && q.val < X`)
+would neither push down nor hoist — the two rows compound.
+
+---
+
+## F8 — the build side is indexed as a multimap even where the source declares a map
+
+The hash build maps a key to a VECTOR of row indices:
+
+```logos
+let mut __hm1: HashMap<u64, Vec<i64>> = hashmap_new::<u64, Vec<i64>>();
+…
+let __vp1: *mut Vec<i64> = __mp1.get_or_insert(__k1, Vec::<i64>::new());
+(&mut (*__vp1)).push(__b1);
+```
+
+and the probe walks that vector. For a build side whose keys are UNIQUE every
+vector has length one, so the cost is one heap allocation per distinct key (250
+in the showcase), one indirection per probe, and a loop that always runs once.
+
+Uniqueness is not a guess here. `OrderedMapSource` is documented as "one row per
+entry, in key order", and `BTreeMap`'s keys are unique by construction — the
+source's own declaration entails it. The plane has no way to SAY it: there is no
+`unique entry.key`-shaped declaration beside `rel`, `op`, `size` and `order`, so
+the emitter cannot specialise `Vec<i64>` to `i64` and drop the inner loop.
+
+This is the same shape as F6 — a capability the source has and cannot state —
+and the two should probably be answered together, since both add a fact to the
+declaration vocabulary rather than a rule to the planner.
+
+---
+
+## F9 — there is no merge join, and the strategy is chosen by key capability alone
+
+The strategy set is `JS_NONE / JS_HASH / JS_TREE / JS_LOOP` (`join_sel.logos`),
+and the cascade picks:
+
+```logos
+let caps: KeyCaps = join_key_caps_named(k.ktn);
+if caps.hash && !join_force_tree() {
+    return StepSel { strat: JS_HASH(), …,
+                     why: "the key type is hashable — build once, probe per row" };
+```
+
+The ground is a property of the KEY TYPE. Whether the two sources are ordered by
+the join key is not consulted, and a merge is not in the set to be consulted
+about.
+
+In the showcase both sides ARE ordered by the join key: the generated family
+declares `order entry = key`, and the BTreeMap is ordered in fact (F6 — it does
+not say so). A merge would need no `btree_rows` materialisation, no hash table,
+no 250 `Vec` allocations and no probe indirection — two synchronised walks.
+
+**AND THIS IS WHERE F2 AND F3 MEET.** Choosing a build side is exactly the
+decision `__sz_c` and `__sz_b` are the inputs to, and choosing between a merge
+and a hash is what `EnrichPlan.swap` / `base_n` / `step_n` are shaped to carry.
+The sizes are computed and discarded; the plan is passed and unread; the side is
+fixed by the order the query names its sources in. Here that happens to be right
+(250 < 500) and it is not measured. Three rows, one missing decision.
+
+---
+
 ## What closes a row
 
 A row closes when a fix lands together with a test that fails without it. For
