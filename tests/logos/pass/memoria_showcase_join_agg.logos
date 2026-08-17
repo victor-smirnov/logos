@@ -1,0 +1,206 @@
+// SHOWCASE — Deem over Memoria: filter, join, aggregate, and what each costs.
+//
+// Two ways to name a store-backed container in a query, and the showcase uses
+// both because they are not interchangeable:
+//
+//   · BY CLASS — `m: Map<K, V>` names the container DECLARATION. It mentions no
+//     generated name at all (a family's type is hash-named, per store and per
+//     config, and nobody can type it out), so ONE query serves every family the
+//     class ever produces. §1 and §3 take this form.
+//
+//   · BY FAMILY HANDLE — `&<typeof(Map::<u64, u64>) as CtrFamily>::Handle`
+//     spells one concrete family through the metaclass's associated type. §2
+//     needs this: a plan binds at most ONE container class, so a join whose
+//     other side is also a class is refused ("join across classes is not a
+//     wave-0 surface"). Joining a container against an ordinary `mem`
+//     collection is the supported shape, and is the more interesting one — one
+//     query, one store-backed b+tree and one in-memory map.
+//
+// WHAT TO READ IN THE GENERATED CODE (--gen-dir writes it as real .logos):
+//
+//   · the family's `impl OrderedMapSource<K, V>`: `rel entry = <producer>`,
+//     three `op entry.key {eq,ge,le} = <producer> exact`, `size entry`, and
+//     `order entry = key`. THAT DECLARATION IS THE PLAN'S INPUT — what a query
+//     may push down and what it must do itself is decided against it, not
+//     against the container's shape.
+//
+//   · the producers are LEAF-BATCH ones (ADR 0025 §5): a scan costs one descent
+//     per LEAF, not a container method per row. `order entry = key` is what lets
+//     an ordered query skip a sort — the rows already arrive sorted, and the
+//     declaration is what says WHICH column they are sorted by, because no type
+//     can.
+//
+//   · in §2, `BTreeMap` declares `op entry.key {eq,ge,le}` and a `size`, but no
+//     `order` — so the two sides of the join reach the planner with different
+//     declared capabilities, and the emitted code shows which side became the
+//     base and how the other was probed.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.collections.btree;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+pub container Map<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// ── §1 FILTER, and a pushdown that is LOST TO THE `&&` ──────────────────────
+//
+// Two spellings of the same restriction, and the planner treats them very
+// differently. Run with LOGOS_TRACE_PLAN=1 and read the two `[plan] m -> …`
+// lines:
+//
+//   from m e where e.key >= 400 …
+//     → `__ctr_bfrom_Hs… [a range] on key`
+//       "an operation EXACT for that comparison — the residual filter is
+//        redundant and was dropped". The source DECLARED `op entry.key ge …
+//        exact`, so the walk lands at 400 and the predicate disappears.
+//
+//   from m e where e.key >= 400 && e.val < 1500 …
+//     → `scan [every row]`
+//       "neither side of the filter is a column". The top-level expression is
+//       the `&&`, whose two sides are comparisons rather than columns, and the
+//       access-path choice stops there — so the `key >= 400` half, which the
+//       source can serve EXACTLY, is scanned for instead.
+//
+// A conjunctive `where` is not decomposed into per-conjunct candidates today.
+// Both queries return the same rows; one reads 100 and the other reads 500.
+// Kept in the showcase as a MEASUREMENT, not as an aspiration: the contrast is
+// what makes the loss visible, and either half alone would read as fine.
+pub deem key_from<K, V: Number>(m: Map<K, V>) {
+    from m e where e.key >= 400 select (e.key, e.val)
+}
+
+pub deem mid_band<K, V: Number>(m: Map<K, V>) {
+    from m e where e.key >= 400 && e.val < 1500 select (e.key, e.val)
+}
+
+// ── §2 JOIN — a store-backed container against an in-memory map ─────────────
+//
+// The container side is named by its family HANDLE (see the header): a plan
+// binds ONE container class, so the other side must not be a class. Here it is
+// a `mem` BTreeMap — an `OrderedMapSource` like the family, but a materializing
+// one, so the planner is choosing between two genuinely different sources.
+pub deem enrich(c: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle,
+                b: &BTreeMap<u64, u64>) {
+    from c e join b q on e.key == q.key
+    where e.val > 900
+    select (e.key, e.val, q.val)
+}
+
+// ── §3 AGGREGATE — count and sum per group ──────────────────────────────────
+//
+// The group key is an EXPRESSION over the row, not a column: `key / 100` buckets
+// 500 rows into 5 groups, so the grouping is a property of the QUERY and the
+// container knows nothing about it.
+pub deem per_bucket<K, V: Number>(m: Map<K, V>) {
+    from m e
+    group by e.key / 100
+    aggregate n = count(), total = sum(e.val)
+    select (key, n, total)
+}
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+
+    // 500 rows — past a leaf split, so the queries read a real tree rather than
+    // a single node.
+    let mut led = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 500u64 { led.insert(k, k * 3u64); k = k + 1u64; }
+
+    // The join's other side: even keys only, so the join itself does work.
+    let mut side: BTreeMap<u64, u64> = btreemap_new::<u64, u64>();
+    let mut e: u64 = 0u64;
+    unsafe {
+        while e < 500u64 {
+            (&mut side as *mut BTreeMap<u64, u64>).insert(e, e + 1000u64);
+            e = e + 2u64;
+        }
+    }
+
+    // ── §1 filter ───────────────────────────────────────────────────────────
+    // The pushed-down spelling: key >= 400 ⇒ 100 rows, in key order.
+    let pushed: Vec<(u64, u64)> = match key_from(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 17i32; } };
+    if pushed.len() != 100i64 { return 18i32; }
+
+    // key >= 400 AND 3k < 1500 ⟺ k in [400, 499] ⇒ the SAME 100 rows, reached
+    // by a full scan. Asserting they agree is what makes the trace's difference
+    // a performance fact rather than a correctness one.
+    let band: Vec<(u64, u64)> = match mid_band(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if band.len() != 100i64 { return 2i32; }
+    {
+        let f: (u64, u64) = band.get(0i64);
+        let l: (u64, u64) = band.get(99i64);
+        if f.0 != 400u64 || f.1 != 1200u64 { return 3i32; }
+        if l.0 != 499u64 || l.1 != 1497u64 { return 4i32; }
+    }
+    let mut i: i64 = 0i64;
+    while i < band.len() {
+        let r: (u64, u64) = band.get(i);
+        let q: (u64, u64) = pushed.get(i);
+        if r.0 < 400u64 || r.1 >= 1500u64 { return 5i32; }
+        if r.1 != r.0 * 3u64 { return 6i32; }
+        if r.0 != q.0 || r.1 != q.1 { return 19i32; }   // same rows, same order
+        i = i + 1i64;
+    }
+
+    // ── §2 join ─────────────────────────────────────────────────────────────
+    // even keys only (the BTreeMap side), and 3k > 900 ⟺ k >= 301
+    // ⇒ k in {302, 304, …, 498} = 99 rows.
+    let j: Vec<(u64, u64, u64)> = match enrich(&led, &side)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if j.len() != 99i64 { return 8i32; }
+    let mut p: i64 = 0i64;
+    while p < j.len() {
+        let r: (u64, u64, u64) = j.get(p);
+        if (r.0 % 2u64) != 0u64  { return 9i32; }   // the BTreeMap held even keys
+        if r.1 != r.0 * 3u64     { return 10i32; }  // container value
+        if r.2 != r.0 + 1000u64  { return 11i32; }  // BTreeMap value
+        if r.1 <= 900u64         { return 12i32; }  // the residual filter held
+        p = p + 1i64;
+    }
+
+    // ── §3 aggregate ────────────────────────────────────────────────────────
+    // 500 keys bucket into 5 groups of 100; sum of 3k over each 100-key run.
+    let agg: Vec<(u64, i64, u64)> = match per_bucket(&led)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if agg.len() != 5i64 { return 14i32; }
+    let mut b: i64 = 0i64;
+    while b < agg.len() {
+        let g: (u64, i64, u64) = agg.get(b);
+        if g.1 != 100i64 { return 15i32; }
+        // sum over k in [100b, 100b+99] of 3k = 3 * (100 * 100b + 4950)
+        let lo: u64 = (b as u64) * 100u64;
+        let want: u64 = 3u64 * (100u64 * lo + 4950u64);
+        if g.2 != want { return 16i32; }
+        b = b + 1i64;
+    }
+
+    return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap and report SUCCESS.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL memoria_showcase_join_agg: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
