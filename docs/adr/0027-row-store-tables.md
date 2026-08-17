@@ -1,6 +1,6 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Two
+Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Three
 sub-decisions are OPEN and marked as such; they change structure, not bytes, and
 the slices that do not depend on them can start.
 Scope: two new container kinds (clustered and heap tables), the `Row` /
@@ -77,17 +77,30 @@ exactly the "zone spans blocks" mechanism the row store needs, already built.
 navigation key (MAX measure in branches). Every clustered table has a primary
 key.
 
-**Heap table** — the same principle without a key: rows addressed by ordinal.
-Not the existing `kind vector`, which is btvec-backed with FSE64 cells and is
-for small fixed-size elements; this is bt_fl's "vector-of-structs" client — a
-`Vector<T>` for LARGE `T`, where an element is a byte range that may span
-blocks.
+**Heap table** — keyed by a SYSTEM identity, not by ordinal. An ordinal is a bad
+row identifier: it does not survive a deletion. The fix is a system `u64` column,
+an OID, so the heap table is logically `Map<u64, Row>` — a monotone synthetic key
+where the clustered table has the user's. Insertion takes `max(OID) + 1`, which
+means appends at the end only; for a non-clustered table that is not a
+constraint.
 
-**`Vector<Writ>` is the heap table's BASE CONTAINER** (D8). That is what makes
-D8 load-bearing rather than an optimisation: the heap table is a superstructure
-over an existing container, so dispatch must recover the APPLIED type from
-blocks that name the base. It also sharpens OPEN-2 — the answer decides whether
-the applied code can live in root metadata or must enter every block header.
+⚠ **BOTH TABLES ARE THEREFORE ONE SHAPE**, and the emitter arm's parameter is
+narrower than D1 first said: stream 0 is an ordered key in both cases, and the
+only difference is WHO SUPPLIES IT — the user's primary key, or a generated OID.
+That makes S5's "one arm, parameterised" nearly free rather than a discipline to
+maintain.
+
+⚠ **`max(OID) + 1` IS CHEAP BUT MUST NOT BE DERIVED FROM THE TREE.** Cheap:
+stream 0 already carries a MAX measure in branch nodes for navigation, so the
+maximum is O(1) from the root — the measure the clustered table needs anyway is
+the one that allocates OIDs. But an empty table has no maximum, so deleting the
+last row would restart the sequence and RESURRECT retired identifiers, which is
+exactly what an OID exists to prevent. The next OID is therefore state, and it
+belongs in the container's metadata document (D5) where it costs nothing — the
+same discipline as D3's monotone column IDs, for the same reason.
+
+OPEN-3 below: whether `Vector<Writ>` remains the heap table's base container
+(D8) now that the heap table is keyed.
 
 The two differ in stream 0 (ordered key vs ordinal) and share everything else:
 the row format, the metadata pair, the assembly path, the Deem relation.
@@ -328,6 +341,18 @@ So "a zone split across blocks" needs nothing new — it is bt_fl's existing run
 mechanism — and the two cases ARE D11's `RowRef` / `RowBuf`, which makes that
 split a consequence of the storage model rather than a choice this ADR makes.
 
+## D12 — a secondary index points at the row's IDENTITY
+
+For a clustered table a secondary index entry is `indexed value -> PRIMARY KEY
+value`, not a physical address: rows move under CoW and split, so nothing else is
+stable. A lookup is therefore two descents — the index's, then the table's — and
+that is the cost of the design, accepted.
+
+The heap table takes the same shape with its OID in place of the primary key, so
+indexes are uniform over both tables: `key -> identity`, where identity is
+whatever stream 0 holds. One mechanism, and it needs no knowledge of which table
+kind it indexes.
+
 ## D11 — four consequences that are decisions, not details
 
 **Row-view provenance.** "Fits a block — read in place; spans — assemble into a
@@ -358,7 +383,7 @@ arm parameterised by stream 0's role, not become two.
 
 ---
 
-## OPEN — two sub-decisions
+## OPEN — three sub-decisions
 
 **OPEN-1 — `OrdDataType`: closed set or dynamic tag?** The mechanism stores a
 value of an arbitrary type from a given set (comparable ones) as the container's
@@ -373,6 +398,13 @@ piece of work. Almost everything downstream follows from this answer.
 answer (applied type in root metadata) holds only if every dispatch path starts
 at a container root. If any path starts from an arbitrary block, the code must go
 in the block header and D8 becomes a format change.
+
+**OPEN-3 — is `Vector<Writ>` still the heap table's base container?** It was
+named as such (D8) when the heap table was keyless and ordinal-addressed. Now the
+heap table is `Map<u64, Row>`, keyed by a monotone OID, so its base is plausibly
+a keyed container instead. Either the base changes, or `Vector<Writ>` stays the
+base and the OID is a system column layered over it. This decides what D8's
+dispatch extension has to recover, and nothing else in the ADR depends on it.
 
 ---
 
@@ -390,12 +422,12 @@ groups marked ∥ are independent of each other.
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
 | S5 | one emitter arm, stream 0 parameterised | S1, S4, OPEN-1 | both tables |
 | S6 | `ClusteredTable` over bt_fl | S5 | PK = stream 0; value seq = the row's buffer |
-| S7 | heap table (keyless, ordinal) | S5, S10 | base container = `Vector<Writ>` |
+| S7 | heap table (`Map<u64, Row>`, OID) | S5, S10 | next-OID in metadata; OPEN-3 |
 | S8 | metadata modes 2/3 | S2 | D5 |
 | S9 | dirmap `top_level` | S4 or a packing decision | D7 |
 | S10 | base container + dispatch | OPEN-2 | D8 |
 | S11 | mutation protocol reconciliation | S3, S6/S7 | the real work |
-| S12 | indexes | S6, S7 | secondary; scope of a later ADR section |
+| S12 | indexes | S6, S7 | D12; `key -> identity`, two descents |
 | S13 | instance pool (`CtrID -> wrapper`) + metadata cache | S2 | D6; per snapshot |
 
 ## What this ADR does not do
