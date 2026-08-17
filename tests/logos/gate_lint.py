@@ -173,10 +173,18 @@ import sys
 # It exits 3, the same code verdict.py uses for "I could not look".
 SHELL_ROOTS = ["tests", "scripts", "tools"]
 PY_DIRS = ["tests/logos", "tests/exhaustive"]
-# The conuco suite: 67 standalone binaries whose `main` IS the verdict channel.
+# The memoria suite: standalone binaries whose `main` IS the verdict channel.
 # This is where the 8-bit ceiling was first diagnosed and fixed, and where the
 # fix decayed — see R7.
-CONUCO_TESTS = "conuco/memoria/tests"
+#
+# ⚠ IT MOVED (2026-08-16), and this gate is why the move could not be silent: the
+# population was `conuco/memoria/tests`, the tests are now corpus members named
+# `memoria_*` under tests/logos/pass, and a path that no longer exists made this
+# report CLEAN over zero files — which is exactly the blindness the floor below
+# refuses. The population is a PREFIX now, not a directory, so a memoria test
+# added to the corpus joins R7 by being named.
+MEMORIA_DIR = "tests/logos/pass"
+MEMORIA_PREFIX = "memoria_"
 
 # ── THE RESIDUE, AND ITS GROUND, ONE LINE EACH ───────────────────────────────
 #
@@ -979,14 +987,14 @@ def walk(root, build_dir):
                 open(p, encoding="utf-8", errors="replace").read())
     # THE CONUCO SUITE: standalone binaries whose `main` IS the channel.
     n_cnc = 0
-    cnc = os.path.join(root, CONUCO_TESTS)
+    cnc = os.path.join(root, MEMORIA_DIR)
     if os.path.isdir(cnc):
         for name in sorted(os.listdir(cnc)):
-            if not name.endswith(".logos"):
+            if not (name.startswith(MEMORIA_PREFIX) and name.endswith(".logos")):
                 continue
             n_cnc += 1
             findings += r7_conuco_main_boolean(
-                f"{CONUCO_TESTS}/{name}",
+                f"{MEMORIA_DIR}/{name}",
                 open(os.path.join(cnc, name), encoding="utf-8",
                      errors="replace").read())
     findings += r5_unregistered_gates(on_disk, registered)

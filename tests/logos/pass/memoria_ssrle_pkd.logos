@@ -497,7 +497,7 @@ fn run_all() -> i32 {
         bps = bps + 1u32;
     }
     // the full fixture corpus (the byte-identity gate)
-    let content: String = match read_to_string("tests/ssrle_fixtures.hex") {
+    let content: String = match read_to_string("tests/logos/memoria_lib/ssrle_fixtures.hex") {
         Result::Ok(c) => { c }
         Result::Err(_) => { return 100i32; }
     };

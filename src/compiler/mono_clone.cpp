@@ -428,10 +428,25 @@ Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
         return struct_view_layout(sit, m, key);
     }
     case K::Enum: return mono_enum_layout(t);
-    default:
-        lay::record_declined("mono_abi_layout", lay::kind_key(t.kind()),
+    default: {
+        // NAME THE OFFENDER. `kind_key` alone reports `<kind 32>` — a number
+        // that says a decline happened and nothing about WHAT declined, which
+        // is exactly the shape of message that sends a reader bisecting. An
+        // AssocType / CfgSlotType carries the two halves of its identity
+        // (`T::Item`), and a decline on one of them means mono handed the
+        // layout law a projection it never substituted — so print it.
+        std::string key = lay::kind_key(t.kind());
+        if (t.kind() == K::AssocType || t.kind() == K::CfgSlotType) {
+            std::string owner(t.type_var_name());
+            std::string member(t.assoc_type_name());
+            if (!owner.empty() || !member.empty())
+                key += " (" + (owner.empty() ? std::string("?") : owner) + "::"
+                     + (member.empty() ? std::string("?") : member) + ")";
+        }
+        lay::record_declined("mono_abi_layout", key,
                              "kind has no layout rule in mono_abi_layout");
         return {8, 8};
+    }
     }
 }
 

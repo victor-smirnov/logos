@@ -1,0 +1,8 @@
+module memoria-store
+version 0.1
+root conuco/memoria/src/store
+depends logos-lang
+depends logos-mem
+depends logos-lcm
+depends logos-std
+depends memoria-ctr

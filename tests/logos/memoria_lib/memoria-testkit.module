@@ -1,0 +1,7 @@
+module memoria-testkit
+version 0.1
+root conuco/memoria/src/testkit
+depends logos-lang
+depends logos-mem
+depends logos-lcm
+depends logos-std

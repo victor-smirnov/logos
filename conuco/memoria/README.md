@@ -41,5 +41,23 @@ arrives later directly on fibers, without mmap.
 ```
 cd conuco/memoria
 lforge build
-lforge test
 ```
+
+**The tests are NOT here.** They live in the repository corpus as
+`tests/logos/pass/memoria_*.logos` and run with everything else:
+
+```
+cd build && ctest -R memoria_ -j12
+```
+
+They moved there on 2026-08-16. While they were a separate lforge suite nothing
+in the repository ran them, and 30 of the then-67 had stopped compiling through
+a whole borrow-checker arc while the in-tree gate stayed green. In the corpus
+they are ordinary tests: each is its own ctest name, each links the three
+package archives (built in-tree from `src/` via `tests/logos/memoria_lib/*.module`),
+and each is subject to every corpus-wide gate — the layout-engine agreement
+check caught three unsubstituted `CtrFamily::Handle` projections the moment they
+arrived, which lforge had never been in a position to see.
+
+The byte fixtures moved with them (`tests/logos/memoria_lib/*.hex`); the paths
+that read them are repo-root-relative and those tests run from the repo root.

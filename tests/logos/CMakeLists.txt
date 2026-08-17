@@ -168,6 +168,64 @@ add_custom_command(
 )
 add_custom_target(wql_map_lib_binary ALL DEPENDS ${WQL_MAP_LIB_BIN})
 
+# ── THE MEMORIA LIBRARY, as three in-tree fixture archives ──────────────────
+#
+# `conuco/memoria` is a separate incubating project that builds with lforge, and
+# its SOURCES stay there. Its TESTS live here, in the corpus, with every other
+# test — they were the one population nothing in the repository ran, and being a
+# separate suite is exactly what let them rot through a whole borrow-checker arc
+# (47e34581). A test that needs a library is an ordinary thing; a test suite that
+# needs its own runner is not.
+#
+# The manifests are ours (tests/logos/memoria_lib/*.module) rather than lforge's
+# generated ones because `root` must be repo-root-relative here, and because we
+# name the `depends` explicitly — lforge's generated manifests carry none, which
+# makes logosc RECOMPILE every dependency body instead of linking it.
+set(MEMORIA_SRC ${CMAKE_SOURCE_DIR}/conuco/memoria/src)
+set(MEMORIA_MOD ${CMAKE_CURRENT_SOURCE_DIR}/memoria_lib)
+set(MEMORIA_CTR_BIN     ${CMAKE_CURRENT_BINARY_DIR}/libmemoria-ctr.a)
+set(MEMORIA_STORE_BIN   ${CMAKE_CURRENT_BINARY_DIR}/libmemoria-store.a)
+set(MEMORIA_TESTKIT_BIN ${CMAKE_CURRENT_BINARY_DIR}/libmemoria-testkit.a)
+file(GLOB MEMORIA_CTR_SOURCES     ${MEMORIA_SRC}/ctr/*.logos)
+file(GLOB MEMORIA_STORE_SOURCES   ${MEMORIA_SRC}/store/*.logos)
+file(GLOB MEMORIA_TESTKIT_SOURCES ${MEMORIA_SRC}/testkit/*.logos)
+add_custom_command(
+    OUTPUT  ${MEMORIA_CTR_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${MEMORIA_MOD}/memoria-ctr.module -L ${STDLIB_BIN_DIR}
+            -o ${MEMORIA_CTR_BIN}
+    DEPENDS logosc ${MEMORIA_MOD}/memoria-ctr.module ${MEMORIA_CTR_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libmemoria-ctr.a"
+)
+# `depends memoria-ctr` is resolved through -L, so the store archive needs the
+# ctr archive's DIRECTORY on the search path as well as its build dependency.
+add_custom_command(
+    OUTPUT  ${MEMORIA_STORE_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${MEMORIA_MOD}/memoria-store.module -L ${STDLIB_BIN_DIR}
+            -L ${CMAKE_CURRENT_BINARY_DIR}
+            -o ${MEMORIA_STORE_BIN}
+    DEPENDS logosc ${MEMORIA_MOD}/memoria-store.module ${MEMORIA_STORE_SOURCES}
+            ${MEMORIA_CTR_BIN}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libmemoria-store.a"
+)
+add_custom_command(
+    OUTPUT  ${MEMORIA_TESTKIT_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${MEMORIA_MOD}/memoria-testkit.module -L ${STDLIB_BIN_DIR}
+            -o ${MEMORIA_TESTKIT_BIN}
+    DEPENDS logosc ${MEMORIA_MOD}/memoria-testkit.module ${MEMORIA_TESTKIT_SOURCES}
+            ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_LCM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libmemoria-testkit.a"
+)
+add_custom_target(memoria_binaries ALL
+    DEPENDS ${MEMORIA_CTR_BIN} ${MEMORIA_STORE_BIN} ${MEMORIA_TESTKIT_BIN})
+
 # Build libcoex.a from the cross-pkg-coexistence fixture (alpha + beta).
 # Used as `-l <archive>` for the cross_pkg_coexistence /
 # cross_pkg_ambiguous_call tests, replacing the earlier `-I .../coex`
@@ -678,6 +736,15 @@ function(logos_determine_suite MODE BASE OUT_VAR)
 endfunction()
 
 function(logos_pass_extra_args BASE OUT_VAR)
+    # The memoria corpus: every `memoria_*` test links the three fixture
+    # archives. Matched by PREFIX rather than by a list, so a test added to the
+    # port joins by being named — the list-of-names form is the shape that
+    # drifted and left the whole suite unrun in the first place.
+    if (BASE MATCHES "^memoria_")
+        set(${OUT_VAR} -l ${MEMORIA_CTR_BIN} -l ${MEMORIA_STORE_BIN}
+                       -l ${MEMORIA_TESTKIT_BIN} PARENT_SCOPE)
+        return()
+    endif()
     set(LOCAL_STDLIB_USERS
         use_from_module
         wrapping_arith
@@ -1002,6 +1069,16 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
         LABELS  "${_labels}"
         ENVIRONMENT "${_env}"
     )
+    # THE WORKING DIRECTORY IS PART OF THE CONTRACT for the memoria corpus: the
+    # ssrle/pdtbuf fixture tests read their byte fixtures
+    # (tests/logos/memoria_lib/*.hex) through a REPO-ROOT-relative path, so they
+    # run from the repo root. ctest otherwise runs a test in the binary dir,
+    # where that path does not exist — measured, three tests failed on it the
+    # first time this suite was split per-test.
+    if (BASE MATCHES "^memoria_")
+        set_tests_properties(${_test_name} PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    endif()
 endfunction()
 
 # ── THE REGISTRATION CENSUS ───────────────────────────────────────────────────
@@ -1094,7 +1171,26 @@ set_tests_properties(logos_00_gate_lint PROPERTIES
 #     answering "no layout" is correct. `{8,8}` is accidentally right here
 #     (`HRel` is one `i64`), which is why nothing had ever noticed; it is not
 #     right in general, so the decline stays until mono substitutes the GAT.
-set(LAYOUT_DECLINE_LEDGER zone_zvec_two_zones)
+#
+#   memoria_dyn_boundary, memoria_example_map, memoria_example_multimap —
+#     `mono_abi_layout` declines `?::Handle`: an unsubstituted `CtrFamily::Handle`
+#     projection reaches the layout switch. The owner prints as `?` because the
+#     projection carries no resolved type-var either — mono never substituted
+#     the associated type on the generated `impl CtrFamily`, so the law is being
+#     asked to size a type that names no instance. Same class as the entry above
+#     and the same verdict: answering "no layout" is CORRECT, and the defect is
+#     in mono's substitution, not in the layout law.
+#
+#     NEWLY VISIBLE, NOT NEW: these three came from `conuco/memoria/tests`, which
+#     ran under lforge and therefore never under `LOGOS_VERIFY_LAYOUT=1`. Moving
+#     the corpus in-tree subjected them to the gate for the first time — which is
+#     most of the argument for moving it. The decline is held in both directions,
+#     so the day mono substitutes the projection these rows go red and get
+#     deleted.
+set(LAYOUT_DECLINE_LEDGER zone_zvec_two_zones
+                          memoria_dyn_boundary
+                          memoria_example_map
+                          memoria_example_multimap)
 
 # ── THE OPEN mlir-gen SELF-DIAGNOSES — A LEDGER THAT CAN ONLY SHRINK ─────────
 #
@@ -2961,83 +3057,6 @@ if (TARGET lforge)
         LABELS  "logos;lforge;suite_lforge;tier_full"
     )
 
-    # ── THE CONUCO SUITE — the one lforge package in this tree that nothing ran
-    #
-    # Every test above builds a fixture in a tmpdir to exercise lforge ITSELF.
-    # These run the real `conuco/memoria` package, because that package is the
-    # only party exercising the container factory, the store plane and the
-    # positional arm of Deem end-to-end — and it had rotted to 30/67 broken
-    # during the D1 borrow-checker arc with the in-tree L4 green throughout
-    # (2026-08-16, 47e34581).
-    #
-    # ONE ENTRY PER TEST, not one aggregate. The aggregate closed the hole but
-    # reported a single verdict over 67 tests, and lforge's borrow diagnostics
-    # name no file — so a failure said neither which test nor which line. Here
-    # each test is a ctest name, runs in the ctest pool, and fails by itself.
-    #
-    # THE SHAPE: a setup fixture builds the package and compiles the suite (one
-    # lforge pass — it has no compile-only mode and no name filter), then each
-    # entry runs its prebuilt binary. A population test guards the one hole this
-    # shape opens: the entries are globbed AT CONFIGURE TIME, so a test added
-    # after the last cmake would be on disk and not in ctest.
-    #
-    # TIMEOUT from measurement, not habit: the fixture is 134 s COLD (clean →
-    # build → compile+run 67) and 18 s warm on the 12-core box; 900 s leaves ~7x
-    # for a loaded parallel ctest. The per-test entries only run a binary.
-    add_test(
-        NAME logos_26_conuco_build
-        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_setup.sh
-                ${CMAKE_BINARY_DIR}/bin/lforge
-                $<TARGET_FILE:logosc>
-                ${LOGOS_BUILD_LIB_DIR}
-    )
-    set_tests_properties(logos_26_conuco_build PROPERTIES
-        TIMEOUT 900
-        FIXTURES_SETUP conuco_memoria
-        LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
-    )
-
-    file(GLOB _conuco_tests
-         RELATIVE ${CMAKE_SOURCE_DIR}/conuco/memoria/tests
-         ${CMAKE_SOURCE_DIR}/conuco/memoria/tests/*.logos)
-    list(LENGTH _conuco_tests _conuco_count)
-
-    add_test(
-        NAME logos_26_conuco_population
-        COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_population.sh
-                ${_conuco_count}
-    )
-    set_tests_properties(logos_26_conuco_population PROPERTIES
-        TIMEOUT 60
-        LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
-    )
-
-    # No known-open defects: the roster is EMPTY, and that is a state the shape
-    # must support without pretending. Both entries it once carried are fixed —
-    # gendrop_probe by b959f873 (a `*const Self` receiver on a #[self_describing]
-    # DST lowered to nothing) and gen_generic_distinct by the if-expression
-    # branch-scope fix (a `let` in an if-as-expression branch had its drop
-    # emitted after the whole `if`, so the untaken path freed a stale slot).
-    # Add a name here ONLY with its diagnosis, and delete it the day it passes —
-    # WILL_FAIL makes ctest report the XPASS either way.
-    set(_conuco_known_broken)
-
-    foreach(_ct IN LISTS _conuco_tests)
-        string(REGEX REPLACE "\\.logos$" "" _stem "${_ct}")
-        add_test(
-            NAME logos_26_conuco_${_stem}
-            COMMAND ${CMAKE_SOURCE_DIR}/tests/lforge/conuco_run.sh ${_stem}
-                    $<TARGET_FILE:logosc>
-        )
-        set_tests_properties(logos_26_conuco_${_stem} PROPERTIES
-            TIMEOUT 120
-            FIXTURES_REQUIRED conuco_memoria
-            LABELS  "logos;lforge;conuco;suite_conuco;tier_full"
-        )
-        if (${_stem} IN_LIST _conuco_known_broken)
-            set_tests_properties(logos_26_conuco_${_stem} PROPERTIES WILL_FAIL TRUE)
-        endif()
-    endforeach()
 endif()
 
 # ── PLAN INDEPENDENCE, CORPUS-WIDE (ADR 0024 S4r) ────────────────────────────

@@ -3033,8 +3033,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # positional family's bool element type, whose cursor `value()` and handle
 # `get()` emitted `as bool` and could not be built at all. Per-test conuco
 # entries are globbed, so the population grows by one with the file.
-REGISTRY-ALL         7260
-REGISTRY-NOIMPORTED  3576
+# -2 / -2 / +0 (2026-08-16): the memoria port's 68 tests moved OUT of
+# conuco/memoria and into the corpus as `memoria_*`. The conuco scaffolding they
+# needed — a build fixture and a population witness — goes with them (70 entries
+# out, 68 in), because a corpus test needs neither: the population witness IS the
+# glob the whole corpus already uses, and the fixture is an ordinary archive
+# dependency.
+REGISTRY-ALL         7258
+REGISTRY-NOIMPORTED  3574
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

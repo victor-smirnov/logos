@@ -2746,7 +2746,7 @@ fn check_mut_fixture_case(s: str, pos: &mut i64) -> i32 {
 }
 
 fn check_fixtures() -> i32 {
-    let content: String = match read_to_string("tests/pdtbuf_fixtures.hex") {
+    let content: String = match read_to_string("tests/logos/memoria_lib/pdtbuf_fixtures.hex") {
         Result::Ok(c) => { c }
         Result::Err(_) => { return 100i32; }
     };
