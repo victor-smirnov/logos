@@ -1,6 +1,6 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Three
+Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Two
 sub-decisions are OPEN and marked as such; they change structure, not bytes, and
 the slices that do not depend on them can start.
 Scope: two new container kinds (clustered and heap tables), the `Row` /
@@ -182,9 +182,31 @@ a version bump, and must not ride inside the `Row` slice.
    leaf, read in place from it.
 3. **Same, assembled into a buffer/zone** when it spans leaves.
 
-OPEN-ADJACENT: whether the mode is a recorded property or derived from size, and
-whether 1 -> 2 promotion on growth is automatic. Recording it is cheaper to
-reason about; deriving it cannot drift. Decide in the slice.
+**DECIDED: the mode is DERIVED FROM SIZE, never recorded.** The input is a
+`TableMetadata` (a Writ container); its size chooses where it goes. Nothing
+stores a mode number, so nothing can drift out of agreement with the bytes.
+
+The reader needs no mode field either, because the root slot's CONTENT
+discriminates: it holds either the metadata document inline (mode 1) or a
+reference to the container holding it (modes 2/3) — the same self-description
+the rest of Writ relies on, applied one level up.
+
+Mode 1's threshold is not a new constant, it exists: `META_MAX_BLOCK` = 1 MB
+(`stdlib/mem/bt/meta.logos`), "nodes grow by doubling up to 1 MB", and the
+comment there already names the overflow destination — "a metadata fragment past
+that belongs in a store-side `Map<str, Writ>`, not in the node". Mode 2 is that
+sentence, implemented.
+
+Modes 2 and 3 are not a stored property either: they are the SAME
+in-place-versus-assemble decision as `RowRef`/`RowBuf` (D9/D10), taken at read
+time from whether the document fits one leaf. One mechanism, three users — rows,
+metadata, and any future large value.
+
+⚠ 1 -> 2 promotion is automatic but STRUCTURAL: it allocates a container and
+registers it in the dirmap with `top_level = 0` (D6). A metadata write can
+therefore create a container, and the promotion must be transactional with the
+write that triggered it — a half-promoted table has its metadata in neither
+place.
 
 ## D6 — `top_level` in the container registry
 
@@ -214,7 +236,7 @@ Two places for the second code, an order of magnitude apart in cost:
 * **root metadata** — already exists (D5 mode 1), and the applied type is only
   needed where a container is opened through its root.
 
-The second is preferable *iff* dispatch always begins at a root. **OPEN-3 below.**
+The second is preferable *iff* dispatch always begins at a root. **OPEN-2 below.**
 
 ## D8 — the relation widens
 
@@ -231,6 +253,22 @@ the declaration vocabulary should grow once, for all of them:
     order entry = <col>;
     unique entry = <col>;          -- new; closes 0026 F8
     nullable entry.<col>;          -- new; the table's own need
+
+## D10 — a key's value sequence IS the row's buffer
+
+For a clustered table, `K -> sequence` is not "many rows per key": the sequence
+is the BUFFER holding that row's Writ document.
+
+* **fits a block** — the in-block buffer is used DIRECTLY, no copy. It is 8-byte
+  aligned, which is exactly what a Writ document needs: objects are 8-aligned and
+  every reference resolves self-relatively from its own address, so the document
+  is readable where it lies;
+* **spans blocks** — it is read into a memory buffer first, and only then is it a
+  document.
+
+So "a zone split across blocks" needs nothing new — it is bt_fl's existing run
+mechanism — and the two cases ARE D9's `RowRef` / `RowBuf`, which makes that
+split a consequence of the storage model rather than a choice this ADR makes.
 
 ## D9 — four consequences that are decisions, not details
 
@@ -262,7 +300,7 @@ arm parameterised by stream 0's role, not become two.
 
 ---
 
-## OPEN — three sub-decisions
+## OPEN — two sub-decisions
 
 **OPEN-1 — `OrdDataType`: closed set or dynamic tag?** The mechanism stores a
 value of an arbitrary type from a given set (comparable ones) as the container's
@@ -273,13 +311,7 @@ columns stay statically typed; or (b) the type is fully dynamic and metadata is
 the only source — which changes the shape of Deem's relation and is a different
 piece of work. Almost everything downstream follows from this answer.
 
-**OPEN-2 — multimap's value sequence for a clustered table.** Is `K ->
-sequence` used as the SEGMENTS of one row (in which case "a zone split across
-blocks" is bt_fl's existing run mechanism and nothing new is needed), or is
-cardinality simply 1 (in which case multimap is taken for key navigation only and
-segmentation must be solved separately)?
-
-**OPEN-3 — is there dispatch from a block with no root in hand?** D7's cheap
+**OPEN-2 — is there dispatch from a block with no root in hand?** D7's cheap
 answer (applied type in root metadata) holds only if every dispatch path starts
 at a container root. If any path starts from an arbitrary block, the code must go
 in the block header and D7 becomes a format change.
@@ -299,11 +331,11 @@ groups marked ∥ are independent of each other.
 | S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D9; borrow-carrying |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
 | S5 | one emitter arm, stream 0 parameterised | S1, S4, OPEN-1 | both tables |
-| S6 | `ClusteredTable` over bt_fl | S5, OPEN-2 | PK = stream 0 |
+| S6 | `ClusteredTable` over bt_fl | S5 | PK = stream 0; value seq = the row's buffer |
 | S7 | heap table (keyless, ordinal) | S5 | bt_fl vector-of-structs |
 | S8 | metadata modes 2/3 | S2 | D5 |
 | S9 | dirmap `top_level` | S4 or a packing decision | D6 |
-| S10 | base container + dispatch | OPEN-3 | D7 |
+| S10 | base container + dispatch | OPEN-2 | D7 |
 | S11 | mutation protocol reconciliation | S3, S6/S7 | the real work |
 | S12 | indexes | S6, S7 | secondary; scope of a later ADR section |
 
