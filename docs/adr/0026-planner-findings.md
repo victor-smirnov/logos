@@ -371,6 +371,100 @@ fixed by the order the query names its sources in. Here that happens to be right
 
 ---
 
+## F10 — the group frame probes LINEARLY, in the file that owns the hash test
+
+An aggregate's fold finds a row's group by scanning every group seen so far:
+
+```logos
+let __k: u64 = ((el_divu(((e).0), (((100u64) as u64))))?);
+let mut __gi: i64 = (-1i64);
+let mut __s: i64 = 0i64;
+while ((__s < __g_key.len()) && (__gi < 0i64)) {
+    if (__g_key.get(__s) == __k) { __gi = __s; }
+    __s = (__s + 1i64);
+}
+```
+
+It exits on a hit, so the cost is O(rows x groups) and not O(rows x groups)
+always — but the shape is unchanged: 500 x 5 in the showcase is nothing, 500
+groups is 250 000 comparisons, 5 000 groups is 2.5 million. The trace says so
+itself, which is why this row is about a CHOICE and not about a hidden cost:
+
+```
+[plan] m -> group frame on group table: one row per distinct key
+   (the fold finds a row's group by a linear `==` scan over `__g_key: Vec<u64>`
+    (no index is built — this is the group frame's dedup, not an Arrange) …)
+```
+
+WHAT MAKES IT A DEFECT RATHER THAN A TRADE-OFF: the same compiler builds a
+`HashMap` for the same lookup — key to slot — on the join path (F8), and the
+capability test that licenses it, `join_key_caps_named`, lives in the SAME FILE
+as the group frame's own trace emitter (`join_sel.logos`). For `u64` it answers
+yes. One compiler, two answers to one question, and the linear one sits where
+the data is larger: a join's build side is one source, an aggregate's group
+count grows with the query's own key expression.
+
+The fix is not "always hash": a handful of groups is genuinely faster linear, and
+the group count is not known before the fold. What is missing is the decision —
+and note that this is F2 again from the other end, because the source's declared
+`size` is the one number that bounds the group count before the first row.
+
+---
+
+## F11 — the aggregate's output phase materialises an IDENTITY permutation
+
+After the fold, the output phase builds an index vector and reads the group
+frame through it:
+
+```logos
+let mut __ix0: Vec<i64> = Vec::<i64>::new();
+let mut __r: i64 = 0i64;
+while (__r < __g_key.len()) { __ix0.push(__r); __r = (__r + 1i64); }
+…
+let key:   u64 = __g_key.get(__ix0.get(__o));
+let n:     i64 = __ga_n.get(__ix0.get(__o));
+let total: u64 = __ga_total.get(__ix0.get(__o));
+```
+
+`__ix0` is `[0, 1, …, n-1]`. The vector exists because the general shape supports
+an `order by` over groups, where the permutation would be the sort — and this
+query names none, so it is the identity: one allocation, plus a double
+indirection on every column of every output row, for a reordering that reorders
+nothing.
+
+Same class as F2 and F3 — machinery emitted for a case the query does not
+have — and the cheapest of the three to answer, because "no `order by`" is known
+where the permutation is emitted.
+
+---
+
+## F12 — a checked division by a literal is emitted with its check
+
+The group key is computed per row through the EL's checked division:
+
+```logos
+let __k: u64 = ((el_divu(((e).0), (((100u64) as u64))))?);
+```
+
+```logos
+pub fn el_divu(a: u64, b: u64) -> Result<u64, ElError> {
+    if b == 0u64 { return Result::Err(ElError::DivByZero); }
+    match a.checked_div(b) { … }
+}
+```
+
+The divisor is the literal `100`. The zero test and the `Result` plumbing with
+its `?` propagation cannot fire, and run once per row anyway. Contrast the
+accumulator's `el_addu(…)?` in the same loop, whose overflow check is
+load-bearing and must stay: the row is not "the EL should stop checking", it is
+that a divisor known non-zero at compile time makes the check decidable there.
+
+Scope note: this is EL lowering rather than planning, and it is in this ledger
+because it was found the same way and lives in the same emitted body. It is the
+one row here that a constant-folding pass closes without any plan-level decision.
+
+---
+
 ## What closes a row
 
 A row closes when a fix lands together with a test that fails without it. For
