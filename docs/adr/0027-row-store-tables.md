@@ -1,6 +1,6 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Three
+Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Two
 sub-decisions are OPEN and marked as such; they change structure, not bytes, and
 the slices that do not depend on them can start.
 Scope: two new container kinds (clustered and heap tables), the `Row` /
@@ -99,8 +99,13 @@ exactly what an OID exists to prevent. The next OID is therefore state, and it
 belongs in the container's metadata document (D5) where it costs nothing — the
 same discipline as D3's monotone column IDs, for the same reason.
 
-OPEN-3 below: whether `Vector<Writ>` remains the heap table's base container
-(D8) now that the heap table is keyed.
+**The base container is `Map<K, V>`** (D8), with one nuance: for `V == Writ` it
+is a Map over **BTFL**, not over BTSS as today. That is expressible without a new
+mechanism — the factory generates per CONFIG and the config carries the value
+type, so the substrate is chosen by the same arm that chooses the key supplier.
+⚠ It must be the SAME branch point, not a second one: ADR 0026 measured what
+divergent branches in this emitter cost (a `bool` read-back rule present in three
+sites of four, and a whole container kind that could not be built).
 
 The two differ in stream 0 (ordered key vs ordinal) and share everything else:
 the row format, the metadata pair, the assembly path, the Deem relation.
@@ -309,6 +314,37 @@ Two places for the second code, an order of magnitude apart in cost:
 
 The second is preferable *iff* dispatch always begins at a root. **OPEN-2 below.**
 
+**WHAT THE ORACLE HAS TODAY — CHECKED, and it is not what it used to be.** The
+remembered pair (`container_type_hash_` for the base, `owner_type_hash_` for the
+applied, equal when a container is its own base) is GONE. The block header now
+carries
+
+```cpp
+uint64_t ctr_type_hash_;      // containers-api/.../profiles/common/block.hpp
+uint64_t block_type_hash_;
+```
+
+and `ProfileMetadata` dispatches through three registries
+(`profiles/common/metadata.hpp`): `block_map_` keyed by the PAIR
+`{ctr_type_hash, block_type_hash}` -> `BlockOperations`, `container_map_` keyed
+by `ctr_type_hash` alone -> `ContainerInterface`, and `factory_map_` keyed by a
+type NAME -> `ContainerInstanceFactory`.
+
+⚠ **THE PAIR WE NEED MAY ALREADY BE THAT PAIR.** Block operations are already
+dispatched on two codes. If `ctr_type_hash_` names the container that OWNS the
+block — the applied type — and `block_type_hash_` names the block LAYOUT the base
+defines, then base-plus-applied costs no header change at all: the base's layout
+code keeps resolving block operations while the container interface resolves to
+the applied type. That reading also explains why a separate `owner_type_hash_`
+could be retired. It is a reading, not a citation, and it is worth confirming
+against the oracle's own use before the port commits to it.
+
+OUR side has neither field yet. `stdlib/lcm/deem/data/bt/node.logos` carries
+`block_code` (the concrete node's physical schema code, stamped at alloc) plus a
+`cfg_hash` for the config-consistency check; the container-level code exists only
+as a comment describing intent. So for us this is an addition either way, and
+OPEN-2 decides whether it is one field or two.
+
 ## D9 — the relation widens
 
 No source today declares a relation wider than two columns: `OrderedMapSource`
@@ -383,7 +419,7 @@ arm parameterised by stream 0's role, not become two.
 
 ---
 
-## OPEN — three sub-decisions
+## OPEN — two sub-decisions
 
 **OPEN-1 — `OrdDataType`: closed set or dynamic tag?** The mechanism stores a
 value of an arbitrary type from a given set (comparable ones) as the container's
@@ -398,13 +434,6 @@ piece of work. Almost everything downstream follows from this answer.
 answer (applied type in root metadata) holds only if every dispatch path starts
 at a container root. If any path starts from an arbitrary block, the code must go
 in the block header and D8 becomes a format change.
-
-**OPEN-3 — is `Vector<Writ>` still the heap table's base container?** It was
-named as such (D8) when the heap table was keyless and ordinal-addressed. Now the
-heap table is `Map<u64, Row>`, keyed by a monotone OID, so its base is plausibly
-a keyed container instead. Either the base changes, or `Vector<Writ>` stays the
-base and the OID is a system column layered over it. This decides what D8's
-dispatch extension has to recover, and nothing else in the ADR depends on it.
 
 ---
 
@@ -422,7 +451,7 @@ groups marked ∥ are independent of each other.
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
 | S5 | one emitter arm, stream 0 parameterised | S1, S4, OPEN-1 | both tables |
 | S6 | `ClusteredTable` over bt_fl | S5 | PK = stream 0; value seq = the row's buffer |
-| S7 | heap table (`Map<u64, Row>`, OID) | S5, S10 | next-OID in metadata; OPEN-3 |
+| S7 | heap table (`Map<u64, Row>`, OID) | S5, S10 | base = `Map<K,V>` over BTFL; next-OID in metadata |
 | S8 | metadata modes 2/3 | S2 | D5 |
 | S9 | dirmap `top_level` | S4 or a packing decision | D7 |
 | S10 | base container + dispatch | OPEN-2 | D8 |
