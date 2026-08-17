@@ -328,6 +328,36 @@ fn build_generics(generics: str, bound_param: str) -> String {
 // Wave-0 substrate: the generated leaf targets the memoria pkd allocator
 // (logos.mem.pkd) directly, PLAIN pkd (alloc / pkd_format / dealloc, no CoW node
 // header) — exactly like the hand-written leaf.logos / leaf_kv.logos templates.
+/// THE cell → value read-back, in ONE place.
+///
+/// Every FSE-typed column stores its value in a u64 cell, so every surface that
+/// hands a value OUT has to convert — and `bool` is the one declared type that
+/// cannot do it with a cast: `as bool` is not a permitted Rust cast (the
+/// compiler says so, and says to use `x != 0`). The conversion is therefore a
+/// property of the VALUE TYPE, not of the site, and belongs to the type.
+///
+/// ⚠ IT WAS A PER-SITE TEST, AND THE SITES DRIFTED. The ordered_map arm carried
+/// `if str_eq(vty, "bool")` at its `val_at` and its batch producer; the vector
+/// arm carried it at its batch producer ONLY, so `kind vector; entry { elem:
+/// bool }` emitted `as bool` at the cursor's `value()` and the handle's `get()`
+/// and reached the compiler as a type error in GENERATED code — a family that
+/// simply could not be built, reported at a `<metaprog-blob-subst>` line no
+/// reader can open. Four sites, one rule: the rule lives here now, and a new
+/// surface gets it by calling this instead of by remembering.
+///
+/// `raw` names the u64 in scope at the splice site (every caller binds `__raw`).
+fn cell_to_value_expr(raw: str, vty: str) -> ExprBlob {
+    let mut s: String = String::new();
+    s.push_str(raw);
+    if str_eq(vty, "bool") {
+        s.push_str(" != 0u64");
+    } else {
+        s.push_str(" as ");
+        s.push_str(vty);
+    }
+    return parse_expr(s.as_str());
+}
+
 fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
     let vol: bool = str_eq(policy, SPLIT_VOLUME);
     // Each quote blob carries its own `use` imports (no side Emitter pass). CoW
@@ -590,25 +620,19 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             }
         };
         unsafe { logos_emit_item_blob_subst(&vb); }
-        // val_at: the FSE cell is u64; the read-back depends on the value
-        // TYPE — bool admits no `as` from an integer (read via != 0).
-        if str_eq(vty, "bool") {
-            let vv: QuoteItemBlob = quote_item! {
-                use logos.mem.pkd.pdtbuf;
-                impl #nm {
-                    pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { self.vc().get(0u32, i as u64) != 0u64 }; }
+        // val_at: the FSE cell is u64; the read-back depends on the value TYPE
+        // and comes from `cell_to_value_expr` — ONE quote, not one per type.
+        let vconv: ExprBlob = cell_to_value_expr("__raw", vty);
+        let vv: QuoteItemBlob = quote_item! {
+            use logos.mem.pkd.pdtbuf;
+            impl #nm {
+                pub fn val_at(self: &#nm, i: u32) -> #(vid) {
+                    let __raw: u64 = unsafe { self.vc().get(0u32, i as u64) };
+                    return #(vconv);
                 }
-            };
-            unsafe { logos_emit_item_blob_subst(&vv); }
-        } else {
-            let vv: QuoteItemBlob = quote_item! {
-                use logos.mem.pkd.pdtbuf;
-                impl #nm {
-                    pub fn val_at(self: &#nm, i: u32) -> #(vid) { return unsafe { self.vc().get(0u32, i as u64) as #(vid) }; }
-                }
-            };
-            unsafe { logos_emit_item_blob_subst(&vv); }
-        }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&vv); }
     }
 
     // new / adopt / free / a — CoW (node header) vs PLAIN pkd. CoW also emits
@@ -1727,13 +1751,7 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         // column is not a cast (`as bool` does not exist): the leaf's own
         // `val_at` reads it as `!= 0`, and the batch reads the same cell, so
         // the conversion has to be spelled the same way here.
-        let vconv: ExprBlob = if str_eq(vty, "bool") {
-            parse_expr("__raw != 0u64")
-        } else {
-            let mut vc_s: String = String::new();
-            vc_s.push_str("__raw as "); vc_s.push_str(vty);
-            parse_expr(vc_s.as_str())
-        };
+        let vconv: ExprBlob = cell_to_value_expr("__raw", vty);
         let lq: QuoteItemBlob = quote_item! {
             use logos.lang.option;
             use logos.lang.panic;
@@ -2906,6 +2924,9 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
 fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
     let nm: Ident = Ident::new(name);
     let vt: ExprBlob = parse_type(vty);
+    // ONE conversion blob for every surface this family emits — an ExprBlob is
+    // Copy precisely so one parsed fragment can splice at N sites.
+    let vconv: ExprBlob = cell_to_value_expr("__raw", vty);
     let nd: Ident = Ident::new(MEM_STORE_NODE);
     let scfg: StoreCfg = mem_store_cfg(STORE_CFG_DEFAULT);
     let mut lbs_s: String = fmt_display_to_string(&scfg.leaf_bytes());
@@ -2946,7 +2967,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             pub fn value(self: &#cid) -> #(vt) {
                 let c: BtvecCur = BtvecCur { found: self.found, leaf: self.leaf,
                                              idx: self.idx, pos: self.at };
-                return btvec_cur_value::<#nd>(&c) as #(vt);
+                let __raw: u64 = btvec_cur_value::<#nd>(&c);
+                return #(vconv);
             }
             /// ADR 0025 S1b — THE DESCENT'S TWO PRODUCTS, published.
             /// `seek` is the family's ONE descent and it already computed both
@@ -3090,7 +3112,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
             }
             pub fn get(self: &#nm, pos: u64) -> #(vt) {
                 let t: Btvec<#nd> = self.tree();
-                return btvec_get::<#nd>(self.ms(), &t, pos) as #(vt);
+                let __raw: u64 = btvec_get::<#nd>(self.ms(), &t, pos);
+                return #(vconv);
             }
             pub fn set(self: &#nm, pos: u64, v: #(vt)) {
                 let t: Btvec<#nd> = self.tree();
@@ -3259,13 +3282,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
         // `lower_bound` over a key column and no key/ordinal cross-check,
         // because there is only one bound here and it cannot disagree with
         // itself.
-        let vconv: ExprBlob = if str_eq(vty, "bool") {
-            parse_expr("__raw != 0u64")
-        } else {
-            let mut vc_s: String = String::new();
-            vc_s.push_str("__raw as "); vc_s.push_str(vty);
-            parse_expr(vc_s.as_str())
-        };
+        let vconv: ExprBlob = cell_to_value_expr("__raw", vty);
         let lq: QuoteItemBlob = quote_item! {
             use logos.lang.option;
             use logos.lang.panic;

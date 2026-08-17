@@ -3029,8 +3029,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # +1 / +1 / +0 (2026-08-16): tests/logos/pass/if_expr_branch_local_drop.logos —
 # the regression test for a `let` inside an if-as-EXPRESSION branch whose drop
 # was emitted after the whole `if`, so the untaken path freed a stale slot.
-REGISTRY-ALL         7259
-REGISTRY-NOIMPORTED  3575
+# +1 / +1 / +0 (2026-08-16): the conuco memoria suite gains `ctr_vec_bool` — the
+# positional family's bool element type, whose cursor `value()` and handle
+# `get()` emitted `as bool` and could not be built at all. Per-test conuco
+# entries are globbed, so the population grows by one with the file.
+REGISTRY-ALL         7260
+REGISTRY-NOIMPORTED  3576
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

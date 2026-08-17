@@ -1,0 +1,109 @@
+// A `kind vector` container whose ELEMENT TYPE is `bool` — the type whose
+// read-back cannot be a cast.
+//
+// Every FSE-typed column stores its value in a u64 cell, so every surface that
+// hands a value out has to convert, and `as bool` is not a permitted Rust cast.
+// The ordered_map arm carried that test at its `val_at` and its batch producer;
+// the vector arm carried it at the batch producer ONLY. So this container could
+// not be built at all: the cursor's `value()` and the handle's `get()` emitted
+// `as bool` and the family died as a type error in GENERATED code, reported at a
+// `<metaprog-blob-subst>` line no reader can open. The conversion now comes from
+// one place (`cell_to_value_expr`) for every site.
+//
+// COMPILING IS NOT THE TEST. A wrong conversion compiles just as well as a right
+// one — `!= 0u64` and `!= 1u64` are both well-typed — so this asserts the VALUES
+// round-trip through each of the three surfaces separately, over a pattern that
+// is neither all-true nor all-false and long enough to cross a leaf split.
+package test;
+
+use memoria.ctr.vec;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.mem.string;
+use logos.std.io;
+
+container Flags {
+    kind vector;
+    entry { val: bool }
+}
+
+// The RELATION over the positional family — the third surface, and the one a
+// query actually uses.
+pub deem set_rows(f: Flags) {
+    from f r where r.val == true select (r.pos, r.val)
+}
+
+// position i holds `i % 3 == 0`
+fn want(i: i64) -> bool { return (i % 3i64) == 0i64; }
+
+fn run_all() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut f = create_ctr::<typeof(Flags)>(&snap, 1u64);
+
+    // 300 rows — past a leaf split, so the reads descend a real tree.
+    let mut i: i64 = 0i64;
+    while i < 300i64 {
+        f.append(want(i));
+        i = i + 1i64;
+    }
+    if f.size() != 300u64 { return 1i32; }
+
+    // ── surface 1: the handle's `get` (was `as bool`) ──────────────────────
+    let mut j: i64 = 0i64;
+    while j < 300i64 {
+        if f.get(j as u64) != want(j) { return 2i32; }
+        j = j + 1i64;
+    }
+
+    // ── surface 2: the cursor's `value` (was `as bool`) ────────────────────
+    let mut k: i64 = 0i64;
+    while k < 300i64 {
+        let c = f.seek(k as u64);
+        if !c.valid() { return 3i32; }
+        if c.pos() != (k as u64) { return 4i32; }
+        if c.value() != want(k) { return 5i32; }
+        k = k + 1i64;
+    }
+
+    // ── surface 3: the relation the batch producer feeds ───────────────────
+    let rows: Vec<(i64, bool)> = match set_rows(&f) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 6i32; }
+    };
+    // 0, 3, 6, … 297 → 100 rows, and EVERY row must be a true one
+    if rows.len() != 100i64 { return 7i32; }
+    let mut m: i64 = 0i64;
+    while m < rows.len() {
+        let r: (i64, bool) = rows.get(m);
+        if r.1 != true { return 8i32; }
+        if !want(r.0) { return 9i32; }
+        if r.0 != (m * 3i64) { return 10i32; }
+        m = m + 1i64;
+    }
+
+    // A false value must not read back as true anywhere — the `!= 0u64` vs
+    // `!= 1u64` discriminator, stated as an assertion rather than assumed.
+    if f.get(1u64) != false { return 11i32; }
+    if f.get(2u64) != false { return 12i32; }
+    if f.get(3u64) != true  { return 13i32; }
+
+    return 0i32;
+}
+
+// The diagnostic code is PRINTED, never returned: a process exit status is an
+// 8-bit channel, so any code >= 256 would wrap and report SUCCESS.
+fn main() -> i32 {
+    let code: i32 = run_all();
+    if code == 0i32 { return 0i32; }
+    let mut msg: String = String::new();
+    msg.push_str("FAIL ctr_vec_bool: diagnostic code ");
+    msg.push_i64(code as i64);
+    eprintln_string(&msg);
+    return 1i32;
+}
