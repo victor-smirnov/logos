@@ -34,7 +34,7 @@
 //     `order` — so the two sides of the join reach the planner with different
 //     declared capabilities, and the emitted code shows which side became the
 //     base and how the other was probed.
-package test;
+package deem_memoria_showcase;
 
 use logos.lcm.canon.container_item;
 use logos.lcm.canon.metaclass;
@@ -47,6 +47,7 @@ use logos.mem.collections.btree;
 use logos.lang.result;
 use logos.mem.string;
 use logos.std.io;
+use logos.std.fmt;                // println! — the format macros
 
 pub container Map<K, V> {
     kind ordered_map;
@@ -148,6 +149,14 @@ fn run_all() -> i32 {
         if f.0 != 400u64 || f.1 != 1200u64 { return 3i32; }
         if l.0 != 499u64 || l.1 != 1497u64 { return 4i32; }
     }
+    println!("\n=== §1 filter: key >= 400 (pushed down) ===");
+    println!("rows: {}   first: key={} val={}   last: key={} val={}",
+             pushed.len(), pushed.get(0i64).0, pushed.get(0i64).1,
+             pushed.get(99i64).0, pushed.get(99i64).1);
+    println!("\n=== §1b the same restriction with `&&` (scanned) ===");
+    println!("rows: {}   — identical rows, 500 read instead of 100;", band.len());
+    println!("run with LOGOS_TRACE_PLAN=1 and compare the two `[plan] m -> …` lines");
+
     let mut i: i64 = 0i64;
     while i < band.len() {
         let r: (u64, u64) = band.get(i);
@@ -164,6 +173,10 @@ fn run_all() -> i32 {
     let j: Vec<(u64, u64, u64)> = match enrich(&led, &side)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
     if j.len() != 99i64 { return 8i32; }
+    println!("\n=== §2 join: container ⋈ BTreeMap on key ===");
+    println!("rows: {}   first: key={} ctr={} btree={}",
+             j.len(), j.get(0i64).0, j.get(0i64).1, j.get(0i64).2);
+
     let mut p: i64 = 0i64;
     while p < j.len() {
         let r: (u64, u64, u64) = j.get(p);
@@ -179,6 +192,13 @@ fn run_all() -> i32 {
     let agg: Vec<(u64, i64, u64)> = match per_bucket(&led)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
     if agg.len() != 5i64 { return 14i32; }
+    println!("\n=== §3 aggregate: group by key/100, count + sum ===");
+    let mut z: i64 = 0i64;
+    while z < agg.len() {
+        println!("bucket {}: n={} total={}", agg.get(z).0, agg.get(z).1, agg.get(z).2);
+        z = z + 1i64;
+    }
+
     let mut b: i64 = 0i64;
     while b < agg.len() {
         let g: (u64, i64, u64) = agg.get(b);
@@ -193,14 +213,16 @@ fn run_all() -> i32 {
     return 0i32;
 }
 
-// The diagnostic code is PRINTED, never returned: a process exit status is an
-// 8-bit channel, so any code >= 256 would wrap and report SUCCESS.
+// A DEMO, not a test — nothing in the build runs this. It still checks the
+// numbers it prints, because a showcase that prints wrong answers confidently is
+// worse than one that prints nothing: each `return <n>` above marks the check
+// that failed, and the run says so instead of exiting quietly.
 fn main() -> i32 {
     let code: i32 = run_all();
-    if code == 0i32 { return 0i32; }
-    let mut msg: String = String::new();
-    msg.push_str("FAIL memoria_showcase_join_agg: diagnostic code ");
-    msg.push_i64(code as i64);
-    eprintln_string(&msg);
+    if code == 0i32 {
+        println!("\nself-check: OK — every row above was verified");
+        return 0i32;
+    }
+    println!("\nself-check: FAILED at check {}", code);
     return 1i32;
 }

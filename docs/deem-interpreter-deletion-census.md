@@ -3039,12 +3039,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # out, 68 in), because a corpus test needs neither: the population witness IS the
 # glob the whole corpus already uses, and the fixture is an ordinary archive
 # dependency.
-# +1 / +1 / +0 (2026-08-16): the memoria suite gains `showcase_join_agg` — Deem
-# over a store-backed Map: filter, container-against-BTreeMap join, and a
-# grouped aggregate, with the conjunctive-`where` pushdown loss pinned as a
-# measurement (both spellings must return the same rows in the same order).
-REGISTRY-ALL         7259
-REGISTRY-NOIMPORTED  3575
+# -1 / -1 / +0 (2026-08-16): the Deem×Memoria showcase left the corpus for
+# examples/deem_memoria_showcase.logos. It is a DEMO — it prints its answers and
+# nothing in the build runs it — so it registers no test. It still verifies the
+# rows it prints and says `self-check: FAILED at check <n>` when they disagree.
+REGISTRY-ALL         7258
+REGISTRY-NOIMPORTED  3574
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

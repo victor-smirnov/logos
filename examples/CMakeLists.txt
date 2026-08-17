@@ -18,7 +18,11 @@ file(GLOB WRIT_STDLIB CONFIGURE_DEPENDS ${STDLIB}/writ/*.logos)
 # library is auto-discovered by logosc and linked transparently below.
 function(logos_add_example NAME)
     set(_options METAPROG)
-    cmake_parse_arguments(EX "${_options}" "" "" ${ARGN})
+    # ARCHIVES: extra binary modules this example compiles and links against —
+    # a `-l <archive>` per entry, passed to BOTH logosc (symbol discovery) and
+    # the link line. An example that uses a library outside the stdlib needs
+    # both halves, and giving it only one half fails late and confusingly.
+    cmake_parse_arguments(EX "${_options}" "" "ARCHIVES" ${ARGN})
 
     set(SRC ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.logos)
     set(OBJ ${CMAKE_CURRENT_BINARY_DIR}/${NAME}.o)
@@ -32,6 +36,10 @@ function(logos_add_example NAME)
     # alongside liblstdlib.a and feed the link line.
     set(_compile_deps logosc ${SRC} ${WRIT_STDLIB} stdlib_binary stdlib_uring logos_rt logos_fibers)
     set(_compile_extra)
+    foreach(_a IN LISTS EX_ARCHIVES)
+        list(APPEND _compile_extra -l ${_a})
+        list(APPEND _compile_deps ${_a})
+    endforeach()
     set(_link_archives
         ${LOGOS_BUILD_LIB_DIR}/liblogos-lang.a
         ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
@@ -40,6 +48,7 @@ function(logos_add_example NAME)
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a)
     # liburing: bundled static where available, else shared -luring (Fedora).
+    list(APPEND _link_archives ${EX_ARCHIVES})
     set(_extra_link_libs -lpthread -lm -lstdc++)
     if(LOGOS_BUNDLE_URING_STATIC)
         list(APPEND _link_archives ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
@@ -71,3 +80,13 @@ logos_add_example(logos_showcase METAPROG)
 logos_add_example(persistent_showcase)
 logos_add_example(dynmap_showcase)
 logos_add_example(deem_writ_showcase)
+
+# Deem over MEMORIA: filter, join, aggregate over a store-backed container.
+# Needs the memoria port's three archives, which tests/logos builds from
+# conuco/memoria/src as fixtures — the same ones the memoria corpus links.
+set(MEMORIA_ARCHIVES
+    ${CMAKE_BINARY_DIR}/tests/logos/libmemoria-ctr.a
+    ${CMAKE_BINARY_DIR}/tests/logos/libmemoria-store.a
+    ${CMAKE_BINARY_DIR}/tests/logos/libmemoria-testkit.a)
+logos_add_example(deem_memoria_showcase ARCHIVES ${MEMORIA_ARCHIVES})
+add_dependencies(example_deem_memoria_showcase memoria_binaries)
