@@ -83,6 +83,12 @@ for small fixed-size elements; this is bt_fl's "vector-of-structs" client — a
 `Vector<T>` for LARGE `T`, where an element is a byte range that may span
 blocks.
 
+**`Vector<Writ>` is the heap table's BASE CONTAINER** (D8). That is what makes
+D8 load-bearing rather than an optimisation: the heap table is a superstructure
+over an existing container, so dispatch must recover the APPLIED type from
+blocks that name the base. It also sharpens OPEN-2 — the answer decides whether
+the applied code can live in root metadata or must enter every block header.
+
 The two differ in stream 0 (ordered key vs ordinal) and share everything else:
 the row format, the metadata pair, the assembly path, the Deem relation.
 
@@ -172,7 +178,14 @@ bounded by the leaf.
 (`scripts/abi-check.sh`, the `.abi-layout` artefacts). It is its own slice, with
 a version bump, and must not ride inside the `Row` slice.
 
-## D5 — metadata storage, three modes
+## D5 — container metadata, three modes — for EVERY container
+
+The mechanism is not the table's. Every container gets the same one: a small Writ
+document that lives in the root block while it is small and spills to its own
+container when it is not. For a table that document happens to be
+`TableMetadata`; for anything else it is whatever that container needs. The
+table's requirement is therefore satisfied by generalising a facility the store
+already half has, not by adding a table-specific one.
 
 1. **In the root block** — for small metadata. This mode largely EXISTS: a
    container root already carries two Writ metadata slots, the schema slot
@@ -198,17 +211,62 @@ that belongs in a store-side `Map<str, Writ>`, not in the node". Mode 2 is that
 sentence, implemented.
 
 Modes 2 and 3 are not a stored property either: they are the SAME
-in-place-versus-assemble decision as `RowRef`/`RowBuf` (D9/D10), taken at read
+in-place-versus-assemble decision as `RowRef`/`RowBuf` (D10/D11), taken at read
 time from whether the document fits one leaf. One mechanism, three users — rows,
 metadata, and any future large value.
 
 ⚠ 1 -> 2 promotion is automatic but STRUCTURAL: it allocates a container and
-registers it in the dirmap with `top_level = 0` (D6). A metadata write can
+registers it in the dirmap with `top_level = 0` (D7). A metadata write can
 therefore create a container, and the promotion must be transactional with the
 write that triggered it — a half-promoted table has its metadata in neither
 place.
 
-## D6 — `top_level` in the container registry
+## D6 — metadata is cached in a per-snapshot instance pool
+
+Re-reading metadata on every table access is too expensive. When a container's
+wrapper is first opened its metadata is read and kept IN the wrapper; opening the
+same container again in the same snapshot reuses it.
+
+That requires a **bijection `CtrID -> wrapper`**, held by the snapshot wrapper.
+Without it "the same container" is not a well-defined thing and two wrappers
+would hold two copies of one document.
+
+THE ORACLE HAS THIS, and the port should follow it
+(`~/cxx/memoria/containers/include/memoria/core/container/ctr_instance_pool.hpp`):
+
+```cpp
+std::unordered_map<CtrID, CtrRefHolder*> instances_;          // the bijection
+CtrPtr get(const CtrID& ctr_id, StoreT store)                 // reuse or miss
+CtrPtr put_new_instance(const CtrID&, std::unique_ptr<CtrT>&&)
+```
+
+held per snapshot as `std::shared_ptr<CtrInstancePool<Profile>> instance_pool_`
+(`stores/.../memory_cow/common/snapshot_base_cow.hpp`), constructed in the
+snapshot's constructor.
+
+⚠ THE DETAIL THAT MAKES IT A CACHE rather than a registry: `release_ctr_instance`
+does NOT erase the entry when the last handle dies. It moves the holder,
+detaches the instance from the store, and keeps it in the map; a later `get`
+finds `!is_in_use()` and REATTACHES it. So reopening a container in the same
+snapshot is a reattach, not a re-read — which is precisely the property that
+makes the metadata read amortised.
+
+WHAT THE PORT MUST DECIDE, because Logos is not C++ here:
+
+* **Aliasing.** Our container handle is a VALUE (`{snap, ctr_id}`). A bijection
+  to a shared wrapper introduces aliasing, and two `&mut` paths to one wrapper is
+  exactly what the borrow checker refuses. The shape that survives: the POOL owns
+  the wrapper and the cached metadata, the handle stays a value carrying a
+  counted reference, and every mutable path goes through the pool. C++ solves it
+  with `shared_ptr`; we cannot copy that verbatim.
+* **Invalidation.** Metadata evolves APPEND-ONLY (monotone column IDs, D3), so a
+  mutable snapshot refreshes a cached document rather than invalidating it. No
+  reader can be looking at a column that stops existing.
+* **Scope.** The pool is PER SNAPSHOT, which is not an implementation detail but
+  the correctness condition: a fork must see its own metadata, and a cache shared
+  across snapshots would hand it the parent's.
+
+## D7 — `top_level` in the container registry
 
 The registry is the **dirmap**: a CoW `Map<CtrID, root>` whose leaf values are
 container roots. Listing must distinguish roles — `ClusteredTable` is top-level,
@@ -220,9 +278,9 @@ bit per container, `1` = top-level. Memoria upstream has this.
 is the same declaration-plane restriction the tables themselves need lifted, so
 either it is lifted first, or the bits are packed into the existing value cell,
 or the flags live in a parallel container. Lifting it is the honest fix and is
-shared work with D8.
+shared work with D9.
 
-## D7 — base containers and dispatch
+## D8 — base containers and dispatch
 
 Instantiating a full container for every superstructure over an existing type is
 expensive; a superstructure should reuse a base container. But dispatch reads a
@@ -238,7 +296,7 @@ Two places for the second code, an order of magnitude apart in cost:
 
 The second is preferable *iff* dispatch always begins at a root. **OPEN-2 below.**
 
-## D8 — the relation widens
+## D9 — the relation widens
 
 No source today declares a relation wider than two columns: `OrderedMapSource`
 is `entry(key, val)`, `PositionalSource` is `row(pos, val)`, and the container
@@ -267,10 +325,10 @@ is the BUFFER holding that row's Writ document.
   document.
 
 So "a zone split across blocks" needs nothing new — it is bt_fl's existing run
-mechanism — and the two cases ARE D9's `RowRef` / `RowBuf`, which makes that
+mechanism — and the two cases ARE D11's `RowRef` / `RowBuf`, which makes that
 split a consequence of the storage model rather than a choice this ADR makes.
 
-## D9 — four consequences that are decisions, not details
+## D11 — four consequences that are decisions, not details
 
 **Row-view provenance.** "Fits a block — read in place; spans — assemble into a
 buffer" gives one `Row` behind two ownerships: a borrow of a leaf, or ownership
@@ -311,10 +369,10 @@ columns stay statically typed; or (b) the type is fully dynamic and metadata is
 the only source — which changes the shape of Deem's relation and is a different
 piece of work. Almost everything downstream follows from this answer.
 
-**OPEN-2 — is there dispatch from a block with no root in hand?** D7's cheap
+**OPEN-2 — is there dispatch from a block with no root in hand?** D8's cheap
 answer (applied type in root metadata) holds only if every dispatch path starts
 at a container root. If any path starts from an arbitrary block, the code must go
-in the block header and D7 becomes a format change.
+in the block header and D8 becomes a format change.
 
 ---
 
@@ -328,24 +386,26 @@ groups marked ∥ are independent of each other.
 | S0 | `DocumentHeader` 4 B | — | BREAKING; ABI bump; own commit |
 | S1 | `Row` object type + popcount access | S0 | format only; no container |
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
-| S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D9; borrow-carrying |
+| S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D11; borrow-carrying |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
 | S5 | one emitter arm, stream 0 parameterised | S1, S4, OPEN-1 | both tables |
 | S6 | `ClusteredTable` over bt_fl | S5 | PK = stream 0; value seq = the row's buffer |
-| S7 | heap table (keyless, ordinal) | S5 | bt_fl vector-of-structs |
+| S7 | heap table (keyless, ordinal) | S5, S10 | base container = `Vector<Writ>` |
 | S8 | metadata modes 2/3 | S2 | D5 |
-| S9 | dirmap `top_level` | S4 or a packing decision | D6 |
-| S10 | base container + dispatch | OPEN-2 | D7 |
+| S9 | dirmap `top_level` | S4 or a packing decision | D7 |
+| S10 | base container + dispatch | OPEN-2 | D8 |
 | S11 | mutation protocol reconciliation | S3, S6/S7 | the real work |
 | S12 | indexes | S6, S7 | secondary; scope of a later ADR section |
+| S13 | instance pool (`CtrID -> wrapper`) + metadata cache | S2 | D6; per snapshot |
 
 ## What this ADR does not do
 
-It does not retire `Vector<Writ>`. Since `Row` is a Writ structure, the document
-container and the table share the ENTIRE value machinery — they differ in the
-root object type and in where the schema lives, which makes them siblings rather
-than rivals. Heterogeneity stays available where it is wanted and stops being
-charged to rows that do not want it.
+It does not retire `Vector<Writ>` — it PROMOTES it. Since `Row` is a Writ
+structure, the document container and the table share the ENTIRE value machinery,
+differing only in the root object type and in where the schema lives; and
+`Vector<Writ>` is the heap table's base container (D1, D8). Heterogeneity stays
+available where it is wanted and stops being charged to rows that do not want
+it — from one codebase, with the table as a superstructure rather than a rival.
 
 It does not specify indexes beyond naming S12. A secondary index over a clustered
 table is another bt_fl client and needs the relation widening (S4) and the
