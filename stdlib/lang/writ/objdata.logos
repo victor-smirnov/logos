@@ -1,0 +1,325 @@
+// Logos Writ stdlib — writ.objdata
+//
+// WritObjectData: ONE Writ object serialized as a contiguous, position-
+// independent byte run — the object starts at byte 0 and carries NO in-band
+// type tag. The tag travels SEPARATELY (for a Memoria container: as a fact in
+// the container's metadata, one tag for every entry of a homogeneous column).
+// ADR 0027 OPEN-1: this is the key/value representation of the row-store plane.
+//
+// WHY TAGLESS WORKS: Writ object code never reads its own `obj[-1]` — the
+// in-band tag is read only by the WAny dispatch layer (`w_type_code` via
+// `resolve()`). A typed view (`&WString`, `&WArray<WAny>`, …) navigates from
+// `self` FORWARD. So a tagless root is readable through typed views directly;
+// what is FORBIDDEN is manufacturing a `WAny` from the buffer base
+// (`WAny::ref_to` would read the byte before the buffer — foreign memory).
+// INNER objects keep their tags: only the ROOT's tag is externalised.
+//
+// LAYOUT of the byte run (`len` bytes, `len % 8 == 0`, base 8-aligned):
+//   • object root  (tag classes ≥ W_I64): the arena image of a compactified
+//     document with the root object at offset 0; children follow; every
+//     reference is self-relative, so the run is relocatable as a unit.
+//   • scalar root  (inline Pod codes WA_I56/WA_BOOL/WT_*): 8 raw bytes — the
+//     sign-extended value word, NO Pod tagging (the type is the external tag).
+//   • null         : `len == 0`, `tag == 0`.
+//
+// The run is READ-ONLY by API: views are `&`, never `&mut`. Mutation is
+// materialise → edit the document → re-serialize:
+//
+//     let d:  WritObjectData = wod_serialize(v)?;          // freeze
+//     let s:  &WString       = d.as_string();              // read in place
+//     let w2: Rc<Writ>       = writ_rc(4096);
+//     let v2: WAny           = d.materialize(w2.deref())?; // thaw to edit
+//
+// DETERMINISTIC, NOT (YET) CANONICAL. Every byte of a run is written by the
+// serializer — the exact-fit arena is zeroed before the copying pass, so tag
+// slots, array spare capacity and alignment gaps read 0 rather than stale heap,
+// and serializing the same value twice yields byte-identical runs. It is NOT
+// canonical across differently-BUILT equal values:
+//   • a W_MAP is copied in the SOURCE table's slot order, so two logically equal
+//     maps built in different insertion orders (colliding keys landing in the
+//     opposite order) produce different runs;
+//   • WArray spare capacity is part of the run — `compactify_obj` sizes the copy
+//     to the next power of two ≥ 8, so a 1-element array run carries 7 zeroed
+//     slots and an n-element run up to ~2× its minimum.
+// A Memoria key column that treats the run as the key's IDENTITY (byte compare /
+// hash) therefore needs a canonicalising form first — ADR 0027 OPEN: key-ordered
+// map rehash + exact-sized array copy. Byte equality is a sound "equal" today;
+// byte INequality is not yet a sound "different".
+//
+// SIZE is a property of the CONSUMER, not of this type: the Memoria key column
+// frames a WritObjectData with a u16 length (keys ≤ 64 KiB — ADR 0027); a value
+// column, an array element, or any other holder may carry any length.
+
+package logos.lang.writ.objdata;
+
+use logos.lang.writ.container;   // Writ, writ_new, writ_alloc_bytes
+use logos.lang.writ.allocator;   // Allocator, Segment
+use logos.lang.writ.anyval;      // WAny, w_type_code, W_* / WA_* / WT_* codes
+use logos.lang.writ.compactify;  // try_compactify, compactify_obj, CloneRefusal
+use logos.lang.writ.wstring;     // WString
+use logos.lang.writ.array;       // WArray<WAny>
+use logos.lang.writ.wmap;        // WMap<WString, WAny>
+use logos.lang.result;           // Result
+use logos.lang.panic;            // panic — a wrong-type view is a type violation
+use logos.lang.ptr;
+
+// Declared locally rather than pulled from `logos.lang.mem` — `writ.allocator`
+// does the same for malloc/free, keeping the writ layer free of a lang.mem edge.
+extern fn memset(ptr: *mut u8, val: i32, n: i64) -> *mut u8;
+
+// ── the owned serialized form ─────────────────────────────────────────────────
+
+/// One Writ object serialized as an owned, contiguous, tagless byte run
+/// (root at byte 0, 8-aligned, `len() % 8 == 0`) with its type code carried
+/// OUTSIDE the bytes. Read-only by API; mutate by [materialize] → edit →
+/// [wod_serialize].
+pub struct WritObjectData {
+    // The exact-size single-segment arena that OWNS the bytes (RAII via Writ's
+    // Drop). Private: handing out the doc would hand out a mutable arena.
+    doc: Writ,
+    // Byte offset of the object within the segment's data region (8 for an
+    // object root — the dropped tag slot; 0 for a scalar; 0 for null).
+    off: i64,
+    // Object bytes, already padded: `len % 8 == 0`. 0 for null.
+    len: i64,
+    // The externalised type code: a Writ object code (W_STRING, W_ARRAY, …,
+    // W_I64…W_F64) or an inline Pod code (WA_I56, WA_BOOL, WT_*); 0 = null.
+    tag: u64,
+}
+
+impl WritObjectData {
+    /// The externalised root type code (0 = null root).
+    pub fn tag(self: &WritObjectData) -> u64 { return self.tag; }
+    /// Byte length of the run — always a multiple of 8; 0 for a null root.
+    pub fn len(self: &WritObjectData) -> i64 { return self.len; }
+    /// Base of the byte run (8-aligned). Valid while this WritObjectData lives.
+    /// ⚠ Do NOT `WAny::ref_to` this pointer: the byte before it is not a tag.
+    pub fn as_ptr(self: &WritObjectData) -> *const u8 {
+        if self.len == 0i64 { return 0i64 as *const u8; }
+        let seg: *mut Segment = unsafe { (*self.doc.allocator.get()).head };
+        return unsafe { (((seg as i64) + (sizeof::<Segment>() as i64)) + self.off) as *const u8 };
+    }
+}
+
+// ── tag classification ────────────────────────────────────────────────────────
+
+// The inline Pod codes (7-bit, value lives IN the word): WA_I56, WA_BOOL and the
+// exact-width WT_I8..WT_U24 block. Everything else that reaches a root is an
+// arena-object code. The two sets are disjoint by assignment (Pod: 1, 2, 20..25;
+// objects: 26+); this predicate is the single place that knows the split.
+/// Returns `true` iff `tag` is an inline Pod code — a [WritObjectData] with this
+/// tag stores 8 raw value bytes rather than an arena object.
+pub fn wod_tag_is_scalar(tag: u64) -> bool {
+    return tag == (WA_I56 as u64) || tag == (WA_BOOL as u64)
+        || (tag >= (WT_I8 as u64) && tag <= (WT_U24 as u64));
+}
+
+// ── serialization ─────────────────────────────────────────────────────────────
+
+// Sum of used bytes and segment count of a document's arena — the sizing input
+// for the exact-fit second pass.
+unsafe fn arena_used(doc: &Writ) -> i64 {
+    let mut total: i64 = 0i64;
+    let mut seg: *mut Segment = (*doc.allocator.get()).head;
+    while !seg.is_null() {
+        // 8 extra per segment: a single-segment relayout may pay alignment where
+        // a fresh segment started pre-aligned.
+        total = total + seg.used + 8i64;
+        seg = seg.next;
+    }
+    return total;
+}
+
+// Pass 2 of the serializer: zero the exact-fit arena, then run the ONE walker
+// into it. Refuses with OOM if the arena has no segment (its single contiguous
+// malloc failed — the exact size is data-derived, so this is reachable).
+//
+// THE RUN MUST BE A FUNCTION OF THE VALUE. A bump arena hands out uninitialised
+// malloc bytes, and the copying pass does NOT write every byte inside the run: an
+// object's 8-byte tag slot takes a single byte for codes ≤ 222 (`w_write_tag`),
+// `array_new`'s element buffer is never zeroed (spare capacity past `len` stays
+// raw), and each alignment gap between allocations is skipped. Those bytes sit
+// INSIDE `[base+8, base+8+len)`, so without this two equal values serialize to
+// different runs — a Memoria key column that compares or hashes the run would
+// read two equal keys as distinct. Zeroing the whole data region BEFORE the copy
+// makes every byte the walk does not write a deterministic 0 (and stops freed-heap
+// contents from being persisted/replicated verbatim).
+unsafe fn zeroed_compactify(dst: &Writ, v: WAny) -> Result<WAny, CloneRefusal> {
+    let seg: *mut Segment = (*dst.allocator.get()).head;
+    if seg.is_null() { return Result::Err(CloneRefusal { kind: CLONE_REFUSED_OOM, tag: 0u64 }); }
+    memset(((seg as i64) + (sizeof::<Segment>() as i64)) as *mut u8, 0i32, seg.cap);
+    return try_compactify(dst, v);
+}
+
+/// Serializes the value `v` into an owned [WritObjectData]: a deep copy of `v`'s
+/// transitive closure laid out contiguously with the tagless root at byte 0 and
+/// the root's type code returned OUT-OF-BAND (in `.tag()`). Errors are
+/// [compactify]'s: too deep, unknown tag, OOM.
+pub fn wod_serialize(v: WAny) -> Result<WritObjectData, CloneRefusal> {
+    if v.is_null() {
+        return Result::Ok(WritObjectData { doc: writ_new(16i64), off: 0i64, len: 0i64, tag: 0u64 });
+    }
+    if v.is_pod() {
+        // Scalar run: 8 raw bytes — the sign-extended value word, tag external.
+        let d: Writ = writ_new(16i64);
+        unsafe {
+            let p: *mut u8 = writ_alloc_bytes((&d) as *const Writ as *mut Writ, 8i64);
+            if p.is_null() { return Result::Err(CloneRefusal { kind: CLONE_REFUSED_OOM, tag: 0u64 }); }
+            *(p as *mut i64) = v.as_i56();
+        }
+        return Result::Ok(WritObjectData { doc: d, off: 0i64, len: 8i64, tag: v.pod_code() as u64 });
+    }
+
+    let tag: u64 = unsafe { w_type_code(v.resolve()) };
+
+    // Boxed wide scalars: the object IS its 8-byte payload — copy it directly,
+    // skipping the two-pass walk.
+    if tag == W_I64 || tag == W_U64 || tag == W_F32 || tag == W_F64 {
+        let d: Writ = writ_new(16i64);
+        unsafe {
+            let p: *mut u8 = writ_alloc_bytes((&d) as *const Writ as *mut Writ, 8i64);
+            if p.is_null() { return Result::Err(CloneRefusal { kind: CLONE_REFUSED_OOM, tag: 0u64 }); }
+            if tag == W_F32 {
+                // Only 4 of a W_F32 box's 8 bytes carry the value (`box_f32`).
+                // Copy exactly those and zero the rest, so the run is a function
+                // of the f32 even when the source box's upper half is stale.
+                *(p as *mut u64) = 0u64;
+                *(p as *mut f32) = *(v.resolve() as *const f32);
+            } else {
+                *(p as *mut u64) = *(v.resolve() as *const u64);
+            }
+        }
+        return Result::Ok(WritObjectData { doc: d, off: 0i64, len: 8i64, tag: tag });
+    }
+
+    // Structural root — two passes over the ONE walker:
+    //   pass 1 measures (a growable scratch arena),
+    //   pass 2 re-copies into an EXACT-size arena, so the result is a single
+    //   contiguous segment with the root object at the first allocation.
+    let scratch: Writ = writ_new(4096i64);
+    match try_compactify(&scratch, v) {
+        Result::Ok(_)  => { }
+        Result::Err(e) => { return Result::Err(e); }
+    }
+    let exact: i64 = unsafe { arena_used(&scratch) } + 16i64;
+
+    let d: Writ = writ_new(exact);
+    let root: WAny = match unsafe { zeroed_compactify(&d, v) } {
+        Result::Ok(r)  => { r }
+        Result::Err(e) => { return Result::Err(e); }
+    };
+
+    unsafe {
+        let a: *mut Allocator = d.allocator.get();
+        // Single-segment invariant: `exact` covers the whole pass-1 volume, so
+        // pass 2 (the identical allocation sequence) must not have grown.
+        if (*a).head != (*a).current { panic("writ objdata: serialize did not fit one segment — arena_used undersized the exact pass"); }
+        let seg: *mut Segment = (*a).head;
+        let base: i64 = (seg as i64) + (sizeof::<Segment>() as i64);
+        // Root-first invariant (the allocation law pinned in compactify_obj):
+        // the root object sits at data+8, its dropped tag slot at data+0.
+        if (root.resolve() as i64) != base + 8i64 { panic("writ objdata: root object is not the arena's first allocation — a compactify arm broke the root-first law"); }
+        // Pad the run to a multiple of 8 with zero bytes. Redundant with the
+        // pre-pass zeroing above (which already covers the whole segment) and
+        // kept anyway: it makes the "the tail is padded, not raw" law local to
+        // the place that publishes `len`.
+        let raw: i64 = seg.used - 8i64;
+        let len: i64 = (raw + 7i64) & (0i64 - 8i64);
+        let mut z: i64 = raw;
+        while z < len {
+            *((base + 8i64 + z) as *mut u8) = 0u8;
+            z = z + 1i64;
+        }
+        return Result::Ok(WritObjectData { doc: d, off: 8i64, len: len, tag: tag });
+    }
+}
+
+// ── materialization (the thaw half of the mutate cycle) ───────────────────────
+
+/// Deep-copies a tagless object run (base `p`, external `tag`) into the live
+/// document `dst`, returning a root `WAny` there — or a [CloneRefusal]. This is
+/// the RAW form for consumers that hold leaf bytes (a Memoria container);
+/// `p` must be the base of a well-formed run whose root has type `tag`.
+pub unsafe fn wod_materialize_raw(dst: &Writ, p: *const u8, tag: u64) -> Result<WAny, CloneRefusal> {
+    if tag == 0u64 { return Result::Ok(WAny::null()); }
+    if wod_tag_is_scalar(tag) {
+        return Result::Ok(WAny::pod(*(p as *const i64), tag as u8));
+    }
+    return compactify_obj(dst, p, tag, 0i64);
+}
+
+impl WritObjectData {
+    /// Deep-copies this run into the live document `dst` (the thaw step of
+    /// materialise → edit → re-serialize), returning the new root `WAny` there.
+    pub fn materialize(self: &WritObjectData, dst: &Writ) -> Result<WAny, CloneRefusal> {
+        return unsafe { wod_materialize_raw(dst, self.as_ptr(), self.tag) };
+    }
+}
+
+// ── read-only typed views (guarded by the EXTERNAL tag) ───────────────────────
+
+// The raw-view forms: for consumers holding leaf bytes + the metadata tag. Each
+// decides "the EXTERNAL tag says T" — the same contract as the WAny `as_*`
+// guards, with the tag supplied instead of read from `obj[-1]`.
+
+/// Views a tagless run as `&WString`; PANICS unless `tag == W_STRING`.
+pub unsafe fn wod_view_string<'a>(p: *const u8, tag: u64) -> &'a WString {
+    if tag != W_STRING { panic("writ objdata: view_string over a non-string run — check the external tag first"); }
+    return &*(p as *const WString);
+}
+/// Views a tagless run as `&WArray<WAny>`; PANICS unless `tag == W_ARRAY`.
+pub unsafe fn wod_view_array<'a>(p: *const u8, tag: u64) -> &'a WArray<WAny> {
+    if tag != W_ARRAY { panic("writ objdata: view_array over a non-array run — check the external tag first"); }
+    return &*(p as *const WArray<WAny>);
+}
+/// Views a tagless run as `&WMap<WString, WAny>`; PANICS unless `tag == W_MAP`.
+pub unsafe fn wod_view_map<'a>(p: *const u8, tag: u64) -> &'a WMap<WString, WAny> {
+    if tag != W_MAP { panic("writ objdata: view_map over a non-map run — check the external tag first"); }
+    return &*(p as *const WMap<WString, WAny>);
+}
+
+impl WritObjectData {
+    /// Read-only `&WString` view of a string run; PANICS on a non-string tag.
+    pub fn as_string(self: &WritObjectData) -> &WString {
+        return unsafe { wod_view_string(self.as_ptr(), self.tag) };
+    }
+    /// Read-only `&WArray<WAny>` view of an array run; PANICS on a non-array tag.
+    pub fn as_array(self: &WritObjectData) -> &WArray<WAny> {
+        return unsafe { wod_view_array(self.as_ptr(), self.tag) };
+    }
+    /// Read-only `&WMap<WString, WAny>` view of a map run; PANICS on a non-map tag.
+    pub fn as_map(self: &WritObjectData) -> &WMap<WString, WAny> {
+        return unsafe { wod_view_map(self.as_ptr(), self.tag) };
+    }
+
+    /// Returns `true` iff the run stores an inline-Pod scalar (8 raw value bytes).
+    pub fn is_scalar(self: &WritObjectData) -> bool { return wod_tag_is_scalar(self.tag); }
+    /// Returns `true` iff the run is the null root (`len == 0`).
+    pub fn is_null(self: &WritObjectData) -> bool { return self.tag == 0u64; }
+
+    // Scalar reads decode by the EXTERNAL tag, mirroring `WAny::as_*` semantics:
+    // integers from the scalar word or the W_I64/W_U64 payload; floats only from
+    // boxed payloads (floats are never inline); wrong-tag reads return the
+    // ADR-0011 absent default (0 / 0.0 / false) — pair with the tag check.
+    /// Integer value of a scalar or `W_I64` run; other tags → 0.
+    pub fn as_i64(self: &WritObjectData) -> i64 {
+        if self.is_scalar() || self.tag == W_I64 { return unsafe { *(self.as_ptr() as *const i64) }; }
+        return 0i64;
+    }
+    /// Unsigned value of a scalar or `W_U64` run; other tags → 0.
+    pub fn as_u64(self: &WritObjectData) -> u64 {
+        if self.is_scalar() || self.tag == W_U64 { return unsafe { *(self.as_ptr() as *const u64) }; }
+        return 0u64;
+    }
+    /// Float value of a `W_F64` (or widened `W_F32`) run; other tags → 0.0.
+    pub fn as_f64(self: &WritObjectData) -> f64 {
+        if self.tag == W_F64 { return unsafe { *(self.as_ptr() as *const f64) }; }
+        if self.tag == W_F32 { return unsafe { *(self.as_ptr() as *const f32) } as f64; }
+        return 0.0f64;
+    }
+    /// Boolean value of a `WA_BOOL` run; other tags → false.
+    pub fn as_bool(self: &WritObjectData) -> bool {
+        if self.tag == (WA_BOOL as u64) { return unsafe { *(self.as_ptr() as *const i64) } != 0i64; }
+        return false;
+    }
+}

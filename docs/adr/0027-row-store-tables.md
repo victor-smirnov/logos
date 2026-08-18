@@ -1,8 +1,9 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). One
-sub-decision is OPEN and marked as such; it changes structure, not bytes, and
-the slices that do not depend on it can start.
+Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). The one
+sub-decision that was OPEN (OPEN-1, the key/value type mechanism) is RESOLVED
+2026-08-18 — see the `WritObjectData` section. Its implementation opened one
+successor question (OPEN-2, canonical bytes for byte-compared keys).
 Scope: two new container kinds (clustered and heap tables), the `Row` /
 `TableMetadata` pair they store, the container-registry and dispatch extensions
 they need, and the Deem-side consequences. Builds on ADR 0020 (container plane),
@@ -459,16 +460,75 @@ arm parameterised by stream 0's role, not become two.
 
 ---
 
-## OPEN — one sub-decision
+## OPEN-1 — RESOLVED: neither. `WritObjectData` — a tagless object run, the
+## type a fact in container metadata
 
-**OPEN-1 — `OrdDataType`: closed set or dynamic tag?** The mechanism stores a
-value of an arbitrary type from a given set (comparable ones) as the container's
-value, with the concrete type recorded in metadata. Either (a) the set is CLOSED
-at compile time and we generate a dispatch over it, the metadata selecting an
-arm — an extension of the existing per-config generation, where Deem's relation
-columns stay statically typed; or (b) the type is fully dynamic and metadata is
-the only source — which changes the shape of Deem's relation and is a different
-piece of work. Almost everything downstream follows from this answer.
+**The question dissolved instead of being answered.** OPEN-1 asked whether the
+comparable-key type set is closed (generate a dispatch) or dynamic (metadata the
+only source). The resolution (Victor + Claude PAIR, 2026-08-18) is a third
+shape that needs NO per-type generation and still leaves Deem statically typed:
+
+**`WritObjectData`** (`stdlib/lang/writ/objdata.logos`): one Writ object
+serialized as a contiguous, position-independent byte run — the object starts at
+byte 0 and carries **no in-band type tag**. The tag is externalised: for a
+container column it is ONE fact in the container's metadata (D5), shared by
+every entry of the column. This works because Writ object code never reads its
+own `obj[-1]` — the in-band tag is read only by the `WAny` dispatch layer — so a
+typed view (`&WString`, `&WArray<WAny>`, …) reads a tagless root in place.
+Inner objects keep their tags; only the root's is externalised.
+
+* **Bytes.** A scalar entry is 8 raw bytes — parity with today's `u64` cell, no
+  regression; an object entry is its arena image, root at 0, references
+  self-relative, size padded to a multiple of 8, base 8-aligned (zone-compatible).
+  The earlier sketch — key as a one-value Writ document, 16 B/scalar — is
+  SUPERSEDED by this: strictly fewer bytes and no per-entry header at all.
+* **Homogeneity is structural, not checked.** One tag per column means there is
+  nothing to compare type-wise per comparison: the comparator is chosen ONCE
+  when the wrapper opens (dispatch on the metadata tag), and the per-compare
+  type-mismatch error the dynamic option implied disappears from the design.
+  Type errors exist only at the two gates: INSERT (value's dynamic type vs the
+  column's declared tag) and OPEN (the wrapper's declared type vs `ctr_meta` —
+  filling a documented hole: today's generated `open` checks nothing).
+* **Deem stays statically typed.** The relation column types live in the
+  wrapper's `impl … Source<K, V>` declaration; the open-time gate pins them to
+  the metadata, after which the generated plan uses the fast path
+  unconditionally. Dynamics in the representation, statics in the plan.
+* **Mutation protocol.** The run is read-only by API; mutation is
+  materialise → edit the document → re-serialize (`wod_serialize` /
+  `materialize`), which is D10/D11's `RowRef`/`RowBuf` split applied to any
+  object, not just rows.
+* **The key column caps the FRAME, not the type.** The Memoria key column
+  frames a `WritObjectData` with a u16 length (keys ≤ 64 KiB, 2 bytes of
+  framing); the type itself carries no limit — a value column or an array
+  element stores any length.
+* Implementation facts the resolution rests on: `compactify` gained a
+  `compactify_obj(dst, p, tc, depth)` entry (the type code supplied by the
+  caller, for tagless roots) and a **root-first allocation law** — every arm
+  allocates the object header before its buffers, so an exact-size second pass
+  lands the root at the fresh arena's first allocation and the tag slot is
+  dropped by taking the run from `data+8`.
+* Hardening this points at (small, separate): `WAny::ref_to` is safe-by-
+  signature but unsound-by-contract (accepts any pointer; over a tagless run it
+  would read foreign memory at `base-1`) — it should go behind `unsafe`.
+
+Consequently S5's base container is keyed and valued by `WritObjectData` runs
+over BTFL; the factory needs ONE configuration, not a dispatch over a type set.
+
+**OPEN-2 — canonical bytes for byte-compared keys.** `wod_serialize` is
+DETERMINISTIC (the exact-fit arena is zeroed before the copying pass, so the
+same value serializes to identical bytes — pinned by test) but NOT CANONICAL
+across differently-built equal values: a `W_MAP` is copied in the source
+table's slot order, so two logically equal maps built in different insertion
+orders (colliding keys placed oppositely) produce different runs; and the copy
+keeps growth-friendly capacity (arrays: next power of two ≥ 8; maps: 2× slots),
+so the run is larger than minimal. Byte EQUALITY is therefore a sound "equal";
+byte INEQUALITY is not yet a sound "different". This does not block the key
+plane's common cases — a scalar run (8 raw bytes) and a string run
+(vlen + payload) ARE canonical — but before a map- or array-keyed column
+compares or hashes RUNS as key identity, one of: (a) a canonicalising
+serialize for keys (key-ordered rehash + exact-size copies — a cost decision
+inside the ONE shared clone walker), or (b) a structural comparator that walks
+the two runs instead of `memcmp`. Decide at S5.
 
 ---
 
@@ -483,7 +543,8 @@ groups marked ∥ are independent of each other.
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
 | S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D11; borrow-carrying |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
-| S5 | base arm: `Map<K,V>` over BTFL for a Writ value | S1, S4, OPEN-1 | Memoria-level; no table kind |
+| S4.5 | `WritObjectData` (tagless run + external tag) | — | ✅ LANDED with OPEN-1's resolution |
+| S5 | base arm: `Map<K,V>` over BTFL, K/V = `WritObjectData` | S1, S4, S4.5 | Memoria-level; no table kind; u16 key framing |
 | S6 | `ClusteredTable` wrapper | S5, S13 | LIBRARY, not a kind; PK = the base's key |
 | S7 | heap-table wrapper (`Map<u64, Row>`, OID) | S5, S13 | LIBRARY; next-OID in metadata |
 | S8 | metadata modes 2/3 | S2 | D5 |

@@ -151,11 +151,32 @@ unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRef
     if depth > COMPACTIFY_MAX_DEPTH { return refuse_depth(); }
     if v.is_null() { return Result::Ok(WAny::null()); }
     if v.is_pod()  { return Result::Ok(v); }           // i56 / bool / exact-width — position-independent
+    let p: *const u8 = v.resolve();
+    return compactify_obj(dst, p, w_type_code(p), depth);
+}
+
+// The arena-OBJECT arm of the walk, with the type code supplied by the CALLER
+// rather than read from `obj[-1]`. This is the entry point for a TAGLESS root —
+// a `WritObjectData` object whose in-band tag is externalised (kept in container
+// metadata), where the byte before the object is not this object's memory.
+// `compactify_d` above delegates here after reading the in-band tag; both paths
+// share every arm, so there is ONE walker (the drift between two copies of this
+// walk is a measured bug — see the header).
+//
+// ⚠ ROOT-FIRST ALLOCATION LAW (load-bearing for `objdata`): every arm below
+// allocates the OBJECT ITSELF (its `alloc_tagged` header) before any buffer or
+// child it references. With that order, compactifying into a FRESH arena places
+// the root object at the arena's first allocation — `objdata` serialisation
+// asserts this. Do not reorder an arm's allocations without reading that assert.
+/// Deep-copies the arena object at `p` (type code `tc`, transitive closure included)
+/// into `dst`, returning the new root `WAny` — or a [CloneRefusal]. The caller
+/// supplies `tc` instead of the walker reading `obj[-1]`, so a TAGLESS object
+/// (`WritObjectData`) is copyable without touching the byte before it.
+pub unsafe fn compactify_obj(dst: &Writ, p: *const u8, tc: u64, depth: i64) -> Result<WAny, CloneRefusal> {
+    if depth > COMPACTIFY_MAX_DEPTH { return refuse_depth(); }
 
     let hp: *mut Writ = dst as *const Writ as *mut Writ;
     let ap: *mut Allocator = hp.allocator.get();
-    let p: *const u8 = v.resolve();
-    let tc: u64 = w_type_code(p);
 
     // Boxed wide scalars — an 8-byte payload behind the tag. Copy the BITS and
     // KEEP THE TAG: re-encoding through `as_i64`/`as_f64` is what destroyed
@@ -217,6 +238,9 @@ unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRef
         let n: u64 = *(p as *const u64);
         let w: i64 = typed_elem_width(tc);
         let bytes: i64 = (n as i64) * w;
+        // Header BEFORE the element buffer — the root-first allocation law above.
+        let hdr: *mut u8 = alloc_tagged(ap, 24i64, tc);
+        if hdr.is_null() { return refuse_oom(); }
         let mut buf: *mut u8 = 0i64 as *mut u8;
         if bytes > 0i64 {
             buf = writ_alloc_bytes(hp, bytes);
@@ -229,8 +253,6 @@ unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRef
                 i = i + 1i64;
             }
         }
-        let hdr: *mut u8 = alloc_tagged(ap, 24i64, tc);
-        if hdr.is_null() { return refuse_oom(); }
         *(hdr as *mut u64) = n;
         *(((hdr as i64) + 8i64) as *mut u64) = n;
         let df: i64 = (hdr as i64) + 16i64;
@@ -243,6 +265,9 @@ unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRef
     if tc >= W_TYPED_MAP_LO && tc <= W_TYPED_MAP_HI {
         let n: i64 = *(p as *const i64);
         let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };
+        // Header BEFORE the key/value buffers — the root-first allocation law above.
+        let hdr: *mut u8 = alloc_tagged(ap, 32i64, tc);
+        if hdr.is_null() { return refuse_oom(); }
         let mut kbuf: i64 = 0i64;
         let mut vbuf: i64 = 0i64;
         if n > 0i64 {
@@ -268,8 +293,6 @@ unsafe fn compactify_d(dst: &Writ, v: WAny, depth: i64) -> Result<WAny, CloneRef
                 i = i + 1i64;
             }
         }
-        let hdr: *mut u8 = alloc_tagged(ap, 32i64, tc);
-        if hdr.is_null() { return refuse_oom(); }
         *(hdr as *mut i64) = n;
         *(((hdr as i64) + 8i64) as *mut i64) = n;
         let kf2: i64 = (hdr as i64) + 16i64;

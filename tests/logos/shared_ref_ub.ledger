@@ -118,10 +118,21 @@ stdlib/lcm/sync/sync.logos	RwLock	axis_rwlock
 # was ported OUT of the cut precisely to survive it, and that row is the control
 # proving this edit removed corpses and not evidence.
 #
+# 2026-08-18 — `WritObjectData` (logos.lang.writ.objdata) APPEARS here for the
+# same reason `AnyBox` does: it owns a `Writ` BY VALUE (the exact-fit arena that
+# holds the serialized byte run), and `Writ` is an INTERIOR root, so the field
+# recursion reaches a root and `WritObjectData` is correctly non-Freeze.
+# REVIEWED and intended: the type's whole point is owning that arena so the run
+# is freed with it (RAII), and the `doc` field is private precisely so nobody
+# gets a mutable arena out of a `&WritObjectData`. A `&WritObjectData` earning
+# noalias+readonly would be the wrong answer while `as_ptr()` hands out a
+# pointer into that arena.
+#
 # FORMAT: `<repo-relative path>\t<Name>\t<axis id | ->`  (TAB-separated)
 TRANSITIVE
 stdlib/lang/cell/cell.logos	LazyCell	axis_lazycell
 stdlib/lang/fabric/fabric.logos	Buffer	-
+stdlib/lang/writ/objdata.logos	WritObjectData	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafDirNode	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafNode	-
 stdlib/lcm/deem/data/bt/cow.logos	LeafNodeForBranch	-
@@ -173,6 +184,16 @@ stdlib/std/io/bytes/bytes.logos	BytesInner	-
 # through the `UnsafeCell` as it always did. Net stdlib count is unchanged (1
 # added under lang/writ, 1 removed under mem/writ) — the walk was not duplicated.
 #
+# 2026-08-18 — `stdlib/lang/writ/objdata.logos 2` APPEARS. Both sites are the
+# same one-line shape every other writ row is: `writ_alloc_bytes((&d) as *const
+# Writ as *mut Writ, 8)` on the two scalar fast paths of `wod_serialize`.
+# REVIEWED, same reason: the pointee is `Writ`, which holds `UnsafeCell`, so it
+# is non-Freeze and a `&Writ` is neither noalias nor readonly; the cast exists
+# only because `writ_alloc_bytes` takes `*mut Writ` to READ `.allocator`, and the
+# arena mutation goes through the `UnsafeCell` as always. `d` is a local the
+# function itself created and is about to move into the returned value, so no
+# caller's `&Writ` is being laundered.
+#
 # FORMAT: `<repo-relative path>\t<count>`  (TAB-separated)
 LAUNDER
 stdlib/lang/atomic/atomic.logos	2
@@ -183,6 +204,7 @@ stdlib/lang/rc/rc.logos	7
 stdlib/lang/writ/array.logos	2
 stdlib/lang/writ/compactify.logos	1
 stdlib/lang/writ/decimal.logos	1
+stdlib/lang/writ/objdata.logos	2
 stdlib/lang/writ/parameter.logos	1
 stdlib/lang/writ/tmpl.logos	1
 stdlib/lang/writ/typed_arr.logos	2

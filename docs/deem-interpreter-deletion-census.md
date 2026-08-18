@@ -3043,8 +3043,16 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # examples/deem_memoria_showcase.logos. It is a DEMO — it prints its answers and
 # nothing in the build runs it — so it registers no test. It still verifies the
 # rows it prints and says `self-check: FAILED at check <n>` when they disagree.
+# +1 / +1 / +0 (2026-08-18): tests/logos/pass/writ_objdata_roundtrip.logos — the
+# WritObjectData freeze/thaw round trip (ADR 0027 OPEN-1).
+# ⚠ AND THE PIN'S `ALL` WAS ALREADY ONE HIGH. Measured on this tree with the new
+# test REMOVED: ALL 7257 / -LE imported 3574, against a pinned 7258 / 3574. So
+# the +1 lands on a baseline of 7257 and `ALL` stays 7258 BY COINCIDENCE — the
+# new test papered over a stale row rather than moving it. The stale +1 dates to
+# 05fe9e45 (the showcase leaving the corpus was priced -1/-1 and only
+# NOIMPORTED actually moved). Numbers below are measured, not derived.
 REGISTRY-ALL         7258
-REGISTRY-NOIMPORTED  3574
+REGISTRY-NOIMPORTED  3575
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

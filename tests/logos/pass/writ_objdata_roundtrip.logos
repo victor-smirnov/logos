@@ -1,0 +1,281 @@
+// WritObjectData (ADR 0027 OPEN-1) — one Writ object serialized as a contiguous
+// TAGLESS byte run: root at byte 0, type code carried OUTSIDE the bytes.
+//
+// The property under test is the FREEZE → THAW round trip:
+//   wod_serialize(v) → (bytes, tag)  →  materialize(dst) → v' , writ_equal(v, v')
+// for every root class — inline Pod scalar, boxed wide scalar, string, array,
+// map, null — plus the two facts that make the representation what it claims:
+//   • the tag is NOT in the bytes (a string run starts with its vlen prefix, not
+//     with the W_STRING code 130 that an in-band tag would put at obj[-1]);
+//   • the run is 8-aligned and 8-padded (len % 8 == 0), so it is relocatable and
+//     storable as one unit by a Memoria column;
+//   • bit preservation for a boxed u64 (the compactify story: u64::MAX must NOT
+//     come back as the inline Pod -1).
+// Mutation is materialise → edit → re-serialize; case 8 exercises that cycle.
+package writ_objdata_roundtrip;
+use logos.lang.writ.objdata;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.writ.array;
+use logos.lang.writ.wmap;
+use logos.mem.writ.equal;
+use logos.mem.writ.stringify;
+use logos.lang.rc;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+use logos.lang.mem;
+
+unsafe fn main() -> i32 {
+    let src: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = src.deref();
+
+    // ── 1. Inline Pod scalar (i56), NEGATIVE — the sign-extended value word ────
+    let neg: i64 = 0i64 - 1234i64;
+    let v1: WAny = WAny::from(neg as i56);
+    let d1: WritObjectData = match wod_serialize(v1) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 1; }
+    };
+    if d1.tag() != (WA_I56 as u64) { return 2; }
+    if d1.len() != 8i64 { return 3; }
+    if !d1.is_scalar() { return 4; }
+    if d1.as_i64() != neg { return 5; }
+    let w1: Rc<Writ> = writ_rc(4096);
+    let m1: WAny = match d1.materialize(w1.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 6; }
+    };
+    if m1.as_i64() != neg { return 7; }
+    if !writ_equal(v1, m1) { return 8; }
+
+    // ── 2. Inline Pod bool ────────────────────────────────────────────────────
+    let v2: WAny = WAny::from(true);
+    let d2: WritObjectData = match wod_serialize(v2) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 9; }
+    };
+    if d2.tag() != (WA_BOOL as u64) { return 10; }
+    if d2.len() != 8i64 { return 11; }
+    if !d2.as_bool() { return 12; }
+    let w2: Rc<Writ> = writ_rc(4096);
+    let m2: WAny = match d2.materialize(w2.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 13; }
+    };
+    if !m2.is_bool() { return 14; }
+    if !writ_equal(v2, m2) { return 15; }
+
+    // ── 3. Boxed u64::MAX — bit preservation under the ORIGINAL tag ───────────
+    // (the walker that re-encoded through as_i64 turned this into the Pod -1).
+    let umax: u64 = 18446744073709551615u64;
+    let v3: WAny = box_u64(h.allocator.get(), umax);
+    let d3: WritObjectData = match wod_serialize(v3) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 16; }
+    };
+    if d3.tag() != W_U64 { return 17; }
+    if d3.is_scalar() { return 18; }          // boxed, not an inline Pod
+    if d3.len() != 8i64 { return 19; }
+    if d3.as_u64() != umax { return 20; }
+    let w3: Rc<Writ> = writ_rc(4096);
+    let m3: WAny = match d3.materialize(w3.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 21; }
+    };
+    if !m3.is_u64() { return 22; }            // the CODE survived, not just bits
+    if m3.as_u64() != umax { return 23; }
+    if !writ_equal(v3, m3) { return 24; }
+
+    // ── 4. Boxed f64 ──────────────────────────────────────────────────────────
+    let f: f64 = 2.5f64;
+    let v4: WAny = h.float(f);
+    let d4: WritObjectData = match wod_serialize(v4) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 25; }
+    };
+    if d4.tag() != W_F64 { return 26; }
+    if d4.len() != 8i64 { return 27; }
+    if d4.as_f64() != f { return 28; }
+    let w4: Rc<Writ> = writ_rc(4096);
+    let m4: WAny = match d4.materialize(w4.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 29; }
+    };
+    if !m4.is_float() { return 30; }
+    if m4.as_f64() != f { return 31; }
+    if !writ_equal(v4, m4) { return 32; }
+
+    // ── 4b. Boxed f32 — the WHOLE 8-byte word is a function of the value ──────
+    // `box_f32` fills only 4 of the 8 bytes; the other 4 must be zeroed, not left
+    // as raw malloc, or the run's second half is stale heap and the byte image of
+    // an f32 is not determined by the f32.
+    // ⚠ NOT a pinning control: a freshly-malloc'd arena often hands out zeroed
+    // pages, so this assertion passed with the defect present too (measured).
+    // It catches the defect only on a dirty heap — the pinned guarantee is the
+    // byte-determinism check in case 6b.
+    let v4b: WAny = box_f32(h.allocator.get(), 1.5f32);
+    let d4b: WritObjectData = match wod_serialize(v4b) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 80; }
+    };
+    if d4b.tag() != W_F32 { return 81; }
+    if d4b.len() != 8i64 { return 82; }
+    if ((*(d4b.as_ptr() as *const u64)) >> 32u64) != 0u64 { return 83; }
+    if d4b.as_f64() != 1.5f64 { return 84; }
+
+    // ── 5. String root — THE TAG IS NOT IN THE BYTES ──────────────────────────
+    // A tagged arena object carries W_STRING (130) at obj[-1]; a WritObjectData
+    // run starts AT the object, so byte 0 is the WString's vlen length prefix.
+    // "hello-writ" is 10 bytes, well under 249, so the prefix is the single
+    // byte 10 — NOT 130, and not any tag byte at all.
+    let sv: &WString = h.wstring("hello-writ");
+    let v5: WAny = WAny::from(sv);
+    let d5: WritObjectData = match wod_serialize(v5) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 33; }
+    };
+    if d5.tag() != W_STRING { return 34; }
+    if d5.len() % 8i64 != 0i64 { return 35; }
+    let b0: u8 = *(d5.as_ptr());
+    if b0 == 130u8 { return 36; }             // the tag leaked INTO the run
+    if b0 != 10u8 { return 37; }              // byte 0 is the vlen payload length
+    if !str_eq(d5.as_string().as_str(), "hello-writ") { return 38; }
+    if d5.as_string().len() != 10i64 { return 39; }
+    let w5: Rc<Writ> = writ_rc(4096);
+    let m5: WAny = match d5.materialize(w5.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 40; }
+    };
+    if !m5.is_string() { return 41; }
+    if !str_eq(m5.as_wstr(), "hello-writ") { return 42; }
+    if !writ_equal(v5, m5) { return 43; }
+
+    // ── 6. Array root with mixed elements (int, string, nested array) ─────────
+    let inner: &mut WArray<WAny> = h.array(4);
+    inner.push(3i64);
+    inner.push(4i64);
+    let outer: &mut WArray<WAny> = h.array(4);
+    outer.push(7i64);
+    outer.push("two");
+    outer.push(&*inner);
+    let v6: WAny = WAny::from(&*outer);
+    let t6: String = stringify(v6);
+    let d6: WritObjectData = match wod_serialize(v6) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 44; }
+    };
+    if d6.tag() != W_ARRAY { return 45; }
+    if d6.len() <= 0i64 { return 46; }
+    if d6.len() % 8i64 != 0i64 { return 47; }
+    if d6.as_array().len() != 3i64 { return 48; }   // readable in place, tagless
+    let w6: Rc<Writ> = writ_rc(8192);
+    let m6: WAny = match d6.materialize(w6.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 49; }
+    };
+    if !writ_equal(v6, m6) { return 50; }
+    let t6b: String = stringify(m6);
+    if !t6b.eq_string(&t6) { return 51; }
+    if !t6b.eq_str("[7, \"two\", [3, 4]]") { return 52; }
+
+    // ── 6b. THE RUN IS A FUNCTION OF THE VALUE ────────────────────────────────
+    // Serializing the SAME value twice must give byte-identical runs. An array
+    // run covers the header's tag slot, the whole element buffer INCLUDING spare
+    // capacity, and every alignment gap — none of which the copying walk writes.
+    // Unless the exact-fit arena is zeroed first, those bytes are stale heap and
+    // the two runs differ, which a byte-comparing key column reads as two keys.
+    let d6b: WritObjectData = match wod_serialize(v6) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 85; }
+    };
+    if d6b.len() != d6.len() { return 86; }
+    if compare_bytes(d6.as_ptr(), d6b.as_ptr(), d6.len()) != 0i32 { return 87; }
+
+    // ── 7. Map root ───────────────────────────────────────────────────────────
+    let mp: &mut WMap<WString, WAny> = h.map(8);
+    mp.set("a", 1i64);
+    mp.set("b", "x");
+    let v7: WAny = WAny::from(&*mp);
+    let d7: WritObjectData = match wod_serialize(v7) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 53; }
+    };
+    if d7.tag() != W_MAP { return 54; }
+    if d7.len() % 8i64 != 0i64 { return 55; }
+    if d7.as_map().len() != 2i64 { return 56; }
+    let w7: Rc<Writ> = writ_rc(8192);
+    let m7: WAny = match d7.materialize(w7.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 57; }
+    };
+    if !writ_equal(v7, m7) { return 58; }
+
+    // ── 8. The mutate cycle: freeze → thaw → EDIT → re-freeze → thaw ──────────
+    // A run is read-only by API; mutation goes through a live document.
+    let d8: WritObjectData = match wod_serialize(v7) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 59; }
+    };
+    let w8: Rc<Writ> = writ_rc(8192);
+    let m8: WAny = match d8.materialize(w8.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 60; }
+    };
+    if !m8.is_map() { return 61; }
+    // `WMap<WString, WAny>` is `#[zone_mut]`: a `&mut` to it is a FAT ref
+    // {data, zone} and `set` reaches the arena via `zone_of(self)`. A plain
+    // `&mut *(ptr)` supplies no zone half, so build the fat ref explicitly with
+    // the DESTINATION document's allocator as the zone.
+    // (Control-reverted 2026-08-18: the plain `&mut *(ptr)` form here SIGSEGVs —
+    // exit 139 — because the compiler silently yields a THIN ref for a fat type.)
+    let edited: &mut WMap<WString, WAny> =
+        zone_mut_ref::<WMap<WString, WAny>>(m8.resolve() as *mut WMap<WString, WAny>,
+                                            w8.deref().allocator.get() as *mut u8);
+    edited.set("c", 3i64);
+    if edited.len() != 3i64 { return 62; }
+    let d9: WritObjectData = match wod_serialize(m8) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 63; }
+    };
+    if d9.tag() != W_MAP { return 64; }
+    let w9: Rc<Writ> = writ_rc(8192);
+    let m9: WAny = match d9.materialize(w9.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 65; }
+    };
+    let fm: &WMap<WString, WAny> = m9.as_map();
+    if fm.len() != 3i64 { return 66; }
+    if fm.get("c").as_i64() != 3i64 { return 67; }        // the NEW key arrived
+    if fm.get("a").as_i64() != 1i64 { return 68; }        // an OLD key survived
+    if !str_eq(fm.get("b").as_wstr(), "x") { return 69; } // and so did its string
+    if writ_equal(v7, m9) { return 70; }                  // it really did change
+
+    // ── 9. Null root: no bytes, no tag ────────────────────────────────────────
+    let d10: WritObjectData = match wod_serialize(WAny::null()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 71; }
+    };
+    if d10.len() != 0i64 { return 72; }
+    if d10.tag() != 0u64 { return 73; }
+    if !d10.is_null() { return 74; }
+    let w10: Rc<Writ> = writ_rc(4096);
+    let m10: WAny = match d10.materialize(w10.deref()) {
+        Result::Ok(x)  => { x }
+        Result::Err(_) => { return 75; }
+    };
+    if !m10.is_null() { return 76; }
+
+    // ── 10. A FAILED ARENA REFUSES, IT DOES NOT FAULT ─────────────────────────
+    // `wod_serialize` sizes its second arena from the DOCUMENT's own volume, so
+    // `writ_new(exact)`'s single contiguous malloc is reachable-failing. On that
+    // failure `allocator_new` yields head == current == null and documents that
+    // `allocator_alloc` then returns null — but it read `seg.used` off the null
+    // pointer first, turning an OOM into a SIGSEGV inside every refusal path.
+    let huge: Writ = writ_new(4611686018427387904i64);   // 2^62 bytes: malloc fails
+    let hp: *mut u8 = writ_alloc_bytes((&huge) as *const Writ as *mut Writ, 8i64);
+    if !hp.is_null() { return 88; }
+
+    return 0;
+}
