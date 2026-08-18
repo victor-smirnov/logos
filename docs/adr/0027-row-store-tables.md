@@ -114,8 +114,8 @@ the row format, the metadata pair, the assembly path, the Deem relation.
 
 A dedicated container for `Row` would cost its own root overhead. Instead `Row`
 is an object type inside a Writ document and `TableMetadata` is an ordinary Writ
-container (a map over columns). The price is uniformity's: 8 bytes for the
-document header plus the type tag per row. Everything else — arena, `AnyVal`,
+container (a map over columns). The price is uniformity's: 16 bytes per row — the
+8-byte document header plus the tag's padded 8-byte slot (D4). Everything else — arena, `AnyVal`,
 tags, `ArenaString`, arrays, nested objects, the copy/clone/serialize kernel,
 self-relative anchoring — is reused unchanged.
 
@@ -136,8 +136,8 @@ compacted in key order — and a separate object type, not a generalisation of i
 live sites. A row needs no discriminator: it has one schema and it is external.)
 
 ```
-[DocumentHeader]  4 B  — the root, as u32 (see D4)
-[TypeTag]              — fits the remaining 4 B of the first 8-byte slot: free
+[DocumentHeader]  8 B  — an at-rest AnyVal (D4: it stays 8)
+[TypeTag]         8 B  — variable-length, padded to the 8-byte boundary
 [Row, 8-aligned:]
     atom 0        : bits[0:47] presence bitmap | bits[48:63] size   (<= 64K columns)
     atoms 1..M-1  : presence bitmap
@@ -173,28 +173,44 @@ Consequences, each load-bearing:
   b)` over a 50-column table does not cost `select *`. No Deem source has had a
   reason for projection pushdown before; this is the first.
 
-| | bytes/row | payload | overhead |
+| 4-column row | bytes | payload | overhead |
 |---|---|---|---|
-| `ObjectMap` today, 4 fields | 152 | 32 | x4.75 |
-| `Row` as a dedicated container | 48 | 32 | x1.5 |
-| **`Row` as a Writ structure** | **44** | 32 | **x1.375** |
+| `ObjectMap` today | 24 + 8x16 = 152 | 32 | x4.75 |
+| **`Row` as a Writ structure** | 8 hdr + 8 tag + 8 atom + 32 = **56** | 32 | **x1.75** |
 
-## D4 — `DocumentHeader` shrinks to 4 bytes (BREAKING)
+(With D4's withdrawn 4-byte header it would have been 44 / x1.375. The 12 bytes
+are the price of not forking the document format; see D4.)
 
-`DocumentHeader` is `{ AnyVal root; }` at offset 0 — 8 bytes. Objects are
-8-aligned and a `TypeTag` is written in the bytes immediately before the object,
-so a row-as-document pays 8 (header) + 8 (tag slot, padded to the boundary) = 16
-B before its map begins. With a 4-byte header the tag occupies the remaining 4
-bytes of the same 8-byte slot: **8 bytes saved per row**, and the tag becomes
-free.
+## D4 — WITHDRAWN: `DocumentHeader` stays 8 bytes
 
-The root offset becomes u32, capping a document at 4 GB; a larger document must
-allocate its root below 4 GB. For rows this costs nothing — a row's arena is
-bounded by the leaf.
+An earlier draft shrank `DocumentHeader` from 8 bytes to 4, on the reading that
+it holds a root OFFSET: the tag would then fit the remaining 4 bytes of the same
+8-byte slot and a row would save 8 bytes.
 
-⚠ This is a wire and disk format change, pinned by the ABI layout gates
-(`scripts/abi-check.sh`, the `.abi-layout` artefacts). It is its own slice, with
-a version bump, and must not ride inside the `Row` slice.
+**It does not hold an offset. It holds an `AnyVal`** — checked on both sides:
+
+```cpp
+struct DocumentHeader { AnyVal root; };      // include/logos/writ/document.hpp
+```
+```logos
+pub root: UnsafeCell<i64>,                   // stdlib/lang/writ/container.logos
+// "the top-level WAny stored as its raw 8-byte word (0 = null/unset)"
+```
+
+and an `AnyVal` has three arms: null, a **Pod** carrying a 7-bit type code with an
+i56 value INLINE, and a self-relative Ref. So a document whose root is a scalar
+holds it in the header with no arena allocation at all, and 4 bytes cannot carry
+an i56.
+
+Shrinking would therefore mean choosing one of: kill the Pod arm (every scalar
+root costs an allocation plus a tag — a silent regression across all of Writ),
+shrink Pod to ~i24 (a third behaviour class where there is one today), or fork
+the format so only `Row` has the short header (no breakage elsewhere, but two
+document shapes to tell apart).
+
+WITHDRAWN. The 8 bytes are not worth any of the three today. `Row` pays the
+ordinary Writ overhead — 8-byte header plus the tag's 8-byte slot — and the
+format question can be reopened if the per-row bytes ever start to matter.
 
 ## D5 — container metadata, three modes — for EVERY container
 
@@ -463,8 +479,7 @@ groups marked ∥ are independent of each other.
 
 | # | slice | depends on | note |
 |---|---|---|---|
-| S0 | `DocumentHeader` 4 B | — | BREAKING; ABI bump; own commit |
-| S1 | `Row` object type + popcount access | S0 | format only; no container |
+| S1 | `Row` object type + popcount access | — | format only; no container |
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
 | S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D11; borrow-carrying |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
