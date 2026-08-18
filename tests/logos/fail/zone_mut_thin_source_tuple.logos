@@ -1,0 +1,20 @@
+// expr.addr-of.zone-mut-thin-source — the AGGREGATE-LAUNDERED form.
+// `expect_type`'s refusal originally asked only about the TOP type, so the very
+// same 8-for-16 substitution put inside a TUPLE literal was never asked about:
+// `types_compatible` walks a tuple ELEMENTWISE and applies the ptr ≡ thin-ref
+// equivalence at each element, below the level the flat check could see. A
+// STRUCT literal was already covered (each field value goes through expect_type
+// in its own right); a tuple has no per-element expect_type.
+// MEASURED rc=139 on this exact shape, and on the same shape over the real
+// `WMap<WString, WAny>`, while the direct `&mut *(p as *mut T)` spelling was
+// already refused. Admit side: pass/zone_mut_thin_source_admits_aggregate.logos.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let t: (&mut Box2, i64) = (p, 1i64);   // ERROR: thin ptr as the fat element
+    return take(t.0) as i32;
+}

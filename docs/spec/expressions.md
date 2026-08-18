@@ -1719,9 +1719,27 @@ A deref/place write `*p = v` where v is an aggregate or fat value copies the ful
 
 ### `expr.addr-of.mut-deref-reborrow` — &mut *p reborrows through a pointer/reference
 
-`&mut *p` where p is a Ptr/MutRef/Ref preserves an explicit AddrOfTemp(Deref(p)) shape so it is treated as a reborrow (distinct from a rebind), yielding `&mut Pointee`; for a struct with a DerefMut impl it lowers to `p.deref_mut()`.
+`&mut *p` where p is a Ptr/MutRef/Ref preserves an explicit AddrOfTemp(Deref(p)) shape so it is treated as a reborrow (distinct from a rebind), yielding `&mut Pointee`; for a struct with a DerefMut impl it lowers to `p.deref_mut()`. Subject to `expr.addr-of.zone-mut-thin-source` when Pointee is `#[zone_mut]`.
 
 *Source:* `src/compiler/sema_expr.cpp#L1135-L1157`
+
+### `expr.addr-of.zone-mut-thin-source` — a fat `&mut` cannot be minted from a thin source
+
+A `&mut T` for a `#[zone_mut]` T is a FAT `{data, zone}` value (`RefReprKind::FatZoneMut`, 16 bytes, meta = the Writ zone). No place and no raw pointer names an arena, so the zone half is underivable and every `&mut` producer over such a T is REJECTED: `&mut local`, `&mut o.f`, `&mut a[i]`, `&mut <temp>`, `&mut *p` for a Ptr/`&` operand, the method-receiver auto-ref of a `*mut T`, and the `*mut T`/`&T` → `&mut T` argument coercion. Two spellings remain: `zone_mut_ref::<T>(ptr, zone)` (the sole constructor, unsafe), and a reborrow of an operand that is ALREADY a fat `&mut T`.
+
+The rule is gated to MUTABLE references: `&T` / `*T` stay thin for a `#[zone_mut]` T ("read never grows", `ref_repr_of` reaches `FatZoneMut` only from `K::MutRef`), and the pointee's flag is read off the resolved partial SPEC, not the base — `WMap<WString, V>` is fat while `WMap<Wu6, WAny>` and `WMap<K, WAny>` are deliberately thin.
+
+The `*mut T`/`&T` → `&mut T` coercion is judged STRUCTURALLY, not only at the top type: the same substitution nested inside a tuple or array — `let t: (&mut T, i64) = (p, 1i64)`, `[&mut T; 1] = [p]`, `return (p, 1i64)` from a `-> (&mut T, i64)` — is the same 8-for-16 substitution and is rejected at the element position. (A struct literal needs no extra rule: each field value is judged in its own right.)
+
+*Source:* `src/compiler/sema.cpp` (`zone_mut_pointee`, `reject_thin_zone_mut_ref`, `reject_thin_zone_mut_nested`, next to `self_describing_dst_ref`), `src/compiler/sema_expr.cpp` (`lower_expr` case `ADDR_OF_MUT`, `materialize_recv_ref`, `bind_method_receiver`, `expect_type`), `src/compiler/mlir_gen_types.cpp` (`ref_repr_of`)
+
+### `expr.addr-of.zone-mut-thin-source-mono` — the same rule, re-asked at each instantiation
+
+Inside a generic body the pointee of a `&mut` producer is a type PARAMETER, and `#[zone_mut]` is a property of the type ARGUMENT: `unsafe fn gmk<T>(p: *mut T) -> &mut T { &mut *p }` and the stdlib's `impl<T> DerefMut<T> for Box<T> { fn deref_mut(&mut self) -> &mut T { unsafe { &mut *self.ptr } } }` are both well-formed as written. Sema therefore cannot decide the question for them, and the deciding instantiation is written by the CALLER (`Box<ZS>` where `ZS` is `#[zone_mut]` — reachable from fully safe code with no cast and no raw pointer).
+
+Monomorphisation re-asks the same judgment on the SUBSTITUTED body: an `AddrOf` or `AddrOfTemp` whose result type is `&mut T` with a `#[zone_mut]` T is rejected at the instantiation unless its operand is already a fat `&mut T`. `zone_mut_ref::<T>(ptr, zone)` lowers to a `SliceLit`, not an `AddrOf`, so the sole constructor is untouched, and a generic that only REBORROWS an existing fat `&mut T` instantiates at a `#[zone_mut]` T normally. The `#[zone_mut]` flag is read through `resolve_struct_layout` — the same spec-aware selection `instantiate_struct_templates` and `mlir_gen`'s `find_struct_def_it` make — so the three phases cannot disagree about which definition carries it.
+
+*Source:* `src/compiler/mono_scan.cpp` (`mono_zone_mut_pointee`, `check_zone_mut_mint`, called from `scan_expr` cases `AddrOf` / `AddrOfTemp`)
 
 ## Address-of (`expr.addrof`)
 

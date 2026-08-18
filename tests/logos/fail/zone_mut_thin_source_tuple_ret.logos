@@ -1,0 +1,17 @@
+// expr.addr-of.zone-mut-thin-source — NESTED IN A RETURN TYPE. The
+// `CoercePos::Return` arm fired for a bare `&mut Box2` return, but the refusal
+// read only the TOP type, so a `&mut Box2` one level down inside the returned
+// TUPLE walked straight past it and the thin pointer crossed a function
+// boundary. MEASURED rc=139. Pinned separately from the `let`-annotated tuple
+// because it is a different coercion POSITION reaching the same judgment.
+package test;
+#[zone_mut] struct Box2 { v: i64 }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn mk(p: *mut Box2) -> (&mut Box2, i64) {
+    return (p, 1i64);                      // ERROR: thin ptr as the fat element
+}
+unsafe fn main() -> i32 {
+    let mut o: Box2 = Box2 { v: 42i64 };
+    let t: (&mut Box2, i64) = mk(&o as *const Box2 as *mut Box2);
+    return take(t.0) as i32;
+}

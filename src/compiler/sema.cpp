@@ -4356,6 +4356,103 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     return make_dst_ref(sn, spkg, is_mut, std::move(targs));
 }
 
+// `#[zone_mut]` pointee test. Same lookup shape as self_describing_dst_ref one
+// attribute over (spec-aware, pub-check-FREE), because the flag is carried by
+// the PARTIAL SPEC as often as by the base: `#[zone_mut] struct WMap<WString,V>`
+// is fat while the `WMap<K,V>` base and the `WMap<Wu6,V>` / `WMap<K,WAny>` specs
+// are deliberately thin ("fixed capacity → no carried zone"). Asking the base
+// alone would both miss the real fat type and falsely catch the thin ones.
+bool SemaChecker::zone_mut_pointee(TypeRef pointee) {
+    if (!pointee) return false;
+    TypeRef p{pointee};
+    if (p.kind() != LogosType::Kind::Struct &&
+        p.kind() != LogosType::Kind::ZonedStruct)
+        return false;
+    auto ta = p.type_args();
+    if (!ta.empty()) {
+        std::vector<TypeRef> ta_vec(ta.begin(), ta.end());
+        if (auto* spec = find_best_sema_struct_spec(p.struct_name(), ta_vec))
+            return spec->zone_mut;
+    }
+    std::string sn(p.struct_name());
+    std::string spkg(p.pkg_name());
+    if (spkg.empty()) {
+        auto [pk, ssi] = find_struct_by_name(sn);
+        if (ssi) spkg = pk;
+    }
+    SemaStructInfo* si = find_struct_repr_(spkg, sn);
+    return si && si->zone_mut;
+}
+
+// THE REFUSAL (expr.addr-of.zone-mut-thin-source). A `&mut T` for a
+// `#[zone_mut]` T is a FAT {data, zone} value (mlir_gen's RefReprKind::FatZoneMut,
+// 16 bytes). Sema is repr-BLIND — `make_ref(true, T)` mints the same MutRef
+// whether or not T is zone_mut — so before this check every `&mut` PRODUCER
+// (`&mut local`, `&mut o.f`, `&mut a[i]`, `&mut *raw`, an auto-ref'd `*mut T`
+// receiver) handed codegen an 8-byte address where a 16-byte pair was
+// contracted; the zone half was garbage and the first allocating call through
+// it segfaulted. The zone is NOT derivable from a place or a raw pointer —
+// nothing about a `*mut T` names its arena — so the honest answer is a
+// diagnostic, not a fabricated zone.
+//
+// `src_ref_t` = the type of the REFERENCE the new one is taken from, when the
+// source is itself a reference (`&mut *r`, `(*r).m()`, the implicit call-arg
+// reborrow); nullptr for a place. A reborrow of an already-fat `&mut T` carries
+// the zone through and stays legal — that arm is what stdlib call args ride on.
+bool SemaChecker::reject_thin_zone_mut_ref(TypeRef pointee, TypeRef src_ref_t) {
+    if (!zone_mut_pointee(pointee)) return false;
+    if (src_ref_t && TypeRef(src_ref_t).kind() == LogosType::Kind::MutRef &&
+        zone_mut_pointee(TypeRef(src_ref_t).pointee()))
+        return false;   // fat → fat reborrow: the zone rides along
+    std::string sn(TypeRef(pointee).struct_name());
+    error(std::format(
+        "`&mut {0}`: '{0}' is `#[zone_mut]`, so a mutable reference to it is a "
+        "FAT {{data, zone}} value — the zone (its Writ allocator) cannot be "
+        "recovered from a place or a raw pointer. Build it with "
+        "`zone_mut_ref::<{0}>(ptr, zone)` inside `unsafe`, or reborrow an "
+        "existing `&mut {0}`", sn));
+    return true;
+}
+
+// THE SAME REFUSAL, ASKED STRUCTURALLY (expr.addr-of.zone-mut-thin-source).
+// `expect_type`'s first arm asked only about the TOP type, so an 8-for-16
+// substitution laundered through an AGGREGATE was never asked about at all:
+//   let t: (&mut ZS, i64) = (p, 1i64);      // p: *mut ZS
+//   let a: [&mut ZS; 1]   = [p];
+//   fn mk(p:*mut ZS) -> (&mut ZS,i64) { return (p,1i64); }
+// A STRUCT literal was already covered — each field value goes through
+// `expect_type` in its own right — but a tuple/array literal has no
+// per-element expect_type: `types_compatible` walks the aggregate ELEMENTWISE
+// and applies the ptr≡thin-ref equivalence at each element, below the level
+// the flat arm could see. MEASURED rc=139 before this: probes q27, q28, q30,
+// and q32 (the ORIGINAL `WMap<WString,WAny>` defect, tuple-laundered).
+//
+// Asking structurally instead of enumerating aggregate FORMS is the point: a
+// future aggregate kind is covered by adding its element pairing here, not by
+// a new decision site.
+bool SemaChecker::reject_thin_zone_mut_nested(TypeRef expected, TypeRef actual,
+                                              int depth) {
+    if (!expected || !actual || depth > 8) return false;
+    using K = LogosType::Kind;
+    TypeRef e{expected}, a{actual};
+    if (e.kind() == K::MutRef && zone_mut_pointee(e.pointee())) {
+        if (a.kind() == K::Ptr || a.kind() == K::Ref)
+            return reject_thin_zone_mut_ref(e.pointee(), a);
+        return false;   // a fat `&mut` actual carries its zone — legal
+    }
+    if (e.kind() == K::Tuple && a.kind() == K::Tuple) {
+        auto ee = e.tuple_elems();
+        auto ae = a.tuple_elems();
+        for (size_t i = 0; i < ee.size() && i < ae.size(); ++i)
+            if (reject_thin_zone_mut_nested(ee[i], ae[i], depth + 1)) return true;
+        return false;
+    }
+    if ((e.kind() == K::Array || e.kind() == K::Slice) &&
+        (a.kind() == K::Array || a.kind() == K::Slice))
+        return reject_thin_zone_mut_nested(e.elem(), a.elem(), depth + 1);
+    return false;
+}
+
 // The accumulation rule, the union rule, the enum rule and niche eligibility
 // are ONE copy, in layout_law.hpp. Sema had its own partial transcription: an
 // accumulator but no `is_union()` branch (a union got the SUM where its layout

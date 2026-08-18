@@ -1,0 +1,58 @@
+// The ADMIT half of the AGGREGATE leg (refusals: fail/zone_mut_thin_source_
+// {tuple,array,tuple_ret}.logos). A refusal message alone cannot tell
+// separation from over-refusal, so the shapes that must STILL work are RUN:
+//   1. a TUPLE whose `&mut Box2` element is a genuine FAT ref — the zone
+//      survives the trip through the tuple (checked via zone_of, not just by
+//      not crashing).
+//   2. a tuple carrying a fat ref RETURNED across a function boundary — the
+//      `CoercePos::Return` position the nested refusal also inspects.
+//   3. the identical tuple and ARRAY literals over a NON-`#[zone_mut]` struct
+//      built from a raw pointer: the control that the new structural check is
+//      keyed on the ATTRIBUTE and not on the aggregate syntax.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+
+#[zone_mut] struct Box2 { v: i64 }
+fn takes_fat(r: &mut Box2) -> i64 { return r.v; }
+
+struct Plain { v: i64 }
+fn takes_thin(r: &mut Plain) -> i64 { return r.v; }
+
+unsafe fn mk_fat(p: *mut Box2, z: *mut u8) -> (&mut Box2, i64) {
+    return (zone_mut_ref::<Box2>(p, z), 1i64);
+}
+
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+
+    // 1. fat element inside a tuple literal
+    let fat: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    let t: (&mut Box2, i64) = (fat, 1i64);
+    let e: &mut Box2 = t.0;
+    if e.v != 42i64 { return 1; }
+    if (zone_of(e) as i64) != 12345i64 { return 2; }
+    if takes_fat(t.0) != 42i64 { return 3; }
+    // ⚠ `t.0.v` — a FIELD READ spelled straight off the tuple element — reads
+    // GARBAGE here and is deliberately NOT asserted: that is a separate,
+    // PRE-EXISTING defect in the receiver path (gen_recv_struct peels the
+    // {data, zone} pair for a VarRef receiver but not for a TupleIndex one),
+    // unrelated to the thin-source rule this file is the admit side of. Binding
+    // the element out first (`let e = t.0;`) and passing it as an argument both
+    // work, which is what pins the zone actually surviving the tuple.
+
+    // 2. the same, minted and returned inside a tuple from another fn
+    let t2: (&mut Box2, i64) = mk_fat(p, 999i64 as *mut u8);
+    let e2: &mut Box2 = t2.0;
+    if e2.v != 42i64 { return 4; }
+    if (zone_of(e2) as i64) != 999i64 { return 5; }
+
+    // 3. non-zone_mut control: tuple AND array of thin refs from a raw pointer
+    let q: *mut Plain = malloc(8i64) as *mut Plain;
+    (*q).v = 5i64;
+    let tp: (&mut Plain, i64) = (q, 1i64);
+    if takes_thin(tp.0) != 5i64 { return 6; }
+    let mut ap: [&mut Plain; 1] = [q];
+    if takes_thin(ap[0]) != 5i64 { return 7; }
+    return 0;
+}

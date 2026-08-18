@@ -1,0 +1,18 @@
+// expr.addr-of.zone-mut-thin-source — a `&mut T` for a `#[zone_mut]` T is a FAT
+// {data, zone} value (RefReprKind::FatZoneMut, 16 bytes). Sema is repr-blind, so
+// before this rule EVERY `&mut` producer except `zone_mut_ref` handed codegen an
+// 8-byte address where a 16-byte pair was contracted: the zone half was garbage
+// and the first allocating call through it segfaulted (MEASURED rc=139 on this
+// exact shape). The zone is NOT derivable from a raw pointer — nothing about a
+// `*mut T` names its arena — so the form is REFUSED, pointing at zone_mut_ref.
+// Admit side: tests/logos/pass/zone_mut_thin_source_admits.logos.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let r: &mut Box2 = &mut *(p as *mut Box2);   // ERROR: no zone in a raw ptr
+    return take(r) as i32;
+}

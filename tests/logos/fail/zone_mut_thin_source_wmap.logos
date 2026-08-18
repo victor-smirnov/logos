@@ -1,0 +1,27 @@
+// expr.addr-of.zone-mut-thin-source over a PARTIAL SPEC — the reported defect,
+// verbatim. `#[zone_mut]` sits on the `WMap<WString, V>` SPEC, not on the
+// `WMap<K, V>` base, so the rule must resolve the spec (find_best_sema_struct_spec)
+// to see it; asking the base alone would miss this and, worse, would blanket-catch
+// the deliberately-THIN `WMap<Wu6, WAny>` / `WMap<K, WAny>` specs ("fixed capacity
+// → no carried zone"). That second half is the abuse direction and is pinned green
+// in tests/logos/pass/zone_mut_thin_source_admits_wmap.logos.
+// MEASURED before the rule: this file compiled and ran rc=139.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.writ.wmap;
+use logos.lang.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let src: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = src.deref();
+    let mp: &mut WMap<WString, WAny> = h.map(8);
+    mp.set("a", 1i64);
+    let v: WAny = WAny::from(&*mp);
+    // ERROR: the zone cannot be recovered from `v.resolve()`'s raw pointer.
+    let edited: &mut WMap<WString, WAny> = &mut *(v.resolve() as *mut WMap<WString, WAny>);
+    edited.set("c", 3i64);
+    return 0;
+}

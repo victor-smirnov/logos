@@ -1,0 +1,69 @@
+// The ADMIT half of expr.addr-of.zone-mut-thin-source (refusals pinned in
+// tests/logos/fail/zone_mut_thin_source_{ref,place,wmap}.logos). A refusal message
+// alone cannot tell separation from over-refusal, so every spelling that must
+// STILL work is exercised and RUN here:
+//   1. `zone_mut_ref::<T>(ptr, zone)` — the one constructor of the fat pair.
+//   2. fat → fat reborrow `&mut *r` over an already-fat `r`. Previously pinned by
+//      NO test in the tree, while mlir_gen's peephole (mlir_gen_expr.cpp) and the
+//      implicit call-arg reborrow both depend on it.
+//   3. `(*r).m()` — a receiver spelled as a deref of a fat ref.
+//   4. shared `&*(p as *const T)` on the SAME `#[zone_mut]` type: `&T` is
+//      genuinely thin (ref_repr_of reaches FatZoneMut only from K::MutRef —
+//      "read never grows"), so the rule is gated to is_mut and must not fire.
+//      ~86 stdlib read sites ride on this.
+//   5. the identical `&mut` forms on a NON-zone_mut struct — the control that the
+//      refusal is keyed on the attribute and not on the syntax.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+
+#[zone_mut] struct Box2 { v: i64 }
+impl Box2 {
+    fn get(self: &mut Box2) -> i64 { return self.v; }
+    fn zone_i(self: &mut Box2) -> i64 { return zone_of(self) as i64; }
+}
+fn takes_fat(r: &mut Box2) -> i64 { return r.v; }
+fn reads(r: &Box2) -> i64 { return r.v; }
+
+struct Plain { v: i64 }
+fn takes_thin(r: &mut Plain) -> i64 { return r.v; }
+
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+
+    // 1. the constructor
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    if r.v != 42i64 { return 1; }
+    if (zone_of(r) as i64) != 12345i64 { return 2; }
+
+    // 2. fat → fat reborrow: the zone rides through the reborrow
+    let r2: &mut Box2 = &mut *r;
+    if r2.v != 42i64 { return 3; }
+    if (zone_of(r2) as i64) != 12345i64 { return 4; }
+    r2.v = 43i64;
+    if (*p).v != 43i64 { return 5; }
+
+    // implicit call-arg reborrow of a fat `&mut` (no `&mut` token written)
+    if takes_fat(r2) != 43i64 { return 6; }
+    if r2.get() != 43i64 { return 7; }
+
+    // 3. receiver spelled as a deref of a fat ref
+    if (*r2).get() != 43i64 { return 8; }
+    if (*r2).zone_i() != 12345i64 { return 9; }
+
+    // 4. shared `&` over the same #[zone_mut] type stays THIN and stays legal
+    let ro: &Box2 = &*(p as *const Box2);
+    if ro.v != 43i64 { return 10; }
+    if reads(ro) != 43i64 { return 11; }
+    let ro2: &Box2 = &*r2;                    // shared reborrow of a fat &mut
+    if ro2.v != 43i64 { return 12; }
+
+    // 5. non-zone_mut control: the identical thin-source spellings still compile
+    let q: *mut Plain = malloc(8i64) as *mut Plain;
+    (*q).v = 5i64;
+    let pr: &mut Plain = &mut *(q as *mut Plain);
+    if takes_thin(pr) != 5i64 { return 13; }
+    let mut loc: Plain = Plain { v: 6i64 };
+    if takes_thin(&mut loc) != 6i64 { return 14; }
+    return 0;
+}

@@ -3051,8 +3051,42 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # new test papered over a stale row rather than moving it. The stale +1 dates to
 # 05fe9e45 (the showcase leaving the corpus was priced -1/-1 and only
 # NOIMPORTED actually moved). Numbers below are measured, not derived.
-REGISTRY-ALL         7258
-REGISTRY-NOIMPORTED  3575
+# +5 / +5 / +0 (2026-08-18): the `#[zone_mut]` thin-source refusal — the PAIR, and
+# the count is the prediction. THREE fail tests (tests/logos/fail/
+# zone_mut_thin_source_{ref,place,wmap}.logos: the raw-pointer leg, the safe-code
+# place leg, and the partial-spec leg over WMap<WString,WAny>) and TWO pass
+# controls (tests/logos/pass/zone_mut_thin_source_admits{,_wmap}.logos: the
+# zone_mut_ref constructor, the fat→fat reborrow that NO test in the tree pinned
+# before, the shared-`&` arm that must stay thin, and the deliberately-thin
+# WMap<Wu6,WAny> / WMap<K,WAny> specs — the abuse direction of the spec
+# exemption). A refusal without its admit cannot tell separation from
+# over-refusal, so 3+2 is the unit, not 3.
+# +8 / +8 / +0 (2026-08-18, second round): the ABUSE pass found the first round's
+# refusal bypassed on two axes, and each axis is priced as a refuse+admit PAIR.
+# (a) AGGREGATE laundering, 3 fail — a tuple/array coerces ELEMENTWISE inside
+# types_compatible, so the element position never reached expect_type and the
+# refused `*mut T` → `&mut T` substitution walked straight past it (including the
+# ORIGINAL WMap<WString,WAny> defect, tuple-laundered):
+#   tests/logos/fail/zone_mut_thin_source_tuple.logos
+#   tests/logos/fail/zone_mut_thin_source_array.logos
+#   tests/logos/fail/zone_mut_thin_source_tuple_ret.logos
+# (b) POST-MONO, 3 fail — inside a generic body the pointee is a TypeVar, so sema
+# is structurally unable to decide, and the deciding instantiation is written by
+# the USER (`Box<ZS>` reaches it from FULLY SAFE code, no unsafe and no cast).
+# The claim that this hole was harmless because "the sweep measured ZERO in-tree
+# instantiations" is refuted by construction: an in-tree sweep cannot see a
+# user's type argument.
+#   tests/logos/fail/zone_mut_thin_source_generic.logos
+#   tests/logos/fail/zone_mut_thin_source_generic_place.logos
+#   tests/logos/fail/zone_mut_thin_source_box_safe.logos
+# The 2 admits are what separate the rule from a blanket refusal — a generic
+# instantiated AT the `#[zone_mut]` type still RUNs when it only reborrows an
+# already-fat `&mut`, and the identical aggregate literals still RUN when the
+# element is a genuine fat ref:
+#   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
+#   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
+REGISTRY-ALL         7271
+REGISTRY-NOIMPORTED  3588
 REGISTRY-TIERCOMMIT  36
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class

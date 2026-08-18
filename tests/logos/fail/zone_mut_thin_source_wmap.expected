@@ -1,0 +1,1 @@
+'WMap' is `#[zone_mut]`, so a mutable reference to it is a FAT

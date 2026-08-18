@@ -233,6 +233,20 @@ lir::LExprPtr SemaChecker::hoist_stmt_temp(lir::LExprPtr v, bool is_mut) {
 
 lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
                                                 TypeRef ref_type) {
+    // ONE chokepoint for every implicit `&mut` producer — `&mut o.f`,
+    // `&mut a[i]`, `&mut <temp>`, and the method-receiver auto-ref that turns a
+    // `*mut T` into `&mut T` with no `&mut` token in the source. A fat
+    // `#[zone_mut]` reference cannot be minted from any of them (see
+    // reject_thin_zone_mut_ref). The exception is a receiver spelled `(*r).m()`
+    // over an already-fat `r`: the Deref's operand carries the zone.
+    if (is_mut && recv && ref_type) {
+        TypeRef src_ref_t = nullptr;
+        auto rr = expr_ref_of(recv);
+        if (rr.kind() == lir_schema::expr::Code::Deref)
+            src_ref_t = expr_type(lir_view::EDerefView{rr}.operand());
+        if (reject_thin_zone_mut_ref(TypeRef(ref_type).pointee(), src_ref_t))
+            return error_expr();
+    }
     // Temporary scope (Rust): a DROPPABLE fresh rvalue receiver auto-ref'd to
     // `&self`/`&mut self` (`W::mk(…).get()`) must live to the end of the
     // enclosing statement, then drop — otherwise the materialized temp leaks
@@ -1352,6 +1366,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
+            // A `#[zone_mut]` value has no zone to hand out from a PLACE (a
+            // local/static is not in a Writ arena and names no allocator).
+            if (reject_thin_zone_mut_ref(vt, /*src_ref_t=*/nullptr))
+                return error_expr();
             // §6.2 statics (S25): `&mut STATIC` (a `static mut`) IS the global's
             // address. Same routing as the shared-`&` path (see there).
             if (is_module_static_unshadowed(var_name) &&
@@ -1383,6 +1401,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
                 TypeRef pointee_t = TypeRef(op_t).pointee();
+                // `&mut *p` for a `#[zone_mut]` pointee: legal ONLY when `p` is
+                // itself a fat `&mut` (reborrow). A `*mut T` / `&T` operand
+                // carries no zone.
+                if (reject_thin_zone_mut_ref(pointee_t, op_t)) return error_expr();
                 auto deref = builder().deref(std::move(operand), pointee_t);
                 if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/true))
                     return builder().addr_of_temp(std::move(deref), true, rdt);
@@ -1391,6 +1413,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // `&mut *rc` for a struct with a DerefMut impl: `rc.deref_mut()`.
             if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/true))
                 return std::move(*dc);
+            if (reject_thin_zone_mut_ref(op_t, /*src_ref_t=*/nullptr)) return error_expr();
             return builder().addr_of_temp(std::move(operand), true, make_ref(true, op_t));
         }
         // &mut f[i] over a user IndexMut struct → index_mut() place ref.
@@ -1402,6 +1425,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         auto inner = lower_expr(child);
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
         auto __ty_inner = make_ref(true, expr_type(inner));
+        // `&mut o.f` / `&mut a[i]` / `&mut <temp>` over a `#[zone_mut]` value:
+        // a place carries no zone. Checked HERE and not only in
+        // materialize_recv_ref because the extending-borrow arm below (a
+        // `let r: &mut ZS = &mut o.f;` initializer) bypasses it.
+        if (reject_thin_zone_mut_ref(expr_type(inner), /*src_ref_t=*/nullptr))
+            return error_expr();
         // The `&mut` mirror of the temporary-scope hoist above, extending
         // positions included (`let x = &mut 0;` is the reference's own example).
         if (extending_borrow_nodes_.count(expr.ptr()))
@@ -14094,6 +14123,19 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
 void SemaChecker::bind_method_receiver(lir::LExprPtr& recv,
                                          TypeRef formal_self) {
     if (!formal_self) return;
+    // A `*mut T` receiver satisfies a `&mut self` formal AS-IS everywhere above
+    // (`… .kind() != Kind::Ptr` guards the auto-ref off, because a thin `&mut`
+    // and a `*mut` are the same 8 bytes). For a `#[zone_mut]` T they are NOT:
+    // the formal wants a 16-byte {data, zone}. Refuse here — the last point
+    // where the formal and the actual are both in hand — rather than in each of
+    // the dozen receiver-binding arms.
+    if (recv && TypeRef(formal_self).kind() == LogosType::Kind::MutRef &&
+        zone_mut_pointee(TypeRef(formal_self).pointee())) {
+        TypeRef at(expr_type(recv));
+        if (!(at && at.kind() == LogosType::Kind::MutRef &&
+              zone_mut_pointee(at.pointee())))
+            reject_thin_zone_mut_ref(TypeRef(formal_self).pointee(), at);
+    }
     try_implicit_reborrow_mut(recv, formal_self, /*allow_downgrade=*/false);
     track_recv_moved(recv, formal_self);
 }
@@ -14201,6 +14243,22 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         if (mentions_error(mentions_error, TypeRef(expr_type(e)), 0)) return true;
     }
     coerce_arg_to_param(e, expected, mask_for(pos));
+    // A raw `*mut T` / `*const T` / `&T` is accepted wherever a `&mut T` is
+    // expected (types_compatible treats a pointer and a thin reference as the
+    // same 8 bytes). For a `#[zone_mut]` T the expected value is a 16-byte
+    // {data, zone} pair, so that equivalence is a silent 8-for-16 substitution
+    // — the same defect as the `&mut` producers, arriving through the
+    // COERCION instead. MEASURED rc=139: `take(p)` with `p: *mut ZS` and
+    // `fn take(r: &mut ZS)`.
+    // Asked STRUCTURALLY, not just at the top: the same substitution laundered
+    // through a tuple/array literal or a tuple RETURN type reached codegen
+    // untouched (all rc=139) because a tuple coerces ELEMENTWISE inside
+    // types_compatible, with no per-element expect_type. Pinned in
+    // tests/logos/fail/zone_mut_thin_source_{tuple,array,tuple_ret}.logos,
+    // admit side tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos.
+    if (expected && expr_type(e) &&
+        reject_thin_zone_mut_nested(expected, expr_type(e)))
+        return false;
     if (pos == CoercePos::Return &&
         TypeRef(expected).owning_trait_object() &&
         expr_type(e) && is_stdlib_box(expr_type(e))) {

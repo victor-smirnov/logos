@@ -33,6 +33,81 @@ void Mono::scan_fn(lir_view::FunctionView fn) {
     scanning_fn_link_ = std::move(saved_link);
 }
 
+// `#[zone_mut]` pointee test at MONO time. Spec-aware via resolve_struct_layout
+// — the same selection instantiate_struct_templates and mlir-gen's
+// find_struct_def_it make, so the three phases cannot disagree about which
+// definition carries the flag.
+bool Mono::mono_zone_mut_pointee(TypeRef p) {
+    if (!p) return false;
+    auto k = TypeRef(p).kind();
+    if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+        return false;
+    SubstMap m;
+    auto sv = resolve_struct_layout(p, m);
+    return sv.valid() && sv.zone_mut();
+}
+
+// THE POST-MONO REFUSAL. Every `&mut` PRODUCER in the L-IR is an AddrOf (a
+// named place) or an AddrOfTemp (everything else: `&mut *p`, `&mut o.f`,
+// `&mut a[i]`, `&mut <temp>`, an auto-ref'd receiver). After substitution the
+// result type is concrete, so the question sema could not ask inside a generic
+// body — "is this pointee `#[zone_mut]`, i.e. is the contracted value 16 bytes
+// while I am about to hand over 8?" — is answerable here.
+//
+// The ONE legal producer is a reborrow of an ALREADY-FAT `&mut T`: the zone
+// rides along. `zone_mut_ref::<T>(ptr, zone)` is a SliceLit, not an AddrOf, so
+// the honest construction is untouched by this rule.
+//
+// Every shape below MEASURED rc=139 before this check and is pinned in
+// tests/logos/fail/zone_mut_thin_source_*.logos: `box_safe` (a `Box<T>` at a
+// `#[zone_mut]` T from FULLY SAFE code — the stdlib's `deref_mut` is
+// `&mut *self.ptr`), `generic` (the real `WMap<WString,WAny>` reconstructed in
+// three lines), `generic_place` (`&mut c.v` in `gfield<T>` — a genuinely OWNED
+// place, where `zone_mut_ref` is not even an available correct spelling).
+// The SEPARATION is pinned by tests/logos/pass/zone_mut_thin_source_admits_
+// generic.logos: a generic instantiated AT the `#[zone_mut]` type still runs
+// when it only reborrows. This rule refuses a thin MINT, not genericity.
+void Mono::check_zone_mut_mint(lir_view::ExprRef e) {
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    TypeRef rt = e.type(pool);
+    if (!rt || TypeRef(rt).kind() != LogosType::Kind::MutRef) return;
+    TypeRef pointee = TypeRef(rt).pointee();
+    if (!mono_zone_mut_pointee(pointee)) return;
+
+    auto is_fat_mutref = [&](TypeRef t) {
+        return t && TypeRef(t).kind() == LogosType::Kind::MutRef &&
+               mono_zone_mut_pointee(TypeRef(t).pointee());
+    };
+    if (e.kind() == ECode::AddrOfTemp) {
+        auto inner = lir_view::EAddrOfTempView{e}.inner();
+        if (inner) {
+            if (inner.kind() == ECode::Deref) {
+                if (auto op = lir_view::EDerefView{inner}.operand();
+                    op && is_fat_mutref(op.type(pool)))
+                    return;                       // fat → fat reborrow
+            }
+            if (is_fat_mutref(inner.type(pool))) return;
+        }
+    }
+
+    std::string sn(TypeRef(pointee).struct_name());
+    std::string where = scanning_fn_link_.empty() ? std::string("<unknown>")
+                                                  : scanning_fn_link_;
+    std::string key = where + "|" + sn;
+    if (!zone_mut_mint_reported_.insert(key).second) return;
+    in_.diags.diags.push_back({Diag::Level::Error, "mono",
+        std::format(
+            "instantiating '{0}' mints a THIN `&mut {1}` — '{1}' is "
+            "`#[zone_mut]`, so a mutable reference to it is a FAT {{data, zone}} "
+            "value and the zone (its Writ allocator) cannot be recovered from a "
+            "place or a raw pointer. The body was type-checked before '{1}' was "
+            "known (its `&mut` is on a type PARAMETER), so this is refused at "
+            "the INSTANTIATION. Build the reference with "
+            "`zone_mut_ref::<{1}>(ptr, zone)` inside `unsafe`, reborrow an "
+            "existing `&mut {1}`, or do not instantiate this generic at a "
+            "`#[zone_mut]` type", where, sn), {}, 0});
+}
+
 // Recursive Error/unresolved probe over a type's visible structure. CfgSlotType
 // counts: post-substitution it can no longer resolve within this program run.
 bool Mono::type_contains_error(TypeRef t, int depth) const {
@@ -430,7 +505,13 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         // Without recursing into the operand, mono never sees the
         // inner generic Call's callee/type_args and the specialisation
         // is never enqueued → mlir-gen forward-decl reference dangles.
+        check_zone_mut_mint(e);
         scan_expr(lir_view::EAddrOfTempView{e}.inner());
+        break;
+    // `&mut <named place>`. A leaf for the reachability walk, but a `&mut`
+    // PRODUCER all the same — post-substitution its pointee may be zone_mut.
+    case ECode::AddrOf:
+        check_zone_mut_mint(e);
         break;
     // Pointer arithmetic carries OPERAND sub-expressions. Sema lowers
     // `p.byte_add(n)` / `p.byte_offset_from(q)` to a dedicated PtrArith /
@@ -461,7 +542,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::LitStr:
     case ECode::VarRef:
     case ECode::EnumLit:
-    case ECode::AddrOf:
     case ECode::PackExpand:
     case ECode::SizeOf:
     case ECode::AlignOf:

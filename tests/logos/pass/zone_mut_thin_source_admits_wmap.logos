@@ -1,0 +1,58 @@
+// The ADMIT half over the Writ PARTIAL SPECS — the abuse direction of the
+// exemption that keeps tests/logos/fail/zone_mut_thin_source_wmap.logos honest.
+// `#[zone_mut]` is carried by the `WMap<WString, V>` spec ALONE; the
+// `WMap<Wu6, WAny>` (tinymap) and `WMap<K, WAny>` (intmap) specs are deliberately
+// thin ("fixed capacity → no carried zone") and hand out a `&mut` built by the raw
+// `&mut *fn(...)` form the rule refuses for the fat one. A rule that asked the
+// `WMap<K, V>` BASE, or that keyed on the name instead of the resolved spec, would
+// either red these two green paths or stop catching the fat one — so both
+// directions are exercised in ONE file and RUN.
+package test;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.lang.writ.wmap;
+use logos.lang.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let src: Rc<Writ> = writ_rc(8192);
+    let h: &Writ = src.deref();
+
+    // FAT spec (WMap<WString, V>): the zone-carrying `&mut` still works, and the
+    // growth path through it (set → intern → allocate) reaches its allocator.
+    let mp: &mut WMap<WString, WAny> = h.map(4);
+    mp.set("a", 1i64);
+    mp.set("b", 2i64);
+    mp.set("c", 3i64);
+    mp.set("d", 4i64);
+    mp.set("e", 5i64);           // forces a grow → needs the carried zone
+    if mp.len() != 5i64 { return 1; }
+    if mp.get("e").as_i64() != 5i64 { return 2; }
+
+    // re-open the SAME map from a raw pointer, the supported way
+    let v: WAny = WAny::from(&*mp);
+    let z: *mut u8 = h.allocator.get() as *mut u8;
+    let again: &mut WMap<WString, WAny> =
+        zone_mut_ref::<WMap<WString, WAny>>(v.resolve() as *mut WMap<WString, WAny>, z);
+    again.set("f", 6i64);
+    if again.len() != 6i64 { return 3; }
+
+    // THIN spec (WMap<Wu6, WAny>): `Writ::tinymap` returns its `&mut` from the raw
+    // `&mut *wtv_new(...)` form — must stay admitted.
+    let tm: &mut WMap<Wu6, WAny> = h.tinymap(8);
+    tm.set(3u8, WAny::from(true));
+    if tm.size() != 1i64 { return 4; }
+    if !tm.contains(3u8) { return 5; }
+
+    // THIN spec (WMap<K, WAny>): `Writ::intmap`, same raw form.
+    let im: &mut WMap<i64, WAny> = h.intmap::<i64>(4);
+    im.set(9i64, WAny::from(true));
+    if im.size() != 1i64 { return 6; }
+
+    // shared `&` over the FAT spec stays thin and legal (the read side of the
+    // whole Writ container library rides on this shape).
+    let ro: &WMap<WString, WAny> = &*(v.resolve() as *const WMap<WString, WAny>);
+    if ro.len() != 6i64 { return 7; }
+    return 0;
+}

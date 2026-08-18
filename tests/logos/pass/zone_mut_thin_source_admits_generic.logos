@@ -1,0 +1,58 @@
+// The ADMIT half of the POST-MONO leg (refusals: fail/zone_mut_thin_source_
+// {generic,generic_place,box_safe}.logos). The mono rule refuses a THIN MINT at
+// an instantiation, NOT "generics at a `#[zone_mut]` type" — a blanket refusal
+// would read identically from the failing side, so the separation is RUN here:
+//   1. a generic fn instantiated at the `#[zone_mut]` type that only REBORROWS
+//      an already-fat `&mut T` — legal, and the zone must survive (zone_of).
+//   2. a generic method on a generic STRUCT, same reborrow, same instantiation.
+//   3. the SAME generic raw-pointer mint that is refused at `Box2`, compiling
+//      and running at a NON-`#[zone_mut]` T — the control that the refusal is
+//      keyed on the attribute, not on the generic body.
+//   4. `Box<Plain>` in fully safe code — the byte-identical twin of
+//      fail/zone_mut_thin_source_box_safe.logos over a non-zone_mut struct.
+package test;
+use logos.mem.boxed;
+extern fn malloc(n: i64) -> *mut u8;
+
+#[zone_mut] struct Box2 { v: i64 }
+struct Plain { v: i64 }
+impl Plain { fn bump(&mut self) -> i64 { self.v = self.v + 1i64; return self.v; } }
+
+fn greborrow<T>(r: &mut T) -> &mut T { return &mut *r; }
+
+struct Holder<T> { n: i64 }
+impl<T> Holder<T> {
+    fn pass(&mut self, r: &mut T) -> &mut T { return &mut *r; }
+}
+
+unsafe fn gmint<T>(p: *mut T) -> &mut T { return &mut *p; }
+
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let fat: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+
+    // 1. generic reborrow AT the #[zone_mut] type — admitted, zone preserved
+    let r: &mut Box2 = greborrow::<Box2>(fat);
+    if r.v != 42i64 { return 1; }
+    if (zone_of(r) as i64) != 12345i64 { return 2; }
+
+    // 2. the same through a generic struct's method
+    let mut h: Holder<Box2> = Holder::<Box2> { n: 0i64 };
+    let r2: &mut Box2 = h.pass(r);
+    if r2.v != 42i64 { return 3; }
+    if (zone_of(r2) as i64) != 12345i64 { return 4; }
+    r2.v = 43i64;
+    if (*p).v != 43i64 { return 5; }
+
+    // 3. the refused generic MINT, instantiated at a non-zone_mut T
+    let q: *mut Plain = malloc(8i64) as *mut Plain;
+    (*q).v = 5i64;
+    let pr: &mut Plain = gmint::<Plain>(q);
+    if pr.v != 5i64 { return 6; }
+
+    // 4. Box<T> in safe code at a non-zone_mut T
+    let mut b: Box<Plain> = Box::new(Plain { v: 7i64 });
+    if b.bump() != 8i64 { return 7; }
+    return 0;
+}

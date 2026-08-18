@@ -1,0 +1,14 @@
+// expr.addr-of.zone-mut-thin-source, the PLACE leg — the widest form of the same
+// class and the one reachable from SAFE code with no pointer and no cast: `&mut
+// local` on a `#[zone_mut]` value. A stack local is not in a Writ arena and names
+// no allocator, so there is no zone to put in the fat pair's meta slot (MEASURED
+// rc=139 before the rule; the crash is in gen_recv_struct, which peels
+// repr_data() off what it assumes is a pointer-to-pair). Sibling of
+// zone_mut_thin_source_ref.logos, which pins the raw-pointer leg.
+package test;
+#[zone_mut] struct Box2 { v: i64 }
+fn main() -> i32 {
+    let mut o: Box2 = Box2 { v: 7i64 };
+    let r: &mut Box2 = &mut o;    // ERROR: a place carries no zone
+    return r.v as i32;
+}

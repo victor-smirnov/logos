@@ -1,0 +1,20 @@
+// expr.addr-of.zone-mut-thin-source — THE POST-MONO HALF, refused by `mono`
+// and not by `sema`. Inside a generic body the pointee of `&mut *p` is a
+// TypeVar; `#[zone_mut]` is a property of the type ARGUMENT, so sema's copy of
+// the rule is structurally unable to fire. The instantiation is written by the
+// CALLER, needs no in-tree cooperation, and reconstructs the original defect in
+// three lines. MEASURED rc=139 here and at the real `WMap<WString, WAny>`.
+// Admit side: pass/zone_mut_thin_source_admits_generic.logos — a generic
+// instantiated AT the same `#[zone_mut]` type still compiles and runs when it
+// only reborrows an already-fat `&mut`.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+unsafe fn gmk<T>(p: *mut T) -> &mut T { return &mut *p; }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let r: &mut Box2 = gmk::<Box2>(p);     // ERROR at the INSTANTIATION
+    return take(r) as i32;
+}

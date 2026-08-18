@@ -1,0 +1,15 @@
+// expr.addr-of.zone-mut-thin-source — the ARRAY-literal leg of the aggregate
+// hole (sibling of fail/zone_mut_thin_source_tuple.logos). Same cause: an array
+// coerces elementwise inside `types_compatible`, so the element position never
+// reached `expect_type`. MEASURED rc=139.
+// Admit side: pass/zone_mut_thin_source_admits_aggregate.logos.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let a: [&mut Box2; 1] = [p];           // ERROR: thin ptr as the fat element
+    return take(a[0]) as i32;
+}

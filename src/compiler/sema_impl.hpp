@@ -964,6 +964,11 @@ private:
     // same as the `&Foo` annotation does via resolve_type); else null. The fat
     // len is materialized at codegen by calling `dst_len`. ref-repr §6.
     TypeRef self_describing_dst_ref(TypeRef pointee, bool is_mut);
+    // `#[zone_mut]` fat-`&mut` contract (definitions in sema.cpp next to
+    // self_describing_dst_ref; the rationale lives there).
+    bool zone_mut_pointee(TypeRef pointee);
+    bool reject_thin_zone_mut_ref(TypeRef pointee, TypeRef src_ref_t);
+    bool reject_thin_zone_mut_nested(TypeRef expected, TypeRef actual, int depth = 0);
     // Owning kind of the trait object (Borrow / Box / Rc / Arc). All four share
     // the fat-pair {data,vtable} layout and dispatch, but the owning kinds
     // differ in release semantics. The kind rides in the otherwise-unused

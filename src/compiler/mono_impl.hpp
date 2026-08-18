@@ -852,6 +852,23 @@ private:
     }
 
     // ── Record needed instantiations (small — inline) ────────────────────
+    // ── expr.addr-of.zone-mut-thin-source, POST-MONO half ────────────────
+    // Sema's copy of this rule is repr-blind AND pre-monomorphisation: in a
+    // generic body `&mut *p` / `&mut c.v` / `&mut local` mints a `&mut T` whose
+    // pointee is a TypeVar, and `#[zone_mut]` is a property of the ARGUMENT,
+    // not of the parameter. So sema cannot see it, by construction — and the
+    // instantiation is created by the USER (`Box<ZS>`, `gmk::<WMap<…>>`),
+    // needing no `unsafe` and no in-tree cooperation. MEASURED rc=139:
+    // `Box::deref_mut` at a `#[zone_mut]` T in FULLY SAFE code (probe q36).
+    //
+    // Mono is the first phase that knows T. `resolve_struct_layout` is the
+    // SAME spec-aware selection instantiate_struct_templates uses, so mono and
+    // mlir-gen's `ref_repr_of` cannot disagree about which def carries the flag
+    // (`#[zone_mut]` sits on the partial spec `WMap<WString,V>`, not the base).
+    bool mono_zone_mut_pointee(TypeRef p);
+    void check_zone_mut_mint(lir_view::ExprRef e);
+    StrSet zone_mut_mint_reported_;
+
     void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
                     tr.kind() != LogosType::Kind::ZonedStruct) ||

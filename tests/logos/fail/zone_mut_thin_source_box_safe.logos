@@ -1,0 +1,20 @@
+// expr.addr-of.zone-mut-thin-source, post-mono — THE SHARPEST CASE: no
+// `unsafe`, no cast, no raw pointer anywhere in the program. `Box<T>`'s stdlib
+// `DerefMut::deref_mut(&mut self) -> &mut T` is `unsafe { &mut *self.ptr }`;
+// instantiated at a `#[zone_mut]` T it mints an 8-byte reference where 16 are
+// contracted. The user writes three lines of ordinary safe code and the first
+// allocating call through the reference segfaults — MEASURED rc=139, while the
+// byte-identical program over a non-`#[zone_mut]` struct RUNs rc=0 (the control
+// lives in pass/zone_mut_thin_source_admits_generic.logos).
+// This is also why "the sweep found zero in-tree instantiations" could not
+// close the generic hole: the instantiation is created by the USER'S type
+// argument, not by any code in the tree.
+package test;
+use logos.mem.boxed;
+#[zone_mut] struct Box2 { v: i64 }
+impl Box2 { fn bump(&mut self) -> i64 { self.v = self.v + 1i64; return self.v; } }
+fn main() -> i32 {
+    let mut b: Box<Box2> = Box::new(Box2 { v: 7i64 });   // ERROR at the instantiation
+    if b.bump() != 8i64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,16 @@
+// expr.addr-of.zone-mut-thin-source, post-mono — the GENERIC PLACE, distinct
+// from the generic raw-pointer mint. Here the object is genuinely OWNED by the
+// `Cell<T>`, so there is no zone anywhere to hand out and `zone_mut_ref` is not
+// an available "correct" spelling either: a `#[zone_mut]` value that is not in
+// a Writ arena has no allocator to carry, and the refusal is the whole answer.
+// MEASURED rc=139.
+package test;
+#[zone_mut] struct Box2 { v: i64 }
+struct Cell<T> { v: T }
+unsafe fn gfield<T>(c: &mut Cell<T>) -> &mut T { return &mut c.v; }
+fn take(r: &mut Box2) -> i64 { return r.v; }
+unsafe fn main() -> i32 {
+    let mut c: Cell<Box2> = Cell::<Box2> { v: Box2 { v: 42i64 } };
+    let r: &mut Box2 = gfield::<Box2>(&mut c);   // ERROR at the INSTANTIATION
+    return take(r) as i32;
+}
