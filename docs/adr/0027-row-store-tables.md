@@ -198,6 +198,20 @@ a version bump, and must not ride inside the `Row` slice.
 
 ## D5 — container metadata, three modes — for EVERY container
 
+**A container may carry a `CtrMetadata` document, and what the container IS is a
+fact in that document, not a property of its type.** If the metadata is a
+`TableMetadata`, the container is a Deem table; the table's kind — clustered or
+not — is a field there too. So "is this a table?" is answered by READING, which
+is the same discipline `ctr_meta` already serves ("needs NO compile-time
+knowledge of the container's type: `container_ids()` + this is a full catalog of
+an opened store").
+
+⚠ This collapses D1 one step further. The two tables were one emitter shape, then
+one library shape; they may be ONE WRAPPER reading a discriminator, since
+clustered and heap differ in who supplies the key and that is a metadata fact.
+Decide when S6/S7 are written, not before — but do not build two types out of
+habit.
+
 The mechanism is not the table's. Every container gets the same one: a small Writ
 document that lives in the root block while it is small and spills to its own
 container when it is not. For a table that document happens to be
@@ -283,6 +297,20 @@ WHAT THE PORT MUST DECIDE, because Logos is not C++ here:
 * **Scope.** The pool is PER SNAPSHOT, which is not an implementation detail but
   the correctness condition: a fork must see its own metadata, and a cache shared
   across snapshots would hand it the parent's.
+* **The API already anticipates this.** `create_ctr_rc` / `open_ctr_rc`
+  (`stdlib/lcm/canon/metaclass.logos`) return `Rc<C::Handle>` on a thread-local
+  Rc plane, and the comment beside them names the destination outright: "the
+  design destination is a pool of ready handles inside the snapshot (Drop ->
+  pool — open question), which these signatures already permit". So the pool
+  needs no API change, and the Rc plane answers the aliasing question above by
+  construction: the pool owns, handles are counted clones.
+  The oracle answers the flagged open question too — `release_ctr_instance` does
+  NOT erase on last release; it detaches and keeps the entry, and the next `get`
+  reattaches.
+* **What it saves, measured against the current path.** `ctr_meta(ctr_id)` today
+  is `root_of(ctr_id)` — an O(log D) dirmap descent — plus reading the document
+  out of the root block, on EVERY access. That is the per-call cost the cache
+  removes.
 * **It is also the applied layer's hook (D8).** An application-level wrapper —
   a table, an index — needs somewhere to keep derived state, and the container
   wrapper is where it belongs: the bijection already makes "the same container" a
