@@ -1,0 +1,112 @@
+// #62 (D7) — A METAPROG-EMITTED STRUCT NAMED AS A struct FIELD FROM A LATE
+// CHUNK MUST BE SIZED, NOT GUESSED.
+//
+// THE CLASS. The metaprog fixpoint's deferral-retry rounds run with
+// `cache = nullptr`, and an uncached sema takes no snapshot — everything such
+// a round collects (every `logos.gen` registration the container-family drain
+// produced) used to be DISCARDED while `next_delta_start` still advanced
+// across the round. The next cached DELTA round then installed a snapshot
+// from BEFORE the drain and skipped the asts that carried it, so a chunk that
+// lands after the last full round and holds an emitted struct as a FIELD
+// resolved the field against a `structs_` with no `logos.gen` entries at all.
+// `resolve_type`'s metaprog swallow froze the miss as `Kind::Error` into
+// `SemaStructInfo.fields`, and the recording sweep sized the holder off the
+// Error field: `sema_abi_layout` answered {8,8} (`[declined] <kind 46>`) for
+// a 72-byte emitted LeafWalk state struct, and `verify_layout_engines()`
+// aborted the compile against `llvm::DataLayout`. Without the verifier the
+// binary was CORRECT (the final strict sema re-walks everything), which is
+// exactly why this rode green — a permissive defect is invisible to a green
+// corpus by construction.
+//
+// THE FIXTURE IS THE W ARM OF THE R-E PROBE, MINIMAL. `use logos.gen;` in
+// user source is refused by the module loader (correct — that refusal is the
+// A0 arm and it stays), so the probe struct MUST arrive as an emitted chunk,
+// and it must arrive LATE: the 3-level nested `#[token_macro]` chain below
+// exists to place the probe chunk after the container-family drain's own
+// rounds. Every pass test compiles under `LOGOS_VERIFY_LAYOUT=1` (see
+// tests/logos/CMakeLists.txt), so this fixture reds at rc 134 on the exact
+// pre-fix compiler — measured: sema_abi_layout 8 vs llvm::DataLayout 72 on
+// `test.LwFieldProbe` — and is green only when the emitted struct's layout is
+// the real one. The refuse twin (a never-emitted type in the same position)
+// is fail/emitted_struct_field_unknown_fail.logos.
+//
+// ⚠ `Hs352959f3caf5b795LeafWalk` is the family struct DERIVED FROM Bed's CFG
+// document below (kind/entry/measure lines). If the container_item emitter or
+// this declaration changes, the hash changes and this fixture reds with
+// "unknown type" — re-derive it by compiling with `--gen-dir` and reading the
+// emitted chunk names, then re-pin BOTH the field type here and the comment.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+pub container Bed {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 40u64;
+
+// The nesting is the DELAY: each level's expansion is one more dispatch
+// round, so the innermost chunk — the one that declares LwFieldProbe — lands
+// after the rounds in which the family chunks were drained and (pre-fix)
+// walked only by an uncached retry round.
+#[token_macro]
+pub fn gen_n1(s: str) -> ItemList {
+    let mut em1: Emitter = Emitter::new();
+    em1.buf.push_str("package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n2(s: str) -> ItemList { let mut em2: Emitter = Emitter::new(); em2.buf.push_str(\"package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n3(s: str) -> ItemList { let mut em3: Emitter = Emitter::new(); em3.buf.push_str(\\\"package test; use logos.gen; pub struct LwFieldProbe { pub f: Hs352959f3caf5b795LeafWalk } \\\");  em3.commit(); return item_list_new(); } gen_n3!{ x } \");  em2.commit(); return item_list_new(); } gen_n2!{ x } ");
+    em1.commit();
+    return item_list_new();
+}
+gen_n1!{ x }
+
+pub deem scan_all(m: &<typeof(Bed) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Bed)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 3u64, i * 10u64); i = i + 1u64; }
+
+    // ORACLE independent of the query plane: the container's own cursor.
+    let mut rows_o: u64 = 0u64;
+    let mut ksum_o: u64 = 0u64;
+    let mut vsum_o: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            ksum_o = ksum_o + cu.key();
+            vsum_o = vsum_o + cu.value();
+            rows_o = rows_o + 1u64;
+            cu = c.next(&cu);
+        }
+    }
+    if rows_o != N { return 1i32; }
+
+    let a: Vec<(u64, u64)> = match scan_all(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if a.len() as u64 != rows_o { return 3i32; }
+    let mut ksum_a: u64 = 0u64;
+    let mut vsum_a: u64 = 0u64;
+    let mut j: i64 = 0i64;
+    while j < a.len() {
+        ksum_a = ksum_a + a.get(j).0;
+        vsum_a = vsum_a + a.get(j).1;
+        j = j + 1i64;
+    }
+    if ksum_a != ksum_o || vsum_a != vsum_o { return 4i32; }
+    return 0i32;
+}

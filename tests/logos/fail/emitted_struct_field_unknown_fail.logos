@@ -1,0 +1,59 @@
+// #62 (D7) — REFUSE TWIN of pass/deem_emitted_struct_field_layout.
+//
+// Same shape to the byte — a container family, a deem, and a 3-level nested
+// `#[token_macro]` chain landing a LATE emitted chunk that declares a struct
+// whose FIELD names an emitted-looking type — except the type is NEVER
+// emitted by anything. The fix records an `emitted-type` pending at the miss
+// (resolve_type TYPE_REF, metaprog item-signature position) instead of
+// freezing `Kind::Error` into the field, and when the fixpoint stops without
+// producing the type, the refusal NAMES IT: the final strict sema reports
+// `unknown type 'HsNeverEmittedD7Probe'` at `struct LwFieldProbeDead`. This
+// twin is what separates the admit from a blanket admit: a never-produced
+// type in the exact position the pass fixture holds must still refuse, by
+// name — never compile to a {8,8}-sized guess.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+pub container Bed {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 40u64;
+
+#[token_macro]
+pub fn gen_n1(s: str) -> ItemList {
+    let mut em1: Emitter = Emitter::new();
+    em1.buf.push_str("package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n2(s: str) -> ItemList { let mut em2: Emitter = Emitter::new(); em2.buf.push_str(\"package test; use logos.std.compiler.metaprog; use logos.mem.string; #[token_macro] pub fn gen_n3(s: str) -> ItemList { let mut em3: Emitter = Emitter::new(); em3.buf.push_str(\\\"package test; use logos.gen; pub struct LwFieldProbeDead { pub f: HsNeverEmittedD7Probe } \\\");  em3.commit(); return item_list_new(); } gen_n3!{ x } \");  em2.commit(); return item_list_new(); } gen_n2!{ x } ");
+    em1.commit();
+    return item_list_new();
+}
+gen_n1!{ x }
+
+pub deem scan_all(m: &<typeof(Bed) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Bed)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 3u64, i * 10u64); i = i + 1u64; }
+    let a: Vec<(u64, u64)> = match scan_all(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if a.len() as u64 != N { return 3i32; }
+    return 0i32;
+}

@@ -3921,7 +3921,24 @@ int run_metaprog_dispatch(
             if (retry_deferred) {
                 opts_iter.cache = nullptr;
                 opts_iter.delta_start_idx = 0;
-                next_delta_start = asts.size();
+                // ⚠ #62: next_delta_start is NOT advanced across this round.
+                // A cache=nullptr round takes no snapshot (SemaChecker::run
+                // only calls take_snapshot under `if (cache_)`), so every
+                // registration this round collects — including emitted
+                // `logos.gen` chunks' structs — is DISCARDED at its end.
+                // Advancing next_delta_start here made the next CACHED round
+                // skip those asts while installing a snapshot from BEFORE
+                // this round, violating M6.1's invariant (skipped asts'
+                // contributions "already in prog via keep_user_state" —
+                // false for asts whose only walk was uncached). MEASURED:
+                // a late-emitted chunk holding an emitted struct as a FIELD
+                // froze the field as Kind::Error in the next delta round and
+                // sema_abi_layout recorded {8,8} for a 72-byte struct
+                // (LOGOS_VERIFY_LAYOUT abort). Leaving next_delta_start at
+                // its pre-round value makes the next cached round re-walk
+                // (as delta) every ast whose only walk was uncached; the
+                // collect walk's ODR-equal dedup (first_struct +
+                // items_equal) admits the re-walk.
                 // Fresh TypePool — the previous iter's mono output holds
                 // handles into the cached arena; threading it would dangle.
                 m6_prev_mono_out = lir::LProgram{};

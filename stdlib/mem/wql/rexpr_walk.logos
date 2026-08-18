@@ -2177,18 +2177,18 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 // (the artifact classifier reads 477/16/5/0). An arm for the pair would be an
 // arm that never fires, so there is none — and if one ever does fire, it is
 // reported as the dedup carrier, which is the stronger claim about the landing.
-fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — its state struct needs an emitted walk type as a FIELD and sema_abi_layout declines a metaprog-emitted struct field from a foreign package (R-E), so this landing is buffered"; }
+fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — the emitted-struct-field layout decline is FIXED (#62), but the Result-composed surface false-reds the borrow checker: Option<T>::replace moves its arg into Option::Some in arg position and mono instantiates it uncalled for the borrow-carrying state struct (#70), so this landing is buffered"; }
 
 fn out_node_query(subject: str, elem_ty: str, mods: QMods) {
     if !plan_trace_on() { return; }
     if mods.distinct {
         plan_trace(subject, "query output distinct carrier", elem_ty,
-                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (R-E: emitted-struct-field layout decline), so it is buffered");
+                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (#70: Option<T>::replace false-red on the borrow-carrying state struct), so it is buffered");
         return;
     }
     if mods.has_limit {
         plan_trace(subject, "query output bounded by limit", elem_ty,
-                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (R-E: emitted-struct-field layout decline), so it is buffered");
+                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (#70: Option<T>::replace false-red on the borrow-carrying state struct), so it is buffered");
         return;
     }
     plan_trace(subject, "query output", elem_ty, MG_OUT_BUFFERED());

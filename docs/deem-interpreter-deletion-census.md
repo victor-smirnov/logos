@@ -3085,9 +3085,25 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7278
-REGISTRY-NOIMPORTED  3595
+REGISTRY-ALL         7280
+REGISTRY-NOIMPORTED  3597
 REGISTRY-TIERCOMMIT  36
+# 2026-08-18, +2/+2/0 (7278/3595/36 -> 7280/3597/36), predicted before the
+# reconfigure: the #62 (D7) fix — the metaprog dispatch loop no longer advances
+# next_delta_start across an uncached deferral-retry round (whose collected
+# logos.gen registrations were discarded with no snapshot), and resolve_type's
+# metaprog TYPE_REF swallow records an `emitted-type` pending in item-signature
+# position instead of freezing Kind::Error into a struct field ({8,8} layout
+# guess, `[declined] <kind 46>`, LOGOS_VERIFY_LAYOUT abort sema 8 vs
+# llvm::DataLayout 72). The pair:
+#   tests/logos/pass/deem_emitted_struct_field_layout.logos   (a LATE emitted
+#     chunk holds the emitted family LeafWalk struct as a FIELD; every pass
+#     test compiles under LOGOS_VERIFY_LAYOUT=1, so this was rc 134 pre-fix —
+#     control-reverted: stash -> 134 with sema 8 vs 72 on test.LwFieldProbe,
+#     unstash -> green, exit 0)
+#   tests/logos/fail/emitted_struct_field_unknown_fail.logos  (same position,
+#     a NEVER-emitted type: refuses by name, `unknown type
+#     'HsNeverEmittedD7Probe'` — the admit's separation from a blanket admit)
 # 2026-08-18, +4/+4/0 (7274/3591/36 -> 7278/3595/36), predicted before the
 # reglob: the D1-residuals slice §B6 pair (task #51, R1/R2 — the store side
 # records sources for slice-forming call args via forms_borrow_at_call, plus

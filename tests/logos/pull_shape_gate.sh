@@ -174,14 +174,20 @@ dumps = sorted(glob.glob(os.path.join(OUT, '*.user')))
 # edit next to the sentence saying which plane moved.
 PIN = {
     # population
-    'dumps'            : 171,
+    # D7 (#62): 171 -> 172, `deem_emitted_struct_field_layout` joins the deem_*
+    # glob with one `pub deem scan_all` over its own Bed container. Its one
+    # query adds exactly one next_batch pull and one batch loop (all three
+    # spellings), which is the +1 on the three pins below — `next_batch` UP is
+    # the sanctioned direction (criterion 2 progressing). Verified by the
+    # gate's own three-way correspondence holding at 1019 == 1019 == 1019.
+    'dumps'            : 172,
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
     # routing the twelve remaining slice sites; every wrap it added removed
     # exactly one indexed walk, which is the accounting the three-way
     # correspondence below re-asserts on every run.
-    'next_batch'       : 1018,
+    'next_batch'       : 1019,   # R-F: 165 -> 1018; D7 #62: +1 (see `dumps`)
     # THE CORRESPONDENCE, and it is R-E's F7 defect fixed rather than repeated.
     # F7 counted `while (__bj<N> < __bn<N>)` — a NUMBERED spelling — and so
     # missed the three bare `__bj` loops, reading 1015 against 1018 pulls and
@@ -193,8 +199,8 @@ PIN = {
     #   (c) the pull itself.
     # A batch pull with no loop is a batch dropped on the floor; a loop with no
     # pull is an indexed walk wearing the batch plane's variable names.
-    'batch_loop_while' : 1018,
-    'batch_loop_decl'  : 1018,
+    'batch_loop_while' : 1019,   # D7 #62: +1 (see `dumps`)
+    'batch_loop_decl'  : 1019,   # D7 #62: +1 (see `dumps`)
     # ⚠ THE FOURTH `__bj` DECLARATION SHAPE, pinned APART so it cannot absorb
     # a member of the population above. `let mut __bj0: u64 = __bn0;` seeds the
     # cursor at the END of the batch — the descending elision's backward walk

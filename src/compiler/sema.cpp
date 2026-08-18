@@ -7672,8 +7672,31 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // unknown-type silently across all asts — the type may be
         // synthesised by a hook later. Final non-metaprog sema pass
         // catches real errors.
-        if (metaprog_mode_)
+        //
+        // #62: in ITEM-SIGNATURE position (struct/enum/schema fields, fn
+        // params/return — everything the collect walk resolves under
+        // ItemSignatureGuard) the swallow is NOT silence any more. The
+        // Kind::Error it answers is FROZEN into SemaStructInfo.fields by
+        // collect, and if no later round re-walks the item, the recording
+        // sweep sizes the struct off the Error field ({8,8} `[declined]
+        // <kind 46>` in the layout ledger — a 72-byte emitted LeafWalk
+        // state struct measured at 8). So record the DEMAND, exactly the
+        // typeof-container pattern above (note_pending_ at the deferral):
+        // prog.has_pending() forces a retry round in which the item
+        // re-collects with the type present, and a demand still standing
+        // when the fixpoint stops is refused BY NAME by main()'s
+        // post-fixpoint sweep / the final strict sema ("unknown type")
+        // instead of surviving as a mis-sized layout. Body positions keep
+        // the plain swallow — they are re-typed from scratch by the final
+        // sema and freeze nothing. alias-decl RHS keeps it too (the alias
+        // re-resolves at its use site; see alias_decl_resolve_).
+        if (metaprog_mode_) {
+            if (in_item_signature_ && !alias_decl_resolve_)
+                note_pending_("emitted-type",
+                              std::format("the type '{}'", name),
+                              "a metaprogram round");
             return error_t();
+        }
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
         auto ait = type_aliases_.find(std::string(name));

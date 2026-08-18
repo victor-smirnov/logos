@@ -795,7 +795,12 @@ fail = []
 # `stdlib/mem/wql/writ_graph.logos`'s REFUSAL block. A later round closing it
 # must move `container` 205 -> 164 and land those 41 on a re-walk ground, NOT on
 # `MG_REL_BLOCK`/`MG_SECOND_USE`.
-EXPECT_FIXTURES   = 188
+EXPECT_FIXTURES   = 189  # D7 (#62): +1 `deem_emitted_struct_field_layout` — the
+                         # metaprog round-order fixture declares `pub deem
+                         # scan_all` over its own Bed container, so it joins the
+                         # deem_* glob with exactly one query. Every +1 below is
+                         # that one query's contribution, verified by re-running
+                         # the gate with the fixture excluded (188-tree numbers).
 # The two fixtures that cannot compile ALONE: each `use`s a companion package the
 # suite supplies through a lib path (LOCAL_PUBLIB_USERS / LOCAL_WQLMAP_USERS in
 # CMakeLists.txt). Named, so that a THIRD compile failure — or one of these two
@@ -858,7 +863,7 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # sentence was true all along. The number is no longer "every landing that
 # reached the `!offers` arm"; it is the arm's actual population, and the two
 # were different by 129.
-EXPECT_NOMAT      = {"container": 76, "readonce": 26, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B)
+EXPECT_NOMAT      = {"container": 76, "readonce": 27, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan)
 # ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
 # `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
 # the head was classified anywhere: 84 unclassified `fixpoint accumulator`
@@ -897,7 +902,8 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 606   # (R-D: +1) `let mut __out:` query-output landings
+EXPECT_OUTQ       = 607   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout)
+                          # `let mut __out:` query-output landings
                           # ⚠ R-H (b′): the landing TYPE became `Buffer<` (was
                           # `Vec<`); the FLOOR did not move — same bindings,
                           # re-typed. The artifact grep moved with it.
@@ -917,7 +923,9 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 478, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 479, "query output bounded by limit": 16,
+                     # D7 #62: "query output" 478 -> 479, the new fixture's one
+                     # unbounded scan seam. The other four heads did not move.
                      "query output distinct carrier": 5,
                      "incremental snapshot output": 107, "rel result": 45}
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────
