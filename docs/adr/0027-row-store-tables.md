@@ -1,8 +1,8 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). Two
-sub-decisions are OPEN and marked as such; they change structure, not bytes, and
-the slices that do not depend on them can start.
+Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). One
+sub-decision is OPEN and marked as such; it changes structure, not bytes, and
+the slices that do not depend on it can start.
 Scope: two new container kinds (clustered and heap tables), the `Row` /
 `TableMetadata` pair they store, the container-registry and dispatch extensions
 they need, and the Deem-side consequences. Builds on ADR 0020 (container plane),
@@ -283,6 +283,13 @@ WHAT THE PORT MUST DECIDE, because Logos is not C++ here:
 * **Scope.** The pool is PER SNAPSHOT, which is not an implementation detail but
   the correctness condition: a fork must see its own metadata, and a cache shared
   across snapshots would hand it the parent's.
+* **It is also the applied layer's hook (D8).** An application-level wrapper —
+  a table, an index — needs somewhere to keep derived state, and the container
+  wrapper is where it belongs: the bijection already makes "the same container" a
+  single object, so anything hung on it is shared by construction and released
+  with the snapshot. The wrapper therefore offers a general interface for that,
+  not a table-specific field. `TableMetadata` is then simply the first client of
+  a facility every applied wrapper will want.
 
 ## D7 — `top_level` in the container registry
 
@@ -298,52 +305,41 @@ either it is lifted first, or the bits are packed into the existing value cell,
 or the flags live in a parallel container. Lifting it is the honest fix and is
 shared work with D9.
 
-## D8 — base containers and dispatch
+## D8 — the applied layer lives ABOVE Memoria, and Memoria does not learn about it
 
-Instantiating a full container for every superstructure over an existing type is
-expensive; a superstructure should reuse a base container. But dispatch reads a
-type code from the block header (`ctr_type_hash`), which then names the BASE, and
-the applied type is unrecoverable.
+An earlier draft of this ADR extended block-level dispatch so a superstructure
+could reuse a base container and still be recognised: a second type code beside
+the base's, in the block header or in root metadata.
 
-Two places for the second code, an order of magnitude apart in cost:
+**That is rejected, and the oracle rejected it first.** The pair that once
+carried it (`container_type_hash_` for the base, `owner_type_hash_` for the
+applied) is gone from Memoria, and the reason is not an accident of refactoring:
+pushing APPLIED containers down to Memoria's level is overengineering. Memoria's
+business is base containers — `Map<K, V>` and the rest — and what a container is
+FOR belongs to the layer that has a purpose.
 
-* **block header** — a format change touching every block and the whole CoW
-  path;
-* **root metadata** — already exists (D5 mode 1), and the applied type is only
-  needed where a container is opened through its root.
+So:
 
-The second is preferable *iff* dispatch always begins at a root. **OPEN-2 below.**
+* `ClusteredTable` and the heap table are APPLICATION-LEVEL wrappers over a base
+  container and its cursors. Memoria stores `Map<K, Writ>`; that it is a table is
+  not a fact Memoria holds, checks, or dispatches on.
+* No second type code. No block-header change. No dispatch extension. The
+  question that OPEN-2 asked — whether dispatch ever starts at a block with no
+  root in hand — dissolves, because there is no applied code to recover.
+* Where an applied wrapper needs to cache state, it does so through an interface
+  ON the Memoria container wrapper (D6), which already exists to hold exactly
+  that: the per-snapshot instance pool makes "the same container" a single
+  object, so state hung on it is shared by construction and dies with the
+  snapshot.
 
-**WHAT THE ORACLE HAS TODAY — CHECKED, and it is not what it used to be.** The
-remembered pair (`container_type_hash_` for the base, `owner_type_hash_` for the
-applied, equal when a container is its own base) is GONE. The block header now
-carries
-
-```cpp
-uint64_t ctr_type_hash_;      // containers-api/.../profiles/common/block.hpp
-uint64_t block_type_hash_;
-```
-
-and `ProfileMetadata` dispatches through three registries
-(`profiles/common/metadata.hpp`): `block_map_` keyed by the PAIR
-`{ctr_type_hash, block_type_hash}` -> `BlockOperations`, `container_map_` keyed
-by `ctr_type_hash` alone -> `ContainerInterface`, and `factory_map_` keyed by a
-type NAME -> `ContainerInstanceFactory`.
-
-⚠ **THE PAIR WE NEED MAY ALREADY BE THAT PAIR.** Block operations are already
-dispatched on two codes. If `ctr_type_hash_` names the container that OWNS the
-block — the applied type — and `block_type_hash_` names the block LAYOUT the base
-defines, then base-plus-applied costs no header change at all: the base's layout
-code keeps resolving block operations while the container interface resolves to
-the applied type. That reading also explains why a separate `owner_type_hash_`
-could be retired. It is a reading, not a citation, and it is worth confirming
-against the oracle's own use before the port commits to it.
-
-OUR side has neither field yet. `stdlib/lcm/deem/data/bt/node.logos` carries
-`block_code` (the concrete node's physical schema code, stamped at alloc) plus a
-`cfg_hash` for the config-consistency check; the container-level code exists only
-as a comment describing intent. So for us this is an addition either way, and
-OPEN-2 decides whether it is one field or two.
+⚠ CONSEQUENCE THIS ADR MUST FOLLOW THROUGH ON, and it is structural: if the
+table is a wrapper rather than a container kind, then it needs no `kind` arm in
+`container_item.logos` at all. What the factory must learn is only the base —
+`Map<K, V>` over BTFL when `V` is a Writ — and the table becomes library code
+plus a hand-written Deem source declaration, exactly the shape
+`impl OrderedMapSource for BTreeMap` already has for a hand-written type. That
+shrinks S5 to the base arm and turns S6/S7 into library slices. It also removes
+the drift surface ADR 0026 warned about, because no new emitter arm appears.
 
 ## D9 — the relation widens
 
@@ -419,7 +415,7 @@ arm parameterised by stream 0's role, not become two.
 
 ---
 
-## OPEN — two sub-decisions
+## OPEN — one sub-decision
 
 **OPEN-1 — `OrdDataType`: closed set or dynamic tag?** The mechanism stores a
 value of an arbitrary type from a given set (comparable ones) as the container's
@@ -429,11 +425,6 @@ arm — an extension of the existing per-config generation, where Deem's relatio
 columns stay statically typed; or (b) the type is fully dynamic and metadata is
 the only source — which changes the shape of Deem's relation and is a different
 piece of work. Almost everything downstream follows from this answer.
-
-**OPEN-2 — is there dispatch from a block with no root in hand?** D8's cheap
-answer (applied type in root metadata) holds only if every dispatch path starts
-at a container root. If any path starts from an arbitrary block, the code must go
-in the block header and D8 becomes a format change.
 
 ---
 
@@ -449,25 +440,27 @@ groups marked ∥ are independent of each other.
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
 | S3 | `RowRef` / `RowBuf` + the assembly path | S1 | D11; borrow-carrying |
 | S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
-| S5 | one emitter arm, stream 0 parameterised | S1, S4, OPEN-1 | both tables |
-| S6 | `ClusteredTable` over bt_fl | S5 | PK = stream 0; value seq = the row's buffer |
-| S7 | heap table (`Map<u64, Row>`, OID) | S5, S10 | base = `Map<K,V>` over BTFL; next-OID in metadata |
+| S5 | base arm: `Map<K,V>` over BTFL for a Writ value | S1, S4, OPEN-1 | Memoria-level; no table kind |
+| S6 | `ClusteredTable` wrapper | S5, S13 | LIBRARY, not a kind; PK = the base's key |
+| S7 | heap-table wrapper (`Map<u64, Row>`, OID) | S5, S13 | LIBRARY; next-OID in metadata |
 | S8 | metadata modes 2/3 | S2 | D5 |
 | S9 | dirmap `top_level` | S4 or a packing decision | D7 |
-| S10 | base container + dispatch | OPEN-2 | D8 |
 | S11 | mutation protocol reconciliation | S3, S6/S7 | the real work |
 | S12 | indexes | S6, S7 | D12; `key -> identity`, two descents |
 | S13 | instance pool (`CtrID -> wrapper`) + metadata cache | S2 | D6; per snapshot |
 
 ## What this ADR does not do
 
-It does not retire `Vector<Writ>` — it PROMOTES it. Since `Row` is a Writ
-structure, the document container and the table share the ENTIRE value machinery,
-differing only in the root object type and in where the schema lives; and
-`Vector<Writ>` is the heap table's base container (D1, D8). Heterogeneity stays
-available where it is wanted and stops being charged to rows that do not want
-it — from one codebase, with the table as a superstructure rather than a rival.
+It does not retire `Vector<Writ>`, and it does not compete with it. Since `Row`
+is a Writ structure, the document container and the table share the ENTIRE value
+machinery — they differ in the root object type and in where the schema lives.
+Heterogeneity stays available where it is wanted and stops being charged to rows
+that do not want it, from one codebase.
 
-It does not specify indexes beyond naming S12. A secondary index over a clustered
-table is another bt_fl client and needs the relation widening (S4) and the
-registry roles (S9) before it can be stated at all.
+**It does not make a table a Memoria concept** (D8). Memoria gains one base
+capability — `Map<K, V>` over BTFL when the value is a Writ — and nothing that
+knows the word "table". The tables are wrappers above it.
+
+It does not specify indexes beyond D12 and S12. A secondary index needs the
+relation widening (S4) and the registry roles (S9) before it can be stated at
+all, and it too is a wrapper: `key -> identity` over a base container.
