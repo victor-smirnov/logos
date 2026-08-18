@@ -1,0 +1,47 @@
+// #70(a), ABUSE DIRECTION for an exemption that had NO test.
+// collect_ref_sources_paths' per-arg filters exclude FAT-typed arguments on
+// purpose: `tv_build(h, name.as_str(), …)` (stdlib/mem/writ/parser.logos, over
+// `let name: String = parse_ident_raw(p)`) passes a by-value fat value whose
+// result must NOT tie to the short-lived owner. Before this task that
+// exemption was guarded ONLY by "the stdlib still compiles" — a grep of the
+// whole repo found `tv_build` in exactly one stdlib file and ZERO files under
+// tests/, and none of the bc_* fixtures mention `as_str`. So an over-refusing
+// widening of the filter would have been caught by the stdlib build and by
+// nothing that says WHY.
+// #70(a) widens the filter to nested borrow-forming `Call` nodes and to
+// aggregate LITERALS with a borrow-forming member, and keeps `MethodCall`
+// excluded precisely to preserve this shape. This fixture is the pin — and it
+// must be FAITHFUL to be one: the #70 verify (MISS-1) showed a scalar-returning
+// stand-in is vacuous, because an `i64` result cannot tie under ANY widening.
+// The real tv_build returns `WAny`, which is `#[borrow_carrying]` — so the pin
+// returns a `#[borrow_carrying]` value too. A fat by-value argument produced
+// by a MethodCall on a local that dies before the result is used must stay
+// ADMITTED even when the result COULD carry a borrow.
+package bc_argcomp_tvbuild_byvalue_fat_admit;
+use logos.mem.string;
+
+#[borrow_carrying]
+pub enum MyAny { Ref(*const u8), Pod(u64) }
+
+// The faithful tv_build shape: fat `str` BY VALUE in, borrow-carrying result
+// out — but this body does not retain the argument (Pod arm).
+unsafe fn tvb(tag: i64, s: str) -> MyAny {
+    return MyAny::Pod((tag + s.len() as i64) as u64);
+}
+
+fn main() -> i32 {
+    let out: MyAny;
+    {
+        // `name` dies at the end of this block — exactly parse_tv_prefix's
+        // `let name: String = parse_ident_raw(p)`.
+        let name: String = String::from("Decimal");
+        unsafe { out = tvb(1i64, name.as_str()); }
+    }
+    // Using the carrier after `name` is gone must be fine: the by-value fat
+    // COPY did not tie.
+    match out {
+        MyAny::Pod(v) => { if v == 8u64 { return 0i32; } }
+        MyAny::Ref(_) => {}
+    }
+    return 1i32;
+}

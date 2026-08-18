@@ -3085,9 +3085,53 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7280
-REGISTRY-NOIMPORTED  3597
+REGISTRY-ALL         7288
+REGISTRY-NOIMPORTED  3605
 REGISTRY-TIERCOMMIT  36
+# 2026-08-18 (second entry, same task), +3/+3/0 (7285/3602/36 -> 7288/3605/36),
+# predicted before the reconfigure and met exactly: the #70 verify's MISS-2 —
+# the (a) widening had covered only the nested-Call spelling; a borrow composed
+# by an AGGREGATE LITERAL in argument position still escaped. forms_borrow_at_call
+# gained literal arms (tuple/struct/enum/array member recursion) and
+# type_may_carry_borrow gained structural tuple-elem/array-elem recursion.
+#   fail/bc_argcomp_aggr_tuple_dangle   — `pick((&tmp, 1))` refuses E0597
+#   fail/bc_argcomp_aggr_enum_dangle    — `pick(MyOpt::Some(&tmp))` refuses E0597
+#   pass/bc_argcomp_aggr_lit_admit      — all three spellings at fn scope admit
+# The STRUCT spelling (`pick(H { r: &tmp })`) is the remaining residual — a
+# plain struct's raw-ref field is invisible to type_may_carry_borrow without a
+# holds-any-ref fixpoint set (task #71, repro m16_dangle_structlit_real).
+# MISS-1 also paid: the tv_build pin's stand-in returned i64 (vacuous — a
+# scalar cannot tie under ANY widening); it now returns a #[borrow_carrying]
+# enum, the faithful WAny shape.
+# 2026-08-18, +5/+5/0 (7280/3597/36 -> 7285/3602/36), predicted before the
+# reconfigure and met exactly: task #70, the borrow/move formed by COMPOSITION
+# in ARGUMENT position — the over-refusal direction fully, the permissive
+# direction for the nested-Call spelling (see the entry above for the
+# aggregate-literal spellings). Five fixtures, none of
+# them under the wql_*/deem_* globs, so logos_09_plan_ground_census and
+# logos_09_pull_shape keep their populations.
+#   (b) OVER-REFUSAL — take_ref_borrows dropped `record_only` on its aggregate
+#   recursion, so apply_call_outparam_rules' re-walk visited the composed
+#   argument a SECOND time and stdlib `Option<T>::replace` ("return
+#   replace_ref(self, Option::Some(value))") reported a double move of a value
+#   moved exactly once. Control-reverted: stash -> rc 1 on all three probes,
+#   unstash -> rc 0.
+#     tests/logos/pass/bc_argcomp_replace_admit.logos       (instantiates AND
+#       CALLS .replace on a #[borrow_carrying] T with an owned Vec field; the
+#       runtime answer is asserted, so a wrongly-admitted move shows as a wrong
+#       exit code)
+#     tests/logos/fail/bc_argcomp_use_after_move_fail.logos (abuse direction:
+#       `value` used AFTER the composition moved it must still refuse)
+#   (a) PERMISSIVE — a nested borrow-forming call in argument position
+#   (`pick1(&arr[0..2])`, the arg being the fat-typed slice_get_range Call
+#   node) deposited no sources, so the dangle was admitted at rc 0 while the
+#   one-level twin bc_d1res_r2_sliceform_dangle refused.
+#     tests/logos/fail/bc_argcomp_nested_call_dangle.logos
+#     tests/logos/pass/bc_argcomp_nested_call_admit.logos
+#     tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos  (the
+#       by-value fat COPY exemption the per-arg filters exist for — before this
+#       task NOTHING under tests/ pinned it; grep found tv_build in exactly one
+#       stdlib file and zero tests, and no bc_* fixture mentioned as_str)
 # 2026-08-18, +2/+2/0 (7278/3595/36 -> 7280/3597/36), predicted before the
 # reconfigure: the #62 (D7) fix — the metaprog dispatch loop no longer advances
 # next_delta_start across an uncached deferral-retry round (whose collected

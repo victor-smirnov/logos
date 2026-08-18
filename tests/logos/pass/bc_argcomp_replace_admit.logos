@@ -1,0 +1,60 @@
+// #70(b) — a borrow/move formed by COMPOSITION in ARGUMENT position.
+// `Option<T>::replace`'s body is `return replace_ref(self, Option::Some(value))`.
+// `value` is moved EXACTLY ONCE, into the enum literal composed in argument
+// position. The borrow checker reported "use of moved value 'value'" because
+// apply_call_outparam_rules' record_only re-walk (needed for the `&mut self`
+// out-param rule) lost the record_only flag on take_ref_borrows' aggregate
+// recursion, so the payload VarRef fell into `default:` and was visited
+// consumingly a SECOND time. Three gates had to line up: a `&mut` operand
+// (replace_ref's self), T `#[borrow_carrying]`, and T non-Copy (the Vec field)
+// — hence this exact shape.
+// This fixture pins BOTH directions of "the refusal was false": the impl
+// instantiates (mk), AND `.replace` is actually CALLED, so the runtime answer
+// is checked too — a wrongly-admitted move would show as a wrong exit code.
+package bc_argcomp_replace_admit;
+use logos.lang.option;
+use logos.mem.collections.vec;
+
+#[borrow_carrying]
+pub struct S {
+    p: *const i64,
+    sc: Vec<i64>,
+}
+
+// Instantiation alone used to red (mono builds the whole Option<T> impl).
+pub fn mk(x: &i64) -> Option<S> {
+    return Option::Some(S { p: x, sc: Vec::<i64>::new() });
+}
+
+fn main() -> i32 {
+    let a: i64 = 7i64;
+    let b: i64 = 9i64;
+    let o0: Option<S> = mk(&a);
+    if o0.is_none() { return 90i32; }
+
+    let mut v1: Vec<i64> = Vec::<i64>::new();
+    v1.push(1i64);
+    let mut v2: Vec<i64> = Vec::<i64>::new();
+    v2.push(2i64);
+    v2.push(3i64);
+
+    let mut o: Option<S> = Option::Some(S { p: &a, sc: v1 });
+    let old: Option<S> = o.replace(S { p: &b, sc: v2 });
+
+    let mut code: i32 = 0i32;
+    match old {
+        Option::Some(s) => {
+            if s.sc.len() != 1i64 { code = 10i32; }
+            unsafe { if s.p[0] != 7i64 { code = code + 1i32; } }
+        }
+        Option::None => { code = 20i32; }
+    }
+    match o {
+        Option::Some(s2) => {
+            if s2.sc.len() != 2i64 { code = code + 100i32; }
+            unsafe { if s2.p[0] != 9i64 { code = code + 2i32; } }
+        }
+        Option::None => { code = code + 200i32; }
+    }
+    return code;
+}

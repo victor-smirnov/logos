@@ -1,0 +1,24 @@
+// #70(a) — REFUSE half. A NESTED borrow-forming call in ARGUMENT position.
+// `&arr[0..2]` lowers to `Call(slice_get_range, [SliceLit{AddrOfTemp(arr)},
+// lo, hi])`, fat-typed `&[i64]`. As a DIRECT initializer that node is rooted
+// at `arr` and the escape is refused (bc_d1res_r2_sliceform_dangle, R2).
+// Passed as an ARGUMENT it was invisible: collect_ref_sources_paths' per-arg
+// filter rejected it three times over — not is_plain_ref_kind (fat), not
+// is_borrow_carrying_type (a slice of i64 carries nothing by name), and not
+// in R1's SliceLit/AddrOf/AddrOfTemp node-kind list — so NOTHING was
+// deposited and this dangle was ADMITTED at rc=0.
+// Twin: bc_argcomp_nested_call_admit (same call at fn scope, rc 0).
+package bc_argcomp_nested_call_dangle;
+use logos.lang.slice;
+
+fn pick1(s: &[i64]) -> &i64 { return &s[0]; }
+
+fn main() -> i32 {
+    let o: &i64;
+    {
+        let arr: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+        o = pick1(&arr[0..2]);
+    }
+    if *o == 1i64 { return 0i32; }
+    return 1i32;
+}

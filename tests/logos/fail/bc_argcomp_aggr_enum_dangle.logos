@@ -1,0 +1,12 @@
+// #70(a) MISS-2, third spelling: an ENUM LITERAL payload composing the borrow
+// in argument position — `pick(MyOpt::Some(&tmp))`. Same class as the tuple-
+// and struct-literal twins, pinned apart.
+package bc_argcomp_aggr_enum_dangle;
+pub enum MyOpt<T> { None, Some(T) }
+pub fn pick<T>(src: MyOpt<T>) -> MyOpt<T> { return src; }
+fn main() -> i32 {
+    let held: MyOpt<&i64>;
+    { let tmp: i64 = 9i64; held = pick(MyOpt::Some(&tmp)); }
+    match held { MyOpt::Some(r) => { if *r == 9i64 { return 0i32; } } MyOpt::None => {} }
+    return 1i32;
+}

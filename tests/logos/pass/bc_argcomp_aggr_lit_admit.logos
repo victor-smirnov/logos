@@ -1,0 +1,22 @@
+// #70(a) MISS-2 ADMIT TWIN: the same three aggregate-literal compositions with
+// the borrowed local at FN SCOPE — the deposit now ties to a live owner, so
+// every one must stay admitted. This is the pair that proves the new literal
+// arms separate dangling from lifetime-valid composition instead of refusing
+// the spelling.
+package bc_argcomp_aggr_lit_admit;
+pub struct H { r: &i64 }
+pub enum MyOpt<T> { None, Some(T) }
+pub fn pick_t<T>(src: T) -> T { return src; }
+pub fn pick_h(src: H) -> H { return src; }
+fn main() -> i32 {
+    let tmp: i64 = 9i64;
+    let held_t: (&i64, i64) = pick_t((&tmp, 1i64));
+    let held_h: H = pick_h(H { r: &tmp });
+    let held_e: MyOpt<&i64> = pick_t(MyOpt::Some(&tmp));
+    let mut ok: i64 = 0i64;
+    if *held_t.0 == 9i64 { ok = ok + 1i64; }
+    if *held_h.r == 9i64 { ok = ok + 1i64; }
+    match held_e { MyOpt::Some(r) => { if *r == 9i64 { ok = ok + 1i64; } } MyOpt::None => {} }
+    if ok == 3i64 { return 0i32; }
+    return 1i32;
+}

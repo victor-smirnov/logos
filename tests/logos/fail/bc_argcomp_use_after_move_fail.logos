@@ -1,0 +1,28 @@
+// #70(b), ABUSE DIRECTION — the guard on the record_only fix.
+// The fix stops take_ref_borrows' record_only re-walk from visiting the
+// composed argument a SECOND time. It must not stop the FIRST (legitimate)
+// visit: a value really moved into a composition in argument position and
+// then used again is still a double move.
+// Same three gates as the admit twin (a `&mut` operand, `#[borrow_carrying]`
+// T, a non-Copy field), so this fixture exercises exactly the code path the
+// fix touches — without it the fix could silently disable move checking
+// through the aggregate arms and nothing would notice.
+package bc_argcomp_use_after_move_fail;
+use logos.mem.collections.vec;
+
+#[borrow_carrying]
+pub struct S { p: *const i64, sc: Vec<i64> }
+
+pub enum MyOpt<T> { None, Some(T) }
+
+pub fn myrepl<T>(dst: &mut T, src: T) -> T {
+    unsafe { let q = dst as *mut T; let old: T = q[0]; q[0] = src; return old; }
+}
+
+pub fn wrap(dst: &mut MyOpt<S>, value: S) -> MyOpt<S> {
+    let r: MyOpt<S> = myrepl(dst, MyOpt::Some(value));
+    let again: S = value;            // ← genuine second move, must refuse
+    return MyOpt::Some(again);
+}
+
+fn main() -> i32 { return 0i32; }

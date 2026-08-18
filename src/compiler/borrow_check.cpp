@@ -2148,17 +2148,89 @@ private:
         // SliceLit, AddrOf, AddrOfTemp, through transparent Casts. A by-value
         // fat COPY arrives as VarRef/MethodCall/FieldRead and stays excluded.
         //
-        // ⚠ KNOWN RESIDUAL, measured: a NESTED borrow-forming call in arg
-        // position (`pick1(&arr[0..1])` — the arg is the slice_get_range Call
-        // node itself, fat-typed) is still excluded and still admits its
-        // dangle. Admitting fat-typed Call/MethodCall nodes here is exactly
-        // the tv_build/`as_str()` regression shape, so that widening needs its
-        // own probe pair and its own control, not a rider on this one.
-        auto forms_borrow_at_call = [](lir_view::ExprRef a) {
+        // ── #70(a): THE NESTED BORROW-FORMING CALL ─────────────────────────
+        // The residual this closes: `pick1(&arr[0..2])` passes the
+        // `slice_get_range` Call node itself (fat-typed `&[i64]`), which no
+        // rule above admits — not `is_plain_ref_kind` (fat), not
+        // `is_borrow_carrying_type` (a slice of i64 carries nothing by name),
+        // not the node-kind list. Nothing was deposited, so the dangle was
+        // admitted at rc=0 while the one-level twin `o = &arr[0..2]` refused
+        // at rc=1 (pinned by bc_d1res_r2_sliceform_dangle).
+        //
+        // The rule: a CALL whose result is a reference and one of whose
+        // arguments is ITSELF borrow-forming (recursively — the SliceLit /
+        // AddrOf / AddrOfTemp base above, or another such call) forms the
+        // borrow at this site, exactly like the one-level spelling it wraps.
+        // This is the same conservative signature-elision the Call arm below
+        // already applies to plain-ref args; the nesting is what was missing.
+        //
+        // `EC::MethodCall` STAYS EXCLUDED, and that is the load-bearing half.
+        // The by-value fat COPY this whole filter exists to keep out is
+        // `tv_build(h, name.as_str(), …)` (stdlib/mem/writ/parser.logos:324) —
+        // a MethodCall. Excluding the kind, rather than guessing on the
+        // fat/plain axis, is what keeps that exemption; it is pinned in the
+        // abuse direction by bc_argcomp_tvbuild_byvalue_fat_admit, which
+        // before this task NOTHING under tests/ pinned.
+        //
+        // MEASURED AND REJECTED, the provenance route the residual note asked
+        // for (`flow_of_call(callee)->to_result`): slice_get_range's mask is
+        // 0, because its body reaches the buffer through `s.as_ptr()`
+        // (a SlicePtr node taint_of has no arm for), an i64 address
+        // round-trip (no BinOp arm), and `slice_from_raw` (sema-rewritten to
+        // the bodyless `str_from_raw`, whose `*const T` argument the (a)-(d)
+        // fallback filter drops). Repairing all four DOES produce
+        // `to_result=1` and DOES refuse this fixture — and it also makes
+        // `string_as_str` correctly report that it retains its argument,
+        // which then reds the stdlib itself: `join_order.decide_over_set`
+        // stores `string_as_str(&szs[k])` into `rs.w.ssz[k]` and afterwards
+        // calls `szs[i4].clear()` while `rs` is live. That is a REAL aliasing
+        // hazard rustc would reject too, so the summary route is blocked on a
+        // stdlib repair, not on the checker. Recorded, not landed.
+        std::function<bool(lir_view::ExprRef)> forms_borrow_at_call =
+            [&](lir_view::ExprRef a) -> bool {
             while (a && a.kind() == EC::Cast)
                 a = lir_view::ECastView{a}.operand();
-            return a && (a.kind() == EC::SliceLit || a.kind() == EC::AddrOf ||
-                         a.kind() == EC::AddrOfTemp);
+            if (!a) return false;
+            if (a.kind() == EC::SliceLit || a.kind() == EC::AddrOf ||
+                a.kind() == EC::AddrOfTemp)
+                return true;
+            // An AGGREGATE LITERAL forms a borrow iff one of its members does
+            // (`pick((&tmp, 1))`, `pick(H { r: &tmp })`, `pick(Opt::Some(&tmp))`
+            // all admitted at rc 0 while their bare spellings refused — the #70
+            // verify's m14b/m16/m17). The tv_build exemption is untouched: a
+            // by-value fat COPY arrives as VarRef/MethodCall/FieldRead, and a
+            // literal with no borrow-forming member still answers false.
+            bool tied = false;
+            switch (a.kind()) {
+            case EC::TupleLit:
+                lir_view::ETupleLitView{a}.each_elem([&](lir_view::ExprRef inner) {
+                    if (!tied && inner && forms_borrow_at_call(inner)) tied = true;
+                });
+                return tied;
+            case EC::StructLit:
+                lir_view::EStructLitView{a}.each_field(
+                    [&](std::string_view, lir_view::ExprRef inner) {
+                        if (!tied && inner && forms_borrow_at_call(inner)) tied = true;
+                    });
+                return tied;
+            case EC::EnumLitData:
+                lir_view::EEnumLitDataView{a}.each_payload([&](lir_view::ExprRef inner) {
+                    if (!tied && inner && forms_borrow_at_call(inner)) tied = true;
+                });
+                return tied;
+            case EC::ArrLit:
+                lir_view::EArrLitView{a}.each_elem([&](lir_view::ExprRef inner) {
+                    if (!tied && inner && forms_borrow_at_call(inner)) tied = true;
+                });
+                return tied;
+            default: break;
+            }
+            if (a.kind() != EC::Call) return false;
+            if (!is_ref_kind(a.type(pool))) return false;
+            lir_view::ECallView{a}.each_arg([&](lir_view::ExprRef inner) {
+                if (!tied && inner && forms_borrow_at_call(inner)) tied = true;
+            });
+            return tied;
         };
         switch (e.kind()) {
             case EC::AddrOf: {
@@ -3979,6 +4051,22 @@ private:
         if (is_ref_kind(t) || loan_carrying_type(t)) return true;
         for (auto a : t.type_args())
             if (type_may_carry_borrow(a)) return true;
+        // #70 MISS-2: a TUPLE's elements are not type_args, so `(&i64, i64)`
+        // answered false and the §B6 Call arm never inspected
+        // `held = pick((&tmp, 1))` — the composition escaped at rc 0 while the
+        // bare spelling refused. Structural recursion, same shape as
+        // bc_loan_carrying_type's own tuple arm. NOT covered here: a plain
+        // STRUCT with a raw-ref field (`H { r: &i64 }`) — deciding that from a
+        // TypeRef needs a holds-any-ref fixpoint set beside holds_mut_ref
+        // (loan_carrying only propagates NAMED carriers); its repro is
+        // sandbox/t70verify/m16_dangle_structlit_real.logos, filed as the
+        // class's remaining residual.
+        if (t.kind() == LogosType::Kind::Tuple) {
+            for (auto e : t.tuple_elems())
+                if (type_may_carry_borrow(TypeRef(e))) return true;
+        }
+        if (t.kind() == LogosType::Kind::Array || t.kind() == LogosType::Kind::Slice)
+            return type_may_carry_borrow(t.elem());
         return false;
     }
 
@@ -5046,6 +5134,19 @@ private:
     // record_only: RECORD loans without re-running the consuming visit. Used
     // by the capture-flow site (R7), where visit_args has ALREADY visited the
     // argument — a second consuming visit would report a spurious double move.
+    // #70: record_only is a property of the WHOLE SUBTREE, not of this frame.
+    // The caller that sets it has already visited `e` *and everything under
+    // it*; therefore every internal recursion must FORWARD the flag and every
+    // internal consuming visit must be gated on it. Dropping it on the
+    // aggregate arms is what made stdlib `Option::replace` — whose body is
+    // `return replace_ref(self, Option::Some(value))` — report "use of moved
+    // value 'value'": visit_args consumed the payload once (the legitimate
+    // move), then apply_call_outparam_rules' record_only re-walk reached the
+    // EnumLitData arm, lost the flag, and the payload VarRef fell into
+    // `default:` with record_only == false ⇒ a SECOND consuming visit.
+    // The FnPtrCall arm below already carried this reasoning for one site
+    // (measured on `Result::unwrap_or_else`); it is the same rule everywhere.
+    // Gating cannot lose a check: the caller's own visit performed it.
     void take_ref_borrows(lir_view::ExprRef e, uint32_t line,
                            const std::string& holder = "",
                            bool record_only = false) {
@@ -5183,7 +5284,7 @@ private:
                         // undetected (rustc E0499).
                         bool saved = reborrow_force_mut_;
                         reborrow_force_mut_ = v.is_mut();
-                        take_ref_borrows(op, line, holder);
+                        take_ref_borrows(op, line, holder, record_only);  // #70
                         reborrow_force_mut_ = saved;
                         break;
                     }
@@ -5249,14 +5350,14 @@ private:
                         break;
                     }
                 }
-                visit(e, /*consuming=*/true, line);
+                if (!record_only) visit(e, /*consuming=*/true, line);  // #70
                 break;
             }
             case Code::IfExpr: {
                 EIfExprView v{e};
-                visit(v.cond(), /*consuming=*/true, line);
-                take_ref_borrows(v.then_val(), line, holder);
-                take_ref_borrows(v.else_val(), line, holder);
+                if (!record_only) visit(v.cond(), /*consuming=*/true, line);  // #70
+                take_ref_borrows(v.then_val(), line, holder, record_only);    // #70
+                take_ref_borrows(v.else_val(), line, holder, record_only);    // #70
                 break;
             }
             // Cross-fn provenance (conservative): when a function-call result is
@@ -5319,7 +5420,7 @@ private:
                     if (!a) return;
                     if (is_ref_kind(a.type(pool)) ||
                         (res_bc && is_borrow_carrying_type(a.type(pool))))
-                        take_ref_borrows(a, line, holder);
+                        take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;
             }
@@ -5400,7 +5501,7 @@ private:
                                         /*skip_mut_binding_check=*/true);
                     }
                 } else if (recv && is_ref_kind(recv.type(pool))) {
-                    take_ref_borrows(recv, line, holder);
+                    take_ref_borrows(recv, line, holder, record_only);  // #70
                 }
                 // D1: same by-value rule as the free-call arm above.
                 bool res_bc_m = is_borrow_carrying_type(e.type(pool));
@@ -5408,7 +5509,7 @@ private:
                     if (!a) return;
                     if (is_ref_kind(a.type(pool)) ||
                         (res_bc_m && is_borrow_carrying_type(a.type(pool))))
-                        take_ref_borrows(a, line, holder);
+                        take_ref_borrows(a, line, holder, record_only);  // #70
                 });
                 break;
             }
@@ -5460,12 +5561,13 @@ private:
                 std::vector<std::string> scrut_sources;
                 collect_ref_sources(v.scrut(), scrut_sources);
                 v.each_arm([&](EMatchArmRef arm) {
-                    if (auto g = arm.guard()) visit(g, /*consuming=*/true, line);
+                    if (auto g = arm.guard())
+                        if (!record_only) visit(g, /*consuming=*/true, line);  // #70
                     propagate_pat_sources(arm.pat(), scrut_sources, line);  // §B6
                     propagate_pat_prov(arm.pat(), v.scrut());               // r3
                     propagate_pat_loans(arm.pat(), scrut_roots, line);
                     propagate_pat_reborrows(arm.pat(), v.scrut());  // D1 r13
-                    take_ref_borrows(arm.value(), line, holder);
+                    take_ref_borrows(arm.value(), line, holder, record_only);  // #70
                 });
                 break;
             }
@@ -5473,8 +5575,14 @@ private:
                 EBlockExprView v{e};
                 // Door B: hand the escaping result+holder to visit_block so the
                 // hop runs before the frame pops (see visit_block).
+                // #70 residual, deliberate: visit_block is NOT gated on
+                // record_only. It both re-visits statements (the double-move
+                // hazard) and RE-HOMES escaping loans onto `holder` (Door B).
+                // Gating it would trade a false red for a lost loan — the
+                // permissive direction — so the block-valued-argument shape
+                // keeps HEAD's behaviour until the two effects are separated.
                 if (auto br = v.block()) visit_block(br, v.result(), holder);
-                take_ref_borrows(v.result(), line, holder);
+                take_ref_borrows(v.result(), line, holder, record_only);  // #70
                 break;
             }
             // P2-13: a non-`move` closure that MUTATES a capture holds a `&mut`
@@ -5546,19 +5654,19 @@ private:
             // went undetected (Rust E0502/E0505/E0505-on-move).
             case Code::StructLit: {
                 EStructLitView{e}.each_field_value([&](ExprRef fv) {
-                    take_ref_borrows(fv, line, holder);
+                    take_ref_borrows(fv, line, holder, record_only);  // #70
                 });
                 break;
             }
             case Code::TupleLit: {
                 ETupleLitView{e}.each_elem([&](ExprRef el) {
-                    take_ref_borrows(el, line, holder);
+                    take_ref_borrows(el, line, holder, record_only);  // #70
                 });
                 break;
             }
             case Code::ArrLit: {
                 EArrLitView{e}.each_elem([&](ExprRef el) {
-                    take_ref_borrows(el, line, holder);
+                    take_ref_borrows(el, line, holder, record_only);  // #70
                 });
                 break;
             }
@@ -5572,7 +5680,7 @@ private:
             // undetected (door 2a, `Option::Some(c.mk()); c.bump()`).
             case Code::EnumLitData: {
                 EEnumLitDataView{e}.each_payload([&](ExprRef pl) {
-                    take_ref_borrows(pl, line, holder);
+                    take_ref_borrows(pl, line, holder, record_only);  // #70
                 });
                 break;
             }

@@ -1,0 +1,15 @@
+// #70(a) — ADMIT half, the over-refusal guard on bc_argcomp_nested_call_dangle.
+// The identical nested borrow-forming call, with `arr` at FN scope so the
+// borrow never outlives its referent. The new rule ties `o` to `arr`; it must
+// not therefore refuse the legal spelling.
+package bc_argcomp_nested_call_admit;
+use logos.lang.slice;
+
+fn pick1(s: &[i64]) -> &i64 { return &s[0]; }
+
+fn main() -> i32 {
+    let arr: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    let o: &i64 = pick1(&arr[0..2]);
+    if *o == 1i64 { return 0i32; }
+    return 1i32;
+}

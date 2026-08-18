@@ -1,0 +1,14 @@
+// #70(a) MISS-2: a borrow composed by a TUPLE LITERAL in argument position.
+// `pick((&tmp, 1))` escaped the inner scope at rc 0 while the bare spelling
+// `held = (&tmp, 1)` refused — forms_borrow_at_call had no aggregate-literal
+// arm, so the Call arm's per-arg filter dropped the composition and no source
+// was deposited. The literal FORMS the borrow at the call site by
+// construction; it must refuse exactly like the bare spelling.
+package bc_argcomp_aggr_tuple_dangle;
+pub fn pick<T>(src: T) -> T { return src; }
+fn main() -> i32 {
+    let held: (&i64, i64);
+    { let tmp: i64 = 9i64; held = pick((&tmp, 1i64)); }
+    if *held.0 == 9i64 { return 0i32; }
+    return 1i32;
+}
