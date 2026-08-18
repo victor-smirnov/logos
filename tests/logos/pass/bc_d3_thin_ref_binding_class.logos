@@ -1,0 +1,110 @@
+// D3 (task #50) CLASS fixture — every spelling of "a THIN &/&mut/ptr-to-struct
+// reaches a method receiver through an intermediate slot" plus the admit
+// controls that must keep working. Two sibling sites were fixed:
+//   A. pattern binders (gen_match PatStruct bind_struct_field, pat_bind's
+//      Wild/Struct-shorthand scalar tails, slice-pattern elements) now
+//      register var_struct_ + var_local_ptrs_ (the plain-let mut-ref
+//      protocol) so the receiver resolver LOADS through the alloca(ptr) slot;
+//   B. gen_recv_struct_inner's IndexRead/TupleIndex arm loads ONE indirection
+//      when the CONTAINER's declared element type is itself Ref/MutRef/Ptr
+//      (gated on the element's declared type, NOT recv_ty — method auto-ref
+//      makes inline elements arrive as `&Big`, K3/N2).
+// Every A/B leg was RED before the fix (garbage exits); each leg runs in its
+// own fn and returns len() == 1. Controls (enum payload, let-pattern,
+// bind-out-first, pass-to-fn) pin against over-eager loading.
+package bc_d3_thin_ref_binding_class;
+use logos.mem.collections.vec;
+
+struct H  { r: &mut Vec<i64> }
+struct HI { r: &Vec<i64> }
+enum E { V(&mut Vec<i64>) }
+
+fn takes_ref(v: &Vec<i64>) -> i64 { return v.len() as i64; }
+
+// A1. struct pattern, rename, &mut field (the D3 repro shape)
+fn leg_a1(vs: &mut Vec<i64>) -> i64 {
+    let h: H = H { r: vs };
+    let mut n: i64 = 0i64;
+    match h { H { r: s } => { n = s.len() as i64; } }
+    return n;
+}
+// A2. struct pattern, SHORTHAND
+fn leg_a2(vs: &mut Vec<i64>) -> i64 {
+    let h: H = H { r: vs };
+    let mut n: i64 = 0i64;
+    match h { H { r } => { n = r.len() as i64; } }
+    return n;
+}
+// A3. SHARED `&` field — the class includes `&`, not just `&mut`
+fn leg_a3(vs: &Vec<i64>) -> i64 {
+    let h: HI = HI { r: vs };
+    let mut n: i64 = 0i64;
+    match h { HI { r: s } => { n = s.len() as i64; } }
+    return n;
+}
+// A4. match through a REF scrutinee `&h`
+fn leg_a4(vs: &mut Vec<i64>) -> i64 {
+    let h: H = H { r: vs };
+    let mut n: i64 = 0i64;
+    match &h { H { r: s } => { n = s.len() as i64; } }
+    return n;
+}
+// A5. TUPLE pattern element
+fn leg_a5(vs: &mut Vec<i64>) -> i64 {
+    let t: (&mut Vec<i64>, i64) = (vs, 7i64);
+    let mut n: i64 = 0i64;
+    match t { (s, _) => { n = s.len() as i64; } }
+    return n;
+}
+// A6. pattern-bound ref still passes as a FN ARG (admit control: the var_ref
+// load path must not double-load after the registration)
+fn leg_a6(vs: &mut Vec<i64>) -> i64 {
+    let h: H = H { r: vs };
+    let mut n: i64 = 0i64;
+    match h { H { r: s } => { n = takes_ref(s); } }
+    return n;
+}
+// A7. enum payload binding (admit control — bind_enum_payload was always
+// correct; pins that the class fix did not disturb it)
+fn leg_a7(vs: &mut Vec<i64>) -> i64 {
+    let e: E = E::V(vs);
+    let mut n: i64 = 0i64;
+    match e { E::V(s) => { n = s.len() as i64; } }
+    return n;
+}
+// A8. let-PATTERN destructuring (admit control: sema lowers it through
+// FieldRead, which always loaded — must stay green)
+fn leg_a8(vs: &mut Vec<i64>) -> i64 {
+    let h: H = H { r: vs };
+    let H { r: s } = h;
+    return s.len() as i64;
+}
+// B1. method call straight off a TUPLE INDEX holding &mut Vec — plus the
+// bind-out-first admit control in the same fn
+fn leg_b1(vs: &mut Vec<i64>) -> i64 {
+    let t: (&mut Vec<i64>, i64) = (vs, 7i64);
+    if (t.0.len() as i64) != 1i64 { return -1i64; }
+    let e: &mut Vec<i64> = t.0;
+    return e.len() as i64;
+}
+// B2. method call straight off an ARRAY INDEX holding &mut Vec
+fn leg_b2(vs: &mut Vec<i64>) -> i64 {
+    let arr: [&mut Vec<i64>; 1] = [vs];
+    return arr[0].len() as i64;
+}
+
+fn main() -> i32 {
+    let mut vs: Vec<i64> = Vec::new();
+    vs.push(5i64);
+    if leg_a1(&mut vs) != 1i64 { return 1; }
+    if leg_a2(&mut vs) != 1i64 { return 2; }
+    if leg_a3(&vs)     != 1i64 { return 3; }
+    if leg_a4(&mut vs) != 1i64 { return 4; }
+    if leg_a5(&mut vs) != 1i64 { return 5; }
+    if leg_a6(&mut vs) != 1i64 { return 6; }
+    if leg_a7(&mut vs) != 1i64 { return 7; }
+    if leg_a8(&mut vs) != 1i64 { return 8; }
+    if leg_b1(&mut vs) != 1i64 { return 9; }
+    if leg_b2(&mut vs) != 1i64 { return 10; }
+    return 0;
+}

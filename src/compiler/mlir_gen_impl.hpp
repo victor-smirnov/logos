@@ -1759,6 +1759,11 @@ private:
     // pre-create shared allocas for an or-pattern's bindings.
     void collect_pat_bindings(lir_view::PatRef pat, TypeRef ty,
                               std::vector<std::pair<std::string, TypeRef>>& out);
+    // D3 (task #50): after a pattern binding stored a THIN ref/ptr-to-struct
+    // value into its alloca(ptr) slot, register the plain-let mut-ref protocol
+    // (var_struct_ + var_local_ptrs_) so gen_recv_struct/get_struct_ptr LOAD
+    // through the slot instead of returning the slot address as the object.
+    void register_thin_ref_struct_binding(const std::string& name, TypeRef ty);
 
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);

@@ -1,0 +1,19 @@
+// D3 (task #50) miscompile repro: a struct pattern binding a `&mut Vec<i64>`
+// field in a by-value match, then a METHOD CALL through the binding. The
+// binder (gen_match PatStruct bind_struct_field / pat_bind's scalar tails)
+// stored the pointer into an alloca(ptr) slot but registered neither
+// var_struct_ nor var_local_ptrs_, so gen_recv_struct_inner's last-resort
+// VarRef branch returned the SLOT ADDRESS un-loaded and `s.len()` read the
+// slot + adjacent stack as a Vec header (garbage exit, was 96/176 by stack
+// luck). The fix registers the plain-let mut-ref protocol at the binder.
+package z3;
+use logos.mem.collections.vec;
+struct H { r: &mut Vec<i64> }
+fn main() -> i64 {
+    let mut vs: Vec<i64> = Vec::new();
+    vs.push(5i64);
+    let h: H = H { r: &mut vs };
+    let mut n: i64 = 0i64;
+    match h { H { r: s } => { n = s.len() as i64; } }
+    return n;
+}

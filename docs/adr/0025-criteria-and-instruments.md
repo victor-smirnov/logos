@@ -802,25 +802,26 @@ and who owns it; "unowned" is written as unowned rather than left implied.
 
 | task | subject | state |
 |---|---|---|
-| **#50** | **D3 miscompile** — a struct pattern binding a `&mut` aggregate field in a by-value match; a method call through the binding returns garbage | OPEN, not started |
-| **#51** | documented D1 residuals off the Deem↔Memoria coupling: the slice §B6 store-side pair (R1/R2), the r11 imported-NLL labeled-loop over-refusal, the P2 extra-diagnostics noise | OPEN, D1 closed OVER them by its own closure criterion |
+| **#50** | **D3 miscompile** — a struct pattern binding a `&mut` aggregate field in a by-value match; a method call through the binding returns garbage | **CLOSED 2026-08-18.** The class was "a place address still holding an un-loaded indirection returned as the object pointer", at TWO sites: (A) `pat_bind`/`gen_match` bound a THIN ref-to-struct pattern binding as a generic scalar — value correct, but neither `var_struct_` nor `var_local_ptrs_` registered, so `gen_recv_struct_inner`'s last-resort VarRef branch returned the alloca SLOT address un-loaded (fix: `register_thin_ref_struct_binding`, the plain-let mut-ref protocol, at 4 scalar tails); (B) the IndexRead/TupleIndex receiver arm returned the element slot one load short when the CONTAINER's declared element type is itself Ref/MutRef/Ptr (gated on the element's declared type, NOT recv_ty — method auto-ref K3/N2 preserved) — this also closed the recorded `t.0.v` fat-receiver successor, thin and fat, tuple and array. Proven by control revert (stash → 10 reds with recorded exits → unstash → green) + clean-binary differential at the verify. Fixtures: `pass/bc_d3_struct_pat_fat_mut_recv`, `pass/bc_d3_thin_ref_binding_class` (10 legs), `pass/zone_mut_tupleidx_fat_recv`; `pass/zone_mut_thin_source_admits_aggregate`'s commented non-assertion became a real assertion. REFUSED with measured grounds: FatDyn-in-tuple-literal (construction-site coercion defect, loud SIGSEGV, repro `sandbox/d3diag/p15_tupleidx_fatdyn.logos`), FatSlice-field × pattern (loud compile error), FatZoneMut struct FIELD (loud layout-engines-disagree abort) — three separate pre-existing LOUD defects blocking their cells before pattern code runs |
+| **#51** | documented D1 residuals off the Deem↔Memoria coupling: the slice §B6 store-side pair (R1/R2), the r11 imported-NLL labeled-loop over-refusal, the P2 extra-diagnostics noise | **CLOSED 2026-08-18, all three.** (R1/R2) `&arr[0..1]` lowers to `Call(slice_get_range, [SliceLit{AddrOfTemp(arr)}, …])`; the call-arm arg filters in `collect_ref_sources_paths` rejected the fat SliceLit arg, so the slice binding deposited zero sources — hunt 14's SliceIndex arm fired into a dry store. Fixed by `forms_borrow_at_call` (SliceLit/AddrOf/AddrOfTemp through transparent Cast — the tv_build by-value-COPY exemption intact) + the SliceLit and SliceIndex arms; R2's "never lowers to SliceLit" was the arg filter, not unreachability — no hedge arm. Pairs: `fail/bc_d1res_r{1,2}_slice{index,form}_dangle` + admits. Known residual documented in-code: a NESTED borrow-forming call in arg position still admits. (P2) `check_recv_conflict`'s `mut_borrowed` branch double-reported what `check_live` re-reports; report deleted, branch kept. Full 1369-fixture fail sweep: exactly 3 counts moved (3→2, 3→2, 2→1), none to 0. (r11) Break/Continue snapshotted `states_` verbatim, so a loop-body-LOCAL holder's loan crossed the exit/back-edge merges immortal; `loop_exit_snapshot` applies `pop_scope`'s exact release arithmetic over loop-local frames (strictly permissive). `imported/pass/nll/label-borrow-in-labeled` green; all 7 `fail/bc_d1r11*` still red, adversarial outer-holder probe still refuses |
 | — | `static mut` + a family deem + a native-source deem in ONE module ⇒ `logosc-metaprog: jit add_module: Duplicate definition of symbol`. Recorded at `pass/deem_order_desc_elision`; met again by `pass/deem_pipeline_handle_seam`, which works around it with a `*mut i64` counter | OPEN, metaprog/JIT, unowned |
 
-⚠ **NEITHER #50 NOR #51 IS DERIVABLE FROM THIS TREE — the entry-ticket test,
-failed by this file's own §4** (closing audit §6, C3). This document opens with
-"Nothing here is inherited from a commit message", and both rows are inherited
-from the TASK TRACKER, which is not a tree source either. Measured: repo-wide,
-`imported-NLL`, `store-side pair` and `extra-diagnostics` occur ONLY in the #51
-row itself; the census's own P2 is "the out-param deposit chased through the
-reborrow edge" (unrelated to diagnostics noise) and its r11 entries are the
-X0/X1/X2 loop-exit collector fixtures, none an imported over-refusal. #50's D3
-miscompile has no repro, no fixture and no bug doc anywhere in the tree — only
-that row. So "each still exactly as documented, no wider" is UNANSWERABLE here
-for both. **Owed before either is worked: a tree-resident statement — a
-`tests/logos/fail/` or `pass/` repro for D3, and for #51 the three subjects
-named at their sites — or the rows must say out loud that their content lives
-outside the tree.** They are recorded, not struck: the tasks are real; it is the
-CLAIM of tree-derivability that is false.
+~~⚠ NEITHER #50 NOR #51 IS DERIVABLE FROM THIS TREE~~ — **the owed
+tree-resident statements now exist as the fixtures named in the rows above**
+(2026-08-18): the D3 repro is `pass/bc_d3_struct_pat_fat_mut_recv`, the three
+#51 subjects are named at their fix sites in `borrow_check.cpp` and pinned by
+the `bc_d1res_*` pairs, the P2 dedupe, and the now-green imported NLL test.
+The paragraph is kept struck-through because its METHOD point stands: both rows
+were inherited from the task tracker and were un-answerable from the tree until
+this closure — the content had to be recovered from the session transcript, the
+exact failure mode the entry-ticket test exists to catch.
+
+Found by #51's adversarial verify, NOT caused by it (differential against the
+clean 28fc7c75 binary is identical): `imported/pass/for-loop-while/`
+`loop-no-reinit-needed-post-bot-b145` is a PRE-EXISTING red on main — `use of
+moved value 'g'` on a continue-with-reinit-after-move + diverging-call shape.
+MOVE/INIT dataflow at the back edge, not borrow counters (`loop_exit_snapshot`
+does not touch moved state); imported, so outside every gate. Own queue entry.
 
 ### 4d. Instrument-side, found while landing this ticket
 

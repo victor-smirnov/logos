@@ -1031,8 +1031,59 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(lir_view:
             st = TypeRef(st).pointee();
         if (st && (TypeRef(st).kind() == LogosType::Kind::Struct ||
                    TypeRef(st).kind() == LogosType::Kind::ZonedStruct)) {
-            if (auto addr = gen_lvalue_addr(recv_ref))
+            if (auto addr = gen_lvalue_addr(recv_ref)) {
+                // D3-sibling (bug-tuple-index-fat-recv-read, task #50): when
+                // the CONTAINER's declared element type is itself Ref/MutRef/
+                // Ptr, the element slot holds an INDIRECTION, not the object —
+                // gen_lvalue_addr returns the SLOT address, one load short
+                // (`t.0.len()` read the tuple slot as a Vec header; a
+                // FatZoneMut element stores a ptr-to-pair, so the one load
+                // yields the pair address and gen_recv_struct's repr_data
+                // peel completes it). Gate on the container's DECLARED
+                // element type, NOT recv_ty: method auto-ref makes inline
+                // elements arrive typed `&Big` (a load there would regress
+                // the K3/N2 inline-element case this arm exists for).
+                TypeRef elem_decl;
+                lir_view::ExprRef cont_ref;
+                if (recv_kind == ec::Code::TupleIndex) {
+                    lir_view::ETupleIndexView tv{recv_ref};
+                    cont_ref = tv.receiver();
+                    if (cont_ref) {
+                        TypeRef ct = cont_ref.type(pool_impl());
+                        while (ct && (ct.kind() == LogosType::Kind::Ref ||
+                                      ct.kind() == LogosType::Kind::MutRef ||
+                                      ct.kind() == LogosType::Kind::Ptr) &&
+                               ct.pointee())
+                            ct = ct.pointee();
+                        if (ct && ct.kind() == LogosType::Kind::Tuple) {
+                            auto es = ct.tuple_elems();
+                            auto idx = lir_view::ETupleIndexView{recv_ref}.index();
+                            if (idx < es.size()) elem_decl = es[idx];
+                        }
+                    }
+                } else {
+                    lir_view::EIndexReadView irv{recv_ref};
+                    cont_ref = irv.receiver();
+                    if (cont_ref) {
+                        TypeRef ct = cont_ref.type(pool_impl());
+                        while (ct && (ct.kind() == LogosType::Kind::Ref ||
+                                      ct.kind() == LogosType::Kind::MutRef ||
+                                      ct.kind() == LogosType::Kind::Ptr) &&
+                               ct.pointee())
+                            ct = ct.pointee();
+                        if (ct && (ct.kind() == LogosType::Kind::Array ||
+                                   ct.kind() == LogosType::Kind::Slice))
+                            elem_decl = ct.elem();
+                    }
+                }
+                if (elem_decl &&
+                    (elem_decl.kind() == LogosType::Kind::Ref ||
+                     elem_decl.kind() == LogosType::Kind::MutRef ||
+                     elem_decl.kind() == LogosType::Kind::Ptr))
+                    addr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
+                                                               addr);
                 return {addr, mlir_struct_key(st)};
+            }
         }
     }
     // General case: evaluate expression, derive type name from LExpr.type

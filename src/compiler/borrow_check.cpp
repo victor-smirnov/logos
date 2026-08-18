@@ -1668,6 +1668,12 @@ private:
         // the loop is used as an expression). `break v` deposits into it, and
         // that deposit is a REBORROW record — see the Break arm in visit_stmt.
         std::string           break_slot;
+        // D1 residuals / r11 (task #51): # of scope frames that SURVIVE this
+        // loop (set to scopes_.size() before the body's push_scope). The
+        // break/continue snapshots must carry the state that flows PAST the
+        // exit — i.e. after the loop's own scopes unwind — so loop-local loans
+        // are release-simulated against this baseline (loop_exit_snapshot).
+        size_t                outer_scope_count = 0;
     };
     std::vector<LoopFrame> loop_stack_;
     // Set during the loop dataflow's dry-run pass (pass 1), which recomputes the
@@ -1687,6 +1693,73 @@ private:
         src.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
             if (st.moved && base.has_id(slot, name)) dst.at_id(slot, name) = st;
         });
+    }
+
+    // ── D1 residuals / r11 (task #51): the break/continue snapshot must be ──
+    // the state AFTER the loop's scopes unwind. `Code::Break` snapshotted
+    // `states_` VERBATIM, so a loan whose holder is loop-body-LOCAL (`while …
+    // { let r = &mut x; if p { break; } }`) crossed the loop-exit merge with
+    // its counter raised — while pop_scope had already destroyed the only
+    // BorrowRecord that could ever release it. merge_loans copies raw counters
+    // with no holder identity, so the loan became immortal: `let s = &x` after
+    // the loop was refused (imported pass/nll/label-borrow-in-labeled*, red
+    // since r11; same defect at the back edge re-refused iteration 2's
+    // re-borrow). Rust semantics: a `break`/`continue` drops the body's
+    // locals before the edge is taken.
+    //
+    // This is pop_scope's OWN release arithmetic and its OWN `escapes` test
+    // (Door B re-home), applied to a COPY of states_ over every loop-local
+    // frame at once, with "outer" = names declared in the frames that survive
+    // the loop ([0, outer_scope_count)) plus pending_esc_holder_. A loan whose
+    // holder (or any co_holder) is OUTER keeps its counter — exactly the r11
+    // fail witnesses (`bc_d1r11_x0_*`, holder `vs` declared before the loop) —
+    // so the J0 loop-exit/back-edge merges those witnesses need are unchanged.
+    // State-only, no reports: runs identically in BOTH passes (unlike the
+    // re-home, which is gated on !suppress_reports_ for reporting reasons).
+    // Live `states_` and all in-body checking are untouched.
+    StateMap loop_exit_snapshot(size_t outer_scope_count) const {
+        StateMap snap = states_;
+        if (scopes_.size() <= outer_scope_count) return snap;
+        std::unordered_set<std::string> outer;
+        for (size_t fi = 0; fi < outer_scope_count; ++fi)
+            outer.insert(scopes_[fi].declared.begin(),
+                         scopes_[fi].declared.end());
+        if (!pending_esc_holder_.empty()) outer.insert(pending_esc_holder_);
+        auto escapes = [&](const auto& rec) {
+            if (rec.holder.empty()) return false;   // lexical: dies at pop
+            if (outer.count(rec.holder)) return true;
+            for (auto& h : rec.co_holders)
+                if (outer.count(h)) return true;
+            return false;
+        };
+        for (size_t fi = outer_scope_count; fi < scopes_.size(); ++fi) {
+            auto& frame = scopes_[fi];
+            for (auto& br : frame.borrows) {
+                if (escapes(br)) continue;
+                auto* it = snap.find(br.target_slot, br.target);
+                if (it == nullptr) continue;
+                if (br.is_mut) {
+                    // B82: same order as pop_scope — activated first,
+                    // then an outstanding reservation.
+                    if (it->mut_borrowed) it->mut_borrowed = false;
+                    else if (it->mut_reservations > 0) it->mut_reservations--;
+                } else if (it->shared_borrows > 0)
+                    --it->shared_borrows;
+            }
+            for (auto& fb : frame.field_borrows) {
+                if (escapes(fb)) continue;
+                auto* it = snap.find(fb.target_slot, fb.target);
+                if (it == nullptr) continue;
+                if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
+                else {
+                    auto sit = it->shared_field_borrows.find(fb.path);
+                    if (sit != it->shared_field_borrows.end() &&
+                        --sit->second <= 0)
+                        it->shared_field_borrows.erase(sit);
+                }
+            }
+        }
+        return snap;
     }
 
     void report(uint32_t line, std::string msg) {
@@ -2063,6 +2136,30 @@ private:
         auto sub = [&](const std::string& p) {
             return path.empty() ? p : path + "." + p;
         };
+        // ── D1 residuals / R1 store side: DOES THIS ARG NODE FORM THE BORROW
+        // AT THE CALL SITE? The per-arg filters below deliberately exclude fat
+        // forms via `is_plain_ref_kind` (a by-value slice COPY — `tv_build(h,
+        // name.as_str(), …)` — must not tie), but that exclusion also dropped
+        // the arg that CREATES the slice right here: `&arr[0..1]` lowers to
+        // `Call(slice_get_range, [SliceLit{AddrOfTemp(arr)}, lo, hi])`, and the
+        // SliceLit arg was filtered out by its TYPE before its NODE could
+        // speak. A borrow formed at the call site is a borrow of a local by
+        // construction — no copy ambiguity exists — so admit it by node kind:
+        // SliceLit, AddrOf, AddrOfTemp, through transparent Casts. A by-value
+        // fat COPY arrives as VarRef/MethodCall/FieldRead and stays excluded.
+        //
+        // ⚠ KNOWN RESIDUAL, measured: a NESTED borrow-forming call in arg
+        // position (`pick1(&arr[0..1])` — the arg is the slice_get_range Call
+        // node itself, fat-typed) is still excluded and still admits its
+        // dangle. Admitting fat-typed Call/MethodCall nodes here is exactly
+        // the tv_build/`as_str()` regression shape, so that widening needs its
+        // own probe pair and its own control, not a rider on this one.
+        auto forms_borrow_at_call = [](lir_view::ExprRef a) {
+            while (a && a.kind() == EC::Cast)
+                a = lir_view::ECastView{a}.operand();
+            return a && (a.kind() == EC::SliceLit || a.kind() == EC::AddrOf ||
+                         a.kind() == EC::AddrOfTemp);
+        };
         switch (e.kind()) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
@@ -2156,7 +2253,8 @@ private:
                         // "result is ref/bc" gate above, so a consuming call
                         // returning a scalar still ties nothing.
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
-                                  is_borrow_carrying_type(a.type(pool))))
+                                  is_borrow_carrying_type(a.type(pool)) ||
+                                  forms_borrow_at_call(a)))
                             collect_ref_sources_paths(a, path, out);
                     });
                 }
@@ -2222,39 +2320,40 @@ private:
                     collect_ref_sources_paths(
                         lir_view::EIndexReadView{e}.receiver(), path, out);
                 return;
-            // ── D1 round 14 RESIDUALS: THE TWO SLICE SPELLINGS, OPEN ────────
+            // ── D1 RESIDUALS R1/R2 (task #51): THE TWO SLICE SPELLINGS ──────
             //
-            // The regenerated coverage table's last two column-B holes are
-            // SliceIndex and SliceLit, and BOTH are confirmed leaks with clean
-            // one-variable array twins:
+            // Round 14 measured both arms and REVERTED them because neither
+            // moved a verdict; the measurement pointed one step UPSTREAM, and
+            // that is where the fix landed. `&arr[0..1]` lowers to a plain
+            // `Call(slice_get_range<T>, [SliceLit{AddrOfTemp(arr)}, lo, hi])`
+            // (sema's RANGE_EXPR index lowering; the outer `&` is transparent
+            // for a slice-typed inner). The Call arm's ENTRY gate passed but
+            // its per-arg TYPE filter rejected the fat SliceLit arg, so the
+            // binding's `let` deposited nothing — the dry input hunt 14 saw.
+            // `forms_borrow_at_call` (above) is the store-side fix; these two
+            // arms are the read side, now with a wet input:
             //
-            //   R1 `let sl: &[&i64] = &arr[0..1]; o = sl[0];`   admits rc=0
-            //      twin `o = arr[0];` (the IndexRead arm above) refuses rc=1
-            //   R2 `o = &arr[0..2];`                            admits rc=0
-            //      twin `o = &arr;`                             refuses rc=1
-            //
-            // THE ARMS ARE DELIBERATELY NOT WRITTEN HERE, and a measurement is
-            // why. Both were implemented, built and instrumented:
-            //   * a `SliceLit` arm fired ZERO times on R2 — `&arr[0..2]` does
-            //     not lower to `Code::SliceLit` on this path at all, so the
-            //     arm was a hedge against a node the front end never hands us.
-            //   * a `SliceIndex` arm DID fire (once, gate `may=1`) on R1 and
-            //     still moved no verdict: it recurses to the slice binding
-            //     `sl`, whose own sources were never recorded at its `let` —
-            //     the input is dry one step UPSTREAM.
-            // So the defect is not a missing arm in this switch; it is that a
-            // slice-forming expression records no source for the binding it is
-            // stored into. Adding either arm would put a green-looking rule
-            // over a branch that changes nothing — exactly the "widening with
-            // no consumer" this file refuses elsewhere. Fixing it needs the
-            // STORE side (what `&arr[a..b]` lowers to, and `is_reborrow_store_
-            // value`'s answer for a slice), which is its own rule and its own
-            // probe pair.
-            //
-            // ⚠ UNPINNED BY CONSTRUCTION: there is no fixture for R1/R2,
-            // because a fixture asserting rc=1 would red today. They are
-            // recorded here so the next round starts from the measurement and
-            // not from the shape guess.
+            //   * SliceLit: the coercion node `try_coerce_array_ref_to_slice`
+            //     builds for `&arr` decay and for range-index receivers. Its
+            //     base is `AddrOfTemp(arr)` — the arm above roots it. Round
+            //     14's "fired ZERO times" was not unreachability of the node:
+            //     the node sat in an ARGUMENT position the arg filter never
+            //     recursed into. Pinned: fail/bc_d1res_r2_sliceform_dangle.
+            //   * SliceIndex: `sl[0]` on a `&[&i64]` — same question as the
+            //     IndexRead arm above, same `type_may_carry_borrow` gate
+            //     (reading a scalar OUT of a slice copies a value, not a
+            //     borrow). Recurses to the slice operand (VarRef `sl`, whose
+            //     `ref_sources_under` now answers `arr` → `x`). Pinned:
+            //     fail/bc_d1res_r1_sliceindex_dangle + its admit twin.
+            case EC::SliceLit:
+                collect_ref_sources_paths(
+                    lir_view::ESliceLitView{e}.base(), path, out);
+                return;
+            case EC::SliceIndex:
+                if (type_may_carry_borrow(e.type(pool)))
+                    collect_ref_sources_paths(
+                        lir_view::ESliceIndexView{e}.slice(), path, out);
+                return;
 
             case EC::IfExpr: {
                 lir_view::EIfExprView v{e};
@@ -2396,7 +2495,8 @@ private:
                 if (e.kind() == EC::FnPtrCall)
                     lir_view::EFnPtrCallView{e}.each_arg([&](lir_view::ExprRef a) {
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
-                                  is_borrow_carrying_type(a.type(pool))))
+                                  is_borrow_carrying_type(a.type(pool)) ||
+                                  forms_borrow_at_call(a)))
                             collect_ref_sources_paths(a, path, out);
                     });
                 return;
@@ -2425,7 +2525,8 @@ private:
                     v.each_arg([&](lir_view::ExprRef a) {
                         // D1: by-value borrow-carrying args too (`id(c.mk())`).
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
-                                  is_borrow_carrying_type(a.type(pool))))
+                                  is_borrow_carrying_type(a.type(pool)) ||
+                                  forms_borrow_at_call(a)))
                             collect_ref_sources_paths(a, path, out);
                     });
                 return;
@@ -3695,11 +3796,22 @@ private:
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
         auto sit = var_find(bp.root_slot, bp.root);
         if (sit == nullptr) return;
-        if (sit->mut_borrowed)
-            report(line, std::format(
-                "cannot borrow '{}': '{}' is already mutably borrowed",
-                bp.root, bp.root));
-        else if (is_mut && sit->shared_borrows > 0)
+        if (sit->mut_borrowed) {
+            // D1 residuals / P2 (task #51): DO NOT report here. Both callers
+            // (the MethodCall bare-place-receiver check and the SD-DST Call
+            // arg0 site) go on to VISIT the same operand, where the identical
+            // mut_borrowed fact is refused by check_live's "cannot use '{}'
+            // while it is mutably borrowed" (or the AddrOfTemp arm's own
+            // report) — so this line was a guaranteed duplicate: every method
+            // call on a mut-borrowed receiver emitted BOTH spellings
+            // (bc_d1r9_f0_retarget_held pinned the check_live one and counted
+            // 2 error lines; the P2/P3 fixtures counted 3). Verdict unchanged:
+            // rc stays 1 through check_live. The branch is kept (empty) so a
+            // mut-borrowed receiver cannot fall into the field-borrow arms
+            // below and mint a different spelling. Measured over the full
+            // 710-fixture fail corpus: no fixture's error count rose or
+            // reached zero after this deletion.
+        } else if (is_mut && sit->shared_borrows > 0)
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' has shared borrows",
                 bp.root, bp.root));
@@ -6004,6 +6116,7 @@ private:
         //    that reaches the loop's back edge so pass 2 can seed iteration 2+
         //    correctly. Reporting here would duplicate every in-body error.
         loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
+        loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
         bool saved_sup = suppress_reports_;
         suppress_reports_ = true;
         push_scope();
@@ -6091,6 +6204,7 @@ private:
         ref_borrow_line_    = pre_rbl;
         dangling_           = pre_dang;
         loop_stack_.push_back(LoopFrame{std::string(label), {}, {}, std::string(break_slot)});
+        loop_stack_.back().outer_scope_count = scopes_.size();   // r11: frames that survive the loop
         cur_diverged_ = false;
         push_scope();
         for (auto& v : loop_vars) declare_var(v);
@@ -7720,7 +7834,10 @@ private:
             case Code::Break: {
                 SBreakView bv{sr};
                 if (auto* lf = loop_target(bv.label())) {
-                    lf->break_states.push_back(states_);
+                    // r11: the state past a `break` is the state after the
+                    // loop's scopes unwind — see loop_exit_snapshot.
+                    lf->break_states.push_back(
+                        loop_exit_snapshot(lf->outer_scope_count));
                     if (!lf->break_slot.empty() && bv.value())
                         for (auto& src : ref_sources_of(bv.value()))
                             reborrow_of_.add(lf->break_slot, src);
@@ -7729,8 +7846,11 @@ private:
                 break;
             }
             case Code::Continue:
+                // r11: same unwind rule at the back edge — a loop-local loan
+                // must not re-enter iteration 2 (see loop_exit_snapshot).
                 if (auto* lf = loop_target(SContinueView{sr}.label()))
-                    lf->continue_states.push_back(states_);
+                    lf->continue_states.push_back(
+                        loop_exit_snapshot(lf->outer_scope_count));
                 cur_diverged_ = true;
                 break;
             default:

@@ -1,0 +1,24 @@
+// bug-tuple-index-fat-recv-read (D3-sibling, task #50): `t.0.v` through a
+// tuple-held FAT `&mut` (#[zone_mut], {data, zone} pair) read garbage — the
+// gen_recv_struct_inner IndexRead/TupleIndex arm returned the element SLOT
+// address (which holds a ptr-to-pair) with no load, one indirection short in
+// both thin and fat (pre-fix exit 13 at the t.0.v check). The fix loads once
+// when the CONTAINER's declared element type is itself Ref/MutRef/Ptr; the
+// wrapper's FatZoneMut repr_data peel then completes the fat case. The three
+// leading checks are the admit controls: direct fat read, bind-out-first,
+// zone_of survival.
+package t2;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let fat: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    if fat.v != 42i64 { return 10; }          // direct: works
+    let t: (&mut Box2, i64) = (fat, 1i64);
+    let e: &mut Box2 = t.0;                   // bind out of the tuple first
+    if e.v != 42i64 { return 11; }
+    if (zone_of(e) as i64) != 12345i64 { return 12; }
+    if t.0.v != 42i64 { return 13; }          // field read straight off t.0
+    return 0;
+}

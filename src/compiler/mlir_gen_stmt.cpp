@@ -3777,6 +3777,38 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
     }
 }
 
+// D3 (task #50): a pattern binding whose type is a THIN reference/pointer to a
+// struct used to be bound as a GENERIC SCALAR — the pointer value was loaded
+// and stored into a fresh alloca (correct), but neither var_struct_ nor
+// var_local_ptrs_ was recorded. gen_recv_struct_inner's last-resort VarRef
+// branch then returned the ALLOCA SLOT ADDRESS un-loaded (the load is gated on
+// var_local_ptrs_), so a method call through the binding read the slot +
+// adjacent stack as the object (silent garbage; `match h { H { r: s } =>
+// s.len() }`). Register byte-for-byte the plain-let mut-ref protocol (see the
+// "`let mut r = &s1; …` needs its own alloca(ptr) slot" branch of let
+// lowering): var_struct_ keys the fast path, var_local_ptrs_ makes
+// get_struct_ptr load through the slot. THIN only: a FAT binding's slot holds
+// the pair inline, a different convention (the FatZoneMut-field cell is
+// currently blocked upstream by the p09 struct-field layout abort).
+void MLIRGenImpl::register_thin_ref_struct_binding(const std::string& name,
+                                                   TypeRef ty) {
+    TypeRef rt(ty);
+    if (!rt) return;
+    auto k = rt.kind();
+    if (k != LogosType::Kind::Ref && k != LogosType::Kind::MutRef &&
+        k != LogosType::Kind::Ptr)
+        return;
+    TypeRef pt = rt.pointee();
+    if (!pt || (pt.kind() != LogosType::Kind::Struct &&
+                pt.kind() != LogosType::Kind::ZonedStruct))
+        return;
+    if (ref_repr_of(rt) != RefReprKind::ThinPtr) return;
+    var_struct_[name] = mlir_struct_key(pt);
+    auto cname = concrete_struct_name(pt);
+    if (auto sit = struct_types_.find(cname); sit != struct_types_.end())
+        var_local_ptrs_[name] = sit->second.llvm_type;
+}
+
 void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                            const std::unordered_map<std::string, mlir::Value>* shared) {
     namespace pc = lir_schema::pat;
@@ -3833,6 +3865,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         scope_[name] = target;
         let_vars_.insert(name);
         var_elem_types_[name] = elem_mlir;
+        register_thin_ref_struct_binding(name, ty);  // D3 (task #50)
         break;
     }
     case pc::Code::Tuple: {
@@ -3986,6 +4019,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
                     scope_[fname] = target; let_vars_.insert(fname);
                     var_elem_types_[fname] = fmlir;
+                    register_thin_ref_struct_binding(fname, fty);  // D3 (task #50)
                 }
                 return;
             }
@@ -4299,6 +4333,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     scope_[bind_name] = alloca;
                     let_vars_.insert(bind_name);
                     var_elem_types_[bind_name] = fmlir;
+                    register_thin_ref_struct_binding(bind_name, fty);  // D3 (task #50)
                 };
                 auto sub = pfb.sub();
                 if (!sub) {
@@ -4379,6 +4414,10 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             scope_[pwn] = alloca;
                             let_vars_.insert(pwn);
                             var_elem_types_[pwn] = elem_mlir;
+                            // D3 (task #50): a `[&mut S, ..]` slice-pattern
+                            // element is the same thin-ref-to-struct class.
+                            register_thin_ref_struct_binding(
+                                pwn, TypeRef(atype).elem());
                         } else if (sp.kind() == pc::Code::RefBind) {
                             // C4: ref x in slice pattern — bind name to pointer-to-element.
                             std::string prbn(lir_view::PatRefBindView{sp}.name());

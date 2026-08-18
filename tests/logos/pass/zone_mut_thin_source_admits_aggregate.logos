@@ -33,13 +33,11 @@ unsafe fn main() -> i32 {
     if e.v != 42i64 { return 1; }
     if (zone_of(e) as i64) != 12345i64 { return 2; }
     if takes_fat(t.0) != 42i64 { return 3; }
-    // ⚠ `t.0.v` — a FIELD READ spelled straight off the tuple element — reads
-    // GARBAGE here and is deliberately NOT asserted: that is a separate,
-    // PRE-EXISTING defect in the receiver path (gen_recv_struct peels the
-    // {data, zone} pair for a VarRef receiver but not for a TupleIndex one),
-    // unrelated to the thin-source rule this file is the admit side of. Binding
-    // the element out first (`let e = t.0;`) and passing it as an argument both
-    // work, which is what pins the zone actually surviving the tuple.
+    // `t.0.v` — a FIELD READ spelled straight off the tuple element. Was a
+    // known defect (the gen_recv_struct_inner TupleIndex arm returned the
+    // element slot with no load); fixed with D3 (task #50, see
+    // zone_mut_tupleidx_fat_recv.logos), so it is now ASSERTED.
+    if t.0.v != 42i64 { return 9; }
 
     // 2. the same, minted and returned inside a tuple from another fn
     let t2: (&mut Box2, i64) = mk_fat(p, 999i64 as *mut u8);

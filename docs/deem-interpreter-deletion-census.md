@@ -3085,9 +3085,29 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7271
-REGISTRY-NOIMPORTED  3588
+REGISTRY-ALL         7278
+REGISTRY-NOIMPORTED  3595
 REGISTRY-TIERCOMMIT  36
+# 2026-08-18, +4/+4/0 (7274/3591/36 -> 7278/3595/36), predicted before the
+# reglob: the D1-residuals slice §B6 pair (task #51, R1/R2 — the store side
+# records sources for slice-forming call args via forms_borrow_at_call, plus
+# the SliceLit/SliceIndex read arms in collect_ref_sources_paths):
+#   tests/logos/fail/bc_d1res_r1_sliceindex_dangle.logos  (o = sl[0] escaping
+#     the slice's array's scope refuses E0597 like the array twin)
+#   tests/logos/pass/bc_d1res_r1_sliceindex_admit.logos   (fn-scope twin, exit 7)
+#   tests/logos/fail/bc_d1res_r2_sliceform_dangle.logos   (o = &arr[0..2] in an
+#     inner scope refuses E0597 — the slice-forming spelling itself)
+#   tests/logos/pass/bc_d1res_r2_sliceform_admit.logos    (fn-scope twin, exit 1)
+# 2026-08-18, +3/+3/0 (7271/3588/36 -> 7274/3591/36), predicted before the
+# reconfigure: the D3 miscompile fix (task #50, thin-ref-to-struct pattern
+# bindings + tuple/array-index fat receivers) lands with
+#   tests/logos/pass/bc_d3_struct_pat_fat_mut_recv.logos   (the z3 repro, exit 1)
+#   tests/logos/pass/bc_d3_thin_ref_binding_class.logos    (10-leg class matrix)
+#   tests/logos/pass/zone_mut_tupleidx_fat_recv.logos      (t.0.v through a
+#     tuple-held fat &mut — the receiver-path defect the aggregate admit
+#     fixture used to carry as a commented NON-assertion; that comment is now a
+#     real `if t.0.v != 42i64 { return 9; }` in
+#     tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos)
 
 # §3 table arithmetic. UNCHANGED BY THE CUT, and deliberately so: the class
 # column records how each row was PRICED before the deletion, so the loss ledger

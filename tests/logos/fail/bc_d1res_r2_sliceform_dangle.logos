@@ -1,0 +1,14 @@
+// D1 residuals / R2 (task #51) — the slice-FORMING spelling, refuse half.
+// `o = &arr[0..2]` is not a root SliceLit: it is the slice_get_range Call
+// whose receiver arg is the SliceLit coercion node (try_coerce_array_ref_to_
+// slice). The SliceLit arm roots its AddrOfTemp base at `arr`, so the slice
+// escaping `arr`'s scope is refused like the whole-array borrow twin.
+package bc_d1res_r2_sliceform_dangle;
+fn main() -> i64 {
+    let o: &[i64];
+    {
+        let arr: [i64; 3] = [1i64, 2i64, 3i64];
+        o = &arr[0..2];
+    }
+    return o[0];
+}

@@ -1,0 +1,17 @@
+// D1 residuals / R1 (task #51) — the SliceIndex §B6 hole, refuse half.
+// `&arr[0..1]` lowers to Call(slice_get_range, [SliceLit{AddrOfTemp(arr)},…]);
+// the Call arm's per-arg TYPE filter rejected the fat SliceLit arg, so `sl`'s
+// let deposited no sources and `o = sl[0]` tied to nothing while the array
+// twin `o = arr[0]` (IndexRead arm) refused. Fixed by forms_borrow_at_call
+// (store side) + the SliceIndex read arm in collect_ref_sources_paths.
+package bc_d1res_r1_sliceindex_dangle;
+fn main() -> i64 {
+    let o: &i64;
+    {
+        let x: i64 = 7i64;
+        let arr: [&i64; 2] = [&x, &x];
+        let sl: &[&i64] = &arr[0..1];
+        o = sl[0];
+    }
+    return *o;
+}

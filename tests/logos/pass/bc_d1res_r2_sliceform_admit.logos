@@ -1,0 +1,8 @@
+// D1 residuals / R2 (task #51) — admit half of the slice-forming pair: the
+// same range slice with the array at fn scope must stay admitted.
+package bc_d1res_r2_sliceform_admit;
+fn main() -> i64 {
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let o: &[i64] = &arr[0..2];
+    return o[0];
+}

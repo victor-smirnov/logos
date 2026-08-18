@@ -1,0 +1,10 @@
+// D1 residuals / R1 (task #51) — admit half of the SliceIndex pair: the same
+// slice-index read with every referent at fn scope must stay admitted.
+package bc_d1res_r1_sliceindex_admit;
+fn main() -> i64 {
+    let x: i64 = 7i64;
+    let arr: [&i64; 2] = [&x, &x];
+    let sl: &[&i64] = &arr[0..1];
+    let o: &i64 = sl[0];
+    return *o;
+}
