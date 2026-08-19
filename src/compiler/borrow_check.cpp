@@ -1632,7 +1632,12 @@ private:
     // Phase 9 (NLL): max line at which each local variable is read.
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
-    std::unordered_map<std::string, uint32_t> last_use_line_;
+    // #75: the value is no longer a LINE but a PROGRAM POINT — the pair
+    // (line, per-line statement ordinal) packed lexicographically into a
+    // uint64 by `stmt_point`. Statements on DISTINCT lines keep ordinal 0 and
+    // compare exactly as their lines did (bit-identical); statements SHARING a
+    // physical line are what the ordinal separates, which is the whole hole.
+    std::unordered_map<std::string, uint64_t> last_use_line_;
     // F5 (identity, not key): the same three facts split by what the use site
     // could tell us about WHICH binding was used.
     //   last_use_slot_      — uses through a VarRef, which carries the dense
@@ -1643,15 +1648,64 @@ private:
     //                         tell them apart, so we stay conservative.
     //   last_use_line_      — max over both. Used when the HOLDER itself has
     //                         no slot, i.e. the pre-F5 behaviour, unchanged.
-    std::unordered_map<uint32_t,    uint32_t> last_use_slot_;
-    std::unordered_map<std::string, uint32_t> last_use_unslotted_;
+    std::unordered_map<uint32_t,    uint64_t> last_use_slot_;
+    std::unordered_map<std::string, uint64_t> last_use_unslotted_;
     // Slot of the CURRENTLY-live binding of each name, so a loan can capture
     // its holder's identity at record time (declare_var runs AFTER the RHS is
     // walked, so the `let` arm pre-seeds this).
     std::unordered_map<std::string, uint32_t> cur_slot_of_;
     // Max statement line visited so far — the NLL release point after a
     // COMPOUND statement (its uses extend past its start line).
-    uint32_t max_line_seen_ = 0;
+    uint64_t max_line_seen_ = 0;   // #75: a PROGRAM POINT, see stmt_point
+
+    // ── #75: (line, ordinal) program points ────────────────────────────────
+    //
+    // THE DEFECT this closes: liveness was keyed on the SOURCE LINE, and
+    // release_dead_borrows released on `lu <= cur_line`, so two statements on
+    // ONE physical line released the first one's loans before the second one's
+    // conflicting use — every metaprog emitter that pushes a module as a
+    // single-line string was thereby exempt from ALL exclusivity checking.
+    //
+    // The key becomes lexicographic (line, ordinal). The ordinal is assigned
+    // LAZILY and MEMOISED BY STATEMENT ADDRESS (RefBase::addr() is the stable
+    // node identity — segments never move), so every consumer of a given
+    // statement's point gets the SAME value BY CONSTRUCTION: the two
+    // scan_uses_block pre-passes (run_fn calls it twice for the G0 alias set)
+    // and the checker walk share this one memo. No traversal-order agreement
+    // has to be argued — there is only one assignment, and it is the first
+    // query's.
+    // ⚠ THE ORDINAL FIELD IS 32 BITS, NOT 20, AND THAT IS THE WHOLE CONTENT OF
+    // THIS LINE. At 20 bits the ordinal SATURATED at 1,048,575 and every
+    // statement past that on one physical line collapsed back to one point —
+    // i.e. this fix silently re-opened the exact hole it exists to close, in
+    // exactly the channel it exists for: an emitter that pushes a module as ONE
+    // line puts its ENTIRE statement count on line 1. Not hypothetical, and not
+    // expensive to reach — the round's own verify built the discriminating pair
+    // (`sandbox/verify75/big_sub.logos`, 1,000,004 statements on one line,
+    // REFUSED; `big_sat.logos`, 1,100,004, ADMITTED), which straddles the cap
+    // and so separates saturation from any generic large-function bail-out.
+    // A line number is `uint32_t`, so `(uint64(line) << 32) | ord` is EXACT:
+    // the point domain is the full cross product and nothing is packed away.
+    // The saturation guard is kept below because a guard that cannot fire is
+    // still cheaper than a carry into the line field if it ever could.
+    static constexpr uint32_t PT_ORD_BITS = 32;
+    static constexpr uint32_t PT_ORD_MAX  = 0xFFFFFFFFu;
+    std::unordered_map<const void*, uint64_t> stmt_pt_;    // stmt addr -> point
+    std::unordered_map<uint32_t, uint32_t>    line_ord_;   // line -> next ordinal
+    uint64_t stmt_point(lir_view::StmtRef sr) {
+        if (!sr) return 0;
+        const void* k = sr.addr();
+        if (auto it = stmt_pt_.find(k); it != stmt_pt_.end()) return it->second;
+        uint32_t ln  = lir_view::stmt_line(sr);
+        uint32_t& nx = line_ord_[ln];
+        uint32_t ord = nx;
+        // Saturate rather than carry into the line field: an overflowing
+        // ordinal must never make a point compare as a LATER LINE.
+        if (nx < PT_ORD_MAX) ++nx;
+        uint64_t pt = (uint64_t(ln) << PT_ORD_BITS) | uint64_t(ord);
+        stmt_pt_.emplace(k, pt);
+        return pt;
+    }
 
     // Loop dataflow: per-enclosing-loop capture of the move-state at each
     // `break` (flows to AFTER the loop) and `continue` (flows to the loop BACK
@@ -3080,12 +3134,12 @@ private:
     // ALL of them are past. Missing holders count as 0 (never-used binding),
     // exactly as the single-holder lookup did.
     // F5: one holder's last use, keyed by its IDENTITY when it has one.
-    uint32_t one_holder_last_use(const std::string& name, uint32_t slot) const {
+    uint64_t one_holder_last_use(const std::string& name, uint32_t slot) const {
         if (slot == NO_SLOT) {   // no identity available — pre-F5 behaviour
             auto it = last_use_line_.find(name);
             return it == last_use_line_.end() ? 0u : it->second;
         }
-        uint32_t lu = 0;
+        uint64_t lu = 0;
         if (auto it = last_use_slot_.find(slot); it != last_use_slot_.end())
             lu = it->second;
         // Uses that named the binding without a slot could be THIS binding;
@@ -3098,17 +3152,17 @@ private:
         // release_dead_borrows sweep past the shadowing `let`.
         return lu;
     }
-    uint32_t holders_last_use(const std::string& holder, uint32_t holder_slot,
+    uint64_t holders_last_use(const std::string& holder, uint32_t holder_slot,
                               const std::vector<std::string>& co,
                               const std::vector<uint32_t>& co_slots) const {
-        uint32_t lu = one_holder_last_use(holder, holder_slot);
+        uint64_t lu = one_holder_last_use(holder, holder_slot);
         for (size_t i = 0; i < co.size(); ++i)
             lu = std::max(lu, one_holder_last_use(
                 co[i], i < co_slots.size() ? co_slots[i] : NO_SLOT));
         return lu;
     }
     template <class Rec>
-    uint32_t holders_last_use(const Rec& r) const {
+    uint64_t holders_last_use(const Rec& r) const {
         return holders_last_use(r.holder, r.holder_slot,
                                 r.co_holders, r.co_holder_slots);
     }
@@ -3147,7 +3201,7 @@ private:
     }
 
     void inherit_loans(const std::string& from, const std::string& to,
-                       uint32_t /*line*/) {
+                       uint64_t /*line*/) {
         if (from.empty() || to.empty() || from == to) return;
         auto holds = [&](const auto& rec) {
             return rec.holder == from ||
@@ -5832,7 +5886,7 @@ private:
     // a reborrow, and every place recorded UNDER it (a struct that holds a
     // `&mut` keeps the referent borrowed while the struct is live). Chasing is
     // hop-bounded, matching rehome_reborrow.
-    void note_reborrow_alias_uses(const std::string& n, uint32_t line) {
+    void note_reborrow_alias_uses(const std::string& n, uint64_t line) {
         if (n.empty() || reborrow_prescan_.empty()) return;
         // Round 8: the 8-hop chase is RefGraph::each_root (it already did the
         // transitive thing correctly — it is the one channel that did).
@@ -5901,12 +5955,12 @@ private:
         if (it == fnptr_sym_.end()) return nullptr;
         return flow_of_call(it->second);
     }
-    void note_use(std::string name, uint32_t line) {
+    void note_use(std::string name, uint64_t line) {
         note_use_slot(NO_SLOT, std::move(name), line);
     }
     // F5: `slot` is the dense binding slot when the use site knows it
     // (VarRef), NO_SLOT otherwise.
-    void note_use_slot(uint32_t slot, std::string name, uint32_t line) {
+    void note_use_slot(uint32_t slot, std::string name, uint64_t line) {
         if (name.empty()) return;
         auto& any = last_use_line_[name];
         if (line > any) any = line;
@@ -5919,7 +5973,7 @@ private:
         }
     }
 
-    void scan_uses_expr(lir_view::ExprRef e, uint32_t line) {
+    void scan_uses_expr(lir_view::ExprRef e, uint64_t line) {
         if (!e) return;
         using namespace lir_view;
         using Code = lir_schema::expr::Code;
@@ -6071,7 +6125,7 @@ private:
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
         if (!sr) return;
-        uint32_t ln = stmt_line(sr);
+        uint64_t ln = stmt_point(sr);   // #75: (line, ordinal), not the line
         switch (sr.kind()) {
             case Code::Let: {
                 SLetView lv{sr};
@@ -6206,13 +6260,13 @@ private:
     // Phase 9 (NLL): release borrows whose holder is no longer live.
     // Called after each statement in a block: if holder's max-use line is at or
     // before the current statement, the borrow has expired textually.
-    void release_dead_borrows(uint32_t cur_line) {
+    void release_dead_borrows(uint64_t cur_line) {
         if (scopes_.empty()) return;
         auto& frame = scopes_.back();
         auto it = frame.borrows.begin();
         while (it != frame.borrows.end()) {
             if (it->holder.empty()) { ++it; continue; }
-            uint32_t lu = holders_last_use(*it);
+            uint64_t lu = holders_last_use(*it);
             if (lu <= cur_line) {
                 auto sit = var_find(it->target_slot, it->target);
                 if (sit != nullptr) {
@@ -6229,7 +6283,7 @@ private:
         auto fit2 = frame.field_borrows.begin();
         while (fit2 != frame.field_borrows.end()) {
             if (fit2->holder.empty()) { ++fit2; continue; }
-            uint32_t lu = holders_last_use(*fit2);
+            uint64_t lu = holders_last_use(*fit2);
             if (lu <= cur_line) {
                 if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {
                     if (fit2->is_mut)
@@ -6265,10 +6319,10 @@ private:
         // (`unsafe { …; return x; }` becomes a Return stmt whose line is the
         // LAST line, wrapping a BlockExpr of the earlier ones) — a global max
         // would pre-release every borrow inside such a block.
-        uint32_t cursor = 0;
+        uint64_t cursor = 0;
         br.each_stmt([&](lir_view::StmtRef sr) {
-            uint32_t saved = max_line_seen_;
-            max_line_seen_ = lir_view::stmt_line(sr);
+            uint64_t saved = max_line_seen_;
+            max_line_seen_ = stmt_point(sr);   // #75
             visit_stmt(sr);
             cursor = std::max(cursor, max_line_seen_);
             max_line_seen_ = std::max(saved, max_line_seen_);
@@ -7218,7 +7272,9 @@ private:
     void visit_stmt(lir_view::StmtRef sr) {
         if (!sr) return;
         uint32_t ln = lir_view::stmt_line(sr);
-        if (ln > max_line_seen_) max_line_seen_ = ln;
+        // #75: the NLL cursor advances by PROGRAM POINT, not by line; `ln`
+        // stays the raw line for every non-liveness consumer below.
+        if (uint64_t pt = stmt_point(sr); pt > max_line_seen_) max_line_seen_ = pt;
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
         const auto* pool = prog_.type_pool.impl();
@@ -7853,10 +7909,10 @@ private:
                         // recorded — before `b` could inherit it. Measured: the
                         // transparent branch fired on G1/G2/G3 and all three
                         // still compiled until the release moved out here.
-                        uint32_t cursor = 0;
+                        uint64_t cursor = 0;
                         b.each_stmt([&](lir_view::StmtRef s2) {
-                            uint32_t saved = max_line_seen_;
-                            max_line_seen_ = lir_view::stmt_line(s2);
+                            uint64_t saved = max_line_seen_;
+                            max_line_seen_ = stmt_point(s2);   // #75
                             visit_stmt(s2);
                             cursor = std::max(cursor, max_line_seen_);
                             max_line_seen_ = std::max(saved, max_line_seen_);
@@ -8117,6 +8173,8 @@ public:
         last_use_line_.clear();
         last_use_slot_.clear();        // F5 — slots are per-FUNCTION dense ids
         last_use_unslotted_.clear();
+        stmt_pt_.clear();              // #75 — points are per-FUNCTION
+        line_ord_.clear();
         cur_slot_of_.clear();
         max_line_seen_ = 0;   // per-fn: a prior fn's higher lines must not
                               // count as "already visited" for NLL release

@@ -1,0 +1,21 @@
+package test;
+// #75 — LOAN LIVENESS IS KEYED ON A PROGRAM POINT, NOT ON THE SOURCE LINE.
+//
+// `p` is a live `&mut w` when `w.plain()` takes a second `&mut w`. That is the
+// same conflict rustc rejects, and this compiler rejected it too — but ONLY
+// when the three statements sat on three DIFFERENT lines. Liveness compared
+// `last_use <= cur_line`, so with everything on ONE line the loan's last use
+// was `<=` the conflicting statement's own line and released BEFORE the
+// conflict was checked. Every metaprog emitter that pushes a whole module as
+// a single-line string was thereby exempt from ALL exclusivity checking.
+//
+// The key is now the pair (line, per-line statement ordinal), so statements
+// sharing a physical line are ordered. Split the body of `z2` across lines and
+// this file must STILL be refused (identical diagnostic) — the line count was
+// never the hazard.
+pub struct W { pub at: u64 }
+impl W {
+    pub fn plain(self: &mut W) -> u64 { self.at = self.at + 1u64; return self.at; }
+}
+pub fn z2() -> u64 { let mut w: W = W { at: 0u64 }; let p = &mut w; let z = w.plain(); return p.at + z; }
+fn main() -> i32 { return 0i32; }

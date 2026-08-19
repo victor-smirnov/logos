@@ -3085,9 +3085,105 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7296
-REGISTRY-NOIMPORTED  3613
+REGISTRY-ALL         7301
+REGISTRY-NOIMPORTED  3618
 REGISTRY-TIERCOMMIT  36
+# 2026-08-19 (post-landing repair, no count change): the #75 fix's own verify
+# found its residual REACHABLE, and it is closed here. The point packed the
+# ordinal into 20 bits, so past 1,048,575 statements on ONE physical line the
+# ordinal SATURATED and every later statement collapsed to one point — the fix
+# silently re-opened the exact hole it exists for, in exactly the channel it
+# exists for (a single-line emitted module puts its whole statement count on
+# line 1). Witness pair, built by the verify and re-run here on the widened
+# build: sandbox/verify75/big_sub.logos (1,000,004 statements on one line) and
+# sandbox/verify75/big_sat.logos (1,100,004) straddle the cap — the second read
+# rc 0 at 20 bits and reads rc 1 now. A line is uint32, so (uint64(line) << 32) | ord is EXACT: the
+# point domain is the full cross product and nothing is packed away.
+# Also repaired, same round, no count change: pass/bc_line_ordinal_emitted_admit
+# now CALLS the emitted fn and asserts its value (its `main` was `return 0i32;`,
+# so "compiles, links and runs" asserted nothing past codegen — bite-proven);
+# direct_door_census_gate.sh's header numbers corrected to the measured 26
+# doors / 11 fixtures / 36 corpus doors, its tautological CLAUSE-3 attribution
+# leg DELETED with the reason (same accumulator read twice — CLAUSE 4 and
+# CLAUSE 5 are what actually check attribution), its vacuous `overlap` pin
+# marked as set-arithmetic rather than left reading like a check, and its
+# clause labels reconciled with the code.
+
+# 2026-08-19, +1/+1/0 (7300/3617/36 -> 7301/3618/36), predicted before the
+# reconfigure and met exactly. #76: THE DIRECT DOORS OUTSIDE THE QUERY GLOB WERE
+# PINNED BY NOTHING. `logos_09_pull_shape` and `logos_09_plan_ground_census`
+# both sweep `pass/wql_*` + `pass/deem_*` — 191 of 2180 pass fixtures — and
+# between them pin 10 ADR 0025 §12 direct doors. The corpus holds 36. The new
+# `logos_09_direct_door_census` (tier_full, +1 test, not tier_commit, not
+# imported) sweeps ALL 2180 and pins the rest.
+#   THE PARTITION, asserted in the gate: corpus 2180 = glob 191 + nonglob 1989,
+#   the glob half read with the LITERAL shell globs the other two gates use and
+#   compared as a SET against the prefix rule, plus swept-vs-listed both ways —
+#   which is the only half of that clause not forced by arithmetic.
+#   THE COUNT WAS RE-DERIVED, NOT INHERITED. The briefed floor was 22 (the
+#   S5-direct verify over the 69 non-glob fixtures mentioning `deem`, counted by
+#   the `^pub struct …Dx… {` shape). Measured: 26. +2 `memoria_showcase_deem`
+#   (4 doors, not 2) and +1 `memoria_ctr_vec_deem`, all three emitted into
+#   `logos.gen.*` units that the inherited user-module dump rule DROPS; +1
+#   `container_item_from_module`, which does not compile standalone at all
+#   (needs `-l libctr_mod.a`, exit 4) and contributed a silent zero. 22+2+1+1=26.
+#   THE RULE IS SCOPED BY PROVENANCE, NOT SHAPE, and the corpus forced it:
+#   `pass/bc_d8_quote_field_split_admit` emits `#[borrow_carrying] pub struct
+#   QuoteDx` with a matching `next_batch` from `gen_quote` — a HAND-WRITTEN
+#   mimic (tasks #74/#75), 2 of the 5 door spellings. A shape-only wide count
+#   reads it as a half-emitted door. Every `--gen-dir` unit carries
+#   `// emitted by: <fn>`; only `deem` units may hold a door, and the mimic is
+#   pinned per spelling in a non-deem residual so it cannot absorb a real one.
+#   PER-FIXTURE PLAN↔ARTIFACT IDENTITY: `LOGOS_TRACE_PLAN=1` states the decision
+#   in words ("`_stream` DOOR is now the §12 DIRECT form"); plan 36 == artifact
+#   36, compared PER FIXTURE, because two totals agree while a door moves.
+#   BITES (5, each on a sandbox copy of the swept dumps fed back through the
+#   script's 4th argument, each restored md5-proven with a green checkpoint):
+#     B1 retype one facade in `memoria_ctr_plan_pushdown` -> CLAUSE 3 reads
+#        36/36/36/35/36/36 + PIN dx_facade.
+#     B2 delete a whole door unit from `container_item_from_module` -> CLAUSE 4
+#        (1 pinned, 0 measured) + CLAUSE 5 (plan 1, artifact 0) + 8 pins.
+#     B3 re-attribute one door unit's emitter to `gen_quote` -> CLAUSE 4 +
+#        CLAUSE 5 + 14 pins, the residual naming the fixture.
+#     B4 set one fixture's recorded rc to 4 -> CLAUSE 2 + PIN unswept 0->1.
+#     B5 remove one fixture's rc file -> CLAUSE 1 "never probed".
+#   NOT A NARROWING OF ANYTHING: no existing pin moved, `logos_09_pull_shape`'s
+#   10 is re-measured here by an independent sweep and CONFIRMED — including on
+#   the two GLOB fixtures that gate cannot compile (`wql_mapping_cross_module
+#   _e2e`, `wql_wref_field_pkg`, 0 doors each), a fact nothing recorded before.
+# 2026-08-19, +4/+4/0 (7296/3613/36 -> 7300/3617/36), predicted before the
+# reconfigure and met exactly. #75: LOAN LIVENESS WAS KEYED ON THE SOURCE LINE.
+# `release_dead_borrows(cur_line)` released a loan whose holder's last use was
+# `<= cur_line`, so two statements sharing ONE physical line released the first
+# one's loans before the second one's conflicting use was checked — and every
+# metaprog emitter that pushes a whole module as a single-line string was
+# thereby exempt from ALL exclusivity checking (move checks and the §B6 escape
+# channel still fired, which is why the hole looked like coverage). The key is
+# now the pair (line, per-line statement ordinal), lexicographic; statements on
+# distinct lines keep ordinal 0 and compare exactly as their lines did, so
+# multi-line code is bit-identical and only shared-line code changes.
+#   fail/bc_line_ordinal_oneline_fail — the whole hazard on one line; refused
+#     with the checker's own B-arm spelling (REUSED, not minted). BITE: dropping
+#     the later `p.at` removes the conflict and the assertion misses (rc 1).
+#   pass/bc_line_ordinal_admit — two legs the ordinal must NOT refuse: the
+#     multi-line original (the bit-identical half) and the SAME pattern on one
+#     line with the loan dead before the reborrow (single-line code is checked,
+#     not blanket-refused). BITES: moving `p.at` after `w.plain()` reds leg 2
+#     (one-line) and leg 1 (multi-line) independently.
+# The second pair pins the CHANNEL the hole was found in — a metaprog handler
+# that push_str's a WHOLE MODULE as ONE line — because no stdlib emitter in the
+# tree emits a single-line fn body today, so without it the class is pinned only
+# by hand-written one-liners:
+#   fail/bc_line_ordinal_emitted_oneline_fail — the emitted chunk carries the
+#     same hazard; MEASURED rc 0 on the pre-#75 compiler, rc 1 now. BITE:
+#     dropping the later `p.at` INSIDE the emitted string kills the refusal.
+#   pass/bc_line_ordinal_emitted_admit — byte-identical emitter, conflicting use
+#     removed; the single-line emitted module still compiles and runs. BITE:
+#     putting `w.plain()` back into the emitted string reds it.
+# CONTROL: forcing the ordinal to 0 at its assignment site (`stmt_point`, not a
+# call site) rebuilds a compiler that admits the fail fixtures again and leaves
+# both admits green — the pin is held by the ordinal, not by anything else in
+# the round.
 # 2026-08-19, +2/+2/0 (7294/3611/36 -> 7296/3613/36), predicted before the
 # reconfigure and met exactly: the #74 fix round's OWN verify found a second
 # site of the class it had just closed, and this pair pins it. A MATCH

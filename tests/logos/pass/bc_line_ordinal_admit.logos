@@ -1,0 +1,24 @@
+package test;
+// #75, admit half. Two shapes that must KEEP compiling after loan liveness
+// moved from the source LINE to the pair (line, statement ordinal):
+//
+//   z2 — multi-line, one statement per line. Its ordinals are all 0, so its
+//        points compare exactly as its lines did: behaviour is bit-identical
+//        to the pre-#75 checker. This is the "changed nothing" half.
+//   z3 — the SAME borrow pattern on ONE physical line. The refusing sibling
+//        (fail/bc_line_ordinal_oneline_fail.logos) proves single-line code is
+//        now checked; this proves it is CHECKED, not blanket-refused: `p` dies
+//        at `p.at` before `w.plain()` reborrows, on a shared line, and admits.
+pub struct W { pub at: u64 }
+impl W {
+    pub fn plain(self: &mut W) -> u64 { self.at = self.at + 1u64; return self.at; }
+}
+pub fn z2() -> u64 {
+    let mut w: W = W { at: 0u64 };
+    let p = &mut w;
+    let y = p.at;
+    let z = w.plain();
+    return y + z;
+}
+pub fn z3() -> u64 { let mut w: W = W { at: 0u64 }; let p = &mut w; let y = p.at; let z = w.plain(); return y + z; }
+fn main() -> i32 { if z2() != 1u64 { return 1i32; } if z3() != 1u64 { return 2i32; } return 0i32; }

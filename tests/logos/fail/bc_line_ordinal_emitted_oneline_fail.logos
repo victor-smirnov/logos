@@ -1,0 +1,26 @@
+// #75 probe, REFUSE arm: a metaprog emitter pushes a WHOLE MODULE as a
+// SINGLE-LINE string. Its `ez2` is the nll_one/nll_multi witness shape:
+// `let p = &mut w; let z = w.plain();` with `p` used after — a real
+// exclusivity violation. Pre-#75 the emitted chunk compiled rc=0 because
+// every statement shared source line 1 and the loan was released before the
+// conflicting use; post-#75 the (line, ordinal) key separates them.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[metaprog_handler("emit_oneline_hazard")]
+fn emit_oneline_hazard_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub struct ERows { pub n: u64 } #[borrow_carrying] pub struct EWalk { pub r: &ERows, pub at: u64 } impl EWalk { pub fn plain(self: &mut EWalk) -> u64 { self.at = self.at + 1u64; return self.at; } } pub fn ez2(r: &ERows) -> u64 { let mut w: EWalk = EWalk { r: r, at: 0u64 }; let p = &mut w; let z = w.plain(); return p.at + z; }");
+    em.commit();
+    return;
+}
+
+#[emit_oneline_hazard]
+struct Trigger { x: i32 }
+
+unsafe fn main() -> i32 { return 0i32; }

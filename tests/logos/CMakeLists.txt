@@ -2094,6 +2094,75 @@ set_tests_properties(logos_09_pull_shape PROPERTIES
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
 
+# ADR 0025 §12 — THE DIRECT DOOR CENSUS OVER THE WHOLE PASS CORPUS (2026-08-19).
+#
+# `logos_09_pull_shape` above and `logos_09_plan_ground_census` both sweep
+# `pass/wql_*` + `pass/deem_*` — 191 of 2180 pass fixtures — and between them
+# they pin 10 direct doors. MEASURED BY THIS GATE: the corpus holds 36, so 26
+# doors on 11 fixtures were pinned by NOTHING and a door that lost its facade in
+# `memoria_ctr_plan_pushdown` moved no number anywhere.
+#
+# WHY A SECOND GATE RATHER THAN A WIDER POPULATION ON THE TWO EXISTING ONES:
+# the long form is at the top of the script; the short form is that
+# `pull_shape`'s 40 pins ARE ADR 0025's criterion-2 accounting over the QUERY
+# corpus, and re-deriving them over 2180 fixtures would not broaden criterion 2
+# — it would change its denominator into a different quantity wearing the same
+# pin (`walks_unclaimed`, pinned 0, would swallow the whole non-query tree). The
+# door facts, by contrast, are 6 regexes and travel alone. This file carries
+# ONLY those, plus the partition that makes the two instruments' populations
+# provably exhaustive and disjoint.
+#
+# ⚠ IT RE-MEASURES THE GLOB HALF TOO, and that is not redundancy: this sweep
+# compiles the two GLOB fixtures `pull_shape` cannot (`wql_mapping_cross_module
+# _e2e`, `wql_wref_field_pkg` need `-l` archives and silently contribute no
+# dumps there) and reads the `logos.gen.*` units `pull_shape` drops. Both extras
+# are 0 doors today, so that gate's 10 is right — but it is right by luck on the
+# second, since 4 of this corpus's 36 doors DO live in `logos.gen.*` units.
+#
+# ⚠ THE DOOR RULE IS SCOPED BY PROVENANCE, NOT BY SHAPE. The wide sweep found
+# `pass/bc_d8_quote_field_split_admit` emitting `#[borrow_carrying] pub struct
+# QuoteDx` with a matching `next_batch` — a hand-written mimic from `gen_quote`
+# (tasks #74/#75), 2 of the 5 door spellings. A shape-only rule reads it as a
+# half-emitted door and this gate would have opened permanently red on an
+# artifact that is not its subject. Every `--gen-dir` unit carries a
+# `// emitted by: <fn>` header and only `deem` units may hold a door; the mimic
+# is pinned per spelling in the non-deem residual so it cannot absorb a real one.
+#
+# BITE-PROOF (5 legs, each on a SANDBOX COPY of the swept dumps fed back through
+# the script's 4th argument, each restored md5-proven with a green checkpoint
+# between — the emitter itself is never touched, since no test may rebuild it):
+#   B1  retype one facade `-> Result<…Dx, ElError>` to `Result<i64, ElError>`
+#       in `memoria_ctr_plan_pushdown`   CLAUSE 3 (36/36/36/35/36/36) + PIN
+#   B2  delete a whole door unit from `container_item_from_module`
+#                                       CLAUSE 4 (1 pinned, 0 measured)
+#                                     + CLAUSE 5 (plan 1, artifact 0) + 8 PINs
+#   B3  re-attribute one door unit's `// emitted by: deem` to `gen_quote`
+#                                       CLAUSE 4 + CLAUSE 5 + 14 PINs, incl. the
+#                                       non-deem residual naming the fixture
+#   B4  set one fixture's recorded rc to 4        CLAUSE 2 + PIN unswept 0->1
+#   B5  remove one fixture's rc file (a lost probe)
+#                                       CLAUSE 1 "never probed" — the only half
+#                                       of CLAUSE 1 that is not forced by
+#                                       arithmetic, which is why it is bitten
+# B2 and B3 are the pair that matters: a door VANISHING and a door being
+# RE-ATTRIBUTED are the two ways this census can go quiet, and the per-fixture
+# plan↔artifact identity catches both while every corpus TOTAL still adds up.
+#
+# COST: the sweep is 2180 compiles — measured 3 m 58 s wall / 107 min CPU at
+# -P32 on a quiet box. `tier_full`, TIMEOUT 1800 on the shared-box rule.
+add_test(
+    NAME logos_09_direct_door_census
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/direct_door_census_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_CURRENT_SOURCE_DIR}/pass
+            ${CMAKE_CURRENT_BINARY_DIR}
+)
+set_tests_properties(logos_09_direct_door_census PROPERTIES
+    TIMEOUT 1800
+    LABELS  "logos;pass;suite_semantic_core;tier_full"
+    ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
+)
+
 # ADR 0025 S3a — THE IMPORT PAIR THE `Buffer` LANDING NEEDS.
 #
 # Two source lines that look like one duplicated line, and a reader who deletes

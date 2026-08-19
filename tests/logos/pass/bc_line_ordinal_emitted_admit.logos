@@ -1,0 +1,36 @@
+// #75 probe, ADMIT arm: byte-identical emitter except the conflicting use is
+// gone (`let z = p.at;` instead of `w.plain()`), so the single-line emitted
+// module must still COMPILE. Pins that #75 separates statements rather than
+// refusing every single-line module.
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[metaprog_handler("emit_oneline_ok")]
+fn emit_oneline_ok_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub struct ERows { pub n: u64 } #[borrow_carrying] pub struct EWalk { pub r: &ERows, pub at: u64 } impl EWalk { pub fn plain(self: &mut EWalk) -> u64 { self.at = self.at + 1u64; return self.at; } } pub fn ez2(r: &ERows) -> u64 { let mut w: EWalk = EWalk { r: r, at: 0u64 }; let p = &mut w; let z = p.at; return p.at + z; }");
+    em.commit();
+    return;
+}
+
+#[emit_oneline_ok]
+struct Trigger { x: i32 }
+
+// ⚠ THE RUNTIME LEG IS NOT DECORATIVE. Its first cut was `return 0i32;`, which
+// made "the single-line emitted module still compiles, links and runs" a claim
+// about NOTHING past codegen — the verify called it vacuous and was right. The
+// emitted `ez2` is now CALLED and its value asserted, so a single-line emitted
+// body that the checker admits must also be a body that RUNS: `w.at` starts 0,
+// `z` reads 0, `p.at + z` is 0, and any drift in the emitted text reds here
+// rather than passing as "it compiled".
+unsafe fn main() -> i32 {
+    let r: ERows = ERows { n: 3u64 };
+    let v: u64 = ez2(&r);
+    if v != 0u64 { return 1i32; }
+    return 0i32;
+}
