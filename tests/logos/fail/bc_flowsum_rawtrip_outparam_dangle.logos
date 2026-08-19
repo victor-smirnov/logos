@@ -1,0 +1,34 @@
+// #71/#72 round, layer 1 (borrow_flow_summary.inc) — REFUSE half.
+// The faithful `join_order.decide_over_set` shape: a helper stores a `str`
+// borrowed from one of its `&[String;4]` elements into a caller-provided
+// `&mut` aggregate, and the caller then mutates the String while the
+// aggregate is still live and read. rustc rejects this.
+//
+// Before the four summarizer repairs Logos ADMITTED it (rc=0), because
+// `sas` reaches the bytes through `s.as_ptr()` (a SlicePtr node taint_of had
+// no arm for) and `str_from_raw` (a bodyless callee whose `*const u8`
+// argument the (a)-(d) fallback's narrow arg filter dropped). The summary
+// therefore read `sas: result<-0`, `sides: result<-0` — no out-param edge at
+// all — and nothing was live across the `clear()`.
+//
+// THE ONE VARIABLE against the admit twin is the raw round trip, and it is
+// the whole difference: `sas` returning `s.as_str()` directly already refused
+// before this round.
+package bc_flowsum_rawtrip_outparam_dangle;
+use logos.mem.string;
+
+pub struct W { pub ssz: [str; 4] }
+
+pub fn sas(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()); }; }
+
+pub fn sides(w: &mut W, szs: &[String; 4]) { w.ssz[0] = sas(&szs[0]); }
+
+fn main() -> i32 {
+    let mut szs: [String; 4] = [String::from("aa"), String::from("bb"),
+                                String::from("cc"), String::from("dd")];
+    let mut w: W = W { ssz: ["", "", "", ""] };
+    sides(&mut w, &szs);
+    szs[0].clear();
+    if w.ssz[0].len() == 2i64 { return 0i32; }
+    return 1i32;
+}

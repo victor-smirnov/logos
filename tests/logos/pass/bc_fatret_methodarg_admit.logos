@@ -1,0 +1,34 @@
+// #71/#72 round, layer 2, METHOD spelling — ADMIT half. ONE VARIABLE against
+// the dangle twin: `keep` returns a static literal instead of its argument,
+// so its summary is `result<-0` and the widened entry gate (`by_flow`) stays
+// SHUT. A method whose fat result borrows nothing must not start tying its
+// arguments just because the arm learned to read summaries.
+package bc_fatret_methodarg_admit;
+use logos.mem.string;
+
+pub struct Keeper { pub n: i64 }
+
+impl Keeper {
+    pub fn keep(self: Keeper, s: str) -> str { return "abcde"; }
+}
+
+fn main() -> i32 {
+    let k: Keeper = Keeper { n: 1i64 };
+    let v: str;
+    {
+        let owner: String = String::from("hello");
+        v = k.keep(owner.as_str());
+    }
+    // ⚠ THE ASSERTION IS THE VERDICT, NOT THE BYTES. `v` must be USED after
+    // the block or the §B6 liveness question is never asked — but the VALUE
+    // read back must not be asserted: a deferred-init `str` assigned inside a
+    // block reads a wrong length today (`let v: str; { v = "abcde"; }
+    // v.len()` returns 1, measured this round on a fixture with no call and
+    // no borrow at all — a pre-existing codegen defect, filed separately, and
+    // untouchable by a borrow-check change since this pass only emits
+    // diagnostics). `len() >= 0` is true for every possible value, so the use
+    // is real and the fixture asserts exactly one thing: that this compiles.
+    let n: i64 = v.len();
+    if n >= 0i64 { return 0i32; }
+    return 1i32;
+}

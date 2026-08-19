@@ -663,6 +663,34 @@ private:
         return root;
     }
 
+    // DEFECT 3's peel. Entered ONLY from a Cast INTO a can_carry target whose
+    // operand does not can_carry, i.e. the program itself has just declared
+    // "this integer is an address". Walks the arithmetic spine ungated and
+    // unions the taint of every leaf that can carry one. `depth` bounds it
+    // against a pathological expression tree only; the LIR is a tree, so no
+    // cycle is possible.
+    uint64_t addr_arith_taint(lir_view::ExprRef e, int depth = 0) {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!e || depth > 64) return 0;
+        const auto* pool = prog_.type_pool.impl();
+        TypeRef t = e.type(pool);
+        if (can_carry(t)) return taint_of(e);
+        switch (e.kind()) {
+            case Code::BinOp: {
+                EBinOpView v{e};
+                return addr_arith_taint(v.lhs(), depth + 1) |
+                       addr_arith_taint(v.rhs(), depth + 1);
+            }
+            case Code::Unary:
+                return addr_arith_taint(EUnaryView{e}.operand(), depth + 1);
+            case Code::Cast:
+                return addr_arith_taint(ECastView{e}.operand(), depth + 1);
+            default:
+                return 0;
+        }
+    }
+
     // Which params' loans this expression's VALUE may carry.
     uint64_t taint_of(lir_view::ExprRef e) {
         using namespace lir_view;
@@ -688,10 +716,81 @@ private:
                 return can_carry(t) ? taint_of(EIndexReadView{e}.receiver()) : 0;
             case Code::SliceIndex:
                 return can_carry(t) ? taint_of(ESliceIndexView{e}.slice()) : 0;
+            // ── #71/#72 round / DEFECT 1: `s.as_ptr()` ON A SLICE IS A NODE ─
+            //
+            // THE DEFECT, one variable measured at the SUMMARY:
+            //   fn pp(s: &[i64])  -> *const u8 { return s.as_ptr(); }
+            //       → `pp__f__slice_i64: result<-0`          (no arm)
+            //   fn pp(s: &String) -> *const u8 { return s.as_ptr(); }
+            //       → `pp__f__ref_String: result<-0x1`       (MethodCall arm)
+            // Same body, same method NAME, two answers — because on a slice
+            // receiver sema lowers `as_ptr` to a `SlicePtr` NODE and this
+            // switch had no arm for it, so it fell to `default: return 0`.
+            // `each_sub_expr` (below) and the checker's `scan_uses_expr` /
+            // consuming walker BOTH carry a SlicePtr arm; the summarizer's
+            // walker was the one that drifted. Same `can_carry` gate as its
+            // Deref / IndexRead / SliceIndex neighbours — this is the same
+            // question ("could a borrow travel in this value?"), reached
+            // through the slice's data pointer instead of through a field.
+            case Code::SlicePtr:
+                return can_carry(t) ? taint_of(ESlicePtrView{e}.slice()) : 0;
             case Code::Deref:
                 return can_carry(t) ? taint_of(EDerefView{e}.operand()) : 0;
-            case Code::Cast:
-                return can_carry(t) ? taint_of(ECastView{e}.operand()) : 0;
+            // ── DEFECT 5 (found while bite-proving 2+3, SAME class) ────────
+            // `p.byte_add(n)` is NOT a MethodCall by the time this walker sees
+            // it: sema_expr lowers the raw-pointer arithmetic built-ins to a
+            // dedicated `PtrArith` node (sema_expr.cpp mk_arith / ByteAdd), so
+            // the typed spelling of the very round trip defects 2+3 repair fell
+            // to `default: return 0` even with them in place. Measured after
+            // 1-4 landed: `fn pq(p:*const i64,n:i64)->*const i64 { return
+            // p.byte_add(n*8); }` still summarised `result<-0`. The result
+            // derives from the POINTER operand; the offset is an integer.
+            case Code::PtrArith:
+                return can_carry(t) ? taint_of(EPtrArithView{e}.ptr()) : 0;
+            // ── DEFECT 2+3: THE INTEGER ROUND TRIP DECAYS THE STATIC TYPE ──
+            //
+            // THE DEFECT, one variable:
+            //   fn pq(p: *const i64) -> *const i64 { return p; }
+            //       → `result<-0x1`
+            //   fn pq(p: *const i64) -> *const i64 {
+            //       return (p as i64 + 8i64) as *const i64; }
+            //       → `result<-0`
+            // `each_sub_expr` (below) has BinOp and Unary arms; `taint_of` had
+            // neither, so ANY arithmetic on an address severed the chain.
+            //
+            // ⚠ AND A `can_carry`-GATED BinOp/Unary ARM DOES NOT FIX IT, which
+            // is why there is no such arm here. In `(p as i64 + 8i64) as
+            // *const i64` the outer Cast's type is `*const i64` (can_carry
+            // YES) but the BinOp it wraps is typed `i64` (can_carry NO), so a
+            // gated arm still answers 0; dropping the gate instead would make
+            // every integer expression in the program a taint carrier. MEASURED
+            // (fire-print, this round): a gated `Code::BinOp` arm and a gated
+            // `Code::Unary` arm executed ZERO times over the probe set, the
+            // whole stdlib and examples/deem_memoria_showcase — a BinOp can
+            // never be pointer-typed (`p + 1i64` is rejected by sema: "left
+            // must be numeric, got *const i64") and generic bodies, the only
+            // place a BinOp is TypeVar-typed, are never summarised
+            // (generic_templates_only skips the FlowSummarizer). Two dead arms
+            // were written, measured dead, and removed rather than shipped
+            // green-over-never-executed.
+            //
+            // THE PEEL IS THE REPAIR. The address is recoverable only by
+            // knowing that a Cast INTO a pointer/reference re-attaches
+            // provenance to whatever integer expression produced it. Entered ONLY from a Cast whose target can_carry and
+            // whose operand cannot: walk the integer expression's BinOp /
+            // Unary / Cast spine UNGATED, and take `taint_of` of every leaf
+            // whose OWN type can_carry (the `p as i64` operand `p`). Ordinary
+            // integer arithmetic is untouched — nothing enters the peel unless
+            // the program itself said "this integer is an address" by casting
+            // it back into a pointer.
+            case Code::Cast: {
+                if (!can_carry(t)) return 0;
+                ExprRef op = ECastView{e}.operand();
+                if (!op) return 0;
+                TypeRef ot = op.type(pool);
+                if (can_carry(ot)) return taint_of(op);
+                return addr_arith_taint(op);
+            }
             case Code::Try:
                 return can_carry(t) ? taint_of(ETryView{e}.inner()) : 0;
             case Code::StructLit: {
@@ -857,8 +956,27 @@ private:
         for (auto a : args) {
             if (!a) continue;
             TypeRef at = a.type(pool);
-            if (is_plain_ref_kind(at) || bc_is_borrow_carrying_type(ts_, at) ||
-                bc_loan_carrying_type(ts_, at))
+            // ── DEFECT 4: THE RESULT GATE AND THE ARG GATE DISAGREED ───────
+            //
+            // One line above, "can this call's RESULT carry a borrow?" is
+            // answered by `can_carry`. Here, "can this ARGUMENT carry one into
+            // it?" was answered by a strictly NARROWER triple
+            // (is_plain_ref_kind || bc || loan_carrying) that admits no
+            // `Kind::Ptr`, no Closure, no TraitObject, no TypeVar. The
+            // asymmetry inside ONE fallback IS the defect: a bodyless
+            // `str_from_raw(p: *const u8, n: i64) -> str` — the sema rewrite
+            // every `slice_from_raw` becomes, and the tail of every raw round
+            // trip in the stdlib — contributed NOTHING, so the whole
+            // `string_as_str` family summarised `result<-0`.
+            // Measured, one variable (`y_v4` vs `y_v3`):
+            //   fn sgr(p: *const i64, cnt: i64) -> &[i64] { slice_from_raw(p,cnt) }
+            //       → `result<-0`     (the *const arg dropped)
+            //   fn sgr(s: &[i64],     cnt: i64) -> &[i64] { return s; }
+            //       → `result<-0x1`
+            // Making the two gates ONE predicate is the minimal repair, and it
+            // is strictly taint-ADDING: this branch can only union more bits
+            // into a fallback that is already the conservative arm.
+            if (can_carry(at))
                 m |= taint_of(a);
         }
         return m;
@@ -939,6 +1057,18 @@ private:
             }
             case Code::SliceIndex: {
                 ESliceIndexView v{e}; f(v.slice()); f(v.index()); break;
+            }
+            // Round 8's invariant ("the two walkers may not drift") restated:
+            // taint_of grew SlicePtr / PtrArith arms in this round, so the
+            // effect walker gets them in the SAME step. A nested call inside
+            // `s.as_ptr()` / `p.byte_add(mk(&x))` had its out-param effects
+            // dropped before this.
+            case Code::SlicePtr:    f(ESlicePtrView{e}.slice()); break;
+            case Code::PtrArith: {
+                EPtrArithView v{e}; f(v.ptr()); f(v.offset()); break;
+            }
+            case Code::PtrDiff: {
+                EPtrDiffView v{e}; f(v.lhs()); f(v.rhs()); break;
             }
             case Code::IfExpr: {
                 EIfExprView v{e}; f(v.cond()); f(v.then_val()); f(v.else_val()); break;

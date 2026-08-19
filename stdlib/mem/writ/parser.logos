@@ -71,15 +71,40 @@ unsafe fn parse_str_raw(p: *mut P) -> String {
     return s;
 }
 
-// Read a bare identifier (object key without quotes) into a fresh String.
-unsafe fn parse_ident_raw(p: *mut P) -> String {
-    let mut s: String = String::new();
+// Read a bare identifier (object key, `@Type` name) as a SPAN OF THE INPUT — the
+// run of ident bytes borrowed where it already lies, no copy.
+//
+// ⚠ IT IS A SPAN AND NOT AN OWNED `String` BECAUSE THE LIFETIME IS THE POINT. An
+// identifier has no escapes, so nothing has to be decoded and the only thing a
+// fresh `String` bought was a second copy of bytes the consumer
+// (`tv_build` → `Writ::typed_value` → `wstring_in_alloc`) interns into the arena
+// itself. What it COST was a `str` borrowed out of a LOCAL owner: every
+// caller then handed a reference to its own stack-rooted `String` to a function
+// whose result outlives that frame, and the only reason the corpus is sound is the
+// copy at the far end — a fact no caller states and no checker downstream of a
+// cross-package boundary can see. A span roots the same bytes in the input buffer
+// the caller supplied to `parse`, which outlives every frame here by construction.
+// (Escaped QUOTED strings still need `parse_str_raw`: those bytes do not exist in
+// the input, so the OBJECT-KEY site below keeps `parse_ident_raw`: its two branches
+// must unify at one type and the quoted branch has to own its decoded bytes.)
+unsafe fn parse_ident_span(p: *mut P) -> str {
+    let start: i64 = (*p).pos;
     let mut c: u8 = peek(p);
     while (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8)
        || (c >= 48u8 && c <= 57u8) || c == 95u8 {
-        s.push_u8(advance(p));
+        advance(p);
         c = peek(p);
     }
+    return str_from_raw((*p).data.byte_add(start), (*p).pos - start);
+}
+
+// The OWNED spelling of the same scan — one scanner, so the two cannot drift.
+// Used at the object-KEY site alone, where the alternative branch (`parse_str_raw`)
+// has to own its escape-decoded bytes and the two branches must unify at one type.
+unsafe fn parse_ident_raw(p: *mut P) -> String {
+    let sp: str = parse_ident_span(p);
+    let mut s: String = String::new();
+    s.push_str(sp);
     return s;
 }
 
@@ -288,7 +313,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
 // forms (trailing comma, >32 params, @Decimal rule violations).
 unsafe fn parse_tv_prefix(h: &Writ, p: *mut P, depth: i64) -> WAny {
     advance(p);                                   // '@'
-    let name: String = parse_ident_raw(p);
+    let name: str = parse_ident_span(p);
     if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
     skip_ws(p);
     let mut params: WAny = WAny::ref_to(0i64 as *const u8);
@@ -321,7 +346,7 @@ unsafe fn parse_tv_prefix(h: &Writ, p: *mut P, depth: i64) -> WAny {
     if peek(p) != 61u8 { return WAny::ref_to(0i64 as *const u8); }   // '='
     advance(p);
     let init: WAny = parse_value(h, p, depth + 1i64);
-    return tv_build(h, name.as_str(), params_arr, n_params, had_parens, init);
+    return tv_build(h, name, params_arr, n_params, had_parens, init);
 }
 
 // Build + validate the WTypedValue (shared by prefix and postfix forms).
@@ -415,7 +440,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
         skip_ws(p);
         if peek(p) == 64u8 {                     // "init"@Type(params) postfix
             advance(p);
-            let name: String = parse_ident_raw(p);
+            let name: str = parse_ident_span(p);
             if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
             skip_ws(p);
             let mut n_params: i64 = 0i64;
@@ -443,7 +468,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
                 if peek(p) != 41u8 { return WAny::ref_to(0i64 as *const u8); }
                 advance(p);
             }
-            return tv_build(h, name.as_str(), params_arr, n_params, had_parens, sval);
+            return tv_build(h, name, params_arr, n_params, had_parens, sval);
         }
         return sval;
     }

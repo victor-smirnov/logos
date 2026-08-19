@@ -227,9 +227,20 @@ PIN = {
     # fixture is exactly the failure this gate cannot otherwise see. Re-derive
     # them with the stage that added or removed the fixture, and say which half
     # it joined — that sentence is the accounting.
-    'corpus'            : 2180,
+    # #71/#72 round (2026-08-19): 2180 -> 2184. The round added 8 fixtures, 4 of
+    # them pass — bc_flowsum_rawtrip_outparam_admit, bc_fatret_nested_call_admit,
+    # bc_fatret_methodarg_admit, bc_fatret_struct_field_admit — and THIS gate
+    # sweeps the WHOLE pass corpus, not the wql_*/deem_* glob, so `bc_*` names
+    # stay out of the two OLDER gates' populations and land squarely in this
+    # one. That is the gate doing its job on its first outside contact: it was
+    # written because doors outside the glob were pinned by nothing, and the
+    # first thing it caught was its own population drifting. Doors did NOT move
+    # (36 = 10 + 26) — the new fixtures hold none, which the `doors`/`glob`/
+    # `nonglob_doors` pins below assert independently of this count.
+    'corpus'            : 2184,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 1989,  # pinned by NOTHING before this gate
+    'nonglob'           : 1993,  # pinned by NOTHING before this gate; +4 with
+                                 # `corpus` above, same four bc_* pass fixtures
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
                                  # readable statement of intent, not a check:
                                  # nonglob_set = corpus_set - glob_set, so the

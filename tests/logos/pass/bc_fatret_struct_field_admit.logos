@@ -1,0 +1,21 @@
+// #71 — ADMIT half, the ABUSE DIRECTION for a large widening.
+// `holds_any_ref` puts 446 NAMES into "may carry a borrow" where
+// `holds_mut_ref` held 17 (measured, LOGOS_DUMP_HOLDS_ANY_REF, whole stdlib):
+// 318 ref-kind field declarations across 434 stdlib structs before the
+// container closure, `Why { ssz: [str; 4] }` among them. A widening that big
+// is worth exactly as much as its refusal is narrow, so this fixture holds the
+// other side: the SAME struct, the SAME raw-ref field, the SAME composition in
+// argument position, and the ONE VARIABLE is that `tmp` outlives `held`.
+// A borrow that does not escape its referent's scope must stay admitted.
+package bc_fatret_struct_field_admit;
+
+pub struct H { r: &i64 }
+
+pub fn pick(src: H) -> H { return src; }
+
+fn main() -> i32 {
+    let tmp: i64 = 9i64;
+    let held: H = pick(H { r: &tmp });
+    if *held.r == 9i64 { return 0i32; }
+    return 1i32;
+}

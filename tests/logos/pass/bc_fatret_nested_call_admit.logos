@@ -1,0 +1,37 @@
+// #71/#72 round, layer 2 — ADMIT half, and the ONE VARIABLE against the
+// dangle twin is whether the CALLEE RETAINS its argument. Everything else is
+// byte-identical: same fat `str` by-value argument, same `MethodCall` node,
+// same dying `owner`, same use of the result afterwards.
+//
+// `my_as_str3` returns a static literal, so its summary is `result<-0` and
+// `arg_retained_by_callee` answers false — no tie, admitted. That is the
+// tv_build exemption stated BY CONSTRUCTION rather than by a fat-versus-plain
+// guess: the two fixtures cannot be separated by the argument's TYPE (it is
+// the same `str`) nor by the result's (also the same), only by what the
+// callee DOES. The companion pin
+// tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos holds the same
+// line for a `#[borrow_carrying]` result.
+package bc_fatret_nested_call_admit;
+use logos.mem.string;
+
+pub fn my_as_str3(s: &str) -> str { return "abcde"; }
+
+fn main() -> i32 {
+    let v: str;
+    {
+        let owner: String = String::from("hello");
+        v = my_as_str3(owner.as_str());
+    }
+    // ⚠ THE ASSERTION IS THE VERDICT, NOT THE BYTES. `v` must be USED after
+    // the block or the §B6 liveness question is never asked — but the VALUE
+    // read back must not be asserted: a deferred-init `str` assigned inside a
+    // block reads a wrong length today (`let v: str; { v = "abcde"; }
+    // v.len()` returns 1, measured this round on a fixture with no call and
+    // no borrow at all — a pre-existing codegen defect, filed separately, and
+    // untouchable by a borrow-check change since this pass only emits
+    // diagnostics). `len() >= 0` is true for every possible value, so the use
+    // is real and the fixture asserts exactly one thing: that this compiles.
+    let n: i64 = v.len();
+    if n >= 0i64 { return 0i32; }
+    return 1i32;
+}

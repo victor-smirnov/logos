@@ -75,6 +75,11 @@ struct TypeSets {
     // `loan_carrying` on purpose: this set answers "can a deposit be WRITTEN
     // through this value", which is what an alias edge is consumed for.
     std::unordered_set<std::string> holds_mut_ref;
+    // #71 SPIKE — "this type IS, or transitively CONTAINS, ANY reference".
+    // holds_mut_ref's fixpoint with ONE predicate changed (MutRef ->
+    // is_ref_kind) plus tuple/array element seeding, which holds_mut_ref's set
+    // builder lacks. Consumed only by type_may_carry_borrow.
+    std::unordered_set<std::string> holds_any_ref;
     // Name → def indices (built once in build_type_sets). Replace the per-type
     // linear scans of prog.structs / struct_specializations / enums that made
     // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
@@ -336,6 +341,69 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                 if (hit) { reg_hm_name(ed_name); hm_changed = true; }
             }
         }
+    }
+    // ── #71 SPIKE — holds_any_ref: holds_mut_ref's fixpoint, is_ref_kind ────
+    {
+        auto has_any = [&](TypeRef t) -> bool {
+            return t && (t.kind() == LogosType::Kind::Ref ||
+                         t.kind() == LogosType::Kind::MutRef ||
+                         t.kind() == LogosType::Kind::Slice ||
+                         (t.kind() == LogosType::Kind::DstRef && !t.owning_dst()) ||
+                         (t.kind() == LogosType::Kind::TraitObject &&
+                          !t.owning_trait_object()));
+        };
+        std::function<bool(TypeRef)> type_is_ha = [&](TypeRef t) -> bool {
+            if (has_any(t)) return true;
+            auto n = type_bc_name(t);
+            if (!n.empty() && ts.holds_any_ref.count(n) > 0) return true;
+            if (!t) return false;
+            for (auto a : t.type_args()) {
+                if (has_any(a)) return true;
+                auto an = type_bc_name(a);
+                if (!an.empty() && ts.holds_any_ref.count(an) > 0) return true;
+            }
+            // holds_mut_ref's set builder inspects ONLY type_args, so
+            // `struct H { t: (&i64, i64) }` reopens the hole one level down.
+            if (t.kind() == LogosType::Kind::Tuple)
+                for (auto e : t.tuple_elems())
+                    if (type_is_ha(TypeRef(e))) return true;
+            if (t.kind() == LogosType::Kind::Array)
+                return type_is_ha(t.elem());
+            return false;
+        };
+        auto reg_ha_name = [&](const std::string& name) {
+            ts.holds_any_ref.insert(name);
+            std::string_view n = name;
+            if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+                ts.holds_any_ref.insert(std::string(n.substr(dot + 1)));
+        };
+        bool ha_changed = true;
+        while (ha_changed) {
+            ha_changed = false;
+            auto consider = [&](lir_view::StructView sd) {
+                if (ts.holds_any_ref.count(std::string(sd.name()))) return;
+                for (auto& f : sd.fields())
+                    if (type_is_ha(f.type(prog.type_pool.impl()))) {
+                        reg_ha_name(std::string(sd.name())); ha_changed = true; return;
+                    }
+            };
+            for (auto& sd : prog.structs)                 consider(sd);
+            for (auto& sd : prog.struct_specializations)  consider(sd);
+            for (auto& ed : prog.enums) {
+                std::string ed_name(ed.name());
+                if (ts.holds_any_ref.count(ed_name)) continue;
+                bool hit = false;
+                ed.each_variant([&](lir_view::EnumVariantView var) {
+                    if (hit) return;
+                    var.each_payload_type(prog.type_pool.impl(),
+                                          [&](TypeRef pt) { if (type_is_ha(pt)) hit = true; });
+                });
+                if (hit) { reg_ha_name(ed_name); ha_changed = true; }
+            }
+        }
+        if (std::getenv("LOGOS_DUMP_HOLDS_ANY_REF"))
+            fprintf(stderr, "[holds_any_ref] %zu names (holds_mut_ref: %zu)\n",
+                    ts.holds_any_ref.size(), ts.holds_mut_ref.size());
     }
     // Name → def indices for O(1) by-name lookup (first-def-wins).
     for (auto& sd : prog.structs)               ts.struct_by_name.emplace(std::string(sd.name()), sd);
@@ -2190,6 +2258,41 @@ private:
         auto sub = [&](const std::string& p) {
             return path.empty() ? p : path + "." + p;
         };
+        // ── #71/#72 round / CLASS B: THE FAT BY-VALUE ARG, TIED BY FACT ────
+        //
+        // THE DEFECT the per-arg filters below leave open. `my_as_str2(
+        // owner.as_str())` where `fn my_as_str2(s: &str) -> str { return s; }`
+        // ADMITS at rc=0 — a real dangle — because the argument is a fat
+        // `MethodCall` and all three filters answer NO: not `is_plain_ref_kind`
+        // (fat), not `is_borrow_carrying_type` (a `str` carries nothing BY
+        // NAME), and `forms_borrow_at_call` excludes MethodCall on purpose.
+        // The callee's SUMMARY, meanwhile, says `result<-0x1` — "I retain
+        // parameter 0" — and NOTHING in this channel ever asked it.
+        //
+        // ⚠ AND THE EXCLUSION CANNOT SIMPLY BE DROPPED. It exists for
+        // `tv_build(h, name.as_str(), …)` (stdlib/mem/writ/parser.logos), a fat
+        // by-value COPY that must NOT tie, pinned in the abuse direction by
+        // tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos — whose
+        // callee returns a `#[borrow_carrying]` value on purpose, so no
+        // "results that are scalars are safe" shortcut can pass it.
+        //
+        // THE RULE, and why it keeps that exemption BY CONSTRUCTION rather
+        // than by a fat-versus-plain guess: an argument ties iff the callee's
+        // borrow-flow summary says its bit reaches the result. The pin's `tvb`
+        // summarises `result<-0` (the Pod arm retains nothing) → no tie, green
+        // stays green. `my_as_str2` summarises `result<-0x1` → tie, dangle
+        // refused. The two are separated by what the callee DOES, which is the
+        // only thing that can separate them; the argument's TYPE is the same
+        // fat `str` in both. Falls back to the kind filters whenever the
+        // summary is unavailable (extern, cross-package, >kFlowMaxParams), so
+        // this can only ADD ties, never remove one.
+        //
+        // `idx` is param-space: receiver-first for a method call, matching
+        // FlowSummary's own convention (call_result_taint's comment).
+        auto arg_retained_by_callee = [](const FlowSummary* fs, size_t idx) {
+            return fs && fs->available && idx < fs->nparams &&
+                   (fs->to_result & (1ull << idx)) != 0;
+        };
         // ── D1 residuals / R1 store side: DOES THIS ARG NODE FORM THE BORROW
         // AT THE CALL SITE? The per-arg filters below deliberately exclude fat
         // forms via `is_plain_ref_kind` (a by-value slice COPY — `tv_build(h,
@@ -2370,9 +2473,23 @@ private:
                 bool plain = is_plain_ref_kind(rt);
                 bool fat   = !plain && is_ref_kind(rt);
                 bool bc    = is_borrow_carrying_type(rt);
-                if (plain || bc || (fat && result_borrows_self(v))) {
-                    collect_ref_sources_paths(v.receiver(), path, out);
+                const FlowSummary* fs = flow_of_method(v);
+                // Class B, method spelling. The ENTRY gate widens too: a
+                // method that retains an ARGUMENT (not self) into a fat result
+                // is invisible to `result_borrows_self`, which asks only about
+                // the receiver. Gated on the result being able to carry a
+                // borrow at all, and on the summary saying SOMETHING reaches
+                // it — so a summary of `result<-0` opens no gate.
+                bool by_flow = fs && fs->available && fs->to_result != 0 &&
+                               type_may_carry_borrow(rt);
+                if (plain || bc || (fat && result_borrows_self(v)) || by_flow) {
+                    // param 0 is the receiver, matching FlowSummary's order.
+                    if (plain || bc || (fat && result_borrows_self(v)) ||
+                        arg_retained_by_callee(fs, 0))
+                        collect_ref_sources_paths(v.receiver(), path, out);
+                    size_t idx = 1;
                     v.each_arg([&](lir_view::ExprRef a) {
+                        size_t i = idx++;
                         // D1: a BY-VALUE borrow-carrying argument carries its
                         // sources exactly like a plain-ref one — the same rule
                         // the loan channel applies. Reached only under the
@@ -2380,7 +2497,8 @@ private:
                         // returning a scalar still ties nothing.
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool)) ||
-                                  forms_borrow_at_call(a)))
+                                  forms_borrow_at_call(a) ||
+                                  arg_retained_by_callee(fs, i)))
                             collect_ref_sources_paths(a, path, out);
                     });
                 }
@@ -2647,14 +2765,19 @@ private:
                 // unchanged — still only the args that are themselves plain
                 // refs or bc — so a call returning `Option<i64>` from an i64
                 // arg still ties nothing.
-                if (type_may_carry_borrow(e.type(pool)))
+                if (type_may_carry_borrow(e.type(pool))) {
+                    const FlowSummary* fs = flow_of_call(v.callee());
+                    size_t idx = 0;
                     v.each_arg([&](lir_view::ExprRef a) {
+                        size_t i = idx++;
                         // D1: by-value borrow-carrying args too (`id(c.mk())`).
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool)) ||
-                                  forms_borrow_at_call(a)))
+                                  forms_borrow_at_call(a) ||
+                                  arg_retained_by_callee(fs, i)))
                             collect_ref_sources_paths(a, path, out);
                     });
+                }
                 return;
             }
             // Ref-to-ref provenance chaining: `o = r` (r another reference
@@ -4185,6 +4308,14 @@ private:
     bool type_may_carry_borrow(TypeRef t) const {
         if (!t) return false;
         if (is_ref_kind(t) || loan_carrying_type(t)) return true;
+        {   // #71 SPIKE
+            auto k = t.kind();
+            std::string n;
+            if (k == LogosType::Kind::Enum) n = std::string(t.enum_name());
+            else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+                n = std::string(t.struct_name());
+            if (!n.empty() && ts_.holds_any_ref.count(n) > 0) return true;
+        }
         for (auto a : t.type_args())
             if (type_may_carry_borrow(a)) return true;
         // #70 MISS-2: a TUPLE's elements are not type_args, so `(&i64, i64)`

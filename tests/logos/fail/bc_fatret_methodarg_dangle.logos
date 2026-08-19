@@ -1,0 +1,27 @@
+// #71/#72 round, layer 2, METHOD spelling — REFUSE half.
+// The MethodCall arm's ENTRY gate is `plain || bc || (fat &&
+// result_borrows_self)`, and `result_borrows_self` asks only about the
+// RECEIVER. A method that retains an ARGUMENT into a fat result is invisible
+// to it: `Keeper::keep(self, s: str) -> str { return s; }` borrows nothing
+// from self, so the whole arm was skipped and the dangle admitted at rc=0.
+// The summary says `result<-0x2` — parameter 1, the argument — which is
+// exactly the fact the widened gate now reads.
+package bc_fatret_methodarg_dangle;
+use logos.mem.string;
+
+pub struct Keeper { pub n: i64 }
+
+impl Keeper {
+    pub fn keep(self: Keeper, s: str) -> str { return s; }
+}
+
+fn main() -> i32 {
+    let k: Keeper = Keeper { n: 1i64 };
+    let v: str;
+    {
+        let owner: String = String::from("hello");
+        v = k.keep(owner.as_str());
+    }
+    if v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

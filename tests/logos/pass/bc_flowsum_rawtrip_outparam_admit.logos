@@ -1,0 +1,27 @@
+// #71/#72 round, layer 1 — ADMIT half, the abuse direction for the same
+// widening. Identical to the dangle twin except that the owner is never
+// mutated while the aggregate is live: the `clear()` happens AFTER the last
+// read of `w.ssz[0]`. The repaired summary now says `sas: result<-0x1` and
+// `sides: out0<-0x2` — a TRUE fact — so this fixture is what proves the new
+// truth does not become an over-refusal wherever a real borrow exists but
+// no conflict does. It is the stdlib's own §4b shape (`join_order.logos`
+// deferred arm at :1049, whose `szs` really is read while live).
+package bc_flowsum_rawtrip_outparam_admit;
+use logos.mem.string;
+
+pub struct W { pub ssz: [str; 4] }
+
+pub fn sas(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()); }; }
+
+pub fn sides(w: &mut W, szs: &[String; 4]) { w.ssz[0] = sas(&szs[0]); }
+
+fn main() -> i32 {
+    let mut szs: [String; 4] = [String::from("aa"), String::from("bb"),
+                                String::from("cc"), String::from("dd")];
+    let mut w: W = W { ssz: ["", "", "", ""] };
+    sides(&mut w, &szs);
+    let n: i64 = w.ssz[0].len();
+    szs[0].clear();
+    if n == 2i64 { return 0i32; }
+    return 1i32;
+}

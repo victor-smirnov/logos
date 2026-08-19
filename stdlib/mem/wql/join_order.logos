@@ -991,9 +991,20 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
             // `sz_remedy_words` derives the repair from the same code.
             let mut rs: JoinOrder = jo_ground(WG_NO_SIZE(), AX_REFUSED());
             rs.w.nfl = nfl;
-            why_sides(&mut rs.w, c, &fl, nfl, &rsn, szs);
+            // ⚠ NO `why_sides_sz` HERE, AND THAT IS THE DIFFERENCE FROM THE DEFERRED
+            // PATH. The size EXPRESSIONS are only ever read for a DEFERRED ground
+            // (`why_push_sizes` is reached from `why.logos` under
+            // `w.ground == WG_DEFERRED()` and from the `jo.deferred` trace arm), and
+            // this ground is `WG_NO_SIZE`: the strings were blanked one statement
+            // later and could never be read. Storing them anyway made `rs.w.ssz[k]`
+            // a `str` INTO `szs[k]` that the very next loop `clear()`s — a borrow
+            // held across the mutation of its owner, which rustc rejects and which
+            // survived here only because the raw round trip in `string_as_str`
+            // severs the provenance the checker follows. `ssz` is already `""` from
+            // `why_new`, so the blanking loop had nothing to undo either.
+            why_sides(&mut rs.w, c, &fl, nfl, &rsn);
             let mut i4: i64 = 0i64;
-            while i4 < nfl { szs[i4].clear(); rs.w.ssz[i4] = ""; i4 = i4 + 1i64; }
+            while i4 < nfl { szs[i4].clear(); i4 = i4 + 1i64; }
             return rs;
         }
         deferred = true;
@@ -1038,7 +1049,8 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     jo.w.nnest = jo.ncand;
     if deferred {
         why_set(&mut jo.w, WG_DEFERRED(), AX_SEARCHED());
-        why_sides(&mut jo.w, c, &fl, nfl, &rsn, szs);
+        why_sides(&mut jo.w, c, &fl, nfl, &rsn);
+        why_sides_sz(&mut jo.w, szs);
     } else {
         why_set(&mut jo.w, WG_ADMITTED(), AX_SEARCHED());
     }
@@ -1078,14 +1090,12 @@ fn jo_decline(jo: &mut JoinOrder, g: i32, ax: i32, szs: &mut [String; 4], ats: &
 /// noise a reader has to diff — the same reason `push_size_bindings_4` binds one fact
 /// per distinct expression TEXT. Doing it in the renderer instead would have been a
 /// second computation over the same array, which is a second place to drift.
-fn why_sides(w: &mut Why, c: &JCh, fl: &[i64; 9], nfl: i64, rsn: &[i32; 4],
-             szs: &[String; 4]) {
+fn why_sides(w: &mut Why, c: &JCh, fl: &[i64; 9], nfl: i64, rsn: &[i32; 4]) {
     w.nsd = nfl;
     let mut k: i64 = 0i64;
     while k < nfl {
         w.scode[k] = rsn[k];
         w.ssrc[k]  = c.src[fl[k]];
-        w.ssz[k]   = string_as_str(&szs[k]);
         let mut n: i64 = 0i64;
         let mut first: bool = true;
         let mut i: i64 = 0i64;
@@ -1098,6 +1108,26 @@ fn why_sides(w: &mut Why, c: &JCh, fl: &[i64; 9], nfl: i64, rsn: &[i32; 4],
         }
         w.srep[k]   = n;
         w.sfirst[k] = first;
+        k = k + 1i64;
+    }
+}
+
+/// THE SIZE EXPRESSIONS, WHICH ARE THE ONE PER-SIDE FACT THAT BORROWS. Split off
+/// `why_sides` because they are the only field of the record whose value is a `str`
+/// INTO the caller's `szs`, and the only one a refusing ground never reads: the two
+/// readers of `w.ssz` (`why_push_sizes`, both call sites) are guarded by
+/// `w.ground == WG_DEFERRED()` and `jo.deferred`.
+///
+/// ⚠ THE SPLIT IS A LIFETIME STATEMENT, not tidying. `decide_over_set`'s refusal path
+/// called `why_sides` and then `clear()`ed the very strings it had just borrowed —
+/// the borrow outlived the mutation of its owner by one statement, and the record it
+/// wrote was dead on arrival. Calling this tail ONLY where the record survives and
+/// `szs` does not move again makes the lifetime a property of the call graph rather
+/// than of a comment.
+fn why_sides_sz(w: &mut Why, szs: &[String; 4]) {
+    let mut k: i64 = 0i64;
+    while k < w.nsd {
+        w.ssz[k] = string_as_str(&szs[k]);
         k = k + 1i64;
     }
 }

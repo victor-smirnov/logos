@@ -1,0 +1,24 @@
+// #71/#72 round, layer 2 (borrow_check.cpp collect_ref_sources_paths) —
+// REFUSE half. A FAT BY-VALUE argument (`owner.as_str()`, a `str`-typed
+// MethodCall) handed to a callee that RETAINS it into a fat result.
+//
+// All three per-arg filters answer NO here: not `is_plain_ref_kind` (fat),
+// not `is_borrow_carrying_type` (a `str` carries nothing BY NAME), and
+// `forms_borrow_at_call` excludes MethodCall on purpose (the tv_build
+// exemption). So nothing was deposited and this dangle ADMITTED at rc=0.
+// The callee's SUMMARY said `result<-0x1` the whole time and this channel
+// never asked it. It asks now.
+package bc_fatret_nested_call_dangle;
+use logos.mem.string;
+
+pub fn my_as_str2(s: &str) -> str { return s; }
+
+fn main() -> i32 {
+    let v: str;
+    {
+        let owner: String = String::from("hello");
+        v = my_as_str2(owner.as_str());
+    }
+    if v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,37 @@
+// #71 — REFUSE half. A plain, non-generic struct with a RAW-REF FIELD,
+// composed in argument position: `pick(H { r: &tmp })`.
+//
+// THE GATE THAT WAS SHUT. `collect_ref_sources_paths`' EC::Call arm asks
+// `type_may_carry_borrow` on the RESULT type before it looks at any argument,
+// and that predicate answered NO for `H`: `H` is not a ref kind, is not
+// `#[borrow_carrying]`, is not loan-carrying (that set propagates only NAMED
+// carriers), exposes no `type_args`, is not a tuple and not an array. The
+// `forms_borrow_at_call` StructLit arm one level down would have answered YES
+// — it was never reached, because the arg loop is inside the `if`.
+//
+// PROVED BY THE ONE-VARIABLE TWIN, before the fix: making `H` generic
+// (`H<T> { r: T }`, so `type_args()` yields `&i64` and line 4188 fires)
+// flipped rc 0 -> 1 with nothing else changed. Tuple, generic enum and array
+// spellings of the same composition all refused already; a plain struct with a
+// raw-ref field was the only hole.
+//
+// The fix is `holds_any_ref` — `holds_mut_ref`'s fixpoint with one predicate
+// changed (`MutRef` -> `is_ref_kind`) plus tuple/array element seeding, which
+// `holds_mut_ref`'s SET BUILDER lacks (its `type_is_hm` inspects only
+// `type_args`, so `struct H { t: (&i64, i64) }` would reopen the hole one
+// level down).
+package bc_fatret_struct_field_dangle;
+
+pub struct H { r: &i64 }
+
+pub fn pick(src: H) -> H { return src; }
+
+fn main() -> i32 {
+    let held: H;
+    {
+        let tmp: i64 = 9i64;
+        held = pick(H { r: &tmp });
+    }
+    if *held.r == 9i64 { return 0i32; }
+    return 1i32;
+}

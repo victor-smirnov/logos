@@ -3085,9 +3085,73 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7301
-REGISTRY-NOIMPORTED  3618
+REGISTRY-ALL         7309
+REGISTRY-NOIMPORTED  3626
 REGISTRY-TIERCOMMIT  36
+# 2026-08-19, +8/+8/0 (7301/3618/36 -> 7309/3626/36), predicted before the
+# reconfigure and met exactly. #71/#72: THE RAW-POINTER ROUND TRIP SEVERED
+# BORROW PROVENANCE, IN TWO SEPARATE CHANNELS, AND BOTH ARE CLOSED AT THE
+# DEPOSIT SITE (collect_ref_sources_paths) — NOT AT THE RETURN SITE. The
+# round's own verify measured the difference and it is not a quibble: the
+# return-escape channel never consults a flow summary, it is keyed on the
+# DECLARED #[borrow_carrying] attribute, so `fn bad() -> &i64 { let t = 9;
+# return keepr(&t); }` — a plain &i64 through a one-line identity call —
+# still ADMITS (task #77, with the same shape for FnPtrCall/ClosureCall in
+# #79 and the out-param scope-escape half in #78). "Closed" here means: the
+# deposit site now ties what the callee's summary says it retains, which is
+# what #72's cross-fn shape and #71's struct-field shape needed.
+#   Layer 1 — src/compiler/borrow_flow_summary.inc. Four repairs to the
+#   summarizer's `taint_of` / `call_result_taint`: a `SlicePtr` arm (`s.as_ptr()`
+#   on a SLICE is a node, not a MethodCall), an address-arithmetic PEEL entered
+#   from a Cast into a carrying type (`(p as i64 + 8) as *const T` decays the
+#   static type, so no can_carry-GATED BinOp arm can see it), a `PtrArith` arm
+#   (`p.byte_add(n)` is its own node — found while bite-proving the peel), and
+#   the fallback ARG gate widened from a three-predicate triple to the same
+#   `can_carry` the RESULT gate one line above already used (the asymmetry
+#   inside one fallback WAS the defect: bodyless `str_from_raw` contributed
+#   nothing, so the whole `string_as_str` family read `result<-0`).
+#   TWO ARMS WERE WRITTEN, MEASURED DEAD AND REMOVED rather than shipped: a
+#   gated `BinOp` and a gated `Unary` arm executed ZERO times over the probes,
+#   the stdlib and examples/deem_memoria_showcase.logos (fire-print) — a BinOp
+#   can never be pointer-typed and generic bodies are never summarised.
+#   Layer 2 — src/compiler/borrow_check.cpp collect_ref_sources_paths. The
+#   per-arg filters never consulted a summary, so a FAT by-value argument
+#   (`my_as_str2(owner.as_str())`) tied nothing even when the callee's summary
+#   said `result<-0x1`. An argument now ties iff the callee's flow summary says
+#   its bit reaches the result, which keeps the tv_build exemption BY
+#   CONSTRUCTION (`tvb` summarises `result<-0`; measured) instead of by a
+#   fat-versus-plain guess. The MethodCall arm's entry gate widens the same way
+#   (`result_borrows_self` asks only about the RECEIVER, so a method retaining
+#   an ARGUMENT was invisible).
+#   THE SIX NEW TESTS, three refuse/admit PAIRS, one per channel:
+#     tests/logos/fail/bc_flowsum_rawtrip_outparam_dangle.logos
+#     tests/logos/pass/bc_flowsum_rawtrip_outparam_admit.logos
+#     tests/logos/fail/bc_fatret_nested_call_dangle.logos
+#     tests/logos/pass/bc_fatret_nested_call_admit.logos
+#     tests/logos/fail/bc_fatret_methodarg_dangle.logos
+#     tests/logos/pass/bc_fatret_methodarg_admit.logos
+#   Each admit twin differs from its dangle twin by ONE VARIABLE — whether the
+#   callee RETAINS its argument — not by the argument's type, which is the same
+#   fat `str` on both sides. None is tier_commit; none is imported; the names
+#   carry the `bc_` prefix and so stay outside the `logos_09` glob populations.
+#   Layer 3 — #71, the plain-struct raw-ref FIELD, lands here too, with its own
+#   pair (+2 of the 8). `type_may_carry_borrow` is the ENTRY gate of the EC::Call
+#   arm and it answered NO for `struct H { r: &i64 }`: not a ref kind, not
+#   `#[borrow_carrying]`, not loan-carrying (that set propagates only NAMED
+#   carriers), no type_args, not a tuple, not an array — so the arg loop inside
+#   the `if` never ran and `pick(H { r: &tmp })` escaped at rc 0 while its
+#   generic twin `H<T> { r: T }` refused. New `TypeSets::holds_any_ref`:
+#   holds_mut_ref's fixpoint with ONE predicate changed (MutRef -> is_ref_kind)
+#   plus tuple/array element seeding, which holds_mut_ref's SET BUILDER lacks.
+#     tests/logos/fail/bc_fatret_struct_field_dangle.logos
+#     tests/logos/pass/bc_fatret_struct_field_admit.logos
+#   THE WIDENING WAS PRICED BEFORE IT LANDED, not after: 446 names enter the set
+#   where holds_mut_ref holds 17 (measured over the whole stdlib), and against
+#   that the corpus moved ZERO rows — L1 725/725, L2 2213/2213, `ctest -R _bc_`
+#   226/226, `ctest -L fail` 1382/1382, and the stdlib itself still builds. The
+#   abuse-direction control (`if (!n.empty()) return true;` — every named type
+#   carries) reds the STDLIB build, so the set's NARROWNESS is load-bearing and
+#   the green is not vacuous.
 # 2026-08-19 (post-landing repair, no count change): the #75 fix's own verify
 # found its residual REACHABLE, and it is closed here. The point packed the
 # ordinal into 20 bits, so past 1,048,575 statements on ONE physical line the
