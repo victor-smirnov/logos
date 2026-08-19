@@ -1,0 +1,55 @@
+// ADMIT TWIN of `fail/bc_d8_match_scrutinee_field_loan_fail`. The whole-value
+// read guard added for that fixture must separate a genuine conflict from the
+// two shapes that are not one, or it is a blanket refusal of `match` over any
+// value that has a live field loan somewhere:
+//
+//   LEG 1 — a DISJOINT field scrutinee (`match &d.b` while `&mut d.a` is live).
+//           A field read is not a whole-value read; the guard only fires on a
+//           bare variable scrutinee, and this is the leg that proves it.
+//   LEG 2 — the same `match &d` the fail twin refuses, AFTER the loan is dead.
+//           The guard must not outlive the loan (NLL): `hp`'s last use is
+//           before the match, so nothing is borrowed at the scrutinee.
+//   LEG 3 — a match whose SCRUTINEE IS A CALL (`match probe(&d.b)`), the shape
+//           the direct emitter's own `next_batch` uses. It must never arrive at
+//           the guard at all.
+//
+// Runtime values are asserted so the fixture cannot pass by failing to run.
+package bc_d8_match_scrutinee_disjoint_admit;
+use logos.mem.collections.vec;
+
+#[borrow_carrying]
+pub struct Arm { pub w: u64, pub sc: Vec<u64>, pub t2: u64 }
+#[borrow_carrying]
+pub struct Dx { pub a: Arm, pub b: Arm, pub tag: u64 }
+
+pub fn dx_open() -> Dx {
+    return Dx { a: Arm { w: 0u64, sc: Vec::<u64>::new(), t2: 0u64 },
+                b: Arm { w: 7u64, sc: Vec::<u64>::new(), t2: 0u64 }, tag: 0u64 };
+}
+
+pub fn probe(a: &Arm) -> u64 { return a.w; }
+
+pub fn legs() -> u64 {
+    let mut d: Dx = dx_open();
+
+    // LEG 1 — disjoint field scrutinee while the loan on `d.a` is live.
+    let hp: &mut Arm = &mut d.a;
+    let z1: u64 = match &d.b { _ => 10u64 };
+    hp.t2 = 2u64;
+
+    // LEG 2 — the fail twin's exact spelling, with no live loan.
+    let z2: u64 = match &d { _ => 20u64 };
+
+    // LEG 3 — the scrutinee is a CALL, not a place.
+    let hp2: &mut Arm = &mut d.a;
+    let z3: u64 = match probe(&d.b) { _ => 30u64 };
+    hp2.t2 = 3u64;
+
+    return z1 + z2 + z3 + d.a.t2 + d.b.w;
+}
+
+fn main() -> i32 {
+    let k: u64 = legs();
+    if k != 70u64 { return 1i32; }   // 10 + 20 + 30 + (t2 last written 3) + 7
+    return 0i32;
+}

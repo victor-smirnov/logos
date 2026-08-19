@@ -1,0 +1,137 @@
+// ADR 0025 §12 — THE `direct` STREAM DOOR PULLS WITHOUT FILLING.
+//
+// WHAT THIS FIXTURE ASSERTS, AND WHY EACH CLAUSE IS LOAD-BEARING. The §12
+// `direct` form emits, beside `scan_all`, a per-query state struct `ScanAllDx`
+// holding the container's leaf walk as a FIELD, and re-points `scan_all_stream`
+// at it: `Result<ScanAllDx, ElError>` instead of `Result<Buffer<(u64,u64)>,
+// ElError>`. The claim is that the door NEVER FILLS TO COMPLETION — it hands
+// out one packet per source leaf. A `Vec`-returning oracle cannot see that: a
+// buffered facade and a direct one agree on every row.
+//
+//   · `pk >= 2` IS THE WHOLE POINT and is what a re-buffering regression would
+//     break. A `Buffer` yields exactly ONE packet (stream.logos: one packet
+//     then `None`), so any implementation that materializes the answer and then
+//     hands it back reads `pk == 1` here whatever its rows are. 2000 rows over
+//     an ordered_map is many leaves; the assertion is `>= 2` and not an exact
+//     count because the leaf capacity is the container's business, not this
+//     fixture's — pinning it would be this test asserting a fanout it does not
+//     own. PROVED TO BITE: perturbing `pk < 2u64` to `pk < 200000u64` returns
+//     rc 3 (recorded with the landing; restored).
+//   · THE ROWS AND THE KEY-SUM AGAINST THE CONTAINER'S OWN CURSOR. A stream
+//     that pulls packets and drops half of them is still multi-packet, so the
+//     packet count alone proves nothing about the ANSWER. The oracle is the
+//     container cursor walked with the SAME predicate — a different mechanism
+//     (per-row `seek`/`next`) reaching the same rows, not the emitter compared
+//     with itself.
+//   · THE BUFFERED `Vec` SURFACE STILL AGREES. `scan_all(&c)` is untouched by
+//     this stage by design (S5: the stream stage ADDS a door and moves nothing
+//     behind the old one), and the fixture says so rather than assuming it.
+//   · THE PACKET SLICE IS RE-READ, NOT COUNTED. The loop indexes `bb[j].0` out
+//     of the returned `&[(u64,u64)]`, which is borrowed out of the state
+//     struct's scratch — the shape that would red if `next_batch` returned a
+//     view of a local.
+//
+// SOURCE CLASS: a CONTAINER WALK, which is the one class §12 `direct` is landed
+// for. The refusals (slice params, joins, aggregates, sort, distinct, limit,
+// generic, borrowed element) are named at the decision site in
+// `rexpr_walk::emit_simple` and printed in the landing's ground.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.lang.stream;
+
+pub container Dsp {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 2000u64;
+
+pub deem scan_all(m: &<typeof(Dsp) as CtrFamily>::Handle) {
+    from m e where e.key > 30u64 select (e.key, e.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Dsp)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 3u64, i * 10u64); i = i + 1u64; }
+
+    // ── THE ORACLE: the container's OWN cursor, same predicate ──────────────
+    let mut rows_o: u64 = 0u64;
+    let mut ksum_o: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            if cu.key() > 30u64 { ksum_o = ksum_o + cu.key(); rows_o = rows_o + 1u64; }
+            cu = c.next(&cu);
+        }
+    }
+    if rows_o == 0u64 { return 1i32; }
+
+    // ── THE DIRECT DOOR: packets, rows, key-sum ────────────────────────────
+    let mut ds = match scan_all_stream(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+
+    let mut pk: u64 = 0u64;
+    let mut rows_d: u64 = 0u64;
+    let mut ksum_d: u64 = 0u64;
+    // ── THE TRAIT FACADE, EXECUTED ─────────────────────────────────────────
+    // `BatchStream<RowsBatch<E>>::next` is the surface a generic consumer sees,
+    // and until this line the corpus exercised it NOWHERE at runtime: the door
+    // census counts ten forward `impl BatchStream` blocks by reading the emitted
+    // SOURCE, which is a claim that the impl exists, not that it works. So the
+    // FIRST packet is pulled through the trait method and the rest through the
+    // inherent one, and both feed the same accumulators the oracle is compared
+    // against — a facade that dispatched wrongly, returned an empty batch or
+    // dropped its packet moves `rows_d`/`ksum_d` and reds at clause 4 or 5.
+    // The annotation is not optional: `next`'s result type is the trait's
+    // PARAMETER, so inferring it means selecting the impl (the same reason
+    // `emit_stream_direct` annotates its own emitted `let`s).
+    let ob0: Option<RowsBatch<(u64, u64)>> = ds.next();
+    if ob0.is_none() { return 8i32; }
+    {
+        let b0 = ob0.unwrap();
+        if b0.len() == 0i64 { return 9i32; }
+        let mut j0: i64 = 0i64;
+        while j0 < b0.len() {
+            ksum_d = ksum_d + b0[j0].0;
+            rows_d = rows_d + 1u64;
+            j0 = j0 + 1i64;
+        }
+    }
+    pk = pk + 1u64;
+    loop {
+        let ob = ds.next_batch();
+        if ob.is_none() { break; }
+        let bb = ob.unwrap();
+        let mut j: i64 = 0i64;
+        while j < bb.len() {
+            ksum_d = ksum_d + bb[j].0;
+            rows_d = rows_d + 1u64;
+            j = j + 1i64;
+        }
+        pk = pk + 1u64;
+    }
+    // MULTI-PACKET is the assertion a re-buffering regression breaks.
+    if pk < 2u64 { return 3i32; }
+    if rows_d != rows_o { return 4i32; }
+    if ksum_d != ksum_o { return 5i32; }
+
+    // ── THE BUFFERED `Vec` SURFACE IS UNMOVED ──────────────────────────────
+    let a: Vec<(u64, u64)> = match scan_all(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if a.len() as u64 != rows_o { return 7i32; }
+    return 0i32;
+}

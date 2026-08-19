@@ -58,7 +58,10 @@
 # set: this gate does not restate criterion 2, it holds the reading the arc
 # closed on.
 #
-#   next_batch() pulls                     1018   (R-F: 165 → 1018)
+#   next_batch() calls (all)               1040   S5-direct: pulls + forwards
+#       PULLS                              1030   (R-F: 165 → 1018)
+#       BatchStream forwards                 10   S5-direct: a DISPATCH, not a pull
+#       residual                              0   pinned at zero (positive rules)
 #   SliceStream::<  wraps                  1002   (R-F: 149 → 1002)
 #   .next() row pulls                        65   (unmoved since the audit)
 #       aggregate key enumeration            39   declared out (Part 3b)
@@ -180,14 +183,83 @@ PIN = {
     # spellings), which is the +1 on the three pins below — `next_batch` UP is
     # the sanctioned direction (criterion 2 progressing). Verified by the
     # gate's own three-way correspondence holding at 1019 == 1019 == 1019.
-    'dumps'            : 172,
+    # S5-direct (ADR 0025 §12, this stage): 172 -> 173, `deem_direct_stream_pull`
+    # joins the `deem_*` glob with one `pub deem scan_all` over its own `Dsp`
+    # container. Its ONE query contributes TWO `next_batch()` calls, and the two
+    # land in DIFFERENT populations — the `_run` body's batch pull (+1 on
+    # `nb_pull` and on both loop counts) and the direct door's own
+    # `(self.w).next_batch()` (+1 on `nb_pull`, and a `return self.next_batch();`
+    # +1 on `nb_forward`). That split is the whole reason the pin block below
+    # changed shape rather than only changing numbers.
+    # V2-M1 (2026-08-19): 173 -> 174, `deem_direct_fallible_buffered` joins the
+    # `deem_*` glob. Its ONE query is a container walk whose `select` does
+    # ARITHMETIC, so the §12 direct door is REFUSED (the emitted `?` has no
+    # `Result` to propagate into inside `next_batch`) — which is why it is the
+    # first `deem_*` addition since S5-direct that moves the pull pins WITHOUT
+    # moving the door pins: +1 `nb_pull` and +1 on both loop counts from the
+    # `_run` body's batch pull, and +0 on `nb_forward`, `dx_struct`,
+    # `dx_inherent`, `dx_facade` and the `BatchStream` impl count, all of which
+    # stay at 10. That asymmetry is the fixture's whole assertion, read here.
+    'dumps'            : 174,
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
     # routing the twelve remaining slice sites; every wrap it added removed
     # exactly one indexed walk, which is the accounting the three-way
     # correspondence below re-asserts on every run.
-    'next_batch'       : 1019,   # R-F: 165 -> 1018; D7 #62: +1 (see `dumps`)
+    # ── ⚠ `next_batch` STOPPED BEING ONE POPULATION AT S5-direct ────────────
+    # Until this stage every `.next_batch()` in the corpus was a PULL: a
+    # consumer asking a source for its next packet. §12's `direct` door emits a
+    # third form beside them — `impl BatchStream<…> for <Q>Dx { fn next(&mut
+    # self) { return self.next_batch(); } }` — and that call is a DISPATCH, not
+    # a pull: it forwards the trait method to the inherent one ON THE SAME
+    # OBJECT and moves no data at all. Counting it as a pull would inflate
+    # criterion 2's numerator by exactly the number of doors this stage lands,
+    # i.e. it would let the stage grade itself, and would break the
+    # loop-correspondence clause below for the same reason (a forward has no
+    # `__bj` loop because it does no work).
+    #
+    # TWO POSITIVE RULES AND A ZERO-PINNED RESIDUAL, which is this gate's own
+    # doctrine applied to its own subject (see `walks_unclaimed`):
+    #   · PULL     — the receiver is a PLACE the emitter parenthesises
+    #                (`(__ss0)`, `(__rel_c)`, `(self.w)`) or the drain
+    #                prelude's `__it_<s>` binding. Both spellings come from
+    #                `rexpr_walk::batch_scan_frag` / the drain arm.
+    #   · FORWARD  — literally `return self.next_batch();`, the trait impl's
+    #                whole body, emitted only by `emit_stream_direct`.
+    #   · RESIDUAL — pinned at 0. A FOURTH spelling of `.next_batch()` is a new
+    #                consumer shape and must be classified here, not absorbed.
+    #
+    # DERIVATION OF THE PULL COUNT, 1019 -> 1030 (+11), all of it this stage:
+    #   +1  `deem_direct_stream_pull`'s `_run` body batch pull (the new fixture)
+    #   +10 one `(self.w).next_batch()` per DIRECT DOOR
+    # and the door count is 10, cross-pinned four ways below.
+    'nb_all'           : 1041,   # = nb_pull + nb_forward + 0
+    'nb_pull'          : 1031,   # R-F: 165 -> 1018; D7 #62: +1; S5-direct: +11; V2-M1: +1
+    'nb_forward'       : 10,     # S5-direct: 0 -> 10, one per direct door
+    'nb_residual'      : 0,
+
+    # ── THE DIRECT DOORS, CROSS-PINNED 1:1:1:1 ──────────────────────────────
+    # ADR 0025 §12 `direct` emits FOUR items per eligible query and they are
+    # four independent spellings of ONE decision (`rexpr_walk::emit_simple`'s
+    # `dx_on`). Pinning only the count of one of them would let three of the
+    # four go missing silently; pinning all four EQUAL is what makes a
+    # half-emitted door red.
+    #
+    # 10, measured on this tree, over 9 fixtures: `deem_batch_scan_drain`,
+    # `deem_ctr_family_streams` (×2), `deem_direct_stream_pull`,
+    # `deem_emitted_struct_field_layout`, `deem_order_desc_elision`,
+    # `deem_order_elision`, `deem_pipeline_handle_seam`,
+    # `deem_rowmajor_batch_source`, `deem_source_size`. EVERY ONE is the
+    # CONTAINER-WALK class — the plan's `rel_native && rel_node == AD_NONE &&
+    # rel_batch` forward arm — which the corpus confirms: all 10 landing grounds
+    # read "the source is a container walk — one packet per source leaf" and no
+    # other class reaches the direct door (the refusal census is in the ground
+    # gate).
+    'dx_struct'        : 10,
+    'dx_inherent'      : 10,
+    'dx_forward'       : 10,   # == nb_forward, asserted as a clause below
+    'dx_facade'        : 10,
     # THE CORRESPONDENCE, and it is R-E's F7 defect fixed rather than repeated.
     # F7 counted `while (__bj<N> < __bn<N>)` — a NUMBERED spelling — and so
     # missed the three bare `__bj` loops, reading 1015 against 1018 pulls and
@@ -199,8 +271,13 @@ PIN = {
     #   (c) the pull itself.
     # A batch pull with no loop is a batch dropped on the floor; a loop with no
     # pull is an indexed walk wearing the batch plane's variable names.
-    'batch_loop_while' : 1019,   # D7 #62: +1 (see `dumps`)
-    'batch_loop_decl'  : 1019,   # D7 #62: +1 (see `dumps`)
+    # S5-direct: 1019 -> 1030, the SAME +11 as `nb_pull` and for the same
+    # reason — a direct door's `next_batch` body is `batch_scan_frag`'s inner
+    # loop with the outer `loop` removed, so it carries exactly one `__bj`
+    # loop per pull. The forwards add none, which is the correspondence clause
+    # doing its job rather than a coincidence.
+    'batch_loop_while' : 1031,   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
+    'batch_loop_decl'  : 1031,   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
     # ⚠ THE FOURTH `__bj` DECLARATION SHAPE, pinned APART so it cannot absorb
     # a member of the population above. `let mut __bj0: u64 = __bn0;` seeds the
     # cursor at the END of the batch — the descending elision's backward walk
@@ -304,7 +381,43 @@ def n(pat):
     return len(re.findall(pat, BLOB))
 
 # ── batch pulls ─────────────────────────────────────────────────────────────
-M['next_batch']        = n(r'\.next_batch\(\)')
+# ── `next_batch()`, TWO POSITIVE RULES + A ZERO RESIDUAL (S5-direct) ────────
+# See the pin block: a `return self.next_batch();` inside a `BatchStream` impl
+# is a DISPATCH to the same object's inherent method, not a pull of a packet
+# from a source. The two rules are positive and the residual is pinned at 0, so
+# a third `.next_batch()` shape reds here instead of being absorbed into either.
+M['nb_all']            = n(r'\.next_batch\(\)')
+M['nb_forward']        = n(r'return self\.next_batch\(\);')
+# PULL rule (a): the receiver is a PARENTHESISED place — `(__ss0)`, `(__rel_c)`,
+# `(self.w)`. `batch_scan_frag` and `emit_stream_direct` both spell it that way.
+# ⚠ THE RECEIVER GROUP IS ANCHORED NON-EMPTY (`+`, not `*`), and the `*` it
+# replaces was a hole in the RESIDUAL, not in this count. `\([A-Za-z_0-9.]*\)`
+# matches `()` — a pull off a UNIT expression, i.e. exactly the malformed
+# emission the zero-pinned residual (CLAUSE 7) exists to catch — and would have
+# absorbed it into `nb_pull` silently, leaving the partition green. Nothing in
+# today's corpus spells it, so the fix moves no number; it moves what the gate
+# is CAPABLE of seeing, which is the only thing a permissive rule can be tested
+# for. Bite-proved on a PRESWEPT copy: an injected `().next_batch()` reds
+# CLAUSE 7 with `+` and is silently counted as a pull with `*`.
+# PULL rule (b): the drain prelude's own binding, `__it_<s>.next_batch()`.
+M['nb_pull']           = (n(r'\([A-Za-z_0-9.]+\)\.next_batch\(\)')
+                          + n(r'__it_[a-z_0-9]*\.next_batch\(\)'))
+M['nb_residual']       = M['nb_all'] - M['nb_pull'] - M['nb_forward']
+
+# ── the DIRECT door's four items (ADR 0025 §12) ─────────────────────────────
+M['dx_struct']         = n(r'#\[borrow_carrying\]\n\npub struct [A-Za-z_0-9]+Dx[A-Za-z_0-9]* \{')
+M['dx_inherent']       = n(r'pub fn next_batch\(self: &mut [A-Za-z_0-9]+Dx[A-Za-z_0-9]*\) -> Option<&\[')
+# ⚠ MEASURED, NOT COPIED. This read `M['nb_forward']` — so CLAUSE 8 advertised
+# a five-way cross-pin while one of its five columns was a COPY of another, and
+# a door that emitted its forwarding METHOD without the body statement (or the
+# reverse) would have satisfied the clause trivially. The forward is now read
+# off its own artifact: the trait method HEADER inside the `Dx` impl, which is a
+# different line from the `return self.next_batch();` statement `nb_forward`
+# counts. The equality of the two is then a genuine correspondence, asserted as
+# its own clause below rather than assumed by construction.
+M['dx_forward']        = n(r'fn next\(&mut self\) -> Option<RowsBatch<')
+M['dx_facade']         = n(r'-> Result<[A-Za-z_0-9]+Dx[A-Za-z_0-9]*, ElError>')
+M['dx_impl']           = n(r'impl BatchStream<RowsBatch<.*>> for [A-Za-z_0-9]+Dx')
 M['batch_loop_while']  = n(r'while \(__bj[0-9]* < __bn[0-9]*\)')
 M['batch_loop_decl']   = n(r'let mut __bj[0-9]*: u64 = 0u64;')
 M['batch_loop_reseed'] = n(r'let mut __bj[0-9]*: u64 = __bn[0-9]*;')
@@ -389,7 +502,7 @@ if wsum != M['walks_total']:
            ', '.join(sorted(set(UNCLAIMED))[:5]) or '(none)'))
 
 # ── CLAUSE 5: batch loops correspond to batch pulls, three ways ─────────────
-if not (M['batch_loop_while'] == M['batch_loop_decl'] == M['next_batch']):
+if not (M['batch_loop_while'] == M['batch_loop_decl'] == M['nb_pull']):
     fail.append(
         "CORRESPONDENCE batch plane: %d `while (__bj < __bn)` headers, %d "
         "`__bj` zero-seed declarations, %d `next_batch()` pulls — these are "
@@ -397,7 +510,7 @@ if not (M['batch_loop_while'] == M['batch_loop_decl'] == M['next_batch']):
         "batch dropped; a loop with no pull is an indexed walk wearing the "
         "batch plane's names. (R-E F7 read 1015 vs 1018 here and called it a "
         "spelling difference; it was a regex blind to three bare `__bj`.)"
-        % (M['batch_loop_while'], M['batch_loop_decl'], M['next_batch']))
+        % (M['batch_loop_while'], M['batch_loop_decl'], M['nb_pull']))
 
 # ── CLAUSE 6: the slice wrap corresponds, three ways ────────────────────────
 if not (M['slicestream_ty'] == M['slicestream_decl'] == M['slicestream_pull']):
@@ -408,13 +521,63 @@ if not (M['slicestream_ty'] == M['slicestream_decl'] == M['slicestream_pull']):
         "means a SECOND emitter of this plane has appeared."
         % (M['slicestream_ty'], M['slicestream_decl'], M['slicestream_pull']))
 
+# ── CLAUSE 7: the `.next_batch()` split is a PARTITION (S5-direct) ──────────
+if M['nb_pull'] + M['nb_forward'] + M['nb_residual'] != M['nb_all']:
+    fail.append(
+        "PARTITION next_batch(): %d pulls + %d forwards + %d residual against "
+        "%d calls — arithmetic broken, which can only mean a rule matched the "
+        "same site twice."
+        % (M['nb_pull'], M['nb_forward'], M['nb_residual'], M['nb_all']))
+if M['nb_residual'] != 0:
+    fail.append(
+        "RESIDUAL next_batch(): %d call(s) match NEITHER the pull rule (a "
+        "parenthesised place, or the drain prelude's `__it_<s>`) NOR the "
+        "forward rule (`return self.next_batch();`). A third consumer shape "
+        "exists and no decision covers it — classify it here rather than let "
+        "either bucket absorb it."
+        % M['nb_residual'])
+
+# ── CLAUSE 8: the direct door is 1:1:1:1 (S5-direct) ────────────────────────
+# ADR 0025 §12 emits FOUR items per eligible query — the state struct, its
+# inherent `next_batch`, the `BatchStream` forward and the `Result` facade — off
+# ONE decision (`emit_simple`'s `dx_on`). Four counts that must be equal is what
+# makes a HALF-emitted door red; a single count would be green with three of the
+# four missing.
+# ⚠ AND THE FORWARD IS CROSS-CHECKED AGAINST ITS OWN BODY. `dx_forward` counts
+# the trait method's HEADER, `nb_forward` counts the `return self.next_batch();`
+# STATEMENT inside it; before this repair the second was assigned to the first,
+# so the pair could not disagree. Now it can, and a method emitted without its
+# forwarding statement (or a stray forward outside a door) reds here.
+if M['dx_forward'] != M['nb_forward']:
+    fail.append(
+        "CROSS-PIN forward: %d `fn next(&mut self)` header(s) in `Dx` impls but "
+        "%d `return self.next_batch();` statement(s) — the forwarding method and "
+        "its body must correspond one to one" % (M['dx_forward'], M['nb_forward']))
+if not (M['dx_struct'] == M['dx_inherent'] == M['dx_forward']
+        == M['dx_facade'] == M['dx_impl']):
+    fail.append(
+        "CROSS-PIN direct door: %d `<Q>Dx` struct(s), %d inherent "
+        "`next_batch`, %d `BatchStream` forward(s), %d `Result<…Dx, ElError>` "
+        "facade(s), %d `impl BatchStream … for …Dx`. All five are emitted by "
+        "`rexpr_walk::emit_stream_direct` from ONE `dx_on`; a disagreement "
+        "means a door was emitted in pieces."
+        % (M['dx_struct'], M['dx_inherent'], M['dx_forward'], M['dx_facade'],
+           M['dx_impl']))
+
 # ── the report, printed whether or not anything failed ──────────────────────
 print("ADR 0025 criterion 2 — PULL SHAPE (%d fixtures, %d user dumps)"
       % (NFIX, M['dumps']))
 print("  batch pulls   next_batch()          %5d   (loops %d while / %d decl, "
       "reseed %d)"
-      % (M['next_batch'], M['batch_loop_while'], M['batch_loop_decl'],
+      % (M['nb_pull'], M['batch_loop_while'], M['batch_loop_decl'],
          M['batch_loop_reseed']))
+print("  direct doors  <Q>Dx                  %5d   (struct %d : inherent %d : "
+      "forward %d : facade %d; BatchStream impls %d)"
+      % (M['dx_struct'], M['dx_struct'], M['dx_inherent'], M['dx_forward'],
+         M['dx_facade'], M['dx_impl']))
+print("                next_batch() calls    %5d   = %d pulls + %d forwards "
+      "+ %d residual"
+      % (M['nb_all'], M['nb_pull'], M['nb_forward'], M['nb_residual']))
 print("  slice wrap    SliceStream::<        %5d   (decl %d, pull %d)"
       % (M['slicestream_ty'], M['slicestream_decl'], M['slicestream_pull']))
 print("  row pulls     .next()               %5d   = %d agg-keys (== %d "

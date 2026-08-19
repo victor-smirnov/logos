@@ -1,0 +1,137 @@
+// D8 (#74) ADMIT half — a FIELD-SPLIT loan taken by a method call on a FIELD
+// place: `self.w.next_batch()` (Walk::next_batch takes `&mut self` and returns
+// a borrow-carrying `Option<Bat>`) borrows the place `self.w`, NOT the whole
+// `self`, so the sibling-field uses `self.sc.clear()/push()/as_slice()` that
+// follow while the batch is live are ADMITTED.
+//
+// Before the fix, borrow_check.cpp's MethodCall/AddrOfTemp receiver arm called
+// take_borrow(bp.root, …) and DISCARDED bp.path — the loan landed on the whole
+// `self` and each of the three `self.sc` uses red with
+//   cannot use 'self' while it is mutably borrowed
+// (its two siblings — the bare-place receiver arm and the explicit `&mut place`
+// AddrOf arm — already split on bp.path; this one now does too).
+//
+// The shape is pinned on TWO channels in one compilation:
+//   · `QuoteDx`  — arrives through quote_item! + logos_emit_item_blob_subst
+//                  (the channel #74 was filed against),
+//   · `PlainDx`  — the same body written as ordinary MULTI-LINE source.
+// Multi-line matters: loan liveness is keyed on source LINE, so a body emitted
+// as ONE physical line is not exclusivity-checked at all — a single-line half
+// is NOT an oracle here (that is a separate, still-open defect).
+//
+// The REFUSE half of the pair is fail/bc_d8_quote_whole_self_conflict_fail.
+// exit: 0
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+pub struct Rows { pub n: u64 }
+
+#[borrow_carrying]
+pub struct Bat { pub r: &Rows, pub base: u64 }
+
+impl Bat {
+    pub fn len(self: &Bat) -> u64 { return 4u64; }
+    pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
+}
+
+#[borrow_carrying]
+pub struct Walk { pub r: &Rows, pub at: u64 }
+
+impl Walk {
+    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+        if self.at >= self.r.n { return Option::None; }
+        let b: Bat = Bat { r: self.r, base: self.at };
+        self.at = self.at + 4u64;
+        return Option::Some(b);
+    }
+}
+
+pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
+
+// ── channel A: ORDINARY SOURCE, multi-line (genuinely borrow-checked) ───────
+#[borrow_carrying]
+pub struct PlainDx { w: Walk, sc: Vec<u64>, done: bool }
+
+impl PlainDx {
+    pub fn next_batch(self: &mut PlainDx) -> Option<&[u64]> {
+        if self.done { return Option::None; }
+        let o = self.w.next_batch();
+        if o.is_some() {
+            {
+                let b = o.unwrap();
+                let n: u64 = b.len();
+                let mut j: u64 = 0u64;
+                self.sc.clear();
+                while j < n { self.sc.push(b.at(j)); j = j + 1u64; }
+            }
+            return Option::Some(self.sc.as_slice());
+        }
+        self.done = true;
+        return Option::None;
+    }
+}
+
+pub fn plain_open(r: &Rows) -> PlainDx {
+    return PlainDx { w: walk_of(r), sc: Vec::<u64>::new(), done: false };
+}
+
+// ── channel B: the quote_item! SPLICE, same text ────────────────────────────
+#[token_macro]
+pub fn gen_quote(s: str) -> ItemList {
+    let dnm: Ident = Ident::new("QuoteDx");
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        use logos.lang.option;
+        #[borrow_carrying]
+        pub struct #dnm { w: Walk, sc: Vec<u64>, done: bool }
+        impl #dnm {
+            pub fn next_batch(self: &mut #dnm) -> Option<&[u64]> {
+                if self.done { return Option::None; }
+                let o = self.w.next_batch();
+                if o.is_some() {
+                    {
+                        let b = o.unwrap();
+                        let n: u64 = b.len();
+                        let mut j: u64 = 0u64;
+                        self.sc.clear();
+                        while j < n { self.sc.push(b.at(j)); j = j + 1u64; }
+                    }
+                    return Option::Some(self.sc.as_slice());
+                }
+                self.done = true;
+                return Option::None;
+            }
+        }
+        pub fn quote_open(r: &Rows) -> #dnm {
+            return #dnm { w: walk_of(r), sc: Vec::<u64>::new(), done: false };
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+    return item_list_new();
+}
+gen_quote!{ x }
+
+fn main() -> i32 {
+    let r: Rows = Rows { n: 8u64 };
+    let mut a = plain_open(&r);
+    let mut na: u64 = 0u64;
+    loop {
+        let o = a.next_batch();
+        if o.is_none() { break; }
+        na = na + (o.unwrap().len() as u64);
+    }
+    let mut b = quote_open(&r);
+    let mut nb: u64 = 0u64;
+    loop {
+        let o = b.next_batch();
+        if o.is_none() { break; }
+        nb = nb + (o.unwrap().len() as u64);
+    }
+    if na == 0u64 { return 2i32; }   // the walk must actually have produced rows
+    if na != nb { return 1i32; }
+    return 0i32;
+}

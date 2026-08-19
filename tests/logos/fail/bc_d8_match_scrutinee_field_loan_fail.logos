@@ -1,0 +1,39 @@
+// #74's follow-up, found by the D8 fix round's VERIFY (its MISS 1) and closed
+// here. A MATCH SCRUTINEE is a whole-value read of the variable, and
+// `take_borrow`'s B83 arm has refused whole-value shared borrows against a live
+// MUT FIELD loan since it was written — but the scrutinee never reaches
+// `take_borrow`. It is visited non-consumingly, so the only guard that ran was
+// `check_live`, which reads the WHOLE-VARIABLE flag alone.
+//
+// The discriminator that found it is a ONE-TOKEN twin pair: with the loan on
+// the whole var (`let hp: &mut Dx = &mut d;`) this same `match &d` refused;
+// with the loan on a FIELD (`&mut d.a`) it was ADMITTED — while `ro(&d)` and
+// `let p: &Dx = &d` at the same program point both refused. Pre-existing (the
+// explicit `&mut d.a` was in `mut_field_borrows` before D8) and invisible to
+// the whole corpus, which has no instance of the shape: the permissive class,
+// invisible to a green corpus by construction.
+//
+// The admit twin is `pass/bc_d8_match_scrutinee_disjoint_admit`, which pins
+// that the guard did not become a blanket refusal of match-on-a-borrowed-value.
+package bc_d8_match_scrutinee_field_loan_fail;
+use logos.mem.collections.vec;
+
+#[borrow_carrying]
+pub struct Arm { pub w: u64, pub sc: Vec<u64>, pub t2: u64 }
+#[borrow_carrying]
+pub struct Dx { pub a: Arm, pub b: Arm, pub tag: u64 }
+
+pub fn dx_open() -> Dx {
+    return Dx { a: Arm { w: 0u64, sc: Vec::<u64>::new(), t2: 0u64 },
+                b: Arm { w: 0u64, sc: Vec::<u64>::new(), t2: 0u64 }, tag: 0u64 };
+}
+
+pub fn step_local() -> u64 {
+    let mut d: Dx = dx_open();
+    let hp: &mut Arm = &mut d.a;      // the loan lives on the FIELD
+    let z: u64 = match &d { _ => 1u64 };   // whole-value read — must REFUSE
+    hp.t2 = 2u64;                     // keeps the loan live across the match
+    return z;
+}
+
+fn main() -> i32 { let k: u64 = step_local(); if k == 0u64 { return 1i32; } return 0i32; }

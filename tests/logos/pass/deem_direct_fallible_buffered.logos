@@ -1,0 +1,125 @@
+// ADR 0025 §12 — A FALLIBLE CLAUSE IS REFUSED THE DIRECT DOOR, AND STILL RUNS.
+//
+// THE PAIR-MATE OF `deem_direct_stream_pull`, DIFFERING IN ONE TOKEN: `+ 1u64`
+// in the projection. That token is the whole fixture. `emit_sexpr` lowers
+// checked-integer arithmetic through the error-returning tower — the emitted
+// clause text is `el_addu(…, 1u64)?` — and the `?` is well-typed only inside a
+// fn that returns a `Result`. The buffered `_run` does; the §12 direct door's
+// `next_batch` returns `Option<&[E]>` and does NOT, and the `BatchStream` pull
+// protocol (`fn next(&mut self) -> Option<B>`) has no error channel to give it
+// one. Before the refusal clause landed, `dx_on` ADMITTED this query and the
+// emitted door did not compile:
+//
+//     <metaprog-blob-subst>:1: error [fn ScanArithDx…LeafWalk__next_batch]:
+//       '?' operator used in function that does not return Result<T, E>
+//
+// — a red attributed to a fn nobody wrote, on a query that is entirely LEGAL.
+// All ten corpus doors project bare fields, so no gate could see it.
+//
+// WHAT EACH CLAUSE ASSERTS, AND WHY IT IS NOT THE SIBLING FIXTURE AGAIN:
+//
+//   · IT COMPILES AT ALL. The direct door being refused is what makes this file
+//     compile; admitting it is the exact defect, and this fixture reds at
+//     COMPILE time when the refusal is withdrawn — the one failure mode a
+//     runtime oracle cannot reach.
+//   · `pk == 1` IS THE DOOR'S IDENTITY, MEASURED AT RUNTIME. `scan_arith_stream`
+//     is the BUFFERED facade, and a `Buffer` yields exactly ONE packet and then
+//     `None` (stream.logos). Its direct sibling over the SAME container and the
+//     SAME 2000 rows reads `pk >= 2` (`deem_direct_stream_pull`). So the packet
+//     count discriminates WHICH DOOR was emitted without reading the plan: a
+//     regression that re-admitted the query and somehow compiled would read
+//     `pk >= 2` here.
+//   · THE ANSWER IS CHECKED AGAINST THE CONTAINER'S OWN CURSOR, walked with the
+//     same predicate and the same `+ 1` applied by hand — a different mechanism
+//     reaching the same rows, not the emitter compared with itself. Refusing a
+//     door must not change the answer, and "it compiled" does not say that.
+//   · THE `+ 1u64` IS READ BACK, not merely projected: `vsum` sums component
+//     `.1`, so a lowering that dropped the arithmetic (or overflowed it) moves a
+//     number this fixture pins.
+//
+// THE PLAN SIDE — the refusal GROUND — is pinned by `plan_ground_census_gate.sh`,
+// which sweeps this corpus with `LOGOS_TRACE_PLAN=1` and asserts the per-clause
+// first-reason counts; this fixture is the witness for the CHECKED-ARITHMETIC
+// clause, which was unwitnessed (and unwritten) before it.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub container Dfb {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 2000u64;
+
+pub deem scan_arith(m: &<typeof(Dfb) as CtrFamily>::Handle) {
+    from m e where e.key > 30u64 select (e.key, e.val + 1u64)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Dfb)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 3u64, i * 10u64); i = i + 1u64; }
+
+    // ── THE ORACLE: the container's OWN cursor, same predicate, `+ 1` by hand ─
+    let mut rows_o: u64 = 0u64;
+    let mut ksum_o: u64 = 0u64;
+    let mut vsum_o: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() {
+            if cu.key() > 30u64 {
+                ksum_o = ksum_o + cu.key();
+                vsum_o = vsum_o + cu.value() + 1u64;
+                rows_o = rows_o + 1u64;
+            }
+            cu = c.next(&cu);
+        }
+    }
+    if rows_o == 0u64 { return 1i32; }
+
+    // ── THE `_stream` DOOR: BUFFERED, so exactly ONE packet ─────────────────
+    let mut ds = match scan_arith_stream(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+
+    let mut pk: u64 = 0u64;
+    let mut rows_d: u64 = 0u64;
+    let mut ksum_d: u64 = 0u64;
+    let mut vsum_d: u64 = 0u64;
+    loop {
+        let ob = ds.next_batch();
+        if ob.is_none() { break; }
+        let bb = ob.unwrap();
+        let mut j: i64 = 0i64;
+        while j < bb.len() {
+            ksum_d = ksum_d + bb[j].0;
+            vsum_d = vsum_d + bb[j].1;
+            rows_d = rows_d + 1u64;
+            j = j + 1i64;
+        }
+        pk = pk + 1u64;
+    }
+    // ONE PACKET is the buffered door's signature — the direct sibling reads >= 2.
+    if pk != 1u64 { return 3i32; }
+    if rows_d != rows_o { return 4i32; }
+    if ksum_d != ksum_o { return 5i32; }
+    if vsum_d != vsum_o { return 6i32; }
+
+    // ── THE `_run` Vec SURFACE AGREES, AND CARRIES THE ARITHMETIC ───────────
+    let a: Vec<(u64, u64)> = match scan_arith(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if a.len() as u64 != rows_o { return 8i32; }
+    return 0i32;
+}

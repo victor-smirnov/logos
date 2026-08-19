@@ -348,6 +348,7 @@ nfdl=0; nfnd=0; nfrs=0; nfos=0; nfbe=0; nfky=0; nfrd=0
 ncpr=0; ncpf=0; ncpl=0; ncpt=0
 nitt=0; niod=0; nirm=0; niwc=0; ninw=0; niec=0; nipr=0; nilt=0
 nrdb=0; nrsb=0; nrelb=0; nrfa=0; nrfaa=0; nrelv=0; nrls=0; nrlsa=0; nrelw=0
+ndx=0
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     # ── ADR 0025 R-F — THE PRELUDE LANDING, GREPPED PER NODE (FACT N) ────
@@ -533,8 +534,22 @@ if [ "${#UD[@]}" -ge 1 ]; then
     nqo=$(wc -l < "$d/qo")
     nqs=$(wc -l < "$d/qs")
     nro=$(wc -l < "$d/ro")
+    # ── ADR 0025 §12 `direct` — THE STATE STRUCT, COUNTED IN THE WORKER ──
+    # It has to be counted HERE because `$d/gen` is deleted below, and it is
+    # counted with awk because the shape is TWO LINES: the `#[borrow_carrying]`
+    # attribute and the `pub struct …Dx {` header, with the emitter's blank line
+    # between them. Matching the header alone would count any user struct whose
+    # name happens to end in `Dx`; the attribute is what makes it this
+    # emitter's, and `emit_stream_direct` is the only place that writes the
+    # pair.
+    ndx=$(awk '
+        /^#\[borrow_carrying\]$/ { bc = 1; next }
+        /^[[:space:]]*$/           { next }
+        { if (bc && $0 ~ /^pub struct [A-Za-z_0-9]+Dx[A-Za-z_0-9]* \{$/) c++; bc = 0 }
+        END { print c + 0 }' "${UD[@]}")
 fi
 echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb $nrfa $nrfaa $nrelv $nrls $nrlsa $nrelw" > "$O/$b.count"
+echo "$ndx" > "$O/$b.dx"
 rm -rf "$d/gen" "$d/out.o"
 WORKER
 chmod +x "$TMPD/one.sh"
@@ -795,7 +810,25 @@ fail = []
 # `stdlib/mem/wql/writ_graph.logos`'s REFUSAL block. A later round closing it
 # must move `container` 205 -> 164 and land those 41 on a re-walk ground, NOT on
 # `MG_REL_BLOCK`/`MG_SECOND_USE`.
-EXPECT_FIXTURES   = 189  # D7 (#62): +1 `deem_emitted_struct_field_layout` — the
+EXPECT_FIXTURES   = 191  # V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
+                         # `deem_direct_fallible_buffered` — the fixture that
+                         # witnesses the CHECKED-ARITHMETIC refusal clause. It is
+                         # a container walk whose `select` does arithmetic, so it
+                         # is one more unbounded container scan and moves the SAME
+                         # four pins its direct sibling did (OUTQ, the artifact
+                         # landing, the `query output` head, the read-once
+                         # ground) — plus one on EXPECT_REFUSED and on
+                         # EXPECT_DXWHY["fallible"], and ZERO on EXPECT_DIRECT,
+                         # which is the whole point of it.
+                         # S5-direct (ADR 0025 §12): +1 `deem_direct_stream_pull`,
+                         # the fixture that pins the direct door's MULTI-PACKET
+                         # pull against the container cursor. Its single
+                         # `pub deem scan_all` is one more unbounded container
+                         # scan, which is the +1 on EXPECT_OUTQ, on the artifact
+                         # landing beside it, on the `query output` head and on
+                         # the read-once ground — four pins, one query, and the
+                         # four are re-derived together below.
+                         # D7 (#62): +1 `deem_emitted_struct_field_layout` — the
                          # metaprog round-order fixture declares `pub deem
                          # scan_all` over its own Bed container, so it joins the
                          # deem_* glob with exactly one query. Every +1 below is
@@ -863,7 +896,7 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # sentence was true all along. The number is no longer "every landing that
 # reached the `!offers` arm"; it is the arm's actual population, and the two
 # were different by 129.
-EXPECT_NOMAT      = {"container": 76, "readonce": 27, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan)
+EXPECT_NOMAT      = {"container": 76, "readonce": 29, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
 # ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
 # `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
 # the head was classified anywhere: 84 unclassified `fixpoint accumulator`
@@ -902,7 +935,22 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 607   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout)
+EXPECT_OUTQ       = 609   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+                          #  S5-direct: +1 deem_direct_stream_pull;
+                          #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
+                          #  door still has a `_run` landing, which is why this
+                          #  pin moves for a fixture EXPECT_DIRECT does not.)
+                          # ⚠ S5-direct MOVED THIS BY THE FIXTURE ONLY, AND THAT
+                          # IS THE STAGE'S CLAIM, NOT AN OVERSIGHT. `direct`
+                          # replaces the `_stream` DOOR and leaves the `_run`
+                          # LANDING exactly where it was (S5's rule: the stream
+                          # stage adds a door and moves nothing behind the old
+                          # one), so the 10 direct doors remove ZERO
+                          # `let mut __out: Buffer<` bindings. The population
+                          # that DID move is the `_stream` facade's body, and it
+                          # is accounted in EXPECT_DIRECT below rather than left
+                          # implicit — a landing that leaves one pin must arrive
+                          # in another, and here nothing left at all.
                           # `let mut __out:` query-output landings
                           # ⚠ R-H (b′): the landing TYPE became `Buffer<` (was
                           # `Vec<`); the FLOOR did not move — same bindings,
@@ -923,11 +971,92 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 479, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 481, "query output bounded by limit": 16,
                      # D7 #62: "query output" 478 -> 479, the new fixture's one
                      # unbounded scan seam. The other four heads did not move.
+                     # S5-direct: 479 -> 480, `deem_direct_stream_pull`'s one
+                     # unbounded scan seam. THE HEADS THEMSELVES DID NOT MOVE
+                     # and that is the design: `direct` changed which DOOR a
+                     # query got, not what its LANDING is, so the R-B2 partition
+                     # is untouched and only the SENTENCE on each line carries
+                     # the door's identity. That sentence is what EXPECT_DIRECT
+                     # / EXPECT_REFUSED below census.
+                     # V2-M1: 480 -> 481, `deem_direct_fallible_buffered`'s one
+                     # unbounded scan seam — again the heads do not move, only
+                     # the sentence, which now names the CHECKED-ARITHMETIC
+                     # refusal.
                      "query output distinct carrier": 5,
                      "incremental snapshot output": 107, "rel result": 45}
+
+# ── ADR 0025 §12 `direct` — THE DOOR CENSUS (S5-direct, this stage) ──────────
+#
+# The three query-landing heads above answer WHAT THE LANDING IS. Since this
+# stage they also carry WHICH `_stream` DOOR the query got, and that is a second
+# partition over the SAME 501 lines — every one of them says either "this
+# query's `_stream` DOOR is now the §12 DIRECT form" or "the §12 direct door was
+# refused here because <reason>". Pinned as a partition with an asserted sum,
+# for the reason FACT J gives per head: two numbers that must add to a third
+# cannot both drift, while either alone can.
+#
+#   DIRECT   10   every one a CONTAINER WALK (the plan's `rel_native &&
+#                 rel_node == AD_NONE && rel_batch` forward arm), across 9
+#                 fixtures — `deem_batch_scan_drain`, `deem_ctr_family_streams`
+#                 (x2), `deem_direct_stream_pull`,
+#                 `deem_emitted_struct_field_layout`, `deem_order_desc_elision`,
+#                 `deem_order_elision`, `deem_pipeline_handle_seam`,
+#                 `deem_rowmajor_batch_source`, `deem_source_size`.
+#   REFUSED 492   and the refusal reasons are themselves a census — ASSERTED IN
+#                 CODE as `EXPECT_DXWHY` below, not listed here. A per-clause
+#                 breakdown that lives only in a comment is a claim nothing
+#                 checks: the total can redistribute across the clauses in any
+#                 way at all, up to a whole clause going silent, and a pin on
+#                 the total alone stays green through it.
+#
+# ⚠ THE ARTIFACT CROSS-PIN. `EXPECT_DIRECT` is asserted a SECOND time against
+# the emitted `<Q>Dx` state structs, which is this gate's standing rule (the
+# plan names exactly what the artifact builds). A plan that claims a direct door
+# no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
+# it is exactly the failure a plan-only pin would call green.
+EXPECT_DIRECT     = 10
+EXPECT_REFUSED    = 492
+# ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
+# FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
+# A query true of three clauses is counted once, under the first one asked, so
+# these numbers are a property of the decision site's ORDER as much as of the
+# corpus. Reordering the cascade is a re-derivation here, not a regression.
+#
+# ⚠ TWO CLAUSES MOVED WITHOUT ANY QUERY CHANGING, and that is the cascade order
+# doing its job. The CHECKED-ARITHMETIC clause (V2-M1) is a SHAPE clause and is
+# therefore asked before the two SOURCE clauses, so the 29 queries whose
+# `select`/`where` lowers through `el_add(..)?` are now attributed to it rather
+# than to whatever their source happened to be: `slice` 82 -> 55 (-27),
+# `notfwd` 51 -> 50 (-1). Both sentences are true of those 28 queries; the one
+# the ground prints is the one that would refuse the door under ANY source.
+# The 29th is `deem_direct_fallible_buffered`, the fixture that witnesses the
+# clause (+1 on the total, 491 -> 492).
+#
+# `whr_prelude` is pinned at 0 and stated rather than deleted: it is
+# `sel_prelude`'s twin and would fire on a `where` reading `__sz_<r>`; no corpus
+# query does. `singlerow` is pinned at 0 for a STRUCTURAL reason and not a
+# corpus one — a single-row query emits no query-output landing at all
+# (`out_node_query` is called under `if !first`), so the clause's sentence
+# cannot reach a plan line. Both are checked in the ABUSE direction by the same
+# assertion that checks the rest: a 0 that starts firing reds here.
+EXPECT_DXWHY = {
+    "singlerow"   :   0,
+    "aggregate"   : 152,
+    "join"        : 113,
+    "sort"        :  62,
+    "distinct"    :   4,
+    "limit"       :   7,
+    "generic"     :   1,
+    "borrows"     :  18,
+    "sel_prelude" :   1,
+    "whr_prelude" :   0,
+    "fallible"    :  29,
+    "slice"       :  55,
+    "notfwd"      :  50,
+}
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────
 # Every one of these was measured at the emitter BEFORE the node existed (the
 # R-B0 discipline, re-run as R-C0 on 9395c3d1), and every one came back at the
@@ -1174,6 +1303,9 @@ tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
            outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
+           # ADR 0025 §12 `direct` (S5-direct): the SECOND partition over the
+           # three query-landing heads — which `_stream` door the query got.
+           dxdirect=0, dxrefused=0, adx=0,
            ardb=0, arsb=0, arelb=0, arfa=0, arfaa=0, arelv=0,
            arls=0, arlsa=0, arelw=0,
            fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
@@ -1184,6 +1316,47 @@ tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            aitt=0, aiod=0, airm=0, aiwc=0, ainw=0, aiec=0, aipr=0, ailt=0)
 witness = {k: 0 for k in vocab}
 silent = []
+
+# ── ADR 0025 §12 `direct` — THE REFUSAL CENSUS, IN CODE (2026-08-19) ─────────
+# The per-clause breakdown of `EXPECT_REFUSED` used to live in a COMMENT beside
+# the pin, which made it a claim nothing checked: the 491 could redistribute
+# itself across the clauses in any way at all — an entire clause going to zero,
+# or absorbing another one's population — and the gate stayed green, because a
+# total is blind to its own partition. That is exactly the "two numbers that
+# must add to a third" argument this gate applies everywhere else, applied one
+# level down. So each clause is asserted, and the clauses must sum to the total.
+#
+# ⚠ THESE ARE FIRST-REASON COUNTS AND THEREFORE ORDER-DEPENDENT. The decision
+# site (`rexpr_walk::emit_simple`) is an `else if` CASCADE, so a query that is
+# both `order by` AND generic is counted ONCE, under whichever clause is asked
+# first. A number here is "how many queries this clause was the FIRST true
+# reason for", never "how many queries this clause is true of" — reordering the
+# cascade moves these counts with no query changing, which is a re-derivation
+# and not a regression. The cascade's own comment states why the SHAPE clauses
+# are asked before the SOURCE clauses; this census is downstream of that order,
+# and a stage that reorders must re-measure here.
+#
+# ⚠ THE PROBES ARE THE CLAUSE SENTENCES' DISTINCTIVE HEADS, and every refused
+# line must match EXACTLY ONE of them: zero matches is a refusal clause nobody
+# wrote down (the failure this whole census exists to prevent), two matches is a
+# probe that stopped discriminating.
+DXWHY = (
+    # key            probe (a substring of the clause's own `dx_no`)
+    ("singlerow",    "the query is single-row"),
+    ("aggregate",    "the query is an AGGREGATE"),
+    ("join",         "the query is a JOIN"),
+    ("sort",         "an `order by` survived the S3 elision"),
+    ("distinct",     "`distinct` is a fact about the WHOLE output"),
+    ("limit",        "`limit` is read off `__out.len()`"),
+    ("generic",      "the query is GENERIC"),
+    ("borrows",      "the projected element BORROWS"),
+    ("sel_prelude",  "the `select` reads an emitted PRELUDE binding"),
+    ("whr_prelude",  "the `where` reads an emitted PRELUDE binding"),
+    ("fallible",     "lowers through the CHECKED-ARITHMETIC tower"),
+    ("slice",        "the source is a `deem` slice param"),
+    ("notfwd",       "the source is not a forward batch producer"),
+)
+dxwhy = {k: 0 for k, _ in DXWHY}
 
 for e in errs:
     b = os.path.basename(e)[:-4]
@@ -1204,7 +1377,11 @@ for e in errs:
               gkey=0, gcnt=0, grow=0, gacc=0,
               fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
               cpr=0, cpf=0, cpl=0, cpt=0,
-              itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0)
+              itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0,
+              # ADR 0025 §12 `direct` (S5-direct) — the door partition, per
+              # fixture, so the plan/artifact identity is checked per fixture
+              # and not only in the corpus total.
+              dxdirect=0, dxrefused=0, adx=0)
     mat, named = set(), set()
     for line in text.splitlines():
         m = NODE.match(line)
@@ -1262,6 +1439,28 @@ for e in errs:
             h = om.group(2)
             outhead[h] += 1
             nd["outr" if h == "rel result" else "outq"] += 1
+            # ADR 0025 §12 `direct` — the door, read off the SENTENCE. Two
+            # POSITIVE rules over the three QUERY heads (the two incremental /
+            # rel heads have no `_stream` door at all and are excluded by the
+            # head test itself, which is why this is not a complement); the sum
+            # is asserted against those three heads below, so a line that says
+            # NEITHER is a landing whose door nobody named and reds there.
+            if h != "rel result" and h != "incremental snapshot output":
+                g3 = om.group(3)
+                if "DIRECT form" in g3:
+                    nd["dxdirect"] += 1
+                if "direct door was refused here because" in g3:
+                    nd["dxrefused"] += 1
+                    hits = [k for k, p in DXWHY if p in g3]
+                    if len(hits) != 1:
+                        bad(f"[{b}] a refused §12 door names a reason matching "
+                            f"{len(hits)} of the {len(DXWHY)} pinned clause "
+                            f"probes ({hits}) — a refusal ground that no clause "
+                            f"probe claims is a decision site nobody wrote "
+                            f"down, and two claims is a probe that stopped "
+                            f"discriminating: {g3[:200]}")
+                    else:
+                        dxwhy[hits[0]] += 1
             if not om.group(3).strip().rstrip(")").strip():
                 bad(f"[{b}] an output-seam `{h}` line carries an EMPTY ground — "
                     f"a landing named and not explained")
@@ -1351,6 +1550,31 @@ for e in errs:
               "cpr", "cpf", "cpl", "cpt",
               "itt", "iod", "irm", "iwc", "inw", "iec", "ipr", "ilt"):
         tot[k] += nd[k]
+
+    # ── ADR 0025 §12 `direct` — THE ARTIFACT SIDE OF THE DOOR CENSUS ────────
+    # In its OWN file rather than appended to the positional `.count` tuple:
+    # that tuple is unpacked by position by a single 40-name assignment, and
+    # appending to it is how a field comes to be read as its neighbour. The
+    # scope rule is the sweep's own — everything that is NOT `logos.gen.*` —
+    # because the family DEFINITIONS carry `BatchStream` impls of their own and
+    # a `Dx` found there would not be a query's door.
+    dxf = os.path.join(OD, b + ".dx")
+    if os.path.exists(dxf):
+        nd["adx"] += int(open(dxf).read().strip() or 0)
+    else:
+        bad(f"[{b}] no `<Q>Dx` count file — the direct door's artifact side "
+            f"was not read")
+    tot["adx"] += nd["adx"]
+    tot["dxdirect"] += nd["dxdirect"]
+    tot["dxrefused"] += nd["dxrefused"]
+    # PER FIXTURE, the plan/artifact identity this gate is built on: a fixture
+    # whose plan claims N direct doors must emit N state structs. The corpus
+    # total below would stay green on two fixtures whose errors cancel.
+    if nd["dxdirect"] != nd["adx"]:
+        bad(f"[{b}] {nd['dxdirect']} plan line(s) say the `_stream` door is the "
+            f"§12 DIRECT form, but the artifact holds {nd['adx']} "
+            f"`#[borrow_carrying] pub struct …Dx` state struct(s) — the plan "
+            f"names a door the artifact did not build (or the reverse)")
 
     cf = os.path.join(OD, b + ".count")
     nit = nix = nks = npm = 0
@@ -1884,6 +2108,39 @@ for pk, ak, what in (("gkey", "agkey", "`__g_key` group tables"),
 for h, want in sorted(EXPECT_OUTHEAD.items()):
     if outhead[h] != want:
         bad(f"corpus total: {outhead[h]} `{h}` output-seam line(s), pinned {want}")
+# ── ADR 0025 §12 `direct` — FACT J′, THE DOOR PARTITION (S5-direct) ──────────
+# The SAME lines FACT J counts by HEAD, counted again by DOOR. Two positive
+# rules, an asserted sum, and the artifact cross-pin — the three clauses this
+# gate applies to every other population, applied to the one this stage added.
+if tot["dxdirect"] != EXPECT_DIRECT:
+    bad(f"corpus total: {tot['dxdirect']} §12 DIRECT `_stream` door(s), pinned "
+        f"{EXPECT_DIRECT} — direct doors UP without a derivation is a stage "
+        f"grading itself; DOWN is `direct` having been silently withdrawn")
+if tot["dxrefused"] != EXPECT_REFUSED:
+    bad(f"corpus total: {tot['dxrefused']} refused §12 direct door(s), pinned "
+        f"{EXPECT_REFUSED}")
+for _k, _want in sorted(EXPECT_DXWHY.items()):
+    if dxwhy[_k] != _want:
+        bad(f"refusal census: clause `{_k}` is the FIRST reason for "
+            f"{dxwhy[_k]} refused door(s), pinned {_want} — this is an "
+            f"order-dependent first-reason count, so re-derive it (and say "
+            f"which way the cascade moved), never re-type it")
+if sum(dxwhy.values()) != EXPECT_REFUSED:
+    bad(f"refusal census: the {len(DXWHY)} clause counts sum to "
+        f"{sum(dxwhy.values())} against {EXPECT_REFUSED} refused doors — the "
+        f"partition of the total is what a bare total cannot see")
+if tot["adx"] != EXPECT_DIRECT:
+    bad(f"corpus total: {tot['adx']} emitted `<Q>Dx` state struct(s) against "
+        f"{EXPECT_DIRECT} pinned direct doors — the artifact side of FACT J′")
+_qheads = (outhead["query output"] + outhead["query output bounded by limit"]
+           + outhead["query output distinct carrier"])
+if tot["dxdirect"] + tot["dxrefused"] != _qheads:
+    bad(f"PARTITION §12 door: {tot['dxdirect']} direct + {tot['dxrefused']} "
+        f"refused = {tot['dxdirect'] + tot['dxrefused']} against {_qheads} "
+        f"QUERY-landing plan lines — {_qheads - tot['dxdirect'] - tot['dxrefused']} "
+        f"landing(s) name NEITHER door. Every query landing has a `_stream` "
+        f"door and the ground must say which one it got and, when buffered, "
+        f"why; a line that says neither is a refusal nobody wrote down.")
 # ── FACT K, corpus totals + the two identities + the SIX DISTINCT GROUNDS ────
 # (ADR 0025 R-C2.) Each head at its own count, for the reason FACT J gives per
 # head: a single 670 total would stay green while the emitter collapsed six arms

@@ -72,6 +72,19 @@ WQL=${3:?usage: drain_import_pair_gate.sh <logosc> <pass dir> <wql.logos> <rexpr
 RW=${4:?usage: drain_import_pair_gate.sh <logosc> <pass dir> <wql.logos> <rexpr_walk.logos>}
 
 export LC_ALL=C
+
+# ⚠ A GATE THAT CANNOT MEASURE MUST SAY SO, NOT SCORE ZERO. `${n:?}` above only
+# catches an argument that is ABSENT; an argument that is present and does not
+# RESOLVE (a moved source file, a renamed pass dir) left every `grep -c` reading
+# 0 and the arithmetic comparisons printing `[: : integer expression expected`
+# while the gate went on to a verdict. Observed during the S5-direct round.
+# A missing subject is a could-not-measure, which is a different failure from a
+# pin that moved — and the difference is exactly what makes a green trustworthy.
+for _subj in "$LOGOSC" "$WQL" "$RW"; do
+    [ -e "$_subj" ] || { echo "FAIL(2): subject does not resolve: $_subj"; exit 2; }
+done
+[ -d "$PASSD" ] || { echo "FAIL(2): pass dir does not resolve: $PASSD"; exit 2; }
+
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 
@@ -102,12 +115,66 @@ n1=$(grep -cE '^use logos\.mem\.stream;' "$WQL")
       quote literal resolves nothing — measured: 5 of 6 drain fixtures fail
       with \`unknown generic type 'Buffer'\`."
 
-n2=$(grep -cE '^[[:space:]]+use logos\.mem\.stream;' "$RW")
+# ⚠ SCOPED PER EMITTING FUNCTION SINCE ADR 0025 §12 `direct` (2026-08-19).
+# The count used to be a FILE-WIDE `grep -c` pinned at 2, and the 2 carried the
+# claim "one per quote arm of `emit_fn_quote_blob`". `emit_stream_direct` now
+# emits a THIRD quote — the §12 direct door's state struct + impls — which needs
+# the same import for the same reason (`RowsBatch`, `BatchStream` and the
+# `Buffer` sibling are named inside a spliced item that inherits nothing), so a
+# file-wide count reads 3. Re-typing the literal to 3 would have thrown the
+# claim away: 3 is also what "one arm of `emit_fn_quote_blob` plus two in the
+# direct emitter" reads, which is the exact defect this gate exists to catch.
+# So the count is taken PER FUNCTION instead — strictly stronger than the file
+# total, and it stays true whatever the next emitter adds.
+fn_body() {   # $1 = fn name; prints its body, up to the next top-level `fn `
+    # ⚠ `[([:space:]]` — a bracket expression holding `(` AND the space class.
+    # The first spelling here was `[(:space:]`, which is NOT that: it closes at
+    # the final `]`, so awk reads it as the SEVEN-CHARACTER SET `( : s p a c e`.
+    # That set contains `(`, which is why both names this gate asks for matched
+    # and every count read correctly — the defect was LATENT, not live, and
+    # saying so is the point: it made the anchor accept any name that merely
+    # EXTENDS the wanted one with `s`, `p`, `a`, `c`, `e` or `:`, and `fn_body`
+    # would then have printed a body that is not its own. Bite-proved on a copy
+    # of `rexpr_walk.logos` carrying a decoy `fn emit_stream_directsam` with one
+    # `use logos.mem.stream;` in it: the old spelling reads the DIRECT ARM as 2,
+    # this one reads 1 and leaves the extra occurrence to the file-total clause,
+    # which is where an unpinned quote belongs.
+    # The second alternative (`"^fn " want "\\("`) is gone with it — it was what
+    # made the malformed class survive, and one anchor that is right beats two
+    # that overlap.
+    awk -v want="$1" '
+        /^fn [A-Za-z_0-9]+/ { infn = ($0 ~ "^fn " want "[([:space:]]") }
+        infn { print }
+    ' "$RW"
+}
+n2=$(fn_body emit_fn_quote_blob | grep -cE '^[[:space:]]+use logos\.mem\.stream;')
+# ⚠ AND THE FILE-WIDE TOTAL IS PINNED TOO, BESIDE the per-function counts, not
+# instead of them. The per-function counts are the stronger claim about the
+# arms they name; they say NOTHING about an arm nobody named. A fourth emitter
+# growing its own quote with the literal in it would leave both green — the
+# total is what refuses to be silent about it. The two together are the
+# both-directions rule: `2 + 1 == 3` must hold, so neither side can drift alone.
+n2t=$(grep -cE '^[[:space:]]+use logos\.mem\.stream;' "$RW")
+n2d=$(fn_body emit_stream_direct | grep -cE '^[[:space:]]+use logos\.mem\.stream;')
+[ "$n2d" -eq 1 ] || note "HALF 2, §12 DIRECT ARM: \`use logos.mem.stream;\` occurs
+      $n2d time(s) inside \`emit_stream_direct\`'s quote, want 1. The direct
+      door's spliced item names \`RowsBatch\` and \`BatchStream\` and inherits
+      none of the trigger module's imports, so it needs the literal exactly as
+      the two \`emit_fn_quote_blob\` arms do."
 [ "$n2" -eq 2 ] || note "HALF 2 is $n2 of the required 2: \`use
       logos.mem.stream;\` must appear in BOTH \`quote_item!\`s of
       emit_fn_quote_blob (the priv arm and the pub arm). One arm alone covers
       only the queries whose entry fn has that visibility. Measured with the
       literal absent from both: 6 of 6 drain fixtures fail."
+[ "$n2t" -eq 3 ] || note "HALF 2, FILE TOTAL: \`use logos.mem.stream;\` occurs
+      $n2t time(s) in rexpr_walk.logos, want 3 (= $n2 in emit_fn_quote_blob's
+      two arms + $n2d in emit_stream_direct). A total that is not the sum of the
+      arms this gate names is an emitting quote NOBODY here pins — name it and
+      re-derive, do not re-type the 3."
+[ $((n2 + n2d)) -eq "$n2t" ] || note "HALF 2, SEAM: the per-function counts
+      ($n2 + $n2d) do not add to the file total ($n2t) — either \`fn_body\` has
+      stopped bounding a body correctly or a quote outside both functions holds
+      the literal. Either way one of the two sides is measuring nothing."
 
 # ── FACT 3 (run first — it produces the dumps FACT 2 reads) ─────────────────
 np=$(nproc)

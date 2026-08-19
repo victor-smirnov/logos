@@ -1,0 +1,93 @@
+// V1-M1 REFUSE half — a `&self` (SHARED) method call on the WHOLE `self`
+// while a FIELD of `self` carries a live mut loan.
+//
+// Pair partner: pass/bc_d8_disjoint_field_use_admit (the same live loan, but
+// every following use names a DISJOINT sub-place — ADMITTED).
+//
+// This is the permissive hole the D8 field-split OPENED. Before D8 the
+// receiver loan of `self.w.next_batch()` landed on the WHOLE-VARIABLE flag
+// (`VarState::mut_borrowed`), which check_live refuses for any use of `self`.
+// D8 moved that loan into the FIELD table (mut_field_borrows), which is right
+// — and left every guard that reads only the whole-variable flag blind.
+// check_recv_conflict, the guard a bare-place `&self` receiver reaches, had a
+// field-table branch for `is_mut` receivers ONLY, so `self.wat()` was admitted.
+//
+// The alias is REAL, not a shape technicality: `wat()` reads `self.w.at`,
+// which is the very field `next_batch()` holds `&mut` and mutates. The
+// diagnostic is the spelling take_borrow's shared arm (§B83) already used for
+// the identical fact when the receiver IS wrapped in an AddrOfTemp — which is
+// why the LOCAL-HOLDER twin (`let mut d = …; d.w.next_batch(); d.peek();`)
+// refused all along while this `self` twin did not. `self` is a reference
+// parameter, so sema never wraps it, so only check_recv_conflict guarded it.
+//
+// Channel: quote_item! + logos_emit_item_blob_subst — the exact artifact the
+// finding was raised on, and the channel where the D8 field-loan split lives,
+// so a regression confined to the emitted path cannot slip past. Its ADMIT
+// sibling bc_d8_quote_field_split_admit is the same channel, so the pair
+// differs ONLY in whether the following use is disjoint from the loan.
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+pub struct Rows { pub n: u64 }
+
+#[borrow_carrying]
+pub struct Bat { pub r: &Rows, pub base: u64 }
+
+impl Bat {
+    pub fn len(self: &Bat) -> u64 { return 4u64; }
+}
+
+#[borrow_carrying]
+pub struct Walk { pub r: &Rows, pub at: u64 }
+
+impl Walk {
+    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+        if self.at >= self.r.n { return Option::None; }
+        let b: Bat = Bat { r: self.r, base: self.at };
+        self.at = self.at + 4u64;
+        return Option::Some(b);
+    }
+}
+
+pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
+
+#[token_macro]
+pub fn gen_quote(s: str) -> ItemList {
+    let dnm: Ident = Ident::new("QuoteDx");
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        use logos.lang.option;
+        #[borrow_carrying]
+        pub struct #dnm { w: Walk, sc: Vec<u64>, done: bool }
+        impl #dnm {
+            // `&self` — and it READS the mut-loaned field. Real aliasing.
+            pub fn wat(self: &#dnm) -> u64 {
+                return self.w.at;
+            }
+            pub fn next_batch(self: &mut #dnm) -> u64 {
+                let o = self.w.next_batch();
+                let b = o.unwrap();
+                let z = self.wat();
+                return b.len() + z;
+            }
+        }
+        pub fn quote_open(r: &Rows) -> #dnm {
+            return #dnm { w: walk_of(r), sc: Vec::<u64>::new(), done: false };
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+    return item_list_new();
+}
+gen_quote!{ x }
+
+fn main() -> i32 {
+    let r: Rows = Rows { n: 8u64 };
+    let mut b = quote_open(&r);
+    let n = b.next_batch();
+    if n == 0u64 { return 1i32; }
+    return 0i32;
+}

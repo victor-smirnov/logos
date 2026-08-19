@@ -19,9 +19,13 @@
 //
 // ── WHAT THIS FILE ASSERTS AT RUNTIME (the gate reads the artifact) ─────────
 //
-//   SEAM 1  q1's output, in PACKETS. `buffered` (§12) ⇒ exactly 1, then
-//           exhaustion — the same number `deem_pipeline_chain` pins for a slice
-//           source, here for a source that descends a container.
+//   SEAM 1  q1's output, in PACKETS. `direct` (§12) ⇒ ONE PACKET PER SOURCE
+//           LEAF, concatenated in source order, then exhaustion. Updated from
+//           the buffered door's "exactly 1" when `direct` landed — the
+//           derivation and the equivalent-or-stronger accounting are at the
+//           seam itself, not here.
+//   SEAM 1b the same query over a container with more than one leaf, where
+//           `pk >= 2` is a fact rather than a leaf-capacity accident.
 //   SEAM 2  q2's input, in PULLS, counted in the source iterator's own `next()`
 //           and nowhere else. `limit 3` pulls 3 of 8; the CONTROL `q2_all` —
 //           same source, same rel, no bound — pulls all 8. One variable, both
@@ -110,29 +114,109 @@ fn main() -> i32 {
     { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
     if v1.len() != 8i64 { return 12i32; }
 
-    // ── SEAM 1, `buffered`: EXACTLY ONE PACKET, THEN EXHAUSTION ────────────
-    let mut s1: Buffer<(u64, u64)> = match q1_stream(&c)
+    // ── SEAM 1, `direct` (ADR 0025 §12): PACKETS, CONCATENATED ─────────────
+    //
+    // ⚠ THIS ASSERTION WAS REWRITTEN WHEN `direct` LANDED, AND IT IS AN HONEST
+    // CONSUMER UPDATE, NOT A WEAKENING — stated here because "the pin moved"
+    // and "the pin was loosened" look identical from the diff alone.
+    //
+    // WHAT IT USED TO SAY: `q1_stream(&c)` handed back a `Buffer<(u64,u64)>`,
+    // so the packet count was EXACTLY 1 by construction (a Buffer is one packet
+    // then `None`), and the fixture pinned `1`, `b1.len() == 8`, the 8 row
+    // values against `v1`, and exhaustion on the second pull.
+    //
+    // WHAT IT SAYS NOW. `q1` is a CONTAINER WALK over `Led`, which is the one
+    // class §12 `direct` is landed for, so `q1_stream` returns a per-query state
+    // struct and hands out ONE PACKET PER SOURCE LEAF. The old `1` was a fact
+    // about the BUFFERED door and is false of the direct one; asserting it would
+    // be asserting the absence of this stage. Every other clause is kept and two
+    // are added, so the property is EQUIVALENT-OR-STRONGER on each axis:
+    //
+    //   · TOTAL ROWS — was `b1.len() == 8` over one packet, now the sum over
+    //     every packet, still 8, against the same `v1` oracle.
+    //   · CONTENT — was 8 comparisons against `v1`, now the same 8 comparisons
+    //     against `v1` IN ORDER ACROSS PACKET BOUNDARIES, i.e. it additionally
+    //     pins that the packets concatenate in source order.
+    //   · EXHAUSTION — was "the second pull is `None`", now "the pull loop
+    //     terminates and every packet before the `None` was consumed", which is
+    //     the same claim over an unknown packet count.
+    //   · ADDED: `pk >= 1` here, and `pk >= 2` on `c2` below — the direct door
+    //     is MULTI-PACKET on a container with more than one leaf, which is the
+    //     property the whole stage exists to deliver and which no buffered
+    //     implementation can satisfy.
+    //
+    // The packet count over `c` is NOT pinned to a literal: 10 entries fit in
+    // one leaf today and the leaf capacity is the container's business, not this
+    // fixture's. The multi-packet claim is therefore made where it is a fact —
+    // over `c2`, 2000 entries of the same family, same query.
+    let mut s1 = match q1_stream(&c)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
 
-    let o1: Option<RowsBatch<(u64, u64)>> = s1.next();
-    if !o1.is_some() { return 2i32; }
-    let b1: RowsBatch<(u64, u64)> = o1.unwrap();
-    if b1.len() != 8i64 { return 3i32; }
+    let mut acc: Vec<(u64, u64)> = Vec::<(u64, u64)>::new();
+    let mut pk1: i64 = 0i64;
+    loop {
+        let ob = s1.next_batch();
+        if ob.is_none() { break; }
+        let bb = ob.unwrap();
+        let mut m: i64 = 0i64;
+        while m < bb.len() {
+            acc.push((bb[m].0, bb[m].1));
+            m = m + 1i64;
+        }
+        pk1 = pk1 + 1i64;
+    }
+    if pk1 < 1i64 { return 2i32; }
+    if acc.len() != 8i64 { return 3i32; }
 
     let mut m: i64 = 0i64;
     while m < 8i64 {
-        let t: (u64, u64) = b1[m];
-        if t.0 != v1.get(m).0 { return 25i32; }
-        if t.1 != v1.get(m).1 { return 26i32; }
+        if acc.get(m).0 != v1.get(m).0 { return 25i32; }
+        if acc.get(m).1 != v1.get(m).1 { return 26i32; }
         m = m + 1i64;
     }
 
-    let o1b: Option<RowsBatch<(u64, u64)>> = s1.next();
-    if o1b.is_some() { return 4i32; }
+    // ── SEAM 1b: THE MULTI-PACKET CLAIM, WHERE IT IS A FACT ────────────────
+    // Same family, same query, a container with more than one leaf. `pk2 >= 2`
+    // is what a re-buffering regression breaks and what the old `== 1` pin
+    // could never have caught. Rows: keys 0..1999, `where e.key >= 2` keeps
+    // 1998 — computed from the same rule the container was filled with, not
+    // typed as a magic number.
+    let mut c2 = create_ctr::<typeof(Led)>(&snap, 2u64);
+    let mut k2: u64 = 0u64;
+    while k2 < 2000u64 { c2.insert(k2, k2 * 10u64); k2 = k2 + 1u64; }
+
+    let mut s2 = match q1_stream(&c2)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 27i32; } };
+    let mut pk2: i64 = 0i64;
+    let mut rows2: i64 = 0i64;
+    let mut ksum2: u64 = 0u64;
+    loop {
+        let ob2 = s2.next_batch();
+        if ob2.is_none() { break; }
+        let bb2 = ob2.unwrap();
+        let mut n2: i64 = 0i64;
+        while n2 < bb2.len() {
+            ksum2 = ksum2 + bb2[n2].0;
+            rows2 = rows2 + 1i64;
+            n2 = n2 + 1i64;
+        }
+        pk2 = pk2 + 1i64;
+    }
+    if pk2 < 2i64 { return 28i32; }
+    if rows2 != 1998i64 { return 29i32; }
+    // The oracle for the values, not only the count: sum of 2..1999.
+    let mut ks_o: u64 = 0u64;
+    let mut ki: u64 = 2u64;
+    while ki < 2000u64 { ks_o = ks_o + ki; ki = ki + 1u64; }
+    if ksum2 != ks_o { return 30i32; }
 
     // ── SEAM 2: PULL-THROUGH OFF THE HANDLE-FED SURFACE ───────────────────
+    // Reads the CONCATENATION of seam 1's packets. Before `direct` this was
+    // `s1.as_slice()`, the Buffer's own storage; the direct door owns no such
+    // landing (that is the point), so the slice is the accumulator the loop
+    // above built — the same 8 rows, from the same door.
     let mut pulled: i64 = 0i64;
-    let src_s: SeamSrc = SeamSrc { rows: s1.as_slice(), ctr: &mut pulled as *mut i64 };
+    let src_s: SeamSrc = SeamSrc { rows: acc.as_slice(), ctr: &mut pulled as *mut i64 };
 
     pulled = 0i64;
     let h1: Vec<(u64, u64)> = match q2_head(&src_s)

@@ -1131,6 +1131,377 @@ fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
                        string_as_str(&rty), parse_block(string_as_str(&b)), prm);
 }
 
+// ── ADR 0025 §12 — THE STREAMING RETURN SURFACE, `direct` FORM ──────────────
+//
+// `q_stream(…) -> Result<QDx, ElError>`, where `QDx` is a PER-QUERY STATE
+// STRUCT emitted beside the query: it holds the SOURCE's own batch stream as a
+// field, an owned scratch `Vec<E>` for the projected rows of ONE packet, and a
+// `done` flag. `next_batch(&mut self)` pulls ONE source packet, projects the
+// rows that pass the `where` into `self.sc` (cleared first), and returns
+// `Option<&[E]>` borrowed OUT of `self`. Nothing is filled to completion — the
+// consumer sees one packet per source packet, and the query's landing is never
+// built at this door at all.
+//
+// ⚠ THIS IS THE FORM S5 COULD NOT EMIT, AND THE REASON IT COULD NOT IS A
+// COMPILER DEFECT CHAIN THAT IS NOW CLOSED — both halves measured, neither
+// assumed:
+//   · #62 — `sema_abi_layout` declined a metaprog-emitted struct FIELD asked
+//     about from a FOREIGN package and answered `{8,8}` (LOGOS_VERIFY_LAYOUT
+//     aborted: sema said 8, `llvm::DataLayout` said 72). The state struct's
+//     FIRST field is exactly such a type (`<C>LeafWalk`, emitted into
+//     `logos.gen` by the container factory), so the whole shape was a layout
+//     lie. Fixed at `d90a89a4` — an uncached retry round's registrations were
+//     being thrown away.
+//   · #70 — with #62 fixed the struct laid out, but the SURFACE did not
+//     compose: `Result::Ok(QDx { … })` false-red the borrow checker, because a
+//     nested borrow-forming call in ARGUMENT position deposited no borrow
+//     sources. Fixed at `fb8dc2b7`. THAT is why this facade may return
+//     `Result<QDx, ElError>` and not merely `QDx`, and the return type here is
+//     the one the corpus already consumes (`match q_stream(&c) { Result::Ok(s)
+//     => … }`), so the `?`/`match` shape at every seam is unchanged.
+//
+// ⚠ THE `Result` IS NOT DECORATION AND THE PROBE PROVED IT SEPARATELY. Before
+// this landing, `/home/logos/sandbox/s5land/probe_res.logos` wrapped the
+// hand-emitted shape's constructor in `Result` and recompiled: rc 0 under
+// `LOGOS_VERIFY_LAYOUT=1`, multi-packet (`pk >= 2`), rows and key-sums equal
+// to the container cursor's. The same file with `pk < 2` perturbed to
+// `pk < 200000` returns rc 1, which is the proof the arm EXECUTED.
+//
+// ── WHAT IS ELIGIBLE, AND WHY EACH REFUSAL IS A REFUSAL AND NOT AN OVERSIGHT ─
+// `direct_class` (below) is the decision site. Every clause declines by
+// default; the admitted shape is the one whose ANSWER is provably identical to
+// the buffered facade's, packet by packet:
+//
+//   · A BATCH SOURCE. There has to be a packet boundary to hand out. A
+//     row-at-a-time `next()` source has none, and inventing one would be this
+//     emitter choosing a batch size, which is §5's whole complaint.
+//   · FORWARD. `batch_scan_rev_frag` opens with `land_end()` and decrements;
+//     the state struct would have to carry that seed. One shape at a time.
+//   · NO `order by` THAT SURVIVED. A sort is a barrier: the first output row is
+//     not known until the last input row is read, so a "stream" over it would
+//     fill to completion behind the reader's back and lie about it. (An ELIDED
+//     sort — `rel_src_ord_noop`, S3 — has already cleared `has_sort` by the
+//     time this is asked, and those queries ARE eligible: that is the S3 claim
+//     cashed, not an exception to this one.)
+//   · NO `distinct`. Dedup is a fact about the WHOLE output; a per-packet
+//     `sc` cannot see the packets already handed out. The landing IS the dedup
+//     structure at those 5 sites (`out_node_query`), so the direct form would
+//     have to keep the landing anyway — at which point it is the buffered form
+//     with extra steps.
+//   · NO `limit`. The bound is read off `__out.len()`, i.e. off the LANDING; a
+//     direct stream has no landing to count. A `remaining: i64` field would
+//     answer it and is deliberately not built here — it is a second shape, and
+//     the 16 bounded sites are named as such rather than silently converted.
+//   · NO TYPE PARAMETERS (`tps` empty). A generic query would need the state
+//     struct, both impls and the facade to carry the same parameter list, and
+//     the `BatchStream` impl to be generic over it. Refused as a shape, with a
+//     count, rather than emitted and hoped for.
+//   · AN OWNED ELEMENT TYPE. `sc: Vec<E>` outlives the packet it was projected
+//     from — `__bb0` is a local of `next_batch` and dies at its `return`. So an
+//     `E` that BORROWS (`select x.tag : str`) would hand back a slice of
+//     dangling views. `ty_owned_elem` is the check, and it is a REFUSAL rather
+//     than a borrow-checker red because the emitter knows the answer.
+//   · A CONTAINER WALK, NOT A SLICE WRAP. The R-A slice-param class
+//     (`slice_stream_src`) reaches the same batch scan through a
+//     `SliceStream<R>` over the caller's `&[R]` — and a `SliceStream` hands out
+//     THE WHOLE SLICE AS ONE BATCH by construction (stream.logos). Republishing
+//     it through a per-query state struct would therefore yield a one-packet
+//     door: no fill-to-completion pull is removed, because there is no second
+//     packet to pull. Measured, not assumed — of the 118 plain-shape `_stream`
+//     doors, 107 are this class and 4 are the container walk, and only the
+//     latter is multi-packet. REFUSED with that count rather than converted, so
+//     the census counts the two source classes separately and the claim
+//     "`direct` removes a pull" stays true of every door that got it.
+//   · NO `__`-PREFIXED NAME IN THE PROJECTION OR PREDICATE. The direct form
+//     drops the query's PRELUDE (the size binding `__sz_<r>`, any other rel's
+//     landing): the constructor builds the walk and nothing else. A clause that
+//     reads a prelude binding would therefore be reading a name that no longer
+//     exists. Every emitted prelude name is `__`-prefixed and no EL surface can
+//     produce one, so this is a total test rather than a list of names.
+//
+// ⚠ WHAT DOES **NOT** MOVE, and this is the S5 rule restated: the `Vec`
+// surface (`q`/`q_run`) is untouched, still fills `__out` to completion, and is
+// still what every fixture in the corpus asserts through. This stage REPLACES
+// the `_stream` DOOR's implementation for the eligible class and moves nothing
+// behind the old one — which is why `out_node_query`'s landing heads keep their
+// populations exactly and only their SENTENCE changes.
+fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
+                      prm: &MacroParams, rel_ix: i64, rowmaj: bool,
+                      walk_ty: str, ctor_txt: str, var_name: str, row_ty: str,
+                      proj_txt: str, pred_txt: str, has_where: bool) {
+    // ── THE STATE TYPE IS PER (QUERY, SOURCE FAMILY), NOT PER QUERY ─────────
+    // A `deem` over a container CLASS (`map: Map<K, V>`) is not one query but a
+    // PLAN: the driver instantiates it once per family it is called with
+    // (`render_deem_plan_chunks`, keyed `package::name@family`), and every
+    // instance re-enters this emitter with THE SAME `fn_name`. The query FN
+    // survives that because the instances differ in parameter type and Logos
+    // overloads on it; a TYPE cannot overload, so a name derived from the query
+    // alone collides. MEASURED, not predicted — the first direct round reds
+    // `pass/memoria_ctr_class_deem` and `pass/memoria_ctr_gen_vector_deem`
+    // with `duplicate struct 'HighValueEntriesDx'` / `'TallDx'`, two instances
+    // each (`(u64, u64)` over `Hs352959f3caf5b795` and `(u64, i64)` over
+    // `Hs4327edf342098411`).
+    //
+    // The discriminator is the WALK TYPE, which is the source family's own
+    // emitted name and is therefore already unique per instance — the same text
+    // the field is declared with, so the name and the field cannot drift. Only
+    // identifier bytes are copied: `walk_ty` is a plain type name today, and a
+    // parameterized one tomorrow would otherwise put `<`/`,` in an identifier.
+    let mut tnm: String = String::new();
+    prep_type_name_sfx(vis_strip(fn_name), "Dx", &mut tnm);
+    let mut wk: i64 = 0i64;
+    while wk < walk_ty.len() {
+        let wb: u8 = str_byte_at(walk_ty, wk);
+        if ident_byte(wb) { tnm.push_u8(wb); }
+        wk = wk + 1i64;
+    }
+    let dnm: Ident = Ident::new(string_as_str(&tnm));
+
+    let mut snm: String = String::new();
+    prep_derived_name(fn_name, "_stream", &mut snm);
+    let fnm: Ident = Ident::new(vis_strip(string_as_str(&snm)));
+
+    // The runtime import list, same source as `emit_fn_quote_blob`'s: one module
+    // per source the query binds. `logos.gen` arrives through it — the natspec
+    // carries the container family's defining package — and it is what makes
+    // `<C>LeafWalk` nameable as a FIELD TYPE in the consumer module.
+    let mut uses: Vec<Ident> = vec_new::<Ident>();
+    let mut uk: i64 = 0i64;
+    loop {
+        let um: str = prm.native_use_at(uk);
+        if um.len() == 0i64 { break; }
+        uses.push(Ident::new(um));
+        uk = uk + 1i64;
+    }
+
+    // Every antiquoted TYPE/EXPR is parsed once per occurrence: a fragment is
+    // consumed where it is spliced, and two occurrences of `E` are two nodes.
+    let e1: ExprBlob = parse_type(elem_ty);
+    let e2: ExprBlob = parse_type(elem_ty);
+    let e3: ExprBlob = parse_type(elem_ty);
+    let e4: ExprBlob = parse_type(elem_ty);
+    let e5: ExprBlob = parse_type(elem_ty);
+    let e6: ExprBlob = parse_type(elem_ty);
+    let wt: ExprBlob = parse_type(walk_ty);
+    let ct: ExprBlob = parse_expr(ctor_txt);
+    let ps: ExprBlob = parse_params(params_text);
+
+    // The per-row shape is the SAME pair of helpers §1's scan uses — the row
+    // text is layout-selected (`batch_row_text_at`) and the length is too
+    // (`batch_len_text_at`), so a columnar leaf and a row-major slice batch
+    // reach this struct through one rule and not two.
+    let s_ob: String = nk_str("__ob", 0i64);   let n_ob: Ident = Ident::new(string_as_str(&s_ob));
+    let s_bb: String = nk_str("__bb", 0i64);   let n_bb: Ident = Ident::new(string_as_str(&s_bb));
+    let s_bn: String = nk_str("__bn", 0i64);   let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__bj", 0i64);   let n_bj: Ident = Ident::new(string_as_str(&s_bj));
+    let s_br: String = nk_str("__brow", 0i64); let n_br: Ident = Ident::new(string_as_str(&s_br));
+    let mut rowx: String = String::new();
+    // ⚠ THE REL INDEX IS THREADED, NOT -1. The FIRST direct round passed -1 here
+    // and the columnar arm rendered an EMPTY row expression silently
+    // (`let __brow0: (u64,u64) = ();`); `batch_row_text_at` now PANICS on that
+    // (params.logos, landed 5a326a1f) and the panic is the reason this is a
+    // parameter. -1 is legal ONLY on the row-major side, where the layout is
+    // known statically and no rel row is read — see `batch_scan_frag`'s note.
+    batch_row_text_at(&mut rowx, prm, rel_ix, rowmaj, string_as_str(&s_bb), string_as_str(&s_bj));
+    let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    let mut lenx: String = String::new();
+    batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
+    let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let vnm:   Ident    = Ident::new(var_name);
+    let row_f: ExprBlob = parse_type(row_ty);
+    let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
+
+    let proj_f: ExprBlob = parse_expr(proj_txt);
+    let mut hit_f: ExprBlob = quote_block! { self.sc.push(#(proj_f)); };
+    if has_where {
+        let pred_f: ExprBlob = parse_expr(pred_txt);
+        hit_f = quote_block! { if #(pred_f) #(hit_f) };
+    }
+
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.string; use logos.mem.collections.vec; use logos.lang.option;
+        use logos.lang.result; use logos.std.wql.el;
+        use logos.lang.writ.container;
+        use logos.lang.num.float;
+        // `Buffer` is NOT needed by this door — but `logos.mem.stream` /
+        // `logos.lang.stream` are the PAIR rule `emit_fn_quote_blob` records:
+        // `RowsBatch`, `BatchStream` and `SliceStream` are all named here, and
+        // the trigger-module `use` in wql.logos is what LOADS the packages.
+        use logos.mem.stream;
+        use logos.lang.stream;
+        #( use #uses; )*
+        // `#[borrow_carrying]` — the struct holds the source's walk, which is
+        // itself `#[borrow_carrying]` off the container (`container_item`, ADR
+        // 0025 §7 rung 1). Without the attribute the state struct would be an
+        // owned value the borrow checker lets outlive its container, which is
+        // exactly the dangling-view hazard the cursor attribute exists for.
+        #[borrow_carrying]
+        pub struct #dnm { w: #(wt), sc: Vec<#(e1)>, done: bool }
+        impl #dnm {
+            /// ONE source packet per call. `self.sc` is CLEARED and refilled,
+            /// so the allocation is amortized across packets and the returned
+            /// slice is invalidated by the next call — the `BatchStream`
+            /// contract, not a shortcut.
+            pub fn next_batch(self: &mut #dnm) -> Option<&[#(e2)]> {
+                if self.done { return Option::None; }
+                let #n_ob = (self.w).next_batch();
+                if #n_ob.is_some() {
+                    {
+                        let #n_bb = #n_ob.unwrap();
+                        let #n_bn: u64 = #(lene_f);
+                        let mut #n_bj: u64 = 0u64;
+                        self.sc.clear();
+                        while #n_bj < #n_bn {
+                            #(bind_f);
+                            #(hit_f);
+                            #n_bj = #n_bj + 1u64;
+                        }
+                    }
+                    return Option::Some(self.sc.as_slice());
+                }
+                // THE EMPTY TAIL IS A `None`, NOT AN EMPTY PACKET — the source
+                // said it is done, and the buffered form's "an empty result is
+                // one packet" rule is about a Buffer that was BUILT empty, a
+                // different fact. A query matching no row here yields packets
+                // whose slices are empty and then `None`, so "ran and matched
+                // nothing" is still distinguishable from "never ran".
+                self.done = true;
+                return Option::None;
+            }
+        }
+        impl BatchStream<RowsBatch<#(e3)>> for #dnm {
+            fn next(&mut self) -> Option<RowsBatch<#(e4)>> { return self.next_batch(); }
+        }
+        pub fn #fnm (#(ps)) -> Result<#dnm, ElError> {
+            return Result::Ok(#dnm { w: #(ct), sc: Vec::<#(e5)>::new(), done: false });
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+    // `e6` keeps the per-occurrence parse count honest against the quote above
+    // (five splices of `E` plus the one this line retires) — see the note on
+    // `e1..e6`. Consumed here rather than deleted so the count and the quote
+    // cannot drift apart silently.
+    let _e6: ExprBlob = e6;
+}
+
+/// Is this element type OWNED — safe to hold in the direct stream's `sc: Vec<E>`
+/// across the death of the packet it was projected from?
+///
+/// `str` is a VIEW and `&` is a borrow; either one in the element type means the
+/// projected value points into `__bb0`, a local of `next_batch`. `String` is
+/// owned and must NOT be caught, which is why the test is on a WORD boundary
+/// (`str` preceded and followed by a non-identifier byte) and not on a
+/// substring — `String`, `str_byte_at`, `Vec<String>` all contain "str".
+fn ty_owned_elem(t: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < t.len() {
+        let c: u8 = str_byte_at(t, i);
+        if c == 38u8 { return false; }          // `&`
+        if c == 115u8 && i + 2i64 < t.len()      // `s`
+           && str_byte_at(t, i + 1i64) == 116u8  // `t`
+           && str_byte_at(t, i + 2i64) == 114u8 {// `r`
+            let mut lo: bool = true;
+            if i > 0i64 { lo = !ident_byte(str_byte_at(t, i - 1i64)); }
+            let mut hi: bool = true;
+            if i + 3i64 < t.len() { hi = !ident_byte(str_byte_at(t, i + 3i64)); }
+            if lo && hi { return false; }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn ident_byte(c: u8) -> bool {
+    if c >= 48u8 && c <= 57u8 { return true; }
+    if c >= 65u8 && c <= 90u8 { return true; }
+    if c >= 97u8 && c <= 122u8 { return true; }
+    return c == 95u8;
+}
+
+/// Does this clause text name an emitted PRELUDE binding? Every one of them is
+/// `__`-prefixed and no EL surface can produce that spelling, so the presence of
+/// `__` anywhere in the rendered `select`/`where` is the total test. See the
+/// eligibility note on `emit_stream_direct`.
+fn clause_prelude_free(t: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i + 1i64 < t.len() {
+        if str_byte_at(t, i) == 95u8 && str_byte_at(t, i + 1i64) == 95u8 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// Does this clause text lower to an INFALLIBLE expression — one that can be
+/// spliced into a fn whose return type is NOT a `Result`?
+///
+/// ⚠ THIS IS THE ONE ELIGIBILITY QUESTION THE FIRST DIRECT ROUND DID NOT ASK,
+/// and the door it left open emitted source that DOES NOT COMPILE. `emit_sexpr`
+/// (codegen.logos) lowers checked-integer arithmetic through the error-returning
+/// tower — `el_addu(a, b)?`, `el_div(a, b)?`, `el_neg(a)?` — because an overflow
+/// or a division by zero is a returned `ElError`, never a host trap. In the
+/// BUFFERED form that `?` lands inside `_run`, whose return type is
+/// `Result<Vec<E>, ElError>`, and propagates correctly. In the DIRECT form the
+/// same text is spliced into `next_batch`, whose return type is
+/// `Option<&[E]>` — and the host compiler answers
+/// `'?' operator used in function that does not return Result<T, E>`, attributed
+/// to a fn nobody wrote. `select (e.key, e.val + 1u64)` and
+/// `where e.key + 1u64 > 30u64` over a container walk were both admitted; every
+/// one of the ten corpus doors projects BARE FIELDS, so no gate saw it.
+///
+/// THE HONEST ALTERNATIVE — threading the error out of `next_batch` — IS NOT
+/// AVAILABLE HERE, and that is a fact about the pull protocol, not a preference.
+/// `BatchStream<B>::next(&mut self) -> Option<B>` (stdlib/lang/stream/stream.logos)
+/// has NO error channel: the direct struct implements that trait, so a
+/// `Result`-returning `next_batch` could only be re-wrapped by DISCARDING the
+/// error at the facade — trading a compile-time red for a silently short answer.
+/// Widening the protocol is an ADR 0025 §3 change to every batch source, not a
+/// door repair. So the door REFUSES, and the query still compiles and runs
+/// through the buffered arm, which is where the `?` is well-typed.
+///
+/// The test is the presence of a `?` BYTE, which mirrors `clause_prelude_free`'s
+/// blunt-substring construction and for the same reason: the two lowering sites
+/// above (codegen.logos, `)?` and `el_neg(..)?`) are the ONLY producers of `?`
+/// into a rendered clause — the EL surface's ternary `a ? b : c` is lowered to
+/// an `if` EXPRESSION by `emit_sexpr`'s `SExpr::Cond` arm and carries no `?` out.
+/// A `?` inside a string LITERAL (`select "a?"`) would refuse conservatively:
+/// the query keeps its buffered door, which is the safe direction — an admitted
+/// query that does not compile is not.
+fn clause_infallible(t: str) -> bool {
+    // ⚠ TWO REFINEMENTS OVER THE FIRST CUT'S BARE `?` BYTE SCAN, both forced by
+    // the verify that followed it, and both about the GROUND rather than the
+    // verdict. The cascade's own rule is that a ground naming the wrong cause is
+    // worse than a missing count, and a bare `?` scan printed the
+    // CHECKED-ARITHMETIC sentence over a query with no arithmetic in it:
+    //   `where e.key > 30 && starts_with("a?b", "a")` was refused the door and
+    //   told the reader it lowers through `el_add(..)?`. Measured on a one-byte
+    //   twin pair (`"a?b"` refused / `"axb"` admitted, both rc 0 — nothing reds,
+    //   which is why the corpus could not see it).
+    //   · the tower emits `el_add(..)?` / `el_neg(..)?` (codegen.logos `")?"`),
+    //     so the `?` ALWAYS follows `)`; a lone `?` byte is not the tower;
+    //   · a `?` inside a STRING LITERAL is DATA — the scan skips literals, with
+    //     backslash escapes honoured, so `"a)?b"` cannot misattribute either.
+    // Residual, stated rather than left implicit: this is still a TEXT test over
+    // rendered clause text. Any future emission that is legal only inside a
+    // `Result` fn repeats the class; the honest close is a fallibility fact
+    // carried by the lowering, not recovered from its bytes.
+    let mut i: i64 = 0i64;
+    let mut in_str: bool = false;
+    while i < t.len() {
+        let b: u8 = str_byte_at(t, i);
+        if in_str {
+            if b == 92u8 { i = i + 2i64; continue; }      // `\` escape
+            if b == 34u8 { in_str = false; }
+        } else {
+            if b == 34u8 { in_str = true; }
+            else if b == 63u8 && i > 0i64 && str_byte_at(t, i - 1i64) == 41u8 {
+                return false;                            // `)?` — the tower
+            }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
 fn is_comp_root(e: SExpr) -> bool {
     match e {
         SExpr::Comp(_) => { return true; }
@@ -2177,12 +2548,14 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 // (the artifact classifier reads 477/16/5/0). An arm for the pair would be an
 // arm that never fires, so there is none — and if one ever does fire, it is
 // reported as the dedup carrier, which is the stronger claim about the landing.
-// ⚠ THE #70 SENTENCE IS RETIRED AND ITS SUCCESSOR IS A THIRD, DIFFERENT
-// BLOCKER — recorded here rather than in a plan file because this is the
-// ground's own truth condition, and the last two stages both proved that a
-// ground naming a blocker outlives the blocker unless the sentence is the
-// thing that gets edited.
+// ⚠ THE #74 SENTENCE IS RETIRED, AND THE CLAUSE THAT MADE IT TRUE IS FALSE NOW.
+// This is the FOURTH rewrite of one ground and each one was forced by the tree
+// disproving the last — which is what a ground with a truth condition costs and
+// a bare "output" stamp never does. The chain, in order, all four closed:
 //
+//   · the typeof-in-module round order — landed at R-E, and R-E also measured
+//     that `direct` never depended on it (the emitter spells the concrete walk
+//     type as TEXT out of MacroParams).
 //   · #62 (the emitted-struct-FIELD layout decline) — FIXED at `d90a89a4`.
 //   · #70 (a nested borrow-forming call in ARGUMENT position depositing no
 //     borrow sources, which false-red `Result::Ok(QDx { … })`) — FIXED at
@@ -2192,54 +2565,78 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 //     `LOGOS_VERIFY_LAYOUT=1`, multi-packet (`pk >= 2`), rows and key-sums
 //     equal to the container cursor's; perturbing `pk < 2` to `pk < 200000`
 //     returns rc 3 (the probe's own `return 3i32` arm), so the arm executed.
-//   · ⚠ THE THIRD BLOCKER (task #74, D8), FOUND BY LANDING THE EMITTER AND
-//     MEASURED AS A ROUTE DIFFERENCE, NOT A TEXT ONE. The direct form needs a
-//     state STRUCT plus two impls, which this file can only emit through
-//     `quote_item!` + `logos_emit_item_blob_subst`. On that channel a method
-//     whose CALLEE RETURNS A BORROW-CARRYING VALUE loses its field-split
-//     borrow: `self.w.next_batch()` takes its loan against the WHOLE `self`
-//     instead of the place `self.w`, so the three `self.sc` uses that follow
-//     each red with
-//         cannot use 'self' while it is mutably borrowed
-//     ⚠ `#[borrow_carrying]` ON THE STRUCT IS IRRELEVANT — the round's own
-//     control aimed at the wrong side; the verify re-aimed it: the quote half
-//     WITHOUT the attribute still reds, and a minimal quote-channel struct
-//     whose callee returns nothing borrow-carrying is green. The class is
-//     quote channel × borrow-carrying-returning callee.
-//     The SAME TEXT emitted on the module-source channel (`Emitter` /
-//     `logos_emit_source`) is GREEN. Proved by bisection, not inference: the
-//     emitted and hand-written bodies were diffed to two deltas (a doc comment
-//     and one pair of parentheses around `self.w`), BOTH were removed from the
-//     emitter, and the red was unchanged — so the discriminator is the
-//     channel. The minimal repro is `sandbox/s5land/REPRO_qroute.logos`: 115
-//     lines, no deem, no container, no Memoria, both halves in ONE
-//     compilation, `HandDx` green and `QuoteDx` red three times.
+//   · #74 / D8 — NOT a quote-channel defect after all, and the filed premise
+//     was REFUTED by the fix. `BorrowChecker::take_ref_borrows`, the
+//     `Code::MethodCall` arm's `AddrOfTemp && result_borrows_self` branch,
+//     computed a `BorrowPlace` and then DISCARDED its `path`, so
+//     `self.w.next_batch()` locked the WHOLE `self` and every following
+//     `self.sc.*` red with `cannot use 'self' while it is mutably borrowed`.
+//     Its two siblings (the bare-place receiver arm and the explicit
+//     `&mut place` arm) already split on the path; the branch now mirrors
+//     them. The quote channel loses nothing — the module-source half looked
+//     green only because loan liveness is keyed on source LINE and that half
+//     was emitted as ONE physical line. `pass/bc_d8_quote_field_split_admit`
+//     and `fail/bc_d8_quote_whole_self_conflict_fail` are the refuse/admit
+//     pair.
 //
-// SO THE LANDING IS BUFFERED FOR A REASON WITH A TRUTH CONDITION, and the
-// eligibility was MEASURED before it was refused rather than assumed away.
+// SO `direct` IS LANDED (`emit_stream_direct`), AND THE GROUND SPLITS IN TWO
+// RATHER THAN BEING DELETED. The split is the honest one: this head is about
+// the `_run` LANDING, and the landing did NOT move — `q`/`q_run` still return
+// `Result<Vec<E>, ElError>` and still fill `__out` to completion, because S5's
+// rule holds: the stream stage ADDS A DOOR and moves nothing behind the old
+// one, and 502 corpus call sites hold the Vec. What moved is the `_stream`
+// DOOR beside it. So the ground now says WHICH DOOR this query got and, when it
+// got the buffered one, WHY — the refusal reason authored at the decision site
+// in `emit_simple`, not a constant.
+//
+// ── THE ELIGIBLE CLASS, MEASURED BEFORE IT WAS CHOSEN ───────────────────────
 // Swept over the 189-fixture corpus (172 user dumps) at `fb8dc2b7`: of 503
 // emitted `_stream` doors, 118 have the plain scan shape the direct form
 // needs (no surviving `order by`, no `distinct`, no `limit`, one batch pull,
 // one output push, forward). Of those 118 the source is a `SliceStream` slice
-// param at 107, a container walk at 4, and something else at 7. The container
-// walk is the only class where the direct door would be MULTI-PACKET (one
-// packet per leaf); a `SliceStream` is one packet by construction, so for the
-// 107 the direct form would republish the seam type and remove no pull.
-fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — #62 (the emitted-struct-field layout decline) and #70 (borrow composition in argument position) are both FIXED and the direct shape re-proved green by hand, but the emitter can only deliver a state STRUCT through the quote-item splice channel, and on that channel a method whose callee returns a borrow-carrying value loses its field-split borrow (#74: `self.w.next_batch()` loans the WHOLE self, so the scratch pushes red; the struct's own #[borrow_carrying] is irrelevant) while the identical text on the module-source channel compiles — bisected to the CHANNEL, repro sandbox/s5land/REPRO_qroute.logos; so this landing is buffered"; }
+// param at 107, a container walk at 4, and something else at 7. THE CONTAINER
+// WALK IS THE CLASS THAT LANDS, and it is the only one where the direct door
+// is MULTI-PACKET (one packet per leaf) — i.e. the only one where "direct
+// removes a fill-to-completion pull" is a claim with a witness. The other two
+// classes are REFUSED WITH THEIR COUNTS, in the ground text, at their own
+// sites: a `SliceStream` is one packet by construction, so for the 107 the
+// direct form would republish the seam type and remove no pull.
+fn MG_OUT_DIRECT() -> str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate — but this query's `_stream` DOOR is now the §12 DIRECT form: a per-query state struct holding the source's batch stream as a field, yielding one packet per source packet, so the streaming consumer never fills this or any other landing to completion"; }
 
-fn out_node_query(subject: str, elem_ty: str, mods: QMods) {
+fn MG_OUT_BUFFERED() -> str { return "the landing is the `_run` Vec surface, which S5 deliberately does not migrate; and this query's `_stream` door is the BUFFERED form because the §12 direct form was refused here"; }
+
+fn out_node_query(subject: str, elem_ty: str, mods: QMods,
+                  dx_on: bool, dx_class: str, dx_no: str) {
     if !plan_trace_on() { return; }
+    // The three heads are the R-B2 partition and they do not move — a head is a
+    // claim about WHAT THE LANDING IS, and `direct` changed the door, not the
+    // landing. Only the sentence carries the door's identity.
+    let mut w: String = String::new();
     if mods.distinct {
-        plan_trace(subject, "query output distinct carrier", elem_ty,
-                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (the quote-item splice channel loses the state struct's field-split borrow — see MG_OUT_BUFFERED), so it is buffered");
+        w.push_str("the landing IS the dedup structure — `distinct` rescans it per pushed row");
+    } else if mods.has_limit {
+        w.push_str("the landing is READ, not only written — `__out.len()` is the limit guard's operand");
+    } else if dx_on {
+        w.push_str(MG_OUT_DIRECT());
+        w.push_str(" — the source is ");
+        w.push_str(dx_class);
+    } else {
+        w.push_str(MG_OUT_BUFFERED());
+    }
+    if !dx_on && dx_no.len() > 0i64 {
+        w.push_str("; the §12 direct door was refused here because ");
+        w.push_str(dx_no);
+    }
+    let why: str = string_as_str(&w);
+    if mods.distinct {
+        plan_trace(subject, "query output distinct carrier", elem_ty, why);
         return;
     }
     if mods.has_limit {
-        plan_trace(subject, "query output bounded by limit", elem_ty,
-                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (the quote-item splice channel loses the state struct's field-split borrow — see MG_OUT_BUFFERED), so it is buffered");
+        plan_trace(subject, "query output bounded by limit", elem_ty, why);
         return;
     }
-    plan_trace(subject, "query output", elem_ty, MG_OUT_BUFFERED());
+    plan_trace(subject, "query output", elem_ty, why);
 }
 
 fn out_node_snapshot(subject: str, elem_ty: str) {
@@ -2654,6 +3051,20 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // emitter, behind a green gate.
     let r_a_wrap: bool  = slice_stream_src(prm, src_name);
     let s_ss0:    String = ss_name(0i64);
+    // ── ADR 0025 §12 `direct` — THE SOURCE HALF OF THE DECISION ─────────────
+    // The SHAPE half (no sort/distinct/limit/first, concrete, owned element,
+    // prelude-free clauses) is asked once at the bottom; this is the half only
+    // the arm that RUNS can answer, and it is written by that arm rather than
+    // re-derived from `src_name` afterwards — a second derivation is how the
+    // emitted walk and the emitted state struct would come to disagree about
+    // which producer this query reads. Empty `dx_walk` means "no arm claimed
+    // it", which is the declining default.
+    let mut dx_walk:   String = String::new();   // the state struct's field TYPE
+    let mut dx_ctor:   String = String::new();   // the constructor EXPRESSION
+    let mut dx_rel:    i64    = -1i64;           // the rel row the layout is read from
+    let mut dx_rowmaj: bool   = true;            // the batch layout
+    let mut dx_slice:  bool   = false;           // the R-A slice class — REFUSED, with a reason
+    let mut dx_class:  str    = "";              // for the landing's ground
     // ⚠ THE SORT'S PHASE 3 INDEXES THE SOURCE, NOT THE WRAP — and that is a
     // MEASURED result, not a preference. `SliceStream::as_slice(&self)` was the
     // obvious door (the design named it "for the class-B random-access sites")
@@ -2781,6 +3192,34 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             } else {
             scan_f = batch_scan_frag(prm, bri, 0i64, src_f, vnm, row_f, row_f2,
                                      brk_f, brk_i);
+            // §12 `direct` — THE CONTAINER-WALK SEAM, and the one class where
+            // the effect is MEASURABLE rather than merely structural: the
+            // source hands out one packet per LEAF, so the direct door is
+            // multi-packet and the buffered one is not. The three texts are the
+            // PRELUDE's own (`plan_walker::emit_prelude_oneshot`, the
+            // `AD_NONE` arm) — the same `rel_itty` / `rel_mat` / `rel_marg`
+            // that spell `let mut __rel_<r>: <C>LeafWalk = __ctr_brows_<C>(m);`
+            // — so the struct's field is the binding the buffered form makes,
+            // moved into a field. Read from the same slots and not re-derived.
+            //
+            // `rel_native` is asked WITH `AD_NONE` because those three slots are
+            // written by the native arm only: a non-native rel with no
+            // materialization node binds its source some other way, and reading
+            // `rel_mat` there would hand the constructor an empty string.
+            if prm.rel_native[bri] && prm.rel_node[bri] == AD_NONE() {
+                dx_walk.push_str(prm.rel_itty[bri]);
+                dx_ctor.push_str(prm.rel_mat[bri]);
+                dx_ctor.push_str("(");
+                dx_ctor.push_str(prm.rel_marg[bri]);
+                if prm.rel_marg2[bri].len() > 0i64 {
+                    dx_ctor.push_str(", ");
+                    dx_ctor.push_str(prm.rel_marg2[bri]);
+                }
+                dx_ctor.push_str(")");
+                dx_rel    = bri;
+                dx_rowmaj = prm.rel_rowmaj[bri];
+                dx_class  = "a container walk — one packet per source leaf";
+            }
             }
         } else {
         // The row type is ANNOTATED, not inferred. `next()` is a trait method
@@ -2828,6 +3267,19 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             #(wrap_f);
             #(scan1_f);
         };
+        // §12 `direct` — THE SLICE-PARAM SEAM RECORDS A REFUSAL, NOT A CLAIM.
+        // The state struct could be spelled here (`SliceStream<R>` as the field,
+        // the wrap's right-hand side as the constructor) and it is deliberately
+        // NOT: a `SliceStream` hands out the whole slice as ONE batch by
+        // construction, so the direct door for this class is a one-packet door
+        // and removes no fill-to-completion pull — the only thing it would
+        // remove is a `Buffer::from_vec` MOVE, which R-H (b′) already measured
+        // as costing no rows and no allocation. 107 of the 118 plain-shape
+        // doors are this class; converting them would grow the emitted corpus
+        // by 107 structs and two impls each to buy nothing measurable. The
+        // refusal is stated in the landing's ground with that count, so it is a
+        // sentence a reader can check rather than an absence.
+        dx_slice = true;
     } else {
         let mut cond: ExprBlob = quote_expr! { __i < (#(src_f)).len() };
         if mods.has_limit {
@@ -2860,7 +3312,47 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
     }
-    if !first { out_node_query(fn_name, result_elem, mods); }
+    // ── ADR 0025 §12 `direct` — THE SHAPE HALF, one decision, in order ──────
+    // Each clause is the emitter DECLINING for a stated reason; the reason is
+    // what the landing's ground then says, so a refusal is a sentence a reader
+    // can check rather than a silent absence. See `emit_stream_direct` for why
+    // each one is a refusal and not an oversight.
+    // ⚠ THE ORDER IS THE GROUND'S ACCURACY, NOT A STYLE CHOICE, and the first
+    // ordering written here was WRONG in a way only the corpus showed. The
+    // source clauses (`dx_slice` / `dx_walk` empty) were asked FIRST, so every
+    // `order by` query — which takes the sort ARM above and therefore never
+    // sets `dx_walk` — was refused as "the source is not a forward batch
+    // producer". That sentence is false of a sorted container walk: the source
+    // is a batch producer and the SORT is the reason. A ground that names the
+    // wrong cause is worse than a count. The SHAPE clauses, which are true
+    // independently of which scan arm ran, are therefore asked first, and the
+    // SOURCE clauses last — where "no arm claimed it" really does mean the
+    // source.
+    // ⚠ THE FALLIBLE-CLAUSE CLAUSE IS A SHAPE CLAUSE AND SITS WITH THEM, which
+    // MOVES first-reason counts off `dx_slice` and off `dx_walk`: a slice-param
+    // query whose `select` does arithmetic used to be refused as "a slice param"
+    // and is now refused as "fallible". Both sentences are true of it; the one
+    // the ground prints is the FIRST, and the census below is re-derived for
+    // that reason rather than patched. The alternative — asking it LAST, to hold
+    // the old numbers still — would print "the source is a slice param" for a
+    // query that could not have taken the door under ANY source, which is the
+    // exact ground-names-the-wrong-cause failure this ordering was rewritten to
+    // fix.
+    let mut dx_no: str = "";
+    if first                       { dx_no = "the query is single-row (`Option<E>`) and has no stream door at all"; }
+    else if mods.has_sort          { dx_no = "an `order by` survived the S3 elision, and a sort is a barrier: the first output row is not known until the last input row is read"; }
+    else if mods.distinct          { dx_no = "`distinct` is a fact about the WHOLE output and a per-packet scratch cannot see the packets already handed out"; }
+    else if mods.has_limit         { dx_no = "`limit` is read off `__out.len()`, i.e. off the LANDING, and a direct stream has no landing to count"; }
+    else if prm.tparams.len() > 0i64 { dx_no = "the query is GENERIC — the state struct, both impls and the facade would each have to carry the type-parameter list"; }
+    else if !ty_owned_elem(result_elem) { dx_no = "the projected element BORROWS (a `str` view or a reference), and the scratch `Vec<E>` outlives the packet the view points into"; }
+    else if !clause_prelude_free(string_as_str(&body)) { dx_no = "the `select` reads an emitted PRELUDE binding, which the direct constructor does not build"; }
+    else if !clause_prelude_free(string_as_str(&pred_body)) { dx_no = "the `where` reads an emitted PRELUDE binding, which the direct constructor does not build"; }
+    else if !clause_infallible(string_as_str(&body)) || !clause_infallible(string_as_str(&pred_body)) { dx_no = "the `select` or `where` lowers through the CHECKED-ARITHMETIC tower (`el_add(..)?`, `el_div(..)?`, `el_neg(..)?`), and a direct door's `next_batch` returns `Option<&[E]>` — the `BatchStream` pull protocol has no error channel for a `?` to propagate into, so the buffered `_run` (whose `Result<Vec<E>, ElError>` is where that `?` is well-typed) is the only door that can carry this query"; }
+    else if dx_slice               { dx_no = "the source is a `deem` slice param, whose `SliceStream` wrap hands out the whole slice as ONE packet by construction — a direct door there removes no fill-to-completion pull (107 of the 118 plain-shape doors measured at `fb8dc2b7`)"; }
+    else if dx_walk.len() == 0i64  { dx_no = "the source is not a forward batch producer — no packet boundary exists to hand out"; }
+    let dx_on: bool = dx_no.len() == 0i64;
+
+    if !first { out_node_query(fn_name, result_elem, mods, dx_on, dx_class, dx_no); }
     let body_f: ExprBlob = quote_block! {
         #(pre_f);
         #(head_f);
@@ -2869,9 +3361,17 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     };
     // `first` is the SINGLE-ROW shape (`Option<E>`): no multi-row result, so no
     // §12 stream surface. "" is the emitter stating that, not a default.
-    let selem: str = if first { "" } else { result_elem };
+    // `dx_on` suppresses it for the OTHER reason — the door is emitted below in
+    // its `direct` form instead, and the two would collide on one name.
+    let selem: str = if first || dx_on { "" } else { result_elem };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm,
                   prep_ground(WG_SCAN(), input_axis(scan_e)));
+    if dx_on {
+        emit_stream_direct(fn_name, params_text, prm.tparams, result_elem, prm,
+                           dx_rel, dx_rowmaj, string_as_str(&dx_walk), string_as_str(&dx_ctor),
+                           var_name, row_ty, string_as_str(&body),
+                           string_as_str(&pred_body), has_where);
+    }
     return true;
 }
 
@@ -4669,7 +5169,13 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         head_f = quote_block! { };
         tail_f = quote_block! { return Result::Ok(Option::None); };
     }
-    if !first { out_node_query(fn_name, result_ty, mods); }
+    // §12 `direct` — A JOIN IS NOT ELIGIBLE, and the reason is carried as a
+    // sentence rather than as this site's silence: a nested pull would have to
+    // hold BOTH cursors plus the build side's landing in the state struct, and
+    // the build side is a landing filled to completion before the probe side's
+    // first row. One shape at a time (`emit_stream_direct`).
+    if !first { out_node_query(fn_name, result_ty, mods, false, "",
+                               "the query is a JOIN — the direct form covers the one-scan shape only, and a nested pull would have to carry both cursors plus the build side's fill-to-completion landing"); }
     // ⚠ `defer_f` SITS IMMEDIATELY AFTER THE PRELUDE, and its position is the
     // whole argument for the slice: the prelude has just materialized every rel
     // this query needs, and nothing has been built yet. One statement earlier the
@@ -5425,7 +5931,12 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
     };
 
-    out_node_query(fn_name, result_ty, mods);
+    // §12 `direct` — AN AGGREGATE IS NOT ELIGIBLE for the same reason a sort is
+    // not: a fold's first output row is not known until the last input row has
+    // been read, so a "stream" over it would fill to completion behind the
+    // reader's back and lie about it.
+    out_node_query(fn_name, result_ty, mods, false, "",
+                   "the query is an AGGREGATE — a fold's first output row is not known until the last input row is read, so a direct door would fill to completion behind the reader");
     // ADR 0025 R-H (b′) — the AGGREGATE's landing is a `Buffer` too; the group-key
     // vector beside it (`__g_key`) is NOT a query output and does not move.
     let body_f: ExprBlob = quote_block! {

@@ -1,0 +1,106 @@
+// V1-M1 ADMIT half — the same live mut FIELD loan as
+// fail/bc_d8_shared_use_while_field_mut_fail, but every use that follows names
+// a place DISJOINT from it. All of them must stay admitted.
+//
+// The loan: `self.a.w.next_batch()` takes `&mut self.a.w` (Walk::next_batch is
+// `&mut self`, its `Option<Bat>` result is #[borrow_carrying], so the loan
+// lives as long as the batch does — the whole block below).
+//
+// Held live against it, at three depths and through four different statement
+// kinds, each of which reaches a use-guard that read ONLY the whole-variable
+// flag before V1-M1 and would refuse the lot if the sub-place were dropped:
+//   · `self.tag = …`          FieldWrite       path "tag"
+//   · `self.b.tag2 = …`       ChainFieldWrite  path "b.tag2"
+//   · `self.b.sc.push(…)`     method on a disjoint field chain
+//   · `self.a.sc.push(…)`     DEEP SIBLING — under the SAME field `a` the loan
+//                             is rooted in, but on `a.sc`, not `a.w`
+// The last is the discriminating one: a guard that widened the loan from
+// `a.w` to `a` (or to whole `self`) still passes the first three and reds
+// here. `self.a.w` itself is NOT touched while the batch is live — that is
+// the refuse half's job.
+//
+// Ordinary MULTI-LINE source, not the quote channel: the guards this exercises
+// (check_live's sub-place argument at the field-write statements) are the
+// channel-independent half of V1-M1, and the quote channel's disjoint admit is
+// already pinned by pass/bc_d8_quote_field_split_admit. Multi-line matters —
+// loan liveness is keyed on source LINE, so a one-line body is not
+// exclusivity-checked at all and would not be an oracle.
+//
+// exit: 0
+package test;
+
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+pub struct Rows { pub n: u64 }
+
+#[borrow_carrying]
+pub struct Bat { pub r: &Rows, pub base: u64 }
+
+impl Bat {
+    pub fn len(self: &Bat) -> u64 { return 4u64; }
+    pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
+}
+
+#[borrow_carrying]
+pub struct Walk { pub r: &Rows, pub at: u64 }
+
+impl Walk {
+    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+        if self.at >= self.r.n { return Option::None; }
+        let b: Bat = Bat { r: self.r, base: self.at };
+        self.at = self.at + 4u64;
+        return Option::Some(b);
+    }
+}
+
+pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
+
+#[borrow_carrying]
+pub struct Arm { pub w: Walk, pub sc: Vec<u64>, pub tag2: u64 }
+
+#[borrow_carrying]
+pub struct Deep { pub a: Arm, pub b: Arm, pub tag: u64 }
+
+impl Deep {
+    pub fn step(self: &mut Deep) -> u64 {
+        let o = self.a.w.next_batch();
+        if o.is_none() { return 0u64; }
+        let b = o.unwrap();
+        let n: u64 = b.len();
+        self.tag = self.tag + 1u64;
+        self.b.tag2 = n;
+        let mut j: u64 = 0u64;
+        while j < n {
+            self.b.sc.push(b.at(j));
+            self.a.sc.push(b.at(j));
+            j = j + 1u64;
+        }
+        return n;
+    }
+}
+
+pub fn deep_open(r: &Rows) -> Deep {
+    return Deep {
+        a: Arm { w: walk_of(r), sc: Vec::<u64>::new(), tag2: 0u64 },
+        b: Arm { w: walk_of(r), sc: Vec::<u64>::new(), tag2: 0u64 },
+        tag: 0u64
+    };
+}
+
+fn main() -> i32 {
+    let r: Rows = Rows { n: 8u64 };
+    let mut d = deep_open(&r);
+    let mut total: u64 = 0u64;
+    loop {
+        let k = d.step();
+        if k == 0u64 { break; }
+        total = total + k;
+    }
+    if total != 8u64 { return 1i32; }      // two batches of 4
+    if d.tag != 2u64 { return 2i32; }      // the disjoint FieldWrite ran
+    if d.b.tag2 != 4u64 { return 3i32; }   // the disjoint ChainFieldWrite ran
+    if (d.a.sc.len() as u64) != 8u64 { return 4i32; }  // the DEEP SIBLING push ran
+    if (d.b.sc.len() as u64) != 8u64 { return 5i32; }
+    return 0i32;
+}

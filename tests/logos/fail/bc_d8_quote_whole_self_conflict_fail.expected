@@ -1,0 +1,1 @@
+cannot borrow 'self': 'self.w' is already mutably borrowed

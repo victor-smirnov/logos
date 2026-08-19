@@ -3085,9 +3085,176 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7288
-REGISTRY-NOIMPORTED  3605
+REGISTRY-ALL         7296
+REGISTRY-NOIMPORTED  3613
 REGISTRY-TIERCOMMIT  36
+# 2026-08-19, +2/+2/0 (7294/3611/36 -> 7296/3613/36), predicted before the
+# reconfigure and met exactly: the #74 fix round's OWN verify found a second
+# site of the class it had just closed, and this pair pins it. A MATCH
+# SCRUTINEE is a whole-value read; `take_borrow`'s B83 arm has refused
+# whole-value shared borrows against a live MUT FIELD loan since it was
+# written, but the scrutinee is visited non-consumingly and never reaches
+# take_borrow — the only guard that ran was `check_live`, which reads the
+# WHOLE-VARIABLE flag alone. Found by a ONE-TOKEN twin pair (loan on `&mut d`
+# refuses / loan on `&mut d.a` ADMITTED, same `match &d`), pre-existing and
+# with zero instances corpus-wide — the permissive shape.
+#   fail/bc_d8_match_scrutinee_field_loan_fail — refuses with B83's own
+#     spelling (REUSED, not minted: same fact, two routes). BITE: moving the
+#     loan's last use BEFORE the match kills it under NLL and the assertion
+#     misses (rc 1) — so the guard does not outlive the loan.
+#   pass/bc_d8_match_scrutinee_disjoint_admit — three legs the guard must NOT
+#     refuse: a disjoint FIELD scrutinee, the same `match &d` after the loan is
+#     dead, and a CALL scrutinee (the direct emitter's own shape). BITE: leg 1's
+#     `&d.b` → `&d` reds the fixture.
+# 2026-08-19, +1/+1/0 (7293/3610/36 -> 7294/3611/36), predicted before the
+# reconfigure and MEASURED exactly: V2-M1 — the §12 `direct` door ADMITTED a
+# query whose emitted door does not compile. `emit_simple`'s `dx_on` cascade
+# asked nine questions and not the tenth: is the rendered `select`/`where`
+# INFALLIBLE? `emit_sexpr` lowers checked-integer arithmetic through the
+# error-returning tower (`el_addu(..)?`), and that `?` is well-typed in the
+# buffered `_run` (`Result<Vec<E>, ElError>`) and NOT in the direct door's
+# `next_batch` (`Option<&[E]>`), so `select (e.key, e.val + 1u64)` or
+# `where e.key + 1u64 > 30u64` over a container walk emitted
+# `'?' operator used in function that does not return Result<T, E>` against a fn
+# nobody wrote. All ten corpus doors project bare fields, so no gate saw it.
+# CLOSED AT THE DECISION SITE, not at the emitter: a new cascade clause
+# (`clause_infallible`, rexpr_walk.logos) refuses the door and states why. The
+# alternative — threading the error out of `next_batch` — is UNAVAILABLE, and
+# that is a fact about `BatchStream<B>::next(&mut self) -> Option<B>`
+# (stdlib/lang/stream/stream.logos): the pull protocol has no error channel, so
+# a `Result`-returning `next_batch` could only be re-wrapped by DISCARDING the
+# error at the trait facade, trading a compile-time red for a short answer.
+# One test:
+#   pass/deem_direct_fallible_buffered — the one-token pair-mate of
+#     `deem_direct_stream_pull` (`+ 1u64` in the projection). It COMPILES (which
+#     is the refusal, and the failure mode no runtime oracle reaches), reads
+#     `pk == 1` — the BUFFERED door's signature, against its direct sibling's
+#     `pk >= 2` over the same container and the same 2000 rows — and its rows,
+#     key-sum and value-sum equal the CONTAINER'S OWN CURSOR walked with the
+#     same predicate and the `+ 1` applied by hand. Bite-proven: perturbing the
+#     new clause to `false && (…)` re-admits the query and the fixture reds at
+#     COMPILE time with the exact two errors above, while its bare-field sibling
+#     stays rc 0; restored md5-asserted (rexpr_walk.logos
+#     44c0ae2f62fdafd04c64696cd2378fad).
+# `deem_direct_fallible_buffered` IS a `deem_*` fixture and therefore joins the
+# logos_09 glob populations. Both were re-derived and both are green:
+#   logos_09_plan_ground_census — EXPECT_FIXTURES 190 -> 191, EXPECT_OUTQ
+#     608 -> 609, EXPECT_OUTHEAD["query output"] 480 -> 481, EXPECT_NOMAT
+#     readonce 28 -> 29, EXPECT_REFUSED 491 -> 492, EXPECT_DIRECT unmoved at 10.
+#     The per-clause refusal census moved OFF the comment and INTO code
+#     (`EXPECT_DXWHY`, thirteen first-reason counts with an asserted sum);
+#     `slice` 82 -> 55 and `notfwd` 51 -> 50 are pure RE-ATTRIBUTION — the new
+#     clause is a SHAPE clause and is asked before the SOURCE clauses, so 28
+#     queries that were refused for their source are now refused for their
+#     arithmetic. Bite-proven: moving the clause to the END of the cascade reds
+#     exactly those three per-clause pins and leaves EXPECT_REFUSED (492) GREEN,
+#     which is the hole a total-only pin had.
+#   logos_09_pull_shape — dumps 173 -> 174, nb_all 1040 -> 1041, nb_pull
+#     1030 -> 1031, both batch-loop counts 1030 -> 1031; nb_forward and all four
+#     door counts UNMOVED at 10, which is the fixture's own assertion read off
+#     the artifact.
+# 2026-08-19, +2/+2/0 (7291/3608/36 -> 7293/3610/36), predicted before the
+# reconfigure and MEASURED exactly: V1-M1 — the SHARED half of the receiver
+# conflict check. `check_recv_conflict` consulted the field-loan table for
+# `is_mut` receivers ONLY, so a `&self` method call on the WHOLE variable while
+# one of its FIELDS carried a live mut loan was ADMITTED. The D8 landing above
+# is what exposed it: D8 moved the receiver loan out of the whole-variable flag
+# (`mut_borrowed`, which check_live refuses for any use) into the field table,
+# leaving this arm as the only guard on the path — and it had no shared branch.
+# A `self` receiver is the only spelling that reaches it, because `self` is a
+# reference parameter and sema never wraps it in an AddrOfTemp; the value-local
+# twin goes to take_borrow, whose shared arm (§B83) has had the check all along.
+# Two tests, one PAIR:
+#   fail/bc_d8_shared_use_while_field_mut_fail — the quote_item! channel; the
+#     `&self` method READS `self.w.at`, the field `self.w.next_batch()` holds
+#     `&mut` and mutates, so the alias is real and not a shape technicality.
+#     Control-reverted: with the new arm disabled the file emits NO diagnostic
+#     at all (admitted), rc 1 against its .expected.
+#   pass/bc_d8_disjoint_field_use_admit — the same live loan on `self.a.w`, but
+#     four following uses at three depths all name DISJOINT places, including a
+#     DEEP SIBLING (`self.a.sc`, under the same field `a` the loan is rooted
+#     in). Bite-proven: disabling the D8 field split (loan widens to whole
+#     `self`) reds it on the disjoint writes and the deep sibling; restored
+#     md5-asserted (borrow_check.cpp 7c7ac0b4ae62ebf2926c031d1e5e342a).
+# Both are bc_* and so stay outside the logos_09 glob populations — the
+# deem_*/wql_* gate counts are unaffected and were not re-derived.
+# 2026-08-19, +1/+1/0 (7290/3607/36 -> 7291/3608/36), predicted before the
+# reconfigure and MEASURED exactly: ADR 0025 §12 — the `direct` STREAM DOOR
+# lands, unblocked by D8 above (the fix that closed #74 is what made this stage
+# possible; the two are separate landings and this one adds exactly one test).
+#   pass/deem_direct_stream_pull  — the direct door pulls MULTI-PACKET (pk >= 2
+#     over 2000 rows in an ordered_map) and its rows and key-sum equal the
+#     CONTAINER'S OWN CURSOR walked with the same predicate — a different
+#     mechanism, not the emitter compared with itself — and the buffered `_run`
+#     Vec surface still agrees. Bite-proven three ways, each restored md5-asserted:
+#     `pk < 2u64` -> `pk < 200000u64` gives rc 3; the oracle's `> 30u64` -> `> 33u64`
+#     gives rc 4 (the FIRST attempt, `> 31u64`, did NOT bite — the keys are
+#     multiples of 3, so 30 and 31 select the same set; recorded because a
+#     perturbation that changes no set is not a bite); `rows_o` -> `rows_o + 1u64`
+#     on the buffered comparison gives rc 7.
+# ⚠ THE FIXTURE IS `deem_*`, SO IT JOINS BOTH logos_09 POPULATIONS BY NAME. It
+# moved, and every one is re-derived in the gate beside the pin: plan_ground
+# census EXPECT_FIXTURES 189->190, EXPECT_OUTQ 607->608, EXPECT_OUTHEAD["query
+# output"] 479->480, EXPECT_NOMAT["readonce"] 27->28; pull_shape `dumps` 172->173
+# and the batch plane 1019->1030 (+11 = the fixture's own `_run` pull, plus one
+# `(self.w).next_batch()` per direct door).
+# THE EMITTER, in one sentence: `rexpr_walk::emit_stream_direct` emits, per
+# eligible query, a `#[borrow_carrying] pub struct <Q>Dx<walk-ty>` holding the
+# source's batch stream as a FIELD plus an owned scratch `Vec<E>` and a `done`
+# flag, an inherent `next_batch(&mut self) -> Option<&[E]>` that pulls ONE source
+# packet and projects into the scratch, a `BatchStream` forward, and a
+# `<q>_stream(...) -> Result<<Q>Dx…, ElError>` facade; the decision site is
+# `emit_simple`'s `dx_on`, and every refusal is authored there and printed in the
+# landing's ground. 10 doors corpus-wide, all of them the CONTAINER-WALK class.
+# ⚠ TWO THINGS THE CORPUS FOUND THAT THE RECONSTRUCTION SPEC DID NOT PREDICT,
+# both fixed here rather than deferred:
+#   (a) THE STATE TYPE IS PER (QUERY, SOURCE FAMILY). A `deem` over a container
+#       CLASS is instantiated once per family (render_deem_plan_chunks, keyed
+#       `package::name@family`) and every instance re-enters the emitter with the
+#       SAME fn_name. The query FN survives on overloading; a TYPE cannot, so
+#       `pass/memoria_ctr_class_deem` and `pass/memoria_ctr_gen_vector_deem` red
+#       with `duplicate struct 'HighValueEntriesDx'` / `'TallDx'`. The name now
+#       carries the walk type's identifier bytes, which is the family's own
+#       emitted name and therefore unique per instance.
+#   (b) THE REFUSAL CLAUSES HAD TO BE REORDERED FOR THE GROUND TO BE TRUE. Asked
+#       source-first, every `order by` query — which takes the sort ARM and so
+#       never claims a walk — was refused as "the source is not a forward batch
+#       producer", which is FALSE of a sorted container walk. Shape clauses first,
+#       source clauses last. 62 lines changed their reason; none changed its
+#       verdict.
+# ANSWER ORACLE (the instrument an emitter change owes): answer_diff_instrument
+# on the pre-direct tree (D8 only, full rebuild) vs this one — matched population
+# 189, MOVED ANSWER ROWS 0, one row ADDED (`deem_direct_stream_pull exit=0`).
+# Artifacts change at 10 sites; no answer does.
+# 2026-08-18 (third entry), +2/+2/0 (7288/3605/36 -> 7290/3607/36), predicted
+# before the reconfigure and met exactly: task #74 / D8 — the MethodCall receiver
+# arm in borrow_check.cpp that fires when sema wrapped a FIELD place in an
+# AddrOfTemp (`self.w.next_batch()`, callee `&mut self` + borrow-carrying return)
+# deposited the loan with take_borrow on the ROOT and DISCARDED bp.path, so every
+# sibling-field use that followed (`self.sc.clear()/push()/as_slice()`) red with
+# `cannot use 'self' while it is mutably borrowed`. Its two siblings — the
+# bare-place receiver arm and the explicit `&mut place` AddrOf arm — already split
+# on the path; this one now does too. The filed premise ("the quote_item! splice
+# channel loses the place path") is REFUTED: the defect is channel-independent
+# and reproduces in plain multi-line source; the module-source half that looked
+# green was emitted as ONE physical line, and loan liveness is keyed on source
+# LINE, so it was never borrow-checked at all (that permissive hole is SEPARATE
+# and still open — a fix there moves in the REFUSING direction over a population
+# no gate has ever checked, and must land with a measured red list).
+# The unit is a refuse+admit PAIR — an admit alone cannot tell a field split from
+# a dropped loan:
+#   pass/bc_d8_quote_field_split_admit         — the sibling-field uses ADMIT,
+#     pinned on BOTH channels in one compilation (quote_item! splice + ordinary
+#     MULTI-LINE source; a single-line half would be a vacuous oracle here)
+#   fail/bc_d8_quote_whole_self_conflict_fail  — through the SAME quote channel,
+#     a `&mut self` method on the WHOLE struct while the `self.w` loan is live
+#     still REFUSES, and now names the field: `cannot borrow 'self': 'self.w' is
+#     already mutably borrowed`
+# The diagnostic for the mut-binding shape sharpens with the split ('d' -> 'd.w',
+# the spelling take_field_borrow already used); RE-SPELLING swept: the one
+# in-tree fixture holding `as mutable: not declared as mut`
+# (tests/spec/fail/borrow_diag_1__take-mut-requires-mut-binding.expected) pins a
+# whole-variable target and does not move.
 # 2026-08-18 (second entry, same task), +3/+3/0 (7285/3602/36 -> 7288/3605/36),
 # predicted before the reconfigure and met exactly: the #70 verify's MISS-2 —
 # the (a) widening had covered only the nested-Call spelling; a borrow composed

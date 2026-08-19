@@ -167,6 +167,55 @@ want_emit() {
     fi
 }
 
+# ── ADR 0025 §12 `direct` — THE RETIREMENT CLAUSE, RE-DERIVED AS A RULE ─────
+#
+# `want_emit <tag> '<bound>' 1` used to say "the bound occurs once, in the access
+# call, and nowhere else", and the `1` carried BOTH halves: the count AND the
+# claim that the one occurrence is the access call. §12's direct door emits a
+# SECOND surface for the same query — the state struct's constructor holds the
+# same `__ctr_bfrom_<C>(m, <bound>)` the `_run` prelude holds — so the count is
+# now 2 and the old literal would have to be re-typed on every future door.
+#
+# RE-TYPING IT WOULD HAVE THROWN THE CLAIM AWAY, so the claim is made directly
+# instead: EVERY occurrence of the bound is inside an access call. That is
+# strictly stronger than any count — a fourth occurrence in a `where` filter
+# reds here whatever the door count is, which is exactly the "the exact access
+# did not retire the filter" failure the `1` was standing in for — and it stops
+# being a number a later stage has to guess.
+#
+# The DOOR COUNT is pinned separately and explicitly, so "how many surfaces land
+# this walk" stays a fact this gate asserts rather than one it absorbs.
+#
+# $1 = tag, $2 = the bound's ERE, $3 = the access-call ERE that must contain
+# every occurrence, $4 = the expected number of access calls, $5 = meaning.
+want_bound_retired() {
+    local tag="$1" bound="$2" call="$3" ncall="$4" why="$5"
+    local files nb nc
+    if ! files=$(dumps "$tag"); then fail=1; return; fi
+    grep -EnH "$bound" $files > "$TMPD/$tag.bhits" || true
+    grep -EnH "$call"  $files > "$TMPD/$tag.chits" || true
+    nb=$(wc -l < "$TMPD/$tag.bhits")
+    nc=$(wc -l < "$TMPD/$tag.chits")
+    if [ "$nb" -ne "$nc" ]; then
+        echo "FAIL [$tag]: $why"
+        echo "       the bound '$bound' occurs on $nb line(s) but the access"
+        echo "       call '$call' on only $nc — the difference is the bound"
+        echo "       appearing OUTSIDE the access, i.e. a filter not retired:"
+        diff <(cut -d: -f1,2 "$TMPD/$tag.bhits") \
+             <(cut -d: -f1,2 "$TMPD/$tag.chits") || true
+        fail=1
+    fi
+    if [ "$nc" -ne "$ncall" ]; then
+        echo "FAIL [$tag]: the access call occurs $nc time(s), want $ncall —"
+        echo "       one per EMITTED SURFACE that lands this walk (the \`_run\`"
+        echo "       prelude, plus the §12 direct door's constructor when this"
+        echo "       query is direct-eligible). A change here is a door gained"
+        echo "       or lost and must be re-derived with the stage."
+        cat "$TMPD/$tag.chits"
+        fail=1
+    fi
+}
+
 # ── 1. A FACTORY-GENERATED ORDERED-MAP FAMILY, narrowed on the KEY ──────────
 #
 # `from m e where e.key >= 5` — the family declares `op entry.key ge` exact, so
@@ -175,12 +224,22 @@ compile size "$SIZE_FIXTURE"
 want_plan size \
     '^\[plan\] m -> __ctr_bfrom_[A-Za-z0-9_]+ \[a range\] on key   \(an operation EXACT for that comparison' \
     "the key range did not reach the container as a range access"
-want_emit size '= __ctr_bfrom_[A-Za-z0-9_]+\(m, 5u64\);' 1 \
-    "the emitted fn does not land the walk on the declared bound"
+# S5-direct: 1 -> 2 emitted surfaces land this walk. `from_five` is
+# direct-eligible (a container walk, no sort/distinct/limit, owned element), so
+# besides the `_run` prelude's `let mut __rel_m: … = __ctr_bfrom_…(m, 5u64);`
+# the §12 state struct's constructor holds the same call —
+# `FromFiveDx…LeafWalk { w: __ctr_bfrom_…(m, 5u64), … }`. The `;` anchor is
+# dropped because the constructor's call ends in `,`; the `= ` anchor is dropped
+# with it, so the two spellings are matched by ONE rule and the count is the
+# door count, not two rules that could drift.
+want_emit size '__ctr_bfrom_[A-Za-z0-9_]+\(m, 5u64\)' 2 \
+    "the emitted fn does not land the walk on the declared bound at every door"
 want_emit size '__ctr_brows_[A-Za-z0-9_]+\(m\)' 0 \
     "the emitted fn still calls the FULL-SCAN producer for the narrowed rel"
-# The retired filter: the bound appears once, in the call, and nowhere else.
-want_emit size '5u64' 1 \
+# The retired filter, as a RULE and not a count (see `want_bound_retired`):
+# every occurrence of the bound is inside an access call, and there are exactly
+# two access calls — one per emitted surface.
+want_bound_retired size '5u64' '__ctr_bfrom_[A-Za-z0-9_]+\(m, 5u64\)' 2 \
     "the bound occurs outside the access call — the exact access did not retire the filter"
 # The hand-written source in the same fixture declares a rel and no operation,
 # and its query has no filter at all. Its scan is a DIFFERENT sentence from a
@@ -225,7 +284,23 @@ want_emit vector '= __ctr_brows_[A-Za-z0-9_]+\(v\);' 1 \
     "the full-scan producer is called for a number of rels other than the one that declared no covering operation"
 # The other direction: a scan KEEPS the filter it could not push down. A plan
 # that dropped it would be unsound, and this is the cheap place to see it.
-want_emit vector '> 10u64' 1 \
+# S5-direct: 1 -> 2. The KEPT filter is emitted once per SCAN BODY, and the
+# direct door's `next_batch` is a second scan body over the same rel — the same
+# `if (((e).1 > 10u64))` the `_run` loop holds. The claim is unchanged ("a scan
+# KEEPS the filter it could not push down"); what moved is how many scans this
+# query emits.
+# ⚠ AND THE 2 IS DERIVED FROM THIS FIXTURE'S OWN DOORS, not from the `size`
+# fixture's pin above — those are two different containers and two different
+# queries, and reading the 2 off `from_five` would be this clause borrowing a
+# number that does not describe it. `container_item_e2e` declares TWO
+# direct-eligible queries over its `Hs792307085db3fa2b` family and emits two
+# state structs, `BigDxHs792307085db3fa2bLeafWalk` and
+# `TailDxHs792307085db3fa2bLeafWalk`. `> 10u64` is `big`'s filter alone, so its
+# two occurrences are `big_run`'s scan loop and `BigDx…`'s `next_batch` — ONE
+# query, its two surfaces. `tail` contributes ZERO to this count (measured:
+# `grep -c '> 10u64'` is 0 in every `tail*` dump), which is why the number is 2
+# and not 4.
+want_emit vector '> 10u64' 2 \
     "the scanned query lost the filter it could not push down"
 
 # ── 3b. A CONTAINER UNDER A **JOIN** ────────────────────────────────────────

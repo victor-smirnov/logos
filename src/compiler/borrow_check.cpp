@@ -3288,6 +3288,60 @@ private:
         }
     }
 
+    // ── #74's follow-up, found by ITS verify (MISS 1) ─────────────────────
+    //
+    // A WHOLE-VALUE READ of a variable conflicts with a live MUT FIELD loan on
+    // it. `take_borrow`'s shared arm has said exactly that since B83 ("a mut
+    // field borrow blocks whole-value shared borrows"), but a MATCH SCRUTINEE
+    // never reaches `take_borrow`: it is visited non-consumingly, so the only
+    // guard that runs is `check_live`, and `check_live` reads the
+    // WHOLE-VARIABLE flag (`mut_borrowed`) alone.
+    //
+    // MEASURED on a one-token twin pair (`sandbox/adv_v3/{whole,field}_loan_match.logos`):
+    // with the loan on the whole var (`let hp: &mut Dx = &mut d;`) the
+    // scrutinee refuses through `check_live`; with the loan on a FIELD
+    // (`let hp: &mut Arm = &mut d.a;`) the IDENTICAL `match &d { _ => … }` was
+    // ADMITTED. The same program point refuses through `ro(&d)` and through
+    // `let p: &Dx = &d`, so it is this spelling and no other. PRE-EXISTING —
+    // the explicit `&mut d.a` was already in `mut_field_borrows` before D8 —
+    // and invisible to the whole corpus, which contains no instance: the
+    // permissive shape, invisible to a green corpus by construction.
+    //
+    // NARROW BY CONSTRUCTION: only a BARE variable scrutinee (optionally
+    // through `&` / `&mut`-temp / transparent casts) is a whole-value read.
+    // `match self.w.next_batch()` is a CALL and `match d.a { … }` is a FIELD
+    // read — neither arrives here, which is why the direct emitter's own shape
+    // (a field pull beside disjoint field uses) is untouched.
+    void check_whole_read_vs_field_loans(lir_view::ExprRef e, uint32_t line) {
+        using EC = lir_schema::expr::Code;
+        lir_view::ExprRef cur = e;
+        while (cur && cur.kind() == EC::Cast)
+            cur = lir_view::ECastView{cur}.operand();
+        if (!cur) return;
+        std::string nm;
+        uint32_t slot = NO_SLOT;
+        if (cur.kind() == EC::AddrOf) {
+            nm = std::string(lir_view::EAddrOfView{cur}.var_name());
+        } else {
+            if (cur.kind() == EC::AddrOfTemp)
+                cur = lir_view::EAddrOfTempView{cur}.inner();
+            while (cur && cur.kind() == EC::Cast)
+                cur = lir_view::ECastView{cur}.operand();
+            if (!cur || cur.kind() != EC::VarRef) return;
+            nm = std::string(lir_view::EVarRefView{cur}.name());
+            slot = lir_view::EVarRefView{cur}.var_slot();
+        }
+        if (nm.empty()) return;
+        auto* it = var_find(slot, nm);
+        if (!it || it->mut_field_borrows.empty()) return;
+        // Spelling REUSED from `take_borrow`'s B83 arm rather than minted: the
+        // two are the same fact reached by two routes, and a second wording
+        // would make them look like two rules.
+        report(line, std::format(
+            "cannot borrow '{}' as shared: field of '{}' is mutably borrowed",
+            nm, nm));
+    }
+
     // ── Phase 4: provenance of a reference expression ─────────────────────
     //
     // Returns the set of function parameters the expression borrows from.
@@ -3891,6 +3945,34 @@ private:
                             !sit->mut_field_borrows.empty()))
             report(line, std::format(
                 "cannot borrow '{}' as mutable: field of '{}' is already borrowed",
+                bp.root, bp.root));
+        // V1-M1: THE SHARED ARM WAS MISSING. A `&self` method call on the
+        // WHOLE variable while one of its FIELDS carries a live mut loan
+        // aliases that field — `self.wat()` reads `self.w.at`, the very field
+        // `self.w.next_batch()` holds `&mut` and mutates. Only the `is_mut`
+        // arm above consulted the field table, so every `x.shared_method()`
+        // after a live `&mut x.f` was admitted here.
+        //
+        // It stayed invisible while the receiver loan lived in the
+        // WHOLE-VARIABLE flag (`mut_borrowed`), which check_live refuses for
+        // any use: D8 moved that loan into the field table — correctly — and
+        // this arm was then the only guard left on the path, with no shared
+        // branch. The LOCAL-HOLDER twin (`let mut d = …; d.w.next_batch();
+        // d.peek();`) refused throughout, because a value local's receiver is
+        // wrapped in an AddrOfTemp and reaches take_borrow, whose shared arm
+        // (§B83) has had this check all along. `self` is a reference param, so
+        // sema never wraps it, so only THIS site guarded it — the whole spread
+        // between the two spellings.
+        //
+        // Spelling reused verbatim from that take_borrow arm — not minted.
+        // Reached only with `bp.path.empty()` (the guard at the top), so a
+        // DISJOINT-field receiver (`self.sc.clear()`) never arrives here and
+        // the D8 field-split admits are untouched.
+        // PAIR: fail/bc_d8_shared_use_while_field_mut_fail (refuse) +
+        //       pass/bc_d8_disjoint_field_use_admit (admit).
+        else if (!is_mut && !sit->mut_field_borrows.empty())
+            report(line, std::format(
+                "cannot borrow '{}' as shared: field of '{}' is mutably borrowed",
                 bp.root, bp.root));
     }
 
@@ -5458,8 +5540,23 @@ private:
                     // is tracked); only RAW pointers are unchecked (Rust parity).
                     bool root_is_rawptr = bp.root_type &&
                         bp.root_type.kind() == LogosType::Kind::Ptr;
-                    if (!bp.root.empty() && !root_is_rawptr && var_has(bp.root_slot, bp.root))
-                        take_borrow(bp.root, bp.root_slot, av.is_mut() || force_mut, line, holder);
+                    if (!bp.root.empty() && !root_is_rawptr && var_has(bp.root_slot, bp.root)) {
+                        bool m = av.is_mut() || force_mut;
+                        // D8: field-precise when the receiver is a field chain.
+                        // `self.w.next_batch()` (sema wrapped the place in an
+                        // AddrOfTemp because the method takes `&mut self`)
+                        // borrows self.w — NOT all of self; whole-root here
+                        // falsely locked every sibling-field use for the
+                        // holder's lifetime (`self.sc.clear()` after). Mirrors
+                        // the two siblings that already split on the path: the
+                        // bare-place receiver arm below and the explicit
+                        // `&mut place` AddrOf arm.
+                        if (!bp.path.empty())
+                            take_field_borrow(bp.root, bp.root_slot, bp.path, m, line,
+                                              bp.root_type, holder);
+                        else
+                            take_borrow(bp.root, bp.root_slot, m, line, holder);
+                    }
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
                     // AddrOfTemp (`v.iter_mut()` with v a value local). Same
@@ -7787,6 +7884,7 @@ private:
             // ── Match statement ───────────────────────────────────────────
             case Code::Match: {
                 SMatchView v{sr};
+                check_whole_read_vs_field_loans(v.scrut(), ln);
                 visit(v.scrut(), /*consuming=*/false, ln);
                 std::vector<std::string> scrut_sources;  // §B6: borrows held by scrut
                 collect_ref_sources(v.scrut(), scrut_sources);
@@ -8660,6 +8758,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Match expression ───────────────────────────────────────────
         case Code::MatchExpr: {
             EMatchExprView v{e};
+            check_whole_read_vs_field_loans(v.scrut(), line);
             visit(v.scrut(), /*consuming=*/false, line);
             auto saved_s = states_;
             auto saved_p = prov_;

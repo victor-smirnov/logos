@@ -1,0 +1,82 @@
+// D8 (#74) REFUSE half — the field split must NOT become a blanket admit.
+// Pair partner: pass/bc_d8_quote_field_split_admit (sibling field `self.sc`
+// used while the loan on `self.w` is live — ADMITTED).
+//
+// Here the SAME quote_item! + logos_emit_item_blob_subst channel, the same
+// `let o = self.w.next_batch()` field loan — but the statement that follows
+// while the borrow-carrying batch is still live is `self.reset()`, a method
+// taking `&mut self` of the WHOLE struct. That overlaps the live field loan
+// and must still be refused:
+//   error [fn QuoteDx__next_batch]: cannot borrow 'self': 'self.w' is already
+//   mutably borrowed
+// (Before the D8 fix this file also red — but for the wrong reason: with the
+// path discarded, EVERY following use of self red, disjoint or not. The pair
+// separates "the loan is on the field" from "the loan is gone".)
+package test;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.lang.option;
+
+pub struct Rows { pub n: u64 }
+
+#[borrow_carrying]
+pub struct Bat { pub r: &Rows, pub base: u64 }
+
+impl Bat {
+    pub fn len(self: &Bat) -> u64 { return 4u64; }
+    pub fn at(self: &Bat, i: u64) -> u64 { return self.base + i; }
+}
+
+#[borrow_carrying]
+pub struct Walk { pub r: &Rows, pub at: u64 }
+
+impl Walk {
+    pub fn next_batch(self: &mut Walk) -> Option<Bat> {
+        if self.at >= self.r.n { return Option::None; }
+        let b: Bat = Bat { r: self.r, base: self.at };
+        self.at = self.at + 4u64;
+        return Option::Some(b);
+    }
+}
+
+pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
+
+#[token_macro]
+pub fn gen_quote(s: str) -> ItemList {
+    let dnm: Ident = Ident::new("QuoteDx");
+    let q: QuoteItemBlob = quote_item! {
+        use logos.mem.collections.vec;
+        use logos.lang.option;
+        #[borrow_carrying]
+        pub struct #dnm { w: Walk, sc: Vec<u64>, done: bool }
+        impl #dnm {
+            pub fn reset(self: &mut #dnm) -> u64 {
+                self.done = true;
+                self.sc.clear();
+                return 1u64;
+            }
+            pub fn next_batch(self: &mut #dnm) -> u64 {
+                let o = self.w.next_batch();
+                let b = o.unwrap();
+                let z = self.reset();
+                return b.len() + z;
+            }
+        }
+        pub fn quote_open(r: &Rows) -> #dnm {
+            return #dnm { w: walk_of(r), sc: Vec::<u64>::new(), done: false };
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&q); }
+    return item_list_new();
+}
+gen_quote!{ x }
+
+fn main() -> i32 {
+    let r: Rows = Rows { n: 8u64 };
+    let mut b = quote_open(&r);
+    let n = b.next_batch();
+    if n == 0u64 { return 1i32; }
+    return 0i32;
+}

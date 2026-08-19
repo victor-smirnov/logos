@@ -214,8 +214,14 @@ should not be "fixed" before somebody measures it.
 
 ## F5 — the streaming form is generated and not used
 
-Every query emits a `<query>_stream` alongside `_run`, and the entry point calls
-`_run`. The trace names the reason:
+~~Every query emits a `<query>_stream` alongside `_run`, and the entry point calls
+`_run`.~~ **2026-08-19: PARTLY RETIRED — `direct` LANDED for the container-walk
+class** (10 pinned doors; ADR 0025 §12 row carries the full record). The trace
+ground quoted below no longer exists in the emitter — its "quote-item splice
+channel" clause was REFUTED (the discriminator was source-line-keyed loan
+liveness, #75, not the channel), and eligible doors now return a genuine
+pull-on-demand stream. The buffered remainder is refused per class with
+measured counts in the current grounds. Kept for history:
 
 ```
 [plan] mid_band -> query output on (u64, u64)
