@@ -743,7 +743,16 @@ pub fn batch_row_text_at(out: &mut String, prm: &MacroParams, r: i64,
         out.push_str(" as i64]");
         return;
     }
-    // Columnar: the rel index is REQUIRED here and only here.
+    // Columnar: the rel index is REQUIRED here and only here — and that is an
+    // ASSERTED precondition, not a doc sentence. The direct round (#74's
+    // measurement) reached this arm with r = -1 from a caller that had no rel,
+    // and the result was a SILENTLY EMPTY row expression
+    // (`let __brow0: (u64,u64) = ();`) — a permissive defect invisible to a
+    // green corpus. The doc comment above says "-1 is legal there and only
+    // there"; this is the "only there" made loud (verify miss M5).
+    if r < 0i64 {
+        logos.lang.panic::panic("wql!: batch_row_text_at reached the COLUMNAR arm with a rel-less source (r = -1) — only the row-major arm may take r = -1; a -1 here renders an empty row expression silently");
+    }
     let off: i64 = prm.rel_coff[r];
     let nc: i64  = prm.rel_ccnt[r];
     if nc != 1i64 { out.push_str("("); }

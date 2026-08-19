@@ -2164,31 +2164,79 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
 // R-E PROVED IT BY FALSIFYING THE FIRST ONE. The sentence used to name the
 // typeof-in-module blocker; R-E landed that compiler fix AND measured that
 // `direct` never depended on it (the emitter spells the concrete walk type as
-// TEXT from MacroParams). The true blocker, found by landing the precondition:
-// `direct`'s state struct must hold the emitted `<C>LeafWalk` as a FIELD, and
-// `sema_abi_layout` declines a metaprog-emitted struct asked about from a
-// foreign package (returns {8,8}; `LOGOS_VERIFY_LAYOUT` aborts — sema says 8,
-// llvm::DataLayout says 72). The day THAT clause turns false, this sentence
-// changes again — a ground with a truth condition, as against a bare "output"
-// stamp, which has none and can never be wrong.
+// TEXT from MacroParams). That blocker was replaced by the layout decline
+// (#62), the layout decline by the argument-position borrow composition (#70),
+// and BOTH are now fixed — so the sentence has been rewritten a THIRD time, to
+// the channel defect measured by actually landing the emitter. The current
+// clause and its bisection live on `MG_OUT_BUFFERED` below; the day IT turns
+// false the sentence changes again, which is what a ground with a truth
+// condition costs and a bare "output" stamp never does.
 //
 // ⚠ PRECEDENCE distinct > bounded, and the overlap is EMPTY, measured: over the
 // whole corpus zero queries carry both `distinct` and `limit` on the landing
 // (the artifact classifier reads 477/16/5/0). An arm for the pair would be an
 // arm that never fires, so there is none — and if one ever does fire, it is
 // reported as the dedup carrier, which is the stronger claim about the landing.
-fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — the emitted-struct-field layout decline is FIXED (#62), but the Result-composed surface false-reds the borrow checker: Option<T>::replace moves its arg into Option::Some in arg position and mono instantiates it uncalled for the borrow-carrying state struct (#70), so this landing is buffered"; }
+// ⚠ THE #70 SENTENCE IS RETIRED AND ITS SUCCESSOR IS A THIRD, DIFFERENT
+// BLOCKER — recorded here rather than in a plan file because this is the
+// ground's own truth condition, and the last two stages both proved that a
+// ground naming a blocker outlives the blocker unless the sentence is the
+// thing that gets edited.
+//
+//   · #62 (the emitted-struct-FIELD layout decline) — FIXED at `d90a89a4`.
+//   · #70 (a nested borrow-forming call in ARGUMENT position depositing no
+//     borrow sources, which false-red `Result::Ok(QDx { … })`) — FIXED at
+//     `fb8dc2b7`, and RE-PROVED against the direct shape before any emitter
+//     was touched: `sandbox/s5land/probe_res.logos` wraps the hand-emitted
+//     state struct's constructor in `Result` and compiles rc 0 under
+//     `LOGOS_VERIFY_LAYOUT=1`, multi-packet (`pk >= 2`), rows and key-sums
+//     equal to the container cursor's; perturbing `pk < 2` to `pk < 200000`
+//     returns rc 3 (the probe's own `return 3i32` arm), so the arm executed.
+//   · ⚠ THE THIRD BLOCKER (task #74, D8), FOUND BY LANDING THE EMITTER AND
+//     MEASURED AS A ROUTE DIFFERENCE, NOT A TEXT ONE. The direct form needs a
+//     state STRUCT plus two impls, which this file can only emit through
+//     `quote_item!` + `logos_emit_item_blob_subst`. On that channel a method
+//     whose CALLEE RETURNS A BORROW-CARRYING VALUE loses its field-split
+//     borrow: `self.w.next_batch()` takes its loan against the WHOLE `self`
+//     instead of the place `self.w`, so the three `self.sc` uses that follow
+//     each red with
+//         cannot use 'self' while it is mutably borrowed
+//     ⚠ `#[borrow_carrying]` ON THE STRUCT IS IRRELEVANT — the round's own
+//     control aimed at the wrong side; the verify re-aimed it: the quote half
+//     WITHOUT the attribute still reds, and a minimal quote-channel struct
+//     whose callee returns nothing borrow-carrying is green. The class is
+//     quote channel × borrow-carrying-returning callee.
+//     The SAME TEXT emitted on the module-source channel (`Emitter` /
+//     `logos_emit_source`) is GREEN. Proved by bisection, not inference: the
+//     emitted and hand-written bodies were diffed to two deltas (a doc comment
+//     and one pair of parentheses around `self.w`), BOTH were removed from the
+//     emitter, and the red was unchanged — so the discriminator is the
+//     channel. The minimal repro is `sandbox/s5land/REPRO_qroute.logos`: 115
+//     lines, no deem, no container, no Memoria, both halves in ONE
+//     compilation, `HandDx` green and `QuoteDx` red three times.
+//
+// SO THE LANDING IS BUFFERED FOR A REASON WITH A TRUTH CONDITION, and the
+// eligibility was MEASURED before it was refused rather than assumed away.
+// Swept over the 189-fixture corpus (172 user dumps) at `fb8dc2b7`: of 503
+// emitted `_stream` doors, 118 have the plain scan shape the direct form
+// needs (no surviving `order by`, no `distinct`, no `limit`, one batch pull,
+// one output push, forward). Of those 118 the source is a `SliceStream` slice
+// param at 107, a container walk at 4, and something else at 7. The container
+// walk is the only class where the direct door would be MULTI-PACKET (one
+// packet per leaf); a `SliceStream` is one packet by construction, so for the
+// 107 the direct form would republish the seam type and remove no pull.
+fn MG_OUT_BUFFERED() -> str { return "the direct form is not landed — #62 (the emitted-struct-field layout decline) and #70 (borrow composition in argument position) are both FIXED and the direct shape re-proved green by hand, but the emitter can only deliver a state STRUCT through the quote-item splice channel, and on that channel a method whose callee returns a borrow-carrying value loses its field-split borrow (#74: `self.w.next_batch()` loans the WHOLE self, so the scratch pushes red; the struct's own #[borrow_carrying] is irrelevant) while the identical text on the module-source channel compiles — bisected to the CHANNEL, repro sandbox/s5land/REPRO_qroute.logos; so this landing is buffered"; }
 
 fn out_node_query(subject: str, elem_ty: str, mods: QMods) {
     if !plan_trace_on() { return; }
     if mods.distinct {
         plan_trace(subject, "query output distinct carrier", elem_ty,
-                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (#70: Option<T>::replace false-red on the borrow-carrying state struct), so it is buffered");
+                   "the landing IS the dedup structure — `distinct` rescans it per pushed row; and the direct form is not landed (the quote-item splice channel loses the state struct's field-split borrow — see MG_OUT_BUFFERED), so it is buffered");
         return;
     }
     if mods.has_limit {
         plan_trace(subject, "query output bounded by limit", elem_ty,
-                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (#70: Option<T>::replace false-red on the borrow-carrying state struct), so it is buffered");
+                   "the landing is READ, not only written — `__out.len()` is the limit guard's operand; and the direct form is not landed (the quote-item splice channel loses the state struct's field-split borrow — see MG_OUT_BUFFERED), so it is buffered");
         return;
     }
     plan_trace(subject, "query output", elem_ty, MG_OUT_BUFFERED());

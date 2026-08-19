@@ -219,9 +219,11 @@ Every query emits a `<query>_stream` alongside `_run`, and the entry point calls
 
 ```
 [plan] mid_band -> query output on (u64, u64)
-   (the direct form is not landed — its state struct needs an emitted walk type
-    as a FIELD and sema_abi_layout declines a metaprog-emitted struct field from
-    a foreign package (R-E), so this landing is buffered)
+   (the direct form is not landed — #62 and #70 are both FIXED and the direct
+    shape is re-proved green by hand, but the emitter can only deliver a state
+    STRUCT through the quote-item splice channel, and on that channel a
+    #[borrow_carrying] struct loses its field-split borrow; so this landing is
+    buffered)
 ```
 
 So every query materialises into a `Buffer` and returns a `Vec`, including
