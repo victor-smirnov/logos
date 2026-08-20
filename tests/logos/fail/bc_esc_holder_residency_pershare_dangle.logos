@@ -1,0 +1,49 @@
+// #86 MISS-D — THE RESIDENCY NARROWING WAS WEAKER THAN ITS OWN STATED RULE.
+//
+// MEASURED rc 0, and the gate does not even open. `residency_exemption_holds`
+// implements "every named local is residency-backed"; the rule the MISS-2
+// landing STATES is "the borrow that escapes is kept alive by the share THIS
+// VALUE carries". Both `h` and `h2` are `Rc<Writ>`, so the implemented test
+// says YES — while `e` is a Ref into `h`'s arena and the value returned carries
+// `h2`'s share. `h` drops at the end of the frame and the escaped Ref dangles:
+// this is the same use-after-free the whole #86 arc is about, one exemption
+// deeper.
+//
+// ⚠ WHY THE PRECISE TEST IS NOT IMPLEMENTABLE HERE, MEASURED:
+//   collect_ref_sources(hold_any(&mut h2, e)) = [h2]   — the by-VALUE arg `e`,
+//     the half that carries the foreign borrow, is invisible to that channel;
+//   bc_hop_roots DOES reach it (hops=[h2,e]) and the chase then dies: with
+//     both graphs dumped at the check, ref_borrow_sources_ holds exactly ONE
+//     entry for the whole function (__ret_tmp_0 -> [h2]) and reborrow_of_ is
+//     EMPTY — `h.array(…)` and `WAny::from(…)` are PREBUILT stdlib methods
+//     with no flow summary (task #81), so the identity `e ∈ h` exists nowhere
+//     in the pass.
+// So the exemption is allowed to speak only when the frame leaves the arena
+// identity unambiguous: at most ONE share handle among the bindings the
+// function declares. Two shares ⇒ cannot prove ⇒ refuse.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_residency_pershare_admit: the
+// held value is built from a SECOND arena here (`hold_any(&mut h2, e)`), and
+// from the arena `e` actually points into there (`hold_any(&mut h, e)`).
+package bc_esc_holder_residency_pershare_dangle;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+
+fn bad() -> HeldAny {
+    let mut h: Rc<Writ> = writ_rc(64i64);
+    let mut h2: Rc<Writ> = writ_rc(64i64);
+    let doc: &mut WArray<WAny> = h.array(2i64);
+    doc.push(WAny::from(101i64));
+    doc.push(WAny::from(303i64));
+    let e: WAny = WAny::from(&*doc);
+    return hold_any(&mut h2, e);          // h2's share; e points into h
+}
+
+fn main() -> i32 {
+    let held: HeldAny = bad();
+    let doc: &WArray<WAny> =
+        unsafe { &*(held.val().resolve() as *const WArray<WAny>) };
+    if doc.len() != 2i64 { return 1i32; }
+    return 0i32;
+}

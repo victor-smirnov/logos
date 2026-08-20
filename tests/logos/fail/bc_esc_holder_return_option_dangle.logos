@@ -1,0 +1,19 @@
+// #86 — THE ENUM-PAYLOAD SPELLING. `Option<str>` is an Enum whose payload is a
+// borrow; the enum itself is not `#[borrow_carrying]`, so the return gate never
+// opened. MEASURED at 7b72b89c: rc 0.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_option_admit: the payload
+// borrows a fn-LOCAL here, a PARAMETER there. Same `Some`, same enum instance.
+package bc_esc_holder_return_option_dangle;
+use logos.lang.option;
+use logos.mem.string;
+
+pub fn bad() -> Option<str> {
+    let o: String = String::from("hello");
+    return Option::<str>::Some(o.as_str());
+}
+
+fn main() -> i32 {
+    if bad().is_some() { return 0i32; }
+    return 1i32;
+}

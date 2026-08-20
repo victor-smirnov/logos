@@ -1,0 +1,20 @@
+// #86 — ADMIT half of the value-returning spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_struct_dangle: the borrow `mk` puts in the field
+// is rooted at a PARAMETER. Returning a borrow-holding struct built out of the
+// caller's own borrow is the elision case and must keep compiling.
+package bc_esc_holder_return_struct_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn mk(s: str) -> W { return W { v: s }; }
+
+pub fn ok(s: str) -> W {
+    return mk(s);
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

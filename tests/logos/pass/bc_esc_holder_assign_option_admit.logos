@@ -1,0 +1,24 @@
+// #86 MISS 1 — ADMIT half of the enum-payload reassign. ONE VARIABLE against
+// fail/bc_esc_holder_assign_option_dangle: the payload is PARAMETER-rooted.
+package bc_esc_holder_assign_option_admit;
+use logos.lang.option;
+use logos.mem.string;
+
+pub fn ok(s: str) -> Option<str> {
+    let mut op: Option<str> = Option::<str>::None;
+    op = Option::<str>::Some(s);
+    return op;
+}
+
+pub fn ok_static() -> Option<str> {
+    let mut op: Option<str> = Option::<str>::None;
+    op = Option::<str>::Some("abcde");
+    return op;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if !ok(o.as_str()).is_some() { return 1i32; }
+    if !ok_static().is_some() { return 2i32; }
+    return 0i32;
+}

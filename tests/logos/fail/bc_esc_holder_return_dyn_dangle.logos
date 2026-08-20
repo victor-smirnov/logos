@@ -1,0 +1,34 @@
+// #86 — THE `&dyn` RECEIVER SPELLING. The holder comes back from a dynamic
+// dispatch, so the concrete `wrap` body is not visible at the call; what fires
+// is still the LET (`let w: W = t.wrap(...)`) plus the return gate, because
+// the argument's provenance is what makes `w` carry a fn-local borrow.
+// MEASURED at 7b72b89c: rc 0 — and identically for the CONCRETE receiver
+// (`t: &K`) and the generic one, which is what says this is the holder defect
+// and not #83's summary-blindness on a generic receiver.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_dyn_admit: the argument
+// handed to `wrap` is a borrow of a fn-LOCAL here, a PARAMETER there.
+package bc_esc_holder_return_dyn_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub trait Tr { fn wrap(&self, s: str) -> W; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn wrap(&self, s: str) -> W { return W { v: s }; }
+}
+
+pub fn bad(t: &dyn Tr) -> str {
+    let o: String = String::from("hello");
+    let w: W = t.wrap(o.as_str());
+    return w.v;
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    if bad(&k).len() == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -3085,9 +3085,450 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7333
-REGISTRY-NOIMPORTED  3650
+REGISTRY-ALL         7374
+REGISTRY-NOIMPORTED  3691
 REGISTRY-TIERCOMMIT  36
+# 2026-08-20 (later, #86 VERIFY ROUND 2), +8/+8/0 (7366/3683/36 ->
+# 7374/3691/36), for the 8 fixtures of MISS-A/B/C/D (4 fail + 4 admit twins):
+#   tests/logos/fail/bc_esc_holder_reborrow_field_dangle.logos
+#   tests/logos/fail/bc_esc_holder_reborrow_container_dangle.logos
+#   tests/logos/fail/bc_esc_holder_index_assign_dangle.logos
+#   tests/logos/fail/bc_esc_holder_residency_pershare_dangle.logos
+#   tests/logos/pass/bc_esc_holder_reborrow_field_admit.logos
+#   tests/logos/pass/bc_esc_holder_reborrow_container_admit.logos
+#   tests/logos/pass/bc_esc_holder_index_assign_admit.logos
+#   tests/logos/pass/bc_esc_holder_residency_pershare_admit.logos
+# ⚠ THE PREDICTION WAS WRONG AND IS RECORDED WRONG. It read "+16/+16" —
+# arrived at by reading the PREVIOUS row's "+16/+16 for eight pass fixtures"
+# and inferring two registrations per fixture. The previous row added SIXTEEN
+# fixtures (eight pass + eight fail) and its own text names only the pass half,
+# so the rate is ONE registration per fixture, not two. Measured after the
+# reconfigure: 7374/3691/36 — the ARITHMETIC was off, the direction and the
+# fixture list were not. The rule this row states for the next reader: derive
+# the delta from `ls` on BOTH directories, never from a previous delta.
+# MISS-E adds NO fixture: it corrects the diagnostic STRING of two existing
+# ones, and its pins are their `.expected` files
+# (fail/bc_esc_holder_return_chained_dangle: '__ret_tmp_0' -> 'o';
+#  fail/wany_escapes_rc_container: '__ret_tmp_0' -> 'e').
+#
+# RED LIST PER HOLE, measured between the holes, each on its own full 53-target
+# rebuild (`ninja -k 0` from build/, rc stated) plus a compile-only sweep of the
+# WHOLE corpus — 2211 `tests/logos/pass/*.logos` + 754 `tests/logos/fail/*.logos`
+# = 2965 files, rc recorded per file (the sweep's own instrument artefacts: 50
+# pass + 32 fail fixtures answer rc=4, "needs -I", and 3 fail fixtures compile
+# clean — all three pre-existing and none of them borrow-check rows):
+#   MISS-A   build rc 0 · sweep: 2161 pass rc0 / 0 pass rc1 · 719 fail rc1
+#   MISS-B/C build rc 0 · sweep byte-identical to MISS-A's
+#   MISS-D   build rc 0 · sweep byte-identical
+#   MISS-E   build rc 0 · sweep byte-identical (message-only change)
+#
+# ⚠ ONE MEASURED REFUSAL, AND IT IS WHY MISS-B/C IS NARROWER THAN ITS OBVIOUS
+# SHAPE. The first MISS-B/C attempt taught the SHARED walker `place_write_root`
+# the two borrow-forming steps (AddrOf / AddrOfTemp) — the right shape, since
+# `flow_operand_root` and `apply_call_outparam_rules` both pre-peel exactly
+# those kinds before calling it. The 53-target build then FAILED: 4 stdlib
+# E0597 over-refusals in stdlib/mem/wql/lower.logos (`lower_aggr`: 'rg'
+# borrowed by 'ra'; `gp_build` x2: 'js0'/'js' borrowed by 'starr';
+# `gp_desugar_query`: 'orig2' borrowed by 'sa'), ALL FOUR FALSE — each stores a
+# WRef HANDLE into an arena container in the same `h: &Writ`, so nothing dies
+# at the loop-body scope the diagnostic names. `logos-mem` failed, so every
+# package downstream of it was never measured at all. The widening was
+# therefore applied to the ESCAPE record only; the uncovered count it buys is
+# on the bounding list (the LOAN channel stays blind to 3115 of 3116 AddrOfTemp
+# `&mut self` receivers over the first 300 pass fixtures).
+#
+# ── THE BOUNDING LIST: HOLDER-ESCAPE SPELLINGS THIS ROUND DID *NOT* CLOSE ────
+# Eight consecutive rounds have shipped a fix whose own report missed a hole
+# one site over. These were PROBED on the fixed tree, with the rc measured, so
+# the next reader inherits a list instead of a surprise. Scratch repros:
+# /home/logos/sandbox/miss86/probe/*.logos.
+#
+# B1  WHOLE-VALUE WRITE THROUGH A REBORROW LOCAL — `*r = W { v: o.as_str() };`
+#     with `let r: &mut W = &mut w;`, then `return w.v`.  rc 0, NO DOOR FIRES
+#     AT ALL (LOGOS_86_TRACE silent). It is not `Code::Assign` (the place is
+#     `*r`, not a name) and the DerefWrite §B6/holder block excludes it by its
+#     own guard `atv.inner().kind() != EC::VarRef`. Repro: probe/P1.logos.
+#     Closest sibling that DOES refuse: fail/bc_esc_holder_reborrow_field_dangle
+#     (`r.v = o.as_str()`), one character of place syntax away.
+#
+# B2  CONTAINER REACHED THROUGH A REBORROW OF A STRUCT FIELD —
+#     `let r: &mut Vec<str> = &mut k.v; r.push(o.as_str()); return k;`  rc 0.
+#     The ROOT resolves correctly (`r` -> `k.v` -> `k`, and the return gate
+#     DOES open: `[#86trace-gate] fn=fn bad`), and the deposit is then lost on
+#     the ELEMENT TYPE: the receiver expression's type is a `MutRef` whose
+#     `elem()` measures NULL, and the `holder_ty_of(rn86)` fallback answers
+#     `K` — a struct with no type-args — so `el86` is empty and `at == el`
+#     never matches. Repro: probe/P7.logos. This is the one residual of the
+#     MISS-B fix that is NOT a missing shape but a missing container TYPE at a
+#     dotted holder.
+#
+# B3  TWO SHARES IN DIFFERENT FRAMES — MISS-D's rule counts share handles among
+#     the bindings THIS function declares, so `fn bad(other: &mut Rc<Writ>) {
+#     let mut h = writ_rc(64); let e = mk(&mut h); return hold_any(other, e); }`
+#     has ONE local share and admits. rc 0. Repro: probe/P12.logos. Closing it
+#     needs the real `e ∈ h` provenance edge, i.e. task #81 (summaries for
+#     prebuilt stdlib methods), not a wider frame count.
+#
+# B4  ZERO-SHARE EXEMPT FRAMES — `residency_exemption_holds` still returns YES
+#     when the escaping expression reaches NO share handle at all (every local
+#     is `Held`/`WAny`-typed and no `Rc` is named). That is today's answer and
+#     was left unchanged deliberately: tightening it is unmeasured.
+#
+# B5  THE LOAN CHANNEL'S OWN AddrOfTemp BLINDNESS — the MISS-B/C widening was
+#     confined to the ESCAPE record after the shared-walker version produced 4
+#     false stdlib E0597s (above). `place_write_root` still answers "" for an
+#     AddrOf / AddrOfTemp receiver, so `add_ref_sources` and D1 door 8b remain
+#     blind on 3115 of the 3116 AddrOfTemp `&mut self` receivers measured over
+#     the first 300 pass fixtures. Closing it requires the arena-handle
+#     question first (a `WRef` into `h: &Writ` is not frame storage).
+#
+# B6  `'?'` IN THE CLOSURE DIAGNOSTIC — MISS-E removed every `__ret_tmp_N` from
+#     the corpus (measured: 0 of 2965 fixtures now print one), but FOUR fixtures
+#     still print `local variable '?'`:
+#       tests/logos/fail/bc_d1r3_f4_closure_local.logos
+#       tests/logos/fail/bc_d1r4_n2_bare_closure_plain_ref_held.logos
+#       tests/logos/fail/bc_d1r4_n2_bare_closure_return_held.logos
+#       tests/logos/fail/bc_d1r4_n3_closure_struct_field_held.logos
+#     `'?'` is a placeholder, not a fabricated name, and their `.expected`
+#     files stop at "cannot return reference to local variable" — so nothing
+#     pins the placeholder either way. Separate item.
+#
+# B7  NOT PROBED, so NOT CLAIMED EITHER WAY: a store into a `static` / module
+#     const; a store into a captured variable from inside a closure body; the
+#     `HashMap::insert(k, borrow)` two-arg container shape; array-element
+#     assign (probe/P5 could not be measured — `[str; 2]` by-value return hits
+#     an UNRELATED pre-existing mlir-gen defect, `llvm.getelementptr` operand
+#     type on `!llvm.array<2 x struct<(ptr,i64)>>`); and the nested
+#     `v.get_mut(0).v = …` shape (probe/P3: sema declines the deep assignment
+#     before the borrow checker ever sees it).
+# The earlier round's note: #86 VERIFY — THE THREE HOLES THE #86 LANDING'S
+# OWN VERIFY FOUND, ONE LINE OVER. The landing was sound and narrow; it was
+# also the SEVENTH consecutive round whose verify found a hole beside the fix,
+# so the abuse direction was the primary task here, not the epilogue. Three
+# holes, closed ONE AT A TIME, each with its own full 53-target rebuild and its
+# own control-revert chain.
+#
+# MISS 1 — THE MUTATION AFTER THE LET (runtime-confirmed UAF, one line from the
+#   landing's own fixture tests/logos/fail/bc_esc_holder_return_field_dangle.logos):
+#     let mut w: W = W { v: "" };  w.v = o.as_str();  return w.v;      // rc 0
+#   #86 hunk (B) wrote `prov_` ONLY at the `let` INITIALIZER. Every later store
+#   into the holder left it empty, so the gate — which DID open
+#   (LOGOS_DUMP_RETGATE: mcb=1, and the loan channel even named the source,
+#   srcs=[o,]) — had no provenance to refuse on. Whole-value reassign, `Option`
+#   reassign, tuple-element assign and the container deposit were all rc 0.
+#   THE FIX is ONE helper, `note_holder_escape_prov`, at FOUR doors. It records
+#   what hunk (B) records and no more: the ESCAPE FACT only (is_local/is_temp,
+#   never `params`), so it cannot start check_return_value's elision arm on a
+#   binding that never fed it. ADDITIVE (OR-ed in), because a field write
+#   touches ONE field of a holder whose siblings may still carry an earlier
+#   borrow; the alternative, clearing on every store, LOSES the sibling borrow,
+#   which is the permissive direction and the direction this hole is in.
+#   PARAMS ARE SKIPPED DELIBERATELY: writing a local borrow through a `&mut`
+#   PARAMETER and returning it is the FRAME escape, task #78, still open.
+#   ⚠ THE TWO DEAD DOORS, MEASURED, NOT ASSUMED. The first draft hooked
+#   Code::FieldWrite and Code::TupleWrite — the arms whose NAMES match the
+#   spelling. A print in both fired ZERO times over all 2211 pass + 1413 fail
+#   fixtures AND the whole 53-target build: sema lowers `w.v = …` and `t.0 = …`
+#   to SDerefWrite(AddrOfTemp(FieldRead/TupleIndex(VarRef w))), which this
+#   file's own §2-Wave-9 comment already said. Both hooks were DELETED and the
+#   instrument that proved it is kept as LOGOS_DUMP_BC_PLACEWRITE_DOOR, so the
+#   claim can be re-checked instead of believed.
+#   `holder_ty_` is new state: the mutation doors know only the receiver's
+#   NAME and VarState carries no type. Recorded at the `let`, cleared per
+#   FUNCTION beside `prov_`, and NOT part of the branch save/restore (a
+#   binding's type does not change across a branch).
+#   CONTROL CHAIN (each door disabled alone, logosc-only rebuild, the other
+#   left in — the two hit DISJOINT fixtures):
+#     DerefWrite door off -> assign_field rc 1, assign_tuple rc 1 (RED),
+#                            assign_whole rc 0, assign_option rc 0 (green)
+#     Assign door off     -> assign_whole rc 1, assign_option rc 1 (RED),
+#                            assign_field rc 0, assign_tuple rc 0 (green)
+#     restored            -> all four rc 0 (green checkpoint re-measured)
+#   RED LIST ON A FULL 53-TARGET REBUILD: EMPTY (rc 0, 0 FAILED, 0 logos
+#   errors). L1 726/726, L2 2256/2256 at that stage.
+#
+# MISS 2 — THE RESIDENCY EXEMPTION WAS UNCHECKED IN THE ABUSE DIRECTION
+#   (runtime-confirmed UAF). `type_is_residency_exempt` is a NAME test over
+#   `ts_.residency_exempt`, auto-populated for ANY struct with a field whose
+#   package-stripped name is Rc/Arc, and registered under the BARE name too. So
+#     pub struct E { pub h: Rc<i64>, pub v: str }
+#   switched BOTH #86 hunks off wholesale: returning `E`, or `e.v`, with `v`
+#   borrowing a fn-local String was rc 0. The Rc share keeps a DIFFERENT
+#   allocation alive and says nothing about `v`. Also reachable by BARE-NAME
+#   COLLISION: a user struct named `Held` in any package matched.
+#   ⚠ THE LANDING'S CTRL-D PROVED THE EXEMPTION NECESSARY AND NOTHING ELSE.
+#   That is the repo rule `feedback_gate_exemption_checked_in_abuse_direction`
+#   exactly: an unchecked hatch is worse than no gate, because the green now
+#   vouches for it.
+#   WHAT SEPARATES THE REAL USER FROM THE ABUSE, MEASURED rather than argued.
+#   With the exemption forced off, examples/writ_container_showcase.logos
+#   `make_held_doc` reds naming `h` — and `h: Rc<Writ>` IS the share
+#   ([retgate] fn=fn make_held_doc line=91 … srcs=[h,]). The abuse reds naming
+#   `o: String`, which no share covers. So the exemption's real claim is not
+#   "this TYPE is exempt" but "the borrow that escapes is kept alive by the
+#   share this value carries".
+#   THE FIX, and it is the narrowing the task named "exempt only the
+#   residency-carrying part" reduced to a checkable form:
+#   `residency_exemption_holds(t, e)` = the old name test AND every local the
+#   escaping expression names is itself residency-backed
+#   (`type_is_residency_backed`: Rc/Arc, anything already in
+#   `residency_exempt`, or one type-arg hop to either). Absence of a recorded
+#   type answers NO — the refusing direction, which is the direction this hole
+#   is in. THE HATCH KEEPS ITS REAL USER: the admit twin IS make_held_doc.
+#   CONTROL CHAIN:
+#     CTRL-2  blanket exemption restored -> abuse fixture rc 1 (RED),
+#             pass/bc_esc_holder_residency_backed_admit rc 0 (still green)
+#     CTRL-2B exemption removed entirely -> the admit fixture AND
+#             examples/writ_container_showcase.logos both red with
+#             "cannot return reference to local variable 'h'" (the hatch is
+#             NECESSARY, re-measured on the new fixture, not inherited)
+#     restored -> abuse rc 0, backed rc 0
+#   ⚠ NOT TOUCHED, and named rather than implied: the REGISTRATION-level
+#   application of the same set (`is_borrow_carrying_type`, the
+#   `residency_exempt.count(nm)` early-out) is unchanged. Its blast radius is
+#   the whole transitive borrow-carrying fixpoint, not the #86 escape gate, and
+#   it belongs to its own round. 1 site left open, named.
+#   ONE PRE-EXISTING PASS FIXTURE NOW DENIES THE EXEMPTION and still admits:
+#   tests/logos/pass/bc_d1_residency_exempt_return_admits.logos, `fn main`,
+#   src=`c` (a local `C`, not residency-backed). It stays green because the
+#   escape fact there is empty, not because the exemption saved it. If that
+#   ever changes, that fixture is the canary and it is already in the corpus.
+#   RED LIST ON A FULL 53-TARGET REBUILD: EMPTY. L1 726/726, L2 2266/2266.
+#
+# MISS 3 — CONTAINER HOLDERS. `Vec<str>` and `Vec<H>` built from a fn-local
+#   borrow and returned admitted at rc 0; the #86 fixture set contained no
+#   container holder at all. Same root as MISS 1 (the borrow enters by a
+#   MUTATION), and it needs TWO doors, which a control proved are BOTH
+#   load-bearing and NEITHER redundant:
+#     (i)  apply_flow_outparams — the callee SUMMARY door (`out0<-0x2`), the
+#          only one that covers a FREE FUNCTION `stash(&mut v, H { … })`.
+#          Hooked BEFORE the existing loan filter and with its own gate: that
+#          filter's three predicates are the LOAN channel's, and widening THEM
+#          would widen inherit_loans / take_ref_borrows / the A2 alias edges in
+#          one move — three rules in one control.
+#     (ii) the `&mut self` RECEIVER arm — the only one that covers
+#          `v.push(o.as_str())` on a `Vec<str>`, because `Vec<str>::push` comes
+#          PREBUILT from the stdlib archive and has NO summary at all (fs=0,
+#          measured — that is task #81 showing through). It needs none: it
+#          reads the receiver's own ELEMENT TYPES. `stored_ref_elem` is not
+#          reused there because it requires `is_ref_kind(at)`, which is exactly
+#          what made the `Vec<H>` spelling deposit NOTHING even in the §B6
+#          channel (srcs=[] measured, against srcs=[o,] for the `Vec<str>`
+#          twin). The element-type match is what discriminates a STORE from a
+#          read (`contains(&&T)`: type != element); the ref-ness never was.
+#   CONTROL CHAIN (each door disabled alone, the other left in):
+#     receiver arm off  -> vec_str rc 0 (RED), vec_struct rc 1, outparam rc 1
+#     out-param arm off -> outparam rc 0 (RED), vec_str rc 1, vec_struct rc 1
+#   — so each door has a fixture that fires it ALONE, which is why the
+#   out-param pair exists separately from the two Vec pairs.
+#   THE DIAGNOSTIC HAD TO MOVE WITH IT. The `Vec<H>` spelling first refused
+#   with "cannot return reference to local variable '__ret_tmp_0'" — a name in
+#   no source file. #77 round 2's repair chases `ref_sources_under(temp)` and
+#   found nothing, because the §B6 channel never recorded a source for a
+#   by-VALUE element. `note_holder_escape_prov` now deposits the §B6 source
+#   too, through `store_ref_sources` (ADDITIVE — `add_ref_sources` would
+#   `erase_ref_sources_under` the place first and lose an earlier push's
+#   source, the permissive direction). Not a wider claim: it fires only where
+#   the escape fact is already local/temp, i.e. the two channels are answering
+#   the same question, one of them just where the diagnostic can read it.
+#   RED LIST ON A FULL 53-TARGET REBUILD: EMPTY, on both of this hole's two
+#   rebuilds (the doors, then the §B6 deposit).
+#
+# FIRE COUNTS, WITH THE INSTRUMENT STILL IN PLACE WHEN QUOTED
+#   (LOGOS_86_TRACE over 2211 pass + 1413 fail fixtures + examples, one output
+#   file per fixture so nothing interleaves):
+#     gate 1 043 522 · let 606 · outparam 140 (107 files) · assign 47 (41
+#     files) · recvstore 43 (25 files) · derefwrite 13 (13 files) · carry 5 ·
+#     exempt-denied 2 (2 files)
+#   IN-TREE, over a forced full 53-target rebuild (87 logosc processes,
+#   LOGOS_DUMP_BC_HOLDERPROV, which now prints per door):
+#     fired=36 · assign=18 · outparam=18 · derefwrite=0 · recvstore=0
+#   So two of the four doors fire only in the CORPUS, not in the tree — and
+#   they are pinned by fixtures that FIRE them (13 and 25 files respectively,
+#   including the new refuse halves), which is the standard this repo applies
+#   to a zero-firing arm. The place-write dead-door instrument reads 0 in both
+#   populations, which is why those two hooks are gone rather than kept.
+#
+# THE SIXTEEN (8 fail + 8 pass). Every refuse has an admit twin whose ONE
+# VARIABLE is where the carried borrow is ROOTED — a fn-LOCAL in the refuse
+# half, a PARAMETER in the admit half — except the residency pair, whose one
+# variable is whether the escaping borrow is rooted at the RESIDENCY HOLDER
+# itself. Logos has no lifetime parameters, so the admit half IS the elision
+# model and a red there is the over-refusal, not progress:
+#   tests/logos/fail/bc_esc_holder_assign_field_dangle.logos
+#   tests/logos/fail/bc_esc_holder_assign_whole_dangle.logos
+#   tests/logos/fail/bc_esc_holder_assign_option_dangle.logos
+#   tests/logos/fail/bc_esc_holder_assign_tuple_dangle.logos
+#   tests/logos/fail/bc_esc_holder_residency_abuse_dangle.logos
+#   tests/logos/fail/bc_esc_holder_container_vec_str_dangle.logos
+#   tests/logos/fail/bc_esc_holder_container_vec_struct_dangle.logos
+#   tests/logos/fail/bc_esc_holder_container_outparam_dangle.logos
+#   tests/logos/pass/bc_esc_holder_assign_field_admit.logos
+#   tests/logos/pass/bc_esc_holder_assign_whole_admit.logos
+#   tests/logos/pass/bc_esc_holder_assign_option_admit.logos
+#   tests/logos/pass/bc_esc_holder_assign_tuple_admit.logos
+#   tests/logos/pass/bc_esc_holder_residency_backed_admit.logos
+#   tests/logos/pass/bc_esc_holder_container_vec_str_admit.logos
+#   tests/logos/pass/bc_esc_holder_container_vec_struct_admit.logos
+#   tests/logos/pass/bc_esc_holder_container_outparam_admit.logos
+# CANARIES RE-MEASURED GREEN, not assumed: examples/writ_container_showcase.logos
+# (make_held_doc), tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos,
+# all 33 `bc_esc_holder_*` / `bc_fatret_*` / `bc_d1r3_*` tests
+# (`ctest -R bc_esc_holder` 33/33, `ctest -R _bc_` 282/282,
+# `ctest -L fail` 1413/1413).
+# GATES: L1 726/726 + gates tier 36/36, L2 2272/2272 + gates tier 36/36, and
+# all three tier_full sweep gates run SERIALLY and green
+# (logos_09_plan_ground_census, logos_09_pull_shape,
+# logos_09_direct_door_census). Door census re-derived BY DIRECT FILE LISTING:
+# 2211 = 191 + 2020, doors unmoved at 36 = 10 + 26.
+# UNCOVERED, COUNTED AND NAMED rather than implied:
+#   (1) THE FRAME ESCAPE THROUGH A `&mut` PARAMETER IS STILL OPEN — task #78,
+#       and this round deliberately did not touch it: `note_holder_escape_prov`
+#       skips params by construction, because marking a parameter `is_local`
+#       would refuse every later return of that parameter, not just the stored
+#       borrow. 1 named door.
+#   (2) THE REGISTRATION-LEVEL RESIDENCY EXEMPTION IS UNNARROWED — the
+#       `residency_exempt.count(nm)` early-out inside `is_borrow_carrying_type`.
+#       MISS 2 narrowed the four ESCAPE-GATE applications only. 1 named site.
+#   (3) #81 SHOWED THROUGH AND IS NOT CLOSED: `Vec<str>::push` has no summary
+#       because it is prebuilt (fs=0, measured here for the first time). MISS 3
+#       routes AROUND it via the receiver arm rather than through it, so a
+#       summary-less callee that is NOT a `&mut self` method and NOT a
+#       container store still deposits nothing. Not measured how many such
+#       shapes exist; stated as unproven rather than as a finding.
+#   (4) THE ADDITIVE FIELD-WRITE RULE OVER-REFUSES ONE SHAPE BY DESIGN:
+#       `let w = W{v:o.as_str()}; w.v = "static"; return w.v;` is refused
+#       although the local borrow was overwritten. Priced deliberately (see
+#       MISS 1); 0 occurrences in the corpus or the tree — the full rebuild and
+#       L1/L2 are the measurement.
+# 2026-08-20, +17/+17/0 (7333/3650/36 -> 7350/3667/36), predicted before the
+# reconfigure and met exactly. #86 — A VALUE THAT HOLDS A BORROW ESCAPED BY
+# RETURN, UNCHECKED. Runtime-confirmed use-after-free in four lines, no
+# generics and no call:
+#   `pub struct W { pub v: str }`
+#   `pub fn bad() -> str { let o = String::from("hello");`
+#   `                     let w: W = W { v: o.as_str() }; return w.v; }`  rc 0
+#   THE SHAPE OF THE QUESTION. `check_return_value`'s gate asked "is this a
+#   REFERENCE" (`is_ref_kind || is_borrow_carrying_type`, plus a retention arm
+#   for the erased kinds `type_hides_borrow` names). It must ask "does this
+#   value HOLD a borrow". #71 had already built that predicate —
+#   `holds_any_ref`, read by `type_may_carry_borrow` — and it answered 1 for
+#   every one of the nine measured spellings the whole time. THE HYPOTHESIS IN
+#   THE TICKET WAS CONFIRMED BY MEASUREMENT, not assumed: instrumenting the
+#   gate (`LOGOS_DUMP_RETGATE`, kept) split the nine into THREE groups, not
+#   two, which is what named the third sub-site.
+#   THREE SUB-SITES, THREE HUNKS, EACH SEPARATELY CONTROL-REVERTED:
+#     (A) THE GATE. `-> W`, `-> (str,i64)`, `-> Option<str>` are none of the
+#         three admitted kinds, so the gate never opened at all. New
+#         `holds_gate` term + the F4 `prov_of_retained` fallback extended to
+#         it. CONTROL `holds_gate := false`, logosc-only rebuild: struct /
+#         tuple / option spellings back to rc 0, the other six keep rc 1.
+#     (B) THE LET. `prov_[name]` was recorded only for a ref-kind or
+#         `#[borrow_carrying]` binding, so `let w: W = W{v:o.as_str()}` left
+#         `prov_` empty and the return gate — which for `-> str` DID open —
+#         found nothing to say. A third branch records the ESCAPE FACT ONLY
+#         (`is_local`/`is_temp`, never `params`), so the elision arm of
+#         `check_return_value` cannot start firing on bindings that never fed
+#         it. This arm also owns the value-returning spellings, because sema's
+#         `make_return_with_drops` rewrites their returns through a
+#         `let __ret_tmp_0` of the value type. CONTROL `:= false`: ALL EIGHT
+#         gate-closable spellings back to rc 0.
+#     (C) THE BORROW THE RECEIVER *CARRIES*. `mk(o.as_str()).get()` and
+#         `let w = W{v:o.as_str()}; return w.get();` still admitted after (A)
+#         and (B). NOT a generics defect and not a chained-call defect — the
+#         plain bound spelling admits identically (measured). The callee
+#         summary `W::get(&self) -> str` is `result<-0 EXACT` and that is
+#         CORRECT: it is `stored_shared_extract`, the Rust-parity rule that a
+#         `str` copied out of a `&W` has the FIELD's lifetime. So
+#         `recv_contributes` is false and prov_of's MethodCall arm merged
+#         nothing — nobody asked where the FIELD's borrow came from. New
+#         clause merges the receiver's CARRIED escape fact. CONTROL
+#         `if (false && ...)`: chained + bound spellings back to rc 0, the
+#         other six keep rc 1. The three controls hit DISJOINT fixtures.
+#   ⚠ THE CARRY CLAUSE MUST NOT READ `prov_of(receiver)`, and the first draft
+#   did. A `&self` call spells its receiver `&w`, and prov_of's AddrOf arm
+#   answers `is_local` for ANY local — that is the provenance of a borrow OF
+#   `w`, not of the borrow `w` HOLDS, i.e. exactly the F2 over-refusal the
+#   `recv_contributes` guard exists to prevent. MEASURED: it refused
+#   `fn ok(s: str) -> str { let w = W{v:s}; return w.get(); }` (rc 1, "cannot
+#   return reference to local variable 'w'") — THE ELISION CASE, which must
+#   compile. `carried_prov_of_recv` reads the provenance recorded FOR THE
+#   VALUE instead. pass/bc_esc_holder_return_chained_admit pins that mistake.
+#   ⚠ `type_is_residency_exempt` SHIPS WITH THE GATE OR THE HATCH REDS.
+#   `type_may_carry_borrow` routes through `loan_carrying_type`, which by
+#   design does NOT apply `ts_.residency_exempt` (it feeds the LOAN channel);
+#   the #86 gate is an ESCAPE gate, so it must apply it itself. CONTROL
+#   (`return false` at the head of the helper, logosc rebuild + the one
+#   target): examples/writ_container_showcase.logos `make_held_doc` fails,
+#   "cannot return reference to local variable 'h'" — `return hold_any(&mut h,
+#   e);` is the hatch's whole PURPOSE (`c4_exempt_return`).
+#   RED LIST ON A FULL TREE REBUILD (51 logos targets: stdlib lang/mem/lcm/std,
+#   lforge, peg_gen_logos, memoria-ctr/-store, ub_boundary, ctr_mod, examples):
+#   EMPTY, on three separate full rebuilds (rc 0, 0 FAILED, 0 logos errors).
+#   THE RED LIST THAT MATTERS IS THE REJECTED DESIGN'S. A first version used
+#   the flat `collect_ref_sources` as the verdict channel; it stopped ninja at
+#   `liblogos-mem.a` (target 2 of 51) and, measured under a soft mask, came out
+#   at 106 hits / 41 unique sites, 0 REAL, 41 FALSE — 25 deem-emitted plan fns
+#   (`ss_grp(&__pl, a)`: a borrow of a local the result never touches, which
+#   the summary-aware `prov_of_retained` gets right and a flat source collector
+#   cannot), 7 arena-backed WAny locals rooted at a param, 3 interning through
+#   a scratch arena, and the residency hatch. That mask (`LOGOS_86_SOFT`) is
+#   NOT in the landed patch: an env var that disables a safety check is the
+#   un-abuse-checked hatch this repo has a rule about. `LOGOS_DUMP_RETGATE` and
+#   `LOGOS_86_TRACE` are print-only and kept.
+#   BOTH WIDE ARMS MEASURED FIRING IN-TREE, not argued (`LOGOS_86_TRACE` over a
+#   full 51-target rebuild): `holds_gate` opens 49 387 times, the Let record
+#   fires 1 226 times (12 distinct sites, all `loc=1 tmp=0`, e.g.
+#   `ByteSplitter__reduce:449 first`, `format_args_str:120 f`,
+#   `walk_program_params:1538 pick_ap`), the carry clause fires 2 times
+#   (`writ_map_comp_new`, `writ_list_comp_new`). None is dead code, and the
+#   first two counts are IDENTICAL before and after (C) — which is the evidence
+#   that the third hunk did not perturb the first two.
+#   THE SEVENTEEN (8 fail + 9 pass). Every refuse has an admit twin whose ONE
+#   VARIABLE is where the carried borrow is ROOTED — a fn-LOCAL in the refuse
+#   half, a PARAMETER in the admit half. Logos has no lifetime parameters, so
+#   the admit half IS the elision model and a red there is the over-refusal,
+#   not progress:
+#     tests/logos/fail/bc_esc_holder_return_field_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_struct_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_tuple_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_option_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_chained_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_method_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_dyn_dangle.logos
+#     tests/logos/fail/bc_esc_holder_return_generic_dangle.logos
+#     tests/logos/pass/bc_esc_holder_return_field_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_struct_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_tuple_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_option_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_chained_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_method_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_dyn_admit.logos
+#     tests/logos/pass/bc_esc_holder_return_generic_admit.logos
+#     tests/logos/pass/bc_esc_holder_outparam_param_borrow_admit.logos
+#   BITE-PROVEN, not asserted: with `src/compiler/borrow_check.cpp` restored to
+#   7b72b89c and logosc relinked, ALL EIGHT fail fixtures go rc 1 through
+#   `run_test.sh` (i.e. the compiler admits them) and ALL NINE pass fixtures
+#   stay rc 0 — so the admit half is a genuine permissive guard and not
+#   something this change made green.
+#   UNCOVERED, COUNTED AND NAMED rather than implied:
+#     (1) THE §B6 LOAN CHANNEL HAS NO CHAINED-CALL ARM. `collect_ref_sources`
+#         deposits nothing for `mk(o.as_str()).get()`, so the diagnostic for
+#         fail/bc_esc_holder_return_chained_dangle names the compiler temp
+#         `__ret_tmp_0` instead of `o`. The #77-round repair that normally
+#         recovers the user name asks that same channel. The string is PINNED
+#         in the `.expected` so closing it is a visible edit. 1 of 17.
+#     (2) #78 DOES NOT CLOSE WITH THIS, measured both ways: a callee-local
+#         borrow stored through the caller's `&mut` out-param admits at rc 0
+#         before AND after, and so does its DIRECT control (`out: &mut str`,
+#         `*out = o.as_str()`). A different channel — the STORE side, not the
+#         return gate. pass/bc_esc_holder_outparam_param_borrow_admit is the
+#         permissive guard the eventual #78 repair has to keep green.
+#     (3) #81 IS NOT CLOSED AND WAS NOT MEASURED HERE. Reasoning from the code
+#         only: `prov_of_retained`'s Call arm falls back to `each_arg(one)`
+#         when `flow_of_call` misses, which is the pre-F4 CONSERVATIVE rule, so
+#         an unavailable foreign summary makes this channel more refusing, not
+#         less. Stated as unproven rather than as a finding.
 # 2026-08-20, +7/+7/0 (7326/3643/36 -> 7333/3650/36), predicted before the
 # reconfigure and met exactly. #83 — A METHOD CALL ON A GENERIC RECEIVER WAS
 # SUMMARY-BLIND, AND THE TICKET'S STATED CAUSE WAS REFUTED BY MEASUREMENT.

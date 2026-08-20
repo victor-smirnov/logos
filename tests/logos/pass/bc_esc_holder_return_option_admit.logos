@@ -1,0 +1,18 @@
+// #86 — ADMIT half of the enum-payload spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_option_dangle: the payload is the PARAMETER.
+// Wrapping the caller's own borrow in an `Option` and handing it back is the
+// elision case and must keep compiling.
+package bc_esc_holder_return_option_admit;
+use logos.lang.option;
+use logos.mem.string;
+
+pub fn ok(s: str) -> Option<str> {
+    return Option::<str>::Some(s);
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if !ok(o.as_str()).is_some() { return 1i32; }
+    if ok(o.as_str()).unwrap().len() != 5i64 { return 2i32; }
+    return 0i32;
+}

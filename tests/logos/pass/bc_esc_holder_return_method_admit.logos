@@ -1,0 +1,39 @@
+// #86 SUB-SITE C — ADMIT half of the bound spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_method_dangle: the field's borrow is rooted at a
+// PARAMETER. `ok_ref` adds the receiver-by-reference spelling of the same
+// extraction, where the holder is not a local at all.
+//
+// A non-borrow result off a carrier local (`n`) is here for the other
+// direction: the gate must not fire on a method whose result carries no borrow
+// merely because the RECEIVER does.
+package bc_esc_holder_return_method_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+impl W {
+    pub fn get(&self) -> str { return self.v; }
+    pub fn n(&self) -> i64 { return 7i64; }
+}
+
+pub fn ok(s: str) -> str {
+    let w: W = W { v: s };
+    return w.get();
+}
+
+pub fn ok_ref(w: &W) -> str { return w.get(); }
+
+pub fn ok_scalar() -> i64 {
+    let o: String = String::from("hello");
+    let w: W = W { v: o.as_str() };
+    return w.n();
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).len() != 5i64 { return 1i32; }
+    let w: W = W { v: "abcde" };
+    if ok_ref(&w).len() != 5i64 { return 2i32; }
+    if ok_scalar() != 7i64 { return 3i32; }
+    return 0i32;
+}

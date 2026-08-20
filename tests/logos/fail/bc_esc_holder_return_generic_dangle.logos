@@ -1,0 +1,32 @@
+// #86 — THE GENERIC-RECEIVER SPELLING. Same three lines as the `&dyn` twin
+// with `T: Tr` in place of `&dyn Tr`. It is here because #83 closed a defect
+// where the generic and dyn spellings of one call DISAGREED, and a pair that
+// pins only one of them cannot see that come back. MEASURED at 7b72b89c: rc 0,
+// identically to the dyn and concrete spellings.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_generic_admit: the
+// argument handed to `wrap` is a borrow of a fn-LOCAL here, a PARAMETER there.
+package bc_esc_holder_return_generic_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub trait Tr { fn wrap(&self, s: str) -> W; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn wrap(&self, s: str) -> W { return W { v: s }; }
+}
+
+pub fn bad<T: Tr>(t: &T) -> str {
+    let o: String = String::from("hello");
+    let w: W = t.wrap(o.as_str());
+    return w.v;
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    if bad::<K>(&k).len() == 5i64 { return 0i32; }
+    return 1i32;
+}

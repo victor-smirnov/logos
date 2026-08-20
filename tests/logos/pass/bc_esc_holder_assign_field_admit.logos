@@ -1,0 +1,31 @@
+// #86 MISS 1 — ADMIT half, ONE VARIABLE against
+// fail/bc_esc_holder_assign_field_dangle: the borrow stored into the holder by
+// assignment is rooted at a PARAMETER, not at a fn-local. Logos has no
+// lifetime parameters, so this is the whole elision model.
+//
+// `ok_static` is the second root that must not start refusing: a 'static
+// literal assigned into the field borrows nothing local at all. The uses
+// assert VALUES, not just that the file compiles.
+package bc_esc_holder_assign_field_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn ok(s: str) -> str {
+    let mut w: W = W { v: "" };
+    w.v = s;
+    return w.v;
+}
+
+pub fn ok_static() -> str {
+    let mut w: W = W { v: "" };
+    w.v = "abcde";
+    return w.v;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).len() != 5i64 { return 1i32; }
+    if ok_static().len() != 5i64 { return 2i32; }
+    return 0i32;
+}

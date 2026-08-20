@@ -1,0 +1,31 @@
+// #86 — A VALUE THAT HOLDS A BORROW ESCAPED BY RETURN, UNCHECKED.
+//
+// Runtime-confirmed use-after-free in four lines, no generics and no call:
+// `W` is a plain struct with a `str` FIELD, so it is neither a reference kind
+// nor `#[borrow_carrying]` nor one of the erased kinds `type_hides_borrow`
+// names. check_return_value's gate asked "is this a REFERENCE"; the answer for
+// `-> str` is yes, so the gate DID open here — and then found nothing, because
+// the LET that built `w` recorded no provenance for it (same wrong question,
+// second site). MEASURED at 7b72b89c: rc 0.
+//
+// The predicate that answers "does this VALUE hold a borrow" already existed:
+// #71's `holds_any_ref` fixpoint, read by `type_may_carry_borrow`.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_field_admit: where the
+// field's borrow comes from — a fn-LOCAL `String` here, a PARAMETER there.
+// Same struct, same construction, same `return w.v`.
+package bc_esc_holder_return_field_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    let w: W = W { v: o.as_str() };
+    return w.v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

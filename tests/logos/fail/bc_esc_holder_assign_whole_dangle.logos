@@ -1,0 +1,26 @@
+// #86 MISS 1 — THE WHOLE-VALUE REASSIGN. Same defect as
+// fail/bc_esc_holder_assign_field_dangle at the OTHER mutation door: the
+// holder is rebuilt wholesale by `w = W { v: o.as_str() }` after its `let`.
+//
+// Code::Assign's `is_ref_assign` is false here (W is not a ref kind and
+// `prov_` held no entry for `w`), so the one line that writes `prov_` on
+// assignment never ran. MEASURED at the #86 landing: rc 0.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_assign_whole_admit: the root of
+// the reassigned borrow — a fn-LOCAL `String` here, a PARAMETER there.
+package bc_esc_holder_assign_whole_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn bad() -> W {
+    let o: String = String::from("hello");
+    let mut w: W = W { v: "" };
+    w = W { v: o.as_str() };
+    return w;
+}
+
+fn main() -> i32 {
+    if bad().v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

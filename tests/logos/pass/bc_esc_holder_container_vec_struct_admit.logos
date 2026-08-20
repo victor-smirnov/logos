@@ -1,0 +1,29 @@
+// #86 MISS 3 — ADMIT half of the by-value element spelling. ONE VARIABLE
+// against fail/bc_esc_holder_container_vec_struct_dangle: the borrow the
+// pushed `H` carries is PARAMETER-rooted. `ok_static` pins the 'static root.
+package bc_esc_holder_container_vec_struct_admit;
+use logos.mem.string;
+
+pub struct H { pub v: str }
+
+pub fn ok(s: str) -> Vec<H> {
+    let mut v: Vec<H> = Vec::<H>::new();
+    v.push(H { v: s });
+    return v;
+}
+
+pub fn ok_static() -> Vec<H> {
+    let mut v: Vec<H> = Vec::<H>::new();
+    v.push(H { v: "abcde" });
+    return v;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    let a: Vec<H> = ok(o.as_str());
+    if a.len() != 1i64 { return 1i32; }
+    if a.get(0i64).v.len() != 5i64 { return 2i32; }
+    let b: Vec<H> = ok_static();
+    if b.get(0i64).v.len() != 5i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,30 @@
+// #86 MISS-B — ADMIT half. ONE VARIABLE against
+// fail/bc_esc_holder_reborrow_container_dangle: the pushed borrow is rooted at
+// a PARAMETER, not at a fn-local. The `&mut` reborrow local and the
+// AddrOfTemp receiver shape are identical in both, so this file is what proves
+// the widened receiver walk re-homes rather than refuses.
+package bc_esc_holder_reborrow_container_admit;
+use logos.mem.string;
+
+pub fn ok(s: str) -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    let r: &mut Vec<str> = &mut v;
+    r.push(s);
+    return v;
+}
+
+pub fn ok_param(v: &mut Vec<str>, s: str) {
+    let r: &mut Vec<str> = v;
+    r.push(s);
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    let a: Vec<str> = ok(o.as_str());
+    if a.len() != 1i64 { return 1i32; }
+    if a.get(0i64).len() != 5i64 { return 2i32; }
+    let mut b: Vec<str> = Vec::<str>::new();
+    ok_param(&mut b, o.as_str());
+    if b.get(0i64).len() != 5i64 { return 3i32; }
+    return 0i32;
+}

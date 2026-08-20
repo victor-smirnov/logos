@@ -1,0 +1,26 @@
+// #86 MISS 1 — ADMIT half of the whole-value reassign. ONE VARIABLE against
+// fail/bc_esc_holder_assign_whole_dangle: the reassigned holder carries a
+// PARAMETER-rooted borrow. `ok_static` pins the 'static root beside it.
+package bc_esc_holder_assign_whole_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn ok(s: str) -> W {
+    let mut w: W = W { v: "" };
+    w = W { v: s };
+    return w;
+}
+
+pub fn ok_static() -> W {
+    let mut w: W = W { v: "" };
+    w = W { v: "abcde" };
+    return w;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).v.len() != 5i64 { return 1i32; }
+    if ok_static().v.len() != 5i64 { return 2i32; }
+    return 0i32;
+}

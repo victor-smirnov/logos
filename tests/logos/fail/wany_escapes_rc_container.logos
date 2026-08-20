@@ -3,6 +3,12 @@
 // 0 → arena freed → the Ref dangles. Caught because `value_local_root` roots a
 // method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
 // back to the local `h`. (The safe escape is `hold_any(&mut h, e) -> HeldAny`.)
+//
+// The `.expected` pins `'e'`. It read `'__ret_tmp_0'` until #86 MISS-E — sema
+// rewrites this return through make_return_with_drops, and the name recovery
+// had no channel that could see through the temp. `e` is the binding the
+// escaping Ref is built from and it exists in this file, which is the whole
+// requirement: a name in a diagnostic must be one the reader can look up.
 package wany_escapes_rc_container;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;

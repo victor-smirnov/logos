@@ -1,0 +1,30 @@
+// #86 MISS-B — THE SAME WRONG NAME, THROUGH A CONTAINER.
+//
+// `r.push(o.as_str())` with `let r: &mut Vec<str> = &mut v;` — runtime dangle,
+// MEASURED rc 0. The plain spelling `v.push(o.as_str())` refuses
+// (fail/bc_esc_holder_container_vec_str_dangle), so this is not a missing
+// rule, it is a missing receiver SHAPE: with a reborrow local the `&mut self`
+// receiver is spelled `AddrOfTemp(...)`, and the door's root walk
+// (`place_write_root`, reached for a non-VarRef receiver) has no arm for
+// AddrOfTemp — it answered "" and the deposit never ran. MEASURED POPULATION
+// with the instrument in place: over the FIRST 300 of the 2211
+// tests/logos/pass/*.logos fixtures, 4275 `&mut self` receivers reach that
+// walk, 3116 are AddrOfTemp, and 3115 of those produced an empty root.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_reborrow_container_admit: the
+// pushed borrow is rooted at a fn-LOCAL `String` here, at a PARAMETER there.
+package bc_esc_holder_reborrow_container_dangle;
+use logos.mem.string;
+
+pub fn bad() -> Vec<str> {
+    let o: String = String::from("hello");
+    let mut v: Vec<str> = Vec::<str>::new();
+    let r: &mut Vec<str> = &mut v;
+    r.push(o.as_str());
+    return v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 1i64 { return 0i32; }
+    return 1i32;
+}

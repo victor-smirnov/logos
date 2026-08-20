@@ -1,0 +1,30 @@
+// #86 MISS 3 — CONTAINER HOLDERS. A `Vec<str>` built from a fn-local borrow
+// and returned. Same root as MISS 1 — the borrow enters the holder by a
+// MUTATION, here `push` — and the #86 fixture set contained no container
+// holder at all. MEASURED at the #86 landing: rc 0.
+//
+// The return gate DOES open (LOGOS_DUMP_RETGATE: retkind=22 typed=0
+// retention=0 mcb=1, srcs=[o,]); nothing had written `prov_` for `v`.
+//
+// THIS HALF NEEDS NO CALLEE SUMMARY, and that is why it is its own fixture:
+// `Vec<str>::push` comes PREBUILT from the stdlib archive, so its flow summary
+// is unavailable (fs=0, measured — task #81) and the out-param deposit never
+// runs for it. It is closed at the `&mut self` receiver arm, which reads the
+// receiver's own ELEMENT TYPES instead of asking the callee.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_container_vec_str_admit: where
+// the pushed borrow is ROOTED — a fn-LOCAL `String` here, a PARAMETER there.
+package bc_esc_holder_container_vec_str_dangle;
+use logos.mem.string;
+
+pub fn bad() -> Vec<str> {
+    let o: String = String::from("hello");
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push(o.as_str());
+    return v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 1i64 { return 0i32; }
+    return 1i32;
+}

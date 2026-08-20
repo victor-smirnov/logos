@@ -1,0 +1,40 @@
+// #86 MISS 2 — ADMIT half, and it is the REAL USER: this is
+// examples/writ_container_showcase.logos `make_held_doc` reduced to the shape
+// the residency exemption exists for. A `HeldAny` carries an `Rc<Writ>` share
+// of the arena, so returning one PAST the arena's build frame is the hatch's
+// whole purpose, not a dangle — the arena outlives the frame precisely because
+// the share does.
+//
+// THE ONE VARIABLE against fail/bc_esc_holder_residency_abuse_dangle: where
+// the escaping borrow is ROOTED. Here every local the escape names is the
+// residency holder itself — measured, with the exemption forced off the
+// refusal reads `cannot return reference to local variable 'h'` and
+// `h: Rc<Writ>` IS the share. There it is `o: String`, which no share covers.
+//
+// KEEP THIS FILE ALIVE. It is the price of MISS 2's narrowing: if the
+// exemption is ever tightened further, this is the fixture that reds first,
+// and `examples/writ_container_showcase.logos` is its full-size twin.
+package bc_esc_holder_residency_backed_admit;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+
+fn make_held_doc() -> HeldAny {
+    let mut h: Rc<Writ> = writ_rc(64i64);
+    let doc: &mut WArray<WAny> = h.array(2i64);
+    doc.push(WAny::from(101i64));
+    doc.push(WAny::from(202i64));
+    doc.push(WAny::from(303i64));                 // grows past cap 2
+    let e: WAny = WAny::from(&*doc);              // a Ref to the doc array
+    return hold_any(&mut h, e);                   // escape via the Writ holder
+    // the local `h` (Rc) drops here; the HeldAny's holder keeps the arena alive
+}
+
+fn main() -> i32 {
+    let held: HeldAny = make_held_doc();          // the arena outlived the frame
+    let doc: &WArray<WAny> =
+        unsafe { &*(held.val().resolve() as *const WArray<WAny>) };
+    if doc.len() != 3i64 { return 1i32; }
+    if doc.get(2i64).as_i56() != 303i64 { return 2i32; }
+    return 0i32;
+}

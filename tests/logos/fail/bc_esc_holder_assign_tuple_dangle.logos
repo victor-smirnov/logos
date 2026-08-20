@@ -1,0 +1,21 @@
+// #86 MISS 1 — THE TUPLE-ELEMENT WRITE. `t.0 = o.as_str()` lowers to
+// SDerefWrite(AddrOfTemp(TupleIndex(VarRef t, 0))) — the same door as the
+// struct field write, reached through a different projection. MEASURED at the
+// #86 landing: rc 0.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_assign_tuple_admit: the element
+// borrow is rooted at a fn-LOCAL here, at a PARAMETER there.
+package bc_esc_holder_assign_tuple_dangle;
+use logos.mem.string;
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    let mut t: (str, i64) = ("", 0i64);
+    t.0 = o.as_str();
+    return t.0;
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

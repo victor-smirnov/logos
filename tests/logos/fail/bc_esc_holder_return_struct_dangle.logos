@@ -1,0 +1,28 @@
+// #86 — THE VALUE-RETURNING SPELLING. Same defect as the `_field` twin, but
+// here the gate did not open AT ALL: `-> W` is not a reference kind, not
+// `#[borrow_carrying]`, and not one of the erased kinds `type_hides_borrow`
+// names, so check_return_value returned before asking anything.
+// MEASURED at 7b72b89c: rc 0. `type_may_carry_borrow(W)` was 1 the whole time.
+//
+// (Sema's make_return_with_drops rewrites this return to
+// `let __ret_tmp_0 = mk(...); drop(o); return __ret_tmp_0;`, which is why the
+// LET half of the fix owns this spelling too.)
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_struct_admit: `mk`'s
+// argument is a borrow of a fn-LOCAL here, of a PARAMETER there.
+package bc_esc_holder_return_struct_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn mk(s: str) -> W { return W { v: s }; }
+
+pub fn bad() -> W {
+    let o: String = String::from("hello");
+    return mk(o.as_str());
+}
+
+fn main() -> i32 {
+    if bad().v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

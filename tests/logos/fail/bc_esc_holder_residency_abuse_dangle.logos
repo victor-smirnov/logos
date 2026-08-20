@@ -1,0 +1,42 @@
+// #86 MISS 2 — THE RESIDENCY EXEMPTION, IN THE ABUSE DIRECTION.
+// Runtime-confirmed use-after-free (the returned `str` stops comparing equal
+// after 256 intervening String allocations).
+//
+// `type_is_residency_exempt` was a NAME test over `ts_.residency_exempt`,
+// auto-populated for ANY struct with a field whose package-stripped name is
+// `Rc`/`Arc`, and registered under the BARE name too. So the single field
+// `h: Rc<i64>` below switched the WHOLE #86 escape gate off for `E` — both the
+// return gate and the `let` provenance record — and returning `e.v`, a borrow
+// of a fn-local `String`, admitted. MEASURED at the #86 landing: rc 0.
+// The `Rc` share keeps a DIFFERENT allocation alive and says nothing about `v`.
+//
+// CTRL-D had proved the exemption NECESSARY (see
+// pass/bc_esc_holder_residency_backed_admit, which is the shape
+// examples/writ_container_showcase.logos `make_held_doc` actually needs) and
+// nothing at all about what it let through — the case the repo's standing rule
+// calls an unchecked hatch: worse than no gate, because the green vouches for it.
+//
+// THE RULE THAT SEPARATES THEM, and the ONE VARIABLE against the admit twin:
+// WHERE THE ESCAPING BORROW IS ROOTED. In the admit twin every local the
+// escape names IS the residency holder (`h: Rc<Writ>`); here it is `o`, a
+// plain `String` no share was ever taken of.
+//
+// The one-variable CONTROL inside this hole: `h: Rc<i64>` → `h: i64` already
+// flipped rc 0 → rc 1 at the #86 landing, which is what named the exemption
+// as the cause rather than the borrow walk.
+package bc_esc_holder_residency_abuse_dangle;
+use logos.mem.string;
+use logos.lang.rc;
+
+pub struct E { pub h: Rc<i64>, pub v: str }
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    let e: E = E { h: rc_new::<i64>(1i64), v: o.as_str() };
+    return e.v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,28 @@
+// #86 SUB-SITE C, BOUND SPELLING. The holder is a named LOCAL rather than a
+// fresh rvalue, and the extraction is the same `stored_shared_extract` copy —
+// so the same clause owns it, but through prov_'s recorded entry for `w`
+// instead of the value expression. MEASURED at 7b72b89c: rc 0
+// (sandbox C1.logos); it stayed rc 0 under the gate+Let hunks alone, which is
+// what says the carry clause and not those two owns this file.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_method_admit: the field
+// borrows a fn-LOCAL `String` here, a PARAMETER there. Same `let`, same call.
+package bc_esc_holder_return_method_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+impl W {
+    pub fn get(&self) -> str { return self.v; }
+}
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    let w: W = W { v: o.as_str() };
+    return w.get();
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

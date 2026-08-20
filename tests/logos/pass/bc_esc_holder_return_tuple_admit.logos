@@ -1,0 +1,17 @@
+// #86 — ADMIT half of the tuple spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_tuple_dangle: the `str` element is the PARAMETER,
+// so the tuple carries the caller's borrow back to the caller. Elision case.
+package bc_esc_holder_return_tuple_admit;
+use logos.mem.string;
+
+pub fn ok(s: str) -> (str, i64) {
+    return (s, 1i64);
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    let t: (str, i64) = ok(o.as_str());
+    if t.1 != 1i64 { return 1i32; }
+    if t.0.len() != 5i64 { return 2i32; }
+    return 0i32;
+}

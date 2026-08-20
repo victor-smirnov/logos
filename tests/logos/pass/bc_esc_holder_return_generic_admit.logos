@@ -1,0 +1,29 @@
+// #86 — ADMIT half of the generic-receiver spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_generic_dangle: the argument handed to `wrap` is
+// the PARAMETER. Together with pass/bc_esc_holder_return_dyn_admit this pins
+// that the two spellings answer THE SAME WAY in the admitting direction too —
+// the #83 defect was exactly a disagreement between them.
+package bc_esc_holder_return_generic_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub trait Tr { fn wrap(&self, s: str) -> W; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn wrap(&self, s: str) -> W { return W { v: s }; }
+}
+
+pub fn ok<T: Tr>(t: &T, s: str) -> str {
+    let w: W = t.wrap(s);
+    return w.v;
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let o: String = String::from("hello");
+    if ok::<K>(&k, o.as_str()).len() == 5i64 { return 0i32; }
+    return 1i32;
+}

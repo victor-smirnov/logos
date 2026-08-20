@@ -1,0 +1,36 @@
+// #86 MISS-D — ADMIT half, and it is the REAL USER: this is
+// examples/writ_container_showcase.logos `make_held_doc`, the shape the
+// residency exemption exists for.
+//
+// THE ONE VARIABLE against fail/bc_esc_holder_residency_pershare_dangle: there
+// are TWO arenas there and the escape is built from the wrong one; here there
+// is ONE, so the arena the escaped Ref points into is exactly the arena the
+// returned share keeps alive.
+//
+// KEEP THIS FILE ALIVE. It is the price of MISS-D's narrowing, and
+// examples/writ_container_showcase.logos is its full-size twin: if the
+// one-share rule is ever tightened further, this is the fixture that reds
+// first.
+package bc_esc_holder_residency_pershare_admit;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.array;
+
+fn make_held_doc() -> HeldAny {
+    let mut h: Rc<Writ> = writ_rc(64i64);
+    let doc: &mut WArray<WAny> = h.array(2i64);
+    doc.push(WAny::from(101i64));
+    doc.push(WAny::from(202i64));
+    doc.push(WAny::from(303i64));                 // grows past cap 2
+    let e: WAny = WAny::from(&*doc);
+    return hold_any(&mut h, e);
+}
+
+fn main() -> i32 {
+    let held: HeldAny = make_held_doc();
+    let doc: &WArray<WAny> =
+        unsafe { &*(held.val().resolve() as *const WArray<WAny>) };
+    if doc.len() != 3i64 { return 1i32; }
+    if doc.get(2i64).as_i56() != 303i64 { return 2i32; }
+    return 0i32;
+}

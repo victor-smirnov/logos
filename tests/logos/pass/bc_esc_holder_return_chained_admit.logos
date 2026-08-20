@@ -1,0 +1,42 @@
+// #86 SUB-SITE C — ADMIT half, and the one the clause is narrowed for.
+//
+// ONE VARIABLE against fail/bc_esc_holder_return_chained_dangle: what `mk`'s
+// argument is rooted at. `ok_chain` passes the PARAMETER, `ok_static` passes a
+// `'static` literal, `ok_local` binds the holder to a local first and STILL
+// carries only a param borrow. All three must compile: an extraction out of a
+// value that carries the caller's own borrow hands that borrow back, which is
+// the entire elision model in a language with no lifetime parameters.
+//
+// This file is also the guard on the F2 over-refusal the clause sits next to.
+// The clause reads the provenance recorded FOR THE VALUE, not prov_of of the
+// `&w` receiver expression — prov_of's AddrOf arm answers "is_local" for ANY
+// local, which is the borrow OF `w`, not the borrow `w` HOLDS. Reading that
+// channel refused `ok_local` (measured, rc 1, "cannot return reference to
+// local variable 'w'"), so a red here is precisely that mistake coming back.
+package bc_esc_holder_return_chained_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+impl W {
+    pub fn get(&self) -> str { return self.v; }
+}
+
+pub fn mk(s: str) -> W { return W { v: s }; }
+
+pub fn ok_chain(s: str) -> str { return mk(s).get(); }
+
+pub fn ok_static() -> str { return mk("abcde").get(); }
+
+pub fn ok_local(s: str) -> str {
+    let w: W = W { v: s };
+    return w.get();
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok_chain(o.as_str()).len() != 5i64 { return 1i32; }
+    if ok_static().len() != 5i64 { return 2i32; }
+    if ok_local(o.as_str()).len() != 5i64 { return 3i32; }
+    return 0i32;
+}

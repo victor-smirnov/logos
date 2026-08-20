@@ -1,0 +1,29 @@
+// #86 — ADMIT half of the `&dyn` receiver spelling. ONE VARIABLE against
+// fail/bc_esc_holder_return_dyn_dangle: the argument handed to `wrap` is the
+// PARAMETER. A trait method that packs the caller's borrow into a holder and
+// hands the holder's field back must keep compiling — through a `&dyn` just as
+// through a concrete receiver.
+package bc_esc_holder_return_dyn_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub trait Tr { fn wrap(&self, s: str) -> W; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn wrap(&self, s: str) -> W { return W { v: s }; }
+}
+
+pub fn ok(t: &dyn Tr, s: str) -> str {
+    let w: W = t.wrap(s);
+    return w.v;
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let o: String = String::from("hello");
+    if ok(&k, o.as_str()).len() == 5i64 { return 0i32; }
+    return 1i32;
+}

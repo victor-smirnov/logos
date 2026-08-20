@@ -1,0 +1,41 @@
+// #86 — ADMIT half, and the one that prices the fix. ONE VARIABLE against
+// fail/bc_esc_holder_return_field_dangle: the borrow the holder carries is
+// rooted at a PARAMETER, not at a fn-local. Logos has no lifetime parameters,
+// so this is the whole elision model — `&'b W` holding `&'a str` hands back
+// `&'a str`, and the caller's `o` outlives the call.
+//
+// Two more shapes that must not start refusing, in the same file because they
+// are the same question asked of a different root:
+//   `ok_static`  — a `'static` literal in the field: no borrow of anything
+//                  local exists at all.
+//   `ok_owned`   — an owned `String` returned BY VALUE: `type_may_carry_borrow`
+//                  must not mistake ownership for a carried borrow.
+//
+// The uses assert VALUES, not just that the file compiles.
+package bc_esc_holder_return_field_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn ok(s: str) -> str {
+    let w: W = W { v: s };
+    return w.v;
+}
+
+pub fn ok_static() -> str {
+    let w: W = W { v: "abcde" };
+    return w.v;
+}
+
+pub fn ok_owned() -> String {
+    let o: String = String::from("hello");
+    return o;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).len() != 5i64 { return 1i32; }
+    if ok_static().len() != 5i64 { return 2i32; }
+    if ok_owned().len() != 5i64 { return 3i32; }
+    return 0i32;
+}

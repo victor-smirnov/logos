@@ -1,0 +1,27 @@
+// #86 MISS 3 — THE BY-VALUE ELEMENT SPELLING. A `Vec<H>` where `H` is a plain
+// struct that HOLDS a `str`. MEASURED at the #86 landing: rc 0 — and this half
+// was invisible to the §B6 source channel too (srcs=[] measured, against
+// srcs=[o,] for the `Vec<str>` twin), because the receiver arm's
+// `stored_ref_elem` test requires `is_ref_kind(at)` and `H` is a by-VALUE
+// element. The element-type match is what discriminates a STORE from a read;
+// the ref-ness was never part of that question.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_container_vec_struct_admit: the
+// borrow the pushed `H` carries is rooted at a fn-LOCAL here, at a PARAMETER
+// there. Same `H`, same push, same return.
+package bc_esc_holder_container_vec_struct_dangle;
+use logos.mem.string;
+
+pub struct H { pub v: str }
+
+pub fn bad() -> Vec<H> {
+    let o: String = String::from("hello");
+    let mut v: Vec<H> = Vec::<H>::new();
+    v.push(H { v: o.as_str() });
+    return v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 1i64 { return 0i32; }
+    return 1i32;
+}

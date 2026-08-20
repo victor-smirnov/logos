@@ -1,0 +1,27 @@
+// #86 — THE PERMISSIVE CONTROL ON THE STORE SIDE, and the guard for #78.
+//
+// `out.v = s` writes the CALLER's own borrow through a `&mut` out-param. It is
+// correct and must compile. It is pinned here because #78 — a CALLEE-LOCAL
+// borrow stored the same way — is still open and still admits (measured, this
+// round, sandbox R78/R78b both rc 0 before AND after the #86 fix: a different
+// channel, the store side, not the return gate). Whoever closes #78 moves in
+// the refusing direction over exactly this shape, and this file is what makes
+// that over-refusal a red instead of a stdlib mystery.
+//
+// A red here is NOT this fixture's fault; it means the #78 repair did not
+// distinguish "the borrow came from the caller" from "the borrow came from the
+// callee's own frame".
+package bc_esc_holder_outparam_param_borrow_admit;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn ok(s: str, out: &mut W) { out.v = s; }
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    let mut w: W = W { v: "" };
+    ok(o.as_str(), &mut w);
+    if w.v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

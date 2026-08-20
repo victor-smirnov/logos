@@ -1,0 +1,31 @@
+// #86 MISS 1 — THE MUTATION AFTER THE LET. Runtime-confirmed use-after-free,
+// ONE LINE from fail/bc_esc_holder_return_field_dangle: the borrow arrives by
+// ASSIGNMENT instead of in the `let` initializer.
+//
+// #86 landed hunk (B) at the `let` INITIALIZER only, so `prov_` stayed empty
+// for `w` and the return gate — which DID open (LOGOS_DUMP_RETGATE: mcb=1, and
+// the loan channel even named the source, srcs=[o,]) — had no provenance to
+// refuse on. MEASURED at the #86 landing: rc 0.
+//
+// The door the spelling takes is Code::DerefWrite, not Code::FieldWrite:
+// sema lowers `w.v = …` to SDerefWrite(AddrOfTemp(FieldRead(VarRef w, v))).
+// A hook in the Code::FieldWrite arm fired ZERO times over the whole corpus.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_assign_field_admit: where the
+// assigned borrow is ROOTED — a fn-LOCAL `String` here, a PARAMETER there.
+package bc_esc_holder_assign_field_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    let mut w: W = W { v: "" };
+    w.v = o.as_str();
+    return w.v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

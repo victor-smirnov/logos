@@ -1,0 +1,20 @@
+// #86 — THE TUPLE SPELLING. `(str, i64)` is a Tuple kind: not a reference, not
+// `#[borrow_carrying]`, not erased — the return gate never opened.
+// MEASURED at 7b72b89c: rc 0, a returned tuple element pointing into a
+// `String` dropped on the way out.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_tuple_admit: the element
+// borrows a fn-LOCAL here, a PARAMETER there. Same tuple type, same literal.
+package bc_esc_holder_return_tuple_dangle;
+use logos.mem.string;
+
+pub fn bad() -> (str, i64) {
+    let o: String = String::from("hello");
+    return (o.as_str(), 1i64);
+}
+
+fn main() -> i32 {
+    let t: (str, i64) = bad();
+    if t.1 == 1i64 { return 0i32; }
+    return 1i32;
+}

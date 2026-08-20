@@ -1,0 +1,35 @@
+// #86 MISS 3 — THE OUT-PARAM DOOR OF THE SAME HOLE, and it exists as its own
+// fixture because a control proved it is the ONLY arm that covers this shape.
+//
+// `stash(&mut v, H { … })` is a FREE FUNCTION, not a `&mut self` method, so the
+// receiver-arm repair that closes fail/bc_esc_holder_container_vec_str_dangle
+// never runs here — that arm keys on a method receiver. This door is the
+// callee's flow SUMMARY (`out0<-0x2`: "parameter 1 lands in out-param 0"),
+// consulted in apply_flow_outparams.
+//
+// MEASURED CONTROL CHAIN (each arm disabled alone, the other left in):
+//   receiver arm off  -> vec_str rc 0, this file rc 1
+//   out-param arm off -> vec_str rc 1, this file rc 0
+// so neither arm is redundant and each has a fixture that fires it ALONE.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_container_outparam_admit: the
+// borrow the stashed `H` carries is rooted at a fn-LOCAL here, at a PARAMETER
+// there. Same `stash`, same summary, same return.
+package bc_esc_holder_container_outparam_dangle;
+use logos.mem.string;
+
+pub struct H { pub v: str }
+
+pub fn stash(v: &mut Vec<H>, h: H) { v.push(h); }
+
+pub fn bad() -> Vec<H> {
+    let o: String = String::from("hello");
+    let mut v: Vec<H> = Vec::<H>::new();
+    stash(&mut v, H { v: o.as_str() });
+    return v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 1i64 { return 0i32; }
+    return 1i32;
+}

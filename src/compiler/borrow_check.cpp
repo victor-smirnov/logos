@@ -34,6 +34,7 @@
 
 #include <format>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1605,6 +1606,14 @@ class BorrowChecker {
     std::vector<ScopeFrame>  scopes_;
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
+    // #86 MISS 1: the DECLARED type of each local binding, recorded at its
+    // `let`. VarState carries ownership/borrow state but no type, and the
+    // mutation sites (FieldWrite / TupleWrite / the out-param deposit) know
+    // only the receiver's NAME — they need the holder's type to ask
+    // type_may_carry_borrow / type_is_residency_exempt. Types do not change
+    // over a binding's life, so this map is NOT part of the branch
+    // save/restore that `prov_` takes part in.
+    std::unordered_map<std::string, TypeRef> holder_ty_;
     // H1 / round 8: THE ref-provenance graph of the checking pass. Keyed by
     // dotted PLACE, FLOW-SENSITIVE (a non-reborrow write retracts). Same store
     // and same resolve as the pre-pass's `prescan_refs_` and the summarizer's
@@ -1703,6 +1712,14 @@ class BorrowChecker {
     // answers "did this branch execute over the corpus" is the program-wide sum.
 public:
     static inline uint64_t thru_ref_prov_fired_ = 0;
+    // #86 MISS 1 — fire count of the MUTATION-side holder-provenance record
+    // (assign / field write / tuple write / container deposit). Read by
+    // LOGOS_DUMP_BC_HOLDERPROV; the arm is pinned by
+    // tests/logos/fail/bc_esc_holder_assign_*_dangle.
+    static inline uint64_t holder_escape_prov_fired_ = 0;
+    // …and per DOOR, so a dead door is visible without re-reading the trace:
+    // 0=assign 1=derefwrite 2=outparam 3=recvstore.
+    static inline uint64_t holder_escape_prov_by_door_[4] = {0, 0, 0, 0};
 private:
     struct DanglingRef { std::string source; uint32_t borrow_line; };
     std::unordered_map<std::string, DanglingRef>              dangling_;
@@ -3328,6 +3345,31 @@ private:
                 lir_view::ExprRef src = ops[i];
                 if (!src) continue;
                 TypeRef st = src.type(pool);
+                // ── #86 MISS 3: CONTAINER HOLDERS ─────────────────────────
+                //
+                // THE DEFECT (measured at the #86 landing, rc 0 for both):
+                //   fn bad() -> Vec<str> { let o = String::from("hello");
+                //     let mut v: Vec<str> = Vec::new();
+                //     v.push(o.as_str()); return v; }
+                //   fn bad() -> Vec<H>   { … v.push(H { v: o.as_str() }); … }
+                // Same root as MISS 1 — the borrow enters the holder by a
+                // MUTATION, here through the callee's out-param — and the #86
+                // fixture set contained no container holder at all. The gate
+                // itself opens (LOGOS_DUMP_RETGATE: mcb=1 for `Vec<str>` and
+                // `Vec<H>` alike); `prov_` was simply never written.
+                //
+                // DELIBERATELY BEFORE THE LOAN FILTER BELOW, and with its own
+                // gate. The filter's three predicates are the LOAN channel's
+                // (`is_borrow_carrying_type` answers NO for `H { v: str }`,
+                // which is why the `Vec<H>` spelling deposited no §B6 source
+                // either — srcs=[] measured). Widening THAT filter would widen
+                // inherit_loans / take_ref_borrows / the A2 alias edges in one
+                // move — three rules in one control. The escape record asks
+                // its own question with #71's `type_may_carry_borrow`, and
+                // records only the escape fact.
+                if (type_may_carry_borrow(st))
+                    note_holder_escape_prov(dst, holder_ty_of(dst), src, line,
+                                            "outparam");
                 // Nothing to move if the operand cannot carry a borrow at all.
                 if (!is_ref_kind(st) && !loan_carrying_type(st) &&
                     !is_borrow_carrying_type(st))
@@ -4364,6 +4406,277 @@ private:
         return bc_loan_carrying_type(ts_, t);
     }
 
+    // #86: the escape hatch's own name test. `Held<T>`/`HeldAny` carry an
+    // Rc/Arc share of the arena, so returning one past the arena is the
+    // hatch's PURPOSE, not a dangle. is_borrow_carrying_type applies this at
+    // its top; type_may_carry_borrow deliberately does not (it feeds the LOAN
+    // channel), so the #86 escape gate has to apply it itself.
+    bool type_is_residency_exempt(TypeRef t) const {
+        if (!t) return false;
+        auto k = t.kind();
+        std::string nm;
+        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            nm = std::string(t.struct_name());
+        return !nm.empty() && ts_.residency_exempt.count(nm) > 0;
+    }
+
+    // ── #86 MISS 2: THE EXEMPTION, CHECKED IN THE ABUSE DIRECTION ──────────
+    //
+    // THE HOLE. `type_is_residency_exempt` is a NAME test over
+    // `ts_.residency_exempt`, auto-populated (this file's `holds_residency_holder`,
+    // ~line 192) for ANY struct with a field whose package-stripped name is
+    // `Rc`/`Arc`, and registered under the BARE name too. So
+    //   pub struct E { pub h: Rc<i64>, pub v: str }
+    // switches the whole #86 escape gate off wholesale: returning `E`, or
+    // `e.v`, with `v` borrowing a fn-local `String` was rc 0 — a
+    // runtime-confirmed use-after-free (the returned `str` stops comparing
+    // equal after 256 intervening String allocations). The `Rc` share keeps a
+    // DIFFERENT allocation alive and says NOTHING about `v`. Also reachable by
+    // BARE-NAME COLLISION: a user struct named `Held` in any package matches.
+    //
+    // CTRL-D proved the exemption NECESSARY (without it
+    // examples/writ_container_showcase.logos:91 `return hold_any(&mut h, e);`
+    // reds) — and nothing about what it lets through. The repo's standing rule
+    // is that an unchecked hatch is worse than no gate, because the green now
+    // vouches for it.
+    //
+    // WHAT SEPARATES THE TWO, MEASURED. With the exemption forced off, the
+    // real user's refusal names `h` — and `h` IS the residency holder:
+    //   [retgate] fn=fn make_held_doc line=91 … srcs=[h,]   `h: Rc<Writ>`
+    // The abuse's refusal names `o` — a plain `String` the `Rc` has no share
+    // of:
+    //   [retgate] fn=fn bad line=8 … srcs=[o,]              `o: String`
+    // So the exemption's real claim is not "this TYPE is exempt" but "the
+    // borrow that escapes is kept alive by the share this value carries". The
+    // check is therefore: the escaping expression may name ONLY locals that
+    // are themselves residency-backed. Same hatch, same real user, and the
+    // abuse no longer fits through it.
+    //
+    // Absence of a recorded type answers NO (refuse) — the refusing direction,
+    // which is the direction this hole is in. Priced by the full-build red
+    // list in the ledger.
+    // `Rc<T>` / `Arc<T>` itself, anything already registered residency-exempt
+    // (`Held`/`HeldAny` — a value that carries a share IS backed by one), or a
+    // generic instance of either. `depth` bounds the type-arg walk the same way
+    // `holds_residency_holder` bounds itself to direct fields: one hop is what
+    // `&Rc<Writ>` / `Option<Rc<T>>` need, and a recursive type cannot diverge.
+    bool type_is_residency_backed(TypeRef t, int depth = 1) const {
+        if (!t) return false;
+        auto k = t.kind();
+        std::string nm;
+        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            nm = std::string(t.struct_name());
+        if (!nm.empty()) {
+            if (ts_.residency_exempt.count(nm)) return true;
+            std::string_view bare = nm;
+            if (auto d = bare.rfind('.'); d != std::string_view::npos)
+                bare = bare.substr(d + 1);
+            if (auto g = bare.find("$G"); g != std::string_view::npos)
+                bare = bare.substr(0, g);
+            if (ts_.residency_exempt.count(std::string(bare))) return true;
+            if (bare == "Rc" || bare == "Arc") return true;
+        }
+        if (depth <= 0) return false;
+        for (auto a : t.type_args())
+            if (type_is_residency_backed(TypeRef(a), depth - 1)) return true;
+        return false;
+    }
+
+    bool local_is_residency_backed(const std::string& n) const {
+        return type_is_residency_backed(holder_ty_of(n));
+    }
+
+    // The residency exemption for ONE escape, rather than for a type. Answers
+    // the old blanket YES only when every local the escaping expression names
+    // is residency-backed.
+    bool residency_exemption_holds(TypeRef t, lir_view::ExprRef e) const {
+        if (!type_is_residency_exempt(t)) return false;
+        if (!e) return true;
+        std::vector<std::string> srcs;
+        collect_ref_sources(e, srcs);
+        for (auto& n : srcs) {
+            if (is_return_temp_name(n) || is_materialized_temp_name(n)) continue;
+            if (!local_is_residency_backed(n)) {
+                if (std::getenv("LOGOS_86_TRACE"))
+                    fprintf(stderr, "[#86trace-exempt-denied] fn=%s src=%s\n",
+                            fn_name_.c_str(), n.c_str());
+                return false;
+            }
+        }
+        // ── #86 MISS-D: THE TEST IS PER SHARE, NOT PER TYPE ────────────────
+        //
+        // THE HOLE, and it is the narrowing being WEAKER THAN ITS OWN STATED
+        // RULE. The loop above implements "every named local is
+        // residency-backed"; the rule the MISS-2 comment STATES is "the borrow
+        // that escapes is kept alive by the share THIS VALUE carries". Those
+        // differ the moment TWO shares are in scope:
+        //   let mut h:  Rc<Writ> = writ_rc(64i64);
+        //   let mut h2: Rc<Writ> = writ_rc(64i64);
+        //   let doc: &mut WArray<WAny> = h.array(2i64);  …
+        //   let e: WAny = WAny::from(&*doc);
+        //   return hold_any(&mut h2, e);          // ← MEASURED rc 0
+        // `h2`'s share keeps h2's ARENA alive; `e` points into h's, which is
+        // freed at the end of the frame. Every named local is Rc-typed, so the
+        // implemented test answers YES and the gate does not even open. The
+        // one-variable control (`h2` → `h`) IS the admit twin.
+        //
+        // ⚠ WHY NOT THE OBVIOUS TEST — "chase the escaping value's borrow to
+        // its share and compare identities". MEASURED AND REFUTED, twice over,
+        // and the measurement is the reason this rule is coarse:
+        //   • `collect_ref_sources(hold_any(&mut h2, e))` = `[h2]`. The
+        //     BY-VALUE argument `e` — the half that carries the foreign borrow
+        //     — contributes nothing to the source channel at all.
+        //   • `bc_hop_roots` DOES reach it (`hops=[h2,e]`), and then the chase
+        //     dies one hop later: with the instrument dumping both graphs at
+        //     the check, `ref_borrow_sources_` holds exactly ONE entry for the
+        //     whole function (`__ret_tmp_0 -> [h2]`) and `reborrow_of_` is
+        //     EMPTY. Neither `doc -> h` nor `e -> doc` was ever recorded,
+        //     because `h.array(…)` and `WAny::from(…)` are PREBUILT stdlib
+        //     methods whose flow summaries are unavailable (task #81). The
+        //     identity `e ∈ h` is not merely unread here — it does not exist
+        //     anywhere in this pass.
+        //
+        // SO THE RULE IS THE ONE THE AVAILABLE FACTS SUPPORT: the exemption
+        // may only speak when the frame leaves the arena's identity
+        // unambiguous — at most ONE share handle (`Rc`/`Arc`) among the
+        // bindings this function has declared. One share: the escaping value's
+        // borrow can be rooted nowhere else, which is exactly the real user
+        // (`make_held_doc` / examples/writ_container_showcase.logos, one
+        // `h: Rc<Writ>`). Two shares: the pass cannot say WHICH, and "cannot
+        // prove" resolves to REFUSE — the direction an unchecked hatch has to
+        // be corrected in.
+        //
+        // THE PRICE, stated: a frame that holds two arenas and legitimately
+        // returns a `Held` of one of them is over-refused. Nothing in the
+        // 2211-pass + 754-fail corpus, the 53-target build, or the showcase
+        // is such a frame (measured — red list in the ledger); the workaround
+        // is the one Rust would also need, split the frame. The narrower fix
+        // is a real `e ∈ h` provenance edge, which is task #81's summary
+        // availability, not this gate's.
+        {
+            int nshare = 0;
+            for (auto& kv : holder_ty_)
+                if (type_is_share_handle(kv.second)) ++nshare;
+            if (nshare > 1) {
+                if (std::getenv("LOGOS_86_TRACE"))
+                    fprintf(stderr, "[#86trace-exempt-multishare] fn=%s n=%d\n",
+                            fn_name_.c_str(), nshare);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // A SHARE HANDLE proper — `Rc<T>` / `Arc<T>` itself, under any package
+    // qualification or generic-instance suffix. Deliberately NARROWER than
+    // `type_is_residency_backed`, which also answers yes for anything merely
+    // REGISTERED residency-exempt (`Held`, `HeldAny`, a struct with an `Rc`
+    // field): those say "a share is in here somewhere", which cannot identify
+    // WHICH allocation, and identity is the whole question in MISS-D.
+    bool type_is_share_handle(TypeRef t) const {
+        if (!t) return false;
+        auto k = t.kind();
+        std::string nm;
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            nm = std::string(t.struct_name());
+        else if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+        if (nm.empty()) return false;
+        std::string_view bare = nm;
+        if (auto d = bare.rfind('.'); d != std::string_view::npos)
+            bare = bare.substr(d + 1);
+        if (auto g = bare.find("$G"); g != std::string_view::npos)
+            bare = bare.substr(0, g);
+        return bare == "Rc" || bare == "Arc";
+    }
+
+    // ── #86 MISS 1: THE MUTATION AFTER THE LET ─────────────────────────────
+    //
+    // THE DEFECT the #86 landing left open, one line from its own fixture
+    // fail/bc_esc_holder_return_field_dangle and runtime-confirmed (the
+    // returned `str` stops comparing equal after 256 intervening String
+    // allocations):
+    //   let mut w: W = W { v: "" };  w.v = o.as_str();  return w.v;   // rc 0
+    // #86's SUB-SITE 2 writes `prov_` ONLY at the `let` INITIALIZER. Every
+    // later store into the same holder — whole-value reassign, field write,
+    // tuple-element write, and the container deposit `v.push(o.as_str())` —
+    // left `prov_` empty, so the return gate (which DID open: mcb=1, and the
+    // loan channel even names the source) found no provenance to refuse on.
+    //
+    // ONE helper, four call sites, and it records the SAME thing SUB-SITE 2
+    // records: the ESCAPE fact only (is_local / is_temp), never `params`. A
+    // param-rooted store contributes nothing, so this cannot start
+    // check_return_value's elision arm on a binding that never fed it.
+    //
+    // ADDITIVE, NOT REPLACING. A field write touches ONE field of a holder
+    // whose OTHER fields may still carry an earlier borrow, so the escape bits
+    // are OR-ed in rather than assigned. The cost is the shape
+    // `let w = W{v:o.as_str()}; w.v = "static"; return w.v;` — over-refused;
+    // the alternative (clear on every store) LOSES the sibling-field borrow,
+    // which is the permissive direction and the direction this hole is in.
+    //
+    // PARAMS ARE SKIPPED DELIBERATELY. Writing a local borrow through a `&mut`
+    // PARAMETER and returning it is the FRAME escape — task #78, explicitly
+    // still open (see apply_flow_outparams' `⚠ #77 round 2` note) — and
+    // marking a parameter `is_local` here would refuse every later return of
+    // that parameter, not just the stored borrow. Left open; see the ledger.
+    void note_holder_escape_prov(const std::string& name, TypeRef holder_ty,
+                                 lir_view::ExprRef val, uint32_t ln,
+                                 const char* site) {
+        if (name.empty() || !val) return;
+        if (param_names_.count(name)) return;          // #78, not #86
+        if (!holder_ty || !type_may_carry_borrow(holder_ty)) return;
+        if (residency_exemption_holds(holder_ty, val)) return;
+        RefProv vp = prov_of(val);
+        if (!vp.is_local && !vp.is_temp && vp.params.empty())
+            vp = prov_of_retained(val);
+        if (!vp.is_local && !vp.is_temp) return;
+        ++holder_escape_prov_fired_;
+        {   // per-door tally (site is a literal from the four call sites)
+            int d = site[0] == 'a' ? 0 : site[0] == 'd' ? 1
+                  : site[0] == 'o' ? 2 : 3;
+            ++holder_escape_prov_by_door_[d];
+        }
+        if (std::getenv("LOGOS_86_TRACE"))
+            fprintf(stderr, "[#86trace-%s] fn=%s line=%u var=%s loc=%d tmp=%d\n",
+                    site, fn_name_.c_str(), ln, name.c_str(),
+                    (int)vp.is_local, (int)vp.is_temp);
+        auto& slot = prov_[name];
+        slot.is_local = slot.is_local || vp.is_local;
+        slot.is_temp  = slot.is_temp  || vp.is_temp;
+        // ── AND THE §B6 SOURCE, so the DIAGNOSTIC CAN NAME THE LOCAL ───────
+        //
+        // MEASURED: without this the `Vec<H>` spelling refused with "cannot
+        // return reference to local variable '__ret_tmp_0'" — a name that
+        // exists in no source file. #77 round 2 already repaired that leak by
+        // chasing `ref_sources_under(temp)`, but the chase finds nothing when
+        // the §B6 channel never recorded a source for the holder, which is
+        // exactly the by-VALUE element case (srcs=[] measured).
+        //
+        // The two channels are answering the SAME question here — this record
+        // fires only where the escape fact is already local/temp — so a §B6
+        // source is not a wider claim, it is the same claim written where the
+        // diagnostic can read it. Deposited through `store_ref_sources`, which
+        // is ADDITIVE (`add_ref_sources` would `erase_ref_sources_under` the
+        // place first and lose an earlier push's source — the permissive
+        // direction, and the direction this hole is in). Same shape as the #78
+        // out-param deposit.
+        {
+            std::vector<std::string> escs;
+            collect_ref_sources(val, escs);
+            std::vector<std::pair<std::string, std::string>> pairs;
+            for (auto& s2 : escs) pairs.emplace_back(std::string{}, s2);
+            if (!pairs.empty()) store_ref_sources(name, std::move(pairs), name, ln);
+        }
+    }
+
+    // The holder type of a local binding, as recorded at its `let`.
+    TypeRef holder_ty_of(const std::string& name) const {
+        auto it = holder_ty_.find(name);
+        return it != holder_ty_.end() ? it->second : TypeRef(nullptr);
+    }
+
     // Door E — the CONSTRUCTION/coercion site. `Box::new(c.mk())` erased into
     // `Box<dyn Get>` has a result type that says nothing: type_bc_name only
     // names Enum/Struct/ZonedStruct, and `dyn Get` is none of them, so
@@ -4728,7 +5041,35 @@ private:
         }
         // Place chain → terminal VarRef.
         ExprRef cur = e;
-        if (cur && cur.kind() == Code::AddrOfTemp) cur = EAddrOfTempView{cur}.inner();
+        if (cur && cur.kind() == Code::AddrOfTemp) {
+            cur = EAddrOfTempView{cur}.inner();
+            // ── #86 MISS-E: AddrOfTemp OF A NON-PLACE RE-ENTERS THE SWITCH ─
+            //
+            // THE GAP (measured). `return mk(o.as_str()).get();` — a `&self`
+            // method whose receiver is a CALL — spells that receiver
+            // `AddrOfTemp(Call)`. The peel above lands on a `Call`, the place
+            // loop below has no arm for one, the terminal-VarRef test fails,
+            // and the whole walk answers `[]`. The FREE-FUNCTION spelling of
+            // the identical program (`get2(mk(o.as_str()))`) answers `[o]` —
+            // the one-variable control, run on this tree: it names `o`, the
+            // method spelling named `__ret_tmp_0`.
+            //
+            // The switch above already handles every one of those inner kinds
+            // (Call / MethodCall / aggregate literal / IfExpr / BlockExpr);
+            // this arm just stops throwing the expression away. Strictly
+            // ADDITIVE — a walk that returned nothing now returns names — and
+            // the caller-side argument for why adding names is safe is the one
+            // written at the top of this function (inherit_loans only ever ADDS
+            // a co-holder to a record that already exists).
+            using K = Code;
+            if (cur && cur.kind() != K::VarRef  && cur.kind() != K::AddrOf &&
+                cur.kind() != K::AddrOfTemp     && cur.kind() != K::FieldRead &&
+                cur.kind() != K::TupleIndex     && cur.kind() != K::IndexRead &&
+                cur.kind() != K::Deref) {
+                bc_hop_roots(cur, out);
+                return;
+            }
+        }
         if (cur && cur.kind() == Code::AddrOf) {
             std::string n(EAddrOfView{cur}.var_name());
             if (var_has(NO_SLOT, n)) out.push_back(std::move(n));
@@ -4829,6 +5170,44 @@ private:
                 else                                          add(ref_place_root(m));
             }
         }
+    }
+
+    // ── #86 SUB-SITE C: the borrow a receiver VALUE CARRIES ────────────────
+    //
+    // NOT prov_of(receiver). A `&self` call spells its receiver `&w`, and
+    // prov_of's AddrOf arm answers "is_local" for ANY local `w` — that is the
+    // provenance of a borrow OF `w`, which is exactly the F2 over-refusal the
+    // recv_contributes guard exists to prevent. MEASURED false positive when
+    // the carry clause read that channel:
+    //   `fn ok(s: str) -> str { let w = W{v:s}; return w.get(); }` → rc 1,
+    //   "cannot return reference to local variable 'w'" — the ELISION case,
+    //   which must compile (sandbox C1p.logos, both spellings).
+    // What the clause needs is the provenance recorded FOR THE VALUE, i.e.
+    // prov_'s entry for the binding (or the value expression itself when the
+    // receiver is a fresh rvalue), so a param-rooted carry answers `params`
+    // and a fn-local one answers `is_local`.
+    RefProv carried_prov_of_recv(lir_view::ExprRef r) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        if (!r) return {};
+        if (r.kind() == Code::AddrOf) {
+            std::string nm(EAddrOfView{r}.var_name());
+            if (param_names_.count(nm)) return {{nm}, false};
+            auto it = prov_.find(nm);
+            return it != prov_.end() ? it->second : RefProv{};
+        }
+        if (r.kind() == Code::AddrOfTemp)
+            return carried_prov_of_recv(EAddrOfTempView{r}.inner());
+        if (r.kind() == Code::VarRef) {
+            std::string nm(EVarRefView{r}.name());
+            if (param_names_.count(nm)) return {{nm}, false};
+            auto it = prov_.find(nm);
+            return it != prov_.end() ? it->second : RefProv{};
+        }
+        RefProv p = prov_of(r);
+        if (!p.is_local && !p.is_temp && p.params.empty())
+            p = prov_of_retained(r);
+        return p;
     }
 
     RefProv prov_of(lir_view::ExprRef e) const {
@@ -5106,6 +5485,47 @@ private:
                     !rp.is_temp &&
                     !value_local_root(v.receiver(), pool).empty())
                     rp.is_local = true;
+                // ── #86 SUB-SITE C: THE BORROW THE RECEIVER *CARRIES* ──────
+                //
+                // `struct W { v: str }  impl W { fn get(&self) -> str { self.v } }`
+                // summarises `result<-0 EXACT` — and that is CORRECT: it is
+                // `stored_shared_extract`, the Rust-parity rule that a `str`
+                // copied out of a `&W` has the FIELD's lifetime, not `&self`'s
+                // (see borrow_flow_summary.inc). The bit says "self does not
+                // reach the result", so `recv_contributes` is false and both
+                // clauses above are (rightly) skipped.
+                //
+                // What nothing then asks is where the FIELD's borrow came
+                // from. Measured, both at rc=0 before this clause:
+                //   `let w = W{v:o.as_str()};   return w.get();`   (C1)
+                //   `return mk(o.as_str()).get();`                 (RB3b/B3)
+                // — the extracted `str` has the lifetime of the borrow the
+                // receiver VALUE holds, and that borrow is of a fn-local.
+                //
+                // NOT the F2 over-refusal this is easy to confuse with. F2 is
+                // "an unrelated value-local RECEIVER made the result look
+                // local" — `Id{z:0}` carries no borrow at all, so
+                // type_may_carry_borrow is false for it and this clause never
+                // opens. Only the receiver's CARRIED escape fact is adopted
+                // (is_local/is_temp); a param-rooted carry contributes
+                // nothing, which is what keeps `walk_program_params`'
+                // `prm.relc_ty[i]` (str views of the query text stored in a
+                // `&MacroParams`) admitting.
+                if (!recv_contributes && !rp.is_local && !rp.is_temp) {
+                    TypeRef rvt = v.receiver().type(pool);
+                    if (rvt && type_may_carry_borrow(rvt) &&
+                        !residency_exemption_holds(rvt, v.receiver())) {
+                        RefProv cp = carried_prov_of_recv(v.receiver());
+                        if (cp.is_local || cp.is_temp) {
+                            if (std::getenv("LOGOS_86_TRACE"))
+                                fprintf(stderr, "[#86trace-carry] fn=%s loc=%d tmp=%d\n",
+                                        fn_name_.c_str(), (int)cp.is_local,
+                                        (int)cp.is_temp);
+                            rp.is_local = rp.is_local || cp.is_local;
+                            rp.is_temp  = rp.is_temp  || cp.is_temp;
+                        }
+                    }
+                }
                 return rp;
             }
             case Code::Call: {
@@ -5580,11 +6000,41 @@ private:
         bool typed_gate = is_ref_kind(ret_type_) || is_borrow_carrying_type(ret_type_);
         bool retention_gate = !typed_gate && type_hides_borrow(ret_type_) &&
                               retains_borrowing_operand(er);
-        if (!typed_gate && !retention_gate) return;
+        // ── #86: the gate asked "is this a REFERENCE", not "does this VALUE
+        // HOLD a borrow". `struct W { v: str }` is neither ref-kind nor
+        // `#[borrow_carrying]` nor a `hides()` kind, so `-> W`, `-> (str,i64)`
+        // and `-> Option<str>` never opened the gate at all. #71 already built
+        // the predicate that answers the right question (holds_any_ref, read
+        // by type_may_carry_borrow).
+        // The residency exemption (`Held<T>`/`HeldAny`: the value carries an
+        // Rc/Arc share that keeps the arena ALIVE) is an ESCAPE answer, and
+        // this is an escape gate — so it wins here exactly as it wins in
+        // is_borrow_carrying_type. MEASURED: without this,
+        // examples/writ_container_showcase.logos:91
+        // `return hold_any(&mut h, e);` — the hatch's whole purpose — reds.
+        bool holds_gate = !typed_gate && !retention_gate &&
+                          !residency_exemption_holds(ret_type_, er) &&
+                          type_may_carry_borrow(ret_type_);
+        if (std::getenv("LOGOS_DUMP_RETGATE")) {
+            RefProv p0 = prov_of(er);
+            std::vector<std::string> srcs0;
+            collect_ref_sources(er, srcs0);
+            std::string j; for (auto& s : srcs0) { j += s; j += ","; }
+            fprintf(stderr,
+                "[retgate] fn=%s line=%u retkind=%d typed=%d retention=%d "
+                "mcb=%d prov{loc=%d tmp=%d np=%zu} srcs=[%s]\n",
+                fn_name_.c_str(), line, (int)ret_type_.kind(), (int)typed_gate,
+                (int)retention_gate, (int)type_may_carry_borrow(ret_type_),
+                (int)p0.is_local, (int)p0.is_temp, p0.params.size(), j.c_str());
+        }
+        if (holds_gate && std::getenv("LOGOS_86_TRACE"))
+            fprintf(stderr, "[#86trace-gate] fn=%s line=%u\n", fn_name_.c_str(), line);
+        if (!typed_gate && !retention_gate && !holds_gate) return;
 
         RefProv prov = prov_of(er);
-        if (retention_gate && !prov.is_local && !prov.is_temp && prov.params.empty())
-            prov = prov_of_retained(er);   // F4
+        if ((retention_gate || holds_gate) &&
+            !prov.is_local && !prov.is_temp && prov.params.empty())
+            prov = prov_of_retained(er);   // F4 / #86
         // 1. Definitely local / temporary → always dangling.
         if (prov.is_local || prov.is_temp) {
             std::string src;
@@ -5638,6 +6088,17 @@ private:
                     for (auto& n : ref_sources_under(src))
                         if (!is_return_temp_name(n) &&
                             !is_materialized_temp_name(n)) { src = n; break; }
+                }
+                // #86 MISS-E: §B6 has no arm for a chained call, and none for
+                // a Ref built out of an Rc-held arena — both measured, both
+                // pinned on the leaked string. The hop roots recorded at the
+                // temp's own `let` do have the name. Message only.
+                if (is_return_temp_name(src)) {
+                    auto it = ret_temp_roots_.find(src);
+                    if (it != ret_temp_roots_.end())
+                        for (auto& n : it->second)
+                            if (!n.empty() && !is_return_temp_name(n) &&
+                                !is_materialized_temp_name(n)) { src = n; break; }
                 }
             }
             if (is_temp)
@@ -7758,6 +8219,16 @@ private:
         using namespace lir_view;
         using Code = lir_schema::stmt::Code;
         const auto* pool = prog_.type_pool.impl();
+        // #86 MISS 1 — THE INSTRUMENT THAT PROVED THE TWO DEAD DOORS. The
+        // Code::FieldWrite / Code::TupleWrite arms below carry no holder-
+        // provenance hook because they are never reached from the front end;
+        // this print is what measured it (zero lines over all 2203 corpus
+        // fixtures and the whole 53-target build). Kept so the claim can be
+        // re-checked rather than believed.
+        if (std::getenv("LOGOS_DUMP_BC_PLACEWRITE_DOOR") &&
+            (sr.kind() == Code::FieldWrite || sr.kind() == Code::TupleWrite))
+            fprintf(stderr, "[bc-placewrite-door] fn=%s ln=%u kind=%d\n",
+                    fn_name_.c_str(), ln, (int)sr.kind());
 
         switch (sr.kind()) {
             // ── Let binding ──────────────────────────────────────────────
@@ -7775,6 +8246,12 @@ private:
                 // binding's identity first so those loans capture the NEW
                 // slot, not the shadowed one's.
                 note_binding_slot(name, v.var_slot());
+                // #86 MISS 1: the mutation sites know only the receiver's NAME
+                // (SFieldWriteView / STupleWriteView / the out-param root), and
+                // VarState carries no type. Record the declared type here —
+                // shadowing overwrites, which is right: a shadowing `let`
+                // replaces the binding this name resolves to.
+                if (t) holder_ty_[name] = t;
                 // An aggregate LITERAL RHS (`let g = Guard { r: &mut snap }`,
                 // tuple/array of borrows) may CAPTURE a borrow into the binding
                 // even when the binding's nominal type isn't itself flagged
@@ -7846,6 +8323,35 @@ private:
                          (t.kind() == LogosType::Kind::Struct ||
                           t.kind() == LogosType::Kind::ZonedStruct))
                     prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
+                // ── #86 SUB-SITE 2: the LET side of the same wrong question ──
+                // `let w: W = W { v: o.as_str() };` — W is neither ref-kind nor
+                // #[borrow_carrying], so NOTHING above records provenance for
+                // `w`, and `return w.v` then finds prov_of empty even though
+                // its own gate fired. #71's holds_any_ref (via
+                // type_may_carry_borrow) is the predicate that answers "does
+                // this VALUE hold a borrow"; ask it, and read the aggregate
+                // literal through prov_of_retained (prov_of has no StructLit /
+                // TupleLit / EnumLitData arm — those are exactly the spellings
+                // #86 was measured on).
+                //
+                // DELIBERATELY NARROW: only the ESCAPE fact (is_local /
+                // is_temp) is recorded. A param-rooted answer is NOT stored,
+                // so this cannot start the elision arm of check_return_value
+                // on bindings that never fed it before.
+                else if (val && type_may_carry_borrow(t) &&
+                         !residency_exemption_holds(t, val) &&
+                         prov_.count(name) == 0) {
+                    RefProv vp2 = prov_of(val);
+                    if (!vp2.is_local && !vp2.is_temp && vp2.params.empty())
+                        vp2 = prov_of_retained(val);
+                    if (vp2.is_local || vp2.is_temp) {
+                        if (std::getenv("LOGOS_86_TRACE"))
+                            fprintf(stderr, "[#86trace-let] fn=%s line=%u var=%s "
+                                    "loc=%d tmp=%d\n", fn_name_.c_str(), ln,
+                                    name.c_str(), (int)vp2.is_local, (int)vp2.is_temp);
+                        prov_[name] = RefProv{{}, vp2.is_local, vp2.is_temp};
+                    }
+                }
                 // B87 dropck: record local borrow sources for Drop-lt bindings.
                 if (val && struct_is_dropck_relevant(t)) {
                     std::vector<std::string> sources;
@@ -7858,6 +8364,17 @@ private:
                 // §B6 (E0597): record local borrow sources for EVERY binding so
                 // pop_scope can detect a stored borrow outliving its referent.
                 record_ref_sources(name, val, ln);
+                // #86 MISS-E — the sema-rewritten return temp keeps the names
+                // its initializer mentioned, for the DIAGNOSTIC only. It is
+                // deliberately NOT deposited through `store_ref_sources`: that
+                // map is read by `pop_scope` and by the loan channel, and
+                // widening it is what produced the 4 false stdlib E0597s
+                // measured in this same round (see the recvstore door).
+                if (is_return_temp_name(name) && val) {
+                    std::vector<std::string> hr;
+                    bc_hop_roots(val, hr);
+                    if (!hr.empty()) ret_temp_roots_[name] = std::move(hr);
+                }
                 break;
             }
 
@@ -7917,6 +8434,15 @@ private:
                 }
                 if (is_ref_assign)
                     prov_[name] = prov_of(val);
+                // #86 MISS 1 / SITE a — THE WHOLE-VALUE REASSIGN.
+                //   `let mut w: W = W{v:""}; w = W{v:o.as_str()}; return w;`
+                // was rc 0: `is_ref_assign` is false (W is not a ref kind and
+                // `prov_` held no entry), so the line above never ran, and
+                // #86's let arm had already been passed. The holder type is
+                // the VALUE's here — an assign carries its own type and needs
+                // no `holder_ty_` lookup.
+                note_holder_escape_prov(name, val ? val.type(pool) : TypeRef(nullptr),
+                                        val, ln, "assign");
                 note_reborrow(name, val ? val.type(pool) : TypeRef(nullptr), val);  // H1
                 note_closure_caps(name, val);                                       // H4
                 // B87 dropck: record on (re-)assign too.
@@ -7976,6 +8502,17 @@ private:
                 // later use of root after x dies is E0597 (field sibling of the
                 // struct-literal case).
                 add_ref_sources(recv_nm, field_nm, v.value(), ln);  // F6: at the PLACE
+                // #86 MISS 1 / SITE b — THE FIELD WRITE. `w.v = o.as_str()`,
+                // the runtime-confirmed UAF one line from #86's own fixture.
+                // ⚠ #86 MISS 1 — NO holder-provenance hook here, MEASURED.
+                // A hook placed in this arm and in Code::TupleWrite below fired
+                // ZERO times over all 2203 corpus fixtures AND the whole 53-
+                // target build: sema lowers `s.f = …` and `t.0 = …` to
+                // `SDerefWrite(AddrOfTemp(FieldRead/TupleIndex(VarRef s)), val)`
+                // (this file's own §2-Wave-9 comment in Code::DerefWrite says
+                // so), so these two arms are reachable only from round-tripped
+                // or metaprog-emitted LIR. The hook lives in the DerefWrite arm,
+                // which is the door the spelling actually takes.
                 // G0: `h.r = &mut vs` stores a REBORROW at the place `h.r`.
                 // Retracts when the same field is overwritten with anything else.
                 if (!recv_nm.empty() && !field_nm.empty())
@@ -8156,8 +8693,67 @@ private:
                         atv.inner().kind() != EC::VarRef) {
                         std::string root(EVarRefView{c}.name());
                         uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
-                        if (var_has(root_slot, root) && !param_names_.count(root))
+                        if (var_has(root_slot, root) && !param_names_.count(root)) {
                             add_ref_sources(root, std::string{}, v.value(), ln);
+                            // #86 MISS 1 / SITE b — THE FIELD/TUPLE WRITE, and
+                            // THIS is the door the spelling actually takes.
+                            // `w.v = o.as_str()` and `t.0 = o.as_str()` both
+                            // lower to SDerefWrite(AddrOfTemp(FieldRead/
+                            // TupleIndex(VarRef w)), val) — the Code::FieldWrite
+                            // / Code::TupleWrite arms below are the OTHER
+                            // spelling, and a probe over the whole corpus
+                            // counted ZERO fires of a hook placed there (see
+                            // the ledger). Both arms carry the call so the
+                            // rule is stated once per door, but this is the
+                            // one the runtime-confirmed UAF goes through.
+                            // ── #86 MISS-A: DEPOSIT ON THE PLACE ROOT ─────
+                            //
+                            // THE DEFECT (runtime-confirmed UAF, measured rc 0
+                            // at 7b72b89c+#86):
+                            //   let mut w: W = W { v: "" };
+                            //   let r: &mut W = &mut w;
+                            //   r.v = o.as_str();  return w.v;
+                            // This door DID fire ([#86trace-derefwrite] var=r
+                            // loc=1) — it deposited on the NAME BEING WRITTEN
+                            // THROUGH. `r` is a `&mut` REBORROW local, so the
+                            // storage written is `w`'s, and `return w.v` found
+                            // `prov_["w"]` empty. Controls at the same tree:
+                            // `w.v = o.as_str()` direct → rc 1; `return r.v`
+                            // → rc 1 (so the record landed, on the wrong name).
+                            //
+                            // The re-home is the one the LOAN channel already
+                            // does for the same statement, two dozen lines
+                            // below: `place_write_root(atv.inner(), …)` resolves
+                            // a reborrow local to its referent. Reusing it
+                            // (rather than walking again) is deliberate — a
+                            // second walker that drifts from the first is the
+                            // defect this file has already paid for twice
+                            // (U0/U1, and `reborrow_referent` × 3).
+                            //
+                            // ⚠ THE BASE, NOT THE DOTTED PLACE — measured, and
+                            // the first attempt got it wrong in BOTH
+                            // directions. `place_write_root(atv.inner(), …)`
+                            // resolves the whole dotted place `r.v`, and
+                            //   • with resolve ON, `h.r = &mut vs` (F0's
+                            //     retarget) resolves `h.r` to `vs` and would
+                            //     deposit the escape on the REFERENT;
+                            //   • with resolve OFF (the loan channel's
+                            //     `!is_ref_kind(place type)` test) `r.v =
+                            //     o.as_str()` is ALSO "a retarget" — `str` is
+                            //     a reference kind — so the re-home never ran
+                            //     and the trace still read `var=r` (measured:
+                            //     rc still 0).
+                            // The fact needed here is narrower and is the one
+                            // the recvstore door already uses, verbatim: the
+                            // BASE binding's reborrow endpoint, then that
+                            // endpoint's place root. `r` → `w`; `h` → `h`.
+                            std::string eroot86 = rehome_reborrow(root);
+                            if (!eroot86.empty() && !var_has(NO_SLOT, eroot86))
+                                eroot86 = ref_place_root(eroot86);
+                            if (eroot86.empty()) eroot86 = root;
+                            note_holder_escape_prov(eroot86, holder_ty_of(eroot86),
+                                                    v.value(), ln, "derefwrite");
+                        }
                     }
                     // Door A: the loan counterpart. `*<place> = c.mk()` — the
                     // place's root binding holds the stored borrow. Uses the
@@ -8220,6 +8816,47 @@ private:
                                           wref || prov_.count(wroot) > 0);
                     break;
                 }
+                // ── #86 MISS-C: THE INDEX-ASSIGN, WHICH WAS NEVER ASKED ──
+                //
+                // `v[0i64] = o.as_str(); return v;` — rc 0, a
+                // runtime-confirmed dangle in the same three lines as MISS-B.
+                // MEASURED: it is neither of the two doors that were looked
+                // at. It does not reach `Code::IndexWrite` and it is not an
+                // `AddrOfTemp` place — sema lowers it to
+                //   SDerefWrite(ptr = MethodCall(index_mut, recv=AddrOf(v),
+                //                                args=[0i64]),
+                //               value = o.as_str())
+                // so the whole AddrOfTemp branch above is skipped and the
+                // §B6/holder deposits inside it never run. The receiver-store
+                // door does see `index_mut`, but its ARGUMENT is the INDEX
+                // (measured `m=index_mut atk=I64`); the stored value is not an
+                // argument of that call at all.
+                //
+                // THE RULE, and it needs no element-type test and no summary:
+                // a `&mut self` method returning a REFERENCE hands back a
+                // borrow OF THE RECEIVER (Rust's elision says exactly this),
+                // so a write through that reference stores into the receiver.
+                // If the written value may carry a borrow, the receiver's root
+                // is now its holder — the same fact `note_holder_escape_prov`
+                // records everywhere else, deposited on the same resolved
+                // root (`flow_operand_root` + the reborrow re-home).
+                if (auto pm = v.ptr();
+                    pm && pm.kind() == EC::MethodCall && v.value()) {
+                    lir_view::EMethodCallView mv{pm};
+                    auto mrecv = mv.receiver();
+                    if (mrecv && method_self_kind(mv) == 2 &&
+                        type_may_carry_borrow(v.value().type(pool))) {
+                        std::string cr0 = mrecv.kind() == EC::VarRef
+                            ? std::string(EVarRefView{mrecv}.name())
+                            : flow_operand_root(mrecv);
+                        std::string cr = rehome_reborrow(cr0);
+                        if (!cr.empty() && !var_has(NO_SLOT, cr))
+                            cr = ref_place_root(cr);
+                        if (!cr.empty() && var_has(NO_SLOT, cr))
+                            note_holder_escape_prov(cr, holder_ty_of(cr),
+                                                    v.value(), ln, "derefwrite");
+                    }
+                }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;
@@ -8233,6 +8870,8 @@ private:
                 visit(v.value(), /*consuming=*/true, ln);
                 add_ref_sources(tw_nm, std::to_string(v.index()),
                                 v.value(), ln);  // §B6 (F6: at the PLACE)
+                // ⚠ #86 MISS 1 — no hook here either; see Code::FieldWrite.
+                // `t.0 = …` lowers to DerefWrite(AddrOfTemp(TupleIndex(…))).
                 place_write_loans(tw_nm, v.value(), ln,   // Door A
                                   /*through_ref=*/prov_.count(tw_nm) > 0);
                 break;
@@ -8632,6 +9271,27 @@ public:
     // concrete moves are fully checked on the monomorphized specializations.
     bool exclusivity_only_ = false;
 
+    // ── #86 MISS-E: A NAME THAT APPEARS IN NO SOURCE FILE ──────────────────
+    //
+    // DIAGNOSTIC ONLY — nothing in this map is read by any verdict. It exists
+    // because sema's `make_return_with_drops` rewrites `return <expr>;` into
+    // `let __ret_tmp_0 = <expr>; <drops>; return __ret_tmp_0;` whenever the
+    // frame owns something droppable, so by the time check_return_value runs,
+    // the expression that NAMED the borrow source is gone and the returned
+    // node is a bare VarRef to a compiler temp. #77 round 2 repaired the
+    // common case by asking §B6 (`ref_sources_under`), and TWO shapes still
+    // leaked at that repair's own tree — both pinned on the exact string:
+    //   • tests/logos/fail/bc_esc_holder_return_chained_dangle — the CHAIN
+    //     `return mk(o.as_str()).get();`, whose §B6 entry is empty because
+    //     that channel has no arm for a chained call;
+    //   • tests/logos/fail/wany_escapes_rc_container — `return e;` where the
+    //     Ref was built from an Rc-held arena.
+    // `bc_hop_roots` — the existing walk for "which bindings does this
+    // expression's value hop out of" — answers both at the LET, which is the
+    // one point where the initializer still exists. Recorded there, read only
+    // by the message.
+    std::unordered_map<std::string, std::vector<std::string>> ret_temp_roots_;
+
     void check(lir_view::FunctionView fn) {
         auto* fn_pool = prog_.type_pool.impl();
         // No body mirror ⇒ a body-less function (extern / metaprog stub /
@@ -8642,6 +9302,8 @@ public:
         states_.reset(fn.local_count());  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();
+        holder_ty_.clear();          // #86 MISS 1 — per-FUNCTION, like prov_
+        ret_temp_roots_.clear();     // #86 MISS-E — diagnostic only
         reborrow_of_.clear();
         reborrow_mut_.clear();
         reborrow_prescan_.clear();   // G0
@@ -9105,6 +9767,33 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                         // (a `Vec<&T>` / view-buffer outliving its sources).
                         if (by_value_bc || stored_ref_elem)
                             add_ref_sources(rn, std::string{}, a, line);
+                        // ── #86 MISS 3: THE CONTAINER HOLDER, SUMMARY-FREE ──
+                        //
+                        // `Vec<str>::push` comes PREBUILT from the stdlib
+                        // archive, so its flow summary is unavailable (fs=0,
+                        // measured — task #81) and apply_flow_outparams' hook
+                        // never runs for it: `fn bad() -> Vec<str> { … 
+                        // v.push(o.as_str()); return v; }` was rc 0 with the
+                        // out-param half already in. This arm needs no summary
+                        // — it reads the receiver's own element types — and it
+                        // is the arm that already recorded the §B6 source for
+                        // exactly this shape.
+                        //
+                        // `stored_ref_elem` above is deliberately NOT reused:
+                        // it requires `is_ref_kind(at)`, which is what made the
+                        // `Vec<H>` spelling (`H { v: str }` — a by-VALUE
+                        // element that holds a borrow) deposit nothing at all
+                        // (srcs=[] measured). The element-type match is the
+                        // part that discriminates a STORE (`push`) from a read
+                        // (`contains(&&T)`: type ≠ element); the ref-ness was
+                        // never part of that question. Widened here only, for
+                        // the escape record; the §B6/loan line above keeps its
+                        // own gate.
+                        // ⚠ THE DEPOSIT ITSELF NO LONGER LIVES HERE — see
+                        // the `rn86` block just past this loop (#86 MISS-B/C).
+                        // It needs a WIDER receiver root than `rn`, and `rn`
+                        // is shared with the §B6 and loan lines above, whose
+                        // widening was MEASURED and REFUSED (4 stdlib E0597s).
                         // D1 door 8b — the LOAN counterpart of the capture-flow
                         // taint above. `vs.push(c.mk())` moves a borrow-carrying
                         // value INTO the receiver, so the receiver becomes a
@@ -9132,6 +9821,107 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     });
                     if (!cap.params.empty() || cap.is_local || cap.is_temp)
                         prov_[rn] = merge_prov(prov_[rn], cap);
+                }
+
+                // ── #86 MISS-B / MISS-C: THE ESCAPE CHANNEL'S OWN ROOT ─────
+                //
+                // TWO runtime-confirmed UAFs, one missing receiver shape:
+                //   let r: &mut Vec<str> = &mut v; r.push(o.as_str()); return v;
+                //   v.push("x"); v[0i64] = o.as_str(); return v;
+                // both rc 0. `rn` above is empty for both: the receiver of a
+                // `&mut self` method is a VarRef only in the plain spelling —
+                // MEASURED receiver kinds are AddrOfTemp(12) for the reborrow
+                // local and AddrOf(11) for the index-assign's lowered
+                // `&mut self` call, and `place_write_root` (which `rn0` uses
+                // for a non-VarRef receiver) has an arm for NEITHER.
+                //
+                // POPULATION, with the instrument in place: over the FIRST 300
+                // of the 2211 `tests/logos/pass/*.logos` fixtures, 4275 `&mut
+                // self` receivers reach this door; 3116 are AddrOfTemp and
+                // 3115 of those produced an EMPTY `rn`. The blindness is the
+                // MAJORITY of the door's traffic, not an edge case.
+                //
+                // ⚠ WHY THIS IS A SECOND ROOT AND NOT A FIX TO `place_write_root`.
+                // MEASURED AND REFUSED. Teaching the shared walker the two
+                // borrow-forming steps is the obviously-right shape — and it
+                // also widens `rn`, which the §B6 `add_ref_sources` line and
+                // the door-8b loan lines above consume. A full 53-target build
+                // on that tree FAILED with 4 stdlib E0597 over-refusals in
+                // `stdlib/mem/wql/lower.logos` (`lower_aggr`: 'rg' borrowed by
+                // 'ra'; `gp_build` × 2: 'js0'/'js' borrowed by 'starr';
+                // `gp_desugar_query`: 'orig2' borrowed by 'sa'), all of them
+                // FALSE — every one stores a WRef HANDLE into an arena
+                // container living in the same `h: &Writ`, so nothing dies at
+                // the loop-body scope end the diagnostic names. `logos-mem`
+                // failed to build, so the packages downstream of it were never
+                // even measured. The widening therefore applies to the ESCAPE
+                // record ONLY, and the §B6/loan channels keep the root they
+                // had. The uncovered count that buys: the loan channel stays
+                // blind to the same 3115-of-3116 AddrOfTemp receivers — that
+                // is a SEPARATE hole, and it is on the bounding list.
+                //
+                // `flow_operand_root` is the peel, not a new walker: it is the
+                // existing helper for exactly "a receiver/argument spelled
+                // AddrOf or AddrOfTemp", already used at two other call sites.
+                // The re-home + place-root tail is `rn`'s own, verbatim, so a
+                // VarRef receiver computes the byte-identical name it did
+                // before this block existed.
+                {
+                    std::string rn086 = recv_is_var
+                        ? std::string(lir_view::EVarRefView{recv}.name())
+                        : flow_operand_root(recv);
+                    std::string rn86 = rehome_reborrow(rn086);
+                    if (!rn86.empty() && !var_has(NO_SLOT, rn86))
+                        rn86 = ref_place_root(rn86);
+                    uint32_t rn86_slot = (recv_is_var && rn86 == rn086)
+                        ? lir_view::EVarRefView{recv}.var_slot() : NO_SLOT;
+                    if (!rn86.empty() && var_has(rn86_slot, rn86)) {
+                        // The CONTAINER's element types. With an AddrOf /
+                        // AddrOfTemp receiver the expression type is
+                        // `&mut Vec<str>`, whose sole type-arg is the
+                        // container — peel the reference or `at == el` never
+                        // matches and the widened door deposits nothing
+                        // (measured on the `r.push(o.as_str())` repro).
+                        // The CONTAINER's element types. A VarRef receiver
+                        // carries the container type directly (`Vec<str>`); a
+                        // BORROW-FORMING receiver carries `&mut Vec<str>`, and
+                        // — MEASURED — `MutRef::elem()` on the AddrOfTemp
+                        // sema synthesizes for `r.push(…)` answers NULL, so
+                        // peeling alone yields nothing (rawk=20 rtk=-1 nel=0).
+                        // The declared type of the RESOLVED HOLDER is the same
+                        // fact, recorded at its `let`, and it is already this
+                        // door's second argument (`holder_ty_of(rn86)`).
+                        TypeRef rt86 = recv.type(pool);
+                        for (int pk = 0; pk < 4 && rt86 && is_ref_kind(rt86) &&
+                                 rt86.kind() != LogosType::Kind::TraitObject; ++pk)
+                            rt86 = rt86.elem();
+                        std::vector<TypeRef> el86;
+                        if (rt86) for (auto el : rt86.type_args()) el86.push_back(el);
+                        if (el86.empty())
+                            if (TypeRef ht86 = holder_ty_of(rn86))
+                                for (auto el : ht86.type_args()) el86.push_back(el);
+                        v.each_arg([&](lir_view::ExprRef a){
+                            if (!a) return;
+                            TypeRef at = a.type(pool);
+                            bool by_value_bc =
+                                !is_ref_kind(at) && is_borrow_carrying_type(at);
+                            // `stored_ref_elem` in the loop above is NOT
+                            // reused: it requires `is_ref_kind(at)`, which is
+                            // what made the `Vec<H>` spelling (`H { v: str }`
+                            // — a by-VALUE element that holds a borrow)
+                            // deposit nothing at all (srcs=[] measured). The
+                            // element-type match discriminates a STORE
+                            // (`push`) from a read (`contains(&&T)`: type ≠
+                            // element); ref-ness was never part of that.
+                            bool stored_elem86 = false;
+                            for (auto el : el86)
+                                if (at == el) { stored_elem86 = true; break; }
+                            if ((by_value_bc || stored_elem86) &&
+                                type_may_carry_borrow(at))
+                                note_holder_escape_prov(rn86, holder_ty_of(rn86),
+                                                        a, line, "recvstore");
+                        });
+                    }
                 }
             }
             {   // D1 round 3 / F3 — the method-call spelling. Receiver first,
@@ -9552,6 +10342,17 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     if (std::getenv("LOGOS_DUMP_BC_THRUREF"))
         fprintf(stderr, "[bc-thruref] fired=%llu\n",
                 (unsigned long long)BorrowChecker::thru_ref_prov_fired_);
+
+    // #86 MISS 1: fire count of the mutation-side holder-provenance record.
+    if (std::getenv("LOGOS_DUMP_BC_HOLDERPROV"))
+        fprintf(stderr,
+                "[bc-holderprov] fired=%llu assign=%llu derefwrite=%llu "
+                "outparam=%llu recvstore=%llu\n",
+                (unsigned long long)BorrowChecker::holder_escape_prov_fired_,
+                (unsigned long long)BorrowChecker::holder_escape_prov_by_door_[0],
+                (unsigned long long)BorrowChecker::holder_escape_prov_by_door_[1],
+                (unsigned long long)BorrowChecker::holder_escape_prov_by_door_[2],
+                (unsigned long long)BorrowChecker::holder_escape_prov_by_door_[3]);
 
     return prog;
 }

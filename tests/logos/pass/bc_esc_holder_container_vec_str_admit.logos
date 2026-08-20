@@ -1,0 +1,37 @@
+// #86 MISS 3 — ADMIT half. ONE VARIABLE against
+// fail/bc_esc_holder_container_vec_str_dangle: the pushed borrow is rooted at
+// a PARAMETER, not at a fn-local. `ok_static` pins the 'static root beside it,
+// and `ok_owned` pins that a container of OWNED elements is not a borrow
+// holder at all.
+package bc_esc_holder_container_vec_str_admit;
+use logos.mem.string;
+
+pub fn ok(s: str) -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push(s);
+    return v;
+}
+
+pub fn ok_static() -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push("abcde");
+    return v;
+}
+
+pub fn ok_owned() -> Vec<String> {
+    let mut v: Vec<String> = Vec::<String>::new();
+    v.push(String::from("hello"));
+    return v;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    let a: Vec<str> = ok(o.as_str());
+    if a.len() != 1i64 { return 1i32; }
+    if a.get(0i64).len() != 5i64 { return 2i32; }
+    let b: Vec<str> = ok_static();
+    if b.get(0i64).len() != 5i64 { return 3i32; }
+    let c: Vec<String> = ok_owned();
+    if c.borrow(0i64).len() != 5i64 { return 4i32; }
+    return 0i32;
+}

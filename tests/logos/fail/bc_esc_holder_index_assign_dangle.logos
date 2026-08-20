@@ -1,0 +1,35 @@
+// #86 MISS-C — THE INDEX-ASSIGN, WHICH WAS NEVER ASKED.
+//
+// `v[0i64] = o.as_str(); return v;` — MEASURED rc 0, a runtime dangle in the
+// same three lines as MISS-B, and it reaches NEITHER door that had been
+// looked at. It is not `Code::IndexWrite` and it is not an `AddrOfTemp` place:
+// sema lowers it to
+//   SDerefWrite(ptr = MethodCall(index_mut, recv = AddrOf(v), args = [0i64]),
+//               value = o.as_str())
+// so the whole AddrOfTemp branch of the DerefWrite arm is skipped, and the
+// receiver-store door — which DOES see `index_mut` — is handed the INDEX as
+// the argument (measured: `m=index_mut atk=I64`); the stored value is not an
+// argument of that call at all.
+//
+// The rule that closes it needs no summary and no element-type test: a
+// `&mut self` method returning a REFERENCE hands back a borrow OF THE
+// RECEIVER (Rust's elision says exactly this), so a write through it stores
+// into the receiver.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_index_assign_admit: the assigned
+// borrow is rooted at a fn-LOCAL `String` here, at a PARAMETER there.
+package bc_esc_holder_index_assign_dangle;
+use logos.mem.string;
+
+pub fn bad() -> Vec<str> {
+    let o: String = String::from("hello");
+    let mut v: Vec<str> = Vec::<str>::new();
+    v.push("x");
+    v[0i64] = o.as_str();
+    return v;
+}
+
+fn main() -> i32 {
+    if bad().len() == 1i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,24 @@
+// #86 MISS 1 — ADMIT half of the tuple-element write. ONE VARIABLE against
+// fail/bc_esc_holder_assign_tuple_dangle: the element borrow is PARAMETER-
+// rooted. `ok_static` pins the 'static root beside it.
+package bc_esc_holder_assign_tuple_admit;
+use logos.mem.string;
+
+pub fn ok(s: str) -> str {
+    let mut t: (str, i64) = ("", 0i64);
+    t.0 = s;
+    return t.0;
+}
+
+pub fn ok_static() -> str {
+    let mut t: (str, i64) = ("", 0i64);
+    t.0 = "abcde";
+    return t.0;
+}
+
+fn main() -> i32 {
+    let o: String = String::from("hello");
+    if ok(o.as_str()).len() != 5i64 { return 1i32; }
+    if ok_static().len() != 5i64 { return 2i32; }
+    return 0i32;
+}

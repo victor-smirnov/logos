@@ -1,0 +1,47 @@
+// #86 SUB-SITE C — THE BORROW THE RECEIVER *CARRIES*.
+//
+// `mk(o.as_str())` builds a `W` holding a borrow of the fn-local `o`; `.get()`
+// then copies that `str` OUT of the receiver. The callee summary for
+// `W::get(&self) -> str` is `result<-0 EXACT`, and that is CORRECT — it is
+// `stored_shared_extract`, the Rust-parity rule that a `str` copied out of a
+// `&W` has the FIELD's lifetime, not `&self`'s. So `recv_contributes` is
+// false, and prov_of's MethodCall arm merged nothing at all: the question
+// "where did the FIELD's borrow come from" was asked by no one.
+// MEASURED at 7b72b89c: rc 0, in both the generic-receiver spelling and this
+// plain free-fn one (sandbox B3/RB3b — so it was never a generics defect).
+//
+// ⚠ THE DIAGNOSTIC USED TO NAME A COMPILER TEMP — #86 MISS-E, now CLOSED, and
+// this fixture pins the corrected name. `o` needs a drop, so sema rewrites the
+// return through make_return_with_drops (`let __ret_tmp_0 = mk(...).get();
+// drop(o); return __ret_tmp_0;`), and the #77-round-2 repair asks the §B6
+// channel (`ref_sources_under`), which has no arm for a chained call — so the
+// message read `'__ret_tmp_0'`, a name that appears in no source file.
+// MEASURED ROOT, by the one-variable control: the FREE-FUNCTION spelling of
+// the identical program (`get2(mk(o.as_str()))`) named `o` correctly, so the
+// loss was the METHOD receiver — `AddrOfTemp(Call)`, which `bc_hop_roots`
+// peeled to a `Call` and then dropped, because its place walk has no arm for
+// one. The temp's hop roots are now recorded at its own `let` (diagnostic
+// channel only, never read by a verdict) and the message names `o`.
+//
+// THE ONE VARIABLE against pass/bc_esc_holder_return_chained_admit: `mk`'s
+// argument is a borrow of a fn-LOCAL here, a PARAMETER there. Same chain.
+package bc_esc_holder_return_chained_dangle;
+use logos.mem.string;
+
+pub struct W { pub v: str }
+
+impl W {
+    pub fn get(&self) -> str { return self.v; }
+}
+
+pub fn mk(s: str) -> W { return W { v: s }; }
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    return mk(o.as_str()).get();
+}
+
+fn main() -> i32 {
+    if bad().len() == 5i64 { return 0i32; }
+    return 1i32;
+}

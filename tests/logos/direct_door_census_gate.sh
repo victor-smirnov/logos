@@ -161,7 +161,7 @@ if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
     SWEEP_P="$LOGOS_GATE_SWEEP_P"
 elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
     # ⚠ THIS GATE IS THE ONE MEASURED EXCEPTION TO "SERIAL UNDER CTEST", and the
-    # exception is arithmetic, not preference. Its sweep is 2194 fixtures and
+    # exception is arithmetic, not preference. Its sweep is 2203 fixtures and
     # costs ~7 360 CPU-seconds (108 m user + 14 m sys, measured 2026-08-20) —
     # SERIALLY that is 4.1x its own 1800 s ceiling, so the rule as stated turns
     # this test into a deterministic red, which the #83 round's verify measured
@@ -313,10 +313,52 @@ PIN = {
     # pass corpus only). DOOR counts unmoved (36 = 10 + 26): none of the three
     # declares a container family — they are `&i64` / `str` / fn-pointer
     # borrow-check shapes only.
-    'corpus'            : 2194,
+    # ⚠ RE-DERIVED at the #86 VERIFY stage (MISS 1 the mutation after the let,
+    # MISS 2 the residency exemption checked in the abuse direction, MISS 3
+    # container holders — landed one at a time): +8 / +0 / +8. The eight are
+    # PASS fixtures and none matches the `wql_*` / `deem_*` glob:
+    #   tests/logos/pass/bc_esc_holder_assign_field_admit.logos
+    #   tests/logos/pass/bc_esc_holder_assign_whole_admit.logos
+    #   tests/logos/pass/bc_esc_holder_assign_option_admit.logos
+    #   tests/logos/pass/bc_esc_holder_assign_tuple_admit.logos
+    #   tests/logos/pass/bc_esc_holder_residency_backed_admit.logos
+    #   tests/logos/pass/bc_esc_holder_container_vec_str_admit.logos
+    #   tests/logos/pass/bc_esc_holder_container_vec_struct_admit.logos
+    #   tests/logos/pass/bc_esc_holder_container_outparam_admit.logos
+    # DERIVED BY DIRECT FILE LISTING, not by adding 8 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2211
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2020 by the same listing minus the glob listing, and the
+    # partition closes: 2211 = 191 + 2020. The eight FAIL fixtures this stage
+    # added are outside this gate's population by construction (it sweeps the
+    # pass corpus only). DOOR counts unmoved (36 = 10 + 26), measured by the
+    # sweep itself: none of the seven declares a container family — they are
+    # `str` / `Option<str>` / tuple / `Rc` / `Vec<…>` borrow-check shapes, and
+    # the `Vec` ones are stdlib containers, not `direct` doors.
+    # ⚠ RE-DERIVED at the #86 VERIFY ROUND 2 stage (MISS-A/B/C/D: the escape
+    # fact is deposited on the PLACE ROOT, not on the name written through;
+    # the index-assign door; the residency exemption checked per SHARE): +4 /
+    # +0 / +4. The four are PASS fixtures and none matches the `wql_*` /
+    # `deem_*` glob:
+    #   tests/logos/pass/bc_esc_holder_reborrow_field_admit.logos
+    #   tests/logos/pass/bc_esc_holder_reborrow_container_admit.logos
+    #   tests/logos/pass/bc_esc_holder_index_assign_admit.logos
+    #   tests/logos/pass/bc_esc_holder_residency_pershare_admit.logos
+    # DERIVED BY DIRECT FILE LISTING, not by adding 4 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2215
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2024 by the same listing minus the glob listing, and the
+    # partition closes: 2215 = 191 + 2024. The four FAIL fixtures this stage
+    # added are outside this gate's population by construction (it sweeps the
+    # pass corpus only). DOOR counts unmoved (36 = 10 + 26), measured by the
+    # sweep itself: none of the four declares a container family — they are
+    # `str` / `Vec<str>` / `Rc<Writ>` borrow-check shapes, and the `Vec` ones
+    # are stdlib containers, not `direct` doors.
+    'corpus'            : 2215,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2003,  # pinned by NOTHING before this gate; +4 with
-                                 # `corpus` above, same four bc_* pass fixtures
+    'nonglob'           : 2024,  # pinned by NOTHING before this gate; +4 with
+                                 # `corpus` above, the four bc_esc_holder_*
+                                 # pass fixtures of #86 VERIFY ROUND 2
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
                                  # readable statement of intent, not a check:
                                  # nonglob_set = corpus_set - glob_set, so the
@@ -338,6 +380,30 @@ PIN = {
     # added are outside this gate's population by construction. DOOR counts
     # unmoved (36 = 10 + 26): none of the three declares a container family —
     # they are trait / generic-receiver borrow-check shapes only.
+
+    # ⚠ RE-DERIVED at the #86 holder-escape stage (the return gate stops asking
+    # "is this a REFERENCE" and asks "does this VALUE hold a borrow", plus the
+    # LET that builds the holder and the borrow a method RECEIVER carries):
+    # +9 / +0 / +9. All nine are PASS fixtures and none matches the `wql_*` /
+    # `deem_*` glob:
+    #   tests/logos/pass/bc_esc_holder_return_field_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_struct_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_tuple_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_option_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_chained_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_method_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_dyn_admit.logos
+    #   tests/logos/pass/bc_esc_holder_return_generic_admit.logos
+    #   tests/logos/pass/bc_esc_holder_outparam_param_borrow_admit.logos
+    # DERIVED BY DIRECT FILE LISTING, not by adding 9 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2203
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2012 by the same listing minus the glob listing, and the
+    # partition closes: 2203 = 191 + 2012. The eight FAIL fixtures this stage
+    # added are outside this gate's population by construction. DOOR counts
+    # unmoved (36 = 10 + 26): none of the nine declares a container family —
+    # they are struct/tuple/enum holder and method-extraction borrow-check
+    # shapes only.
 
     # ── CLAUSE 2, compile coverage ─────────────────────────────────────────
     # ZERO. Not "few": an uncompiled fixture is an unmeasured fixture, and the
