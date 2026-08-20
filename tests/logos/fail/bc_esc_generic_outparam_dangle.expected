@@ -1,0 +1,1 @@
+'o' does not live long enough: it is borrowed by 'v', which is used here after 'o' goes out of scope (E0597)

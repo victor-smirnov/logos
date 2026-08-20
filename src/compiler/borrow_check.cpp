@@ -1131,6 +1131,11 @@ static bool bc_holds_any_ref_type(const TypeSets& ts_, TypeRef t) {
 struct FnIndex {
     std::unordered_map<std::string, lir_view::FunctionView>              by_name;
     std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_base;
+    // #83: the MONO TEMPLATE KEY spelling (`bare_fn_name` of the LIR name —
+    // signature tail and package prefix stripped). Mono writes its own
+    // worklist key as the callee of a devirtualised generic method call, and
+    // that key is not any function's name. See resolve_call_flow.
+    std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_bare;
 };
 
 static FnIndex build_fn_index(const lir::LProgram& prog) {
@@ -1145,6 +1150,7 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
         if (!f) return;
         idx.by_name.emplace(std::string(f.name()), f);
         if (!f.method_base().empty()) idx.by_base[std::string(f.method_base())].push_back(f);
+        idx.by_bare[std::string(bare_fn_name(f.name()))].push_back(f);
     };
     for (auto& f  : prog.functions)       add(f);
     for (auto& f  : prog.specializations) add(f);
@@ -8611,7 +8617,7 @@ public:
     // not available (the documented (a)-(d) hole — every consumer then keeps
     // its pre-F3 signature-elision behaviour).
     const FlowSummary* flow_of_call(std::string_view symbol) const {
-        return flows_ ? resolve_call_flow(*flows_, symbol) : nullptr;
+        return flows_ ? resolve_call_flow(*flows_, symbol, &fn_index_) : nullptr;
     }
     const FlowSummary* flow_of_method(lir_view::EMethodCallView v) const {
         return flows_ ? resolve_method_flow(*flows_, fn_index_,
@@ -9400,13 +9406,36 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     // Escape-analysis callee index — built ONCE here, shared (const) by every
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).
     const FnIndex fn_index = build_fn_index(prog);
-    // D1 round 3 / F3 — borrow-flow summaries. POST-mono only: the pre-mono
-    // generic-template pass runs exclusivity-only over TypeVar bodies, where
-    // neither the bc-type predicates nor callee resolution mean anything.
-    // Computed ONCE here (the whole program is in hand), consumed by every
-    // per-function checker below.
+    // D1 round 3 / F3 — borrow-flow summaries. Computed ONCE here (the whole
+    // program is in hand), consumed by every per-function checker below.
+    //
+    // ── #83: THEY RUN IN THE PRE-MONO PASS TOO, AND THAT IS HALF THE FIX ───
+    //
+    // They used to be POST-mono only, on the argument that the pre-mono
+    // generic-template pass runs exclusivity-only over TypeVar bodies "where
+    // neither the bc-type predicates nor callee resolution mean anything".
+    // MEASURED FALSE for callee resolution: `resolve_method_flow` narrows by
+    // the receiver's type, and when a TypeVar receiver narrows to nothing it
+    // falls to `agree()` over every same-named method — which answers exactly
+    // when all of them agree, TypeVar or not. What the old wording described
+    // is the MOVE/REGION machinery, which stays off (ri_ is still nullptr and
+    // exclusivity_only is still set); nothing here turns those on.
+    //
+    // The half it closes: a generic fn that is NEVER INSTANTIATED is checked
+    // ONLY in this pass, so with `flows == {}` every call in its body was
+    // summary-blind. `pub fn bad<T: Tr>(h: &H<T>) -> str { let o =
+    // String::from("hello"); return h.t.thru(o.as_str()); }` with no call site
+    // compiled rc 0 and refuses now (fail/bc_esc_generic_uninst_dangle); the
+    // twin whose callee returns `self.s` still admits
+    // (pass/bc_esc_generic_uninst_admit), because the summary is consulted,
+    // not guessed.
+    //
+    // PRICED, not assumed: full tree rebuild (51 logos targets, stdlib
+    // lang/mem/std + lforge + memoria + examples) is GREEN with this on, and
+    // the summarizer's second run is inside the build's noise (2m53s with,
+    // 3m09s without, same tree, same box).
     FlowSummaryMap flows;
-    if (!generic_templates_only) {
+    {
         FlowSummarizer fs(prog, ts, fn_index, flows);
         fs.run();
         // H2/H3: the iteration counts are now CONVERGENCE counts, not budget
@@ -9464,7 +9493,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name())),
                       prog, ts, fn_index, /*exclusivity_only=*/generic_templates_only,
                       generic_templates_only ? nullptr : &ri,
-                      generic_templates_only ? nullptr : &flows).check(fn);
+                      &flows).check(fn);
         if (generic_templates_only) return;
         if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name())));

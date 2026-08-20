@@ -81,10 +81,18 @@
 // Constraint (a) of the brief — over-refusing the ecosystem is worse than a
 // documented residual hole — is what picks the fallback over a `top` default.
 //
-// PRE-MONO. Summaries are computed and consumed in the POST-mono pass only:
-// the pre-mono `generic_templates_only` pass runs exclusivity-only over TypeVar
+// PRE-MONO. ⚠ THIS PARAGRAPH USED TO SAY THE OPPOSITE, AND IT WAS HALF WRONG.
+// It read "summaries are computed and consumed in the POST-mono pass only: the
+// pre-mono `generic_templates_only` pass runs exclusivity-only over TypeVar
 // bodies where neither is_borrow_carrying_type nor the callee resolution is
-// meaningful.
+// meaningful". CALLEE RESOLUTION IS MEANINGFUL THERE — resolve_method_flow
+// narrows by the receiver type and, when a TypeVar receiver narrows to
+// nothing, falls to agree() over the same-named methods, which either answers
+// or returns nullptr; being a TypeVar changes nothing about that. #83 measured
+// the cost of the omission: a generic fn with NO call site is checked only in
+// that pass, so its whole body was summary-blind. Summaries are now computed
+// and consumed in BOTH passes (borrow_check.cpp, `borrow_check`). The move and
+// region machinery stays off pre-mono — that part of the old sentence stands.
 
 struct FlowSummary {
     bool                  available = false;
@@ -157,6 +165,11 @@ using FlowSummaryMap = std::unordered_map<std::string, FlowSummary>;
 // not a wrong answer.
 static constexpr uint32_t kFlowMaxParams = 64;
 
+static bool flow_eq(const FlowSummary& a, const FlowSummary& b) {
+    return a.nparams == b.nparams && a.to_result == b.to_result &&
+           a.to_outparam == b.to_outparam && a.over_approx == b.over_approx;
+}
+
 // Callee → summary resolution, shared by the summary pass and the checker.
 //
 // Post-mono a method call still carries the GENERIC template symbol
@@ -168,25 +181,56 @@ static constexpr uint32_t kFlowMaxParams = 64;
 // the same information mono used to pick the specialization — and only then
 // fall back to "every same-named method agrees", the conservative route
 // result_borrows_self already takes. Ambiguity ⇒ nullptr ⇒ the documented
-// (d) hole, never a guess.
-static const FlowSummary* resolve_call_flow(const FlowSummaryMap& flows,
-                                            std::string_view symbol) {
-    if (symbol.empty()) return nullptr;
-    auto it = flows.find(std::string(symbol));
-    if (it == flows.end() || !it->second.available) return nullptr;
-    return &it->second;
+// (d) hole, never a guess. (That paragraph is resolve_method_flow's, below;
+// what follows is the FREE-CALL half of the same sentence.)
+//
+// ── #83: A MONO TEMPLATE KEY IS NOT A FUNCTION NAME ────────────────────────
+//
+// MEASURED (p_gen.logos, `[bc83-provcall]`): mono devirtualises a trait method
+// call on a TypeVar receiver into a `Code::Call` whose callee it writes as its
+// OWN worklist key — `K__thru` — while the function that key names is emitted
+// as `p_gen.K__thru__f__ref_K__slice_u8`. The summaries are keyed by the LIR
+// name, so `flow_of_call("K__thru")` misses and EVERY devirtualised generic
+// method call is summary-blind on the result path. That, not a resolver
+// disagreement, is #83's root: `resolve_method_flow` is never even entered,
+// because post-mono the node is no longer a MethodCall.
+//
+// The key is exactly `bare_fn_name(name)` — the signature tail (`__f__`/
+// `__g__`) and the package prefix stripped — so the miss is repaired by
+// indexing the functions under that spelling and asking agree() when the
+// direct lookup fails. NARROWED to symbols that carry NO signature tail: a
+// FULLY MANGLED callee that misses is a genuinely unknown callee (extern,
+// archived — residuals (a)/(e), #81's seam), and guessing there would widen a
+// population this ticket did not price.
+static bool symbol_is_mono_key(std::string_view s) {
+    return s.find("__f__") == std::string_view::npos &&
+           s.find("__g__") == std::string_view::npos;
 }
 
-static bool flow_eq(const FlowSummary& a, const FlowSummary& b) {
-    return a.nparams == b.nparams && a.to_result == b.to_result &&
-           a.to_outparam == b.to_outparam && a.over_approx == b.over_approx;
+static const FlowSummary* resolve_call_flow(const FlowSummaryMap& flows,
+                                            std::string_view symbol,
+                                            const FnIndex* idx = nullptr) {
+    if (symbol.empty()) return nullptr;
+    auto it = flows.find(std::string(symbol));
+    if (it != flows.end() && it->second.available) return &it->second;
+    if (!idx || !symbol_is_mono_key(symbol)) return nullptr;
+    auto bit = idx->by_bare.find(std::string(bare_fn_name(symbol)));
+    if (bit == idx->by_bare.end() || bit->second.empty()) return nullptr;
+    const FlowSummary* first = nullptr;
+    for (lir_view::FunctionView f : bit->second) {
+        auto fit = flows.find(std::string(f.name()));
+        if (fit == flows.end() || !fit->second.available) return nullptr;
+        if (!first) { first = &fit->second; continue; }
+        if (!flow_eq(*first, fit->second)) return nullptr;
+    }
+    return first;
 }
 
 static const FlowSummary* resolve_method_flow(const FlowSummaryMap& flows,
                                               const FnIndex& idx,
                                               const TypePoolImpl* pool,
                                               lir_view::EMethodCallView v) {
-    if (auto* s = resolve_call_flow(flows, v.resolved_symbol())) return s;
+    if (auto* s = resolve_call_flow(flows, v.resolved_symbol(), &idx)) return s;
     auto it = idx.by_base.find(std::string(v.method()));
     if (it == idx.by_base.end() || it->second.empty()) return nullptr;
     TypeRef recv_t = v.receiver() ? v.receiver().type(pool) : TypeRef(nullptr);
@@ -585,7 +629,7 @@ private:
     }
 
     const FlowSummary* summary_of_call(std::string_view symbol) const {
-        return resolve_call_flow(out_, symbol);
+        return resolve_call_flow(out_, symbol, &idx_);
     }
     const FlowSummary* summary_of_method(lir_view::EMethodCallView v) const {
         return resolve_method_flow(out_, idx_, prog_.type_pool.impl(), v);

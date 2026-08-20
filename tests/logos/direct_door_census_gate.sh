@@ -145,7 +145,37 @@ else
 # The number below is DECLARED TO CTEST as this test's PROCESSORS in
 # tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
 # and ctest will schedule this gate next to 31 neighbours again.
-SWEEP_P="${LOGOS_GATE_SWEEP_P:-8}"
+# ⚠ WHO PARALLELISES, AND WHY IT IS NOT BOTH (Victor, 2026-08-20; task #82).
+# UNDER CTEST the parallelism is CTEST'S JOB — it already runs the suite at
+# `-j$(nproc)`, so a gate that also fans out `-P$(nproc)` double-dips and the two
+# levels MULTIPLY: ~1024 workers on 32 cores. Measured over seven L4 runs
+# (2026-08-19): 1-4 tier_full gates timed out on every run, a DIFFERENT subset
+# each time, and each passed ALONE in 4-33 s against its ceiling. So under ctest
+# this sweep runs SERIALLY and lets ctest schedule the concurrency.
+# RUN BY HAND (diagnosis, a bite-proof, a one-off census) there is no outer
+# scheduler and the whole box is yours: the default is `nproc`.
+# `CTEST_INTERACTIVE_DEBUG_MODE` is set by ctest for every test it runs; it is
+# the only marker that needs no cmake-side cooperation, which is what keeps the
+# script honest when invoked directly. `LOGOS_GATE_SWEEP_P` overrides both.
+if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
+    SWEEP_P="$LOGOS_GATE_SWEEP_P"
+elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
+    # ⚠ THIS GATE IS THE ONE MEASURED EXCEPTION TO "SERIAL UNDER CTEST", and the
+    # exception is arithmetic, not preference. Its sweep is 2194 fixtures and
+    # costs ~7 360 CPU-seconds (108 m user + 14 m sys, measured 2026-08-20) —
+    # SERIALLY that is 4.1x its own 1800 s ceiling, so the rule as stated turns
+    # this test into a deterministic red, which the #83 round's verify measured
+    # on an IDLE box (Timeout 1800.12 s, not a load lottery). At 8 it runs in
+    # ~415 s with margin. The number is DECLARED to ctest as PROCESSORS 8 at the
+    # registration so ctest does not stack eight of these side by side — the two
+    # must agree or the declaration is a lie.
+    # THE REAL FIX IS TO STOP PAYING IT THREE TIMES: this gate, pull_shape and
+    # plan_ground_census each re-compile the SAME corpus. One shared sweep would
+    # make the serial rule affordable here too, and it is filed as such.
+    SWEEP_P=8
+else
+    SWEEP_P="$(nproc)"
+fi
     cat > "$TMPD/one.sh" <<'WORKER'
 #!/usr/bin/env bash
 f="$1"; OUT="$2"; LOGOSC="$3"; A="$4"
@@ -283,9 +313,9 @@ PIN = {
     # pass corpus only). DOOR counts unmoved (36 = 10 + 26): none of the three
     # declares a container family — they are `&i64` / `str` / fn-pointer
     # borrow-check shapes only.
-    'corpus'            : 2191,
+    'corpus'            : 2194,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2000,  # pinned by NOTHING before this gate; +4 with
+    'nonglob'           : 2003,  # pinned by NOTHING before this gate; +4 with
                                  # `corpus` above, same four bc_* pass fixtures
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
                                  # readable statement of intent, not a check:
@@ -293,6 +323,21 @@ PIN = {
                                  # intersection is empty however the filesystem
                                  # looks. The partition's REAL content is the
                                  # swept-vs-listed both-directions leg below.
+
+    # ⚠ RE-DERIVED at the #83 generic-receiver stage (the summary plane learns
+    # the mono key, and the pre-mono pass gets summaries): +3 / +0 / +3. The
+    # three are PASS fixtures and none matches the `wql_*` / `deem_*` glob:
+    #   tests/logos/pass/bc_esc_generic_recv_admit.logos
+    #   tests/logos/pass/bc_esc_generic_uninst_admit.logos
+    #   tests/logos/pass/bc_esc_generic_monokey_admit.logos
+    # DERIVED BY DIRECT FILE LISTING, not by adding 3 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2194
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2003 by the same listing minus the glob listing, and the
+    # partition closes: 2194 = 191 + 2003. The four FAIL fixtures this stage
+    # added are outside this gate's population by construction. DOOR counts
+    # unmoved (36 = 10 + 26): none of the three declares a container family —
+    # they are trait / generic-receiver borrow-check shapes only.
 
     # ── CLAUSE 2, compile coverage ─────────────────────────────────────────
     # ZERO. Not "few": an uncompiled fixture is an unmeasured fixture, and the

@@ -1,0 +1,41 @@
+// #83 — ADMIT half of the uninstantiated-template door.
+//
+// ONE VARIABLE against fail/bc_esc_generic_uninst_dangle: the callee's body.
+// Neither `pick` nor `keep` retains the frame-local borrow — `pick` returns
+// `self.s` (`result<-0x1`), `keep` takes its argument BY VALUE — so the
+// summaries answer "nothing this frame owns reaches the result" and the pre-
+// mono pass admits. Same generic-struct field receiver, same absence of any
+// call site, same `String::from` local.
+//
+// This is the half of the pair that a conservative route would have broken:
+// with no summary consulted, "unresolvable receiver ⇒ it retains every
+// ref-kind argument" refuses `field_self_sourced` too.
+package bc_esc_generic_uninst_admit;
+
+use logos.mem.string;
+
+pub trait Tr {
+    fn pick(&self, probe: str) -> str;
+    fn keep(&self, s: String) -> i64;
+}
+
+pub struct K { pub s: str }
+
+impl Tr for K {
+    fn pick(&self, probe: str) -> str { return self.s; }
+    fn keep(&self, s: String) -> i64 { return s.len(); }
+}
+
+pub struct H<T> { pub t: T }
+
+pub fn field_self_sourced<T: Tr>(h: &H<T>) -> str {
+    let o: String = String::from("hello");
+    return h.t.pick(o.as_str());
+}
+
+pub fn field_owned_arg<T: Tr>(h: &H<T>) -> i64 {
+    let o: String = String::from("hello");
+    return h.t.keep(o);
+}
+
+fn main() -> i32 { return 0i32; }

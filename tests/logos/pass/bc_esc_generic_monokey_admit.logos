@@ -1,0 +1,41 @@
+// #83 — ADMIT half of the mono-key door.
+//
+// ONE VARIABLE against fail/bc_esc_generic_monokey_dangle: which impl the
+// generic is instantiated at. Same trait, same two impls, same template body,
+// same frame-local `String` handed in — but `M::thru` returns `self.s`
+// (`result<-0x1`), so nothing of this frame reaches the result and the borrow
+// does not escape. `K::thru` returns its argument (`result<-0x2`) and refuses
+// there.
+//
+// That is the whole point of resolving the mono key rather than guessing at an
+// unresolvable receiver: the verdict follows the callee mono actually picked.
+// A conservative route keyed on "the receiver is a TypeVar" cannot tell these
+// two programs apart and would refuse both.
+package bc_esc_generic_monokey_admit;
+
+use logos.mem.string;
+
+pub trait Tr { fn thru(&self, s: str) -> str; }
+
+pub struct K { pub z: i64 }
+pub struct M { pub s: str }
+
+impl Tr for K {
+    fn thru(&self, s: str) -> str { return s; }
+}
+
+impl Tr for M {
+    fn thru(&self, s: str) -> str { return self.s; }
+}
+
+pub fn ok<T: Tr>(t: &T) -> str {
+    let o: String = String::from("hello");
+    return t.thru(o.as_str());
+}
+
+fn main() -> i32 {
+    let m: M = M { s: "abcd" };
+    let r: str = ok::<M>(&m);
+    if r.len() == 4i64 { return 0i32; }
+    return 1i32;
+}

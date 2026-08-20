@@ -1,0 +1,54 @@
+// #83 — THE MONO KEY IS NOT A FUNCTION NAME. This file is the ONLY fixture in
+// the corpus that fires `resolve_call_flow`'s mono-key fallback, so it is the
+// one that keeps that arm honest.
+//
+// TWO impls of the same trait method, with DIFFERENT summaries:
+//     K::thru(&self, s) -> str { return s; }        result<-0x2  (the argument)
+//     M::thru(&self, s) -> str { return self.s; }   result<-0x1  (the receiver)
+//
+// The PRE-mono pass over the template `bad<T: Tr>` cannot decide between them:
+// a TypeVar receiver narrows to zero candidates and `agree()` over the two
+// disagrees ⇒ nullptr ⇒ the documented (d) hole, correctly. The POST-mono pass
+// over the specialization CAN decide — mono already picked `K` — but it
+// devirtualises the call into a `Code::Call` whose callee is mono's own
+// worklist key `K__thru`, while the function is emitted as
+// `<pkg>.K__thru__f__ref_K__slice_u8`. The summaries are keyed by the LIR name,
+// so the lookup missed and the leak compiled: MEASURED rc 0 at 6650b080.
+//
+// CONTROL, one variable (`if (true) return nullptr;` at the head of the
+// mono-key fallback, everything else including the pre-mono summaries left in
+// place, full logosc rebuild): this file goes back to rc 0, and every other
+// #83 fixture keeps its verdict — which is what makes the two arms separately
+// pinned rather than jointly.
+//
+// ONE VARIABLE against pass/bc_esc_generic_monokey_admit: WHICH impl is
+// instantiated. `M::thru` returns `self.s` and retains nothing of the caller's
+// frame, so the identical body admits there.
+package bc_esc_generic_monokey_dangle;
+
+use logos.mem.string;
+
+pub trait Tr { fn thru(&self, s: str) -> str; }
+
+pub struct K { pub z: i64 }
+pub struct M { pub s: str }
+
+impl Tr for K {
+    fn thru(&self, s: str) -> str { return s; }
+}
+
+impl Tr for M {
+    fn thru(&self, s: str) -> str { return self.s; }
+}
+
+pub fn bad<T: Tr>(t: &T) -> str {
+    let o: String = String::from("hello");
+    return t.thru(o.as_str());
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let r: str = bad::<K>(&k);
+    if r.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -3085,9 +3085,70 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7326
-REGISTRY-NOIMPORTED  3643
+REGISTRY-ALL         7333
+REGISTRY-NOIMPORTED  3650
 REGISTRY-TIERCOMMIT  36
+# 2026-08-20, +7/+7/0 (7326/3643/36 -> 7333/3650/36), predicted before the
+# reconfigure and met exactly. #83 — A METHOD CALL ON A GENERIC RECEIVER WAS
+# SUMMARY-BLIND, AND THE TICKET'S STATED CAUSE WAS REFUTED BY MEASUREMENT.
+#   THE ROOT, instrumented. `resolve_method_flow` narrowing to zero candidates
+#   for a TypeVar receiver was NOT it: that function is never entered on the
+#   repro, because POST-mono the node is not a MethodCall at all. Mono
+#   devirtualises a trait call on a TypeVar receiver into a `Code::Call` whose
+#   callee it writes as its OWN worklist key (`K__thru`), while the function is
+#   emitted as `<pkg>.K__thru__f__ref_K__slice_u8`. Summaries are keyed by the
+#   LIR name ⇒ `flow_of_call` missed. A LOOKUP KEY IS NOT AN IDENTITY, again.
+#   And PRE-mono, the generic-template pass was handed `flows == {}` outright,
+#   so a generic fn with NO call site — checked only in that pass — was blind
+#   in its whole body.
+#   TWO ARMS, TWO REPAIRS, EACH SEPARATELY PINNED BY A FIXTURE THAT FIRES IT:
+#     (1) `resolve_call_flow` gains a mono-key fallback via `FnIndex::by_bare`
+#         (`bare_fn_name` of every function name), narrowed to symbols with NO
+#         `__f__`/`__g__` signature tail — a fully mangled miss is a genuinely
+#         unknown callee (residuals (a)/(e), #81's seam) and stays a miss.
+#         Ambiguity ⇒ agree() ⇒ nullptr, never a guess.
+#         PINNED BY fail/bc_esc_generic_monokey_dangle — two impls with
+#         DIFFERENT summaries, so the pre-mono agree() cannot decide and only
+#         the post-mono key resolution can.
+#     (2) summaries are computed and consumed in the PRE-mono pass too.
+#         PINNED BY fail/bc_esc_generic_uninst_dangle — no call site at all.
+#   THE FIX IS PRECISE, NOT CONSERVATIVE, and that is the reason it was worth
+#   the extra round. The measure-only round costed the documented (d) route
+#   (unresolvable receiver ⇒ retains every ref-kind argument): green on this
+#   tree, but it refuses `fn f<T: Tr>(t: &T) -> str { let o = String::from(..);
+#   return t.pick(o.as_str()); }` where `pick` returns `self.s` — stricter than
+#   BOTH the `&dyn` and the concrete spelling of the same program, which rustc
+#   accepts (elision rule 3). Naming the callee instead resolves `result<-0x1`
+#   and admits it. pass/bc_esc_generic_recv_admit and
+#   pass/bc_esc_generic_monokey_admit are what keep that distinction visible: a
+#   corpus that merely stays green cannot tell a precise fix from a blanket one.
+#   THE SEVEN (4 fail + 3 pass), refuse/admit in pairs:
+#     tests/logos/fail/bc_esc_generic_recv_dangle.logos
+#     tests/logos/fail/bc_esc_generic_uninst_dangle.logos
+#     tests/logos/fail/bc_esc_generic_monokey_dangle.logos
+#     tests/logos/fail/bc_esc_generic_outparam_dangle.logos
+#     tests/logos/pass/bc_esc_generic_recv_admit.logos
+#     tests/logos/pass/bc_esc_generic_uninst_admit.logos
+#     tests/logos/pass/bc_esc_generic_monokey_admit.logos
+#   CONTROLS, one variable each, logosc-only rebuild, restored between:
+#     (1) `if (true) return nullptr;` at the head of the mono-key fallback ->
+#         fail/bc_esc_generic_monokey_dangle rc 0 (defect back); the other six
+#         fixtures keep their verdicts.
+#     (2) `generic_templates_only ? nullptr : &flows` at the checker ->
+#         fail/bc_esc_generic_uninst_dangle rc 0 (defect back); the other six
+#         keep their verdicts.
+#   That the two controls hit DISJOINT fixtures is what makes the arms
+#   separately pinned rather than jointly.
+#   RED LIST ON A FULL TREE REBUILD (51 logos targets: stdlib lang/mem/std,
+#   lforge, peg_gen_logos, memoria-ctr/-store, ub_boundary, ctr_mod, examples):
+#   EMPTY. rc 0, 0 logos errors. Build time 2m56s with the change against 3m09s
+#   with the pre-mono summaries reverted on the same tree — the second
+#   summarizer run is inside the build's noise.
+#   ⚠ A SIDE EFFECT WORTH NAMING, NOT A CLOSURE: the generic-receiver spelling
+#   of the OUT-PARAM channel now refuses too (fail/bc_esc_generic_outparam_
+#   dangle, E0597), because `apply_flow_outparams` finally resolves the callee.
+#   #78 — a CALLEE-local borrow stored through the caller's `&mut` — is
+#   untouched and stays open.
 # 2026-08-19, +2/+2/0 (7324/3641/36 -> 7326/3643/36), predicted before the
 # reconfigure and met exactly. THE #80-VERIFY FINDINGS RE-VERIFIED, and the
 # same rule applied to the repair the previous entry made.

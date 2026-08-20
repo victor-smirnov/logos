@@ -132,7 +132,25 @@ mkdir -p "$OUT/_st"
 # The number below is DECLARED TO CTEST as this test's PROCESSORS in
 # tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
 # and ctest will schedule this gate next to 31 neighbours again.
-SWEEP_P="${LOGOS_GATE_SWEEP_P:-8}"
+# ⚠ WHO PARALLELISES, AND WHY IT IS NOT BOTH (Victor, 2026-08-20; task #82).
+# UNDER CTEST the parallelism is CTEST'S JOB — it already runs the suite at
+# `-j$(nproc)`, so a gate that also fans out `-P$(nproc)` double-dips and the two
+# levels MULTIPLY: ~1024 workers on 32 cores. Measured over seven L4 runs
+# (2026-08-19): 1-4 tier_full gates timed out on every run, a DIFFERENT subset
+# each time, and each passed ALONE in 4-33 s against its ceiling. So under ctest
+# this sweep runs SERIALLY and lets ctest schedule the concurrency.
+# RUN BY HAND (diagnosis, a bite-proof, a one-off census) there is no outer
+# scheduler and the whole box is yours: the default is `nproc`.
+# `CTEST_INTERACTIVE_DEBUG_MODE` is set by ctest for every test it runs; it is
+# the only marker that needs no cmake-side cooperation, which is what keeps the
+# script honest when invoked directly. `LOGOS_GATE_SWEEP_P` overrides both.
+if [ -n "${LOGOS_GATE_SWEEP_P:-}" ]; then
+    SWEEP_P="$LOGOS_GATE_SWEEP_P"
+elif [ -n "${CTEST_INTERACTIVE_DEBUG_MODE:-}" ]; then
+    SWEEP_P=1
+else
+    SWEEP_P="$(nproc)"
+fi
 if [ -n "$PRESWEPT" ]; then
     [ -d "$PRESWEPT" ] || { echo "FAIL(2): no pre-swept dir $PRESWEPT"; exit 2; }
     cp "$PRESWEPT"/*.user "$OUT/" 2>/dev/null

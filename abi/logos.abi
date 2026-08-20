@@ -138,6 +138,7 @@ sym	logos.lang.writ.container.Writ__type_id__g__ref_T
 sym	logos.lang.writ.decimal.WDecimal__type_id__g__ref_T
 sym	logos.lang.writ.dview.DViewStore__type_id__g__ref_T
 sym	logos.lang.writ.dview.DView__type_id__g__ref_T
+sym	logos.lang.writ.objdata.WritObjectData__type_id__g__ref_T
 sym	logos.lang.writ.parameter.WParameter__type_id__g__ref_T
 sym	logos.lang.writ.static_view.SView2__type_id__g__ref_T
 sym	logos.lang.writ.static_view.WView2__type_id__g__ref_T
@@ -2751,6 +2752,24 @@ sym	logos_lang..logos.lang.iter.OptionIter$G1$WAny__skip_while__g__OptionIter$G1
 sym	logos_lang..logos.lang.iter.OptionIter$G1$WAny__step_by__g__OptionIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$WAny__take__g__OptionIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$G1$WAny__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__count__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__enumerate__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__filter__g__OptionIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__inspect__g__OptionIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__last__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__max_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__min_by__g__OptionIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__next__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__next_back__g__refmut_OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__nth__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__nth_back__g__refmut_OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__peekable__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__rev__g__OptionIter$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__skip__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__skip_while__g__OptionIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__step_by__g__OptionIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__take__g__OptionIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$G1$WritObjectData__take_while__g__OptionIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__count__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__enumerate__g__OptionIter$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$G1$bool__filter__g__OptionIter$G1$T__fn(T) -> bool
@@ -3171,6 +3190,7 @@ sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__WAny__into_iter__g__Option
+sym	logos_lang..logos.lang.iter.Option__WritObjectData__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__bool__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__char__into_iter__g__Option
 sym	logos_lang..logos.lang.iter.Option__f32__into_iter__g__Option
@@ -3235,6 +3255,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$4$slice
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__WAny
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__WritObjectData
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__bool
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__char
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option__f32
@@ -3908,6 +3929,21 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$WAny__skip_while__g__ResultIter$G1
 sym	logos_lang..logos.lang.iter.ResultIter$G1$WAny__step_by__g__ResultIter$G1$T__i64__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$WAny__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$WAny__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__count__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__enumerate__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__filter__g__ResultIter$G1$T__fn(T) -> bool
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__inspect__g__ResultIter$G1$T__fn(T) -> void__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__last__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__max_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__min_by__g__ResultIter$G1$T__fn(T, T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__next__g__refmut_ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__nth__g__refmut_ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__peekable__g__ResultIter$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__skip__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__skip_while__g__ResultIter$G1$T__fn(T) -> bool__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__step_by__g__ResultIter$G1$T__i64__T
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__take__g__ResultIter$G1$T__i64
+sym	logos_lang..logos.lang.iter.ResultIter$G1$WritObjectData__take_while__g__ResultIter$G1$T__fn(T) -> bool__T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__count__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__enumerate__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$bool__filter__g__ResultIter$G1$T__fn(T) -> bool
@@ -4167,6 +4203,7 @@ sym	logos_lang..logos.lang.iter.Result__String__JsonError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__String__QError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__String__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__WAny__CloneRefusal__into_iter__g__Result
+sym	logos_lang..logos.lang.iter.Result__WritObjectData__CloneRefusal__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__bool__ParseBoolError__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__bool__i32__into_iter__g__Result
 sym	logos_lang..logos.lang.iter.Result__char__ConvertError__into_iter__g__Result
@@ -4200,6 +4237,7 @@ sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__JsonError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__QError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__String__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__bool__i32
 sym	logos_lang..logos.lang.iter.Result__into_iter__g__Result__char__ConvertError
@@ -6542,6 +6580,20 @@ sym	logos_lang..logos.lang.option.Option__WAny__unwrap__g__Option
 sym	logos_lang..logos.lang.option.Option__WAny__unwrap_or__g__Option__T
 sym	logos_lang..logos.lang.option.Option__WAny__unwrap_or_else__g__Option__fn() -> T
 sym	logos_lang..logos.lang.option.Option__WAny__xor__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__default__g__void
+sym	logos_lang..logos.lang.option.Option__WritObjectData__expect__g__Option__slice_u8
+sym	logos_lang..logos.lang.option.Option__WritObjectData__filter__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__WritObjectData__is_none__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__is_some__g__ref_Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__is_some_and__g__Option__fn(T) -> bool
+sym	logos_lang..logos.lang.option.Option__WritObjectData__or__g__Option__Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__or_else__g__Option__fn() -> Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__replace__g__refmut_Option__T
+sym	logos_lang..logos.lang.option.Option__WritObjectData__take__g__refmut_Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__unwrap__g__Option
+sym	logos_lang..logos.lang.option.Option__WritObjectData__unwrap_or__g__Option__T
+sym	logos_lang..logos.lang.option.Option__WritObjectData__unwrap_or_else__g__Option__fn() -> T
+sym	logos_lang..logos.lang.option.Option__WritObjectData__xor__g__Option__Option
 sym	logos_lang..logos.lang.option.Option__bool__default__g__void
 sym	logos_lang..logos.lang.option.Option__bool__expect__g__Option__slice_u8
 sym	logos_lang..logos.lang.option.Option__bool__filter__g__Option__fn(T) -> bool
@@ -6626,6 +6678,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$4$slice_u
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__default__g__void__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__default__g__void__WAny
+sym	logos_lang..logos.lang.option.Option__default__g__void__WritObjectData
 sym	logos_lang..logos.lang.option.Option__default__g__void__bool
 sym	logos_lang..logos.lang.option.Option__default__g__void__char
 sym	logos_lang..logos.lang.option.Option__default__g__void__f32
@@ -6699,6 +6752,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tu
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__WAny
+sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__WritObjectData
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__bool
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__char
 sym	logos_lang..logos.lang.option.Option__expect__g__Option__slice_u8__f32
@@ -6800,6 +6854,7 @@ sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__WAny
+sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__WritObjectData
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__bool
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__char
 sym	logos_lang..logos.lang.option.Option__filter__g__Option__fn(T) -> bool__f32
@@ -6929,6 +6984,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$4$s
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__WAny
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__bool
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__char
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option__f32
@@ -7002,6 +7058,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$4$s
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__WAny
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__bool
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__char
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option__f32
@@ -7075,6 +7132,7 @@ sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool_
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__WAny
+sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__WritObjectData
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__bool
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__char
 sym	logos_lang..logos.lang.option.Option__is_some_and__g__Option__fn(T) -> bool__f32
@@ -7148,6 +7206,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$4$sl
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__WAny
+sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__bool
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__char
 sym	logos_lang..logos.lang.option.Option__or__g__Option__Option__f32
@@ -7221,6 +7280,7 @@ sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Ve
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__WAny
+sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__bool
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__char
 sym	logos_lang..logos.lang.option.Option__or_else__g__Option__fn() -> Option__f32
@@ -7364,6 +7424,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$t
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__WAny
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__WritObjectData
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__bool
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__char
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option__T__f32
@@ -7437,6 +7498,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$4$s
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__WAny
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__bool
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__char
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option__f32
@@ -7566,6 +7628,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$4$slice_
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__WAny
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__bool
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__char
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option__f32
@@ -7639,6 +7702,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$4$
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__WAny
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__WritObjectData
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__bool
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__char
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option__T__f32
@@ -7712,6 +7776,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__WAny
+sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__WritObjectData
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__bool
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__char
 sym	logos_lang..logos.lang.option.Option__unwrap_or_else__g__Option__fn() -> T__f32
@@ -7785,6 +7850,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$4$s
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__WAny
+sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__WritObjectData
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__bool
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__char
 sym	logos_lang..logos.lang.option.Option__xor__g__Option__Option__f32
@@ -8179,6 +8245,18 @@ sym	logos_lang..logos.lang.result.Result__WAny__CloneRefusal__unwrap__g__Result
 sym	logos_lang..logos.lang.result.Result__WAny__CloneRefusal__unwrap_err__g__Result
 sym	logos_lang..logos.lang.result.Result__WAny__CloneRefusal__unwrap_or__g__Result__T
 sym	logos_lang..logos.lang.result.Result__WAny__CloneRefusal__unwrap_or_else__g__Result__fn(E) -> T
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__err__g__Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__expect__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__expect_err__g__Result__slice_u8
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__is_err__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__is_err_and__g__Result__fn(E) -> bool
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__is_ok__g__ref_Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__is_ok_and__g__Result__fn(T) -> bool
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__ok__g__Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__unwrap__g__Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__unwrap_err__g__Result
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__unwrap_or__g__Result__T
+sym	logos_lang..logos.lang.result.Result__WritObjectData__CloneRefusal__unwrap_or_else__g__Result__fn(E) -> T
 sym	logos_lang..logos.lang.result.Result__bool__ParseBoolError__err__g__Result
 sym	logos_lang..logos.lang.result.Result__bool__ParseBoolError__expect__g__Result__slice_u8
 sym	logos_lang..logos.lang.result.Result__bool__ParseBoolError__expect_err__g__Result__slice_u8
@@ -8231,6 +8309,7 @@ sym	logos_lang..logos.lang.result.Result__err__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__String__QError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__String__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__err__g__Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__err__g__Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__err__g__Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__err__g__Result__char__ConvertError
@@ -8274,6 +8353,7 @@ sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__J
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__QError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__String__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__bool__i32
 sym	logos_lang..logos.lang.result.Result__expect__g__Result__slice_u8__char__ConvertError
@@ -8317,6 +8397,7 @@ sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__Strin
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__String__QError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__String__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__bool__i32
 sym	logos_lang..logos.lang.result.Result__expect_err__g__Result__slice_u8__char__ConvertError
@@ -8528,6 +8609,7 @@ sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__JsonErr
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__QError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__String__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__is_err__g__ref_Result__char__ConvertError
@@ -8571,6 +8653,7 @@ sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__String__QError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__String__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__bool__i32
 sym	logos_lang..logos.lang.result.Result__is_err_and__g__Result__fn(E) -> bool__char__ConvertError
@@ -8614,6 +8697,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__JsonErro
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__QError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__String__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__is_ok__g__ref_Result__char__ConvertError
@@ -8657,6 +8741,7 @@ sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__S
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__String__QError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__String__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__bool__i32
 sym	logos_lang..logos.lang.result.Result__is_ok_and__g__Result__fn(T) -> bool__char__ConvertError
@@ -8700,6 +8785,7 @@ sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__QError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__String__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__ok__g__Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__ok__g__Result__char__ConvertError
@@ -8863,6 +8949,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__JsonError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__QError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__String__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__unwrap__g__Result__char__ConvertError
@@ -8906,6 +8993,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__JsonErr
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__String__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__bool__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_err__g__Result__char__ConvertError
@@ -8949,6 +9037,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__JsonE
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__String__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__bool__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or__g__Result__T__char__ConvertError
@@ -8992,6 +9081,7 @@ sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T_
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__String__QError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__String__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__WAny__CloneRefusal
+sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__WritObjectData__CloneRefusal
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__bool__ParseBoolError
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__bool__i32
 sym	logos_lang..logos.lang.result.Result__unwrap_or_else__g__Result__fn(E) -> T__char__ConvertError
@@ -9288,6 +9378,19 @@ sym	logos_lang..logos.lang.writ.dview.u64__as_datum__f__ref_u64
 sym	logos_lang..logos.lang.writ.dview.u64__datum_meta__f__ref_u64
 sym	logos_lang..logos.lang.writ.dview.u64__datum_tag__f__pcst_u64
 sym	logos_lang..logos.lang.writ.dview.u64__from_datum__f__pcst_u64__DView
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_array__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_bool__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_f64__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_i64__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_map__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_ptr__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_string__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__as_u64__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__is_null__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__is_scalar__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__len__f__ref_WritObjectData
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__materialize__f__ref_WritObjectData__ref_Writ
+sym	logos_lang..logos.lang.writ.objdata.WritObjectData__tag__f__ref_WritObjectData
 sym	logos_lang..logos.lang.writ.parameter.WAny__as_parameter__f__ref_WAny
 sym	logos_lang..logos.lang.writ.parameter.WAny__from__f__ref_WParameter
 sym	logos_lang..logos.lang.writ.parameter.WAny__is_parameter__f__ref_WAny
@@ -9628,6 +9731,7 @@ sym	logos_lang.logos.lang.any$type_id_of__g__void__WString
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WTypedValue
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WView2
 sym	logos_lang.logos.lang.any$type_id_of__g__void__Writ
+sym	logos_lang.logos.lang.any$type_id_of__g__void__WritObjectData
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WritOpaque
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WritStatic
 sym	logos_lang.logos.lang.any$type_id_of__g__void__WritStringStorage
@@ -10090,6 +10194,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$4$
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__WAny
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__WritObjectData
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__bool
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__char
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option__f32
@@ -10228,6 +10333,7 @@ sym	logos_lang.logos.lang.writ.comp_builder$writ_map_comp_new__f__i64__i64
 sym	logos_lang.logos.lang.writ.comp_builder$writ_map_comp_put__f__ref_Rc$G1$Writ__slice_u8__WAny
 sym	logos_lang.logos.lang.writ.compactify$clone__f__ref_Writ__WAny
 sym	logos_lang.logos.lang.writ.compactify$compactify__f__ref_Writ__WAny
+sym	logos_lang.logos.lang.writ.compactify$compactify_obj__f__ref_Writ__pcst_u8__u64__i64
 sym	logos_lang.logos.lang.writ.compactify$try_clone__f__ref_Writ__WAny
 sym	logos_lang.logos.lang.writ.compactify$try_compactify__f__ref_Writ__WAny
 sym	logos_lang.logos.lang.writ.container$alloc_tagged__f__pmut_Allocator__i64__u64
@@ -10256,6 +10362,12 @@ sym	logos_lang.logos.lang.writ.dview$htag_align__f__u64__u64
 sym	logos_lang.logos.lang.writ.dview$htag_cmp__f__u64__u64__pcst_u8__u64__pcst_u8__u64
 sym	logos_lang.logos.lang.writ.dview$htag_size__f__u64__u64
 sym	logos_lang.logos.lang.writ.equal$equal__f__WAny__WAny
+sym	logos_lang.logos.lang.writ.objdata$wod_materialize_raw__f__ref_Writ__pcst_u8__u64
+sym	logos_lang.logos.lang.writ.objdata$wod_serialize__f__WAny
+sym	logos_lang.logos.lang.writ.objdata$wod_tag_is_scalar__f__u64
+sym	logos_lang.logos.lang.writ.objdata$wod_view_array__f__pcst_u8__u64
+sym	logos_lang.logos.lang.writ.objdata$wod_view_map__f__pcst_u8__u64
+sym	logos_lang.logos.lang.writ.objdata$wod_view_string__f__pcst_u8__u64
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_len_eq__f__pcst_WAny__u64
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_len_ge__f__pcst_WAny__u64
 sym	logos_lang.logos.lang.writ.pat$writ_pat_array_slot__f__pcst_WAny__u64
@@ -12556,6 +12668,7 @@ type	logos.lang.writ.container.Writ	fields=[allocator:Allocator,root:i64]
 type	logos.lang.writ.decimal.WDecimal	fields=[spec:u32,coeff:u64]
 type	logos.lang.writ.dview.DView	fields=[obj:*const u8,len:u64,tag:u64,meta:u64]
 type	logos.lang.writ.dview.DViewStore	fields=[tag:u64,meta:u64,data:PrimVec<u8>,offsets:PrimVec<u64>]
+type	logos.lang.writ.objdata.WritObjectData	fields=[doc:Writ,off:i64,len:i64,tag:u64]
 type	logos.lang.writ.parameter.WParameter	fields=[name:i64,value:i64]
 type	logos.lang.writ.static_view.SView2	fields=[ptr:*const u8,len:u64]
 type	logos.lang.writ.static_view.WView2	fields=[base:*const u8]

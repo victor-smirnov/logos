@@ -1980,18 +1980,31 @@ add_test(
             ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/access_plan.logos
 )
 set_tests_properties(logos_09_plan_ground_census PROPERTIES
-    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
-    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
-    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
-    # counts the gate as ONE slot, so 32 of them could run side by side while
-    # each asked for 8 workers — the nested-parallelism multiply that timed out
-    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
-    # different subset each time, each passing ALONE in 4-33 s against its
-    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
-    # This is scheduling, not tolerance — no timeout was raised and no
-    # assertion changed.
-    PROCESSORS 8
-    TIMEOUT 900
+    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
+    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
+    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
+    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
+    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
+    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
+    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
+    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
+    # hand it uses `nproc`, because then there is no outer scheduler. The script
+    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
+    # verified empirically, not assumed), so no cmake-side cooperation is needed
+    # and the script stays honest when invoked directly.
+    # Hence NO `PROCESSORS` property: the test really does use one process, and
+    # a declaration of 8 would have been a lie the moment the sweep went serial.
+    # ⚠ 1800, NOT 900, AND THE REASON IS SCHEDULING, NOT SLOWNESS (2026-08-20).
+    # With the sweep serial under ctest this gate compiles its 191-fixture glob
+    # one at a time: measured 668 s (plan_ground_census) / 682 s (pull_shape)
+    # running ALONE. Inside a full L4 it ALSO waits its turn among 31
+    # neighbours, and at 900 s both timed out deterministically. The work did not
+    # grow; the gate stopped taking the box for itself. The ceiling now absorbs
+    # suite contention at the same ratio the door census already carries (415 s
+    # alone against 1800). A ceiling RE-PRICED against a measured cost, not a
+    # tolerance relaxed to make a red go away — no assertion moved — and #85 (one
+    # shared corpus sweep for all three gates) is what takes it back down.
+    TIMEOUT 1800
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
@@ -2100,18 +2113,31 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
 )
 set_tests_properties(logos_09_pull_shape PROPERTIES
-    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
-    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
-    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
-    # counts the gate as ONE slot, so 32 of them could run side by side while
-    # each asked for 8 workers — the nested-parallelism multiply that timed out
-    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
-    # different subset each time, each passing ALONE in 4-33 s against its
-    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
-    # This is scheduling, not tolerance — no timeout was raised and no
-    # assertion changed.
-    PROCESSORS 8
-    TIMEOUT 900
+    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
+    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
+    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
+    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
+    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
+    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
+    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
+    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
+    # hand it uses `nproc`, because then there is no outer scheduler. The script
+    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
+    # verified empirically, not assumed), so no cmake-side cooperation is needed
+    # and the script stays honest when invoked directly.
+    # Hence NO `PROCESSORS` property: the test really does use one process, and
+    # a declaration of 8 would have been a lie the moment the sweep went serial.
+    # ⚠ 1800, NOT 900, AND THE REASON IS SCHEDULING, NOT SLOWNESS (2026-08-20).
+    # With the sweep serial under ctest this gate compiles its 191-fixture glob
+    # one at a time: measured 668 s (plan_ground_census) / 682 s (pull_shape)
+    # running ALONE. Inside a full L4 it ALSO waits its turn among 31
+    # neighbours, and at 900 s both timed out deterministically. The work did not
+    # grow; the gate stopped taking the box for itself. The ceiling now absorbs
+    # suite contention at the same ratio the door census already carries (415 s
+    # alone against 1800). A ceiling RE-PRICED against a measured cost, not a
+    # tolerance relaxed to make a red go away — no assertion moved — and #85 (one
+    # shared corpus sweep for all three gates) is what takes it back down.
+    TIMEOUT 1800
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
 )
@@ -2180,17 +2206,27 @@ add_test(
             ${CMAKE_CURRENT_BINARY_DIR}
 )
 set_tests_properties(logos_09_direct_door_census PROPERTIES
-    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
-    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
-    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
-    # counts the gate as ONE slot, so 32 of them could run side by side while
-    # each asked for 8 workers — the nested-parallelism multiply that timed out
-    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
-    # different subset each time, each passing ALONE in 4-33 s against its
-    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
-    # This is scheduling, not tolerance — no timeout was raised and no
-    # assertion changed.
+    # ⚠ 8, AND IT MATCHES `SWEEP_P` IN THE SCRIPT (see the note there). This gate
+    # is the measured exception to the serial-under-ctest rule: its 2194-fixture
+    # sweep costs ~7 360 CPU-seconds, so serially it is 4.1x this TIMEOUT and
+    # reds deterministically on an idle box. Declaring 8 keeps ctest from
+    # stacking these; the two smaller sweep gates ARE serial under ctest and fit
+    # their 900 s ceilings (measured 668 s and 682 s).
     PROCESSORS 8
+    # ⚠ THE PARALLELISM IS CTEST'S, NOT THE GATE'S (Victor, 2026-08-20; #82).
+    # This gate sweeps the whole corpus. It used to fan out `xargs -P$(nproc)`
+    # from inside one of ctest's `-j$(nproc)` slots, so the two levels
+    # MULTIPLIED — ~1024 workers on 32 cores — and a wall-clock timeout picked
+    # victims at random: seven L4 runs on 2026-08-19 each timed out 1-4
+    # tier_full gates, a DIFFERENT subset every time, each passing ALONE in
+    # 4-33 s against its ceiling. The rule is now stated where it belongs: under
+    # ctest the gate sweeps SERIALLY and ctest schedules the concurrency; run by
+    # hand it uses `nproc`, because then there is no outer scheduler. The script
+    # decides by `CTEST_INTERACTIVE_DEBUG_MODE` (set by ctest for every test —
+    # verified empirically, not assumed), so no cmake-side cooperation is needed
+    # and the script stays honest when invoked directly.
+    # Hence NO `PROCESSORS` property: the test really does use one process, and
+    # a declaration of 8 would have been a lie the moment the sweep went serial.
     TIMEOUT 1800
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"

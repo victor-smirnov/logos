@@ -1,0 +1,50 @@
+// #83 — THE OUT-PARAM CHANNEL OF THE SAME DOOR, refused now for the same
+// reason: the callee is finally NAMED.
+//
+// `apply_flow_outparams` already knew how to say "the callee stored argument i
+// into out-param j"; what it could not do was find `K::stash`'s summary,
+// because mono had devirtualised the generic call into a `Code::Call` whose
+// callee is the mono worklist key `K__stash` and the summaries are keyed by
+// the LIR name (see fail/bc_esc_generic_recv_dangle for the full measurement).
+// So the whole channel was blind on a generic receiver: the UNINSTANTIATED
+// spelling of this program measured rc 0 at 6650b080 (the instantiated one —
+// this file — was only measured after the repair, so the pre-repair verdict
+// for THIS exact file is not claimed here).
+//
+// Like fail/bc_esc_generic_recv_dangle, this file is covered by BOTH arms —
+// both controls leave it refusing. The arms are pinned separately by
+// fail/bc_esc_generic_monokey_dangle and fail/bc_esc_generic_uninst_dangle.
+//
+// ⚠ THIS IS NOT #78. #78 is the base channel — a CALLEE-LOCAL borrow stored
+// through the caller's `&mut` out-param — and it stays open. What closes here
+// is the generic-receiver spelling of the CALLER-local case, which the
+// concrete spelling already refused. The one variable against
+// `outparam_ok` in pass/bc_esc_generic_recv_admit is where `s` comes from:
+// this frame's `String` here, the caller's own parameter there.
+package bc_esc_generic_outparam_dangle;
+
+use logos.mem.string;
+
+pub trait Tr { fn stash(&self, s: str, out: &mut str); }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn stash(&self, s: str, out: &mut str) { *out = s; }
+}
+
+pub fn bad<T: Tr>(t: &T) -> str {
+    let mut v: str = "";
+    {
+        let o: String = String::from("hello");
+        t.stash(o.as_str(), &mut v);
+    }
+    return v;
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let r: str = bad::<K>(&k);
+    if r.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

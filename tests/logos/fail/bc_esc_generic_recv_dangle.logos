@@ -1,0 +1,61 @@
+// #83 — A METHOD CALL ON A GENERIC RECEIVER WAS SUMMARY-BLIND, AND THE CAUSE
+// WAS A NAME, NOT A RESOLVER.
+//
+// MEASURED TWIN at 6650b080, one variable (the receiver's spelling), same
+// body, same argument, same use:
+//     pub fn bad(t: &dyn Tr) -> str { … return t.thru(o.as_str()); }  rc 1
+//     pub fn bad<T: Tr>(t: &T) -> str { …identical body… }            rc 0  <- here
+//     pub fn bad(k: &K) -> str        { …identical body… }            rc 1
+//         (the concrete spelling is fail/bc_esc_method_retain_dangle)
+//
+// THE ROOT, instrumented rather than assumed. Post-mono, mono DEVIRTUALISES a
+// trait call on a TypeVar receiver: the node is no longer an EMethodCall at
+// all, it is a `Code::Call` whose callee mono writes as its OWN worklist key —
+// `K__thru` — while the function that key names is emitted into the LProgram
+// as `p_gen.K__thru__f__ref_K__slice_u8`. Summaries are keyed by the LIR name,
+// so `flow_of_call("K__thru")` missed and the result path saw nothing. The
+// ticket's stated cause (`resolve_method_flow` narrowing to zero candidates
+// for a TypeVar receiver) is REFUTED by measurement: that function is never
+// entered on this program, because there is no MethodCall left to enter it
+// with. See resolve_call_flow in borrow_flow_summary.inc.
+//
+// WHAT PINS WHAT — AND THIS FILE DOES NOT PIN EITHER ARM ALONE. MEASURED, both
+// controls, logosc-only rebuild each: with the mono-key fallback disabled this
+// file still refuses (the PRE-mono pass over the template resolves `K::thru`
+// through agree(), since it is the only `thru` here), and with the pre-mono
+// summaries reverted it still refuses (the post-mono specialization resolves
+// the mono key). It is the TICKET'S OWN REPRO and is pinned here as such; the
+// two arms are pinned SEPARATELY by fail/bc_esc_generic_monokey_dangle (only
+// the key fallback can decide it) and fail/bc_esc_generic_uninst_dangle (only
+// the pre-mono pass ever sees it). Saying "this file fires the fallback"
+// without running the control would have been the claim the control refutes.
+//
+// THE ONE VARIABLE against pass/bc_esc_generic_recv_admit is WHICH `str` comes
+// back out of the generic call: a borrow of this frame's `String` here, and
+// there either the caller's own parameter or the receiver's stored view. Both
+// answers come from `K::thru`'s summary (`result<-0x2` — it retains the
+// ARGUMENT, never `self`), not from the shape of the receiver: the fix is
+// precise, not conservative, so the admit half still admits.
+package bc_esc_generic_recv_dangle;
+
+use logos.mem.string;
+
+pub trait Tr { fn thru(&self, s: str) -> str; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn thru(&self, s: str) -> str { return s; }
+}
+
+pub fn bad<T: Tr>(t: &T) -> str {
+    let o: String = String::from("hello");
+    return t.thru(o.as_str());
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let r: str = bad::<K>(&k);
+    if r.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,45 @@
+// #83 — THE OTHER HALF: A GENERIC FN WITH NO CALL SITE WAS SUMMARY-BLIND
+// EVERYWHERE IN ITS BODY.
+//
+// Two passes borrow-check the program (P2-10): a PRE-mono pass over generic
+// TEMPLATES and a POST-mono pass over concrete fns and specializations. A
+// generic fn that is never instantiated exists only in the first — and that
+// pass was handed `flows == {}` on the argument that "callee resolution is not
+// meaningful over TypeVar bodies". Measured false: `resolve_method_flow`
+// narrows by the receiver type and falls to agree() over the same-named
+// methods when the narrowing finds nothing, which is a real answer or a real
+// nullptr regardless of TypeVars.
+//
+// So every call in an uninstantiated generic body was blind, and this file is
+// the shape that proves it — there is NO `bad::<K>` call site, so nothing here
+// reaches the post-mono pass at all. The receiver is a FIELD of a generic
+// struct (`h.t`), which also exercises resolve_method_flow's peeled tier.
+//
+// CONTROL, one variable (revert the pre-mono `&flows` argument in
+// borrow_check.cpp, leaving the resolve_call_flow repair in place): this file
+// compiles rc 0 — the defect returns — while fail/bc_esc_generic_recv_dangle
+// still refuses, because that one is instantiated and rides the OTHER half.
+//
+// ONE VARIABLE against pass/bc_esc_generic_uninst_admit: the callee's body.
+// `thru` returns its ARGUMENT (`result<-0x2`) and the argument borrows this
+// frame's `String`; `pick` returns `self.s` (`result<-0x1`) and admits.
+package bc_esc_generic_uninst_dangle;
+
+use logos.mem.string;
+
+pub trait Tr { fn thru(&self, s: str) -> str; }
+
+pub struct K { pub z: i64 }
+
+impl Tr for K {
+    fn thru(&self, s: str) -> str { return s; }
+}
+
+pub struct H<T> { pub t: T }
+
+pub fn bad<T: Tr>(h: &H<T>) -> str {
+    let o: String = String::from("hello");
+    return h.t.thru(o.as_str());
+}
+
+fn main() -> i32 { return 0i32; }
