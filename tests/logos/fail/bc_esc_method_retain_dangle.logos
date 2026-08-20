@@ -1,0 +1,41 @@
+// #77 round 2 / ONE ARM OVER — `prov_of`'s Code::MethodCall arm had the SAME
+// door defect round 1 fixed on Code::Call.
+//
+//     if (fat && !is_borrow_carrying_type(rt) && !result_borrows_self(v))
+//         return {};
+//
+// `result_borrows_self` is a fact about the callee's SIGNATURE, and a
+// signature does not say where a borrow goes — the sentence the whole summary
+// plane exists to write. So the arm returned {} BEFORE the summary consult
+// forty lines below, and a method whose fat result retains an ARGUMENT
+// escaped.
+//
+// MEASURED TWIN, one variable (method vs free fn), at f0a60ff3:
+//   `return k.thru(o.as_str());`   rc 0    <- this file
+//   `return thru2(o.as_str());`    rc 1    <- the free-fn spelling
+// Same callee body, same argument, same use, opposite verdicts.
+//
+// THE ONE VARIABLE against pass/bc_esc_method_retain_admit is WHICH `str` is
+// handed to `thru`: a borrow of a frame-local `String` here, the caller's own
+// parameter there. `K::thru` summarises `result<-0x2` in both.
+package bc_esc_method_retain_dangle;
+
+use logos.mem.string;
+
+pub struct K { pub z: i64 }
+
+impl K {
+    pub fn thru(&self, s: str) -> str { return s; }
+}
+
+pub fn bad(k: &K) -> str {
+    let o: String = String::from("hello");
+    return k.thru(o.as_str());
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    let r: str = bad(&k);
+    if r.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

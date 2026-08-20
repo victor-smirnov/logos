@@ -1,0 +1,40 @@
+// #78 — ADMIT half. ONE VARIABLE against fail/bc_esc_outparam_scope_dangle:
+// the stored borrow's SOURCE is the function's own parameter, not a local, so
+// it outlives the frame and rustc accepts. Same helper, same `&mut` out-param,
+// same store, same use after the block.
+//
+// This is what prices the deposit: it is keyed to the ARGUMENT's borrow
+// sources, not to the fact that a store happened. A checker that refused here
+// would have "fixed" #78 by rejecting every out-param helper that forwards a
+// borrow it was handed.
+//
+// The second admit direction is in the same file for free: `set2(&mut k2,
+// "hi")` stores a static-lifetime literal, which borrows no local at all.
+package bc_esc_outparam_scope_admit;
+use logos.mem.string;
+
+pub struct K { pub f: str }
+
+pub fn set2(k: &mut K, s: str) { k.f = s; }
+
+pub fn wire(owner: &String) -> i64 {
+    let mut k: K = K { f: "" };
+    {
+        set2(&mut k, owner.as_str());
+    }
+    return k.f.len();
+}
+
+fn main() -> i32 {
+    let s: String = String::from("hello");
+    let n: i64 = wire(&s);
+    let mut k2: K = K { f: "" };
+    {
+        set2(&mut k2, "hi");
+    }
+    // Real values, not `>= 0`: `wire` stores `owner.as_str()` of "hello"
+    // (5) and `set2(&mut k2, "hi")` stores a 2-byte literal. The tautological
+    // form was forced by #80 and is no longer needed.
+    if n == 5i64 && k2.f.len() == 2i64 { return 0i32; }
+    return 1i32;
+}

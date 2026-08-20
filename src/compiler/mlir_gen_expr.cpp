@@ -1232,11 +1232,65 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
 // ---------------------------------------------------------------------------
 
 mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
-    if (!t) return builder_.getI32Type();
+    // A NULL TYPE IS A DECLINE, NOT A GUESS EITHER. This used to answer i32 —
+    // a FOUR-byte place slot for a type the caller could not name, which is
+    // smaller than every fat repr and smaller than most scalars, so an array
+    // stride, a GEP or (since #80) a deferred-`let` slot built from it is
+    // wrong in the direction that overwrites the neighbour. Every caller
+    // (`gen_assign`'s subscript/GEP arms, the Vec/array stride sites,
+    // `declare_local_place`) is asking about a type the front end DID resolve;
+    // a null here means the TypeRef never arrived, which is a malfunction of
+    // the caller. Reported on the `bug` channel ⇒ COMPILE FAILED, so the
+    // green corpus and the green stdlib+examples build are themselves the
+    // measurement that this arm is not reached (no instrument to go stale: it
+    // is the same sink `logos_00_mlir_gen_bug_ledger` re-measures). The i32 is
+    // kept only so the rest of the statement lowers far enough to report.
+    // EXECUTED by `fail/mlirgen_place_slot_null_decline` (the
+    // `__slotnull_canary*` injection in declare_local_place) — an unreachable
+    // report is a green nobody ran, which is what this whole round is about.
+    // ⚠ It DID fire once on correct code, and that was a SPECULATIVE ask, not
+    // a defect: gen_lvalue_addr's IndexRead case computed the element stride
+    // before dispatching on the receiver kind, and `TypeRef(Ptr/Ref).elem()`
+    // is null. Made lazy there; see the note at that site.
+    if (!t) {
+        bug("place_slot_type: asked for the place slot of a NULL type — the "
+            "element stride / GEP / deferred-let slot would silently become "
+            "4 bytes");
+        return builder_.getI32Type();
+    }
     auto k = TypeRef(t).kind();
     if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
         auto sit = struct_types_.find(mlir_struct_key(t));
-        if (sit != struct_types_.end()) return sit->second.llvm_type;
+        // `slot_decline_canary_` is the fault injection that makes the arm
+        // below EXECUTABLE — see declare_local_place. Without it the miss is
+        // reachable only by perturbing this line, and a report no fixture ever
+        // runs is a green nobody executed.
+        if (!slot_decline_canary_ && sit != struct_types_.end())
+            return sit->second.llvm_type;
+        // A MISS IS A DECLINE, NOT A GUESS. Falling through here answered
+        // `logos_to_mlir(Struct)` = the 8-byte HANDLE `ptr` (or i32 when even
+        // that declines) — a PLACE type for a struct of any size. Every
+        // consumer of this function then guesses with it: the array/Vec element
+        // STRIDE (adjacent elements overlap), the GEP into an aggregate, and
+        // — since #80 — the deferred-`let` slot, which also registers
+        // `var_struct_`, so a later `v = <struct>` memcpy's the struct's real
+        // footprint into 8 bytes and reads GEP through a slot that holds a
+        // pointer. The miss is the open bare-name class (#58/#60/#61): the key
+        // here is pkg-qualified, `register_struct`'s bare alias is
+        // first-registered-wins, and a struct never registered in this module
+        // has neither. It reports a state no program in the tree reaches today
+        // — and it needs no separate fire counter to say so, because the sink
+        // FAILS THE COMPILE: the green stdlib+examples build and the green
+        // fixture corpus could not be hiding a miss. The day one arrives it
+        // must be a named compile failure and not silent 8 bytes.
+        // ⚠ AND SO THE ARM IS EXECUTED BY A FIXTURE, not left as a green
+        // nobody ran: `fail/mlirgen_place_slot_decline` fires it through the
+        // `__slotmiss_canary*` injection in declare_local_place.
+        bug("place_slot_type: no registered LLVM aggregate for struct '{}' "
+            "(bare '{}') — the place slot / element stride would silently "
+            "become the 8-byte handle type", mlir_struct_key(t),
+            concrete_struct_name(t));
+        return ptr_type();
     }
     if (k == LogosType::Kind::Tuple) {
         if (auto tt = tuple_llvm_type(t)) return tt;
@@ -1359,18 +1413,27 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         TypeRef recv_t = recv.type(pool_impl());
         mlir::Value base = gen_lvalue_addr(recv);
         if (!base) return nullptr;
-        // Element stride = the receiver's element type's slot type.
+        // Element stride = the receiver's element type's slot type. ASKED
+        // LAZILY, per receiver kind. It used to be computed here, once, before
+        // the dispatch — and `TypeRef(Ptr/Ref).elem()` is NULL, so on the two
+        // pointer-receiver arms below (which then compute their own stride from
+        // the POINTEE) this asked `place_slot_type(null)` and threw the answer
+        // away. Harmless while that answer was a silent i32 guess; now that a
+        // null type is a reported decline (see place_slot_type), a speculative
+        // ask is a false report. Every arm that uses `stride` sets it.
         TypeRef elem_t = recv_t ? TypeRef(recv_t).elem() : TypeRef(nullptr);
-        mlir::Type stride = place_slot_type(elem_t);
+        mlir::Type stride;
         auto rk = recv_t ? TypeRef(recv_t).kind() : LogosType::Kind::Error;
         // Slice receiver: `base` is the fat {ptr,len} descriptor — load data ptr.
         if (rk == LogosType::Kind::Slice) {
+            stride = place_slot_type(elem_t);
             auto stype = slice_llvm_type();
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
             auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, base, pi);
             base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
         } else if (rk == LogosType::Kind::Array) {
             // base is the array storage; stride is the element slot.
+            stride = place_slot_type(elem_t);
         } else if (recv.kind() == ec::Code::VarRef &&
                    (rk == LogosType::Kind::Ptr || rk == LogosType::Kind::MutRef ||
                     rk == LogosType::Kind::Ref) && TypeRef(recv_t).pointee()) {

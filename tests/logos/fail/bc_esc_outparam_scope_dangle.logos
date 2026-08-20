@@ -1,0 +1,36 @@
+// #78 — OUT-PARAM RETENTION WAS CAUGHT BY THE EXCLUSIVITY CHANNEL ONLY.
+//
+// `apply_flow_outparams` already read the callee's `to_outparam[j]` mask and
+// moved LOANS and alias edges through it (D1 rounds 12/13, A2 and P2), so a
+// later MUTATION of the source was caught. Nothing in it wrote to
+// `ref_borrow_sources_`, which is the §B6 scope-escape channel — so the case
+// where the source is not mutated but simply DROPPED was invisible.
+//
+// MEASURED at f0a60ff3: rc 0 on this file, while the DIRECT spelling of the
+// same store — `k.f = owner.as_str();` written in main instead of through
+// `set2` — refuses with exactly the diagnostic below. The `&mut self` method
+// spelling (`k.set(owner.as_str())`) admitted too; it refuses now through the
+// same site, since a method call's operand list is receiver-first.
+//
+// THE ONE VARIABLE against pass/bc_esc_outparam_scope_admit: WHERE the stored
+// borrow comes from. Here it is a `String` local to an inner block, which dies
+// before `k` is read; there it is the caller's parameter, which outlives the
+// frame. Same helper, same call, same use.
+package bc_esc_outparam_scope_dangle;
+use logos.mem.string;
+
+pub struct K { pub f: str }
+
+pub fn set2(k: &mut K, s: str) { k.f = s; }
+
+fn main() -> i32 {
+    let mut k: K = K { f: "" };
+    {
+        let owner: String = String::from("hello");
+        set2(&mut k, owner.as_str());
+    }
+    // The USE is what asks the question — NLL flags the first use past the
+    // scope, not the store itself.
+    if k.f.len() >= 0i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,31 @@
+// #80 — THE SLOT-SIZE SENSOR, EXECUTED.
+//
+// `MLIRGenImpl::check_slot_fits` reports a value-copy whose destination alloca
+// is SMALLER than the bytes copied — the #80 defect exactly (`let v: str;` got
+// an 8-byte handle slot and `v = "abcde"` memcpy'd the 16-byte {ptr,len} pair
+// into it, overwriting the next local). It is asked at six memcpy sites in
+// gen_assign, and measured over the whole fixture corpus plus a full
+// stdlib+examples build it was asked 45 494 times and NEVER FIRED: the state
+// it names is a compiler malfunction, so correct codegen cannot reach it.
+//
+// A sensor no program executes is a green nobody ran, so the reporting arm has
+// a fault injection to execute it: a local whose name starts with
+// `__slotfit_canary` is given the PRE-#80 slot in `declare_local_place`
+// (logos_to_mlir(T) — 8 bytes for every fat repr — and no shape registration).
+// The assignment below therefore copies 16 bytes into 8 and the compile FAILS
+// with the sensor's own words.
+//
+// THE PAIR: this file is the REFUSE half. The ADMIT half is
+// `pass/bc_fatval_deferred_init_len`, which is the same declaration with an
+// ordinary name — it compiles and exits 0. If the injection is deleted, this
+// file goes green-by-silence (logosc succeeds, no diagnostic) and the fail
+// runner reds it; if `check_slot_fits`'s report is deleted, the same.
+package mlirgen_slot_fits_sensor;
+
+unsafe fn main() -> i32 {
+    let __slotfit_canary_v: str;
+    let n1: i64 = 111i64;
+    __slotfit_canary_v = "abcde";
+    if n1 != 111i64 { return 1; }
+    return 0;
+}

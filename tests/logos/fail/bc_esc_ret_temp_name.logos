@@ -1,0 +1,35 @@
+// #77 round 2 — THE REPAIR LEAKED A COMPILER-INTERNAL NAME INTO THE MESSAGE.
+//
+// MEASURED at f0a60ff3, one variable — whether the frame owns anything that
+// needs a DROP:
+//   `let t: i64 = 9i64;  return keepr(&t);`
+//       -> "cannot return reference to local variable 't'"      (right)
+//   `let o: String = String::from("hello");  return thru2(o.as_str());`
+//       -> "cannot return reference to local variable '__ret_tmp_0'"
+// Nothing about the borrow differs. What differs is that `o` needs a drop, so
+// sema routes the return through `make_return_with_drops` (sema_stmt.cpp) and
+// rewrites it as `let __ret_tmp_0 = thru2(...); <drops>; return __ret_tmp_0;`.
+// The returned expression is then a plain VarRef and check_return_value read
+// its name straight out — so EVERY borrow-returning function with a droppable
+// local named a binding that exists in no source file. No fixture pinned this
+// path; this one does, on the exact string.
+//
+// The fix asks `ref_sources_under` — the §B6 answer to "which locals does this
+// PLACE borrow from" — instead of special-casing the message, because the
+// return temp is a place like any other.
+package bc_esc_ret_temp_name;
+
+use logos.mem.string;
+
+pub fn thru2(s: str) -> str { return s; }
+
+pub fn bad() -> str {
+    let o: String = String::from("hello");
+    return thru2(o.as_str());
+}
+
+fn main() -> i32 {
+    let r: str = bad();
+    if r.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

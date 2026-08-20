@@ -121,6 +121,18 @@ trap 'rm -rf "$TMPD"' EXIT
 OUT="$TMPD/o"
 mkdir -p "$OUT/_st"
 
+# ⚠ THE SWEEP'S FAN-OUT IS A BUDGET, NOT `nproc` (task #82). This read
+# `-P "$(nproc)"` while `test-levels.sh` runs `ctest -j"$(nproc)"`, so one gate
+# asked for 32 workers from inside one of 32 concurrent ctest slots — ~1024-way
+# oversubscription on 32 cores. Measured over seven L4 runs on 2026-08-19: every
+# run timed out 1-4 tier_full gates, a DIFFERENT subset each time, and every one
+# of them passed ALONE in 4-33 s against its ceiling. Wall-clock timeouts under
+# that much oversubscription pick victims at random, and a gate that reds at
+# random trains the reader to shrug at a red.
+# The number below is DECLARED TO CTEST as this test's PROCESSORS in
+# tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
+# and ctest will schedule this gate next to 31 neighbours again.
+SWEEP_P="${LOGOS_GATE_SWEEP_P:-8}"
 if [ -n "$PRESWEPT" ]; then
     [ -d "$PRESWEPT" ] || { echo "FAIL(2): no pre-swept dir $PRESWEPT"; exit 2; }
     cp "$PRESWEPT"/*.user "$OUT/" 2>/dev/null
@@ -157,7 +169,7 @@ else
     }
     export -f one
     printf '%s\0' "${FIXTURES[@]}" \
-        | xargs -0 -P "$(nproc)" -I{} bash -c 'one "$@"' _ {} "$OUT" "$LOGOSC"
+        | xargs -0 -P "$SWEEP_P" -I{} bash -c 'one "$@"' _ {} "$OUT" "$LOGOSC"
     ST=("$OUT"/_st/*)
     if [ "${#ST[@]}" -ne "$NFIX" ]; then
         echo "FAIL(2): ${#ST[@]} rc files for $NFIX probes — probes were lost."

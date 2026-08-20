@@ -1,0 +1,50 @@
+// #77 round 2 — ADMIT half of the summary SEED widening, and the price of the
+// cut that had to land with it.
+//
+// ONE VARIABLE against fail/bc_esc_summary_seed_field_dangle: whose borrow the
+// by-value aggregate carries. `pick` summarises `result<-0x1` in BOTH files —
+// the mask is the same and it is right in both — so what decides the verdict
+// is where the carried borrow came from, which is the caller's business.
+// `keep_param` builds the `H` out of the caller's own parameter, so the
+// returned borrow outlives the frame.
+//
+// `stored_str` is the second half, and it is the one that priced the widening.
+// Making `can_carry` answer YES for every aggregate that transitively holds a
+// `&` also makes a `str` COPIED OUT of a `&`-parameter look like a borrow OF
+// that parameter — which it is not: Logos elides lifetimes, so `&'b Cfg`
+// holding `&'a str` hands back `&'a str`, exactly the rule `prov_of`'s
+// MethodCall arm has stated since D1 round 3 for `Vec<str>::get`. MEASURED:
+// without `stored_shared_extract` the FULL stdlib rebuild came back with 6
+// reds, all in wql/plan_walker.logos's `walk_program_params`, every one an
+// AccessPlan built out of `prm.relc_ty[i]` — `str` views of the query SOURCE
+// TEXT that merely live in `prm`. `outlives` is that shape reduced: the `str`
+// handed back was never a borrow of the local `c` at all — it is the literal's
+// — so returning it past `c`'s frame is correct, and it is the mask that says
+// so (`stored_str: result<-0  EXACT`; without the cut it reads `result<-0x1`
+// and this function refuses).
+package bc_esc_summary_seed_field_admit;
+
+pub struct H { pub r: &i64 }
+
+pub fn pick(h: H) -> &i64 { return h.r; }
+
+pub fn keep_param(q: &i64) -> &i64 {
+    let h: H = H { r: q };
+    return pick(h);
+}
+
+pub struct Cfg { pub name: str, pub n: i64 }
+
+pub fn stored_str(c: &Cfg) -> str { return c.name; }
+
+pub fn outlives() -> str {
+    let c: Cfg = Cfg { name: "abcd", n: 0i64 };
+    return stored_str(&c);
+}
+
+fn main() -> i32 {
+    let q: i64 = 7i64;
+    if *keep_param(&q) != 7i64 { return 1i32; }
+    if outlives().len() != 4i64 { return 2i32; }
+    return 0i32;
+}

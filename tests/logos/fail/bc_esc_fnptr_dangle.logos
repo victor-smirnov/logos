@@ -1,0 +1,34 @@
+// #79 — A CALL THROUGH A FN POINTER NEVER ASKED THE CALLEE.
+//
+// The §B6 deposit arm for `FnPtrCall` applied the summary-LESS rule only
+// (plain-ref args, bc-by-name args, borrow-forming args), so a FAT by-value
+// argument — `owner.as_str()`, a MethodCall of type `str` — deposited nothing.
+// MEASURED at f0a60ff3: rc 0 here, while the IDENTICAL direct call
+// `keep1(owner.as_str())` refuses with exactly the diagnostic below. Same
+// callee, same argument, same use after the scope; only the indirection
+// differed. (The loan channel's `prov_of` had resolved fn pointers since G1 —
+// the two channels disagreed at one expression kind.)
+//
+// `flow_of_fnptr` resolves only a pointer whose initializer is a known fn ITEM
+// and which is never reassigned to a different one; anything else answers
+// nullptr and takes the old rule unchanged.
+//
+// THE ONE VARIABLE against pass/bc_esc_fnptr_admit: what the pointed-to
+// function DOES. `keep1` returns its argument (`result<-0x1`); the admit
+// twin's `keep0` returns a literal (`result<-0`). Identical pointer type,
+// identical call, identical argument.
+package bc_esc_fnptr_dangle;
+use logos.mem.string;
+
+pub fn keep1(s: str) -> str { return s; }
+
+fn main() -> i32 {
+    let mut v: str = "";
+    {
+        let owner: String = String::from("hello");
+        let f: fn(str) -> str = keep1;
+        v = f(owner.as_str());
+    }
+    if v.len() >= 0i64 { return 0i32; }
+    return 1i32;
+}

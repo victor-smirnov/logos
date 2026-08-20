@@ -1,0 +1,29 @@
+// #79 — ADMIT half. ONE VARIABLE against fail/bc_esc_fnptr_dangle: the
+// pointed-to function returns a STATIC literal instead of its argument, so its
+// summary is `result<-0` and the newly-consulted mask stays shut. Identical
+// pointer type, identical call shape, identical argument expression.
+//
+// This is what prices the change: the arm consults the RESOLVED callee's
+// per-argument mask. The alternative the residual note offered — "be
+// conservative for ref-typed args through any fn pointer" — would refuse this
+// file, and every callback that takes a borrow and returns something else.
+//
+// The use asserts the VALUE, not just that it compiles: `len() >= 0` was a
+// tautology forced by #80 (a fat local assigned inside a block read a wrong
+// length). #80 is fixed, so this pins the real answer — `keep0` returns
+// "abcde".
+package bc_esc_fnptr_admit;
+use logos.mem.string;
+
+pub fn keep0(s: str) -> str { return "abcde"; }
+
+fn main() -> i32 {
+    let mut v: str = "";
+    {
+        let owner: String = String::from("hello");
+        let f: fn(str) -> str = keep0;
+        v = f(owner.as_str());
+    }
+    if v.len() == 5i64 { return 0i32; }
+    return 1i32;
+}

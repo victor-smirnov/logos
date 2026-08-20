@@ -93,6 +93,62 @@ struct FlowSummary {
     std::vector<uint64_t> to_outparam;   // indexed by the &mut param j
     std::vector<uint8_t>  is_outparam;
     uint32_t              nparams = 0;
+    // ── #77: IS THIS SUMMARY EXACT, OR DID IT GUESS? ───────────────────────
+    //
+    // `to_result` / `to_outparam` are SOUND-BUT-OVER-APPROXIMATE by design:
+    // when a callee's own body is unavailable (extern, metaprog stub, an
+    // unmaterialized ExternalRef body — every FOREIGN-PACKAGE callee, #81),
+    // `call_result_taint` takes the (a)-(d) fallback and ties the result to
+    // EVERY borrowing operand. For the loan/exclusivity channels that is the
+    // right conservatism: it can only extend a loan's lifetime.
+    //
+    // For the RETURN-escape channel it is not. MEASURED on the stdlib build:
+    // `fn intern(scratch: &Writ, s: &String) -> str { let ws =
+    // scratch.wstring(sstr(s)); return ws.as_str(); }` (stdlib/mem/deem/
+    // deem.logos:1062) summarises `result<-0x3` — it claims to retain `s` —
+    // ONLY because `Writ::wstring` lives in logos_lang and is UNAVAILABLE
+    // here. `wstring` copies the bytes into the arena (copy_bytes, wstring.
+    // logos:58) and declares `&'a WString` tied to `self` alone, so the true
+    // mask is `0x1` and rustc accepts every one of the three call sites
+    // (tpl.logos:329/420/424) that this bit refused.
+    //
+    // `approx` is that distinction, recorded where it is known: true iff this
+    // function's masks were computed using at least one guessed bit — its own
+    // fallback, or a callee whose summary is itself approx. Monotone (never
+    // cleared), so it is part of the same fixpoint as the masks.
+    bool                  over_approx = false;
+    // ── #77 round 2: WHAT "EXACT" IS ALLOWED TO MEAN, AND THE MEASUREMENT ──
+    //
+    // `over_approx` (round 1's `approx`) records bits GUESSED IN. It says
+    // nothing about bits MISSED OUT, so an INCOMPLETE mask was labelled EXACT
+    // and the #77 door — whose whole narrowing is "trust an EXACT mask" —
+    // trusted it. MEASURED, the witness that started this:
+    // `struct H { r: &i64 }  fn pick(h: H) -> &i64 { return h.r; }` printed
+    // `result<-0  EXACT  (rounds=2)`, a claim the datum could not support.
+    //
+    // A second flag was BUILT for the missing half ("this walk reached a place
+    // where a flow could exist and could not say") and then REMOVED, because
+    // the measurement said the honest fix is upstream of it. A fire-print on
+    // the three blind sites over one `stdlib/mem` module build reported:
+    //   walk_stmt   default : Drop 119689, Continue 298   — and NOTHING else
+    //   taint_of    default : 0
+    //   indirect callee arm : 0
+    // Drop is the END of a value's life and Continue carries nothing, so both
+    // are no-ops, not blind spots — they are now explicit arms below and
+    // `walk_stmt` is exhaustive over the 22 live statement kinds. With them
+    // named, the flag was set ZERO times over the whole stdlib and its
+    // consumer (a `usable()` filter that made `flow_of_call` decline an
+    // under-approximate summary) fired ZERO times and moved no fixture. A
+    // green nobody executes is worse than no flag, so it came out.
+    //
+    // WHAT MAKES "EXACT" HONEST NOW is therefore not a second bit, it is the
+    // two enumerations plus the seed repair: `can_carry` sees the aggregates
+    // it used to miss, `taint_of` states the kinds that carry nothing rather
+    // than defaulting them, and `walk_stmt` has an arm for every kind that
+    // exists. RE-DERIVE the claim by putting an fprintf on `taint_of`'s
+    // `default:` (gated on `can_carry(t)`), on `walk_stmt`'s `default:`, and
+    // on the indirect-callee `return 0` — if any of them counts, "EXACT" is
+    // over-claiming again and the arm it names is the repair.
 };
 using FlowSummaryMap = std::unordered_map<std::string, FlowSummary>;
 
@@ -123,7 +179,7 @@ static const FlowSummary* resolve_call_flow(const FlowSummaryMap& flows,
 
 static bool flow_eq(const FlowSummary& a, const FlowSummary& b) {
     return a.nparams == b.nparams && a.to_result == b.to_result &&
-           a.to_outparam == b.to_outparam;
+           a.to_outparam == b.to_outparam && a.over_approx == b.over_approx;
 }
 
 static const FlowSummary* resolve_method_flow(const FlowSummaryMap& flows,
@@ -255,7 +311,15 @@ public:
         for (auto& [nm, s] : out_) {
             (void)nm;
             if (!s.available) continue;
-            total_bits += static_cast<uint64_t>(s.nparams) * (1ull + s.nparams);
+            // +1 for #77's `approx` bit — it is part of the same monotone
+            // lattice and `recompute` reports it through the same `grew`, so
+            // the derived round bound has to count it or the ICE could fire on
+            // a legitimate final propagation round.
+            // +1 for #77's `over_approx` bit — it is part of the same monotone
+            // lattice and `recompute` reports it through the same `grew`, so
+            // the derived round bound has to count it or the ICE could fire on
+            // a legitimate final propagation round.
+            total_bits += static_cast<uint64_t>(s.nparams) * (1ull + s.nparams) + 1ull;
         }
         for (rounds_used_ = 1;; ++rounds_used_) {
             bool changed = false;
@@ -309,6 +373,10 @@ private:
     std::vector<TypeRef>                      ptypes_;
     uint64_t                                  result_taint_ = 0;
     bool                                      body_changed_ = false;
+    // #77: set by `call_result_taint` whenever a bit in this body's masks came
+    // from a GUESS (no callee summary, or an approx one). Reset per body run
+    // beside `result_taint_`; folded into the summary in `recompute`.
+    bool                                      body_over_approx_  = false;
 
     template <class F> void for_each_fn(F&& f) {
         for (auto& fn : prog_.functions)       f(lir_view::FunctionView(fn));
@@ -439,9 +507,81 @@ private:
         // appear are `Option<&mut i32>::unwrap_or`'s (result<-0x2 → 0x3 — the
         // receiver holds the `&mut`, which is true and was missing). Compile
         // time within noise (mem 85.2s on / 85.9s off).
-        return is_ref_kind(t) || bc_is_borrow_carrying_type(ts_, t) ||
+        //
+        // ── #77 round 2 / SEED: THE `&` HALF OF X2 ─────────────────────────
+        //
+        // X2 above closed the `&mut` half and stopped there, so the SHARED
+        // twin stayed open with the same one-variable signature:
+        //   `struct H { r: &i64 }  fn pick(h: H) -> &i64 { return h.r; }`
+        //     → `result<-0  EXACT`   (measured, LOGOS_DUMP_FLOWS=pick)
+        // — an INCOMPLETE mask that the #77 door then trusted, admitting
+        // `let t = 9; let h = H{r:&t}; return pick(h);` at rc=0. Both gates
+        // this predicate feeds (the `recompute` seed and `taint_of`'s
+        // VarRef/FieldRead arms) ask the same question, so the repair is one
+        // term here and not two at the sites — the same argument X2 makes.
+        return bc_holds_any_ref_type(ts_, t) ||
+               bc_is_borrow_carrying_type(ts_, t) ||
                bc_loan_carrying_type(ts_, t) ||
                bc_holds_mut_ref_type(ts_, t);
+    }
+
+    // ── #77 round 2 / SEED, THE OTHER HALF: A STORED SHARED BORROW COPIED ──
+    // OUT THROUGH A `&` IS NOT A BORROW OF THE REFERENCE.
+    //
+    // This is the rule prov_of's MethodCall arm has stated since D1 round 3 —
+    // "a FAT value result ties only when the method's own signature borrows
+    // self: `Vec<str>::get -> T` copies a STORED borrow out, its lifetime is
+    // the element's, not the receiver's (Rust parity)" — written for the
+    // PROJECTION spelling, which the summarizer's walk never had.
+    //
+    // WHY IT LANDS IN THE SAME STEP AS THE SEED WIDENING, AND NOT LATER. The
+    // widening makes `can_carry` true for every aggregate that transitively
+    // holds a `&`, which is what lets `pick(h: H) -> &i64 { return h.r; }`
+    // finally report `result<-0x1`. Without this half it ALSO makes every
+    // `str` copied out of a `&`-param report a retention of that param.
+    // MEASURED — the full-rebuild RED LIST of the widening alone was 6, all in
+    // `wql/plan_walker.logos:walk_program_params` (5 × "cannot borrow 'prm' as
+    // mutable", 1 × "cannot borrow 'pick_ap'"), every one of them an
+    // AccessPlan built out of `prm.relc_ty[i]` / `prm.relc_name[i]` — `str`
+    // views of the QUERY SOURCE TEXT that happen to be STORED in `prm`, whose
+    // lifetime has nothing to do with the `&MacroParams` they were read
+    // through. Logos has no lifetime parameters, so the elision this restates
+    // is the whole model: `&'b Foo` holding `&'a str` hands back `&'a str`.
+    //
+    // ⚠ SHARED ONLY. A `&mut` FIELD is NOT copyable — `h.r` on `h: &mut Inner`
+    // is a REBORROW and is tied to the reference, which is exactly round 11 /
+    // X2's `result<-0x1` and must not move. The predicate therefore asks for a
+    // non-mut ref kind, and the by-VALUE receiver (`h: H`) is untouched: its
+    // root is not a reference at all, so the seed's whole point survives.
+    bool stored_shared_extract(lir_view::ExprRef e) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        TypeRef t = e.type(pool);
+        // The extracted value must itself be a COPYABLE borrow.
+        if (!t || t.kind() == LogosType::Kind::MutRef) return false;
+        if (!is_ref_kind(t)) return false;
+        // Walk the projection spine to its root; a `&mut` step anywhere makes
+        // the whole chain a reborrow, not a copy.
+        ExprRef cur = e;
+        int hops = 0;
+        while (cur && hops++ < 64) {
+            TypeRef ct = cur.type(pool);
+            if (ct && ct.kind() == LogosType::Kind::MutRef) return false;
+            switch (cur.kind()) {
+                case Code::FieldRead:  cur = EFieldReadView{cur}.receiver();  continue;
+                case Code::TupleIndex: cur = ETupleIndexView{cur}.receiver(); continue;
+                case Code::IndexRead:  cur = EIndexReadView{cur}.receiver();  continue;
+                case Code::SliceIndex: cur = ESliceIndexView{cur}.slice();    continue;
+                case Code::SlicePtr:   cur = ESlicePtrView{cur}.slice();      continue;
+                case Code::Deref:      cur = EDerefView{cur}.operand();       continue;
+                default: break;
+            }
+            break;
+        }
+        if (!cur) return false;
+        TypeRef rt = cur.type(pool);
+        return rt && rt.kind() == LogosType::Kind::Ref;
     }
 
     const FlowSummary* summary_of_call(std::string_view symbol) const {
@@ -709,12 +849,16 @@ private:
                 return taint_of(EAddrOfTempView{e}.inner());
             }
             case Code::FieldRead:
+                if (stored_shared_extract(e)) return 0;    // #77 r2 / SEED
                 return can_carry(t) ? taint_of(EFieldReadView{e}.receiver()) : 0;
             case Code::TupleIndex:
+                if (stored_shared_extract(e)) return 0;    // #77 r2 / SEED
                 return can_carry(t) ? taint_of(ETupleIndexView{e}.receiver()) : 0;
             case Code::IndexRead:
+                if (stored_shared_extract(e)) return 0;    // #77 r2 / SEED
                 return can_carry(t) ? taint_of(EIndexReadView{e}.receiver()) : 0;
             case Code::SliceIndex:
+                if (stored_shared_extract(e)) return 0;    // #77 r2 / SEED
                 return can_carry(t) ? taint_of(ESliceIndexView{e}.slice()) : 0;
             // ── #71/#72 round / DEFECT 1: `s.as_ptr()` ON A SLICE IS A NODE ─
             //
@@ -899,6 +1043,9 @@ private:
                     return call_result_taint(/*s=*/nullptr, args,
                                              /*has_recv=*/false, t);
                 }
+                // #77 round 2: neither a fn pointer nor a closure VALUE —
+                // an indirect callee this walker cannot name at all. Silence
+                // here is a guess in the permissive direction; say so.
                 if (!ct || ct.kind() != LogosType::Kind::Closure) return 0;
                 if (!can_carry(t)) return 0;
                 uint64_t m = taint_of(callee);
@@ -912,6 +1059,10 @@ private:
                 };
                 if (e.kind() == Code::ClosureCall) EClosureCallView{e}.each_arg(add_arg);
                 else                               EFnPtrCallView{e}.each_arg(add_arg);
+                // #77: a closure body is never summarised — this arm is
+                // signature elision over the captures and the args, i.e. the
+                // same guess `call_result_taint`'s fallback makes.
+                if (m) body_over_approx_ = true;
                 return m;
             }
             case Code::Call: {
@@ -929,6 +1080,33 @@ private:
                 return call_result_taint(summary_of_method(v), args,
                                          /*has_recv=*/true, t);
             }
+            // ── #77 round 2: THE KINDS THAT CARRY NOTHING, STATED ──────────
+            //
+            // These are not "no arm yet" — they are a positive answer of 0,
+            // and they have to be written down or the blind-spot flag below
+            // swallows them. `LitStr` is the load-bearing one: a string
+            // literal is a `str` (so `can_carry` says yes) pointing at STATIC
+            // data, and MEASURED, it was the whole regression —
+            // `pub fn keep0(s: str) -> str { return "abcde"; }` became
+            // under-approximate, its summary was refused at the consumer, the
+            // fn-pointer arm fell to the conservative route, and
+            // pass/bc_esc_fnptr_admit went red. `EnumLit` is a payload-less
+            // variant: no operands at all. The scalar literals are listed
+            // beside them because the answer is the same fact, not because
+            // `can_carry` would have caught them.
+            case Code::LitStr:  case Code::EnumLit:
+            case Code::LitInt:  case Code::LitFloat:  case Code::LitBool:
+            case Code::SliceLen: case Code::SizeOf: case Code::AlignOf:
+            case Code::TypeCodeOf: case Code::PtrDiff:
+                return 0;
+            // ── #77 round 2: THE WALK'S OWN BLIND SPOT, STATED ─────────────
+            // Every arm above answers "which params' loans can this value
+            // carry". This one cannot, and until now it said 0 — the same
+            // silent permissive default D1 round 5 / H5 removed from
+            // `bind_pat`. It is not fixable by enumeration alone (the schema
+            // grows), so the honest record is the fact, and only when the
+            // value COULD have carried something: a scalar-typed expression
+            // with no arm answers 0 correctly.
             default:
                 return 0;
         }
@@ -944,6 +1122,8 @@ private:
             uint64_t m = 0;
             for (size_t i = 0; i < args.size() && i < s->nparams; ++i)
                 if (s->to_result & (1ull << i)) m |= taint_of(args[i]);
+            // #77: a guess consumed is a guess inherited.
+            if (s->over_approx && m) body_over_approx_ = true;
             return m;
         }
         // Unavailable body — the (a)–(d) fallback: the pre-F3 signature
@@ -976,8 +1156,15 @@ private:
             // Making the two gates ONE predicate is the minimal repair, and it
             // is strictly taint-ADDING: this branch can only union more bits
             // into a fallback that is already the conservative arm.
-            if (can_carry(at))
-                m |= taint_of(a);
+            if (can_carry(at)) {
+                uint64_t am = taint_of(a);
+                // #77: THIS is the guess — no body, so every borrowing operand
+                // is tied to the result by signature elision. Recorded only
+                // when it actually contributes a bit, so a fallback over
+                // untainted operands leaves the summary EXACT.
+                if (am) body_over_approx_ = true;
+                m |= am;
+            }
         }
         return m;
     }
@@ -1009,6 +1196,13 @@ private:
                 // or the migration is half-done — and a half-migration turns
                 // the over-approximation into an UNDER-approximation
                 // (measured: r9_s1 / r10_sp0 / r10_sp1 all go permissive).
+                // #77: an out-param edge inherited from an APPROX callee is
+                // itself a guess, and it can reach `result_taint_` from the
+                // place it lands in. Marking here keeps `approx` a statement
+                // about the WHOLE summary rather than about `to_result`'s
+                // direct path only. Strictly flag-ADDING, so it can only close
+                // the new return-escape door, never open it.
+                if (s->over_approx && src) body_over_approx_ = true;
                 add_taint(dest_place_of(args[j]), src);
             }
         }
@@ -1363,6 +1557,17 @@ private:
             case Code::Block:
                 if (auto b = SBlockView{sr}.body()) walk_block(b);
                 break;
+            // #77 round 2: the two statement kinds that deposit NOTHING, and
+            // they are stated rather than defaulted for the same reason H5's
+            // four no-op pattern kinds are. MEASURED with a fire-print over one
+            // `stdlib/mem` module build: these two were the ONLY kinds reaching
+            // the default arm (Drop 119689, Continue 298) and they made 509
+            // summaries under-approximate for nothing — a `drop(x)` is the END
+            // of a value's life and a `continue` carries none. The print then
+            // came out; re-derive it by putting an fprintf on the default arm
+            // below.
+            case Code::Drop: case Code::Continue:
+                break;
             default:
                 break;
         }
@@ -1381,6 +1586,7 @@ private:
         alias_.clear();
         loop_slots_.clear();          // A1: per-function, like taint_
         result_taint_ = 0;
+        body_over_approx_ = false;      // #77
         pnames_.clear();
         ptypes_.clear();
         for (uint32_t i = 0; i < s.nparams; ++i) {
@@ -1445,6 +1651,7 @@ private:
         }
 
         bool grew = false;
+        if (body_over_approx_ && !s.over_approx) { s.over_approx = true; grew = true; }   // #77
         if ((s.to_result | result_taint_) != s.to_result) {
             s.to_result |= result_taint_;
             grew = true;

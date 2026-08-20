@@ -22,16 +22,12 @@ fn main() -> i32 {
         let owner: String = String::from("hello");
         v = my_as_str3(owner.as_str());
     }
-    // ⚠ THE ASSERTION IS THE VERDICT, NOT THE BYTES. `v` must be USED after
-    // the block or the §B6 liveness question is never asked — but the VALUE
-    // read back must not be asserted: a deferred-init `str` assigned inside a
-    // block reads a wrong length today (`let v: str; { v = "abcde"; }
-    // v.len()` returns 1, measured this round on a fixture with no call and
-    // no borrow at all — a pre-existing codegen defect, filed separately, and
-    // untouchable by a borrow-check change since this pass only emits
-    // diagnostics). `len() >= 0` is true for every possible value, so the use
-    // is real and the fixture asserts exactly one thing: that this compiles.
+    // The use is what asks the §B6 liveness question, and it now asserts the
+    // VALUE too: `len() >= 0` was a tautology forced by #80 (a deferred-init
+    // `str` assigned inside a block read a wrong length — 1 for a 5-byte
+    // literal). #80 is fixed (declare_local_place), so the debt is paid and
+    // the fixture pins the real answer: `my_as_str3` returns "abcde".
     let n: i64 = v.len();
-    if n >= 0i64 { return 0i32; }
+    if n == 5i64 { return 0i32; }
     return 1i32;
 }

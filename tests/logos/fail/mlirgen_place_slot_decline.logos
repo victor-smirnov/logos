@@ -1,0 +1,48 @@
+// #80 FOLLOW-UP — THE PLACE-SLOT DECLINES, EXECUTED.
+//
+// `MLIRGenImpl::place_slot_type` decides the byte size of a PLACE: an array /
+// Vec element stride, a GEP into an aggregate, and — since #80 — the slot of a
+// deferred `let v: T;`. It had two arms that GUESSED instead of declining:
+//
+//   * a NULL TypeRef answered `i32` — a FOUR-byte place, smaller than every
+//     fat repr and than most scalars, so the stride/GEP/slot built from it is
+//     wrong in the direction that overwrites the neighbour;
+//   * a Struct whose `mlir_struct_key` misses `struct_types_` (the open
+//     bare-name class #58/#60/#61) answered the 8-byte HANDLE `ptr` — a place
+//     type for a struct of any size, and #80 made it a deferred-`let` slot
+//     that `var_struct_` then memcpy's the struct's real footprint into.
+//
+// Both are now reported on the `bug` channel ⇒ COMPILE FAILED, no object file.
+//
+// NEITHER FIRES ANYWHERE IN THE TREE. That is the point and the problem: the
+// state they name is a compiler malfunction, so correct codegen cannot reach
+// them, and a report no program executes is a green nobody ran (exactly what
+// `check_slot_fits` was caught being — `fail/mlirgen_slot_fits_sensor`). The
+// measurement is self-instrumenting rather than a fire counter that can go
+// stale: the sink FAILS THE COMPILE, so the green stdlib+examples build and the
+// green fixture corpus could not be hiding a fire.
+//
+// THIS FILE PINS THE SECOND ONE. It executes the struct-key-miss arm through
+// the name-scoped fault injection in `declare_local_place`: a local named
+// `__slotmiss_canary*` asks `place_slot_type` with `slot_decline_canary_` set,
+// which forces the `struct_types_` lookup to take its miss arm. The NULL arm
+// has its own fixture, `fail/mlirgen_place_slot_null_decline` — ONE PREFIX PER
+// ARM, because the fail runner greps the whole `.expected` as a FIXED pattern
+// and a two-line expectation is an OR, so one file asserting both texts would
+// stay green after either report was deleted. Delete this decline, or the
+// injection, and this file goes green-by-silence — logosc succeeds, stderr
+// carries nothing, and the fail runner reds it.
+//
+// THE ADMIT HALF OF THE PAIR: `pass/bc_fatval_deferred_init_len` cell 14/15 is
+// the same `let st: W;` declaration with an ordinary name — it compiles, and
+// the struct lands in its real 24-byte slot.
+package mlirgen_place_slot_decline;
+
+pub struct W { pub s: str, pub n: i64 }
+
+unsafe fn main() -> i32 {
+    let __slotmiss_canary_st: W;
+    __slotmiss_canary_st = W { s: "abcde", n: 9i64 };
+    if __slotmiss_canary_st.n != 9i64 { return 1; }
+    return 0;
+}

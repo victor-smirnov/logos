@@ -1,0 +1,1 @@
+copies 16 bytes of a fat {data,meta} pair into a 8-byte slot

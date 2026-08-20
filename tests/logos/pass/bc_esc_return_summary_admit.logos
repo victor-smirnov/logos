@@ -1,0 +1,25 @@
+// #77 — ADMIT half. ONE VARIABLE against fail/bc_esc_return_summary_dangle:
+// which argument the callee RETAINS. `second` keeps parameter 1, and here the
+// local `&t` is passed in position 0 while the caller's own parameter `p` is
+// passed in position 1 — so the returned borrow outlives the frame and rustc
+// accepts it. Identical signature, identical call shape, opposite verdict.
+//
+// This is what prices the widening: the arm reads the summary's per-argument
+// mask (`second: result<-0x2`), it does not tie every reference argument. A
+// checker that refused here would have "fixed" #77 by breaking every helper
+// that takes a scratch local alongside a borrow it hands back.
+package bc_esc_return_summary_admit;
+
+pub fn second<'a>(a: &i64, b: &'a i64) -> &'a i64 { return b; }
+
+pub fn ok(p: &i64) -> &i64 {
+    let t: i64 = 9i64;
+    return second(&t, p);
+}
+
+fn main() -> i32 {
+    let q: i64 = 7i64;
+    let r: &i64 = ok(&q);
+    if *r == 7i64 { return 0i32; }
+    return 1i32;
+}

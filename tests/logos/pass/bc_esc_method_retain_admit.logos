@@ -1,0 +1,47 @@
+// #77 round 2 — ADMIT half of the MethodCall door.
+//
+// ONE VARIABLE against fail/bc_esc_method_retain_dangle: which `str` reaches
+// `thru`. `K::thru(&self, s: str) -> str` summarises `result<-0x2` in both
+// files — it retains the ARGUMENT, never `self` — so here the caller's own
+// parameter comes back out and the borrow outlives the frame.
+//
+// `view` is the shape the fat gate was written for and must keep admitting:
+// `Held::first(&self) -> str` copies a STORED borrow out of the receiver, so
+// its lifetime is the stored view's, not the receiver's, and handing it back
+// past a LOCAL receiver is correct (Rust parity, `Vec<str>::get`). It admits
+// for the right reason now rather than by the gate's silence: the summary says
+// the result comes from nothing the frame owns (`first: result<-0`).
+package bc_esc_method_retain_admit;
+
+use logos.mem.string;
+
+pub struct K { pub z: i64 }
+
+impl K {
+    pub fn thru(&self, s: str) -> str { return s; }
+}
+
+pub fn ok(k: &K, p: str) -> str {
+    let o: String = String::from("hello");
+    let n: i64 = o.len();
+    if n == 0i64 { return ""; }
+    return k.thru(p);
+}
+
+pub struct Held { pub s: str }
+
+impl Held {
+    pub fn first(&self) -> str { return self.s; }
+}
+
+pub fn view() -> str {
+    let h: Held = Held { s: "abcd" };
+    return h.first();
+}
+
+fn main() -> i32 {
+    let k: K = K { z: 1i64 };
+    if ok(&k, "xyz").len() != 3i64 { return 1i32; }
+    if view().len() != 4i64 { return 2i32; }
+    return 0i32;
+}

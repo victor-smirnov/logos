@@ -1,0 +1,183 @@
+// #80 — A DEFERRED-INIT LOCAL OF A FAT TYPE GOT AN 8-BYTE SLOT.
+//
+// `let v: T;` (no initialiser) decided its slot with `logos_to_mlir(T)` — the
+// HANDLE query, which answers `ptr` for every fat repr — and registered no
+// shape. So the slot was 8 bytes while the later `v = …` memcpy'd the 16-byte
+// {ptr,len} / {fn,env} / {data,vtable} pair into it (a stack overwrite of the
+// NEXT local — cells 19-21 here), and every read loaded the slot first, one
+// indirection too many (`"abcde".len()` answered 1 — the second half of the
+// string's own bytes, cell 1). Measured PRE-EXISTING at 6440e565 (2026-08-04),
+// byte-identical `@main` IR on both binaries; the fix is one decision site,
+// `MLIRGenImpl::declare_local_place`.
+//
+// EVERY CELL BITES. Measured on the unfixed compiler, one probe per cell:
+// str 1 (not 5) · slice 2 (not 3) · &dyn / closure / Box<dyn> SIGSEGV ·
+// FatZoneMut read the pair's data word (exit 10) · `[i64;3]` did not compile
+// at all · the neighbour local (`n1` here) came back as 5, the len half of the
+// memcpy. The if/else and match spellings answered 0, not 5.
+//
+// ⚠ THE CELL NUMBER IS THE `return` VALUE, and every number named in this
+// header is one of them — a reader debugging a red starts from the exit code.
+// The map: 1-6 the SHAPE axis · 7-17 the REPR axis · 18-21 THE OVERWRITE
+// (18 is the fat read, 19-21 the three neighbours the 16-byte copy landed on) ·
+// 22-30 the CONTROLS · 31-36 the deferred `&mut [T]` cell and its control.
+//
+// THE CONTROLS ARE CELLS 22-30, in this file on purpose: they are the same
+// bodies with the initialiser ON the declaration — the path that was always
+// right. A "fix" that broke the initialised arm too would make both spellings
+// agree and could satisfy a deferred-only fixture; it reds these.
+package bc_fatval_deferred_init_len;
+use logos.mem.string;
+use logos.mem.boxed;
+extern fn malloc(n: i64) -> *mut u8;
+
+pub trait Tr { fn get(&self) -> i64; }
+pub struct S { pub x: i64 }
+impl Tr for S { fn get(&self) -> i64 { return self.x; } }
+
+pub struct W { pub s: str, pub n: i64 }
+
+#[zone_mut] struct Box2 { v: i64 }
+
+pub fn mk() -> str { return "abcde"; }
+
+unsafe fn main() -> i32 {
+    // ── 1-6: the SHAPE axis, repr held at `str`, the answer is 5 everywhere ──
+    let v1: str;
+    v1 = "abcde";
+    if v1.len() != 5i64 { return 1; }
+
+    let v2: str;
+    {
+        v2 = "abcde";
+    }
+    if v2.len() != 5i64 { return 2; }
+
+    let v3: str;
+    if v1.len() == 5i64 { v3 = "abcde"; } else { v3 = "ab"; }
+    if v3.len() != 5i64 { return 3; }
+
+    let v4: str;
+    let sel: i64 = 1i64;
+    match sel {
+        1i64 => { v4 = "abcde"; }
+        _    => { v4 = "ab"; }
+    }
+    if v4.len() != 5i64 { return 4; }
+
+    let mut v5: str;
+    v5 = "abcde";
+    if v5.len() != 5i64 { return 5; }
+
+    // The value arriving through a CALL rather than a literal (the second
+    // spelling in the report: it answered 3).
+    let v6: str;
+    v6 = mk();
+    if v6.len() != 5i64 { return 6; }
+
+    // ── 7-17: the REPR axis, shape held at straight-line deferred assign ─────
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let sl: &[i64];
+    sl = &a[0..3];
+    if sl.len() != 3i64 { return 7; }
+    if sl[0] + sl[1] + sl[2] != 6i64 { return 8; }
+
+    let obj: S = S { x: 7i64 };
+    let dy: &dyn Tr;
+    dy = &obj;
+    if dy.get() != 7i64 { return 9; }
+
+    let k: i64 = 7i64;
+    let cl: |i64| -> i64;
+    cl = |x: i64| -> i64 { return x + k; };
+    if cl(0i64) != 7i64 { return 10; }
+
+    let bx: Box<dyn Tr>;
+    bx = Box::new(S { x: 7i64 });
+    if bx.get() != 7i64 { return 11; }
+
+    let ar: [i64; 3];
+    ar = [1i64, 2i64, 3i64];
+    if ar[0] + ar[1] + ar[2] != 6i64 { return 12; }
+
+    let tu: (i64, i64);
+    tu = (3i64, 4i64);
+    if tu.0 + tu.1 != 7i64 { return 13; }
+
+    let st: W;
+    st = W { s: "abcde", n: 9i64 };
+    if st.n != 9i64 { return 14; }
+    if st.s.len() != 5i64 { return 15; }
+
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let fat: &mut Box2;
+    fat = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    if fat.v != 42i64 { return 16; }
+    if (zone_of(fat) as i64) != 12345i64 { return 17; }
+
+    // ── 18-21: THE OVERWRITE. The cells a read-path-only fix does not prove. ─
+    // Three live locals declared AFTER the fat one and BEFORE its assignment:
+    // the 16-byte copy into the 8-byte slot landed on the first of them.
+    let v7: str;
+    let n1: i64 = 111i64;
+    let n2: i64 = 222i64;
+    let n3: i64 = 333i64;
+    v7 = "abcde";
+    if v7.len() != 5i64 { return 18; }
+    if n1 != 111i64 { return 19; }
+    if n2 != 222i64 { return 20; }
+    if n3 != 333i64 { return 21; }
+
+    // ── 22-30: THE CONTROLS — same bodies, initialiser ON the declaration ────
+    let c1: str = "abcde";
+    if c1.len() != 5i64 { return 22; }
+    let c2: &[i64] = &a[0..3];
+    if c2.len() != 3i64 { return 23; }
+    let c3: &dyn Tr = &obj;
+    if c3.get() != 7i64 { return 24; }
+    let c4: |i64| -> i64 = |x: i64| -> i64 { return x + k; };
+    if c4(0i64) != 7i64 { return 25; }
+    let c5: Box<dyn Tr> = Box::new(S { x: 7i64 });
+    if c5.get() != 7i64 { return 26; }
+    let c6: [i64; 3] = [1i64, 2i64, 3i64];
+    if c6[0] + c6[1] + c6[2] != 6i64 { return 27; }
+    let c7: (i64, i64) = (3i64, 4i64);
+    if c7.0 + c7.1 != 7i64 { return 28; }
+    let c8: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    if c8.v != 42i64 { return 29; }
+    if (zone_of(c8) as i64) != 12345i64 { return 30; }
+
+    // ── 31-36: DEFERRED `&mut [T]` — the cell the #80 report called
+    // UNBUILDABLE. The claim was that sema refuses every spelling of a `&mut`
+    // slice, so the mutable half of the Slice repr could not be measured. FALSE:
+    // the WHOLE-ARRAY borrow `&mut arr` builds one, and it is the same 16-byte
+    // {ptr,len} pair as `&[T]` — with the write-through that `&[T]` cannot
+    // exercise, so a slot that is 8 bytes or aliases the source shows up as a
+    // WRONG STORE and not only as a wrong len. Three live neighbours between
+    // the declaration and the assignment, like cells 18-21.
+    // THE BITE, measured: with the pre-#80 slot decision forced on for every
+    // deferred local (`declare_local_place`'s fault-injection arm widened to
+    // all names), this cell does not compile — `assignment to 'ms' copies 16
+    // bytes of a fat {data,meta} pair into a 8-byte slot`, the #80 defect
+    // caught by the sensor that `fail/mlirgen_slot_fits_sensor` pins.
+    let mut ma: [i64; 3] = [1i64, 2i64, 3i64];
+    let ms: &mut [i64];
+    let m1: i64 = 111i64;
+    let m2: i64 = 222i64;
+    let m3: i64 = 333i64;
+    ms = &mut ma;
+    if ms.len() != 3i64 { return 31; }
+    ms[0] = 9i64;
+    if ma[0] != 9i64 { return 32; }
+    if m1 != 111i64 { return 33; }
+    if m2 != 222i64 { return 34; }
+    if m3 != 333i64 { return 35; }
+    // The control, initialiser ON the declaration — the path that was right.
+    let mut mb: [i64; 2] = [7i64, 8i64];
+    let mc: &mut [i64] = &mut mb;
+    mc[1] = 5i64;
+    if mb[1] != 5i64 { return 36; }
+
+    return 0;
+}

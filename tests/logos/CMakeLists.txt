@@ -1980,6 +1980,17 @@ add_test(
             ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/access_plan.logos
 )
 set_tests_properties(logos_09_plan_ground_census PROPERTIES
+    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
+    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
+    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
+    # counts the gate as ONE slot, so 32 of them could run side by side while
+    # each asked for 8 workers — the nested-parallelism multiply that timed out
+    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
+    # different subset each time, each passing ALONE in 4-33 s against its
+    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
+    # This is scheduling, not tolerance — no timeout was raised and no
+    # assertion changed.
+    PROCESSORS 8
     TIMEOUT 900
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
@@ -2089,6 +2100,17 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/pass
 )
 set_tests_properties(logos_09_pull_shape PROPERTIES
+    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
+    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
+    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
+    # counts the gate as ONE slot, so 32 of them could run side by side while
+    # each asked for 8 workers — the nested-parallelism multiply that timed out
+    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
+    # different subset each time, each passing ALONE in 4-33 s against its
+    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
+    # This is scheduling, not tolerance — no timeout was raised and no
+    # assertion changed.
+    PROCESSORS 8
     TIMEOUT 900
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"
@@ -2158,6 +2180,17 @@ add_test(
             ${CMAKE_CURRENT_BINARY_DIR}
 )
 set_tests_properties(logos_09_direct_door_census PROPERTIES
+    # ⚠ PROCESSORS IS THE OTHER HALF OF THE GATE'S OWN `SWEEP_P` (task #82).
+    # This gate sweeps the corpus with its own `xargs -P "$SWEEP_P"` (8), and
+    # ctest runs the suite at `-j$(nproc)` (32). Without this property ctest
+    # counts the gate as ONE slot, so 32 of them could run side by side while
+    # each asked for 8 workers — the nested-parallelism multiply that timed out
+    # 1-4 tier_full gates on every one of seven L4 runs (2026-08-19), a
+    # different subset each time, each passing ALONE in 4-33 s against its
+    # ceiling. THE TWO NUMBERS MUST AGREE: 8 here, `SWEEP_P` 8 in the script.
+    # This is scheduling, not tolerance — no timeout was raised and no
+    # assertion changed.
+    PROCESSORS 8
     TIMEOUT 1800
     LABELS  "logos;pass;suite_semantic_core;tier_full"
     ENVIRONMENT "LOGOS_LIB_DIR=${LOGOS_BUILD_LIB_DIR}"

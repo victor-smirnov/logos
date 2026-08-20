@@ -1,0 +1,31 @@
+// #77 — THE RETURN-ESCAPE CHANNEL WAS KEYED ON A DECLARED ATTRIBUTE.
+//
+// `prov_of`'s `Code::Call` arm opened on `is_borrow_carrying_type(result)` —
+// the `#[borrow_carrying]` fixpoint over Enum/Struct/ZonedStruct — so a call
+// whose result is a bare `&i64` returned {} BEFORE it ever reached the summary
+// consult two lines below. The channel was not summary-blind by its rule; it
+// was summary-blind by its DOOR. Measured at f0a60ff3: rc 0 on this file, a
+// plain thin `&i64` escaping its frame through a one-line identity call, while
+// the direct twin `return &t;` refused at rc 1 (fail/dangling_ref).
+//
+// THE ONE VARIABLE against pass/bc_esc_return_summary_admit is WHICH argument
+// `second` retains — the signature, the return type and the call shape are
+// identical in both files. Here it retains the LOCAL (`&t`), there the
+// PARAMETER. That is the summary doing the work: `second<'a>(a:&i64, b:&'a
+// i64) -> &'a i64` summarises `result<-0x2`, so only operand 1 contributes,
+// and the admit twin proves the arm does not simply tie every ref argument.
+package bc_esc_return_summary_dangle;
+
+pub fn second<'a>(a: &i64, b: &'a i64) -> &'a i64 { return b; }
+
+pub fn bad(p: &i64) -> &i64 {
+    let t: i64 = 9i64;
+    return second(p, &t);
+}
+
+fn main() -> i32 {
+    let q: i64 = 1i64;
+    let r: &i64 = bad(&q);
+    if *r == 9i64 { return 0i32; }
+    return 1i32;
+}

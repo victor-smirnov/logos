@@ -1,0 +1,1 @@
+'owner' does not live long enough: it is borrowed by 'k', which is used here after 'owner' goes out of scope (E0597)

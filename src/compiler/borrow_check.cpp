@@ -646,6 +646,14 @@ static bool is_materialized_temp_name(std::string_view n) {
     return n.rfind("__rtmp_", 0) == 0;
 }
 
+// The RETURN temp sema mints in `make_return_with_drops` (sema_stmt.cpp:
+// `"__ret_tmp_" + tmp_var_count_++`) whenever a returned value has to be bound
+// before the frame's drops run. It is a compiler-internal PLACE, never a name
+// the programmer can read in a diagnostic — see check_return_value.
+static bool is_return_temp_name(std::string_view n) {
+    return n.rfind("__ret_tmp_", 0) == 0;
+}
+
 // D1 round 12 / A1. A loop's break slot, minted by sema as
 // `"__loop_val_" + tmp_var_count_++` (sema_stmt.cpp, lower_loop) whenever a
 // `break v` gives the loop a value. Both walkers key the deposit on this name;
@@ -1076,6 +1084,47 @@ static bool bc_holds_mut_ref_type(const TypeSets& ts_, TypeRef t) {
     }
     if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
         return bc_holds_mut_ref_type(ts_, t.elem());
+    return false;
+}
+
+// ── #77 round 2 / SEED — "a borrow could be EXTRACTED from this value" ──────
+//
+// THE DEFECT, measured at the SUMMARY (LOGOS_DUMP_FLOWS=pick):
+//   `struct H { r: &i64 }  fn pick(h: H) -> &i64 { return h.r; }`
+//     → `sp$pick__f__H: result<-0  EXACT  (rounds=2)`
+// A by-VALUE struct param whose SHARED-ref field is returned summarised as
+// retaining NOTHING — and, worse, said EXACT about it, so #77's new
+// return-escape door trusted the empty mask and the caller
+// (`let t = 9; let h = H{r:&t}; return pick(h);`) compiled rc=0.
+//
+// `can_carry` asked four predicates and none of them answers for this shape:
+// `H` is not a ref, not `#[borrow_carrying]` (that attribute is DECLARED),
+// not loan-carrying (that set only propagates NAMED carriers), and
+// `bc_holds_mut_ref_type` is `&mut`-only by construction — round 11 / X2 fixed
+// exactly this hole for the `&mut` half and left the `&` half open.
+// `ts_.holds_any_ref` is the fixpoint #71 already built for the same question
+// on the checker's side (`type_may_carry_borrow` consults it); the summarizer
+// simply never asked it, so the two channels disagreed about the same type.
+// Adding it only ever ADDS flows — every consumer of a mask bit widens, none
+// narrows — which is the direction this analysis is allowed to err in.
+static bool bc_holds_any_ref_type(const TypeSets& ts_, TypeRef t) {
+    if (!t) return false;
+    auto k = t.kind();
+    if (is_ref_kind(t)) return true;
+    std::string nm;
+    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
+    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+        nm = std::string(t.struct_name());
+    if (!nm.empty() && ts_.holds_any_ref.count(nm) > 0) return true;
+    for (auto a : t.type_args())
+        if (bc_holds_any_ref_type(ts_, a)) return true;
+    if (k == LogosType::Kind::Tuple) {
+        for (auto e : t.tuple_elems())
+            if (bc_holds_any_ref_type(ts_, TypeRef(e))) return true;
+        return false;
+    }
+    if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice)
+        return bc_holds_any_ref_type(ts_, t.elem());
     return false;
 }
 
@@ -2736,13 +2785,85 @@ private:
                         if (var_has(NO_SLOT, c) && !param_names_.count(c)) emit(c);
                     return;
                 }
-                if (e.kind() == EC::FnPtrCall)
+                if (e.kind() == EC::FnPtrCall) {
+                    // ── #79: THE FN-POINTER TWIN OF CLASS B ────────────────
+                    //
+                    // The three filters below are the summary-less rule, and
+                    // they leave exactly the hole the direct-Call arm had
+                    // before `arg_retained_by_callee`: a FAT by-value argument
+                    // (`owner.as_str()` — a MethodCall of type `str`) is none
+                    // of plain-ref, bc-by-name, or borrow-forming, so nothing
+                    // was deposited. MEASURED at f0a60ff3
+                    // (sandbox/escchan/r79.logos):
+                    //   let f: fn(str) -> str = keep1;  v = f(owner.as_str());
+                    // rc 0, while the IDENTICAL direct call `keep1(owner
+                    // .as_str())` refuses with E0597. Same callee, same
+                    // argument, same use — only the indirection differs.
+                    //
+                    // `flow_of_fnptr` is G1's own resolver: the initializer
+                    // must be a known fn ITEM (`fnptr_sym_`), and a variable
+                    // ever assigned two different fns is in `fnptr_multi_` and
+                    // resolves to nullptr. So this is not "be conservative for
+                    // ref-typed args through an unknown pointer" — that is the
+                    // priced-and-not-taken option; it is "when the callee IS
+                    // statically known, ask it", which is additive over
+                    // today's answer and silent on every genuinely indirect
+                    // call. The loan channel (prov_of / prov_of_retained)
+                    // already resolved it this way; this arm did not.
+                    //
+                    // MEASURED by fire-print over one `stdlib/mem` module
+                    // build (print then removed): 238 argument ties that ONLY
+                    // this term admits (the other three predicates all answer
+                    // no), and 0 reds — the arm is live and it costs nothing
+                    // there. UNCOVERED: a pointer in `fnptr_multi_` resolves
+                    // to nullptr and its dangle still admits
+                    // (sandbox/escchan/r79_multi.logos, rc 0), and a
+                    // ClosureCall's ARGUMENTS are still never consulted — a
+                    // closure body is never summarised at all; its CAPTURES
+                    // are read above and always were.
+                    const FlowSummary* fs =
+                        flow_of_fnptr(lir_view::EFnPtrCallView{e}.callee());
+                    // ── #79 round 2: THE PRICED-AND-NOT-TAKEN OPTION, PRICED ─
+                    //
+                    // The paragraph above says this arm is "silent on every
+                    // genuinely indirect call". That silence is the residual,
+                    // and it is not a small one: `flow_of_fnptr` resolves ONLY
+                    // a local whose initializer is a known fn ITEM, so the two
+                    // shapes that dominate real callback code both fall
+                    // through it. MEASURED at f0a60ff3, both rc 0:
+                    //   pub fn run(f: fn(str) -> str) -> i64 {          // PARAM
+                    //       let mut v: str = "";
+                    //       { let owner = String::from("hello");
+                    //         v = f(owner.as_str()); }
+                    //       return v.len(); }
+                    //   struct Cb { f: fn(str) -> str }                 // FIELD
+                    //   let c = Cb { f: keep1 };  v = (c.f)(owner.as_str());
+                    // Neither callee expression is a VarRef naming a
+                    // single-assigned local, so `fs` is null and the three
+                    // signature filters below never see a fat by-value `str`.
+                    //
+                    // A PARAMETER is not statically resolvable — and it cannot
+                    // be rescued by a whole-program "every call site passes
+                    // keep1" agreement either, because `run` is `pub`: a
+                    // foreign caller may pass anything, so the agreement is
+                    // over an OPEN set. The documented (d) route for an
+                    // unresolvable indirect callee is therefore the one this
+                    // takes: tie every operand that can carry a borrow, which
+                    // is what a summary-less direct `Call` already does one
+                    // arm below. It applies ONLY when `fs` is null, so every
+                    // resolved pointer keeps its exact mask and this cannot
+                    // narrow anything.
+                    size_t idx = 0;
                     lir_view::EFnPtrCallView{e}.each_arg([&](lir_view::ExprRef a) {
+                        size_t i = idx++;
                         if (a && (is_plain_ref_kind(a.type(pool)) ||
                                   is_borrow_carrying_type(a.type(pool)) ||
-                                  forms_borrow_at_call(a)))
+                                  forms_borrow_at_call(a) ||
+                                  (!fs && is_ref_kind(a.type(pool))) ||
+                                  arg_retained_by_callee(fs, i)))
                             collect_ref_sources_paths(a, path, out);
                     });
+                }
                 return;
             }
             case EC::Call: {
@@ -3245,6 +3366,61 @@ private:
                 // what price it.
                 for (auto& p : ref_sources_of(src))
                     reborrow_of_.add(dst, p);
+                // ── #78: THE SCOPE-ESCAPE HALF OF THE SAME DEPOSIT ────────
+                //
+                // Everything above this line is the LOAN/EXCLUSIVITY channel:
+                // it moves loans and alias edges so a later MUTATION of the
+                // source is caught. Nothing in it answers the §B6 question —
+                // "does `dst` outlive what it now borrows?" — because that
+                // channel is `ref_borrow_sources_`, and only the assignment
+                // and let sites ever wrote to it.
+                //
+                // THE DEFECT (measured, sandbox/escchan/r78.logos):
+                //   fn set2(k: &mut K, s: str) { k.f = s; }
+                //   { let owner = String::from("hello"); set2(&mut k, owner.as_str()); }
+                //   k.f.len()
+                // rc 0, while the DIRECT spelling of the same store,
+                // `k.f = owner.as_str()`, refuses with E0597 naming `k`. The
+                // `&mut self` method spelling admits too. The exclusivity
+                // channel cannot see it: nothing MUTATES `owner` afterwards —
+                // it is simply gone, and the read of `k.f` is a use of a
+                // borrow whose referent has been dropped.
+                //
+                // The deposit is keyed to the out-param's ROOT for the same
+                // reason A2's alias edge above is: the mask names a PARAMETER,
+                // not a place inside it. Coarse in the safe direction, and
+                // ADDITIVE — an argument that borrows no local contributes
+                // nothing, so this cannot refuse a program whose sources are
+                // all parameters or statics. MEASURED by fire-print over one
+                // `stdlib/mem` module build (print then removed): 68 deposits,
+                // 0 reds.
+                //
+                // ⚠ #77 round 2 — THE CLAIM IS NARROWER THAN THE NAME, and it
+                // is re-scoped here rather than left to be read as more. This
+                // deposit catches a BLOCK-scope escape: the out-param outlives
+                // the block whose local it was handed. It does NOT catch the
+                // FRAME escape — the callee storing a borrow of ITS OWN local
+                // through the caller's `&mut`:
+                //   pub fn set2(k: &mut K, s: str) { k.f = s; }
+                //   pub fn wire(k: &mut K) {
+                //       let o: String = String::from("hello");
+                //       set2(k, o.as_str()); }              // rc 0
+                // AND THAT IS NOT A #78 REGRESSION: the DIRECT control, the
+                // same store written in `wire` itself with no callee at all
+                // (`k.f = o.as_str();`), admits at rc 0 too — measured again
+                // after this round's four repairs. The out-param channel is
+                // faithfully reproducing what the base channel answers, so the
+                // gap is that a write THROUGH a `&mut` parameter is not
+                // treated as an escape past the frame, and closing it here
+                // would be closing it in the wrong place.
+                {
+                    std::vector<std::string> escs;
+                    collect_ref_sources(src, escs);
+                    std::vector<std::pair<std::string, std::string>> pairs;
+                    for (auto& s2 : escs) pairs.emplace_back(std::string{}, s2);
+                    if (!pairs.empty())
+                        store_ref_sources(dst, std::move(pairs), dst, line);
+                }
             }
             for (auto& h : chased) inherit_loans(dst, h, line);
         }
@@ -4814,13 +4990,46 @@ private:
                 // method's own signature borrows self: `Vec<str>::get -> T` copies
                 // a STORED borrow out — its lifetime is the element's, not the
                 // receiver's (returning it past the receiver is fine, Rust parity).
+                //
+                // ── #77 round 2 / ONE ARM OVER: THE SAME DOOR DEFECT ───────
+                //
+                // Round 1 found the Code::Call arm returning {} on its ENTRY
+                // GATE, before the summary consult that sits right below it
+                // and answers correctly. The MethodCall arm's fat gate is the
+                // identical mistake: `!result_borrows_self(v)` is a fact about
+                // the callee's SIGNATURE, and the signature does not say where
+                // a borrow goes — which is the sentence the whole summary
+                // plane exists to write.
+                //
+                // MEASURED TWIN, one variable (method vs free fn), at f0a60ff3:
+                //   impl K { pub fn thru(&self, s: str) -> str { return s; } }
+                //   pub fn bad(k: &K) -> str {
+                //       let o: String = String::from("hello");
+                //       return k.thru(o.as_str()); }        // rc 0
+                //   pub fn thru2(s: str) -> str { return s; }
+                //   pub fn bad() -> str {
+                //       let o: String = String::from("hello");
+                //       return thru2(o.as_str()); }         // rc 1
+                // Same callee body, same argument, same use.
+                //
+                // The repair is the Call arm's, term for term: the gate no
+                // longer RETURNS, it records that elision alone would have
+                // said nothing, and the summary is asked. When the summary is
+                // absent or over-approximate the pre-#77 answer stands
+                // (`return {}`) — an over-approximate mask on a fat result is
+                // exactly the eval_sexpr false-refusal the Call arm measured
+                // and declined. `Vec<str>::get -> T` — the shape the gate was
+                // written for — keeps admitting for the RIGHT reason now: its
+                // summary says the borrow comes from the ELEMENT, not from
+                // self, so nothing local is merged.
+                TypeRef m_rt = e.type(pool);
+                bool m_bc = is_borrow_carrying_type(m_rt);
+                bool m_fat_gate_shut = false;
                 {
-                    TypeRef rt = e.type(pool);
-                    bool plain = is_plain_ref_kind(rt);
-                    bool fat   = !plain && is_ref_kind(rt);
-                    if (!plain && !fat && !is_borrow_carrying_type(rt)) return {};
-                    if (fat && !is_borrow_carrying_type(rt) &&
-                        !result_borrows_self(v)) return {};
+                    bool plain = is_plain_ref_kind(m_rt);
+                    bool fat   = !plain && is_ref_kind(m_rt);
+                    if (!plain && !fat && !m_bc) return {};
+                    m_fat_gate_shut = fat && !m_bc && !result_borrows_self(v);
                 }
                 // D1 round 3 / F1 + F2 — the receiver is an OPERAND, not a
                 // privileged one. Two defects, one site:
@@ -4845,6 +5054,12 @@ private:
                 // returns its argument. With no summary (the documented (a)-(d)
                 // hole) every clause below keeps its pre-F3 behaviour.
                 const FlowSummary* fs = flow_of_method(v);
+                // #77 round 2: elision said nothing here, so only an EXACT
+                // summary may speak — and if there is none, the arm keeps its
+                // pre-#77 silence rather than falling through to the elision
+                // fallback below (which would tie the result to the receiver,
+                // the very over-refusal the fat gate exists to prevent).
+                if (m_fat_gate_shut && (!fs || fs->over_approx)) return {};
                 RefProv rp = {};
                 bool recv_contributes = true;
                 if (fs) {
@@ -4892,7 +5107,54 @@ private:
                 // (`WAny::from(&x)`) may alias one of its REFERENCE args — merge the
                 // provenance of each ref arg. (`WAny::from(7i64)` has no ref arg →
                 // empty → freely returnable.) Non-borrow-carrying = caller-owned.
-                if (!is_borrow_carrying_type(e.type(pool))) return {};
+                // ── #77: THE ENTRY GATE WAS KEYED ON THE DECLARED ATTRIBUTE ──
+                //
+                // THE DEFECT (measured, sandbox/escchan/r77.logos):
+                //   `pub fn keepr(x: &i64) -> &i64 { return x; }`
+                //   `pub fn bad() -> &i64 { let t = 9i64; return keepr(&t); }`
+                // admitted at rc=0 — a plain thin `&i64` escaping its frame
+                // through a one-line identity call — while the direct twin
+                // `return &t;` refused at rc=1. `is_borrow_carrying_type`
+                // names Enum/Struct/ZonedStruct (the `#[borrow_carrying]`
+                // fixpoint) and recurses type-args; a bare `&i64` is NONE of
+                // those, so this arm returned {} before it ever reached the
+                // summary consult below — which is right there and correct.
+                // The channel was not summary-blind by its rule, it was
+                // summary-blind by its DOOR.
+                //
+                // `type_may_carry_borrow` is the predicate the §B6 deposit arm
+                // (EC::Call, round 14 / Q5) already moved to for exactly this
+                // question, and the two channels disagreed at the same
+                // expression kind. What the arm then MERGES is unchanged —
+                // with a summary, the args whose bit reaches the result; with
+                // none, plain-ref + by-value bc args — so a call returning a
+                // scalar still contributes nothing, and a call returning
+                // `&i64` built from no borrowing arg still merges {}.
+                //
+                // ── AND THE NEW DOOR TAKES ONLY EXACT SUMMARIES ────────────
+                //
+                // MEASURED RED LIST of the un-narrowed widening on a full
+                // stdlib rebuild: 3, all in `eval_sexpr` (stdlib/mem/deem/
+                // tpl.logos:329/420/424, `return RtVal::S(intern(scratch,&t))`),
+                // all FALSE — `intern` retains only its ARENA, and its
+                // `result<-0x3` is the (a)-(d) fallback firing on the
+                // cross-package `Writ::wstring` (see FlowSummary::approx).
+                // Refusing on a GUESSED bit is exactly the "moves in the
+                // refusing direction over code no gate has ever checked"
+                // hazard, so the new door asks for an EXACT summary. The
+                // OLD door — a `#[borrow_carrying]` result — is untouched and
+                // still takes approx summaries, because that is the behaviour
+                // every bc_* pin was measured against.
+                //
+                // UNCOVERED, and stated rather than hidden: a plain/fat-ref
+                // result whose callee summary is approx keeps admitting.
+                // MEASURED by fire-print over one `stdlib/mem` module build
+                // (the print was then removed): the new door is TAKEN 408
+                // times on EXACT summaries and SHUT 238 times on approx ones.
+                // Neither number is zero, so this is neither a dead arm nor a
+                // narrowing that closed the door it opened.
+                bool bc_result = is_borrow_carrying_type(e.type(pool));
+                if (!bc_result && !type_may_carry_borrow(e.type(pool))) return {};
                 RefProv merged = {};
                 // D1 round 3 / F0 — this arm merged provenance only from
                 // `is_plain_ref_kind` args, so a by-VALUE borrow-carrying
@@ -4910,6 +5172,41 @@ private:
                 // which is the loan channel's rule.
                 ECallView cv{e};
                 if (const FlowSummary* fs = flow_of_call(cv.callee())) {
+                    // ── #77 round 2: RE-MEASURED, AND THE DOOR STAYS SHUT ──
+                    //
+                    // Round 1 shut this on a scalar `approx` flag that only
+                    // ever recorded bits GUESSED IN; round 2 gave the flag its
+                    // missing half — `taint_of` and `walk_stmt` now STATE the
+                    // kinds that carry nothing instead of defaulting them, so
+                    // a mask that is simply incomplete can no longer wear the
+                    // EXACT label (see FlowSummary's note and its fire-print
+                    // measurement) — and corrected the seed, so the question
+                    // was asked again on a mask that no longer over-claims.
+                    //
+                    // CONTROL, one variable (`if (false && ...)` here, full
+                    // stdlib rebuild): the red list is 3, unchanged from round
+                    // 1 — `eval_sexpr` at stdlib/mem/deem/tpl.logos:329/420/424,
+                    // all three `return RtVal::S(intern(scratch,&t))`, all
+                    // FALSE. `intern`'s `result<-0x3` is still the (a)-(d)
+                    // fallback firing on the cross-package `Writ::wstring`, and
+                    // nothing in this round makes the guessed bit and a real
+                    // one distinguishable: both are "a bodyless callee's result
+                    // tied to every borrowing operand". Closing it needs the
+                    // CALLEE's body, i.e. cross-arena summarisation (#81).
+                    //
+                    // THE RESIDUE, stated where the door is rather than in a
+                    // report. A borrow-returning call whose callee summary is
+                    // over-approximate keeps admitting, and it admits a REAL
+                    // dangle off the stdlib alone — 12 lines, no attributes:
+                    //   pub fn f(a: &String, b: &String) -> str {
+                    //       let x: i64 = a.len();
+                    //       if x > 100000i64 { return a.as_str(); }
+                    //       return b.as_str(); }
+                    //   pub fn bad(a: &String) -> str {
+                    //       let b: String = String::from("hello");
+                    //       return f(a, &b); }      // rc 0; f is result<-0x3 OVER
+                    // (`LOGOS_DUMP_FLOWS=f` prints the mask and the tag.)
+                    if (!bc_result && fs->over_approx) return {};
                     size_t i = 0;
                     cv.each_arg([&](ExprRef a) {
                         if (a && i < fs->nparams && (fs->to_result & (1ull << i)))
@@ -4918,6 +5215,10 @@ private:
                     });
                     return merged;
                 }
+                // No summary at all and a non-bc result: the fallback below is
+                // the same signature elision the summarizer's own (a)-(d) arm
+                // makes, i.e. a GUESS — the new door does not refuse on it.
+                if (!bc_result) return {};
                 // Plain `&`/`&mut` args — a by-value slice arg
                 // (`tv_build(h, name.as_str(), …)`) is a copied borrow with the
                 // element's lifetime; it is not a capture channel for the result.
@@ -5290,6 +5591,48 @@ private:
                     src = std::string(lir_view::EVarRefView{er}.name());
                 else if (er.kind() == Code::AddrOfTemp)
                     is_temp = true;
+                // #77: the returned expression can now be a CALL whose result
+                // the callee's summary ties to a local argument — none of the
+                // three node kinds above, so the message read "local variable
+                // '?'". The §B6 collector already answers exactly "which
+                // locals does this expression borrow"; ask it rather than
+                // print a placeholder. Falls back to '?' when it, too, has no
+                // name (the prov came from a value-local root, not a source).
+                if (src.empty() && !is_temp) {
+                    std::vector<std::string> srcs;
+                    collect_ref_sources(er, srcs);
+                    for (auto& n : srcs)
+                        if (!is_return_temp_name(n) &&
+                            !is_materialized_temp_name(n)) { src = n; break; }
+                    if (src.empty() && !srcs.empty()) src = srcs.front();
+                }
+                // ── #77 round 2 / THE DIAGNOSTIC LEAKED A COMPILER TEMP ────
+                //
+                // MEASURED, and it is the FAT arm of the very repair round 1
+                // landed: `pub fn bad() -> str { let o = String::from("hello");
+                // return thru2(o.as_str()); }` printed "cannot return
+                // reference to local variable '__ret_tmp_0'" while the thin
+                // twin (`let t = 9i64; return keepr(&t);`) correctly named
+                // `t`. Nothing about the borrow differs — what differs is that
+                // `o` NEEDS A DROP, so sema rewrites the return through
+                // `make_return_with_drops`: `let __ret_tmp_0 = thru2(...);
+                // <drops>; return __ret_tmp_0;`. The returned expression is
+                // then a plain VarRef and the branch above reads its name
+                // straight out, so every borrow-returning function with a
+                // droppable local reports a name that exists in no source
+                // file.
+                //
+                // `ref_sources_under` is the §B6 answer for exactly this
+                // question — "which locals does this PLACE borrow from" — and
+                // the temp is a place like any other, so the fix is to ask it
+                // rather than to special-case the message. Falls back to the
+                // temp's own name only if the graph has nothing, which keeps
+                // this strictly an improvement on the string.
+                if (is_return_temp_name(src)) {
+                    for (auto& n : ref_sources_under(src))
+                        if (!is_return_temp_name(n) &&
+                            !is_materialized_temp_name(n)) { src = n; break; }
+                }
             }
             if (is_temp)
                 report(line,
@@ -8272,7 +8615,7 @@ public:
     }
     const FlowSummary* flow_of_method(lir_view::EMethodCallView v) const {
         return flows_ ? resolve_method_flow(*flows_, fn_index_,
-                                            prog_.type_pool.impl(), v)
+                                           prog_.type_pool.impl(), v)
                       : nullptr;
     }
     // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
@@ -9085,7 +9428,8 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
                     if (s.to_outparam[j])
                         fprintf(stderr, " out%u<-%#llx", j,
                                 (unsigned long long)s.to_outparam[j]);
-                fprintf(stderr, "  (rounds=%u)\n", fs.rounds_used());
+                fprintf(stderr, "%s  (rounds=%u)\n",
+                        s.over_approx ? "  OVER" : "  EXACT", fs.rounds_used());
             }
         }
     }

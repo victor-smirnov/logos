@@ -134,6 +134,18 @@ else
         exit 2
     fi
 
+# ⚠ THE SWEEP'S FAN-OUT IS A BUDGET, NOT `nproc` (task #82). This read
+# `-P "$(nproc)"` while `test-levels.sh` runs `ctest -j"$(nproc)"`, so one gate
+# asked for 32 workers from inside one of 32 concurrent ctest slots — ~1024-way
+# oversubscription on 32 cores. Measured over seven L4 runs on 2026-08-19: every
+# run timed out 1-4 tier_full gates, a DIFFERENT subset each time, and every one
+# of them passed ALONE in 4-33 s against its ceiling. Wall-clock timeouts under
+# that much oversubscription pick victims at random, and a gate that reds at
+# random trains the reader to shrug at a red.
+# The number below is DECLARED TO CTEST as this test's PROCESSORS in
+# tests/logos/CMakeLists.txt — the two must agree, or the declaration is a lie
+# and ctest will schedule this gate next to 31 neighbours again.
+SWEEP_P="${LOGOS_GATE_SWEEP_P:-8}"
     cat > "$TMPD/one.sh" <<'WORKER'
 #!/usr/bin/env bash
 f="$1"; OUT="$2"; LOGOSC="$3"; A="$4"
@@ -191,7 +203,7 @@ rm -rf "$d"
 WORKER
     chmod +x "$TMPD/one.sh"
     printf '%s\0' "${FIXTURES[@]}" \
-      | xargs -0 -P "$(nproc)" -I{} "$TMPD/one.sh" {} "$OUT" "$LOGOSC" "$ARCH"
+      | xargs -0 -P "$SWEEP_P" -I{} "$TMPD/one.sh" {} "$OUT" "$LOGOSC" "$ARCH"
     sweep_rc=$?
     if [ "$sweep_rc" -ne 0 ]; then
         echo "FAIL(2): the corpus sweep itself failed (xargs rc $sweep_rc)."
@@ -237,9 +249,43 @@ PIN = {
     # first thing it caught was its own population drifting. Doors did NOT move
     # (36 = 10 + 26) — the new fixtures hold none, which the `doors`/`glob`/
     # `nonglob_doors` pins below assert independently of this count.
-    'corpus'            : 2184,
+    # ⚠ RE-DERIVED at the #77/#78/#79 escape-channel stage (three borrow-check
+    # channels landed one at a time): +3 / +0 / +3. The three are PASS fixtures
+    # and none matches the `wql_*` / `deem_*` glob, so the whole delta lands in
+    # `nonglob` and `glob` is unmoved:
+    #   pass/bc_esc_return_summary_admit   (#77, return escape through a call)
+    #   pass/bc_esc_outparam_scope_admit   (#78, out-param scope escape)
+    #   pass/bc_esc_fnptr_admit            (#79, fn-pointer call)
+    # 2184 + 3 = 2187 = 191 + 1996, and 1993 + 3 = 1996. The DOOR counts are
+    # unmoved (36 = 10 + 26) — none of the three declares a container family,
+    # which is what the sweep measured: `doors 36 = glob 10 + nonglob 26` on the
+    # very run that reported these two pins moved and nothing else.
+    # ⚠ RE-DERIVED at the #80 deferred-init-slot stage (a codegen fix, not a
+    # borrow-check one): +1 / +0 / +1. The one fixture is
+    #   pass/bc_fatval_deferred_init_len  (#80, `let v: T;` fat-slot class)
+    # — a PASS fixture outside the `wql_*` / `deem_*` glob, so the whole delta
+    # lands in `nonglob`: 2187 + 1 = 2188 = 191 + 1997, and 1996 + 1 = 1997.
+    # DOOR counts unmoved (36 = 10 + 26): the fixture declares no container
+    # family — it is `str` / slice / dyn / closure / array / tuple locals only.
+    # ⚠ RE-DERIVED at the #77 round 2 stage (the seed/flag repair, the
+    # MethodCall door, the unresolvable-fn-pointer route and the return-temp
+    # diagnostic, landed one at a time): +3 / +0 / +3. The three are PASS
+    # fixtures and none matches the `wql_*` / `deem_*` glob:
+    #   tests/logos/pass/bc_esc_summary_seed_field_admit.logos
+    #   tests/logos/pass/bc_esc_method_retain_admit.logos
+    #   tests/logos/pass/bc_esc_fnptr_param_admit.logos
+    # DERIVED BY DIRECT FILE LISTING, not by adding 3 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2191
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2000 by the same listing minus the glob listing, and the
+    # partition closes: 2191 = 191 + 2000. The four FAIL fixtures this stage
+    # added are outside this gate's population by construction (it sweeps the
+    # pass corpus only). DOOR counts unmoved (36 = 10 + 26): none of the three
+    # declares a container family — they are `&i64` / `str` / fn-pointer
+    # borrow-check shapes only.
+    'corpus'            : 2191,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 1993,  # pinned by NOTHING before this gate; +4 with
+    'nonglob'           : 2000,  # pinned by NOTHING before this gate; +4 with
                                  # `corpus` above, same four bc_* pass fixtures
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
                                  # readable statement of intent, not a check:

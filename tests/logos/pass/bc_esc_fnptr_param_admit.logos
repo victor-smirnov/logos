@@ -1,0 +1,42 @@
+// #79 round 2 — ADMIT half of the unresolvable-fn-pointer route.
+//
+// ONE VARIABLE against fail/bc_esc_fnptr_param_dangle: where the argument is
+// rooted. The pointer is just as opaque here — a `pub fn`'s parameter, so the
+// conservative route fires in BOTH files — and what differs is that `owner`
+// outlives the use of the result. A checker that refused here would have paid
+// for #79 by breaking every callback that is handed a borrow it may keep.
+//
+// `resolved` is the second control, and it prices the `!fs` guard: the pointer
+// IS a single-assigned local naming a known fn item, so it resolves and the
+// EXACT per-argument mask decides (`pick2: result<-0x2`). `a` is a block-local
+// borrow in argument position 0, which the mask says is not retained — the
+// conservative arm would have tied it and refused.
+package bc_esc_fnptr_param_admit;
+
+use logos.mem.string;
+
+pub fn keep1(s: str) -> str { return s; }
+
+pub fn run(f: fn(str) -> str) -> i64 {
+    let owner: String = String::from("hello");
+    let v: str = f(owner.as_str());
+    return v.len();
+}
+
+pub fn pick2(a: str, b: str) -> str { return b; }
+
+pub fn resolved(p: str) -> i64 {
+    let g: fn(str, str) -> str = pick2;
+    let mut v: str = "";
+    {
+        let a: String = String::from("zz");
+        v = g(a.as_str(), p);
+    }
+    return v.len();
+}
+
+fn main() -> i32 {
+    if run(keep1) != 5i64 { return 1i32; }
+    if resolved("abc") != 3i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,37 @@
+// #77 round 2 — THE SUMMARY SEED WAS BLIND TO A BY-VALUE AGGREGATE THAT HOLDS
+// A SHARED BORROW, AND CALLED THE RESULT "EXACT".
+//
+// `FlowSummarizer::can_carry` asked four predicates — is_ref_kind,
+// `#[borrow_carrying]`, loan-carrying, `bc_holds_mut_ref_type` — and a plain
+// struct with a `&i64` FIELD is none of them. Round 11 / X2 closed exactly
+// this hole for the `&mut` half; the `&` half stayed open. So the parameter
+// was never seeded, `h.r`'s FieldRead had no taint to project, and MEASURED
+// (LOGOS_DUMP_FLOWS=pick, at f0a60ff3):
+//
+//     [flow] pick__f__H: result<-0  EXACT  (rounds=2)
+//
+// — an INCOMPLETE mask wearing the label the whole #77 door narrowing rests
+// on. After the fix the same probe prints `result<-0x1  EXACT`.
+//
+// CONTROL REVERT (the seed term alone removed from `can_carry`): the mask goes
+// back to `result<-0` and THIS FILE COMPILES rc 0. The mask is what refuses.
+//
+// THE ONE VARIABLE against pass/bc_esc_summary_seed_field_admit is WHOSE
+// borrow the aggregate carries — a block-scoped local here, the caller's own
+// parameter there. Same struct, same `pick`, same call.
+package bc_esc_summary_seed_field_dangle;
+
+pub struct H { pub r: &i64 }
+
+pub fn pick(h: H) -> &i64 { return h.r; }
+
+fn main() -> i32 {
+    let mut p: &i64 = &0i64;
+    {
+        let t: i64 = 1i64;
+        let h: H = H { r: &t };
+        p = pick(h);
+    }
+    if *p == 1i64 { return 0i32; }
+    return 1i32;
+}

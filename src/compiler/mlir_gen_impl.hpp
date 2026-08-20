@@ -1424,6 +1424,50 @@ private:
     // at mlir-gen time the module has no target datalayout, so MLIR's DataLayout
     // PACKS aggregates (drops inter-field padding) and under-copies (e.g. an
     // {i32, i64}/enum payload-at-offset-8 copied as 12 bytes loses 4 bytes).
+    // THE SLOT-SIZE SENSOR (#80). Every value-copy rebind arm in gen_assign
+    // memcpy's N bytes into a local's slot on the ASSUMPTION that the slot was
+    // allocated at the value's storage size. That assumption was silently false
+    // for every deferred-init fat local (`let v: str;` allocated 8 bytes, the
+    // rebind wrote 16) and the overflow landed on the NEXT local — a stack
+    // overwrite with no diagnostic. Where the destination is a local alloca we
+    // can SEE the allocated type: a slot smaller than the copy is a compiler
+    // malfunction, reported as one. Non-alloca destinations (params, GEPs into
+    // aggregates, globals) are not decided here and stay silent.
+    //
+    // MEASURED, and the reporting arm is PINNED. Over the whole fixture corpus
+    // (4 473 programs, 399 of them reaching a call site) and a full
+    // stdlib+examples build the guard is ASKED 45 494 times — 17 113 + 28 381 —
+    // and `have` equalled `want` on every single one, with no struct-key miss
+    // anywhere (recipe: a temporary fprintf on this line and at the
+    // `struct_types_` lookup in place_slot_type, then the two sweeps). So the
+    // report itself is unreachable from correct codegen, which is the point of
+    // a sensor and also the thing that makes a "green" here worthless. The arm
+    // is executed by `fail/mlirgen_slot_fits_sensor`, through the name-scoped
+    // fault injection in `declare_local_place` (a local named
+    // `__slotfit_canary*` gets the pre-#80 8-byte handle slot); delete the
+    // injection and that fixture goes green-by-silence, which is exactly the
+    // failure it exists to make visible.
+    void check_slot_fits(mlir::Value slot, uint64_t bytes,
+                         std::string_view what, std::string_view name) const {
+        if (!slot) return;
+        auto al = slot.getDefiningOp<mlir::LLVM::AllocaOp>();
+        if (!al) return;
+        auto et = al.getElemType();
+        if (!et) return;
+        uint64_t have = mlir_abi_size(et);
+        if (have >= bytes) return;
+        bug("assignment to '{}' copies {} bytes of {} into a {}-byte slot — "
+            "the slot was allocated from a different type than the value's "
+            "storage type", name, bytes, what, have);
+    }
+    // Fault injection for `place_slot_type`'s two DECLINE arms (the null type
+    // and the struct-key miss). Both report a compiler malfunction, so correct
+    // codegen cannot reach either — and an unexecutable report is exactly the
+    // green nobody ran that `check_slot_fits` was caught being. Set only inside
+    // `declare_local_place` for a local whose name starts with
+    // `__slotdecline_canary`, and cleared on the next statement; pinned by
+    // `fail/mlirgen_place_slot_decline`.
+    bool slot_decline_canary_ = false;
     mlir::Value size_const(TypeRef t) {
         return builder_.create<mlir::LLVM::ConstantOp>(
             loc_, builder_.getI64Type(),
@@ -1777,6 +1821,15 @@ private:
     // MLIR slot type for one element/field of a place (struct/tuple inline
     // aggregate type, else logos_to_mlir) — the GEP stride into an aggregate.
     mlir::Type place_slot_type(TypeRef t);
+    // Declare a LOCAL PLACE for a binding that has no initialiser
+    // (`let v: T;`): allocate the slot at the STORAGE type of T and register
+    // the shape the read/assign paths resolve `v` through. One site, so the
+    // deferred spelling cannot drift from the initialised `let` arms — the two
+    // used to decide the slot independently and disagreed for every fat repr
+    // (#80: `logos_to_mlir(str)` is the 8-byte HANDLE type, so `v = "abcde"`
+    // memcpy'd 16 bytes into an 8-byte slot). Returns the alloca, or null when
+    // the type has no representation.
+    mlir::Value declare_local_place(const std::string& nm, TypeRef ty);
     mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type,
                             TypeRef logos_elem = TypeRef(nullptr));
     // Large-fill fast path: when EVERY element of the array literal is the

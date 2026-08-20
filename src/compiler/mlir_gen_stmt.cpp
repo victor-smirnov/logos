@@ -1483,6 +1483,194 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         emit_local_dbg_declare(v.name(), v.type(pool_impl()), v.self.line());
 }
 
+// ---------------------------------------------------------------------------
+// declare_local_place — the slot for a binding with NO initialiser
+// ---------------------------------------------------------------------------
+//
+// `let v: T;` has no value to bind, so the slot must be decided from the TYPE
+// alone. It used to be decided with `logos_to_mlir(T)`, which is the HANDLE
+// query — the by-pointer VALUE ABI — and answers `ptr` (8 bytes) for every fat
+// repr: Slice (incl. `str`), Closure, TraitObject, Tuple, DstRef. The
+// initialised `let` arms never ask it: each allocates its own storage type
+// (slice_llvm_type / dyn_llvm_type / tuple_llvm_type / the tagged-enum body)
+// and registers the SHAPE (var_tuple_ / var_dyn_trait_ / var_tagged_enum_ /
+// var_struct_ / var_subscript_) that makes a later read take the slot AS the
+// value instead of loading through it. The deferred spelling did neither, so
+//   * the slot was 8 bytes while gen_assign memcpy'd the 16-byte pair into it
+//     (a stack overwrite of the NEXT local — measured: `let v: str; let a=111;
+//     v="abcde";` left a==5), and
+//   * every read loaded the slot first, one indirection too many, so
+//     `v.len()` returned bytes 8..16 of the string data (measured: `"AAAAAAAA
+//     BBBBBBBB"` → len 0x4242424242424242).
+// (#80. The two decision sites are still two, but the deferred one is now
+// this single function, and it states each kind's convention by mirroring the
+// initialised arm it must agree with.)
+mlir::Value MLIRGenImpl::declare_local_place(const std::string& nm, TypeRef ty) {
+    TypeRef t(ty);
+    if (!t) return nullptr;
+    // ── THE SENSOR'S FAULT INJECTION (#80). NAME-SCOPED, FAILS CLOSED. ───────
+    // `check_slot_fits` (mlir_gen_impl.hpp) reports an undersized destination
+    // slot at six memcpy sites. Measured over the whole corpus and a full
+    // stdlib+examples build it is ASKED 45 494 times and never fires — the
+    // condition it reports is a compiler malfunction, so no source program can
+    // reach it while the compiler is correct, and a sensor whose reporting arm
+    // no program executes is a green nobody ran. This arm is what makes it
+    // executable: a local whose name starts with `__slotfit_canary` gets the
+    // PRE-#80 slot — `logos_to_mlir(T)`, the 8-byte handle type, with no shape
+    // registration — which is exactly the defect #80 fixed, so the later
+    // `v = <fat value>` memcpy asks the sensor with have=8 want=16 and the
+    // sensor refuses the compile. Pinned by `fail/mlirgen_slot_fits_sensor`,
+    // which asserts the diagnostic text; the admit half of the pair is this
+    // file's every other deferred cell in `pass/bc_fatval_deferred_init_len`.
+    //
+    // ⚠ ABUSE DIRECTION. This is a hatch that makes codegen WORSE, so its
+    // blast radius is stated, not assumed: it needs the reserved `__` prefix
+    // in the SOURCE (no env var, so no shell can turn it on for anything), it
+    // only ever SHRINKS a slot, and every write through that slot is refused
+    // by the sensor it exists to prove. What it does NOT catch is a program
+    // that uses the prefix and never assigns — that one gets pre-#80 reads.
+    // No program in the tree but the fixture uses the prefix
+    // (`grep -rn __slotfit_canary tests/ stdlib/ examples/`).
+    // ── THE PLACE-SLOT DECLINE INJECTION (#80 follow-up). SAME SHAPE. ───────
+    // `place_slot_type` used to answer a 4-byte i32 for a NULL type and the
+    // 8-byte handle `ptr` for a struct whose `mlir_struct_key` misses
+    // `struct_types_` (the open #58/#60/#61 bare-name class) — silent guesses
+    // at a PLACE size, which since #80 is also the deferred-`let` slot, so the
+    // later `v = <struct>` memcpy'd the struct's real footprint into 8 bytes.
+    // Both are now reported on the `bug` channel ⇒ COMPILE FAILED. Neither
+    // fires anywhere in the tree (the green stdlib+examples build and the green
+    // corpus ARE that measurement — the sink fails the compile, so a miss could
+    // not hide), which is precisely why the arms need this to be executable at
+    // all. A local named `__slotdecline_canary*` asks both, once, for their
+    // report; the reserved `__` prefix is the whole blast radius, no env var
+    // exists, and the compile that trips it produces no object file.
+    //
+    // ONE PREFIX PER ARM, because the fail runner's assertion is `grep -F` over
+    // the WHOLE `.expected` and a multi-line pattern there is an OR, not an
+    // AND: a single fixture firing both reports would stay green after either
+    // one was deleted. `__slotnull_canary*` pins the null arm
+    // (`fail/mlirgen_place_slot_null_decline`), `__slotmiss_canary*` the
+    // struct-key-miss arm (`fail/mlirgen_place_slot_decline`).
+    if (nm.rfind("__slotnull_canary", 0) == 0)
+        (void)place_slot_type(TypeRef(nullptr));
+    if (nm.rfind("__slotmiss_canary", 0) == 0) {
+        slot_decline_canary_ = true;
+        (void)place_slot_type(t);
+        slot_decline_canary_ = false;
+    }
+    if (nm.rfind("__slotfit_canary", 0) == 0) {
+        auto mt = logos_to_mlir(t);
+        if (!mt) return nullptr;
+        auto a = create_entry_alloca(mt);
+        if (!a) return nullptr;
+        evict_var_shapes(nm);
+        scope_[nm] = a;
+        let_vars_.insert(nm);
+        return a;
+    }
+    // Common tail: allocate, drop stale shape claims, bind. The SHAPE claim is
+    // added by each arm after this.
+    auto bind = [&](mlir::Type slot) -> mlir::Value {
+        if (!slot) return nullptr;
+        auto a = create_entry_alloca(slot);
+        if (!a) return nullptr;
+        evict_var_shapes(nm);
+        scope_[nm] = a;
+        let_vars_.insert(nm);
+        return a;
+    };
+    auto k = t.kind();
+    // ── Fat by-value places: the slot IS the value ───────────────────────────
+    // Mirrors the `let` Slice / Closure / TupleLit arms (`var_tuple_` ⇒ EVarRef
+    // returns the slot pointer directly) — 16-byte {ptr,len} / {fn,env} pairs.
+    if (k == LogosType::Kind::Slice) {
+        if (auto a = bind(slice_llvm_type())) { var_tuple_.insert(nm); return a; }
+        return nullptr;
+    }
+    if (k == LogosType::Kind::Closure) {
+        if (auto a = bind(closure_llvm_type())) { var_tuple_.insert(nm); return a; }
+        return nullptr;
+    }
+    if (k == LogosType::Kind::Tuple) {
+        if (auto a = bind(tuple_llvm_type(t))) { var_tuple_.insert(nm); return a; }
+        return nullptr;
+    }
+    // ── &dyn / Box<dyn> / bare dyn: the 16-byte {data,vtable} pair ───────────
+    // A RAW `*const/*mut dyn` is deliberately NOT here: its binding is an
+    // 8-byte HANDLE (aliasing is the point of a raw pointer — the same split
+    // the initialised arm makes with `is_raw_ptr_dyn`), so it takes the scalar
+    // tail below, exactly as before.
+    {
+        TypeRef dt = t;
+        if ((dt.kind() == LogosType::Kind::Ref ||
+             dt.kind() == LogosType::Kind::MutRef) &&
+            dt.pointee() &&
+            TypeRef(dt.pointee()).kind() == LogosType::Kind::TraitObject)
+            dt = dt.pointee();
+        if (dt && dt.kind() == LogosType::Kind::TraitObject) {
+            if (auto a = bind(dyn_llvm_type())) {
+                var_dyn_trait_[nm] = std::string(dt.trait_name());
+                return a;
+            }
+            return nullptr;
+        }
+    }
+    // ── Tagged enum: the slot IS the inline {disc,payload} storage ───────────
+    if (k == LogosType::Kind::Enum) {
+        if (auto* te = resolve_tagged_enum(std::string(t.enum_name()), t);
+            te && te->llvm_type) {
+            if (auto a = bind(te->llvm_type)) { var_tagged_enum_.insert(nm); return a; }
+            return nullptr;
+        }
+        // C-style enum = an i32 disc → scalar tail.
+    }
+    // ── Struct / ZonedStruct: the slot IS the struct storage ─────────────────
+    if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
+        if (auto a = bind(place_slot_type(t))) {
+            var_struct_[nm] = mlir_struct_key(t);
+            return a;
+        }
+        return nullptr;
+    }
+    // ── Array: the slot IS the array; reads/writes stride by the element ─────
+    if (k == LogosType::Kind::Array) {
+        auto at = logos_to_mlir(t);
+        auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(at);
+        if (arr_t) {
+            if (auto a = bind(arr_t)) {
+                var_elem_types_[nm] = arr_t.getElementType();
+                var_subscript_[nm]  = arr_t.getElementType();
+                return a;
+            }
+            return nullptr;
+        }
+    }
+    // ── &Struct / &mut Struct: an 8-byte slot HOLDING the reference ──────────
+    // Mirrors the `let mut r = &s1;` arm (a rebindable ref needs its own slot;
+    // var_local_ptrs_ makes get_struct_ptr / gen_recv_struct load through it).
+    // A deferred binding is rebindable by construction, so it always takes the
+    // mut spelling — never the immutable arm's alias-the-pointee fast path,
+    // which has no slot for the later assignment to write.
+    if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
+        t.pointee() &&
+        (TypeRef(t.pointee()).kind() == LogosType::Kind::Struct ||
+         TypeRef(t.pointee()).kind() == LogosType::Kind::ZonedStruct)) {
+        if (auto a = bind(ptr_type())) {
+            var_elem_types_[nm] = ptr_type();
+            auto sit = struct_types_.find(concrete_struct_name(t.pointee()));
+            if (sit != struct_types_.end()) var_local_ptrs_[nm] = sit->second.llvm_type;
+            var_struct_[nm] = mlir_struct_key(t.pointee());
+            return a;
+        }
+        return nullptr;
+    }
+    // ── Scalar / thin pointer / fn value ─────────────────────────────────────
+    auto mt = logos_to_mlir(t);
+    if (!mt) return nullptr;
+    if (auto a = bind(mt)) { var_elem_types_[nm] = mt; return a; }
+    return nullptr;
+}
+
 void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
     auto val_le = v.value();
     if (!val_le) {
@@ -1491,15 +1679,10 @@ void MLIRGenImpl::gen_let_inner(lir_view::SLetView v) {
         // uninitialised. Later SAssign writes through scope_[name].
         std::string nm(v.name());
         TypeRef ty = v.type(pool_impl());
-        auto mt = ty ? logos_to_mlir(ty) : mlir::Type();
-        if (!mt) return;
-        auto alloca = create_entry_alloca(mt);
-        evict_var_shapes(nm);
-        scope_[nm] = alloca;
-        let_vars_.insert(nm);
-        var_elem_types_[nm] = mt;
-        if (ty && TypeRef(ty).kind() == LogosType::Kind::Struct)
-            var_struct_[nm] = mlir_struct_key(ty);
+        // ONE decision site for the deferred slot AND its shape registration
+        // (#80) — see declare_local_place. `logos_to_mlir` here allocated the
+        // 8-byte handle type for every fat repr and registered no shape.
+        if (!declare_local_place(nm, ty)) return;
         // B8 drop elaboration: a fresh declaration resets any stale assigned /
         // flag state from an earlier same-named binding (sequential blocks).
         uninit_assigned_.erase(nm);
@@ -2142,6 +2325,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
             ? resolve_tagged_enum(std::string(TypeRef(et2).enum_name()), et2) : nullptr;
         val = spill_to_alloca(val);
         if (te && te->llvm_type && val.getType() == ptr_type()) {
+            check_slot_fits(it->second, layout_of(et2).size, "an enum value", name);
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(et2), /*isVolatile=*/false);
         } else if (te && te->llvm_type) {
             // A tagged enum reassigned a bare i32 disc (e.g. `o = None` with no
@@ -2165,6 +2349,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         auto cname = concrete_struct_name(val_t);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) {
+            check_slot_fits(it->second, layout_of(val_t).size, "a struct value", name);
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
@@ -2195,6 +2380,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         if (fat && fat.getType() == ptr_type()) {
             auto sz = builder_.create<mlir::LLVM::ConstantOp>(
                 loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+            check_slot_fits(it->second, 16, "a fat dyn pair", name);
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, fat, sz,
                                                   /*isVolatile=*/false);
             return;
@@ -2213,8 +2399,27 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         auto sz = builder_.create<mlir::LLVM::ConstantOp>(
             loc_, builder_.getI64Type(),
             builder_.getI64IntegerAttr(16));
+        check_slot_fits(it->second, 16, "a fat {data,meta} pair", name);
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
         return;
+    }
+    // Whole-TUPLE rebind (`t = (a, b)` / `t = other_tuple`): a tuple local's
+    // slot is the INLINE tuple footprint (tuple_llvm_type), but logos_to_mlir
+    // collapses a tuple to an 8-byte `ptr`, so `val` is a POINTER to the source
+    // tuple. Without this arm the StoreOp below wrote that pointer over field 0
+    // and left the rest of the slot stale — invisible while the deferred slot
+    // was itself 8 bytes and merely ALIASED the source (#80: the slot and the
+    // RHS temporary were the same storage), which is exactly the aliasing the
+    // struct/enum/slice `let` arms each copy away from. Mirrors them.
+    if (val_t && TypeRef(val_t).kind() == LogosType::Kind::Tuple &&
+        var_tuple_.count(name)) {
+        val = spill_to_alloca(val);
+        if (val.getType() == ptr_type()) {
+            check_slot_fits(it->second, layout_of(val_t).size, "a tuple value", name);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val,
+                                                  size_const(val_t), /*isVolatile=*/false);
+            return;
+        }
     }
     // Whole-array rebind (`t = [a, b]` / `t = other_arr`): arrays are
     // pointer-represented, so `val` is a pointer to the source array storage
@@ -2226,6 +2431,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         val.getType() == ptr_type()) {
         auto arr_ll = logos_to_mlir(val_t);
         if (arr_ll) {
+            check_slot_fits(it->second, layout_of(val_t).size, "an array value", name);
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }

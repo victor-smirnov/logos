@@ -1,0 +1,46 @@
+// #80 FOLLOW-UP — THE NULL-TYPE PLACE-SLOT DECLINE, EXECUTED.
+//
+// `MLIRGenImpl::place_slot_type` decides the byte size of a PLACE: an array /
+// Vec element stride, a GEP into an aggregate, and — since #80 — the slot of a
+// deferred `let v: T;`. Asked with a NULL TypeRef it used to answer `i32`: a
+// FOUR-byte place for a type the caller could not name, smaller than every fat
+// repr and than most scalars, so the stride / GEP / slot built from it is wrong
+// in the direction that OVERWRITES THE NEIGHBOUR — the #80 defect's own shape.
+// It is now a report on the `bug` channel ⇒ COMPILE FAILED, no object file.
+//
+// THE ARM WAS ALSO REACHED, ONCE, BY CORRECT CODE. `gen_lvalue_addr`'s
+// IndexRead case computed the element stride EAGERLY, before dispatching on the
+// receiver kind — and `TypeRef(Ptr/Ref).elem()` is null, so the two
+// pointer-receiver arms (which then compute their own stride from the POINTEE)
+// asked with null and threw the answer away. Harmless while the answer was a
+// silent guess; a false report once the guess became a decline. Measured on
+// `pass/bc_fatval_deferred_init_len` — one fire — and closed by making the ask
+// LAZY, per receiver arm. The stride the two pointer arms actually use is
+// unchanged; the speculative ask is gone.
+//
+// AFTER THAT, THE ARM FIRES NOWHERE IN THE TREE — which is the point and the
+// problem: a report no program executes is a green nobody ran (exactly what
+// `check_slot_fits` was caught being, see `fail/mlirgen_slot_fits_sensor`). The
+// measurement needs no fire counter that could go stale: the sink FAILS THE
+// COMPILE, so the green stdlib+examples build and the green fixture corpus
+// could not be hiding a fire.
+//
+// This file executes it through the name-scoped fault injection in
+// `declare_local_place`: a local named `__slotnull_canary*` asks
+// `place_slot_type` once with a null type. Its sibling
+// `fail/mlirgen_place_slot_decline` pins the OTHER decline (the struct-key
+// miss) — one prefix per arm, because the fail runner greps the whole
+// `.expected` as a FIXED pattern and a two-line expectation is an OR. Delete
+// this decline, or the injection, and this file goes green-by-silence — logosc
+// succeeds, stderr carries nothing, and the fail runner reds it.
+//
+// THE ADMIT HALF OF THE PAIR: the same declaration with an ordinary name is
+// `pass/bc_fatval_deferred_init_len` cell 1 — it compiles and answers 5.
+package mlirgen_place_slot_null_decline;
+
+unsafe fn main() -> i32 {
+    let __slotnull_canary_v: str;
+    __slotnull_canary_v = "abcde";
+    if __slotnull_canary_v.len() != 5i64 { return 1; }
+    return 0;
+}

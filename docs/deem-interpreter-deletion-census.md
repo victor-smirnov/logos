@@ -3085,9 +3085,284 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7309
-REGISTRY-NOIMPORTED  3626
+REGISTRY-ALL         7326
+REGISTRY-NOIMPORTED  3643
 REGISTRY-TIERCOMMIT  36
+# 2026-08-19, +2/+2/0 (7324/3641/36 -> 7326/3643/36), predicted before the
+# reconfigure and met exactly. THE #80-VERIFY FINDINGS RE-VERIFIED, and the
+# same rule applied to the repair the previous entry made.
+#   (A) THE ENTRY BELOW'S OWN FINDING (2) LEFT A ZERO-FIRING ARM. It made
+#       `place_slot_type`'s struct-key miss a LOUD DECLINE and justified it
+#       with "zero misses measured" — which is exactly the shape finding (1)
+#       refused one paragraph earlier: a report no program executes. Both
+#       declines are now EXECUTABLE, one fixture per arm:
+#         tests/logos/fail/mlirgen_place_slot_decline.logos       (struct miss)
+#         tests/logos/fail/mlirgen_place_slot_null_decline.logos  (null type)
+#       Fault injection in `declare_local_place`, same shape as
+#       `__slotfit_canary`: `__slotmiss_canary*` sets `slot_decline_canary_`
+#       so the `struct_types_` lookup takes its miss arm, `__slotnull_canary*`
+#       asks with a null TypeRef. ONE PREFIX PER ARM because the fail runner's
+#       assertion is `grep -F` over the whole `.expected`, and a two-line
+#       pattern there is an OR — a single fixture asserting both texts would
+#       stay green after either report was deleted.
+#       CONTROLS, logosc-only rebuild each, restored to md5
+#       868ffa31b10473d04be34f272d78b41a (mlir_gen_expr.cpp — the file then
+#       took COMMENT-ONLY edits naming the two fixtures at their sites, so the
+#       committed md5 is cb2ca02d27e239a85355d16277df5f49; the full rebuild and
+#       every gate below ran on that one):
+#         `if (false) bug(...)` on the NULL arm   -> null fixture rc 1
+#                                                   ("logosc: wrote /dev/null")
+#         `if (false) bug(...)` on the STRUCT arm -> struct fixture rc 1
+#       And the perturbation that proves the struct arm's text without the
+#       injection: `if (false && sit != struct_types_.end())` -> compiling
+#       pass/bc_fatval_deferred_init_len reports the miss for
+#       `bc_fatval_deferred_init_len.S` and `.W`, rc 1.
+#   (B) THE NULL ARM WAS NOT A DEAD ARM — it fired once on correct code, and
+#       the ask was SPECULATIVE. `gen_lvalue_addr`'s IndexRead case computed
+#       the element stride EAGERLY, before dispatching on the receiver kind;
+#       `TypeRef(Ptr/Ref).elem()` is null, so the two pointer-receiver arms
+#       (which then recompute the stride from the POINTEE) asked
+#       `place_slot_type(null)` and discarded the answer. Harmless while that
+#       answer was a silent i32 guess; a FALSE REPORT once it became a decline.
+#       Measured on pass/bc_fatval_deferred_init_len (one fire, backtrace via
+#       LOGOS_MLIRGEN_ABORT_ON_BUG + gdb: place_slot_type <- gen_lvalue_addr).
+#       Closed by making the ask LAZY, per receiver arm — the Slice and Array
+#       arms ask, the two pointer arms keep the stride they already computed
+#       from the pointee. No stride changes.
+#       Also loud now: the NULL fallback used to answer i32, a FOUR-byte place,
+#       which is smaller than every fat repr and most scalars — wrong in the
+#       overwrite direction, the #80 defect's own shape.
+#   (C) THE PROSE REPAIR THE ENTRY BELOW CLAIMS WAS INCOMPLETE. It fixed the
+#       header map of pass/bc_fatval_deferred_init_len but not the three
+#       SECTION headers, which a reader debugging a red reaches first:
+#       "1-5" -> "1-6" (the call-arrival cell 6 is in that section),
+#       "7-13" -> "7-17" (struct W is 14/15, zone_mut 16/17),
+#       "22-28" -> "22-30" (the zone_mut control returns 29/30). The map at the
+#       top and the section headers now both match the `return` values.
+#   (D) THE SENSOR AND THE &mut [T] CELL RE-VERIFIED FROM SCRATCH, not taken on
+#       report. `fail/mlirgen_slot_fits_sensor` rc 0; injection disabled
+#       (`if (false && nm.rfind(...))`, logosc-only rebuild) -> rc 1 with
+#       "logosc: wrote /dev/null", i.e. green-by-silence, restored to md5
+#       bc71ba7e8873708727744ef7e4969243 before the next step. Injection WIDENED
+#       to every deferred local -> pass/bc_fatval_deferred_init_len does not
+#       compile, 11 sensor reports naming v1 v2 v4 v5 v6 sl cl st v7 and `ms`
+#       — `ms` is the deferred `&mut [i64]` the #80 report called unbuildable,
+#       so cell 31-36 bites on the class it was written for.
+# +2 registry rows = 2 fail fixtures; the pass corpus is unmoved, so
+# logos_09_direct_door_census's 2191/191/2000 stand (re-derived by direct file
+# listing: `ls tests/logos/pass/*.logos|wc -l` = 2191,
+# `ls tests/logos/pass/{wql_*,deem_*}.logos|wc -l` = 191).
+# 2026-08-19, +1/+1/0 (7323/3640/36 -> 7324/3641/36), predicted before the
+# reconfigure and met exactly. #80 VERIFY — three findings, and the +1 is the
+# fixture that makes the first one executable.
+#   (1) `check_slot_fits` WAS A SENSOR NOTHING EXECUTED. Measured with a
+#       temporary fprintf on its comparison line: the guard is ASKED 45 494
+#       times — 17 113 over the fixture corpus (4 473 programs, 399 of them
+#       reaching a call site) and 28 381 over a full stdlib+examples build —
+#       and `have` equalled `want` EVERY time. Correct codegen cannot reach the
+#       report, so its green said nothing. It is now executed by a name-scoped
+#       FAULT INJECTION in `declare_local_place`: a local named
+#       `__slotfit_canary*` gets the pre-#80 8-byte handle slot, so the
+#       assignment copies 16 into 8 and the compile fails with the sensor's own
+#       words. Both halves control-reverted, logosc-only rebuild each:
+#       injection disabled -> the fail fixture reds (rc 1, "stderr did not
+#       contain"); sensor's report disabled (`if (true || have >= bytes)`) ->
+#       same rc 1; both restored (md5 mlir_gen_stmt.cpp
+#       bc71ba7e8873708727744ef7e4969243, mlir_gen_impl.hpp
+#       bd9c4a8bae3ead2a74cf8f990a4ef187) and green again.
+#         tests/logos/fail/mlirgen_slot_fits_sensor.logos
+#   (2) `place_slot_type`'s Struct arm GUESSED on a `struct_types_` miss — it
+#       fell through to `logos_to_mlir(Struct)` = the 8-byte handle `ptr`, i.e.
+#       a place slot / element stride of 8 bytes for a struct of any size, and
+#       since #80 also a deferred-`let` slot that registers `var_struct_`. The
+#       miss is the open bare-name class (#58/#60/#61). Now a LOUD DECLINE
+#       through the R2 sink. Measured on the same two sweeps: ZERO misses over
+#       the corpus and the full build, so no program in the tree reaches it
+#       today — the decline is there so the first one that does is a named
+#       compile failure and not silent 8 bytes.
+#   (3) REFUTED CLAIM REPAIRED. The #80 report said a `&mut [T]` local is
+#       unbuildable and sema refuses every spelling. FALSE: the whole-array
+#       borrow `let s: &mut [i64] = &mut a;` builds one, and so does the
+#       DEFERRED spelling. Cells 31-36 of the fixture carry it — deferred
+#       `&mut [i64]` + three live neighbours + write-through + the initialised
+#       control — and they BITE: with the pre-#80 slot decision forced on for
+#       every deferred local, `ms` does not compile ("copies 16 bytes of a fat
+#       {data,meta} pair into a 8-byte slot"). The fixture's prose numbering was
+#       also repaired in the same edit: the header said the overwrite was cell
+#       14 and the controls 20-27, while the code returns 19-21 and 22-30.
+#         tests/logos/pass/bc_fatval_deferred_init_len.logos  (30 -> 36 cells)
+# +1 registry row = 1 fail fixture; the pass corpus is unmoved (an existing
+# fixture grew cells), so logos_09_direct_door_census's 2191/191/2000 stand,
+# re-derived by direct file listing.
+# 2026-08-19, +7/+7/0 (7316/3633/36 -> 7323/3640/36), predicted before the
+# reconfigure and met exactly. #77 ROUND 2 — the verify of the just-landed
+# #77/#78/#79 returned four findings, each landed on its own with a stated rc
+# and a full stdlib rebuild between:
+#   (1) the summary SEED was blind to a by-value aggregate holding a SHARED
+#       borrow, and the `approx` flag recorded only bits GUESSED IN, so an
+#       INCOMPLETE mask printed EXACT and the #77 door trusted it. Seed closed
+#       (`bc_holds_any_ref_type` in `can_carry`), flag split into
+#       `over_approx` / `under_approx` with the under half CONSUMED (an
+#       under-approximate summary is refused by `flow_of_call` /
+#       `flow_of_method` / `flow_of_fnptr`, so every consumer takes its
+#       summary-less route instead of trusting a mask that narrows). The
+#       widening needed its Rust-parity cut in the SAME step —
+#       `stored_shared_extract`, "a shared borrow copied out through a `&` has
+#       the STORED borrow's lifetime" — measured: without it the full stdlib
+#       rebuild came back 6 red, all in wql/plan_walker.logos.
+#         tests/logos/fail/bc_esc_summary_seed_field_dangle.logos
+#         tests/logos/pass/bc_esc_summary_seed_field_admit.logos
+#   (2) `prov_of`'s Code::MethodCall arm had the SAME door defect #77 had just
+#       fixed on Code::Call — its fat gate returned {} before the summary
+#       consult. Measured twin, one variable: the method spelling admitted at
+#       rc 0 while the free-fn spelling of the same body refused at rc 1.
+#         tests/logos/fail/bc_esc_method_retain_dangle.logos
+#         tests/logos/pass/bc_esc_method_retain_admit.logos
+#   (3) #79's residual was understated: `flow_of_fnptr` resolves only a LOCAL
+#       whose initializer is a known fn item, so a pointer arriving as a
+#       PARAMETER or read from a STRUCT FIELD admitted a real dangle (and so
+#       did the `fnptr_multi_` case round 1 named). An unresolvable indirect
+#       callee now takes the documented (d) route.
+#         tests/logos/fail/bc_esc_fnptr_param_dangle.logos
+#         tests/logos/pass/bc_esc_fnptr_param_admit.logos
+#   (4) the #77 repair leaked a compiler-internal temp name: a function with a
+#       droppable local printed "local variable '__ret_tmp_0'" where the thin
+#       twin correctly named `t`. No fixture pinned that path.
+#         tests/logos/fail/bc_esc_ret_temp_name.logos
+# +7 registry rows = 4 fail + 3 pass; tier_commit unmoved — none of the seven
+# is a lint or a census gate.
+# 2026-08-19, +1/+1/0 (7315/3632/36 -> 7316/3633/36), predicted before the
+# reconfigure and met exactly. #80 — A DEFERRED-INIT LOCAL OF A FAT TYPE GOT AN
+# 8-BYTE SLOT. `let v: T;` with no initialiser decided its slot with
+# `logos_to_mlir(T)`, which is the by-pointer HANDLE query and answers `ptr` for
+# every fat repr, and it registered no shape; the INITIALISED `let` arms each
+# allocate the storage type (slice/dyn/closure/tuple/enum) and register the
+# shape that makes a read take the slot AS the value. So a deferred fat local
+# had an 8-byte slot that the later `v = …` memcpy'd 16 bytes into — a stack
+# overwrite of the next local — and every read loaded through it once too many.
+# Measured PRE-EXISTING at 6440e565 (2026-08-04): identical values AND
+# byte-identical `@main` IR on both binaries; `git blame` puts the branch at
+# 813aa91b5 (2026-05-11). NOT caused by the #70-#79 borrow-check work.
+#   THE FIX IS ONE DECISION SITE: `MLIRGenImpl::declare_local_place`
+#   (src/compiler/mlir_gen_stmt.cpp), called from the `!val_le` branch of
+#   `gen_let_inner`. It states each kind's convention by mirroring the
+#   initialised arm it has to agree with — Slice/Closure/Tuple → the 16-byte
+#   pair + `var_tuple_`; TraitObject (incl. `&dyn`, `Box<dyn>`) → dyn_llvm_type
+#   + `var_dyn_trait_`; tagged Enum → the inline body + `var_tagged_enum_`;
+#   Struct → place_slot_type + `var_struct_`; Array → the array + var_subscript_;
+#   `&Struct`/`&mut Struct` → an 8-byte slot + var_local_ptrs_ (the `let mut r =
+#   &s` arm, since a deferred binding is rebindable by construction); scalars
+#   unchanged. A raw `*const/*mut dyn` deliberately keeps HANDLE semantics.
+#   THE CLASS, measured cell by cell (probe -> before -> after):
+#     str 1 -> 5 · &[i64] 2 -> 3 · &dyn SIGSEGV -> 7 · closure SIGSEGV -> 7 ·
+#     Box<dyn> SIGSEGV -> 7 · FatZoneMut 10 -> 0 · [i64;3] COMPILE_FAIL -> 6 ·
+#     neighbour local clobbered (a=5) -> intact. Shapes: straight-line, block,
+#     if/else arms, match arms, `let mut`, value-through-a-call — all 1/0 -> 5.
+#     Unmoved and correct before and after: tuple, struct, String, i64, &i64,
+#     and every initialised twin.
+#   PLUS TWO SITES THE FIX EXPOSES RATHER THAN CAUSES: `gen_assign` had no
+#   whole-TUPLE rebind arm (it worked only because the 8-byte slot ALIASED the
+#   RHS temporary), and every value-copy rebind arm memcpy'd into the slot with
+#   no size check. `check_slot_fits` now compares the destination alloca's
+#   allocated type against the copy size and reports a malfunction through the
+#   R2 sink — under it, the OLD slot decision is a COMPILE ERROR instead of a
+#   silent stack overwrite (measured: with the fix reverted behind an env gate,
+#   str / slice / closure / the clobber probe all fail to compile naming the
+#   8-byte slot; the whole stdlib builds with the fix and fires it 0 times).
+#   ⚠ CORRECTED BY THE #80 VERIFY (entry above): "fires it 0 times" was the
+#   whole of the evidence for the sensor, and a report arm no program executes
+#   is not evidence at all. It is now asked 45 494 times with 0 fires AND its
+#   report is executed by tests/logos/fail/mlirgen_slot_fits_sensor.logos
+#   THE FIXTURE: tests/logos/pass/bc_fatval_deferred_init_len.logos — 36
+#   assertions (30 at landing + cells 31-36, the deferred `&mut [T]` class the
+#   report had called unbuildable), one exit code each, every one bite-proven by
+#   perturbing its constant or, for 31-36, by forcing the pre-#80 slot decision.
+#   Cells 22-30 are the INITIALISED controls in the same file, so a "fix" that
+#   broke both spellings into agreement cannot satisfy it.
+#   DEBT PAID: four admit fixtures asserted `len() >= 0` — a tautology forced by
+#   this defect — and now assert the real length: bc_fatret_nested_call_admit,
+#   bc_fatret_methodarg_admit (5), bc_esc_fnptr_admit (5),
+#   bc_esc_outparam_scope_admit (5 and 2). All four bite (perturbed -> rc 1).
+#   bc_fatret_struct_field_admit was named in the brief but never had the
+#   weakening — it asserts `*held.r == 9` and is untouched.
+# 2026-08-19, +6/+6/0 (7309/3626/36 -> 7315/3632/36), predicted before the
+# reconfigure and met exactly. #77 / #78 / #79 — THE THREE ESCAPE CHANNELS THAT
+# NEVER ASKED THE CALLEE, landed ONE AT A TIME, each with its own full stdlib
+# rebuild as the red list and its own control revert. The previous entry's
+# closing sentence is the brief for this one: the deposit site consults a
+# summary, and NO OTHER escape site did. That framing was TESTED here and it
+# holds for two of the three — but #77 turned out not to be summary-blind by
+# its RULE at all, only by its DOOR (see below).
+#   #77 RETURN ESCAPE — `prov_of`'s `Code::Call` arm opened on
+#   `is_borrow_carrying_type(result)`, so a call returning a bare `&i64`
+#   returned {} two lines BEFORE the summary consult that was already there and
+#   already correct. Widened to `type_may_carry_borrow` (the predicate the
+#   §B6 deposit arm moved to at round 14 / Q5 for the same question).
+#   RED LIST of the un-narrowed widening, measured on a full stdlib rebuild:
+#   3, all in `eval_sexpr` (stdlib/mem/deem/tpl.logos:329/420/424, the three
+#   `return RtVal::S(intern(scratch, &t))` spellings), all classified FALSE —
+#   `intern` (deem.logos:1062) retains only its ARENA; `Writ::wstring` COPIES
+#   the bytes (copy_bytes, stdlib/lang/writ/wstring.logos:58) and declares
+#   `&'a WString` tied to `self` alone, so rustc accepts all three. The bit
+#   came from `Writ::wstring` being UNAVAILABLE across the package boundary
+#   (#81) and `call_result_taint`'s (a)-(d) fallback tying the result to every
+#   borrowing operand: `intern: result<-0x3` where the truth is `0x1`.
+#   THE NARROWING, and it is a new FACT the summary now carries:
+#   `FlowSummary::approx` — true iff a mask bit came from a GUESS (this
+#   function's own fallback, or a callee whose summary is itself approx),
+#   monotone, in the same fixpoint as the masks (`flow_eq`, +1 per fn in the
+#   ICE's derived round bound). The NEW door takes EXACT summaries only; the
+#   OLD `#[borrow_carrying]` door is untouched, because that is the behaviour
+#   every bc_* pin was measured against. Red list after the narrowing: 0.
+#   UNCOVERED, stated with repro paths rather than hidden: (i) a ref result
+#   whose callee summary is approx — every cross-package callee — still
+#   admits; (ii) `pick(h: H) -> &i64 { return h.r; }` with `H { r: &i64 }`
+#   passed BY VALUE summarises `result<-0` (sandbox/escchan/p_struct.logos,
+#   rc 0) and so does the array spelling (sandbox/escchan/p_arr.logos) — a
+#   SUMMARIZER SEED gap, not a channel gap: `seed()` marks a by-value aggregate param through
+#   `bc_holds_mut_ref_type`, which does not see a plain `&`. Widening that seed
+#   moves every channel at once and needs its own measured red list.
+#   #78 OUT-PARAM SCOPE ESCAPE — `apply_flow_outparams` read `to_outparam[j]`
+#   and moved LOANS and alias edges through it, so a later MUTATION was caught;
+#   nothing wrote `ref_borrow_sources_`, so the source simply DYING was
+#   invisible. `set2(&mut k, owner.as_str())` admitted at rc 0 while the direct
+#   `k.f = owner.as_str()` refused with E0597 naming `k`. Deposit added at the
+#   same site, keyed to the out-param ROOT (the mask names a PARAMETER, as A2
+#   and X1 already had to say). RED LIST on the full stdlib rebuild: 0.
+#   #79 FN-POINTER CALL — the §B6 `FnPtrCall` arm applied the summary-LESS
+#   filter triple only, so a fat by-value arg deposited nothing:
+#   `let f: fn(str)->str = keep1; v = f(owner.as_str())` admitted while the
+#   identical direct call refused. `flow_of_fnptr` (G1's resolver: known fn
+#   ITEM, never reassigned) is now consulted, i.e. the priced-and-not-taken
+#   option ("be conservative for every ref-typed arg through any pointer") is
+#   NOT what landed. RED LIST on the full stdlib rebuild: 0. UNCOVERED: a
+#   pointer in `fnptr_multi_` (assigned two different fns) resolves to nullptr
+#   and its dangle still admits — sandbox/escchan/r79_multi.logos, rc 0; and a
+#   ClosureCall's ARGUMENTS are still never consulted (a closure body is never
+#   summarised; its CAPTURES are, and were already).
+#   THE ARMS EXECUTE, fire-printed over one `stdlib/mem` module build and the
+#   prints then REMOVED (this is the check the previous round's two deleted
+#   arms failed): #77's new door TAKEN 408 times on exact summaries and SHUT
+#   238 times on approx ones; #78's deposit 68 times; #79's summary term admits
+#   238 arguments that none of the other three predicates admit. All with 0
+#   reds, so each is live and each is priced.
+#   THE PAIRS, +3 fail / +3 pass, each pair one variable:
+#     fail/bc_esc_return_summary_dangle  · pass/bc_esc_return_summary_admit
+#       (which argument `second<'a>(a:&i64, b:&'a i64)` retains — the local or
+#        the parameter; `result<-0x2`, so the arm does not tie every ref arg)
+#     fail/bc_esc_outparam_scope_dangle  · pass/bc_esc_outparam_scope_admit
+#       (the stored borrow's SOURCE — an inner-block local, or the caller's own
+#        parameter; the admit half carries the static-literal direction too)
+#     fail/bc_esc_fnptr_dangle           · pass/bc_esc_fnptr_admit
+#       (what the pointed-to fn DOES — returns its argument, or a literal)
+#   CONTROL REVERTS, each perturbing the side that fires, each restored to a
+#   green checkpoint before the next: #77 gate reverted to `is_borrow_carrying_
+#   type` -> its fail fixture rc 1 (ch2/ch3 unmoved); #77 mask ignored (tie
+#   every arg) -> its ADMIT fixture rc 1 AND the stdlib build breaks in 2 places
+#   (`parse`, `wbs_read`); #78 deposit `if (false)` -> its fail fixture rc 1
+#   (ch1 rc 0); #78 out-param mask ignored -> the stdlib build breaks
+#   (`ward_rule_join`, "cannot borrow 'wp' as mutable"); #79 summary term
+#   `&& false` -> its fail fixture rc 1 (ch2 rc 0).
 # 2026-08-19, +8/+8/0 (7301/3618/36 -> 7309/3626/36), predicted before the
 # reconfigure and met exactly. #71/#72: THE RAW-POINTER ROUND TRIP SEVERED
 # BORROW PROVENANCE, IN TWO SEPARATE CHANNELS, AND BOTH ARE CLOSED AT THE

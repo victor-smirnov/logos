@@ -1,0 +1,41 @@
+// #79 round 2 — THE RESIDUAL ROUND 1 UNDERSTATED.
+//
+// Round 1's arm reads "when the callee IS statically known, ask it", and
+// `flow_of_fnptr` knows exactly one shape: a LOCAL whose initializer is a
+// known fn ITEM. The two shapes that dominate real callback code are neither.
+// MEASURED at f0a60ff3, both rc 0:
+//   • the pointer arrives as a PARAMETER — this file;
+//   • the pointer is read out of a STRUCT FIELD (`(c.f)(...)`);
+//   • and a pointer in `fnptr_multi_` (two assignments) resolved to nullptr
+//     and admitted too — round 1 named that one and left it open.
+//
+// A parameter is not statically resolvable, and it cannot be rescued by a
+// whole-program "every call site passes keep1" agreement either: `run` is
+// `pub`, so the agreement would be over an OPEN set. The route is therefore
+// the documented (d) one — an unresolvable indirect callee retains every
+// operand that can carry a borrow, exactly what a summary-less direct `Call`
+// already does. It applies ONLY when the pointer does not resolve, so every
+// resolved pointer keeps its exact per-argument mask.
+//
+// THE ONE VARIABLE against pass/bc_esc_fnptr_param_admit is where the argument
+// is rooted: a block-scoped `String` here, a caller-owned one there. Same
+// signature, same indirect call, same use of the result.
+package bc_esc_fnptr_param_dangle;
+
+use logos.mem.string;
+
+pub fn keep1(s: str) -> str { return s; }
+
+pub fn run(f: fn(str) -> str) -> i64 {
+    let mut v: str = "";
+    {
+        let owner: String = String::from("hello");
+        v = f(owner.as_str());
+    }
+    return v.len();
+}
+
+fn main() -> i32 {
+    if run(keep1) >= 0i64 { return 0i32; }
+    return 1i32;
+}
