@@ -18,20 +18,22 @@
 //      every probe worse — "the factory did not satisfy the deferred trait
 //      obligation … the CtrFamily impl is missing after the drain round".
 //
-//   2. THE FIELD POSITION ITSELF IS NOT ADMITTED YET. Letting the per-round
-//      metaprog JIT gen skip a not-yet-lowerable field (a `metaprog_stage_`
-//      flag in mlir_gen_types.cpp's register_struct) DID make the used-struct
-//      form compile — and every such program then ABORTS under
-//      LOGOS_VERIFY_LAYOUT with `[declined] <kind 32>` (AssocType), because
-//      two of the three layout engines cannot size the field. The layout
-//      verifier is an independent oracle; the widening was reverted rather
-//      than the verifier weakened.
+//      REASON 1 IS NOW THE ONLY REASON. This fixture used to carry a second:
+//      "the field position itself is not admitted yet", grounded on the
+//      metaprog-round widening aborting under LOGOS_VERIFY_LAYOUT with
+//      `[declined] <kind 32>`. #61 landed that widening together with the
+//      layout half (declines and ledger answers carry the gen ROUND; the final
+//      round's answer supersedes a metaprog snapshot's), and the field position
+//      is admitted — pass/typeof_container_field_admit drives it and checks its
+//      values. What keeps THIS program refused is reason 1 alone, and the
+//      refusal is unchanged: `mlir_gen: unknown field type in 'NoFamilyState'`
+//      from the FINAL gen, because no round can ever resolve a family nothing
+//      demanded.
 //
-// So: `typeof(<container>)` is spellable and CALLABLE in a hand-written
-// signature, `let`, or alias of the declaring module (pass/
-// typeof_container_hand_written_state is the admit half), and NOT yet as a
-// struct field. A round that admits the field position must delete this
-// fixture — and must first answer the layout verifier.
+// So: `typeof(<container>)` is spellable, CALLABLE and now STORABLE in a
+// hand-written item of the declaring module — as long as some value use
+// demands the family. This fixture is the boundary: no demand, no type, and the
+// compile is refused at the last gen rather than at the first.
 package typeof_container_field_no_family_fail;
 
 use logos.lcm.canon.container_item;

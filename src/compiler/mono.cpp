@@ -587,6 +587,25 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto qkey = ed_pkg.empty() ? ed_name : (ed_pkg + "." + ed_name);
                 if (enum_done_.count(qkey) || enum_done_.count(ed_name)) continue;
             }
+            // ⚠ #61, MEASURED AND NOT LANDED — A NON-GENERIC ENUM IS PUSHED
+            // THROUGH VERBATIM, so its variant PAYLOAD types never see
+            // subst_type, while the non-generic STRUCT path ~25 lines up goes
+            // through clone_struct_def({}, {}). A payload spelled
+            // `<typeof(C) as CtrLeafFamily>::LeafWalk` therefore reaches the
+            // layout engines as a live AssocType and layout_of's `default:` arm
+            // records a decline. Routing it through `clone_enum_def(ed, {}, {},
+            // ed_name)` was WRITTEN, BUILT and CONTROL-REVERTED: with the clone
+            // removed again, pass/typeof_container_field_admit (which HOLDS such
+            // a payload, `PayloadState::Walk`) still passes under
+            // LOGOS_VERIFY_LAYOUT=1 — every remaining decline for that shape is
+            // recorded in a metaprog fixpoint round, which the verifier no
+            // longer judges (see LedgerEntry::round). An arm that fires zero
+            // times is not landed. It also does not land alone: clone_enum_def
+            // DROPS the BORROW_CARRYING marker clone_struct_def preserves, and
+            // with the clone in place the stdlib stopped building —
+            // writ_graph_edges / field_read / eval_sexpr / wany_to_rt all took
+            // "cannot return reference to local variable". Whoever lands this
+            // lands both halves and brings a fixture that fires it.
             out_.enums.push_back(ed);
         }
     }

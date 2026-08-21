@@ -35,6 +35,7 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             bool target_has_bmi2 = false,
                                             std::string_view target_cpu = {},
                                             int shard_index = -1,
-                                            int shard_count = 1) noexcept;
+                                            int shard_count = 1,
+                                            bool metaprog_round = false) noexcept;
 
 } // namespace logos::compiler

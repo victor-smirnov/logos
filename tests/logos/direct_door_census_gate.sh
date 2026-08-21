@@ -407,9 +407,21 @@ PIN = {
     # fixtures are FAIL fixtures and this population is the PASS corpus, so
     # they move nothing here. DOOR counts unmoved (36 = 10 + 26): neither
     # declares a container family — one stdlib `Vec<T>` each, no `direct`.
-    'corpus'            : 2235,
+    # 2026-08-21 (#61 D6 — the typeof-container projection in a struct FIELD,
+    # an enum PAYLOAD and a TUPLE element), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2236
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2236 = 191 + 2045. The one is
+    # typeof_container_field_admit; the round's other fixture
+    # (typeof_container_tuple_field_no_family_fail) is a FAIL fixture and this
+    # population is the PASS corpus, so it moves nothing here. DOOR counts
+    # unmoved (36 = 10 + 26), measured by the sweep itself: the new fixture
+    # DECLARES a container (`container Ked`) and creates it, but declares no
+    # `direct` output form, which is what a door is counted on.
+    'corpus'            : 2236,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2044,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2045,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -16,6 +16,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 
 namespace logos::compiler::layout {
 
@@ -59,7 +60,8 @@ void record(const char* engine, std::string key, Answer answer) noexcept {
     if (const char* ce = canary_engine())
         if (std::strcmp(engine, ce) == 0) answer.layout.size += 1;
     ledger().push_back(
-        LedgerEntry{ engine, std::move(key), answer.layout, answer.shape });
+        LedgerEntry{ engine, std::move(key), answer.layout, answer.shape,
+                     gen_round() });
 }
 
 std::vector<Decline>& declines() noexcept {
@@ -74,8 +76,21 @@ std::vector<Decline>& declines() noexcept {
 // rely on this door — it dies at the decline site regardless.
 void record_declined(const char* engine, std::string key, std::string why) noexcept {
     if (!recording_enabled()) return;
-    declines().push_back(Decline{ engine, std::move(key), std::move(why) });
+    if (const char* t = std::getenv("LOGOS_TRACE_DECLINE"); t && *t && *t != '0')
+        std::fprintf(stderr, "[decline round=%u] %s: %s (%s)\n",
+                     gen_round(), engine, key.c_str(), why.c_str());
+    declines().push_back(Decline{ engine, std::move(key), std::move(why),
+                                  gen_round() });
 }
+
+// #61: the gen ROUND counter. A metaprog compile runs the front end once per
+// fixpoint iteration and once per metacall; only the LAST run's program is
+// emitted, and `verify_layout_engines()` compares against that emitted layout.
+// Stamping declines with the round lets the verifier judge the round it is
+// actually about (see the note over `struct Decline`).
+static unsigned& gen_round_slot() noexcept { static unsigned r = 0; return r; }
+unsigned gen_round() noexcept { return gen_round_slot(); }
+void end_gen_round() noexcept { ++gen_round_slot(); }
 
 std::string kind_key(LogosType::Kind k) noexcept {
     return "<kind " + std::to_string(static_cast<int>(k)) + ">";

@@ -1,0 +1,47 @@
+// #61 (D6) — THE REFUSE HALF FOR THE TUPLE FIELD, AND THE PIN ON A DECLINE ARM
+// THAT DID NOT EXIST BEFORE.
+//
+// `register_struct`'s Tuple arm read
+//     ft = tuple_llvm_type(fv);
+//     if (!ft) ft = ptr_type();
+// — an element with no MLIR type silently became one 8-byte word. That is the
+// {8,8}-guess-as-answer pattern `layout_of`'s `default:` arm exists to stop,
+// and it was PERMISSIVE: `struct StT { w: (<typeof(C) as CtrLeafFamily>::
+// LeafWalk, u64) }` compiled with no env var at all and then aborted in the
+// always-on cross-check — "d6probe.StT: size — layout_of says 16,
+// llvm::DataLayout says 8". The arm now DECLINES.
+//
+// This program is the same shape with NO `create_ctr`, so the family is never
+// demanded and the projection is unresolvable in EVERY round (the reason
+// fail/typeof_container_field_no_family_fail states for the plain field). It
+// therefore reaches the FINAL gen unlowerable and is refused there — which is
+// what makes it a pin on the new arm rather than on the round order.
+// ⚠ CORRECTED 2026-08-21: this header used to end "the admit twin drives the
+// same tuple element to a correct 80-byte layout once the family exists". IT
+// DOES NOT — that fixture contains no tuple, and the tuple cell is still
+// broken even with the family demanded (rc 1, "unknown tuple field type").
+// So this fixture pins the DECLINE arm only; the recovery arm it was paired
+// with has no passing pin. Said here because a fail fixture that describes a
+// green twin which does not exist is how a hole survives a green corpus.
+
+package typeof_container_tuple_field_no_family_fail;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Ted {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub struct NoFamilyTuple { t: (<typeof(Ted) as CtrLeafFamily>::LeafWalk, u64) }
+
+fn main() -> i32 { return 0i32; }

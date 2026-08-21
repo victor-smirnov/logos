@@ -3085,9 +3085,46 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7396
-REGISTRY-NOIMPORTED  3713
+REGISTRY-ALL         7398
+REGISTRY-NOIMPORTED  3715
 REGISTRY-TIERCOMMIT  36
+# 2026-08-21 (#61 D6 — a typeof-container projection in a struct FIELD, an enum
+# PAYLOAD and a TUPLE element), PREDICTED +2/+2/0 (7396/3713/36 -> 7398/3715/36)
+# before the reconfigure and MET exactly. One admit + one refuse, 1 ctest test
+# each, neither labelled `imported`, no gate added:
+#   tests/logos/pass/typeof_container_field_admit.logos — the field and the enum
+#     payload are constructed, drained and checked against `c.seek`/`c.next` (a
+#     per-row cursor that knows nothing about the batch plane), under
+#     LOGOS_VERIFY_LAYOUT=1 like every pass test.
+#     ⚠ CORRECTED 2026-08-21, and the correction is the point: this entry, and
+#     the header of the fail twin below, both claimed a TUPLE ELEMENT was
+#     constructed and checked here. THERE IS NO TUPLE IN THAT FIXTURE. The round
+#     verify caught it, and re-measuring by hand confirms the cell is NOT fixed:
+#     `pub struct S { t: (<typeof(K) as CtrLeafFamily>::LeafWalk, u64) }` with
+#     the family demanded and the holder CONSTRUCTED is rc 1 ("unknown tuple
+#     field type in 'S'" + "struct literal field 't': expected (…::LeafWalk,
+#     u64), got (<error>, u64)"), and the SIZED-only spelling still prints
+#     "unknown tuple field type" as a now-non-fatal metaprog-round diagnostic.
+#     CONSEQUENCE, stated rather than papered over: the round's second
+#     permissive-hole repair — the on-demand register_struct recovery in
+#     tuple_llvm_type's Struct arm — has NO passing pin. Only its DECLINE arm is
+#     pinned (by the fail twin). By this round's own C4 standard (an arm that
+#     fires zero times is not landed) that repair is UNPINNED, not proven. Filed
+#     as its own cell; repro /tmp/d6v/probes/p23_tuple_field_notype_literal.logos
+#     and the constructed spelling in the same directory.
+#   tests/logos/fail/typeof_container_tuple_field_no_family_fail.logos — pins
+#     the arm this round ADDED: register_struct's Tuple branch used to answer
+#     `ptr_type()` for an element it could not size (a silent 8 bytes against
+#     layout_of's 16), and now declines. Without the refuse half that arm fires
+#     zero times in the corpus.
+# The two existing canaries are RE-GROUNDED, not weakened: pass/typeof_container
+# _hand_written_state and fail/typeof_container_field_no_family_fail each
+# recorded "the field position aborts under LOGOS_VERIFY_LAYOUT with `[declined]
+# <kind 32>`" as the reason the position stayed refused. The measurement was
+# real; the conclusion was not. Those declines were recorded in metaprog fixpoint
+# ROUND 0, and the ledger deduped (engine,key) FIRST-WINS, so round 0's {8,8}
+# guess beat the final round's correct 72 about the SAME struct. Both fixtures
+# keep their exit codes; only the recorded ground moved.
 # 2026-08-20 (the METHOD-RESOLUTION channel of the same class), PREDICTED
 # +4/+4/0 (7392/3709/36 -> 7396/3713/36) before the reconfigure and MET
 # exactly: two pass fixtures (mlirgen_odr_drop_glue_homonym and its `_ctl`)

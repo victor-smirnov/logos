@@ -28,15 +28,20 @@
 //   3. a `pub type` alias, also called                 (declaring it already
 //      worked; CALLING through it did not — B4)
 //
-// ⚠ THE POSITION THIS FIXTURE DOES NOT HOLD, and why: a STRUCT FIELD typed by
-// the projection. It is refused, on purpose, and the refusal is pinned by
-// fail/typeof_container_field_no_family_fail. Admitting it was TRIED (a stage
-// flag letting the per-round metaprog JIT gen skip a not-yet-lowerable field)
-// and MEASURED BAD: every such program then aborts under LOGOS_VERIFY_LAYOUT —
-// `[declined] <kind 32>` — because the field's AssocType reaches the layout
-// engines unresolved, and two of the three engines decline to size it. The
-// layout verifier is an INDEPENDENT oracle and it refused the widening, so the
-// widening was reverted rather than the verifier weakened.
+// ⚠ THE POSITION THIS FIXTURE DOES NOT HOLD — AND IT IS NO LONGER REFUSED.
+// A STRUCT FIELD typed by the projection is admitted as of #61 and is pinned,
+// driven and value-checked by pass/typeof_container_field_admit. The paragraph
+// that used to stand here recorded the widening as "MEASURED BAD: aborts under
+// LOGOS_VERIFY_LAYOUT with `[declined] <kind 32>`". That measurement was real
+// and the conclusion drawn from it was wrong: the declines were recorded in
+// metaprog fixpoint ROUND 0, over a snapshot in which `<X>Cfg` did not exist
+// yet, and the verifier — whose oracle is `llvm::DataLayout` over the EMITTED
+// module — was judging them at the end together with round 0's {8,8} ledger
+// answers, which beat the final round's correct ones under a first-wins dedup.
+// Answers and declines now carry the gen round; the final round's answer wins
+// and a metaprog round's decline is counted, not fatal. The verifier was not
+// weakened: the final gen still refuses a field it cannot size, and the two
+// fail twins pin that.
 package typeof_container_hand_written_state;
 
 use logos.lcm.canon.container_item;

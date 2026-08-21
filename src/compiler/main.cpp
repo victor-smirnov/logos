@@ -4323,7 +4323,13 @@ int run_metaprog_dispatch(
         meta_mlir_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
         meta_mlir_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
         meta_mlir_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-        auto meta_mlir = mlir_gen(meta_mlir_ctx, meta_prog);
+        // #61: metaprog_round = true — this JIT gen sees a SNAPSHOT of the program
+        // taken before the metaprog has finished emitting items, so a user struct
+        // whose field type is still an unresolved projection is deferred to a
+        // later round rather than refused. The FINAL gen (compile_pipeline.cpp)
+        // passes false and refuses exactly as before.
+        auto meta_mlir = mlir_gen(meta_mlir_ctx, meta_prog, false, {}, true, false, {}, -1, 1,
+                                  /*metaprog_round=*/true);
         if (!meta_mlir) { std::fprintf(stderr, "logosc: metaprog MLIR gen failed\n"); return 1; }
         stat_step(_t3, "mlir_gen", iter);
         // M6.3: record functions emitted by THIS iter's mlir_gen so the
@@ -6396,7 +6402,8 @@ int main(int argc, char** argv) {
             mc_ctx.getOrLoadDialect<mlir::scf::SCFDialect>();
             mc_ctx.getOrLoadDialect<mlir::cf::ControlFlowDialect>();
             mc_ctx.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-            auto mc_mlir = logos::compiler::mlir_gen(mc_ctx, mc_prog);
+            auto mc_mlir = logos::compiler::mlir_gen(mc_ctx, mc_prog, false, {}, true, false, {},
+                                                     -1, 1, /*metaprog_round=*/true);  // #61
             if (!mc_mlir) { std::fprintf(stderr, "logosc: metacall MLIR gen failed\n"); return 1; }
             mc_stat_step(_mc_t, "mlir_gen", mi);
             mlir::PassManager mc_pm(&mc_ctx);

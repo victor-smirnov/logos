@@ -4670,10 +4670,23 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
                     lay::type_key(tv.pkg_name(), sema_enum_key(tv)), ans);
         return { ans.layout.size, ans.layout.align };
     }
-    default:
-        lay::record_declined("sema_abi_layout", lay::kind_key(tv.kind()),
+    default: {
+        // #61: NAME THE SUBJECT. `<kind 32>` alone identified nothing — three
+        // engines printed the same anonymous row and the type behind it could
+        // not be found without a rebuild. An AssocType knows its base and its
+        // member; say them, exactly as mono_abi_layout's arm already does.
+        std::string key = lay::kind_key(tv.kind());
+        if (tv.kind() == LogosType::Kind::AssocType) {
+            std::string owner = tv.assoc_base() ? type_str(tv.assoc_base())
+                                                : std::string("?");
+            std::string member(tv.assoc_type_name());
+            key += " (" + owner + "::" + (member.empty() ? std::string("?") : member)
+                 + " via " + std::string(tv.trait_name()) + ")";
+        }
+        lay::record_declined("sema_abi_layout", std::move(key),
                              "kind has no layout rule in sema_abi_layout");
         return {8, 8};
+    }
     }
 }
 

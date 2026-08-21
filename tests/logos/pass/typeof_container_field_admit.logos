@@ -1,0 +1,131 @@
+// #61 (D6) — A TYPEOF-CONTAINER PROJECTION IN A STRUCT FIELD AND IN AN ENUM
+// PAYLOAD, ADMITTED, DRIVEN, AND CHECKED AGAINST AN INDEPENDENT ORACLE.
+//
+// This is the position pass/typeof_container_hand_written_state recorded as NOT
+// admitted, and fail/typeof_container_field_no_family_fail's reason 2 recorded
+// as blocked by the layout verifier. Both records were about ONE mechanism, and
+// it was not the field position:
+//
+//   * a metaprog compile runs sema+mono+a JIT `mlir_gen` once per fixpoint
+//     round. Round 0's `mlir_gen` registered EVERY struct in the program —
+//     including hand-written ones the metaprog never touches — and a field
+//     typed `<typeof(Ked) as CtrLeafFamily>::LeafWalk` cannot lower there,
+//     because `KedCfg` is emitted by the container item's handler in a LATER
+//     round. `register_struct` returned false and the round was FATAL, so the
+//     factory never drained and the field never got its second chance.
+//     mlir_gen.cpp's pass 0 now DEFERS an unregisterable struct in a metaprog
+//     round; the FINAL gen refuses exactly as before (the fail twins pin it).
+//
+//   * the layout verifier then reported four disagreements about a CORRECT
+//     object: sema and mono had recorded `8` for this struct in round 0 — the
+//     {8,8} guess over the not-yet-resolvable projection — and the ledger
+//     deduped (engine, key) FIRST-WINS, so round 0 beat the final round's 72.
+//     Answers and declines now carry the gen ROUND and the latest one wins;
+//     a decline in a metaprog round is counted but is not that round's error.
+//     Nothing is dropped: the final round re-asks every question.
+//
+// FOUR positions, all in the module that DECLARES the container, all EXERCISED:
+//   1. struct field, inline projection — constructed and drained
+//   2. enum variant PAYLOAD — constructed, matched, drained.
+//      ⚠ AND THE FIX THIS BULLET USED TO CLAIM WAS NOT LANDED. The diagnosis
+//      said non-generic enums bypass `subst_type` (mono.cpp pushes them through
+//      VERBATIM while structs go through clone_struct_def) and that cloning
+//      them was the cure. It was written, built, and CONTROL-REVERTED: this
+//      cell still passes under the verifier without it, i.e. the arm fires zero
+//      times here. It also does not land alone — clone_enum_def DROPS
+//      BORROW_CARRYING, and with the clone in place the stdlib stops building
+//      (writ_graph_edges, field_read, eval_sexpr, wany_to_rt all take "cannot
+//      return reference to local variable"). Both halves are recorded at the
+//      mono.cpp site; this cell passes for the round-order reasons above.
+//   3. the counts are checked against `c.seek`/`c.next`, a per-row cursor that
+//      knows nothing about the batch plane
+//   4. and the whole file compiles under LOGOS_VERIFY_LAYOUT=1 (every pass test
+//      does — tests/logos/CMakeLists.txt), so the layout half is asserted here
+//      rather than asserted away.
+//
+// ⚠ STILL REFUSED, and pinned by their own fail twins: a field whose family is
+// never demanded (no `create_ctr`) — fail/typeof_container_field_no_family_fail
+// and fail/typeof_container_tuple_field_no_family_fail.
+//
+// ⚠ TWO SPELLINGS ARE STILL ROUND-ORDER-BROKEN and are deliberately NOT here:
+// a METHOD CALL through a field typed by a `pub type` alias of the projection
+// ("receiver is not a struct (got <error>::LeafWalk)") and a TUPLE LITERAL
+// built for such a field ("expected (CtrClass<@hs_…>::LeafWalk, u64), got
+// (<error>, u64)"). Both are the error-residue-frozen-at-a-use-site class that
+// R-E fixed for expect_type, one level out. The tuple FIELD TYPE itself does
+// lower — cell 4 below pins it, and pins it the only way it can be pinned: the
+// holder is declared and SIZED but never CONSTRUCTED, because constructing it
+// needs the tuple literal that is still broken.
+
+package typeof_container_field_admit;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.stream;
+use logos.lang.option;
+use logos.mem.bt.batch;
+
+pub container Ked {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+const N: u64 = 200u64;
+
+pub type KedWalk = <typeof(Ked) as CtrLeafFamily>::LeafWalk;
+
+pub struct InlineState { w: <typeof(Ked) as CtrLeafFamily>::LeafWalk }
+pub enum PayloadState { Walk(<typeof(Ked) as CtrLeafFamily>::LeafWalk), Empty }
+
+
+fn drain_inline(s: &mut InlineState) -> u64 {
+    let mut rows: u64 = 0u64;
+    loop {
+        let ob = s.w.next_batch();
+        if ob.is_some() { { let b = ob.unwrap(); rows = rows + b.len(); } } else { break; }
+    }
+    return rows;
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Ked)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    let mut rows_w: u64 = 0u64;
+    let mut ksum_w: u64 = 0u64;
+    {
+        let mut cu = c.seek(0u64);
+        while cu.valid() { ksum_w = ksum_w + cu.key(); rows_w = rows_w + 1u64; cu = c.next(&cu); }
+    }
+
+    let mut s1 = InlineState { w: c.leaf_batches() };
+    let rows_1 = drain_inline(&mut s1);
+
+    let mut rows_e: u64 = 0u64;
+    {
+        let p = PayloadState::Walk(c.leaf_batches());
+        match p {
+            PayloadState::Walk(wk) => {
+                let mut wk2 = wk;
+                loop {
+                    let ob = wk2.next_batch();
+                    if ob.is_some() { { let b = ob.unwrap(); rows_e = rows_e + b.len(); } } else { break; }
+                }
+            }
+            PayloadState::Empty => { rows_e = 0u64; }
+        }
+    }
+
+    if rows_w != N { return 1i32; }
+    if rows_e != rows_w { return 7i32; }
+    if rows_1 != rows_w { return 2i32; }
+    return 0i32;
+}

@@ -249,6 +249,17 @@ public:
     // Primary input source path (DWARF CU file + per-fn fallback). Before generate().
     void set_main_source(std::string_view s) { main_source_.assign(s); }
     void set_shard(int idx, int cnt) { shard_index_ = idx; shard_count_ = cnt; }
+    // #61: this gen is one METAPROG FIXPOINT ROUND's JIT gen, not the final
+    // object gen. In such a round the program is a SNAPSHOT taken before the
+    // metaprog has finished emitting items, so a user struct whose field type
+    // is still an unresolved projection (`<typeof(C) as CtrLeafFamily>::…`
+    // before the container item's handler has produced `<C>Cfg`) is NOT a
+    // malformed program — it is a type that does not exist YET. Registering it
+    // is skipped for THIS round only; a metaprog function that actually
+    // references the struct still fails loud through the normal
+    // unknown-struct path, and the FINAL gen (flag false) refuses exactly as
+    // before. See mlir_gen.cpp pass0.
+    void set_metaprog_round(bool v) { metaprog_round_ = v; }
 
 private:
     mlir::OpBuilder builder_;
@@ -301,6 +312,7 @@ private:
     std::string                       main_source_;      // primary input path (CU file + fallback)
     int                               shard_index_ = -1;  // <0 = emit every body
     int                               shard_count_ = 1;
+    bool                              metaprog_round_ = false;  // #61
     mlir::LLVM::DICompileUnitAttr     di_cu_;            // one per module (lazy)
     mlir::LLVM::DISubprogramAttr      di_subprogram_;    // current fn (null outside a body)
     mlir::LLVM::DIFileAttr            di_file_;          // current fn's file

@@ -223,7 +223,21 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
     // Register struct LLVM types (all_struct_defs_ already built above).
     for (auto& sd : prog.structs)
-        if (!register_struct(sd)) return nullptr;
+        if (!register_struct(sd)) {
+            // #61: in a METAPROG FIXPOINT ROUND the program is a snapshot taken
+            // before the metaprog finished emitting; a struct whose field type
+            // does not exist yet is deferred, not refused. The FINAL gen keeps
+            // the refusal (metaprog_round_ == false). Uses of the skipped
+            // struct in THIS round still fail through the unknown-struct path.
+            if (metaprog_round_) {
+                if (std::getenv("LOGOS_TRACE_METAROUND_SKIP"))
+                    std::fprintf(stderr,
+                        "[metaround-skip] struct '%s' not registered this round\n",
+                        std::string(sd.name()).c_str());
+                continue;
+            }
+            return nullptr;
+        }
     pt.tick("pass0 register_struct");
 
     for (auto& tav : prog.type_aliases)  // Stage E: TypeAliasView over the Writ mirror
@@ -1653,10 +1667,12 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
                                             bool target_has_bmi2,
                                             std::string_view target_cpu,
                                             int shard_index,
-                                            int shard_count) noexcept
+                                            int shard_count,
+                                            bool metaprog_round) noexcept
 {
     auto t0 = std::chrono::steady_clock::now();
     MLIRGenImpl gen(ctx);
+    gen.set_metaprog_round(metaprog_round);
     gen.set_debug_info(debug_info);
     gen.set_overflow_checks(overflow_checks);
     gen.set_target_bmi2(target_has_bmi2);
@@ -1665,6 +1681,13 @@ mlir::OwningOpRef<mlir::ModuleOp> mlir_gen(mlir::MLIRContext& ctx,
     gen.set_shard(shard_index, shard_count);
     auto t_ctor = std::chrono::steady_clock::now();
     auto mod = gen.generate(prog);
+    // #61: this gen round is over — INCLUDING when it bailed before the
+    // verifier (a metaprog round whose snapshot does not lower yet returns
+    // nullptr from inside generate). Declines recorded from here on belong to
+    // the next round's program snapshot, and only the round whose mlir-gen
+    // emits the object is the one `verify_layout_engines` can judge against
+    // `llvm::DataLayout`. See the note over `layout::Decline`.
+    layout::end_gen_round();
     auto t_gen = std::chrono::steady_clock::now();
     if (const char* e = std::getenv("LOGOS_MLIR_PHASE_TIMING"); e && e[0] && e[0] != '0') {
         auto ctor_us = std::chrono::duration_cast<std::chrono::microseconds>(t_ctor - t0).count();

@@ -328,7 +328,19 @@ bool MLIRGenImpl::register_struct(lir_view::StructView sd) {
             // tuple value elsewhere is a pointer to this storage, so a field read
             // returns the embedded slot address (like a nested struct).
             ft = tuple_llvm_type(fv);
-            if (!ft) ft = ptr_type();
+            if (!ft) {
+                // #61: `if (!ft) ft = ptr_type();` used to stand here — an
+                // UNSIZEABLE element silently became one 8-byte word, i.e. the
+                // {8,8}-guess-as-answer pattern layout_of's `default:` arm was
+                // written to stop. MEASURED: `struct StT { w: (proj, u64) }`
+                // over an unresolved family projection compiled with no env var
+                // and then ABORTED in the always-on cross-check —
+                // "size — layout_of says 16, llvm::DataLayout says 8". An
+                // element with no MLIR type is not a pointer; decline.
+                std::fprintf(stderr,
+                    "mlir_gen: unknown tuple field type in '%s'\n", sd_name.c_str());
+                return false;
+            }
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
@@ -721,8 +733,20 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         // not fatal — `TypeVar` / `Error` residue reaches this in ill-typed
         // programs whose diagnostics must still be emitted — but it is RECORDED,
         // so the census the gate floors can see that a computation was declined.
-        lay::record_declined("layout_of", lay::kind_key(tv.kind()),
-                             "kind has no layout rule in layout_of");
+        {
+            // #61: NAME THE SUBJECT — see the twin note in sema_abi_layout.
+            std::string key = lay::kind_key(tv.kind());
+            if (tv.kind() == K::AssocType) {
+                std::string owner = tv.assoc_base() ? type_str(tv.assoc_base())
+                                                    : std::string("?");
+                std::string member(tv.assoc_type_name());
+                key += " (" + owner + "::"
+                     + (member.empty() ? std::string("?") : member)
+                     + " via " + std::string(tv.trait_name()) + ")";
+            }
+            lay::record_declined("layout_of", std::move(key),
+                                 "kind has no layout rule in layout_of");
+        }
         return {8, 8};
     }
 }
@@ -1159,7 +1183,25 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             // FOREIGN homonym's 8-byte footprint and `t.0.b` read `t.1`
             // (tests/logos/pass/mlirgen_odr_tuple_field.logos). find_struct_it
             // is QUALIFIED-FIRST (mlir_struct_key), bare only as a fallback.
-            if (auto sit = find_struct_it(e); sit != struct_types_.end())
+            auto sit = find_struct_it(e);
+            if (sit == struct_types_.end()) {
+                // #61: ON-DEMAND REGISTRATION, mirroring register_struct's
+                // struct-FIELD arm. Without it a tuple element whose struct is
+                // registered LATER in the prog.structs walk silently fell to
+                // `logos_to_mlir(e)` = ptr (8 B) while layout_of embedded it
+                // inline. MEASURED: `struct StT { w: (LeafWalk, u64) }` over a
+                // metaclass family walk — "d6probe.StT: size — layout_of says
+                // 80, llvm::DataLayout says 16". The struct-field arm has had
+                // this recovery all along; the tuple-element arm never did.
+                auto cname = mlir_struct_key(e);
+                auto def_it = all_struct_defs_.find(cname);
+                if (def_it == all_struct_defs_.end())
+                    def_it = all_struct_defs_.find(concrete_struct_name(e));
+                if (def_it != all_struct_defs_.end())
+                    register_struct(def_it->second);
+                sit = find_struct_it(e);
+            }
+            if (sit != struct_types_.end())
                 ft = sit->second.llvm_type;
         } else if (e && TypeRef(e).kind() == LogosType::Kind::Enum) {
             // Inline-embed an enum-typed tuple element (enum value-repr), like
@@ -1479,10 +1521,15 @@ void MLIRGenImpl::verify_layout_engines() {
     std::map<std::string, uint64_t> per_engine;   // engine → types CHECKED
     std::map<std::string, std::array<uint64_t, layout::kShapeCount>> cells;
     {
-        // key → engine → first answer (dedup on (engine, key), as before).
+        // key → engine → the answer from the LATEST gen round that answered it
+        // (within one round, first-wins, as before). See the note over
+        // `LedgerEntry::round`: an answer from a superseded metaprog snapshot is
+        // not an answer about the program this module is being emitted from.
         std::map<std::string, std::map<std::string, layout::LedgerEntry>> by_key;
-        for (auto& e : layout::ledger())
-            by_key[e.key].emplace(e.engine, e);
+        for (auto& e : layout::ledger()) {
+            auto [it, fresh] = by_key[e.key].emplace(e.engine, e);
+            if (!fresh && e.round > it->second.round) it->second = e;
+        }
         for (auto& [key, ans] : by_key) {
             auto tit = truth.find(key);
             const bool has_truth = tit != truth.end();
@@ -1541,13 +1588,35 @@ void MLIRGenImpl::verify_layout_engines() {
         dce && std::strcmp(dce, "declined") == 0)
         layout::record_declined("canary", "<fault-injected>",
                                 "LOGOS_LAYOUT_CANARY=declined");
-    uint64_t n_declined = layout::declines().size();
+    // #61: judge THIS round's declines. A decline recorded by a metaprog
+    // fixpoint round is a fact about a program snapshot that is not the emitted
+    // artifact — and this verifier's oracle IS the emitted artifact
+    // (`llvm::DataLayout` over the types mlir-gen just registered). The final
+    // round re-asks every question, so nothing that is still unsizeable when the
+    // object is written escapes: it declines again, in the round judged here.
+    // See the note over `layout::Decline`.
+    uint64_t n_declined = 0;
     {
         std::string db = bucket;
         bucket = "declined";
-        for (auto& d : layout::declines())
+        for (auto& d : layout::declines()) {
+            if (d.round != layout::gen_round()) continue;
+            ++n_declined;
+            // #61: A DECLINE IN A METAPROG ROUND IS "NOT YET", NOT "NEVER".
+            // This round's program is a snapshot the metaprog has not finished
+            // emitting into: a field spelled `<typeof(C) as Fam>::Assoc` before
+            // the container item's handler produced `<C>Cfg` is genuinely
+            // unsizeable HERE, and every engine says so. It is still COUNTED and
+            // still printed on the census line — but it is not this round's
+            // error, because the round after it may resolve the type, and if no
+            // round does, the FINAL gen (metaprog_round_ == false) declines
+            // again over the same type and fires. DISAGREEMENTS are unaffected:
+            // two engines that both answered, differently, are a layout bug in
+            // any round, and those rows are pushed above regardless.
+            if (metaprog_round_) continue;
             bad.push_back({ bucket, d.key + ": DECLINED — " + std::string(d.engine) +
                                     " could not size it (" + d.why + ")" });
+        }
         bucket = db;
     }
 

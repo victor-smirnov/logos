@@ -478,6 +478,18 @@ struct LedgerEntry {
     // reaches is a cell at zero, which is what mono's missing C-like branch
     // looked like for as long as nobody had a column for it.
     Shape       shape = Shape::Product;
+    // #61: THE ROUND THAT ANSWERED. A metaprog compile re-runs sema, mono and a
+    // JIT mlir-gen once per fixpoint iteration, and every one of them records.
+    // The verifier deduped on (engine, key) FIRST-WINS, so round 0's answer
+    // about a type the metaprog had not finished emitting BEAT the final
+    // round's answer about the emitted one. MEASURED: `struct St { w:
+    // <typeof(Bed) as CtrLeafFamily>::LeafWalk }` — mono and sema both recorded
+    // 8 in round 0 (the {8,8} guess over the still-unresolved projection) and
+    // 72 in the final round; the verifier read the 8 and called the correct
+    // object a disagreement. The LATEST round's answer supersedes: it is the
+    // one about the program being emitted. Within a round, first-wins is
+    // unchanged.
+    unsigned    round = 0;
 };
 
 // Not thread-safe by construction: logosc compiles one unit per process, and a
@@ -518,7 +530,35 @@ struct Decline {
     const char* engine;
     std::string key;   // the type as that engine could name it (may be a kind)
     std::string why;
+    unsigned    round;  // #61: which gen ROUND recorded it (see gen_round())
 };
+
+// ⚠ A DECLINE IS A FACT ABOUT ONE ROUND, NOT ABOUT THE PROGRAM.
+//
+// A compile with metaprogramming runs the WHOLE front end many times: every
+// metaprog fixpoint iteration and every metacall re-runs sema, mono and a JIT
+// `mlir_gen` over a SNAPSHOT of a program the metaprog has not finished
+// emitting into. A type that does not exist yet in round 0 — a struct field
+// spelled `<typeof(C) as CtrLeafFamily>::LeafWalk` before the container item's
+// handler has produced `<C>Cfg` — is legitimately unsizeable THERE, and every
+// engine says so.
+//
+// `verify_layout_engines()` compares against `llvm::DataLayout`, i.e. against
+// the layout THE OBJECT FILE IS EMITTED WITH. That is the last round and only
+// the last round. Judging round 0's declines at the end therefore reports a
+// disagreement about a type the artifact does not contain — measured on
+// `pub struct St { w: <typeof(Bed) as CtrLeafFamily>::LeafWalk }`, which emits
+// a correct object and still aborted with `[declined] <kind 32>` from three
+// engines, all of them recorded before the family existed.
+//
+// So declines are STAMPED with the round that recorded them and the verifier
+// judges the CURRENT round. Nothing is dropped: the final round's engines
+// re-ask every question over the final program, so a type that is still
+// unsizeable when the object is written declines again, in the round that is
+// judged. `end_gen_round()` is called by `mlir_gen` after the verifier has run,
+// so the round number advances exactly once per gen.
+unsigned gen_round() noexcept;
+void end_gen_round() noexcept;
 
 // Declines are recorded whenever the ledger is recording, and are ALWAYS
 // counted — `n_declined` is a floor-zero field of the census line, so a decline
