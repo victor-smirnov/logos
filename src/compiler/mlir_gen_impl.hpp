@@ -381,8 +381,43 @@ private:
     // prog_->structs (sema may append `__f__sig` / `__g__sig` under
     // overload mangling). Returns the bare convention name as fallback
     // when no match is found.
+    //
+    // ⚠ METHOD RESOLUTION IS PACKAGE-SCOPED. The scan below used to be
+    // `if (sd.name() != bare_struct) continue;` over EVERY struct in the
+    // program — bare, package-blind, first-registered-wins — so a user
+    // `struct String` took `logos.mem.string.String`'s methods and a user
+    // `struct Ident` took `logos.std.compiler.metaprog.Ident`'s. Both were
+    // RUNTIME SIGSEGVs, measured (fixtures mlirgen_odr_drop_glue_homonym,
+    // mlirgen_odr_operator_homonym): the element drop glue of a
+    // `Vec<test.String>` emitted a call to
+    // `logos.mem.string.String__drop__f__String` and handed it a
+    // `%test.String`, and `a == b` on the user's own `Ident` emitted
+    // `logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`.
+    // The operator case is the sharper one: the collision-free twin does not
+    // COMPILE ("has no method"), so the homonym program was only ever
+    // accepted because it silently stole a foreign package's method.
+    //
+    // `pkg` is the owning package of the struct the CALLER means (from the
+    // TypeRef's `pkg_name()`); empty means "no package in hand", which
+    // reproduces the old behaviour exactly. The order is sema's recorded
+    // find_struct_repr_ order — ⚠ QUALIFIED KEY FIRST, BARE SLOT LAST — with
+    // one added rule that is the actual fix: if a struct of exactly that
+    // package+name EXISTS, its method table is AUTHORITATIVE. Not finding
+    // the method there means the type has no such method, and falling
+    // through to a homonym in another package would be the theft above. The
+    // bare pass still runs for every call that names no package and for
+    // every name whose owning package holds no such struct, so no site that
+    // resolved before becomes a miss.
+    // `pkg_owns_struct`, when non-null, is set true iff a struct of exactly
+    // `pkg` + this bare name EXISTS in the program. A caller that gets
+    // `*pkg_owns_struct == true` back together with the plain `base` fallback
+    // has an AUTHORITATIVE NEGATIVE — that type has no such method — and must
+    // not go on to resolve `base` through any package-blind channel.
     std::string resolve_method_symbol(std::string_view struct_name,
-                                      std::string_view method_name) const noexcept {
+                                      std::string_view method_name,
+                                      std::string_view pkg = {},
+                                      bool* pkg_owns_struct = nullptr) const noexcept {
+        if (pkg_owns_struct) *pkg_owns_struct = false;
         auto bare_struct = strip_struct_pkg(struct_name);
         std::string base; base.reserve(bare_struct.size() + 2 + method_name.size());
         base.append(bare_struct); base.append("__"); base.append(method_name);
@@ -411,13 +446,46 @@ private:
             }
             return false;
         };
-        for (auto& sd : prog_->structs) {
-            if (sd.name() != bare_struct) continue;
+        auto scan_methods = [&](lir_view::StructView sd) -> std::string {
             std::string found;
             sd.each_method([&](lir_view::FunctionView mp) {
                 if (found.empty() && matches(mp.name())) found = std::string(mp.name());
             });
-            if (!found.empty()) return found;
+            return found;
+        };
+        // Pass 1 — QUALIFIED. Only the struct the caller's package actually
+        // names. `owned` records that such a struct EXISTS, which is what
+        // closes the bare pass off below.
+        bool owned = false;
+        if (!pkg.empty()) {
+            for (auto& sd : prog_->structs) {
+                if (sd.name() != bare_struct || sd.pkg() != pkg) continue;
+                owned = true;
+                if (pkg_owns_struct) *pkg_owns_struct = true;
+                if (auto found = scan_methods(sd); !found.empty()) return found;
+            }
+            // Free-function / trait-impl form, same package only. `matches`
+            // accepts a bare spelling too, which for a pkg-owned struct is
+            // that struct's own un-mangled method — keep it.
+            for (auto& fn : prog_->functions) {
+                if (!fn) continue;
+                std::string_view nm = fn.name();
+                auto dot = nm.rfind('.');
+                std::string_view fpkg = dot == std::string_view::npos
+                                            ? std::string_view{} : nm.substr(0, dot);
+                if (!fpkg.empty() && fpkg != pkg) continue;
+                if (matches(nm)) return std::string(nm);
+            }
+            // The package OWNS a struct of this name and it has no such
+            // method: that is the answer. Falling through would steal a
+            // homonym's (measured SIGSEGVs — see the note above).
+            if (owned) return base;
+        }
+        // Pass 2 — BARE, LAST RESORT. Reached when the caller named no
+        // package, or when no struct of that package+name exists at all.
+        for (auto& sd : prog_->structs) {
+            if (sd.name() != bare_struct) continue;
+            if (auto found = scan_methods(sd); !found.empty()) return found;
         }
         for (auto& fn : prog_->functions) {
             if (!fn) continue;
@@ -1009,6 +1077,36 @@ private:
         if (it != all_struct_defs_.end()) return it;
         return all_struct_defs_.find(concrete_struct_name(t));
     }
+    // #60 — struct-PATTERN identity. `PatStructView::struct_name()` is a BARE
+    // spelling: it carries neither the package nor the `$M<fp>` ambiguous-name
+    // fold, so `struct_types_.find(ps.struct_name())` lands in the
+    // first-registered-wins bare alias slot installed by register_struct — a
+    // user `struct ExprBlob` then binds the IMPORTED homonym's field layout
+    // (measured: `match x { ExprBlob{a,b} => .. }` printed empty bindings;
+    // fixtures bc_odr_pat_*). The SCRUTINEE TypeRef carries pkg + fold, so
+    // narrow it to the struct the pattern names and let find_struct_it /
+    // find_struct_def_it resolve QUALIFIED-FIRST. Returns a null TypeRef when
+    // the scrutinee is not (a ref/ptr chain to) a struct of exactly that bare
+    // name — enum-variant payload patterns, tuple scrutinees, missing type
+    // info — and the caller keeps the bare lookup as the LAST resort. That is
+    // sema's recorded find_struct_repr_ order (⚠ QUALIFIED KEY FIRST, BARE SLOT
+    // LAST): a program declaring its own S still cannot alias a foreign S, and
+    // no site that resolved before becomes a miss.
+    static TypeRef pat_struct_ty(TypeRef scrut_ty, std::string_view bare) {
+        TypeRef t = scrut_ty;
+        for (int i = 0; i < 8 && t; ++i) {
+            auto k = TypeRef(t).kind();
+            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+                k == LogosType::Kind::Ptr) { t = TypeRef(t).pointee(); continue; }
+            break;
+        }
+        if (!t) return TypeRef{};
+        auto k = TypeRef(t).kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+            return TypeRef{};
+        if (TypeRef(t).struct_name() != bare) return TypeRef{};
+        return t;
+    }
     // Module system (symbol-mangle rewrite, emission boundary): qualified LINK
     // symbol of a def (methods gain `<module>..`; free fns unchanged).
     std::string link_name(lir_view::FunctionView fn) const {
@@ -1053,6 +1151,38 @@ private:
     // replacing the per-call O(funcs) staleness recount. A stale-by-miss index
     // is self-correcting via L4: a canonical-fallback callee would fail to
     // resolve, breaking a cross-module test.
+    // ⚠ THE CANONICAL FALLBACK IS PACKAGE-BLIND (see find_func_op). It maps a
+    // callee to a def by a key that ffo_canonical STRIPS the package off, so
+    // `test.Ident__eq` bound
+    // `logos_mem..logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`
+    // — a foreign package's method, handed two `%test.Ident`s. `ffo_canon_pkg_`
+    // records the package of whichever def each canonical key resolved to, so
+    // that bind can be REFUSED when the callee names a package that declares
+    // its own struct of that name. Same key set as ffo_canon_index_.
+    mutable std::unordered_map<std::string, std::string> ffo_canon_pkg_;
+    // Does `pkg` declare a struct that OWNS this `<Owner>__<method>…` symbol?
+    // ⚠ ANCHORED ON A CARRIED PART, NOT A `__` SPLIT: the owner is not guessed
+    // by cutting at the first `__` (legal inside an identifier — the separator
+    // class), it is each candidate struct's own NAME, recomposed with `__` and
+    // compared as a prefix. Index: pkg → the struct names it declares.
+    mutable std::unordered_map<std::string, std::vector<std::string>> pkg_struct_names_;
+    mutable bool pkg_struct_names_built_ = false;
+    bool pkg_owns_symbol_owner(std::string_view pkg, std::string_view sym) const {
+        if (!prog_ || pkg.empty() || sym.empty()) return false;
+        if (!pkg_struct_names_built_) {
+            for (auto& sd : prog_->structs)
+                pkg_struct_names_[std::string(sd.pkg())].emplace_back(sd.name());
+            pkg_struct_names_built_ = true;
+        }
+        auto it = pkg_struct_names_.find(std::string(pkg));
+        if (it == pkg_struct_names_.end()) return false;
+        for (auto& nm : it->second) {
+            if (nm.empty() || sym.size() <= nm.size() + 2) continue;
+            if (sym.compare(0, nm.size(), nm) != 0) continue;
+            if (sym.compare(nm.size(), 2, "__") == 0) return true;
+        }
+        return false;
+    }
     mutable bool ffo_canon_dirty_ = true;
     void mark_funcs_dirty() const noexcept { ffo_canon_dirty_ = true; }
     void ensure_ffo_canon_index(mlir::ModuleOp mod) const;

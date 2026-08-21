@@ -1,0 +1,13 @@
+// CONTROL for mlirgen_odr_operator_homonym — THE ORACLE. Byte-identical
+// but for the struct name, so no stdlib homonym exists. It was refused
+// before the fix and is refused now; the homonym compiled (and crashed)
+// before and is refused now. Same refusal on both sides is the assertion.
+package test;
+use logos.std.fmt;
+struct Idnt9x { pub k: i64, pub j: i64 }
+fn main() -> i32 {
+    let a = Idnt9x{k:1i64, j:2i64};
+    let b = Idnt9x{k:1i64, j:2i64};
+    if a == b { return 7i32; }
+    return 0i32;
+}

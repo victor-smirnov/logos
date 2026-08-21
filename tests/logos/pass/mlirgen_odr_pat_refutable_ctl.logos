@@ -1,0 +1,22 @@
+// #60 — pat_test's PatStruct arm: an OUTER struct pattern whose field
+// sub-patterns are refutable is resolved by pat_test, which keyed on the BARE
+// `ps.struct_name()`. Shape copied from
+// tests/logos/pass/match_struct_refutable_field.logos (the only corpus fixture
+// measured to reach that arm) with the outer struct renamed to a stdlib
+// HOMONYM, so the arm's lookup diverges. `_ctl` is the oracle for the number.
+package test;
+use logos.std.fmt;
+enum InnerZz { A(i64), B(i64) }
+struct ZqzNoClash { pub x: InnerZz, pub y: i64 }
+fn f(w: ZqzNoClash) -> i64 {
+    match w {
+        ZqzNoClash { x: InnerZz::A(v), y } => { return v + y; }
+        ZqzNoClash { x: InnerZz::B(v), y } => { return v - y; }
+    }
+}
+fn main() -> i32 {
+    let a: i64 = f(ZqzNoClash { x: InnerZz::A(10i64), y: 3i64 });
+    let b: i64 = f(ZqzNoClash { x: InnerZz::B(10i64), y: 3i64 });
+    println!("a={} b={}", a, b);
+    return 0i32;
+}

@@ -67,6 +67,22 @@ static std::string ffo_canonical(std::string_view in) {
     return std::string(nm);
 }
 
+// Package of a symbol, for the package guard in find_func_op. A def is
+// `[<module>..]<pkg>.<Bare>__<method>[__f__sig]`; a callee from mono is
+// `<pkg>.<Bare>__<method>`. Both answer with the dotted run between the
+// module separator ".." (if any) and the LAST '.'. Free functions spell the
+// package with '$' and are deliberately NOT matched here — the guard below
+// only ever fires on the method form.
+static std::string_view ffo_pkg_of(std::string_view nm) {
+    auto dot = nm.rfind('.');
+    if (dot == std::string_view::npos) return {};
+    std::string_view pre = nm.substr(0, dot);
+    if (auto m = pre.rfind(".."); m != std::string_view::npos)
+        pre = pre.substr(m + 2);
+    if (pre.find('$') != std::string_view::npos) return {};
+    return pre;
+}
+
 }  // namespace
 
 // (Re)build the canonical→FuncOp index if the module's FuncOp set changed.
@@ -75,6 +91,7 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
     if (!ffo_canon_dirty_) return;   // O(1) — no per-call FuncOp recount
     ffo_canon_index_.clear();
     ffo_canon_ambig_.clear();
+    ffo_canon_pkg_.clear();
     ffo_symtab_.clear();
     ffo_base_first_.clear();
     for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
@@ -93,9 +110,11 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
         std::string c = ffo_canonical(nm);
         if (ffo_canon_ambig_.count(c)) continue;
         auto [it, ins] = ffo_canon_index_.emplace(c, fn);
+        if (ins) ffo_canon_pkg_.emplace(c, std::string(ffo_pkg_of(nm)));
         if (!ins && it->second != fn) {
             ffo_canon_ambig_.insert(c);   // overload collision → unresolved
             ffo_canon_index_.erase(it);
+            ffo_canon_pkg_.erase(c);
         }
     }
     ffo_canon_dirty_ = false;
@@ -169,8 +188,34 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // already built at the top of find_func_op).
         auto cname = ffo_canonical(name);
         if (ffo_canon_ambig_.count(cname)) return {};
-        if (auto it = ffo_canon_index_.find(cname); it != ffo_canon_index_.end())
+        if (auto it = ffo_canon_index_.find(cname); it != ffo_canon_index_.end()) {
+            // ⚠ PACKAGE GUARD. ffo_canonical strips the package off BOTH the
+            // callee and every def, which is what lets a no-sig / differently
+            // -pkg'd callee find its real definition — and is also what let a
+            // user type STEAL a homonym's method. mono rewrites a struct
+            // `a == b` that reached it into a call to `<pkg>.<Bare>__eq`
+            // without checking that the method exists, so a user
+            // `struct Ident { k: i64, j: i64 }` in a program that (transitively)
+            // imports logos.std.fmt bound
+            // `logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`
+            // and SIGSEGV'd at run time (fixture mlirgen_odr_operator_homonym).
+            // The sharp part: the same program under a collision-free name does
+            // NOT compile, so the homonym was accepted ONLY by the theft.
+            //
+            // Refuse the cross-package bind ONLY on the evidence that a homonym
+            // really exists: the callee names a package, that package declares
+            // its own struct of exactly this bare name, and the def lives in a
+            // different package. Every other cross-package canonical bind — the
+            // assoc-const accessors, the sig-stripped stdlib intrinsics, any
+            // callee whose package declares no such struct — is untouched.
+            if (auto cp = ffo_pkg_of(name); !cp.empty()) {
+                auto pit = ffo_canon_pkg_.find(cname);
+                if (pit != ffo_canon_pkg_.end() && !pit->second.empty() &&
+                    pit->second != cp && pkg_owns_symbol_owner(cp, cname))
+                    return {};
+            }
             return it->second;
+        }
         return {};
     };
     auto resolved = resolve();
@@ -4472,7 +4517,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // case: GEP each named field and bind. `{ .. }` binds nothing.
             lir_view::PatStructView ps{pat_ref};
             std::string sname(ps.struct_name());
-            auto sit = struct_types_.find(sname);
+            // #60: same bare-alias hazard as the match-STATEMENT Struct case —
+            // resolve via the scrutinee TypeRef first, bare name last.
+            TypeRef pst = pat_struct_ty(scrut_ty, ps.struct_name());
+            auto sit = pst ? find_struct_it(pst) : struct_types_.find(sname);
+            if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
             if (sit != struct_types_.end()) {
                 const StructInfo& sinfo = sit->second;
                 mlir::Value sptr = scrut_ptr ? scrut_ptr : scrut;
@@ -4482,8 +4531,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     sptr = a;
                 }
                 lir_view::StructView sd{};
-                if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
-                    sd = di->second;
+                {
+                    auto di = pst ? find_struct_def_it(pst) : all_struct_defs_.find(sname);
+                    if (di == all_struct_defs_.end()) di = all_struct_defs_.find(sname);
+                    if (di != all_struct_defs_.end()) sd = di->second;
+                }
                 if (sptr) ps.each_field([&](lir_view::PatFieldBindingView pfb) {
                     std::string field_name(pfb.field_name());
                     auto bind_field = [&](const std::string& bind_name) {
@@ -5372,8 +5424,23 @@ mlir::Value MLIRGenImpl::enum_load_disc(mlir::Value enum_addr,
 // 16-byte fat). A dyn-tail / TypeVar-tail DstRef is physically thin. See header.
 bool MLIRGenImpl::dstref_has_slice_tail(TypeRef t) {
     if (!t || TypeRef(t).kind() != LogosType::Kind::DstRef) return false;
+    // #60: a DstRef carries its identity in struct_name/pkg_name/type_args, and
+    // the bare struct_name() drops all of pkg, the `$M<fp>` ambiguous fold and
+    // the `$G…` instance suffix. Resolve the CONCRETE (folded) name first — the
+    // same two-step dstref_pointee_self_describing right below already uses —
+    // and keep the bare name only as the last resort.
+    auto targs0 = TypeRef(t).type_args();
+    std::vector<TypeRef> targ_vec0(targs0.begin(), targs0.end());
+    std::string concrete0 = concrete_struct_name_raw(
+        std::string(TypeRef(t).struct_name()), targ_vec0,
+        std::string(TypeRef(t).pkg_name()));
     std::string nm(TypeRef(t).struct_name());
-    auto it = all_struct_defs_.find(nm);
+    auto it = all_struct_defs_.end();
+    for (const std::string& k :
+         {qualify_pkg(std::string(TypeRef(t).pkg_name()), concrete0), concrete0, nm}) {
+        if (k.empty()) continue;
+        if (auto f = all_struct_defs_.find(k); f != all_struct_defs_.end()) { it = f; break; }
+    }
     if (it == all_struct_defs_.end() || !it->second.valid() || it->second.fields().empty())
         return false;
     auto lk = TypeRef(it->second.fields().back().type(pool_impl())).kind();
@@ -5399,7 +5466,10 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
     std::string concrete_pkg(TypeRef(t).pkg_name());
     std::string concrete = concrete_struct_name_raw(
         std::string(TypeRef(t).struct_name()), targ_vec, concrete_pkg);
-    for (const std::string& nm : {concrete, std::string(TypeRef(t).struct_name())}) {
+    // #60: the PRIMARY all_struct_defs_ key is qualify_pkg(pkg, concrete); try
+    // it ahead of the two unqualified spellings (bare last — sema's order).
+    for (const std::string& nm : {qualify_pkg(concrete_pkg, concrete), concrete,
+                                  std::string(TypeRef(t).struct_name())}) {
         auto it = all_struct_defs_.find(nm);
         if (it != all_struct_defs_.end() && it->second.valid())
             return it->second.self_describing();
@@ -5512,7 +5582,7 @@ mlir::Value MLIRGenImpl::emit_dst_len(mlir::Value thin_ptr, TypeRef dstref_t) {
     std::string dstref_pkg(TypeRef(dstref_t).pkg_name());
     std::string sname = concrete_struct_name_raw(
         std::string(TypeRef(dstref_t).struct_name()), targ_vec, dstref_pkg);
-    auto sym = resolve_method_symbol(sname, "dst_len");
+    auto sym = resolve_method_symbol(sname, "dst_len", dstref_pkg);
     auto parent_mod = builder_.getBlock()->getParent()
                           ->getParentOfType<mlir::ModuleOp>();
     mlir::Value len;
@@ -6539,15 +6609,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         // result is ExprBlob and may not import lang.writ.view, so WritStatic
         // can be registered-by-name but unlaid-out (null llvm_type) → prefer the
         // ret_type's registered struct, fall back to WritStatic.
+        // #60: the return type's own struct is resolved through its TypeRef
+        // (qualified first, folded bare, then raw bare) so a user struct sharing
+        // a name with an imported one is not aliased onto the wrong layout.
+        // The "WritStatic" default remains a HARDCODED BARE key — partition
+        // cell (e): the intrinsic's own package is not available here, so it
+        // cannot be qualified from a TypeRef. A user struct named WritStatic
+        // still competes for that slot; recorded, not converted.
         std::string sname = "WritStatic";
+        auto sit = struct_types_.end();
         if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::Struct) {
-            std::string rn(TypeRef(ret_type).struct_name());
-            if (!rn.empty()) {
-                auto rit = struct_types_.find(rn);
-                if (rit != struct_types_.end() && rit->second.llvm_type) sname = rn;
+            auto rit = find_struct_it(ret_type);
+            if (rit == struct_types_.end())
+                rit = struct_types_.find(std::string(TypeRef(ret_type).struct_name()));
+            if (rit != struct_types_.end() && rit->second.llvm_type) {
+                sname = rit->first;
+                sit = rit;
             }
         }
-        auto sit = struct_types_.find(sname);
+        if (sit == struct_types_.end()) sit = struct_types_.find(sname);
         if (sit == struct_types_.end() || !sit->second.llvm_type) return blob_ptr;
         auto alloca = create_entry_alloca(sit->second.llvm_type);
         auto gep = gep_field(alloca, sit->second, "ptr");

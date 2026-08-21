@@ -1,0 +1,25 @@
+// PACKAGE-BLIND DROP GLUE. `Vec::drop`'s element idiom is
+// `let _x: T = p[i];  // move-and-drop on scope exit`. mono_clone's
+// `__typevar_pending__drop` arm rewrites that sentinel to
+// `concrete_struct_name(ty) + "__drop"` UNCONDITIONALLY — a BARE name, and
+// with no check that the substituted T has a Drop impl at all. mlir-gen's
+// find_func_op then resolved that bare name through ffo_canonical, which
+// strips the package off callee AND def, and bound it to
+// `logos.mem.string.String__drop__f__String`. That destructor read this
+// struct's `a: i64` as a heap pointer and called free() on it:
+// MEASURED SIGSEGV, gdb `__GI___libc_free (mem=0x5)`.
+// The value below is the oracle; `_ctl` is the same program under a
+// collision-free name. Both must print the same exit code, and the point of
+// the fixture is that the process reaches `return` at all.
+// ⚠ no println! here on purpose: the format expansion binds its own
+// `let __buf: String`, which a package that declares `String` re-binds — a
+// SEPARATE live instance of this class, in the quote channel, still open.
+package test;
+struct String { pub a: i64 }
+fn main() -> i32 {
+    let mut xs: Vec<String> = Vec::<String>::new();
+    xs.push(String{a:5i64});
+    xs.push(String{a:6i64});
+    let s: i64 = xs.borrow(0u64).a + xs.borrow(1u64).a;
+    return s as i32;
+}

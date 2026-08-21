@@ -1,0 +1,25 @@
+// #58/#59 — the homonym class: `DatumCol` is ALSO declared inside stdlib
+// (`logos.mem.bt.alg.DatumCol`) and the shipped archives carry a prebuilt
+// `vec_new__g__void__DatumCol` over THAT one. With the bare-name mangle the
+// user's `Vec<DatumCol>` instance was elided and bound to it, so the initial
+// buffer is sized by the STDLIB element. The user element here is deliberately
+// LARGER (a [i64; 32] pad) than the stdlib homonym — measured: with a 16- or
+// 32-byte element this fixture PASSED under the defect (the foreign element is
+// bigger, so the wrong buffer is merely too large), and only a user element
+// that EXCEEDS the homonym's size aborts (exit 134 on the control revert).
+// The pad also makes the element non-Copy, hence `.borrow(i)` for the reads.
+// `_ctl` is the same program with a collision-free name — the ORACLE.
+package test;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct DatumCol { pub a: i64, pub b: i64, pub c: i64, pub d: i64, pub pad: [i64; 32] }
+fn main() -> i32 {
+    let mut xs: Vec<DatumCol> = Vec::<DatumCol>::new();
+    let mut i: i64 = 0i64;
+    while i < 8i64 { xs.push(DatumCol { a: i, b: i + 100i64, c: i + 200i64, d: i + 300i64, pad: [0i64; 32] }); i = i + 1i64; }
+    let mut s: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 8i64 { s = s + xs.borrow(j).a * 1000i64 + xs.borrow(j).b + xs.borrow(j).c + xs.borrow(j).d; j = j + 1i64; }
+    println!("n={} s={} a7={} d7={}", xs.len(), s, xs.borrow(7i64).a, xs.borrow(7i64).d);
+    return 0i32;
+}

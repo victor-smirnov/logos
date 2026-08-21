@@ -354,11 +354,64 @@ PIN = {
     # sweep itself: none of the four declares a container family — they are
     # `str` / `Vec<str>` / `Rc<Writ>` borrow-check shapes, and the `Vec` ones
     # are stdlib containers, not `direct` doors.
-    'corpus'            : 2215,
+    # 2026-08-20, #58/#59/#60 (the bare-struct-name IDENTITY class): +16 / +0 /
+    # +16. The sixteen are PASS fixtures and none matches the `wql_*` /
+    # `deem_*` glob — eight HOMONYM programs (a user struct sharing a name with
+    # an imported one, values asserted at RUNTIME because a name-only check
+    # cannot see a stride bug) and their eight collision-free `_ctl` oracles:
+    #   tests/logos/pass/mlirgen_odr_vec_stride.logos
+    #   tests/logos/pass/mlirgen_odr_vec_stride_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_vec_header.logos
+    #   tests/logos/pass/mlirgen_odr_vec_datumcol.logos
+    #   tests/logos/pass/mlirgen_odr_tuple_field.logos
+    #   tests/logos/pass/mlirgen_odr_tuple_field_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_match_stmt.logos
+    #   tests/logos/pass/mlirgen_odr_match_stmt_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_match_expr.logos
+    #   tests/logos/pass/mlirgen_odr_match_expr_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_pat_nested.logos
+    #   tests/logos/pass/mlirgen_odr_pat_nested_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_pat_refutable.logos
+    #   tests/logos/pass/mlirgen_odr_pat_refutable_ctl.logos
+    #   tests/logos/pass/mlirgen_odr_mangle_channels.logos
+    #   tests/logos/pass/mlirgen_odr_mangle_channels_ctl.logos
+    # (`vec_header` / `vec_datumcol` share `vec_stride`'s SHAPE and therefore
+    # its `_ctl` oracle — the two extra names are there because both SIGSEGV'd,
+    # i.e. the class is not confined to wrong answers or to one name.)
+    # DERIVED BY DIRECT FILE LISTING, not by adding 16 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2231
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # so nonglob is 2040 by the same listing minus the glob listing, and the
+    # partition closes: 2231 = 191 + 2040. This stage added NO fail fixtures.
+    #
+    # #59 (the FREE-FN generic-instance channel of the same class), +2/0/+2:
+    # the two `_ctl` oracles that `vec_header` / `vec_datumcol` were MISSING.
+    # The claim above — that they "share vec_stride's SHAPE and therefore its
+    # `_ctl` oracle" — did not survive measurement: with the element widened
+    # past the stdlib homonym's size (the only shape in which those two names
+    # bite at all) their numbers differ from `vec_stride`'s, so each needs its
+    # own twin. RE-DERIVED BY DIRECT FILE LISTING:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2233
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2233 = 191 + 2042. No fail fixtures, DOORS unmoved
+    # (36 = 10 + 26) — both twins are plain structs with one stdlib `Vec<T>`.
+    # DOOR counts unmoved (36 = 10 + 26), measured by the sweep itself: none of
+    # the sixteen declares a container family — they are plain structs, one
+    # `Vec<T>` stdlib container each in the vec/mangle fixtures, and no `direct`.
+    # 2026-08-20 (the METHOD-RESOLUTION channel of the same class), +2/0/+2.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 2 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2235
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2235 = 191 + 2044. The two are
+    # mlirgen_odr_drop_glue_homonym and its `_ctl`; the round's other two
+    # fixtures are FAIL fixtures and this population is the PASS corpus, so
+    # they move nothing here. DOOR counts unmoved (36 = 10 + 26): neither
+    # declares a container family — one stdlib `Vec<T>` each, no `direct`.
+    'corpus'            : 2235,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2024,  # pinned by NOTHING before this gate; +4 with
-                                 # `corpus` above, the four bc_esc_holder_*
-                                 # pass fixtures of #86 VERIFY ROUND 2
+    'nonglob'           : 2044,  # pinned by NOTHING before this gate; +16 with
+                                 # `corpus` above, the sixteen mlirgen_odr_*
+                                 # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a
                                  # readable statement of intent, not a check:
                                  # nonglob_set = corpus_set - glob_set, so the

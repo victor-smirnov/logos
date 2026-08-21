@@ -1516,6 +1516,50 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg) {
     return mid.empty() ? std::string{} : "$M" + std::string(mid);
 }
 
+// #58 — THE TYPE-ARGUMENT HALF of the ambiguous-name fold, and ONLY that half.
+//
+// `type_module_suffix` above declines for an ambiguous name whose package has
+// no owning module_id — which, in a PLAIN compile (one source file straight to
+// `logosc`, no `--emit-module`), is the USER's own package. That decline is
+// deliberate and must stay: the suffix is part of a nominal type's IDENTITY,
+// and identity is minted in `collect_impl` (concrete-specialisation impl
+// targets) BEFORE `set_ambiguous_type_names` is installed — the set is BUILT
+// from what collect registered. Folding there would spell the impl target
+// unfolded and the call site folded, and def != use. MEASURED, by trying it:
+// `impl Header<i64> { fn weight(..) }` in a package with no module_id became
+// "'Header$M05bf4536d7351c91$G1$i64' has no method 'weight'", and the
+// `Box`/`Rc`/`Arc` lang-item shapes lost their receiver type entirely.
+//
+// But a GENERIC INSTANCE NAME is not an identity minted in collect — it is a
+// SYMBOL minted in mono/lower, on both the definition and the use side, always
+// after the set is installed. And it is the side that COLLIDES: a user
+// `Vec<test.ExprBlob>` mangled to the bare `Vec$G1$ExprBlob`, which is a symbol
+// DEFINED in liblogos-mem.a (the stdlib's prebuilt
+// `Vec<logos.std.compiler.metaprog.ExprBlob>`), so `is_binary_skip` elided the
+// user's instance body and every call bound to an 8-byte element stride
+// instead of 16.
+//
+// So: fold the package fingerprint into the type-ARG spelling, and leave the
+// nominal type's own identity alone. Fires ONLY where type_module_suffix has
+// already declined (returns empty) AND the name is ambiguous — a uniquely-named
+// type, and every type in a package that HAS a module_id, is byte-identical to
+// before, so the archived symbol set and the abi are untouched
+// (`scripts/abi-check.sh`: ADDED 0, ABI-PRESERVING).
+std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg) {
+    if (pkg.empty() || name.empty()) return {};
+    if (!g_ambiguous_type_names || !g_ambiguous_type_names->count(std::string(name)))
+        return {};
+    if (!type_module_suffix(name, pkg).empty()) return {};  // already folded
+    uint64_t h = 1469598103934665603ull;                    // FNV-1a 64 offset basis
+    auto mix = [&h](std::string_view s) {
+        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
+    };
+    mix(pkg);
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
+    return std::string(buf);
+}
+
 // G156-1 — accumulate the ambiguous-type-name set. Feed every (name, pkg)
 // declaration from the transitive universe; a bare name seen in ≥2 DISTINCT
 // packages is ambiguous. `$`-bearing names (generic instances / already-mangled)
@@ -1585,7 +1629,14 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::ZonedStruct:
         // G156-1: the package fingerprint is folded into concrete_struct_name's
         // canonical identity (covers def + every type-arg ref consistently).
-        return concrete_struct_name(t);
+        // #58: plus the TYPE-ARG-only half for an ambiguous name whose package
+        // has no module_id — see ambiguous_type_arg_fingerprint. This function
+        // is reached ONLY from a mangle (concrete_struct_name's `$G…` args, the
+        // fn-symbol signature mangle), never as a nominal identity, so folding
+        // here cannot desynchronise collect from lower.
+        return concrete_struct_name(t) +
+               ambiguous_type_arg_fingerprint(TypeRef(t).struct_name(),
+                                              TypeRef(t).pkg_name());
     case LogosType::Kind::Enum:
         // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
         // into the enum's mangled identity so two same-named enums stay distinct.

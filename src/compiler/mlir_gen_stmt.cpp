@@ -533,7 +533,7 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     if (k == K::DstRef) return TypeRef(ty).owning_dst();
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
-        if (!resolve_method_symbol(name, "drop").empty()) return true;
+        if (!resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()).empty()) return true;
         if (auto sd = all_struct_defs_.find(name); sd != all_struct_defs_.end())
             for (auto& f : sd->second.fields())
                 if (value_needs_drop(f.type(pool_impl()))) return true;
@@ -545,7 +545,7 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     }
     if (k == K::Enum) {
         std::string ename(TypeRef(ty).enum_name());
-        if (!resolve_method_symbol(ename, "drop").empty()) return true;
+        if (!resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()).empty()) return true;
         if (auto* te = resolve_tagged_enum(ename, ty))
             for (auto& vp : te->variants)
                 for (auto ft : vp.logos_types) if (value_needs_drop(ft)) return true;
@@ -744,9 +744,15 @@ void MLIRGenImpl::gen_drop_owning_dst(mlir::Value dst_ptr, TypeRef ty) {
     // `data` points at the struct base (prefix fields at their layout offsets,
     // the tail slice at the last field). Drop droppable prefix fields + tail
     // elements; control then reaches free_blk which releases the whole block.
+    // #60: `struct_name()` is the BARE, UNFOLDED base name — it drops the pkg,
+    // the `$M<fp>` ambiguous-name fold AND the `$G<n>$…` generic-instance
+    // suffix, so this drop glue could pick a same-named foreign struct's field
+    // list (wrong droppable set). Qualified first, bare last (find_struct_*_it).
     std::string name(TypeRef(ty).struct_name());
-    auto sdit = all_struct_defs_.find(name);
-    auto sit  = struct_types_.find(name);
+    auto sdit = find_struct_def_it(ty);
+    if (sdit == all_struct_defs_.end()) sdit = all_struct_defs_.find(name);
+    auto sit  = find_struct_it(ty);
+    if (sit == struct_types_.end()) sit = struct_types_.find(name);
     if (sdit != all_struct_defs_.end() && sit != struct_types_.end() &&
         !sdit->second.fields().empty()) {
         auto def   = sdit->second;
@@ -940,7 +946,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
         // link form binds — resolve_method_symbol returns a BARE name, but the
         // drop FuncOp is emitted module-qualified; a direct lookupSymbol(bare)
         // would miss and SILENTLY SKIP the destructor (Rc/Box/RAII drop holes).
-        if (auto ds = resolve_method_symbol(name, "drop"); !ds.empty())
+        if (auto ds = resolve_method_symbol(name, "drop", TypeRef(ty).pkg_name()); !ds.empty())
             if (auto fn = find_func_op(mod, ds)) {
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
                 // Owner (top_level) also drops the fields after the user drop
@@ -995,7 +1001,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
         // symbol for an enum with NO user Drop (false positive), so require the
         // symbol to actually EXIST before treating it as a user drop; otherwise
         // fall through to the variant-switched payload recursion (G158-4 fix).
-        if (auto ds = resolve_method_symbol(ename, "drop"); !ds.empty())
+        if (auto ds = resolve_method_symbol(ename, "drop", TypeRef(ty).pkg_name()); !ds.empty())
             if (auto fn = find_func_op(mod, ds)) {  // chokepoint: bare→qualified
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
                 if (!top_level) return;
@@ -1129,6 +1135,64 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     //    after unconditional pkg-mangling the actual symbol is
     //    `pkg.<concrete>__drop__[fg]__sig`. Bridge via resolve_method_symbol.
     std::string drop_fn(v.drop_fn());
+    // ⚠ THE DROP SYMBOL IS INVENTED, NOT LOOKED UP. For a `let _x: T = p[i]`
+    // move-and-drop inside a monomorphised generic body (Vec::drop, Vec::clear,
+    // VecIntoIter::drop — the stdlib's element-drop idiom), mono_clone's
+    // `__typevar_pending__drop` arm writes `drop_fn = concrete_struct_name(ty)
+    // + "__drop"` UNCONDITIONALLY: it never asks whether the substituted type
+    // has a Drop impl, and the name it writes is BARE. find_func_op's canonical
+    // fallback then strips the package off both sides (ffo_canonical) and binds
+    // that bare name to whatever package defines one — so a user
+    // `struct String { a: i64 }` in a `Vec<String>` had its elements dropped by
+    // `logos.mem.string.String__drop__f__String`, which read the i64 as a heap
+    // pointer and called free() on it. MEASURED SIGSEGV, 5 lines, no unsafe
+    // (fixture mlirgen_odr_drop_glue_homonym; gdb: `__GI___libc_free(mem=0x5)`).
+    //
+    // The var's TypeRef carries the package the invented symbol dropped, so ask
+    // resolve_method_symbol PACKAGE-SCOPED before the pkg-blind chokepoint runs.
+    // Its `owns` out-param is the authoritative negative: the package really
+    // defines this struct and it really has no drop → emit NO call. Every other
+    // answer (no package in hand, package doesn't define it, a drop found) falls
+    // through to the historic path unchanged, so this cannot silence a
+    // destructor that used to run for a type that actually has one.
+    if (!drop_fn.empty()) {
+        TypeRef vt = v.type(pool_impl());
+        auto vk = vt ? TypeRef(vt).kind() : LogosType::Kind::Error;
+        if (vt && (vk == LogosType::Kind::Struct || vk == LogosType::Kind::ZonedStruct) &&
+            !TypeRef(vt).pkg_name().empty()) {
+            std::string_view dfn = drop_fn;
+            if (auto dot = dfn.rfind('.'); dot != std::string_view::npos)
+                dfn = dfn.substr(dot + 1);
+            if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
+                bool owns = false;
+                auto rs = resolve_method_symbol(dfn.substr(0, p), "drop",
+                                                TypeRef(vt).pkg_name(), &owns);
+                if (owns && rs != std::string(dfn.substr(0, p)) + "__drop") {
+                    // The package's own struct DOES have a drop — use its real
+                    // (possibly `__f__sig`-mangled) symbol rather than the
+                    // invented convention name.
+                    drop_fn = rs;
+                } else if (owns) {
+                    // No drop in the owning package. Whatever the pkg-blind
+                    // chokepoint would bind the invented bare name to is, by
+                    // construction, some OTHER package's method — check, and
+                    // if so emit nothing. (A def that carries no package, or
+                    // one in this same package, is left alone: this arm only
+                    // refuses a cross-package bind.)
+                    if (auto other = find_func_op(mod, drop_fn)) {
+                        std::string_view onm = other.getName();
+                        if (auto dd = onm.rfind('.'); dd != std::string_view::npos) {
+                            std::string_view opkg = onm.substr(0, dd);
+                            if (auto mm = opkg.rfind(".."); mm != std::string_view::npos)
+                                opkg = opkg.substr(mm + 2);
+                            if (!opkg.empty() && opkg != TypeRef(vt).pkg_name())
+                                drop_fn.clear();
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (!drop_fn.empty()) {
         // find_func_op (THE chokepoint) resolves the module-qualified link form:
         // drop_fn is the LIR's bare-pkg symbol, but the drop FuncOp is emitted
@@ -1137,11 +1201,18 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         auto fn = find_func_op(mod, drop_fn);
         if (!fn) {
             std::string_view dfn = drop_fn;
-            // Strip a `pkg.` prefix if present, then `__drop[__...]`.
-            if (auto dot = dfn.rfind('.'); dot != std::string_view::npos)
-                dfn = dfn.substr(dot + 1);
+            // Strip a `pkg.` prefix if present, then `__drop[__...]`. The
+            // stripped prefix IS the owning package of the struct whose drop
+            // this is, so hand it to resolve_method_symbol as the qualified
+            // key — without it the re-resolution is package-blind and a
+            // homonym in another package can answer (see the note there).
+            std::string_view dpkg;
+            if (auto dot = dfn.rfind('.'); dot != std::string_view::npos) {
+                dpkg = dfn.substr(0, dot);
+                dfn  = dfn.substr(dot + 1);
+            }
             if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
-                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop");
+                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop", dpkg);
                 if (!resolved.empty())
                     fn = find_func_op(mod, resolved);
             }
@@ -3868,7 +3939,12 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         // contribute nothing to the condition.
         lir_view::PatStructView ps{pat};
         std::string sname(ps.struct_name());
-        auto sit = struct_types_.find(sname);
+        // #60: bare pattern name aliases a same-named imported struct — narrow
+        // the slot's TypeRef `ty` to the named struct and resolve qualified
+        // first; bare stays the last resort (pat_struct_ty).
+        TypeRef pst = pat_struct_ty(ty, ps.struct_name());
+        auto sit = pst ? find_struct_it(pst) : struct_types_.find(sname);
+        if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
         if (sit == struct_types_.end()) return true_c();
         const StructInfo& sinfo = sit->second;
         // Unified convention with Tuple: `slot_ptr` IS the struct data address
@@ -4180,7 +4256,11 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // refutable subs (`{x: Inner::A(v)}`) bind their inner names.
         lir_view::PatStructView ps{pat};
         std::string sname(ps.struct_name());
-        auto sit = struct_types_.find(sname);
+        // #60: same as pat_test's Struct case — qualified via the slot TypeRef
+        // first, bare name last.
+        TypeRef pst = pat_struct_ty(ty, ps.struct_name());
+        auto sit = pst ? find_struct_it(pst) : struct_types_.find(sname);
+        if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
         if (sit == struct_types_.end()) return;
         const StructInfo& sinfo = sit->second;
         // Unified convention: `slot_ptr` is the struct data address — see
@@ -4188,8 +4268,11 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // miscompile / segfault if we Load through inline-child storage).
         auto sptr = slot_ptr;
         lir_view::StructView sd;
-        if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
-            sd = di->second;
+        {
+            auto di = pst ? find_struct_def_it(pst) : all_struct_defs_.find(sname);
+            if (di == all_struct_defs_.end()) di = all_struct_defs_.find(sname);
+            if (di != all_struct_defs_.end()) sd = di->second;
+        }
         ps.each_field([&](lir_view::PatFieldBindingView pfb){
             std::string fname(pfb.field_name());
             auto fp = gep_field(sptr, sinfo, fname);
@@ -4491,7 +4574,12 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         case pc::Code::Struct: {
             lir_view::PatStructView ps{p};
             std::string sname(ps.struct_name());
-            auto sit = struct_types_.find(sname);
+            // #60: bare `sname` aliases a same-named imported struct (wrong
+            // field offsets / stride). Resolve through the scrutinee TypeRef
+            // first; bare stays the last resort (see pat_struct_ty).
+            TypeRef pst = pat_struct_ty(scrut_ty, ps.struct_name());
+            auto sit = pst ? find_struct_it(pst) : struct_types_.find(sname);
+            if (sit == struct_types_.end() && pst) sit = struct_types_.find(sname);
             if (sit == struct_types_.end()) return;
             const StructInfo& sinfo = sit->second;
             mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(v.scrut());
@@ -4505,8 +4593,11 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 sptr = a;
             }
             lir_view::StructView sd;
-            if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
-                sd = di->second;
+            {
+                auto di = pst ? find_struct_def_it(pst) : all_struct_defs_.find(sname);
+                if (di == all_struct_defs_.end()) di = all_struct_defs_.find(sname);
+                if (di != all_struct_defs_.end()) sd = di->second;
+            }
             ps.each_field([&](lir_view::PatFieldBindingView pfb) {
                 std::string field_name(pfb.field_name());
                 auto bind_struct_field = [&](const std::string& bind_name) {

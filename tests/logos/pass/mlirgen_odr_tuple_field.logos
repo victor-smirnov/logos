@@ -1,0 +1,13 @@
+// #60 — tuple_llvm_type sized a tuple ELEMENT from a bare
+// `struct_types_.find(concrete_struct_name(e))`, which lands in
+// register_struct's first-registered-wins BARE alias: the user's `ExprBlob`
+// took the imported homonym's 8-byte footprint and `t.0.b` read `t.1`.
+// `_ctl` (collision-free name) is the oracle for these numbers.
+package test;
+use logos.std.fmt;
+struct ExprBlob { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let t: (ExprBlob, i64) = (ExprBlob { a: 7i64, b: 9i64 }, 5i64);
+    println!("a={} b={} n={}", t.0.a, t.0.b, t.1);
+    return 0i32;
+}

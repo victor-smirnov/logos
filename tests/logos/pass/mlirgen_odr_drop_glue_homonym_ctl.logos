@@ -1,0 +1,13 @@
+// CONTROL for mlirgen_odr_drop_glue_homonym — THE ORACLE. Identical
+// program under a collision-free struct name, so no stdlib homonym
+// exists to steal a `__drop` from. It printed the same 11 before the
+// fix and after; the homonym printed 11 only after.
+package test;
+struct Strng9x { pub a: i64 }
+fn main() -> i32 {
+    let mut xs: Vec<Strng9x> = Vec::<Strng9x>::new();
+    xs.push(Strng9x{a:5i64});
+    xs.push(Strng9x{a:6i64});
+    let s: i64 = xs.borrow(0u64).a + xs.borrow(1u64).a;
+    return s as i32;
+}

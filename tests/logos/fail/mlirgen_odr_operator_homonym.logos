@@ -1,0 +1,23 @@
+// PACKAGE-BLIND OPERATOR CALLEE. A struct `==` that reaches mono is rewritten
+// by mono_clone (BinOp arm) into a call to `<pkg>.<Bare>__eq` — invented, with
+// no check that the method exists. mlir-gen's find_func_op then resolved it
+// through ffo_canonical, which STRIPS the package off callee and def alike, so
+// `test.Ident__eq` bound
+// `logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident` and was
+// handed two `%test.Ident`s: MEASURED SIGSEGV.
+// ⚠ THE SHARPEST PART, and why this is a `fail` fixture and not a `pass` one:
+// the collision-free twin (`_ctl`, byte-identical but for the name) does NOT
+// compile either — `Ident` has no `eq`. The homonym program was accepted ONLY
+// because it silently stole a foreign package's method. What is pinned here is
+// that the two now behave IDENTICALLY: both refused, neither miscompiled.
+// The `use` is load-bearing — it is what pulls logos.std.compiler.metaprog
+// (and its own `Ident`) into the compile at all.
+package test;
+use logos.std.fmt;
+struct Ident { pub k: i64, pub j: i64 }
+fn main() -> i32 {
+    let a = Ident{k:1i64, j:2i64};
+    let b = Ident{k:1i64, j:2i64};
+    if a == b { return 7i32; }
+    return 0i32;
+}

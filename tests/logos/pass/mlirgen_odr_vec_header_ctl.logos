@@ -1,0 +1,18 @@
+// CONTROL twin of mlirgen_odr_vec_header — identical program with a COLLISION-FREE type name
+// (`ZqzHeaderCtl` is declared nowhere else). It is the ORACLE for the numbers: if the
+// twin and the homonym ever disagree, the homonym's mangle is binding to a
+// foreign definition.
+package test;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct ZqzHeaderCtl { pub a: i64, pub b: i64, pub c: i64, pub d: i64 }
+fn main() -> i32 {
+    let mut xs: Vec<ZqzHeaderCtl> = Vec::<ZqzHeaderCtl>::new();
+    let mut i: i64 = 0i64;
+    while i < 8i64 { xs.push(ZqzHeaderCtl { a: i, b: i + 100i64, c: i + 200i64, d: i + 300i64 }); i = i + 1i64; }
+    let mut s: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 8i64 { s = s + xs.get(j).a * 1000i64 + xs.get(j).b + xs.get(j).c + xs.get(j).d; j = j + 1i64; }
+    println!("n={} s={} a7={} d7={}", xs.len(), s, xs.get(7i64).a, xs.get(7i64).d);
+    return 0i32;
+}

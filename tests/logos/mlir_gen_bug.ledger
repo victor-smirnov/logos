@@ -29,11 +29,16 @@
 # res-and-or-comb-or
 #   the same, plus the `let` that consumed the missing instance being dropped.
 #   `Result__i32__F` — `F` is an unsubstituted fn-type param.
-# pat_6
-#   `let ai` / `let bi` produced no value: a struct pattern over a GENERIC
-#   struct (`GPair<u8,u16>`) binds fields whose initialisers lower to nothing,
-#   so the bound names are unbound and every dependent statement vanishes.
-#   A generic struct-pattern binding arc, not a naming one.
+# pat_6 — ROW DELETED 2026-08-20 (#60). The cause was the bare-name struct
+#   lookup: `struct_types_.find(ps.struct_name())` keyed on `GPair`, while a
+#   generic instance is registered under `GPair$G2$u8$u16`, so the lookup MISSED
+#   and gen_match's PatStruct case returned early — `let ai` / `let bi` produced
+#   no value and every dependent statement vanished. The four PatStruct sites
+#   (gen_match extract_payload, gen_expr(EMatchExprView), pat_test, pat_bind)
+#   now narrow the SCRUTINEE TypeRef and resolve QUALIFIED-FIRST via
+#   find_struct_it / find_struct_def_it (mlir_gen_impl.hpp pat_struct_ty), so
+#   the concrete instance resolves. The program is held to the R2 rule with the
+#   rest of the corpus.
 # intrinsic_2
 #   `unsupported cast: no lowering from 'i32' to '!llvm.array<0 x Type>'` at
 #   line 95: `if args_of::<Plain>() != [] as [Type; 0] { return 28; }`. An EMPTY
@@ -72,5 +77,4 @@
 issue-41888-b170                     1 tests/imported/pass/match/issue-41888-b170
 nested-tuple-in-variant-payload-b170 1 tests/imported/pass/match/nested-tuple-in-variant-payload-b170
 res-and-or-comb-or                   4 tests/imported/pass/option-result/res-and-or-comb-or
-pat_6                                4 tests/spec/pass/pat_6
 intrinsic_2                          1 tests/spec/pass/intrinsic_2

@@ -1,0 +1,37 @@
+// #58 — the fix for the elided generic instance folds a package fingerprint
+// into the TYPE-ARG spelling (sema.cpp ambiguous_type_arg_fingerprint, consumed
+// by mangle_type_for_name). mangle_type_for_name also feeds FN-SIGNATURE
+// symbols, so this fixture walks every channel the fold can reach with a struct
+// that is HOMONYMOUS with an imported one (`ZqzNoClashA`, declared in stdlib too),
+// and asserts VALUES at runtime — a def/use split shows up as a link error or
+// as a wrong number, never as a wrong name alone:
+//   by-value free fn · generic fn instantiated AT the homonym and called
+//   through a fn-pointer parameter · inherent impl method · trait impl method ·
+//   a generic CONTAINER instance over the homonym · a SECOND homonym (`ZqzNoClashB`)
+//   in the same program.
+// `_ctl` is the same program with collision-free names — the oracle.
+package test;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct ZqzNoClashA { pub a: i64, pub b: i64 }
+struct ZqzNoClashB { pub k: i64, pub j: i64 }
+fn take(x: ZqzNoClashA) -> i64 { return x.b; }
+fn gen<T>(v: T, f: fn(T) -> i64) -> i64 { return f(v); }
+impl ZqzNoClashA { fn m(self: ZqzNoClashA) -> i64 { return self.a + self.b; } }
+trait Tr { fn tm(self: Self) -> i64; }
+impl Tr for ZqzNoClashA { fn tm(self: ZqzNoClashA) -> i64 { return self.b - self.a; } }
+fn main() -> i32 {
+    let e: ZqzNoClashA = ZqzNoClashA { a: 7i64, b: 9i64 };
+    let i: ZqzNoClashB = ZqzNoClashB { k: 3i64, j: 4i64 };
+    let mut xs: Vec<ZqzNoClashA> = Vec::<ZqzNoClashA>::new();
+    // 8 pushes: the free-fn channel (`vec_new__g__void__ZqzNoClashA`) allocates
+    // init_cap * sizeof::<T>(); bound to the 8-byte stdlib homonym that buffer
+    // holds 4 of the user's 16-byte elements and the 5th push aborts. One push
+    // could not see it — this walks past the measured threshold.
+    let mut n: i64 = 0i64;
+    while n < 8i64 { xs.push(ZqzNoClashA { a: n, b: n + 100i64 }); n = n + 1i64; }
+    println!("t={} g={} m={} tm={} vec={} id={} last={} len={}",
+        take(e), gen::<ZqzNoClashA>(e, take), e.m(), e.tm(), xs.get(0i64).b, i.j,
+        xs.get(7i64).b, xs.len());
+    return 0i32;
+}

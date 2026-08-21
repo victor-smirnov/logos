@@ -1,0 +1,24 @@
+// #58/#59 — the homonym class: `Header` is ALSO declared inside stdlib
+// (`logos.std.io.http.types.Header`, 4 x i32 = 16 bytes) and the shipped
+// archives carry a prebuilt `vec_new__g__void__Header` over THAT one. With the
+// bare-name mangle the user's `Vec<Header>` instance was elided and bound to
+// it, so `init_cap * sizeof::<T>()` sized the buffer for a 16-byte element
+// while the user's struct is 32 — measured on the control revert: exit 134.
+// THE SIZE GAP AND THE PUSH COUNT ARE BOTH LOAD-BEARING: at 2 pushes of a
+// 16-byte user struct this fixture PASSED under the defect (measured), i.e. it
+// could not see the thing it names — the F7 anti-pattern. `_ctl` is the same
+// program with a collision-free name and is the ORACLE for these numbers.
+package test;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Header { pub a: i64, pub b: i64, pub c: i64, pub d: i64 }
+fn main() -> i32 {
+    let mut xs: Vec<Header> = Vec::<Header>::new();
+    let mut i: i64 = 0i64;
+    while i < 8i64 { xs.push(Header { a: i, b: i + 100i64, c: i + 200i64, d: i + 300i64 }); i = i + 1i64; }
+    let mut s: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 8i64 { s = s + xs.get(j).a * 1000i64 + xs.get(j).b + xs.get(j).c + xs.get(j).d; j = j + 1i64; }
+    println!("n={} s={} a7={} d7={}", xs.len(), s, xs.get(7i64).a, xs.get(7i64).d);
+    return 0i32;
+}

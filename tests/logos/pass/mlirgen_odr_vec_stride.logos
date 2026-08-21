@@ -1,0 +1,22 @@
+// #58/#59 — the homonym class: `ExprBlob` is ALSO declared inside stdlib and the
+// shipped archives carry a prebuilt `Vec$G1$ExprBlob` / `vec_new__g__void__ExprBlob`
+// over the STDLIB one (8-byte element). With the bare-name mangle the user's
+// instance was elided and bound to those, so a 16-byte user struct got a
+// 64-byte buffer with cap=8: the 5th push aborts (measured threshold 64/16+1)
+// and the reads stride by 8. THIS FIXTURE PUSHES 8 — past that threshold; the
+// two-push version could not see the defect it named (F7 anti-pattern).
+// `_ctl` is the same program with a collision-free name — the ORACLE.
+package test;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct ExprBlob { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let mut xs: Vec<ExprBlob> = Vec::<ExprBlob>::new();
+    let mut i: i64 = 0i64;
+    while i < 8i64 { xs.push(ExprBlob { a: i, b: i + 100i64 }); i = i + 1i64; }
+    let mut s: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 8i64 { s = s + xs.get(j).a * 1000i64 + xs.get(j).b; j = j + 1i64; }
+    println!("n={} s={} a7={} b7={}", xs.len(), s, xs.get(7i64).a, xs.get(7i64).b);
+    return 0i32;
+}

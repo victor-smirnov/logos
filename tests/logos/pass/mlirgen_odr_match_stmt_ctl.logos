@@ -1,0 +1,14 @@
+// #60 — a struct PATTERN carries only a BARE name (PatStructView::struct_name),
+// so gen_match's extract_payload resolved the user's `ZqzNoClash` through the
+// first-registered-wins bare alias and bound the IMPORTED homonym's fields:
+// this printed `a= b=` (empty bindings). Fixed by narrowing the SCRUTINEE
+// TypeRef (pat_struct_ty) and resolving qualified-first.
+// `_ctl` (collision-free name) is the oracle for these numbers.
+package test;
+use logos.std.fmt;
+struct ZqzNoClash { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let x: ZqzNoClash = ZqzNoClash { a: 7i64, b: 9i64 };
+    match x { ZqzNoClash { a: p, b: q } => { println!("a={} b={}", p, q); } }
+    return 0i32;
+}

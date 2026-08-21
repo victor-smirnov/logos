@@ -870,6 +870,18 @@ const lir_view::ObjectMapRef* get_type_module_map_ref();
 // the fold; pass the bare (unmangled) type name.
 std::string type_module_suffix(std::string_view name, std::string_view pkg);
 
+// #58/#59 — the TYPE-ARGUMENT half of the ambiguous-name fold: the package
+// fingerprint for an ambiguous bare name whose package has NO owning module_id
+// (a plain compile's user package), where `type_module_suffix` deliberately
+// declines because the nominal IDENTITY is minted before the ambiguous-set
+// exists (measured: folding identity breaks `impl Header<i64>` method lookup).
+// Returns "" whenever type_module_suffix already folded, or the name is not
+// ambiguous. EVERY symbol-level type-ARG spelling must append this — sema's
+// `mangle_type_for_name` AND mono's `mangle_type` (the generic-instance
+// composer) — or the two channels disagree and a user instance binds to a
+// prebuilt archive homonym (`vec_new__g__void__ExprBlob`).
+std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg);
+
 // G156-1 — the phase-scoped ambiguous-type-name set. A bare nominal name is
 // "ambiguous" iff it is declared in ≥2 DISTINCT packages across the current
 // build's full transitive type universe (own + every dependency module's

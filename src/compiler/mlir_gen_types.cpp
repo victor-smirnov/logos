@@ -938,7 +938,12 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
             if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
                 // Inline struct: use the identified struct type so the field
                 // occupies its full ABI footprint, not a collapsed ptr.
-                auto sit = struct_types_.find(mlir_struct_key(lt));
+                // #60: qualified key → FOLDED bare (concrete_struct_name, which
+                // carries the `$M<fp>` ambiguous-name fold + `$G…`) → raw bare
+                // last. The raw-bare step alone lands in register_struct's
+                // first-registered-wins alias and gives an inline field the
+                // FOREIGN homonym's footprint.
+                auto sit = find_struct_it(lt);
                 if (sit == struct_types_.end())
                     sit = struct_types_.find(std::string(TypeRef(lt).struct_name()));
                 if (sit != struct_types_.end() && sit->second.llvm_type)
@@ -1148,8 +1153,13 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
         mlir::Type ft;
         if (e && (TypeRef(e).kind() == LogosType::Kind::Struct ||
                   TypeRef(e).kind() == LogosType::Kind::ZonedStruct)) {
-            auto cn = concrete_struct_name(e);
-            if (auto sit = struct_types_.find(cn); sit != struct_types_.end())
+            // #60: `concrete_struct_name(e)` alone lands in register_struct's
+            // first-registered-wins BARE alias when the element's name is also
+            // declared in an imported package — the user's struct then took the
+            // FOREIGN homonym's 8-byte footprint and `t.0.b` read `t.1`
+            // (tests/logos/pass/mlirgen_odr_tuple_field.logos). find_struct_it
+            // is QUALIFIED-FIRST (mlir_struct_key), bare only as a fallback.
+            if (auto sit = find_struct_it(e); sit != struct_types_.end())
                 ft = sit->second.llvm_type;
         } else if (e && TypeRef(e).kind() == LogosType::Kind::Enum) {
             // Inline-embed an enum-typed tuple element (enum value-repr), like

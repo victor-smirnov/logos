@@ -1,0 +1,13 @@
+// #60 — the match-EXPRESSION twin of mlirgen_odr_match_stmt: the same bare
+// `ps.struct_name()` lookup in gen_expr_kind(EMatchExprView). Before the fix
+// this printed `r=33554432` (a field read at the foreign homonym's offsets).
+// `_ctl` (collision-free name) is the oracle for this number.
+package test;
+use logos.std.fmt;
+struct ExprBlob { pub a: i64, pub b: i64 }
+fn main() -> i32 {
+    let x: ExprBlob = ExprBlob { a: 7i64, b: 9i64 };
+    let r: i64 = match x { ExprBlob { a: 7i64, b: q } => q, ExprBlob { a: p, b: _ } => p };
+    println!("r={}", r);
+    return 0i32;
+}

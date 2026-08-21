@@ -3085,9 +3085,398 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7374
-REGISTRY-NOIMPORTED  3691
+REGISTRY-ALL         7396
+REGISTRY-NOIMPORTED  3713
 REGISTRY-TIERCOMMIT  36
+# 2026-08-20 (the METHOD-RESOLUTION channel of the same class), PREDICTED
+# +4/+4/0 (7392/3709/36 -> 7396/3713/36) before the reconfigure and MET
+# exactly: two pass fixtures (mlirgen_odr_drop_glue_homonym and its `_ctl`)
+# and two fail fixtures (mlirgen_odr_operator_homonym and its `_ctl`), 1 ctest
+# test each, none labelled `imported`, no gate added.
+# 2026-08-20 (#59 — the FREE-FN generic-instance channel of the same class),
+# +2/+2/0 (7390/3707/36 -> 7392/3709/36), predicted before the reconfigure and
+# met exactly: the two missing `_ctl` twins
+# (mlirgen_odr_vec_datumcol_ctl, mlirgen_odr_vec_header_ctl), 1 ctest test
+# each, neither labelled `imported`. No new NON-control fixture: the three
+# vec_* homonym fixtures were RE-PROVOKED in place (2 pushes -> 8, and the
+# element widened past the stdlib homonym's size) because at 2 pushes none of
+# them could see the defect they name — measured: under the control revert the
+# 2-push versions PASSED.
+#
+# THE FREE-FN CHANNEL. sema's `mangle_type_for_name` folds
+# `ambiguous_type_arg_fingerprint` into a struct type ARG; mono's `mangle_type`
+# (mono_impl.hpp, the composer behind `Mono::mangle(base, type_args)` — every
+# generic FREE-FN instance name) did NOT. One emitted IR carried both
+# spellings: `Vec$G1$ExprBlob$M975819681a395537` (method channel, folded) next
+# to the bare `<mem-archive-prefix>vec$vec_new__g__void__ExprBlob` —
+# and that bare symbol is T-defined in liblogos-mem.a at the STDLIB ExprBlob,
+# so the user's `vec_new<test.ExprBlob>` was elided and `init_cap *
+# sizeof::<T>()` allocated for an 8-byte element. Measured threshold: 4 pushes
+# of a 16-byte user struct fine, 5 => abort (64/16 + 1). Fixed by giving mono's
+# Struct arm the same fold under the same predicate.
+#
+# THE ENUMERATION (measured, by an env-gated trace at every mangler site that
+# spells a type into a symbol; counts are calls in ONE compile of the 8-push
+# ExprBlob probe, FOLDED/BARE read off the produced text):
+#   sema mangle_type_for_name Struct       50540 calls   FOLDED (#58) — with 44
+#     BARE, all in one contiguous pre-install window (the ambiguous-set is not
+#     yet installed there); only the STDLIB ExprBlob and `Vec$G1$ExprBlob` pass
+#     through it, never the user's, and no emitted symbol keeps that spelling.
+#   sema mangle_type_for_name Enum          1596 calls   NOT folded (module
+#     suffix only)
+#   mono mangle_type Struct                21298 calls   FOLDED (#59, this round)
+#   mono mangle_type Enum                   7033 calls   NOT folded
+#   mono enum_instance_name (composer)     37933 calls   no suffix at all (the
+#     divergence already recorded at its own definition site)
+#   mono mangle(base, type_args), the FREE-FN instance composer  7321 calls —
+#     folds THROUGH the Struct arm above, which is why one change closes it.
+# concrete_struct_name / concrete_struct_name_raw / the DstRef arm / sema's
+# function_signature_key route their ARGS through sema's Struct arm and fold
+# with it — they are not separate decision sites.
+#
+# THE ENUM CHANNEL STAYS OPEN, deliberately, measured. `Ordering` and
+# `ControlFlow` are the two stdlib bare names declared in >=2 packages. One
+# compile of a user `enum Ordering`: user-package spellings BARE 218 (sema) +
+# 555 (mono); `logos.lang.cmp` FOLDED 280 (+28 bare in the pre-install window);
+# `logos.lang.atomic` BARE 162 — two stdlib packages of ONE module already
+# disagree, because atomic's package has no owning module_id in the map while
+# cmp's does. NO BITE against today's archives: over every `__g__` instance
+# symbol in the shipped archives, ZERO have a bare ambiguous ENUM as the type
+# argument, so no user enum can bind to a prebuilt definition. Folding it would
+# move stdlib symbol TEXT (atomic's `..__f__..__Ordering` params) — the shape
+# the previous round refuted for identities — so it needs its own round with
+# its own control, not a ride-along. NOT fixed, NOT fixtured (a fixture that
+# cannot see its defect is the F7 anti-pattern), NAMED here.
+#
+# ALSO MEASURED, NOT FIXED: mono's `mangle_type` has no ZonedStruct arm (falls
+# to `type_str`) while sema's routes ZonedStruct through the Struct arm.
+# 2026-08-20 (#58/#59/#60 — the bare-struct-name IDENTITY class), +16/+16/0
+# (7374/3691/36 -> 7390/3707/36), predicted before the reconfigure and met
+# exactly: 16 pass fixtures, 1 ctest test each, none labelled `imported`.
+#
+# THE DEFECT, in two halves.
+#
+# (1) #58/#59 — THE GENERIC-INSTANCE SYMBOL. A user `Vec<test.ExprBlob>` in a
+#     PLAIN compile (one source file straight to `logosc`, no `--emit-module`)
+#     mangled to the bare `Vec$G1$ExprBlob`. That is a symbol DEFINED in
+#     liblogos-mem.a — the stdlib's prebuilt
+#     `Vec<logos.std.compiler.metaprog.ExprBlob>` — so `is_binary_skip` ELIDED
+#     the user's instance body (`declare`, not `define`, in the emitted IR) and
+#     every call bound to an element stride of 8 instead of 16. Measured on an
+#     8-line program with no deem and no slice: `b=103138573533184`. The same
+#     program with `Header` SIGSEGV'd (139); with `DatumCol` it printed
+#     correctly and then SIGSEGV'd in drop (134). 25 nominal names appear as
+#     `Vec$G1$<Name>` DEFINED in the shipped archives and 420 struct names are
+#     declared in stdlib, so any user struct taking one of those names was
+#     exposed. The G156-1 ambiguous-name fingerprint EXISTED and did not fire:
+#     `type_module_suffix` declined for a package with no owning module_id,
+#     i.e. the fingerprint was granted to the stdlib side (whose package IS in
+#     a module) and withheld from the user side. Applied to exactly the side
+#     that does not need it.
+#
+# (2) #60 — THE BARE LOOKUP SITES. `TypeRef::struct_name()` and
+#     `PatStructView::struct_name()` yield a BARE base name: no package, no
+#     `$M<fp>` fold, no `$G…` instance suffix. A `struct_types_` /
+#     `all_struct_defs_` lookup on one lands in the first-registered-wins BARE
+#     alias installed by register_struct / mlir_gen.cpp:127, so a user struct
+#     took an IMPORTED homonym's field offsets and footprint.
+#
+# WHAT LANDED FOR (1), AND THE REFUTED ATTEMPT THAT CAME FIRST.
+# The obvious fix — drop the `if (!mid.empty())` guard so `type_module_suffix`
+# folds for every ambiguous name — WAS WRITTEN, BUILT, AND REVERTED. It broke
+# def==use, because a nominal type's suffix is part of its IDENTITY and identity
+# is minted in `collect_impl` (concrete-specialisation impl targets), which runs
+# BEFORE `set_ambiguous_type_names` is installed — the set is BUILT from what
+# collect registered. Measured, three ways, on the tree that carried it:
+#   * `impl Header<i64> { fn weight(..) }` in a package with no module_id ->
+#     "'Header$M05bf4536d7351c91$G1$i64' has no method 'weight'" (the impl
+#     target was keyed UNFOLDED in collect, the call site FOLDED in lower);
+#   * the `Box` / `Rc` / `Arc` lang-item shapes lost their receiver type
+#     entirely ("method call: receiver is not a struct (got i64)");
+#   * tests/logos/ir/metacall_instantiate.logos (a user `struct Box<T>` next to
+#     `logos.mem.boxed.Box`) went red on exactly that message. CONTROL: with
+#     only that one sema hunk reverted and a logosc-only rebuild, the 8-line
+#     repro compiled at rc 0; with it restored, rc 1.
+# What landed instead is `ambiguous_type_arg_fingerprint` (src/compiler/sema.cpp,
+# consumed by `mangle_type_for_name`'s Struct/ZonedStruct case): the TYPE-ARG
+# half of the fold and only that half. A generic instance NAME is not an
+# identity minted in collect — it is a SYMBOL minted in mono/lower, on the
+# definition and the use side alike, always after the set is installed. So
+# `Vec<test.ExprBlob>` becomes `Vec$G1$ExprBlob$M<fp>` and stops matching the
+# archive symbol, while `test.ExprBlob`'s own identity stays `ExprBlob` and
+# collect/lower cannot desynchronise. It fires ONLY where type_module_suffix has
+# already declined AND the name is ambiguous, so a uniquely-named type and every
+# type in a package that HAS a module_id are byte-identical to before.
+# `scripts/abi-check.sh` rc 0: sym 12518 / type 369 / vtable 123, ADDED 0,
+# VERDICT ABI-PRESERVING, abi_closure_gate OK (3 canaries caught).
+#
+# WHAT LANDED FOR (2) — measured, not swept. Each converted site was fitted with
+# a temporary `odr_fire` print (site, chosen key, bare key, and whether the bare
+# slot holds a DIFFERENT llvm_type) and swept over the WHOLE 2229-fixture pass
+# corpus ON THE LANDED TREE. The instrument was then removed and the tree
+# rebuilt and re-gated. `div=1` = the bare key this site used BEFORE resolves to
+# a different LLVM aggregate than the qualified key it uses now, i.e. the
+# conversion is load-bearing at that fire.
+#
+#   SITE                                        fires    div=1   fixture producing div=1
+#   A gen_match extract_payload PatStruct           37       3    mlirgen_odr_match_stmt (1), mlirgen_odr_pat_refutable (2)
+#   B gen_expr(EMatchExprView)  PatStruct           13       2    mlirgen_odr_match_expr
+#   C pat_test                  PatStruct            8       2    mlirgen_odr_pat_refutable
+#   D pat_bind                  PatStruct            3       1    mlirgen_odr_pat_nested
+#   T tuple_llvm_type element footprint           6211       4    mlirgen_odr_tuple_field
+#   F register_variant inline field footprint   107918      85    vec_struct_homonym_stride_shapes (the D4 fixture)
+#   E DST drop glue (TypeRef::struct_name)           3       0    reached, never divergent
+#   I WritLit result struct from ret_type          771       0    reached, never divergent
+#   H dstref_has_slice_tail                         59     n/a    behaviour change, see below
+#   G mlir_gen_dyn rel-path field walk               0     n/a    DELETED, see below
+#
+# A/B/C/D go through one new helper, `pat_struct_ty` (src/compiler/mlir_gen_impl.hpp):
+# it narrows the SCRUTINEE TypeRef (peeling ref/ptr) to the struct the pattern
+# names, returning null when the scrutinee is not one — enum-variant payloads,
+# tuple scrutinees, missing type info — so the caller keeps the bare key as the
+# LAST resort. That is sema's recorded find_struct_repr_ order (⚠ QUALIFIED KEY
+# FIRST, BARE SLOT LAST): a program declaring its own S still cannot alias a
+# foreign S, and no site that resolved before becomes a miss. The lookup ORDER
+# is unchanged, so the two imported tests the sema comment names cannot regress
+# by reordering.
+#
+# G WAS DELETED, NOT SHIPPED. The `mlir_gen_dyn.cpp` rel-path field walk is a
+# bare site with a TypeRef in hand, cell (c) by inspection. Its conversion was
+# WRITTEN, built, and measured to fire ZERO times over the whole pass corpus. An
+# arm that never executes is not evidence; `git checkout` restored the file and
+# the site stays in the partition as "not reached by this corpus" — neither
+# proven wrong nor proven unreachable.
+#
+# H IS A BEHAVIOUR CHANGE, DECLARED. `dstref_has_slice_tail` looked up ONLY the
+# bare `struct_name()`, so for a monomorphized generic DST it MISSED and
+# returned false — the same bug its neighbour `dstref_pointee_self_describing`
+# already documents and works around. It now probes qualified -> concrete ->
+# bare. All 59 corpus fires are `div=2` (the new key HITS where the bare key
+# missed), so it genuinely changes what the fat/thin discriminator answers at 59
+# sites. It has NO red-first fixture of its own — it is carried on the corpus
+# gates, and is named here so the next reader can revert it independently.
+#
+# A LEDGER ROW WAS DELETED, NOT MOVED: `pat_6` (tests/logos/mlir_gen_bug.ledger).
+# Its recorded cause — "a struct pattern over a GENERIC struct (`GPair<u8,u16>`)
+# binds fields whose initialisers lower to nothing" — was this very defect: the
+# bare `GPair` key missed because the instance is registered as
+# `GPair$G2$u8$u16`, so gen_match's PatStruct case returned early and every
+# dependent statement vanished. `logos_00_mlir_gen_bug_ledger` reported it
+# ("pat_6 no longer self-diagnoses — the defect is FIXED"), the row was removed,
+# and tests/spec/pass/pat_6.logos is now held to the R2 rule with the rest
+# of the corpus (logos_25_spec_pass_pat_6 green). `logos_00_layout_decline_ledger`
+# reported the same for `zone_zvec_two_zones` on the REFUTED variant only; on
+# the landed tree it is green with its entry intact, so nothing was removed
+# there.
+#
+# CELLS NOT CONVERTED, and why (the partition is the deliverable):
+#   (a) ALREADY QUALIFIED — key is `mlir_struct_key(TypeRef)` or a registration
+#       key. mlir_gen_types.cpp register_struct field embed and the `info->name`
+#       sweep; mlir_gen_fn.cpp 74/124/557/574/598; mlir_gen_stmt.cpp
+#       186/951/1173/1904/2918/3059; mlir_gen_expr.cpp 1263; mlir_gen_dyn.cpp
+#       1740/2033; mlir_gen_debug.cpp 218; mlir_gen.cpp gen_struct_lit and the
+#       DstRef chain in gen_recv_struct (both qualified-first, bare-last).
+#       ⚠ A SECOND HAZARD DIRECTION IS OPEN THERE: mlir_gen_fn.cpp's five sites
+#       are qualified with NO bare fallback, so a bare-only-registered struct
+#       MISSES and degrades to `ptr_type()` (8 bytes). Unmeasured; not touched.
+#   (c) CONCRETE_STRUCT_NAME FAMILY — the ~25
+#       `struct_types_.find(concrete_struct_name(t))` sites. `qualify_pkg` and
+#       `concrete_struct_name` fold the same suffix, so these are correct
+#       whenever the qualified registration exists; the two that were MEASURED
+#       divergent (T and F) were converted to find_struct_it, the rest are not
+#       reached divergently by any fixture in the corpus.
+#   (d) QUALIFIED BY CONSTRUCTION THROUGH A STRING CHANNEL — mlir_gen.cpp
+#       961/990, mlir_gen_expr.cpp 2596, mlir_gen_stmt.cpp
+#       3277/3292/3362/3374/3414. Keys come from `StructInfo::name` /
+#       `StructInfo.fields[].struct_name` / `var_struct_`, all WRITTEN as
+#       `mlir_struct_key`. Correct only while every producer stores qualified
+#       keys — that wants an assertion at the PRODUCER, not a conversion here.
+#   (e) HARDCODED BARE, cannot be qualified from a TypeRef —
+#       `struct_types_.find("WritStatic")` in mlir_gen_expr.cpp. The ret_type
+#       half of that site WAS converted; the `"WritStatic"` default remains a
+#       bare key and a user struct named `WritStatic` still competes for it.
+#   (f) MONO SIDE — mono.cpp 1042/1092/1117, mono_scan.cpp 276/295/298,
+#       mono_clone.cpp 5621, mono_impl.hpp 621 (`concrete_struct_types_`, whose
+#       bare/`strip_mtags` aliases are LAST-wins where mlir-gen's are
+#       FIRST-wins). Not fired, not converted. The diagnosis's S3 (poison the
+#       bare alias at registration) and S2 (un-blind `ffo_canonical` /
+#       `strip_mtags` to `$M`) were NOT done: no measured program needs them
+#       once the type-arg fold lands, and S3 without S5 (a loud decline at every
+#       miss path) trades a silent mis-bind for a silent 8-byte miss. Named
+#       debt, not silently dropped.
+#
+# EVIDENCE. CONTROL REVERT of the whole src change (git stash, FULL rebuild
+# rc 0): all 7 of the then-existing homonym fixtures RED — `mlirgen_odr_match_expr` r=33554432,
+# `match_stmt` "a= b=", `pat_nested` r=3, `pat_refutable` red, `tuple_field`
+# b=5, `vec_stride` b0=97567985197066, `vec_header` exit 139, `vec_datumcol`
+# exit 134 — and all 7 of their `_ctl` oracles GREEN, so every fixture bites and every
+# `_ctl` proves its numbers independently of the name. Restored, FULL rebuild
+# rc 0, all green. Gates on the landed tree: L1 727/727 + gates tier,
+# L2 2293/2293 + gates tier, `ctest -R _bc_` 290 tests green,
+# `ctest -L fail` 1417 tests exit 0, `logos_09_direct_door_census` green
+# (421 s alone), census_pin / spec_path_lint / gate_lint green,
+# `scripts/abi-check.sh` rc 0.
+#   tests/logos/pass/mlirgen_odr_vec_stride.logos
+#   tests/logos/pass/mlirgen_odr_vec_stride_ctl.logos
+#   tests/logos/pass/mlirgen_odr_vec_header.logos
+#   tests/logos/pass/mlirgen_odr_vec_datumcol.logos
+#   tests/logos/pass/mlirgen_odr_tuple_field.logos
+#   tests/logos/pass/mlirgen_odr_tuple_field_ctl.logos
+#   tests/logos/pass/mlirgen_odr_match_stmt.logos
+#   tests/logos/pass/mlirgen_odr_match_stmt_ctl.logos
+#   tests/logos/pass/mlirgen_odr_match_expr.logos
+#   tests/logos/pass/mlirgen_odr_match_expr_ctl.logos
+#   tests/logos/pass/mlirgen_odr_pat_nested.logos
+#   tests/logos/pass/mlirgen_odr_pat_nested_ctl.logos
+#   tests/logos/pass/mlirgen_odr_pat_refutable.logos
+#   tests/logos/pass/mlirgen_odr_pat_refutable_ctl.logos
+#   tests/logos/pass/mlirgen_odr_mangle_channels.logos
+#   tests/logos/pass/mlirgen_odr_mangle_channels_ctl.logos
+# `mangle_channels` is the guard on the type-arg fold's own risk: it walks every
+# channel `mangle_type_for_name` feeds with a homonym struct — by-value free fn,
+# a generic fn instantiated AT the homonym and called through a fn-POINTER
+# parameter, an inherent impl method, a trait impl method, a `Vec<homonym>`
+# instance, and a SECOND homonym in the same program — and asserts VALUES, so a
+# def/use split shows up as a link error or a wrong number. PER-HUNK CONTROL
+# (only src/compiler/sema.cpp reverted, logosc-only rebuild): `mangle_channels`
+# rc 1 (`vec=99423547105285`), `vec_stride` rc 1, `vec_header` exit 139,
+# `vec_datumcol` exit 134, while `tuple_field` and `match_stmt` stayed GREEN —
+# i.e. the sema hunk owns the four generic-instance fixtures and the four
+# PatStruct/tuple fixtures are owned by the mlir_gen site conversions, exactly
+# as the div=1 fire table says. Restored, FULL rebuild rc 0, all 16 green.
+# +16 pass fixtures, so `logos_09_direct_door_census` moves: corpus 2215 ->
+# 2231, glob 191 (unmoved), nonglob 2024 -> 2040, doors 36 = 10 + 26 unmoved.
+# Re-derived by direct file listing, not by adding 16 to the previous pin.
+#
+# (3) THE METHOD-RESOLUTION CHANNEL — A CELL THE PARTITION ABOVE DID NOT HAVE,
+#     AND ITS ABSENCE IS PART OF THE FINDING. Cells (a)-(f) enumerate lookups of
+#     a struct's LAYOUT (`struct_types_` / `all_struct_defs_`). Nothing in them
+#     covers the lookup of a struct's METHOD, which runs through entirely
+#     different tables and was package-blind in three more places. Two produced
+#     RUNTIME SIGSEGVs on programs of 5 and 8 lines with no unsafe, no deem and
+#     no slice.
+#
+#     THE NAMED SITE WAS NOT ONE OF THEM. `resolve_method_symbol`
+#     (src/compiler/mlir_gen_impl.hpp) really was bare and first-registered-wins
+#     — `for (auto& sd : prog_->structs) if (sd.name() != bare_struct) continue;`
+#     — but instrumented (a temporary print at its head, removed again) it fired
+#     ZERO times on either repro, and zero times on a program with a plain
+#     `impl Drop`. It is not the channel those bites travel. It was converted
+#     anyway (below) because the SDrop repair needs an authoritative answer from
+#     it, and that use makes it fire and pins it.
+#
+#     THE SITES, and what each one does now:
+#
+#     M1 mono_clone.cpp `__typevar_pending__drop` arm — INVENTS the symbol.
+#        `drop_fn = concrete_struct_name(ty) + "__drop"`, unconditional: it never
+#        asks whether the substituted T HAS a Drop impl, and the name is BARE.
+#        NOT CHANGED — mono has no method table at that point (measured:
+#        `out_.structs` reports `methods=[]` for both the user's and the stdlib's
+#        struct there), so the check cannot be made where the name is invented.
+#        Named debt.
+#     M2 mlir_gen_expr.cpp `find_func_op` canonical fallback — BINDS it.
+#        `ffo_canonical` strips the package off the callee AND every def, so M1's
+#        bare `String__drop` bound `logos.mem.string.String__drop__f__String`,
+#        which read a user `struct String { a: i64 }`'s i64 as a heap pointer and
+#        called free() on it (gdb: `__GI___libc_free (mem=0x5)`). The same
+#        fallback bound mono's OPERATOR callee `test.Ident__eq` — mono_clone's
+#        BinOp arm rewrites a struct `==` that reaches it into an invented
+#        `<pkg>.<Bare>__eq` — to
+#        `logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`.
+#        CONVERTED: a PACKAGE GUARD refuses the cross-package canonical bind, but
+#        only on evidence that a homonym exists — the callee names a package,
+#        that package declares its own struct that OWNS the symbol, and the def
+#        lives elsewhere. Every other cross-package canonical bind (the
+#        assoc-const accessors, the sig-stripped stdlib intrinsics, any callee
+#        whose package declares no such struct) is byte-identical to before.
+#        ⚠ The owner test is ANCHORED ON A CARRIED PART — each candidate struct's
+#        own name recomposed with `__` and compared as a prefix — not a
+#        `find("__")` cut; the separator-split lint is green with the ledger
+#        unchanged.
+#     M3 mlir_gen_stmt.cpp SDrop — CONSUMES it. M2's guard cannot help here
+#        because M1's invented drop symbol carries NO package at all. The var's
+#        TypeRef does, so SDrop now asks `resolve_method_symbol` PACKAGE-SCOPED
+#        first; when that package's struct exists and has no drop, and the
+#        pkg-blind chokepoint would answer with a def from a DIFFERENT package,
+#        no call is emitted. Every other answer falls through to the historic
+#        path, so a destructor that used to run for a type that has one still
+#        runs.
+#     M4 resolve_method_symbol itself — QUALIFIED FIRST, BARE LAST, plus one
+#        added rule that is the actual fix: when a struct of exactly that
+#        package+name EXISTS, its method table is AUTHORITATIVE and the bare pass
+#        is closed off (an `owns` out-param reports that to M3). ⚠ The recorded
+#        find_struct_repr_ order is preserved — the bare pass still runs for every
+#        call that names no package and for every name whose owning package holds
+#        no such struct, so no site that resolved before becomes a miss.
+#
+#     SIBLINGS FOUND WITH THE SAME SHAPE AND NOT CLOSED (grep `prog_->structs`,
+#     `strip_struct_pkg`):
+#       * mlir_gen_dyn.cpp:1361 — `if (sd.name() != v.tag_system()) continue;`
+#         over prog_->structs, then the same scan over prog_->functions. Bare,
+#         first-wins. The LIR's `tag_system` is a bare STRING with no package in
+#         hand at the site, so it cannot be qualified the way M4 was. Not fired
+#         by any repro; named, not converted.
+#       * mono_clone.cpp tuple_all_eq element resolve — walks out_.functions /
+#         in_.functions for the first symbol CONTAINING `<T>__eq__f__`. Same
+#         first-wins shape one layer up. Not reached by either repro.
+#       * sema.cpp `drop_fn_for` — already carries a B-mv-02 package guard, but
+#         only on the `fn drop(&self)` REF-form loop; the leading
+#         `find_func_by_base_and_signature` and the by-value `types_equal` loop
+#         have none, and the guard's own "empty package on either side is a
+#         wildcard" hatch is unchecked in the abuse direction. Measured to be
+#         asked exactly ONCE in the Vec<String> repro (`Vec__drop`), so it is not
+#         on the bite path; named.
+#
+#     STILL OPEN, MEASURED, NOT CLOSED THIS ROUND — and this is why the operator
+#     pair is a `fail` pair and not the `pass` pair that was asked for:
+#       * SEMA METHOD RESOLUTION IS PACKAGE-BLIND IN THE OVER-REFUSAL DIRECTION.
+#         Give the user's `Ident` its OWN `impl Eq`, and the homonym program
+#         stops compiling: "[fn Ident__ne]: method call: 'Ident' has no method
+#         'eq'" — the trait's DEFAULT `ne` body resolves `self.eq(..)` against the
+#         wrong `Ident`. The collision-free twin compiles and prints the right
+#         values. CONTROL: identical with all three of this round's hunks
+#         disabled, so it is PRE-EXISTING and independent.
+#       * THE COPY VERDICT IS TAKEN FROM THE HOMONYM TOO, and is NOT closed.
+#         Measured: `Vec<String>::get` on a user `struct String { a: i64 }` is
+#         refused with "element type `String` is not `Copy`" while the
+#         collision-free twin IS Copy and compiles. The cause is NOT this
+#         round's channel — `copy_types_` is a set of BARE names by construction
+#         (sema.cpp, the comment says so), and the fixpoint that fills it skips
+#         any struct for which `impls_.count("Drop::" + bare)` holds, where
+#         `impls_` is bare-keyed BY A CARRIED DESIGN DECISION (sema_collect.cpp
+#         documents ~50 probes that compose a bare stdlib trait name and are
+#         correct only because that trait owns the bare slot). Closing it means
+#         making the impl TARGET key package-qualified, which is a different and
+#         much wider change than the four sites above; doing it inside this round
+#         would have been a sweep, not a fix. Named, with the measurement, as the
+#         next step of this class.
+#       * THE QUOTE CHANNEL HAS THE SAME DEFECT. `println!` expands to
+#         `let __buf: String`, so a package that declares its own `String` gets
+#         "let '__buf': type mismatch — expected test.String, got
+#         logos.mem.string.String" plus three follow-ons. That is why
+#         mlirgen_odr_drop_glue_homonym asserts an EXIT CODE and not a printed
+#         line.
+#
+#     THE `__f__`/`__g__` SPELLING INCONSISTENCY IS NOT CLOSED BY ANY OF THIS,
+#     and the reason is structural: those 13 bare symbols
+#     (the archive's `<mod>.<pkg>$println__f__Vec$G1$ExprBlob` spelling beside
+#     `…Vec$G1$ExprBlob$M2b09…__drop__g__Vec$G1$T`) are ARCHIVE-DEFINED — minted
+#     when the stdlib was compiled, where `ExprBlob` was unambiguous and the fold
+#     did not apply. Nothing decided in a USER compile can rename a symbol that
+#     is already in a `.a`. The same fact has an ABI-clean consequence worth one
+#     sentence: logos.std.compiler.metaprog has no owning module_id, so in a user
+#     compile its `ExprBlob` folds and the object RE-EMITS
+#     `Vec$G1$ExprBlob$M2b09…__drop/__index/__borrow/__into_iter` locally instead
+#     of binding the archive's bare symbols — two definitions of one logical
+#     instance across the archive/object boundary, resolved by
+#     `-Wl,--allow-multiple-definition`, identical in content.
+#
+#     FIXTURES (all four bite-proven by per-channel kill-switches compiled in,
+#     measured, then removed and the tree rebuilt green):
+#       tests/logos/pass/mlirgen_odr_drop_glue_homonym.logos
+#       tests/logos/pass/mlirgen_odr_drop_glue_homonym_ctl.logos
+#       tests/logos/fail/mlirgen_odr_operator_homonym.logos
+#       tests/logos/fail/mlirgen_odr_operator_homonym_ctl.logos
 # 2026-08-20 (later, #86 VERIFY ROUND 2), +8/+8/0 (7366/3683/36 ->
 # 7374/3691/36), for the 8 fixtures of MISS-A/B/C/D (4 fail + 4 admit twins):
 #   tests/logos/fail/bc_esc_holder_reborrow_field_dangle.logos

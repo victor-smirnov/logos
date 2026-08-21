@@ -959,9 +959,29 @@ public:
         case LogosType::Kind::Array:
             return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
         case LogosType::Kind::Struct:
+            // NOTE (measured, NOT changed here): sema's `mangle_type_for_name`
+            // routes ZonedStruct through this same arm; mono's does not (it
+            // falls to `type_str`). That divergence predates #58/#59 and is a
+            // symbol-TEXT change of its own — recorded, not folded in this
+            // round (no fixture in the corpus reaches it as a free-fn type arg).
+            //
             // G156-1: the package fingerprint is folded into concrete_struct_name's
             // canonical identity (byte-identical to sema's mangle_type_for_name).
-            return concrete_struct_name(tr);
+            //
+            // #59 — plus the TYPE-ARG-only half. concrete_struct_name folds the
+            // fingerprint into the ARGS of a generic struct (`Vec$G1$ExprBlob$M…`)
+            // because those go through sema's mangle_type_for_name, but the type
+            // handed to THIS function is itself a type ARG (of a generic FREE FN
+            // instance: `vec_new` + "__" + mangle_type(ExprBlob)) and was left
+            // BARE. Measured in one emitted IR: the method channel spelled
+            // `Vec$G1$ExprBlob$M9758…` while the free-fn channel spelled
+            // `vec_new__g__void__ExprBlob` — a symbol T-DEFINED in liblogos-mem.a
+            // at the stdlib ExprBlob, so the user's instance was elided and
+            // `vec_new<T>`'s `init_cap * sizeof::<T>()` allocated for the 8-byte
+            // stdlib homonym (abort at the 5th push of a 16-byte user struct).
+            // Same fold, same predicate, so def==use across both channels.
+            return concrete_struct_name(tr) +
+                   ambiguous_type_arg_fingerprint(tr.struct_name(), tr.pkg_name());
         // Nested generic enum: bare `type_str(Option<T>)` returns just "Option",
         // dropping inner type-args. For nested specs like `Option<Option<i32>>`
         // we need the inner instance encoded so `record_needed_enum` and

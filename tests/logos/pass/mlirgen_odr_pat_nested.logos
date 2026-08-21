@@ -1,0 +1,17 @@
+// #60 — pat_test / pat_bind's PatStruct cases take the same BARE
+// `ps.struct_name()` key, reached when a struct pattern is NESTED under a
+// refutable outer pattern. Both now narrow the slot TypeRef via pat_struct_ty.
+// `_ctl` (collision-free name) is the oracle for this number.
+package test;
+use logos.std.fmt;
+struct ExprBlob { pub a: i64, pub b: i64 }
+struct OuterWrapZz { pub inner: ExprBlob, pub tag: i64 }
+fn main() -> i32 {
+    let w: OuterWrapZz = OuterWrapZz { inner: ExprBlob { a: 7i64, b: 9i64 }, tag: 3i64 };
+    let r: i64 = match w {
+        OuterWrapZz { inner: ExprBlob { a: 7i64, b: q }, tag: t } => q + t,
+        OuterWrapZz { inner: _, tag: t } => t,
+    };
+    println!("r={}", r);
+    return 0i32;
+}
