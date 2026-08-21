@@ -1,0 +1,1 @@
+aggregate slot `.0`: expected &dyn Other, got &Sq — an aggregate slot is NOT a coercion site

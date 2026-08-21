@@ -1,0 +1,28 @@
+// #95/M1, SECOND CELL — the depth cap did not only admit a LAYOUT mismatch, it
+// also defeated the IMPL check. `Sq` does not implement `Other`, so this
+// program has no vtable to build at all; at depth <= 8 it was refused, at depth
+// 10 it compiled and SIGSEGVed (MEASURED, /home/logos/sandbox/vfy95/h2/
+// g03_wrongtrait_deep.logos, rc 139). Same fix, different consequence: the
+// exhaustion answer is now REFUSE, so the depth at which a program is judged
+// stopped being a property of how deep the tuple happens to be.
+package aggregate_unsize_deep_wt;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: ((((((((((&dyn Other,i64),i64),i64),i64),i64),i64),i64),i64),i64),i64)) -> i64 { return t.0.0.0.0.0.0.0.0.0.0.tag(); }
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let t0 = (&a, 1i64);
+  let t1 = (t0, 1i64);
+  let t2 = (t1, 1i64);
+  let t3 = (t2, 1i64);
+  let t4 = (t3, 1i64);
+  let t5 = (t4, 1i64);
+  let t6 = (t5, 1i64);
+  let t7 = (t6, 1i64);
+  let t8 = (t7, 1i64);
+  let t9 = (t8, 1i64);
+  if take(t9) != 16i64 { return 1i32; }
+  return 42i32;
+}

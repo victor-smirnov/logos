@@ -13510,7 +13510,17 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                 resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
-                !types_compatible(expr_type(payload[i]), resolved_payload_types[i]))
+                // #95: `|| aggregate_unsize_pending(...)`. This guard asks
+                // types_compatible, which BLANKET-ACCEPTS a thin aggregate
+                // against a fat-`&dyn` one — so for exactly the #68/#95 shape
+                // `expect_type` was never entered, and with it neither the
+                // literal stamp (retype_aggregate_lit_to) nor the refusal.
+                // MEASURED: `E::Some((&a,7i64))` at `(&dyn Shape,i64)` wrote an
+                // object file and ran rc=139; the hoisted `E::Some(t)` twin the
+                // same. With the disjunct the literal COERCES (42) and the
+                // hoisted value is REFUSED.
+                (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
+                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
                 expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
                             std::format("{}::{} arg {}:", ename, vname, i));
             // Check IntLit payload value fits in the declared payload type.
@@ -13864,7 +13874,17 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
                 resolved_payload_types[i] &&
                 TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
-                !types_compatible(expr_type(payload[i]), resolved_payload_types[i]))
+                // #95: `|| aggregate_unsize_pending(...)`. This guard asks
+                // types_compatible, which BLANKET-ACCEPTS a thin aggregate
+                // against a fat-`&dyn` one — so for exactly the #68/#95 shape
+                // `expect_type` was never entered, and with it neither the
+                // literal stamp (retype_aggregate_lit_to) nor the refusal.
+                // MEASURED: `E::Some((&a,7i64))` at `(&dyn Shape,i64)` wrote an
+                // object file and ran rc=139; the hoisted `E::Some(t)` twin the
+                // same. With the disjunct the literal COERCES (42) and the
+                // hoisted value is REFUSED.
+                (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
+                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i]))))
                 expect_type(payload[i], resolved_payload_types[i], CoercePos::Operand,
                             std::format("{}::{} arg {}:", ename, vname, i));
             if (resolved_payload_types[i] &&
@@ -14259,6 +14279,19 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     if (expected && expr_type(e) &&
         reject_thin_zone_mut_nested(expected, expr_type(e)))
         return false;
+    // #95: THE SAME QUESTION FOR THE `&dyn` HALF, and it must run HERE — after
+    // `coerce_arg_to_param`, never before. `retype_aggregate_lit_to` (called
+    // from there) stamps the expected aggregate type onto a tuple/array LITERAL,
+    // which is Rust's rule too (an expectation propagates INTO a literal at a
+    // coercion site). So by this line a literal already carries the fat type and
+    // is invisible to the walk below; what is still thin is a value that was
+    // ALREADY TYPED thin — no literal, therefore no coercion site, therefore the
+    // refusal. That ORDER is the whole distinction between the two halves; both
+    // are pinned (tests/logos/fail/aggregate_unsize_needs_cast_*.logos vs
+    // tests/logos/pass/aggregate_unsize_literal_*.logos).
+    if (expected && expr_type(e) &&
+        reject_uncoerced_aggregate_unsize(expected, expr_type(e)))
+        return false;
     if (pos == CoercePos::Return &&
         TypeRef(expected).owning_trait_object() &&
         expr_type(e) && is_stdlib_box(expr_type(e))) {
@@ -14315,9 +14348,18 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     // the same wrapper struct as `pt` with a field unsizing sized→dyn — so it
     // is safe in every arg-coercion context. Closes GAP-C for the flipped repr.
     try_struct_unsize_coerce(arg, pt);
+    // Unconditional, same reasoning as try_struct_unsize_coerce above: a no-op
+    // unless `arg` is a tuple/array LITERAL and `pt` an aggregate type whose slot
+    // wants a fat `&dyn` the element does not carry yet — so it is safe in every
+    // position, and it must BE in every position, because an aggregate literal's
+    // slot types have no other source (see retype_aggregate_lit_to).
+    retype_aggregate_lit_to(expr_ref_of(arg), pt);
     if (flags & CFLAG_WIDEN_INT)        widen_int_expr(arg, pt, builder());
     // logos-core 2.4(c): unsize-to-dyn auto-trait bound enforcement.
-    // types_compatible's `Struct → TraitObject` branch (sema.cpp:1727) is a
+    // types_compatible's `Struct → TraitObject` branch — grep sema.cpp for
+    // "Struct → &dyn Trait coercion (impl check deferred to codegen)"; the
+    // line number this comment used to cite (1727) was wrong by ~500 lines and
+    // pointed into mangle_type_for_name — is a
     // blanket-accept (impl check deferred to codegen), which means the
     // type-check pipeline never sees a Send/Sync mismatch. Enforce here:
     // when the FORMAL parameter is `&dyn Trait + Send` (or `+ Sync`) — bare
@@ -14517,6 +14559,308 @@ bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return false;
     if (!ref_arg_satisfies_dyn(expr_type(arg), pdyn)) return false;
     arg = builder().cast(std::move(arg), pt);
+    return true;
+}
+
+// ── #68 CLASS: an aggregate literal's SLOT TYPES have no second source ─────
+// A struct FIELD's type comes from the struct declaration, so mlir-gen can
+// unsize `&Concrete` into a `&dyn Trait` field in every context and does
+// (gen_struct_lit — verified still green here in every context probed). A TUPLE
+// is structural (its type IS its elements' types) and an ARRAY literal's element
+// type is read off the LITERAL NODE too (gen_arr_lit's `logos_elem`,
+// tuple_llvm_type) — so `(&a, 7)` is TYPED `(&Sq, i64)`, a 16-byte aggregate,
+// and every consumer that expects `(&dyn Shape, i64)` reads 24.
+// The only site that used to repair it was the `let`-annotation `retype_expr`
+// in lower_let, which is why the defect was invisible under an annotated `let`
+// and fatal everywhere else (MEASURED, one runtime value each: call arg 139,
+// nested tuple 2, fn return 1, match arm 1, generic arg 1, struct field 1,
+// assignment 1, array-of-tuples 1; `--emit-mlir` showed the caller building
+// `struct<(ptr, i64)>` for a callee reading `struct<(struct<(ptr, ptr)>, i64)>`).
+//
+// So the repair is the SAME operation lower_let already performed, moved to the
+// one judgment that every position goes through (`expect_type` →
+// `coerce_arg_to_param`): stamp the expected tuple type onto the literal, IN
+// PLACE. mlir-gen's ETupleLit arm then does the unsize from the slot type, the
+// way the struct and array arms always did. In place matters: a match ARM or an
+// array ELEMENT is a sub-expression of a node this function is handed, and a
+// rebuild would have to re-emit the arm/pattern mirrors — the walk below
+// retypes the literal where it sits instead.
+
+// Does slot type `tgt` accept element type `at` only by an UNSIZE to `&dyn`?
+// `&dyn Trait` IS Kind::TraitObject (`Ref<UnsizedDyn<Trait>>` is canonicalised
+// to it at resolve time), so the slot is asked for DIRECTLY, never peeled.
+// ⚠ THE `*const dyn` CLAIM THIS COMMENT USED TO CARRY WAS WRONG TWICE OVER, and
+// it is corrected here rather than repeated. It said the single line above
+// "keeps `*const dyn Trait` out" because a raw dyn pointer "deliberately keeps
+// 8-byte handle semantics". Both halves are refuted by measurement:
+//   • the WIDTH: `sizeof::<*const dyn Shape>() == 16`
+//     (/home/logos/sandbox/aggunsize/z_rawdyn.logos), and coerce_to_dyn in
+//     mlir_gen_dyn.cpp states the model outright — "`&dyn`/`*dyn`/`Box<dyn>` are
+//     all uniform 16-byte fat", the thin-handle path having been REMOVED as
+//     provably unreachable across the whole corpus.
+//   • the EXCLUSION: there is none. A `*const dyn Trait` SLOT is canonicalised
+//     to Kind::TraitObject exactly like `&dyn Trait`, so it is asked and
+//     answered here — MEASURED, `fn take(t: (*const dyn Shape, i64))` fed
+//     `let p: *const Sq = &a; let t = (p, 7i64); take(t)` is refused with
+//     "aggregate slot `.0`: expected &dyn Shape, got *const Sq", and the same
+//     slot's `sizeof::<(*const dyn Shape, i64)>()` is 24, not 16
+//     (z_rawdyn_tuple.logos / z_rawdyn_cast.logos).
+// MEASURED: the peel-Ref-first spelling — the shape
+// mlir-gen's arm uses — matched NOTHING here (`slot target=&dyn Shape … tk=28`).
+bool SemaChecker::aggregate_slot_needs_unsize(TypeRef at, TypeRef tgt) {
+    if (!at || !tgt) return false;
+    if (TypeRef(tgt).kind() != LogosType::Kind::TraitObject) return false;
+    if (at.kind() == LogosType::Kind::Error) return false;
+    // ── #95/M2: AN OWNING `Box<dyn Trait>` SLOT ───────────────────────────────
+    // The first cut of #95 EXCLUDED the owning form from both halves and
+    // disclosed it as unmeasured. Measured, it was a crash, not a narrowing:
+    // `(Box<Sq>, i64)` against `(Box<dyn Shape>, i64)` compiled and SIGSEGVed in
+    // the tuple, the array and the struct-field shapes
+    // (/home/logos/sandbox/vfy95/h/h0{1,2,8}*.logos, rc 139 each).
+    //
+    // AND THE DECISION IS SETTLED BY MEASUREMENT, not by symmetry-of-argument:
+    // an ANNOTATED tuple literal — `let t: (Box<dyn Shape>, i64) =
+    // (Box::new(Sq{..}), 7i64)` — ALREADY LOWERS CORRECTLY (rc 42, probe p/b1),
+    // because mlir-gen's tuple arm reads the slot type off the literal node and
+    // unsizes the owning pointer there exactly as it does the borrowed one. So
+    // the fat half is not missing at codegen; it is missing at SEMA, which never
+    // stamped the literal because this predicate demanded a `&`/`&mut` source.
+    // The owning source is the Box STRUCT (`Box<Sq>` is Kind::Struct; only
+    // `Box<dyn T>` is a Kind::TraitObject with an owning kind), so it is asked
+    // for here in its own arm, and the impl/auto-bound question is delegated —
+    // unchanged — by asking it about a BORROW of the payload: what may be erased
+    // is a property of the payload type, and only the release semantics differ
+    // between `&dyn` and `Box<dyn>`. The HOISTED owning form has no literal to
+    // stamp and is refused by find_uncoerced_aggregate_slot, same as borrowed.
+    if (TypeRef(tgt).owning_trait_object()) {
+        if (!is_stdlib_box(at)) return false;   // already fat, or not a Box
+        auto ta = at.type_args();
+        if (ta.size() != 1 || !ta[0]) return false;
+        if (TypeRef(ta[0]).kind() == LogosType::Kind::TraitObject) return false;
+        return ref_arg_satisfies_dyn(make_ref(false, ta[0]), tgt);
+    }
+    // Already the fat pair (a `&a as &dyn Shape` element, or a `&dyn` binding):
+    // NOT an unsize, and must not be counted as one — no double coercion.
+    if (at.kind() != LogosType::Kind::Ref && at.kind() != LogosType::Kind::MutRef)
+        return false;
+    return ref_arg_satisfies_dyn(at, tgt);
+}
+
+bool SemaChecker::retype_aggregate_lit_to(lir_view::ExprRef er, TypeRef target) {
+    if (!er || !target) return false;
+    TypeRef et(er.type(cur_prog_->type_pool.impl()));
+    if (!et) return false;
+    // ── the WRAPPERS: the literal is a sub-expression, retype it where it is ──
+    switch (er.kind()) {
+    case lir_schema::expr::Code::MatchExpr: {
+        bool any = false;
+        lir_view::EMatchExprView{er}.each_arm([&](lir_view::EMatchArmRef a) {
+            if (auto v = a.value()) any = retype_aggregate_lit_to(v, target) || any;
+        });
+        if (any) builder().retype_expr(er, target);
+        return any;
+    }
+    case lir_schema::expr::Code::IfExpr: {
+        lir_view::EIfExprView v{er};
+        bool any = false;
+        if (v.then_val()) any = retype_aggregate_lit_to(v.then_val(), target) || any;
+        if (v.else_val()) any = retype_aggregate_lit_to(v.else_val(), target) || any;
+        if (any) builder().retype_expr(er, target);
+        return any;
+    }
+    case lir_schema::expr::Code::BlockExpr: {
+        lir_view::EBlockExprView v{er};
+        bool any = v.result() && retype_aggregate_lit_to(v.result(), target);
+        if (any) builder().retype_expr(er, target);
+        return any;
+    }
+    case lir_schema::expr::Code::EnumLit:
+    case lir_schema::expr::Code::EnumLitData:
+        // #95/M3 — AN ENUM LITERAL IS A COERCION SITE TOO. `take(Some(&a))`
+        // against `fn take(o: Option<&dyn Shape>)` used to COMPILE AND RETURN
+        // THE WRONG ANSWER (rc 1, /home/logos/sandbox/vfy95/h2/g01_option_dyn):
+        // the literal was typed `Option<&Sq>` from its payload and nothing ever
+        // re-asked. mlir-gen's EnumLitData arm already unsizes a payload whose
+        // DECLARED slot type is a TraitObject (it reads the variant's payload
+        // types out of the instance named by the node's TYPE, then calls
+        // coerce_value_to_dyn_if_needed) — which is why the annotated spelling
+        // `let o: Option<&dyn Shape> = Some(&a)` was correct all along. So the
+        // repair is the same one the tuple/array arms get: stamp the expected
+        // instance onto the literal node, and let the slot rule below decide
+        // whether that is legitimate.
+    case lir_schema::expr::Code::TupleLit:
+    case lir_schema::expr::Code::ArrLit:
+        // A WRAPPER is never short-circuited on `et == target`: a match whose
+        // arms are aggregate literals gets its own type from arm 0 and can
+        // already READ as the dyn type while every arm still carries the thin
+        // one (MEASURED: ar_match, `[&dyn Shape; 2]` outside, `[&Sq; 2]` in the
+        // arms, SIGSEGV). Only a LITERAL that already IS the target is done.
+        if (et == target) return false;
+        break;
+    default: return false;
+    }
+    // ── the LITERAL ───────────────────────────────────────────────────────────
+    // One slot: unsize / nested stamp / already fits / REFUSE. Shared by both
+    // literal shapes so the tuple and array arms cannot drift apart again.
+    auto slot = [&](lir_view::ExprRef el, TypeRef ce, TypeRef te,
+                    bool& has_unsize, uint64_t idx) -> bool {
+        if (!ce || !te) return false;
+        if (aggregate_slot_needs_unsize(ce, te)) { has_unsize = true; return true; }
+        if (el && retype_aggregate_lit_to(el, te)) { has_unsize = true; return true; }
+        // The PERMISSIVE twin, found by this round's own probe. A `&dyn Trait`
+        // slot fed a `&Concrete` that does NOT implement the trait is accepted
+        // by types_compatible (its Struct → TraitObject branch is a blanket
+        // accept, "impl check deferred to codegen") — and in the AGGREGATE case
+        // codegen never gets to run its check, because without a stamp nothing
+        // ever attempts the coercion: `(&a, 7i64)` against `(&dyn Other, i64)`
+        // with `Sq: !Other` wrote an object file, while the plain arg spelling
+        // `take(&a)` is refused with "no vtable for 'Sq' as '&dyn Other'".
+        // Refuse HERE, and only for a CONCRETE pointee — a TypeVar pointee is
+        // mono's judgment (ref_arg_satisfies_dyn answers it from the bound set,
+        // which is incomplete before substitution) and is left alone.
+        // #95/M2 — and the OWNING spelling of the same hole. `Box<Sq>` fed to a
+        // `Box<dyn Other>` slot with `Sq: !Other` reaches here with a Struct
+        // source, not a Ref one; without this arm it fell straight through to
+        // types_compatible's blanket accept and wrote an object file whose
+        // vtable half is uninitialised. The erased-type question is asked about
+        // the payload, exactly as aggregate_slot_needs_unsize asks it.
+        TypeRef owning_payload{nullptr};
+        if (TypeRef(te).kind() == LogosType::Kind::TraitObject &&
+            TypeRef(te).owning_trait_object() && is_stdlib_box(ce)) {
+            auto ta = ce.type_args();
+            if (ta.size() == 1 && ta[0]) {
+                auto pk = TypeRef(ta[0]).kind();
+                if (pk != LogosType::Kind::TypeVar &&
+                    pk != LogosType::Kind::AssocType &&
+                    pk != LogosType::Kind::TraitObject &&
+                    pk != LogosType::Kind::Error)
+                    owning_payload = ta[0];
+            }
+        }
+        if (owning_payload) {
+            auto [es, gs] = type_str_pair(te, ce);
+            // ⚠ NOT SPELLED AS THE MISMATCH VERDICT, and that is the point.
+            // `expected {}, got {}` is expect_type's monopoly
+            // (scripts/lint-mismatch-monopoly.sh), and this is a DIFFERENT
+            // verdict: the types are not merely unequal, the element cannot be
+            // unsized here because the trait is not implemented. Re-spelling it
+            // as a mismatch would have made the lint count three emitters of
+            // one verdict — which is exactly the sieve of per-site special
+            // cases that lint exists to stop.
+            error(std::format("aggregate element {}: slot type {} needs an "
+                              "unsize from {}, but the type does not implement "
+                              "the trait, so the element's vtable half would be "
+                              "uninitialised",
+                              idx, es, gs));
+            return false;
+        }
+        if (TypeRef(te).kind() == LogosType::Kind::TraitObject &&
+            (ce.kind() == LogosType::Kind::Ref ||
+             ce.kind() == LogosType::Kind::MutRef) &&
+            ce.pointee() &&
+            TypeRef(ce.pointee()).kind() != LogosType::Kind::TypeVar &&
+            TypeRef(ce.pointee()).kind() != LogosType::Kind::AssocType &&
+            TypeRef(ce.pointee()).kind() != LogosType::Kind::TraitObject &&
+            TypeRef(ce.pointee()).kind() != LogosType::Kind::Error) {
+            auto [es, gs] = type_str_pair(te, ce);
+            // ⚠ NOT SPELLED AS THE MISMATCH VERDICT, and that is the point.
+            // `expected {}, got {}` is expect_type's monopoly
+            // (scripts/lint-mismatch-monopoly.sh), and this is a DIFFERENT
+            // verdict: the types are not merely unequal, the element cannot be
+            // unsized here because the trait is not implemented. Re-spelling it
+            // as a mismatch would have made the lint count three emitters of
+            // one verdict — which is exactly the sieve of per-site special
+            // cases that lint exists to stop.
+            error(std::format("aggregate element {}: slot type {} needs an "
+                              "unsize from {}, but the type does not implement "
+                              "the trait, so the element's vtable half would be "
+                              "uninitialised",
+                              idx, es, gs));
+            return false;
+        }
+        return types_compatible(ce, te);
+    };
+    // NARROW ON PURPOSE. The stamp only happens when at least one slot is a
+    // VALIDATED `&Concrete` → `&dyn Trait` unsize (directly, or inside a nested
+    // literal), and every other slot already fits. Anything else leaves the
+    // literal completely alone and the ordinary mismatch diagnostic downstream
+    // still fires.
+    bool has_unsize = false;
+    if (er.kind() == lir_schema::expr::Code::EnumLit ||
+        er.kind() == lir_schema::expr::Code::EnumLitData) {
+        // The enum instance's payload slot types come from the VARIANT
+        // declaration substituted with the TARGET's type-args — the same
+        // projection retype_enum_lit_recursive does, and the same one mlir-gen
+        // will do from the stamped node. A payload-less variant (`None`) has no
+        // slot to unsize, so it never stamps here: `None` against
+        // `Option<&dyn Shape>` is a bare instance question, answered upstream.
+        if (TypeRef(target).kind() != LogosType::Kind::Enum) return false;
+        if (et.kind() != LogosType::Kind::Enum) return false;
+        if (et.enum_name() != TypeRef(target).enum_name()) return false;
+        if (et.pkg_name() != TypeRef(target).pkg_name()) return false;
+        if (er.kind() != lir_schema::expr::Code::EnumLitData) return false;
+        lir_view::EEnumLitDataView v{er};
+        auto [pkg, esi] = find_enum_by_name(std::string(v.enum_name()));
+        (void)pkg;
+        if (!esi) return false;
+        const SemaVariantInfo* vinfo = nullptr;
+        std::string vn(v.variant());
+        for (auto& vv : esi->variants) if (vv.name == vn) { vinfo = &vv; break; }
+        if (!vinfo || vinfo->payload_types.empty()) return false;
+        SemaSubst subst;
+        auto cta = TypeRef(target).type_args();
+        if (cta.size() != esi->type_params.size()) return false;
+        for (size_t i = 0; i < esi->type_params.size(); ++i)
+            if (cta[i]) subst[esi->type_params[i].name] = cta[i];
+        std::vector<lir_view::ExprRef> pl;
+        v.each_payload([&](lir_view::ExprRef pe){ pl.push_back(pe); });
+        if (pl.size() != vinfo->payload_types.size()) return false;
+        for (size_t i = 0; i < pl.size(); ++i) {
+            TypeRef tt = vinfo->payload_types[i];
+            if (!tt) return false;
+            if (!subst.empty()) tt = subst_type_sema(tt, subst);
+            if (!pl[i]) return false;
+            if (!slot(pl[i], TypeRef(pl[i].type(cur_prog_->type_pool.impl())),
+                      TypeRef(tt), has_unsize, i))
+                return false;
+        }
+        if (!has_unsize) return false;
+        builder().retype_expr(er, target);
+        // Nested enum payloads (`Some(Some(&a))`) need the SAME projection one
+        // level down, and that walk already exists.
+        retype_enum_lit_recursive(er, target);
+        return true;
+    }
+    if (er.kind() == lir_schema::expr::Code::TupleLit) {
+        if (TypeRef(target).kind() != LogosType::Kind::Tuple) return false;
+        if (et.kind() != LogosType::Kind::Tuple) return false;
+        const auto& tgt_elems = TypeRef(target).tuple_elems();
+        const auto& cur_elems = et.tuple_elems();
+        if (tgt_elems.size() != cur_elems.size()) return false;
+        lir_view::ETupleLitView v{er};
+        if (v.count() != tgt_elems.size()) return false;
+        for (uint64_t i = 0; i < v.count(); ++i)
+            if (!slot(v.elem(i), TypeRef(cur_elems[i]), TypeRef(tgt_elems[i]),
+                      has_unsize, i))
+                return false;
+    } else {
+        if (TypeRef(target).kind() != LogosType::Kind::Array) return false;
+        if (et.kind() != LogosType::Kind::Array) return false;
+        TypeRef te = TypeRef(target).elem();
+        if (!te) return false;
+        lir_view::EArrLitView v{er};
+        // A stamp must never change the LENGTH — `[x; 2]` is not an `[T; 3]`.
+        if (TypeRef(target).arr_size() != v.count()) return false;
+        for (uint64_t i = 0; i < v.count(); ++i) {
+            auto el = v.elem(i);
+            if (!el) return false;
+            if (!slot(el, TypeRef(el.type(cur_prog_->type_pool.impl())), te,
+                      has_unsize, i))
+                return false;
+        }
+    }
+    if (!has_unsize) return false;
+    builder().retype_expr(er, target);
     return true;
 }
 
@@ -22806,6 +23150,43 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                     // and resolution says so. The parameter's real gate is the
                     // generated fn, which the compiler type-checks like any
                     // other source — so roll this attempt's diagnostics back.
+                    // ⚠ #63, MEASURED AND LEFT AS IS — THE ROLLBACK IS
+                    // DIAGNOSTICS-ONLY. This probe rolls `result_.diags` back
+                    // but NOT the probe's other side effects: `resolve_type`
+                    // below can call `note_pending_` (the container-config arm
+                    // in sema.cpp, reached when `typeof(C)`'s container is still
+                    // pending) and this branch itself calls
+                    // `defer_factory_backed` with an `<error>` base in the first
+                    // rounds. Both outlive the abandoned attempt.
+                    //
+                    // The asymmetry is REAL but has NO live consequence today,
+                    // and the measurement rather than the intuition says so:
+                    //   • `LOGOS_TRACE_PENDING=1` over the deem-bearing pass
+                    //     corpus records container-config pendings from inside
+                    //     this window, and ZERO pendings survive the fixpoint.
+                    //   • `prog` is rebuilt by `sema_lower` every round, so a
+                    //     leaked pending cannot cross rounds. Its only in-round
+                    //     consumers are `retry_deferred |= prog.has_pending()`
+                    //     and the post-fixpoint "is still waiting for" refusal
+                    //     in main.cpp.
+                    //   • In the ordered trace for
+                    //     tests/logos/pass/deem_pipeline_handle_seam.logos
+                    //     (7 `[pending]` lines, rc 0) the leaked config pending
+                    //     never appears ALONE: every round that records
+                    //     "the config document 'LedCfg'" records
+                    //     "the family behind '<error>::Handle'" at the same
+                    //     site, so `has_pending()` is unchanged — no extra
+                    //     round, no changed diagnostic.
+                    //   • That refusal arm is pinned by NO fail fixture
+                    //     (`grep -rl "still waiting for" tests/logos/fail`
+                    //     returns nothing), so the leak cannot produce a
+                    //     spurious refusal either.
+                    // A behavioural fixture therefore CANNOT see this, and none
+                    // was invented. If the hygiene is wanted, scope the probe's
+                    // side effects the way `bounds_probe_` already scopes them
+                    // in sema_collect.cpp (`if (!bounds_probe_)
+                    // defer_factory_backed(concrete);`) and pin it with a
+                    // trace-line count, not with an exit code.
                     size_t diag_mark = result_.diags.size();
                     TypeRef rt = resolve_type(tnode);
                     if (result_.diags.size() > diag_mark)

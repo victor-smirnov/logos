@@ -1,0 +1,24 @@
+// #95/M3 — THE WALK NEVER ENTERED AN ENUM INSTANCE. The generic-instance arm of
+// find_uncoerced_aggregate_slot was guarded `e.kind() == Struct && a.kind() ==
+// Struct`, so `Option<&Sq>` arriving where `Option<&dyn Shape>` is wanted was
+// never asked about. MEASURED before the fix: this program COMPILED and
+// returned the WRONG ANSWER — `take` read a fat `{data,vtable}` payload out of
+// a thin one and `main` exited 1 instead of 42
+// (/home/logos/sandbox/vfy95/h2/g01_option_dyn.logos). A wrong answer, not a
+// crash, which is exactly why a green corpus could not see it.
+// `o` is HOISTED, so no literal carries the expectation; the twin that DOES
+// coerce is tests/logos/pass/aggregate_unsize_enum_literal_admit.logos.
+package aggregate_unsize_enum_instance;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(o: Option<&dyn Shape>) -> i64 {
+  match o { Some(d) => { return d.area(); }, None => { return 0i64; } }
+}
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let r: &Sq = &a;
+  let o = Some(r);
+  if take(o) != 16i64 { return 1i32; }
+  return 42i32;
+}

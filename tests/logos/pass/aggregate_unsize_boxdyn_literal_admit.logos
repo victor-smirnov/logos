@@ -1,0 +1,22 @@
+// #95/M2 ADMIT TWIN — the owning coercion is PERFORMED, not refused, when the
+// aggregate is built at the coercion site. It is the same operation the
+// borrowed slot already got, and mlir-gen already lowered it correctly: the
+// ANNOTATED form of this program (`let t: (Box<dyn Shape>, i64) = (Box::new(..),
+// 7i64)`) returned 42 even before the fix, which is what settled the decision
+// between "coerce it" and "refuse it like the hoisted one". What was missing was
+// purely the sema-side stamp: aggregate_slot_needs_unsize demanded a `&`/`&mut`
+// source, so the owning literal was never stamped and the call SIGSEGVed (rc
+// 139, probe /home/logos/sandbox/m123/p/b2.logos).
+// Both spellings are pinned here so the literal-at-call and annotated-binding
+// paths cannot drift apart.
+package aggregate_unsize_boxdyn_admit;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (Box<dyn Shape>, i64)) -> i64 { return t.0.area() + t.1; }
+fn main() -> i32 {
+  if take((Box::new(Sq { s: 4i64 }), 7i64)) != 23i64 { return 1i32; }
+  let t: (Box<dyn Shape>, i64) = (Box::new(Sq { s: 5i64 }), 3i64);
+  if take(t) != 28i64 { return 2i32; }
+  return 42i32;
+}

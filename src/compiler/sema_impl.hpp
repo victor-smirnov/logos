@@ -480,6 +480,22 @@ private:
     // already fits `pt` or `pt` is not a trait object.
     bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
     bool coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt);
+    // A TUPLE or ARRAY literal's slot types have no second source: mlir-gen
+    // reads them off the LITERAL NODE's own type (tuple_llvm_type / gen_arr_lit's
+    // `logos_elem`), unlike a struct field, whose type comes from the struct
+    // declaration and is therefore right in every context. So an implicit unsize
+    // (`&Concrete` into a `&dyn Trait` slot) inside one of those literals must be
+    // recorded HERE, at the coercion site, or the literal keeps the thin type and
+    // every consumer (layout, call ABI, `t.0.method()`, `arr[i].method()`) reads
+    // a 16-byte fat pair out of an 8-byte object. Returns true iff it stamped.
+    // One aggregate slot: does `tgt` accept `at` only via a `&Concrete` → `&dyn
+    // Trait` unsize? (A pure type question — coerce_arg_to_dyn cannot answer it:
+    // it opens with a types_compatible early-out that blanket-accepts exactly
+    // this pair.)
+    bool aggregate_slot_needs_unsize(TypeRef at, TypeRef tgt);
+    // Stamp `target` onto a tuple/array literal IN PLACE, walking match arms /
+    // if branches / block results to reach the literal where it sits.
+    bool retype_aggregate_lit_to(lir_view::ExprRef er, TypeRef target);
     // CoerceUnsized for a smart-pointer/wrapper struct: `Rc<A>` → `Rc<dyn Tr>`
     // (same struct, a field unsizes sized→DstRef/TraitObject/slice). Rebuilds
     // `e` in place via struct_lit, coercing the changed field. Returns true iff
@@ -926,6 +942,28 @@ private:
     // (consumes/moves a capture out of the env). Stored as the MAX (most
     // restrictive) across same-signature literals — conservative-correct: if any
     // literal of a signature is FnMut, a `F: Fn` bound over that type is refused.
+    // ⚠ OPEN DEFECT, MEASURED, NOT FIXED (#69 class C — "a lookup KEY is not an
+    // IDENTITY"). "Conservative-correct" is true only for SEND/SYNC-style facts
+    // that are properties of a TYPE. The Fn-family kind is a property of a
+    // LITERAL, and keying it by signature makes one literal's verdict answer for
+    // another's:
+    //     let mut n: i64 = 0i64;
+    //     let mut h = || -> i64 { n = n + 1i64; return n; };   // FnMut
+    //     let k = || -> i64 { return 9i64; };                  // Fn, mutates
+    //     apply_val(k)                                         // nothing
+    // is refused with "closure does not implement `Fn`" AT `k`. Deleting `h`, or
+    // giving `k` a different signature, admits — so the refusal is `h`'s verdict
+    // read through `k`'s key. This over-refuses any function holding two
+    // same-signature closures where one mutates a capture; no generic, deem or
+    // imported ingredient is needed. The imported witness is
+    // tests/imported/pass/unboxed-closures/call-through-ref-to-fn-bound-b158
+    // (line 26), which no gate watches.
+    // The repair is per-LITERAL closure identity, not a wider key: closure types
+    // intern by params/ret in make_closure_type, and the read site
+    // (check_type_bounds in sema_collect.cpp) sees only a TypeRef, so nothing
+    // short of giving the literal an identity that survives to the bound check
+    // fixes it. That is a type-identity change with mono/mangling reach and is
+    // filed as its own task rather than patched here.
     std::unordered_map<std::string, int> closure_kind_;
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
@@ -969,6 +1007,43 @@ private:
     bool zone_mut_pointee(TypeRef pointee);
     bool reject_thin_zone_mut_ref(TypeRef pointee, TypeRef src_ref_t);
     bool reject_thin_zone_mut_nested(TypeRef expected, TypeRef actual, int depth = 0);
+    // #95: a value ALREADY TYPED as a thin aggregate (`(&Sq, i64)`) arriving
+    // where the fat one (`(&dyn Shape, i64)`) is wanted. An aggregate slot is
+    // not a coercion site; a LITERAL at a coercion site has already been
+    // stamped by retype_aggregate_lit_to before this runs, so what reaches
+    // here has no literal to carry the expectation and is refused.
+    bool reject_uncoerced_aggregate_unsize(TypeRef expected, TypeRef actual);
+    // The same walk, asked as a QUESTION (no diagnostic). Needed because two
+    // decision sites guard their `expect_type` with `!types_compatible(...)` —
+    // and types_compatible is precisely what blanket-accepts this pair, so the
+    // coercion/refusal would never be reached. Callers OR it into that guard.
+    //
+    // ⚠ THE TERMINATION GUARD IS A NODE BUDGET AND EXHAUSTING IT REFUSES.
+    // The first cut of this walk carried `depth > 8 → return false`, i.e. it
+    // answered "no uncoerced slot found" when it had merely STOPPED LOOKING —
+    // the PERMISSIVE direction on a question whose `true` is a refusal. MEASURED
+    // (/home/logos/sandbox/vfy95/d/dep01..dep12): nesting depth 1-8 refused,
+    // depth ≥ 9 COMPILED AND SIGSEGVed (rc 139), and the same cap defeated the
+    // impl check at depth (h2/g03_wrongtrait_deep.logos: depth 10 into
+    // `&dyn Other` with `Sq: !Other`, rc 139). Depth is also the WRONG measure:
+    // the walk's cost is the size of the type TREE, and type ALIASES make that
+    // tree exponential in the source (`type A_{n} = (A_{n-1}, A_{n-1})` — 2^n
+    // nodes from n lines; MEASURED, whole-compile 0.34 s at n=8, 1.83 s at
+    // n=14). So the guard counts NODES, and running out of them is answered the
+    // safe way: refuse, with its own diagnostic, rather than admit a value whose
+    // fat half would be read out of a thin pointer.
+    static constexpr int AGG_SLOT_NODE_BUDGET = 4096;
+    bool find_uncoerced_aggregate_slot(TypeRef expected, TypeRef actual,
+                                       const std::string& path,
+                                       bool at_slot, std::string* out_path,
+                                       TypeRef* out_exp, TypeRef* out_got,
+                                       int* budget, bool* out_exhausted) const;
+    bool aggregate_unsize_pending(TypeRef expected, TypeRef actual) const {
+        int budget = AGG_SLOT_NODE_BUDGET;
+        return find_uncoerced_aggregate_slot(expected, actual, "", false,
+                                             nullptr, nullptr, nullptr,
+                                             &budget, nullptr);
+    }
     // Owning kind of the trait object (Borrow / Box / Rc / Arc). All four share
     // the fat-pair {data,vtable} layout and dispatch, but the owning kinds
     // differ in release semantics. The kind rides in the otherwise-unused

@@ -1,0 +1,27 @@
+// #95/M3 ADMIT TWIN — `Option<&dyn Shape>` from a literal COERCES. Both
+// spellings are pinned:
+//   • `take(Some(&a))` — the literal at the call site. Before the fix this
+//     COMPILED AND RETURNED 1 (the wrong answer): the literal was typed
+//     `Option<&Sq>` off its payload and the expectation never reached it.
+//   • `let o: Option<&dyn Shape> = Some(&a)` — the annotated binding, which was
+//     correct all along, and is what proves mlir-gen needs nothing but the
+//     stamp: its EnumLitData arm reads the variant's payload slot types out of
+//     the instance named by the NODE'S TYPE and unsizes there.
+// Keeping both in one file is deliberate — the annotated path is the oracle for
+// the stamped one, and if they ever disagree this test says so.
+package aggregate_unsize_enum_admit;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(o: Option<&dyn Shape>) -> i64 {
+  match o { Some(d) => { return d.area(); }, None => { return 0i64; } }
+}
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  if take(Some(&a)) != 16i64 { return 1i32; }
+  let b: Sq = Sq { s: 5i64 };
+  let o: Option<&dyn Shape> = Some(&b);
+  if take(o) != 25i64 { return 2i32; }
+  if take(None) != 0i64 { return 3i32; }
+  return 42i32;
+}

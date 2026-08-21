@@ -1,0 +1,18 @@
+// #95/M2, THE PERMISSIVE TWIN OF THE OWNING ADMIT. Now that an owning literal
+// IS stamped at a coercion site, the impl question has to be asked on that path
+// too — `Sq` does not implement `Other`, so there is no vtable to build and the
+// element's fat half would be uninitialised. Without this arm the owning source
+// (a Box STRUCT, not a `&`) missed the borrowed arm's check entirely and fell
+// through to types_compatible's blanket `Struct → TraitObject` accept, which
+// wrote an object file. This is the owning copy of the hole the borrowed side
+// pins in tests/logos/fail/tuple_dyn_element_no_impl.logos.
+package aggregate_unsize_boxdyn_wt;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (Box<dyn Other>, i64)) -> i64 { return t.0.tag() + t.1; }
+fn main() -> i32 {
+  if take((Box::new(Sq { s: 4i64 }), 7i64)) != 23i64 { return 1i32; }
+  return 42i32;
+}

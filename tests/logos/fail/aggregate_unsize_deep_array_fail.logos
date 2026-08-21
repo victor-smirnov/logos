@@ -1,0 +1,24 @@
+// #95/M1, THIRD CELL — the ARRAY spelling of the same exhaustion. The walk
+// descends `[]` exactly as it descends `.i`, so the cap cut it off at the same
+// place; MEASURED at depth 9 (/home/logos/sandbox/vfy95/h/h09_dep9_array.logos)
+// as compile-and-SIGSEGV. Kept as its own cell because the tuple and array arms
+// of the walk are separate code and have drifted apart before.
+package aggregate_unsize_deep;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: [[[[[[[[[&dyn Shape;1];1];1];1];1];1];1];1];1]) -> i64 { return t[0][0][0][0][0][0][0][0][0].area(); }
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let x0 = [&a];
+  let x1 = [x0];
+  let x2 = [x1];
+  let x3 = [x2];
+  let x4 = [x3];
+  let x5 = [x4];
+  let x6 = [x5];
+  let x7 = [x6];
+  let x8 = [x7];
+  if take(x8) != 16i64 { return 1i32; }
+  return 42i32;
+}

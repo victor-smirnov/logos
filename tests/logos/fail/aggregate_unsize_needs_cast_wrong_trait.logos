@@ -1,0 +1,31 @@
+// #95 — THE ROOT OF THE #68 CLASS. `types_compatible`'s "Struct → &dyn Trait
+// coercion (impl check deferred to codegen)" arm is a BLANKET ACCEPT, and the
+// Tuple / Array / generic-instance arms walk an aggregate ELEMENTWISE straight
+// into it. So a value ALREADY TYPED as the thin aggregate is accepted where the
+// fat one is wanted, NO coercion is ever attempted (there is no literal at the
+// use site to stamp), and the consumer reads a fat pair out of a thin one.
+//
+// The answer is REFUSAL, not a wider coercion: Rust does not coerce inside an
+// aggregate value either. What Rust DOES do — propagate an expectation into an
+// aggregate LITERAL at a coercion site — is `retype_aggregate_lit_to`, and it
+// runs BEFORE this refusal, from `coerce_arg_to_param`. That ORDER is the whole
+// distinction: a literal has been stamped by the time the check runs, so only a
+// value with no literal to carry the expectation is refused. The admit half is
+// pinned in tests/logos/pass/aggregate_unsize_literal_and_cast_admit.logos.
+// THE PERMISSIVE TWIN, HOISTED HALF. tests/logos/fail/tuple_dyn_element_no_impl
+// closed the LITERAL half (a stamp attempt notices the missing impl); the
+// hoisted half had no stamp attempt at all and wrote an object file that
+// SIGSEGV'd. Both halves are now refused, by two different arms — this one does
+// not need the impl question at all, because an aggregate slot is not a
+// coercion site whether or not the impl exists.
+package test;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (&dyn Other, i64)) -> i64 { return t.0.tag() + t.1; }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let t = (&a, 7i64);          // Sq: !Other
+    return take(t) as i32;
+}

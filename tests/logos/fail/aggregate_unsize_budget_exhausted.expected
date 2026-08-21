@@ -1,0 +1,1 @@
+aggregate type is too large to check for uncoerced `&dyn` slots (gave up at `.1` after 4096 type nodes)

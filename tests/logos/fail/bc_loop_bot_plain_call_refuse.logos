@@ -1,0 +1,29 @@
+// #69 class A, REFUSE HALF 1 of 2 — the CONDITION of the new arm, controlled.
+//
+// Character-for-character the admit fixture
+// tests/logos/pass/bc_loop_bot_divergent_call_admit.logos, with ONE token
+// changed: the tail statement calls `noop() -> i64` instead of
+// `my_panic() -> !`. The bottom now DOES reach the back edge carrying `g`
+// moved, iteration 2 would use a moved value, and the refusal stands.
+//
+// This is what keeps the new ExprStmt divergence arm in borrow_check.cpp from
+// being "any tail call ends the body": the arm keys on the statement
+// expression's type being `!` and on nothing else.
+package bc_loop_bot_plain_call_refuse;
+use logos.mem.string;
+struct S { s: String }
+fn noop() -> i64 { return 0i64; }
+fn step(f: bool) -> i64 {
+    let mut g: S = S { s: String::new() };
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    loop {
+        if i > 3i64 { break; } else { i = i + 1i64; }
+        let _g: S = g;
+        n = n + 1i64;
+        if f { g = S { s: String::new() }; continue; }
+        noop();
+    }
+    return n;
+}
+fn main() -> i32 { if step(true) != 4i64 { return 1i32; } return 0i32; }

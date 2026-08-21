@@ -1,0 +1,18 @@
+// The PERMISSIVE twin of the #68 class, found by this round's own probe. A
+// `&dyn Trait` aggregate slot fed a `&Concrete` that does NOT implement the
+// trait is accepted by types_compatible (its Struct → TraitObject branch is a
+// blanket accept, "impl check deferred to codegen") — and in the AGGREGATE case
+// codegen never runs its check, because without a stamp nothing ever attempts
+// the coercion. MEASURED before the fix: this file COMPILED to an object file,
+// while the plain-arg spelling `take_one(&a)` is refused with
+// "no vtable for 'Sq' as '&dyn Other'".
+package test;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (&dyn Other, i64)) -> i64 { return t.0.tag() + t.1; }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    return take((&a, 7i64)) as i32;
+}

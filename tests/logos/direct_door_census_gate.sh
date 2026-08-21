@@ -419,9 +419,60 @@ PIN = {
     # unmoved (36 = 10 + 26), measured by the sweep itself: the new fixture
     # DECLARES a container (`container Ked`) and creates it, but declares no
     # `direct` output form, which is what a door is counted on.
-    'corpus'            : 2236,
+    # 2026-08-21 (#68 — the `&dyn` TUPLE ELEMENT with no explicit cast), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2237
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2237 = 191 + 2046. The one is
+    # tuple_dyn_element_implicit; the round added no FAIL fixture at all (a
+    # codegen repair has no refusal to pair with — see the census ledger). DOOR
+    # counts unmoved (36 = 10 + 26), measured by the sweep itself: the new
+    # fixture declares no container and no `direct` output form.
+    # 2026-08-21 (#69 class A — the `-> !` tail of a loop body), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2238
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2238 = 191 + 2047. The one is
+    # bc_loop_bot_divergent_call_admit; the round's other two fixtures are FAIL
+    # fixtures and this population is the PASS corpus, so they move nothing
+    # here. DOOR counts unmoved (36 = 10 + 26): no container, no `direct`.
+    # 2026-08-21 (#68 CLASS — the aggregate-literal slot type, closed at the one
+    # coercion judgment instead of the let-annotation), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2239
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2239 = 191 + 2048. The one is
+    # array_dyn_element_implicit (the ARRAY half of the class); the round's
+    # other pass fixture, tuple_dyn_element_implicit, was ALREADY in the 2238
+    # baseline and is extended in place, and its FAIL fixture
+    # (tuple_dyn_element_no_impl) is outside this population by construction.
+    # DOOR counts unmoved (36 = 10 + 26): no container, no `direct`.
+    # 2026-08-21 (#95 — an aggregate SLOT is not a coercion site; the ROOT of
+    # the #68 class closes in the REFUSING direction), +1/0/+1.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 1 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2240
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2240 = 191 + 2049. The one is
+    # aggregate_unsize_literal_and_cast_admit; the round's other SIX fixtures
+    # are FAIL fixtures (five refusals plus one pinned OVER-refusal, TASK #96)
+    # and this population is the PASS corpus, so they move nothing here. DOOR
+    # counts unmoved (36 = 10 + 26): no container, no `direct` output form.
+    # 2026-08-21 (#95 M1/M2/M3 — the three live crashes the #95 round's OWN
+    # VERIFY found inside the #95 landing: the depth cap admitted on exhaustion,
+    # the owning `Box<dyn>` slot was exempted, and the generic-instance arm never
+    # walked an ENUM instance), +3/0/+3.
+    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 3 to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2243
+    #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
+    # partition closes: 2243 = 191 + 2052. The three are
+    # aggregate_unsize_deep_nesting_admit, aggregate_unsize_boxdyn_literal_admit
+    # and aggregate_unsize_enum_literal_admit — one ADMIT twin per defect. The
+    # round's other TEN fixtures are FAIL fixtures and this population is the
+    # PASS corpus, so they move nothing here. DOOR counts unmoved (36 = 10 + 26):
+    # no container, no `direct` output form in any of the thirteen.
+    'corpus'            : 2243,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2045,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2052,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

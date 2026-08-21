@@ -1,0 +1,17 @@
+// #95/M1 ADMIT TWIN — the SAME depth (9) the refusal cell uses, differing only
+// in that the aggregate is BUILT at the coercion site. A literal there carries
+// the expectation (retype_aggregate_lit_to stamps it, Rust's rule too), so the
+// nested `&Sq` is unsized to `&dyn Shape` at construction and the call is
+// correct. This is the half a "refuse everything past depth 8" answer would
+// have taken with it, and it is why the fix is a NODE BUDGET whose exhaustion
+// refuses rather than a lowered cap.
+package aggregate_unsize_deep;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (((((((((&dyn Shape,i64),i64),i64),i64),i64),i64),i64),i64),i64)) -> i64 { return t.0.0.0.0.0.0.0.0.0.area(); }
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  if take((((((((((&a,1i64),1i64),1i64),1i64),1i64),1i64),1i64),1i64),1i64)) != 16i64 { return 1i32; }
+  return 42i32;
+}

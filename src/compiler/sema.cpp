@@ -4504,6 +4504,185 @@ bool SemaChecker::reject_thin_zone_mut_nested(TypeRef expected, TypeRef actual,
     return false;
 }
 
+// ── #95: AN AGGREGATE SLOT IS NOT A COERCION SITE ─────────────────────────
+// THE ROOT of the #68 class, one level up from the stamp the previous round
+// landed. `types_compatible`'s `Struct → TraitObject` branch (sema.cpp, the
+// "Struct → &dyn Trait coercion (impl check deferred to codegen)" arm) is a
+// BLANKET ACCEPT, and the Tuple / Array arms above it walk an aggregate
+// ELEMENTWISE straight into it. So
+//     let t = (&a, 7i64);        // t : (&Sq, i64)   — 16 bytes
+//     take(t)                    // take(t: (&dyn Shape, i64)) — 24 bytes
+// is ACCEPTED, no coercion is ever attempted (there is no literal at the call
+// to stamp), and the callee reads a fat pair out of a thin one. MEASURED
+// rc=139 in every context probed: call arg / return / match / generic arg /
+// assignment / struct field / array element / enum payload / generic struct
+// field (probes /home/logos/sandbox/aggunsize/h_*.logos); the hoisted ARRAY
+// form `let r = [&a,&b]; take(r)` is rc=112 — same root, different crash.
+//
+// THE DEFENSIBLE ANSWER IS REFUSAL, not a wider coercion. Rust does not coerce
+// inside an aggregate VALUE at all: `(&a, 7)` is not a `(&dyn Shape, i64)`, and
+// the program must be written `(&a as &dyn Shape, 7)`. Rust DOES propagate an
+// expectation into an aggregate LITERAL at a coercion site — which is exactly
+// what `retype_aggregate_lit_to` does, and which runs (from
+// `coerce_arg_to_param`) BEFORE this check. So the two halves are distinguished
+// by ORDER, not by a type test: if a literal was present it has already been
+// stamped and `actual == expected` by the time we get here; what reaches this
+// function is a value that was ALREADY TYPED as the thin aggregate, arriving
+// where the fat one is wanted, with no literal anywhere to carry the
+// expectation. That value is refused.
+//
+// Structural, not per-form, for the reason the zone_mut twin above gives: a
+// future aggregate kind is covered by adding its element pairing here.
+bool SemaChecker::find_uncoerced_aggregate_slot(TypeRef expected, TypeRef actual,
+                                                const std::string& path,
+                                                bool at_slot,
+                                                std::string* out_path,
+                                                TypeRef* out_exp, TypeRef* out_got,
+                                                int* budget, bool* out_exhausted) const {
+    if (!expected || !actual) return false;
+    // IDENTICAL TYPES CANNOT HOLD AN UNCOERCED SLOT, and saying so BEFORE the
+    // budget is spent is what keeps the exhaustion arm off ordinary code. Types
+    // are interned, so this is a pointer compare; the old walk reached the same
+    // verdict the expensive way (every slot pair `e == a` fails `thin_src`), and
+    // MEASURED without it an alias-doubled `let x12: A12 = (x11, x11)` — a thin
+    // value against its OWN type — burned the whole budget and was refused.
+    if (expected == actual) return false;
+    // THE BUDGET, AND WHY EXHAUSTING IT REFUSES — sema_impl.hpp's declaration
+    // carries the measurement. Short version: the predecessor `depth > 8` arm
+    // returned FALSE ("no uncoerced slot"), which is the permissive answer to a
+    // question whose `true` is the refusal, and depth ≥ 9 compiled-and-SIGSEGVed
+    // in every shape probed. Nodes, not depth, because type aliases make the
+    // type tree exponential in the source.
+    if (budget && --*budget < 0) {
+        if (out_exhausted) *out_exhausted = true;
+        if (out_path) *out_path = path;
+        if (out_exp) *out_exp = expected;
+        if (out_got) *out_got = actual;
+        return true;
+    }
+    using K = LogosType::Kind;
+    TypeRef e{expected}, a{actual};
+    if (at_slot && e.kind() == K::TraitObject) {
+        // ⚠ THE OWNING `Box<dyn T>` SLOT IS NOT EXEMPT — the exemption that used
+        // to stand here ("no probe in this round measured it. Narrow on
+        // purpose.") was measured afterwards and was a CRASH, not a narrowing:
+        // hoisted `(Box<Sq>, i64)` / `[Box<Sq>;1]` / a struct FIELD holding one,
+        // all rc 139 (/home/logos/sandbox/vfy95/h/h0{1,2,8}*.logos). The source
+        // of an owning slot is the Box STRUCT, which `thin_src` below already
+        // recognises, so removing the exemption is the whole of the refusal
+        // half; the ADMIT half — an owning literal AT a coercion site — is
+        // stamped by aggregate_slot_needs_unsize's owning arm, which runs first,
+        // so what reaches here still has no literal to carry the expectation.
+        // NOTE this arm is reached only with at_slot, i.e. INSIDE an aggregate:
+        // a bare `Box<Sq>` returned as `Box<dyn Shape>` is a top-level coercion
+        // and is handled (unchanged) by expect_type's own owning-Box arm.
+        bool thin_src =
+            a.kind() == K::Struct ||
+            ((a.kind() == K::Ref || a.kind() == K::MutRef || a.kind() == K::Ptr) &&
+             a.pointee() && a.pointee().kind() == K::Struct);
+        if (!thin_src) return false;   // already fat, a TypeVar, an error…
+        if (out_path) *out_path = path;
+        if (out_exp) *out_exp = e;
+        if (out_got) *out_got = a;
+        return true;
+    }
+    if (e.kind() == K::Tuple && a.kind() == K::Tuple) {
+        auto ee = e.tuple_elems();
+        auto ae = a.tuple_elems();
+        if (ee.size() != ae.size()) return false;
+        for (size_t i = 0; i < ee.size(); ++i)
+            if (find_uncoerced_aggregate_slot(ee[i], ae[i],
+                                              path + "." + std::to_string(i),
+                                              true, out_path, out_exp, out_got,
+                                              budget, out_exhausted))
+                return true;
+        return false;
+    }
+    if ((e.kind() == K::Array || e.kind() == K::Slice) &&
+        (a.kind() == K::Array || a.kind() == K::Slice))
+        return find_uncoerced_aggregate_slot(e.elem(), a.elem(), path + "[]",
+                                             true, out_path, out_exp, out_got,
+                                             budget, out_exhausted);
+    // A GENERIC INSTANCE carries the aggregate in a TYPE ARGUMENT, and that is
+    // where the mismatch surfaces: `G<(&dyn Shape,i64)>` vs `G<(&Sq,i64)>`
+    // (MEASURED — the FIELD's own expect_type sees `(&Sq,i64) <- (&Sq,i64)`,
+    // because the field type is the TypeVar's INFERRED binding, so the whole
+    // question only exists one level out). Same struct, same arity only: a
+    // different struct name is an ordinary mismatch, judged upstream.
+    //
+    // ⚠ #95/M3 — AND AN ENUM INSTANCE IS ONE TOO. This arm was written
+    // `e.kind() == K::Struct && a.kind() == K::Struct`, so `Option<&Sq>` against
+    // `Option<&dyn Shape>` was never entered at all: MEASURED, it COMPILED and
+    // returned the WRONG ANSWER (rc 1 where 42 was correct,
+    // /home/logos/sandbox/vfy95/h2/g01_option_dyn.logos), and its wrong-trait
+    // sibling `Option<&dyn Other>` with `Sq: !Other` compiled too (g01d.logos) —
+    // the impl check bypassed on the enum path exactly as it had been on the
+    // tuple path before #95. An enum's payload layout is arg-width-specific in
+    // the same way a struct field's is, and its type-args are read the same way,
+    // so the two kinds are one arm keyed on the instance NAME.
+    //
+    // ⚠ AND THE TYPE ARG IS ITSELF A SLOT (`at_slot=true`, not the `false` this
+    // recursion used to pass). With `false`, a type arg that is DIRECTLY a
+    // `&dyn` — `Option<&Sq>` vs `Option<&dyn Shape>`, `G<&Sq>` vs
+    // `G<&dyn Shape>` — could not be a hit; only an aggregate NESTED in a type
+    // arg (`G<(&Sq,i64)>`) was caught, because the tuple arm below re-entered
+    // with at_slot=true. Nothing is lost by widening: a tuple/array type arg
+    // still falls through this arm to its own, since the at_slot arm only fires
+    // when the EXPECTED side is a TraitObject.
+    if (((e.kind() == K::Struct && a.kind() == K::Struct &&
+          e.struct_name() == a.struct_name()) ||
+         (e.kind() == K::Enum && a.kind() == K::Enum &&
+          e.enum_name() == a.enum_name() && e.pkg_name() == a.pkg_name()))) {
+        auto ea = e.type_args();
+        auto aa = a.type_args();
+        if (ea.size() != aa.size()) return false;
+        for (size_t i = 0; i < ea.size(); ++i)
+            if (find_uncoerced_aggregate_slot(ea[i], aa[i],
+                                              path + "<" + std::to_string(i) + ">",
+                                              true, out_path, out_exp, out_got,
+                                              budget, out_exhausted))
+                return true;
+    }
+    return false;
+}
+
+bool SemaChecker::reject_uncoerced_aggregate_unsize(TypeRef expected, TypeRef actual) {
+    std::string p;
+    TypeRef ex{nullptr}, gt{nullptr};
+    int budget = AGG_SLOT_NODE_BUDGET;
+    bool exhausted = false;
+    if (!find_uncoerced_aggregate_slot(expected, actual, "", false, &p, &ex, &gt,
+                                       &budget, &exhausted))
+        return false;
+    auto [es, gs] = type_str_pair(ex, gt);
+    // THE EXHAUSTION ARM. Reached only when the walk ran out of node budget, so
+    // it does NOT know whether a thin `&dyn` slot is in there — and answers the
+    // safe way. Its own message, because "expected X, got Y" would name the
+    // types at the cut-off, which are the ones the walk never judged. Pinned by
+    // tests/logos/fail/aggregate_unsize_budget_exhausted.logos (an alias-doubled
+    // type: 2^n slots from n lines).
+    if (exhausted) {
+        error(std::format(
+            "aggregate type is too large to check for uncoerced `&dyn` slots "
+            "(gave up at `{0}` after {1} type nodes): expected {2}, got {3}. An "
+            "aggregate slot is not a coercion site, and this compiler will not "
+            "admit a value it could not finish checking — write the `&dyn` "
+            "elements as explicit `… as &dyn Trait` casts where the aggregate "
+            "is BUILT, or simplify the type",
+            p.empty() ? "<root>" : p, AGG_SLOT_NODE_BUDGET, es, gs));
+        return true;
+    }
+    error(std::format(
+        "aggregate slot `{0}`: expected {1}, got {2} — an aggregate slot is "
+        "NOT a coercion site, so the `&dyn` half of the value would be read "
+        "out of a thin pointer. Write the element as `… as {1}` where the "
+        "aggregate is BUILT (`(&x as {1}, …)`), or annotate the binding that "
+        "builds it with the fat type",
+        p, es, gs));   // never empty: the entry call passes at_slot=false, so a
+                       // hit has appended at least one `.i` / `[]` / `<i>` step
+    return true;
+}
+
 // The accumulation rule, the union rule, the enum rule and niche eligibility
 // are ONE copy, in layout_law.hpp. Sema had its own partial transcription: an
 // accumulator but no `is_union()` branch (a union got the SUM where its layout

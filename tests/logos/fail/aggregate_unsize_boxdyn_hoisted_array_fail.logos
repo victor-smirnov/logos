@@ -1,0 +1,14 @@
+// #95/M2, ARRAY CELL — the same owning hole through the array arm of the walk.
+// MEASURED rc 139 before the fix (/home/logos/sandbox/vfy95/h/h02_boxdyn_arr.logos).
+// Its own cell because the tuple and array arms are separate code.
+package aggregate_unsize_boxdyn_arr;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: [Box<dyn Shape>; 1]) -> i64 { return t[0].area(); }
+fn main() -> i32 {
+  let b: Box<Sq> = Box::new(Sq { s: 4i64 });
+  let t = [b];
+  if take(t) != 16i64 { return 1i32; }
+  return 42i32;
+}

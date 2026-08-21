@@ -1,0 +1,52 @@
+// #69 class A — a loop body whose fall-through bottom is a `-> !` CALL does not
+// reach the back edge, so the move performed on the way there must not be
+// propagated into iteration 2.
+//
+// `g` is moved by `let _g = g;`. The only path that goes ROUND the loop is the
+// `continue`, and it RE-INITIALISES `g` first. The remaining path ends in
+// `my_panic()`, which never returns. No iteration can therefore observe `g`
+// moved-on-entry — but visit_loop_body computed `bottom_reachable =
+// !cur_diverged_`, and `cur_diverged_` was set by Return / break / continue
+// only (borrow_check.cpp: Code::Return), never by an ExprStmt whose expression
+// has type `!`. So the body-bottom state crossed the back edge and pass 2
+// refused with "use of moved value 'g'". This is the shape of the imported red
+// tests/imported/pass/for-loop-while/loop-no-reinit-needed-post-bot-b145.logos,
+// which lives outside every gate; this fixture puts it inside one.
+//
+// MEASURED ingredients (both required): `g` must be NON-Copy (a Drop impl is
+// NOT required — a String field refuses identically), and the tail must be a
+// `-> !` CALL (spelling it `return;` was already admitted, because Return does
+// set the flag).
+//
+// REFUSE-SIDE PINS for this permissive change, both firing:
+//   tests/logos/fail/bc_loop_bot_plain_call_refuse.logos — identical but the
+//     tail call RETURNS, so the bottom does reach the back edge: still refused.
+//   tests/logos/fail/bc_loop_bot_divergent_no_reinit_refuse.logos — the `-> !`
+//     tail is present but the `continue` path does NOT re-init `g`: still
+//     refused, through the continue_states channel.
+package bc_loop_bot_divergent_call_admit;
+
+use logos.mem.string;
+
+struct S { s: String }
+
+fn my_panic() -> ! { loop { } }
+
+fn step(f: bool) -> i64 {
+    let mut g: S = S { s: String::new() };
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    loop {
+        if i > 3i64 { break; } else { i = i + 1i64; }
+        let _g: S = g;
+        n = n + 1i64;
+        if f { g = S { s: String::new() }; continue; }
+        my_panic();
+    }
+    return n;
+}
+
+fn main() -> i32 {
+    if step(true) != 4i64 { return 1i32; }
+    return 0i32;
+}

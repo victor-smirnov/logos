@@ -3395,6 +3395,54 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) 
         if (auto sst = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(stype);
             sst && i < sst.getBody().size())
             slot_ty = sst.getBody()[i];
+        // `(&dyn Trait, …)` — the tuple slot is the 16-byte {data,vtable} fat
+        // pair (tuple_llvm_type/TraitObject arm), but the element EXPRESSION may
+        // still be a thin `&Concrete`: no dyn coercion happens at aggregate
+        // construction. Without this arm the thin pointer falls into the
+        // inline-aggregate branch below and a 16-byte load is issued against an
+        // 8-byte object — the vtable half is stack garbage and `t.0.method()`
+        // SIGSEGVs. Same unsize coercion gen_arr_lit applies per array element
+        // and gen_struct_lit per `&dyn` field.
+        // NO Ref/MutRef/Ptr PEEL. `&dyn Trait` IS Kind::TraitObject — sema
+        // canonicalises `Ref<UnsizedDyn<Trait>>` to it at resolve time, so the
+        // slot is asked for DIRECTLY (the same measurement sema's
+        // aggregate_slot_needs_unsize records: the peel-first spelling matched
+        // NOTHING). The peel this arm used to carry was a second, dead spelling
+        // of the same question, and the rationale offered for its Ptr leg — "a
+        // raw `*const dyn` keeps 8-byte handle semantics" — is FALSE on both
+        // counts: MEASURED `sizeof::<*const dyn Shape>() == 16` and
+        // `sizeof::<(*const dyn Shape, i64)>() == 24`, coerce_to_dyn's own
+        // comment says `&dyn`/`*dyn`/`Box<dyn>` are all uniform 16-byte fat, and
+        // a `*const dyn Trait` SLOT canonicalises to Kind::TraitObject exactly
+        // like `&dyn`, so it takes THIS arm rather than being excluded from it.
+        TypeRef dyn_elem = (i < TypeRef(type).tuple_elems().size())
+                               ? TypeRef(type).tuple_elems()[i]
+                               : TypeRef(nullptr);
+        if (dyn_elem && dyn_elem.kind() == LogosType::Kind::TraitObject) {
+            // ONE spelling of the unsize, shared with the enum-payload sites and
+            // the struct-field array path: the bespoke peel-and-coerce this arm
+            // used to carry was a second implementation of it.
+            val = coerce_value_to_dyn_if_needed(val, dyn_elem, er.type(pool_impl()));
+            // `val` now points at the fat pair; memcpy it INTO the slot (an
+            // 8-byte store would leave the vtable half uninitialised). The WIDTH
+            // comes from `logos_abi_byte_size` of the slot type — the same one
+            // source the enum-payload inline memcpy above uses — not from a
+            // second hard-coded `16` beside coerce_to_dyn's.
+            if (val.getType() == ptr_type()) {
+                llvm::SmallVector<mlir::LLVM::GEPArg> didx{int32_t(0), int32_t(i)};
+                auto dgep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(),
+                                                              stype, alloca, didx);
+                std::unordered_set<std::string> seen;
+                auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                    loc_, builder_.getI64Type(),
+                    builder_.getI64IntegerAttr(
+                        (int64_t)logos_abi_byte_size(dyn_elem, seen)));
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, dgep, val, sz,
+                                                      /*isVolatile=*/false);
+                ++i;
+                return;
+            }
+        }
         if (slot_ty && (mlir::isa<mlir::LLVM::LLVMStructType>(slot_ty) ||
                         mlir::isa<mlir::LLVM::LLVMArrayType>(slot_ty)) &&
             val.getType() == ptr_type()) {

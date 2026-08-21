@@ -1,0 +1,57 @@
+// #95/M1 — THE EXHAUSTION ARM ITSELF, fired. The termination guard on the
+// uncoerced-slot walk is a NODE BUDGET (4096 type nodes), not a depth cap,
+// because type ALIASES make a type tree exponential in the source: the 22
+// `type` lines below describe a 2048-slot tuple. The walk descends `.0` first,
+// where `M11` vs `L11` is a full 2^11 no-hit subtree, and runs out of budget
+// before it reaches the `.1` slot — where a REAL uncoerced `&dyn Shape` sits.
+// A permissive exhaustion would therefore have admitted a genuine crash; this
+// arm refuses instead, and says so in its own words. MEASURED: the same shape
+// one level shallower (2^10) completes the walk and produces the ordinary
+// `aggregate slot `.1`' diagnostic, so this file pins the boundary, not a
+// property of the type-alias feature. Whole-compile 0.33 s.
+package aggregate_unsize_budget;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+struct Sq2 { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+type L0 = &Sq;
+type M0 = &Sq2;
+type L1 = (L0, L0);
+type M1 = (M0, M0);
+type L2 = (L1, L1);
+type M2 = (M1, M1);
+type L3 = (L2, L2);
+type M3 = (M2, M2);
+type L4 = (L3, L3);
+type M4 = (M3, M3);
+type L5 = (L4, L4);
+type M5 = (M4, M4);
+type L6 = (L5, L5);
+type M6 = (M5, M5);
+type L7 = (L6, L6);
+type M7 = (M6, M6);
+type L8 = (L7, L7);
+type M8 = (M7, M7);
+type L9 = (L8, L8);
+type M9 = (M8, M8);
+type L10 = (L9, L9);
+type M10 = (M9, M9);
+type L11 = (L10, L10);
+type M11 = (M10, M10);
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let l0: L0 = &a;
+  let l1: L1 = (l0, l0);
+  let l2: L2 = (l1, l1);
+  let l3: L3 = (l2, l2);
+  let l4: L4 = (l3, l3);
+  let l5: L5 = (l4, l4);
+  let l6: L6 = (l5, l5);
+  let l7: L7 = (l6, l6);
+  let l8: L8 = (l7, l7);
+  let l9: L9 = (l8, l8);
+  let l10: L10 = (l9, l9);
+  let l11: L11 = (l10, l10);
+  let t: (M11, &dyn Shape) = (l11, &a);
+  return 42i32;
+}

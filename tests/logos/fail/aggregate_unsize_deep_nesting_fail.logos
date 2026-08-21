@@ -1,0 +1,28 @@
+// #95/M1 — THE DEPTH CAP ADMITTED ON EXHAUSTION. The walk that finds an
+// uncoerced `&dyn` aggregate slot used to stop at depth 8 and answer "none
+// found", which is the PERMISSIVE direction on a question whose `true` is the
+// refusal. MEASURED before the fix: nesting depth 1-8 refused, depth 9 and
+// deeper COMPILED and SIGSEGVed (rc 139). This cell is depth 9 — the first one
+// the cap used to let through. The admit twin at the SAME depth is
+// tests/logos/pass/aggregate_unsize_deep_nesting_admit.logos, which differs
+// only in that the aggregate is BUILT at the coercion site (a literal), so the
+// expectation is stamped onto it.
+package aggregate_unsize_deep;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (((((((((&dyn Shape,i64),i64),i64),i64),i64),i64),i64),i64),i64)) -> i64 { return t.0.0.0.0.0.0.0.0.0.area(); }
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let t0 = (&a, 1i64);
+  let t1 = (t0, 1i64);
+  let t2 = (t1, 1i64);
+  let t3 = (t2, 1i64);
+  let t4 = (t3, 1i64);
+  let t5 = (t4, 1i64);
+  let t6 = (t5, 1i64);
+  let t7 = (t6, 1i64);
+  let t8 = (t7, 1i64);
+  if take(t8) != 16i64 { return 1i32; }
+  return 42i32;
+}

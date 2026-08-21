@@ -1268,12 +1268,23 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
             bool elem_is_agg = elem_type &&
                 (mlir::isa<mlir::LLVM::LLVMStructType>(elem_type) ||
                  mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type));
+            // `[&dyn Trait; N]` as a struct FIELD is lowered by THIS emitter,
+            // not by gen_arr_lit — and it had no unsize, so a thin `&Concrete`
+            // element was memcpy'd 16 bytes wide out of an 8-byte object
+            // (MEASURED rc=139 on `W { t: [&a, &b] }`, while the same field
+            // built from `[&a as &dyn Shape, …]` was green). Same one operation
+            // as everywhere else: coerce_value_to_dyn_if_needed.
+            TypeRef arr_lt = fval.type(pool_impl());
+            TypeRef arr_elem_lt = arr_lt ? TypeRef(arr_lt).elem() : TypeRef(nullptr);
             uint64_t n = arr_view.count();
             for (uint64_t i = 0; i < n; ++i) {
                 auto er = arr_view.elem(i);
                 if (!er) { ok = false; return; }
                 auto val = gen_expr(er);
                 if (!val) { ok = false; return; }
+                if (arr_elem_lt)
+                    val = coerce_value_to_dyn_if_needed(val, arr_elem_lt,
+                                                        er.type(pool_impl()));
                 llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), arr_llvm, gep, idx);

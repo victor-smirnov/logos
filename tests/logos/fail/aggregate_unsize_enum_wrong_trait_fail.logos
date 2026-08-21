@@ -1,0 +1,21 @@
+// #95/M3, SECOND CELL — the IMPL check was bypassed on the enum path exactly as
+// it had been on the tuple path before #95. `Sq` does not implement `Other`, so
+// there is no vtable at all; MEASURED, this compiled
+// (/home/logos/sandbox/vfy95/h2/g01d.logos). Kept separate from the layout cell
+// because the two used to be defeated by the same guard for two different
+// reasons, and only one of them is about widths.
+package aggregate_unsize_enum_wt;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(o: Option<&dyn Other>) -> i64 {
+  match o { Some(d) => { return d.tag(); }, None => { return 0i64; } }
+}
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  let r: &Sq = &a;
+  let o = Some(r);
+  if take(o) != 16i64 { return 1i32; }
+  return 42i32;
+}

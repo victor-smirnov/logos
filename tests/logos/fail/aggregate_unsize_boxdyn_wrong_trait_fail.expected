@@ -1,0 +1,1 @@
+aggregate element 0: slot type &dyn Other needs an unsize from Box<Sq>, but the type does not implement the trait

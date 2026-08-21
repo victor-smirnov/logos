@@ -1,0 +1,109 @@
+// #68 CLASS. `&dyn` as a TUPLE element WITHOUT an explicit `as &dyn` cast, in
+// EVERY position a tuple literal can occupy. A tuple's slot types have no
+// second source — a struct field's type comes from the struct declaration, but
+// `(&a, 7)` is structural, its type IS its elements' types — so the expected
+// tuple type must be stamped onto the LITERAL at the coercion site
+// (SemaChecker::retype_aggregate_lit_to, reached from expect_type →
+// coerce_arg_to_param), or the literal stays 16 bytes wide while every consumer
+// reads 24 and `t.0.area()` dispatches through stack garbage.
+//
+// The first fix stamped only the `let`-annotation position, which is why this
+// file's second half was written: each context below was MEASURED broken with
+// its own exit code on that binary — call argument 139, nested tuple 2, fn
+// return 1, match arm 1, generic arg 1, struct field 1, assignment 1, array of
+// tuples 1 — while an `as &dyn Shape` twin of each was green on the same binary.
+// Twin of tuple_dyn_element_inline.logos, which pins the CAST spelling.
+package test;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+struct Tri { b: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+impl Shape for Tri { fn area(&self) -> i64 { return self.b + 100i64; } }
+
+struct W { t: (&dyn Shape, i64) }
+
+fn take(t: (&dyn Shape, i64)) -> i64 { return t.0.area() + t.1; }
+fn mk(a: &Sq) -> (&dyn Shape, i64) { return (a, 7i64); }
+fn ident<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    // (0) the original annotated-`let` shape, plus the layout fact.
+    let t: (&dyn Shape, i64) = (&a, 7i64);
+    if sizeof::<(&dyn Shape, i64)>() != 24i64 { return 90i32; }
+    if t.1 != 7i64 { return 1i32; }
+    if t.0.area() != 16i64 { return 2i32; }
+    // dyn in the SECOND slot, and a different impl behind the same trait.
+    let b: Tri = Tri { b: 5i64 };
+    let u: (i64, &dyn Shape) = (3i64, &b);
+    if u.0 != 3i64 { return 3i32; }
+    if u.1.area() != 105i64 { return 4i32; }
+    // two dyn elements in one literal, mixed cast / no-cast spellings.
+    let w: (&dyn Shape, &dyn Shape) = (&a as &dyn Shape, &b);
+    if w.0.area() != 16i64 { return 5i32; }
+    if w.1.area() != 105i64 { return 6i32; }
+
+    // (1) CALL ARGUMENT — the original bite, was exit 139.
+    if take((&a, 7i64)) != 23i64 { return 10i32; }
+    // (2) NESTED tuple literal — the inner literal is stamped by recursion.
+    let n: ((&dyn Shape, i64), i64) = ((&a, 7i64), 8i64);
+    if n.1 != 8i64 { return 11i32; }
+    if n.0.1 != 7i64 { return 12i32; }
+    if n.0.0.area() != 16i64 { return 13i32; }
+    // (3) FN RETURN.
+    let r: (&dyn Shape, i64) = mk(&a);
+    if r.1 != 7i64 { return 14i32; }
+    if r.0.area() != 16i64 { return 15i32; }
+    // (4) MATCH ARM — the literal is a sub-expression, stamped in place.
+    let k: i64 = 1i64;
+    let a2: Sq = Sq { s: 5i64 };
+    let m: (&dyn Shape, i64) = match k { 1i64 => (&a, 7i64), _ => (&a2, 9i64) };
+    if m.1 != 7i64 { return 16i32; }
+    if m.0.area() != 16i64 { return 17i32; }
+    let m2: (&dyn Shape, i64) = match k { 0i64 => (&a, 7i64), _ => (&a2, 9i64) };
+    if m2.1 != 9i64 { return 18i32; }
+    if m2.0.area() != 25i64 { return 31i32; }
+    // ⚠ NOT SPELLABLE, and not this round's class: arms of DIFFERENT concrete
+    // types (`(&a, …)` vs `(&tri, …)`) are refused by the match arm-compat
+    // check, which runs at match lowering with no expectation in hand
+    // ("arm type '(&Tri, i64)' is incompatible with '(&Sq, i64)'"). The stamp
+    // is downstream of that refusal, so a heterogeneous match still needs the
+    // explicit `as &dyn Shape` in each arm.
+    // (5) IF-EXPRESSION arm — same wrapper walk as the match.
+    let ie: (&dyn Shape, i64) = if k == 1i64 { (&a, 2i64) } else { (&a2, 3i64) };
+    if ie.1 != 2i64 { return 19i32; }
+    if ie.0.area() != 16i64 { return 20i32; }
+    // (6) GENERIC ARGUMENT.
+    let g: (&dyn Shape, i64) = ident::<(&dyn Shape, i64)>((&a, 7i64));
+    if g.1 != 7i64 { return 21i32; }
+    if g.0.area() != 16i64 { return 22i32; }
+    // (7) STRUCT FIELD.
+    let sf: W = W { t: (&a, 7i64) };
+    if sf.t.1 != 7i64 { return 23i32; }
+    if sf.t.0.area() != 16i64 { return 24i32; }
+    // (8) ASSIGNMENT to an already-annotated binding (not a `let`).
+    let mut asg: (&dyn Shape, i64) = (&b, 1i64);
+    asg = (&a, 7i64);
+    if asg.1 != 7i64 { return 25i32; }
+    if asg.0.area() != 16i64 { return 26i32; }
+    // (9) ARRAY OF TUPLES — the array literal's elements are stamped too.
+    let arr: [(&dyn Shape, i64); 2] = [(&a, 1i64), (&a2, 2i64)];
+    if arr[0].1 != 1i64 { return 27i32; }
+    if arr[1].1 != 2i64 { return 28i32; }
+    if arr[0].0.area() != 16i64 { return 29i32; }
+    if arr[1].0.area() != 25i64 { return 30i32; }
+
+    // The PERMISSIVE directions, each of which must stay UNCHANGED.
+    // (a) a concrete element in a concrete slot keeps the thin 8-byte layout.
+    if sizeof::<(&Sq, i64)>() != 16i64 { return 40i32; }
+    let cc: (&Sq, i64) = (&a, 7i64);
+    if cc.0.s + cc.1 != 11i64 { return 41i32; }
+    // (b) an ALREADY-coerced element is not coerced twice.
+    let d: &dyn Shape = &a;
+    if take((d, 5i64)) != 21i64 { return 42i32; }
+    if take((&a as &dyn Shape, 5i64)) != 21i64 { return 43i32; }
+    // (c) an outer dyn slot with a plain inner tuple is untouched.
+    let ot: (&dyn Shape, (i64, i64)) = (&a, (2i64, 3i64));
+    if ot.0.area() + ot.1.0 + ot.1.1 != 21i64 { return 44i32; }
+    return 42i32;
+}

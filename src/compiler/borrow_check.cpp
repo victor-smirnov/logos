@@ -6101,6 +6101,21 @@ private:
                                 !is_materialized_temp_name(n)) { src = n; break; }
                 }
             }
+            // ⚠ MISSING LANGUAGE FEATURE, MEASURED, NOT A DEFECT OF THIS CHECK
+            // (#69 class B — rvalue static promotion). Rust promotes `&<const
+            // literal>` to `'static`; Logos treats the literal's temp as an
+            // ordinary local, so all three of
+            //     fn foo() -> &i64 { let zero: &i64 = &0i64; return zero; }
+            //     fn foo() -> &i64 { return &0i64; }
+            //     fn foo() -> &'static i64 { let z: &'static i64 = &0i64; … }
+            // are refused here — the annotated spelling included, so there is
+            // today no way to write the shape at all. Imported witness:
+            // tests/imported/pass/regions/regions-bot (its sibling
+            // regions/regions-bot-b147 is green and does not need promotion).
+            // The repair belongs at the AddrOfTemp RECORDING path — a temp whose
+            // initializer is a constant expression must be marked promoted so it
+            // never enters the dangling channel — and is a language feature with
+            // its own design surface, not a patch to this report site.
             if (is_temp)
                 report(line,
                     "cannot return reference to temporary value: dangling reference");
@@ -8474,9 +8489,30 @@ private:
             }
 
             // ── Expression statement ─────────────────────────────────────
-            case Code::ExprStmt:
-                visit(SExprStmtView{sr}.expr(), /*consuming=*/true, ln);
+            case Code::ExprStmt: {
+                auto ex = SExprStmtView{sr}.expr();
+                visit(ex, /*consuming=*/true, ln);
+                // #69 class A: a statement whose expression has type `!` does
+                // not fall through — `my_panic();` ends the block exactly as
+                // `return;` does (Code::Return above sets the same flag). Before
+                // this arm `cur_diverged_` was set by Return/break/continue ONLY,
+                // so visit_loop_body's `bottom_reachable = !cur_diverged_` was
+                // true for a body ending in a `-> !` call, the body-bottom state
+                // (with the loop's non-Copy binding moved and its re-init having
+                // left via `continue`) crossed the back edge, and pass 2 refused
+                // a move that no iteration can reach. Witness:
+                // tests/logos/pass/bc_loop_bot_divergent_call_admit.logos.
+                // ⚠ PERMISSIVE DIRECTION, so the condition is exactly `!` and
+                // nothing wider — the two refuse-side pins named in that
+                // fixture's header hold the non-diverging tail and the
+                // `continue`-without-reinit path refusing.
+                if (ex) {
+                    auto ety = ex.type(pool);
+                    if (ety && ety.kind() == LogosType::Kind::Never)
+                        cur_diverged_ = true;
+                }
                 break;
+            }
 
             // ── Field write: recv.field = value ──────────────────────────
             case Code::FieldWrite: {

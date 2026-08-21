@@ -1,0 +1,30 @@
+// #69 class A, REFUSE HALF 2 of 2 — the OTHER back-edge channel, controlled.
+//
+// The `-> !` tail IS present, so the new ExprStmt divergence arm in
+// borrow_check.cpp fires and the fall-through bottom no longer crosses the back
+// edge. The refusal must still stand, because the `continue` path — collected
+// separately as frame1.continue_states in visit_loop_body — carries `g` moved:
+// this body dropped the `g = S { … };` re-init that the admit twin
+// (tests/logos/pass/bc_loop_bot_divergent_call_admit.logos) performs before its
+// `continue`.
+//
+// Without this pin, a repair that suppressed the whole back edge on divergence
+// (rather than only the fall-through arm) would look green.
+package bc_loop_bot_divergent_no_reinit_refuse;
+use logos.mem.string;
+struct S { s: String }
+fn my_panic() -> ! { loop { } }
+fn step(f: bool) -> i64 {
+    let mut g: S = S { s: String::new() };
+    let mut i: i64 = 0i64;
+    let mut n: i64 = 0i64;
+    loop {
+        if i > 3i64 { break; } else { i = i + 1i64; }
+        let _g: S = g;
+        n = n + 1i64;
+        if f { continue; }
+        my_panic();
+    }
+    return n;
+}
+fn main() -> i32 { if step(true) != 4i64 { return 1i32; } return 0i32; }

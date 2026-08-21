@@ -1,0 +1,21 @@
+// #95/M2 — THE OWNING SLOT WAS NOT A NARROWING, IT WAS A CRASH. The first cut
+// of #95 exempted `Box<dyn Trait>` slots from the refusal ("no probe in this
+// round measured it") and disclosed the exemption as unmeasured. Measured, this
+// exact program compiled and SIGSEGVed (rc 139): `t` is typed `(Box<Sq>, i64)`
+// — a 16-byte pair — and `take` reads a 24-byte one, dispatching through a
+// vtable half that is really the `7i64`.
+// The value is HOISTED into `t` before the call, so there is no literal at the
+// coercion site to carry the expectation, and an aggregate slot is not itself a
+// coercion site. The twin that DOES coerce — the same program with the tuple
+// built at the call — is tests/logos/pass/aggregate_unsize_boxdyn_literal_admit.logos.
+package aggregate_unsize_boxdyn_hoisted;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (Box<dyn Shape>, i64)) -> i64 { return t.0.area() + t.1; }
+fn main() -> i32 {
+  let b: Box<Sq> = Box::new(Sq { s: 4i64 });
+  let t = (b, 7i64);
+  if take(t) != 23i64 { return 1i32; }
+  return 42i32;
+}

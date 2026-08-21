@@ -1,0 +1,19 @@
+// #95/M3, THE PERMISSIVE TWIN OF THE ENUM ADMIT. The enum literal is now
+// STAMPED at a coercion site, so the impl question must be asked on that path
+// too — otherwise the fix would have converted a wrong answer into a vtable
+// call through uninitialised memory. Same rule, same words, as the tuple slot's
+// (tests/logos/fail/tuple_dyn_element_no_impl.logos): the element is refused
+// where the aggregate is BUILT.
+package aggregate_unsize_enum_lit_noimpl;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(o: Option<&dyn Other>) -> i64 {
+  match o { Some(d) => { return d.tag(); }, None => { return 0i64; } }
+}
+fn main() -> i32 {
+  let a: Sq = Sq { s: 4i64 };
+  if take(Some(&a)) != 16i64 { return 1i32; }
+  return 42i32;
+}

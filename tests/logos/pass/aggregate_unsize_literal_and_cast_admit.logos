@@ -1,0 +1,81 @@
+// #95 ADMIT HALF — the twin of tests/logos/fail/aggregate_unsize_needs_cast_*.
+// #95 refuses a value ALREADY TYPED as a thin aggregate arriving where the fat
+// one is wanted. It must NOT touch the three things that legitimately coerce,
+// and the distinction is ORDER, not a type test:
+//   • an aggregate LITERAL at a coercion site — `retype_aggregate_lit_to`
+//     stamps the expected type onto it from `coerce_arg_to_param`, BEFORE the
+//     refusal runs, so by then `actual == expected`. This is Rust's rule too
+//     (an expectation propagates INTO a literal at a coercion site).
+//   • the EXPLICIT `as &dyn Trait` spelling — already fat, nothing to unsize.
+//   • the SCALAR `&Concrete` → `&dyn Trait` unsize — a coercion site in its own
+//     right, and the refusal only ever fires at an aggregate SLOT.
+// Every line below was MEASURED on the pre-#95 binary; the two marked NEW were
+// rc=139 there and are green only because #95's enum-payload guard change also
+// let the LITERAL reach its stamp.
+package test;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+struct Tri { b: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+impl Shape for Tri { fn area(&self) -> i64 { return self.b + 100i64; } }
+
+struct W { t: (&dyn Shape, i64) }
+struct G<T> { v: T }
+enum E { Some((&dyn Shape, i64)), None }
+
+fn take(t: (&dyn Shape, i64)) -> i64 { return t.0.area() + t.1; }
+fn takearr(t: [&dyn Shape; 2]) -> i64 { return t[0].area() + t[1].area(); }
+fn takeone(d: &dyn Shape) -> i64 { return d.area(); }
+fn takeraw(t: (*const dyn Shape, i64)) -> i64 { return t.1; }
+
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let b: Tri = Tri { b: 5i64 };
+
+    // (1) TUPLE LITERAL at a call — stamped, still coerces.
+    if take((&a, 7i64)) != 23i64 { return 1i32; }
+    // (2) ARRAY LITERAL at a call.
+    if takearr([&a, &b]) != 121i64 { return 2i32; }
+    // (3) EXPLICIT cast, hoisted through a binding — already fat.
+    let ct: (&dyn Shape, i64) = (&a as &dyn Shape, 7i64);
+    if take(ct) != 23i64 { return 3i32; }
+    // (4) SCALAR unsize, both spellings — never an aggregate slot.
+    let d: &dyn Shape = &a;
+    if takeone(d) != 16i64 { return 4i32; }
+    if takeone(&a) != 16i64 { return 5i32; }
+    // (5) a PLAIN struct FIELD whose declared type is the fat tuple, from a
+    //     literal — the field type comes from the declaration, so the stamp has
+    //     an expectation to work with.
+    let w: W = W { t: (&a, 7i64) };
+    if w.t.0.area() + w.t.1 != 23i64 { return 6i32; }
+    // (6) NEW — enum payload from a LITERAL. rc=139 before #95: the payload
+    //     site only entered `expect_type` when `!types_compatible(...)`, and
+    //     types_compatible is exactly what blanket-accepted the pair, so the
+    //     stamp was never reached either.
+    let e: E = E::Some((&a, 7i64));
+    match e {
+        E::Some(u) => { if u.0.area() + u.1 != 23i64 { return 7i32; } },
+        E::None => { return 8i32; }
+    }
+    // (7) generic struct field, EXPLICIT cast — the instance types agree, so
+    //     the type-argument arm of the walk finds nothing to refuse.
+    let g: G<(&dyn Shape, i64)> = G { v: (&a as &dyn Shape, 7i64) };
+    if g.v.0.area() + g.v.1 != 23i64 { return 9i32; }
+    // (7b) a `*const dyn Trait` SLOT is the SAME fat pair, not a thin handle —
+    //      the rationale the tuple emitter used to give for excluding raw dyn
+    //      pointers was false in both halves (MEASURED: sizeof of the raw dyn
+    //      pointer is 16, of this tuple 24, and the slot canonicalises to
+    //      Kind::TraitObject). The refusal covers it too — see the note in
+    //      tests/logos/fail/aggregate_unsize_needs_cast_tuple.logos.
+    if sizeof::<*const dyn Shape>() != 16i64 { return 14i32; }
+    if sizeof::<(*const dyn Shape, i64)>() != 24i64 { return 15i32; }
+    if takeraw((&a as &dyn Shape, 7i64)) != 7i64 { return 16i32; }
+    // (8) ALREADY-FAT siblings: a fat element in a literal is not coerced twice,
+    //     and a thin CONCRETE aggregate keeps its thin layout.
+    if take((d, 5i64)) != 21i64 { return 10i32; }
+    if sizeof::<(&Sq, i64)>() != 16i64 { return 11i32; }
+    if sizeof::<(&dyn Shape, i64)>() != 24i64 { return 12i32; }
+    let cc: (&Sq, i64) = (&a, 7i64);
+    if cc.0.s + cc.1 != 11i64 { return 13i32; }
+    return 42i32;
+}

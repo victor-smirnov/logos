@@ -3085,9 +3085,155 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7398
-REGISTRY-NOIMPORTED  3715
+REGISTRY-ALL         7424
+REGISTRY-NOIMPORTED  3741
 REGISTRY-TIERCOMMIT  36
+# 2026-08-21 (#95 diagnostic RE-SPELLING — the aggregate-slot refusal stopped
+# impersonating the type-mismatch verdict. The two new emitters spelled
+# `expected {}, got {}`, which scripts/lint-mismatch-monopoly.sh reserves for
+# SemaChecker::expect_type — it counted three emitters and redded L4. The lint's
+# ground is that a position wanting to reject must route through the JUDGMENT,
+# not re-implement its verdict; and this refusal is a DIFFERENT verdict (the
+# types are not merely unequal — the slot is not a coercion site and the trait
+# is not implemented, so the element's vtable half would be uninitialised).
+# Re-spelled as `slot type X needs an unsize from Y, but the type does not
+# implement the trait, …`; the lint reads 1 emitter. Three .expected re-aimed
+# under the RE-SPELLING rule (grep of tests/ + *.sh + CMakeLists.txt returned
+# exactly these three, all fixture text, no gate pattern):
+#   tests/logos/fail/aggregate_unsize_enum_literal_no_impl.expected
+#   tests/logos/fail/aggregate_unsize_boxdyn_wrong_trait_fail.expected
+#   tests/logos/fail/tuple_dyn_element_no_impl.expected
+# No fixture added or removed; the registry counts are unchanged by this note.
+# 2026-08-21 (#95 M1/M2/M3 — the three LIVE CRASHES the #95 round's OWN VERIFY
+# found inside the #95 landing. All three were in find_uncoerced_aggregate_slot
+# or its callers, and all three were the PERMISSIVE direction of a question
+# whose `true` is a refusal.
+#   M1 the DEPTH CAP admitted on exhaustion — `depth > 8 -> return false` said
+#      "no uncoerced slot" when it had merely stopped looking; depth >= 9
+#      compiled and SIGSEGVed (rc 139) and the cap also defeated the impl check
+#      at depth. Replaced by a NODE BUDGET whose exhaustion REFUSES, plus an
+#      `expected == actual` short-circuit so ordinary code never reaches it.
+#   M2 the OWNING `Box<dyn>` slot was EXEMPTED as "unmeasured, narrow on
+#      purpose"; measured it was rc 139 in three shapes. The literal half now
+#      COERCES (the annotated spelling already lowered correctly, which is what
+#      settled the decision) and the hoisted half REFUSES.
+#   M3 the generic-instance arm was guarded Struct-and-Struct, so an ENUM
+#      instance was never walked: `Option<&Sq>` against `Option<&dyn Shape>`
+#      compiled and returned the WRONG ANSWER, wrong-trait included. The arm now
+#      covers Enum, its type-arg recursion passes at_slot, and an enum LITERAL
+#      is stamped at a coercion site like a tuple/array one.)
+# PREDICTED +13/+13/0 (7411/3728/36 -> 7424/3741/36) before the reconfigure and
+# MET exactly. THIRTEEN new files: ten fail, three pass.
+#   M1 tests/logos/fail/aggregate_unsize_deep_nesting_fail.logos      (was 139)
+#      tests/logos/fail/aggregate_unsize_deep_wrong_trait_fail.logos  (was 139)
+#      tests/logos/fail/aggregate_unsize_deep_array_fail.logos        (was 139)
+#      tests/logos/fail/aggregate_unsize_budget_exhausted.logos       (fires the
+#        exhaustion arm itself: an alias-doubled 2^11-slot type)
+#      tests/logos/pass/aggregate_unsize_deep_nesting_admit.logos     (the SAME
+#        depth, built at the coercion site, so it coerces)
+#   M2 tests/logos/fail/aggregate_unsize_boxdyn_hoisted_fail.logos    (was 139)
+#      tests/logos/fail/aggregate_unsize_boxdyn_hoisted_array_fail.logos (139)
+#      tests/logos/fail/aggregate_unsize_boxdyn_wrong_trait_fail.logos (the
+#        owning copy of the permissive twin: `Sq: !Other` used to compile)
+#      tests/logos/pass/aggregate_unsize_boxdyn_literal_admit.logos   (was 139;
+#        pins BOTH the call-site literal and the annotated binding)
+#   M3 tests/logos/fail/aggregate_unsize_enum_instance_fail.logos     (was a
+#        WRONG ANSWER, rc 1)
+#      tests/logos/fail/aggregate_unsize_enum_wrong_trait_fail.logos  (compiled)
+#      tests/logos/fail/aggregate_unsize_enum_literal_no_impl.logos   (the enum
+#        copy of the permissive twin, opened BY the M3 admit and closed with it)
+#      tests/logos/pass/aggregate_unsize_enum_literal_admit.logos     (was rc 1)
+# 2026-08-21 (#95 — THE ROOT of the #68 class: `types_compatible`'s
+# "Struct -> &dyn Trait coercion (impl check deferred to codegen)" arm is a
+# BLANKET ACCEPT, and the Tuple / Array / generic-instance arms walk an
+# aggregate ELEMENTWISE into it, so a value already typed as the thin aggregate
+# is accepted where the fat one is wanted and NO coercion is ever attempted).
+# PREDICTED +7/+7/0 (7404/3721/36 -> 7411/3728/36) before the reconfigure and MET
+# exactly. SEVEN new files: six fail, one pass.
+#   tests/logos/fail/aggregate_unsize_needs_cast_tuple.logos          (was 139)
+#   tests/logos/fail/aggregate_unsize_needs_cast_array.logos          (was 112 —
+#     a WRONG ANSWER, not a segfault: same root, different crash shape)
+#   tests/logos/fail/aggregate_unsize_needs_cast_enum_payload.logos   (was 139)
+#   tests/logos/fail/aggregate_unsize_needs_cast_generic_field.logos  (was 139)
+#   tests/logos/fail/aggregate_unsize_needs_cast_wrong_trait.logos    — the
+#     PERMISSIVE twin's hoisted half; fail/tuple_dyn_element_no_impl closed only
+#     the literal half, which reached a stamp attempt. This one needs no impl
+#     question at all.
+#   tests/logos/fail/aggregate_unsize_generic_field_literal_overrefusal.logos —
+#     ⚠ PINS AN OVER-REFUSAL ON PURPOSE. Rust accepts it; Logos does not
+#     propagate the expectation through a generic struct literal's field, so no
+#     literal is in reach where the mismatch surfaces. It ran rc=139 before, so
+#     the refusal is strictly better than what it replaces; the fix is an
+#     inference change, filed as TASK #96, and this test GOES RED when it lands.
+#   tests/logos/pass/aggregate_unsize_literal_and_cast_admit.logos — the admit
+#     half, eight groups: the literal at a coercion site (tuple + array), the
+#     explicit `as &dyn` hoisted, the SCALAR unsize in both spellings, a plain
+#     struct field from a literal, an enum payload from a LITERAL (rc=139 before
+#     #95 — the payload site guarded its `expect_type` with the very
+#     `types_compatible` that blanket-accepted the pair, so neither the stamp nor
+#     the refusal was reachable), a generic field with an explicit cast, and the
+#     already-fat / thin-concrete siblings with their sizeof facts (16 vs 24).
+# 2026-08-21 (#68 CLASS — an aggregate LITERAL's slot types have no second
+# source, so the `&Concrete` -> `&dyn Trait` unsize had to be recorded on the
+# LITERAL at the coercion site), PREDICTED +2/+2/0 (7402/3719/36 -> 7404/3721/36)
+# before the reconfigure and MET exactly. TWO new files, not three: the third
+# fixture of the round, tests/logos/pass/tuple_dyn_element_implicit.logos, was
+# already in the 7402 baseline (the earlier, let-only spelling of the fix added
+# it) and is EXTENDED here rather than added — it now carries the eight contexts
+# the verify measured, each asserting a runtime value.
+#   tests/logos/pass/array_dyn_element_implicit.logos  — the ARRAY half of the
+#     class: call argument (was 176), struct field (was 139) and assignment (was
+#     139), with `let` / `return` kept as the pair that was ALREADY green and is
+#     the reason the earlier round concluded "arrays are safe".
+#   tests/logos/fail/tuple_dyn_element_no_impl.logos   — the PERMISSIVE twin
+#     this round's own probe found: a `&dyn Other` slot fed a `&Sq` that does not
+#     implement Other USED TO COMPILE to an object file, because types_compatible
+#     blanket-accepts Struct -> TraitObject and defers the impl check to codegen,
+#     which in the aggregate case never runs (nothing attempts the coercion).
+# 2026-08-21 (#69 class A — a loop body whose fall-through bottom is a `-> !`
+# CALL was treated as reaching the back edge), PREDICTED +3/+3/0
+# (7399/3716/36 -> 7402/3719/36) before the reconfigure and MET exactly. One
+# admit and TWO refuses, because the repair moves the borrow checker in the
+# PERMISSIVE direction and one refuse cannot separate the two back-edge
+# channels:
+#   tests/logos/pass/bc_loop_bot_divergent_call_admit.logos — the admit. Control
+#     revert of src/compiler/borrow_check.cpp: rc 1, "use of moved value 'g'".
+#   tests/logos/fail/bc_loop_bot_plain_call_refuse.logos — the arm's CONDITION.
+#     Same body, tail call returns `i64` instead of `!`: the bottom does reach
+#     the back edge and the refusal stands.
+#   tests/logos/fail/bc_loop_bot_divergent_no_reinit_refuse.logos — the OTHER
+#     channel. The `-> !` tail is present (so the new arm fires) but the
+#     `continue` path drops the re-init, so frame1.continue_states still carries
+#     the move and the refusal stands. A repair that suppressed the whole back
+#     edge on divergence, not just the fall-through arm, would look green
+#     without this one.
+# The imported red this closes —
+# tests/imported/pass/for-loop-while/loop-no-reinit-needed-post-bot-b145.logos —
+# is outside every gate, which is why it survived; the admit fixture is the
+# gated copy of its shape.
+# 2026-08-21 (#68 — a `&dyn` TUPLE ELEMENT with no explicit `as &dyn` cast:
+# SIGSEGV, not a diagnostic), PREDICTED +1/+1/0 (7398/3715/36 -> 7399/3716/36)
+# before the reconfigure and MET exactly. ONE fixture, and the reason there is no
+# refuse twin is stated rather than skipped: this is a CODEGEN repair, not a
+# checker rule — the defective spelling was already ACCEPTED by sema and the
+# borrow checker and then miscompiled, so there is no refusal to pair with. The
+# pair that does the separating work here is admit×admit across the two
+# SPELLINGS, and the second half already existed:
+#   tests/logos/pass/tuple_dyn_element_implicit.logos — NEW. `(&a, 7i64)` at type
+#     `(&dyn Shape, i64)`, plus dyn in the SECOND slot and a two-dyn literal
+#     mixing the cast and no-cast spellings. Bite-proven: on the control build
+#     (the one-arm revert of src/compiler/mlir_gen_expr.cpp) it exits 139, and on
+#     the fixed build 42.
+#   tests/logos/pass/tuple_dyn_element_inline.logos — PRE-EXISTING, unchanged.
+#     Pins `(&a as &dyn Shape, 7i64)`, and it is GREEN ON THE CONTROL BUILD too.
+#     That is what makes the pair informative: the corpus pinned the cast
+#     spelling and left the implicit-coercion spelling unpinned, and the delta
+#     between the two fixtures on one control build is exactly the missing arm.
+# The arm added to gen_expr_kind(ETupleLitView) in src/compiler/mlir_gen_expr.cpp
+# is the one gen_arr_lit already carries per array element in
+# src/compiler/mlir_gen.cpp (peel Ref/MutRef/Ptr -> TraitObject,
+# concrete_struct_name, coerce_to_dyn, then a 16-byte MemcpyOp into the slot GEP
+# — an 8-byte store would leave the vtable half uninitialised).
 # 2026-08-21 (#61 D6 — a typeof-container projection in a struct FIELD, an enum
 # PAYLOAD and a TUPLE element), PREDICTED +2/+2/0 (7396/3713/36 -> 7398/3715/36)
 # before the reconfigure and MET exactly. One admit + one refuse, 1 ctest test

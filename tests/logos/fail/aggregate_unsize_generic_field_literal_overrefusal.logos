@@ -1,0 +1,55 @@
+// ⚠ THIS FIXTURE PINS AN OVER-REFUSAL, ON PURPOSE, AND IT IS A RESIDUAL — NOT
+// A RULE. Rust accepts this program: an expectation propagates through a struct
+// literal into its field expression, so `G<(&dyn Shape,i64)>` would bind
+// T = (&dyn Shape,i64) and the tuple literal would be stamped and coerced.
+//
+// Logos does not propagate that expectation. MEASURED: the field's own
+// `expect_type` is called with expected `(&Sq,i64)` — the TypeVar's binding
+// INFERRED FROM THE LITERAL — so there is nothing to stamp, and the mismatch
+// only appears one level out as `G<(&dyn Shape,i64)> <- G<(&Sq,i64)>`, where no
+// literal is in reach any more. #95 refuses it there.
+//
+// ── THE MEASURED WIDTH (re-measured 2026-08-21 on the #95 M1/M2/M3 tree; the
+// probes are /home/logos/sandbox/m123/g/c*.logos, one file per cell) ─────────
+// THIRTEEN cells over-refuse, not the one this file shows. ELEVEN of them are
+// this file's shape — a generic struct literal whose type argument CONTAINS the
+// aggregate — differing only in the CONTEXT the literal sits in, and the walk
+// reports the same `<0>.0`-style slot path in every one:
+//   c01 let-annotation · c02 call arg · c03 fn return · c04 struct field
+//   c05 array element  · c06 tuple element · c07 enum payload · c08 match-arm
+//   c09 assignment     · c10 generic fn arg · c11 nested generic `G<G<T>>`
+// TWO more were added to the class by M3's `at_slot` widening on the type-arg
+// recursion, and they are a STRICT IMPROVEMENT, not a new loss: a MULTI-FIELD
+// generic struct whose type arg is DIRECTLY `&dyn` —
+//   c14 `take(G2 { v: &a, w: 1i64 })` (literal at the call)
+//   c16 `let g: G2<&dyn Shape> = G2 { v: &a, w: 1i64 }` (annotated binding)
+// — were rc 139 SIGSEGV before the widening (CONTROL-MEASURED: revert the
+// at_slot argument to `false`, rebuild, all three spellings compile and crash)
+// and are refusals now.
+//
+// AND THE BOUNDARY, measured in the same sweep — these are NOT over-refused:
+//   • c12/c13, the SINGLE-FIELD `G<&dyn Shape>` in both spellings, COMPILE AND
+//     RUN CORRECTLY (rc 42). `try_struct_unsize_coerce` rebuilds the wrapper
+//     before the walk is ever asked, and it is restricted to the one-field
+//     smart-pointer shape — which is exactly why c14/c16 (two fields) are not
+//     covered by it.
+//   • c15, the HOISTED `G2<&dyn Shape>`, is a CORRECT refusal: no literal at
+//     the coercion site, so there is nothing to carry the expectation.
+// So the residual is bounded by ONE cause, not two: an expectation does not
+// reach a generic struct literal's field. Fixing that closes all thirteen.
+//
+// Before #95 this file COMPILED and ran rc=139, so the refusal is strictly
+// better than what it replaces. The FIX is expectation propagation into a
+// generic struct literal's fields (an inference change), filed as TASK #96;
+// when it lands, THIS TEST GOES RED and must be moved to the pass corpus with
+// the `<0>.0` slot path deleted from the expectation.
+package test;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+struct G<T> { v: T }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let g: G<(&dyn Shape, i64)> = G { v: (&a, 7i64) };
+    return g.v.0.area() as i32;
+}

@@ -1,0 +1,34 @@
+// #95 — THE ROOT OF THE #68 CLASS. `types_compatible`'s "Struct → &dyn Trait
+// coercion (impl check deferred to codegen)" arm is a BLANKET ACCEPT, and the
+// Tuple / Array / generic-instance arms walk an aggregate ELEMENTWISE straight
+// into it. So a value ALREADY TYPED as the thin aggregate is accepted where the
+// fat one is wanted, NO coercion is ever attempted (there is no literal at the
+// use site to stamp), and the consumer reads a fat pair out of a thin one.
+//
+// The answer is REFUSAL, not a wider coercion: Rust does not coerce inside an
+// aggregate value either. What Rust DOES do — propagate an expectation into an
+// aggregate LITERAL at a coercion site — is `retype_aggregate_lit_to`, and it
+// runs BEFORE this refusal, from `coerce_arg_to_param`. That ORDER is the whole
+// distinction: a literal has been stamped by the time the check runs, so only a
+// value with no literal to carry the expectation is refused. The admit half is
+// pinned in tests/logos/pass/aggregate_unsize_literal_and_cast_admit.logos.
+// TUPLE, hoisted through a call argument. Probe /home/logos/sandbox/aggunsize/h_callarg.logos (rc=139).
+// The RAW-POINTER spelling of the same slot is covered by the same arm and was
+// MEASURED refusing identically: `fn take(t: (*const dyn Shape, i64))` fed
+// `let p: *const Sq = &a; let t = (p, 7i64); take(t)` gives
+// "aggregate slot `.0`: expected &dyn Shape, got *const Sq" — a `*const dyn`
+// slot canonicalises to Kind::TraitObject exactly like `&dyn`, and its tuple is
+// 24 bytes wide, NOT the 8-byte handle an older comment claimed
+// (probe z_rawdyn_tuple.logos; the admitting twin is group (7b) of
+// tests/logos/pass/aggregate_unsize_literal_and_cast_admit.logos).
+package test;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn take(t: (&dyn Shape, i64)) -> i64 { return t.0.area() + t.1; }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let t = (&a, 7i64);          // t : (&Sq, i64) — 16 bytes, no literal at the call
+    return take(t) as i32;       // callee reads 24 — MEASURED rc=139 before #95
+}

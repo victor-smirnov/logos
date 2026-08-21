@@ -1,0 +1,1 @@
+aggregate slot `[]`: expected &dyn Shape, got Box<Sq>

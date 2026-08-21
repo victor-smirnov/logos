@@ -1,0 +1,31 @@
+// #95 — THE ROOT OF THE #68 CLASS. `types_compatible`'s "Struct → &dyn Trait
+// coercion (impl check deferred to codegen)" arm is a BLANKET ACCEPT, and the
+// Tuple / Array / generic-instance arms walk an aggregate ELEMENTWISE straight
+// into it. So a value ALREADY TYPED as the thin aggregate is accepted where the
+// fat one is wanted, NO coercion is ever attempted (there is no literal at the
+// use site to stamp), and the consumer reads a fat pair out of a thin one.
+//
+// The answer is REFUSAL, not a wider coercion: Rust does not coerce inside an
+// aggregate value either. What Rust DOES do — propagate an expectation into an
+// aggregate LITERAL at a coercion site — is `retype_aggregate_lit_to`, and it
+// runs BEFORE this refusal, from `coerce_arg_to_param`. That ORDER is the whole
+// distinction: a literal has been stamped by the time the check runs, so only a
+// value with no literal to carry the expectation is refused. The admit half is
+// pinned in tests/logos/pass/aggregate_unsize_literal_and_cast_admit.logos.
+// GENERIC STRUCT FIELD. The mismatch surfaces on the INSTANCE, not the field:
+// MEASURED, the field's own `expect_type` sees `(&Sq,i64) <- (&Sq,i64)` (the
+// field type is the TypeVar's inferred binding), and only `G<(&dyn Shape,i64)>
+// <- G<(&Sq,i64)>` carries the question — hence the type-argument arm of the
+// walk, and the `<0>` in the slot path. Probe h_genfield.logos (rc=139).
+package test;
+trait Shape { fn area(&self) -> i64; }
+trait Other { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+struct G<T> { v: T }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let t = (&a, 7i64);
+    let g: G<(&dyn Shape, i64)> = G { v: t };
+    return g.v.0.area() as i32;
+}

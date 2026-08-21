@@ -1,0 +1,64 @@
+// The ARRAY half of the #68 class, and the reason "arrays are safe because the
+// probes passed" was wrong. An array literal's element type has no second
+// source either: gen_arr_lit reads `logos_elem` off the LITERAL NODE's type, and
+// the struct-FIELD array path in gen_struct_lit reads the same. Only the `let`
+// annotation and the `return` position used to fix that type up, so MEASURED on
+// the binary that carried the tuple-only fix: call argument 176, assignment 139,
+// struct field 139 — `let` and `return` green, which is exactly the pair the
+// earlier round probed.
+//
+// Two mechanisms meet here, one per phase, and both are exercised below:
+//   sema   — SemaChecker::retype_aggregate_lit_to stamps the expected array type
+//            onto the literal, at expect_type → coerce_arg_to_param;
+//   mlir    — the per-element unsize is the ONE shared coerce_value_to_dyn_if_needed
+//            (gen_arr_lit, the struct-field array path, and the tuple arm).
+package test;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+
+struct W { t: [&dyn Shape; 2] }
+
+fn take(t: [&dyn Shape; 2]) -> i64 { return t[0].area() + t[1].area(); }
+fn mk(a: &Sq, b: &Sq) -> [&dyn Shape; 2] { return [a, b]; }
+
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let b: Sq = Sq { s: 3i64 };
+    // (0) annotated `let` — green before this round, kept as the control.
+    let l: [&dyn Shape; 2] = [&a, &b];
+    if l[0].area() != 16i64 { return 1i32; }
+    if l[1].area() != 9i64 { return 2i32; }
+    // (1) CALL ARGUMENT — was exit 176.
+    if take([&a, &b]) != 25i64 { return 3i32; }
+    // (2) FN RETURN — green before, kept as the control.
+    let r: [&dyn Shape; 2] = mk(&a, &b);
+    if r[0].area() + r[1].area() != 25i64 { return 4i32; }
+    // (3) STRUCT FIELD — was exit 139; the fix is the mlir-gen inline-array
+    //     field path, which had no unsize at all and memcpy'd 16 bytes out of
+    //     an 8-byte `&Sq`.
+    let w: W = W { t: [&a, &b] };
+    if w.t[0].area() != 16i64 { return 5i32; }
+    if w.t[1].area() != 9i64 { return 6i32; }
+    // (4) ASSIGNMENT to an already-annotated binding — was exit 139.
+    let mut q: [&dyn Shape; 2] = [&b, &b];
+    q = [&a, &b];
+    if q[0].area() != 16i64 { return 7i32; }
+    if q[1].area() != 9i64 { return 8i32; }
+    // (5) the explicit-cast spelling of the same field, which was ALREADY green
+    //     — it is what proved the implicit half was a coercion defect and not a
+    //     struct-field layout defect.
+    let wc: W = W { t: [&a as &dyn Shape, &b as &dyn Shape] };
+    if wc.t[1].area() != 9i64 { return 9i32; }
+    // (6) PERMISSIVE: a concrete element array keeps the thin layout.
+    let c: [&Sq; 2] = [&a, &b];
+    if c[0].s + c[1].s != 7i64 { return 10i32; }
+    // ⚠ NOT PINNED HERE, a SEPARATE defect measured in this round: an array
+    // literal used as a MATCH-ARM or IF-BRANCH value is miscompiled with NO dyn
+    // involved at all —
+    //     let m: [i64; 2] = match k { 1i64 => [7i64, 8i64], _ => [1i64, 2i64] };
+    // reads m[0] == 1, and the `&dyn` spelling SIGSEGVs in BOTH the implicit and
+    // the explicit-cast form (so it is not this class). The tuple twin of the
+    // same shape is green and IS pinned, in tuple_dyn_element_implicit.logos.
+    return 42i32;
+}
