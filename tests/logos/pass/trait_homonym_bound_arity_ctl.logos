@@ -1,0 +1,11 @@
+// #100 HALF A CONTROL. Byte-identical to trait_homonym_bound_arity.logos
+// except the trait name COLLIDES WITH NOTHING (`ZqBorrowUnique` is in no
+// stdlib package). It isolates the homonym as the variable: this twin was
+// GREEN throughout, before and after the fix, so a red on the sibling is the
+// name collision and not the shape of the program.
+package test;
+trait ZqBorrowUnique { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ZqBorrowUnique for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn viag<T2: ZqBorrowUnique>(x: &T2) -> i64 { return x.zqtag(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

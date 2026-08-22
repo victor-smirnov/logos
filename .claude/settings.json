@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(ctest: *)",
-      "Bash(*)"
+      "Bash(*)",
+      "Bash(rm:*)",
+      "Bash(rm -rf:*)",
+      "Bash(git worktree remove:*)",
+      "Bash(find:*)"
     ]
   }
 }

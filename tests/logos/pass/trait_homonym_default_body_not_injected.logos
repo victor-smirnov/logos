@@ -1,0 +1,41 @@
+// #100 HALF C — THE BODY-INJECTION CHANNEL, and the reason it was the priority.
+//
+// `collect_impl` resolved the impl's trait with `find_trait_iter_scoped` (so it
+// registered the USER trait's method list) while `lower_impl_block` resolved it
+// with a BARE `traits_.find(trait_name)` (so it read the STDLIB homonym). The
+// two disagreeing meant lower_impl_block walked the STDLIB trait's methods and
+// synthesised every default-bodied one it did not find overridden INTO THE
+// USER'S IMPL — stdlib source text lowered against user types, across a package
+// boundary, from a file that never mentions it.
+//
+// MEASURED on this exact shape before the fix (`nm -C` of the object):
+//     T ZqH__is_empty                    ← the stdlib ExactSizeIterator default
+//     T test.ZqH__len__f__ref_ZqH        ← the only fn this file declares
+// Note the injected symbol is not merely extra: it is emitted UNQUALIFIED and
+// UNMANGLED, with no package prefix and no `__f__sig` suffix, so two packages
+// doing this collide at the LINKER.
+// With `trait Datum` the injected body did not even compile, and the
+// diagnostic pointed at LINE 89 OF A 6-LINE FILE:
+//     t_Datum.logos:89: error [fn ZqH__from_datum]: unknown type 'DView'
+//
+// ⚠ THIS FIXTURE DOES NOT BITE, AND SAYING SO IS THE POINT. MEASURED on the
+// pre-fix compiler it is GREEN: the stdlib `is_empty` default was lowered and
+// EMITTED, but `collect_impl` (already scoped) never registered it for method
+// resolution, so nothing in .logos source could call it and no `.expected`
+// could see it. The biting admit for this half is
+// pass/trait_homonym_default_body_datum.logos (pre-fix: a hard error at line
+// 89 of a six-line file); the biting assertion about the EMITTED SYMBOL is the
+// gate logos_00_trait_homonym_no_injected_symbol, because an object file's
+// symbol table is not something a fixture can read. This file is kept as the
+// regression guard for the day the collect side also goes bare.
+//
+// WHAT IT DOES ASSERT: THE USER'S BODY RAN. `len()` is declared and implemented
+// HERE and nowhere else; 20 + 7 = 27 is this file's arithmetic. The stdlib
+// `ExactSizeIterator::is_empty` default (`return self.len() == 0`) would have
+// been attached to `ZqH` alongside it; the companion fail fixture
+// trait_homonym_default_body_injected_fail.logos pins that it is NOT.
+package test;
+trait ExactSizeIterator { fn len(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ExactSizeIterator for ZqH { fn len(&self) -> i64 { return self.w + 7i64; } }
+fn main() -> i32 { let h = ZqH{w:20i64}; return h.len() as i32; }

@@ -1,0 +1,22 @@
+// #100 HALF B, THE PERMISSIVE HALF, PINNED IN THE ABUSE DIRECTION.
+//
+// `read_trait_bound_args` set `TraitBound::is_fn_family` by BARE NAME, and
+// `check_trait_bounds_well_formed` skips every `is_fn_family` bound outright
+// (`if (b.is_fn_family) continue;`). So a user `trait FnMut<A>` — one type
+// parameter — used as the bound `T2: FnMut` with ZERO type args was not
+// refused; it was NEVER CHECKED. MEASURED on the pre-fix compiler:
+//     this file  rc=0 (admitted, no diagnostic)
+//     the _ctl twin (same shape, name `ZqFnMutUnique`)  rc=1, arity refused
+// Two programs differing only in whether the trait name collides with
+// `logos.lang.ops`, and only one of them was checked at all.
+//
+// ⚠ THIS IS THE HALF A ONE-SPELLING PROBE COULD NOT SEE. The `dyn` spelling of
+// the same name was OVER-refusing at the very same moment (see
+// pass/trait_homonym_fn_family_dyn.logos). A cell with one refusing and one
+// permissive half gives the wrong verdict whichever single spelling you probe.
+package test;
+trait FnMut<A> { fn zqtag(&self, a: A) -> i64; }
+struct ZqH { w: i64 }
+impl FnMut<i64> for ZqH { fn zqtag(&self, a: i64) -> i64 { return self.w + a; } }
+fn viag<T2: FnMut>(x: &T2) -> i64 { return 1i64; }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

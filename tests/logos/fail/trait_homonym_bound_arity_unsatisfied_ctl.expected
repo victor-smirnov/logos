@@ -1,0 +1,1 @@
+type 'ZqNo' does not implement trait 'ZqBorrowUnique' required by parameter 'T2'

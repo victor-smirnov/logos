@@ -1,0 +1,21 @@
+// #100 HALF C — THE BITING ADMIT for the body-injection channel.
+//
+// `lower_impl_block` resolved this impl's trait with a BARE `traits_.find`,
+// read the STDLIB `logos.lang.writ::Datum`, and synthesised ITS default-bodied
+// methods (`datum_meta`, `as_datum`, `from_datum`) into this impl. MEASURED on
+// the pre-fix compiler, from this six-line program:
+//     trait_homonym_default_body_datum.logos:89: error [fn ZqH__from_datum]:
+//         unknown type 'DView'
+// LINE 89 OF A SIX-LINE FILE, naming a function and a type this file does not
+// contain — stdlib source lowered against a user type across a package
+// boundary. `unknown type 'DView'` is only the shape that happened to fail to
+// compile; the same channel with `ExactSizeIterator` compiled cleanly and
+// emitted `T ZqH__is_empty` (see logos_00_trait_homonym_no_injected_symbol).
+//
+// THE ADMIT PROVES THE USER'S BODY RAN: `zqtag` is declared and implemented
+// HERE and nowhere else, and 20 + 7 = 27 is this file's arithmetic.
+package test;
+trait Datum { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl Datum for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn main() -> i32 { let h = ZqH{w:20i64}; return h.zqtag() as i32; }

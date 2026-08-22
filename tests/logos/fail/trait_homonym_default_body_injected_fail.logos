@@ -1,0 +1,18 @@
+// #100 HALF C, THE REFUSE HALF. The user's `trait ExactSizeIterator` declares
+// exactly ONE method. The stdlib homonym also carries a DEFAULT-BODIED
+// `is_empty`, which lower_impl_block used to synthesise onto `ZqH`. If that
+// injection ever comes back, `ZqH` acquires a method this file never wrote and
+// this call COMPILES — so the refusal below is the assertion.
+// ⚠ AND IT DID NOT BITE THE DEFECT AS SHIPPED. MEASURED pre-fix: GREEN. The
+// injected `ZqH__is_empty` was emitted into the object but never entered method
+// resolution, so the call below was refused on the broken compiler too. This
+// pins the SECOND door of the same channel — a future change that also takes
+// the collect side bare would make the injected method callable — and it is
+// recorded here as a guard, not as evidence that the fix works.
+// ⚠ THE DIRECTION MATTERS: this file is red-when-broken by ADMITTING, which is
+// why it is a fail fixture and not a pass one.
+package test;
+trait ExactSizeIterator { fn len(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ExactSizeIterator for ZqH { fn len(&self) -> i64 { return self.w + 7i64; } }
+fn main() -> i32 { let h = ZqH{w:20i64}; if h.is_empty() { return 1; } return 0; }

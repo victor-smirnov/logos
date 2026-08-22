@@ -1442,6 +1442,35 @@ set_tests_properties(logos_00_one_scheduler_lint PROPERTIES
     LABELS  "logos;lint;suite_lint;tier_commit"
 )
 
+# ── A STDLIB DEFAULT METHOD BODY MAY NOT BE LOWERED INTO A USER IMPL ───────
+# #100 half C. `lower_impl_block` resolved an impl's trait with a BARE
+# `traits_.find(trait_name)` while `collect_impl` resolved it scope-aware, so a
+# user `trait ExactSizeIterator` meant two different traits to the two halves:
+# collect registered the USER's method list, lower walked the STDLIB homonym's
+# and synthesised its default-bodied methods into the user's impl. MEASURED
+# before the fix, from a five-line program:  `T ZqH__is_empty` — an UNQUALIFIED,
+# UNMANGLED global, beside `test.ZqH__len__f__ref_ZqH` which carries both.
+#
+# This is a GATE and not a fixture because the fact is about the OBJECT FILE. A
+# body that compiles leaves nothing a `.expected` can read: the injected method
+# never entered method resolution, so no .logos source could call it, and both
+# corpus fixtures for this half are GREEN on the broken compiler (they say so in
+# their own headers). It leaves a symbol, and `nm` is the only reader.
+#
+# Held in the abuse direction by its own FACT 0: a collision-free control must
+# compile AND show its own package-qualified `len`, so "no injected symbol" can
+# never be reached by measuring nothing. ~1 s, two compiles, so tier_commit.
+add_test(
+    NAME logos_00_trait_homonym_no_injected_symbol
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/trait_homonym_symbol_gate.sh
+            $<TARGET_FILE:logosc>
+            ${CMAKE_BINARY_DIR}/lib/logos
+)
+set_tests_properties(logos_00_trait_homonym_no_injected_symbol PROPERTIES
+    TIMEOUT 120
+    LABELS  "logos;lint;suite_lint;tier_commit"
+)
+
 # ── THE ROOT COORDINATE HAS ONE DEFINITION, AND ONE MEMBERSHIP ─────────────
 # WG_ROOT_PARENT/KEY/IDX/ORD collapsed four hand-written spellings of the
 # virtual-root coordinate into one definition. That closed the VALUE axis. It

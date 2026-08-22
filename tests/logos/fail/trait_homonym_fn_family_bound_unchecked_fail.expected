@@ -1,0 +1,1 @@
+trait bound 'T2: FnMut': expected 1 type arg(s), got 0

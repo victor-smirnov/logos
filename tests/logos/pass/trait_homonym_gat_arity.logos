@@ -1,0 +1,17 @@
+// #100 RESIDUAL, witnessed by the round's OWN VERIFY after it declared the
+// class closed: `sema.cpp`'s GAT-arity check consulted `traits_` BARE, so a
+// user `trait Datatype` was checked against the STDLIB homonym's associated
+// type (`type View<S: Storage>`, one GAT parameter) and refused with
+//   error [fn g]: associated type 'Datatype::View' expects 1 GAT argument(s), got 0
+// while this file's `_ctl` twin — the same program with the trait renamed —
+// compiled. CONTROL REVERT, measured: put the bare `traits_.find` back, rebuild,
+// and the homonym takes the stdlib's arity again while the twin does not;
+// restore and both agree. The pair discriminates on the NAME, which is the
+// whole claim. Exit 27 is `20 + 7` through the user's own `mk`, so a wrong
+// binding cannot produce it by accident.
+package test;
+trait Datatype { type View; fn mk(&self) -> Self::View; }
+struct ZqH { w: i64 }
+impl Datatype for ZqH { type View = i64; fn mk(&self) -> i64 { return self.w + 7i64; } }
+fn g<T2: Datatype>(x: &T2) -> T2::View { return x.mk(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return g(&h) as i32; }

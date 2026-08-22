@@ -1,0 +1,11 @@
+// #100 HALF A, ABUSE DIRECTION. Resolving the bound to the USER's `Borrow`
+// must not make the bound PERMISSIVE: a type that implements neither trait is
+// still refused, and the diagnostic must name the USER's identity
+// (`test::Borrow`), not the stdlib homonym that owns the bare slot.
+package test;
+trait Borrow { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+struct ZqNo { w: i64 }
+impl Borrow for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn viag<T2: Borrow>(x: &T2) -> i64 { return x.zqtag(); }
+fn main() -> i32 { let n = ZqNo{w:20i64}; return viag(&n) as i32; }

@@ -2265,7 +2265,34 @@ private:
                     // bound — accept and skip the trait-lookup. `?Sized`
                     // (opt-out) isn't grammatically expressible yet.
                     if (b.trait_name == "Sized") continue;
-                    auto [_pkg, ti] = find_trait_by_name(b.trait_name);
+                    // #100: QUALIFIED KEY FIRST, BARE SLOT LAST.
+                    // ⚠ `find_trait_by_name` IS scope-aware — and this sweep
+                    // has NO SCOPE. It runs from `SemaChecker::collect` AFTER
+                    // the module loop sets `cur_package_ = {}` (sema_collect.cpp,
+                    // two statements above the call), so `cur_package_` is empty
+                    // and `cur_imports_` is whatever the LAST module left behind.
+                    // Every probe therefore fell straight through to the bare
+                    // slot, i.e. to whichever homonym registered first — the
+                    // stdlib one. MEASURED: 27 of the 127 stdlib trait names
+                    // (Borrow, Iterator, From, Index, Try, …) refused a 6-line
+                    // user trait of the same name with the STDLIB trait's arity
+                    // ("expected 1 type arg(s), got 0"), while the `dyn` spelling
+                    // of the identical trait compiled and ran — the asymmetry
+                    // that let a dyn-only probe certify this cell as closed.
+                    // The bound already CARRIES the answer: `canonical_trait` is
+                    // the traits_ key the name resolved to IN THE SCOPE WHERE THE
+                    // BOUND WAS WRITTEN, captured by `read_trait_bound_args`
+                    // (B-mv-03), which is the only thing that still knows the
+                    // scope by the time this sweep runs.
+                    // The bare fallback is NOT deleted: a bound built outside
+                    // `read_trait_bound_args` has an empty `canonical_trait`, and
+                    // for it the behaviour is byte-identical to before.
+                    SemaTraitInfo* ti = nullptr;
+                    if (!b.canonical_trait.empty()) {
+                        auto tit = traits_.find(b.canonical_trait);
+                        if (tit != traits_.end()) ti = &tit->second;
+                    }
+                    if (!ti) ti = find_trait_by_name(b.trait_name).second;
                     if (!ti) {
                         ctx_ = std::string(ctx);
                         error(std::format(

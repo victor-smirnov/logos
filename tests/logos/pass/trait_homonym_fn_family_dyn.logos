@@ -1,0 +1,25 @@
+// #100 HALF B — the Fn-family cell, which was HALF-reachable and therefore
+// invisible to a one-spelling probe.
+//
+// `logos.lang.ops` really declares `trait Fn<A...>` / `FnMut` / `FnOnce`, so a
+// user trait of that name is a homonym like any other. Two DIFFERENT bare-name
+// intercepts read it:
+//   · `resolve_type`'s DYN_TYPE arm rewrote `dyn FnMut` to `Kind::Closure`
+//     unconditionally, so this file's own method call died as
+//       error [fn viag]: method call: receiver is not a struct (got || -> void)
+//   · `read_trait_bound_args` set `is_fn_family` by bare name, and
+//     `check_trait_bounds_well_formed` SKIPS every `is_fn_family` bound —
+//     so the GENERIC spelling was not refused, it was NOT CHECKED AT ALL.
+// One refusing half and one permissive half of the same cell: measuring either
+// alone gives the wrong verdict about the other.
+//
+// Both intercepts now fire only while the name resolves to the BARE slot
+// (`canonical_trait_name(n) == n`), which is exactly the B-mv-02 marker for
+// "no colliding user trait took this name in scope". 20 + 7 = 27 is this
+// file's arithmetic, through the `dyn` spelling.
+package test;
+trait FnMut { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl FnMut for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn viag(x: &dyn FnMut) -> i64 { return x.zqtag(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

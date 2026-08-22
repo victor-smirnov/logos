@@ -29,6 +29,41 @@
 # purpose. A number that drifts down on its own is a measurement nobody reads.
 #
 # 41 rows / 44 sites. Cells: O 20, B#98 8, D 6, B#88 3, B#90 2, Q 2.
+#
+# ── ⚠ WHAT THIS LEDGER'S GREEN DOES **NOT** VOUCH FOR — `traits_` (#100) ────
+# MEASURED 2026-08-22: `python3 key_identity_scan.py src/compiler
+# include/logos/compiler | grep -c traits_` → **0**. Not one row. Yet `traits_`
+# held THREE live consult defects, closed under #100:
+#   · sema_decl.cpp lower_impl_block — a BARE `traits_.find(trait_name)` while
+#     collect_impl used find_trait_iter_scoped, so the STDLIB homonym's
+#     DEFAULT METHOD BODIES were lowered into a user impl and EMITTED as
+#     unqualified globals (`T ZqH__is_empty` from a five-line user file).
+#   · sema_impl.hpp check_trait_bounds_well_formed — a scope-aware lookup run
+#     from a sweep with NO SCOPE (`cur_package_ = {}` two statements earlier),
+#     so 27 of 127 stdlib trait names refused a user homonym on the stdlib
+#     trait's arity.
+#   · sema.cpp Fn-family — two bare-name intercepts, one over-refusing the
+#     `dyn` spelling and one skipping the bound check entirely.
+#
+# WHY NONE OF THEM IS A ROW, stated precisely so nobody reads this as an
+# oversight in the ledger: the SUBJECT is a key EXPRESSION produced by an
+# entity-name PRODUCER call. These sites key on `trait_name` — a plain
+# `std::string` local, populated far above from the AST. That is exactly the
+# "KEYS LAUNDERED THROUGH A LOCAL" under-count the lint's own header records,
+# and #100 is its first MEASURED instance rather than a hypothetical one. The
+# header cites `impls_.count("StableLayout::" + n)` and adds "do not read the
+# per-site counts as exhaustive"; read this as the same warning with a price
+# attached — a defect class that ran the wrong CODE, invisible here.
+#
+# ⚠ AND THE `check_symbol_key_separators` EXEMPTION FOR `traits_` IS **NOT**
+# RETIRED BY #100, DELIBERATELY. That exemption (sema_impl.hpp) is about the
+# DOUBLE-SEPARATOR invariant — a stored key carrying two `::` makes find() and
+# rfind() disagree — NOT about bare keys. Its stated ground is that traits_'s
+# one `::` site, `resolve_trait_query_name`, is a `== npos` presence test that
+# extracts no substring, and that is still true after #100's conversions (which
+# only changed WHICH key is probed, never composed a nested one). Retiring it
+# would be retiring a check of a different property on the strength of an
+# unrelated fix.
 
 # ── FACT 3 pins: the scan-by-name guards (no map, same class) ───────────────
 # `callee == "<bare name>"` comparisons in sema_expr.cpp, by region. The two

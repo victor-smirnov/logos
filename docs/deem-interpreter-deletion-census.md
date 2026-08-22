@@ -3085,9 +3085,118 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 # element is a genuine fat ref:
 #   tests/logos/pass/zone_mut_thin_source_admits_aggregate.logos
 #   tests/logos/pass/zone_mut_thin_source_admits_generic.logos
-REGISTRY-ALL         7452
-REGISTRY-NOIMPORTED  3769
-REGISTRY-TIERCOMMIT  44
+REGISTRY-ALL         7469
+REGISTRY-NOIMPORTED  3786
+REGISTRY-TIERCOMMIT  45
+# 2026-08-22 (#100 RESIDUAL — the round's OWN VERIFY witnessed a live instance of
+# the class the round declared closed, and it is fixed here rather than filed.
+# `sema.cpp`'s GAT-arity check (`Bug 5 fix`) consulted `traits_` BARE, so a user
+# `trait Datatype { type View; }` was checked against the STDLIB homonym's
+# `type View<S: Storage>` and refused —
+#   error [fn g]: associated type 'Datatype::View' expects 1 GAT argument(s), got 0
+# — while the collision-free twin of the same program compiled. Now asks
+# `find_trait_iter_scoped` FIRST, bare slot LAST (the order property that must
+# survive every conversion in this class).
+#
+# CONTROL REVERT, both directions, each with its own build: bare -> the homonym
+# takes the stdlib's arity again and the twin does not; restored -> both agree,
+# md5 of sema.cpp asserted equal to the pre-revert file. ⚠ THE FIRST PROBE I
+# WROTE WAS GREEN ON BOTH SIDES AND PROVED NOTHING — it had no associated type,
+# so it never reached the site. The witness that does reach it came from the
+# verify's own artefacts; green over a branch that never executed is the trap
+# this round nearly repeated.
+#   tests/logos/pass/trait_homonym_gat_arity.logos      (+ .expected, exit 27)
+#   tests/logos/pass/trait_homonym_gat_arity_ctl.logos  (+ .expected, exit 27)
+# Exit 27 is 20+7 through the user's own `mk`, so a wrong binding cannot produce
+# it by accident; oracle bitten (27 -> 28 reds, restore greens).
+# +2 registered tests: 7467 -> 7469 / 3784 -> 3786 / tier_commit 45 unchanged,
+# measured by direct ctest -N.
+#
+# ⚠ AND THE CLASS IS NOT CLOSED. 44 bare `traits_` consults remain, by file:
+# mono_impl.hpp 17, sema_expr.cpp 11, sema_impl.hpp 7, sema.cpp 5, sema_decl.cpp
+# 2, sema_auto_trait.cpp 1. The round's 127x2 matrix reaches none of them — that
+# is coverage against the shapes it wrote, not against the lattice, and this
+# residual is the witness that the difference matters. Filed as #109.
+# 2026-08-22, +15/+15/+1 (7452/3769/44 -> 7467/3784/45), PREDICTED BEFORE THE
+# RECONFIGURE AS +15/+15/+1 AND MET EXACTLY. #100 — traits_ ANSWERS FOR THE
+# STDLIB HOMONYM: THREE CONSULT SITES, THREE HALVES, ONE OF THEM A CODE PATH.
+#
+# THE COUNT, RE-DERIVED BY DIRECT FILE LISTING (never by addition):
+#   ls tests/logos/pass/trait_homonym_*.logos   → 8
+#   ls tests/logos/fail/trait_homonym_*.logos   → 6
+#   tests/logos/trait_homonym_symbol_gate.sh    → 1 (logos_00_…, tier_commit)
+#   8 + 6 + 1 = 15, and the gate is the sole tier_commit row, hence +1 there.
+# All 15 verified PRESENT BY NAME in `ctest -N` before the pin moved — a count
+# that agrees by arithmetic while a fixture silently failed to glob is the
+# "missing test" shape this file already carries a section about.
+#
+# WHAT MOVED, AND WHY IT IS THREE SITES AND NOT ONE. `traits_` is keyed by a
+# BARE trait name, and #97's enumeration filed "trait-name homonym × dyn
+# dispatch — MEASURED CLOSED" on a SINGLE probe (`Hash`, which is 0-arity).
+# Re-measured over ALL 127 stdlib trait names × BOTH spellings, with a `Zq*`
+# control per cell: 127/127 controls green, 31/127 homonyms refused.
+#
+#   HALF C — sema_decl.cpp `lower_impl_block`, four bare `traits_.find`
+#     (trait-arg binding, the DEFAULT-BODY loop, the type-param cleanup, the
+#     dispatch-entry table) → `find_trait_iter_scoped`, which is what
+#     `collect_impl` already used. The two disagreeing is the defect: collect
+#     registered the USER trait's method list while lower walked the STDLIB
+#     homonym's and synthesised its default-bodied methods INTO THE USER'S
+#     IMPL. Not a diagnostic bug — stdlib source lowered against user types
+#     across a package boundary. MEASURED, `nm -C` of a five-line program:
+#       T ZqH__is_empty                 ← stdlib ExactSizeIterator default body
+#       T test.ZqH__len__f__ref_ZqH     ← the only fn the file declares
+#     The injected symbol is UNQUALIFIED and UNMANGLED — no package prefix, no
+#     `__f__sig` — so two packages taking this path collide at the LINKER.
+#     With `trait Datum` the injected body did not compile and said
+#     `…logos:89: error [fn ZqH__from_datum]: unknown type 'DView'` — line 89
+#     of a six-line file.
+#     ⚠ HOW FAR IT GOES, STATED AS MEASURED AND NOT AS HOPED: the injected
+#     method was EMITTED but never entered METHOD RESOLUTION (collect was
+#     already scoped), so no .logos source could call it. A user body was NOT
+#     silently replaced by a stdlib one — `overridden` is computed from the
+#     impl's own items, so injection only ADDS. What could not be ruled out is
+#     the DispatchEntry table (same function, `dispatch_keys::FN_SYMBOL`),
+#     which is tag-system dynamic dispatch and does not go through method
+#     resolution; it moved with the same conversion and is not separately
+#     pinned.
+#   HALF A — sema_impl.hpp `check_trait_bounds_well_formed`. Its lookup was
+#     ALREADY the scope-aware `find_trait_by_name` — and the sweep runs from
+#     `SemaChecker::collect` two statements AFTER `cur_package_ = {}`, so it
+#     had no scope and fell through to the bare slot every time. Now asks
+#     `TraitBound::canonical_trait` (the identity captured by
+#     `read_trait_bound_args` in the DECLARING scope) FIRST, bare fallback LAST.
+#     27 of the 31.
+#   HALF B — sema.cpp, the Fn-family, which was HALF-reachable and is the
+#     reason a one-spelling probe gets this cell wrong in both directions:
+#       `resolve_type`'s DYN_TYPE arm rewrote a user `dyn FnMut` to
+#       `Kind::Closure` → over-REFUSED;  `read_trait_bound_args` set
+#       `is_fn_family` by bare name and `check_trait_bounds_well_formed` SKIPS
+#       every such bound → the generic spelling was not checked AT ALL.
+#     MEASURED pre-fix: `trait FnMut<A>` + bound `T2: FnMut` (zero args)
+#     admitted rc=0, while the collision-free twin refused rc=1.
+#     `logos.lang.ops` declares real `Fn`/`FnMut`/`FnOnce`, so the guard is the
+#     B-mv-02 marker — the shortcut fires only while
+#     `canonical_trait_name(n) == n` — not a hardcoded package name.
+#
+# AFTER, over the full matrix: 254/254 homonym programs (127 names × 2
+# spellings) admit AND return the observable 27; 254/254 `Zq*` controls green;
+# 0 refusals. Each of the three sites was control-reverted ALONE, rebuilt, and
+# measured to bring its own defect back (rc=1 / the injected symbol returning),
+# and each conversion was landed on a FULL rebuild of all 53 targets whose red
+# list was EMPTY.
+#
+# ⚠ THE EXEMPTION AT `check_symbol_key_separators` IS NOT RETIRED, AND THAT IS
+# A FINDING, NOT AN OMISSION. That exemption is about the DOUBLE-SEPARATOR
+# invariant (a stored key carrying two `::` makes find/rfind disagree), NOT
+# about bare keys, and its stated ground — traits_'s one `::` site,
+# `resolve_trait_query_name`, is a `== npos` presence test that extracts no
+# substring — still holds after these conversions. Closing #100 does not touch
+# it. `tests/logos/key_identity.ledger` has no `traits_` row either: that
+# lint's population is entity-name-producer key EXPRESSIONS, and these sites
+# key on a plain `trait_name` string variable — the LAUNDERED-THROUGH-A-LOCAL
+# blind spot the lint's own header records as an UNDER-count.
+#
 # 2026-08-22, +0/+0/0 (7452/3769/44 -> 7452/3769/44), PREDICTED BEFORE THE
 # RECONFIGURE AS ZERO AND MET. #106 — THE SECOND PACKAGE-LESS SYNTHESIS CHANNEL,
 # AND THE MEASUREMENT THAT REFUTED ITS OWN BRIEF.

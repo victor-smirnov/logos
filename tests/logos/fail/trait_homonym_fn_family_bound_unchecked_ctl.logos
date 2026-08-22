@@ -1,0 +1,9 @@
+// #100 HALF B CONTROL for the permissive half. Same shape, a name that collides
+// with nothing. This twin ALREADY refused on the pre-fix compiler (rc=1) — it is
+// what proved the sibling's rc=0 was the name collision and not the shape.
+package test;
+trait ZqFnMutUnique<A> { fn zqtag(&self, a: A) -> i64; }
+struct ZqH { w: i64 }
+impl ZqFnMutUnique<i64> for ZqH { fn zqtag(&self, a: i64) -> i64 { return self.w + a; } }
+fn viag<T2: ZqFnMutUnique>(x: &T2) -> i64 { return 1i64; }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

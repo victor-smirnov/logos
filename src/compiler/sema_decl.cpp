@@ -2251,7 +2251,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             auto tplist = map_of(tpav);
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                auto tit = traits_.find(trait_name);
+                // #100: SCOPED (see the ground at the default-body loop below/above).
+                auto tit = find_trait_iter_scoped(trait_name);
                 size_t type_arg_idx = 0;
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto item = map_of(items.get(i));
@@ -2569,7 +2570,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // Lower default methods from the trait that weren't overridden.
     if (!trait_name.empty()) {
-        auto tit = traits_.find(trait_name);
+        // #100: SCOPED, not bare. `traits_.find(trait_name)` answers for whichever
+        // homonym owns the BARE slot, so a user `trait ExactSizeIterator` read the
+        // STDLIB trait here while collect_impl (find_trait_iter_scoped) read the
+        // user's. The two disagreeing is the whole defect: collect registered the
+        // user method list, lower_impl_block synthesised the STDLIB default bodies
+        // into the user impl and emitted them (MEASURED: `T ZqH__is_empty`, an
+        // unqualified global, from a 5-line user file that never wrote is_empty).
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& m : tit->second.methods) {
                 // Blanket impls lower defaults under the synthetic `$blanket$…`
@@ -2818,7 +2826,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // Clean up trait type params
     if (!trait_name.empty()) {
-        auto tit = traits_.find(trait_name);
+        // #100: SCOPED (see the ground at the default-body loop below/above).
+        auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& tp : tit->second.type_params)
                 current_type_params_.erase(tp.name);
@@ -2928,7 +2937,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             if (tcode != 0) {
                 // Use traits_ (SemaTraitInfo) which has has_default; prog.traits (LTraitDef)
                 // only has the signature, not the default-body flag.
-                auto tit = traits_.find(trait_name);
+                // #100: SCOPED (see the ground at the default-body loop below/above).
+                auto tit = find_trait_iter_scoped(trait_name);
                 if (tit != traits_.end()) {
                     for (auto& m : tit->second.methods) {
                         // Only emit entry if the method is actually lowered.

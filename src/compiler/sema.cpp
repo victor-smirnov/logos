@@ -5004,8 +5004,23 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // (both optional). Distinct slots from TYPE_PARAMS so the two
     // bound forms coexist. `is_fn_family` flagged here for downstream
     // dispatch (sema bound-check, mono substitution).
-    if (tb.trait_name == "Fn" || tb.trait_name == "FnMut" ||
-        tb.trait_name == "FnOnce") {
+    // #100: …AND ONLY WHEN THE NAME STILL DENOTES THE BUILTIN FAMILY.
+    // `logos.lang.ops` really does declare `trait Fn<A...>` / `FnMut` /
+    // `FnOnce`, so these are homonyms like any other: a user `trait FnMut` in
+    // their own package registers under `pkg::FnMut` (the B-mv-02 rule keeps the
+    // incumbent in the bare slot), and `canonical_trait` — resolved just above,
+    // in the DECLARING scope — is then package-qualified. Bare ⇒ the name
+    // resolved to the bare slot, i.e. the ops trait / nothing at all: the
+    // family shortcut, byte-identical to before. Qualified ⇒ it resolved to a
+    // colliding user trait, and flagging it `is_fn_family` made
+    // `check_trait_bounds_well_formed` SKIP it entirely (`if (b.is_fn_family)
+    // continue;`) — the bound was never checked at all, which is the permissive
+    // half of the same cell whose refusing half is the `dyn` intercept in
+    // `resolve_type`. Derived from the registry's own structure, not from a
+    // hardcoded package name.
+    if ((tb.trait_name == "Fn" || tb.trait_name == "FnMut" ||
+         tb.trait_name == "FnOnce") &&
+        (tb.canonical_trait.empty() || tb.canonical_trait == tb.trait_name)) {
         tb.is_fn_family = true;
     }
     if (bnode.has_key(la::PARAMS)) {
@@ -6682,7 +6697,21 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         return error_t();
     }
     // Bug 5 fix: check GAT arity against the trait's declaration.
-    auto tit_gat = traits_.find(trait_for_assoc);
+    //
+    // ⚠ SCOPE-AWARE PROBE FIRST, BARE SLOT LAST (task #100, the residual its own
+    // verify witnessed). This consult was BARE, so a user `trait Datatype` was
+    // checked against the STDLIB homonym's GAT arity and refused, while the
+    // collision-free twin of the same program compiled. `find_trait_iter_scoped`
+    // resolves in the declaring scope, which is what `collect_impl` already used
+    // and what this site did not — the two disagreeing is the whole defect
+    // class. The bare fallback stays LAST rather than being deleted: reversing
+    // that order reddened two imported tests once, and the comment at
+    // `find_struct_repr_` records why.
+    auto tit_gat = traits_.end();
+    if (auto scoped = find_trait_iter_scoped(trait_for_assoc); scoped != traits_.end())
+        tit_gat = scoped;
+    else
+        tit_gat = traits_.find(trait_for_assoc);
     if (tit_gat != traits_.end()) {
         for (auto& at_def : tit_gat->second.assoc_types) {
             if (at_def.name == assoc) {
@@ -7629,7 +7658,19 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // `dyn Fn*(...) -> R` directly to Kind::Closure, which gets the
         // existing call-via-fat-pointer dispatch + Box<Closure> layout for
         // free.
-        if (tname == "Fn" || tname == "FnMut" || tname == "FnOnce") {
+        // #100: the same collision guard as `read_trait_bound_args`' is_fn_family.
+        // This intercept is a BARE-NAME one, and `logos.lang.ops` declares real
+        // `Fn`/`FnMut`/`FnOnce` traits, so a user `trait FnMut` (registered under
+        // `pkg::FnMut` by B-mv-02) was rewritten to `Kind::Closure` here and its
+        // own method call died as `receiver is not a struct (got || -> void)` —
+        // MEASURED, and the reason this cell was HALF-reachable: the generic-bound
+        // spelling took the permissive `is_fn_family` skip instead.
+        // QUALIFIED KEY FIRST, BARE SLOT LAST: `canonical_trait_name` resolves in
+        // scope; bare ⇒ the ops trait or nothing ⇒ the shortcut, unchanged.
+        const bool fn_family_name =
+            (tname == "Fn" || tname == "FnMut" || tname == "FnOnce") &&
+            canonical_trait_name(tname) == tname;
+        if (fn_family_name) {
             LogosTypeBuilder t;
             t.kind = LogosType::Kind::Closure;
             if (node.has_key(la::PARAMS)) {

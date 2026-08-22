@@ -1,0 +1,8 @@
+// #100 HALF B CONTROL — a trait name outside the Fn family and colliding with
+// nothing. Green before and after; isolates the intercept as the variable.
+package test;
+trait ZqFnMutUnique { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ZqFnMutUnique for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn viag(x: &dyn ZqFnMutUnique) -> i64 { return x.zqtag(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

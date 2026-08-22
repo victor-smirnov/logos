@@ -1,0 +1,8 @@
+// #100 HALF C CONTROL — same shape, a trait name colliding with nothing. Green
+// on the pre-fix compiler too, which is what isolates the homonym as the cause
+// of the sibling's line-89 refusal.
+package test;
+trait ZqDatumUnique { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ZqDatumUnique for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn main() -> i32 { let h = ZqH{w:20i64}; return h.zqtag() as i32; }

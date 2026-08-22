@@ -1,0 +1,10 @@
+// The collision-free twin of trait_homonym_gat_arity.logos: identical but for
+// the trait name. It compiled BEFORE the fix too — that is the point. Without
+// it, the sibling's green would prove only that the program is well-typed,
+// not that the name stopped deciding.
+package test;
+trait ZqDatatypeUnique { type View; fn mk(&self) -> Self::View; }
+struct ZqH { w: i64 }
+impl ZqDatatypeUnique for ZqH { type View = i64; fn mk(&self) -> i64 { return self.w + 7i64; } }
+fn g<T2: ZqDatatypeUnique>(x: &T2) -> T2::View { return x.mk(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return g(&h) as i32; }

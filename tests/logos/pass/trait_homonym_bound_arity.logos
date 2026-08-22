@@ -1,0 +1,17 @@
+// #100 HALF A — a user trait sharing a STDLIB trait's bare name, used as a
+// GENERIC BOUND. `check_trait_bounds_well_formed` runs after the module loop
+// clears `cur_package_`, so its scope-aware `find_trait_by_name` had NO scope
+// and fell to the bare slot: the STDLIB `Borrow<T>`, whose arity is 1. The
+// 6-line program below was refused with
+//   error [fn viag]: trait bound 'T2: Borrow': expected 1 type arg(s), got 0
+// while the `dyn` spelling of the IDENTICAL trait compiled and ran — which is
+// why a dyn-only probe once certified this cell closed.
+// MEASURED over all 127 stdlib trait names: 27 refused this way.
+// The ADMIT asserts an OBSERVABLE VALUE, not just rc=0: 20 + 7 = 27 can only
+// come from THIS file's body.
+package test;
+trait Borrow { fn zqtag(&self) -> i64; }
+struct ZqH { w: i64 }
+impl Borrow for ZqH { fn zqtag(&self) -> i64 { return self.w + 7i64; } }
+fn viag<T2: Borrow>(x: &T2) -> i64 { return x.zqtag(); }
+fn main() -> i32 { let h = ZqH{w:20i64}; return viag(&h) as i32; }

@@ -454,14 +454,18 @@ PIN = {
     # pass (`synth_pkg_type_homonym`, `synth_pkg_identspan_quote`) and one in
     # fail (`synth_pkg_writstatic_homonym`), the fail pair being the refusal the
     # round's headline repro now gets instead of a silent wrong answer.
-    # RE-DERIVED BY DIRECT FILE LISTING, not by adding 4 to the previous pin:
-    #   ls tests/logos/pass/*.logos | wc -l                       -> 2260
+    # 2026-08-22 (#100 + its residual): the trait-homonym round added eight pass
+    # fixtures (`trait_homonym_*`) and its own verify's witness added two more
+    # (`trait_homonym_gat_arity{,_ctl}` — the GAT-arity site that still consulted
+    # `traits_` bare). None declares a container family or a `direct` output
+    # form, so the DOOR counts are unmoved; only the population moves.
+    # RE-DERIVED BY DIRECT FILE LISTING, never by adding to the previous pin:
+    #   ls tests/logos/pass/*.logos | wc -l                       -> 2270
     #   ls tests/logos/pass/{wql_*,deem_*}.logos | wc -l          ->  191
-    # partition closes: 2260 = 191 + 2069. DOOR counts unmoved (36 = 10 + 26):
-    # none of the six declares a container family or a `direct` output form.
-    'corpus'            : 2260,
+    # partition closes: 2270 = 191 + 2079. DOOR counts unmoved (36 = 10 + 26).
+    'corpus'            : 2270,
     'glob'              : 191,   # `wql_*` + `deem_*` — pull_shape's population
-    'nonglob'           : 2069,  # pinned by NOTHING before this gate; +16 with
+    'nonglob'           : 2079,  # pinned by NOTHING before this gate; +16 with
                                  # `corpus` above, the sixteen mlirgen_odr_*
                                  # pass fixtures of the #58/#59/#60 identity arc
     'overlap'           : 0,     # ⚠ VACUOUS BY SET ARITHMETIC, kept as a

@@ -1,0 +1,7 @@
+// #100 HALF C CONTROL — same shape, a trait name that collides with nothing.
+// Green before and after: isolates the homonym as the variable.
+package test;
+trait ZqExactSizeUnique { fn len(&self) -> i64; }
+struct ZqH { w: i64 }
+impl ZqExactSizeUnique for ZqH { fn len(&self) -> i64 { return self.w + 7i64; } }
+fn main() -> i32 { let h = ZqH{w:20i64}; return h.len() as i32; }
